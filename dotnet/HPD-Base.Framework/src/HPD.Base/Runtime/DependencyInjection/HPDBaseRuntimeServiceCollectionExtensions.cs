@@ -24,6 +24,21 @@ public static class HPDBaseRuntimeServiceCollectionExtensions
         return builder;
     }
 
+    /// <summary>Installs one exact service-resolved graph-owned policy authority for a low-level host.</summary>
+    public static IHPDBaseRuntimeBuilder UsePolicyAuthorityFromServices<T>(
+        this IHPDBaseRuntimeBuilder builder,
+        string applicationId,
+        BasePolicyAuthorityDefinition definition)
+        where T : class, IPolicyEvaluator
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(applicationId);
+        var authority = new BasePolicyAuthorityBuilder();
+        authority.AddPolicyFactory(definition, typeof(T), static services => services.GetRequiredService<T>());
+        builder.Services.AddSingleton(authority.Freeze(applicationId));
+        return builder;
+    }
+
     /// <summary>
     /// Configures HPD.BASE runtime policy handling to fail closed when no evaluator
     /// exists or when every evaluator abstains.

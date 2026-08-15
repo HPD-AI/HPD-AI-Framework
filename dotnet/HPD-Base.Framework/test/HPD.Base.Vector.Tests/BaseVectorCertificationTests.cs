@@ -283,6 +283,7 @@ public sealed class BaseVectorCertificationTests
             public IBaseVectorCertificationProviderControl Provider => this;
             public IBaseVectorCertificationObservationSource Observations => this;
             public async ValueTask DisposeAsync() { _owner.Disposed++; await _services.DisposeAsync(); if (_throwOnDispose) throw new InvalidOperationException("fixture-secret"); }
+
             public ValueTask<OperationResult<BaseVectorCertificationAuthorityHead>> CaptureHeadAsync(CancellationToken cancellationToken = default) { _owner.CapturedHeads++; BaseVectorCertificationAuthorityHead head = Head(); _owner.MaximumCapturedHead = Math.Max(_owner.MaximumCapturedHead, head.HighWaterPosition); return ValueTask.FromResult(OperationResults.Ok(head)); }
             public ValueTask<OperationResult<BaseVectorCertificationAuthorityState>> InspectAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(OperationResults.Ok(BaseVectorCertificationAuthorityState.Create(Head(), [], [])));
             ValueTask<OperationResult<BaseVectorCertificationProviderState>> IBaseVectorCertificationProviderControl.InspectAsync(CancellationToken cancellationToken) { _owner.ProviderInspections++; return ValueTask.FromResult(FaultOr(ProviderState())); }

@@ -526,7 +526,8 @@ public static class BaseVectorProviderCertification
         if (!Ids(equality).SequenceEqual(["record-a", "record-c"]) || !Ids(@in).SequenceEqual(["record-a", "record-c"]) ||
             !Ids(and).SequenceEqual(["record-a", "record-c"]) || !Ids(@null).SequenceEqual(["record-a"]) ||
             !Ids(or).SequenceEqual(["record-a", "record-c", "record-b"])) return false;
-        BaseVectorCertificationPolicy policy = (BaseVectorCertificationPolicy)unrestricted.Services.GetRequiredService<IPolicyEvaluator>();
+        BaseVectorCertificationPolicy policy = (BaseVectorCertificationPolicy)unrestricted.Services
+            .GetRequiredService<BasePolicyAuthorityOwner>().Policies.Single().Evaluator!;
         int policyCalls = Volatile.Read(ref policy.RestrictedVectorQueries);
         BaseSession restricted = host.Sessions.For(new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.Authenticated, SubjectId = "certification-restricted" });
         BaseVectorResult<BaseVectorCertificationSchemaRecord> secured = (await restricted.Collection(BaseVectorCertificationSchemaRecord.Collection).Vector(BaseVectorCertificationSchemaRecord.VectorIndexes.Cosine)

@@ -395,6 +395,15 @@ public sealed class HPDBaseBuilder
         return this;
     }
 
+    /// <summary>Adds one graph-owned policy evaluator resolved by its exact registered service type.</summary>
+    public HPDBaseBuilder AddPolicyAuthorityFromServices<T>(BasePolicyAuthorityDefinition definition)
+        where T : class, IPolicyEvaluator
+    {
+        EnsureMutable();
+        PolicyAuthority.AddPolicyFactory(definition, typeof(T), static services => services.GetRequiredService<T>());
+        return this;
+    }
+
     /// <summary>Adds one immutable graph-owned grant authority.</summary>
     public BaseInstalledGrantRegistration AddStaticGrantAuthority(
         BaseGrantAuthorityDefinition definition,

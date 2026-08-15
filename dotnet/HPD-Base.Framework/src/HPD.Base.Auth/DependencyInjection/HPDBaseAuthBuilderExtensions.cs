@@ -15,6 +15,11 @@ public static class HPDBaseAuthBuilderExtensions
         Action<HPDBaseAuthOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
+        builder.AddPolicyAuthorityFromServices<HPDBaseAuthPolicyEvaluator>(new BasePolicyAuthorityDefinition
+        {
+            Id = "hpd.auth.base.policy", Version = 1, OwningModuleId = "hpd.auth",
+            EvaluatorContractId = "hpd.auth.base.policy-evaluator", EvaluatorContractVersion = 1, CompositionOrder = 0,
+        });
         return builder.Use(new Installer(configure));
     }
 
@@ -49,7 +54,8 @@ public static class HPDBaseAuthBuilderExtensions
             services.AddOptions();
             services.AddSingleton(snapshot);
             services.TryAddSingleton<HPDBaseAuthSubjectProjector>();
-            services.TryAddEnumerable(ServiceDescriptor.Singleton<IPolicyEvaluator, HPDBaseAuthPolicyEvaluator>());
+            services.TryAddSingleton<HPDBaseAuthPolicyEvaluator>();
+            services.AddSingleton<IPolicyEvaluator>(provider => provider.GetRequiredService<HPDBaseAuthPolicyEvaluator>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDescriptorContributor, HPDBaseAuthDescriptorContributor>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseHealthContributor, HPDBaseAuthHealthContributor>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDiagnosticContributor, HPDBaseAuthDiagnosticContributor>());

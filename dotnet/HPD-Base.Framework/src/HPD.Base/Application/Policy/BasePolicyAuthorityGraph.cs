@@ -116,7 +116,23 @@ public sealed class BasePolicyAuthorityBuilder
         if (_policies.Any(value => value.Definition.Id == definition.Id)
             || _policies.Any(value => ReferenceEquals(value.Evaluator, evaluator)))
             throw new InvalidOperationException(BasePolicyAuthorityErrorCodes.Duplicate);
-        _policies.Add(new BasePolicyRegistration(BasePolicyAuthorityCanonicalizer.Clone(definition), evaluator));
+        _policies.Add(new BasePolicyRegistration(BasePolicyAuthorityCanonicalizer.Clone(definition), evaluator, null, evaluator.GetType()));
+        return this;
+    }
+
+    internal BasePolicyAuthorityBuilder AddPolicyFactory(
+        BasePolicyAuthorityDefinition definition,
+        Type evaluatorType,
+        Func<IServiceProvider, IPolicyEvaluator> factory)
+    {
+        EnsureMutable();
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(evaluatorType);
+        ArgumentNullException.ThrowIfNull(factory);
+        BasePolicyAuthorityCanonicalizer.Validate(definition);
+        if (_policies.Any(value => value.Definition.Id == definition.Id || value.EvaluatorType == evaluatorType))
+            throw new InvalidOperationException(BasePolicyAuthorityErrorCodes.Duplicate);
+        _policies.Add(new BasePolicyRegistration(BasePolicyAuthorityCanonicalizer.Clone(definition), null, factory, evaluatorType));
         return this;
     }
 
@@ -169,7 +185,15 @@ public sealed class BasePolicyAuthorityBuilder
     }
 }
 
-internal sealed record BasePolicyRegistration(BasePolicyAuthorityDefinition Definition, IPolicyEvaluator Evaluator);
+internal sealed record BasePolicyRegistration(
+    BasePolicyAuthorityDefinition Definition,
+    IPolicyEvaluator? Evaluator,
+    Func<IServiceProvider, IPolicyEvaluator>? Factory,
+    Type EvaluatorType)
+{
+    internal IPolicyEvaluator Resolve(IServiceProvider services) => Evaluator ?? Factory?.Invoke(services)
+        ?? throw new InvalidOperationException(BasePolicyAuthorityErrorCodes.Invalid);
+}
 internal sealed record BaseGrantRegistration(
     BaseGrantAuthorityDefinition Definition,
     IBaseGrantAuthoritySource? Source,

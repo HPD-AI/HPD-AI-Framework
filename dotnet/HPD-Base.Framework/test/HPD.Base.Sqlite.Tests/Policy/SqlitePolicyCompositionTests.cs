@@ -79,8 +79,11 @@ public sealed class SqlitePolicyCompositionTests
     {
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton(evaluator);
-        services.AddHPDBaseRuntime().AddHPDBaseSqliteStore(options =>
+        services.AddHPDBaseRuntime().UsePolicyAuthority("sqlite-policy-tests", new BasePolicyAuthorityDefinition
+        {
+            Id = "sqlite.policy", Version = 1, OwningModuleId = "tests",
+            EvaluatorContractId = "sqlite.policy.evaluator", EvaluatorContractVersion = 1, CompositionOrder = 0,
+        }, evaluator).AddHPDBaseSqliteStore(options =>
         {
             options.DataSource = path;
             options.StoreId = "policy-sqlite";

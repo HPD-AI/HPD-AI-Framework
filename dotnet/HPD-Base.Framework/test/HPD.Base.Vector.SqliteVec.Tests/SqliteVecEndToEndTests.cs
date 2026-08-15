@@ -18,9 +18,9 @@ public sealed class SqliteVecEndToEndTests
             services.AddHPDBase(builder => builder
                 .ConfigureSchema(options => { options.ApplicationId = "vector-purge-tests"; options.PlanProtectionKey = Enumerable.Repeat((byte)0x71, 32).ToArray(); })
                 .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey { Id = 8, Key = Enumerable.Repeat((byte)0x72, 32).ToArray(), IssueNotBefore = DateTimeOffset.UnixEpoch })
+                .AddPolicyAuthority(Policy(), new AllowPolicyEvaluator())
                 .AddCollection(PurgeVectorDocument.Collection)
                 .UseStore(SqliteStore.Configure(options => { options.DataSource = path; options.StoreId = "sqlite"; options.AdministrationEnabled = true; })));
-            services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
             await using ServiceProvider provider = services.BuildServiceProvider();
             IBaseSchemaManager schema = provider.GetRequiredService<IBaseSchemaManager>();
             BaseSchemaPlan plan = (await schema.PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite" })).Value!;
@@ -75,11 +75,11 @@ public sealed class SqliteVecEndToEndTests
             services.AddHPDBase(builder => builder
                 .ConfigureSchema(options => { options.ApplicationId = "vector-admin-tests"; options.PlanProtectionKey = Enumerable.Repeat((byte)0x52, 32).ToArray(); })
                 .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey { Id = 5, Key = Enumerable.Repeat((byte)0x62, 32).ToArray(), IssueNotBefore = DateTimeOffset.UnixEpoch })
+                .AddPolicyAuthority(Policy(), new AllowPolicyEvaluator())
                 .AddCollection(VectorDocument.Collection)
                 .UseStore(SqliteStore.Configure(options => { options.DataSource = path; options.StoreId = "sqlite"; options.AdministrationEnabled = true; }))
 
                 );
-            services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
             await using ServiceProvider provider = services.BuildServiceProvider();
             IBaseSchemaManager schema = provider.GetRequiredService<IBaseSchemaManager>();
             BaseSchemaPlan plan = (await schema.PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite" })).Value!;
@@ -145,11 +145,11 @@ public sealed class SqliteVecEndToEndTests
             services.AddHPDBase(builder => builder
                 .ConfigureSchema(options => { options.ApplicationId = "vector-tests"; options.PlanProtectionKey = Enumerable.Repeat((byte)0x51, 32).ToArray(); })
                 .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey { Id = 4, Key = Enumerable.Repeat((byte)0x61, 32).ToArray(), IssueNotBefore = DateTimeOffset.UnixEpoch })
+                .AddPolicyAuthority(Policy(), new AllowPolicyEvaluator())
                 .AddCollection(VectorDocument.Collection)
                 .UseStore(SqliteStore.Configure(options => { options.DataSource = path; options.StoreId = "sqlite"; }))
 
                 );
-            services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
             await using ServiceProvider provider = services.BuildServiceProvider();
             IBaseSchemaManager schema = provider.GetRequiredService<IBaseSchemaManager>();
             BaseSchemaPlan plan = (await schema.PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite" })).Value!;
@@ -238,6 +238,12 @@ public sealed class SqliteVecEndToEndTests
             foreach (string candidate in new[] { path, path + "-wal", path + "-shm" }) if (File.Exists(candidate)) File.Delete(candidate);
         }
     }
+
+    private static BasePolicyAuthorityDefinition Policy() => new()
+    {
+        Id = "vector.tests.policy", Version = 1, OwningModuleId = "tests",
+        EvaluatorContractId = "vector.tests.policy-evaluator", EvaluatorContractVersion = 1, CompositionOrder = 0,
+    };
 }
 
 [BaseCollection("vector_documents", typeof(VectorTestJsonContext))]

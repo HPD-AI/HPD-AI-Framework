@@ -322,9 +322,13 @@ public sealed class SqliteMutationJournalTests
             };
             var services = new ServiceCollection();
             services.AddLogging();
-            services.AddSingleton<IPolicyEvaluator, ConformanceAllowPolicyEvaluator>();
             services.AddHPDBaseRuntime(options =>
                     options.Events.PublishFailureMode = BaseEventPublishFailureMode.RequireEnqueue)
+                .UsePolicyAuthority("sqlite-journal-tests", new BasePolicyAuthorityDefinition
+                {
+                    Id = "sqlite.journal.policy", Version = 1, OwningModuleId = "tests",
+                    EvaluatorContractId = "sqlite.journal.policy.evaluator", EvaluatorContractVersion = 1, CompositionOrder = 0,
+                }, new ConformanceAllowPolicyEvaluator())
                 .AddHPDBaseSqliteStore(options =>
                 {
                     options.StoreId = "require-enqueue";

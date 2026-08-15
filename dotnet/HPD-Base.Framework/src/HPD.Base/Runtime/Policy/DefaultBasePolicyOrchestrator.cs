@@ -7,14 +7,17 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
 {
     private readonly BasePolicyAuthorityOwner? _owner;
     private readonly HPDBaseRuntimeOptions _options;
+    private readonly IServiceProvider _services;
 
     /// <summary>Initializes a new instance.</summary>
     public DefaultBasePolicyOrchestrator(
         BasePolicyAuthorityOwner? owner = null,
-        IOptions<HPDBaseRuntimeOptions>? options = null)
+        IOptions<HPDBaseRuntimeOptions>? options = null,
+        IServiceProvider? services = null)
     {
         _owner = owner;
         _options = options?.Value ?? HPDBaseRuntimeOptions.CreateDefault();
+        _services = services ?? EmptyServiceProvider.Instance;
     }
 
     /// <summary>Executes the evaluate read async operation.</summary>
@@ -101,7 +104,7 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
             PolicyDecision decision;
             try
             {
-                decision = await registration.Evaluator.EvaluateAsync(CreateEvaluationRequest(request, evaluatorGrants), cancellationToken).ConfigureAwait(false);
+                decision = await registration.Resolve(_services).EvaluateAsync(CreateEvaluationRequest(request, evaluatorGrants), cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (Exception)
@@ -328,4 +331,10 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
     {
         Include = value.Include?.ToArray(), Exclude = value.Exclude?.ToArray(),
     };
+
+    private sealed class EmptyServiceProvider : IServiceProvider
+    {
+        internal static EmptyServiceProvider Instance { get; } = new();
+        public object? GetService(Type serviceType) => null;
+    }
 }

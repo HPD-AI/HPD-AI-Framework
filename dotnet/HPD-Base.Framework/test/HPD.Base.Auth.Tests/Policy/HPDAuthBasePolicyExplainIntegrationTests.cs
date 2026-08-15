@@ -122,7 +122,13 @@ public sealed class HPDBaseAuthPolicyExplainIntegrationTests
         }
 
         services.AddHPDBaseAuthServices(configure);
-        services.AddHPDBaseRuntime();
+        services.AddHPDBaseRuntime().UsePolicyAuthorityFromServices<HPDBaseAuthPolicyEvaluator>(
+            "hpd.base.auth.tests",
+            new BasePolicyAuthorityDefinition
+            {
+                Id = "hpd.auth.base.policy", Version = 1, OwningModuleId = "hpd.auth",
+                EvaluatorContractId = "hpd.auth.base.policy-evaluator", EvaluatorContractVersion = 1, CompositionOrder = 0,
+            });
         var provider = services.BuildServiceProvider();
         provider.GetRequiredService<IBaseDescriptorRegistry>().RebuildAsync().AsTask().GetAwaiter().GetResult();
         var store = new ExplainStore();
