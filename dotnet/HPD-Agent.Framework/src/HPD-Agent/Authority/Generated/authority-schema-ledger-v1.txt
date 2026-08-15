@@ -1,5 +1,5 @@
-# source-contract-sha256=751de62504018a277eec7ecd25fb24a972121f24760579f908070e438e954885
-# source-registry-sha256=61630b3b2f890add5146b6c80611316cdf0dba012547fd76dbce02ab155a58da
+# source-contract-sha256=c8f12e2cd0b43fbcd1e796eee3b4a8c90341fb93c3b3a78c42e0d1f03737895f
+# source-registry-sha256=c8f12e2cd0b43fbcd1e796eee3b4a8c90341fb93c3b3a78c42e0d1f03737895f
 # generated input; section rows are canonical and ordered
 @IdFamilies
 ten|TenantId|owner=S1|allocator=S1|correlation|visibility=public
@@ -70,6 +70,8 @@ par|hpd.graph-participant-binding.v1|1|participantId
 par|hpd.global-participant-claim-record-body.v1|3|participantId
 par|hpd.participant-id-owner-evidence.v1|1|participantId
 par|hpd.participant-id-owner-proof.v1|1|participantId
+par|hpd.graph-media-release-residence-proof.v1|7|participantId
+par|hpd.graph-media-work-authority.v1|9|participantId
 fct|hpd.authority-fact-envelope.v1|2|factId
 fct|hpd.proposed-authority-fact.v1|1|factId
 aut|hpd.copy-reservation.v1|9|authorizationId
@@ -128,14 +130,15 @@ op|hpd.graph-media-physical-release-command-body.v1|1|operationId
 op|hpd.graph-media-owner-release-proof.v1|2|terminalOperationId
 op|hpd.graph-media-fanout-release-proof.v1|1|operationId
 op|hpd.graph-media-release-residence-proof.v1|1|operationId
+op|hpd.graph-media-work-execution-command-body.v1|1|operationId
+op|hpd.graph-media-work-authority.v1|4|residenceOperationId
 grt|hpd.capacity-reservation-fact-body.v1|1|grantId
 grt|hpd.capacity-settlement-fact-body.v1|1|grantId
 grt|hpd.graph-topology-plan.v1|3|capacityGrantId
 grt|hpd.capacity-grant-binding-proof.v1|1|grantId
 grt|hpd.graph-media-physical-release-fact-body.v1|4|grantId
 grt|hpd.graph-media-release-residence-proof.v1|12|grantId
-grf|hpd.graph-media-release-residence-proof.v1|5|graphGeneration
-par|hpd.graph-media-release-residence-proof.v1|7|participantId
+grt|hpd.graph-media-work-authority.v1|11|grantId
 cpy|hpd.copy-reservation.v1|1|copyId
 grf|hpd.graph-topology-plan.v1|2|graphGeneration
 grf|hpd.graph-runtime-snapshot.v1|2|graphGeneration
@@ -146,6 +149,7 @@ grf|hpd.graph-participant-binding-fact-body.v1|6|graphGeneration
 grf|hpd.graph-generation-initialized.v1|2|initial
 grf|hpd.graph-participant-reservation-command-body.v2|4|graphGeneration
 grf|hpd.graph-participant-reservation-fact-body.v2|6|graphGeneration
+grf|hpd.graph-media-release-residence-proof.v1|5|graphGeneration
 act|hpd.activity-generation-changed.v1|2|expectedPrevious
 act|hpd.activity-generation-changed.v1|3|proposedNext
 act|hpd.activity-generation-initialized.v1|2|initial
@@ -288,6 +292,19 @@ CapacityChargeWindowKindV1|enum
 CapacityChargeWindowV1|union
 CapacityGrantExpiryKindV1|enum
 CapacityGrantExpiryV1|union
+GraphMediaFanoutResultV1|enum
+GraphMediaOwnerTransitionResultV1|enum
+GraphMediaPhysicalReleaseOutcomeV1|enum
+GraphMediaResidenceClassV1|enum
+GraphMediaResidenceStateV1|enum
+GraphMediaWorkExecutionOutcomeV1|enum
+GraphMediaReleaseEligibilityV1|enum
+GraphMediaRepresentationArmV1|enum
+GraphMediaDiscontinuityKindV1|enum
+GraphMediaCapacityAssignmentV1|record
+GraphMediaOwnerKeyV1|record
+GraphMediaBindingV1|record
+GraphMediaCleanupRegistrationV1|record
 @WireTypeMembers
 ThreadExpectedHeadV1|record|1|threadId|ThreadId
 ThreadExpectedHeadV1|record|2|generation|Int64Positive
@@ -423,6 +440,86 @@ CapacityGrantExpiryKindV1|enum|1|NoExpiry
 CapacityGrantExpiryKindV1|enum|2|At
 CapacityGrantExpiryV1|union-discriminator|1|CapacityGrantExpiryKindV1
 CapacityGrantExpiryV1|union-variant|2|At|2|value|MonotonicStampV1
+GraphMediaFanoutResultV1|enum|0|Prepared
+GraphMediaFanoutResultV1|enum|1|IdempotentPrepared
+GraphMediaFanoutResultV1|enum|2|Committed
+GraphMediaFanoutResultV1|enum|3|Converged
+GraphMediaFanoutResultV1|enum|4|Reconciled
+GraphMediaFanoutResultV1|enum|5|Unwinding
+GraphMediaFanoutResultV1|enum|6|InvalidRequest
+GraphMediaFanoutResultV1|enum|7|StaleGeneration
+GraphMediaFanoutResultV1|enum|8|ContradictoryDuplicate
+GraphMediaFanoutResultV1|enum|9|SourceNotFound
+GraphMediaFanoutResultV1|enum|10|NotOwner
+GraphMediaFanoutResultV1|enum|11|AlreadyDisposed
+GraphMediaFanoutResultV1|enum|12|DestinationOrderInvalid
+GraphMediaFanoutResultV1|enum|13|DestinationCollision
+GraphMediaFanoutResultV1|enum|14|ResidenceMismatch
+GraphMediaFanoutResultV1|enum|15|CapacityMismatch
+GraphMediaFanoutResultV1|enum|16|OwnerLimitReached
+GraphMediaFanoutResultV1|enum|17|ResidenceLimitReached
+GraphMediaFanoutResultV1|enum|18|OperationReceiptLimitReached
+GraphMediaFanoutResultV1|enum|19|WrongState
+GraphMediaFanoutResultV1|enum|20|OutcomeUnknown
+GraphMediaOwnerTransitionResultV1|enum|0|Transferred
+GraphMediaOwnerTransitionResultV1|enum|1|Disposed
+GraphMediaOwnerTransitionResultV1|enum|2|IdempotentAccepted
+GraphMediaOwnerTransitionResultV1|enum|3|InvalidRequest
+GraphMediaOwnerTransitionResultV1|enum|4|StaleGeneration
+GraphMediaOwnerTransitionResultV1|enum|5|ContradictoryDuplicate
+GraphMediaOwnerTransitionResultV1|enum|6|SourceNotFound
+GraphMediaOwnerTransitionResultV1|enum|7|NotOwner
+GraphMediaOwnerTransitionResultV1|enum|8|AlreadyDisposed
+GraphMediaOwnerTransitionResultV1|enum|9|VersionConflict
+GraphMediaOwnerTransitionResultV1|enum|10|BorrowOutstanding
+GraphMediaOwnerTransitionResultV1|enum|11|DestinationCollision
+GraphMediaOwnerTransitionResultV1|enum|12|OwnerLimitReached
+GraphMediaOwnerTransitionResultV1|enum|13|OperationReceiptLimitReached
+GraphMediaPhysicalReleaseOutcomeV1|enum|1|Released
+GraphMediaPhysicalReleaseOutcomeV1|enum|2|Unknown
+GraphMediaPhysicalReleaseOutcomeV1|enum|3|Rejected
+GraphMediaResidenceClassV1|enum|0|Controlled
+GraphMediaResidenceClassV1|enum|1|Opaque
+GraphMediaResidenceClassV1|enum|2|Quarantine
+GraphMediaResidenceStateV1|enum|0|Prepared
+GraphMediaResidenceStateV1|enum|1|Visible
+GraphMediaResidenceStateV1|enum|2|Releasing
+GraphMediaResidenceStateV1|enum|3|Released
+GraphMediaResidenceStateV1|enum|4|Unknown
+GraphMediaResidenceStateV1|enum|5|Quarantined
+GraphMediaWorkExecutionOutcomeV1|enum|1|Completed
+GraphMediaWorkExecutionOutcomeV1|enum|2|Unknown
+GraphMediaWorkExecutionOutcomeV1|enum|3|Rejected
+GraphMediaReleaseEligibilityV1|enum|0|Eligible
+GraphMediaReleaseEligibilityV1|enum|1|Encumbered
+GraphMediaReleaseEligibilityV1|enum|2|NotFound
+GraphMediaRepresentationArmV1|enum|0|ResidentBytes
+GraphMediaRepresentationArmV1|enum|1|ResidentSamples
+GraphMediaRepresentationArmV1|enum|2|ResidentTimedBuffer
+GraphMediaDiscontinuityKindV1|enum|0|Continuous
+GraphMediaDiscontinuityKindV1|enum|1|GapBefore
+GraphMediaDiscontinuityKindV1|enum|2|ResetBefore
+GraphMediaCapacityAssignmentV1|record|1|charge|CapacityChargeV1
+GraphMediaCapacityAssignmentV1|record|2|arm|GraphMediaRepresentationArmV1
+GraphMediaOwnerKeyV1|record|1|liveSessionId|LiveSessionId
+GraphMediaOwnerKeyV1|record|2|graphGeneration|GraphGenerationId
+GraphMediaOwnerKeyV1|record|3|runtimeGeneration|RuntimeGenerationId
+GraphMediaOwnerKeyV1|record|4|mediaId|StableId128
+GraphMediaBindingV1|record|1|start|Int64Nonnegative
+GraphMediaBindingV1|record|2|endExclusive|Int64Positive
+GraphMediaBindingV1|record|3|formatId|StableId128
+GraphMediaBindingV1|record|4|formatRevision|UInt32Positive
+GraphMediaBindingV1|record|5|sampleRateHz|UInt32Positive
+GraphMediaBindingV1|record|6|channelCount|UInt16Positive
+GraphMediaBindingV1|record|7|bytesPerSample|UInt16Positive
+GraphMediaBindingV1|record|8|clockId|StableId128
+GraphMediaBindingV1|record|9|clockRevision|UInt32Positive
+GraphMediaBindingV1|record|10|sequence|UInt64
+GraphMediaBindingV1|record|11|discontinuity|GraphMediaDiscontinuityKindV1
+GraphMediaBindingV1|record|12|byteLength|Int64Positive
+GraphMediaBindingV1|record|13|frameCount|Int64Positive
+GraphMediaCleanupRegistrationV1|record|1|cleanupId|StableId128
+GraphMediaCleanupRegistrationV1|record|2|requestHash|Hash256
 @Schemas
 hpd.journal-position.v1|1.0|S1|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.journal-position.v1|hpd-authority-sha256-v1
 hpd.thread-position.v1|1.0|S1|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.thread-position.v1|hpd-authority-sha256-v1
@@ -1237,6 +1334,16 @@ hpd.graph-media-physical-release-command-body.v1|4|workProof|GraphMediaWorkRelea
 hpd.graph-media-physical-release-command-body.v1|5|fanoutProof|Optional<GraphMediaFanoutReleaseProofV1>|required=true|registered-type:Optional<GraphMediaFanoutReleaseProofV1>|union={'kind': 'closed', 'none': 0, 'some': 1}
 hpd.graph-media-physical-release-command-body.v1|6|expectedReleaseFact|Optional<JournalPositionV1>|required=true|registered-type:Optional<JournalPositionV1>|union={'kind': 'closed', 'none': 0, 'some': 1}
 hpd.graph-media-physical-release-command-body.v1|7|observedAt|MonotonicStampV1|required=true|registered-type:MonotonicStampV1|union=None
+hpd.graph-media-physical-release-fact-body.v1|1|commandPosition|JournalPositionV1|required=true|registered-type:JournalPositionV1|union=None
+hpd.graph-media-physical-release-fact-body.v1|2|residenceId|StableId128|required=true|stable-id:16-bytes/nonzero|union=None
+hpd.graph-media-physical-release-fact-body.v1|3|residenceRequestHash|Hash256|required=true|registered-type:Hash256|union=None
+hpd.graph-media-physical-release-fact-body.v1|4|grantId|CapacityGrantId|required=true|stable-id-family-ledger:16-bytes/nonzero|union=None
+hpd.graph-media-physical-release-fact-body.v1|5|currentFact|JournalPositionV1|required=true|registered-type:JournalPositionV1|union=None
+hpd.graph-media-physical-release-fact-body.v1|6|assignment|GraphMediaCapacityAssignmentV1|required=true|registered-type:GraphMediaCapacityAssignmentV1|union=None
+hpd.graph-media-physical-release-fact-body.v1|7|outcome|GraphMediaPhysicalReleaseOutcomeV1|required=true|closed-enum:Released-Unknown-Rejected|union=None
+hpd.graph-media-physical-release-fact-body.v1|8|evidenceHash|Optional<Hash256>|required=true|registered-type:Optional<Hash256>|union={'kind': 'closed', 'none': 0, 'some': 1}
+hpd.graph-media-physical-release-fact-body.v1|9|safeCode|Optional<BoundedAscii>|required=true|closed-optional;some-ascii-bytes:1..64;closed-safe-code-set|union={'kind': 'closed', 'none': 0, 'some': 1}
+hpd.graph-media-physical-release-fact-body.v1|10|observedAt|MonotonicStampV1|required=true|registered-type:MonotonicStampV1|union=None
 hpd.graph-media-owner-release-proof.v1|1|ownerId|StableId128|required=true|stable-id:16-bytes/nonzero|union=None
 hpd.graph-media-owner-release-proof.v1|2|terminalOperationId|OperationId|required=true|stable-id-family-ledger:16-bytes/nonzero|union=None
 hpd.graph-media-owner-release-proof.v1|3|terminalRequestHash|Hash256|required=true|registered-type:Hash256|union=None
@@ -1252,16 +1359,6 @@ hpd.graph-media-fanout-release-proof.v1|1|operationId|OperationId|required=true|
 hpd.graph-media-fanout-release-proof.v1|2|requestHash|Hash256|required=true|registered-type:Hash256|union=None
 hpd.graph-media-fanout-release-proof.v1|3|result|GraphMediaFanoutResultV1|required=true|closed-enum:Committed-Reconciled|union=None
 hpd.graph-media-fanout-release-proof.v1|4|ledgerFingerprint|Hash256|required=true|registered-type:Hash256|union=None
-hpd.graph-media-physical-release-fact-body.v1|1|commandPosition|JournalPositionV1|required=true|registered-type:JournalPositionV1|union=None
-hpd.graph-media-physical-release-fact-body.v1|2|residenceId|StableId128|required=true|stable-id:16-bytes/nonzero|union=None
-hpd.graph-media-physical-release-fact-body.v1|3|residenceRequestHash|Hash256|required=true|registered-type:Hash256|union=None
-hpd.graph-media-physical-release-fact-body.v1|4|grantId|CapacityGrantId|required=true|stable-id-family-ledger:16-bytes/nonzero|union=None
-hpd.graph-media-physical-release-fact-body.v1|5|currentFact|JournalPositionV1|required=true|registered-type:JournalPositionV1|union=None
-hpd.graph-media-physical-release-fact-body.v1|6|assignment|GraphMediaCapacityAssignmentV1|required=true|registered-type:GraphMediaCapacityAssignmentV1|union=None
-hpd.graph-media-physical-release-fact-body.v1|7|outcome|GraphMediaPhysicalReleaseOutcomeV1|required=true|closed-enum:Released-Unknown-Rejected|union=None
-hpd.graph-media-physical-release-fact-body.v1|8|evidenceHash|Optional<Hash256>|required=true|registered-type:Optional<Hash256>|union={'kind': 'closed', 'none': 0, 'some': 1}
-hpd.graph-media-physical-release-fact-body.v1|9|safeCode|Optional<BoundedAscii>|required=true|closed-optional;some-ascii-bytes:1..64;closed-safe-code-set|union={'kind': 'closed', 'none': 0, 'some': 1}
-hpd.graph-media-physical-release-fact-body.v1|10|observedAt|MonotonicStampV1|required=true|registered-type:MonotonicStampV1|union=None
 hpd.graph-media-release-residence-proof.v1|1|operationId|OperationId|required=true|stable-id-family-ledger:16-bytes/nonzero|union=None
 hpd.graph-media-release-residence-proof.v1|2|requestHash|Hash256|required=true|registered-type:Hash256|union=None
 hpd.graph-media-release-residence-proof.v1|3|residenceId|StableId128|required=true|stable-id:16-bytes/nonzero|union=None

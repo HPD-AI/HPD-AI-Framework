@@ -30,12 +30,12 @@ public sealed class AuthoritySchemaLedgerTests
     public void GeneratedLedger_HasTheAcceptedExactCardinalities()
     {
         Assert.Equal(48, AuthoritySchemaLedgerV1.IdFamilies.Length);
-        Assert.Equal(135, AuthoritySchemaLedgerV1.IdFamilyCborUsages.Length);
+        Assert.Equal(139, AuthoritySchemaLedgerV1.IdFamilyCborUsages.Length);
         Assert.Equal(11, AuthoritySchemaLedgerV1.Axes.Length);
         Assert.Equal(14, AuthoritySchemaLedgerV1.Dimensions.Length);
         Assert.Equal(39, AuthoritySchemaLedgerV1.LinearizationPoints.Length);
-        Assert.Equal(34, AuthoritySchemaLedgerV1.WireTypes.Length);
-        Assert.Equal(134, AuthoritySchemaLedgerV1.WireTypeMembers.Length);
+        Assert.Equal(47, AuthoritySchemaLedgerV1.WireTypes.Length);
+        Assert.Equal(214, AuthoritySchemaLedgerV1.WireTypeMembers.Length);
         Assert.Equal(162, AuthoritySchemaLedgerV1.Schemas.Length);
         Assert.Equal(727, AuthoritySchemaLedgerV1.SchemaFields.Length);
         Assert.Equal(11, AuthoritySchemaLedgerV1.AxisValueBindings.Length);
@@ -82,8 +82,8 @@ public sealed class AuthoritySchemaLedgerTests
     {
         var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
         var lines = File.ReadAllLines(Path.Combine(root, "src/HPD-Agent/Authority/Generated/authority-schema-ledger-v1.txt"));
-        Assert.Equal("# source-contract-sha256=751de62504018a277eec7ecd25fb24a972121f24760579f908070e438e954885", lines[0]);
-        Assert.Equal("# source-registry-sha256=61630b3b2f890add5146b6c80611316cdf0dba012547fd76dbce02ab155a58da", lines[1]);
+        Assert.Equal("# source-contract-sha256=c8f12e2cd0b43fbcd1e796eee3b4a8c90341fb93c3b3a78c42e0d1f03737895f", lines[0]);
+        Assert.Equal("# source-registry-sha256=c8f12e2cd0b43fbcd1e796eee3b4a8c90341fb93c3b3a78c42e0d1f03737895f", lines[1]);
         Assert.Contains("hpd.global-participant-page.v1|7|isFinal|UInt16|required=true|range:0..1|union=None", lines);
         var expected = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         List<string>? current = null;
