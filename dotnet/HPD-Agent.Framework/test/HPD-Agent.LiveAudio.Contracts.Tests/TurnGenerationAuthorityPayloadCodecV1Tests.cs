@@ -7,6 +7,35 @@ namespace HPD.Agent.LiveAudio.Contracts.Tests;
 public sealed class TurnGenerationAuthorityPayloadCodecV1Tests
 {
     [Fact]
+    public void Remaining_typed_generation_transitions_round_trip_and_bind_exact_schema_domains()
+    {
+        var (session, _) = Authority();
+        var graph = new GraphGenerationChangedV1(session, GraphGenerationId.FromValue(Id(20)), GraphGenerationId.FromValue(Id(21)), OwnerSliceId.S2);
+        var activity = new ActivityGenerationChangedV1(session, ActivityGenerationId.FromValue(Id(22)), ActivityGenerationId.FromValue(Id(23)), OwnerSliceId.S3);
+        var turn = new TurnGenerationChangedV1(session, TurnGenerationId.FromValue(Id(24)), TurnGenerationId.FromValue(Id(25)), OwnerSliceId.S4);
+        var output = new OutputGenerationChangedV1(session, OutputGenerationId.FromValue(Id(26)), OutputGenerationId.FromValue(Id(27)), OwnerSliceId.S6);
+        var sink = new SinkGenerationChangedV1(session, SinkGenerationId.FromValue(Id(28)), SinkGenerationId.FromValue(Id(29)), OwnerSliceId.S6);
+        var tool = new ToolGenerationChangedV1(session, ToolGenerationId.FromValue(Id(30)), ToolGenerationId.FromValue(Id(31)), OwnerSliceId.S7);
+        var privacy = new PrivacyGenerationChangedV1(session, PrivacyGenerationId.FromValue(Id(32)), PrivacyGenerationId.FromValue(Id(33)), OwnerSliceId.S9);
+        var graphBytes = TurnGenerationRecordCodecsV1.Encode(graph); var activityBytes = TurnGenerationRecordCodecsV1.Encode(activity);
+        var turnBytes = TurnGenerationRecordCodecsV1.Encode(turn); var outputBytes = TurnGenerationRecordCodecsV1.Encode(output);
+        var sinkBytes = TurnGenerationRecordCodecsV1.Encode(sink); var toolBytes = TurnGenerationRecordCodecsV1.Encode(tool);
+        var privacyBytes = TurnGenerationRecordCodecsV1.Encode(privacy);
+        Assert.True(TurnGenerationRecordCodecsV1.TryDecodeGraph(graphBytes, out var decodedGraph));
+        Assert.True(TurnGenerationRecordCodecsV1.TryDecodeActivity(activityBytes, out var decodedActivity));
+        Assert.True(TurnGenerationRecordCodecsV1.TryDecodeTurnGeneration(turnBytes, out var decodedTurn));
+        Assert.True(TurnGenerationRecordCodecsV1.TryDecodeOutput(outputBytes, out var decodedOutput));
+        Assert.True(TurnGenerationRecordCodecsV1.TryDecodeSink(sinkBytes, out var decodedSink));
+        Assert.True(TurnGenerationRecordCodecsV1.TryDecodeTool(toolBytes, out var decodedTool));
+        Assert.True(TurnGenerationRecordCodecsV1.TryDecodePrivacy(privacyBytes, out var decodedPrivacy));
+        Assert.Equal(graph, decodedGraph); Assert.Equal(activity, decodedActivity); Assert.Equal(turn, decodedTurn);
+        Assert.Equal(output, decodedOutput); Assert.Equal(sink, decodedSink); Assert.Equal(tool, decodedTool); Assert.Equal(privacy, decodedPrivacy);
+        Assert.Equal(7, new[] { TurnGenerationRecordCodecsV1.ComputeHash(graph), TurnGenerationRecordCodecsV1.ComputeHash(activity),
+            TurnGenerationRecordCodecsV1.ComputeHash(turn), TurnGenerationRecordCodecsV1.ComputeHash(output), TurnGenerationRecordCodecsV1.ComputeHash(sink),
+            TurnGenerationRecordCodecsV1.ComputeHash(tool), TurnGenerationRecordCodecsV1.ComputeHash(privacy) }.Distinct().Count());
+    }
+
+    [Fact]
     public void Typed_turn_and_generation_records_round_trip_and_hash_by_schema()
     {
         var (session, authority) = Authority();
