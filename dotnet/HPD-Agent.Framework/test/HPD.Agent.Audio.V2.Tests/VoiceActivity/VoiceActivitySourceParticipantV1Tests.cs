@@ -2,6 +2,7 @@ using HPD.Agent.Audio.ProviderContracts.VoiceActivity;
 using HPD.Agent.Audio.VoiceActivity;
 using HPD.Agent.Authority;
 using HPD.Agent.Runtime;
+using HPD.Audio.Primitives;
 
 namespace HPD.Agent.Audio.V2.Tests.VoiceActivity;
 
@@ -139,6 +140,30 @@ public sealed class VoiceActivitySourceParticipantV1Tests
                 new MonotonicStampV1(ClockDomainId.Create(), BootId.Create(), 1)), default));
         Assert.Equal(VoiceActivityNoObservationReasonV1.SourceRevoked,
             Assert.IsType<VoiceActivitySourceOutcomeV1.NoObservation>(rejected.Outcome).Reason);
+    }
+
+    [Fact]
+    public async Task Compiled_graph_stream_is_owned_and_fenced_by_the_participant_lifecycle()
+    {
+        var source = new Source(Capabilities());
+        var configuration = new VoiceActivityGraphStreamConfigurationV1(
+            new AudioFormat
+            {
+                SampleRate = 16_000, ChannelCount = 1, SampleFormat = AudioSampleFormat.Pcm16,
+            },
+            new VoiceActivityInputFormatV1(VoiceActivitySampleEncodingV1.SignedPcm16, 16_000, 1),
+            TimeSpan.FromMilliseconds(10), 1);
+        await using var participant = new VoiceActivitySourceParticipantV1(Descriptor(), _ =>
+            ValueTask.FromResult<VoiceActivitySourceProductV1>(
+                new VoiceActivitySourceProductV1.BorrowedSynchronous(source)), configuration);
+        var prepared = await participant.PrepareAsync(Context(), default);
+        Assert.Throws<InvalidOperationException>(() => participant.StartedGraphStream);
+        Assert.True((await participant.StartAsync(prepared.Handle!, default)).IsSuccess);
+        var stream = participant.StartedGraphStream;
+
+        Assert.True((await participant.DrainAsync(RuntimeDrainIntentV1.Graceful, default)).IsSuccess);
+        Assert.Throws<InvalidOperationException>(() => participant.StartedGraphStream);
+        Assert.Throws<InvalidOperationException>(() => stream.Observe(null!, default));
     }
 
     private static VoiceActivitySourceParticipantV1 Participant(Action created) =>

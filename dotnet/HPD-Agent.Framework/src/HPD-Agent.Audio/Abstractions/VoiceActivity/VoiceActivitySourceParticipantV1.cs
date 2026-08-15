@@ -19,19 +19,23 @@ internal enum VoiceActivitySourceParticipantStateV1 : byte
 internal sealed class VoiceActivitySourceParticipantV1 : IRuntimeParticipantV1
 {
     private readonly VoiceActivitySourceProductFactoryV1 _factory;
+    private readonly VoiceActivityGraphStreamConfigurationV1? _graphConfiguration;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private VoiceActivitySourceParticipantStateV1 _state = VoiceActivitySourceParticipantStateV1.Created;
     private RuntimePreparedHandleV1? _handle;
     private VoiceActivitySourceProductV1? _product;
     private VoiceActivityTransferredWorkRegistryV1? _transferredWork;
+    private VoiceActivityGraphStreamV1? _graphStream;
     private bool _disposed;
 
     internal VoiceActivitySourceParticipantV1(
         RuntimeParticipantDescriptorV1 descriptor,
-        VoiceActivitySourceProductFactoryV1 factory)
+        VoiceActivitySourceProductFactoryV1 factory,
+        VoiceActivityGraphStreamConfigurationV1? graphConfiguration = null)
     {
         Descriptor = descriptor ?? throw new ArgumentNullException(nameof(descriptor));
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
+        _graphConfiguration = graphConfiguration;
     }
 
     public RuntimeParticipantDescriptorV1 Descriptor { get; }
@@ -47,6 +51,11 @@ internal sealed class VoiceActivitySourceParticipantV1 : IRuntimeParticipantV1
         _state == VoiceActivitySourceParticipantStateV1.Started && _transferredWork is not null
             ? _transferredWork
             : throw new InvalidOperationException("The transferred voice activity source is not started.");
+
+    internal VoiceActivityGraphStreamV1 StartedGraphStream =>
+        _state == VoiceActivitySourceParticipantStateV1.Started && _graphStream is not null
+            ? _graphStream
+            : throw new InvalidOperationException("The voice activity graph stream is not started.");
 
     public async ValueTask<RuntimeParticipantPrepareResultV1> PrepareAsync(
         RuntimeParticipantContextV1 context,
@@ -113,6 +122,15 @@ internal sealed class VoiceActivitySourceParticipantV1 : IRuntimeParticipantV1
                 return Result(RuntimeParticipantDispositionV1.Refused, "participant-start-invalid");
             if (_product is VoiceActivitySourceProductV1.Transferred transferred)
                 _transferredWork = new VoiceActivityTransferredWorkRegistryV1(transferred.Source);
+            if (_graphConfiguration is not null)
+            {
+                try { _graphStream = new VoiceActivityGraphStreamV1(_product, _graphConfiguration, _transferredWork); }
+                catch
+                {
+                    _transferredWork = null;
+                    return Result(RuntimeParticipantDispositionV1.Failed, "participant-graph-stream-invalid");
+                }
+            }
             _state = VoiceActivitySourceParticipantStateV1.Started;
             return Result(RuntimeParticipantDispositionV1.Succeeded, "participant-started");
         }
@@ -134,6 +152,7 @@ internal sealed class VoiceActivitySourceParticipantV1 : IRuntimeParticipantV1
                 return Result(RuntimeParticipantDispositionV1.Succeeded, "participant-already-drained");
             if (_state != VoiceActivitySourceParticipantStateV1.Started)
                 return Result(RuntimeParticipantDispositionV1.Refused, "participant-drain-invalid");
+            _graphStream?.Close();
             _transferredWork?.Close();
             _state = VoiceActivitySourceParticipantStateV1.Drained;
             return Result(RuntimeParticipantDispositionV1.Succeeded, "participant-drained");
@@ -154,6 +173,7 @@ internal sealed class VoiceActivitySourceParticipantV1 : IRuntimeParticipantV1
         {
             if (_state == VoiceActivitySourceParticipantStateV1.Terminated)
                 return Result(RuntimeParticipantDispositionV1.Succeeded, "participant-already-terminated");
+            _graphStream?.Close();
             _transferredWork?.Close();
             try
             {
@@ -198,6 +218,8 @@ internal sealed class VoiceActivitySourceParticipantV1 : IRuntimeParticipantV1
             VoiceActivitySourceProductV1.Transferred transferred => transferred.Source,
             _ => null,
         };
+        _graphStream?.Close();
+        _graphStream = null;
         _transferredWork = null;
         _product = null;
         if (source is IAsyncDisposable asyncDisposable)
