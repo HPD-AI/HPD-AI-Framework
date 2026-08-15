@@ -543,7 +543,11 @@ public sealed class ApplicationHostBuilderTests
             services.AddHPDBase(builder => builder
                 .ConfigureSchema(options => { options.ApplicationId = "administration-test"; options.PlanProtectionKey = Enumerable.Repeat((byte)0x72, 32).ToArray(); })
                 .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey { Id = 7, Key = tokenKey, IssueNotBefore = DateTimeOffset.UnixEpoch })
-                .ReplacePolicyEvaluator<AdministrationAllowPolicyEvaluator>()
+                .AddPolicyAuthority<AdministrationAllowPolicyEvaluator>(new BasePolicyAuthorityDefinition
+                {
+                    Id = "hpd.base.hosting.admin-allow", Version = 1, OwningModuleId = "hpd.base.tests",
+                    EvaluatorContractId = "hpd.base.hosting.admin-policy", EvaluatorContractVersion = 1, CompositionOrder = 0,
+                })
                 .AddCollection(GeneratedProject.Collection)
                 .UseStore(SqliteStore.Configure(options => { options.DataSource = path; options.StoreId = "sqlite"; options.AdministrationEnabled = true; })));
             await using ServiceProvider provider = services.BuildServiceProvider();

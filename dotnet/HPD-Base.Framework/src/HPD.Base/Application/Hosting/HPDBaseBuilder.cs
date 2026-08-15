@@ -371,14 +371,14 @@ public sealed class HPDBaseBuilder
         return this;
     }
 
-    /// <summary>Performs replace Policy Evaluator.</summary>
-    public HPDBaseBuilder ReplacePolicyEvaluator<
+    /// <summary>Adds one explicitly identified graph-owned policy evaluator.</summary>
+    public HPDBaseBuilder AddPolicyAuthority<
     [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
-    T>()
-        where T : class, IPolicyEvaluator
+    T>(BasePolicyAuthorityDefinition definition)
+        where T : class, IPolicyEvaluator, new()
     {
         EnsureMutable();
-        _services.Replace(ServiceDescriptor.Singleton<IPolicyEvaluator, T>());
+        PolicyAuthority.AddPolicy(definition, new T());
         return this;
     }
 

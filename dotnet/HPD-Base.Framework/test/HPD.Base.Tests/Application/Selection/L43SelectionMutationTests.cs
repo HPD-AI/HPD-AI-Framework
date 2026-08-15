@@ -310,7 +310,7 @@ public sealed class L43SelectionMutationTests
                 MaximumEvidenceTokenBytes = 512, MaximumRouteNameBytes = 96,
                 MaximumRequestBodyBytes = 1_048_576,
             })
-            .ReplacePolicyEvaluator<AllowAll>()
+            .AddPolicyAuthority<AllowAll>(PolicyDefinition("l43.allow"))
             .AddCollection(GeneratedProject.Collection)
             .AddSelectionOperationProfile(Profile("claim", BaseSelectionMutationKind.MergePatch))
             .AddSelectionOperationProfile(Profile("remove", BaseSelectionMutationKind.Delete));
@@ -320,6 +320,15 @@ public sealed class L43SelectionMutationTests
                     .AddSelectionOperationProfile(Profile("unique-patch", BaseSelectionMutationKind.MergePatch) with { CollectionId = "l43-unique" });
             }
             if (sqlitePath is not null) builder.UseStore(HPD.Base.Sqlite.SqliteStore.Configure(options => { options.DataSource = sqlitePath; options.StoreId = "sqlite-l43"; }));
+            builder.PolicyAuthority.AddStaticGrant(new BaseGrantAuthorityDefinition
+            {
+                Id = "projects.selection", Version = 1, OwningModuleId = "hpd.base.tests",
+                SourceContractId = "hpd.base.tests.grants", SourceContractVersion = 1,
+            }, new AccessGrant
+            {
+                Id = "projects.selection", Subject = new AccessSubject { Kind = AccessSubjectKind.User },
+                Action = "selectionMutation", Scope = new ResourceScope { Kind = ResourceScopeKind.Collection, CollectionId = "projects" },
+            });
         });
         return services.BuildServiceProvider();
     }
@@ -328,6 +337,11 @@ public sealed class L43SelectionMutationTests
     {
         Id = id, Version = 1, ApplicationId = "hpd.base.application", CollectionId = "projects",
         RequiredGrantId = "projects.selection", MutationKind = kind, Limits = Limits(),
+    };
+    private static BasePolicyAuthorityDefinition PolicyDefinition(string id) => new()
+    {
+        Id = id, Version = 1, OwningModuleId = "hpd.base.tests",
+        EvaluatorContractId = "hpd.base.tests.allow", EvaluatorContractVersion = 1, CompositionOrder = 0,
     };
     private static BaseSelectionOperationLimits Limits() => new()
     {

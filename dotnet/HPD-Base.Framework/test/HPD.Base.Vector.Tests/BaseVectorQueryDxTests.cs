@@ -14,7 +14,7 @@ public sealed class BaseVectorQueryDxTests
     {
         var services = new ServiceCollection().AddLogging();
         services.AddHPDBase(builder => builder
-            .ReplacePolicyEvaluator<AllowAllVectorPolicy>()
+            .AddPolicyAuthority<AllowAllVectorPolicy>(Policy("vector.allow"))
             .AddCollection(VectorDxDocument.Collection));
         await using ServiceProvider provider = services.BuildServiceProvider();
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
@@ -65,7 +65,7 @@ public sealed class BaseVectorQueryDxTests
     {
         var services = new ServiceCollection().AddLogging();
         services.AddHPDBase(builder => builder
-            .ReplacePolicyEvaluator<AllowAllVectorPolicy>()
+            .AddPolicyAuthority<AllowAllVectorPolicy>(Policy("vector.allow"))
             .ConfigureInMemoryStore(options => options.MaxVectorIndexedRecords = 3)
             .AddCollection(VectorDxDocument.Collection));
         await using ServiceProvider provider = services.BuildServiceProvider();
@@ -94,7 +94,7 @@ public sealed class BaseVectorQueryDxTests
     {
         var services = new ServiceCollection().AddLogging();
         services.AddHPDBase(builder => builder
-            .ReplacePolicyEvaluator<AllowAllVectorPolicy>()
+            .AddPolicyAuthority<AllowAllVectorPolicy>(Policy("vector.allow"))
             .AddCollection(VectorDxDocument.Collection));
         await using ServiceProvider provider = services.BuildServiceProvider();
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
@@ -114,7 +114,7 @@ public sealed class BaseVectorQueryDxTests
     {
         var services = new ServiceCollection().AddLogging();
         services.AddHPDBase(builder => builder
-            .ReplacePolicyEvaluator<AllowAllVectorPolicy>()
+            .AddPolicyAuthority<AllowAllVectorPolicy>(Policy("vector.allow"))
             .ConfigureInMemoryStore(options => options.MaxVectorSourceRecordsPerCollection = 1)
             .AddCollection(VectorDxDocument.Collection));
         await using ServiceProvider provider = services.BuildServiceProvider();
@@ -139,7 +139,7 @@ public sealed class BaseVectorQueryDxTests
     {
         var services = new ServiceCollection().AddLogging();
         services.AddHPDBase(builder => builder
-            .ReplacePolicyEvaluator<AllowAllVectorPolicy>()
+            .AddPolicyAuthority<AllowAllVectorPolicy>(Policy("vector.allow"))
             .AddCollection(VectorDxDocument.Collection));
         await using ServiceProvider provider = services.BuildServiceProvider();
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
@@ -173,7 +173,7 @@ public sealed class BaseVectorQueryDxTests
     {
         var services = new ServiceCollection().AddLogging();
         services.AddHPDBase(builder => builder
-            .ReplacePolicyEvaluator<AllowAllVectorPolicy>()
+            .AddPolicyAuthority<AllowAllVectorPolicy>(Policy("vector.allow"))
             .AddCollection(VectorDxDocument.Collection));
         await using ServiceProvider provider = services.BuildServiceProvider();
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
@@ -210,7 +210,7 @@ public sealed class BaseVectorQueryDxTests
     {
         var services = new ServiceCollection().AddLogging();
         services.AddHPDBase(builder => builder
-            .ReplacePolicyEvaluator<AllowAllVectorPolicy>()
+            .AddPolicyAuthority<AllowAllVectorPolicy>(Policy("vector.allow"))
             .AddCollection(VectorDxDocument.Collection)
             .AddCollection(VectorOtherDocument.Collection));
         await using ServiceProvider provider = services.BuildServiceProvider();
@@ -474,7 +474,7 @@ public sealed class BaseVectorQueryDxTests
         services.AddLogging();
         services.AddHPDBase(builder => builder
             .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey { Id = 1, Key = new byte[32], IssueNotBefore = DateTimeOffset.UnixEpoch })
-            .ReplacePolicyEvaluator<DenyVectorPolicy>()
+            .AddPolicyAuthority<DenyVectorPolicy>(Policy("vector.deny"))
             .AddCollection(VectorDxDocument.Collection)
 
             .UseTestVectorProvider());
@@ -498,7 +498,7 @@ public sealed class BaseVectorQueryDxTests
         services.AddHPDBase(builder =>
         {
             builder.ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey { Id = 1, Key = new byte[32], IssueNotBefore = DateTimeOffset.UnixEpoch })
-                .ReplacePolicyEvaluator<AllowAllVectorPolicy>()
+                .AddPolicyAuthority<AllowAllVectorPolicy>(Policy("vector.allow"))
                 .AddCollection(VectorDxDocument.Collection)
                 .UseTestVectorProvider(testing);
             if (vector is not null) builder.ConfigureVector(vector);
@@ -508,6 +508,11 @@ public sealed class BaseVectorQueryDxTests
         return provider;
     }
 
+    private static BasePolicyAuthorityDefinition Policy(string id) => new()
+    {
+        Id = id, Version = 1, OwningModuleId = "hpd.base.vector.tests",
+        EvaluatorContractId = id + ".evaluator", EvaluatorContractVersion = 1, CompositionOrder = 0,
+    };
     private static PrincipalContext Admin() => new() { AuthenticationState = PrincipalAuthenticationState.Admin, SubjectId = "vector-test" };
     private static BaseTestVectorEntry Entry(string id, string tenant, float[] vector) => new()
     {

@@ -60,7 +60,11 @@ try
         });
         foreach (BaseCollection<JsonElement> collection in authorityCollections)
             builder.AddCollection(collection);
-        builder.ReplacePolicyEvaluator<SmokePolicyEvaluator>();
+        builder.AddPolicyAuthority<SmokePolicyEvaluator>(new BasePolicyAuthorityDefinition
+        {
+            Id = "hpd.base.sqlite.aot.allow", Version = 1, OwningModuleId = "hpd.base.sqlite.aot",
+            EvaluatorContractId = "hpd.base.sqlite.aot.policy", EvaluatorContractVersion = 1, CompositionOrder = 0,
+        });
     });
 
     await using var provider = services.BuildServiceProvider();

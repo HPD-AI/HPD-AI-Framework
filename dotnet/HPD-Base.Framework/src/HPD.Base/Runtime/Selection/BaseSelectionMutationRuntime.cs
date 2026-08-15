@@ -89,7 +89,7 @@ internal sealed class DefaultBaseSelectionMutationRuntime(
         RecordQuery providerQuery = BaseQueryFieldResolver.ToStoredNames(collection, constrained);
         var processor = new BaseSelectionMutationProcessor(
             session.Principal, operation, collection, profile, providerQuery, patch, normalizedPreviousState, policy,
-            resolved.Value, authority.Value, subjects);
+            authorization.Value, resolved.Value, authority.Value, subjects);
         var executionRequest = new RecordMutationExecutionRequest
         {
             AcquisitionTimeout = profile.Limits.AcquisitionTimeout,
@@ -373,6 +373,7 @@ internal sealed class BaseSelectionMutationProcessor(
     RecordPatchRequest? patch,
     BasePreviousStateRequirement previousState,
     IBasePolicyOrchestrator policy,
+    BasePolicyEvaluation operationPolicy,
     BaseResolvedMutationStore store,
     BaseAuthoritySnapshotRequirement authority,
     BaseSubjectContractRegistry subjects) : IAtomicMutationProcessor
@@ -461,7 +462,7 @@ internal sealed class BaseSelectionMutationProcessor(
         if (!SelectionCaptureMatches(selected.Value, captured))
             return Failed(BaseSubjectErrorCodes.ProviderContractInvalid, ErrorCategory.Store);
         var planItems = ImmutableArray.CreateBuilder<BaseAtomicMutationPlanItem>(selected.Value.Records.Length);
-        var policies = new List<BasePolicyEvaluation>(selected.Value.Records.Length);
+        var policies = new List<BasePolicyEvaluation>(selected.Value.Records.Length + 1) { operationPolicy };
         foreach (BaseOwnedSelectedRecord owned in selected.Value.Records)
         {
             RecordEnvelope record = owned.MaterializeOwned();

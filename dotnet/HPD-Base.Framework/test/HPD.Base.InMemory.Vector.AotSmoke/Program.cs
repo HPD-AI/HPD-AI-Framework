@@ -13,7 +13,11 @@ internal static class Program
     {
         WebApplicationBuilder host = WebApplication.CreateSlimBuilder();
         host.Services.AddHPDBase(builder => builder
-            .ReplacePolicyEvaluator<AllowAll>()
+            .AddPolicyAuthority<AllowAll>(new BasePolicyAuthorityDefinition
+            {
+                Id = "hpd.base.vector.aot.allow", Version = 1, OwningModuleId = "hpd.base.vector.aot",
+                EvaluatorContractId = "hpd.base.vector.aot.policy", EvaluatorContractVersion = 1, CompositionOrder = 0,
+            })
             .ConfigureVector(options => options.MaxTopK = 1_000)
             .AddCollection(InMemoryVectorRecord.Collection)
             .AddCollection(InMemoryUnrelatedRecord.Collection));

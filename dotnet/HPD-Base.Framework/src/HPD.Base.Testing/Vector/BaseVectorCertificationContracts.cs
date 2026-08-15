@@ -298,6 +298,10 @@ public sealed class BaseVectorCertificationSchema
     {
         ArgumentNullException.ThrowIfNull(builder);
         builder.AddCollection(BaseVectorCertificationSchemaRecord.Collection)
-            .ReplacePolicyEvaluator<BaseVectorCertificationPolicy>();
+            .AddPolicyAuthority<BaseVectorCertificationPolicy>(new BasePolicyAuthorityDefinition
+            {
+                Id = "hpd.base.vector.certification.allow", Version = 1, OwningModuleId = "hpd.base.vector.certification",
+                EvaluatorContractId = "hpd.base.vector.certification.policy", EvaluatorContractVersion = 1, CompositionOrder = 0,
+            });
     }
 }

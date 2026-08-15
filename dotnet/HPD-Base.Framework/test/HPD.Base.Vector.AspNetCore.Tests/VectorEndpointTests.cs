@@ -92,7 +92,11 @@ public sealed class VectorEndpointTests
         builder.Services.AddAuthorization(options => options.AddPolicy("application", policy => policy.RequireAssertion(static _ => true)));
         builder.Services.AddHPDBase(baseBuilder => baseBuilder
             .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey { Id = 1, Key = new byte[32], IssueNotBefore = DateTimeOffset.UnixEpoch })
-            .ReplacePolicyEvaluator<AllowVectorPolicy>()
+            .AddPolicyAuthority<AllowVectorPolicy>(new BasePolicyAuthorityDefinition
+            {
+                Id = "hpd.base.vector.endpoint.allow", Version = 1, OwningModuleId = "hpd.base.vector.tests",
+                EvaluatorContractId = "hpd.base.vector.endpoint.policy", EvaluatorContractVersion = 1, CompositionOrder = 0,
+            })
             .AddCollection(HttpVectorDocument.Collection)
 
             .UseTestVectorProvider());

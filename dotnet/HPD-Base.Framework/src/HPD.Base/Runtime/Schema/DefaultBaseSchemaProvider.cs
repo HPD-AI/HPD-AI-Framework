@@ -102,10 +102,9 @@ internal static class BaseSystemCollectionGate
 
     internal static bool HasExactGrant(OperationResult<BasePolicyEvaluation> result, string? requiredGrantId = null)
     {
-        if (!result.IsSuccess() || result.Value?.Decision.Audit?.MatchedGrantIds is not { Length: > 0 } grants
-            || result.Value.Decision.Audit.AdminBypass || result.Value.Decision.Audit.ServiceBypass)
+        if (!result.IsSuccess() || result.Value?.Authority?.AdmittedGrants is not { Length: > 0 } grants)
             return false;
-        return requiredGrantId is null || grants.Contains(requiredGrantId, StringComparer.Ordinal);
+        return requiredGrantId is null || grants.Any(grant => string.Equals(grant.GrantId, requiredGrantId, StringComparison.Ordinal));
     }
 
     internal static bool AllowsSource(
