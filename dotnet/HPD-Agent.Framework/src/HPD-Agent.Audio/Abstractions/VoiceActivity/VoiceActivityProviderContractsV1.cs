@@ -85,3 +85,82 @@ public static class VoiceActivitySourceProviderBindingV1
             ?? throw new InvalidOperationException("The voice activity provider returned no source product.");
     }
 }
+
+/// <summary>Describes the exact provider cut visible while composing source middleware.</summary>
+public sealed record VoiceActivitySourceMiddlewareContextV1
+{
+    /// <summary>Creates an immutable middleware context.</summary>
+    public VoiceActivitySourceMiddlewareContextV1(
+        string providerKey,
+        ProviderFamilyLifetime lifetime)
+    {
+        if (string.IsNullOrWhiteSpace(providerKey)) throw new ArgumentException("A provider key is required.", nameof(providerKey));
+        if (!Enum.IsDefined(lifetime)) throw new ArgumentOutOfRangeException(nameof(lifetime));
+        ProviderKey = providerKey;
+        Lifetime = lifetime;
+    }
+
+    /// <summary>Gets the canonical provider key.</summary>
+    public string ProviderKey { get; }
+    /// <summary>Gets the provider's declared family lifetime.</summary>
+    public ProviderFamilyLifetime Lifetime { get; }
+}
+
+/// <summary>Wraps a typed source product without changing provider selection.</summary>
+public interface IVoiceActivitySourceMiddlewareV1
+{
+    /// <summary>Wraps the current product and returns the product used by the next middleware.</summary>
+    VoiceActivitySourceProductV1 Wrap(
+        VoiceActivitySourceProductV1 current,
+        VoiceActivitySourceMiddlewareContextV1 context);
+}
+
+/// <summary>Registers one explicitly supplied source middleware at a deterministic order.</summary>
+public sealed record VoiceActivitySourceMiddlewareRegistrationV1
+{
+    /// <summary>Creates a registration.</summary>
+    public VoiceActivitySourceMiddlewareRegistrationV1(
+        string key,
+        int order,
+        IVoiceActivitySourceMiddlewareV1 middleware)
+    {
+        if (string.IsNullOrWhiteSpace(key)) throw new ArgumentException("A middleware key is required.", nameof(key));
+        ArgumentNullException.ThrowIfNull(middleware);
+        Key = key;
+        Order = order;
+        Middleware = middleware;
+    }
+
+    /// <summary>Gets the stable middleware identity.</summary>
+    public string Key { get; }
+    /// <summary>Gets the primary ascending composition order.</summary>
+    public int Order { get; }
+    /// <summary>Gets the explicitly supplied middleware.</summary>
+    public IVoiceActivitySourceMiddlewareV1 Middleware { get; }
+}
+
+/// <summary>Composes explicitly registered middleware by ascending order then ordinal key.</summary>
+public static class VoiceActivitySourceMiddlewarePipelineV1
+{
+    /// <summary>Applies each middleware exactly once and rejects duplicate identities.</summary>
+    public static VoiceActivitySourceProductV1 Apply(
+        VoiceActivitySourceProductV1 product,
+        VoiceActivitySourceMiddlewareContextV1 context,
+        IReadOnlyList<VoiceActivitySourceMiddlewareRegistrationV1> registrations)
+    {
+        ArgumentNullException.ThrowIfNull(product);
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(registrations);
+        var ordered = registrations.OrderBy(static item => item.Order)
+            .ThenBy(static item => item.Key, StringComparer.Ordinal)
+            .ToArray();
+        if (ordered.Select(static item => item.Key).Distinct(StringComparer.Ordinal).Count() != ordered.Length)
+            throw new ArgumentException("Voice activity middleware keys must be unique.", nameof(registrations));
+
+        var current = product;
+        foreach (var registration in ordered)
+            current = registration.Middleware.Wrap(current, context)
+                ?? throw new InvalidOperationException($"Voice activity middleware '{registration.Key}' returned no product.");
+        return current;
+    }
+}

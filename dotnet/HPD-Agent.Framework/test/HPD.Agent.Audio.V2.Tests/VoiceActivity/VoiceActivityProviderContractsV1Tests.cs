@@ -54,16 +54,41 @@ public sealed class VoiceActivityProviderContractsV1Tests
         Assert.Equal(new[]
         {
             "IBorrowedSynchronousVoiceActivitySourceV1", "ITransferredVoiceActivitySourceV1",
-            "IVoiceActivitySourceProviderV1", "VoiceActivityBorrowedWindowV1", "VoiceActivityInputFormatV1",
+            "IVoiceActivitySourceMiddlewareV1", "IVoiceActivitySourceProviderV1", "VoiceActivityBorrowedWindowV1", "VoiceActivityInputFormatV1",
             "VoiceActivityInputInvalidReasonV1", "VoiceActivityInputOwnershipV1", "VoiceActivityMeasurementDescriptorV1",
             "VoiceActivityMeasurementKindV1", "VoiceActivityMeasurementV1", "VoiceActivityMediaExtentV1",
             "VoiceActivityNoObservationReasonV1", "VoiceActivityOwnedWindowV1", "VoiceActivityRetryabilityV1",
             "VoiceActivitySampleEncodingV1", "VoiceActivitySettlementResultV1", "VoiceActivitySourceCapabilitiesV1",
             "VoiceActivitySourceConcurrencyV1", "VoiceActivitySourceControlV1", "VoiceActivitySourceFaultClassV1",
-            "VoiceActivitySourceOutcomeV1", "VoiceActivitySourceProductV1", "VoiceActivitySourceProviderBindingV1",
+            "VoiceActivitySourceMiddlewareContextV1", "VoiceActivitySourceMiddlewarePipelineV1",
+            "VoiceActivitySourceMiddlewareRegistrationV1", "VoiceActivitySourceOutcomeV1", "VoiceActivitySourceProductV1",
+            "VoiceActivitySourceProviderBindingV1",
             "VoiceActivitySourceStateModelV1", "VoiceActivitySourceUnavailableReasonV1", "VoiceActivityStateValidityV1",
             "VoiceActivityTransferResultV1", "VoiceActivityWindowCapabilityV1",
         }, names);
+    }
+
+    [Fact]
+    public void Middleware_composition_is_explicit_stable_and_duplicate_closed()
+    {
+        var calls = new List<string>();
+        var product = new VoiceActivitySourceProductV1.BorrowedSynchronous(new Source(Capabilities()));
+        var context = new VoiceActivitySourceMiddlewareContextV1("scripted",
+            ProviderFamilyLifetime.StatefulPerAudioSession);
+        var registrations = new[]
+        {
+            new VoiceActivitySourceMiddlewareRegistrationV1("z-last", 20, new Middleware("z-last", calls)),
+            new VoiceActivitySourceMiddlewareRegistrationV1("b-tie", 10, new Middleware("b-tie", calls)),
+            new VoiceActivitySourceMiddlewareRegistrationV1("a-tie", 10, new Middleware("a-tie", calls)),
+        };
+
+        Assert.Same(product, VoiceActivitySourceMiddlewarePipelineV1.Apply(product, context, registrations));
+        Assert.Equal(new[] { "a-tie", "b-tie", "z-last" }, calls);
+        Assert.Throws<ArgumentException>(() => VoiceActivitySourceMiddlewarePipelineV1.Apply(product, context,
+        [
+            registrations[0],
+            new VoiceActivitySourceMiddlewareRegistrationV1("z-last", 30, new Middleware("duplicate", calls)),
+        ]));
     }
 
     private sealed class Provider(Source source) : IVoiceActivitySourceProviderV1
@@ -108,6 +133,16 @@ public sealed class VoiceActivityProviderContractsV1Tests
             VoiceActivityOwnedWindowV1 window, CancellationToken cancellationToken) => throw new NotSupportedException();
         public ValueTask<VoiceActivitySettlementResultV1> SettleAsync(
             OperationId operationId, CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
+
+    private sealed class Middleware(string key, List<string> calls) : IVoiceActivitySourceMiddlewareV1
+    {
+        public VoiceActivitySourceProductV1 Wrap(
+            VoiceActivitySourceProductV1 current, VoiceActivitySourceMiddlewareContextV1 context)
+        {
+            calls.Add(key);
+            return current;
+        }
     }
 
     private static VoiceActivitySourceCapabilitiesV1 Capabilities() => new(
