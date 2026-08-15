@@ -144,6 +144,7 @@
     <Project Path="test/HPD-Agent.DevApp/HPD-Agent.DevApp.csproj" />
     <Project Path="test/HPD-Agent.CodingCli/HPD-Agent.CodingCli.csproj" />
     <Project Path="test/HPD-Agent.AudioCli/HPD-Agent.AudioCli.csproj" />
+    <Project Path="test/HPD-Agent.Audio.VoiceActivity.CompositionExample/HPD-Agent.Audio.VoiceActivity.CompositionExample.csproj" />
     <Project Path="test/HPD-Agent.TUI.Console/HPD-Agent.TUI.Console.csproj" />
   </Folder>
 </Solution>
