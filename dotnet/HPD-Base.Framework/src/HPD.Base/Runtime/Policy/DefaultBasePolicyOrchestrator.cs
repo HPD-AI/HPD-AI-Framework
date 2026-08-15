@@ -131,6 +131,35 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
         BasePolicyRequest request,
         CancellationToken cancellationToken)
     {
+        var emitted = new List<BaseEmittedGrant>();
+        foreach (BaseGrantRegistration registration in _owner!.Grants)
+        {
+            if (registration.StaticGrant is not null)
+            {
+                emitted.Add(new BaseEmittedGrant(registration.Registration, BasePolicyAuthorityCanonicalizer.CloneGrant(registration.StaticGrant)));
+                continue;
+            }
+            if (registration.Source is null) return InvalidAuthority();
+            var context = new BaseGrantAuthorityEmissionContext(request.Principal, request.Operation, registration.SourceOwner);
+            try { await registration.Source.EmitAsync(context, cancellationToken).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch { return InvalidAuthority(); }
+            foreach (BaseEmittedGrant value in context.Complete()) emitted.Add(value);
+        }
+        if (emitted.GroupBy(static value => (value.Registration.Id, value.Registration.Version)).Any(static group => group.Count() > 1))
+            return InvalidAuthority();
+        BaseEmittedGrant[] orderedGrants = emitted.OrderBy(static value => value.Registration.Id, StringComparer.Ordinal)
+            .ThenBy(static value => value.Registration.Version)
+            .ThenBy(static value => Convert.ToHexString(value.Registration.Checksum), StringComparer.Ordinal)
+            .ThenBy(static value => Convert.ToHexString(BasePolicyAuthorityCanonicalizer.HashGrant(value.Grant)), StringComparer.Ordinal)
+            .ToArray();
+        AccessGrant[] evaluatorGrants = orderedGrants.Select(static value => BasePolicyAuthorityCanonicalizer.CloneGrant(value.Grant)).ToArray();
+        ImmutableArray<BaseAdmittedGrantAuthority> admitted = [.. orderedGrants.Select(static value => new BaseAdmittedGrantAuthority
+        {
+            GrantId = new string(value.Registration.Id.AsSpan()), GrantVersion = value.Registration.Version,
+            GrantRegistrationChecksum = value.Registration.Checksum.ToArray().ToImmutableArray(),
+            GrantChecksum = BasePolicyAuthorityCanonicalizer.HashGrant(value.Grant).ToImmutableArray(),
+        })];
         var applied = ImmutableArray.CreateBuilder<BaseAppliedPolicyAuthority>();
         var recordFilters = new List<FilterExpression>();
         var writeChecks = new List<FilterExpression>();
@@ -142,7 +171,7 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
             PolicyDecision decision;
             try
             {
-                decision = await registration.Evaluator.EvaluateAsync(CreateEvaluationRequest(request), cancellationToken).ConfigureAwait(false);
+                decision = await registration.Evaluator.EvaluateAsync(CreateEvaluationRequest(request, evaluatorGrants), cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (Exception)
@@ -209,6 +238,14 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
             BasePolicyAuthorityCanonicalizer.Write(writer, _owner.ApplicationId);
             BasePolicyAuthorityCanonicalizer.Write(writer, _owner.Generation);
             writer.Write(_owner.Checksum.Length); writer.Write(_owner.Checksum);
+            BasePolicyAuthorityCanonicalizer.Write(writer, admitted.Length);
+            foreach (BaseAdmittedGrantAuthority grant in admitted)
+            {
+                BasePolicyAuthorityCanonicalizer.Write(writer, grant.GrantId);
+                BasePolicyAuthorityCanonicalizer.Write(writer, grant.GrantVersion);
+                writer.Write(grant.GrantRegistrationChecksum.Length); writer.Write(grant.GrantRegistrationChecksum.AsSpan());
+                writer.Write(grant.GrantChecksum.Length); writer.Write(grant.GrantChecksum.AsSpan());
+            }
             BasePolicyAuthorityCanonicalizer.Write(writer, applied.Count);
             foreach (BaseAppliedPolicyAuthority policy in applied)
             {
@@ -222,7 +259,7 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
         {
             PolicyGraphGeneration = _owner.Generation,
             PolicyOwnerChecksum = [.. _owner.Checksum],
-            AdmittedGrants = [],
+            AdmittedGrants = admitted,
             AppliedPolicies = applied.ToImmutable(),
             Constraints = constraints,
             Checksum = BasePolicyEvaluationAuthorityChecksum.Create(checksum),
@@ -238,7 +275,7 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
         });
     }
 
-    private static PolicyEvaluationRequest CreateEvaluationRequest(BasePolicyRequest request) => new()
+    private static PolicyEvaluationRequest CreateEvaluationRequest(BasePolicyRequest request, AccessGrant[] grants) => new()
     {
         Operation = request.Operation,
         Principal = request.Principal,
@@ -251,7 +288,7 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
             VectorSpaceId = request.VectorSpaceId, SubjectContractId = request.SubjectContractId,
             SubjectContractVersion = request.SubjectContractVersion,
         },
-        Grants = request.Grants,
+        Grants = grants,
         PolicyRefs = request.PolicyRefs,
     };
 

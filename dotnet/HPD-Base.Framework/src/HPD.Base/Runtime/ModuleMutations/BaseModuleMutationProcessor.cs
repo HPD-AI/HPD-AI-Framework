@@ -15,6 +15,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
     IReadOnlyDictionary<string, CollectionDefinition> collections,
     PrincipalContext principal,
     OperationContext operation,
+    BasePolicyEvaluation operationPolicy,
     IBaseSchemaValidator schemaValidator,
     IBasePolicyOrchestrator policy,
     IBaseResultNormalizer normalizer,
@@ -71,9 +72,13 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             .FinalizeCapturedCommandsAsync(capturedItems, cancellationToken).ConfigureAwait(false);
         if (!recordPlan.IsSuccess() || recordPlan.Value is null)
             return Failed(recordPlan.Error ?? Error(BaseModuleMutationErrorCodes.Invalid, ErrorCategory.Validation));
+        if (recordPlan.Value.PolicyEvaluations.Any(static evaluation => evaluation.Authority is null))
+            return Failed(Error(BaseModuleMutationErrorCodes.Unauthorized, ErrorCategory.Authorization));
 
-        string recordPlanDigest = DefaultBaseMutationProcessor.ComputePlanDigest(
-            intent.IntentDigest, evidence.CaptureDigest, recordPlan.Value.Items, recordPlan.Value.SubjectValidations);
+        BaseAtomicPolicyAuthorityDigest policyDigest = BaseAtomicPolicyAuthority.Compute(
+            intent.Authority.ApplicationId, $"{definition.Id}:{definition.Version}", [operationPolicy, .. recordPlan.Value.PolicyEvaluations]);
+        string recordPlanDigest = BaseAtomicPolicyAuthority.BindPlanDigest(DefaultBaseMutationProcessor.ComputePlanDigest(
+            intent.IntentDigest, evidence.CaptureDigest, recordPlan.Value.Items, recordPlan.Value.SubjectValidations), policyDigest);
         string planDigest = Digest(recordPlanDigest, extension.RequestDigest, evidence.CaptureDigest,
             string.Join(';', evaluator.Decisions.Select(static value => $"{value.EvaluationOrdinal}:{value.Kind}:{value.DecisionId}:{value.SelectedTrue}")),
             string.Join(';', increments.Select(static value => $"{value.CaptureOrdinal}:{value.CreateIfAbsent}")));
@@ -82,6 +87,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             Kind = BaseAtomicMutationExecutionKind.ModuleMutation,
             IntentDigest = intent.IntentDigest,
             CaptureDigest = evidence.CaptureDigest,
+            PolicyAuthorityDigest = policyDigest,
             Authority = intent.Authority,
             Items = recordPlan.Value.Items,
             SubjectValidations = recordPlan.Value.SubjectValidations,
@@ -95,13 +101,15 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             Limits = limits,
             PlanDigest = planDigest,
         };
+        BaseAtomicMutationPlan retainedPlan = BaseAtomicMutationOwnership.FreezePlan(plan);
+        BaseAtomicMutationPlan providerPlan = BaseAtomicMutationOwnership.FreezePlan(retainedPlan);
         OperationResult<BasePreparedAtomicMutation> prepared = await provider
-            .PrepareAtomicMutationAsync(evidence, plan, cancellationToken).ConfigureAwait(false);
-        if (!prepared.IsSuccess() || prepared.Value is null || !PreparedMatches(plan, evidence, prepared.Value))
+            .PrepareAtomicMutationAsync(evidence, providerPlan, cancellationToken).ConfigureAwait(false);
+        if (!prepared.IsSuccess() || prepared.Value is null || !PreparedMatches(retainedPlan, evidence, prepared.Value))
             return Failed(prepared.Error ?? Error("base.moduleMutation.preparedEvidenceInvalid", ErrorCategory.Store));
         OperationResult<BaseProvisionalAppliedAtomicMutation> applied = await provider
             .ApplyPreparedAtomicMutationAsync(prepared.Value, cancellationToken).ConfigureAwait(false);
-        if (!applied.IsSuccess() || applied.Value is null || !AppliedMatches(plan, applied.Value))
+        if (!applied.IsSuccess() || applied.Value is null || !AppliedMatches(retainedPlan, applied.Value))
             return Failed(applied.Error ?? Error("base.moduleMutation.appliedEvidenceInvalid", ErrorCategory.Store));
 
         IReadOnlyDictionary<string, BaseModuleCommittedGeneration> committedGenerations = applied.Value.Generations
@@ -134,7 +142,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             return Failed(Error(BaseModuleMutationErrorCodes.LimitExceeded, ErrorCategory.Validation));
         var finalization = new BaseAtomicMutationCommitFinalization
         {
-            PlanDigest = plan.PlanDigest, Receipt = receipt, CanonicalResultBytes = resultBytes,
+            PlanDigest = retainedPlan.PlanDigest, Receipt = receipt, CanonicalResultBytes = resultBytes,
             Accounting = new BaseAtomicCommitAccounting
             {
                 WrittenBytes = prior.WrittenBytes, GenerationBytes = prior.GenerationBytes, FactBytes = prior.FactBytes,

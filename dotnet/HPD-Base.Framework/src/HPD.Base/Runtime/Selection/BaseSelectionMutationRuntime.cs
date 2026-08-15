@@ -595,11 +595,14 @@ internal sealed class BaseSelectionMutationProcessor(
                 ReceiptResolutionTimeout = executionTimeout,
             },
         };
+        BaseAtomicPolicyAuthorityDigest policyDigest = BaseAtomicPolicyAuthority.Compute(
+            authority.ApplicationId, $"{profile.Id}:{profile.Version}", policies);
         var mutationPlan = new BaseAtomicMutationPlan
         {
             Kind = BaseAtomicMutationExecutionKind.SelectionMutation,
             IntentDigest = captured.IntentDigest,
             CaptureDigest = captured.CaptureDigest,
+            PolicyAuthorityDigest = policyDigest,
             Authority = new BaseAtomicMutationAuthorityRequirement
             {
                 ApplicationId = authority.ApplicationId,
@@ -615,7 +618,8 @@ internal sealed class BaseSelectionMutationProcessor(
             Items = finalized,
             SubjectValidations = subjectPlan.Value.Validations,
             Limits = limits,
-            PlanDigest = SelectionPlanDigest(captured, finalized, subjectPlan.Value.Validations),
+            PlanDigest = BaseAtomicPolicyAuthority.BindPlanDigest(
+                SelectionPlanDigest(captured, finalized, subjectPlan.Value.Validations), policyDigest),
         };
         BaseAtomicMutationPlan retainedPlan = BaseAtomicMutationOwnership.FreezePlan(mutationPlan);
         BaseAtomicMutationPlan providerPlan = BaseAtomicMutationOwnership.FreezePlan(retainedPlan);

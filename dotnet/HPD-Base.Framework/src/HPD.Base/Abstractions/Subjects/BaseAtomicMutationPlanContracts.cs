@@ -425,6 +425,8 @@ public sealed record BaseAtomicMutationPlan
     public required string IntentDigest { get; init; }
     /// <summary>Gets the bound provider capture digest.</summary>
     public required string CaptureDigest { get; init; }
+    /// <summary>Gets the Runtime-owned canonical policy-authority digest.</summary>
+    public required BaseAtomicPolicyAuthorityDigest PolicyAuthorityDigest { get; init; }
     /// <summary>Gets the required authority snapshot.</summary>
     public required BaseAtomicMutationAuthorityRequirement Authority { get; init; }
     /// <summary>Gets dense canonical mutation items.</summary>
@@ -435,6 +437,35 @@ public sealed record BaseAtomicMutationPlan
     public BaseFinalizedModuleMutationExtension? Module { get; init; }
     /// <summary>Gets the complete immutable execution limits.</summary>
     public required BaseAtomicMutationExecutionLimits Limits { get; init; }
+}
+
+/// <summary>Owns one canonical SHA-256 policy-authority digest.</summary>
+public sealed class BaseAtomicPolicyAuthorityDigest : IEquatable<BaseAtomicPolicyAuthorityDigest>
+{
+    /// <summary>Gets the exact digest length.</summary>
+    public const int Length = 32;
+    private readonly byte[] _value;
+    private BaseAtomicPolicyAuthorityDigest(byte[] value) => _value = value;
+    /// <summary>Creates one deeply owned digest.</summary>
+    public static BaseAtomicPolicyAuthorityDigest Create(ReadOnlySpan<byte> value)
+    {
+        if (value.Length != Length) throw new ArgumentException("An atomic policy-authority digest must contain exactly 32 bytes.", nameof(value));
+        return new(value.ToArray());
+    }
+    /// <summary>Copies the digest.</summary>
+    public void CopyTo(Span<byte> destination)
+    {
+        if (destination.Length < Length) throw new ArgumentException("The destination is too small.", nameof(destination));
+        _value.CopyTo(destination);
+    }
+    /// <summary>Returns a defensive copy.</summary>
+    public byte[] ToArray() => _value.ToArray();
+    /// <inheritdoc />
+    public bool Equals(BaseAtomicPolicyAuthorityDigest? other) => other is not null && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(_value, other._value);
+    /// <inheritdoc />
+    public override bool Equals(object? obj) => obj is BaseAtomicPolicyAuthorityDigest other && Equals(other);
+    /// <inheritdoc />
+    public override int GetHashCode() => BitConverter.ToInt32(_value, 0);
 }
 
 /// <summary>Contains the finalized L50 program decisions and generation effects.</summary>

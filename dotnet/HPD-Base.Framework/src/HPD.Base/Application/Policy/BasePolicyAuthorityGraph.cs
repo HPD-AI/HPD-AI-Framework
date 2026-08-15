@@ -150,6 +150,8 @@ public sealed class BasePolicyAuthorityBuilder
     {
         ArgumentNullException.ThrowIfNull(definition);
         BasePolicyAuthorityCanonicalizer.Validate(definition);
+        if (grant is not null && !string.Equals(definition.Id, grant.Id, StringComparison.Ordinal))
+            throw new InvalidOperationException(BasePolicyAuthorityErrorCodes.Invalid);
         if (_grants.Any(value => value.Definition.Id == definition.Id))
             throw new InvalidOperationException(BasePolicyAuthorityErrorCodes.Duplicate);
         object owner = new();
@@ -239,6 +241,12 @@ internal static class BasePolicyAuthorityCanonicalizer
         Write(writer, "base.policy.definition.v1"); Write(writer, definition.Id); Write(writer, definition.Version);
         Write(writer, definition.OwningModuleId); Write(writer, definition.EvaluatorContractId);
         Write(writer, definition.EvaluatorContractVersion); Write(writer, definition.CompositionOrder);
+    });
+
+    internal static byte[] HashGrant(AccessGrant grant) => Hash(writer =>
+    {
+        Write(writer, "base.grant.semantics.v1");
+        WriteGrant(writer, grant);
     });
 
     internal static byte[] Hash(Action<BinaryWriter> write)

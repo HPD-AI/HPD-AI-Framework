@@ -40,6 +40,28 @@ public sealed class PolicyAuthorityGraphTests
         Assert.Equal(["allow", "deny"], calls);
     }
 
+    [Fact]
+    public async Task Static_grant_semantics_are_bound_into_owner_and_evaluation_authority()
+    {
+        var first = new BasePolicyAuthorityBuilder();
+        first.AddPolicy(Definition("allow", 0), new RecordingPolicy("allow", [], PolicyDecision.Allow()));
+        first.AddStaticGrant(GrantDefinition(), Grant("items"));
+        BasePolicyAuthorityOwner firstOwner = first.Freeze("policy-test");
+        var second = new BasePolicyAuthorityBuilder();
+        second.AddPolicy(Definition("allow", 0), new RecordingPolicy("allow", [], PolicyDecision.Allow()));
+        second.AddStaticGrant(GrantDefinition(), Grant("other-items"));
+        BasePolicyAuthorityOwner secondOwner = second.Freeze("policy-test");
+        Assert.NotEqual(Convert.ToHexString(firstOwner.Checksum), Convert.ToHexString(secondOwner.Checksum));
+
+        var orchestrator = new DefaultBasePolicyOrchestrator([], Options.Create(HPDBaseRuntimeOptions.CreateDefault()), firstOwner);
+        OperationResult<BasePolicyEvaluation> result = await orchestrator.EvaluateWriteAsync(Request());
+
+        BaseAdmittedGrantAuthority admitted = Assert.Single(result.Value!.Authority!.AdmittedGrants);
+        Assert.Equal("grant.items", admitted.GrantId);
+        Assert.Equal(32, admitted.GrantRegistrationChecksum.Length);
+        Assert.Equal(32, admitted.GrantChecksum.Length);
+    }
+
     private static BasePolicyAuthorityDefinition Definition(string id, int order) => new()
     {
         Id = id,
@@ -48,6 +70,18 @@ public sealed class PolicyAuthorityGraphTests
         EvaluatorContractId = id + "-evaluator",
         EvaluatorContractVersion = 1,
         CompositionOrder = order,
+    };
+
+    private static BaseGrantAuthorityDefinition GrantDefinition() => new()
+    {
+        Id = "grant.items", Version = 1, OwningModuleId = "test-module",
+        SourceContractId = "test.grants", SourceContractVersion = 1,
+    };
+
+    private static AccessGrant Grant(string collectionId) => new()
+    {
+        Id = "grant.items", Subject = new AccessSubject { Kind = AccessSubjectKind.Anonymous },
+        Action = "write", Scope = new ResourceScope { Kind = ResourceScopeKind.Collection, CollectionId = collectionId },
     };
 
     private static BasePolicyRequest Request() => new()

@@ -16,7 +16,7 @@ public sealed class BaseModuleProgramEvaluatorTests
         var stores = new DefaultRecordStoreRegistry();
         stores.Add(new RecordStoreRegistration { StoreId = "module-store", Store = store, CollectionIds = [collection.Id] });
         BaseRegisteredModuleMutationDefinition definition = CreateDefinition();
-        var policy = new DefaultBasePolicyOrchestrator([new AllowPolicyEvaluator()], Options.Create(HPDBaseRuntimeOptions.CreateDefault()));
+        DefaultBasePolicyOrchestrator policy = Policy();
         var runtime = new DefaultBaseModuleMutationRuntime(
             stores, new BaseCollectionRegistry(new Dictionary<string, CollectionDefinition> { [collection.Id] = collection }),
             new BaseModuleMutationRegistry([definition], []), new DefaultBaseSchemaValidator(), policy,
@@ -52,7 +52,7 @@ public sealed class BaseModuleProgramEvaluatorTests
         var registry = new BaseModuleMutationRegistry([definition], [cell]);
         var runtime = new DefaultBaseModuleMutationRuntime(
             stores, new BaseCollectionRegistry(new Dictionary<string, CollectionDefinition>()), registry,
-            null!, null!, null!, new BaseSubjectContractRegistry([]), TimeProvider.System);
+            null!, Policy(), null!, new BaseSubjectContractRegistry([]), TimeProvider.System);
         BaseGeneratedModuleMutationIdentity<GenerationRequest, GenerationResult> identity = GenerationIdentity();
         var session = new BaseSession(
             null!, TimeProvider.System,
@@ -188,6 +188,17 @@ public sealed class BaseModuleProgramEvaluatorTests
         SchemaMode = SchemaMode.Strict, UnknownFields = UnknownFieldPolicy.Reject, MutationMode = BaseCollectionMutationMode.Mutable,
         Fields = [new FieldDefinition { Id = "field.name", ApplicationName = "Name", WireName = "name", Type = "string", Required = true }],
     };
+
+    private static DefaultBasePolicyOrchestrator Policy()
+    {
+        var builder = new BasePolicyAuthorityBuilder();
+        builder.AddPolicy(new BasePolicyAuthorityDefinition
+        {
+            Id = "module.policy", Version = 1, OwningModuleId = "module",
+            EvaluatorContractId = "module.policy.evaluator", EvaluatorContractVersion = 1, CompositionOrder = 0,
+        }, new AllowPolicyEvaluator());
+        return new DefaultBasePolicyOrchestrator([], Options.Create(HPDBaseRuntimeOptions.CreateDefault()), builder.Freeze("module.application"));
+    }
 
     private static BaseRegisteredModuleMutationDefinition GenerationDefinition() => new()
     {

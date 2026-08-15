@@ -27,6 +27,23 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         if (!AudienceAllowed(session, definition)
             || options?.MaximumWait is { } wait && (wait <= TimeSpan.Zero || wait > definition.Limits.Deadlines.CommitObservationTimeout))
             return Failure<TResult>(OperationStatus.PolicyDenied, BaseModuleMutationErrorCodes.Unauthorized, ErrorCategory.Authorization);
+        OperationContext moduleOperation = session.Operation(BaseOperationKind.ModuleMutation, definition.Id);
+        CollectionDefinition policyResource = definition.SystemCollectionIds.Length > 0
+            && collections.Collections.TryGetValue(definition.SystemCollectionIds[0], out CollectionDefinition? installedPolicyCollection)
+            ? installedPolicyCollection
+            : new CollectionDefinition
+            {
+                Id = definition.Id, Name = definition.Id, Kind = BaseCollectionKinds.Custom,
+                SchemaMode = SchemaMode.Strict, UnknownFields = UnknownFieldPolicy.Reject, System = true,
+                SystemOwnerModuleId = definition.OwningModuleId,
+            };
+        OperationResult<BasePolicyEvaluation> operationPolicy = await policy.EvaluateWriteAsync(new BasePolicyRequest
+        {
+            Principal = session.Principal, Operation = moduleOperation, Collection = policyResource,
+            ResourceKind = PolicyResourceKind.ModuleMutation,
+        }, cancellationToken).ConfigureAwait(false);
+        if (!operationPolicy.IsSuccess() || operationPolicy.Value?.Authority is null)
+            return Failure<TResult>(OperationStatus.PolicyDenied, BaseModuleMutationErrorCodes.Unauthorized, ErrorCategory.Authorization);
         byte[] requestBytes;
         try { requestBytes = JsonSerializer.SerializeToUtf8Bytes(request, generatedIdentity.RequestTypeInfo); }
         catch { return Failure<TResult>(OperationStatus.ValidationFailed, BaseModuleMutationErrorCodes.Invalid, ErrorCategory.Validation); }
@@ -67,7 +84,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         };
         var processor = new BaseModuleMutationProcessor<TRequest, TResult>(
             definition, generatedIdentity, request, intent, extension, limits, installed,
-            session.Principal, session.Operation(BaseOperationKind.ModuleMutation, definition.Id),
+            session.Principal, moduleOperation, operationPolicy.Value,
             schemaValidator, policy, normalizer, subjects);
         var executionRequest = new RecordMutationExecutionRequest
         {
@@ -113,6 +130,15 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(generatedIdentity);
         ArgumentNullException.ThrowIfNull(identity);
+        OperationResult<BasePolicyEvaluation> disclosure = await policy.EvaluateReadAsync(new BasePolicyRequest
+        {
+            Principal = session.Principal,
+            Operation = session.Operation(BaseOperationKind.ModuleMutation, definition.Id),
+            Collection = PolicyResource(definition),
+            ResourceKind = PolicyResourceKind.ModuleMutation,
+        }, cancellationToken).ConfigureAwait(false);
+        if (!disclosure.IsSuccess() || disclosure.Value?.Authority is null)
+            return Failure<TResult>(OperationStatus.NotFound, BaseModuleMutationErrorCodes.ReceiptUnavailable, ErrorCategory.NotFound);
         CollectionDefinition[] authorityCollections;
         try
         {
@@ -144,6 +170,17 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             : authorityCollections.Select(value => stores.GetRegistrationForCollection(value.Id)).Where(static value => value is not null).Cast<RecordStoreRegistration>().DistinctBy(static value => value.StoreId).ToArray();
         return registrations.Length == 1 ? registrations[0].Store as IAtomicRecordStore : null;
     }
+
+    private CollectionDefinition PolicyResource(BaseRegisteredModuleMutationDefinition definition) =>
+        definition.SystemCollectionIds.Length > 0
+        && collections.Collections.TryGetValue(definition.SystemCollectionIds[0], out CollectionDefinition? installed)
+            ? installed
+            : new CollectionDefinition
+            {
+                Id = definition.Id, Name = definition.Id, Kind = BaseCollectionKinds.Custom,
+                SchemaMode = SchemaMode.Strict, UnknownFields = UnknownFieldPolicy.Reject, System = true,
+                SystemOwnerModuleId = definition.OwningModuleId,
+            };
 
     private static BaseModuleMutationCaptureExtension BuildCaptureExtension<TRequest, TResult>(
         BaseRegisteredModuleMutationDefinition definition,

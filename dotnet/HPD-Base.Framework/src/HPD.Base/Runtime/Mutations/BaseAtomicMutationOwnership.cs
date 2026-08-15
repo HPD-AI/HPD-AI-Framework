@@ -9,6 +9,7 @@ internal static class BaseAtomicMutationOwnership
         PlanDigest = new string(value.PlanDigest.AsSpan()),
         IntentDigest = new string(value.IntentDigest.AsSpan()),
         CaptureDigest = new string(value.CaptureDigest.AsSpan()),
+        PolicyAuthorityDigest = BaseAtomicPolicyAuthorityDigest.Create(value.PolicyAuthorityDigest.ToArray()),
         Authority = value.Authority with
         {
             ApplicationId = new string(value.Authority.ApplicationId.AsSpan()),
@@ -28,6 +29,19 @@ internal static class BaseAtomicMutationOwnership
                 Value = validation.Scope.Value is null ? null : new string(validation.Scope.Value.AsSpan()),
             },
         }).ToImmutableArray(),
+        Module = value.Module is null ? null : value.Module with
+        {
+            OperationId = new string(value.Module.OperationId.AsSpan()),
+            OperationChecksum = new string(value.Module.OperationChecksum.AsSpan()),
+            Decisions = value.Module.Decisions.Select(static decision => decision with
+            {
+                DecisionId = new string(decision.DecisionId.AsSpan()),
+            }).ToImmutableArray(),
+            ItemBindings = value.Module.ItemBindings.Select(static binding => binding with { }).ToImmutableArray(),
+            Comparisons = value.Module.Comparisons.Select(static comparison => comparison with { }).ToImmutableArray(),
+            Increments = value.Module.Increments.Select(static increment => increment with { }).ToImmutableArray(),
+            ResultProjectionDigest = new string(value.Module.ResultProjectionDigest.AsSpan()),
+        },
         Limits = value.Limits with { },
     };
 

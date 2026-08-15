@@ -224,16 +224,20 @@ internal sealed class DefaultBaseMutationProcessor(
         if (!finalizedPlan.IsSuccess() || finalizedPlan.Value is null)
             return Failed(finalizedPlan.Error ?? Error("base.runtime.batch.itemInvalid", "A batch item failed.", ErrorCategory.Unexpected));
         ImmutableArray<BaseAtomicMutationPlanItem> finalizedItems = finalizedPlan.Value.Items;
+        BaseAtomicPolicyAuthorityDigest policyDigest = BaseAtomicPolicyAuthority.Compute(
+            authority.ApplicationId, "base.l30.recordMutations", finalizedPlan.Value.PolicyEvaluations);
         var plan = new BaseAtomicMutationPlan
         {
             Kind = BaseAtomicMutationExecutionKind.RecordMutations,
             IntentDigest = intent.IntentDigest,
             CaptureDigest = capturedEvidence.CaptureDigest,
+            PolicyAuthorityDigest = policyDigest,
             Authority = authority with { },
             Items = finalizedItems,
             SubjectValidations = finalizedPlan.Value.SubjectValidations,
             Limits = executionLimits with { },
-            PlanDigest = ComputePlanDigest(intent.IntentDigest, capturedEvidence.CaptureDigest, finalizedItems, finalizedPlan.Value.SubjectValidations),
+            PlanDigest = BaseAtomicPolicyAuthority.BindPlanDigest(
+                ComputePlanDigest(intent.IntentDigest, capturedEvidence.CaptureDigest, finalizedItems, finalizedPlan.Value.SubjectValidations), policyDigest),
         };
         BaseAtomicMutationPlan retainedPlan = BaseAtomicMutationOwnership.FreezePlan(plan);
         BaseAtomicMutationPlan providerPlan = BaseAtomicMutationOwnership.FreezePlan(retainedPlan);
@@ -402,7 +406,8 @@ internal sealed class DefaultBaseMutationProcessor(
                 Error(BaseSubjectErrorCodes.BudgetExceeded, "The subject validation budget was exceeded.", ErrorCategory.Validation));
         return OperationResults.Ok(new BaseFinalizedRecordMutationPlan(
             subjectsResult.Value.Items,
-            subjectsResult.Value.Validations));
+            subjectsResult.Value.Validations,
+            [.. Enumerable.Range(0, commands.Length).Select(index => _finalizedPolicies[index])]));
     }
 
     private async ValueTask<OperationResult<BaseAtomicMutationPlanItem>> FinalizeCommandAsync(
