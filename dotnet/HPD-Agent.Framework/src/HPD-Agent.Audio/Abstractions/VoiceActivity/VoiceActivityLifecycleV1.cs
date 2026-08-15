@@ -293,6 +293,34 @@ internal sealed class VoiceActivityLifecycleV1
         }
     }
 
+    internal VoiceActivityLifecycleSnapshotV1? ApplyInPlaceUpdate(
+        ulong expectedLifecycleRevision,
+        VoiceActivityEffectivePlanV1 candidatePlan)
+    {
+        ArgumentNullException.ThrowIfNull(candidatePlan);
+        lock (_gate)
+        {
+            if (_state != VoiceActivityLifecycleStateV1.Active || expectedLifecycleRevision != _revision ||
+                candidatePlan.PlanGeneration != _plan.PlanGeneration + 1 ||
+                candidatePlan.ConfigRevision <= _plan.ConfigRevision ||
+                candidatePlan.PromotionAuthority.Mode != _plan.PromotionAuthority.Mode ||
+                !candidatePlan.PromotionAuthority.SourceKeys.SequenceEqual(
+                    _plan.PromotionAuthority.SourceKeys, StringComparer.Ordinal) ||
+                candidatePlan.Sources.Count != _plan.Sources.Count ||
+                candidatePlan.Sources.Any(candidate =>
+                {
+                    var prior = _plan.Sources.SingleOrDefault(source =>
+                        source.Request.SourceKey == candidate.Request.SourceKey);
+                    return prior is null || !SourceEquivalent(prior, candidate);
+                }))
+                return null;
+            _plan = candidatePlan;
+            _revision++;
+            _safeCode = null;
+            return Snapshot();
+        }
+    }
+
     internal VoiceActivityLifecycleSnapshotV1 Complete(VoiceActivityReleaseDispositionV1 disposition)
     {
         if (!Enum.IsDefined(disposition)) throw new ArgumentOutOfRangeException(nameof(disposition));
