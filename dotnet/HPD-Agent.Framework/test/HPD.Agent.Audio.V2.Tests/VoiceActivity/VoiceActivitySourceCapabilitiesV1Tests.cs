@@ -1,4 +1,5 @@
 using HPD.Agent.Audio.VoiceActivity;
+using HPD.Agent.Audio.ProviderContracts.VoiceActivity;
 using HPD.Agent.Authority;
 
 namespace HPD.Agent.Audio.V2.Tests.VoiceActivity;

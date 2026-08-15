@@ -1,15 +1,15 @@
 using System.Collections.ObjectModel;
 
-namespace HPD.Agent.Audio.VoiceActivity;
+namespace HPD.Agent.Audio.ProviderContracts.VoiceActivity;
 
-internal enum VoiceActivityInputOwnershipV1 : ushort
+public enum VoiceActivityInputOwnershipV1 : ushort
 {
     BorrowedSynchronous = 1,
     IsolatedTransferred = 2,
     ProviderOpaque = 3,
 }
 
-internal enum VoiceActivitySourceStateModelV1 : ushort
+public enum VoiceActivitySourceStateModelV1 : ushort
 {
     Stateless = 1,
     GenerationLocal = 2,
@@ -17,30 +17,30 @@ internal enum VoiceActivitySourceStateModelV1 : ushort
     ProviderOpaque = 4,
 }
 
-internal enum VoiceActivitySourceConcurrencyV1 : ushort
+public enum VoiceActivitySourceConcurrencyV1 : ushort
 {
     Serial = 1,
     ParallelWindows = 2,
     ProviderManaged = 3,
 }
 
-internal enum VoiceActivitySourceControlV1 : ushort
+public enum VoiceActivitySourceControlV1 : ushort
 {
     Unsupported = 1,
     Sequenced = 2,
     ReplacementRequired = 3,
 }
 
-internal enum VoiceActivitySampleEncodingV1 : ushort
+public enum VoiceActivitySampleEncodingV1 : ushort
 {
     SignedPcm16 = 1,
     Float32 = 2,
     ProviderOpaque = 3,
 }
 
-internal sealed record VoiceActivityInputFormatV1
+public sealed record VoiceActivityInputFormatV1
 {
-    internal VoiceActivityInputFormatV1(
+    public VoiceActivityInputFormatV1(
         VoiceActivitySampleEncodingV1 encoding,
         int sampleRate,
         int channels)
@@ -62,14 +62,14 @@ internal sealed record VoiceActivityInputFormatV1
         Channels = channels;
     }
 
-    internal VoiceActivitySampleEncodingV1 Encoding { get; }
-    internal int SampleRate { get; }
-    internal int Channels { get; }
+    public VoiceActivitySampleEncodingV1 Encoding { get; }
+    public int SampleRate { get; }
+    public int Channels { get; }
 }
 
-internal sealed record VoiceActivityWindowCapabilityV1
+public sealed record VoiceActivityWindowCapabilityV1
 {
-    internal VoiceActivityWindowCapabilityV1(
+    public VoiceActivityWindowCapabilityV1(
         TimeSpan minimumWindow,
         TimeSpan maximumWindow,
         TimeSpan stride,
@@ -85,17 +85,17 @@ internal sealed record VoiceActivityWindowCapabilityV1
         MaximumBatchSize = maximumBatchSize;
     }
 
-    internal TimeSpan MinimumWindow { get; }
-    internal TimeSpan MaximumWindow { get; }
-    internal TimeSpan Stride { get; }
-    internal int MaximumBatchSize { get; }
+    public TimeSpan MinimumWindow { get; }
+    public TimeSpan MaximumWindow { get; }
+    public TimeSpan Stride { get; }
+    public int MaximumBatchSize { get; }
 }
 
-internal sealed record VoiceActivitySourceCapabilitiesV1
+public sealed record VoiceActivitySourceCapabilitiesV1
 {
     private readonly VoiceActivityInputFormatV1[] _formats;
 
-    internal VoiceActivitySourceCapabilitiesV1(
+    public VoiceActivitySourceCapabilitiesV1(
         VoiceActivityInputOwnershipV1 inputOwnership,
         IReadOnlyList<VoiceActivityInputFormatV1> formats,
         VoiceActivityWindowCapabilityV1 window,
@@ -154,17 +154,17 @@ internal sealed record VoiceActivitySourceCapabilitiesV1
         MaximumPendingOperations = maximumPendingOperations;
     }
 
-    internal VoiceActivityInputOwnershipV1 InputOwnership { get; }
-    internal IReadOnlyList<VoiceActivityInputFormatV1> Formats { get; }
-    internal VoiceActivityWindowCapabilityV1 Window { get; }
-    internal VoiceActivityMeasurementDescriptorV1 Measurement { get; }
-    internal VoiceActivitySourceStateModelV1 StateModel { get; }
-    internal VoiceActivitySourceConcurrencyV1 Concurrency { get; }
-    internal VoiceActivitySourceControlV1 DynamicUpdate { get; }
-    internal VoiceActivitySourceControlV1 Reset { get; }
-    internal VoiceActivitySourceControlV1 Transfer { get; }
-    internal VoiceActivitySourceControlV1 Replacement { get; }
-    internal bool SupportsCancellation { get; }
-    internal bool SupportsWarmup { get; }
-    internal int MaximumPendingOperations { get; }
+    public VoiceActivityInputOwnershipV1 InputOwnership { get; }
+    public IReadOnlyList<VoiceActivityInputFormatV1> Formats { get; }
+    public VoiceActivityWindowCapabilityV1 Window { get; }
+    public VoiceActivityMeasurementDescriptorV1 Measurement { get; }
+    public VoiceActivitySourceStateModelV1 StateModel { get; }
+    public VoiceActivitySourceConcurrencyV1 Concurrency { get; }
+    public VoiceActivitySourceControlV1 DynamicUpdate { get; }
+    public VoiceActivitySourceControlV1 Reset { get; }
+    public VoiceActivitySourceControlV1 Transfer { get; }
+    public VoiceActivitySourceControlV1 Replacement { get; }
+    public bool SupportsCancellation { get; }
+    public bool SupportsWarmup { get; }
+    public int MaximumPendingOperations { get; }
 }

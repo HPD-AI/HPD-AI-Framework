@@ -1,8 +1,8 @@
 using HPD.Agent.Authority;
 
-namespace HPD.Agent.Audio.VoiceActivity;
+namespace HPD.Agent.Audio.ProviderContracts.VoiceActivity;
 
-internal enum VoiceActivityMeasurementKindV1 : ushort
+public enum VoiceActivityMeasurementKindV1 : ushort
 {
     CalibratedLikelihood = 1,
     EngineScore = 2,
@@ -12,7 +12,7 @@ internal enum VoiceActivityMeasurementKindV1 : ushort
     ProviderOpaqueCategory = 6,
 }
 
-internal enum VoiceActivityNoObservationReasonV1 : ushort
+public enum VoiceActivityNoObservationReasonV1 : ushort
 {
     Gap = 1,
     Timeout = 2,
@@ -23,7 +23,7 @@ internal enum VoiceActivityNoObservationReasonV1 : ushort
     SourceRevoked = 7,
 }
 
-internal enum VoiceActivityInputInvalidReasonV1 : ushort
+public enum VoiceActivityInputInvalidReasonV1 : ushort
 {
     FormatMismatch = 1,
     MixedGeneration = 2,
@@ -31,7 +31,7 @@ internal enum VoiceActivityInputInvalidReasonV1 : ushort
     ExtentInvalid = 4,
 }
 
-internal enum VoiceActivitySourceUnavailableReasonV1 : ushort
+public enum VoiceActivitySourceUnavailableReasonV1 : ushort
 {
     ArtifactMissing = 1,
     ModelUnavailable = 2,
@@ -40,7 +40,7 @@ internal enum VoiceActivitySourceUnavailableReasonV1 : ushort
     DeadlineReached = 5,
 }
 
-internal enum VoiceActivitySourceFaultClassV1 : ushort
+public enum VoiceActivitySourceFaultClassV1 : ushort
 {
     ContractViolation = 1,
     InferenceFailure = 2,
@@ -49,23 +49,23 @@ internal enum VoiceActivitySourceFaultClassV1 : ushort
     OwnershipAmbiguous = 5,
 }
 
-internal enum VoiceActivityRetryabilityV1 : ushort
+public enum VoiceActivityRetryabilityV1 : ushort
 {
     Never = 1,
     SameGeneration = 2,
     AfterReplacement = 3,
 }
 
-internal enum VoiceActivityStateValidityV1 : ushort
+public enum VoiceActivityStateValidityV1 : ushort
 {
     Preserved = 1,
     ResetRequired = 2,
     Quarantined = 3,
 }
 
-internal sealed record VoiceActivityMeasurementDescriptorV1
+public sealed record VoiceActivityMeasurementDescriptorV1
 {
-    internal VoiceActivityMeasurementDescriptorV1(
+    public VoiceActivityMeasurementDescriptorV1(
         VoiceActivityMeasurementKindV1 kind,
         BoundedAscii units,
         double minimum,
@@ -88,11 +88,11 @@ internal sealed record VoiceActivityMeasurementDescriptorV1
         CalibrationIdentity = calibrationIdentity;
     }
 
-    internal VoiceActivityMeasurementKindV1 Kind { get; }
-    internal BoundedAscii Units { get; }
-    internal double Minimum { get; }
-    internal double Maximum { get; }
-    internal Hash256? CalibrationIdentity { get; }
+    public VoiceActivityMeasurementKindV1 Kind { get; }
+    public BoundedAscii Units { get; }
+    public double Minimum { get; }
+    public double Maximum { get; }
+    public Hash256? CalibrationIdentity { get; }
 
     private static bool IsValid(Hash256 value)
     {
@@ -101,38 +101,38 @@ internal sealed record VoiceActivityMeasurementDescriptorV1
     }
 }
 
-internal abstract record VoiceActivityMeasurementV1
+public abstract record VoiceActivityMeasurementV1
 {
     private VoiceActivityMeasurementV1() { }
 
-    internal sealed record Numeric : VoiceActivityMeasurementV1
+    public sealed record Numeric : VoiceActivityMeasurementV1
     {
-        internal Numeric(double value)
+        public Numeric(double value)
         {
             if (!double.IsFinite(value)) throw new ArgumentOutOfRangeException(nameof(value));
             Value = value;
         }
 
-        internal double Value { get; }
+        public double Value { get; }
     }
 
-    internal sealed record Binary(bool Value) : VoiceActivityMeasurementV1;
+    public sealed record Binary(bool Value) : VoiceActivityMeasurementV1;
 
-    internal sealed record Category : VoiceActivityMeasurementV1
+    public sealed record Category : VoiceActivityMeasurementV1
     {
-        internal Category(BoundedAscii value)
+        public Category(BoundedAscii value)
         {
             if (!value.IsValid) throw new ArgumentException("A category is required.", nameof(value));
             Value = value;
         }
 
-        internal BoundedAscii Value { get; }
+        public BoundedAscii Value { get; }
     }
 }
 
-internal readonly record struct VoiceActivityMediaExtentV1
+public readonly record struct VoiceActivityMediaExtentV1
 {
-    internal VoiceActivityMediaExtentV1(
+    public VoiceActivityMediaExtentV1(
         GraphGenerationId graphGeneration,
         long startInclusive,
         long endExclusive,
@@ -147,19 +147,19 @@ internal readonly record struct VoiceActivityMediaExtentV1
         Exact = exact;
     }
 
-    internal GraphGenerationId GraphGeneration { get; }
-    internal long StartInclusive { get; }
-    internal long EndExclusive { get; }
-    internal bool Exact { get; }
+    public GraphGenerationId GraphGeneration { get; }
+    public long StartInclusive { get; }
+    public long EndExclusive { get; }
+    public bool Exact { get; }
 }
 
-internal abstract record VoiceActivitySourceOutcomeV1
+public abstract record VoiceActivitySourceOutcomeV1
 {
     private VoiceActivitySourceOutcomeV1() { }
 
-    internal sealed record Observed : VoiceActivitySourceOutcomeV1
+    public sealed record Observed : VoiceActivitySourceOutcomeV1
     {
-        internal Observed(
+        public Observed(
             VoiceActivityMeasurementV1 measurement,
             VoiceActivityMeasurementDescriptorV1 descriptor,
             VoiceActivityMediaExtentV1 extent,
@@ -182,50 +182,50 @@ internal abstract record VoiceActivitySourceOutcomeV1
             ProcessedAt = processedAt;
         }
 
-        internal VoiceActivityMeasurementV1 Measurement { get; }
-        internal VoiceActivityMeasurementDescriptorV1 Descriptor { get; }
-        internal VoiceActivityMediaExtentV1 Extent { get; }
-        internal ulong Sequence { get; }
-        internal MonotonicStampV1 ObservedAt { get; }
-        internal MonotonicStampV1 ProcessedAt { get; }
+        public VoiceActivityMeasurementV1 Measurement { get; }
+        public VoiceActivityMeasurementDescriptorV1 Descriptor { get; }
+        public VoiceActivityMediaExtentV1 Extent { get; }
+        public ulong Sequence { get; }
+        public MonotonicStampV1 ObservedAt { get; }
+        public MonotonicStampV1 ProcessedAt { get; }
     }
 
-    internal sealed record NoObservation : VoiceActivitySourceOutcomeV1
+    public sealed record NoObservation : VoiceActivitySourceOutcomeV1
     {
-        internal NoObservation(VoiceActivityNoObservationReasonV1 reason)
+        public NoObservation(VoiceActivityNoObservationReasonV1 reason)
         {
             if (!Enum.IsDefined(reason)) throw new ArgumentOutOfRangeException(nameof(reason));
             Reason = reason;
         }
-        internal VoiceActivityNoObservationReasonV1 Reason { get; }
+        public VoiceActivityNoObservationReasonV1 Reason { get; }
     }
 
-    internal sealed record InvalidInput : VoiceActivitySourceOutcomeV1
+    public sealed record InvalidInput : VoiceActivitySourceOutcomeV1
     {
-        internal InvalidInput(VoiceActivityInputInvalidReasonV1 reason)
+        public InvalidInput(VoiceActivityInputInvalidReasonV1 reason)
         {
             if (!Enum.IsDefined(reason)) throw new ArgumentOutOfRangeException(nameof(reason));
             Reason = reason;
         }
-        internal VoiceActivityInputInvalidReasonV1 Reason { get; }
+        public VoiceActivityInputInvalidReasonV1 Reason { get; }
     }
 
-    internal sealed record Unavailable : VoiceActivitySourceOutcomeV1
+    public sealed record Unavailable : VoiceActivitySourceOutcomeV1
     {
-        internal Unavailable(VoiceActivitySourceUnavailableReasonV1 reason, VoiceActivityRetryabilityV1 retryability)
+        public Unavailable(VoiceActivitySourceUnavailableReasonV1 reason, VoiceActivityRetryabilityV1 retryability)
         {
             if (!Enum.IsDefined(reason)) throw new ArgumentOutOfRangeException(nameof(reason));
             if (!Enum.IsDefined(retryability)) throw new ArgumentOutOfRangeException(nameof(retryability));
             Reason = reason;
             Retryability = retryability;
         }
-        internal VoiceActivitySourceUnavailableReasonV1 Reason { get; }
-        internal VoiceActivityRetryabilityV1 Retryability { get; }
+        public VoiceActivitySourceUnavailableReasonV1 Reason { get; }
+        public VoiceActivityRetryabilityV1 Retryability { get; }
     }
 
-    internal sealed record Fault : VoiceActivitySourceOutcomeV1
+    public sealed record Fault : VoiceActivitySourceOutcomeV1
     {
-        internal Fault(VoiceActivitySourceFaultClassV1 classification,
+        public Fault(VoiceActivitySourceFaultClassV1 classification,
             VoiceActivityStateValidityV1 stateValidity,
             VoiceActivityRetryabilityV1 retryability)
         {
@@ -236,9 +236,9 @@ internal abstract record VoiceActivitySourceOutcomeV1
             StateValidity = stateValidity;
             Retryability = retryability;
         }
-        internal VoiceActivitySourceFaultClassV1 Classification { get; }
-        internal VoiceActivityStateValidityV1 StateValidity { get; }
-        internal VoiceActivityRetryabilityV1 Retryability { get; }
+        public VoiceActivitySourceFaultClassV1 Classification { get; }
+        public VoiceActivityStateValidityV1 StateValidity { get; }
+        public VoiceActivityRetryabilityV1 Retryability { get; }
     }
 
     private static void ValidateMeasurement(

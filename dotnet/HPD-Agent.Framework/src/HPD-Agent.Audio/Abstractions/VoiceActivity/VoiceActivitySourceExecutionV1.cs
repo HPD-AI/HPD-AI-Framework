@@ -1,10 +1,10 @@
 using HPD.Agent.Authority;
 
-namespace HPD.Agent.Audio.VoiceActivity;
+namespace HPD.Agent.Audio.ProviderContracts.VoiceActivity;
 
-internal readonly ref struct VoiceActivityBorrowedWindowV1
+public readonly ref struct VoiceActivityBorrowedWindowV1
 {
-    internal VoiceActivityBorrowedWindowV1(
+    public VoiceActivityBorrowedWindowV1(
         ReadOnlySpan<byte> bytes,
         VoiceActivityInputFormatV1 format,
         VoiceActivityMediaExtentV1 extent,
@@ -21,17 +21,17 @@ internal readonly ref struct VoiceActivityBorrowedWindowV1
         ObservedAt = observedAt;
     }
 
-    internal ReadOnlySpan<byte> Bytes { get; }
-    internal VoiceActivityInputFormatV1 Format { get; }
-    internal VoiceActivityMediaExtentV1 Extent { get; }
-    internal MonotonicStampV1 ObservedAt { get; }
+    public ReadOnlySpan<byte> Bytes { get; }
+    public VoiceActivityInputFormatV1 Format { get; }
+    public VoiceActivityMediaExtentV1 Extent { get; }
+    public MonotonicStampV1 ObservedAt { get; }
 }
 
-internal sealed record VoiceActivityOwnedWindowV1
+public sealed record VoiceActivityOwnedWindowV1
 {
     private readonly byte[] _bytes;
 
-    internal VoiceActivityOwnedWindowV1(
+    public VoiceActivityOwnedWindowV1(
         OperationId operationId,
         ReadOnlySpan<byte> bytes,
         VoiceActivityInputFormatV1 format,
@@ -49,20 +49,20 @@ internal sealed record VoiceActivityOwnedWindowV1
         ObservedAt = observedAt;
     }
 
-    internal OperationId OperationId { get; }
-    internal ReadOnlyMemory<byte> Bytes => _bytes.ToArray();
-    internal VoiceActivityInputFormatV1 Format { get; }
-    internal VoiceActivityMediaExtentV1 Extent { get; }
-    internal MonotonicStampV1 ObservedAt { get; }
+    public OperationId OperationId { get; }
+    public ReadOnlyMemory<byte> Bytes => _bytes.ToArray();
+    public VoiceActivityInputFormatV1 Format { get; }
+    public VoiceActivityMediaExtentV1 Extent { get; }
+    public MonotonicStampV1 ObservedAt { get; }
 }
 
-internal interface IBorrowedSynchronousVoiceActivitySourceV1
+public interface IBorrowedSynchronousVoiceActivitySourceV1
 {
     VoiceActivitySourceCapabilitiesV1 Capabilities { get; }
     VoiceActivitySourceOutcomeV1 Observe(scoped in VoiceActivityBorrowedWindowV1 window);
 }
 
-internal interface ITransferredVoiceActivitySourceV1
+public interface ITransferredVoiceActivitySourceV1
 {
     VoiceActivitySourceCapabilitiesV1 Capabilities { get; }
     ValueTask<VoiceActivityTransferResultV1> TransferAsync(
@@ -73,24 +73,24 @@ internal interface ITransferredVoiceActivitySourceV1
         CancellationToken cancellationToken);
 }
 
-internal abstract record VoiceActivityTransferResultV1
+public abstract record VoiceActivityTransferResultV1
 {
     private VoiceActivityTransferResultV1() { }
 
-    internal sealed record Accepted : VoiceActivityTransferResultV1
+    public sealed record Accepted : VoiceActivityTransferResultV1
     {
-        internal Accepted(OperationId operationId)
+        public Accepted(OperationId operationId)
         {
             if (!operationId.IsValid) throw new ArgumentException("An operation identity is required.", nameof(operationId));
             OperationId = operationId;
         }
 
-        internal OperationId OperationId { get; }
+        public OperationId OperationId { get; }
     }
 
-    internal sealed record Rejected : VoiceActivityTransferResultV1
+    public sealed record Rejected : VoiceActivityTransferResultV1
     {
-        internal Rejected(VoiceActivitySourceOutcomeV1 outcome)
+        public Rejected(VoiceActivitySourceOutcomeV1 outcome)
         {
             ArgumentNullException.ThrowIfNull(outcome);
             if (outcome is VoiceActivitySourceOutcomeV1.Observed)
@@ -98,34 +98,34 @@ internal abstract record VoiceActivityTransferResultV1
             Outcome = outcome;
         }
 
-        internal VoiceActivitySourceOutcomeV1 Outcome { get; }
+        public VoiceActivitySourceOutcomeV1 Outcome { get; }
     }
 
-    internal sealed record OutcomeUnknown : VoiceActivityTransferResultV1
+    public sealed record OutcomeUnknown : VoiceActivityTransferResultV1
     {
-        internal OutcomeUnknown(OperationId operationId)
+        public OutcomeUnknown(OperationId operationId)
         {
             if (!operationId.IsValid) throw new ArgumentException("An operation identity is required.", nameof(operationId));
             OperationId = operationId;
         }
 
-        internal OperationId OperationId { get; }
+        public OperationId OperationId { get; }
     }
 }
 
-internal abstract record VoiceActivitySettlementResultV1
+public abstract record VoiceActivitySettlementResultV1
 {
     private VoiceActivitySettlementResultV1() { }
 
-    internal sealed record Pending : VoiceActivitySettlementResultV1
+    public sealed record Pending : VoiceActivitySettlementResultV1
     {
-        internal Pending(OperationId operationId) => OperationId = Require(operationId);
-        internal OperationId OperationId { get; }
+        public Pending(OperationId operationId) => OperationId = Require(operationId);
+        public OperationId OperationId { get; }
     }
 
-    internal sealed record Settled : VoiceActivitySettlementResultV1
+    public sealed record Settled : VoiceActivitySettlementResultV1
     {
-        internal Settled(OperationId operationId, VoiceActivitySourceOutcomeV1 outcome)
+        public Settled(OperationId operationId, VoiceActivitySourceOutcomeV1 outcome)
         {
             if (!operationId.IsValid) throw new ArgumentException("An operation identity is required.", nameof(operationId));
             ArgumentNullException.ThrowIfNull(outcome);
@@ -133,20 +133,20 @@ internal abstract record VoiceActivitySettlementResultV1
             Outcome = outcome;
         }
 
-        internal OperationId OperationId { get; }
-        internal VoiceActivitySourceOutcomeV1 Outcome { get; }
+        public OperationId OperationId { get; }
+        public VoiceActivitySourceOutcomeV1 Outcome { get; }
     }
 
-    internal sealed record OutcomeUnknown : VoiceActivitySettlementResultV1
+    public sealed record OutcomeUnknown : VoiceActivitySettlementResultV1
     {
-        internal OutcomeUnknown(OperationId operationId) => OperationId = Require(operationId);
-        internal OperationId OperationId { get; }
+        public OutcomeUnknown(OperationId operationId) => OperationId = Require(operationId);
+        public OperationId OperationId { get; }
     }
 
-    internal sealed record NotFound : VoiceActivitySettlementResultV1
+    public sealed record NotFound : VoiceActivitySettlementResultV1
     {
-        internal NotFound(OperationId operationId) => OperationId = Require(operationId);
-        internal OperationId OperationId { get; }
+        public NotFound(OperationId operationId) => OperationId = Require(operationId);
+        public OperationId OperationId { get; }
     }
 
     private static OperationId Require(OperationId operationId) => operationId.IsValid
