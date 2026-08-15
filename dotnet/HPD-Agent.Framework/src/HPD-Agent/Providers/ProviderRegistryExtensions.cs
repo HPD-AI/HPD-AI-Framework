@@ -9,6 +9,27 @@ namespace HPD.Agent.Providers;
 /// </summary>
 public static class ProviderRegistryExtensions
 {
+    /// <summary>Resolves and captures one immutable typed provider-family selection.</summary>
+    public static ResolvedProviderFamily<TProvider> ResolveRequiredFamily<TProvider>(
+        this IProviderRegistry registry,
+        ProviderClientConfig configuration,
+        ProviderClientFamily family,
+        ProviderFamilyLifetime defaultLifetime)
+        where TProvider : class, IProvider
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        if (string.IsNullOrWhiteSpace(configuration.ProviderKey))
+            throw new ArgumentException("The provider configuration must select a provider key.", nameof(configuration));
+        if (!Enum.IsDefined(defaultLifetime)) throw new ArgumentOutOfRangeException(nameof(defaultLifetime));
+
+        var provider = registry.GetRequiredFamilyProvider<TProvider>(configuration.ProviderKey, family);
+        var metadata = provider.GetMetadata();
+        var lifetime = metadata.Families.TryGetValue(family, out var descriptor)
+            ? descriptor.Lifetime
+            : defaultLifetime;
+        return new ResolvedProviderFamily<TProvider>(provider, family, configuration, lifetime);
+    }
+
     /// <summary>
     /// Resolves one provider-family contract by its existing registry key and
     /// generated family identity, including a contract owned by a leaf package.

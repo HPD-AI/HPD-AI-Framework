@@ -45,13 +45,41 @@ public sealed class ProviderTypedFamilyResolutionTests
         Assert.Contains(nameof(IChatClientProvider), wrongContract.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Resolved_handle_captures_config_and_generated_lifetime_at_the_resolution_cut()
+    {
+        var registry = new ProviderRegistry();
+        var provider = new AudioFamilyProvider("same", ProviderFamilyLifetime.StatefulPerAudioSession);
+        registry.Register(provider);
+        var configuration = new ProviderClientConfig
+        {
+            ProviderKey = "same",
+            ModelName = "captured",
+            CustomHeaders = new() { ["x-safe"] = "one" },
+        };
+
+        var resolved = registry.ResolveRequiredFamily<IAudioFamilyProvider>(configuration,
+            ProviderClientFamily.VoiceActivityDetection, ProviderFamilyLifetime.StatefulPerRun);
+        configuration.ModelName = "mutated";
+        configuration.CustomHeaders["x-safe"] = "two";
+        var firstCopy = resolved.Configuration;
+        firstCopy.ModelName = "copy-mutated";
+
+        Assert.Same(provider, resolved.Provider);
+        Assert.Equal(ProviderFamilyLifetime.StatefulPerAudioSession, resolved.Lifetime);
+        Assert.Equal("captured", resolved.Configuration.ModelName);
+        Assert.Equal("one", resolved.Configuration.CustomHeaders!["x-safe"]);
+    }
+
     private interface IAudioFamilyProvider : IProvider;
 
-    private sealed class AudioFamilyProvider(string key) : IAudioFamilyProvider
+    private sealed class AudioFamilyProvider(
+        string key,
+        ProviderFamilyLifetime lifetime = ProviderFamilyLifetime.ReusableClient) : IAudioFamilyProvider
     {
         public string ProviderKey => key;
         public string DisplayName => key;
-        public ProviderMetadata GetMetadata() => Metadata(key, ProviderClientFamily.VoiceActivityDetection);
+        public ProviderMetadata GetMetadata() => Metadata(key, ProviderClientFamily.VoiceActivityDetection, lifetime);
         public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family) =>
             ProviderValidationResult.Success();
         public IProviderErrorHandler CreateErrorHandler() => throw new NotSupportedException();
@@ -70,13 +98,14 @@ public sealed class ProviderTypedFamilyResolutionTests
             throw new NotSupportedException();
     }
 
-    private static ProviderMetadata Metadata(string key, ProviderClientFamily family) => new()
+    private static ProviderMetadata Metadata(string key, ProviderClientFamily family,
+        ProviderFamilyLifetime lifetime = ProviderFamilyLifetime.ReusableClient) => new()
     {
         ProviderKey = key,
         DisplayName = key,
         Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
         {
-            [family] = new() { Family = family },
+            [family] = new() { Family = family, Lifetime = lifetime },
         },
     };
 }
