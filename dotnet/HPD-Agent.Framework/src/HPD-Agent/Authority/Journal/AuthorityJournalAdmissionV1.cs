@@ -328,6 +328,12 @@ internal static class AuthorityCanonicalCborV1
     internal static Hash256 ComputeHash(CorrelationEnvelopeV1 value)=>AuthorityIntegrityHashV1.Compute(CorrelationSchemaId,1,0,Encode(value));
     internal static Hash256 ComputeHash(ProposedAuthorityFactV1 value)=>AuthorityIntegrityHashV1.Compute(ProposedFactSchemaId,1,0,Encode(value));
     internal static Hash256 ComputeHash(AppendAuthorityBatchV1 value)=>AuthorityIntegrityHashV1.Compute(AppendBatchSchemaId,1,0,EncodeAppendBatch(value));
+    internal static bool TryDecodeCorrelation(ReadOnlyMemory<byte> encoded,out CorrelationEnvelopeV1 value)=>
+        TryDecodeValue(encoded,ReadCorrelation,Encode,out value);
+    internal static bool TryDecodeProposal(ReadOnlyMemory<byte> encoded,out ProposedAuthorityFactV1? value)=>
+        TryDecodeClass(encoded,ReadProposal,Encode,out value);
+    internal static bool TryDecodeAppendBatch(ReadOnlyMemory<byte> encoded,out AppendAuthorityBatchV1? value)=>
+        TryDecodeClass(encoded,ReadAppendBatch,EncodeAppendBatch,out value);
 
     internal static byte[] EncodeEnvelopeWithoutIntegrity(
         ProposedAuthorityFactV1 fact,
@@ -469,6 +475,49 @@ internal static class AuthorityCanonicalCborV1
         writer.WriteUInt64(6); WriteOptionalId(writer, correlation.OperationId);
         writer.WriteEndMap();
     }
+
+    private static AppendAuthorityBatchV1 ReadAppendBatch(CborReader reader)
+    {
+        RequireMap(reader,5,1);var session=SessionAuthorityStampV1Codec.Read(reader);
+        RequireTag(reader,2);var sessionHead=reader.ReadInt64();RequireTag(reader,3);
+        var headCount=reader.ReadStartArray();if(headCount is null or<0 or>AppendAuthorityBatchV1.MaximumItems)throw Invalid();
+        var heads=new ThreadExpectedHeadV1[headCount.Value];
+        for(var i=0;i<heads.Length;i++){RequireMap(reader,3,1);var thread=ThreadId.FromValue(ReadStable(reader));RequireTag(reader,2);var generation=reader.ReadInt64();RequireTag(reader,3);var sequence=reader.ReadInt64();reader.ReadEndMap();heads[i]=new(thread,generation,sequence);}
+        reader.ReadEndArray();RequireTag(reader,4);var factCount=reader.ReadStartArray();if(factCount is null or<1 or>AppendAuthorityBatchV1.MaximumItems)throw Invalid();
+        var facts=new ProposedAuthorityFactV1[factCount.Value];for(var i=0;i<facts.Length;i++)facts[i]=ReadProposal(reader);reader.ReadEndArray();
+        RequireTag(reader,5);var maximum=checked((uint)reader.ReadUInt64());reader.ReadEndMap();return new(session,sessionHead,heads,facts,maximum);
+    }
+
+    private static ProposedAuthorityFactV1 ReadProposal(CborReader reader)
+    {
+        RequireMap(reader,8,1);var fact=JournalFactId.FromValue(ReadStable(reader));RequireTag(reader,2);var thread=ReadOptional(reader,ThreadId.FromValue);
+        RequireTag(reader,3);var owner=checked((OwnerSliceId)reader.ReadUInt64());RequireTag(reader,4);var schema=ReadSchema(reader);
+        RequireTag(reader,5);var payload=reader.ReadByteString();if(payload.Length>ProposedAuthorityFactV1.MaximumPayloadBytes)throw Invalid();
+        RequireTag(reader,6);var hash=ReadHash(reader);RequireTag(reader,7);var correlation=ReadCorrelation(reader);
+        RequireTag(reader,8);var observed=new UtcInstant(reader.ReadInt64());reader.ReadEndMap();return new(fact,thread,owner,schema,payload,hash,correlation,observed);
+    }
+
+    private static CorrelationEnvelopeV1 ReadCorrelation(CborReader reader)
+    {
+        RequireMap(reader,6,1);var tenant=TenantId.FromValue(ReadStable(reader));RequireTag(reader,2);var principal=ReadOptional(reader,PrincipalId.FromValue);
+        RequireTag(reader,3);var session=ReadOptional(reader,SessionId.FromValue);RequireTag(reader,4);var thread=ReadOptional(reader,ThreadId.FromValue);
+        RequireTag(reader,5);var participant=ReadOptional(reader,ParticipantId.FromValue);RequireTag(reader,6);var operation=ReadOptional(reader,OperationId.FromValue);
+        reader.ReadEndMap();return new(tenant,principal,session,thread,participant,operation);
+    }
+
+    private static SchemaReferenceV1 ReadSchema(CborReader reader)
+    {RequireMap(reader,3,1);var id=SchemaId.FromValue(ReadStable(reader));RequireTag(reader,2);var major=checked((ushort)reader.ReadUInt64());RequireTag(reader,3);var minor=checked((ushort)reader.ReadUInt64());reader.ReadEndMap();return new(id,major,minor);}
+    private static T? ReadOptional<T>(CborReader reader,Func<StableId128,T> create)where T:struct
+    {var count=reader.ReadStartMap();if(count is null||reader.ReadUInt64()!=1)throw Invalid();var kind=reader.ReadUInt64();if(kind==0&&count==1){reader.ReadEndMap();return null;}if(kind!=1||count!=2||reader.ReadUInt64()!=2)throw Invalid();var value=create(ReadStable(reader));reader.ReadEndMap();return value;}
+    private static StableId128 ReadStable(CborReader reader){Span<byte>b=stackalloc byte[16];if(!reader.TryReadByteString(b,out var n)||n!=16||b.IndexOfAnyExcept((byte)0)<0)throw Invalid();return StableId128.FromBytes(b);}
+    private static Hash256 ReadHash(CborReader reader){Span<byte>b=stackalloc byte[32];if(!reader.TryReadByteString(b,out var n)||n!=32)throw Invalid();return Hash256.FromBytes(b);}
+    private static void RequireMap(CborReader reader,int count,ulong first){if(reader.ReadStartMap()!=count||reader.ReadUInt64()!=first)throw Invalid();}
+    private static void RequireTag(CborReader reader,ulong tag){if(reader.ReadUInt64()!=tag)throw Invalid();}
+    private static CborContentException Invalid()=>new("Invalid canonical authority journal value.");
+    private static bool TryDecodeClass<T>(ReadOnlyMemory<byte> bytes,Func<CborReader,T> read,Func<T,byte[]> encode,out T? value)where T:class
+    {value=null;try{var reader=new CborReader(bytes,CborConformanceMode.Ctap2Canonical,false);var candidate=read(reader);if(reader.BytesRemaining!=0||!bytes.Span.SequenceEqual(encode(candidate)))return false;value=candidate;return true;}catch(Exception e)when(e is CborContentException or InvalidOperationException or ArgumentException or OverflowException){return false;}}
+    private static bool TryDecodeValue<T>(ReadOnlyMemory<byte> bytes,Func<CborReader,T> read,Func<T,byte[]> encode,out T value)where T:struct
+    {value=default;try{var reader=new CborReader(bytes,CborConformanceMode.Ctap2Canonical,false);var candidate=read(reader);if(reader.BytesRemaining!=0||!bytes.Span.SequenceEqual(encode(candidate)))return false;value=candidate;return true;}catch(Exception e)when(e is CborContentException or InvalidOperationException or ArgumentException or OverflowException){return false;}}
 
     private static void WriteOptionalId<T>(CborWriter writer, T? id) where T : struct
     {
