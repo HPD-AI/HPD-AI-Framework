@@ -246,6 +246,7 @@ public sealed record VoiceActivityUpdateResultV1
     public string? SafeCode { get; }
 }
 
+/// <summary>Provides NativeAOT-safe JSON metadata for immutable voice-activity contracts.</summary>
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull, WriteIndented = false)]
 [JsonSerializable(typeof(VoiceActivityRequestV1))]
@@ -255,4 +256,4 @@ public sealed record VoiceActivityUpdateResultV1
 [JsonSerializable(typeof(EffectiveActivitySourceV1))]
 [JsonSerializable(typeof(VoiceActivityUpdateRequestV1))]
 [JsonSerializable(typeof(VoiceActivityUpdateResultV1))]
-internal sealed partial class VoiceActivityJsonContextV1 : JsonSerializerContext;
+public sealed partial class VoiceActivityJsonContextV1 : JsonSerializerContext;
