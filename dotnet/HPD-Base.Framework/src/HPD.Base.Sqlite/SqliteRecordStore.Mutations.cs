@@ -868,6 +868,14 @@ public sealed partial class SqliteRecordStore
             ArgumentNullException.ThrowIfNull(request);
             BaseAtomicMutationIntent intent = request.Intent;
             BaseAtomicMutationExecutionLimits limits = request.Limits;
+            if (request.Kind == BaseAtomicMutationExecutionKind.SelectionMutation)
+            {
+                if (request.Selection is null || request.Module is not null || !intent.Items.IsDefaultOrEmpty)
+                    return SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                OperationResult<BaseCapturedAtomicMutationAuthority> selected = await SelectCoreAsync(
+                    request.Selection.Selection, intent, limits, token).ConfigureAwait(false);
+                return selected;
+            }
             if (request.Kind == BaseAtomicMutationExecutionKind.ModuleMutation)
                 return await CaptureModuleAuthorityAsync(request, token).ConfigureAwait(false);
             if (_capturedMutation is not null || request.Kind != BaseAtomicMutationExecutionKind.RecordMutations
@@ -2006,31 +2014,30 @@ public sealed partial class SqliteRecordStore
 
         private static OperationResult SubjectSuccess() => new() { Status = OperationStatus.Ok };
 
-        /// <inheritdoc />
-        public ValueTask<OperationResult<BaseAtomicSelectionResult>> SelectAsync(
+        private async ValueTask<OperationResult<BaseCapturedAtomicMutationAuthority>> SelectCoreAsync(
             BaseAtomicSelectionRequest request,
-            CancellationToken cancellationToken = default) =>
-            ExecuteAsync(BaseOperationKind.Query, cancellationToken, token => SelectCoreAsync(request, token));
-
-        private async ValueTask<OperationResult<BaseAtomicSelectionResult>> SelectCoreAsync(
-            BaseAtomicSelectionRequest request,
+            BaseAtomicMutationIntent intent,
+            BaseAtomicMutationExecutionLimits limits,
             CancellationToken cancellationToken)
         {
             ArgumentNullException.ThrowIfNull(request);
-            if (string.IsNullOrWhiteSpace(request.Authority.StoreInstanceId)
-                || request.Authority.RestoreEpoch < 0
-                || request.Limits.MaximumRecords < 1
-                || request.Limits.MaximumSelectedBytes < 1
-                || request.Limits.MaximumReadIntervals < 1
-                || request.Limits.MaximumTransientBytes < 1
-                || request.Limits.MaximumUniqueConstraintChecks < 1
+            BaseAtomicMutationAuthorityRequirement requiredAuthority = intent.Authority;
+            BaseCollectionGenerationRequirement? collectionAuthority = requiredAuthority.Collections.SingleOrDefault(
+                value => string.Equals(value.CollectionId, request.Collection.Id, StringComparison.Ordinal));
+            if (collectionAuthority is null || string.IsNullOrWhiteSpace(requiredAuthority.StoreInstanceId)
+                || requiredAuthority.RestoreEpoch < 0
+                || limits.MaximumSelectedRecords < 1
+                || limits.MaximumSelectedBytes < 1
+                || limits.MaximumReadIntervals < 1
+                || limits.MaximumTransientBytes < 1
+                || limits.MaximumUniqueConstraintChecks < 1
                 || request.CanonicalRecordCodecVersion < 1)
             {
                 return SelectionFailure(OperationStatus.ValidationFailed,
                     "base.provider.selection.authorityInvalid", ErrorCategory.Validation);
             }
-            _selectionUniqueCheckLimit = request.Limits.MaximumUniqueConstraintChecks;
-            _selectionTransientLimit = request.Limits.MaximumTransientBytes;
+            _selectionUniqueCheckLimit = limits.MaximumUniqueConstraintChecks;
+            _selectionTransientLimit = limits.MaximumTransientBytes;
             _attributionTransientBytes = 0;
             _selectionRetainedBytes = 0;
 
@@ -2050,10 +2057,10 @@ public sealed partial class SqliteRecordStore
                 actualRestoreEpoch = authorityReader.GetInt64(0);
                 actualSchemaGeneration = Volatile.Read(ref _owner._schemaGeneration);
                 actualCollectionGeneration = authorityReader.GetInt64(1);
-                if (!string.Equals(actualStoreInstanceId, request.Authority.StoreInstanceId, StringComparison.Ordinal)
-                    || actualRestoreEpoch != request.Authority.RestoreEpoch
-                    || actualSchemaGeneration != request.Authority.SchemaGeneration
-                    || actualCollectionGeneration != request.Authority.CollectionGeneration)
+                if (!string.Equals(actualStoreInstanceId, requiredAuthority.StoreInstanceId, StringComparison.Ordinal)
+                    || actualRestoreEpoch != requiredAuthority.RestoreEpoch
+                    || actualSchemaGeneration != requiredAuthority.SchemaGeneration
+                    || actualCollectionGeneration != collectionAuthority.CollectionGeneration)
                     return SelectionFailure(OperationStatus.Conflict, "base.provider.selection.authorityChanged", ErrorCategory.Conflict);
             }
 
@@ -2062,8 +2069,8 @@ public sealed partial class SqliteRecordStore
             if (!plan.Supported)
                 return SelectionFailure(OperationStatus.Unsupported,
                     "base.provider.selection.queryUnsupported", ErrorCategory.Unsupported);
-            int requested = request.Query.Page?.Limit ?? request.Limits.MaximumRecords;
-            if (requested < 1 || requested > request.Limits.MaximumRecords)
+            int requested = request.Query.Page?.Limit ?? limits.MaximumSelectedRecords;
+            if (requested < 1 || requested > limits.MaximumSelectedRecords)
                 return SelectionFailure(OperationStatus.ValidationFailed,
                     "base.provider.selection.limitExceeded", ErrorCategory.Validation);
 
@@ -2081,7 +2088,7 @@ public sealed partial class SqliteRecordStore
                 BaseOwnedSelectedRecord owned = BaseOwnedSelectedRecord.Freeze(
                     envelope, records.Count, request.CanonicalRecordCodecVersion);
                 bytes = checked(bytes + owned.CanonicalBytes);
-                if (bytes > request.Limits.MaximumSelectedBytes || bytes > request.Limits.MaximumTransientBytes)
+                if (bytes > limits.MaximumSelectedBytes || bytes > limits.MaximumTransientBytes)
                     return SelectionFailure(OperationStatus.ValidationFailed,
                         "base.provider.selection.limitExceeded", ErrorCategory.Validation);
                 records.Add(owned);
@@ -2101,38 +2108,37 @@ public sealed partial class SqliteRecordStore
                 CanonicalUpperBound = boundary.ToImmutableArray(),
                 UpperInclusive = true,
             };
-            var selectionAuthority = new BaseAuthoritySnapshotEvidence
-            {
-                ApplicationId = request.Authority.ApplicationId,
-                StoreInstanceId = actualStoreInstanceId,
-                RestoreEpoch = actualRestoreEpoch,
-                SchemaGeneration = actualSchemaGeneration,
-                CollectionGeneration = actualCollectionGeneration,
-                Isolation = BaseAtomicSelectionIsolationClass.WriteOwningSerializable,
-                TransactionEvidenceToken = BitConverter.GetBytes(_transactionStarted).ToImmutableArray(),
-            };
-            string selectionIntentDigest = Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
-                $"hpd.base.selection-capture.v1\n{request.Authority.ApplicationId}\n{request.Collection.Id}\n{selectedCount}")));
+            ImmutableArray<byte> transactionEvidence = BitConverter.GetBytes(_transactionStarted).ToImmutableArray();
             string selectionCaptureDigest = Convert.ToHexStringLower(SHA256.HashData(
                 selectedRecords.SelectMany(static record => record.CopyCanonicalBytes()).Concat(boundary).ToArray()));
             _capturedMutation = new BaseCapturedAtomicMutationAuthority
             {
                 Kind = BaseAtomicMutationExecutionKind.SelectionMutation,
-                IntentDigest = selectionIntentDigest,
+                IntentDigest = new string(intent.IntentDigest.AsSpan()),
                 CaptureDigest = selectionCaptureDigest,
                 Authority = new BaseAtomicMutationAuthorityEvidence
                 {
-                    ApplicationId = selectionAuthority.ApplicationId,
-                    StoreInstanceId = selectionAuthority.StoreInstanceId,
-                    RestoreEpoch = selectionAuthority.RestoreEpoch,
-                    SchemaGeneration = selectionAuthority.SchemaGeneration,
+                    ApplicationId = requiredAuthority.ApplicationId,
+                    StoreInstanceId = actualStoreInstanceId,
+                    RestoreEpoch = actualRestoreEpoch,
+                    SchemaGeneration = actualSchemaGeneration,
                     Collections = [new BaseCollectionGenerationRequirement
                     {
                         CollectionId = request.Collection.Id,
-                        CollectionGeneration = selectionAuthority.CollectionGeneration,
+                        CollectionGeneration = collectionAuthority.CollectionGeneration,
                     }],
-                    Isolation = selectionAuthority.Isolation,
-                    TransactionEvidenceToken = selectionAuthority.TransactionEvidenceToken,
+                    Isolation = BaseAtomicSelectionIsolationClass.WriteOwningSerializable,
+                    TransactionEvidenceToken = transactionEvidence,
+                },
+                Selection = new BaseCapturedSelectionEvidence
+                {
+                    Records = selectedRecords,
+                    CanonicalOrderBoundary = boundary.ToImmutableArray(),
+                    Accounting = new BaseAtomicSelectionAccounting
+                    {
+                        SelectedRecords = selectedCount, SelectedBytes = bytes,
+                        ReadIntervals = 1, EvidenceBytes = boundary.LongLength,
+                    },
                 },
                 Items = selectedRecords.Select((record, index) => new BaseCapturedMutationItem
                 {
@@ -2156,24 +2162,10 @@ public sealed partial class SqliteRecordStore
                     TransientBytes = _selectionRetainedBytes,
                 },
             };
-            return OperationResults.Ok(new BaseAtomicSelectionResult
-            {
-                MutationCapture = _capturedMutation,
-                Authority = selectionAuthority,
-                Records = selectedRecords,
-                ReadIntervals = [interval],
-                CanonicalOrderBoundary = boundary.ToImmutableArray(),
-                Accounting = new BaseAtomicSelectionAccounting
-                {
-                    SelectedRecords = selectedCount,
-                    SelectedBytes = bytes,
-                    ReadIntervals = 1,
-                    EvidenceBytes = boundary.LongLength,
-                },
-            });
+            return OperationResults.Ok(_capturedMutation);
         }
 
-        private static OperationResult<BaseAtomicSelectionResult> SelectionFailure(
+        private static OperationResult<BaseCapturedAtomicMutationAuthority> SelectionFailure(
             OperationStatus status, string code, ErrorCategory category) => new()
         {
             Status = status,

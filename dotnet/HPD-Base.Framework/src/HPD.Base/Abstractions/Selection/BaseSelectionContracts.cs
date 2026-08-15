@@ -235,36 +235,6 @@ public sealed record BaseSelectionOperationProfile
     public required BaseSelectionOperationLimits Limits { get; init; }
 }
 
-/// <summary>Defines the immutable selection limits passed to a provider session.</summary>
-public sealed record BaseAtomicSelectionLimits
-{
-    /// <summary>Gets the maximum records.</summary>
-    public required int MaximumRecords { get; init; }
-    /// <summary>Gets the maximum canonical record bytes.</summary>
-    public required long MaximumSelectedBytes { get; init; }
-    /// <summary>Gets the maximum disjoint logical read intervals.</summary>
-    public required int MaximumReadIntervals { get; init; }
-    /// <summary>Gets the maximum transient canonical bytes.</summary>
-    public required long MaximumTransientBytes { get; init; }
-    /// <summary>Gets the maximum transaction-local unique checks, including attribution probes.</summary>
-    public required int MaximumUniqueConstraintChecks { get; init; }
-}
-
-/// <summary>Binds a provider selection to one exact authority generation.</summary>
-public sealed record BaseAuthoritySnapshotRequirement
-{
-    /// <summary>Gets the application identifier.</summary>
-    public required string ApplicationId { get; init; }
-    /// <summary>Gets the store-instance identifier.</summary>
-    public required string StoreInstanceId { get; init; }
-    /// <summary>Gets the restore epoch.</summary>
-    public required long RestoreEpoch { get; init; }
-    /// <summary>Gets the schema generation.</summary>
-    public required long SchemaGeneration { get; init; }
-    /// <summary>Gets the collection generation.</summary>
-    public required long CollectionGeneration { get; init; }
-}
-
 /// <summary>Binds one collection to its exact authoritative generation.</summary>
 public sealed record BaseCollectionGenerationRequirement
 {
@@ -315,31 +285,8 @@ public sealed record BaseAtomicSelectionRequest
     public required CollectionDefinition Collection { get; init; }
     /// <summary>Gets the canonical policy-constrained query.</summary>
     public required RecordQuery Query { get; init; }
-    /// <summary>Gets the provider-enforced limits.</summary>
-    public required BaseAtomicSelectionLimits Limits { get; init; }
-    /// <summary>Gets the required authority generation.</summary>
-    public required BaseAuthoritySnapshotRequirement Authority { get; init; }
     /// <summary>Gets the canonical record codec version.</summary>
     public required int CanonicalRecordCodecVersion { get; init; }
-}
-
-/// <summary>Returns provider authority evidence for one selection.</summary>
-public sealed record BaseAuthoritySnapshotEvidence
-{
-    /// <summary>Gets the application identifier.</summary>
-    public required string ApplicationId { get; init; }
-    /// <summary>Gets the store-instance identifier.</summary>
-    public required string StoreInstanceId { get; init; }
-    /// <summary>Gets the restore epoch.</summary>
-    public required long RestoreEpoch { get; init; }
-    /// <summary>Gets the schema generation.</summary>
-    public required long SchemaGeneration { get; init; }
-    /// <summary>Gets the collection generation.</summary>
-    public required long CollectionGeneration { get; init; }
-    /// <summary>Gets the certified isolation class.</summary>
-    public required BaseAtomicSelectionIsolationClass Isolation { get; init; }
-    /// <summary>Gets the opaque transaction-local evidence token.</summary>
-    public required ImmutableArray<byte> TransactionEvidenceToken { get; init; }
 }
 
 /// <summary>Returns one normalized logical read interval.</summary>
@@ -389,23 +336,6 @@ public sealed record BaseSelectionMutationCommitAccounting
     public required long ResultBytes { get; init; }
     /// <summary>Gets aggregate retained transient canonical bytes.</summary>
     public required long TransientBytes { get; init; }
-}
-
-/// <summary>Returns one validated provider selection.</summary>
-public sealed record BaseAtomicSelectionResult
-{
-    /// <summary>Gets the single-use transaction-bound mutation capture for the selected records.</summary>
-    public required BaseCapturedAtomicMutationAuthority MutationCapture { get; init; }
-    /// <summary>Gets the authority evidence.</summary>
-    public required BaseAuthoritySnapshotEvidence Authority { get; init; }
-    /// <summary>Gets the deeply owned selected records.</summary>
-    public required ImmutableArray<BaseOwnedSelectedRecord> Records { get; init; }
-    /// <summary>Gets normalized logical read intervals.</summary>
-    public required ImmutableArray<BaseAtomicReadIntervalEvidence> ReadIntervals { get; init; }
-    /// <summary>Gets the canonical last examined ordering boundary.</summary>
-    public required ImmutableArray<byte> CanonicalOrderBoundary { get; init; }
-    /// <summary>Gets provider accounting.</summary>
-    public required BaseAtomicSelectionAccounting Accounting { get; init; }
 }
 
 /// <summary>Describes one provider's immutable L43 capability.</summary>

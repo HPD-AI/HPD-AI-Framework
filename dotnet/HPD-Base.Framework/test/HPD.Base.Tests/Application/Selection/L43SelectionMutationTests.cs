@@ -198,9 +198,13 @@ public sealed class L43SelectionMutationTests
     {
         CollectionDefinition collection = GeneratedProject.Collection.Definition;
         BaseSelectionOperationProfile profile = Profile("claim", BaseSelectionMutationKind.MergePatch);
-        BaseAuthoritySnapshotRequirement authority = new()
+        BaseAtomicMutationAuthorityRequirement authority = new()
         {
-            ApplicationId = profile.ApplicationId, StoreInstanceId = "authority", RestoreEpoch = 0, SchemaGeneration = 1, CollectionGeneration = 0,
+            ApplicationId = profile.ApplicationId,
+            StoreInstanceId = "authority",
+            RestoreEpoch = 0,
+            SchemaGeneration = 1,
+            Collections = [new BaseCollectionGenerationRequirement { CollectionId = collection.Id, CollectionGeneration = 0 }],
         };
         RecordQuery query = new()
         {
@@ -225,10 +229,10 @@ public sealed class L43SelectionMutationTests
         }];
         if (defect == "missing-interval") intervals = [];
         byte[] reportedBoundary = defect == "invalid-boundary" ? [0x7f] : boundary;
-        BaseAtomicSelectionResult baseline = new()
+        BaseValidatedSelection baseline = new()
         {
             MutationCapture = null!,
-            Authority = new BaseAuthoritySnapshotEvidence { ApplicationId = profile.ApplicationId, StoreInstanceId = "authority", RestoreEpoch = 0, SchemaGeneration = 1, CollectionGeneration = 0, Isolation = BaseAtomicSelectionIsolationClass.WriteOwningSerializable, TransactionEvidenceToken = [1] },
+            Authority = new BaseAtomicMutationAuthorityEvidence { ApplicationId = profile.ApplicationId, StoreInstanceId = "authority", RestoreEpoch = 0, SchemaGeneration = 1, Collections = [new BaseCollectionGenerationRequirement { CollectionId = collection.Id, CollectionGeneration = 0 }], Isolation = BaseAtomicSelectionIsolationClass.WriteOwningSerializable, TransactionEvidenceToken = [1] },
             Records = [first, second], ReadIntervals = intervals, CanonicalOrderBoundary = reportedBoundary.ToImmutableArray(),
             Accounting = new BaseAtomicSelectionAccounting { SelectedRecords = 2, SelectedBytes = first.CanonicalBytes + second.CanonicalBytes, ReadIntervals = intervals.Length, EvidenceBytes = intervals.Sum(interval => (long)interval.CanonicalLowerBound.Length + interval.CanonicalUpperBound.Length) },
         };

@@ -328,24 +328,6 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
     };
 
     /// <inheritdoc />
-    public ValueTask<OperationResult<BaseAuthoritySnapshotRequirement>> CaptureSelectionAuthorityAsync(
-        string applicationId,
-        CollectionDefinition collection,
-        CancellationToken cancellationToken = default)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        ArgumentNullException.ThrowIfNull(collection);
-        return ValueTask.FromResult(OperationResults.Ok(new BaseAuthoritySnapshotRequirement
-        {
-            ApplicationId = new string(applicationId.AsSpan()),
-            StoreInstanceId = new string(_options.StoreId.AsSpan()),
-            RestoreEpoch = 0,
-            SchemaGeneration = 1,
-            CollectionGeneration = Volatile.Read(ref _generation),
-        }));
-    }
-
-    /// <inheritdoc />
     public ValueTask<OperationResult<BaseAtomicMutationAuthorityRequirement>> CaptureAtomicMutationAuthorityRequirementAsync(
         string applicationId,
         ImmutableArray<CollectionDefinition> collections,
@@ -2563,6 +2545,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             ArgumentNullException.ThrowIfNull(request);
             BaseAtomicMutationIntent intent = request.Intent;
             BaseAtomicMutationExecutionLimits limits = request.Limits;
+            if (request.Kind == BaseAtomicMutationExecutionKind.SelectionMutation)
+                return ValueTask.FromResult(CaptureSelectionAuthority(request, token));
             if (request.Kind == BaseAtomicMutationExecutionKind.ModuleMutation)
                 return CaptureModuleAuthority(request, token);
             if (_capturedMutation is not null || request.Kind != BaseAtomicMutationExecutionKind.RecordMutations
@@ -3579,35 +3563,36 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             Error = new BaseError { Code = code, Message = "The subject mutation provider operation failed.", Category = category },
         };
 
-        /// <inheritdoc />
-        public ValueTask<OperationResult<BaseAtomicSelectionResult>> SelectAsync(
-            BaseAtomicSelectionRequest request,
-            CancellationToken cancellationToken = default) =>
-            ExecuteAsync(cancellationToken, token => ValueTask.FromResult(SelectCore(request, token)));
-
-        private OperationResult<BaseAtomicSelectionResult> SelectCore(
-            BaseAtomicSelectionRequest request,
+        private OperationResult<BaseCapturedAtomicMutationAuthority> CaptureSelectionAuthority(
+            BaseAtomicMutationCaptureRequest capture,
             CancellationToken cancellationToken)
         {
+            BaseAtomicSelectionRequest? request = capture.Selection?.Selection;
+            BaseAtomicMutationIntent intent = capture.Intent;
+            BaseAtomicMutationExecutionLimits limits = capture.Limits;
             ArgumentNullException.ThrowIfNull(request);
-            if (!string.Equals(request.Authority.StoreInstanceId, _owner._options.StoreId, StringComparison.Ordinal)
-                || request.Authority.RestoreEpoch != 0
-                || request.Authority.SchemaGeneration != 1
-                || request.Authority.CollectionGeneration != _owner._generation)
+            BaseCollectionGenerationRequirement? collectionAuthority = intent.Authority.Collections.SingleOrDefault(
+                value => string.Equals(value.CollectionId, request.Collection.Id, StringComparison.Ordinal));
+            if (_capturedMutation is not null || capture.Selection is null || capture.Module is not null
+                || !intent.Items.IsDefaultOrEmpty || collectionAuthority is null
+                || !string.Equals(intent.Authority.StoreInstanceId, _owner._options.StoreId, StringComparison.Ordinal)
+                || intent.Authority.RestoreEpoch != 0
+                || intent.Authority.SchemaGeneration != 1
+                || collectionAuthority.CollectionGeneration != _owner._generation)
             {
-                return SelectionFailure(
+                return SelectionFailure<BaseCapturedAtomicMutationAuthority>(
                     OperationStatus.ValidationFailed,
                     "base.provider.selection.authorityInvalid",
                     ErrorCategory.Validation);
             }
 
-            if (request.Limits.MaximumRecords < 1
-                || request.Limits.MaximumSelectedBytes < 1
-                || request.Limits.MaximumReadIntervals < 1
-                || request.Limits.MaximumTransientBytes < 1
+            if (limits.MaximumSelectedRecords < 1
+                || limits.MaximumSelectedBytes < 1
+                || limits.MaximumReadIntervals < 1
+                || limits.MaximumTransientBytes < 1
                 || request.CanonicalRecordCodecVersion < 1)
             {
-                return SelectionFailure(
+                return SelectionFailure<BaseCapturedAtomicMutationAuthority>(
                     OperationStatus.ValidationFailed,
                     "base.provider.selection.limitExceeded",
                     ErrorCategory.Validation);
@@ -3622,20 +3607,20 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 .Where(record => BaseRecordFilterMatcher.Matches(
                     RecordCloneHelpers.CloneEnvelope(record), request.Query.Filter))
                 .ToList();
-            QueryResult<List<StoredRecord>, BaseAtomicSelectionResult> sorted =
-                ApplySort<BaseAtomicSelectionResult>(records, request.Query.Sort);
+            QueryResult<List<StoredRecord>, BaseCapturedAtomicMutationAuthority> sorted =
+                ApplySort<BaseCapturedAtomicMutationAuthority>(records, request.Query.Sort);
             if (sorted.Result is { } sortFailure)
             {
-                return SelectionFailure(
+                return SelectionFailure<BaseCapturedAtomicMutationAuthority>(
                     OperationStatus.Unsupported,
                     "base.provider.selection.queryUnsupported",
                     ErrorCategory.Unsupported);
             }
 
-            int requested = request.Query.Page?.Limit ?? request.Limits.MaximumRecords;
-            if (requested < 1 || requested > request.Limits.MaximumRecords)
+            int requested = request.Query.Page?.Limit ?? limits.MaximumSelectedRecords;
+            if (requested < 1 || requested > limits.MaximumSelectedRecords)
             {
-                return SelectionFailure(
+                return SelectionFailure<BaseCapturedAtomicMutationAuthority>(
                     OperationStatus.ValidationFailed,
                     "base.provider.selection.limitExceeded",
                     ErrorCategory.Validation);
@@ -3649,10 +3634,10 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 BaseOwnedSelectedRecord frozen = BaseOwnedSelectedRecord.Freeze(
                     RecordCloneHelpers.CloneEnvelope(record), owned.Count, request.CanonicalRecordCodecVersion);
                 selectedBytes = checked(selectedBytes + frozen.CanonicalBytes);
-                if (selectedBytes > request.Limits.MaximumSelectedBytes
-                    || selectedBytes > request.Limits.MaximumTransientBytes)
+                if (selectedBytes > limits.MaximumSelectedBytes
+                    || selectedBytes > limits.MaximumTransientBytes)
                 {
-                    return SelectionFailure(
+                    return SelectionFailure<BaseCapturedAtomicMutationAuthority>(
                         OperationStatus.ValidationFailed,
                         "base.provider.selection.limitExceeded",
                         ErrorCategory.Validation);
@@ -3662,8 +3647,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
 
             byte[] boundary = owned.Count == 0 ? [] : BaseSelectionOrderTuple.Encode(owned[^1].MaterializeOwned(), request.Query.Sort!);
             _selectionRetainedBytes = checked(selectedBytes + boundary.LongLength);
-            if (_selectionRetainedBytes > request.Limits.MaximumTransientBytes)
-                return SelectionFailure(OperationStatus.ValidationFailed,
+            if (_selectionRetainedBytes > limits.MaximumTransientBytes)
+                return SelectionFailure<BaseCapturedAtomicMutationAuthority>(OperationStatus.ValidationFailed,
                     "base.provider.selection.limitExceeded", ErrorCategory.Validation);
             var interval = new BaseAtomicReadIntervalEvidence
             {
@@ -3675,38 +3660,37 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             };
             int selectedCount = owned.Count;
             ImmutableArray<BaseOwnedSelectedRecord> selectedRecords = owned.MoveToImmutable();
-            var selectionAuthority = new BaseAuthoritySnapshotEvidence
-            {
-                ApplicationId = request.Authority.ApplicationId,
-                StoreInstanceId = request.Authority.StoreInstanceId,
-                RestoreEpoch = 0,
-                SchemaGeneration = 1,
-                CollectionGeneration = _owner._generation,
-                Isolation = BaseAtomicSelectionIsolationClass.OptimisticRangeValidatedSerializable,
-                TransactionEvidenceToken = BitConverter.GetBytes(_working.GlobalMutationPosition).ToImmutableArray(),
-            };
-            byte[] selectionIntentBytes = System.Text.Encoding.UTF8.GetBytes($"hpd.base.selection-capture.v1\n{request.Authority.ApplicationId}\n{request.Collection.Id}\n{selectedCount}");
-            string selectionIntentDigest = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(selectionIntentBytes));
+            ImmutableArray<byte> transactionEvidence = BitConverter.GetBytes(_working.GlobalMutationPosition).ToImmutableArray();
             string selectionCaptureDigest = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
                 selectedRecords.SelectMany(static record => record.CopyCanonicalBytes()).Concat(boundary).ToArray()));
             _capturedMutation = new BaseCapturedAtomicMutationAuthority
             {
                 Kind = BaseAtomicMutationExecutionKind.SelectionMutation,
-                IntentDigest = selectionIntentDigest,
+                IntentDigest = new string(intent.IntentDigest.AsSpan()),
                 CaptureDigest = selectionCaptureDigest,
                 Authority = new BaseAtomicMutationAuthorityEvidence
                 {
-                    ApplicationId = selectionAuthority.ApplicationId,
-                    StoreInstanceId = selectionAuthority.StoreInstanceId,
-                    RestoreEpoch = selectionAuthority.RestoreEpoch,
-                    SchemaGeneration = selectionAuthority.SchemaGeneration,
+                    ApplicationId = intent.Authority.ApplicationId,
+                    StoreInstanceId = intent.Authority.StoreInstanceId,
+                    RestoreEpoch = 0,
+                    SchemaGeneration = 1,
                     Collections = [new BaseCollectionGenerationRequirement
                     {
                         CollectionId = request.Collection.Id,
-                        CollectionGeneration = selectionAuthority.CollectionGeneration,
+                        CollectionGeneration = _owner._generation,
                     }],
-                    Isolation = selectionAuthority.Isolation,
-                    TransactionEvidenceToken = selectionAuthority.TransactionEvidenceToken,
+                    Isolation = BaseAtomicSelectionIsolationClass.OptimisticRangeValidatedSerializable,
+                    TransactionEvidenceToken = transactionEvidence,
+                },
+                Selection = new BaseCapturedSelectionEvidence
+                {
+                    Records = selectedRecords,
+                    CanonicalOrderBoundary = boundary.ToImmutableArray(),
+                    Accounting = new BaseAtomicSelectionAccounting
+                    {
+                        SelectedRecords = selectedCount, SelectedBytes = selectedBytes,
+                        ReadIntervals = 1, EvidenceBytes = boundary.LongLength,
+                    },
                 },
                 Items = selectedRecords.Select((record, index) => new BaseCapturedMutationItem
                 {
@@ -3730,24 +3714,10 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     TransientBytes = _selectionRetainedBytes,
                 },
             };
-            return OperationResults.Ok(new BaseAtomicSelectionResult
-            {
-                MutationCapture = _capturedMutation,
-                Authority = selectionAuthority,
-                Records = selectedRecords,
-                ReadIntervals = [interval],
-                CanonicalOrderBoundary = boundary.ToImmutableArray(),
-                Accounting = new BaseAtomicSelectionAccounting
-                {
-                    SelectedRecords = selectedCount,
-                    SelectedBytes = selectedBytes,
-                    ReadIntervals = 1,
-                    EvidenceBytes = boundary.LongLength,
-                },
-            });
+            return OperationResults.Ok(_capturedMutation);
         }
 
-        private static OperationResult<BaseAtomicSelectionResult> SelectionFailure(
+        private static OperationResult<T> SelectionFailure<T>(
             OperationStatus status,
             string code,
             ErrorCategory category) => new()

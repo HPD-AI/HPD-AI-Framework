@@ -246,6 +246,8 @@ public sealed record BaseCapturedAtomicMutationAuthority
     public required string CaptureDigest { get; init; }
     /// <summary>Gets the authoritative snapshot evidence.</summary>
     public required BaseAtomicMutationAuthorityEvidence Authority { get; init; }
+    /// <summary>Gets L43 selection evidence only for a selection-mutation capture.</summary>
+    public BaseCapturedSelectionEvidence? Selection { get; init; }
     /// <summary>Gets dense captured items.</summary>
     public required ImmutableArray<BaseCapturedMutationItem> Items { get; init; }
     /// <summary>Gets dense module record captures.</summary>
@@ -258,6 +260,17 @@ public sealed record BaseCapturedAtomicMutationAuthority
     public required ImmutableArray<BaseAtomicReadIntervalEvidence> ReadIntervals { get; init; }
     /// <summary>Gets exact capture accounting.</summary>
     public required BaseAtomicCaptureAccounting Accounting { get; init; }
+}
+
+/// <summary>Contains the bounded selected records owned by one L43 capture.</summary>
+public sealed record BaseCapturedSelectionEvidence
+{
+    /// <summary>Gets deeply owned selected records in canonical order.</summary>
+    public required ImmutableArray<BaseOwnedSelectedRecord> Records { get; init; }
+    /// <summary>Gets the canonical last examined ordering boundary.</summary>
+    public required ImmutableArray<byte> CanonicalOrderBoundary { get; init; }
+    /// <summary>Gets exact selection accounting.</summary>
+    public required BaseAtomicSelectionAccounting Accounting { get; init; }
 }
 
 /// <summary>Contains one captured L50 record.</summary>

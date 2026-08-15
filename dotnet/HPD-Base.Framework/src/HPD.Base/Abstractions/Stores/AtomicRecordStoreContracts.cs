@@ -302,18 +302,6 @@ public interface IAtomicRecordStore : IRecordMutationStore
             Category = ErrorCategory.Unsupported,
         }));
 
-    /// <summary>Captures the provider's current authoritative generation requirement before execution.</summary>
-    ValueTask<OperationResult<BaseAuthoritySnapshotRequirement>> CaptureSelectionAuthorityAsync(
-        string applicationId,
-        CollectionDefinition collection,
-        CancellationToken cancellationToken = default) =>
-        ValueTask.FromResult(OperationResults.Unsupported<BaseAuthoritySnapshotRequirement>(new BaseError
-        {
-            Code = "base.provider.selection.queryUnsupported",
-            Message = "This provider does not expose transaction-bound selection authority.",
-            Category = ErrorCategory.Unsupported,
-        }));
-
     /// <summary>Executes the supplied processor in one provider-owned atomic transaction.</summary>
     /// <param name="processor">The fixed framework-owned processor to invoke.</param>
     /// <param name="request">The bounded execution lifetimes.</param>
@@ -356,20 +344,6 @@ public interface IAtomicRecordSession
         {
             Code = "base.provider.selection.accountingUnavailable",
             Message = "This provider cannot certify selection mutation accounting.",
-            Category = ErrorCategory.Unsupported,
-        }));
-
-    /// <summary>Selects one bounded, policy-constrained record set from this transaction's authority snapshot.</summary>
-    /// <param name="request">The immutable selection request and authority requirement.</param>
-    /// <param name="cancellationToken">Cancellation requested before confirmed commit.</param>
-    /// <returns>A deeply owned selection or a bounded provider failure.</returns>
-    ValueTask<OperationResult<BaseAtomicSelectionResult>> SelectAsync(
-        BaseAtomicSelectionRequest request,
-        CancellationToken cancellationToken = default) =>
-        ValueTask.FromResult(OperationResults.Unsupported<BaseAtomicSelectionResult>(new BaseError
-        {
-            Code = "base.provider.selection.queryUnsupported",
-            Message = "This provider session does not support transaction-bound selection.",
             Category = ErrorCategory.Unsupported,
         }));
 

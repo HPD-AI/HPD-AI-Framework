@@ -249,10 +249,11 @@ internal sealed class DefaultBaseProviderBootstrap(
             BaseSubjectValidationPlanReceipt receipt = receipts[index];
             if (!collections.TryGetValue(plan.PrivateCollectionId, out CollectionDefinition? privateCollection))
                 throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
-            OperationResult<BaseAuthoritySnapshotRequirement>? authority = requireDynamicAuthority
-                ? await atomicStore!.CaptureSelectionAuthorityAsync(
+            OperationResult<BaseAtomicMutationAuthorityRequirement>? authority = requireDynamicAuthority
+                ? await atomicStore!.CaptureAtomicMutationAuthorityRequirementAsync(
                     features.LogicalSchema.ApplicationId,
-                    privateCollection,
+                    [privateCollection],
+                    AuthorityAcquisitionLimits(),
                     cancellationToken).ConfigureAwait(false)
                 : null;
             if (!string.Equals(receipt.PlanId, plan.Id, StringComparison.Ordinal)
@@ -267,6 +268,50 @@ internal sealed class DefaultBaseProviderBootstrap(
                 throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
         }
     }
+
+    private static BaseAtomicMutationExecutionLimits AuthorityAcquisitionLimits() => new()
+    {
+        MaximumItems = 1,
+        MaximumQueryNodes = 1,
+        MaximumQueryDepth = 1,
+        MaximumLiteralValues = 1,
+        MaximumSelectedRecords = 1,
+        MaximumProducedMutations = 1,
+        MaximumQueryExecutions = 1,
+        MaximumPreviousStateRequirements = 1,
+        MaximumRecordCaptures = 1,
+        MaximumRelationTargetCaptures = 1,
+        MaximumGenerationReads = 1,
+        MaximumGenerationComparisons = 1,
+        MaximumGenerationIncrements = 1,
+        MaximumGuardNodes = 1,
+        MaximumGuardDepth = 1,
+        MaximumStatements = 1,
+        MaximumBranches = 1,
+        MaximumExpressionNodes = 1,
+        MaximumSelectedBytes = 1,
+        MaximumEvidenceBytes = 1,
+        MaximumTransientBytes = 1,
+        MaximumReadIntervals = 1,
+        MaximumSubjectValidations = 1,
+        MaximumAuthorityReads = 1,
+        MaximumRelationChecks = 1,
+        MaximumUniqueConstraintChecks = 1,
+        MaximumRequestBytes = 1,
+        MaximumGenerationBytes = 1,
+        MaximumWrittenBytes = 1,
+        MaximumFactBytes = 1,
+        MaximumJournalBytes = 1,
+        MaximumReceiptBytes = 1,
+        MaximumResultBytes = 1,
+        Deadlines = new BaseAtomicMutationDeadlines
+        {
+            AcquisitionTimeout = TimeSpan.FromSeconds(30),
+            TransactionTimeout = TimeSpan.FromSeconds(30),
+            CommitObservationTimeout = TimeSpan.FromSeconds(30),
+            ReceiptResolutionTimeout = TimeSpan.FromSeconds(30),
+        },
+    };
 
     private void ValidateAuthorityGraph()
     {

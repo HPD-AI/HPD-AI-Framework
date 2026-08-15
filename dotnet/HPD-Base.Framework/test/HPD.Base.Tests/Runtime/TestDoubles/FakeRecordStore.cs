@@ -109,22 +109,6 @@ internal class FakeRecordStore : IAtomicRecordStore
             : record;
     }
 
-    public ValueTask<OperationResult<BaseAuthoritySnapshotRequirement>> CaptureSelectionAuthorityAsync(
-        string applicationId,
-        CollectionDefinition collection,
-        CancellationToken cancellationToken = default)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(OperationResults.Ok(new BaseAuthoritySnapshotRequirement
-        {
-            ApplicationId = applicationId,
-            StoreInstanceId = Capabilities.StoreId,
-            RestoreEpoch = 0,
-            SchemaGeneration = 1,
-            CollectionGeneration = 1,
-        }));
-    }
-
     public ValueTask<OperationResult<BaseAtomicMutationAuthorityRequirement>> CaptureAtomicMutationAuthorityRequirementAsync(
         string applicationId,
         ImmutableArray<CollectionDefinition> collections,

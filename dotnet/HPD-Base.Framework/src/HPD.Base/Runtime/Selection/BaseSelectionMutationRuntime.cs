@@ -80,8 +80,13 @@ internal sealed class DefaultBaseSelectionMutationRuntime(
             || !CapabilitySupports(profile, capability))
             return Failure(OperationStatus.Unsupported, BaseSelectionErrorCodes.CapabilityMissing, ErrorCategory.Unsupported);
 
-        OperationResult<BaseAuthoritySnapshotRequirement> authority = await resolved.Value.AtomicStore
-            .CaptureSelectionAuthorityAsync(profile.ApplicationId, collection, cancellationToken).ConfigureAwait(false);
+        BaseAtomicMutationExecutionLimits captureLimits = CreateExecutionLimits(profile.Limits);
+        OperationResult<BaseAtomicMutationAuthorityRequirement> authority = await resolved.Value.AtomicStore
+            .CaptureAtomicMutationAuthorityRequirementAsync(
+                profile.ApplicationId,
+                [collection],
+                captureLimits,
+                cancellationToken).ConfigureAwait(false);
         if (!authority.IsSuccess() || authority.Value is null
             || string.IsNullOrWhiteSpace(authority.Value.StoreInstanceId))
             return Failure(OperationStatus.Conflict, BaseSelectionErrorCodes.SchemaGenerationChanged, ErrorCategory.Conflict);
@@ -144,6 +149,50 @@ internal sealed class DefaultBaseSelectionMutationRuntime(
             RequestDisposition = execution.RequestDisposition,
         }, OperationStatus.Ok, null, null, null, null);
     }
+
+    internal static BaseAtomicMutationExecutionLimits CreateExecutionLimits(BaseSelectionOperationLimits limits) => new()
+    {
+        MaximumItems = limits.MaximumProducedMutations,
+        MaximumQueryNodes = limits.MaximumQueryNodes,
+        MaximumQueryDepth = limits.MaximumQueryDepth,
+        MaximumLiteralValues = limits.MaximumLiteralValues,
+        MaximumSelectedRecords = limits.MaximumSelectedRecords,
+        MaximumProducedMutations = limits.MaximumProducedMutations,
+        MaximumQueryExecutions = limits.MaximumQueryExecutions,
+        MaximumPreviousStateRequirements = limits.MaximumPreviousStateRequirements,
+        MaximumRecordCaptures = 1,
+        MaximumRelationTargetCaptures = limits.MaximumProducedMutations,
+        MaximumGenerationReads = 1,
+        MaximumGenerationComparisons = 1,
+        MaximumGenerationIncrements = 1,
+        MaximumGuardNodes = 1,
+        MaximumGuardDepth = 1,
+        MaximumStatements = limits.MaximumProducedMutations,
+        MaximumBranches = 1,
+        MaximumExpressionNodes = 1,
+        MaximumSelectedBytes = limits.MaximumSelectedBytes,
+        MaximumEvidenceBytes = limits.MaximumTransientBytes,
+        MaximumTransientBytes = limits.MaximumTransientBytes,
+        MaximumReadIntervals = limits.MaximumReadIntervals,
+        MaximumSubjectValidations = limits.MaximumProducedMutations,
+        MaximumAuthorityReads = limits.MaximumReadIntervals,
+        MaximumRelationChecks = limits.MaximumProducedMutations,
+        MaximumUniqueConstraintChecks = limits.MaximumUniqueConstraintChecks,
+        MaximumRequestBytes = limits.MaximumTransientBytes,
+        MaximumGenerationBytes = 1,
+        MaximumWrittenBytes = limits.MaximumTransientBytes,
+        MaximumFactBytes = limits.MaximumTransientBytes,
+        MaximumJournalBytes = limits.MaximumTransientBytes,
+        MaximumReceiptBytes = limits.MaximumTransientBytes,
+        MaximumResultBytes = limits.MaximumTransientBytes,
+        Deadlines = new BaseAtomicMutationDeadlines
+        {
+            AcquisitionTimeout = limits.AcquisitionTimeout,
+            TransactionTimeout = limits.ExecutionTimeout,
+            CommitObservationTimeout = limits.CallerCommitObservationTimeout,
+            ReceiptResolutionTimeout = limits.CallerCommitObservationTimeout,
+        },
+    };
 
     private async ValueTask<BaseResult<bool>> AuthorizeSubjectValidationsAsync(
         BaseSession session,
@@ -364,6 +413,16 @@ internal sealed record BaseSelectionDigestInput
 [JsonSerializable(typeof(BaseSelectionDigestInput))]
 internal partial class BaseSelectionJsonSerializerContext : JsonSerializerContext;
 
+internal sealed record BaseValidatedSelection
+{
+    public required BaseCapturedAtomicMutationAuthority MutationCapture { get; init; }
+    public required BaseAtomicMutationAuthorityEvidence Authority { get; init; }
+    public required ImmutableArray<BaseOwnedSelectedRecord> Records { get; init; }
+    public required ImmutableArray<BaseAtomicReadIntervalEvidence> ReadIntervals { get; init; }
+    public required ImmutableArray<byte> CanonicalOrderBoundary { get; init; }
+    public required BaseAtomicSelectionAccounting Accounting { get; init; }
+}
+
 internal sealed class BaseSelectionMutationProcessor(
     PrincipalContext principal,
     OperationContext operation,
@@ -375,7 +434,7 @@ internal sealed class BaseSelectionMutationProcessor(
     IBasePolicyOrchestrator policy,
     BasePolicyEvaluation operationPolicy,
     BaseResolvedMutationStore store,
-    BaseAuthoritySnapshotRequirement authority,
+    BaseAtomicMutationAuthorityRequirement authority,
     BaseSubjectContractRegistry subjects) : IAtomicMutationProcessor
 {
     internal BaseSelectionMutationResult? Result { get; private set; }
@@ -439,31 +498,52 @@ internal sealed class BaseSelectionMutationProcessor(
         IAtomicRecordSession session,
         CancellationToken cancellationToken = default)
     {
-        OperationResult<BaseAtomicSelectionResult> selected = await session.SelectAsync(new BaseAtomicSelectionRequest
+        BaseAtomicMutationExecutionLimits captureLimits = DefaultBaseSelectionMutationRuntime.CreateExecutionLimits(profile.Limits);
+        string intentDigest = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes($"base.selection.capture.v1\0{profile.ApplicationId}\0{profile.Id}\0{profile.Version}\0{BaseSelectionProfileChecksum.Compute(profile)}")));
+        OperationResult<BaseCapturedAtomicMutationAuthority> capture = await session.CaptureAtomicMutationAuthorityAsync(new BaseAtomicMutationCaptureRequest
         {
-            Collection = collection,
-            Query = query,
-            Limits = new BaseAtomicSelectionLimits
+            Kind = BaseAtomicMutationExecutionKind.SelectionMutation,
+            Intent = new BaseAtomicMutationIntent
             {
-                MaximumRecords = profile.Limits.MaximumSelectedRecords,
-                MaximumSelectedBytes = profile.Limits.MaximumSelectedBytes,
-                MaximumReadIntervals = profile.Limits.MaximumReadIntervals,
-                MaximumTransientBytes = profile.Limits.MaximumTransientBytes,
-                MaximumUniqueConstraintChecks = profile.Limits.MaximumUniqueConstraintChecks,
+                IntentDigest = intentDigest,
+                Authority = authority,
+                Items = [],
             },
-            Authority = authority,
-            CanonicalRecordCodecVersion = 1,
+            Selection = new BaseSelectionMutationCaptureExtension
+            {
+                OperationProfileId = profile.Id,
+                OperationProfileVersion = profile.Version,
+                OperationProfileChecksum = BaseSelectionProfileChecksum.Compute(profile),
+                Selection = new BaseAtomicSelectionRequest
+                {
+                    Collection = collection,
+                    Query = query,
+                    CanonicalRecordCodecVersion = 1,
+                },
+            },
+            Limits = captureLimits,
         }, cancellationToken).ConfigureAwait(false);
-        if (!selected.IsSuccess() || selected.Value is null)
-            return Failed(MapProviderFailure(selected));
-        if (!ValidateSelection(selected.Value))
+        if (!capture.IsSuccess() || capture.Value?.Selection is null)
+            return Failed(MapProviderFailure(capture));
+        BaseCapturedAtomicMutationAuthority captured = capture.Value;
+        BaseCollectionGenerationRequirement collectionAuthority = captured.Authority.Collections.Single();
+        var selected = new BaseValidatedSelection
+        {
+            MutationCapture = captured,
+            Authority = captured.Authority,
+            Records = captured.Selection.Records,
+            ReadIntervals = captured.ReadIntervals,
+            CanonicalOrderBoundary = captured.Selection.CanonicalOrderBoundary,
+            Accounting = captured.Selection.Accounting,
+        };
+        if (!ValidateSelection(selected))
             return Failed("base.runtime.store.error", ErrorCategory.Store);
-        BaseCapturedAtomicMutationAuthority captured = selected.Value.MutationCapture;
-        if (!SelectionCaptureMatches(selected.Value, captured))
+        if (!SelectionCaptureMatches(selected, captured))
             return Failed(BaseSubjectErrorCodes.ProviderContractInvalid, ErrorCategory.Store);
-        var planItems = ImmutableArray.CreateBuilder<BaseAtomicMutationPlanItem>(selected.Value.Records.Length);
-        var policies = new List<BasePolicyEvaluation>(selected.Value.Records.Length + 1) { operationPolicy };
-        foreach (BaseOwnedSelectedRecord owned in selected.Value.Records)
+        var planItems = ImmutableArray.CreateBuilder<BaseAtomicMutationPlanItem>(selected.Records.Length);
+        var policies = new List<BasePolicyEvaluation>(selected.Records.Length + 1) { operationPolicy };
+        foreach (BaseOwnedSelectedRecord owned in selected.Records)
         {
             RecordEnvelope record = owned.MaterializeOwned();
             if (!PreviousStateMatches(record, previousState))
@@ -617,11 +697,7 @@ internal sealed class BaseSelectionMutationProcessor(
                 StoreInstanceId = authority.StoreInstanceId,
                 RestoreEpoch = authority.RestoreEpoch,
                 SchemaGeneration = authority.SchemaGeneration,
-                Collections = [new BaseCollectionGenerationRequirement
-                {
-                    CollectionId = collection.Id,
-                    CollectionGeneration = authority.CollectionGeneration,
-                }],
+                Collections = authority.Collections,
             },
             Items = finalized,
             SubjectValidations = subjectPlan.Value.Validations,
@@ -674,7 +750,7 @@ internal sealed class BaseSelectionMutationProcessor(
         }
         Result = new BaseSelectionMutationResult
         {
-            SelectedCount = selected.Value.Records.Length,
+            SelectedCount = selected.Records.Length,
             MutatedCount = facts.Length,
             Outcome = BaseRecordBatchOutcome.Committed,
         };
@@ -689,7 +765,7 @@ internal sealed class BaseSelectionMutationProcessor(
                     OperationProfileId = profile.Id,
                     OperationProfileVersion = profile.Version,
                     ReceiptScope = principal.CurrentTenantId ?? string.Empty,
-                    SelectedCount = selected.Value.Records.Length,
+                    SelectedCount = selected.Records.Length,
                     MutatedCount = facts.Length,
                     Outcome = BaseRecordBatchOutcome.Committed,
                 },
@@ -700,7 +776,7 @@ internal sealed class BaseSelectionMutationProcessor(
         return new AtomicMutationProcessingResult(AtomicMutationProcessingOutcome.ReadyToCommit, receipt);
     }
 
-    private bool SelectionCaptureMatches(BaseAtomicSelectionResult selection, BaseCapturedAtomicMutationAuthority captured)
+    private bool SelectionCaptureMatches(BaseValidatedSelection selection, BaseCapturedAtomicMutationAuthority captured)
     {
         if (captured.Items.Length != selection.Records.Length
             || captured.ReadIntervals.Length != selection.ReadIntervals.Length
@@ -708,7 +784,8 @@ internal sealed class BaseSelectionMutationProcessor(
             || captured.Authority.RestoreEpoch != selection.Authority.RestoreEpoch
             || captured.Authority.SchemaGeneration != selection.Authority.SchemaGeneration
             || captured.Authority.Collections.Length != 1
-            || captured.Authority.Collections[0].CollectionGeneration != selection.Authority.CollectionGeneration)
+            || selection.Authority.Collections.Length != 1
+            || captured.Authority.Collections[0].CollectionGeneration != selection.Authority.Collections[0].CollectionGeneration)
             return false;
         for (int index = 0; index < selection.Records.Length; index++)
         {
@@ -1117,13 +1194,13 @@ internal sealed class BaseSelectionMutationProcessor(
         && value.ResultBytes is >= 0 && value.ResultBytes <= limits.MaximumResultBytes
         && value.TransientBytes is >= 0 && value.TransientBytes <= limits.MaximumTransientBytes;
 
-    private bool ValidateSelection(BaseAtomicSelectionResult selected) =>
+    private bool ValidateSelection(BaseValidatedSelection selected) =>
         ValidateSelectionEvidence(selected, profile, authority, collection, query);
 
     internal static bool ValidateSelectionEvidence(
-        BaseAtomicSelectionResult selected,
+        BaseValidatedSelection selected,
         BaseSelectionOperationProfile profile,
-        BaseAuthoritySnapshotRequirement authority,
+        BaseAtomicMutationAuthorityRequirement authority,
         CollectionDefinition collection,
         RecordQuery query)
     {
@@ -1132,7 +1209,10 @@ internal sealed class BaseSelectionMutationProcessor(
             || !string.Equals(selected.Authority.StoreInstanceId, authority.StoreInstanceId, StringComparison.Ordinal)
             || selected.Authority.RestoreEpoch != authority.RestoreEpoch
             || selected.Authority.SchemaGeneration != authority.SchemaGeneration
-            || selected.Authority.CollectionGeneration != authority.CollectionGeneration
+            || authority.Collections.Length != 1
+            || !string.Equals(authority.Collections[0].CollectionId, collection.Id, StringComparison.Ordinal)
+            || selected.Authority.Collections.Length != 1
+            || selected.Authority.Collections[0].CollectionGeneration != authority.Collections[0].CollectionGeneration
             || selected.Records.Length > profile.Limits.MaximumSelectedRecords
             || selected.Accounting.SelectedRecords != selected.Records.Length
             || selected.Accounting.SelectedBytes < 0
@@ -1241,7 +1321,7 @@ internal sealed class BaseSelectionMutationProcessor(
         _ => false,
     };
 
-    private static BaseError MapProviderFailure(OperationResult<BaseAtomicSelectionResult> failure) => (failure.Status, failure.Error?.Code, failure.Error?.Category) switch
+    private static BaseError MapProviderFailure<T>(OperationResult<T> failure) => (failure.Status, failure.Error?.Code, failure.Error?.Category) switch
     {
         (OperationStatus.ValidationFailed, "base.provider.selection.limitExceeded", ErrorCategory.Validation) => Error(BaseSelectionErrorCodes.LimitExceeded, ErrorCategory.Validation),
         (OperationStatus.Conflict, "base.provider.selection.authorityChanged", ErrorCategory.Conflict) => Error(BaseSelectionErrorCodes.SchemaGenerationChanged, ErrorCategory.Conflict),
