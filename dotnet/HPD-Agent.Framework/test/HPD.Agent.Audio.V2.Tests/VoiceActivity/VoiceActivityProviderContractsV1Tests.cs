@@ -118,6 +118,28 @@ public sealed class VoiceActivityProviderContractsV1Tests
             plan.Provenance[nameof(ProviderClientConfig.ModelName)]);
     }
 
+    [Fact]
+    public void Generated_manifest_materializes_the_leaf_owned_provider_contract()
+    {
+        var composition = ProviderComposition.Create([
+            HPD.Agent.Providers.Generated
+                .HPD_Agent_Audio_V2_Tests_VoiceActivity_GeneratedVoiceActivityProviderProviderManifest.Fragment
+        ]);
+
+        Assert.True(composition.Descriptors.TryGet("audio-test-vad", out var descriptor));
+        var family = descriptor!.Families[ProviderClientFamily.VoiceActivityDetection];
+        var registration = composition.Runtime.GetFactory(
+            "audio-test-vad", ProviderClientFamily.VoiceActivityDetection);
+        var provider = Assert.IsAssignableFrom<IVoiceActivitySourceProviderV1>(registration.Factory());
+
+        Assert.Equal(ProviderFamilyLifetime.StatefulPerAudioSession, family.Lifetime);
+        Assert.Equal("test-vad", family.DefaultModelId);
+        Assert.IsType<VoiceActivitySourceProductV1.BorrowedSynchronous>(provider.CreateVoiceActivitySource(
+            new ProviderClientConfig { ProviderKey = "audio-test-vad", ModelName = "test-vad" },
+            new ProviderComponentLifetimeContext(AudioSessionId: "generated",
+                Lifetime: ProviderFamilyLifetime.StatefulPerAudioSession)));
+    }
+
     private sealed class Provider(Source source) : IVoiceActivitySourceProviderV1
     {
         internal Source Source => source;
@@ -200,4 +222,51 @@ public sealed class VoiceActivityProviderContractsV1Tests
         VoiceActivitySourceControlV1.Unsupported, VoiceActivitySourceControlV1.Unsupported,
         VoiceActivitySourceControlV1.Unsupported, VoiceActivitySourceControlV1.ReplacementRequired,
         true, false, 1);
+}
+
+[HpdProvider("audio-test-vad", "Audio test VAD")]
+[HpdProviderFamily(ProviderClientFamily.VoiceActivityDetection,
+    Lifetime = ProviderFamilyLifetime.StatefulPerAudioSession,
+    DefaultModelName = "test-vad")]
+internal sealed class GeneratedVoiceActivityProvider : IVoiceActivitySourceProviderV1
+{
+    public string ProviderKey => "audio-test-vad";
+    public string DisplayName => "Audio test VAD";
+    public VoiceActivitySourceProductV1 CreateVoiceActivitySource(ProviderClientConfig configuration,
+        ProviderComponentLifetimeContext context, IServiceProvider? services = null) =>
+        new VoiceActivitySourceProductV1.BorrowedSynchronous(new GeneratedSource());
+    public ProviderMetadata GetMetadata() => new()
+    {
+        ProviderKey = ProviderKey,
+        DisplayName = DisplayName,
+        Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
+        {
+            [ProviderClientFamily.VoiceActivityDetection] = new()
+            {
+                Family = ProviderClientFamily.VoiceActivityDetection,
+                Lifetime = ProviderFamilyLifetime.StatefulPerAudioSession,
+                DefaultModelId = "test-vad",
+            },
+        },
+    };
+    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family) =>
+        ProviderValidationResult.Success();
+    public IProviderErrorHandler CreateErrorHandler() => throw new NotSupportedException();
+
+    private sealed class GeneratedSource : IBorrowedSynchronousVoiceActivitySourceV1
+    {
+        public VoiceActivitySourceCapabilitiesV1 Capabilities { get; } = new(
+            VoiceActivityInputOwnershipV1.BorrowedSynchronous,
+            [new VoiceActivityInputFormatV1(VoiceActivitySampleEncodingV1.SignedPcm16, 16_000, 1)],
+            new VoiceActivityWindowCapabilityV1(TimeSpan.FromMilliseconds(10), TimeSpan.FromSeconds(1),
+                TimeSpan.FromMilliseconds(10), 1),
+            new VoiceActivityMeasurementDescriptorV1(VoiceActivityMeasurementKindV1.BinaryDecision,
+                new BoundedAscii("decision"), 0, 1, null),
+            VoiceActivitySourceStateModelV1.Stateless, VoiceActivitySourceConcurrencyV1.Serial,
+            VoiceActivitySourceControlV1.Unsupported, VoiceActivitySourceControlV1.Unsupported,
+            VoiceActivitySourceControlV1.Unsupported, VoiceActivitySourceControlV1.ReplacementRequired,
+            true, false, 1);
+        public VoiceActivitySourceOutcomeV1 Observe(scoped in VoiceActivityBorrowedWindowV1 window) =>
+            new VoiceActivitySourceOutcomeV1.NoObservation(VoiceActivityNoObservationReasonV1.Gap);
+    }
 }
