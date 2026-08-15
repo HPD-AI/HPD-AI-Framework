@@ -29,6 +29,9 @@ readonly tests="${root}/test/HPD.Agent.Audio.V2.Tests/HPD.Agent.Audio.V2.Tests.c
 readonly provider="${root}/src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.Silero/HPD-Agent.Providers.Audio.Silero.csproj"
 readonly smoke="${root}/test/HPD-Agent.Audio.VoiceActivity.AotSmoke/HPD-Agent.Audio.VoiceActivity.AotSmoke.csproj"
 
+"${root}/eng/verify-voice-activity-architecture.sh" >"${work}/architecture.log" 2>&1
+printf 'voice-activity-architecture=pass\n'
+
 for framework in net8.0 net9.0 net10.0; do
   HPD_SILERO_VAD_MODEL_PATH="${model}" dotnet test "${tests}" -f "${framework}" \
     --filter FullyQualifiedName~SileroAudioProviderV1Tests -v:q \
