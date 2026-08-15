@@ -1,5 +1,8 @@
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
+using Microsoft.Extensions.AI;
+
+#pragma warning disable MEAI001
 
 namespace HPD.Agent.Tests.Providers;
 
@@ -71,6 +74,30 @@ public sealed class ProviderTypedFamilyResolutionTests
         Assert.Equal("one", resolved.Configuration.CustomHeaders!["x-safe"]);
     }
 
+    [Fact]
+    public void Leaf_family_composition_preserves_existing_cross_family_precedence()
+    {
+        var registry = new ProviderRegistry();
+        var chat = new ChatFamilyProvider("same");
+        var audio = new AudioFamilyProvider("same");
+        var speech = new ExistingAudioFamiliesProvider("same");
+        registry.Register(chat);
+        registry.Register(speech);
+        registry.Register(audio);
+
+        Assert.Same(audio, registry.GetRequiredFamilyProvider<IAudioFamilyProvider>(
+            "same", ProviderClientFamily.VoiceActivityDetection));
+        Assert.Same(chat, registry.GetRequiredFamilyProvider<IChatClientProvider>(
+            "same", ProviderClientFamily.Chat));
+        Assert.Same(speech, registry.GetRequiredFamilyProvider<ISpeechToTextClientProvider>(
+            "same", ProviderClientFamily.SpeechToText));
+        Assert.Same(speech, registry.GetRequiredFamilyProvider<ITextToSpeechClientProvider>(
+            "same", ProviderClientFamily.TextToSpeech));
+        Assert.Same(speech, registry.GetRequiredFamilyProvider<IRealtimeClientProvider>(
+            "same", ProviderClientFamily.Realtime));
+        Assert.Single(registry.GetRegisteredProviders());
+    }
+
     private interface IAudioFamilyProvider : IProvider;
 
     private sealed class AudioFamilyProvider(
@@ -98,6 +125,33 @@ public sealed class ProviderTypedFamilyResolutionTests
             throw new NotSupportedException();
     }
 
+    private sealed class ExistingAudioFamiliesProvider(string key) :
+        ISpeechToTextClientProvider, ITextToSpeechClientProvider, IRealtimeClientProvider
+    {
+        public string ProviderKey => key;
+        public string DisplayName => key;
+        public ProviderMetadata GetMetadata() => new()
+        {
+            ProviderKey = key,
+            DisplayName = key,
+            Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
+            {
+                [ProviderClientFamily.SpeechToText] = new() { Family = ProviderClientFamily.SpeechToText },
+                [ProviderClientFamily.TextToSpeech] = new() { Family = ProviderClientFamily.TextToSpeech },
+                [ProviderClientFamily.Realtime] = new() { Family = ProviderClientFamily.Realtime },
+            },
+        };
+        public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family) =>
+            ProviderValidationResult.Success();
+        public IProviderErrorHandler CreateErrorHandler() => throw new NotSupportedException();
+        public ISpeechToTextClient CreateSpeechToTextClient(ProviderClientConfig config, IServiceProvider? services = null) =>
+            throw new NotSupportedException();
+        public ITextToSpeechClient CreateTextToSpeechClient(ProviderClientConfig config, IServiceProvider? services = null) =>
+            throw new NotSupportedException();
+        public IRealtimeClient CreateRealtimeClient(ProviderClientConfig config, IServiceProvider? services = null) =>
+            throw new NotSupportedException();
+    }
+
     private static ProviderMetadata Metadata(string key, ProviderClientFamily family,
         ProviderFamilyLifetime lifetime = ProviderFamilyLifetime.ReusableClient) => new()
     {
@@ -109,3 +163,4 @@ public sealed class ProviderTypedFamilyResolutionTests
         },
     };
 }
+#pragma warning restore MEAI001
