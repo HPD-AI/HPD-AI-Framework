@@ -11,5 +11,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.Silero/HPD-Agent.Providers.Audio.Silero.csproj" />
   </ItemGroup>
 </Project>

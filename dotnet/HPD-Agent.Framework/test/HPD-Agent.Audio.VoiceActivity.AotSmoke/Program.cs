@@ -4,6 +4,7 @@ using HPD.Agent.Audio.ProviderContracts.VoiceActivity;
 using HPD.Agent.Audio.VoiceActivity;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
+using HPD.Agent.Providers.Audio.Silero;
 
 var limits = new VoiceActivityOperationalLimitsV1(
     maximumSources: 2,
@@ -42,6 +43,40 @@ var product = VoiceActivitySourceProviderBindingV1.Create(provider,
         Lifetime: ProviderFamilyLifetime.StatefulPerAudioSession));
 if (product is not VoiceActivitySourceProductV1.BorrowedSynchronous)
     throw new InvalidOperationException("The typed provider product did not survive native binding.");
+
+var sileroModel = System.Environment.GetEnvironmentVariable("HPD_SILERO_VAD_MODEL_PATH");
+if (!string.IsNullOrWhiteSpace(sileroModel))
+{
+    using var silero = new SileroAudioProvider();
+    var sileroProduct = VoiceActivitySourceProviderBindingV1.Create(silero,
+        new ProviderClientConfig
+        {
+            ProviderKey = SileroAudioProvider.Key,
+            ModelName = "silero-vad-6.2",
+            ProviderConfig = new SileroVadOptions { ModelPath = sileroModel }
+        },
+        new ProviderComponentLifetimeContext(AudioSessionId: "native-silero",
+            Lifetime: ProviderFamilyLifetime.StatefulPerAudioSession));
+    var source = ((VoiceActivitySourceProductV1.BorrowedSynchronous)sileroProduct).Source;
+    var bytes = new byte[1_024];
+    var graph = HPD.Agent.Authority.GraphGenerationId.Create();
+    var clock = HPD.Agent.Authority.ClockDomainId.Create();
+    var boot = HPD.Agent.Authority.BootId.Create();
+    var soakText = System.Environment.GetEnvironmentVariable("HPD_SILERO_SOAK_WINDOWS");
+    var soakWindows = string.IsNullOrWhiteSpace(soakText) ? 1 : int.Parse(soakText, System.Globalization.CultureInfo.InvariantCulture);
+    if (soakWindows is < 1 or > 1_000_000)
+        throw new InvalidOperationException("HPD_SILERO_SOAK_WINDOWS must be between 1 and 1000000.");
+    for (var index = 1; index <= soakWindows; index++)
+    {
+        var outcome = source.Observe(new VoiceActivityBorrowedWindowV1(bytes,
+            new VoiceActivityInputFormatV1(VoiceActivitySampleEncodingV1.SignedPcm16, 16_000, 1),
+            new VoiceActivityMediaExtentV1(graph, (long)(index - 1) * 512, (long)index * 512, true),
+            new HPD.Agent.Authority.MonotonicStampV1(clock, boot, (ulong)index)));
+        if (outcome is not VoiceActivitySourceOutcomeV1.Observed)
+            throw new InvalidOperationException("The real Silero ONNX source did not execute under NativeAOT.");
+    }
+    (source as IDisposable)?.Dispose();
+}
 
 Console.WriteLine("voice-activity-aot=pass");
 
