@@ -11,12 +11,20 @@ readonly corpus="${directory}/test.wav"
 readonly corpus_temporary="${corpus}.download"
 readonly corpus_expected="89f17d9c94c4b31eb320f424628bcbc920abaddbee6e2760fd868bfb1d9a2e47"
 
+sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
 mkdir -p "${directory}"
-if [[ ! -f "${destination}" ]] || [[ "$(shasum -a 256 "${destination}" | awk '{print $1}')" != "${expected}" ]]; then
+if [[ ! -f "${destination}" ]] || [[ "$(sha256 "${destination}")" != "${expected}" ]]; then
   curl --fail --location --silent --show-error \
     "https://raw.githubusercontent.com/snakers4/silero-vad/${commit}/src/silero_vad/data/silero_vad.onnx" \
     --output "${temporary}"
-  readonly actual="$(shasum -a 256 "${temporary}" | awk '{print $1}')"
+  readonly actual="$(sha256 "${temporary}")"
   if [[ "${actual}" != "${expected}" ]]; then
     printf 'Silero model digest mismatch: expected %s, found %s\n' "${expected}" "${actual}" >&2
     exit 1
@@ -24,11 +32,11 @@ if [[ ! -f "${destination}" ]] || [[ "$(shasum -a 256 "${destination}" | awk '{p
   mv "${temporary}" "${destination}"
 fi
 
-if [[ ! -f "${corpus}" ]] || [[ "$(shasum -a 256 "${corpus}" | awk '{print $1}')" != "${corpus_expected}" ]]; then
+if [[ ! -f "${corpus}" ]] || [[ "$(sha256 "${corpus}")" != "${corpus_expected}" ]]; then
   curl --fail --location --silent --show-error \
     "https://raw.githubusercontent.com/snakers4/silero-vad/${commit}/tests/data/test.wav" \
     --output "${corpus_temporary}"
-  readonly corpus_actual="$(shasum -a 256 "${corpus_temporary}" | awk '{print $1}')"
+  readonly corpus_actual="$(sha256 "${corpus_temporary}")"
   if [[ "${corpus_actual}" != "${corpus_expected}" ]]; then
     printf 'Silero corpus digest mismatch: expected %s, found %s\n' "${corpus_expected}" "${corpus_actual}" >&2
     exit 1
