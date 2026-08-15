@@ -43,6 +43,21 @@ internal sealed class CompositeProvider :
         where TProvider : class, IProvider
         => _providers.Any(static provider => provider is TProvider);
 
+    internal TProvider GetTypedFamilyProvider<TProvider>(ProviderClientFamily family)
+        where TProvider : class, IProvider
+    {
+        for (var i = _providers.Count - 1; i >= 0; i--)
+        {
+            if (_providers[i] is TProvider provider &&
+                _providers[i].GetMetadata().Families.ContainsKey(family))
+                return provider;
+        }
+
+        throw new InvalidOperationException(
+            $"Provider '{ProviderKey}' is registered, but it does not implement '{typeof(TProvider).Name}' " +
+            $"for client family '{family}'.");
+    }
+
     public ValueTask<IChatClient> CreateChatClientAsync(
         ProviderClientConfig config,
         IServiceProvider? services = null,
