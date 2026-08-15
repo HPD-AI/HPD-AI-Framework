@@ -96,14 +96,40 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             OperationStatus.Updated, null, null, null, null);
     }
 
-    public ValueTask<BaseResult<BaseModuleMutationExecutionResult<TResult>>> ResolveAsync<TRequest, TResult>(
+    public async ValueTask<BaseResult<BaseModuleMutationExecutionResult<TResult>>> ResolveAsync<TRequest, TResult>(
         BaseSession session,
         BaseRegisteredModuleMutationDefinition definition,
         BaseGeneratedModuleMutationIdentity<TRequest, TResult> generatedIdentity,
         BaseMutationRequestIdentity identity,
-        CancellationToken cancellationToken) =>
-        ValueTask.FromResult<BaseResult<BaseModuleMutationExecutionResult<TResult>>>(
-            Failure<TResult>(OperationStatus.NotFound, BaseModuleMutationErrorCodes.ReceiptUnavailable, ErrorCategory.NotFound));
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(generatedIdentity);
+        ArgumentNullException.ThrowIfNull(identity);
+        CollectionDefinition[] authorityCollections;
+        try
+        {
+            authorityCollections = definition.SystemCollectionIds
+                .Select(id => collections.Collections.Values.Single(value => string.Equals(value.Id, id, StringComparison.Ordinal)))
+                .ToArray();
+        }
+        catch { return Failure<TResult>(OperationStatus.NotFound, BaseModuleMutationErrorCodes.ReceiptUnavailable, ErrorCategory.NotFound); }
+        IAtomicRecordStore? store = ResolveOneStore(authorityCollections);
+        if (store is null)
+            return Failure<TResult>(OperationStatus.NotFound, BaseModuleMutationErrorCodes.ReceiptUnavailable, ErrorCategory.NotFound);
+        var resolver = new BaseModuleMutationReceiptResolver<TResult>(definition, generatedIdentity.ResultTypeInfo);
+        RecordMutationExecutionResult resolution;
+        try
+        {
+            resolution = await store.ResolveAtomicReceiptAsync(
+                resolver, identity, definition.Limits.Deadlines.ReceiptResolutionTimeout, cancellationToken).ConfigureAwait(false);
+        }
+        catch { return Failure<TResult>(OperationStatus.NotFound, BaseModuleMutationErrorCodes.ReceiptUnavailable, ErrorCategory.NotFound); }
+        if (resolution.Outcome != RecordMutationExecutionOutcome.Committed || resolver.Result is null)
+            return Failure<TResult>(OperationStatus.NotFound, BaseModuleMutationErrorCodes.ReceiptUnavailable, ErrorCategory.NotFound);
+        return new BaseSuccess<BaseModuleMutationExecutionResult<TResult>>(resolver.Result, OperationStatus.Ok, null, null, null, null);
+    }
 
     private IAtomicRecordStore? ResolveOneStore(CollectionDefinition[] authorityCollections)
     {
@@ -196,4 +222,49 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         new(status, error, null, null);
     private static BaseError Error(string code, ErrorCategory category) => new() { Code = code, Message = "The registered module mutation could not be completed.", Category = category };
     private static string Digest(params string[] values) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\0', values)))).ToLowerInvariant();
+}
+
+internal sealed class BaseModuleMutationReceiptResolver<TResult>(
+    BaseRegisteredModuleMutationDefinition definition,
+    System.Text.Json.Serialization.Metadata.JsonTypeInfo<TResult> resultTypeInfo) : IAtomicMutationProcessor
+{
+    internal BaseModuleMutationExecutionResult<TResult>? Result { get; private set; }
+
+    public ValueTask<AtomicMutationProcessingResult> ProcessAsync(IAtomicRecordSession session, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(Failed());
+
+    public ValueTask<AtomicMutationProcessingResult> ResolveReceiptAsync(
+        BaseAtomicReceiptResult committedResult,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        BaseModuleMutationReceiptResult? module = committedResult.ModuleMutation;
+        if (committedResult.Kind != BaseAtomicReceiptResultKind.ModuleMutation || module is null
+            || !string.Equals(module.OperationId, definition.Id, StringComparison.Ordinal)
+            || module.OperationVersion != definition.Version)
+            return ValueTask.FromResult(Failed());
+        try
+        {
+            TResult? typed = JsonSerializer.Deserialize(module.CanonicalResultBytes.AsSpan(), resultTypeInfo);
+            if (typed is null) return ValueTask.FromResult(Failed());
+            Result = new BaseModuleMutationExecutionResult<TResult>
+            {
+                Disposition = BaseMutationRequestDisposition.Duplicate,
+                Outcome = BaseModuleMutationOutcome.Duplicate,
+                Result = typed,
+            };
+            return ValueTask.FromResult(new AtomicMutationProcessingResult(AtomicMutationProcessingOutcome.ReadyToCommit, committedResult));
+        }
+        catch { return ValueTask.FromResult(Failed()); }
+    }
+
+    private static AtomicMutationProcessingResult Failed() => new(
+        AtomicMutationProcessingOutcome.Failed,
+        [],
+        new BaseError
+        {
+            Code = BaseModuleMutationErrorCodes.ReceiptUnavailable,
+            Message = "The stored module mutation receipt cannot be resolved.",
+            Category = ErrorCategory.Authorization,
+        });
 }

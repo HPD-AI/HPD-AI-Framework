@@ -35,6 +35,8 @@ public sealed class BaseModuleProgramEvaluatorTests
             session, definition, identity, new GenerationRequest(), requestIdentity, null, default);
         BaseResult<BaseModuleMutationExecutionResult<GenerationResult>> duplicate = await runtime.ExecuteAsync(
             session, definition, identity, new GenerationRequest(), requestIdentity, null, default);
+        BaseResult<BaseModuleMutationExecutionResult<GenerationResult>> resolved = await runtime.ResolveAsync(
+            session, definition, identity, requestIdentity, default);
 
         first.Should().BeOfType<BaseSuccess<BaseModuleMutationExecutionResult<GenerationResult>>>(
             first is BaseFailure<BaseModuleMutationExecutionResult<GenerationResult>> failed ? failed.Error.Code : string.Empty);
@@ -44,6 +46,8 @@ public sealed class BaseModuleProgramEvaluatorTests
         first.RequireValue().Disposition.Should().Be(BaseMutationRequestDisposition.Committed);
         duplicate.RequireValue().Result.Generation.Should().Be("1");
         duplicate.RequireValue().Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
+        resolved.RequireValue().Result.Generation.Should().Be("1");
+        resolved.RequireValue().Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
     }
 
     [Fact]

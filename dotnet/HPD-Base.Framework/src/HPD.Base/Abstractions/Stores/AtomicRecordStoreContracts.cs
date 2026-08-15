@@ -282,6 +282,13 @@ public interface IRecordMutationStore : IRecordStore
 /// <summary>Provides a real grouped atomic mutation guarantee over one store instance.</summary>
 public interface IAtomicRecordStore : IRecordMutationStore
 {
+    /// <summary>Resolves one stored identified receipt without recapturing or re-executing mutation authority.</summary>
+    ValueTask<RecordMutationExecutionResult> ResolveAtomicReceiptAsync(
+        IAtomicMutationProcessor processor,
+        BaseMutationRequestIdentity identity,
+        TimeSpan resolutionTimeout,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Captures one coherent authority requirement for the exact collection set.</summary>
     ValueTask<OperationResult<BaseAtomicMutationAuthorityRequirement>> CaptureAtomicMutationAuthorityRequirementAsync(
         string applicationId,

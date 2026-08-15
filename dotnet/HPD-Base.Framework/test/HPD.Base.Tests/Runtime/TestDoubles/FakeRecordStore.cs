@@ -8,6 +8,21 @@ namespace HPD.Base.Tests;
 
 internal class FakeRecordStore : IAtomicRecordStore
 {
+    public virtual ValueTask<RecordMutationExecutionResult> ResolveAtomicReceiptAsync(
+        IAtomicMutationProcessor processor,
+        BaseMutationRequestIdentity identity,
+        TimeSpan resolutionTimeout,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(new RecordMutationExecutionResult(
+            RecordMutationExecutionOutcome.RollbackConfirmed,
+            processing: null,
+            new BaseError
+            {
+                Code = BaseMutationRequestErrorCodes.ReceiptUnavailable,
+                Message = "The stored mutation receipt cannot be resolved.",
+                Category = ErrorCategory.Authorization,
+            }));
+
     protected readonly Dictionary<string, RecordEnvelope> Records = new(StringComparer.Ordinal);
 
     public FakeRecordStore(

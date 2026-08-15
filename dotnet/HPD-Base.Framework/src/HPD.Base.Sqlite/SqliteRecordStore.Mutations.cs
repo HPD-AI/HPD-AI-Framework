@@ -28,6 +28,59 @@ public sealed partial class SqliteRecordStore
         CancellationToken cancellationToken = default) =>
         ExecuteMutationAsync(processor, request, cancellationToken);
 
+    /// <inheritdoc />
+    public async ValueTask<RecordMutationExecutionResult> ResolveAtomicReceiptAsync(
+        IAtomicMutationProcessor processor,
+        BaseMutationRequestIdentity identity,
+        TimeSpan resolutionTimeout,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(processor);
+        ArgumentNullException.ThrowIfNull(identity);
+        if (resolutionTimeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(resolutionTimeout));
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        lifetime.CancelAfter(resolutionTimeout);
+        try
+        {
+            await using SqliteConnection connection = await OpenInitializedAsync(lifetime.Token).ConfigureAwait(false);
+            await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(lifetime.Token).ConfigureAwait(false);
+            var request = new BaseAtomicMutationExecutionRequest
+            {
+                Identity = identity,
+                StructuralDigest = new byte[32],
+                ExpiresAt = _timeProvider.GetUtcNow().Add(resolutionTimeout),
+                MaxReceiptBytes = 4096,
+            };
+            SqliteMutationReceipt? receipt = await ReadReceiptAsync(connection, transaction, request, lifetime.Token).ConfigureAwait(false);
+            await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+            if (receipt is null || !CryptographicOperations.FixedTimeEquals(identity.Fingerprint.ToArray(), receipt.Fingerprint))
+                return FailedBeforeCommit(new BaseError
+                {
+                    Code = BaseMutationRequestErrorCodes.ReceiptUnavailable,
+                    Message = "The stored mutation receipt cannot be resolved.",
+                    Category = ErrorCategory.Authorization,
+                });
+            AtomicMutationProcessingResult resolved = await processor.ResolveReceiptAsync(receipt.Result, lifetime.Token).ConfigureAwait(false);
+            return resolved.Outcome == AtomicMutationProcessingOutcome.ReadyToCommit
+                ? new RecordMutationExecutionResult(RecordMutationExecutionOutcome.Committed, resolved)
+                  { RequestDisposition = BaseMutationRequestDisposition.Duplicate }
+                : new RecordMutationExecutionResult(RecordMutationExecutionOutcome.RollbackConfirmed, resolved, resolved.Error);
+        }
+        catch (OperationCanceledException)
+        {
+            return FailedBeforeCommit(new BaseError
+            {
+                Code = BaseMutationRequestErrorCodes.ReceiptUnavailable,
+                Message = "The stored mutation receipt cannot be resolved.",
+                Category = ErrorCategory.Authorization,
+            });
+        }
+        catch
+        {
+            return FailedBeforeCommit(ProviderError(SqliteErrorCodes.DatabaseUnavailable, "SQLite receipt resolution is unavailable."));
+        }
+    }
+
     private async ValueTask<RecordMutationExecutionResult> ExecuteMutationAsync(
         IAtomicMutationProcessor processor,
         RecordMutationExecutionRequest request,

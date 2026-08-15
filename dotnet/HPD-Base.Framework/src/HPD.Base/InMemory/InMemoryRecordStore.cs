@@ -751,6 +751,36 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         CancellationToken cancellationToken = default) =>
         ExecuteMutationAsync(processor, request, cancellationToken);
 
+    public async ValueTask<RecordMutationExecutionResult> ResolveAtomicReceiptAsync(
+        IAtomicMutationProcessor processor,
+        BaseMutationRequestIdentity identity,
+        TimeSpan resolutionTimeout,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(processor);
+        ArgumentNullException.ThrowIfNull(identity);
+        if (resolutionTimeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(resolutionTimeout));
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        lifetime.CancelAfter(resolutionTimeout);
+        InMemoryMutationReceipt? receipt;
+        await _stateGate.WaitAsync(lifetime.Token).ConfigureAwait(false);
+        try
+        {
+            _publishedState.Receipts.TryGetValue(ReceiptKey(identity), out receipt);
+            if (receipt is null || receipt.ExpiresAt <= _timeProvider.GetUtcNow()
+                || !CryptographicOperations.FixedTimeEquals(identity.Fingerprint.ToArray(), receipt.Fingerprint))
+                receipt = null;
+        }
+        finally { _stateGate.Release(); }
+        if (receipt is null)
+            return Rollback(BaseMutationRequestErrorCodes.ReceiptUnavailable, "The stored mutation receipt cannot be resolved.");
+        AtomicMutationProcessingResult resolved = await processor.ResolveReceiptAsync(receipt.Result, lifetime.Token).ConfigureAwait(false);
+        return resolved.Outcome == AtomicMutationProcessingOutcome.ReadyToCommit
+            ? new RecordMutationExecutionResult(RecordMutationExecutionOutcome.Committed, resolved)
+              { RequestDisposition = BaseMutationRequestDisposition.Duplicate }
+            : new RecordMutationExecutionResult(RecordMutationExecutionOutcome.RollbackConfirmed, resolved, resolved.Error);
+    }
+
     private async ValueTask<RecordMutationExecutionResult> ExecuteMutationAsync(
         IAtomicMutationProcessor processor,
         RecordMutationExecutionRequest request,

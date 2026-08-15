@@ -129,6 +129,16 @@ internal sealed record InMemoryMutationReceipt(
         Kind = result.Kind,
         Mutations = result.Mutations.Select(static fact => BaseOwnedMutationFact.Freeze(fact.MaterializeOwned(), fact.CodecVersion)).ToImmutableArray(),
         SelectionMutation = result.SelectionMutation is null ? null : result.SelectionMutation with { },
+        ModuleMutation = result.ModuleMutation is null ? null : result.ModuleMutation with
+        {
+            OperationId = new string(result.ModuleMutation.OperationId.AsSpan()),
+            Generations = result.ModuleMutation.Generations.Select(static generation => generation with
+            {
+                CaptureId = new string(generation.CaptureId.AsSpan()),
+                CellId = new string(generation.CellId.AsSpan()),
+            }).ToImmutableArray(),
+            CanonicalResultBytes = result.ModuleMutation.CanonicalResultBytes.ToArray().ToImmutableArray(),
+        },
     };
 }
 
