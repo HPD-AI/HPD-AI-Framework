@@ -8,6 +8,78 @@ namespace HPD.Agent.LiveAudio.Contracts.Tests;
 public sealed class GraphMediaResidenceV1Tests
 {
     [Fact]
+    public void Derived_copy_plans_without_mutation_then_commits_new_media_owner_and_residence_atomically()
+    {
+        var fixture = CreateControlledFixture();
+        Assert.True(GraphMediaBindingV1.TryCreate(0, 1_000, Id(210), 1, 16_000, 1, 2,
+            Id(211), 1, 0, GraphMediaDiscontinuityKindV1.ResetBefore, 400, 200, null, out var media));
+        var destinationKey = new GraphMediaOwnerKeyV1(Session(), Graph(), Id(212));
+        var destination = new GraphMediaOwnerRecordV1(fixture.Request.DestinationOwnerId,
+            destinationKey, media!, GraphMediaOwnerStateV1.Owned, 1);
+        var authority = fixture.Request with
+        {
+            RequestHash = GraphMediaResidenceLedgerV1.DerivedCopyHash(
+                fixture.Request, destination, fixture.Assignment, fixture.Source.Version),
+        };
+        var request = new GraphMediaDerivedResidenceRequestV1(authority, fixture.Source.Version,
+            destinationKey, media!);
+        var residenceBefore = fixture.Ledger.Fingerprint;
+        var ownershipBefore = fixture.Ownership.Fingerprint;
+
+        var planned = fixture.Ledger.PlanDerivedCopy(request, fixture.Ownership);
+
+        Assert.Equal(GraphMediaDerivedCopyResultV1.Planned, planned.Result);
+        Assert.Same(fixture.Ledger, planned.ResidenceLedger);
+        Assert.Same(fixture.Ownership, planned.OwnershipLedger);
+        Assert.Equal(residenceBefore, planned.ResidenceLedger.Fingerprint);
+        Assert.Equal(ownershipBefore, planned.OwnershipLedger.Fingerprint);
+
+        var committed = fixture.Ledger.CommitDerivedCopy(planned.Plan!, fixture.Ownership);
+        Assert.Equal(GraphMediaDerivedCopyResultV1.Committed, committed.Result);
+        Assert.NotEqual(residenceBefore, committed.ResidenceLedger.Fingerprint);
+        Assert.NotEqual(ownershipBefore, committed.OwnershipLedger.Fingerprint);
+        Assert.Equal(media, committed.OwnershipLedger.Owners[authority.DestinationOwnerId].Media);
+        Assert.Equal(GraphMediaResidenceStateV1.Visible, committed.Residence!.State);
+        Assert.Equal(media, committed.Residence.Media);
+        Assert.Equal(GraphMediaDerivedCopyResultV1.IdempotentCommitted,
+            committed.ResidenceLedger.PlanDerivedCopy(request, committed.OwnershipLedger).Result);
+        var changedVersion = request with { ExpectedSourceVersion = request.ExpectedSourceVersion + 1 };
+        Assert.Equal(GraphMediaDerivedCopyResultV1.ContradictoryDuplicate,
+            committed.ResidenceLedger.PlanDerivedCopy(changedVersion, committed.OwnershipLedger).Result);
+    }
+
+    [Fact]
+    public void Derived_copy_discard_and_active_borrow_leave_both_ledgers_byte_identical()
+    {
+        var fixture = CreateControlledFixture();
+        Assert.True(GraphMediaBindingV1.TryCreate(0, 1_000, Id(220), 1, 16_000, 1, 2,
+            Id(221), 1, 0, GraphMediaDiscontinuityKindV1.ResetBefore, 400, 200, null, out var media));
+        var destinationKey = new GraphMediaOwnerKeyV1(Session(), Graph(), Id(222));
+        var destination = new GraphMediaOwnerRecordV1(fixture.Request.DestinationOwnerId,
+            destinationKey, media!, GraphMediaOwnerStateV1.Owned, 1);
+        var authority = fixture.Request with
+        {
+            RequestHash = GraphMediaResidenceLedgerV1.DerivedCopyHash(
+                fixture.Request, destination, fixture.Assignment, fixture.Source.Version),
+        };
+        var request = new GraphMediaDerivedResidenceRequestV1(authority, fixture.Source.Version,
+            destinationKey, media!);
+        var planned = fixture.Ledger.PlanDerivedCopy(request, fixture.Ownership);
+        Assert.Equal(GraphMediaDerivedCopyResultV1.Planned, planned.Result);
+        Assert.Empty(fixture.Ledger.Residences);
+        Assert.Single(fixture.Ownership.Owners);
+
+        var borrowed = fixture.Ownership.Acquire(Session(), Graph(), fixture.Source.OwnerId, Id(223), Hash(224));
+        Assert.Equal(GraphMediaBorrowResultV1.Borrowed, borrowed.Result);
+        var residenceBefore = fixture.Ledger.Fingerprint;
+        var ownershipBefore = borrowed.Ledger.Fingerprint;
+        var rejected = fixture.Ledger.PlanDerivedCopy(request, borrowed.Ledger);
+        Assert.Equal(GraphMediaDerivedCopyResultV1.BorrowOutstanding, rejected.Result);
+        Assert.Equal(residenceBefore, rejected.ResidenceLedger.Fingerprint);
+        Assert.Equal(ownershipBefore, rejected.OwnershipLedger.Fingerprint);
+    }
+
+    [Fact]
     public void Explicit_unknown_ingress_requires_exact_schema_capacity_and_is_never_publishable()
     {
         var fixture = CreateQuarantineFixture(); var before = fixture.Ledger.Fingerprint;

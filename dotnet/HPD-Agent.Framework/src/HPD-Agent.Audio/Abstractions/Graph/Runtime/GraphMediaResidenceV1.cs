@@ -15,6 +15,8 @@ internal enum GraphMediaResidenceResultV1 : byte
 { Prepared, IdempotentPrepared, Visible, Reconciled, Quarantined, IdempotentQuarantined, OpaqueAdmitted, IdempotentOpaqueAdmitted, InvalidRequest, StaleGeneration, AuthorityMismatch, ContradictoryDuplicate, SourceNotFound, NotOwner, AlreadyDisposed, CapacityMismatch, CapacityAssignmentConflict, ResidenceLimitReached, OperationReceiptLimitReached, WrongState, OutcomeUnknown }
 internal enum GraphMediaFanoutResultV1 : byte
 { Prepared, IdempotentPrepared, Committed, Converged, Reconciled, Unwinding, InvalidRequest, StaleGeneration, ContradictoryDuplicate, SourceNotFound, NotOwner, AlreadyDisposed, DestinationOrderInvalid, DestinationCollision, ResidenceMismatch, CapacityMismatch, OwnerLimitReached, ResidenceLimitReached, OperationReceiptLimitReached, WrongState, OutcomeUnknown }
+internal enum GraphMediaDerivedCopyResultV1 : byte
+{ Planned, Committed, IdempotentCommitted, InvalidRequest, StaleGeneration, ContradictoryDuplicate, SourceNotFound, NotOwner, AlreadyDisposed, VersionConflict, BorrowOutstanding, DestinationCollision, AuthorityMismatch, CapacityMismatch, CapacityAssignmentConflict, OwnerLimitReached, ResidenceLimitReached, OperationReceiptLimitReached, WrongState }
 
 internal sealed record GraphMediaCapacityAssignmentV1(CapacityChargeV1 Charge, GraphMediaRepresentationArmV1 Arm);
 internal sealed record GraphMediaControlledResidenceV1(OperationId OperationId, Hash256 RequestHash,
@@ -65,6 +67,11 @@ internal sealed record GraphMediaControlledResidenceRequestV1(OperationId Operat
     BoundedAscii DestinationNodeKey, GraphMediaRepresentationArmV1 Arm,
     GraphParticipantBindingResultV2.Bound BindingResult,
     GraphParticipantBindingFoldQueryResultV2.Bound FoldBound, GraphParticipantBindingPlanEvidenceV2 Evidence);
+internal sealed record GraphMediaDerivedResidenceRequestV1(
+    GraphMediaControlledResidenceRequestV1 AuthorityEvidence,
+    ulong ExpectedSourceVersion,
+    GraphMediaOwnerKeyV1 DestinationOwnerKey,
+    GraphMediaBindingV1 DestinationMedia);
 internal sealed record GraphMediaFanoutRequestV1(OperationId OperationId, Hash256 RequestHash,
     StableId128 SourceOwnerId, ulong ExpectedSourceVersion, GraphMediaFanoutModeV1 Mode,
     IReadOnlyList<GraphMediaFanoutDestinationV1> Destinations);
@@ -73,6 +80,12 @@ internal sealed record GraphMediaResidenceTransitionV1(GraphMediaResidenceResult
 internal sealed record GraphMediaFanoutTransitionV1(GraphMediaFanoutResultV1 Result,
     GraphMediaResidenceLedgerV1 ResidenceLedger, GraphMediaOwnershipLedgerV1 OwnershipLedger,
     IReadOnlyList<StableId128> ReverseUnwindOwnerIds);
+internal sealed record GraphMediaDerivedCopyTransitionV1(
+    GraphMediaDerivedCopyResultV1 Result,
+    GraphMediaResidenceLedgerV1 ResidenceLedger,
+    GraphMediaOwnershipLedgerV1 OwnershipLedger,
+    GraphMediaResidenceLedgerV1.DerivedCopyPlan? Plan,
+    GraphMediaControlledResidenceV1? Residence);
 
 internal sealed class GraphMediaResidenceLedgerV1
 {
@@ -83,6 +96,18 @@ internal sealed class GraphMediaResidenceLedgerV1
     private readonly Dictionary<StableId128, GraphMediaOpaqueResidenceV1> _opaques;
     private readonly Dictionary<OperationId, GraphMediaResidenceReceiptV1> _receipts;
     private readonly Dictionary<OperationId, GraphMediaFanoutRecordV1> _fanouts;
+
+    internal sealed class DerivedCopyPlan
+    {
+        private readonly GraphMediaResidenceLedgerV1 _issuer;
+        internal DerivedCopyPlan(GraphMediaResidenceLedgerV1 issuer, GraphMediaDerivedResidenceRequestV1 request,
+            GraphMediaControlledResidenceV1 residence, Hash256 ownershipFingerprint)
+        { _issuer = issuer; Request = request; Residence = residence; OwnershipFingerprint = ownershipFingerprint; }
+        internal GraphMediaDerivedResidenceRequestV1 Request { get; }
+        internal GraphMediaControlledResidenceV1 Residence { get; }
+        internal Hash256 OwnershipFingerprint { get; }
+        internal bool WasIssuedBy(GraphMediaResidenceLedgerV1 value) => ReferenceEquals(_issuer, value);
+    }
 
     private GraphMediaResidenceLedgerV1(SessionAuthorityStampV1 session, GraphGenerationId graph,
         Dictionary<StableId128, GraphMediaControlledResidenceV1> residences,
@@ -229,6 +254,105 @@ internal sealed class GraphMediaResidenceLedgerV1
         var receipts = new Dictionary<OperationId, GraphMediaResidenceReceiptV1>(_receipts)
         { [request.OperationId] = new(request.OperationId, request.RequestHash, GraphMediaResidenceResultV1.Prepared) };
         return new(GraphMediaResidenceResultV1.Prepared, Next(residences, receipts, new(_fanouts)));
+    }
+
+    internal GraphMediaDerivedCopyTransitionV1 PlanDerivedCopy(
+        GraphMediaDerivedResidenceRequestV1 request,
+        GraphMediaOwnershipLedgerV1 ownership)
+    {
+        if (request is null || request.AuthorityEvidence is null || ownership is null ||
+            request.ExpectedSourceVersion == 0 || !request.DestinationOwnerKey.IsValid ||
+            request.DestinationMedia is null)
+            return DerivedFail(GraphMediaDerivedCopyResultV1.InvalidRequest, ownership!);
+        var evidence = request.AuthorityEvidence;
+        if (ownership.Session != Session || ownership.GraphGeneration != GraphGeneration ||
+            request.DestinationOwnerKey.Session != Session ||
+            request.DestinationOwnerKey.GraphGeneration != GraphGeneration)
+            return DerivedFail(GraphMediaDerivedCopyResultV1.StaleGeneration, ownership);
+        if (_receipts.TryGetValue(evidence.OperationId, out var retry))
+        {
+            if (retry.RequestHash != evidence.RequestHash)
+                return DerivedFail(GraphMediaDerivedCopyResultV1.ContradictoryDuplicate, ownership);
+            var existing = _residences.GetValueOrDefault(evidence.ResidenceId);
+            return existing is not null && existing.State == GraphMediaResidenceStateV1.Visible &&
+                ownership.Owners.TryGetValue(evidence.DestinationOwnerId, out var existingOwner) &&
+                existingOwner.Key == request.DestinationOwnerKey && existingOwner.Media == request.DestinationMedia &&
+                DerivedCopyHash(evidence, existingOwner, existing.Assignment, request.ExpectedSourceVersion) ==
+                    evidence.RequestHash
+                ? new(GraphMediaDerivedCopyResultV1.IdempotentCommitted, this, ownership, null, existing)
+                : DerivedFail(GraphMediaDerivedCopyResultV1.ContradictoryDuplicate, ownership);
+        }
+        if (!ownership.Owners.TryGetValue(evidence.SourceOwnerId, out var source))
+            return DerivedFail(GraphMediaDerivedCopyResultV1.SourceNotFound, ownership);
+        if (source.State == GraphMediaOwnerStateV1.Transferred)
+            return DerivedFail(GraphMediaDerivedCopyResultV1.NotOwner, ownership);
+        if (source.State == GraphMediaOwnerStateV1.Disposed)
+            return DerivedFail(GraphMediaDerivedCopyResultV1.AlreadyDisposed, ownership);
+        if (source.Version != request.ExpectedSourceVersion)
+            return DerivedFail(GraphMediaDerivedCopyResultV1.VersionConflict, ownership);
+        if (ownership.Borrows.Any(x => x.OwnerId.Equals(evidence.SourceOwnerId) && x.State == GraphMediaBorrowStateV1.Active))
+            return DerivedFail(GraphMediaDerivedCopyResultV1.BorrowOutstanding, ownership);
+        if (ownership.Owners.ContainsKey(evidence.DestinationOwnerId) || _residences.ContainsKey(evidence.ResidenceId))
+            return DerivedFail(GraphMediaDerivedCopyResultV1.DestinationCollision, ownership);
+        if (ownership.Owners.Count >= GraphMediaOwnershipLedgerV1.MaximumOwners)
+            return DerivedFail(GraphMediaDerivedCopyResultV1.OwnerLimitReached, ownership);
+        var destination = new GraphMediaOwnerRecordV1(evidence.DestinationOwnerId,
+            request.DestinationOwnerKey, request.DestinationMedia, GraphMediaOwnerStateV1.Owned, 1);
+        var authority = AuthenticateControlled(evidence, destination);
+        if (authority != GraphMediaResidenceResultV1.Prepared)
+            return DerivedFail(GraphMediaDerivedCopyResultV1.AuthorityMismatch, ownership);
+        var assignmentResult = SelectAssignment(evidence, request.DestinationMedia, out var assignment);
+        if (assignmentResult != GraphMediaResidenceResultV1.Prepared)
+            return DerivedFail(GraphMediaDerivedCopyResultV1.CapacityMismatch, ownership);
+        if (DerivedCopyHash(evidence, destination, assignment!, request.ExpectedSourceVersion) != evidence.RequestHash)
+            return DerivedFail(GraphMediaDerivedCopyResultV1.InvalidRequest, ownership);
+        if (_residences.Values.Any(x => x.State != GraphMediaResidenceStateV1.Released && x.Assignment == assignment))
+            return DerivedFail(GraphMediaDerivedCopyResultV1.CapacityAssignmentConflict, ownership);
+        if (_residences.Count + _quarantines.Count + _opaques.Count >= MaximumResidences ||
+            _residences.Values.Count(x => x.Class == GraphMediaResidenceClassV1.Controlled) >= MaximumControlled)
+            return DerivedFail(GraphMediaDerivedCopyResultV1.ResidenceLimitReached, ownership);
+        if (_receipts.Count >= GraphMediaOwnershipLedgerV1.MaximumReceipts)
+            return DerivedFail(GraphMediaDerivedCopyResultV1.OperationReceiptLimitReached, ownership);
+        var row = new GraphMediaControlledResidenceV1(evidence.OperationId, evidence.RequestHash,
+            evidence.ResidenceId, evidence.DestinationOwnerId, request.DestinationOwnerKey,
+            request.DestinationMedia, evidence.DestinationNodeKey, evidence.BindingResult.Binding.ParticipantId,
+            evidence.BindingResult.CommandPosition, evidence.BindingResult.FactPosition,
+            evidence.Evidence.PreGrantPlan.ReservationCommandPosition,
+            evidence.Evidence.PreGrantPlan.ReservationFactPosition, evidence.Evidence.GrantId,
+            evidence.Evidence.GrantedAt, evidence.Evidence.CurrentFact, evidence.Evidence.CoverageHashV2,
+            evidence.Evidence.TopologyFingerprint, evidence.Evidence.ExecutableFingerprint, assignment!,
+            GraphMediaResidenceClassV1.Controlled, GraphMediaResidenceStateV1.Prepared);
+        var plan = new DerivedCopyPlan(this, request, row, ownership.Fingerprint);
+        return new(GraphMediaDerivedCopyResultV1.Planned, this, ownership, plan, null);
+    }
+
+    internal GraphMediaDerivedCopyTransitionV1 CommitDerivedCopy(
+        DerivedCopyPlan plan,
+        GraphMediaOwnershipLedgerV1 ownership)
+    {
+        if (plan is null || ownership is null || !plan.WasIssuedBy(this) ||
+            ownership.Fingerprint != plan.OwnershipFingerprint)
+            return DerivedFail(GraphMediaDerivedCopyResultV1.WrongState, ownership!);
+        var request = plan.Request;
+        var evidence = request.AuthorityEvidence;
+        var derived = ownership.DeriveOwner(Session, GraphGeneration, evidence.SourceOwnerId,
+            request.ExpectedSourceVersion, evidence.DestinationOwnerId, request.DestinationOwnerKey,
+            request.DestinationMedia);
+        if (derived.Result != GraphMediaOwnershipBatchCopyResultV1.Copied)
+            return DerivedFail(derived.Result switch
+            {
+                GraphMediaOwnershipBatchCopyResultV1.BorrowOutstanding => GraphMediaDerivedCopyResultV1.BorrowOutstanding,
+                GraphMediaOwnershipBatchCopyResultV1.DestinationCollision => GraphMediaDerivedCopyResultV1.DestinationCollision,
+                GraphMediaOwnershipBatchCopyResultV1.OwnerLimitReached => GraphMediaDerivedCopyResultV1.OwnerLimitReached,
+                _ => GraphMediaDerivedCopyResultV1.WrongState,
+            }, ownership);
+        var visible = plan.Residence with { State = GraphMediaResidenceStateV1.Visible };
+        var residences = new Dictionary<StableId128, GraphMediaControlledResidenceV1>(_residences)
+        { [visible.ResidenceId] = visible };
+        var receipts = new Dictionary<OperationId, GraphMediaResidenceReceiptV1>(_receipts)
+        { [visible.OperationId] = new(visible.OperationId, visible.RequestHash, GraphMediaResidenceResultV1.Visible) };
+        var next = Next(residences, receipts, new(_fanouts));
+        return new(GraphMediaDerivedCopyResultV1.Committed, next, derived.Ledger, null, visible);
     }
 
     internal GraphMediaResidenceTransitionV1 Quarantine(GraphMediaQuarantineIngressRequestV1 request,
@@ -817,6 +941,22 @@ internal sealed class GraphMediaResidenceLedgerV1
         return Hash256.FromBytes(hash.GetHashAndReset());
     }
 
+    internal static Hash256 DerivedCopyHash(GraphMediaControlledResidenceRequestV1 request,
+        GraphMediaOwnerRecordV1 destination, GraphMediaCapacityAssignmentV1 assignment,
+        ulong expectedSourceVersion)
+    {
+        if (expectedSourceVersion == 0) throw new ArgumentOutOfRangeException(nameof(expectedSourceVersion));
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData("hpd-s2-graph-media-derived-copy-v1\0"u8);
+        var residenceHash = ResidenceHash(request, destination, assignment);
+        var residenceBytes = new byte[32];
+        if (!residenceHash.TryWriteBytes(residenceBytes)) throw new ArgumentException("A valid residence hash is required.");
+        var versionBytes = new byte[8]; BinaryPrimitives.WriteUInt64BigEndian(versionBytes, expectedSourceVersion);
+        Field(hash, "residenceHash"u8, residenceBytes);
+        Field(hash, "expectedSourceVersion"u8, versionBytes);
+        return Hash256.FromBytes(hash.GetHashAndReset());
+    }
+
     internal static Hash256 FanoutHash(GraphMediaFanoutRequestV1 request, GraphMediaOwnerRecordV1 source)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
@@ -876,6 +1016,10 @@ internal sealed class GraphMediaResidenceLedgerV1
         return source.State == expectedSourceState ? 1 : -1;
     }
     private GraphMediaResidenceTransitionV1 ResidenceFail(GraphMediaResidenceResultV1 result) => new(result, this);
+
+    private GraphMediaDerivedCopyTransitionV1 DerivedFail(
+        GraphMediaDerivedCopyResultV1 result,
+        GraphMediaOwnershipLedgerV1 ownership) => new(result, this, ownership, null, null);
     private GraphMediaFanoutTransitionV1 FanoutFail(GraphMediaFanoutResultV1 result, GraphMediaOwnershipLedgerV1 ownership) => new(result, this, ownership, []);
     private GraphMediaResidenceLedgerV1 Next(Dictionary<StableId128, GraphMediaControlledResidenceV1> residences,
         Dictionary<OperationId, GraphMediaResidenceReceiptV1> receipts,

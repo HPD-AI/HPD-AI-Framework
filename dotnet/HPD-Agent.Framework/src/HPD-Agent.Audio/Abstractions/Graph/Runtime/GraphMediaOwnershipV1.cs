@@ -324,6 +324,43 @@ internal sealed class GraphMediaOwnershipLedgerV1
         return new(GraphMediaOwnershipBatchCopyResultV1.Copied,
             Next(owners, new(_borrows), new(_receipts), new(_tombstones)));
     }
+
+    internal GraphMediaOwnershipBatchCopyTransitionV1 DeriveOwner(
+        SessionAuthorityStampV1 session,
+        GraphGenerationId graph,
+        StableId128 sourceId,
+        ulong expectedSourceVersion,
+        StableId128 destinationId,
+        GraphMediaOwnerKeyV1 destinationKey,
+        GraphMediaBindingV1 destinationMedia)
+    {
+        if (!session.IsValid || !graph.IsValid || sourceId.Equals(default) || destinationId.Equals(default) ||
+            sourceId.Equals(destinationId) || !destinationKey.IsValid || destinationMedia is null)
+            return CopyFail(GraphMediaOwnershipBatchCopyResultV1.InvalidRequest);
+        if (session != Session || graph != GraphGeneration || destinationKey.Session != session ||
+            destinationKey.GraphGeneration != graph)
+            return CopyFail(GraphMediaOwnershipBatchCopyResultV1.StaleGeneration);
+        if (!_owners.TryGetValue(sourceId, out var source))
+            return CopyFail(GraphMediaOwnershipBatchCopyResultV1.SourceNotFound);
+        if (source.State == GraphMediaOwnerStateV1.Transferred)
+            return CopyFail(GraphMediaOwnershipBatchCopyResultV1.NotOwner);
+        if (source.State == GraphMediaOwnerStateV1.Disposed)
+            return CopyFail(GraphMediaOwnershipBatchCopyResultV1.AlreadyDisposed);
+        if (source.Version != expectedSourceVersion)
+            return CopyFail(GraphMediaOwnershipBatchCopyResultV1.NotOwner);
+        if (_borrows.Values.Any(x => x.OwnerId.Equals(sourceId) && x.State == GraphMediaBorrowStateV1.Active))
+            return CopyFail(GraphMediaOwnershipBatchCopyResultV1.BorrowOutstanding);
+        if (_owners.ContainsKey(destinationId))
+            return CopyFail(GraphMediaOwnershipBatchCopyResultV1.DestinationCollision);
+        if (_owners.Count >= MaximumOwners)
+            return CopyFail(GraphMediaOwnershipBatchCopyResultV1.OwnerLimitReached);
+        var owners = new Dictionary<StableId128, GraphMediaOwnerRecordV1>(_owners)
+        {
+            [destinationId] = new(destinationId, destinationKey, destinationMedia, GraphMediaOwnerStateV1.Owned, 1),
+        };
+        return new(GraphMediaOwnershipBatchCopyResultV1.Copied,
+            Next(owners, new(_borrows), new(_receipts), new(_tombstones)));
+    }
     private static bool Strict<T>(IReadOnlyList<T> values, Func<T, byte[]> bytes)
     { for (var i = 0; i < values.Count; i++) { var current = bytes(values[i]); if (current.Length != 16 || (i > 0 && ByteArrayComparer.Instance.Compare(bytes(values[i - 1]), current) >= 0)) return false; } return true; }
     private static byte[] Write(StableId128 x) { var b = new byte[16]; return x.TryWriteBytes(b) ? b : []; }
