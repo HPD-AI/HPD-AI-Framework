@@ -1431,7 +1431,7 @@ HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphGener
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphMutationCommandV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphReplacementCommandV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphReplacementFactV1
-HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphReplacementOwnerPayloadV1
+HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphOwnerPayloadV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphReplacementSnapshotV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphRuntimeCommandV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphRuntimeOwnerPayloadV1
@@ -1709,7 +1709,7 @@ hpd.authority-owner-payload.v1|31|TransportAdapterCommand|hpd.authority-payload-
 hpd.authority-owner-payload.v1|32|TransportAdapterReceipt|hpd.authority-payload-transport-adapter-receipt.v1|TransportAdapterReceiptV1|S11
 hpd.authority-owner-payload.v1|33|TransportGenerationChanged|hpd.authority-payload-transport-generation-changed.v1|TransportGenerationChangedOuterV1|S11
 hpd.authority-owner-payload.v1|34|GraphTopologyInstalledFact|hpd.authority-payload-graph-topology-installed-fact.v1|GraphTopologyInstalledFactV1|S2
-hpd.authority-owner-payload.v1|35|GraphReplacementFact|hpd.authority-payload-graph-replacement-fact.v1|GraphReplacementOwnerPayloadV1|S2
+hpd.authority-owner-payload.v1|35|GraphReplacementFact|hpd.authority-payload-graph-replacement-fact.v1|GraphOwnerPayloadV1|S2
 hpd.authority-owner-payload.v1|36|GraphRuntimeCommand|hpd.authority-payload-graph-runtime-command.v1|GraphRuntimeOwnerPayloadV1|S2
 hpd.authority-owner-payload.v1|37|GraphRuntimeFact|hpd.authority-payload-graph-runtime-fact.v1|GraphRuntimeOwnerPayloadV1|S2
 hpd.authority-owner-payload.v1|38|GraphParticipantReservationCommand|hpd.authority-payload-graph-participant-reservation-command.v1|GraphParticipantReservationCommandV1|S1

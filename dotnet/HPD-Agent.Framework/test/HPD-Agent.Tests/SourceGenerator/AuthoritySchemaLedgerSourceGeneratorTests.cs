@@ -57,7 +57,7 @@ public sealed class AuthoritySchemaLedgerSourceGeneratorTests
         Assert.Contains("hpd.authority-owner-payload.v1|46|GraphMediaPhysicalReleaseFact|hpd.authority-payload-graph-media-physical-release-fact.v1|GraphMediaPhysicalReleaseOuterV1|S1",ledger,StringComparison.Ordinal);
         Assert.Contains("hpd.authority-owner-payload.v1|47|GraphMediaWorkExecutionCommand|hpd.authority-payload-graph-media-work-execution-command.v1|GraphMediaWorkExecutionOuterV1|S1",ledger,StringComparison.Ordinal);
         Assert.Contains("hpd.authority-owner-payload.v1|48|GraphMediaWorkExecutionFact|hpd.authority-payload-graph-media-work-execution-fact.v1|GraphMediaWorkExecutionOuterV1|S1",ledger,StringComparison.Ordinal);
-        Assert.Equal("508a4901abc14cb4be4b85c39d5a94632672a908fee686792262c28d568ff4c7",Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(ledger))).ToLowerInvariant());
+        Assert.Equal("51234c013290d417d0795769a6b633ea8357b6946a76f8c025feaa00f1fd0853",Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(ledger))).ToLowerInvariant());
         Assert.Empty(result.Diagnostics);
         Assert.Single(result.GeneratedTrees);
     }
