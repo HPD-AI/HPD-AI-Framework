@@ -24,19 +24,25 @@ public sealed class BaseGeneratedModuleMutationIdentity<TRequest, TResult> : IBa
 {
     private System.Text.Json.Serialization.Metadata.JsonTypeInfo<TRequest>? _request;
     private System.Text.Json.Serialization.Metadata.JsonTypeInfo<TResult>? _result;
+    private readonly IReadOnlyDictionary<string, BaseModuleDtoPropertyBinding> _requestBindings;
+    private readonly IReadOnlyDictionary<string, BaseModuleDtoPropertyBinding> _resultBindings;
 
     internal BaseGeneratedModuleMutationIdentity(
         string id,
         int version,
         byte[] checksum,
         BaseSerializerContextRegistration registration,
-        IReadOnlyList<BaseSerializerPropertyDeclaration> declarations)
+        IReadOnlyList<BaseSerializerPropertyDeclaration> declarations,
+        IReadOnlyList<BaseModuleDtoPropertyBinding> requestBindings,
+        IReadOnlyList<BaseModuleDtoPropertyBinding> resultBindings)
     {
         Id = id;
         Version = version;
         Checksum = checksum;
         Registration = registration;
         Declarations = declarations;
+        _requestBindings = FreezeBindings(requestBindings);
+        _resultBindings = FreezeBindings(resultBindings);
     }
     internal string Id { get; }
     internal int Version { get; }
@@ -45,6 +51,8 @@ public sealed class BaseGeneratedModuleMutationIdentity<TRequest, TResult> : IBa
         _request ?? throw new InvalidOperationException("base.schema.serializer.ownerRequired");
     internal System.Text.Json.Serialization.Metadata.JsonTypeInfo<TResult> ResultTypeInfo =>
         _result ?? throw new InvalidOperationException("base.schema.serializer.ownerRequired");
+    internal IReadOnlyDictionary<string, BaseModuleDtoPropertyBinding> RequestBindings => _requestBindings;
+    internal IReadOnlyDictionary<string, BaseModuleDtoPropertyBinding> ResultBindings => _resultBindings;
     private BaseSerializerContextRegistration Registration { get; }
     private IReadOnlyList<BaseSerializerPropertyDeclaration> Declarations { get; }
     IReadOnlyList<System.Text.Json.Serialization.Metadata.JsonTypeInfo> IBaseSerializerMetadataSource.Roots => [];
@@ -60,6 +68,37 @@ public sealed class BaseGeneratedModuleMutationIdentity<TRequest, TResult> : IBa
         _result = owner.Resolve(this, typeof(TResult)) as System.Text.Json.Serialization.Metadata.JsonTypeInfo<TResult>
             ?? throw new InvalidOperationException("base.schema.serializer.ownerRequired");
     }
+
+    private static IReadOnlyDictionary<string, BaseModuleDtoPropertyBinding> FreezeBindings(
+        IReadOnlyList<BaseModuleDtoPropertyBinding> bindings)
+    {
+        ArgumentNullException.ThrowIfNull(bindings);
+        var result = new Dictionary<string, BaseModuleDtoPropertyBinding>(StringComparer.Ordinal);
+        foreach (BaseModuleDtoPropertyBinding binding in bindings)
+        {
+            BaseApplicationId.Validate(binding.StablePropertyId, nameof(bindings));
+            if (binding.DeclaringType is null
+                || string.IsNullOrWhiteSpace(binding.ApplicationName)
+                || !result.TryAdd(binding.StablePropertyId, binding with
+                {
+                    StablePropertyId = new string(binding.StablePropertyId.AsSpan()),
+                    ApplicationName = new string(binding.ApplicationName.AsSpan()),
+                }))
+                throw new InvalidOperationException("base.moduleMutation.invalid");
+        }
+        return result;
+    }
+}
+
+/// <summary>Binds one stable DTO property identity to exact graph-owned serializer metadata.</summary>
+public sealed record BaseModuleDtoPropertyBinding
+{
+    /// <summary>Gets the globally stable property edge identity.</summary>
+    public required string StablePropertyId { get; init; }
+    /// <summary>Gets the declaring DTO type.</summary>
+    public required Type DeclaringType { get; init; }
+    /// <summary>Gets the exact application property identity.</summary>
+    public required string ApplicationName { get; init; }
 }
 
 /// <summary>Infrastructure-only factory used by generated module mutation declarations.</summary>
@@ -72,14 +111,18 @@ public static class BaseGeneratedModuleMutations
         int version,
         ReadOnlySpan<byte> checksum,
         BaseSerializerContextRegistration registration,
-        IReadOnlyList<BaseSerializerPropertyDeclaration> declarations)
+        IReadOnlyList<BaseSerializerPropertyDeclaration> declarations,
+        IReadOnlyList<BaseModuleDtoPropertyBinding> requestBindings,
+        IReadOnlyList<BaseModuleDtoPropertyBinding> resultBindings)
     {
         ArgumentNullException.ThrowIfNull(registration);
         ArgumentNullException.ThrowIfNull(declarations);
+        ArgumentNullException.ThrowIfNull(requestBindings);
+        ArgumentNullException.ThrowIfNull(resultBindings);
         BaseApplicationId.Validate(id, nameof(id));
         if (version < 1 || checksum.Length != BaseModuleMutationChecksum.Length)
             throw new InvalidOperationException("base.moduleMutation.invalid");
-        return new(new string(id.AsSpan()), version, checksum.ToArray(), registration, declarations.ToArray());
+        return new(new string(id.AsSpan()), version, checksum.ToArray(), registration, declarations.ToArray(), requestBindings.ToArray(), resultBindings.ToArray());
     }
 }
 

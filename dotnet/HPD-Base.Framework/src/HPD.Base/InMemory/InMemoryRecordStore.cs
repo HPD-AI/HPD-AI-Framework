@@ -883,6 +883,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 processing.Error);
         }
 
+        if (!session.ValidateCommitFinalization(processing))
+            return Rollback(BaseSubjectErrorCodes.ProviderContractInvalid, "The mutation commit finalization was invalid.", processing);
+
         if (request.AtomicRequest is { } identified)
         {
             int receiptBytes = JsonSerializer.SerializeToUtf8Bytes(
@@ -2470,8 +2473,10 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         private BaseCapturedAtomicMutationAuthority? _capturedMutation;
         private BasePreparedAtomicMutation? _preparedMutation;
         private BaseAtomicMutationPlan? _preparedPlan;
+        private BaseProvisionalAppliedAtomicMutation? _appliedProvisional;
         private Dictionary<int, BaseSubjectIncarnation>? _preparedLifecycleIncarnations;
         private Dictionary<int, string>? _capturedModuleGenerationKeys;
+        private BaseModuleMutationCaptureExtension? _capturedModuleExtension;
         public ValueTask<OperationResult<BaseSelectionMutationCommitAccounting>> MeasureSelectionMutationAsync(
             BaseAtomicReceiptResult receipt, BaseSelectionMutationResult result, CancellationToken cancellationToken = default)
         {
@@ -2669,6 +2674,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 || module.Generations.Length > limits.MaximumGenerationReads
                 || !AuthorityCollectionsMatch(intent.Authority.Collections, module, _owner._generation))
                 return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.ProviderContractInvalid));
+            _capturedModuleExtension = module;
 
             var records = ImmutableArray.CreateBuilder<BaseCapturedModuleRecord>(module.Records.Length);
             var relations = ImmutableArray.CreateBuilder<BaseCapturedModuleRelationTarget>(module.RelationTargets.Length);
@@ -3223,13 +3229,13 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             return wireName is not null && record.Payload.Fields?.TryGetValue(wireName, out value) == true;
         }
 
-        public ValueTask<OperationResult<BaseAppliedAtomicMutation>> ApplyPreparedAtomicMutationAsync(
+        public ValueTask<OperationResult<BaseProvisionalAppliedAtomicMutation>> ApplyPreparedAtomicMutationAsync(
             BasePreparedAtomicMutation prepared,
             CancellationToken cancellationToken = default) => ExecuteAsync(cancellationToken, async token =>
         {
             token.ThrowIfCancellationRequested();
             if (!ReferenceEquals(prepared, _preparedMutation) || _preparedPlan is null)
-                return SubjectFailure<BaseAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
 
             BaseAtomicMutationPlan plan = _preparedPlan;
             _preparedMutation = null;
@@ -3293,10 +3299,10 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                         break;
                     }
                     default:
-                        return SubjectFailure<BaseAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                        return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
                 }
                 if (!mutation.IsSuccess() || mutation.Value is null)
-                    return new OperationResult<BaseAppliedAtomicMutation> { Status = mutation.Status, Error = mutation.Error };
+                    return new OperationResult<BaseProvisionalAppliedAtomicMutation> { Status = mutation.Status, Error = mutation.Error };
                 long journalPosition = checked(++_working.GlobalMutationPosition);
                 BaseRecordMutationFact journaledFact = mutation.Value.Mutation with
                 {
@@ -3339,29 +3345,29 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                             new InMemorySubjectLifetimeState(
                                 lifecycle.ContractId, lifecycle.ContractVersion, lifecycle.SubjectId, incarnation,
                                 item.Collection.Id, item.RecordId, facts[item.Ordinal].MaterializeOwned().JournalPosition.Value)))
-                            return SubjectFailure<BaseAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                            return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
                         break;
                     case BaseSubjectLifecycleMutationKind.Preserve:
                         if (!_working.SubjectLifetimes.ContainsKey(key))
-                            return SubjectFailure<BaseAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                            return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
                         break;
                     case BaseSubjectLifecycleMutationKind.Retire:
                         if (!_working.SubjectLifetimes.Remove(key))
-                            return SubjectFailure<BaseAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                            return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
                         break;
                     default:
-                        return SubjectFailure<BaseAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                        return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
                 }
             }
 
             if (plan.Kind == BaseAtomicMutationExecutionKind.ModuleMutation)
             {
                 if (_capturedModuleGenerationKeys is null || prepared.Generations.Length != _capturedModuleGenerationKeys.Count)
-                    return SubjectFailure<BaseAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                    return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
                 foreach (BasePreparedModuleGenerationEvidence generation in prepared.Generations)
                 {
                     if (!_capturedModuleGenerationKeys.TryGetValue(generation.CaptureOrdinal, out string? key))
-                        return SubjectFailure<BaseAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                        return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
                     if (generation.Resulting is null)
                         _working.ModuleGenerations.Remove(key);
                     else
@@ -3385,29 +3391,108 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                         token).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
-                catch { return SubjectFailure<BaseAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid); }
+                catch { return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid); }
                 if (!projected.IsSuccess())
-                    return new OperationResult<BaseAppliedAtomicMutation> { Status = projected.Status, Error = projected.Error };
+                    return new OperationResult<BaseProvisionalAppliedAtomicMutation> { Status = projected.Status, Error = projected.Error };
             }
             long journalBytes = materialized.Sum(static fact =>
                 (long)JsonSerializer.SerializeToUtf8Bytes(fact, HPDBaseJsonSerializerContext.Default.BaseRecordMutationFact).LongLength);
             long transient = checked(prepared.Accounting.TransientBytes + writtenBytes + factBytes + journalBytes);
-            return OperationResults.Ok(new BaseAppliedAtomicMutation
+            ImmutableArray<BaseModuleCommittedGeneration> generations = CommittedGenerations(prepared);
+            var applied = new BaseProvisionalAppliedAtomicMutation
             {
+                Kind = plan.Kind,
                 PlanDigest = new string(plan.PlanDigest.AsSpan()),
                 Authority = prepared.Authority with { },
                 Facts = facts.MoveToImmutable(),
-                Receipt = null,
-                Accounting = new BaseAtomicCommitAccounting
+                Generations = generations,
+                Accounting = new BaseProvisionalAtomicMutationAccounting
                 {
                     WrittenBytes = writtenBytes,
+                    GenerationBytes = prepared.Accounting.GenerationBytes,
                     FactBytes = factBytes,
                     JournalBytes = journalBytes,
-                    ReceiptBytes = 0,
+                    RelationChecks = _relationChecks,
+                    UniqueConstraintChecks = _uniqueChecks,
+                    AuthorityReads = prepared.Accounting.AuthorityReads,
+                    ReadIntervals = prepared.ReadIntervals.Length,
+                    SelectedBytes = prepared.Accounting.SelectedBytes,
+                    EvidenceBytes = prepared.Accounting.EvidenceBytes,
                     TransientBytes = transient,
                 },
-            });
+            };
+            _appliedProvisional = applied;
+            return OperationResults.Ok(applied);
         });
+
+        internal bool ValidateCommitFinalization(AtomicMutationProcessingResult processing)
+        {
+            if (processing.Receipt.Kind != BaseAtomicReceiptResultKind.ModuleMutation)
+                return processing.Finalization is null;
+            BaseAtomicMutationCommitFinalization? finalization = processing.Finalization;
+            BaseProvisionalAppliedAtomicMutation? applied = _appliedProvisional;
+            BaseModuleMutationReceiptResult? module = processing.Receipt.ModuleMutation;
+            if (finalization is null || applied is null || module is null
+                || !ReferenceEquals(finalization.Receipt, processing.Receipt)
+                || !string.Equals(finalization.PlanDigest, applied.PlanDigest, StringComparison.Ordinal)
+                || !finalization.CanonicalResultBytes.AsSpan().SequenceEqual(module.CanonicalResultBytes.AsSpan())
+                || !applied.Facts.Select(static value => value.CopyCanonicalBytes()).SequenceEqual(
+                    processing.Receipt.Mutations.Select(static value => value.CopyCanonicalBytes()), ByteArrayComparer.Instance))
+                return false;
+            long receiptBytes;
+            try
+            {
+                receiptBytes = JsonSerializer.SerializeToUtf8Bytes(
+                    BaseAtomicReceiptWire.From(processing.Receipt),
+                    HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire).LongLength;
+            }
+            catch { return false; }
+            BaseAtomicCommitAccounting actual = finalization.Accounting;
+            BaseProvisionalAtomicMutationAccounting prior = applied.Accounting;
+            long resultBytes = finalization.CanonicalResultBytes.Length;
+            return actual.WrittenBytes == prior.WrittenBytes
+                && actual.GenerationBytes == prior.GenerationBytes
+                && actual.FactBytes == prior.FactBytes
+                && actual.JournalBytes == prior.JournalBytes
+                && actual.ReceiptBytes == receiptBytes
+                && actual.ResultBytes == resultBytes
+                && actual.RelationChecks == prior.RelationChecks
+                && actual.UniqueConstraintChecks == prior.UniqueConstraintChecks
+                && actual.AuthorityReads == prior.AuthorityReads
+                && actual.ReadIntervals == prior.ReadIntervals
+                && actual.SelectedBytes == prior.SelectedBytes
+                && actual.EvidenceBytes == prior.EvidenceBytes
+                && actual.TransientBytes == checked(prior.TransientBytes + receiptBytes + resultBytes);
+        }
+
+        private sealed class ByteArrayComparer : IEqualityComparer<byte[]>
+        {
+            internal static ByteArrayComparer Instance { get; } = new();
+            public bool Equals(byte[]? left, byte[]? right) => left is not null && right is not null && left.AsSpan().SequenceEqual(right);
+            public int GetHashCode(byte[] value) => 0;
+        }
+
+        private ImmutableArray<BaseModuleCommittedGeneration> CommittedGenerations(BasePreparedAtomicMutation prepared)
+        {
+            if (prepared.Kind != BaseAtomicMutationExecutionKind.ModuleMutation) return [];
+            BaseModuleMutationCaptureExtension module = _capturedModuleExtension
+                ?? throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+            return prepared.Generations
+                .Where(static generation => generation.Disposition is BaseModuleGenerationPreparationDisposition.Created
+                    or BaseModuleGenerationPreparationDisposition.Incremented)
+                .Select(generation =>
+                {
+                    BaseModuleGenerationCaptureRequest capture = module.Generations.Single(item => item.Ordinal == generation.CaptureOrdinal);
+                    return new BaseModuleCommittedGeneration
+                    {
+                        CaptureId = capture.CaptureId,
+                        CellId = capture.Cell.Id,
+                        CellVersion = capture.Cell.Version,
+                        Previous = generation.Previous,
+                        Resulting = generation.Resulting!,
+                    };
+                }).ToImmutableArray();
+        }
 
         private static RecordPayload PatchDelta(BaseAtomicMutationPlanItem item)
         {

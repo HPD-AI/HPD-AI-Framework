@@ -628,7 +628,7 @@ internal sealed class BaseSelectionMutationProcessor(
                 : Failed(BaseSubjectFailureContract.Error(BaseSubjectErrorCodes.ProviderContractInvalid));
         if (prepared.Value.SubjectValidations.Any(static validation => validation.State == BaseSubjectValidationState.Invalid))
             return Failed(BaseSubjectErrorCodes.ReferenceInvalid, ErrorCategory.Validation);
-        OperationResult<BaseAppliedAtomicMutation> applied = await session.ApplyPreparedAtomicMutationAsync(prepared.Value, cancellationToken).ConfigureAwait(false);
+        OperationResult<BaseProvisionalAppliedAtomicMutation> applied = await session.ApplyPreparedAtomicMutationAsync(prepared.Value, cancellationToken).ConfigureAwait(false);
         if (!applied.IsSuccess() || applied.Value is null || !AppliedMatches(retainedPlan, prepared.Value, applied.Value))
             return !applied.IsSuccess() || applied.Value is null
                 ? HasSubjectWork(retainedPlan)
@@ -1003,7 +1003,7 @@ internal sealed class BaseSelectionMutationProcessor(
     private static bool AppliedMatches(
         BaseAtomicMutationPlan plan,
         BasePreparedAtomicMutation prepared,
-        BaseAppliedAtomicMutation applied)
+        BaseProvisionalAppliedAtomicMutation applied)
     {
         bool strict = HasSubjectWork(plan);
         if (!string.Equals(plan.PlanDigest, applied.PlanDigest, StringComparison.Ordinal) || applied.Facts.Length != plan.Items.Length)

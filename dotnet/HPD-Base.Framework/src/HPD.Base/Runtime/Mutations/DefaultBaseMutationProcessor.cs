@@ -303,7 +303,7 @@ internal sealed class DefaultBaseMutationProcessor(
         if (prepared.Value.SubjectValidations.Any(static validation => validation.State == BaseSubjectValidationState.Invalid))
             return Failed(Error(BaseSubjectErrorCodes.ReferenceInvalid, "The subject reference is invalid.", ErrorCategory.Validation));
 
-        OperationResult<BaseAppliedAtomicMutation> applied = await session.ApplyPreparedAtomicMutationAsync(
+        OperationResult<BaseProvisionalAppliedAtomicMutation> applied = await session.ApplyPreparedAtomicMutationAsync(
             prepared.Value,
             cancellationToken).ConfigureAwait(false);
         if (!applied.IsSuccess() || applied.Value is null || !ValidateApplied(retainedPlan, prepared.Value, applied.Value))
@@ -1067,7 +1067,7 @@ internal sealed class DefaultBaseMutationProcessor(
     private static bool ValidateApplied(
         BaseAtomicMutationPlan plan,
         BasePreparedAtomicMutation prepared,
-        BaseAppliedAtomicMutation applied)
+        BaseProvisionalAppliedAtomicMutation applied)
     {
         bool strict = plan.SubjectValidations.Length != 0 || plan.Items.Any(static item => item.SubjectLifecycle is not null);
         if (!string.Equals(applied.PlanDigest, plan.PlanDigest, StringComparison.Ordinal)

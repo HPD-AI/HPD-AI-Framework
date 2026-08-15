@@ -10,6 +10,72 @@ public enum BaseAtomicReceiptResultKind
     RecordMutations,
     /// <summary>A transaction-bound selection mutation result.</summary>
     SelectionMutation,
+    /// <summary>A registered module-mutation result.</summary>
+    ModuleMutation,
+}
+
+/// <summary>Stores one committed module generation without disclosing its scoped provider key.</summary>
+public sealed record BaseModuleCommittedGeneration
+{
+    /// <summary>Gets the stable capture identity.</summary>
+    public required string CaptureId { get; init; }
+    /// <summary>Gets the installed cell identity.</summary>
+    public required string CellId { get; init; }
+    /// <summary>Gets the installed cell version.</summary>
+    public required int CellVersion { get; init; }
+    /// <summary>Gets the previous generation, or null when this commit created the cell.</summary>
+    public BaseModuleGeneration? Previous { get; init; }
+    /// <summary>Gets the exact committed generation.</summary>
+    public required BaseModuleGeneration Resulting { get; init; }
+}
+
+/// <summary>Stores the closed durable result of one registered module mutation.</summary>
+public sealed record BaseModuleMutationReceiptResult
+{
+    /// <summary>Gets the installed operation identity.</summary>
+    public required string OperationId { get; init; }
+    /// <summary>Gets the installed operation version.</summary>
+    public required int OperationVersion { get; init; }
+    /// <summary>Gets whether the request newly committed or resolved an earlier commit.</summary>
+    public required BaseMutationRequestDisposition Disposition { get; init; }
+    /// <summary>Gets the closed module outcome.</summary>
+    public required BaseModuleMutationOutcome Outcome { get; init; }
+    /// <summary>Gets committed generation evidence in canonical cell-key order.</summary>
+    public required ImmutableArray<BaseModuleCommittedGeneration> Generations { get; init; }
+    /// <summary>Gets the exact graph-owned canonical result bytes.</summary>
+    public required ImmutableArray<byte> CanonicalResultBytes { get; init; }
+}
+
+/// <summary>Provides the source-generated persistence shape for one committed module generation.</summary>
+public sealed record BaseModuleCommittedGenerationWire
+{
+    /// <summary>Gets the stable capture identity.</summary>
+    public required string CaptureId { get; init; }
+    /// <summary>Gets the installed cell identity.</summary>
+    public required string CellId { get; init; }
+    /// <summary>Gets the installed cell version.</summary>
+    public required int CellVersion { get; init; }
+    /// <summary>Gets the previous canonical positive decimal, when present.</summary>
+    public string? Previous { get; init; }
+    /// <summary>Gets the resulting canonical positive decimal.</summary>
+    public required string Resulting { get; init; }
+}
+
+/// <summary>Provides the source-generated persistence shape for one module-mutation result.</summary>
+public sealed record BaseModuleMutationReceiptResultWire
+{
+    /// <summary>Gets the installed operation identity.</summary>
+    public required string OperationId { get; init; }
+    /// <summary>Gets the installed operation version.</summary>
+    public required int OperationVersion { get; init; }
+    /// <summary>Gets the request disposition.</summary>
+    public required BaseMutationRequestDisposition Disposition { get; init; }
+    /// <summary>Gets the module outcome.</summary>
+    public required BaseModuleMutationOutcome Outcome { get; init; }
+    /// <summary>Gets committed generation wire evidence.</summary>
+    public required BaseModuleCommittedGenerationWire[] Generations { get; init; }
+    /// <summary>Gets the exact canonical result bytes.</summary>
+    public required byte[] CanonicalResultBytes { get; init; }
 }
 
 /// <summary>Stores the bounded durable result of one selection mutation.</summary>
@@ -76,22 +142,77 @@ public sealed record BaseAtomicReceiptWire
     public required BaseOwnedMutationFactWire[] Mutations { get; init; }
     /// <summary>Gets the optional selection result.</summary>
     public BaseSelectionMutationReceiptResult? SelectionMutation { get; init; }
-    internal static BaseAtomicReceiptWire From(BaseAtomicReceiptResult result) => new()
+    /// <summary>Gets the optional registered module-mutation result.</summary>
+    public BaseModuleMutationReceiptResultWire? ModuleMutation { get; init; }
+    internal static BaseAtomicReceiptWire From(BaseAtomicReceiptResult result)
     {
-        Kind = result.Kind,
-        Mutations = result.Mutations.Select(static fact => new BaseOwnedMutationFactWire
+        ValidateShape(result);
+        return new()
         {
-            CodecVersion = fact.CodecVersion,
-            CanonicalBytes = fact.CopyCanonicalBytes(),
-        }).ToArray(),
-        SelectionMutation = result.SelectionMutation,
-    };
-    internal BaseAtomicReceiptResult Materialize() => new()
+            Kind = result.Kind,
+            Mutations = result.Mutations.Select(static fact => new BaseOwnedMutationFactWire
+            {
+                CodecVersion = fact.CodecVersion,
+                CanonicalBytes = fact.CopyCanonicalBytes(),
+            }).ToArray(),
+            SelectionMutation = result.SelectionMutation,
+            ModuleMutation = result.ModuleMutation is null ? null : new BaseModuleMutationReceiptResultWire
+            {
+                OperationId = result.ModuleMutation.OperationId,
+                OperationVersion = result.ModuleMutation.OperationVersion,
+                Disposition = result.ModuleMutation.Disposition,
+                Outcome = result.ModuleMutation.Outcome,
+                Generations = result.ModuleMutation.Generations.Select(static generation => new BaseModuleCommittedGenerationWire
+                {
+                    CaptureId = generation.CaptureId,
+                    CellId = generation.CellId,
+                    CellVersion = generation.CellVersion,
+                    Previous = generation.Previous?.ToCanonicalString(),
+                    Resulting = generation.Resulting.ToCanonicalString(),
+                }).ToArray(),
+                CanonicalResultBytes = result.ModuleMutation.CanonicalResultBytes.ToArray(),
+            },
+        };
+    }
+    internal BaseAtomicReceiptResult Materialize()
     {
-        Kind = Kind,
-        Mutations = Mutations.Select(static fact => BaseOwnedMutationFact.FromCanonicalBytes(fact.CanonicalBytes, fact.CodecVersion)).ToImmutableArray(),
-        SelectionMutation = SelectionMutation,
-    };
+        BaseAtomicReceiptResult result = new()
+        {
+            Kind = Kind,
+            Mutations = Mutations.Select(static fact => BaseOwnedMutationFact.FromCanonicalBytes(fact.CanonicalBytes, fact.CodecVersion)).ToImmutableArray(),
+            SelectionMutation = SelectionMutation,
+            ModuleMutation = ModuleMutation is null ? null : new BaseModuleMutationReceiptResult
+            {
+                OperationId = ModuleMutation.OperationId,
+                OperationVersion = ModuleMutation.OperationVersion,
+                Disposition = ModuleMutation.Disposition,
+                Outcome = ModuleMutation.Outcome,
+                Generations = ModuleMutation.Generations.Select(static generation => new BaseModuleCommittedGeneration
+                {
+                    CaptureId = generation.CaptureId,
+                    CellId = generation.CellId,
+                    CellVersion = generation.CellVersion,
+                    Previous = generation.Previous is null ? null : BaseModuleGeneration.ParseCanonical(generation.Previous),
+                    Resulting = BaseModuleGeneration.ParseCanonical(generation.Resulting),
+                }).ToImmutableArray(),
+                CanonicalResultBytes = ModuleMutation.CanonicalResultBytes.ToArray().ToImmutableArray(),
+            },
+        };
+        ValidateShape(result);
+        return result;
+    }
+
+    private static void ValidateShape(BaseAtomicReceiptResult result)
+    {
+        bool valid = result.Kind switch
+        {
+            BaseAtomicReceiptResultKind.RecordMutations => result.SelectionMutation is null && result.ModuleMutation is null,
+            BaseAtomicReceiptResultKind.SelectionMutation => result.SelectionMutation is not null && result.ModuleMutation is null,
+            BaseAtomicReceiptResultKind.ModuleMutation => result.SelectionMutation is null && result.ModuleMutation is not null,
+            _ => false,
+        };
+        if (!valid) throw new InvalidOperationException("base.mutation.receipt.invalid");
+    }
 }
 
 /// <summary>Provides the source-generated persistence representation of one owned fact.</summary>
@@ -112,11 +233,15 @@ public sealed record BaseAtomicReceiptResult
     public required ImmutableArray<BaseOwnedMutationFact> Mutations { get; init; }
     /// <summary>Gets the selection result when <see cref="Kind"/> is selection mutation.</summary>
     public BaseSelectionMutationReceiptResult? SelectionMutation { get; init; }
+    /// <summary>Gets the module result when <see cref="Kind"/> is module mutation.</summary>
+    public BaseModuleMutationReceiptResult? ModuleMutation { get; init; }
 
     internal static BaseAtomicReceiptResult FromFacts(IEnumerable<BaseRecordMutationFact> facts) => new()
     {
         Kind = BaseAtomicReceiptResultKind.RecordMutations,
         Mutations = facts.Select(static fact => BaseOwnedMutationFact.Freeze(fact, 1)).ToImmutableArray(),
+        SelectionMutation = null,
+        ModuleMutation = null,
     };
     internal BaseRecordMutationFact[] MaterializeFacts() => Mutations.Select(static fact => fact.MaterializeOwned()).ToArray();
 }

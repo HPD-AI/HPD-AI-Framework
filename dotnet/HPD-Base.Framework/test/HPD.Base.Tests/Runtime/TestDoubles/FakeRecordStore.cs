@@ -372,10 +372,12 @@ internal class FakeRecordStore : IAtomicRecordStore
             _plan = plan;
             _prepared = new BasePreparedAtomicMutation
             {
+                Kind = plan.Kind,
                 PlanDigest = plan.PlanDigest,
                 Authority = captured.Authority,
                 SubjectAuthorities = [],
                 Dispositions = captured.Items.Select(static item => item.Disposition).ToImmutableArray(),
+                Generations = [],
                 SubjectOverlay = [],
                 SubjectValidations = [],
                 ReadIntervals = captured.ReadIntervals,
@@ -383,7 +385,11 @@ internal class FakeRecordStore : IAtomicRecordStore
                 {
                     AuthorityReads = captured.Items.Length,
                     ReadIntervals = captured.ReadIntervals.Length,
+                    GenerationReads = 0,
+                    GenerationComparisons = 0,
+                    GenerationIncrements = 0,
                     SelectedBytes = captured.Accounting.SelectedBytes,
+                    GenerationBytes = 0,
                     EvidenceBytes = captured.Accounting.EvidenceBytes,
                     TransientBytes = captured.Accounting.TransientBytes,
                 },
@@ -391,13 +397,13 @@ internal class FakeRecordStore : IAtomicRecordStore
             return ValueTask.FromResult(OperationResults.Ok(_prepared));
         }
 
-        public async ValueTask<OperationResult<BaseAppliedAtomicMutation>> ApplyPreparedAtomicMutationAsync(
+        public async ValueTask<OperationResult<BaseProvisionalAppliedAtomicMutation>> ApplyPreparedAtomicMutationAsync(
             BasePreparedAtomicMutation prepared,
             CancellationToken cancellationToken = default)
         {
             EnsureActive();
             if (!ReferenceEquals(prepared, _prepared) || _plan is null)
-                return OperationResults.StoreError<BaseAppliedAtomicMutation>(new BaseError { Code = BaseSubjectErrorCodes.ProviderContractInvalid, Message = "Invalid apply.", Category = ErrorCategory.Store });
+                return OperationResults.StoreError<BaseProvisionalAppliedAtomicMutation>(new BaseError { Code = BaseSubjectErrorCodes.ProviderContractInvalid, Message = "Invalid apply.", Category = ErrorCategory.Store });
             _prepared = null;
             var facts = ImmutableArray.CreateBuilder<BaseOwnedMutationFact>(_plan.Items.Length);
             foreach (BaseAtomicMutationPlanItem item in _plan.Items)
@@ -419,18 +425,33 @@ internal class FakeRecordStore : IAtomicRecordStore
                     _ => throw new InvalidOperationException(),
                 };
                 if (!result.IsSuccess() || result.Value is null)
-                    return new OperationResult<BaseAppliedAtomicMutation> { Status = result.Status, Error = result.Error };
+                    return new OperationResult<BaseProvisionalAppliedAtomicMutation> { Status = result.Status, Error = result.Error };
                 facts.Add(BaseOwnedMutationFact.Freeze(result.Value.Mutation, 1));
             }
             BaseRecordMutationFact[] materialized = facts.Select(static fact => fact.MaterializeOwned()).ToArray();
             await ApplyMutationProjectionsAsync(BaseAtomicMutationProjectionFactory.Create(materialized), cancellationToken);
             long bytes = facts.Sum(static fact => (long)fact.EncodedLength);
-            return OperationResults.Ok(new BaseAppliedAtomicMutation
+            return OperationResults.Ok(new BaseProvisionalAppliedAtomicMutation
             {
+                Kind = _plan.Kind,
                 PlanDigest = _plan.PlanDigest,
                 Authority = prepared.Authority,
                 Facts = facts.MoveToImmutable(),
-                Accounting = new BaseAtomicCommitAccounting { WrittenBytes = bytes, FactBytes = bytes, JournalBytes = bytes, ReceiptBytes = 0, TransientBytes = bytes * 3 },
+                Generations = [],
+                Accounting = new BaseProvisionalAtomicMutationAccounting
+                {
+                    WrittenBytes = bytes,
+                    GenerationBytes = 0,
+                    FactBytes = bytes,
+                    JournalBytes = bytes,
+                    RelationChecks = 0,
+                    UniqueConstraintChecks = 0,
+                    AuthorityReads = 0,
+                    ReadIntervals = 0,
+                    SelectedBytes = 0,
+                    EvidenceBytes = 0,
+                    TransientBytes = bytes * 3,
+                },
             });
         }
 

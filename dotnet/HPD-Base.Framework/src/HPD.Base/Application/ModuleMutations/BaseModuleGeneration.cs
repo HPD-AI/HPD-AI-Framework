@@ -14,6 +14,14 @@ public sealed class BaseModuleGeneration : IEquatable<BaseModuleGeneration>
 
     internal long Value => _value;
     internal static BaseModuleGeneration Create(long value) => new(value);
+    internal static BaseModuleGeneration ParseCanonical(string value)
+    {
+        if (!long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out long parsed)
+            || parsed < 1
+            || !string.Equals(value, parsed.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal))
+            throw new InvalidOperationException("base.moduleMutation.receiptInvalid");
+        return new(parsed);
+    }
     internal BaseModuleGeneration Increment() => new(checked(_value + 1));
 
     /// <summary>Returns the canonical unsigned-decimal wire representation.</summary>

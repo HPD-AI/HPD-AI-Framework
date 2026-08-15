@@ -721,31 +721,89 @@ public sealed record BasePreparedModuleGenerationEvidence
 }
 
 /// <summary>Contains exact provider accounting for the committed attempt.</summary>
-public sealed record BaseAtomicCommitAccounting
+public sealed record BaseProvisionalAtomicMutationAccounting
 {
     /// <summary>Gets canonical written bytes.</summary>
     public required long WrittenBytes { get; init; }
+    /// <summary>Gets canonical generation-cell bytes written or retained by the attempt.</summary>
+    public required long GenerationBytes { get; init; }
     /// <summary>Gets canonical mutation-fact bytes.</summary>
     public required long FactBytes { get; init; }
     /// <summary>Gets durable journal bytes.</summary>
     public required long JournalBytes { get; init; }
-    /// <summary>Gets durable receipt bytes.</summary>
-    public required long ReceiptBytes { get; init; }
+    /// <summary>Gets exact relation-check work.</summary>
+    public required int RelationChecks { get; init; }
+    /// <summary>Gets exact unique-constraint-check work.</summary>
+    public required int UniqueConstraintChecks { get; init; }
+    /// <summary>Gets exact subject-authority reads.</summary>
+    public required int AuthorityReads { get; init; }
+    /// <summary>Gets exact normalized conflict intervals.</summary>
+    public required int ReadIntervals { get; init; }
+    /// <summary>Gets canonical selected bytes retained by the attempt.</summary>
+    public required long SelectedBytes { get; init; }
+    /// <summary>Gets canonical evidence bytes retained by the attempt.</summary>
+    public required long EvidenceBytes { get; init; }
     /// <summary>Gets complete retained transient bytes.</summary>
     public required long TransientBytes { get; init; }
 }
 
 /// <summary>Contains one applied but not yet externally confirmed atomic mutation.</summary>
-public sealed record BaseAppliedAtomicMutation
+public sealed record BaseProvisionalAppliedAtomicMutation
 {
+    /// <summary>Gets the execution-kind discriminator.</summary>
+    public required BaseAtomicMutationExecutionKind Kind { get; init; }
     /// <summary>Gets the applied plan digest.</summary>
     public required string PlanDigest { get; init; }
     /// <summary>Gets authoritative provider snapshot evidence.</summary>
     public required BaseAtomicMutationAuthorityEvidence Authority { get; init; }
     /// <summary>Gets deeply owned mutation facts.</summary>
     public required ImmutableArray<BaseOwnedMutationFact> Facts { get; init; }
-    /// <summary>Gets the closed receipt result when identified.</summary>
-    public BaseAtomicReceiptResult? Receipt { get; init; }
-    /// <summary>Gets exact commit-attempt accounting.</summary>
+    /// <summary>Gets committed-shape generation evidence without public result authority.</summary>
+    public required ImmutableArray<BaseModuleCommittedGeneration> Generations { get; init; }
+    /// <summary>Gets exact provisional apply accounting.</summary>
+    public required BaseProvisionalAtomicMutationAccounting Accounting { get; init; }
+}
+
+/// <summary>Contains Runtime-owned result and receipt authority produced before provider commit.</summary>
+public sealed record BaseAtomicMutationCommitFinalization
+{
+    /// <summary>Gets the exact finalized plan digest.</summary>
+    public required string PlanDigest { get; init; }
+    /// <summary>Gets the closed receipt persisted atomically by the provider.</summary>
+    public required BaseAtomicReceiptResult Receipt { get; init; }
+    /// <summary>Gets exact canonical public result bytes for a module mutation.</summary>
+    public required ImmutableArray<byte> CanonicalResultBytes { get; init; }
+    /// <summary>Gets exact final aggregate accounting.</summary>
     public required BaseAtomicCommitAccounting Accounting { get; init; }
+}
+
+/// <summary>Contains exact accounting after Runtime adds result and receipt artifacts.</summary>
+public sealed record BaseAtomicCommitAccounting
+{
+    /// <summary>Gets canonical written bytes.</summary>
+    public required long WrittenBytes { get; init; }
+    /// <summary>Gets canonical generation bytes.</summary>
+    public required long GenerationBytes { get; init; }
+    /// <summary>Gets canonical mutation-fact bytes.</summary>
+    public required long FactBytes { get; init; }
+    /// <summary>Gets canonical journal bytes.</summary>
+    public required long JournalBytes { get; init; }
+    /// <summary>Gets canonical receipt bytes.</summary>
+    public required long ReceiptBytes { get; init; }
+    /// <summary>Gets canonical public result bytes.</summary>
+    public required long ResultBytes { get; init; }
+    /// <summary>Gets exact relation checks.</summary>
+    public required int RelationChecks { get; init; }
+    /// <summary>Gets exact unique-constraint checks.</summary>
+    public required int UniqueConstraintChecks { get; init; }
+    /// <summary>Gets exact authority reads.</summary>
+    public required int AuthorityReads { get; init; }
+    /// <summary>Gets exact normalized read intervals.</summary>
+    public required int ReadIntervals { get; init; }
+    /// <summary>Gets canonical selected bytes.</summary>
+    public required long SelectedBytes { get; init; }
+    /// <summary>Gets canonical evidence bytes.</summary>
+    public required long EvidenceBytes { get; init; }
+    /// <summary>Gets the complete aggregate transient bytes.</summary>
+    public required long TransientBytes { get; init; }
 }

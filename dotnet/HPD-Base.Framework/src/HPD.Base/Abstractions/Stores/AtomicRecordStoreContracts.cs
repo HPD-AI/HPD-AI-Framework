@@ -75,6 +75,22 @@ public sealed record AtomicMutationProcessingResult
         AtomicMutationProcessingOutcome outcome,
         BaseAtomicReceiptResult receipt,
         BaseError? error = null)
+        : this(outcome, receipt, null, error)
+    {
+    }
+
+    /// <summary>Initializes a ready decision with Runtime-owned pre-commit finalization authority.</summary>
+    public AtomicMutationProcessingResult(BaseAtomicMutationCommitFinalization finalization)
+        : this(AtomicMutationProcessingOutcome.ReadyToCommit, finalization?.Receipt!, finalization, null)
+    {
+        ArgumentNullException.ThrowIfNull(finalization);
+    }
+
+    private AtomicMutationProcessingResult(
+        AtomicMutationProcessingOutcome outcome,
+        BaseAtomicReceiptResult receipt,
+        BaseAtomicMutationCommitFinalization? finalization,
+        BaseError? error)
     {
         ArgumentNullException.ThrowIfNull(receipt);
         if (outcome == AtomicMutationProcessingOutcome.ReadyToCommit && error is not null)
@@ -84,6 +100,7 @@ public sealed record AtomicMutationProcessingResult
 
         Outcome = outcome;
         Receipt = receipt;
+        Finalization = finalization;
         Mutations = receipt.MaterializeFacts();
         Error = error;
     }
@@ -103,6 +120,9 @@ public sealed record AtomicMutationProcessingResult
 
     /// <summary>Gets the closed deeply owned result persisted for identified requests.</summary>
     public BaseAtomicReceiptResult Receipt { get; }
+
+    /// <summary>Gets Runtime-owned result, receipt, and aggregate accounting for pre-commit validation.</summary>
+    public BaseAtomicMutationCommitFinalization? Finalization { get; }
 }
 
 /// <summary>
@@ -316,7 +336,7 @@ public interface IAtomicRecordSession
         CancellationToken cancellationToken = default);
 
     /// <summary>Consumes one exact session-bound preparation and applies all canonical artifacts atomically.</summary>
-    ValueTask<OperationResult<BaseAppliedAtomicMutation>> ApplyPreparedAtomicMutationAsync(
+    ValueTask<OperationResult<BaseProvisionalAppliedAtomicMutation>> ApplyPreparedAtomicMutationAsync(
         BasePreparedAtomicMutation prepared,
         CancellationToken cancellationToken = default);
 
