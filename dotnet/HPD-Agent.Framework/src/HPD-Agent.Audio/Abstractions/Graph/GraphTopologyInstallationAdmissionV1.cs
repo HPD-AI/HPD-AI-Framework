@@ -57,7 +57,7 @@ internal static class GraphTopologyInstallationAdmissionV1
         ArgumentNullException.ThrowIfNull(journal); ArgumentNullException.ThrowIfNull(request);
         var body = new GraphTopologyInstalledV1(request.Topology, request.Topology.Fingerprint,
             request.ActiveSourceGrantFact, request.CurrentAuthority);
-        var payload = GraphReplacementCodecsV1.EncodeOuter(new GraphOwnerPayloadV1(request.Session,
+        var payload = GraphReplacementCodecsV1.EncodeOuter(new GraphTopologyInstalledFactV1(request.Session,
             request.CurrentAuthority, GraphReplacementCodecsV1.EncodeInstalled(body)));
         var factId = GraphReplacementFactIdsV1.Installed(request.Session, request.Topology.Fingerprint);
         var hash = AuthorityPayloadHashV1.Compute(Registration.SchemaToken, Registration.Schema, payload);

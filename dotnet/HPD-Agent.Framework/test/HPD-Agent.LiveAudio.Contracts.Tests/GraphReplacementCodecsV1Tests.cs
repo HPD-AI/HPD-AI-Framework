@@ -6,6 +6,23 @@ namespace HPD.Agent.LiveAudio.Contracts.Tests;
 public sealed class GraphReplacementCodecsV1Tests
 {
     [Fact]
+    public void Ledger_outer_projection_types_preserve_the_shared_canonical_shape()
+    {
+        var f = new Fixture();
+        var commandBody = GraphReplacementCodecsV1.EncodeCommand(new GraphReplacementJournalCommandV1.Commit(f.Operation, f.Position(10)));
+        var installedBody = GraphReplacementCodecsV1.EncodeInstalled(new GraphTopologyInstalledV1(f.Source, f.Source.Fingerprint, f.Position(3), f.Authority));
+        var command = new GraphMutationCommandV1(f.Session, f.Authority, commandBody);
+        var installed = new GraphTopologyInstalledFactV1(f.Session, f.Authority, installedBody);
+
+        Assert.IsAssignableFrom<GraphOwnerPayloadV1>(command);
+        Assert.IsAssignableFrom<GraphOwnerPayloadV1>(installed);
+        Assert.True(GraphReplacementCodecsV1.TryDecodeOuter(GraphReplacementCodecsV1.EncodeOuter(command), out var decodedCommand));
+        Assert.True(GraphReplacementCodecsV1.TryDecodeOuter(GraphReplacementCodecsV1.EncodeOuter(installed), out var decodedInstalled));
+        Assert.Equal(command.Body, decodedCommand!.Body);
+        Assert.Equal(installed.Body, decodedInstalled!.Body);
+    }
+
+    [Fact]
     public void Every_command_arm_round_trips_canonically()
     {
         var f = new Fixture();

@@ -95,7 +95,7 @@ internal static class GraphReplacementAdmissionCoordinatorV1
         ArgumentNullException.ThrowIfNull(journal); ArgumentNullException.ThrowIfNull(request);
         var session = request.ExpectedAuthority.Session;
         var commandId = GraphReplacementFactIdsV1.Command(session, request.Command.OperationId, (ushort)request.Command.Kind);
-        var commandPayload = GraphReplacementCodecsV1.EncodeOuter(new GraphOwnerPayloadV1(session,
+        var commandPayload = GraphReplacementCodecsV1.EncodeOuter(new GraphMutationCommandV1(session,
             request.ExpectedAuthority, GraphReplacementCodecsV1.EncodeCommand(request.Command)));
         var correlation = new CorrelationEnvelopeV1(request.Correlation.TenantId, request.Correlation.PrincipalId,
             request.Correlation.SessionId, request.Correlation.ThreadId, request.Correlation.ParticipantId,

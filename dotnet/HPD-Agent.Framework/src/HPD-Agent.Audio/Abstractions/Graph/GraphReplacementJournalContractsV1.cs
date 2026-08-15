@@ -61,7 +61,7 @@ internal sealed record GraphReplacementFactV1(JournalPositionV1 CommandFact,
     GraphReplacementJournalOutcomeV1 Outcome, GraphReplacementSnapshotV1 ResultingSnapshot,
     BoundedAscii? SafeCode);
 
-internal sealed class GraphOwnerPayloadV1
+internal class GraphOwnerPayloadV1
 {
     private readonly byte[] _body;
     internal GraphOwnerPayloadV1(SessionAuthorityStampV1 session, ExpectedAuthorityVectorV1 expectedAuthority,
@@ -76,4 +76,16 @@ internal sealed class GraphOwnerPayloadV1
     internal SessionAuthorityStampV1 Session { get; }
     internal ExpectedAuthorityVectorV1 ExpectedAuthority { get; }
     internal ReadOnlyMemory<byte> Body => _body;
+}
+
+internal sealed class GraphMutationCommandV1 : GraphOwnerPayloadV1
+{
+    internal GraphMutationCommandV1(SessionAuthorityStampV1 session, ExpectedAuthorityVectorV1 expectedAuthority,
+        ReadOnlySpan<byte> body) : base(session, expectedAuthority, body) { }
+}
+
+internal sealed class GraphTopologyInstalledFactV1 : GraphOwnerPayloadV1
+{
+    internal GraphTopologyInstalledFactV1(SessionAuthorityStampV1 session, ExpectedAuthorityVectorV1 expectedAuthority,
+        ReadOnlySpan<byte> body) : base(session, expectedAuthority, body) { }
 }
