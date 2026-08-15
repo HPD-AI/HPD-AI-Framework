@@ -12,7 +12,6 @@ public sealed class BaseModuleProgramEvaluatorTests
     [MemberData(nameof(InexactGrants))]
     public async Task Inexact_grant_with_matching_registration_id_is_not_L50_authority(AccessGrant grant)
     {
-        DefaultBasePolicyOrchestrator orchestrator = PolicyWithGrant(grant);
         var principal = new PrincipalContext
         {
             AuthenticationState = PrincipalAuthenticationState.System,
@@ -23,13 +22,16 @@ public sealed class BaseModuleProgramEvaluatorTests
             ApplicationId = "module.application", Audience = HPDBaseEndpointAudience.ControlPlane,
             Operation = BaseOperationKind.ModuleMutation, CollectionId = "module.increment", Now = DateTimeOffset.UtcNow,
         };
-        OperationResult<BasePolicyEvaluation> result = await orchestrator.EvaluateWriteAsync(new BasePolicyRequest
+        foreach (DefaultBasePolicyOrchestrator orchestrator in new[] { PolicyWithGrant(grant), PolicyWithDynamicGrant(grant) })
         {
-            Principal = principal, Operation = operation, Collection = ModuleCollection(),
-            ResourceKind = PolicyResourceKind.ModuleMutation,
-        });
+            OperationResult<BasePolicyEvaluation> result = await orchestrator.EvaluateWriteAsync(new BasePolicyRequest
+            {
+                Principal = principal, Operation = operation, Collection = ModuleCollection(),
+                ResourceKind = PolicyResourceKind.ModuleMutation,
+            });
 
-        BaseSystemCollectionGate.HasExactModuleGrant(result, "module.increment", "module", principal, operation).Should().BeFalse();
+            BaseSystemCollectionGate.HasExactModuleGrant(result, "module.increment", "module", principal, operation).Should().BeFalse();
+        }
     }
 
     public static IEnumerable<object[]> InexactGrants()
@@ -61,7 +63,6 @@ public sealed class BaseModuleProgramEvaluatorTests
     [MemberData(nameof(InexactSourceGrants))]
     public async Task System_source_grant_must_bind_the_exact_collection(AccessGrant grant)
     {
-        DefaultBasePolicyOrchestrator orchestrator = PolicyWithGrant(grant);
         var principal = new PrincipalContext
         {
             AuthenticationState = PrincipalAuthenticationState.System,
@@ -72,14 +73,17 @@ public sealed class BaseModuleProgramEvaluatorTests
             ApplicationId = "module.application", Audience = HPDBaseEndpointAudience.ControlPlane,
             Operation = BaseOperationKind.ModuleMutation, CollectionId = "module-records", Now = DateTimeOffset.UtcNow,
         };
-        OperationResult<BasePolicyEvaluation> result = await orchestrator.EvaluateWriteAsync(new BasePolicyRequest
+        foreach (DefaultBasePolicyOrchestrator orchestrator in new[] { PolicyWithGrant(grant), PolicyWithDynamicGrant(grant) })
         {
-            Principal = principal, Operation = operation, Collection = ModuleCollection(),
-            ResourceKind = PolicyResourceKind.ModuleMutation,
-        });
+            OperationResult<BasePolicyEvaluation> result = await orchestrator.EvaluateWriteAsync(new BasePolicyRequest
+            {
+                Principal = principal, Operation = operation, Collection = ModuleCollection(),
+                ResourceKind = PolicyResourceKind.ModuleMutation,
+            });
 
-        BaseSystemCollectionGate.HasExactModuleSourceGrant(
-            result, "module.records.source", "module", principal, operation, "module-records").Should().BeFalse();
+            BaseSystemCollectionGate.HasExactModuleSourceGrant(
+                result, "module.records.source", "module", principal, operation, "module-records").Should().BeFalse();
+        }
     }
 
     public static IEnumerable<object[]> InexactSourceGrants()
@@ -373,6 +377,91 @@ public sealed class BaseModuleProgramEvaluatorTests
 
         validate.Should().Throw<InvalidOperationException>().WithMessage(BaseModuleMutationErrorCodes.Invalid);
     }
+
+    [Theory]
+    [MemberData(nameof(PlatformLimitBoundaries))]
+    public void Every_platform_limit_accepts_maximum_and_rejects_maximum_plus_one(string member, long maximum)
+    {
+        BaseModuleMutationLimits atMaximum = WithLimit(Limits(), member, maximum);
+        BaseModuleMutationContractValidator.ValidateLimits(atMaximum);
+
+        Action exceeds = () => BaseModuleMutationContractValidator.ValidateLimits(WithLimit(Limits(), member, checked(maximum + 1)));
+        exceeds.Should().Throw<InvalidOperationException>().WithMessage(BaseModuleMutationErrorCodes.Invalid);
+    }
+
+    public static IEnumerable<object[]> PlatformLimitBoundaries()
+    {
+        BaseModuleMutationLimits value = BaseModuleMutationPlatform.MaximumLimits;
+        yield return [nameof(value.MaximumCaptures), value.MaximumCaptures];
+        yield return [nameof(value.MaximumRecordCaptures), value.MaximumRecordCaptures];
+        yield return [nameof(value.MaximumRelationTargetCaptures), value.MaximumRelationTargetCaptures];
+        yield return [nameof(value.MaximumGenerationCaptures), value.MaximumGenerationCaptures];
+        yield return [nameof(value.MaximumRecordMutations), value.MaximumRecordMutations];
+        yield return [nameof(value.MaximumGenerationReads), value.MaximumGenerationReads];
+        yield return [nameof(value.MaximumGenerationComparisons), value.MaximumGenerationComparisons];
+        yield return [nameof(value.MaximumGenerationIncrements), value.MaximumGenerationIncrements];
+        yield return [nameof(value.MaximumGuardNodes), value.MaximumGuardNodes];
+        yield return [nameof(value.MaximumGuardDepth), value.MaximumGuardDepth];
+        yield return [nameof(value.MaximumStatements), value.MaximumStatements];
+        yield return [nameof(value.MaximumBranches), value.MaximumBranches];
+        yield return [nameof(value.MaximumExpressionNodes), value.MaximumExpressionNodes];
+        yield return [nameof(value.MaximumReadIntervals), value.MaximumReadIntervals];
+        yield return [nameof(value.MaximumSubjectValidations), value.MaximumSubjectValidations];
+        yield return [nameof(value.MaximumAuthorityReads), value.MaximumAuthorityReads];
+        yield return [nameof(value.MaximumRelationChecks), value.MaximumRelationChecks];
+        yield return [nameof(value.MaximumUniqueConstraintChecks), value.MaximumUniqueConstraintChecks];
+        yield return [nameof(value.MaximumRequestBytes), value.MaximumRequestBytes];
+        yield return [nameof(value.MaximumSelectedBytes), value.MaximumSelectedBytes];
+        yield return [nameof(value.MaximumGenerationBytes), value.MaximumGenerationBytes];
+        yield return [nameof(value.MaximumEvidenceBytes), value.MaximumEvidenceBytes];
+        yield return [nameof(value.MaximumWrittenBytes), value.MaximumWrittenBytes];
+        yield return [nameof(value.MaximumFactBytes), value.MaximumFactBytes];
+        yield return [nameof(value.MaximumJournalBytes), value.MaximumJournalBytes];
+        yield return [nameof(value.MaximumReceiptBytes), value.MaximumReceiptBytes];
+        yield return [nameof(value.MaximumResultBytes), value.MaximumResultBytes];
+        yield return [nameof(value.MaximumTransientBytes), value.MaximumTransientBytes];
+        yield return [nameof(value.Deadlines.AcquisitionTimeout), value.Deadlines.AcquisitionTimeout.Ticks];
+        yield return [nameof(value.Deadlines.TransactionTimeout), value.Deadlines.TransactionTimeout.Ticks];
+        yield return [nameof(value.Deadlines.CommitObservationTimeout), value.Deadlines.CommitObservationTimeout.Ticks];
+        yield return [nameof(value.Deadlines.ReceiptResolutionTimeout), value.Deadlines.ReceiptResolutionTimeout.Ticks];
+    }
+
+    private static BaseModuleMutationLimits WithLimit(BaseModuleMutationLimits value, string member, long amount) => member switch
+    {
+        nameof(value.MaximumCaptures) => value with { MaximumCaptures = checked((int)amount) },
+        nameof(value.MaximumRecordCaptures) => value with { MaximumRecordCaptures = checked((int)amount) },
+        nameof(value.MaximumRelationTargetCaptures) => value with { MaximumRelationTargetCaptures = checked((int)amount) },
+        nameof(value.MaximumGenerationCaptures) => value with { MaximumGenerationCaptures = checked((int)amount) },
+        nameof(value.MaximumRecordMutations) => value with { MaximumRecordMutations = checked((int)amount) },
+        nameof(value.MaximumGenerationReads) => value with { MaximumGenerationReads = checked((int)amount) },
+        nameof(value.MaximumGenerationComparisons) => value with { MaximumGenerationComparisons = checked((int)amount) },
+        nameof(value.MaximumGenerationIncrements) => value with { MaximumGenerationIncrements = checked((int)amount) },
+        nameof(value.MaximumGuardNodes) => value with { MaximumGuardNodes = checked((int)amount) },
+        nameof(value.MaximumGuardDepth) => value with { MaximumGuardDepth = checked((int)amount) },
+        nameof(value.MaximumStatements) => value with { MaximumStatements = checked((int)amount) },
+        nameof(value.MaximumBranches) => value with { MaximumBranches = checked((int)amount) },
+        nameof(value.MaximumExpressionNodes) => value with { MaximumExpressionNodes = checked((int)amount) },
+        nameof(value.MaximumReadIntervals) => value with { MaximumReadIntervals = checked((int)amount) },
+        nameof(value.MaximumSubjectValidations) => value with { MaximumSubjectValidations = checked((int)amount) },
+        nameof(value.MaximumAuthorityReads) => value with { MaximumAuthorityReads = checked((int)amount) },
+        nameof(value.MaximumRelationChecks) => value with { MaximumRelationChecks = checked((int)amount) },
+        nameof(value.MaximumUniqueConstraintChecks) => value with { MaximumUniqueConstraintChecks = checked((int)amount) },
+        nameof(value.MaximumRequestBytes) => value with { MaximumRequestBytes = amount },
+        nameof(value.MaximumSelectedBytes) => value with { MaximumSelectedBytes = amount },
+        nameof(value.MaximumGenerationBytes) => value with { MaximumGenerationBytes = amount },
+        nameof(value.MaximumEvidenceBytes) => value with { MaximumEvidenceBytes = amount },
+        nameof(value.MaximumWrittenBytes) => value with { MaximumWrittenBytes = amount },
+        nameof(value.MaximumFactBytes) => value with { MaximumFactBytes = amount },
+        nameof(value.MaximumJournalBytes) => value with { MaximumJournalBytes = amount },
+        nameof(value.MaximumReceiptBytes) => value with { MaximumReceiptBytes = amount },
+        nameof(value.MaximumResultBytes) => value with { MaximumResultBytes = amount },
+        nameof(value.MaximumTransientBytes) => value with { MaximumTransientBytes = amount },
+        nameof(value.Deadlines.AcquisitionTimeout) => value with { Deadlines = value.Deadlines with { AcquisitionTimeout = TimeSpan.FromTicks(amount) } },
+        nameof(value.Deadlines.TransactionTimeout) => value with { Deadlines = value.Deadlines with { TransactionTimeout = TimeSpan.FromTicks(amount) } },
+        nameof(value.Deadlines.CommitObservationTimeout) => value with { Deadlines = value.Deadlines with { CommitObservationTimeout = TimeSpan.FromTicks(amount) } },
+        nameof(value.Deadlines.ReceiptResolutionTimeout) => value with { Deadlines = value.Deadlines with { ReceiptResolutionTimeout = TimeSpan.FromTicks(amount) } },
+        _ => throw new ArgumentOutOfRangeException(nameof(member)),
+    };
 
     [Fact]
     public void Contract_validation_accepts_the_closed_record_program()
@@ -705,6 +794,34 @@ public sealed class BaseModuleProgramEvaluatorTests
             SourceContractId = "module.grants", SourceContractVersion = 1,
         }, grant);
         return new DefaultBasePolicyOrchestrator(builder.Freeze("module.application"));
+    }
+
+    private static DefaultBasePolicyOrchestrator PolicyWithDynamicGrant(AccessGrant grant)
+    {
+        var builder = new BasePolicyAuthorityBuilder();
+        builder.AddPolicy(new BasePolicyAuthorityDefinition
+        {
+            Id = "module.policy", Version = 1, OwningModuleId = "module",
+            EvaluatorContractId = "module.policy.evaluator", EvaluatorContractVersion = 1, CompositionOrder = 0,
+        }, new AllowPolicyEvaluator());
+        var source = new FixedGrantSource(grant);
+        source.Registration = builder.AddGrant(new BaseGrantAuthorityDefinition
+        {
+            Id = grant.Id, Version = 1, OwningModuleId = "module",
+            SourceContractId = "module.dynamic-grants", SourceContractVersion = 1,
+        }, source);
+        return new DefaultBasePolicyOrchestrator(builder.Freeze("module.application"));
+    }
+
+    private sealed class FixedGrantSource(AccessGrant grant) : IBaseGrantAuthoritySource
+    {
+        internal BaseInstalledGrantRegistration Registration { get; set; } = null!;
+        public ValueTask EmitAsync(BaseGrantAuthorityEmissionContext context, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            context.Emit(Registration, grant);
+            return ValueTask.CompletedTask;
+        }
     }
 
     private static BaseRegisteredModuleMutationDefinition GenerationDefinition() => BaseModuleMutationContract.Seal(new()
