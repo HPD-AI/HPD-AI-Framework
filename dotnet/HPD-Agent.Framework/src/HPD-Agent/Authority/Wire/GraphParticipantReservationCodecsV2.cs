@@ -11,6 +11,8 @@ internal static class GraphParticipantReservationCodecsV2
     internal const int MaximumOuterBytes = 65_833;
     internal const string ReservationCommandSchemaId = "hpd.authority-payload-graph-participant-reservation-command.v2";
     internal const string ReservationFactSchemaId = "hpd.authority-payload-graph-participant-reservation-fact.v2";
+    internal const string ReservationCommandBodySchemaId = "hpd.graph-participant-reservation-command-body.v2";
+    internal const string ReservationFactBodySchemaId = "hpd.graph-participant-reservation-fact-body.v2";
 
     internal static byte[] Encode(GraphParticipantReservationCommandV2 value) => EncodeOuter(value.Session, value.ExpectedAuthority, value.BodyBytes,MaximumReservationCommandBodyBytes);
     internal static byte[] Encode(GraphParticipantReservationFactV2 value) => EncodeOuter(value.Session, value.ExpectedAuthority, value.BodyBytes,MaximumReservationFactBodyBytes);
@@ -40,6 +42,8 @@ internal static class GraphParticipantReservationCodecsV2
 
     internal static bool TryDecodeReservationCommandBody(ReadOnlyMemory<byte> b, out GraphParticipantReservationCommandBodyV2? v) => TryBody(b,MaximumReservationCommandBodyBytes,ReadReservationCommand,Encode,out v);
     internal static bool TryDecodeReservationFactBody(ReadOnlyMemory<byte> b, out GraphParticipantReservationFactBodyV2? v) => TryBody(b,MaximumReservationFactBodyBytes,ReadReservationFact,Encode,out v);
+    internal static Hash256 ComputeHash(GraphParticipantReservationCommandBodyV2 v)=>AuthorityIntegrityHashV1.Compute(ReservationCommandBodySchemaId,2,0,Encode(v));
+    internal static Hash256 ComputeHash(GraphParticipantReservationFactBodyV2 v)=>AuthorityIntegrityHashV1.Compute(ReservationFactBodySchemaId,2,0,Encode(v));
 
     private static GraphParticipantReservationCommandBodyV2 ReadReservationCommand(CborReader r)
     {
