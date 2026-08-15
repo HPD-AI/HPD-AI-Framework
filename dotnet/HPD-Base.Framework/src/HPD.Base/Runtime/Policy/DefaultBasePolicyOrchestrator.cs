@@ -90,6 +90,7 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
             GrantId = new string(value.Registration.Id.AsSpan()), GrantVersion = value.Registration.Version,
             GrantRegistrationChecksum = value.Registration.Checksum.ToArray().ToImmutableArray(),
             GrantChecksum = BasePolicyAuthorityCanonicalizer.HashGrant(value.Grant).ToImmutableArray(),
+            Grant = BasePolicyAuthorityCanonicalizer.CloneGrant(value.Grant),
         })];
         var applied = ImmutableArray.CreateBuilder<BaseAppliedPolicyAuthority>();
         var recordFilters = new List<FilterExpression>();

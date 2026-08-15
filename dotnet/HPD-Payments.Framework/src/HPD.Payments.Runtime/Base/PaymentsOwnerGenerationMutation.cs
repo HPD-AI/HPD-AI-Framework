@@ -85,8 +85,8 @@ public static partial class PaymentsOwnerGenerationMutation
             Id = id, ResultTypeId = id,
             Properties =
             [
-                new() { StablePropertyId = ownerField, Value = OwnerId(id + ".owner") },
                 new() { StablePropertyId = operationField, Value = OperationId(id + ".operation") },
+                new() { StablePropertyId = ownerField, Value = OwnerId(id + ".owner") },
             ],
         };
 
@@ -94,19 +94,19 @@ public static partial class PaymentsOwnerGenerationMutation
         {
             Captures =
             [
-                new BaseModuleRecordCapture { Id = "owner-record", CollectionId = PaymentsOwnerState.Collection.Id, RecordId = OwnerId("capture.owner-record"), Presence = BaseModuleCapturePresence.AllowEither },
+                new BaseModuleGenerationCapture { Id = "ledger-generation", CellId = LedgerCellId, Key = OwnerId("capture.ledger-generation"), Absence = BaseModuleGenerationAbsenceBehavior.AllowEither },
                 new BaseModuleRecordCapture { Id = "ledger-record", CollectionId = PaymentsLedgerHead.Collection.Id, RecordId = OwnerId("capture.ledger-record"), Presence = BaseModuleCapturePresence.AllowEither },
                 new BaseModuleGenerationCapture { Id = "owner-generation", CellId = OwnerCellId, Key = OwnerId("capture.owner-generation"), Absence = BaseModuleGenerationAbsenceBehavior.AllowEither },
-                new BaseModuleGenerationCapture { Id = "ledger-generation", CellId = LedgerCellId, Key = OwnerId("capture.ledger-generation"), Absence = BaseModuleGenerationAbsenceBehavior.AllowEither },
+                new BaseModuleRecordCapture { Id = "owner-record", CollectionId = PaymentsOwnerState.Collection.Id, RecordId = OwnerId("capture.owner-record"), Presence = BaseModuleCapturePresence.AllowEither },
             ],
             Guards =
             [
-                new BaseModuleGenerationGuard { Id = "owner-missing", CaptureId = "owner-generation", Comparison = BaseModuleGenerationComparisonKind.MustBeMissing },
-                new BaseModuleGenerationGuard { Id = "owner-equal", CaptureId = "owner-generation", Comparison = BaseModuleGenerationComparisonKind.MustEqual, Expected = Expected("guard.owner.expected", "hpd.payments.owner-ledger.expected-owner-generation") },
-                new BaseModuleLogicalGuard { Id = "owner-admitted", Kind = BaseModuleLogicalGuardKind.Or, ChildGuardIds = ["owner-missing", "owner-equal"] },
-                new BaseModuleGenerationGuard { Id = "ledger-missing", CaptureId = "ledger-generation", Comparison = BaseModuleGenerationComparisonKind.MustBeMissing },
-                new BaseModuleGenerationGuard { Id = "ledger-equal", CaptureId = "ledger-generation", Comparison = BaseModuleGenerationComparisonKind.MustEqual, Expected = Expected("guard.ledger.expected", "hpd.payments.owner-ledger.expected-ledger-generation") },
                 new BaseModuleLogicalGuard { Id = "ledger-admitted", Kind = BaseModuleLogicalGuardKind.Or, ChildGuardIds = ["ledger-missing", "ledger-equal"] },
+                new BaseModuleGenerationGuard { Id = "ledger-equal", CaptureId = "ledger-generation", Comparison = BaseModuleGenerationComparisonKind.MustEqual, Expected = Expected("guard.ledger.expected", "hpd.payments.owner-ledger.expected-ledger-generation") },
+                new BaseModuleGenerationGuard { Id = "ledger-missing", CaptureId = "ledger-generation", Comparison = BaseModuleGenerationComparisonKind.MustBeMissing },
+                new BaseModuleLogicalGuard { Id = "owner-admitted", Kind = BaseModuleLogicalGuardKind.Or, ChildGuardIds = ["owner-missing", "owner-equal"] },
+                new BaseModuleGenerationGuard { Id = "owner-equal", CaptureId = "owner-generation", Comparison = BaseModuleGenerationComparisonKind.MustEqual, Expected = Expected("guard.owner.expected", "hpd.payments.owner-ledger.expected-owner-generation") },
+                new BaseModuleGenerationGuard { Id = "owner-missing", CaptureId = "owner-generation", Comparison = BaseModuleGenerationComparisonKind.MustBeMissing },
             ],
             Body = new BaseModuleMutationBlock
             {
@@ -139,8 +139,8 @@ public static partial class PaymentsOwnerGenerationMutation
                     Id = "result", ResultTypeId = "hpd.payments.owner-ledger.advance.result",
                     Properties =
                     [
-                        new() { StablePropertyId = "hpd.payments.owner-ledger.result.owner-generation", Value = new BaseModuleResultingGenerationExpression { Id = "result.owner-generation", ResultTypeId = "base.moduleGeneration", CaptureId = "owner-generation" } },
                         new() { StablePropertyId = "hpd.payments.owner-ledger.result.ledger-generation", Value = new BaseModuleResultingGenerationExpression { Id = "result.ledger-generation", ResultTypeId = "base.moduleGeneration", CaptureId = "ledger-generation" } },
+                        new() { StablePropertyId = "hpd.payments.owner-ledger.result.owner-generation", Value = new BaseModuleResultingGenerationExpression { Id = "result.owner-generation", ResultTypeId = "base.moduleGeneration", CaptureId = "owner-generation" } },
                     ],
                 },
             },

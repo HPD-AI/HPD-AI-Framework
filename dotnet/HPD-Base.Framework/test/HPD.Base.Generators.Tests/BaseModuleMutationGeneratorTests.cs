@@ -57,6 +57,33 @@ public sealed class BaseModuleMutationGeneratorTests
         result.Source.Should().Contain("base.moduleMutation.invalid").And.NotContain("RegisterContext");
     }
 
+    [Fact]
+    public void EmitsNestedRequestPathsAndExactResultDisclosure()
+    {
+        Result result = Run("""
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseRegisteredModuleMutation("payments.nested", typeof(AppJsonContext), typeof(Request), typeof(Result), OwningModuleId="payments", GrantId="payments.nested")]
+            public static partial class Nested { internal static BaseRegisteredModuleMutationDefinition Definition => throw null!; }
+            public sealed record Request { [BaseField("request.owner")] public required Owner Owner { get; init; } }
+            public sealed record Owner { [BaseField("owner.id")] public required string Id { get; init; } }
+            public sealed record Result
+            {
+                [BaseField("result.secret")]
+                [BaseFieldDisclosure(RecordRead = BaseRecordDisclosure.FixedMarker)]
+                public required string Secret { get; init; }
+            }
+            [JsonSerializable(typeof(Request))]
+            [JsonSerializable(typeof(Result))]
+            public sealed partial class AppJsonContext : JsonSerializerContext;
+            """);
+
+        result.Diagnostics.Should().BeEmpty();
+        result.Source.Should().Contain("CreatePath<")
+            .And.Contain("new string[] { \"request.owner\", \"owner.id\",")
+            .And.Contain("(global::HPD.Base.BaseRecordDisclosure)2");
+    }
+
     private static Result Run(string source)
     {
         var parse = new CSharpParseOptions(LanguageVersion.CSharp14);

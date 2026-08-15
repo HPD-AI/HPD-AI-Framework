@@ -43,7 +43,8 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             ResourceKind = PolicyResourceKind.ModuleMutation,
         }, cancellationToken).ConfigureAwait(false);
         if (!operationPolicy.IsSuccess() || operationPolicy.Value?.Authority is null
-            || !BaseSystemCollectionGate.HasExactGrant(operationPolicy, definition.GrantId))
+            || !BaseSystemCollectionGate.HasExactModuleGrant(operationPolicy, definition.GrantId,
+                definition.OwningModuleId, session.Principal, moduleOperation))
             return Failure<TResult>(OperationStatus.PolicyDenied, BaseModuleMutationErrorCodes.Unauthorized, ErrorCategory.Authorization);
         if (!await AuthorizeDeclaredAuthorityAsync(
                 session, definition, moduleOperation, policyResource, operationPolicy.Value,
@@ -197,7 +198,8 @@ internal sealed class DefaultBaseModuleMutationRuntime(
                 Collection = collection,
                 ResourceKind = PolicyResourceKind.ModuleMutation,
             }, cancellationToken).ConfigureAwait(false);
-            if (!BaseSystemCollectionGate.HasExactGrant(source, definition.GrantId)) return false;
+            if (!BaseSystemCollectionGate.HasExactModuleGrant(source, definition.GrantId,
+                    definition.OwningModuleId, session.Principal, moduleOperation)) return false;
         }
 
         foreach (string contractId in definition.ImportedSubjectContractIds)
@@ -466,7 +468,8 @@ internal static class BaseModuleReceiptDisclosure
                 RecordId = resource.Id,
             }, cancellationToken).ConfigureAwait(false);
             if (!disclosure.IsSuccess() || disclosure.Value is null
-                || !BaseSystemCollectionGate.HasExactGrant(disclosure, definition.GrantId)
+                || !BaseSystemCollectionGate.HasExactModuleGrant(disclosure, definition.GrantId,
+                    definition.OwningModuleId, principal, operation)
                 || !BaseRecordFilterMatcher.Matches(resource, disclosure.Value.EffectiveRecordFilter)) return false;
         }
 
@@ -483,13 +486,17 @@ internal static class BaseModuleReceiptDisclosure
             ResourceKind = PolicyResourceKind.ModuleMutation,
         }, cancellationToken).ConfigureAwait(false);
         return result.IsSuccess() && result.Value is not null
-            && BaseSystemCollectionGate.HasExactGrant(result, definition.GrantId)
-            && ResultMaskAllows(result.Value.EffectiveReadMask, resultBindings.Keys);
+            && BaseSystemCollectionGate.HasExactModuleGrant(result, definition.GrantId,
+                definition.OwningModuleId, principal, operation)
+            && ResultDisclosureAllows(result.Value.EffectiveReadMask, resultBindings.Values);
     }
 
-    private static bool ResultMaskAllows(FieldMask? mask, IEnumerable<string> fields)
+    private static bool ResultDisclosureAllows(FieldMask? mask, IEnumerable<BaseModuleDtoPropertyBinding> bindings)
     {
-        string[] values = fields.ToArray();
+        BaseModuleDtoPropertyBinding[] declared = bindings.ToArray();
+        if (declared.Any(binding => binding.RecordDisclosure != BaseRecordDisclosure.Include))
+            return false;
+        string[] values = declared.Select(static binding => binding.StablePropertyId).ToArray();
         return mask?.Mode switch
         {
             null or FieldMaskMode.Unspecified or FieldMaskMode.AllowAll => true,

@@ -161,10 +161,11 @@ internal sealed class BaseModuleProgramEvaluator<TRequest, TResult>
     {
         JsonElement current = _request;
         JsonTypeInfo type = _identity.RequestTypeInfo;
+        var path = new List<string>();
         foreach (string stableId in reference.StablePropertyPath)
         {
-            if (!_identity.RequestBindings.TryGetValue(stableId, out BaseModuleDtoPropertyBinding? binding)
-                || binding.DeclaringType != type.Type)
+            path.Add(stableId);
+            if (!_identity.RequestBindings.TryGetValue(string.Join('\0', path), out BaseModuleDtoPropertyBinding? binding))
                 throw new InvalidOperationException("base.moduleMutation.invalid");
             JsonPropertyInfo property = type.Properties.Single(value =>
                 value.AttributeProvider is MemberInfo member

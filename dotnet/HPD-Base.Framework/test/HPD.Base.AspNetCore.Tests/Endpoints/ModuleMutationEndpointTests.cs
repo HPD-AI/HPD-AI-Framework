@@ -31,8 +31,10 @@ public sealed class ModuleMutationEndpointTests
                 SourceContractId = "module.grants", SourceContractVersion = 1,
             }, new AccessGrant
             {
-                Id = "module.increment", Subject = new AccessSubject { Kind = AccessSubjectKind.System },
-                Action = "*", Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime },
+                Id = "module.increment", ApplicationId = "module.application", ModuleId = "module",
+                Audience = HPDBaseEndpointAudience.Application,
+                Subject = new AccessSubject { Kind = AccessSubjectKind.System, Id = "system" },
+                Action = "module.increment", Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime },
             });
             hpd.AddModuleGenerationCell(ModuleMutationEndpointFixture.Cell())
                 .AddModuleMutation(ModuleIncrement.Definition, ModuleIncrement.Identity);
@@ -74,7 +76,7 @@ public sealed class ModuleMutationEndpointTests
     private sealed class SystemMapper : IBaseHttpPrincipalMapper
     {
         public ValueTask<PrincipalContext> MapAsync(HttpContext context, HPDBaseEndpointDescriptor endpoint, CancellationToken cancellationToken = default) =>
-            ValueTask.FromResult(new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System, SubjectId = "system" });
+            ValueTask.FromResult(new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System, SubjectKind = AccessSubjectKind.System, SubjectId = "system" });
     }
     private sealed class AllowPolicyEvaluator : IPolicyEvaluator
     {

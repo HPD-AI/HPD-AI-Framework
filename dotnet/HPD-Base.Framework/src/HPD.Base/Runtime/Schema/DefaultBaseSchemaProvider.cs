@@ -107,6 +107,39 @@ internal static class BaseSystemCollectionGate
         return requiredGrantId is null || grants.Any(grant => string.Equals(grant.GrantId, requiredGrantId, StringComparison.Ordinal));
     }
 
+    internal static bool HasExactModuleGrant(
+        OperationResult<BasePolicyEvaluation> result,
+        string requiredGrantId,
+        string owningModuleId,
+        PrincipalContext principal,
+        OperationContext operation)
+    {
+        if (!result.IsSuccess() || result.Value?.Authority?.AdmittedGrants is not { Length: > 0 } grants)
+            return false;
+        return grants.Any(authority =>
+        {
+            AccessGrant grant = authority.Grant;
+            return string.Equals(authority.GrantId, requiredGrantId, StringComparison.Ordinal)
+                && string.Equals(grant.Id, requiredGrantId, StringComparison.Ordinal)
+                && grant.Effect == GrantEffect.Allow
+                && string.Equals(grant.ApplicationId, operation.ApplicationId, StringComparison.Ordinal)
+                && string.Equals(grant.ModuleId, owningModuleId, StringComparison.Ordinal)
+                && grant.Audience == operation.Audience
+                && string.Equals(grant.Action, operation.CollectionId, StringComparison.Ordinal)
+                && grant.Subject.Kind == principal.SubjectKind
+                && string.Equals(grant.Subject.Id, principal.SubjectId, StringComparison.Ordinal)
+                && string.Equals(grant.Subject.TenantId, principal.CurrentTenantId, StringComparison.Ordinal)
+                && grant.Scope.Kind == ResourceScopeKind.Runtime
+                && grant.Scope.CollectionId is null && grant.Scope.RecordId is null
+                && grant.Scope.FieldPath is null && grant.Scope.VectorIndexId is null
+                && grant.Scope.SubjectContractId is null && grant.Scope.SubjectContractVersion is null
+                && string.Equals(grant.Scope.TenantId, operation.TenantId, StringComparison.Ordinal)
+                && string.Equals(grant.Scope.ProjectId, operation.ProjectId, StringComparison.Ordinal)
+                && grant.Condition is null && grant.WriteCondition is null
+                && (grant.ExpiresAt is null || grant.ExpiresAt > operation.Now);
+        });
+    }
+
     internal static bool AllowsSource(
         CollectionDefinition collection,
         OperationResult<BasePolicyEvaluation> result,

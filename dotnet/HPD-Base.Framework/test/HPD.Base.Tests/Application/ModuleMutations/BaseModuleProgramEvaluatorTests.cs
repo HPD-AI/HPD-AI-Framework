@@ -8,6 +8,224 @@ namespace HPD.Base.Tests.Application.ModuleMutations;
 
 public sealed class BaseModuleProgramEvaluatorTests
 {
+    [Theory]
+    [MemberData(nameof(InexactGrants))]
+    public async Task Inexact_grant_with_matching_registration_id_is_not_L50_authority(AccessGrant grant)
+    {
+        DefaultBasePolicyOrchestrator orchestrator = PolicyWithGrant(grant);
+        var principal = new PrincipalContext
+        {
+            AuthenticationState = PrincipalAuthenticationState.System,
+            SubjectKind = AccessSubjectKind.System, SubjectId = "system",
+        };
+        var operation = new OperationContext
+        {
+            ApplicationId = "module.application", Audience = HPDBaseEndpointAudience.ControlPlane,
+            Operation = BaseOperationKind.ModuleMutation, CollectionId = "module.increment", Now = DateTimeOffset.UtcNow,
+        };
+        OperationResult<BasePolicyEvaluation> result = await orchestrator.EvaluateWriteAsync(new BasePolicyRequest
+        {
+            Principal = principal, Operation = operation, Collection = ModuleCollection(),
+            ResourceKind = PolicyResourceKind.ModuleMutation,
+        });
+
+        BaseSystemCollectionGate.HasExactModuleGrant(result, "module.increment", "module", principal, operation).Should().BeFalse();
+    }
+
+    public static IEnumerable<object[]> InexactGrants()
+    {
+        AccessGrant exact = new()
+        {
+            Id = "module.increment", ApplicationId = "module.application", ModuleId = "module",
+            Audience = HPDBaseEndpointAudience.ControlPlane,
+            Subject = new AccessSubject { Kind = AccessSubjectKind.System, Id = "system" },
+            Action = "module.increment", Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime },
+        };
+        yield return [exact with { Action = "*" }];
+        yield return [exact with { ApplicationId = null }];
+        yield return [exact with { ModuleId = null }];
+        yield return [exact with { Audience = HPDBaseEndpointAudience.Application }];
+        yield return [exact with { Subject = exact.Subject with { Kind = AccessSubjectKind.ServicePrincipal } }];
+        yield return [exact with { Subject = exact.Subject with { Id = "another-system" } }];
+        yield return [exact with { Subject = exact.Subject with { TenantId = "another-tenant" } }];
+        yield return [exact with { Scope = exact.Scope with { TenantId = "another-tenant" } }];
+        yield return [exact with { Scope = exact.Scope with { ProjectId = "another-project" } }];
+        yield return [exact with { Scope = exact.Scope with { CollectionId = "hidden" } }];
+        yield return [exact with { Condition = new FilterExpression { Kind = FilterNodeKind.True } }];
+        yield return [exact with { WriteCondition = new FilterExpression { Kind = FilterNodeKind.True } }];
+        yield return [exact with { Effect = GrantEffect.Deny }];
+        yield return [exact with { ExpiresAt = DateTimeOffset.UnixEpoch }];
+    }
+
+    [Fact]
+    public void Canonical_checksum_matches_the_locked_template_byte_vector()
+    {
+        string actual = Convert.ToHexString(GenerationDefinition().Checksum.ToArray());
+        actual.Should().Be("21459C33459A1E437A90889EF6F9CF42F06B554A01B1D07D2997D4FF0404A62C");
+    }
+
+    [Fact]
+    public void Canonical_encoder_rejects_non_NFC_source_strings()
+    {
+        BaseRegisteredModuleMutationDefinition definition = GenerationDefinition() with
+        {
+            OwningModuleId = "modu\u006Ce\u0301",
+        };
+
+        Action encode = () => BaseModuleMutationContract.ComputeChecksum(definition);
+
+        encode.Should().Throw<InvalidOperationException>().WithMessage(BaseModuleMutationErrorCodes.Invalid);
+    }
+
+    [Fact]
+    public void Closed_manual_builder_matches_the_direct_canonical_contract()
+    {
+        BaseRegisteredModuleMutationDefinition direct = GenerationDefinition();
+        BaseRegisteredModuleMutationDefinition authored = BaseModuleMutationTemplateBuilder.Create(direct with
+        {
+            Checksum = BaseModuleMutationChecksum.Create(new byte[32]),
+            Template = new BaseModuleMutationTemplate
+            {
+                Captures = [BaseModuleMutationTemplateBuilder.CaptureGeneration(
+                    "generation", "module.generation", null, BaseModuleGenerationAbsenceBehavior.AllowEither)],
+                Guards = [],
+                Body = BaseModuleMutationTemplateBuilder.Block(
+                    BaseModuleMutationTemplateBuilder.IncrementGeneration("increment", "generation", true)),
+                Result = BaseModuleMutationTemplateBuilder.Result(
+                    BaseModuleMutationTemplateBuilder.Object("result", "result",
+                        BaseModuleMutationTemplateBuilder.Property("result.generation",
+                            BaseModuleMutationTemplateBuilder.ResultingGeneration(
+                                "result-generation", "string", "generation")))),
+            },
+        }).Build();
+
+        authored.Checksum.Should().Be(direct.Checksum);
+    }
+
+    [Fact]
+    public void Conditional_result_definite_assignment_is_validated_per_execution_path()
+    {
+        BaseModuleGenerationCellDefinition Cell(string id) => new()
+        {
+            Id = id, Version = 1, OwningModuleId = "module", Scope = BaseModuleGenerationScope.Application,
+            MaximumKeyUtf8Bytes = 1, MaximumCellsPerOperation = 2,
+        };
+        var cells = new Dictionary<string, BaseModuleGenerationCellDefinition>
+        {
+            ["module.a"] = Cell("module.a"), ["module.b"] = Cell("module.b"),
+        };
+        BaseModuleResultingGenerationExpression Resulting(string id, string capture) => new()
+        {
+            Id = id, ResultTypeId = "base.moduleGeneration", CaptureId = capture,
+        };
+        var conditional = new BaseModuleConditionalExpression
+        {
+            Id = "selected", ResultTypeId = "base.moduleGeneration", GuardId = "choose-a",
+            WhenTrue = Resulting("selected-a", "a"), WhenFalse = Resulting("selected-b", "b"),
+        };
+        BaseRegisteredModuleMutationDefinition definition = BaseModuleMutationContract.Seal(new()
+        {
+            Id = "module.conditional", Version = 1, OwningModuleId = "module", GrantId = "module.conditional",
+            Audience = BaseModuleMutationAudience.System, RequestTypeId = "request", ResultTypeId = "result",
+            SystemCollectionIds = [], GenerationCellIds = ["module.a", "module.b"], ImportedSubjectContractIds = [],
+            Template = new BaseModuleMutationTemplate
+            {
+                Captures =
+                [
+                    new BaseModuleGenerationCapture { Id = "a", CellId = "module.a", Absence = BaseModuleGenerationAbsenceBehavior.AllowEither },
+                    new BaseModuleGenerationCapture { Id = "b", CellId = "module.b", Absence = BaseModuleGenerationAbsenceBehavior.AllowEither },
+                ],
+                Guards = [new BaseModuleGenerationGuard { Id = "choose-a", CaptureId = "a", Comparison = BaseModuleGenerationComparisonKind.MustBeMissing }],
+                Body = BaseModuleMutationTemplateBuilder.Block(new BaseModuleIfStatement
+                {
+                    Id = "choose", GuardId = "choose-a",
+                    WhenTrue = BaseModuleMutationTemplateBuilder.Block(BaseModuleMutationTemplateBuilder.IncrementGeneration("increment-a", "a", true)),
+                    WhenFalse = BaseModuleMutationTemplateBuilder.Block(BaseModuleMutationTemplateBuilder.IncrementGeneration("increment-b", "b", true)),
+                }),
+                Result = BaseModuleMutationTemplateBuilder.Result(BaseModuleMutationTemplateBuilder.Object("result", "result",
+                    BaseModuleMutationTemplateBuilder.Property("result.generation", conditional))),
+            },
+            Limits = Limits(), ReceiptPolicy = new BaseModuleMutationReceiptPolicy { FormatVersion = 1, Lifetime = TimeSpan.FromDays(1) },
+            Checksum = BaseModuleMutationChecksum.Create(new byte[32]),
+        });
+
+        Action valid = () => BaseModuleMutationContractValidator.ValidateDefinition(
+            definition, new Dictionary<string, CollectionDefinition>(), cells);
+        valid.Should().NotThrow();
+
+        BaseRegisteredModuleMutationDefinition invalid = BaseModuleMutationContract.Seal(definition with
+        {
+            Template = definition.Template with
+            {
+                Result = BaseModuleMutationTemplateBuilder.Result(BaseModuleMutationTemplateBuilder.Object("result", "result",
+                    BaseModuleMutationTemplateBuilder.Property("result.generation", Resulting("unconditional-a", "a")))),
+            },
+        });
+        Action rejected = () => BaseModuleMutationContractValidator.ValidateDefinition(
+            invalid, new Dictionary<string, CollectionDefinition>(), cells);
+        rejected.Should().Throw<InvalidOperationException>().WithMessage(BaseModuleMutationErrorCodes.Invalid);
+    }
+
+    [Fact]
+    public void Unknown_CLR_result_type_fails_closed_against_the_L44_node()
+    {
+        CollectionDefinition collection = ModuleCollection();
+        BaseRegisteredModuleMutationDefinition definition = CreateDefinition();
+        var identity = new BaseGeneratedModuleMutationIdentity<CreateRequest, UnsupportedResult>(
+            definition.Id, definition.Version, definition.Checksum.ToArray(),
+            EvaluatorJsonContext.Default.CreateRequest, EvaluatorJsonContext.Default.UnsupportedResult,
+            [
+                BaseModuleDtoPropertyBinding.Create<CreateRequest, string>("request.id", nameof(CreateRequest.Id)),
+                BaseModuleDtoPropertyBinding.Create<CreateRequest, string>("request.name", nameof(CreateRequest.Name)),
+            ],
+            [BaseModuleDtoPropertyBinding.Create<UnsupportedResult, DateTimeOffset>("result.id", nameof(UnsupportedResult.Id))]);
+        var registration = new BaseModuleMutationRegistration<CreateRequest, UnsupportedResult>(definition, identity);
+
+        Action validate = () => BaseModuleMutationContractValidator.ValidateDefinition(
+            definition,
+            new Dictionary<string, CollectionDefinition> { [collection.Id] = collection },
+            new Dictionary<string, BaseModuleGenerationCellDefinition>(), registration);
+
+        validate.Should().Throw<InvalidOperationException>().WithMessage(BaseModuleMutationErrorCodes.Invalid);
+    }
+
+    [Fact]
+    public async Task Receipt_result_denies_a_current_L42_ineligible_field()
+    {
+        BaseRegisteredModuleMutationDefinition definition = GenerationDefinition();
+        DefaultBasePolicyOrchestrator orchestrator = Policy("module.increment");
+        var principal = new PrincipalContext
+        {
+            AuthenticationState = PrincipalAuthenticationState.System,
+            SubjectKind = AccessSubjectKind.System, SubjectId = "system",
+        };
+        var operation = new OperationContext
+        {
+            ApplicationId = "module.application", Audience = HPDBaseEndpointAudience.ControlPlane,
+            Operation = BaseOperationKind.ModuleMutation, CollectionId = definition.Id, Now = DateTimeOffset.UtcNow,
+        };
+        var receipt = new BaseAtomicReceiptResult
+        {
+            Kind = BaseAtomicReceiptResultKind.ModuleMutation, Mutations = [],
+            ModuleMutation = new BaseModuleMutationReceiptResult
+            {
+                OperationId = definition.Id, OperationVersion = definition.Version,
+                Disposition = BaseMutationRequestDisposition.Committed, Outcome = BaseModuleMutationOutcome.Committed,
+                Generations = [], CanonicalResultBytes = "{}"u8.ToArray().ToImmutableArray(),
+            },
+        };
+        IReadOnlyDictionary<string, BaseModuleDtoPropertyBinding> bindings = new Dictionary<string, BaseModuleDtoPropertyBinding>
+        {
+            ["result.generation"] = BaseModuleDtoPropertyBinding.Create<GenerationResult, string>(
+                "result.generation", nameof(GenerationResult.Generation), BaseFieldConfidentiality.Confidential, BaseRecordDisclosure.Omit),
+        };
+
+        bool allowed = await BaseModuleReceiptDisclosure.AuthorizeAsync(
+            receipt, definition, bindings, principal, operation, orchestrator, default);
+
+        allowed.Should().BeFalse();
+    }
+
     [Fact]
     public void Caller_authored_checksum_is_rejected()
     {
@@ -105,7 +323,7 @@ public sealed class BaseModuleProgramEvaluatorTests
             new DefaultBaseResultNormalizer(NullLogger<DefaultBaseResultNormalizer>.Instance),
             new BaseSubjectContractRegistry([]), TimeProvider.System);
         var session = new BaseSession(null!, TimeProvider.System,
-            new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System, SubjectId = "system" },
+            new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System, SubjectKind = AccessSubjectKind.System, SubjectId = "system" },
             new BaseSessionOptions { Audience = HPDBaseEndpointAudience.ControlPlane }, applicationId: "module.application");
         BaseMutationRequestIdentity requestIdentity = BaseMutationRequestIdentity.Create(
             "module", "create", "one", BaseMutationRequestFingerprint.Create(new byte[32]));
@@ -140,7 +358,7 @@ public sealed class BaseModuleProgramEvaluatorTests
         BaseGeneratedModuleMutationIdentity<GenerationRequest, GenerationResult> identity = GenerationIdentity();
         var session = new BaseSession(
             null!, TimeProvider.System,
-            new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System, SubjectId = "system" },
+            new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System, SubjectKind = AccessSubjectKind.System, SubjectId = "system" },
             new BaseSessionOptions { Audience = HPDBaseEndpointAudience.ControlPlane },
             applicationId: "module.application");
         BaseMutationRequestIdentity requestIdentity = BaseMutationRequestIdentity.Create(
@@ -182,7 +400,7 @@ public sealed class BaseModuleProgramEvaluatorTests
             new BaseModuleMutationRegistry([definition], [cell]), null!, Policy(), null!,
             new BaseSubjectContractRegistry([]), TimeProvider.System);
         var session = new BaseSession(null!, TimeProvider.System,
-            new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System, SubjectId = "system" },
+            new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System, SubjectKind = AccessSubjectKind.System, SubjectId = "system" },
             new BaseSessionOptions { Audience = HPDBaseEndpointAudience.ControlPlane }, applicationId: "module.application");
         BaseMutationRequestIdentity requestIdentity = BaseMutationRequestIdentity.Create(
             "module", "increment", "denied", BaseMutationRequestFingerprint.Create(new byte[32]));
@@ -231,23 +449,23 @@ public sealed class BaseModuleProgramEvaluatorTests
         "module.test", 1, new byte[32], EvaluatorJsonContext.Default.EvaluatorRequest,
         EvaluatorJsonContext.Default.EvaluatorResult,
         [
-            BaseModuleDtoPropertyBinding.Create<EvaluatorRequest>("request.amount", nameof(EvaluatorRequest.Amount)),
-            BaseModuleDtoPropertyBinding.Create<EvaluatorRequest>("request.enabled", nameof(EvaluatorRequest.Enabled)),
+            BaseModuleDtoPropertyBinding.Create<EvaluatorRequest, long>("request.amount", nameof(EvaluatorRequest.Amount)),
+            BaseModuleDtoPropertyBinding.Create<EvaluatorRequest, bool>("request.enabled", nameof(EvaluatorRequest.Enabled)),
         ],
-        [BaseModuleDtoPropertyBinding.Create<EvaluatorResult>("result.amount", nameof(EvaluatorResult.Amount))]);
+        [BaseModuleDtoPropertyBinding.Create<EvaluatorResult, long>("result.amount", nameof(EvaluatorResult.Amount))]);
 
     private static BaseGeneratedModuleMutationIdentity<GenerationRequest, GenerationResult> GenerationIdentity() => new(
         "module.increment", 1, new byte[32], EvaluatorJsonContext.Default.GenerationRequest,
         EvaluatorJsonContext.Default.GenerationResult, [],
-        [BaseModuleDtoPropertyBinding.Create<GenerationResult>("result.generation", nameof(GenerationResult.Generation))]);
+        [BaseModuleDtoPropertyBinding.Create<GenerationResult, string>("result.generation", nameof(GenerationResult.Generation))]);
 
     private static BaseGeneratedModuleMutationIdentity<CreateRequest, CreateResult> CreateIdentity() => new(
         "module.create", 1, new byte[32], EvaluatorJsonContext.Default.CreateRequest, EvaluatorJsonContext.Default.CreateResult,
         [
-            BaseModuleDtoPropertyBinding.Create<CreateRequest>("request.id", nameof(CreateRequest.Id)),
-            BaseModuleDtoPropertyBinding.Create<CreateRequest>("request.name", nameof(CreateRequest.Name)),
+            BaseModuleDtoPropertyBinding.Create<CreateRequest, string>("request.id", nameof(CreateRequest.Id)),
+            BaseModuleDtoPropertyBinding.Create<CreateRequest, string>("request.name", nameof(CreateRequest.Name)),
         ],
-        [BaseModuleDtoPropertyBinding.Create<CreateResult>("result.id", nameof(CreateResult.Id))]);
+        [BaseModuleDtoPropertyBinding.Create<CreateResult, string>("result.id", nameof(CreateResult.Id))]);
 
     private static BaseRegisteredModuleMutationDefinition CreateDefinition() => BaseModuleMutationContract.Seal(new()
     {
@@ -320,11 +538,28 @@ public sealed class BaseModuleProgramEvaluatorTests
             }, new AccessGrant
             {
                 Id = grantId,
-                Subject = new AccessSubject { Kind = AccessSubjectKind.System },
-                Action = "*",
+                ApplicationId = "module.application", ModuleId = "module", Audience = HPDBaseEndpointAudience.ControlPlane,
+                Subject = new AccessSubject { Kind = AccessSubjectKind.System, Id = "system" },
+                Action = grantId,
                 Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime },
             });
         }
+        return new DefaultBasePolicyOrchestrator(builder.Freeze("module.application"));
+    }
+
+    private static DefaultBasePolicyOrchestrator PolicyWithGrant(AccessGrant grant)
+    {
+        var builder = new BasePolicyAuthorityBuilder();
+        builder.AddPolicy(new BasePolicyAuthorityDefinition
+        {
+            Id = "module.policy", Version = 1, OwningModuleId = "module",
+            EvaluatorContractId = "module.policy.evaluator", EvaluatorContractVersion = 1, CompositionOrder = 0,
+        }, new AllowPolicyEvaluator());
+        builder.AddStaticGrant(new BaseGrantAuthorityDefinition
+        {
+            Id = grant.Id, Version = 1, OwningModuleId = "module",
+            SourceContractId = "module.grants", SourceContractVersion = 1,
+        }, grant);
         return new DefaultBasePolicyOrchestrator(builder.Freeze("module.application"));
     }
 
@@ -480,6 +715,7 @@ public sealed record GenerationRequest;
 public sealed record GenerationResult { public required string Generation { get; init; } }
 public sealed record CreateRequest { public required string Id { get; init; } public required string Name { get; init; } }
 public sealed record CreateResult { public required string Id { get; init; } }
+public sealed record UnsupportedResult { public required DateTimeOffset Id { get; init; } }
 
 [JsonSerializable(typeof(EvaluatorRequest))]
 [JsonSerializable(typeof(EvaluatorResult))]
@@ -487,4 +723,5 @@ public sealed record CreateResult { public required string Id { get; init; } }
 [JsonSerializable(typeof(GenerationResult))]
 [JsonSerializable(typeof(CreateRequest))]
 [JsonSerializable(typeof(CreateResult))]
+[JsonSerializable(typeof(UnsupportedResult))]
 internal sealed partial class EvaluatorJsonContext : JsonSerializerContext;

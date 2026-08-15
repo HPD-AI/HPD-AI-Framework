@@ -191,8 +191,10 @@ static BaseGrantAuthorityDefinition GrantDefinition(string id, string owner) => 
 
 static AccessGrant Grant(string id, string subjectId) => new()
 {
-    Id = id, Subject = new AccessSubject { Kind = AccessSubjectKind.ServicePrincipal, Id = subjectId },
-    Action = "*", Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime },
+    Id = id, ApplicationId = "hpd.base.application", ModuleId = id == "hpd.base.aot.module.increment" ? "hpd.base.aot.module" : "hpd.base.aot",
+    Audience = HPDBaseEndpointAudience.Application,
+    Subject = new AccessSubject { Kind = AccessSubjectKind.ServicePrincipal, Id = subjectId, TenantId = "tenant-a" },
+    Action = id, Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime, TenantId = "tenant-a" },
 };
 
 static RecordPayload JsonPayload(string json)

@@ -167,6 +167,13 @@ public sealed class L42ConfidentialityTests
                 GrantVersion = 1,
                 GrantRegistrationChecksum = [1],
                 GrantChecksum = [1],
+                Grant = new AccessGrant
+                {
+                    Id = id,
+                    Subject = new AccessSubject { Kind = AccessSubjectKind.System },
+                    Action = id,
+                    Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime },
+                },
             })],
             AppliedPolicies = [],
             Constraints = new BasePolicyConstraintAuthority(),

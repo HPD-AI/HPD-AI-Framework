@@ -67,7 +67,7 @@ public sealed partial class SqliteModuleMutationTests
     }
 
     private static BaseSession Session() => new(null!, TimeProvider.System,
-        new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System, SubjectId = "system" },
+        new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System, SubjectKind = AccessSubjectKind.System, SubjectId = "system" },
         new BaseSessionOptions { Audience = HPDBaseEndpointAudience.ControlPlane }, applicationId: "module.application");
 
     private static DefaultBasePolicyOrchestrator Policy()
@@ -84,15 +84,17 @@ public sealed partial class SqliteModuleMutationTests
             SourceContractId = "module.grants", SourceContractVersion = 1,
         }, new AccessGrant
         {
-            Id = "module.increment", Subject = new AccessSubject { Kind = AccessSubjectKind.System },
-            Action = "*", Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime },
+            Id = "module.increment", ApplicationId = "module.application", ModuleId = "module",
+            Audience = HPDBaseEndpointAudience.ControlPlane,
+            Subject = new AccessSubject { Kind = AccessSubjectKind.System, Id = "system" },
+            Action = "module.increment", Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime },
         });
         return new DefaultBasePolicyOrchestrator(builder.Freeze("module.application"));
     }
 
     private static BaseGeneratedModuleMutationIdentity<Request, Result> Identity() => new(
         "module.increment", 1, new byte[32], Json.Default.Request, Json.Default.Result, [],
-        [BaseModuleDtoPropertyBinding.Create<Result>("result.generation", nameof(Result.Generation))]);
+        [BaseModuleDtoPropertyBinding.Create<Result, string>("result.generation", nameof(Result.Generation))]);
 
     private static BaseRegisteredModuleMutationDefinition Definition() => BaseModuleMutationContract.Seal(new()
     {

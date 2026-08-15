@@ -336,8 +336,10 @@ static BaseGrantAuthorityDefinition GrantDefinition(string id, string owner) => 
 };
 static AccessGrant Grant(string id, string subjectId) => new()
 {
-    Id = id, Subject = new AccessSubject { Kind = AccessSubjectKind.ServicePrincipal, Id = subjectId },
-    Action = "*", Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime },
+    Id = id, ApplicationId = "hpd.base.sqlite.aot", ModuleId = id == "hpd.base.sqlite.aot.module.increment" ? "hpd.base.sqlite.aot.module" : "hpd.base.sqlite.aot",
+    Audience = HPDBaseEndpointAudience.Application,
+    Subject = new AccessSubject { Kind = AccessSubjectKind.ServicePrincipal, Id = subjectId, TenantId = "tenant-a" },
+    Action = id, Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime, TenantId = "tenant-a" },
 };
 
 static BaseCollection<JsonElement> AuthorityCollection(string id, BaseCollectionMutationMode mode) =>

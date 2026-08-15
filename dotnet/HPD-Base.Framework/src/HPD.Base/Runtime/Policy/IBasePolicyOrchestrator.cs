@@ -98,6 +98,8 @@ public sealed record BaseAdmittedGrantAuthority
     public required ImmutableArray<byte> GrantRegistrationChecksum { get; init; }
     /// <summary>Gets the 32-byte exact emitted-grant checksum.</summary>
     public required ImmutableArray<byte> GrantChecksum { get; init; }
+    /// <summary>Gets the deeply owned exact grant semantics admitted for this evaluation.</summary>
+    public required AccessGrant Grant { get; init; }
 }
 
 /// <summary>Contains one applied graph-owned policy receipt.</summary>

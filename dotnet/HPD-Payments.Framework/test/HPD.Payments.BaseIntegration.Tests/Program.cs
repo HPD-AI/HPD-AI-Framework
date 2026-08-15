@@ -21,8 +21,9 @@ services.AddHPDBase(builder =>
     }, new AccessGrant
     {
         Id = "hpd.payments.owner-ledger.advance",
-        Subject = new AccessSubject { Kind = AccessSubjectKind.System },
-        Action = "*", Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime },
+        ApplicationId = "hpd.base.application", ModuleId = "hpd.payments", Audience = HPDBaseEndpointAudience.ControlPlane,
+        Subject = new AccessSubject { Kind = AccessSubjectKind.ServicePrincipal, Id = "payments-worker", TenantId = "tenant-one" },
+        Action = "hpd.payments.owner-ledger.advance", Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime, TenantId = "tenant-one" },
     });
     builder.AddPaymentsModuleMutations();
 });
@@ -33,6 +34,7 @@ if (!initialized.IsSuccess()) throw new InvalidOperationException(initialized.Er
 BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
 {
     AuthenticationState = PrincipalAuthenticationState.Service,
+    SubjectKind = AccessSubjectKind.ServicePrincipal,
     SubjectId = "payments-worker",
     CurrentTenantId = "tenant-one",
 }, options => options.Audience = HPDBaseEndpointAudience.ControlPlane);

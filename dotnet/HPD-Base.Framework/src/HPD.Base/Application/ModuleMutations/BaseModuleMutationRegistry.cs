@@ -197,13 +197,16 @@ public sealed class BaseGeneratedModuleMutationIdentity<TRequest, TResult> : IBa
         var result = new Dictionary<string, BaseModuleDtoPropertyBinding>(StringComparer.Ordinal);
         foreach (BaseModuleDtoPropertyBinding binding in bindings)
         {
-            BaseApplicationId.Validate(binding.StablePropertyId, nameof(bindings));
+            foreach (string edge in binding.StablePropertyPath) BaseApplicationId.Validate(edge, nameof(bindings));
             if (binding.DeclaringType is null
                 || string.IsNullOrWhiteSpace(binding.ApplicationName)
-                || !result.TryAdd(binding.StablePropertyId, new BaseModuleDtoPropertyBinding(
-                    new string(binding.StablePropertyId.AsSpan()),
+                || !result.TryAdd(binding.PathKey, new BaseModuleDtoPropertyBinding(
+                    binding.StablePropertyPath,
                     binding.DeclaringType,
                     binding.PropertyType,
+                    binding.Confidentiality,
+                    binding.RecordDisclosure,
+                    binding.Nullable,
                     new string(binding.ApplicationName.AsSpan()))))
                 throw new InvalidOperationException("base.moduleMutation.invalid");
         }
@@ -214,32 +217,62 @@ public sealed class BaseGeneratedModuleMutationIdentity<TRequest, TResult> : IBa
 /// <summary>Binds one stable DTO property identity to exact graph-owned serializer metadata.</summary>
 public sealed class BaseModuleDtoPropertyBinding
 {
-    internal BaseModuleDtoPropertyBinding(string stablePropertyId, Type declaringType, Type? propertyType, string applicationName)
+    internal BaseModuleDtoPropertyBinding(
+        IReadOnlyList<string> stablePropertyPath,
+        [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)] Type declaringType,
+        [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)] Type? propertyType,
+        BaseFieldConfidentiality confidentiality,
+        BaseRecordDisclosure recordDisclosure,
+        bool nullable,
+        string applicationName)
     {
-        StablePropertyId = stablePropertyId;
+        StablePropertyPath = stablePropertyPath.Select(static edge => new string(edge.AsSpan())).ToArray();
         DeclaringType = declaringType;
         PropertyType = propertyType;
+        Confidentiality = confidentiality;
+        RecordDisclosure = recordDisclosure;
+        Nullable = nullable;
         ApplicationName = applicationName;
     }
 
     /// <summary>Gets the globally stable property edge identity.</summary>
-    public string StablePropertyId { get; }
+    public string StablePropertyId => StablePropertyPath[^1];
+    internal IReadOnlyList<string> StablePropertyPath { get; }
+    internal string PathKey => string.Join('\0', StablePropertyPath);
+    [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)]
     internal Type DeclaringType { get; }
+    [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)]
     internal Type? PropertyType { get; }
+    /// <summary>Gets the exact L42 confidentiality class for this result edge.</summary>
+    public BaseFieldConfidentiality Confidentiality { get; }
+    /// <summary>Gets the exact installed L42 ordinary-record disclosure for this edge.</summary>
+    public BaseRecordDisclosure RecordDisclosure { get; }
+    /// <summary>Gets whether the exact L44 property node permits null.</summary>
+    public bool Nullable { get; }
     /// <summary>Gets the exact application property identity.</summary>
     public string ApplicationName { get; }
 
-    /// <summary>Creates an opaque binding to one exact DTO property.</summary>
-    public static BaseModuleDtoPropertyBinding Create<T>(
-        string stablePropertyId,
-        string applicationName) =>
-        new(stablePropertyId, typeof(T), null, applicationName);
-
     /// <summary>Creates an exact opaque binding to one generated DTO property.</summary>
-    public static BaseModuleDtoPropertyBinding Create<TDeclaring, TProperty>(
+    public static BaseModuleDtoPropertyBinding Create<
+        [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)] TDeclaring,
+        [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)] TProperty>(
         string stablePropertyId,
-        string applicationName) =>
-        new(stablePropertyId, typeof(TDeclaring), typeof(TProperty), applicationName);
+        string applicationName,
+        BaseFieldConfidentiality confidentiality = BaseFieldConfidentiality.Public,
+        BaseRecordDisclosure recordDisclosure = BaseRecordDisclosure.Include,
+        bool nullable = false) =>
+        new([stablePropertyId], typeof(TDeclaring), typeof(TProperty), confidentiality, recordDisclosure, nullable, applicationName);
+
+    /// <summary>Creates an exact opaque binding to one generated nested DTO property path.</summary>
+    public static BaseModuleDtoPropertyBinding CreatePath<
+        [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)] TDeclaring,
+        [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)] TProperty>(
+        IReadOnlyList<string> stablePropertyPath,
+        string applicationName,
+        BaseFieldConfidentiality confidentiality = BaseFieldConfidentiality.Public,
+        BaseRecordDisclosure recordDisclosure = BaseRecordDisclosure.Include,
+        bool nullable = false) =>
+        new(stablePropertyPath, typeof(TDeclaring), typeof(TProperty), confidentiality, recordDisclosure, nullable, applicationName);
 }
 
 /// <summary>Infrastructure-only factory used by generated module mutation declarations.</summary>
@@ -341,12 +374,12 @@ internal static class BaseModuleMutationContractValidator
         {
             if (expression is BaseModuleRequestPropertyExpression request)
             {
-                string stableId = request.Property.StablePropertyPath[0];
-                if (!registration.RequestBindings.TryGetValue(stableId, out BaseModuleDtoPropertyBinding? binding)
-                    || request.Property.StablePropertyPath.Length != 1
+                string pathKey = string.Join('\0', request.Property.StablePropertyPath);
+                if (!registration.RequestBindings.TryGetValue(pathKey, out BaseModuleDtoPropertyBinding? binding)
+                    || request.Property.StablePropertyPath.Length is < 1 or > 16
                     || request.Property.DeclaredTypeId != expression.ResultTypeId
                     || string.IsNullOrWhiteSpace(binding.ApplicationName)
-                    || binding.PropertyType is not null && !TypeMatches(binding.PropertyType, expression.ResultTypeId))
+                    || binding.PropertyType is null || !TypeMatches(binding.PropertyType, binding.Nullable, expression.ResultTypeId))
                     throw new InvalidOperationException("base.moduleMutation.invalid");
             }
             if (expression is BaseModuleCapturedFieldExpression captured)
@@ -356,24 +389,58 @@ internal static class BaseModuleMutationContractValidator
                 bool decimalOperation = numeric.Operator is BaseModuleNumericOperator.DecimalAddChecked
                     or BaseModuleNumericOperator.DecimalSubtractChecked or BaseModuleNumericOperator.DecimalMultiplyChecked;
                 if (decimalOperation != (numeric.Decimal is not null)
-                    || numeric.Decimal is { Precision: < 1 or > 29 }
+                    || numeric.Decimal is { Precision: < 1 or > 38 }
                     || numeric.Decimal is { Scale: < 0 } decimalContext && decimalContext.Scale > decimalContext.Precision
                     || numeric.Decimal is not null && !Enum.IsDefined(numeric.Decimal.Rounding))
                     throw new InvalidOperationException("base.moduleMutation.invalid");
+                if (!string.Equals(numeric.Left.ResultTypeId, numeric.Right.ResultTypeId, StringComparison.Ordinal)
+                    || !string.Equals(numeric.ResultTypeId, numeric.Left.ResultTypeId, StringComparison.Ordinal))
+                    throw new InvalidOperationException("base.moduleMutation.invalid");
             }
+            if (expression is BaseModuleConditionalExpression conditional
+                && (!string.Equals(conditional.ResultTypeId, conditional.WhenTrue.ResultTypeId, StringComparison.Ordinal)
+                    || !string.Equals(conditional.ResultTypeId, conditional.WhenFalse.ResultTypeId, StringComparison.Ordinal)))
+                throw new InvalidOperationException("base.moduleMutation.invalid");
+            if (expression is BaseModuleCoalesceExpression coalesce
+                && coalesce.Values.Any(value => !SameUnderlyingType(coalesce.ResultTypeId, value.ResultTypeId)))
+                throw new InvalidOperationException("base.moduleMutation.invalid");
+            if (expression is BaseModuleConstantExpression constant && !ConstantMatches(constant))
+                throw new InvalidOperationException("base.moduleMutation.invalid");
         }
 
-        if (template.Result.Value.Properties.Length != registration.ResultBindings.Count)
+        if (template.Result.Value.Properties.Length != registration.ResultBindings.Count
+            || !template.Result.Value.Properties.Select(static property => property.StablePropertyId)
+                .SequenceEqual(registration.ResultBindings.Values.Select(static binding => binding.StablePropertyId), StringComparer.Ordinal))
             throw new InvalidOperationException("base.moduleMutation.invalid");
         foreach (BaseModuleObjectPropertyExpression property in template.Result.Value.Properties)
             if (!registration.ResultBindings.TryGetValue(property.StablePropertyId, out BaseModuleDtoPropertyBinding? resultBinding)
-                || resultBinding.PropertyType is not null && !TypeMatches(resultBinding.PropertyType, property.Value.ResultTypeId))
+                || resultBinding.PropertyType is not null && !TypeMatches(resultBinding.PropertyType, resultBinding.Nullable, property.Value.ResultTypeId))
                 throw new InvalidOperationException("base.moduleMutation.invalid");
 
         var statements = new List<BaseModuleStatement>();
         Collect(template.Body, statements);
         foreach (BaseModuleStatement statement in statements)
         {
+            BaseModuleValueExpression? recordId = statement switch
+            {
+                BaseModuleCreateStatement value => value.RecordId,
+                BaseModulePatchStatement value => value.RecordId,
+                BaseModuleReplaceStatement value => value.RecordId,
+                BaseModuleDeleteStatement value => value.RecordId,
+                BaseModuleUpsertStatement value => value.RecordId,
+                _ => null,
+            };
+            BaseModuleValueExpression? revision = statement switch
+            {
+                BaseModulePatchStatement value => value.ExpectedRevision,
+                BaseModuleReplaceStatement value => value.ExpectedRevision,
+                BaseModuleDeleteStatement value => value.ExpectedRevision,
+                BaseModuleUpsertStatement value => value.ExpectedRevision,
+                _ => null,
+            };
+            if ((recordId is not null && recordId.ResultTypeId is not ("id" or "string"))
+                || (revision is not null && revision.ResultTypeId != "revision"))
+                throw new InvalidOperationException("base.moduleMutation.invalid");
             switch (statement)
             {
                 case BaseModuleCreateStatement create: ValidatePayload(create.CollectionId, create.Payload, complete: true); break;
@@ -400,24 +467,62 @@ internal static class BaseModuleMutationContractValidator
             if (!collections.TryGetValue(collectionId, out CollectionDefinition? collection) || collection.Fields is null)
                 throw new InvalidOperationException("base.moduleMutation.invalid");
             HashSet<string> supplied = payload.Properties.Select(static value => value.StablePropertyId).ToHashSet(StringComparer.Ordinal);
-            if (payload.Properties.Any(property => !collection.Fields.Any(field => field.Id == property.StablePropertyId
+            string[] expectedOrder = collection.Fields.Where(field => supplied.Contains(field.Id)).Select(static field => field.Id).ToArray();
+            if (supplied.Count != payload.Properties.Length
+                || !payload.Properties.Select(static property => property.StablePropertyId).SequenceEqual(expectedOrder, StringComparer.Ordinal)
+                || payload.Properties.Any(property => !collection.Fields.Any(field => field.Id == property.StablePropertyId
                     && !field.ReadOnly && field.Type == property.Value.ResultTypeId))
                 || complete && collection.Fields.Any(field => field.Required && !field.ReadOnly && !supplied.Contains(field.Id)))
                 throw new InvalidOperationException("base.moduleMutation.invalid");
         }
 
-        static bool TypeMatches(Type type, string typeId)
+        static bool TypeMatches(Type type, bool nullableNode, string typeId)
         {
-            Type actual = Nullable.GetUnderlyingType(type) ?? type;
-            if (actual == typeof(string)) return typeId == "string";
-            if (actual == typeof(bool)) return typeId == "boolean";
+            Type? nullable = Nullable.GetUnderlyingType(type);
+            Type actual = nullable ?? type;
+            bool declaredNullable = typeId.EndsWith("?", StringComparison.Ordinal);
+            string node = declaredNullable ? typeId[..^1] : typeId;
+            if (declaredNullable != nullableNode || actual.IsValueType && nullableNode != (nullable is not null)) return false;
+            if (actual == typeof(string)) return node == "string";
+            if (actual == typeof(bool)) return node == "boolean";
             if (actual == typeof(long) || actual == typeof(int) || actual == typeof(short) || actual == typeof(byte))
-                return typeId == "int64";
-            if (actual == typeof(decimal)) return typeId == "decimal";
-            if (actual == typeof(BaseModuleGeneration)) return typeId is "base.moduleGeneration" or "base.moduleGeneration?";
+                return node == "int64";
+            if (actual == typeof(decimal)) return node == "decimal";
+            if (actual == typeof(BaseModuleGeneration)) return node == "base.moduleGeneration";
+            if (actual == typeof(RevisionToken)) return node == "revision";
             if (actual == typeof(RecordId) || actual.IsGenericType && actual.GetGenericTypeDefinition() == typeof(BaseRecordId<>))
-                return typeId is "id" or "string";
-            return true;
+                return node == "id";
+            return false;
+        }
+
+        static bool SameUnderlyingType(string left, string right) =>
+            string.Equals(left.TrimEnd('?'), right.TrimEnd('?'), StringComparison.Ordinal);
+
+        static bool ConstantMatches(BaseModuleConstantExpression value)
+        {
+            try
+            {
+                using System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(value.CanonicalBaseJson.ToArray());
+                string node = value.ResultTypeId.TrimEnd('?');
+                return document.RootElement.ValueKind switch
+                {
+                    System.Text.Json.JsonValueKind.Null => value.ResultTypeId.EndsWith("?", StringComparison.Ordinal),
+                    System.Text.Json.JsonValueKind.String when node == "base.moduleGeneration" =>
+                        TryGeneration(document.RootElement.GetString()),
+                    System.Text.Json.JsonValueKind.String => node is "string" or "id" or "revision",
+                    System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False => node == "boolean",
+                    System.Text.Json.JsonValueKind.Number when node == "int64" => document.RootElement.TryGetInt64(out _),
+                    System.Text.Json.JsonValueKind.Number when node == "decimal" => document.RootElement.TryGetDecimal(out _),
+                    _ => false,
+                };
+            }
+            catch { return false; }
+
+            static bool TryGeneration(string? text)
+            {
+                try { _ = BaseModuleGeneration.ParseCanonical(text ?? string.Empty); return true; }
+                catch { return false; }
+            }
         }
     }
 
@@ -610,9 +715,15 @@ internal static class BaseModuleMutationContractValidator
                 default: throw new InvalidOperationException("base.moduleMutation.invalid");
             }
         }
-        (HashSet<string> definiteStatements, HashSet<string> definiteGenerations) = DefinitelyAssigned(template.Body);
+        List<(Dictionary<string, bool> Decisions, HashSet<string> Statements, HashSet<string> Generations)> paths = ExecutionPaths(template.Body);
+        HashSet<string> resultStatements = statements.Where(static statement => statement is BaseModuleCreateStatement or BaseModulePatchStatement
+            or BaseModuleReplaceStatement or BaseModuleDeleteStatement or BaseModuleUpsertStatement)
+            .Select(static statement => statement.Id).ToHashSet(StringComparer.Ordinal);
+        HashSet<string> resultGenerations = statements.OfType<BaseModuleIncrementGenerationStatement>()
+            .Select(static statement => statement.CaptureId).ToHashSet(StringComparer.Ordinal);
         ValidateExpression(template.Result.Value, captures, guards, false, true, 1, limits, expressionIds,
-            definiteStatements, definiteGenerations);
+            resultStatements, resultGenerations);
+        ValidateResultPaths(template.Result.Value, paths);
 
         void ValidateWrite(BaseModuleValueExpression id, BaseModuleObjectExpression payload, BaseModuleValueExpression? revision)
         {
@@ -621,28 +732,87 @@ internal static class BaseModuleMutationContractValidator
             if (revision is not null) ValidateExpression(revision, captures, guards, false, false, 1, limits, expressionIds);
         }
 
-        (HashSet<string> Statements, HashSet<string> Generations) DefinitelyAssigned(BaseModuleMutationBlock block)
+        List<(Dictionary<string, bool> Decisions, HashSet<string> Statements, HashSet<string> Generations)> ExecutionPaths(BaseModuleMutationBlock block)
         {
-            var assignedStatements = new HashSet<string>(StringComparer.Ordinal);
-            var assignedGenerations = new HashSet<string>(StringComparer.Ordinal);
+            List<(Dictionary<string, bool> Decisions, HashSet<string> Statements, HashSet<string> Generations)> current =
+                [(new(StringComparer.Ordinal), new(StringComparer.Ordinal), new(StringComparer.Ordinal))];
             foreach (BaseModuleStatement statement in block.Statements)
             {
                 if (statement is BaseModuleIfStatement branch)
                 {
-                    (HashSet<string> trueStatements, HashSet<string> trueGenerations) = DefinitelyAssigned(branch.WhenTrue);
-                    (HashSet<string> falseStatements, HashSet<string> falseGenerations) = DefinitelyAssigned(branch.WhenFalse);
-                    trueStatements.IntersectWith(falseStatements);
-                    trueGenerations.IntersectWith(falseGenerations);
-                    assignedStatements.UnionWith(trueStatements);
-                    assignedGenerations.UnionWith(trueGenerations);
+                    var expanded = new List<(Dictionary<string, bool>, HashSet<string>, HashSet<string>)>();
+                    foreach (var path in current)
+                    {
+                        Expand(path, branch.WhenTrue, branch.GuardId, true, expanded);
+                        Expand(path, branch.WhenFalse, branch.GuardId, false, expanded);
+                    }
+                    current = expanded;
+                    if (current.Count > 4_096) throw new InvalidOperationException("base.moduleMutation.invalid");
                 }
-                else if (statement is BaseModuleIncrementGenerationStatement increment)
-                    assignedGenerations.Add(increment.CaptureId);
-                else if (statement is BaseModuleCreateStatement or BaseModulePatchStatement or BaseModuleReplaceStatement
-                    or BaseModuleDeleteStatement or BaseModuleUpsertStatement)
-                    assignedStatements.Add(statement.Id);
+                else foreach (var path in current) Assign(path, statement);
             }
-            return (assignedStatements, assignedGenerations);
+            return current;
+
+            void Expand(
+                (Dictionary<string, bool> Decisions, HashSet<string> Statements, HashSet<string> Generations) source,
+                BaseModuleMutationBlock selected,
+                string guardId,
+                bool decision,
+                List<(Dictionary<string, bool>, HashSet<string>, HashSet<string>)> destination)
+            {
+                if (source.Decisions.TryGetValue(guardId, out bool existing) && existing != decision) return;
+                foreach (var nested in ExecutionPaths(selected))
+                {
+                    var decisions = new Dictionary<string, bool>(source.Decisions, StringComparer.Ordinal) { [guardId] = decision };
+                    bool compatible = true;
+                    foreach ((string key, bool value) in nested.Decisions)
+                        if (decisions.TryGetValue(key, out bool prior) && prior != value) { compatible = false; break; }
+                        else decisions[key] = value;
+                    if (!compatible) continue;
+                    var assigned = new HashSet<string>(source.Statements, StringComparer.Ordinal); assigned.UnionWith(nested.Statements);
+                    var generations = new HashSet<string>(source.Generations, StringComparer.Ordinal); generations.UnionWith(nested.Generations);
+                    destination.Add((decisions, assigned, generations));
+                }
+            }
+
+            static void Assign(
+                (Dictionary<string, bool> Decisions, HashSet<string> Statements, HashSet<string> Generations) path,
+                BaseModuleStatement statement)
+            {
+                if (statement is BaseModuleIncrementGenerationStatement increment) path.Generations.Add(increment.CaptureId);
+                else if (statement is BaseModuleCreateStatement or BaseModulePatchStatement or BaseModuleReplaceStatement
+                    or BaseModuleDeleteStatement or BaseModuleUpsertStatement) path.Statements.Add(statement.Id);
+            }
+        }
+
+        void ValidateResultPaths(
+            BaseModuleValueExpression expression,
+            IReadOnlyList<(Dictionary<string, bool> Decisions, HashSet<string> Statements, HashSet<string> Generations)> applicable)
+        {
+            if (applicable.Count == 0) return;
+            switch (expression)
+            {
+                case BaseModuleCommittedRecordIdExpression record when applicable.Any(path => !path.Statements.Contains(record.StatementId)):
+                    throw new InvalidOperationException("base.moduleMutation.invalid");
+                case BaseModuleCommittedRevisionExpression revision when applicable.Any(path => !path.Statements.Contains(revision.StatementId)):
+                    throw new InvalidOperationException("base.moduleMutation.invalid");
+                case BaseModuleCommittedUpsertDispositionExpression upsert when applicable.Any(path => !path.Statements.Contains(upsert.StatementId)):
+                    throw new InvalidOperationException("base.moduleMutation.invalid");
+                case BaseModuleResultingGenerationExpression generation when applicable.Any(path => !path.Generations.Contains(generation.CaptureId)):
+                    throw new InvalidOperationException("base.moduleMutation.invalid");
+                case BaseModuleConditionalExpression conditional:
+                    ValidateResultPaths(conditional.WhenTrue, applicable.Where(path => !path.Decisions.TryGetValue(conditional.GuardId, out bool value) || value).ToArray());
+                    ValidateResultPaths(conditional.WhenFalse, applicable.Where(path => !path.Decisions.TryGetValue(conditional.GuardId, out bool value) || !value).ToArray());
+                    break;
+                case BaseModuleCoalesceExpression coalesce:
+                    foreach (BaseModuleValueExpression child in coalesce.Values) ValidateResultPaths(child, applicable);
+                    break;
+                case BaseModuleBinaryNumericExpression numeric:
+                    ValidateResultPaths(numeric.Left, applicable); ValidateResultPaths(numeric.Right, applicable); break;
+                case BaseModuleObjectExpression value:
+                    foreach (BaseModuleObjectPropertyExpression property in value.Properties) ValidateResultPaths(property.Value, applicable);
+                    break;
+            }
         }
     }
 
