@@ -25,6 +25,7 @@ public static class SimulatorBaselineTests
         LostResponseProducesPossibleDispatch();
         DelayedObservationsUseVirtualTime();
         DisagreementIsRetainedWithoutAdjudication();
+        WithinQuestionConflictsRemainScoped();
         RevisionChangesRejectStaleRequestsBeforeDispatch();
         ResultsOwnBoundedTraceStorage();
     }
@@ -55,10 +56,24 @@ public static class SimulatorBaselineTests
     private static void DisagreementIsRetainedWithoutAdjudication()
     {
         var result = Execute(BootstrapScenarios.SettlementDisagreement());
-        Assert(result.HasDisagreement, "settlement contradiction must remain visible");
-        Assert(result.State == ExternalEffectState.PossibleDispatch, "disagreement must not be silently adjudicated");
-        const string expected = "0@2030-01-01T00:00:00.0000000+00:00:CrossSendBoundary:Dispatching:send-boundary-crossed\n1@2030-01-01T00:00:02.0000000+00:00:Poll:ConfirmedOccurred:poll-observed\n2@2030-01-01T00:00:04.0000000+00:00:Webhook:ConfirmedOccurred:webhook-observed\n3@2030-01-02T00:00:00.0000000+00:00:Settlement:PossibleDispatch:settlement-observed";
+        Assert(!result.HasDisagreement, "cross-question mismatch must not fabricate within-question disagreement");
+        Assert(result.State == ExternalEffectState.ConfirmedOccurred, "settlement non-inclusion must not overwrite occurrence evidence");
+        Assert(result.SettlementState == SimulatorSettlementState.NotIncluded && result.HasCrossAuthorityMismatch,
+            "settlement mismatch must remain independently visible");
+        const string expected = "0@2030-01-01T00:00:00.0000000+00:00:CrossSendBoundary:Dispatching:send-boundary-crossed\n1@2030-01-01T00:00:02.0000000+00:00:Poll:ConfirmedOccurred:poll-observed\n2@2030-01-01T00:00:04.0000000+00:00:Webhook:ConfirmedOccurred:webhook-observed\n3@2030-01-02T00:00:00.0000000+00:00:Settlement:ConfirmedOccurred:settlement-observed";
         Assert(Golden(result) == expected, "ambiguity golden trace changed");
+    }
+
+    private static void WithinQuestionConflictsRemainScoped()
+    {
+        var settlement = Execute(BootstrapScenarios.SettlementConflict());
+        Assert(settlement.State == ExternalEffectState.ConfirmedOccurred && settlement.HasDisagreement &&
+            settlement.SettlementState == SimulatorSettlementState.Conflicted && !settlement.HasCrossAuthorityMismatch,
+            "settlement conflict escaped its exact question");
+        var occurrence = Execute(BootstrapScenarios.OccurrenceConflict());
+        Assert(occurrence.State == ExternalEffectState.PossibleDispatch && occurrence.HasDisagreement &&
+            occurrence.SettlementState == SimulatorSettlementState.Unknown && !occurrence.HasCrossAuthorityMismatch,
+            "occurrence conflict escaped its exact question");
     }
 
     private static void RevisionChangesRejectStaleRequestsBeforeDispatch()

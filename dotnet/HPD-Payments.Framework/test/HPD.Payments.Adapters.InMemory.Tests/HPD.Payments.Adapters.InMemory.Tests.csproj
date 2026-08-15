@@ -1,4 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><IsTestProject>false</IsTestProject><OutputType>Exe</OutputType><NoWarn>$(NoWarn);CA2007</NoWarn></PropertyGroup>
   <ItemGroup><ProjectReference Include="../../src/HPD.Payments.Adapters.InMemory/HPD.Payments.Adapters.InMemory.csproj" /></ItemGroup>
+  <ItemGroup><ProjectReference Include="../../src/HPD.Payments.Runtime/HPD.Payments.Runtime.csproj" /></ItemGroup>
 </Project>

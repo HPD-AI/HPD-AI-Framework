@@ -1,4 +1,7 @@
 using HPD.Payments.Adapters.InMemory;
+using HPD.Payments.Contracts.MeasuredFact;
+using HPD.Payments.Contracts.MeasurementGeneration;
+using HPD.Payments.Contracts.Valuation;
 using HPD.Payments.Persistence.AtomicDomains;
 using HPD.Payments.Persistence.Ports;
 using HPD.Payments.Persistence.Receipts;
@@ -9,6 +12,7 @@ using HPD.Payments.Supporting.History;
 using HPD.Payments.Supporting.Custody;
 using HPD.Payments.Supporting.Ownership;
 using HPD.Payments.Supporting.Relations;
+using HPD.Payments.Runtime.UsageValuation;
 
 var tests = new (string Name, Func<Task> Run)[]
 {
@@ -18,6 +22,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("unsupported-domain", UnsupportedDomain),
     ("death-and-restore", DeathAndRestore),
     ("conservation-h7", ConservationH7),
+    ("p14d-usage-valuation-slice", P14DUsageValuationSlice),
 };
 foreach (var test in tests) { await test.Run(); Console.WriteLine($"PASS {test.Name}"); }
 Console.WriteLine($"PASS InMemory E-LOCAL reference ({tests.Length} groups)");
@@ -101,11 +106,51 @@ static async Task ConservationH7()
     Assert(receipts.Where(x => x.Disposition == OwnerAppendDisposition.Appended).Sum(x => x.Fact!.Amount) == receipts.Single(x => x.Disposition == OwnerAppendDisposition.Appended).Fact!.Amount, "no duplicated value");
 }
 
+static async Task P14DUsageValuationSlice()
+{
+    var store = new InMemoryPersistenceStore();
+    var admissions = new UsageValuationAdmissions(store.CreateOwnerPort<MeasuredFactRecord>(), store.CreateOwnerPort<MeasurementGenerationFact>(), store.CreateOwnerPort<ValuationFact>());
+    var subject = IdIn("subject", "subject", "customer-one");
+    var factId = IdIn("measured-fact", "fact", "usage-one");
+    var measuredDigest = Digest("p14d-measured");
+    var from = NamedTime.Create(TimeKind.Source, DateTimeOffset.UnixEpoch);
+    var until = NamedTime.Create(TimeKind.Source, DateTimeOffset.UnixEpoch.AddHours(1));
+    var admit = new AdmitMeasuredFactCommand(factId, subject, IdIn("source", "source", "meter-one"), measuredDigest, MeasuredQuantity.Create(12.5m, "kwh"), from, until, Revision.Create("meter", 1), OwnerGeneration.Create(1));
+    var accepted = NamedTime.Create(TimeKind.Accepted, DateTimeOffset.UnixEpoch.AddHours(2));
+    var measuredDomain = DomainIn("measured-fact", "local");
+    var first = await admissions.AdmitMeasuredAsync(admit, measuredDomain, accepted, ContractVersion.Create(1, 0));
+    var replay = await admissions.AdmitMeasuredAsync(admit, measuredDomain, accepted, ContractVersion.Create(1, 0));
+    Assert(first.Disposition == OwnerAppendDisposition.Appended && replay.Disposition == OwnerAppendDisposition.Replay, "measured admission and replay");
+
+    var cut = new HistoricalCut(HPD.Payments.Primitives.Time.HistoricalFrameKind.AsKnownAt, NamedTime.Create(TimeKind.Record, DateTimeOffset.UnixEpoch.AddHours(2)), [], ContractVersion.Create(1, 0));
+    var generationId = IdIn("measurement-generation", "generation", "hour-one");
+    var generationCommand = new CreateMeasurementGenerationCommand(generationId, subject,
+        NamedTime.Create(TimeKind.Effective, from.Value), NamedTime.Create(TimeKind.Effective, until.Value), cut,
+        new MeasurementAlgebraContract(MeasurementAlgebraKind.Sum, Revision.Create("sum", 1), true, false, true, false), [factId], GenerationCompleteness.Complete, OwnerGeneration.Create(1));
+    var calculated = NamedTime.Create(TimeKind.Calculated, DateTimeOffset.UnixEpoch.AddHours(2));
+    var generationReceipt = await admissions.AdmitGenerationAsync(generationCommand, [first.Fact!], Digest("p14d-generation"), DomainIn("measurement-generation", "local"), calculated);
+    Assert(generationReceipt.Fact!.Result == 12.5m && generationReceipt.Fact.Unit == "kwh", "exact generation result");
+    ThrowsSync<ArgumentException>(() => MeasurementGenerationCalculator.Calculate(generationCommand, Array.Empty<MeasuredFactRecord>(), calculated));
+
+    var valuationScope = ScopeId.Create("test", "payments", "valuation");
+    var rounding = new RoundingContract(2, MidpointRounding.ToEven, "line");
+    var algorithmRevision = Revision.Create("unit-rate", 1); var pricingRevision = Revision.Create("price", 7);
+    var manifest = new ValuationInputManifest(SemanticId.Create(valuationScope, "test", "manifest", "one"), generationId, cut, pricingRevision, algorithmRevision, rounding,
+        ReproducibilityKind.ExactRecomputable, [generationId, factId], Digest("p14d-manifest"));
+    var algorithm = new UnitRateValuationAlgorithm(algorithmRevision, pricingRevision, 0.20m, "USD");
+    var valuation = algorithm.Calculate(SemanticId.Create(valuationScope, "test", "valuation", "one"), manifest, generationReceipt.Fact, OwnerGeneration.Create(1), calculated);
+    var valuationReceipt = await admissions.AdmitValuationAsync(valuation, Digest("p14d-valuation"), DomainIn("valuation", "local"), accepted);
+    Assert(valuationReceipt.Fact!.Admission.Result.Precise == 2.500m && valuationReceipt.Fact.Admission.Result.Rounded == 2.50m, "revision-bound exact valuation");
+}
+
 static ScopeId Scope() => ScopeId.Create("tenant", "test", "payments");
 static SemanticId Id(string kind, string local) => SemanticId.Create(Scope(), "test", kind, local);
+static SemanticId IdIn(string authority, string kind, string local) => SemanticId.Create(ScopeId.Create("test", "payments", authority), "test", kind, local);
 static OwnerReference Owner(ulong generation) => new(FrozenAuthority.MeasuredFact, Id("owner", "one"), OwnerGeneration.Create(generation));
 static AtomicDomain Domain(AtomicDomainKind kind) => new(Id("domain", kind == AtomicDomainKind.Local ? "local" : "distributed"), kind, Revision.Create("topology", 1));
+static AtomicDomain DomainIn(string authority, string local) => new(IdIn(authority, "domain", local), AtomicDomainKind.Local, Revision.Create("topology", 1));
 static CanonicalDigest Digest(string text) => CanonicalDigest.Sha256(new("test", ContractVersion.Create(1, 0), "all", "ordinal", "utc", "canonical", "test"), System.Text.Encoding.UTF8.GetBytes(text));
 static void Assert(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
 static async Task Throws<T>(Func<Task> action) where T : Exception { try { await action(); } catch (T) { return; } throw new InvalidOperationException($"Expected {typeof(T).Name}"); }
+static void ThrowsSync<T>(Action action) where T : Exception { try { action(); } catch (T) { return; } throw new InvalidOperationException($"Expected {typeof(T).Name}"); }
 internal sealed record TestFact(string Id, decimal Amount);

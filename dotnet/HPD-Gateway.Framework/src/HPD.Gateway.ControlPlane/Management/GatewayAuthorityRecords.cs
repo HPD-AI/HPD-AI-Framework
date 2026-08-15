@@ -242,7 +242,7 @@ internal sealed partial record GatewayAdministrativeOperationCompletion
     [BaseField("admin-completion.state")] public required GatewayAdministrativeCompletionState State { get; init; }
 }
 
-[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, UseStringEnumConverter = true)]
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(GatewayAcceptedRevision))]
 [JsonSerializable(typeof(GatewayValidationRecord))]
 [JsonSerializable(typeof(GatewayAdministrativeAuditRecord))]

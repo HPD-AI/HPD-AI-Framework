@@ -7,6 +7,12 @@ using HPD.Payments.Primitives.Time;
 using HPD.Payments.Runtime.Admission;
 using HPD.Payments.Runtime.Authorization;
 using HPD.Payments.Runtime.CompositionContracts;
+using HPD.Payments.Runtime.Tests.DurableWork;
+using HPD.Payments.Runtime.Tests.ExternalEffects;
+using HPD.Payments.Runtime.Tests.Publication;
+using HPD.Payments.Runtime.Tests.Repair;
+using HPD.Payments.Runtime.Tests.Custody;
+using HPD.Payments.Runtime.Tests.History;
 using HPD.Payments.Runtime.Orchestration;
 using HPD.Payments.Supporting.Ownership;
 
@@ -21,6 +27,13 @@ public static async Task<int> Main()
 {
 var failures = new List<string>();
 void Check(bool condition, string message) { if (!condition) failures.Add(message); }
+WorkProtocolProofs.Run(failures);
+PublicationProtocolProofs.Run(failures);
+ExternalEffectProtocolProofs.Run(failures);
+GovernedRepairProtocolProofs.Run(failures);
+CustodyProtocolProofs.Run(failures);
+ProviderEvidencePrecedenceProofs.Run(failures);
+RuntimeHistoryTraceProofs.Run(failures);
 
 var scope = ScopeId.Create("tenant", "live", "work");
 SemanticId Id(string kind, string local) => SemanticId.Create(scope, "runtime", kind, local);
@@ -73,7 +86,7 @@ if (failures.Count != 0)
     return 1;
 }
 
-Console.WriteLine($"Runtime baseline proofs passed: {17} closed ports, current-action fail-closed admission, fake-port orchestration, and inward dependencies.");
+Console.WriteLine($"Runtime proofs passed: {17} closed ports, current-action admission, work/publication/effect/repair/custody protocols, provider precedence, 11 complete H0-H13 histories, fake-port orchestration, and inward dependencies.");
 return 0;
 }
 

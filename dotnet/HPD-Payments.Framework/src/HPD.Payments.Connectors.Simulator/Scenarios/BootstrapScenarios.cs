@@ -21,9 +21,17 @@ public static class BootstrapScenarios
     public static SimulatorScenario DelayedAgreement() => new("delayed-agreement",
         [new(TimeSpan.Zero, SimulatorEventKind.CrossSendBoundary), new(TimeSpan.FromSeconds(5), SimulatorEventKind.Poll, SimulatorOccurrence.Occurred), new(TimeSpan.FromSeconds(9), SimulatorEventKind.Webhook, SimulatorOccurrence.Occurred)]);
 
-    /// <summary>Creates poll, webhook, and settlement observations that disagree and remain unadjudicated.</summary>
+    /// <summary>Creates confirmed occurrence plus settlement non-inclusion as a retained cross-authority mismatch.</summary>
     public static SimulatorScenario SettlementDisagreement() => new("settlement-disagreement",
         [new(TimeSpan.Zero, SimulatorEventKind.CrossSendBoundary), new(TimeSpan.FromSeconds(2), SimulatorEventKind.Poll, SimulatorOccurrence.Occurred), new(TimeSpan.FromSeconds(4), SimulatorEventKind.Webhook, SimulatorOccurrence.Occurred), new(TimeSpan.FromDays(1), SimulatorEventKind.Settlement, SimulatorOccurrence.NotOccurred)]);
+
+    /// <summary>Creates conflicting claims within settlement authority while leaving occurrence unchanged.</summary>
+    public static SimulatorScenario SettlementConflict() => new("settlement-conflict",
+        [new(TimeSpan.Zero, SimulatorEventKind.CrossSendBoundary), new(TimeSpan.FromSeconds(1), SimulatorEventKind.Poll, SimulatorOccurrence.Occurred), new(TimeSpan.FromHours(1), SimulatorEventKind.Settlement, SimulatorOccurrence.Occurred), new(TimeSpan.FromHours(2), SimulatorEventKind.Settlement, SimulatorOccurrence.NotOccurred)]);
+
+    /// <summary>Creates conflicting poll observations within occurrence authority.</summary>
+    public static SimulatorScenario OccurrenceConflict() => new("occurrence-conflict",
+        [new(TimeSpan.Zero, SimulatorEventKind.CrossSendBoundary), new(TimeSpan.FromSeconds(1), SimulatorEventKind.Poll, SimulatorOccurrence.Occurred), new(TimeSpan.FromSeconds(2), SimulatorEventKind.Poll, SimulatorOccurrence.NotOccurred)]);
 
     /// <summary>Creates explicit credential and configuration revision rotation events.</summary>
     public static SimulatorScenario RevisionRotation(ulong credential, ulong configuration) => new("revision-rotation",

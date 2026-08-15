@@ -39,6 +39,19 @@ public enum SimulatorOccurrence
     NotOccurred,
 }
 
+/// <summary>Names settlement-inclusion knowledge without collapsing it into provider occurrence.</summary>
+public enum SimulatorSettlementState
+{
+    /// <summary>No settlement authority evidence has been observed.</summary>
+    Unknown = 0,
+    /// <summary>Settlement authority reports inclusion.</summary>
+    Included,
+    /// <summary>Settlement authority reports non-inclusion.</summary>
+    NotIncluded,
+    /// <summary>Settlement authority reports conflict within its own question.</summary>
+    Conflicted,
+}
+
 /// <summary>Defines one immutable event at a virtual offset from scenario start.</summary>
 public readonly record struct SimulatorEvent
 {
@@ -142,11 +155,17 @@ public sealed class SimulatorResult
     public ExternalEffectState State { get; }
     /// <summary>Gets whether mutually inconsistent provider observations were retained.</summary>
     public bool HasDisagreement { get; }
+    /// <summary>Gets settlement-inclusion knowledge independently from occurrence knowledge.</summary>
+    public SimulatorSettlementState SettlementState { get; }
+    /// <summary>Gets whether occurrence and settlement projections expose a cross-authority mismatch requiring reconciliation.</summary>
+    public bool HasCrossAuthorityMismatch { get; }
     /// <summary>Gets a read-only view over simulator-owned trace storage.</summary>
     public IReadOnlyList<SimulatorTraceEntry> Trace => Array.AsReadOnly(_trace);
 
-    internal SimulatorResult(ExternalEffectState state, bool hasDisagreement, SimulatorTraceEntry[] trace)
+    internal SimulatorResult(ExternalEffectState state, bool hasDisagreement, SimulatorSettlementState settlementState,
+        bool hasCrossAuthorityMismatch, SimulatorTraceEntry[] trace)
     {
-        State = state; HasDisagreement = hasDisagreement; _trace = (SimulatorTraceEntry[])trace.Clone();
+        State = state; HasDisagreement = hasDisagreement; SettlementState = settlementState;
+        HasCrossAuthorityMismatch = hasCrossAuthorityMismatch; _trace = (SimulatorTraceEntry[])trace.Clone();
     }
 }

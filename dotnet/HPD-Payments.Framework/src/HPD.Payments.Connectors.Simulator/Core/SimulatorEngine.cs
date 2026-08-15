@@ -31,11 +31,13 @@ public sealed class SimulatorEngine
         var state = ExternalEffectState.NotDispatched;
         var sawOccurred = false;
         var sawNotOccurred = false;
+        var settlementIncluded = false;
+        var settlementNotIncluded = false;
 
         if (request.CredentialRevision != _credentialRevision || request.ConfigurationRevision != _configurationRevision)
         {
             trace.Add(new(0, time.UtcNow, SimulatorEventKind.Reject, state, "revision-mismatch"));
-            return new(state, false, trace.ToArray());
+            return new(state, false, SimulatorSettlementState.Unknown, false, trace.ToArray());
         }
 
         foreach (var item in scenario.Events)
@@ -69,11 +71,14 @@ public sealed class SimulatorEngine
                     break;
                 case SimulatorEventKind.Poll:
                 case SimulatorEventKind.Webhook:
-                case SimulatorEventKind.Settlement:
                     sawOccurred |= item.Occurrence == SimulatorOccurrence.Occurred;
                     sawNotOccurred |= item.Occurrence == SimulatorOccurrence.NotOccurred;
                     state = sawOccurred && sawNotOccurred ? ExternalEffectState.PossibleDispatch :
                         sawOccurred ? ExternalEffectState.ConfirmedOccurred : ExternalEffectState.ConfirmedNotOccurred;
+                    break;
+                case SimulatorEventKind.Settlement:
+                    settlementIncluded |= item.Occurrence == SimulatorOccurrence.Occurred;
+                    settlementNotIncluded |= item.Occurrence == SimulatorOccurrence.NotOccurred;
                     break;
                 case SimulatorEventKind.RotateCredential:
                     _credentialRevision = Revision.Create("credential", item.RevisionValue);
@@ -84,6 +89,12 @@ public sealed class SimulatorEngine
             }
             trace.Add(new(trace.Count, time.UtcNow, item.Kind, state, code));
         }
-        return new(state, sawOccurred && sawNotOccurred, trace.ToArray());
+        var settlement = settlementIncluded && settlementNotIncluded ? SimulatorSettlementState.Conflicted :
+            settlementIncluded ? SimulatorSettlementState.Included :
+            settlementNotIncluded ? SimulatorSettlementState.NotIncluded : SimulatorSettlementState.Unknown;
+        var mismatch = state == ExternalEffectState.ConfirmedOccurred && settlement == SimulatorSettlementState.NotIncluded ||
+            state == ExternalEffectState.ConfirmedNotOccurred && settlement == SimulatorSettlementState.Included;
+        return new(state, sawOccurred && sawNotOccurred || settlement == SimulatorSettlementState.Conflicted,
+            settlement, mismatch, trace.ToArray());
     }
 }
