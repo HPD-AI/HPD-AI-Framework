@@ -31,6 +31,8 @@ public sealed class BaseModuleProgramEvaluatorTests
         BaseResult<BaseModuleMutationExecutionResult<CreateResult>> result = await runtime.ExecuteAsync(
             session, definition, CreateIdentity(), new CreateRequest { Id = "record-1", Name = "Ada" }, requestIdentity, null, default);
 
+        result.Should().BeOfType<BaseSuccess<BaseModuleMutationExecutionResult<CreateResult>>>(
+            result is BaseFailure<BaseModuleMutationExecutionResult<CreateResult>> failure ? failure.Error.Code : string.Empty);
         result.RequireValue().Result.Id.Should().Be("record-1");
         OperationResult<RecordEnvelope> stored = await store.GetAsync(collection, new RecordId("record-1"), session.Operation(BaseOperationKind.Get, collection.Id));
         stored.Value!.Payload.Fields!["name"].GetString().Should().Be("Grace");

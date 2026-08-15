@@ -223,6 +223,8 @@ internal sealed class DefaultBaseMutationProcessor(
             capturedEvidence.Items.ToDictionary(static item => item.Ordinal), cancellationToken).ConfigureAwait(false);
         if (!finalizedPlan.IsSuccess() || finalizedPlan.Value is null)
             return Failed(finalizedPlan.Error ?? Error("base.runtime.batch.itemInvalid", "A batch item failed.", ErrorCategory.Unexpected));
+        if (!BaseAtomicPolicyAuthority.IsAdmissible(finalizedPlan.Value.PolicyEvaluations))
+            return Failed(Error(BasePolicyAuthorityErrorCodes.Invalid, "The mutation policy authority is invalid.", ErrorCategory.Authorization));
         ImmutableArray<BaseAtomicMutationPlanItem> finalizedItems = finalizedPlan.Value.Items;
         BaseAtomicPolicyAuthorityDigest policyDigest = BaseAtomicPolicyAuthority.Compute(
             authority.ApplicationId, "base.l30.recordMutations", finalizedPlan.Value.PolicyEvaluations);

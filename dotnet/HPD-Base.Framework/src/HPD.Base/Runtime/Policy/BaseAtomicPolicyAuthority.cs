@@ -5,6 +5,12 @@ namespace HPD.Base;
 
 internal static class BaseAtomicPolicyAuthority
 {
+    internal static bool IsAdmissible(IReadOnlyList<BasePolicyEvaluation> evaluations) =>
+        evaluations.Count > 0
+        && evaluations.All(static evaluation =>
+            evaluation.Decision.Effect == PolicyEffect.Allow
+            && evaluation.Authority is not null);
+
     internal static string BindPlanDigest(string planDigest, BaseAtomicPolicyAuthorityDigest policyDigest)
     {
         byte[] plan = Encoding.UTF8.GetBytes(planDigest);

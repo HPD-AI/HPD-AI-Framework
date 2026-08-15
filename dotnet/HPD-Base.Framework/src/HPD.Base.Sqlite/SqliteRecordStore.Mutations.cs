@@ -1433,7 +1433,14 @@ public sealed partial class SqliteRecordStore
                 PlanDigest = new string(plan.PlanDigest.AsSpan()), Authority = captured.Authority with { },
                 SubjectAuthorities = subjectAuthorities.Values.OrderBy(static value => value.ContractId, StringComparer.Ordinal)
                     .ThenBy(static value => value.ContractVersion).ToImmutableArray(),
-                Dispositions = captured.Items.Select(static item => item.Disposition).ToImmutableArray(),
+                Dispositions = plan.Kind == BaseAtomicMutationExecutionKind.ModuleMutation
+                    ? plan.Items.Select(static item => item.Kind switch
+                    {
+                        BaseCommittedRecordMutationKind.Create => BaseCapturedMutationDisposition.Create,
+                        BaseCommittedRecordMutationKind.Delete => BaseCapturedMutationDisposition.Delete,
+                        _ => BaseCapturedMutationDisposition.Update,
+                    }).ToImmutableArray()
+                    : captured.Items.Select(static item => item.Disposition).ToImmutableArray(),
                 Generations = preparedGenerations.MoveToImmutable(),
                 SubjectOverlay = overlays.Values.OrderBy(static value => value.ContractId, StringComparer.Ordinal).ThenBy(static value => value.ContractVersion).ThenBy(static value => value.SubjectId.Value, StringComparer.Ordinal).ToImmutableArray(),
                 SubjectValidations = validationEvidence.MoveToImmutable(),

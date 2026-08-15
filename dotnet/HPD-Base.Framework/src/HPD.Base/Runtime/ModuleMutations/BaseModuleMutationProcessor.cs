@@ -72,7 +72,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             .FinalizeCapturedCommandsAsync(capturedItems, cancellationToken).ConfigureAwait(false);
         if (!recordPlan.IsSuccess() || recordPlan.Value is null)
             return Failed(recordPlan.Error ?? Error(BaseModuleMutationErrorCodes.Invalid, ErrorCategory.Validation));
-        if (recordPlan.Value.PolicyEvaluations.Any(static evaluation => evaluation.Authority is null))
+        if (!BaseAtomicPolicyAuthority.IsAdmissible([operationPolicy, .. recordPlan.Value.PolicyEvaluations]))
             return Failed(Error(BaseModuleMutationErrorCodes.Unauthorized, ErrorCategory.Authorization));
 
         BaseAtomicPolicyAuthorityDigest policyDigest = BaseAtomicPolicyAuthority.Compute(
@@ -109,7 +109,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             return Failed(prepared.Error ?? Error("base.moduleMutation.preparedEvidenceInvalid", ErrorCategory.Store));
         OperationResult<BaseProvisionalAppliedAtomicMutation> applied = await provider
             .ApplyPreparedAtomicMutationAsync(prepared.Value, cancellationToken).ConfigureAwait(false);
-        if (!applied.IsSuccess() || applied.Value is null || !AppliedMatches(retainedPlan, applied.Value))
+        if (!applied.IsSuccess() || applied.Value is null || !AppliedMatches(retainedPlan, evidence, applied.Value))
             return Failed(applied.Error ?? Error("base.moduleMutation.appliedEvidenceInvalid", ErrorCategory.Store));
 
         IReadOnlyDictionary<string, BaseModuleCommittedGeneration> committedGenerations = applied.Value.Generations
@@ -397,23 +397,190 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
     private static OperationResult<(BaseMutationCommand[], ImmutableArray<BaseModuleMutationItemCaptureBinding>)> CommandFailure(
         OperationResult<BaseValidatedPayload> value) => new() { Status = value.Status, Error = value.Error };
 
-    private bool CapturedMatches(BaseCapturedAtomicMutationAuthority value) =>
-        value.Kind == BaseAtomicMutationExecutionKind.ModuleMutation
-        && string.Equals(value.IntentDigest, intent.IntentDigest, StringComparison.Ordinal)
-        && value.ModuleRecords.Length == extension.Records.Length
-        && value.Generations.Length == extension.Generations.Length
-        && value.ReadIntervals.Length == value.Accounting.ReadIntervals;
+    private bool CapturedMatches(BaseCapturedAtomicMutationAuthority value)
+    {
+        if (value.Kind != BaseAtomicMutationExecutionKind.ModuleMutation
+            || !string.Equals(value.IntentDigest, intent.IntentDigest, StringComparison.Ordinal)
+            || value.CaptureDigest is not { Length: 64 }
+            || value.Items.Length != 0
+            || value.ModuleRecords.Length != extension.Records.Length
+            || value.ModuleRelationTargets.Length != extension.RelationTargets.Length
+            || value.Generations.Length != extension.Generations.Length
+            || value.Authority.ApplicationId != intent.Authority.ApplicationId
+            || value.Authority.StoreInstanceId != intent.Authority.StoreInstanceId
+            || value.Authority.RestoreEpoch != intent.Authority.RestoreEpoch
+            || value.Authority.SchemaGeneration != intent.Authority.SchemaGeneration
+            || !value.Authority.Collections.SequenceEqual(intent.Authority.Collections)
+            || !Enum.IsDefined(value.Authority.Isolation)
+            || value.Authority.TransactionEvidenceToken.IsDefaultOrEmpty)
+            return false;
 
-    private static bool PreparedMatches(BaseAtomicMutationPlan plan, BaseCapturedAtomicMutationAuthority captured, BasePreparedAtomicMutation prepared) =>
-        prepared.Kind == BaseAtomicMutationExecutionKind.ModuleMutation
-        && string.Equals(prepared.PlanDigest, plan.PlanDigest, StringComparison.Ordinal)
-        && prepared.Generations.Length == captured.Generations.Length
-        && prepared.Accounting.GenerationReads == captured.Generations.Length;
+        long selectedBytes = 0;
+        long relationBytes = 0;
+        long generationBytes = 0;
+        int intervalOrdinal = 0;
+        for (int index = 0; index < extension.Records.Length; index++)
+        {
+            BaseModuleRecordCaptureRequest expected = extension.Records[index];
+            BaseCapturedModuleRecord actual = value.ModuleRecords[index];
+            if (expected.Ordinal != index || actual.Ordinal != index
+                || actual.CaptureId != expected.CaptureId
+                || actual.CollectionId != expected.Collection.Id
+                || actual.RecordId != expected.RecordId
+                || actual.Exists != (actual.Current is not null)
+                || actual.Current is not null && (actual.Current.CollectionId != expected.Collection.Id || actual.Current.Id != expected.RecordId)
+                || expected.Presence == BaseModuleCapturePresence.RequirePresent && !actual.Exists
+                || expected.Presence == BaseModuleCapturePresence.RequireMissing && actual.Exists
+                || !ExactInterval(value.ReadIntervals, intervalOrdinal++, $"collection:{expected.Collection.Id}:record", Encoding.UTF8.GetBytes(expected.RecordId.Value)))
+                return false;
+            if (actual.Current is not null)
+                selectedBytes = checked(selectedBytes + JsonSerializer.SerializeToUtf8Bytes(actual.Current, HPDBaseJsonSerializerContext.Default.RecordEnvelope).LongLength);
+        }
+        for (int index = 0; index < extension.RelationTargets.Length; index++)
+        {
+            BaseModuleRelationTargetCaptureRequest expected = extension.RelationTargets[index];
+            BaseCapturedModuleRelationTarget actual = value.ModuleRelationTargets[index];
+            if (expected.Ordinal != index || actual.Ordinal != index
+                || actual.SourceStatementId != expected.SourceStatementId
+                || actual.SourceFieldId != expected.SourceFieldId
+                || actual.TargetCollectionId != expected.TargetCollection.Id
+                || actual.TargetRecordId != expected.TargetRecordId
+                || actual.Current is not null && (actual.Current.CollectionId != expected.TargetCollection.Id || actual.Current.Id != expected.TargetRecordId)
+                || !ExactInterval(value.ReadIntervals, intervalOrdinal++, $"collection:{expected.TargetCollection.Id}:record", Encoding.UTF8.GetBytes(expected.TargetRecordId.Value)))
+                return false;
+            if (actual.Current is not null)
+                relationBytes = checked(relationBytes + JsonSerializer.SerializeToUtf8Bytes(actual.Current, HPDBaseJsonSerializerContext.Default.RecordEnvelope).LongLength);
+        }
+        for (int index = 0; index < extension.Generations.Length; index++)
+        {
+            BaseModuleGenerationCaptureRequest expected = extension.Generations[index];
+            BaseCapturedModuleGeneration actual = value.Generations[index];
+            if (expected.Ordinal != index || actual.Ordinal != index
+                || actual.CaptureId != expected.CaptureId
+                || actual.CellId != expected.Cell.Id || actual.CellVersion != expected.Cell.Version
+                || actual.CanonicalKeyDigest is not { Length: 64 }
+                || actual.Exists != (actual.Generation is not null)
+                || expected.Absence == BaseModuleGenerationAbsenceBehavior.RequireExisting && !actual.Exists
+                || expected.Absence == BaseModuleGenerationAbsenceBehavior.RequireMissing && actual.Exists
+                || intervalOrdinal >= value.ReadIntervals.Length)
+                return false;
+            BaseAtomicReadIntervalEvidence interval = value.ReadIntervals[intervalOrdinal++];
+            if (interval.LogicalAccessPathId != "module-generation" || !interval.LowerInclusive || !interval.UpperInclusive
+                || !interval.CanonicalLowerBound.AsSpan().SequenceEqual(interval.CanonicalUpperBound.AsSpan())
+                || !string.Equals(actual.CanonicalKeyDigest,
+                    Convert.ToHexStringLower(SHA256.HashData(interval.CanonicalLowerBound.AsSpan())), StringComparison.Ordinal))
+                return false;
+            generationBytes = checked(generationBytes + interval.CanonicalLowerBound.Length + 1 + (actual.Exists ? 8 : 0));
+        }
+        if (intervalOrdinal != value.ReadIntervals.Length) return false;
+        long evidenceBytes = BaseSubjectCanonicalRetainedWork.MeasureIntervals(value.ReadIntervals);
+        long transient = checked(selectedBytes + relationBytes + generationBytes + evidenceBytes);
+        return value.Accounting.Records == extension.Records.Length
+            && value.Accounting.RelationTargetReads == extension.RelationTargets.Length
+            && value.Accounting.GenerationReads == extension.Generations.Length
+            && value.Accounting.ReadIntervals == value.ReadIntervals.Length
+            && value.Accounting.SelectedBytes == selectedBytes
+            && value.Accounting.RelationTargetBytes == relationBytes
+            && value.Accounting.GenerationBytes == generationBytes
+            && value.Accounting.EvidenceBytes == evidenceBytes
+            && value.Accounting.TransientBytes == transient
+            && selectedBytes <= limits.MaximumSelectedBytes
+            && generationBytes <= limits.MaximumGenerationBytes
+            && evidenceBytes <= limits.MaximumEvidenceBytes
+            && transient <= limits.MaximumTransientBytes
+            && value.ReadIntervals.Length <= limits.MaximumReadIntervals;
 
-    private static bool AppliedMatches(BaseAtomicMutationPlan plan, BaseProvisionalAppliedAtomicMutation applied) =>
-        applied.Kind == BaseAtomicMutationExecutionKind.ModuleMutation
-        && string.Equals(applied.PlanDigest, plan.PlanDigest, StringComparison.Ordinal)
-        && applied.Facts.Length == plan.Items.Length;
+        static bool ExactInterval(
+            ImmutableArray<BaseAtomicReadIntervalEvidence> intervals,
+            int ordinal,
+            string path,
+            byte[] key) => ordinal < intervals.Length
+            && intervals[ordinal].LogicalAccessPathId == path
+            && intervals[ordinal].LowerInclusive && intervals[ordinal].UpperInclusive
+            && intervals[ordinal].CanonicalLowerBound.AsSpan().SequenceEqual(key)
+            && intervals[ordinal].CanonicalUpperBound.AsSpan().SequenceEqual(key);
+    }
+
+    private static bool PreparedMatches(BaseAtomicMutationPlan plan, BaseCapturedAtomicMutationAuthority captured, BasePreparedAtomicMutation prepared)
+    {
+        BaseFinalizedModuleMutationExtension? module = plan.Module;
+        if (module is null || prepared.Kind != BaseAtomicMutationExecutionKind.ModuleMutation
+            || !string.Equals(prepared.PlanDigest, plan.PlanDigest, StringComparison.Ordinal)
+            || !AuthorityMatches(prepared.Authority, captured.Authority)
+            || prepared.Dispositions.Length != plan.Items.Length
+            || prepared.Generations.Length != captured.Generations.Length
+            || prepared.Accounting.GenerationReads != captured.Generations.Length
+            || prepared.Accounting.GenerationComparisons != module.Comparisons.Length
+            || prepared.Accounting.GenerationIncrements != module.Increments.Length
+            || prepared.Accounting.ReadIntervals != prepared.ReadIntervals.Length)
+            return false;
+        HashSet<int> incremented = module.Increments.Select(static value => value.CaptureOrdinal).ToHashSet();
+        for (int index = 0; index < captured.Generations.Length; index++)
+        {
+            BaseCapturedModuleGeneration prior = captured.Generations[index];
+            BasePreparedModuleGenerationEvidence actual = prepared.Generations[index];
+            if (actual.CaptureOrdinal != index || actual.CanonicalKeyDigest != prior.CanonicalKeyDigest
+                || !Equals(actual.Previous, prior.Generation)) return false;
+            if (!incremented.Contains(index))
+            {
+                if (prior.Exists && (actual.Disposition != BaseModuleGenerationPreparationDisposition.Preserved
+                    || !Equals(actual.Resulting, prior.Generation))) return false;
+                if (!prior.Exists && (actual.Disposition != BaseModuleGenerationPreparationDisposition.RemainedAbsent
+                    || actual.Resulting is not null)) return false;
+                continue;
+            }
+            if (prior.Exists)
+            {
+                BaseModuleGeneration expected;
+                try { expected = prior.Generation!.Increment(); } catch { return false; }
+                if (actual.Disposition != BaseModuleGenerationPreparationDisposition.Incremented
+                    || !Equals(actual.Resulting, expected)) return false;
+            }
+            else if (actual.Disposition != BaseModuleGenerationPreparationDisposition.Created
+                || actual.Resulting?.ToCanonicalString() != "1") return false;
+        }
+        return true;
+    }
+
+    private static bool AuthorityMatches(BaseAtomicMutationAuthorityEvidence left, BaseAtomicMutationAuthorityEvidence right) =>
+        left.ApplicationId == right.ApplicationId
+        && left.StoreInstanceId == right.StoreInstanceId
+        && left.RestoreEpoch == right.RestoreEpoch
+        && left.SchemaGeneration == right.SchemaGeneration
+        && left.Isolation == right.Isolation
+        && left.Collections.Length == right.Collections.Length
+        && left.Collections.Zip(right.Collections).All(static pair =>
+            pair.First.CollectionId == pair.Second.CollectionId
+            && pair.First.CollectionGeneration == pair.Second.CollectionGeneration)
+        && left.TransactionEvidenceToken.AsSpan().SequenceEqual(right.TransactionEvidenceToken.AsSpan());
+
+    private static bool AppliedMatches(
+        BaseAtomicMutationPlan plan,
+        BaseCapturedAtomicMutationAuthority captured,
+        BaseProvisionalAppliedAtomicMutation applied)
+    {
+        BaseFinalizedModuleMutationExtension? module = plan.Module;
+        if (module is null || applied.Kind != BaseAtomicMutationExecutionKind.ModuleMutation
+            || !string.Equals(applied.PlanDigest, plan.PlanDigest, StringComparison.Ordinal)
+            || applied.Facts.Length != plan.Items.Length
+            || applied.Generations.Length != module.Increments.Length)
+            return false;
+        for (int index = 0; index < applied.Generations.Length; index++)
+        {
+            BaseModuleGenerationIncrement increment = module.Increments[index];
+            BaseModuleCommittedGeneration actual = applied.Generations[index];
+            if (increment.CaptureOrdinal < 0 || increment.CaptureOrdinal >= captured.Generations.Length)
+                return false;
+            BaseCapturedModuleGeneration prior = captured.Generations[increment.CaptureOrdinal];
+            if (actual.CaptureId != prior.CaptureId || actual.CellId != prior.CellId
+                || actual.CellVersion != prior.CellVersion || actual.Resulting is null
+                || !Equals(actual.Previous, prior.Generation)
+                || actual.Previous is not null && (actual.Previous.Value == long.MaxValue || actual.Resulting.Value != actual.Previous.Value + 1)
+                || actual.Previous is null && actual.Resulting.ToCanonicalString() != "1")
+                return false;
+        }
+        return true;
+    }
 
     private static AtomicMutationProcessingResult Failed(BaseError error) => new(
         AtomicMutationProcessingOutcome.Failed, [], error);

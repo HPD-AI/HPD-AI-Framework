@@ -595,6 +595,13 @@ internal sealed class BaseSelectionMutationProcessor(
                 ReceiptResolutionTimeout = executionTimeout,
             },
         };
+        if (!BaseAtomicPolicyAuthority.IsAdmissible(policies))
+            return Failed(new BaseError
+            {
+                Code = BasePolicyAuthorityErrorCodes.Invalid,
+                Message = "The mutation policy authority is invalid.",
+                Category = ErrorCategory.Authorization,
+            });
         BaseAtomicPolicyAuthorityDigest policyDigest = BaseAtomicPolicyAuthority.Compute(
             authority.ApplicationId, $"{profile.Id}:{profile.Version}", policies);
         var mutationPlan = new BaseAtomicMutationPlan
