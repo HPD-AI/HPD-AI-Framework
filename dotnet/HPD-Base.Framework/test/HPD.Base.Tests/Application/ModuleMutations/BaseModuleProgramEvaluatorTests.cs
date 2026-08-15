@@ -9,6 +9,53 @@ namespace HPD.Base.Tests.Application.ModuleMutations;
 public sealed class BaseModuleProgramEvaluatorTests
 {
     [Fact]
+    public void Contract_validation_accepts_the_closed_record_program()
+    {
+        CollectionDefinition collection = ModuleCollection();
+        Action validate = () => BaseModuleMutationContractValidator.ValidateDefinition(
+            CreateDefinition(),
+            new Dictionary<string, CollectionDefinition> { [collection.Id] = collection },
+            new Dictionary<string, BaseModuleGenerationCellDefinition>());
+
+        validate.Should().NotThrow();
+    }
+
+    [Fact]
+    public void Capture_keys_cannot_depend_on_provider_captured_values()
+    {
+        CollectionDefinition collection = ModuleCollection();
+        BaseRegisteredModuleMutationDefinition definition = CreateDefinition();
+        definition = definition with
+        {
+            Template = definition.Template with
+            {
+                Captures =
+                [
+                    new BaseModuleRecordCapture
+                    {
+                        Id = "record", CollectionId = collection.Id, Presence = BaseModuleCapturePresence.AllowEither,
+                        RecordId = new BaseModuleCapturedFieldExpression
+                        {
+                            Id = "captured-key", ResultTypeId = "string",
+                            Field = new BaseModuleCapturedFieldReference
+                            {
+                                CaptureId = "record", StableFieldId = "field.name", DeclaredTypeId = "string",
+                            },
+                        },
+                    },
+                ],
+            },
+        };
+
+        Action validate = () => BaseModuleMutationContractValidator.ValidateDefinition(
+            definition,
+            new Dictionary<string, CollectionDefinition> { [collection.Id] = collection },
+            new Dictionary<string, BaseModuleGenerationCellDefinition>());
+
+        validate.Should().Throw<InvalidOperationException>().WithMessage("base.moduleMutation.invalid");
+    }
+
+    [Fact]
     public async Task Create_statement_uses_the_shared_L30_pipeline_and_commits_its_typed_result()
     {
         CollectionDefinition collection = ModuleCollection();
@@ -188,6 +235,7 @@ public sealed class BaseModuleProgramEvaluatorTests
     {
         Id = "module-records", Name = "module-records", Kind = BaseCollectionKinds.Document,
         SchemaMode = SchemaMode.Strict, UnknownFields = UnknownFieldPolicy.Reject, MutationMode = BaseCollectionMutationMode.Mutable,
+        System = true, SystemOwnerModuleId = "module",
         Fields = [new FieldDefinition { Id = "field.name", ApplicationName = "Name", WireName = "name", Type = "string", Required = true }],
     };
 
