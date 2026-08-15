@@ -7,6 +7,15 @@ internal enum RidId : ushort { OsxArm64=1,OsxX64=2,LinuxArm64=3,LinuxX64=4,WinAr
 internal enum QualificationDeclarationV1 : ushort { AdvertisedPositive=1,AdvertisedTypedNegative=2,NotAdvertised=3 }
 internal enum EmulationKindV1 : ushort { None=0,Rosetta=1,Qemu=2,OtherRegistered=3 }
 
+internal abstract record CapacitySubjectValueV1
+{
+    private CapacitySubjectValueV1(){}
+    internal sealed record StableId : CapacitySubjectValueV1
+    { internal StableId(StableId128 value){Span<byte>b=stackalloc byte[16];if(!value.TryWriteBytes(b))throw new ArgumentException("A stable subject identity is required.");Value=value;}internal StableId128 Value{get;} }
+    internal sealed record OwnerSlice : CapacitySubjectValueV1
+    { internal OwnerSlice(OwnerSliceId value){if(!Enum.IsDefined(value))throw new ArgumentException("A registered owner slice is required.");Value=value;}internal OwnerSliceId Value{get;} }
+}
+
 internal sealed record FactRangeV1
 {
     internal FactRangeV1(JournalPositionV1 first,JournalPositionV1 last){if(!first.IsValid||!last.IsValid||first.Session!=last.Session||first.Sequence>last.Sequence)throw new ArgumentException("Invalid fact range.");First=first;Last=last;}

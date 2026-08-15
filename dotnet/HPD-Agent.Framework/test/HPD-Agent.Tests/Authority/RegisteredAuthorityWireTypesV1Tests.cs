@@ -27,5 +27,6 @@ public sealed class RegisteredAuthorityWireTypesV1Tests
         Assert.Equal(3,(ushort)QualificationDeclarationV1.NotAdvertised);
         Assert.Equal(3,(ushort)EmulationKindV1.OtherRegistered);
         Assert.Equal(5,(ushort)DataClassificationV1.Secret);
+        Assert.Equal(OwnerSliceId.S2,new CapacitySubjectValueV1.OwnerSlice(OwnerSliceId.S2).Value);
     }
 }
