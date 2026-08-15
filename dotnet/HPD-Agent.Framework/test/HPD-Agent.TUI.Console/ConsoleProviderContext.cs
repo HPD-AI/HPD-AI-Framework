@@ -46,7 +46,7 @@ internal sealed class ConsoleProviderContext
         var composition = HPD.Agent.Providers.Generated.GeneratedProviderComposition.Composition;
         var configuration = BuildConfiguration();
         var secrets = new ChainedSecretResolver(
-            new EnvironmentSecretResolver(),
+            new EnvironmentSecretResolver(composition.SecretAliases),
             new ConfigurationSecretResolver(configuration));
 
         var registryProbe = new AgentBuilder(composition)

@@ -297,11 +297,15 @@ public sealed class ProviderManifestFragment
     /// <summary>Initializes an immutable provider manifest fragment.</summary>
     /// <param name="descriptors">Provider descriptor contributions.</param>
     /// <param name="runtimeFactories">Closed runtime provider factories.</param>
+    /// <param name="serializationContracts">Source-generated provider payload contracts.</param>
+    /// <param name="secretAliases">Provider-owned credential alias declarations.</param>
+    /// <param name="ownerAssembly">The source-generator-captured owner assembly, or <see langword="null"/> for legacy finite tests.</param>
     public ProviderManifestFragment(
         IReadOnlyList<IProviderDescriptor> descriptors,
         IReadOnlyList<ProviderRuntimeFactoryRegistration> runtimeFactories,
         IReadOnlyList<ProviderPayloadJsonContract> serializationContracts,
-        IReadOnlyList<ProviderSecretAliasRegistration> secretAliases)
+        IReadOnlyList<ProviderSecretAliasRegistration> secretAliases,
+        string? ownerAssembly = null)
     {
         ArgumentNullException.ThrowIfNull(descriptors);
         ArgumentNullException.ThrowIfNull(runtimeFactories);
@@ -311,6 +315,7 @@ public sealed class ProviderManifestFragment
         RuntimeFactories = new List<ProviderRuntimeFactoryRegistration>(runtimeFactories).AsReadOnly();
         SerializationContracts = new List<ProviderPayloadJsonContract>(serializationContracts).AsReadOnly();
         SecretAliases = new List<ProviderSecretAliasRegistration>(secretAliases).AsReadOnly();
+        OwnerAssembly = ownerAssembly;
     }
 
     /// <summary>Gets immutable provider descriptor contributions.</summary>
@@ -324,4 +329,7 @@ public sealed class ProviderManifestFragment
 
     /// <summary>Gets immutable provider secret-alias registrations.</summary>
     public IReadOnlyList<ProviderSecretAliasRegistration> SecretAliases { get; }
+
+    /// <summary>Gets the generator-captured owner assembly, or <see langword="null"/> for a legacy hand-authored fragment.</summary>
+    public string? OwnerAssembly { get; }
 }

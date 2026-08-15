@@ -107,7 +107,6 @@ public sealed record RemoteAgentFamilySelectionDto
             TextToSpeechClientConfig value => value.Override is not null,
             SpeechToTextClientConfig value => value.Override is not null,
             HostedFilesClientConfig value => value.Override is not null,
-            VoiceActivityDetectionClientConfig value => value.OverrideFactory is not null,
             EndOfTurnDetectionClientConfig value => value.OverrideFactory is not null,
             _ => false
         };
@@ -124,7 +123,7 @@ public sealed record RemoteAgentFamilySelectionDto
         ProviderClientFamily.ImageGeneration => "imageGeneration",
         ProviderClientFamily.Embeddings => "embeddings",
         ProviderClientFamily.HostedFiles => "hostedFiles",
-        ProviderClientFamily.VoiceActivityDetection => "voiceActivityDetection",
+        ProviderClientFamily.VoiceActivityDetection => "voiceActivity",
         ProviderClientFamily.EndOfTurnDetection => "endOfTurnDetection",
         _ => throw new ArgumentOutOfRangeException(nameof(family), family, null)
     };

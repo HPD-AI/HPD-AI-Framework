@@ -581,7 +581,7 @@ public static class HpdAgentConfigSerializer
         ("textToSpeech", ProviderClientFamily.TextToSpeech),
         ("speechToText", ProviderClientFamily.SpeechToText),
         ("hostedFiles", ProviderClientFamily.HostedFiles),
-        ("voiceActivityDetection", ProviderClientFamily.VoiceActivityDetection),
+        ("voiceActivity", ProviderClientFamily.VoiceActivityDetection),
         ("endOfTurnDetection", ProviderClientFamily.EndOfTurnDetection)
     ];
 

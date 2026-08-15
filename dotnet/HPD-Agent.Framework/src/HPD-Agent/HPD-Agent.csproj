@@ -36,6 +36,7 @@
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.9" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.9" />
     <PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" Version="10.0.9" />
+    <PackageReference Include="System.Formats.Cbor" Version="10.0.10" />
     <PackageReference Include="NLayer" Version="1.16.0" />
 
   </ItemGroup>
@@ -52,6 +53,13 @@
     <PackageReference Include="HPD-Serialization" Version="$(HPDSerializationVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
   </ItemGroup>
 
+  <ItemGroup>
+    <AdditionalFiles Include="Authority/Generated/authority-id-families-v1.txt" />
+    <AdditionalFiles Include="Authority/Generated/authority-schema-ledger-v1.txt" />
+    <AdditionalFiles Include="Authority/Generated/authority-capacity-dimensions-v1.txt" />
+    <AdditionalFiles Include="Authority/Generated/authority-capacity-governance-v1.txt" />
+  </ItemGroup>
+
   <!-- Pack source generator as analyzer in NuGet package -->
   <Target Name="IncludeAnalyzers" BeforeTargets="_GetPackageFiles">
     <ItemGroup>
@@ -64,11 +72,15 @@
 
   <!-- Expose internals to test projects -->
   <ItemGroup>
+    <InternalsVisibleTo Include="HPD.Agent.Audio" />
     <InternalsVisibleTo Include="HPD-Agent.Tests" />
+    <InternalsVisibleTo Include="HPD-Agent.Authority.Tests" />
+    <InternalsVisibleTo Include="HPD-Agent.LiveAudio.Contracts.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.Hosting.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.Evaluations.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.Harness.Coding.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.AIFunctionContracts.AotSmoke" />
+    <InternalsVisibleTo Include="HPD-Agent.Audio.VoiceActivity.AotSmoke" />
   </ItemGroup>
 
 </Project>

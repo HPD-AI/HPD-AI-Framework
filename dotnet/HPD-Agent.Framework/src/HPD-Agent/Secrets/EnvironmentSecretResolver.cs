@@ -17,8 +17,7 @@ public sealed class EnvironmentSecretResolver : ISecretResolver
     /// <inheritdoc />
     public ValueTask<ResolvedSecret?> ResolveAsync(string key, CancellationToken ct = default)
     {
-        var registeredAliases = _generatedAliases?.GetEnvironmentVariables(key)
-            ?? HPD.Agent.Providers.ProviderCompositionGlobalRegistry.SecretAliases?.GetEnvironmentVariables(key);
+        var registeredAliases = _generatedAliases?.GetEnvironmentVariables(key);
         if (registeredAliases == null)
             return default;
 

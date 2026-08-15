@@ -1685,16 +1685,6 @@ public class AgentBuilder
         return this;
     }
 
-    public AgentBuilder UseVoiceActivityDetectorMiddleware(
-        Func<IVoiceActivityDetector, ProviderComponentLifetimeContext, IServiceProvider?, IVoiceActivityDetector> middleware)
-    {
-        ArgumentNullException.ThrowIfNull(middleware);
-        _config.ClientMiddleware ??= new();
-        _config.ClientMiddleware.VoiceActivityDetection ??= new();
-        _config.ClientMiddleware.VoiceActivityDetection.Add(middleware);
-        return this;
-    }
-
     public AgentBuilder UseEndOfTurnDetectorMiddleware(
         Func<IEotDetector, ProviderComponentLifetimeContext, IServiceProvider?, IEotDetector> middleware)
     {
@@ -2672,7 +2662,6 @@ public class AgentBuilder
         var imageGenerator = CaptureOverride(ProviderClientFamily.ImageGeneration, clients.ImageGeneration, clients.ImageGeneration?.Override?.Client, resolvedConfigs);
         var embeddingGenerator = CaptureOverride(ProviderClientFamily.Embeddings, clients.Embeddings, clients.Embeddings?.Override?.Client, resolvedConfigs);
         var hostedFiles = CaptureOverride(ProviderClientFamily.HostedFiles, clients.HostedFiles, clients.HostedFiles?.Override?.Client, resolvedConfigs);
-        var vadFactory = ResolveComponentFactory<IVoiceActivityDetectorProvider, IVoiceActivityDetector>(ProviderClientFamily.VoiceActivityDetection, ProviderFamilyLifetime.StatefulPerAudioSession, static (p, c, x, s) => p.CreateVoiceActivityDetector(c, x, s), resolvedConfigs);
         var eotFactory = ResolveComponentFactory<IEndOfTurnDetectorProvider, IEotDetector>(ProviderClientFamily.EndOfTurnDetection, ProviderFamilyLifetime.StatefulPerAudioSession, static (p, c, x, s) => p.CreateEndOfTurnDetector(c, x, s), resolvedConfigs);
 
         return new AgentClientSet
@@ -2683,7 +2672,6 @@ public class AgentBuilder
             ImageGenerator = imageGenerator,
             EmbeddingGenerator = embeddingGenerator,
             HostedFiles = hostedFiles,
-            VoiceActivityDetectorFactory = vadFactory,
             EndOfTurnDetectorFactory = eotFactory,
             ResolvedConfigs = resolvedConfigs
         };
@@ -2729,7 +2717,6 @@ public class AgentBuilder
     private TComponent ApplyComponentMiddleware<TComponent>(ProviderClientFamily family, TComponent component, ProviderComponentLifetimeContext context)
         => family switch
         {
-            ProviderClientFamily.VoiceActivityDetection when component is IVoiceActivityDetector value => (TComponent)(object)ApplyMiddleware(value, _config.ClientMiddleware?.VoiceActivityDetection, context, "voice activity detector"),
             ProviderClientFamily.EndOfTurnDetection when component is IEotDetector value => (TComponent)(object)ApplyMiddleware(value, _config.ClientMiddleware?.EndOfTurnDetection, context, "end-of-turn detector"),
             _ => component
         };

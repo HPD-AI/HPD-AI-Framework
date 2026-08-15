@@ -126,6 +126,7 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
 
         return new ProviderInfo(
             type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            type.ContainingAssembly.Name,
             Sanitize(type.ToDisplayString()),
             providerKey,
             displayName,
@@ -231,7 +232,7 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
         {
             source.AppendLine($"            new({Literal(secretAlias.SecretKey)}, new string[] {{ {string.Join(", ", secretAlias.EnvironmentVariables.Select(Literal))} }}),");
         }
-        source.AppendLine("        });");
+        source.AppendLine($"        }}, {Literal(info.OwnerAssembly)});");
         source.AppendLine("}");
 
         context.AddSource($"{info.SafeName}.ProviderManifest.g.cs", source.ToString());
@@ -283,6 +284,7 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
     {
         public ProviderInfo(
             string providerTypeName,
+            string ownerAssembly,
             string safeName,
             string providerKey,
             string displayName,
@@ -295,6 +297,7 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
             Location? location)
         {
             ProviderTypeName = providerTypeName;
+            OwnerAssembly = ownerAssembly;
             SafeName = safeName;
             ProviderKey = providerKey;
             DisplayName = displayName;
@@ -308,6 +311,7 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
         }
 
         public string ProviderTypeName { get; }
+        public string OwnerAssembly { get; }
         public string SafeName { get; }
         public string ProviderKey { get; }
         public string DisplayName { get; }

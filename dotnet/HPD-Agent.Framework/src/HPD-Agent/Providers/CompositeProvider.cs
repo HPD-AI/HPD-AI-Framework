@@ -11,7 +11,6 @@ internal sealed class CompositeProvider :
     IImageGeneratorProvider,
     IEmbeddingGeneratorProvider,
     IHostedFileClientProvider,
-    IVoiceActivityDetectorProvider,
     IEndOfTurnDetectorProvider
 {
     private readonly List<IProvider> _providers = [];
@@ -43,6 +42,21 @@ internal sealed class CompositeProvider :
         where TProvider : class, IProvider
         => _providers.Any(static provider => provider is TProvider);
 
+    internal TProvider GetTypedFamilyProvider<TProvider>(ProviderClientFamily family)
+        where TProvider : class, IProvider
+    {
+        for (var i = _providers.Count - 1; i >= 0; i--)
+        {
+            if (_providers[i] is TProvider provider &&
+                _providers[i].GetMetadata().Families.ContainsKey(family))
+                return provider;
+        }
+
+        throw new InvalidOperationException(
+            $"Provider '{ProviderKey}' is registered, but it does not implement '{typeof(TProvider).Name}' " +
+            $"for client family '{family}'.");
+    }
+
     public ValueTask<IChatClient> CreateChatClientAsync(
         ProviderClientConfig config,
         IServiceProvider? services = null,
@@ -67,13 +81,6 @@ internal sealed class CompositeProvider :
 
     public IHostedFileClient CreateHostedFileClient(ProviderClientConfig config, IServiceProvider? services = null) =>
         GetFamilyProvider<IHostedFileClientProvider>(ProviderClientFamily.HostedFiles).CreateHostedFileClient(config, services);
-
-    public IVoiceActivityDetector CreateVoiceActivityDetector(
-        ProviderClientConfig config,
-        ProviderComponentLifetimeContext context,
-        IServiceProvider? services = null) =>
-        GetFamilyProvider<IVoiceActivityDetectorProvider>(ProviderClientFamily.VoiceActivityDetection)
-            .CreateVoiceActivityDetector(config, context, services);
 
     public IEotDetector CreateEndOfTurnDetector(
         ProviderClientConfig config,
@@ -127,18 +134,6 @@ internal sealed class CompositeProvider :
     }
 
     private static bool SupportsFamily(IProvider provider, ProviderClientFamily family) =>
-        family switch
-        {
-            ProviderClientFamily.Chat => provider is IChatClientProvider,
-            ProviderClientFamily.TextToSpeech => provider is ITextToSpeechClientProvider,
-            ProviderClientFamily.SpeechToText => provider is ISpeechToTextClientProvider,
-            ProviderClientFamily.Realtime => provider is IRealtimeClientProvider,
-            ProviderClientFamily.ImageGeneration => provider is IImageGeneratorProvider,
-            ProviderClientFamily.Embeddings => provider is IEmbeddingGeneratorProvider,
-            ProviderClientFamily.HostedFiles => provider is IHostedFileClientProvider,
-            ProviderClientFamily.VoiceActivityDetection => provider is IVoiceActivityDetectorProvider,
-            ProviderClientFamily.EndOfTurnDetection => provider is IEndOfTurnDetectorProvider,
-            _ => false
-        };
+        provider.GetMetadata().Families.ContainsKey(family);
 
 }
