@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Agent.Middleware;
@@ -300,6 +301,7 @@ public sealed record ThreadExecutionStartedEvent : AgentEvent
     }
 
     /// <summary>Gets the durable identity of the accepted thread execution.</summary>
+    [AllowNull]
     public override string ThreadExecutionId { get; init; }
 
     /// <summary>Gets the agent that owns the accepted execution.</summary>
@@ -376,6 +378,7 @@ public sealed record ThreadExecutionFinishedEvent : AgentEvent
     }
 
     /// <summary>Gets the execution identifier correlated with the corresponding start fact.</summary>
+    [AllowNull]
     public override string ThreadExecutionId { get; init; }
 
     /// <summary>Gets the agent that executed the accepted input.</summary>

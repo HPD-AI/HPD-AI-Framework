@@ -293,9 +293,9 @@ internal static class ProviderContributionV1Codec
         ProviderCapabilitySetV1Codec.Write(writer, value.Capabilities);
         writer.WriteUInt64(6);
         writer.WriteStartArray(value.CodecIds.Count);
+        Span<byte> codec = stackalloc byte[16];
         foreach (var codecId in value.CodecIds)
         {
-            Span<byte> codec = stackalloc byte[16];
             if (!codecId.TryWriteBytes(codec))
                 throw new ArgumentException("A provider codec identity is invalid.", nameof(value));
             writer.WriteByteString(codec);

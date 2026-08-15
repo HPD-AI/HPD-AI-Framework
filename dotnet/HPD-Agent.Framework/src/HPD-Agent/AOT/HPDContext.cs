@@ -194,7 +194,7 @@ using Microsoft.Extensions.AI;
 [JsonSerializable(typeof(HPD.Agent.ClientTools.IToolResultContent))]
 [JsonSerializable(typeof(IReadOnlyList<HPD.Agent.ClientTools.IToolResultContent>))]
 [JsonSerializable(typeof(List<HPD.Agent.ClientTools.IToolResultContent>))]
-[JsonSerializable(typeof(HPD.Agent.ClientTools.TextContent))]
+[JsonSerializable(typeof(HPD.Agent.ClientTools.TextContent), TypeInfoPropertyName = "ClientToolsTextContent")]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.BinaryContent))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.JsonContent))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.ClientToolInvokeOutcomeKind))]
