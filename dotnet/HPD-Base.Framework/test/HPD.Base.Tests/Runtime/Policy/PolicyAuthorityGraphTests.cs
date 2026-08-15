@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using HPD.Base;
 
 namespace HPD.Base.Tests.Policy;
@@ -59,6 +60,33 @@ public sealed class PolicyAuthorityGraphTests
         Assert.Equal("grant.items", admitted.GrantId);
         Assert.Equal(32, admitted.GrantRegistrationChecksum.Length);
         Assert.Equal(32, admitted.GrantChecksum.Length);
+    }
+
+    [Fact]
+    public async Task Atomic_policy_authority_rejects_mixed_owner_generations_and_checksums()
+    {
+        var builder = new BasePolicyAuthorityBuilder();
+        builder.AddPolicy(Definition("allow", 0), new RecordingPolicy("allow", [], PolicyDecision.Allow()));
+        var orchestrator = new DefaultBasePolicyOrchestrator(builder.Freeze("policy-test"));
+        BasePolicyEvaluation evaluation = (await orchestrator.EvaluateWriteAsync(Request())).Value!;
+        BasePolicyEvaluationAuthority authority = evaluation.Authority!;
+
+        Assert.True(BaseAtomicPolicyAuthority.IsAdmissible([evaluation, evaluation]));
+
+        BasePolicyEvaluation changedGeneration = evaluation with
+        {
+            Authority = authority with { PolicyGraphGeneration = checked(authority.PolicyGraphGeneration + 1) },
+        };
+        Assert.False(BaseAtomicPolicyAuthority.IsAdmissible([evaluation, changedGeneration]));
+
+        byte[] substitutedChecksumBytes = authority.PolicyOwnerChecksum.ToArray();
+        substitutedChecksumBytes[0] ^= 0xff;
+        ImmutableArray<byte> substitutedChecksum = [.. substitutedChecksumBytes];
+        BasePolicyEvaluation changedOwner = evaluation with
+        {
+            Authority = authority with { PolicyOwnerChecksum = substitutedChecksum },
+        };
+        Assert.False(BaseAtomicPolicyAuthority.IsAdmissible([evaluation, changedOwner]));
     }
 
     private static BasePolicyAuthorityDefinition Definition(string id, int order) => new()

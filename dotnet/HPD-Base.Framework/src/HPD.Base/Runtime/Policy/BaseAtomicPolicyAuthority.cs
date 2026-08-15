@@ -5,11 +5,16 @@ namespace HPD.Base;
 
 internal static class BaseAtomicPolicyAuthority
 {
-    internal static bool IsAdmissible(IReadOnlyList<BasePolicyEvaluation> evaluations) =>
-        evaluations.Count > 0
-        && evaluations.All(static evaluation =>
-            evaluation.Decision.Effect == PolicyEffect.Allow
-            && evaluation.Authority is not null);
+    internal static bool IsAdmissible(IReadOnlyList<BasePolicyEvaluation> evaluations)
+    {
+        if (evaluations.Count == 0 || evaluations[0].Authority is not { } first
+            || evaluations.Any(static evaluation => evaluation.Decision.Effect != PolicyEffect.Allow || evaluation.Authority is null))
+            return false;
+        return evaluations.Skip(1).All(evaluation =>
+            evaluation.Authority!.PolicyGraphGeneration == first.PolicyGraphGeneration
+            && CryptographicOperations.FixedTimeEquals(
+                evaluation.Authority.PolicyOwnerChecksum.AsSpan(), first.PolicyOwnerChecksum.AsSpan()));
+    }
 
     internal static string BindPlanDigest(string planDigest, BaseAtomicPolicyAuthorityDigest policyDigest)
     {
