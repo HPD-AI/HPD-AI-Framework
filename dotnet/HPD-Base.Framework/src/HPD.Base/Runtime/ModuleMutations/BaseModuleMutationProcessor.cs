@@ -39,7 +39,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         if (!captured.IsSuccess() || captured.Value is null)
             return Failed(captured.Error ?? Error(BaseModuleMutationErrorCodes.StoreError, ErrorCategory.Store));
         BaseCapturedAtomicMutationAuthority evidence = captured.Value;
-        if (!CapturedMatches(evidence))
+        if (!CapturedMatches(intent, extension, limits, evidence))
             return Failed(Error("base.moduleMutation.captureEvidenceInvalid", ErrorCategory.Store));
 
         var evaluator = new BaseModuleProgramEvaluator<TRequest, TResult>(definition, identity, request, evidence, collections);
@@ -431,7 +431,11 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
     private static OperationResult<(BaseMutationCommand[], ImmutableArray<BaseModuleMutationItemCaptureBinding>)> CommandFailure(
         OperationResult<BaseValidatedPayload> value) => new() { Status = value.Status, Error = value.Error };
 
-    private bool CapturedMatches(BaseCapturedAtomicMutationAuthority value)
+    internal static bool CapturedMatches(
+        BaseAtomicMutationIntent intent,
+        BaseModuleMutationCaptureExtension extension,
+        BaseAtomicMutationExecutionLimits limits,
+        BaseCapturedAtomicMutationAuthority value)
     {
         if (value.Kind != BaseAtomicMutationExecutionKind.ModuleMutation
             || !string.Equals(value.IntentDigest, intent.IntentDigest, StringComparison.Ordinal)

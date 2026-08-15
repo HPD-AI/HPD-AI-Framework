@@ -195,6 +195,89 @@ public sealed class BaseModuleProgramEvaluatorTests
     }
 
     [Fact]
+    public void Missing_additional_and_reordered_relation_capture_evidence_fail_closed()
+    {
+        CollectionDefinition target = ModuleCollection();
+        BaseModuleRelationTargetCaptureRequest[] expected =
+        [
+            new() { Ordinal = 0, SourceStatementId = "write-a", SourceFieldId = "owner", TargetCollection = target, TargetRecordId = new RecordId("a") },
+            new() { Ordinal = 1, SourceStatementId = "write-b", SourceFieldId = "owner", TargetCollection = target, TargetRecordId = new RecordId("b") },
+        ];
+        BaseAtomicMutationAuthorityRequirement requirement = AuthorityRequirement();
+        var intent = new BaseAtomicMutationIntent { IntentDigest = "intent", Authority = requirement, Items = [] };
+        var extension = new BaseModuleMutationCaptureExtension
+        {
+            OperationId = "module.create", OperationVersion = 1, OperationChecksum = new string('a', 64),
+            RequestDigest = new string('b', 64), Records = [], RelationTargets = [.. expected], Generations = [],
+        };
+        BaseCapturedAtomicMutationAuthority valid = RelationEvidence(expected, requirement);
+        BaseModuleMutationProcessor<CreateRequest, CreateResult>.CapturedMatches(
+            intent, extension, DefaultBaseModuleMutationRuntime.ResolveExecutionLimits(Limits()), valid).Should().BeTrue();
+
+        BaseCapturedAtomicMutationAuthority[] hostile =
+        [
+            Reframe(valid, [valid.ModuleRelationTargets[0]]),
+            Reframe(valid, [.. valid.ModuleRelationTargets, valid.ModuleRelationTargets[1] with { Ordinal = 2 }]),
+            Reframe(valid, [valid.ModuleRelationTargets[1] with { Ordinal = 0 }, valid.ModuleRelationTargets[0] with { Ordinal = 1 }]),
+        ];
+        foreach (BaseCapturedAtomicMutationAuthority evidence in hostile)
+            BaseModuleMutationProcessor<CreateRequest, CreateResult>.CapturedMatches(
+                intent, extension, DefaultBaseModuleMutationRuntime.ResolveExecutionLimits(Limits()), evidence).Should().BeFalse();
+    }
+
+    private static BaseAtomicMutationAuthorityRequirement AuthorityRequirement() => new()
+    {
+        ApplicationId = "module.application", StoreInstanceId = "module-store", RestoreEpoch = 1,
+        SchemaGeneration = 1, Collections = [],
+    };
+
+    private static BaseCapturedAtomicMutationAuthority RelationEvidence(
+        IReadOnlyList<BaseModuleRelationTargetCaptureRequest> expected,
+        BaseAtomicMutationAuthorityRequirement requirement)
+    {
+        ImmutableArray<BaseAtomicReadIntervalEvidence> intervals = [.. expected.Select(item => new BaseAtomicReadIntervalEvidence
+        {
+            LogicalAccessPathId = $"collection:{item.TargetCollection.Id}:record",
+            CanonicalLowerBound = System.Text.Encoding.UTF8.GetBytes(item.TargetRecordId.Value).ToImmutableArray(),
+            LowerInclusive = true,
+            CanonicalUpperBound = System.Text.Encoding.UTF8.GetBytes(item.TargetRecordId.Value).ToImmutableArray(),
+            UpperInclusive = true,
+        })];
+        long evidenceBytes = BaseSubjectCanonicalRetainedWork.MeasureIntervals(intervals);
+        return new BaseCapturedAtomicMutationAuthority
+        {
+            Kind = BaseAtomicMutationExecutionKind.ModuleMutation, IntentDigest = "intent", CaptureDigest = new string('c', 64),
+            Authority = new BaseAtomicMutationAuthorityEvidence
+            {
+                ApplicationId = requirement.ApplicationId, StoreInstanceId = requirement.StoreInstanceId,
+                RestoreEpoch = requirement.RestoreEpoch, SchemaGeneration = requirement.SchemaGeneration,
+                Collections = requirement.Collections, Isolation = BaseAtomicSelectionIsolationClass.NativeSerializable,
+                TransactionEvidenceToken = [1],
+            },
+            Items = [], ModuleRecords = [], Generations = [], ReadIntervals = intervals,
+            ModuleRelationTargets = [.. expected.Select(item => new BaseCapturedModuleRelationTarget
+            {
+                Ordinal = item.Ordinal, SourceStatementId = item.SourceStatementId, SourceFieldId = item.SourceFieldId,
+                TargetCollectionId = item.TargetCollection.Id, TargetRecordId = item.TargetRecordId,
+            })],
+            Accounting = new BaseAtomicCaptureAccounting
+            {
+                Records = 0, RelationTargetReads = expected.Count, GenerationReads = 0,
+                SelectedBytes = 0, RelationTargetBytes = 0, GenerationBytes = 0,
+                ReadIntervals = intervals.Length, EvidenceBytes = evidenceBytes, TransientBytes = evidenceBytes,
+            },
+        };
+    }
+
+    private static BaseCapturedAtomicMutationAuthority Reframe(
+        BaseCapturedAtomicMutationAuthority value,
+        ImmutableArray<BaseCapturedModuleRelationTarget> relations) => value with
+    {
+        ModuleRelationTargets = relations,
+        Accounting = value.Accounting with { RelationTargetReads = relations.Length },
+    };
+
+    [Fact]
     public void Closed_manual_builder_matches_the_direct_canonical_contract()
     {
         BaseRegisteredModuleMutationDefinition direct = GenerationDefinition();
