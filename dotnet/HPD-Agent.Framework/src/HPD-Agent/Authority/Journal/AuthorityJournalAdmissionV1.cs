@@ -261,6 +261,9 @@ internal static class AuthorityPayloadHashV1
 
 internal static class AuthorityCanonicalCborV1
 {
+    internal const string CorrelationSchemaId = "hpd.correlation-envelope.v1";
+    internal const string ProposedFactSchemaId = "hpd.proposed-authority-fact.v1";
+    internal const string AppendBatchSchemaId = "hpd.append-authority-batch.v1";
     internal static bool IsSingleCanonicalValue(ReadOnlyMemory<byte> payload)
     {
         try
@@ -319,6 +322,12 @@ internal static class AuthorityCanonicalCborV1
         writer.WriteEndMap();
         return writer.Encode();
     }
+
+    internal static byte[] Encode(ProposedAuthorityFactV1 fact)=>EncodeProposal(fact);
+    internal static byte[] Encode(CorrelationEnvelopeV1 correlation){var writer=new CborWriter(CborConformanceMode.Ctap2Canonical);WriteCorrelation(writer,correlation);return writer.Encode();}
+    internal static Hash256 ComputeHash(CorrelationEnvelopeV1 value)=>AuthorityIntegrityHashV1.Compute(CorrelationSchemaId,1,0,Encode(value));
+    internal static Hash256 ComputeHash(ProposedAuthorityFactV1 value)=>AuthorityIntegrityHashV1.Compute(ProposedFactSchemaId,1,0,Encode(value));
+    internal static Hash256 ComputeHash(AppendAuthorityBatchV1 value)=>AuthorityIntegrityHashV1.Compute(AppendBatchSchemaId,1,0,EncodeAppendBatch(value));
 
     internal static byte[] EncodeEnvelopeWithoutIntegrity(
         ProposedAuthorityFactV1 fact,

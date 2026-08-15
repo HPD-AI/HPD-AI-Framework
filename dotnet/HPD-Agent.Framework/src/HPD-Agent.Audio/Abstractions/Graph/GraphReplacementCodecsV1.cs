@@ -9,6 +9,10 @@ internal static class GraphReplacementCodecsV1
     internal const string CommandOuterSchemaId = "hpd.authority-payload-graph-mutation-command.v1";
     internal const string InstalledOuterSchemaId = "hpd.authority-payload-graph-topology-installed-fact.v1";
     internal const string FactOuterSchemaId = "hpd.authority-payload-graph-replacement-fact.v1";
+    internal const string InstalledSchemaId = "hpd.graph-topology-installed.v1";
+    internal const string CommandSchemaId = "hpd.graph-replacement-command.v1";
+    internal const string SnapshotSchemaId = "hpd.graph-replacement-snapshot.v1";
+    internal const string FactSchemaId = "hpd.graph-replacement-fact.v1";
     internal const ushort Major = 1;
     internal const ushort Minor = 0;
     internal const int MaximumBodyBytes = 65_536;
@@ -124,6 +128,11 @@ internal static class GraphReplacementCodecsV1
 
     internal static Hash256 Hash(string schema, ReadOnlySpan<byte> canonical) =>
         AuthorityIntegrityHashV1.Compute(schema, Major, Minor, canonical);
+    internal static byte[] EncodeSnapshot(GraphReplacementSnapshotV1 value){var writer=Writer();WriteSnapshot(writer,value);return writer.Encode();}
+    internal static Hash256 ComputeHash(GraphTopologyInstalledV1 value)=>Hash(InstalledSchemaId,EncodeInstalled(value));
+    internal static Hash256 ComputeHash(GraphReplacementJournalCommandV1 value)=>Hash(CommandSchemaId,EncodeCommand(value));
+    internal static Hash256 ComputeHash(GraphReplacementSnapshotV1 value)=>Hash(SnapshotSchemaId,EncodeSnapshot(value));
+    internal static Hash256 ComputeHash(GraphReplacementFactV1 value)=>Hash(FactSchemaId,EncodeFact(value));
 
     private static GraphReplacementJournalCommandV1 ReadPrepare(CborReader body, OperationId operation, JournalPositionV1 predecessor)
     {

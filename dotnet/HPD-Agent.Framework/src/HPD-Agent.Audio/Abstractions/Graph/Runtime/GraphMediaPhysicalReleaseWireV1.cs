@@ -211,6 +211,12 @@ internal static class GraphMediaPhysicalReleaseCodecsV1
     internal const int MaximumBodyBytes = 32_768, MaximumOuterBytes = 49_152;
     internal const string CommandSchemaId = "hpd.authority-payload-graph-media-physical-release-command.v1";
     internal const string FactSchemaId = "hpd.authority-payload-graph-media-physical-release-fact.v1";
+    internal const string CommandBodySchemaId = "hpd.graph-media-physical-release-command-body.v1";
+    internal const string FactBodySchemaId = "hpd.graph-media-physical-release-fact-body.v1";
+    internal const string OwnerProofSchemaId = "hpd.graph-media-owner-release-proof.v1";
+    internal const string WorkProofSchemaId = "hpd.graph-media-work-release-proof.v1";
+    internal const string FanoutProofSchemaId = "hpd.graph-media-fanout-release-proof.v1";
+    internal const string ResidenceProofSchemaId = "hpd.graph-media-release-residence-proof.v1";
 
     internal static byte[] EncodeOuter(GraphMediaPhysicalReleaseOuterV1 value)
     {
@@ -268,6 +274,17 @@ internal static class GraphMediaPhysicalReleaseCodecsV1
 
     internal static bool TryDecodeFactBody(ReadOnlyMemory<byte> bytes, out GraphMediaPhysicalReleaseFactBodyV1? value) =>
         TryBody(bytes, ReadFactBody, EncodeFactBody, out value);
+
+    internal static byte[] Encode(GraphMediaOwnerReleaseProofV1 value){var writer=new CborWriter(CborConformanceMode.Ctap2Canonical);WriteOwnerProof(writer,value);return writer.Encode();}
+    internal static byte[] Encode(GraphMediaWorkReleaseProofV1 value){var writer=new CborWriter(CborConformanceMode.Ctap2Canonical);WriteWorkProof(writer,value);return writer.Encode();}
+    internal static byte[] Encode(GraphMediaFanoutReleaseProofV1 value){var writer=new CborWriter(CborConformanceMode.Ctap2Canonical);WriteFanoutProof(writer,value);return writer.Encode();}
+    internal static byte[] Encode(GraphMediaReleaseResidenceProofV1 value){var writer=new CborWriter(CborConformanceMode.Ctap2Canonical);WriteResidence(writer,value);return writer.Encode();}
+    internal static Hash256 ComputeHash(GraphMediaPhysicalReleaseCommandBodyV1 value)=>AuthorityIntegrityHashV1.Compute(CommandBodySchemaId,Major,Minor,EncodeCommandBody(value));
+    internal static Hash256 ComputeHash(GraphMediaPhysicalReleaseFactBodyV1 value)=>AuthorityIntegrityHashV1.Compute(FactBodySchemaId,Major,Minor,EncodeFactBody(value));
+    internal static Hash256 ComputeHash(GraphMediaOwnerReleaseProofV1 value)=>AuthorityIntegrityHashV1.Compute(OwnerProofSchemaId,Major,Minor,Encode(value));
+    internal static Hash256 ComputeHash(GraphMediaWorkReleaseProofV1 value)=>AuthorityIntegrityHashV1.Compute(WorkProofSchemaId,Major,Minor,Encode(value));
+    internal static Hash256 ComputeHash(GraphMediaFanoutReleaseProofV1 value)=>AuthorityIntegrityHashV1.Compute(FanoutProofSchemaId,Major,Minor,Encode(value));
+    internal static Hash256 ComputeHash(GraphMediaReleaseResidenceProofV1 value)=>AuthorityIntegrityHashV1.Compute(ResidenceProofSchemaId,Major,Minor,Encode(value));
 
     private static GraphMediaPhysicalReleaseCommandBodyV1 ReadCommandBody(CborReader reader)
     {

@@ -6,6 +6,9 @@ internal static class CapacityLedgerCodecsV1
 {
     internal const string ReservationSchemaId = "hpd.capacity-reservation-fact-body.v1";
     internal const string SettlementSchemaId = "hpd.capacity-settlement-fact-body.v1";
+    internal const string ChargeSchemaId = "hpd.capacity-charge.v1";
+    internal const string RequestSchemaId = "hpd.capacity-request.v1";
+    internal const string SettlementChargeSchemaId = "hpd.capacity-settlement-charge.v1";
     internal const ushort Major = 1;
     internal const ushort Minor = 0;
 
@@ -83,6 +86,13 @@ internal static class CapacityLedgerCodecsV1
 
     internal static Hash256 ComputeSettlementHash(CapacitySettlementFactBodyV1 value) =>
         AuthorityIntegrityHashV1.Compute(SettlementSchemaId, Major, Minor, EncodeSettlement(value));
+
+    internal static byte[] Encode(CapacityChargeV1 value){ArgumentNullException.ThrowIfNull(value);var writer=Writer();WriteCharge(writer,value);return writer.Encode();}
+    internal static byte[] Encode(CapacityRequestV1 value){ArgumentNullException.ThrowIfNull(value);var writer=Writer();WriteRequest(writer,value);return writer.Encode();}
+    internal static byte[] Encode(CapacitySettlementChargeV1 value){ArgumentNullException.ThrowIfNull(value);var writer=Writer();WriteSettlementCharge(writer,value);return writer.Encode();}
+    internal static Hash256 ComputeHash(CapacityChargeV1 value)=>AuthorityIntegrityHashV1.Compute(ChargeSchemaId,Major,Minor,Encode(value));
+    internal static Hash256 ComputeHash(CapacityRequestV1 value)=>AuthorityIntegrityHashV1.Compute(RequestSchemaId,Major,Minor,Encode(value));
+    internal static Hash256 ComputeHash(CapacitySettlementChargeV1 value)=>AuthorityIntegrityHashV1.Compute(SettlementChargeSchemaId,Major,Minor,Encode(value));
 
     private static void WriteRequest(CborWriter writer, CapacityRequestV1 value)
     {

@@ -8,6 +8,7 @@ namespace HPD.Agent.Audio.Graph;
 
 internal static class GraphTopologyPlanCodecV1
 {
+    internal const string SchemaId = "hpd.graph-topology-plan.v1";
     internal const int MaximumEncodedBytes = 65_536;
 
     internal static byte[] Encode(GraphTopologyPlanV1 value)
@@ -26,6 +27,9 @@ internal static class GraphTopologyPlanCodecV1
         if (encoded.Length > MaximumEncodedBytes) throw new ArgumentOutOfRangeException(nameof(value));
         return encoded;
     }
+
+    internal static Hash256 ComputeHash(GraphTopologyPlanV1 value) =>
+        AuthorityIntegrityHashV1.Compute(SchemaId, 1, 0, Encode(value));
 
     internal static bool TryDecode(ReadOnlyMemory<byte> encoded, out GraphTopologyPlanV1? value)
     {

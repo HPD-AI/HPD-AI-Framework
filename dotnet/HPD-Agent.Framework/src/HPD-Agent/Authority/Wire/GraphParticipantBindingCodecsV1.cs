@@ -19,6 +19,9 @@ internal static class GraphParticipantBindingCodecsV1
     internal const string ReservationFactBodySchemaId = "hpd.graph-participant-reservation-fact-body.v1";
     internal const string BindingCommandBodySchemaId = "hpd.graph-participant-binding-command-body.v1";
     internal const string BindingFactBodySchemaId = "hpd.graph-participant-binding-fact-body.v1";
+    internal const string ReservationSchemaId = "hpd.graph-participant-reservation.v1";
+    internal const string BindingSchemaId = "hpd.graph-participant-binding.v1";
+    internal const string CapacityGrantBindingProofSchemaId = "hpd.capacity-grant-binding-proof.v1";
 
     internal static byte[] Encode(GraphParticipantReservationCommandV1 value) => EncodeOuter(value.Session, value.ExpectedAuthority, value.BodyBytes,MaximumReservationCommandBodyBytes);
     internal static byte[] Encode(GraphParticipantReservationFactV1 value) => EncodeOuter(value.Session, value.ExpectedAuthority, value.BodyBytes,MaximumReservationFactBodyBytes);
@@ -78,6 +81,12 @@ internal static class GraphParticipantBindingCodecsV1
     internal static Hash256 ComputeHash(GraphParticipantReservationFactBodyV1 v)=>AuthorityIntegrityHashV1.Compute(ReservationFactBodySchemaId,1,0,Encode(v));
     internal static Hash256 ComputeHash(GraphParticipantBindingCommandBodyV1 v)=>AuthorityIntegrityHashV1.Compute(BindingCommandBodySchemaId,1,0,Encode(v));
     internal static Hash256 ComputeHash(GraphParticipantBindingFactBodyV1 v)=>AuthorityIntegrityHashV1.Compute(BindingFactBodySchemaId,1,0,Encode(v));
+    internal static byte[] Encode(GraphParticipantReservationV1 v){var w=new CborWriter(CborConformanceMode.Ctap2Canonical);WriteReservation(w,v);return w.Encode();}
+    internal static byte[] Encode(GraphParticipantBindingV1 v){var w=new CborWriter(CborConformanceMode.Ctap2Canonical);WriteBinding(w,v);return w.Encode();}
+    internal static byte[] Encode(CapacityGrantBindingProofV1 v){var w=new CborWriter(CborConformanceMode.Ctap2Canonical);WriteProof(w,v);return w.Encode();}
+    internal static Hash256 ComputeHash(GraphParticipantReservationV1 v)=>AuthorityIntegrityHashV1.Compute(ReservationSchemaId,1,0,Encode(v));
+    internal static Hash256 ComputeHash(GraphParticipantBindingV1 v)=>AuthorityIntegrityHashV1.Compute(BindingSchemaId,1,0,Encode(v));
+    internal static Hash256 ComputeHash(CapacityGrantBindingProofV1 v)=>AuthorityIntegrityHashV1.Compute(CapacityGrantBindingProofSchemaId,1,0,Encode(v));
 
     private static GraphParticipantReservationCommandBodyV1 ReadReservationCommand(CborReader r)
     {

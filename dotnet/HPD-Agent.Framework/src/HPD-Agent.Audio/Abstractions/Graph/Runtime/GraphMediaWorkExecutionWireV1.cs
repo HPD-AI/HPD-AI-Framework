@@ -136,6 +136,9 @@ internal static class GraphMediaWorkExecutionCodecsV1
     internal const int MaximumBodyBytes = 32_768, MaximumOuterBytes = 49_152;
     internal const string CommandSchemaId = "hpd.authority-payload-graph-media-work-execution-command.v1";
     internal const string FactSchemaId = "hpd.authority-payload-graph-media-work-execution-fact.v1";
+    internal const string CommandBodySchemaId = "hpd.graph-media-work-execution-command-body.v1";
+    internal const string FactBodySchemaId = "hpd.graph-media-work-execution-fact-body.v1";
+    internal const string WorkAuthoritySchemaId = "hpd.graph-media-work-authority.v1";
 
     internal static byte[] EncodeOuter(GraphMediaWorkExecutionOuterV1 value)
     { ArgumentNullException.ThrowIfNull(value); var w = Map(3); Tag(w, 1); SessionAuthorityStampV1Codec.Write(w, value.Session); Tag(w, 2); AuthorityVectorCodecsV1.WriteVector(w, value.ExpectedAuthority); Tag(w, 3); w.WriteByteString(value.BodyMemory.Span); return Finish(w); }
@@ -150,6 +153,10 @@ internal static class GraphMediaWorkExecutionCodecsV1
     internal static byte[] EncodeFactBody(GraphMediaWorkExecutionFactBodyV1 value)
     { ArgumentNullException.ThrowIfNull(value); var w = Map(7); Tag(w, 1); AuthorityPositionCodecsV1.Write(w, value.CommandPosition); Tag(w, 2); WriteStable(w, value.WorkId); Tag(w, 3); WriteHash(w, value.WorkRequestHash); Tag(w, 4); w.WriteUInt64((byte)value.Outcome); Tag(w, 5); WriteHashOptional(w, value.EvidenceHash); Tag(w, 6); WriteAsciiOptional(w, value.SafeCode); Tag(w, 7); w.WriteEncodedValue(MonotonicStampV1Codec.Encode(value.ObservedAt)); return Finish(w); }
     internal static bool TryDecodeFactBody(ReadOnlyMemory<byte> bytes, out GraphMediaWorkExecutionFactBodyV1? value) => TryBody(bytes, ReadFact, EncodeFactBody, out value);
+    internal static byte[] Encode(GraphMediaWorkAuthorityV1 value){var writer=new CborWriter(CborConformanceMode.Ctap2Canonical);WriteWork(writer,value);return writer.Encode();}
+    internal static Hash256 ComputeHash(GraphMediaWorkExecutionCommandBodyV1 value)=>AuthorityIntegrityHashV1.Compute(CommandBodySchemaId,Major,Minor,EncodeCommandBody(value));
+    internal static Hash256 ComputeHash(GraphMediaWorkExecutionFactBodyV1 value)=>AuthorityIntegrityHashV1.Compute(FactBodySchemaId,Major,Minor,EncodeFactBody(value));
+    internal static Hash256 ComputeHash(GraphMediaWorkAuthorityV1 value)=>AuthorityIntegrityHashV1.Compute(WorkAuthoritySchemaId,Major,Minor,Encode(value));
 
     private static GraphMediaWorkExecutionCommandBodyV1 ReadCommand(CborReader r)
     { Start(r, 5); Need(r, 1); var op = ReadOperation(r); Need(r, 2); var work = ReadWork(r); Need(r, 3); var cleanup = ReadCleanups(r); Need(r, 4); var prior = ReadPositionOptional(r); Need(r, 5); var stamp = ReadStamp(r); r.ReadEndMap(); return new(op, work, cleanup, prior, stamp); }

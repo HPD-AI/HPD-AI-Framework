@@ -8,6 +8,9 @@ internal static class GraphRuntimeCodecsV1
 {
     internal const string CommandOuterSchemaId = "hpd.authority-payload-graph-runtime-command.v1";
     internal const string FactOuterSchemaId = "hpd.authority-payload-graph-runtime-fact.v1";
+    internal const string CommandSchemaId = "hpd.graph-runtime-command.v1";
+    internal const string SnapshotSchemaId = "hpd.graph-runtime-snapshot.v1";
+    internal const string FactSchemaId = "hpd.graph-runtime-fact.v1";
     internal const ushort Major = 1, Minor = 0;
     internal const int MaximumBodyBytes = 65_536, MaximumOuterBytes = 65_920;
 
@@ -52,6 +55,9 @@ internal static class GraphRuntimeCodecsV1
     internal static byte[] EncodeOuter(GraphRuntimeOwnerPayloadV1 v){ArgumentNullException.ThrowIfNull(v);var w=Writer();w.WriteStartMap(3);w.WriteUInt64(1);w.WriteEncodedValue(SessionAuthorityStampV1Codec.Encode(v.Session));w.WriteUInt64(2);w.WriteEncodedValue(AuthorityVectorCodecsV1.Encode(v.ExpectedAuthority));w.WriteUInt64(3);w.WriteByteString(v.Body.Span);w.WriteEndMap();return w.Encode();}
     internal static bool TryDecodeOuter(ReadOnlyMemory<byte>b,out GraphRuntimeOwnerPayloadV1? value)=>TryDecode(b,r=>{Map(r,3,1);if(!SessionAuthorityStampV1Codec.TryDecode(r.ReadEncodedValue(),out var s))throw Invalid();Tag(r,2);if(!AuthorityVectorCodecsV1.TryDecodeVector(r.ReadEncodedValue(),out var a))throw Invalid();Tag(r,3);var body=Bounded(r,MaximumBodyBytes);r.ReadEndMap();return new GraphRuntimeOwnerPayloadV1(s,a!,body.Span);},EncodeOuter,out value);
     internal static Hash256 Hash(string schema,ReadOnlySpan<byte> canonical)=>AuthorityIntegrityHashV1.Compute(schema,Major,Minor,canonical);
+    internal static Hash256 ComputeHash(GraphRuntimeCommandV1 value)=>Hash(CommandSchemaId,EncodeCommand(value));
+    internal static Hash256 ComputeHash(GraphRuntimeSnapshotV1 value)=>Hash(SnapshotSchemaId,EncodeSnapshot(value));
+    internal static Hash256 ComputeHash(GraphRuntimeFactV1 value)=>Hash(FactSchemaId,EncodeFact(value));
 
     private static byte[] Optional<T>(T? v,Action<CborWriter,T> write)where T:class{var w=Writer();w.WriteStartMap(2);w.WriteUInt64(1);w.WriteUInt64(v is null?0UL:1UL);w.WriteUInt64(2);if(v is null)w.WriteByteString([]);else{var n=Writer();write(n,v);w.WriteByteString(n.Encode());}w.WriteEndMap();return w.Encode();}
     private static GraphRuntimeRetirementV1? ReadOptional(ReadOnlyMemory<byte>b)=>ReadOptionalCore(b,r=>{Map(r,2,1);var o=OperationId.FromValue(ReadId(r));Tag(r,2);var p=ReadPosition(r);r.ReadEndMap();return new GraphRuntimeRetirementV1(o,p);});

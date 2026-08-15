@@ -8,6 +8,7 @@ namespace HPD.Agent.Audio.Authority;
 
 internal static class GlobalParticipantPageCodecV1
 {
+    internal const string SchemaId = "hpd.global-participant-page.v1";
     private static readonly byte[] PageHashDomain = Encoding.UTF8.GetBytes("hpd-s1-global-participant-page-hash-v1\0");
     private static readonly byte[] AbsentLeafDomain = Encoding.UTF8.GetBytes("hpd-s1-global-participant-absent-leaf-v1\0");
     private static readonly byte[] NodeDomain = Encoding.UTF8.GetBytes("hpd-s1-global-participant-owner-node-v1\0");
@@ -97,6 +98,9 @@ internal static class GlobalParticipantPageCodecV1
         value.RecordsBytes.CopyTo(preimage.AsSpan(offset));
         return Hash256.FromBytes(SHA256.HashData(preimage));
     }
+
+    internal static Hash256 ComputeHash(GlobalParticipantPageV1 value) =>
+        AuthorityIntegrityHashV1.Compute(SchemaId, 1, 0, Encode(value));
 
     internal static byte[] EncodeRecordsField(IReadOnlyList<ReadOnlyMemory<byte>> records)
     {
