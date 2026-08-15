@@ -20,12 +20,18 @@ internal static class TestBaseApp
         builder.Services.AddAuthorizationBuilder()
             .AddPolicy("test-application", policy => policy.RequireAssertion(_ => true))
             .AddPolicy("test-control-plane", policy => policy.RequireAssertion(_ => true));
-        builder.Services.AddSingleton(policyEvaluator ?? new AllowPolicyEvaluator());
+        IPolicyEvaluator installedPolicy = policyEvaluator ?? new AllowPolicyEvaluator();
         builder.Services.AddSingleton<IBaseHttpPrincipalMapper, TestPrincipalMapper>();
         configureServices?.Invoke(builder.Services);
         if (mapOpenApi)
             builder.Services.AddHPDBaseOpenApi(configureOpenApi);
         builder.Services.AddHPDBaseRuntime()
+            .UsePolicyAuthority("hpd.base.application", new BasePolicyAuthorityDefinition
+            {
+                Id = "test.policy", Version = 1, OwningModuleId = "test",
+                EvaluatorContractId = "test.policy.evaluator", EvaluatorContractVersion = 1,
+                CompositionOrder = 0,
+            }, installedPolicy)
             .AddHPDBaseAspNetCore(configureAspNetCore)
             .AddHPDBaseInMemoryStore(options =>
             {

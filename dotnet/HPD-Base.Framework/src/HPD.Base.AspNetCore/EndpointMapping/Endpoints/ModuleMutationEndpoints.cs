@@ -18,7 +18,7 @@ internal static class ModuleMutationEndpoints
         {
             IBaseModuleMutationRegistration captured = registration;
             string endpointId = $"base.module-mutations.{registration.Id}.execute";
-            endpoints.MapPost($"/module-mutations/{registration.Id}:execute", (RequestDelegate)(context => Execute(context, captured)))
+            endpoints.MapPost($"/module-mutations/v1/{registration.Id}:execute", (RequestDelegate)(context => Execute(context, captured)))
                 .WithHPDBaseEndpoint(endpointId, HPDBaseEndpointAudience.ControlPlane,
                     HPDBaseEndpointOperation.ModuleMutation, registration.GrantId, convention)
                 .WithName(endpointId);

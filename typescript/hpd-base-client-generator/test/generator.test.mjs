@@ -9,7 +9,7 @@ test("generation validates its digest, emits the complete surface, and typecheck
   const output = new URL("../test-output", import.meta.url).pathname;
   await rm(output, { recursive: true, force: true });
   const base = {
-    protocol: { protocolMajor: 2, protocolMinor: 1, minimumClientMinor: 0, snapshotSchemaVersion: 3, applicationId: "test", schemaGeneration: "1", endpointInventoryDigest: `sha256:${"1".repeat(64)}`, errorTaxonomyVersion: 1, realtimeProtocolVersion: 2, liveQueryProtocolVersion: 1, serializationProfile: "base-json-v1", generatedAt: "" },
+    protocol: { protocolMajor: 2, protocolMinor: 1, minimumClientMinor: 0, snapshotSchemaVersion: 4, applicationId: "test", schemaGeneration: "1", endpointInventoryDigest: `sha256:${"1".repeat(64)}`, errorTaxonomyVersion: 1, realtimeProtocolVersion: 2, liveQueryProtocolVersion: 1, serializationProfile: "base-json-v1", generatedAt: "" },
     application: { audience: "application", applicationId: "test", basePath: "/base" },
     schema: {
       generation: "1",
@@ -32,7 +32,7 @@ test("generation validates its digest, emits the complete surface, and typecheck
     },
     endpoints: [], capabilities: [],
     registeredReads: [{ id: "by-title", generatedName: "byTitle", endpointId: "base.reads.public.by-title", parameterTypeId: "read.by-title.parameters", rowTypeId: "read.by-title.row", maxPageSize: 100, watchable: false }],
-    dependencyTemplates: [], vectorIndexes: [{ collectionId: "documents", id: "semantic", generatedName: "semantic", dimensions: 2, measure: "cosineSimilarity", filterFieldIds: [] }], selectionMutations: [{ id: "claim", version: 1, checksum: "sha256:test", collectionId: "documents", generatedName: "claimPending", mutationKind: "mergePatch", endpointId: "base.selection-mutations.claim.execute", route: "/base/selection-mutations/claim/execute", maximumSelectedRecords: 10, maximumRequestBodyBytes: 65536, requestTypeId: "selection.claim.request", resultTypeId: "base.selection.result" }], errors: []
+    dependencyTemplates: [], vectorIndexes: [{ collectionId: "documents", id: "semantic", generatedName: "semantic", dimensions: 2, measure: "cosineSimilarity", filterFieldIds: [] }], selectionMutations: [{ id: "claim", version: 1, checksum: "sha256:test", collectionId: "documents", generatedName: "claimPending", mutationKind: "mergePatch", endpointId: "base.selection-mutations.claim.execute", route: "/base/selection-mutations/claim/execute", maximumSelectedRecords: 10, maximumRequestBodyBytes: 65536, requestTypeId: "selection.claim.request", resultTypeId: "base.selection.result" }], moduleMutations: [], errors: []
   };
   const snapshot = { ...base, protocol: { ...base.protocol, generatedAt: "2026-01-01T00:00:00Z" }, digest: structuralDigest(base) };
   await generate({ snapshot, out: output, expectedAudience: "application" });
@@ -59,7 +59,7 @@ test("generation validates its digest, emits the complete surface, and typecheck
 });
 
 test("type graph validation fails closed on malformed kinds, bounds, uniqueness, and union discriminators", () => {
-  const snapshot = types => { const base = { protocol: { protocolMajor: 2, protocolMinor: 1, minimumClientMinor: 0, snapshotSchemaVersion: 3, applicationId: "test", schemaGeneration: "1", endpointInventoryDigest: `sha256:${"1".repeat(64)}`, errorTaxonomyVersion: 1, realtimeProtocolVersion: 2, liveQueryProtocolVersion: 1, serializationProfile: "base-json-v1", generatedAt: "" }, application: { audience: "application", applicationId: "test", basePath: "/base" }, schema: { generation: "1", collections: [], types }, endpoints: [], capabilities: [], registeredReads: [], dependencyTemplates: [], vectorIndexes: [], selectionMutations: [], errors: [] }; return { ...base, digest: structuralDigest(base) }; };
+  const snapshot = types => { const base = { protocol: { protocolMajor: 2, protocolMinor: 1, minimumClientMinor: 0, snapshotSchemaVersion: 4, applicationId: "test", schemaGeneration: "1", endpointInventoryDigest: `sha256:${"1".repeat(64)}`, errorTaxonomyVersion: 1, realtimeProtocolVersion: 2, liveQueryProtocolVersion: 1, serializationProfile: "base-json-v1", generatedAt: "" }, application: { audience: "application", applicationId: "test", basePath: "/base" }, schema: { generation: "1", collections: [], types }, endpoints: [], capabilities: [], registeredReads: [], dependencyTemplates: [], vectorIndexes: [], selectionMutations: [], moduleMutations: [], errors: [] }; return { ...base, digest: structuralDigest(base) }; };
   assert.throws(() => validate(snapshot([{ id: "x", node: { kind: "unknown" } }])), /typeInvalid/);
   assert.throws(() => validate(snapshot([{ id: "x", node: { kind: "string", format: "plain", minLength: 2, maxLength: 1 } }])), /typeInvalid/);
   assert.throws(() => validate(snapshot([{ id: "x", node: { kind: "enum", values: ["a", "a"] } }])), /typeInvalid/);

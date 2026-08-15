@@ -128,7 +128,7 @@ internal sealed class HPDBaseEndpointInventoryValidator(
             IBaseModuleMutationRegistration? moduleRegistration = moduleMutations?.Registrations.SingleOrDefault(value =>
                 string.Equals(value.Id, operationId, StringComparison.Ordinal));
             if (moduleRegistration is null) Fail("base.http.endpoint.descriptorMissing");
-            return new Expected("POST", "/module-mutations/" + operationId + ":execute",
+            return new Expected("POST", "/module-mutations/v1/" + operationId + ":execute",
                 HPDBaseEndpointOperation.ModuleMutation, moduleRegistration!.GrantId, [HPDBaseEndpointAudience.ControlPlane]);
         }
         const string publicPrefix = "base.reads.public.";

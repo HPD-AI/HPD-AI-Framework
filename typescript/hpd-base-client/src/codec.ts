@@ -4,6 +4,7 @@ export type BaseTypeNode =
   | { readonly kind: "selection-previous-state"; readonly maximumFields: number }
   | { readonly kind: "selection-identity" }
   | { readonly kind: "selection-patch"; readonly patchTypeId: string }
+  | { readonly kind: "module-generation" }
   | { readonly kind: "boolean" }
   | { readonly kind: "string"; readonly minLength: number; readonly maxLength: number; readonly format: string }
   | { readonly kind: "integer"; readonly minimum: string; readonly maximum: string; readonly wire: "number" | "decimal-string" }
@@ -82,6 +83,7 @@ function decodeNode(value: unknown, typeId: string, graph: BaseTypeGraph, shape:
     case "selection-previous-state": return selectionPreviousState(value, node.maximumFields);
     case "selection-identity": return selectionIdentity(value);
     case "selection-patch": return shape === "application" ? decodeNode(value, node.patchTypeId, graph, shape) : selectionPatchWire(value, node.patchTypeId, graph);
+    case "module-generation": if (typeof value !== "string" || !/^[1-9][0-9]{0,18}$/u.test(value) || BigInt(value) > 9223372036854775807n) invalid(); return value;
     case "boolean": if (typeof value !== "boolean") invalid(); return value;
     case "string": if (typeof value !== "string" || scalarLength(value) < node.minLength || scalarLength(value) > node.maxLength || !format(value, node.format)) invalid(); return value;
     case "integer": return integer(value, node);
@@ -112,6 +114,7 @@ function encodeNode(value: unknown, typeId: string, graph: BaseTypeGraph, path: 
       case "selection-previous-state": return canonicalClosed(selectionPreviousState(value, node.maximumFields));
       case "selection-identity": return canonicalClosed(selectionIdentity(value));
       case "selection-patch": path.delete(value as object); return `{"patch":{"kind":"fieldMap","fields":${encodeNode(value, node.patchTypeId, graph, path)}}}`;
+      case "module-generation": return JSON.stringify(decodeNode(value, typeId, graph, "application"));
       case "boolean": case "string": case "decimal": case "literal": case "enum": return JSON.stringify(decodeNode(value, typeId, graph, "application"));
       case "bytes": return JSON.stringify(encodeBytes(value, node.maxBytes));
       case "redacted": invalid();

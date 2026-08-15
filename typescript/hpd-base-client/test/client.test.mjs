@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { baseRedacted, collection, createBaseClient, decodeBaseJson, decodeBaseValue, encodeBaseJson, executeSelectionMutation, field, isBaseRedacted, parseBaseJson, read, selectionMutation } from "../dist/index.js";
+import { baseRedacted, collection, createBaseClient, decodeBaseJson, decodeBaseValue, encodeBaseJson, executeModuleMutation, executeSelectionMutation, field, isBaseRedacted, moduleMutation, parseBaseJson, read, selectionMutation } from "../dist/index.js";
 import { BaseRealtimeManager } from "../dist/realtime.js";
 
 const basicGraph = Object.freeze({
@@ -52,6 +52,16 @@ test("selection mutation uses the closed graph and collection patch wire codec",
   const result = await executeSelectionMutation(transport, operation, request);
   assert.equal(result.ok, true); assert.equal(body, '{"query":{"filter":{"field":"stable-title","kind":"compare","operator":"equal","value":{"kind":"string","string":"old"}},"sort":[{"direction":"asc","field":"stable-title"},{"direction":"asc","field":"id"}],"take":1},"patch":{"patch":{"kind":"fieldMap","fields":{"stored_title":"new"}}},"previousState":{"fields":[],"revision":{"kind":"none"}}}');
   await assert.rejects(() => executeSelectionMutation(transport, operation, { query: { filter: { kind: "extension" }, sort: [{ field: "id", direction: "asc" }], take: 1 }, patch: { title: "new" }, previousState: { revision: { kind: "none" }, fields: [] } }), /responseInvalid/);
+});
+
+test("module mutation uses graph-owned request and result codecs with identified replay", async () => {
+  const graph = Object.freeze({ generation: { kind: "module-generation" }, request: { kind: "object", additionalProperties: false, properties: [] }, result: { kind: "object", additionalProperties: false, properties: [{ name: "generation", wireName: "generation", typeId: "generation", required: true, nullable: false, disclosureShape: "none" }] } });
+  const operation = moduleMutation({ route: "/base/module-mutations/v1/payments.apply:execute", maximumRequestBytes: 1024, audience: "system", requestTypeId: "request", resultTypeId: "result", typeGraph: graph });
+  let key; let body;
+  const transport = { jsonDocument: async (_method, _route, bytes, _signal, idempotencyKey) => { key = idempotencyKey; body = new TextDecoder().decode(bytes); return { ok: true, value: { disposition: "new", outcome: "committed", result: { generation: "1" } }, correlationId: "c" }; } };
+  const result = await executeModuleMutation(transport, operation, {}, { idempotencyKey: "payment-1" });
+  assert.equal(result.ok, true); assert.equal(result.value.result.generation, "1"); assert.equal(key, "payment-1"); assert.equal(body, "{}");
+  await assert.rejects(() => executeModuleMutation(transport, operation, { extra: true }, { idempotencyKey: "payment-2" }), /responseInvalid/u);
 });
 
 test("realtime v2 joins after welcome and resumes from the last delivered durable cursor", async () => {

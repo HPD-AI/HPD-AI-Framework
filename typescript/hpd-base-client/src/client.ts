@@ -8,6 +8,7 @@ import { BaseVectorIndexQuery } from "./vector.js";
 import { createControlPlaneClient, type BaseControlPlaneClient } from "./control.js";
 import { decodeBaseValue, decodeBaseWireValue, encodeBaseJson, materializeBaseJsonValue } from "./codec.js";
 import { executeSelectionMutation, type BaseSelectionMutationDefinition, type BaseSelectionMutationOptions, type BaseSelectionMutationResult } from "./selection.js";
+import { executeModuleMutation, type BaseModuleMutationDefinition, type BaseModuleMutationOptions, type BaseModuleMutationResult } from "./module-mutations.js";
 
 type RecordOf<T> = T extends BaseCollectionDefinition<infer TRecord, unknown, unknown, unknown> ? TRecord : never;
 type CreateOf<T> = T extends BaseCollectionDefinition<unknown, infer TCreate, unknown, unknown> ? TCreate : never;
@@ -91,6 +92,7 @@ export type BaseClient<TSchema extends BaseGeneratedSchema> = BaseClientCommon &
   readonly [K in keyof TSchema["collections"]]: BaseCollectionClient<TSchema["collections"][K]>
 } & { readonly reads: { readonly [K in keyof TSchema["reads"]]: BaseReadClient<TSchema["reads"][K]> } }
   & { readonly selectionMutations: { readonly [K in keyof NonNullable<TSchema["selectionMutations"]>]: NonNullable<TSchema["selectionMutations"]>[K] extends BaseSelectionMutationDefinition<infer TRequest> ? (request: TRequest, options?: BaseSelectionMutationOptions) => Promise<BaseResult<BaseSelectionMutationResult>> : never } }
+  & { readonly moduleMutations: { readonly [K in keyof NonNullable<TSchema["moduleMutations"]>]: NonNullable<TSchema["moduleMutations"]>[K] extends BaseModuleMutationDefinition<infer TRequest, infer TResult> ? (request: TRequest, options: BaseModuleMutationOptions) => Promise<BaseResult<BaseModuleMutationResult<TResult>>> : never } }
   & (TSchema["features"]["files"] extends true ? { readonly files: BaseFilesClient } : {})
   & (TSchema["features"]["batch"] extends true ? { readonly batch: BaseBatchClient<TSchema> } : {})
   & (TSchema["audience"] extends "controlPlane" ? { readonly $control: BaseControlPlaneClient<TSchema["features"]["controlOperations"]> } : {});
@@ -337,6 +339,8 @@ export function createBaseClient<TSchema extends BaseGeneratedSchema>(options: B
   if (schema.features.batch) Object.defineProperty(target, "batch", { value: Object.freeze({ execute: runtime.executeBatch.bind(runtime) }), enumerable: true, configurable: false, writable: false });
   const selections = Object.fromEntries(Object.entries(schema.selectionMutations ?? {}).map(([name, definition]) => [name, (request: unknown, selectionOptions?: BaseSelectionMutationOptions) => executeSelectionMutation(runtime.selectionTransport(), definition, request, selectionOptions)]));
   Object.defineProperty(target, "selectionMutations", { value: Object.freeze(selections), enumerable: true, configurable: false, writable: false });
+  const modules = Object.fromEntries(Object.entries(schema.moduleMutations ?? {}).map(([name, definition]) => [name, (request: unknown, moduleOptions: BaseModuleMutationOptions) => executeModuleMutation(runtime.selectionTransport(), definition, request, moduleOptions)]));
+  Object.defineProperty(target, "moduleMutations", { value: Object.freeze(modules), enumerable: true, configurable: false, writable: false });
   if (schema.audience === "controlPlane") Object.defineProperty(target, "$control", { value: runtime.controlClient(schema.features.controlOperations), enumerable: true, configurable: false, writable: false });
   return target;
 }

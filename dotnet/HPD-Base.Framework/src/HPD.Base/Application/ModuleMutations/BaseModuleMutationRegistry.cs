@@ -34,6 +34,9 @@ internal interface IBaseModuleMutationRegistration
     string GrantId { get; }
     string RequestTypeId { get; }
     string ResultTypeId { get; }
+    System.Text.Json.Serialization.Metadata.JsonTypeInfo RequestTypeInfo { get; }
+    System.Text.Json.Serialization.Metadata.JsonTypeInfo ResultTypeInfo { get; }
+    IReadOnlyList<BaseSerializerPropertyDeclaration> SerializerDeclarations { get; }
     BaseMutationRequestIdentity CreateRequestIdentity(
         ReadOnlyMemory<byte> requestJson, string idempotencyKey, PrincipalContext principal);
     ValueTask<BaseResult<BaseUntypedModuleMutationExecutionResult>> ExecuteAsync(
@@ -58,6 +61,9 @@ internal sealed class BaseModuleMutationRegistration<TRequest, TResult>(
     public string GrantId => definition.GrantId;
     public string RequestTypeId => definition.RequestTypeId;
     public string ResultTypeId => definition.ResultTypeId;
+    public System.Text.Json.Serialization.Metadata.JsonTypeInfo RequestTypeInfo => identity.RequestTypeInfo;
+    public System.Text.Json.Serialization.Metadata.JsonTypeInfo ResultTypeInfo => identity.ResultTypeInfo;
+    public IReadOnlyList<BaseSerializerPropertyDeclaration> SerializerDeclarations => identity.SerializerDeclarations;
 
     public BaseMutationRequestIdentity CreateRequestIdentity(
         ReadOnlyMemory<byte> requestJson, string idempotencyKey, PrincipalContext principal)
@@ -164,6 +170,7 @@ public sealed class BaseGeneratedModuleMutationIdentity<TRequest, TResult> : IBa
     internal IReadOnlyDictionary<string, BaseModuleDtoPropertyBinding> RequestBindings => _requestBindings;
     internal IReadOnlyDictionary<string, BaseModuleDtoPropertyBinding> ResultBindings => _resultBindings;
     private BaseSerializerContextRegistration Registration { get; }
+    internal IReadOnlyList<BaseSerializerPropertyDeclaration> SerializerDeclarations => Declarations;
     private IReadOnlyList<BaseSerializerPropertyDeclaration> Declarations { get; }
     IReadOnlyList<System.Text.Json.Serialization.Metadata.JsonTypeInfo> IBaseSerializerMetadataSource.Roots => [];
     bool IBaseSerializerMetadataSource.Generated => true;

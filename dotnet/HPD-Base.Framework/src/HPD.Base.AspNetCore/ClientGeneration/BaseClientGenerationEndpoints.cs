@@ -60,7 +60,8 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
     IHPDBaseApplication application,
     TimeProvider timeProvider,
     IServiceProvider services,
-    BaseSelectionProfileRegistry? selectionProfiles = null)
+    BaseSelectionProfileRegistry? selectionProfiles = null,
+    BaseModuleMutationRegistry? moduleMutations = null)
 {
     private const int MaximumSnapshotBytes = 4 * 1024 * 1024;
 
@@ -104,7 +105,11 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
             .Where(template => template.Visibility == BaseDependencyVisibility.Public || current.Audience == HPDBaseEndpointAudience.ControlPlane && template.Visibility == BaseDependencyVisibility.Admin)
             .OrderBy(template => template.Id, StringComparer.Ordinal).ToArray();
         BaseSelectionOperationProfile[] graphSelections = (selectionProfiles?.All ?? []).Where(static profile => profile.HttpProjection?.GenerateL41Client == true).ToArray();
-        BaseClientNamedTypeDescriptor[] types = BuildTypes(collections.Collections.Values, installedReads, templates.Length != 0, graphSelections, logicalSchema.ExportedSubjects);
+        IBaseModuleMutationRegistration[] graphModules = current.Audience == HPDBaseEndpointAudience.ControlPlane
+            ? (moduleMutations?.Registrations ?? []).OrderBy(static value => value.Id, StringComparer.Ordinal).ToArray()
+            : [];
+        BaseClientNamedTypeDescriptor[] types = BuildTypes(collections.Collections.Values, installedReads, templates.Length != 0, graphSelections, logicalSchema.ExportedSubjects)
+            .Concat(graphModules.SelectMany(ModuleTypes)).OrderBy(static value => value.Id, StringComparer.Ordinal).ToArray();
         if (types.Length > 512)
             return ValueTask.FromResult(Failure("base.clientGeneration.snapshotTooLarge"));
 
@@ -135,7 +140,15 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
                 MaximumRequestBodyBytes = profile.HttpProjection.MaximumRequestBodyBytes,
                 RequestTypeId = $"selection.{profile.Id}.request", ResultTypeId = "base.selection.result",
             }).ToArray();
-        if (capabilities.Length > 256 || installedReads.Length > 256 || templates.Length > 512 || vectors.Length > 256 || selectionMutations.Length > 256)
+        BaseClientModuleMutationDescriptor[] generatedModules = graphModules.Select(registration => new BaseClientModuleMutationDescriptor
+        {
+            Id = registration.Id, Version = registration.Version, GeneratedName = GeneratedName(registration.Id),
+            Audience = registration.Audience == BaseModuleMutationAudience.System ? "system" : "service",
+            RequestTypeId = registration.RequestTypeId, ResultTypeId = registration.ResultTypeId,
+            Route = $"{basePath}/module-mutations/v1/{registration.Id}:execute",
+            MaximumRequestBytes = moduleMutations!.Find(registration.Id, registration.Version)!.Limits.MaximumRequestBytes,
+        }).ToArray();
+        if (capabilities.Length > 256 || installedReads.Length > 256 || templates.Length > 512 || vectors.Length > 256 || selectionMutations.Length > 256 || generatedModules.Length > 256)
             return ValueTask.FromResult(Failure("base.clientGeneration.snapshotTooLarge"));
         var generatedNames = new HashSet<string>(["reads", "files", "close", "collection", "connectivity", "$control", "$dynamic"], StringComparer.Ordinal);
         if (generatedCollections.Any(collection => !generatedNames.Add(collection.GeneratedName))
@@ -175,6 +188,7 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
             }).ToArray(),
             VectorIndexes = vectors,
             SelectionMutations = selectionMutations,
+            ModuleMutations = generatedModules,
             Errors = ErrorTaxonomy(endpoints),
             Digest = string.Empty
         };
@@ -190,6 +204,65 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
         if (JsonSerializer.SerializeToUtf8Bytes(snapshot, HPDBaseClientGenerationJsonContext.Default.BaseClientGenerationSnapshotV2).Length > MaximumSnapshotBytes)
             return ValueTask.FromResult(Failure("base.clientGeneration.snapshotTooLarge"));
         return ValueTask.FromResult(new OperationResult<BaseClientGenerationSnapshotV2> { Status = OperationStatus.Ok, Value = snapshot });
+    }
+
+    private static IEnumerable<BaseClientNamedTypeDescriptor> ModuleTypes(IBaseModuleMutationRegistration registration)
+    {
+        var emitted = new HashSet<string>(StringComparer.Ordinal);
+        foreach (BaseClientNamedTypeDescriptor type in Walk(registration.RequestTypeInfo, registration.RequestTypeId)) yield return type;
+        foreach (BaseClientNamedTypeDescriptor type in Walk(registration.ResultTypeInfo, registration.ResultTypeId)) yield return type;
+
+        IEnumerable<BaseClientNamedTypeDescriptor> Walk(System.Text.Json.Serialization.Metadata.JsonTypeInfo metadata, string id)
+        {
+            if (!emitted.Add(id)) yield break;
+            Type type = metadata.Type;
+            Type? nullable = Nullable.GetUnderlyingType(type);
+            if (nullable is not null) type = nullable;
+            BaseClientTypeNode? scalar = Scalar(type);
+            if (scalar is not null) { yield return new() { Id = id, Node = scalar }; yield break; }
+            if (type.IsArray || type.IsGenericType && type.GetGenericTypeDefinition() is var generic
+                && (generic == typeof(List<>) || generic == typeof(IReadOnlyList<>) || generic == typeof(IList<>)
+                    || generic == typeof(IEnumerable<>) || generic == typeof(System.Collections.Immutable.ImmutableArray<>)))
+            {
+                Type element = type.IsArray ? type.GetElementType()! : type.GetGenericArguments()[0];
+                string elementId = id + ".item";
+                System.Text.Json.Serialization.Metadata.JsonTypeInfo elementMetadata = metadata.Options.GetTypeInfo(element);
+                foreach (BaseClientNamedTypeDescriptor child in Walk(elementMetadata, elementId)) yield return child;
+                yield return new() { Id = id, Node = new() { Kind = "array", ElementTypeId = elementId, MinItems = 0, MaxItems = 256 } };
+                yield break;
+            }
+            if (metadata.Kind != System.Text.Json.Serialization.Metadata.JsonTypeInfoKind.Object)
+                throw new InvalidOperationException("base.clientGeneration.typeMissing");
+            var properties = new List<BaseClientPropertyDescriptor>();
+            foreach (System.Text.Json.Serialization.Metadata.JsonPropertyInfo property in metadata.Properties)
+            {
+                if (property.Get is null && property.Set is null) continue;
+                string childId = id + "." + property.Name;
+                foreach (BaseClientNamedTypeDescriptor child in Walk(metadata.Options.GetTypeInfo(property.PropertyType), childId)) yield return child;
+                bool nullableProperty = Nullable.GetUnderlyingType(property.PropertyType) is not null || !property.PropertyType.IsValueType;
+                properties.Add(new BaseClientPropertyDescriptor
+                {
+                    Name = property.Name, WireName = property.Name, TypeId = childId,
+                    Required = property.IsRequired, Nullable = nullableProperty, DisclosureShape = "none",
+                });
+            }
+            yield return new() { Id = id, Node = new() { Kind = "object", AdditionalProperties = false, Properties = properties.ToArray() } };
+        }
+
+        static BaseClientTypeNode? Scalar(Type type)
+        {
+            if (type == typeof(string)) return new() { Kind = "string", Format = "plain", MinLength = 0, MaxLength = 1_048_576 };
+            if (type == typeof(bool)) return new() { Kind = "boolean" };
+            if (type == typeof(byte[])) return new() { Kind = "bytes", Wire = "base64", MaxBytes = 1_048_576 };
+            if (type == typeof(decimal)) return new() { Kind = "decimal", Wire = "decimal-string" };
+            if (type == typeof(DateTimeOffset) || type == typeof(DateTime)) return new() { Kind = "string", Format = "utc-instant", MinLength = 20, MaxLength = 35 };
+            if (type.IsEnum) return new() { Kind = "enum", Values = Enum.GetNames(type) };
+            if (type == typeof(byte) || type == typeof(sbyte) || type == typeof(short) || type == typeof(ushort)
+                || type == typeof(int) || type == typeof(uint) || type == typeof(long))
+                return new() { Kind = "integer", Minimum = type == typeof(long) ? long.MinValue.ToString(System.Globalization.CultureInfo.InvariantCulture) : int.MinValue.ToString(System.Globalization.CultureInfo.InvariantCulture), Maximum = type == typeof(long) ? long.MaxValue.ToString(System.Globalization.CultureInfo.InvariantCulture) : uint.MaxValue.ToString(System.Globalization.CultureInfo.InvariantCulture), Wire = "decimal-string" };
+            if (type == typeof(BaseModuleGeneration)) return new() { Kind = "module-generation" };
+            return null;
+        }
     }
 
     private static BaseClientEndpointDescriptor ToEndpoint(RouteEndpoint endpoint, IReadOnlyDictionary<string, RouteDescriptor> routes, BaseReadRegistry reads, long maximumRequestBodyBytes, long maximumArtifactBytes)

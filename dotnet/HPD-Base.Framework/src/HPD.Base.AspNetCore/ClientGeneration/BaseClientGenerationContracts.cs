@@ -21,10 +21,33 @@ public sealed record BaseClientGenerationSnapshotV2
     public required BaseClientVectorIndexDescriptor[] VectorIndexes { get; init; }
     /// <summary>Gets projected transaction-bound selection mutations.</summary>
     public required BaseClientSelectionMutationDescriptor[] SelectionMutations { get; init; }
+    /// <summary>Gets generated Service/System registered module mutations.</summary>
+    public required BaseClientModuleMutationDescriptor[] ModuleMutations { get; init; }
     /// <summary>Gets the stable error taxonomy.</summary>
     public required BaseClientErrorDescriptor[] Errors { get; init; }
     /// <summary>Gets the canonical structural SHA-256 digest.</summary>
     public required string Digest { get; init; }
+}
+
+/// <summary>Describes one generated Service/System registered module mutation.</summary>
+public sealed record BaseClientModuleMutationDescriptor
+{
+    /// <summary>Gets the stable operation identity.</summary>
+    public required string Id { get; init; }
+    /// <summary>Gets the positive operation version.</summary>
+    public required int Version { get; init; }
+    /// <summary>Gets the deterministic generated member name.</summary>
+    public required string GeneratedName { get; init; }
+    /// <summary>Gets service or system.</summary>
+    public required string Audience { get; init; }
+    /// <summary>Gets the exact request type identity.</summary>
+    public required string RequestTypeId { get; init; }
+    /// <summary>Gets the exact result type identity.</summary>
+    public required string ResultTypeId { get; init; }
+    /// <summary>Gets the concrete Service/System route.</summary>
+    public required string Route { get; init; }
+    /// <summary>Gets the maximum canonical request bytes.</summary>
+    public required long MaximumRequestBytes { get; init; }
 }
 
 /// <summary>Describes one generated transaction-bound selection mutation.</summary>
@@ -66,7 +89,7 @@ public sealed record BaseClientProtocolDescriptor
     /// <summary>Gets the minimum compatible client minor.</summary>
     public int MinimumClientMinor { get; init; }
     /// <summary>Gets the snapshot schema version.</summary>
-    public int SnapshotSchemaVersion { get; init; } = 3;
+    public int SnapshotSchemaVersion { get; init; } = 4;
     /// <summary>Gets the application identifier.</summary>
     public required string ApplicationId { get; init; }
     /// <summary>Gets the logical schema generation.</summary>

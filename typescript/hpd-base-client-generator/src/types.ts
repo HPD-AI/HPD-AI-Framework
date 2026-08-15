@@ -1,5 +1,5 @@
 export interface GenerationSnapshot {
-  readonly protocol: { readonly protocolMajor: 2; readonly protocolMinor: number; readonly minimumClientMinor: number; readonly snapshotSchemaVersion: 3; readonly applicationId: string; readonly schemaGeneration: string; readonly endpointInventoryDigest: string; readonly errorTaxonomyVersion: number; readonly realtimeProtocolVersion: 2; readonly liveQueryProtocolVersion: 1; readonly serializationProfile: "base-json-v1"; readonly generatedAt: string };
+  readonly protocol: { readonly protocolMajor: 2; readonly protocolMinor: number; readonly minimumClientMinor: number; readonly snapshotSchemaVersion: 4; readonly applicationId: string; readonly schemaGeneration: string; readonly endpointInventoryDigest: string; readonly errorTaxonomyVersion: number; readonly realtimeProtocolVersion: 2; readonly liveQueryProtocolVersion: 1; readonly serializationProfile: "base-json-v1"; readonly generatedAt: string };
   readonly application: { readonly audience: "application" | "controlPlane"; readonly applicationId: string; readonly basePath: string };
   readonly schema: { readonly generation: string; readonly collections: readonly CollectionDescriptor[]; readonly types: readonly NamedTypeDescriptor[] };
   readonly endpoints: readonly EndpointDescriptor[];
@@ -8,6 +8,7 @@ export interface GenerationSnapshot {
   readonly dependencyTemplates: readonly DependencyDescriptor[];
   readonly vectorIndexes: readonly VectorDescriptor[];
   readonly selectionMutations: readonly SelectionMutationDescriptor[];
+  readonly moduleMutations: readonly ModuleMutationDescriptor[];
   readonly errors: readonly ErrorDescriptor[];
   readonly digest: string;
 }
@@ -23,6 +24,7 @@ export type TypeNode =
   | { readonly kind: "selection-previous-state"; readonly maximumFields: number }
   | { readonly kind: "selection-identity" }
   | { readonly kind: "selection-patch"; readonly patchTypeId: string }
+  | { readonly kind: "module-generation" }
   | { readonly kind: "boolean" }
   | { readonly kind: "string"; readonly minLength: number; readonly maxLength: number; readonly format: StringFormat }
   | { readonly kind: "integer"; readonly minimum: string; readonly maximum: string; readonly wire: "number" | "decimal-string" }
@@ -44,3 +46,4 @@ export interface DependencyDescriptor { readonly id: string; readonly kind: stri
 export interface ErrorDescriptor { readonly code: string; readonly category: string; readonly retryable: boolean; }
 export interface VectorDescriptor { readonly collectionId: string; readonly id: string; readonly generatedName: string; readonly dimensions: number; readonly measure: "cosineSimilarity" | "dotProductSimilarity" | "euclideanDistance"; readonly filterFieldIds: readonly string[]; }
 export interface SelectionMutationDescriptor { readonly id: string; readonly version: number; readonly checksum: string; readonly collectionId: string; readonly generatedName: string; readonly mutationKind: "mergePatch" | "delete"; readonly endpointId: string; readonly route: string; readonly maximumSelectedRecords: number; readonly maximumRequestBodyBytes: number; readonly requestTypeId: string; readonly resultTypeId: string; }
+export interface ModuleMutationDescriptor { readonly id: string; readonly version: number; readonly generatedName: string; readonly audience: "service" | "system"; readonly requestTypeId: string; readonly resultTypeId: string; readonly route: string; readonly maximumRequestBytes: number; }
