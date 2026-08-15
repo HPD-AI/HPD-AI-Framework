@@ -107,14 +107,6 @@ public interface IHostedFileClientProvider : IProvider
         IServiceProvider? services = null);
 }
 
-public interface IVoiceActivityDetectorProvider : IProvider
-{
-    IVoiceActivityDetector CreateVoiceActivityDetector(
-        ProviderClientConfig config,
-        ProviderComponentLifetimeContext context,
-        IServiceProvider? services = null);
-}
-
 public interface IEndOfTurnDetectorProvider : IProvider
 {
     IEotDetector CreateEndOfTurnDetector(
