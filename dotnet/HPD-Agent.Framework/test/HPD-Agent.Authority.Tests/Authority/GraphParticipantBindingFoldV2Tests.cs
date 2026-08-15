@@ -127,7 +127,7 @@ public sealed class GraphParticipantBindingFoldV2Tests
     private static S1Fixture MutateFactId(S1Fixture fixture) { var e=fixture.Envelope;var candidate=GraphParticipantBindingFactIdsV1.BindingFact(e.Position);var mutated=candidate;var wrongFactId = mutated;var canonicalBody=GraphParticipantBindingCodecsV1.Encode(fixture.CommandBody);GraphParticipantBindingCodecsV1.TryDecodeBindingCommand(e.PayloadMemory,out var outer);var canonicalPayload=GraphParticipantBindingCodecsV1.Encode(new GraphParticipantBindingCommandV1(fixture.Session,outer!.ExpectedAuthority,canonicalBody));var recomputedPayloadHash=AuthorityPayloadHashV1.Compute(GraphParticipantBindingPayloadRegistrationsV1.BindingCommand.SchemaToken,GraphParticipantBindingPayloadRegistrationsV1.BindingCommand.Schema,canonicalPayload);var canonicalFactId=GraphParticipantBindingFactIdsV1.BindingCommand(fixture.Session,fixture.CommandBody.OperationId);Assert.True(wrongFactId!=canonicalFactId);var changed=new AuthorityFactEnvelopeV1(wrongFactId,e.Position,e.ThreadScope,e.Owner,e.PayloadSchema,canonicalPayload,recomputedPayloadHash,e.Correlation,e.ObservedAt,e.AdmittedAt,e.Integrity);var mutatedFixture=(fixture.Session,fixture.Prefix,changed,fixture.CommandBody,fixture.FactBody,fixture.Reservation);return mutatedFixture; }
     private static S1Fixture MutateOuterSession(S1Fixture fixture)
     {
-        
+
         var bytes=new byte[16];bytes[^1]=44;var mutated=new SessionAuthorityStampV1(fixture.Session.RuntimeGenerationId,LiveSessionId.FromValue(StableId128.FromBytes(bytes)));var OuterSession = mutated;
         var canonicalBody=GraphParticipantBindingCodecsV1.Encode(fixture.CommandBody);
         var authority=ExpectedAuthorityVectorV1.Create(OuterSession,[]);
@@ -142,7 +142,7 @@ public sealed class GraphParticipantBindingFoldV2Tests
     }
     private static S1Fixture MutateExpectedAuthority(S1Fixture fixture)
     {
-        
+
         var bytes=new byte[16];bytes[^1]=45;var mutated=ExpectedAuthorityVectorV1.Create(fixture.Session,[new AuthorityAxisValueV1.Graph(GraphGenerationId.FromValue(StableId128.FromBytes(bytes)))]);var ExpectedAuthority = mutated;
         var canonicalBody=GraphParticipantBindingCodecsV1.Encode(fixture.CommandBody);
         var canonicalPayload=GraphParticipantBindingCodecsV1.Encode(new GraphParticipantBindingCommandV1(fixture.Session,ExpectedAuthority,canonicalBody));
