@@ -86,14 +86,41 @@ public sealed class VoiceActivityScriptedSourcesV1Tests
             new VoiceActivityInputFormatV1(VoiceActivitySampleEncodingV1.ProviderOpaque, 0, 0), Extent(), Stamp(1));
         Assert.IsType<VoiceActivityTransferResultV1.Accepted>(await opaque.TransferAsync(owned, CancellationToken.None));
 
-        var sttAdjacent = new VoiceActivitySourceOutcomeV1.NoObservation(VoiceActivityNoObservationReasonV1.ProviderNotObservable);
-        var manual = new VoiceActivitySourceOutcomeV1.Observed(
+        var sttAdjacentOutcome = new VoiceActivitySourceOutcomeV1.NoObservation(VoiceActivityNoObservationReasonV1.ProviderNotObservable);
+        var manualOutcome = new VoiceActivitySourceOutcomeV1.Observed(
             new VoiceActivityMeasurementV1.Category(new BoundedAscii("manual-pressed")),
             new VoiceActivityMeasurementDescriptorV1(VoiceActivityMeasurementKindV1.PostProcessedState,
                 new BoundedAscii("manual"), 0, 1, null), Extent(), 1, Stamp(1), Stamp(1));
+        var bytes = new byte[] { 1 };
+        var borrowed = new VoiceActivityBorrowedWindowV1(bytes, DecodedFormat(), Extent(), Stamp(1));
+        var sttAdjacent = new ScriptedSyncSource(SyncCapabilities(), sttAdjacentOutcome).Observe(in borrowed);
+        var manual = new ScriptedSyncSource(SyncCapabilities(), manualOutcome).Observe(in borrowed);
 
         Assert.IsType<VoiceActivitySourceOutcomeV1.NoObservation>(sttAdjacent);
-        Assert.Equal("manual-pressed", Assert.IsType<VoiceActivityMeasurementV1.Category>(manual.Measurement).Value.ToString());
+        Assert.Equal("manual-pressed", Assert.IsType<VoiceActivityMeasurementV1.Category>(
+            Assert.IsType<VoiceActivitySourceOutcomeV1.Observed>(manual).Measurement).Value.ToString());
+    }
+
+    [Fact]
+    public async Task Injected_manual_clock_and_scheduler_make_async_processing_deterministic()
+    {
+        var clock = new ManualClock(Stamp(10));
+        var scheduler = new ControlledScheduler();
+        var source = new ScheduledScriptedSource(AsyncCapabilities(), clock, scheduler);
+        var operation = OperationId.Create();
+        var owned = new VoiceActivityOwnedWindowV1(operation, new byte[] { 2 }, DecodedFormat(), Extent(), Stamp(9));
+
+        var transfer = source.TransferAsync(owned, CancellationToken.None);
+        Assert.False(transfer.IsCompleted);
+        clock.Advance(Stamp(11));
+        scheduler.Release(operation);
+
+        Assert.IsType<VoiceActivityTransferResultV1.Accepted>(await transfer);
+        var settled = Assert.IsType<VoiceActivitySettlementResultV1.Settled>(
+            await source.SettleAsync(operation, CancellationToken.None));
+        var observed = Assert.IsType<VoiceActivitySourceOutcomeV1.Observed>(settled.Outcome);
+        Assert.Equal(Stamp(11), observed.ProcessedAt);
+        Assert.Equal(new[] { operation }, scheduler.Admitted);
     }
 
     private sealed class ScriptedSyncSource : IBorrowedSynchronousVoiceActivitySourceV1
@@ -140,6 +167,63 @@ public sealed class VoiceActivityScriptedSourcesV1Tests
                 : new VoiceActivitySettlementResultV1.Settled(operationId, outcome));
         }
         internal void Complete(OperationId operationId, VoiceActivitySourceOutcomeV1 outcome) => _operations[operationId] = outcome;
+    }
+
+    private sealed class ScheduledScriptedSource : ITransferredVoiceActivitySourceV1
+    {
+        private readonly ManualClock _clock;
+        private readonly ControlledScheduler _scheduler;
+        private readonly Dictionary<OperationId, VoiceActivitySourceOutcomeV1> _settled = [];
+        internal ScheduledScriptedSource(VoiceActivitySourceCapabilitiesV1 capabilities,
+            ManualClock clock, ControlledScheduler scheduler) =>
+            (Capabilities, _clock, _scheduler) = (capabilities, clock, scheduler);
+        public VoiceActivitySourceCapabilitiesV1 Capabilities { get; }
+        public async ValueTask<VoiceActivityTransferResultV1> TransferAsync(
+            VoiceActivityOwnedWindowV1 window, CancellationToken cancellationToken)
+        {
+            await _scheduler.WaitAsync(window.OperationId, cancellationToken);
+            _settled.Add(window.OperationId, new VoiceActivitySourceOutcomeV1.Observed(
+                new VoiceActivityMeasurementV1.Numeric(.5),
+                new VoiceActivityMeasurementDescriptorV1(VoiceActivityMeasurementKindV1.EngineScore,
+                    new BoundedAscii("score"), -1, 1, null),
+                window.Extent, 1, window.ObservedAt, _clock.Now));
+            return new VoiceActivityTransferResultV1.Accepted(window.OperationId);
+        }
+        public ValueTask<VoiceActivitySettlementResultV1> SettleAsync(
+            OperationId operationId, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult<VoiceActivitySettlementResultV1>(_settled.TryGetValue(operationId, out var outcome)
+                ? new VoiceActivitySettlementResultV1.Settled(operationId, outcome)
+                : new VoiceActivitySettlementResultV1.NotFound(operationId));
+        }
+    }
+
+    private sealed class ManualClock
+    {
+        internal ManualClock(MonotonicStampV1 now) => Now = now;
+        internal MonotonicStampV1 Now { get; private set; }
+        internal void Advance(MonotonicStampV1 now)
+        {
+            if (now.CompareTo(Now) != ClockComparison.Later)
+                throw new ArgumentException("The manual clock must advance.", nameof(now));
+            Now = now;
+        }
+    }
+
+    private sealed class ControlledScheduler
+    {
+        private readonly Dictionary<OperationId, TaskCompletionSource> _gates = [];
+        private readonly List<OperationId> _admitted = [];
+        internal IReadOnlyList<OperationId> Admitted => _admitted;
+        internal ValueTask WaitAsync(OperationId operationId, CancellationToken cancellationToken)
+        {
+            var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _gates.Add(operationId, gate);
+            _admitted.Add(operationId);
+            return new ValueTask(gate.Task.WaitAsync(cancellationToken));
+        }
+        internal void Release(OperationId operationId) => _gates[operationId].SetResult();
     }
 
     private static VoiceActivitySourceCapabilitiesV1 SyncCapabilities() => Capabilities(
