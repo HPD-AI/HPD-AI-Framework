@@ -43,6 +43,29 @@ public sealed class AuthorityGenerationInitializationCodecV1Tests
     }
 
     [Fact]
+    public void AllTenSchemas_HaveDistinctExactIntegrityHashDomains()
+    {
+        var session=Session();
+        var rows=new[]{
+            (AuthorityAxisId.Graph,OwnerSliceId.S2),(AuthorityAxisId.Activity,OwnerSliceId.S3),
+            (AuthorityAxisId.Turn,OwnerSliceId.S4),(AuthorityAxisId.Provider,OwnerSliceId.S5),
+            (AuthorityAxisId.Output,OwnerSliceId.S6),(AuthorityAxisId.Sink,OwnerSliceId.S6),
+            (AuthorityAxisId.Tool,OwnerSliceId.S7),(AuthorityAxisId.Route,OwnerSliceId.S8),
+            (AuthorityAxisId.Privacy,OwnerSliceId.S9),(AuthorityAxisId.Transport,OwnerSliceId.S11)};
+        var hashes=rows.Select(row=>
+        {
+            var encoded=AuthorityGenerationInitializationCodecV1.Encode(session,row.Item1,Initial);
+            Assert.Equal(Encode(session,Initial,row.Item2),encoded);
+            var expected=AuthorityIntegrityHashV1.Compute(
+                AuthorityGenerationInitializationCodecV1.SchemaTokenFor(row.Item1).ToString(),1,0,encoded);
+            var actual=AuthorityGenerationInitializationCodecV1.ComputeHash(session,row.Item1,Initial);
+            Assert.Equal(expected,actual);
+            return actual;
+        }).ToArray();
+        Assert.Equal(10,hashes.Distinct().Count());
+    }
+
+    [Fact]
     public void Decoder_DistinguishesUnknownSchemaFromInvalidKnownInitialization()
     {
         var session = Session();

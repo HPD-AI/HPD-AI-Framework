@@ -84,6 +84,9 @@ internal static class AuthorityGenerationInitializationCodecV1
         return writer.Encode();
     }
 
+    internal static Hash256 ComputeHash(SessionAuthorityStampV1 session, AuthorityAxisId axis, StableId128 initial) =>
+        AuthorityIntegrityHashV1.Compute(SchemaTokenFor(axis).ToString(), 1, 0, Encode(session, axis, initial));
+
     internal static SchemaReferenceV1 SchemaFor(AuthorityAxisId axis) =>
         Descriptors.Single(row => row.Axis == axis).Schema;
 
