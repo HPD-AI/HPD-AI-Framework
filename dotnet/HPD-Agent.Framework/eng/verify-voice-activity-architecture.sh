@@ -11,14 +11,14 @@ fail_if_match() {
   local pattern="$2"
   shift 2
   local output
-  if output="$(rg -n --glob '*.cs' "$pattern" "$@" 2>/dev/null)"; then
+  if output="$(grep -R -n -E --include='*.cs' "$pattern" "$@" 2>/dev/null)"; then
     printf 'voice-activity-architecture=%s\n%s\n' "$code" "$output" >&2
     exit 1
   fi
 }
 
 fail_if_match legacy-live-contract \
-  'IVoiceActivityDetector|\bVadEvent\b|\bVadResult\b|\bVadState\b|VoiceActivityEvidenceDetail|TurnEvidence.*VoiceActivity' \
+  'IVoiceActivityDetector|(^|[^[:alnum:]_])Vad(Event|Result|State)([^[:alnum:]_]|$)|VoiceActivityEvidenceDetail|TurnEvidence.*VoiceActivity' \
   "$root/src"
 fail_if_match duplicate-authority \
   'VadProviderRegistry|DetectorRegistry|VadScheduler|VadClock|VoiceActivityProviderRegistry|VoiceActivityScheduler' \
@@ -36,22 +36,22 @@ fail_if_match adjacent-authority-call \
   "$voice/VoiceActivityPromotionV1.cs"
 
 expected_events="$voice/VoiceActivityStatusProjectionV1.cs"
-events_files="$(rg -l --glob '*.cs' 'HPD\.Events' "$voice" | sort)"
+events_files="$(grep -R -l -E --include='*.cs' 'HPD\.Events' "$voice" | sort)"
 events_count="$(printf '%s\n' "$events_files" | awk 'NF { count++ } END { print count + 0 }')"
 if [[ "$events_count" != 1 || "$events_files" != "$expected_events" ]]; then
   printf 'voice-activity-architecture=hpd-events-authority\n%s\n' "${events_files:-none}" >&2
   exit 1
 fi
 
-compiler_count="$(rg -n --glob '*.cs' 'internal static class VoiceActivityPlanCompilerV1' "$voice" | wc -l | tr -d ' ')"
-promoter_count="$(rg -n --glob '*.cs' 'internal sealed class VoiceActivityPromoterV1' "$voice" | wc -l | tr -d ' ')"
+compiler_count="$(grep -R -n -E --include='*.cs' 'internal static class VoiceActivityPlanCompilerV1' "$voice" | wc -l | tr -d ' ')"
+promoter_count="$(grep -R -n -E --include='*.cs' 'internal sealed class VoiceActivityPromoterV1' "$voice" | wc -l | tr -d ' ')"
 if [[ "$compiler_count" != 1 || "$promoter_count" != 1 ]]; then
   printf 'voice-activity-architecture=writer-count compiler=%s promoter=%s\n' \
     "$compiler_count" "$promoter_count" >&2
   exit 1
 fi
 
-if rg -n '<ProjectReference[^>]+HPD-Agent\.Audio' "$agent/HPD-Agent.csproj" >/dev/null; then
+if grep -n -E '<ProjectReference[^>]+HPD-Agent\.Audio' "$agent/HPD-Agent.csproj" >/dev/null; then
   printf 'voice-activity-architecture=reverse-audio-dependency\n' >&2
   exit 1
 fi
