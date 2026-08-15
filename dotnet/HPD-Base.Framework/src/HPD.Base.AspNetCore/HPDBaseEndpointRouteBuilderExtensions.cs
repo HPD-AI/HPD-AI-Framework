@@ -70,6 +70,7 @@ public static class HPDBaseEndpointRouteBuilderExtensions
             BaseClientGenerationEndpoints.Map(group, HPDBaseEndpointAudience.ControlPlane, convention);
         }
         SelectionMutationEndpoints.Map(group, HPDBaseEndpointAudience.ControlPlane, convention);
+        ModuleMutationEndpoints.Map(group, convention);
         return group;
     }
 

@@ -19,6 +19,8 @@ public enum HPDBaseEndpointOperation
     RecordBatchWrite,
     /// <summary>Executes a registered read.</summary>
     RegisteredRead,
+    /// <summary>Executes one registered Service/System module mutation.</summary>
+    ModuleMutation,
     /// <summary>Reads files.</summary>
     FileRead,
     /// <summary>Writes files.</summary>

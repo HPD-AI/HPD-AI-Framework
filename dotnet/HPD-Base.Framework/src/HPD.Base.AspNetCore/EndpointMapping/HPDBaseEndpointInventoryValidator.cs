@@ -19,7 +19,8 @@ internal sealed class HPDBaseEndpointInventoryValidator(
     IEnumerable<IHPDBaseEndpointSecurityMetadataValidator> securityValidators,
     HPDBaseEndpointFamilySelectionState? selections = null,
     BaseReadRegistry? reads = null,
-    BaseSelectionProfileRegistry? selectionsProfiles = null)
+    BaseSelectionProfileRegistry? selectionsProfiles = null,
+    BaseModuleMutationRegistry? moduleMutations = null)
 {
     private sealed record Expected(string Method, string RouteSuffix, HPDBaseEndpointOperation Operation, string? Capability, HPDBaseEndpointAudience[] Audiences);
 
@@ -118,6 +119,18 @@ internal sealed class HPDBaseEndpointInventoryValidator(
             return new Expected("POST", "/selection-mutations/" + projection.RouteName + "/execute",
                 HPDBaseEndpointOperation.SelectionMutation, profile.RequiredGrantId, [descriptor.Audience]);
         }
+        const string modulePrefix = "base.module-mutations.";
+        const string moduleSuffix = ".execute";
+        if (descriptor.EndpointId.StartsWith(modulePrefix, StringComparison.Ordinal)
+            && descriptor.EndpointId.EndsWith(moduleSuffix, StringComparison.Ordinal))
+        {
+            string operationId = descriptor.EndpointId[modulePrefix.Length..^moduleSuffix.Length];
+            IBaseModuleMutationRegistration? moduleRegistration = moduleMutations?.Registrations.SingleOrDefault(value =>
+                string.Equals(value.Id, operationId, StringComparison.Ordinal));
+            if (moduleRegistration is null) Fail("base.http.endpoint.descriptorMissing");
+            return new Expected("POST", "/module-mutations/" + operationId + ":execute",
+                HPDBaseEndpointOperation.ModuleMutation, moduleRegistration!.GrantId, [HPDBaseEndpointAudience.ControlPlane]);
+        }
         const string publicPrefix = "base.reads.public.";
         const string adminPrefix = "base.reads.admin.";
         string? id = descriptor.EndpointId.StartsWith(publicPrefix, StringComparison.Ordinal) ? descriptor.EndpointId[publicPrefix.Length..] :
@@ -158,7 +171,8 @@ internal sealed class HPDBaseEndpointInventoryValidator(
 
     private static bool IsGeneratedId(string id) => id.StartsWith("base.reads.public.", StringComparison.Ordinal)
         || id.StartsWith("base.reads.admin.", StringComparison.Ordinal)
-        || id.StartsWith("base.selection-mutations.", StringComparison.Ordinal);
+        || id.StartsWith("base.selection-mutations.", StringComparison.Ordinal)
+        || id.StartsWith("base.module-mutations.", StringComparison.Ordinal);
 
     private void ValidateRegisteredReadInventory(Endpoint[] endpoints)
     {

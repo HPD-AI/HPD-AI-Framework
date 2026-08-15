@@ -72,7 +72,9 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
             return ValueTask.FromResult(Failure("base.clientGeneration.inventoryUnavailable"));
 
         RouteEndpoint[] materialized = endpointDataSource.Endpoints.OfType<RouteEndpoint>()
-            .Where(endpoint => endpoint.Metadata.GetMetadata<HPDBaseEndpointDescriptor>()?.Audience == current.Audience)
+            .Where(endpoint => endpoint.Metadata.GetMetadata<HPDBaseEndpointDescriptor>() is { } descriptor
+                && descriptor.Audience == current.Audience
+                && descriptor.Operation != HPDBaseEndpointOperation.ModuleMutation)
             .OrderBy(endpoint => endpoint.Metadata.GetMetadata<HPDBaseEndpointDescriptor>()!.EndpointId, StringComparer.Ordinal)
             .ToArray();
         if (materialized.Length is 0 or > 256)

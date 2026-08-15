@@ -31,8 +31,11 @@ internal interface IBaseModuleMutationRegistration
     string Id { get; }
     int Version { get; }
     BaseModuleMutationAudience Audience { get; }
+    string GrantId { get; }
     string RequestTypeId { get; }
     string ResultTypeId { get; }
+    BaseMutationRequestIdentity CreateRequestIdentity(
+        ReadOnlyMemory<byte> requestJson, string idempotencyKey, PrincipalContext principal);
     ValueTask<BaseResult<BaseUntypedModuleMutationExecutionResult>> ExecuteAsync(
         BaseSession session, ReadOnlyMemory<byte> requestJson, BaseMutationRequestIdentity identity,
         BaseModuleMutationExecutionOptions? options, CancellationToken cancellationToken);
@@ -52,8 +55,27 @@ internal sealed class BaseModuleMutationRegistration<TRequest, TResult>(
     public string Id => definition.Id;
     public int Version => definition.Version;
     public BaseModuleMutationAudience Audience => definition.Audience;
+    public string GrantId => definition.GrantId;
     public string RequestTypeId => definition.RequestTypeId;
     public string ResultTypeId => definition.ResultTypeId;
+
+    public BaseMutationRequestIdentity CreateRequestIdentity(
+        ReadOnlyMemory<byte> requestJson, string idempotencyKey, PrincipalContext principal)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(idempotencyKey);
+        ArgumentNullException.ThrowIfNull(principal);
+        TRequest? request = System.Text.Json.JsonSerializer.Deserialize(requestJson.Span, identity.RequestTypeInfo);
+        if (request is null) throw new InvalidOperationException("base.moduleMutation.invalid");
+        byte[] canonical = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(request, identity.RequestTypeInfo);
+        using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+        Add(hash, "base.moduleMutation.http.v1"u8); Add(hash, System.Text.Encoding.UTF8.GetBytes(Id));
+        Span<byte> version = stackalloc byte[8]; System.Buffers.Binary.BinaryPrimitives.WriteInt64BigEndian(version, Version); Add(hash, version);
+        Add(hash, canonical); Add(hash, System.Text.Encoding.UTF8.GetBytes(principal.SubjectId ?? string.Empty));
+        Add(hash, System.Text.Encoding.UTF8.GetBytes(principal.CurrentTenantId ?? string.Empty));
+        string scope = $"module:{Id}|tenant:{principal.CurrentTenantId ?? string.Empty}";
+        return BaseMutationRequestIdentity.Create(scope, Id, idempotencyKey,
+            BaseMutationRequestFingerprint.Create(hash.GetHashAndReset()));
+    }
 
     public async ValueTask<BaseResult<BaseUntypedModuleMutationExecutionResult>> ExecuteAsync(
         BaseSession session, ReadOnlyMemory<byte> requestJson, BaseMutationRequestIdentity requestIdentity,
@@ -79,6 +101,13 @@ internal sealed class BaseModuleMutationRegistration<TRequest, TResult>(
 
     private static BaseFailure<BaseUntypedModuleMutationExecutionResult> Failure(OperationStatus status, string code, ErrorCategory category) =>
         new(status, new BaseError { Code = code, Message = "The module mutation request is invalid.", Category = category }, null, null);
+
+    private static void Add(System.Security.Cryptography.IncrementalHash hash, ReadOnlySpan<byte> value)
+    {
+        Span<byte> length = stackalloc byte[4];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(length, value.Length);
+        hash.AppendData(length); hash.AppendData(value);
+    }
 }
 
 /// <summary>Opaque generated identity for one typed registered module mutation.</summary>
