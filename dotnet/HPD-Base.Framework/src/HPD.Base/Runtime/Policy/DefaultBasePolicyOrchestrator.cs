@@ -90,8 +90,12 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
             GrantId = new string(value.Registration.Id.AsSpan()), GrantVersion = value.Registration.Version,
             GrantRegistrationChecksum = value.Registration.Checksum.ToArray().ToImmutableArray(),
             GrantChecksum = BasePolicyAuthorityCanonicalizer.HashGrant(value.Grant).ToImmutableArray(),
-            Grant = BasePolicyAuthorityCanonicalizer.CloneGrant(value.Grant),
         })];
+        ImmutableArray<BaseAdmittedGrantSemantics> grantSemantics = [.. orderedGrants.Select(static value => new BaseAdmittedGrantSemantics(
+            new string(value.Registration.Id.AsSpan()), value.Registration.Version,
+            value.Registration.Checksum.ToArray().ToImmutableArray(),
+            BasePolicyAuthorityCanonicalizer.HashGrant(value.Grant).ToImmutableArray(),
+            BasePolicyAuthorityCanonicalizer.CloneGrant(value.Grant)))];
         var applied = ImmutableArray.CreateBuilder<BaseAppliedPolicyAuthority>();
         var recordFilters = new List<FilterExpression>();
         var writeChecks = new List<FilterExpression>();
@@ -234,6 +238,7 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
             AppliedPolicies = applied.ToImmutable(),
             Constraints = constraints,
             Checksum = BasePolicyEvaluationAuthorityChecksum.Create(checksum),
+            GrantSemantics = grantSemantics,
         };
         bool hasConstraints = effectiveFilter is not null
             || effectiveWriteCheck is not null

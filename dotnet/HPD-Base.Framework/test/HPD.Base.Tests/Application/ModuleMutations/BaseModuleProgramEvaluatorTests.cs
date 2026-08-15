@@ -57,11 +57,99 @@ public sealed class BaseModuleProgramEvaluatorTests
         yield return [exact with { ExpiresAt = DateTimeOffset.UnixEpoch }];
     }
 
+    [Theory]
+    [MemberData(nameof(InexactSourceGrants))]
+    public async Task System_source_grant_must_bind_the_exact_collection(AccessGrant grant)
+    {
+        DefaultBasePolicyOrchestrator orchestrator = PolicyWithGrant(grant);
+        var principal = new PrincipalContext
+        {
+            AuthenticationState = PrincipalAuthenticationState.System,
+            SubjectKind = AccessSubjectKind.System, SubjectId = "system",
+        };
+        var operation = new OperationContext
+        {
+            ApplicationId = "module.application", Audience = HPDBaseEndpointAudience.ControlPlane,
+            Operation = BaseOperationKind.ModuleMutation, CollectionId = "module-records", Now = DateTimeOffset.UtcNow,
+        };
+        OperationResult<BasePolicyEvaluation> result = await orchestrator.EvaluateWriteAsync(new BasePolicyRequest
+        {
+            Principal = principal, Operation = operation, Collection = ModuleCollection(),
+            ResourceKind = PolicyResourceKind.ModuleMutation,
+        });
+
+        BaseSystemCollectionGate.HasExactModuleSourceGrant(
+            result, "module.records.source", "module", principal, operation, "module-records").Should().BeFalse();
+    }
+
+    public static IEnumerable<object[]> InexactSourceGrants()
+    {
+        AccessGrant exact = new()
+        {
+            Id = "module.records.source", ApplicationId = "module.application", ModuleId = "module",
+            Audience = HPDBaseEndpointAudience.ControlPlane,
+            Subject = new AccessSubject { Kind = AccessSubjectKind.System, Id = "system" },
+            Action = "module-records",
+            Scope = new ResourceScope { Kind = ResourceScopeKind.Collection, CollectionId = "module-records" },
+        };
+        yield return [exact with { Action = "*" }];
+        yield return [exact with { Scope = exact.Scope with { Kind = ResourceScopeKind.Runtime, CollectionId = null } }];
+        yield return [exact with { Scope = exact.Scope with { CollectionId = "other-records" } }];
+        yield return [exact with { ApplicationId = null }];
+        yield return [exact with { ModuleId = null }];
+        yield return [exact with { Audience = HPDBaseEndpointAudience.Application }];
+        yield return [exact with { Subject = exact.Subject with { Id = "another-system" } }];
+        yield return [exact with { Subject = exact.Subject with { TenantId = "another-tenant" } }];
+        yield return [exact with { Scope = exact.Scope with { TenantId = "another-tenant" } }];
+        yield return [exact with { Scope = exact.Scope with { ProjectId = "another-project" } }];
+        yield return [exact with { Condition = new FilterExpression { Kind = FilterNodeKind.True } }];
+        yield return [exact with { WriteCondition = new FilterExpression { Kind = FilterNodeKind.True } }];
+        yield return [exact with { Effect = GrantEffect.Deny }];
+        yield return [exact with { ExpiresAt = DateTimeOffset.UnixEpoch }];
+    }
+
+    [Fact]
+    public async Task Installed_grant_semantics_are_deeply_owned_and_not_public_receipt_state()
+    {
+        FilterExpression[] children = [new() { Kind = FilterNodeKind.True }];
+        AccessGrant grant = new()
+        {
+            Id = "module.records.source", ApplicationId = "module.application", ModuleId = "module",
+            Audience = HPDBaseEndpointAudience.ControlPlane,
+            Subject = new AccessSubject { Kind = AccessSubjectKind.System, Id = "system" },
+            Action = "module-records",
+            Scope = new ResourceScope { Kind = ResourceScopeKind.Collection, CollectionId = "module-records" },
+            Condition = new FilterExpression { Kind = FilterNodeKind.And, Children = children },
+        };
+        DefaultBasePolicyOrchestrator orchestrator = PolicyWithGrant(grant);
+        children[0] = new FilterExpression { Kind = FilterNodeKind.False };
+        var principal = new PrincipalContext
+        {
+            AuthenticationState = PrincipalAuthenticationState.System,
+            SubjectKind = AccessSubjectKind.System, SubjectId = "system",
+        };
+        var operation = new OperationContext
+        {
+            ApplicationId = "module.application", Audience = HPDBaseEndpointAudience.ControlPlane,
+            Operation = BaseOperationKind.ModuleMutation, CollectionId = "module-records", Now = DateTimeOffset.UtcNow,
+        };
+
+        OperationResult<BasePolicyEvaluation> evaluated = await orchestrator.EvaluateWriteAsync(new BasePolicyRequest
+        {
+            Principal = principal, Operation = operation, Collection = ModuleCollection(),
+            ResourceKind = PolicyResourceKind.ModuleMutation,
+        });
+
+        evaluated.Value!.Authority!.GrantSemantics.Single().Grant.Condition!.Children![0].Kind
+            .Should().Be(FilterNodeKind.True);
+        typeof(BaseAdmittedGrantAuthority).GetProperty("Grant").Should().BeNull();
+    }
+
     [Fact]
     public void Canonical_checksum_matches_the_locked_template_byte_vector()
     {
         string actual = Convert.ToHexString(GenerationDefinition().Checksum.ToArray());
-        actual.Should().Be("21459C33459A1E437A90889EF6F9CF42F06B554A01B1D07D2997D4FF0404A62C");
+        actual.Should().Be("AEC430456F17DA04BA1E270698D96C74E1D198610D51D0A9D340BBC5B67C95D2");
     }
 
     [Fact]
@@ -75,6 +163,31 @@ public sealed class BaseModuleProgramEvaluatorTests
         Action encode = () => BaseModuleMutationContract.ComputeChecksum(definition);
 
         encode.Should().Throw<InvalidOperationException>().WithMessage(BaseModuleMutationErrorCodes.Invalid);
+    }
+
+    [Fact]
+    public void Every_system_source_requires_one_sorted_distinct_grant_binding()
+    {
+        BaseRegisteredModuleMutationDefinition valid = CreateDefinition();
+        var collections = new Dictionary<string, CollectionDefinition> { ["module-records"] = ModuleCollection() };
+        BaseModuleMutationContractValidator.ValidateDefinition(valid, collections, new Dictionary<string, BaseModuleGenerationCellDefinition>());
+
+        BaseRegisteredModuleMutationDefinition[] invalid =
+        [
+            BaseModuleMutationContract.Seal(valid with { SystemSourceGrants = [] }),
+            BaseModuleMutationContract.Seal(valid with { SystemSourceGrants = [
+                new() { CollectionId = "module-records", GrantId = "module.records.source" },
+                new() { CollectionId = "module-records", GrantId = "module.records.other" }] }),
+            BaseModuleMutationContract.Seal(valid with { SystemSourceGrants = [
+                new() { CollectionId = "other-records", GrantId = "module.records.source" }] }),
+        ];
+
+        foreach (BaseRegisteredModuleMutationDefinition definition in invalid)
+        {
+            Action validate = () => BaseModuleMutationContractValidator.ValidateDefinition(
+                definition, collections, new Dictionary<string, BaseModuleGenerationCellDefinition>());
+            validate.Should().Throw<InvalidOperationException>().WithMessage(BaseModuleMutationErrorCodes.Invalid);
+        }
     }
 
     [Fact]
@@ -127,7 +240,7 @@ public sealed class BaseModuleProgramEvaluatorTests
         {
             Id = "module.conditional", Version = 1, OwningModuleId = "module", GrantId = "module.conditional",
             Audience = BaseModuleMutationAudience.System, RequestTypeId = "request", ResultTypeId = "result",
-            SystemCollectionIds = [], GenerationCellIds = ["module.a", "module.b"], ImportedSubjectContractIds = [],
+            SystemCollectionIds = [], SystemSourceGrants = [], GenerationCellIds = ["module.a", "module.b"], ImportedSubjectContractIds = [],
             Template = new BaseModuleMutationTemplate
             {
                 Captures =
@@ -316,7 +429,7 @@ public sealed class BaseModuleProgramEvaluatorTests
         var stores = new DefaultRecordStoreRegistry();
         stores.Add(new RecordStoreRegistration { StoreId = "module-store", Store = store, CollectionIds = [collection.Id] });
         BaseRegisteredModuleMutationDefinition definition = CreateDefinition();
-        DefaultBasePolicyOrchestrator policy = Policy("module.create");
+        DefaultBasePolicyOrchestrator policy = Policy("module.create", "module.records.source");
         var runtime = new DefaultBaseModuleMutationRuntime(
             stores, new BaseCollectionRegistry(new Dictionary<string, CollectionDefinition> { [collection.Id] = collection }),
             new BaseModuleMutationRegistry([definition], []), new DefaultBaseSchemaValidator(), policy,
@@ -336,6 +449,33 @@ public sealed class BaseModuleProgramEvaluatorTests
         result.RequireValue().Result.Id.Should().Be("record-1");
         OperationResult<RecordEnvelope> stored = await store.GetAsync(collection, new RecordId("record-1"), session.Operation(BaseOperationKind.Get, collection.Id));
         stored.Value!.Payload.Fields!["name"].GetString().Should().Be("Grace");
+    }
+
+    [Fact]
+    public async Task Operation_grant_cannot_stand_in_for_declared_system_source_authority()
+    {
+        CollectionDefinition collection = ModuleCollection();
+        var store = new InMemoryRecordStore(new HPDBaseInMemoryStoreOptions { StoreId = "module-store", Collections = [collection] });
+        var stores = new DefaultRecordStoreRegistry();
+        stores.Add(new RecordStoreRegistration { StoreId = "module-store", Store = store, CollectionIds = [collection.Id] });
+        BaseRegisteredModuleMutationDefinition definition = CreateDefinition();
+        var runtime = new DefaultBaseModuleMutationRuntime(
+            stores, new BaseCollectionRegistry(new Dictionary<string, CollectionDefinition> { [collection.Id] = collection }),
+            new BaseModuleMutationRegistry([definition], []), new DefaultBaseSchemaValidator(), Policy("module.create"),
+            new DefaultBaseResultNormalizer(NullLogger<DefaultBaseResultNormalizer>.Instance),
+            new BaseSubjectContractRegistry([]), TimeProvider.System);
+        var session = new BaseSession(null!, TimeProvider.System,
+            new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System, SubjectKind = AccessSubjectKind.System, SubjectId = "system" },
+            new BaseSessionOptions { Audience = HPDBaseEndpointAudience.ControlPlane }, applicationId: "module.application");
+
+        BaseResult<BaseModuleMutationExecutionResult<CreateResult>> result = await runtime.ExecuteAsync(
+            session, definition, CreateIdentity(), new CreateRequest { Id = "record-denied", Name = "Ada" },
+            BaseMutationRequestIdentity.Create("module", "create", "denied", BaseMutationRequestFingerprint.Create(new byte[32])), null, default);
+
+        result.Should().BeOfType<BaseFailure<BaseModuleMutationExecutionResult<CreateResult>>>()
+            .Which.Error.Code.Should().Be(BaseModuleMutationErrorCodes.Unauthorized);
+        (await store.GetAsync(collection, new RecordId("record-denied"), session.Operation(BaseOperationKind.Get, collection.Id)))
+            .Status.Should().Be(OperationStatus.NotFound);
     }
 
     [Fact]
@@ -471,7 +611,9 @@ public sealed class BaseModuleProgramEvaluatorTests
     {
         Id = "module.create", Version = 1, OwningModuleId = "module", GrantId = "module.create",
         Audience = BaseModuleMutationAudience.System, RequestTypeId = "request", ResultTypeId = "result",
-        SystemCollectionIds = ["module-records"], GenerationCellIds = [], ImportedSubjectContractIds = [],
+        SystemCollectionIds = ["module-records"],
+        SystemSourceGrants = [new() { CollectionId = "module-records", GrantId = "module.records.source" }],
+        GenerationCellIds = [], ImportedSubjectContractIds = [],
         Template = new BaseModuleMutationTemplate
         {
             Captures = [new BaseModuleRecordCapture { Id = "record", CollectionId = "module-records", Presence = BaseModuleCapturePresence.RequireMissing, RecordId = Request("request.id", "id") }],
@@ -540,8 +682,10 @@ public sealed class BaseModuleProgramEvaluatorTests
                 Id = grantId,
                 ApplicationId = "module.application", ModuleId = "module", Audience = HPDBaseEndpointAudience.ControlPlane,
                 Subject = new AccessSubject { Kind = AccessSubjectKind.System, Id = "system" },
-                Action = grantId,
-                Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime },
+                Action = string.Equals(grantId, "module.records.source", StringComparison.Ordinal) ? "module-records" : grantId,
+                Scope = string.Equals(grantId, "module.records.source", StringComparison.Ordinal)
+                    ? new ResourceScope { Kind = ResourceScopeKind.Collection, CollectionId = "module-records" }
+                    : new ResourceScope { Kind = ResourceScopeKind.Runtime },
             });
         }
         return new DefaultBasePolicyOrchestrator(builder.Freeze("module.application"));
@@ -567,7 +711,7 @@ public sealed class BaseModuleProgramEvaluatorTests
     {
         Id = "module.increment", Version = 1, OwningModuleId = "module", GrantId = "module.increment",
         Audience = BaseModuleMutationAudience.System, RequestTypeId = "request", ResultTypeId = "result",
-        SystemCollectionIds = [], GenerationCellIds = ["module.generation"], ImportedSubjectContractIds = [],
+        SystemCollectionIds = [], SystemSourceGrants = [], GenerationCellIds = ["module.generation"], ImportedSubjectContractIds = [],
         Template = new BaseModuleMutationTemplate
         {
             Captures =
@@ -625,7 +769,7 @@ public sealed class BaseModuleProgramEvaluatorTests
     {
         Id = "module.test", Version = 1, OwningModuleId = "module", GrantId = "module.execute",
         Audience = BaseModuleMutationAudience.Service, RequestTypeId = "request", ResultTypeId = "result",
-        SystemCollectionIds = [], GenerationCellIds = [], ImportedSubjectContractIds = [],
+        SystemCollectionIds = [], SystemSourceGrants = [], GenerationCellIds = [], ImportedSubjectContractIds = [],
         Template = new BaseModuleMutationTemplate
         {
             Captures = [],

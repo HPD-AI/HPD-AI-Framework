@@ -210,12 +210,23 @@ public sealed record BaseRegisteredModuleMutationDefinition
     public required string RequestTypeId { get; init; }
     public required string ResultTypeId { get; init; }
     public required ImmutableArray<string> SystemCollectionIds { get; init; }
+    /// <summary>Gets the exact separately registered grant for every declared system source.</summary>
+    public required ImmutableArray<BaseModuleSystemSourceGrant> SystemSourceGrants { get; init; }
     public required ImmutableArray<string> GenerationCellIds { get; init; }
     public required ImmutableArray<string> ImportedSubjectContractIds { get; init; }
     public required BaseModuleMutationTemplate Template { get; init; }
     public required BaseModuleMutationLimits Limits { get; init; }
     public required BaseModuleMutationReceiptPolicy ReceiptPolicy { get; init; }
     public required BaseModuleMutationChecksum Checksum { get; init; }
+}
+
+/// <summary>Binds one declared system collection to its exact L38 source grant.</summary>
+public sealed record BaseModuleSystemSourceGrant
+{
+    /// <summary>Gets the exact declared system collection.</summary>
+    public required string CollectionId { get; init; }
+    /// <summary>Gets the exact separately registered source grant.</summary>
+    public required string GrantId { get; init; }
 }
 
 /// <summary>Closed immutable operation template.</summary>

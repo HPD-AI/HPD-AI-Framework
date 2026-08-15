@@ -332,6 +332,16 @@ internal static class BaseModuleMutationContractValidator
         if (!operationCollections.SequenceEqual(value.SystemCollectionIds, StringComparer.Ordinal)
             || operationCollections.Distinct(StringComparer.Ordinal).Count() != operationCollections.Length)
             throw new InvalidOperationException("base.moduleMutation.invalid");
+        if (value.SystemSourceGrants.Length != operationCollections.Length
+            || !value.SystemSourceGrants.Select(static source => source.CollectionId)
+                .SequenceEqual(operationCollections, StringComparer.Ordinal)
+            || value.SystemSourceGrants.Select(static source => source.CollectionId).Distinct(StringComparer.Ordinal).Count() != operationCollections.Length)
+            throw new InvalidOperationException("base.moduleMutation.invalid");
+        foreach (BaseModuleSystemSourceGrant source in value.SystemSourceGrants)
+        {
+            BaseApplicationId.Validate(source.CollectionId, nameof(value));
+            BaseApplicationId.Validate(source.GrantId, nameof(value));
+        }
         foreach (string id in operationCollections)
         {
             if (!collections.TryGetValue(id, out CollectionDefinition? collection)

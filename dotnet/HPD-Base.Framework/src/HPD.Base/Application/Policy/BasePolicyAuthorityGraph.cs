@@ -242,6 +242,11 @@ internal static class BasePolicyAuthorityCanonicalizer
     {
         ApplicationId = CopyNullable(value.ApplicationId), ModuleId = CopyNullable(value.ModuleId), Id = Copy(value.Id),
         Action = Copy(value.Action), Source = CopyNullable(value.Source),
+        Subject = value.Subject with
+        {
+            Id = CopyNullable(value.Subject.Id), Qualifier = CopyNullable(value.Subject.Qualifier),
+            TenantId = CopyNullable(value.Subject.TenantId), Source = CopyNullable(value.Subject.Source),
+        },
         Scope = value.Scope with
         {
             CollectionId = CopyNullable(value.Scope.CollectionId), RecordId = CopyNullable(value.Scope.RecordId),
@@ -249,6 +254,25 @@ internal static class BasePolicyAuthorityCanonicalizer
             SubjectContractId = CopyNullable(value.Scope.SubjectContractId), TenantId = CopyNullable(value.Scope.TenantId),
             ProjectId = CopyNullable(value.Scope.ProjectId),
         },
+        Condition = CloneFilter(value.Condition),
+        WriteCondition = CloneFilter(value.WriteCondition),
+    };
+
+    private static FilterExpression? CloneFilter(FilterExpression? value) => value is null ? null : value with
+    {
+        Field = CopyNullable(value.Field), ModuleId = CopyNullable(value.ModuleId), Name = CopyNullable(value.Name),
+        Value = CloneValue(value.Value),
+        Values = value.Values?.Select(static item => CloneValue(item)!).ToArray(),
+        Arguments = value.Arguments?.Select(static item => CloneValue(item)!).ToArray(),
+        Children = value.Children?.Select(static item => CloneFilter(item)!).ToArray(),
+    };
+
+    private static QueryValue? CloneValue(QueryValue? value) => value is null ? null : value with
+    {
+        String = CopyNullable(value.String), Decimal = CopyNullable(value.Decimal), Id = CopyNullable(value.Id),
+        SubjectId = CopyNullable(value.SubjectId), SubjectAuthorityEpoch = CopyNullable(value.SubjectAuthorityEpoch),
+        SubjectIncarnation = CopyNullable(value.SubjectIncarnation),
+        Array = value.Array?.Select(static item => CloneValue(item)!).ToArray(),
     };
 
     internal static byte[] HashGrantDefinition(BaseGrantAuthorityDefinition definition, AccessGrant? grant) => Hash(writer =>

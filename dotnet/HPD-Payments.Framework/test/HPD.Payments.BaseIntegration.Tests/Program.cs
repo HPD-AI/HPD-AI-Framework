@@ -25,8 +25,24 @@ services.AddHPDBase(builder =>
         Subject = new AccessSubject { Kind = AccessSubjectKind.ServicePrincipal, Id = "payments-worker", TenantId = "tenant-one" },
         Action = "hpd.payments.owner-ledger.advance", Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime, TenantId = "tenant-one" },
     });
+    AddSourceGrant(builder, "hpd.payments.ledger-head.source", PaymentsLedgerHead.Collection.Id);
+    AddSourceGrant(builder, "hpd.payments.owner-state.source", PaymentsOwnerState.Collection.Id);
     builder.AddPaymentsModuleMutations();
 });
+
+static void AddSourceGrant(HPDBaseBuilder builder, string grantId, string collectionId) =>
+    builder.AddStaticGrantAuthority(new BaseGrantAuthorityDefinition
+    {
+        Id = grantId, Version = 1, OwningModuleId = "hpd.payments",
+        SourceContractId = "hpd.payments.base.grants", SourceContractVersion = 1,
+    }, new AccessGrant
+    {
+        Id = grantId, ApplicationId = "hpd.base.application", ModuleId = "hpd.payments",
+        Audience = HPDBaseEndpointAudience.ControlPlane,
+        Subject = new AccessSubject { Kind = AccessSubjectKind.ServicePrincipal, Id = "payments-worker", TenantId = "tenant-one" },
+        Action = collectionId,
+        Scope = new ResourceScope { Kind = ResourceScopeKind.Collection, CollectionId = collectionId, TenantId = "tenant-one" },
+    });
 using ServiceProvider provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });
 OperationResult<BaseApplicationReadiness> initialized = await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync();
 if (!initialized.IsSuccess()) throw new InvalidOperationException(initialized.Error?.Code);

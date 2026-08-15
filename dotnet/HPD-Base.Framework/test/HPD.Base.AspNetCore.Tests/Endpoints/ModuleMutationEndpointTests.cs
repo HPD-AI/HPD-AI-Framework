@@ -113,7 +113,7 @@ public static partial class ModuleIncrement
     {
             Id = "module.increment", Version = 1, OwningModuleId = "module", GrantId = "module.increment",
             Audience = BaseModuleMutationAudience.System, RequestTypeId = "module.increment.request", ResultTypeId = "module.increment.result",
-            SystemCollectionIds = [], GenerationCellIds = ["module.generation"], ImportedSubjectContractIds = [],
+            SystemCollectionIds = [], SystemSourceGrants = [], GenerationCellIds = ["module.generation"], ImportedSubjectContractIds = [],
             Template = new BaseModuleMutationTemplate
             {
                 Captures = [new BaseModuleGenerationCapture { Id = "generation", CellId = "module.generation", Absence = BaseModuleGenerationAbsenceBehavior.AllowEither }],

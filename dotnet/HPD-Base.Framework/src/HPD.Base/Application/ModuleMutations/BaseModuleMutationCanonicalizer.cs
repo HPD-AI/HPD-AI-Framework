@@ -136,6 +136,9 @@ public static class BaseModuleMutationContract
         writer.String(definition.GrantId); writer.Integer((int)definition.Audience);
         writer.String(definition.RequestTypeId); writer.String(definition.ResultTypeId);
         writer.StringSet(definition.SystemCollectionIds); writer.StringSet(definition.GenerationCellIds);
+        writer.Count(definition.SystemSourceGrants.Length);
+        foreach (BaseModuleSystemSourceGrant source in definition.SystemSourceGrants)
+        { writer.String(source.CollectionId); writer.String(source.GrantId); }
         writer.StringSet(definition.ImportedSubjectContractIds);
         writer.Template(definition.Template); writer.Limits(definition.Limits);
         writer.Integer(definition.ReceiptPolicy.FormatVersion); writer.Integer(definition.ReceiptPolicy.Lifetime.Ticks);

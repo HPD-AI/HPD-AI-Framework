@@ -1,4 +1,6 @@
 
+using System.Security.Cryptography;
+
 namespace HPD.Base;
 
 internal sealed class DefaultBaseSchemaProvider : IBaseSchemaProvider
@@ -114,12 +116,13 @@ internal static class BaseSystemCollectionGate
         PrincipalContext principal,
         OperationContext operation)
     {
-        if (!result.IsSuccess() || result.Value?.Authority?.AdmittedGrants is not { Length: > 0 } grants)
+        if (!result.IsSuccess() || result.Value?.Authority is not { } authority)
             return false;
-        return grants.Any(authority =>
+        return authority.GrantSemantics.Any(semantics =>
         {
-            AccessGrant grant = authority.Grant;
-            return string.Equals(authority.GrantId, requiredGrantId, StringComparison.Ordinal)
+            AccessGrant grant = semantics.Grant;
+            return ReceiptMatches(authority, semantics)
+                && string.Equals(semantics.GrantId, requiredGrantId, StringComparison.Ordinal)
                 && string.Equals(grant.Id, requiredGrantId, StringComparison.Ordinal)
                 && grant.Effect == GrantEffect.Allow
                 && string.Equals(grant.ApplicationId, operation.ApplicationId, StringComparison.Ordinal)
@@ -139,6 +142,48 @@ internal static class BaseSystemCollectionGate
                 && (grant.ExpiresAt is null || grant.ExpiresAt > operation.Now);
         });
     }
+
+    internal static bool HasExactModuleSourceGrant(
+        OperationResult<BasePolicyEvaluation> result,
+        string requiredGrantId,
+        string owningModuleId,
+        PrincipalContext principal,
+        OperationContext operation,
+        string collectionId)
+    {
+        if (!result.IsSuccess() || result.Value?.Authority is not { } authority)
+            return false;
+        return authority.GrantSemantics.Any(semantics =>
+        {
+            AccessGrant grant = semantics.Grant;
+            return ReceiptMatches(authority, semantics)
+                && string.Equals(semantics.GrantId, requiredGrantId, StringComparison.Ordinal)
+                && string.Equals(grant.Id, requiredGrantId, StringComparison.Ordinal)
+                && grant.Effect == GrantEffect.Allow
+                && string.Equals(grant.ApplicationId, operation.ApplicationId, StringComparison.Ordinal)
+                && string.Equals(grant.ModuleId, owningModuleId, StringComparison.Ordinal)
+                && grant.Audience == operation.Audience
+                && string.Equals(grant.Action, collectionId, StringComparison.Ordinal)
+                && grant.Subject.Kind == principal.SubjectKind
+                && string.Equals(grant.Subject.Id, principal.SubjectId, StringComparison.Ordinal)
+                && string.Equals(grant.Subject.TenantId, principal.CurrentTenantId, StringComparison.Ordinal)
+                && grant.Scope.Kind == ResourceScopeKind.Collection
+                && string.Equals(grant.Scope.CollectionId, collectionId, StringComparison.Ordinal)
+                && grant.Scope.RecordId is null && grant.Scope.FieldPath is null && grant.Scope.VectorIndexId is null
+                && grant.Scope.SubjectContractId is null && grant.Scope.SubjectContractVersion is null
+                && string.Equals(grant.Scope.TenantId, operation.TenantId, StringComparison.Ordinal)
+                && string.Equals(grant.Scope.ProjectId, operation.ProjectId, StringComparison.Ordinal)
+                && grant.Condition is null && grant.WriteCondition is null
+                && (grant.ExpiresAt is null || grant.ExpiresAt > operation.Now);
+        });
+    }
+
+    private static bool ReceiptMatches(BasePolicyEvaluationAuthority authority, BaseAdmittedGrantSemantics semantics) =>
+        authority.AdmittedGrants.Any(receipt =>
+            string.Equals(receipt.GrantId, semantics.GrantId, StringComparison.Ordinal)
+            && receipt.GrantVersion == semantics.GrantVersion
+            && CryptographicOperations.FixedTimeEquals(receipt.GrantRegistrationChecksum.AsSpan(), semantics.GrantRegistrationChecksum.AsSpan())
+            && CryptographicOperations.FixedTimeEquals(receipt.GrantChecksum.AsSpan(), semantics.GrantChecksum.AsSpan()));
 
     internal static bool AllowsSource(
         CollectionDefinition collection,

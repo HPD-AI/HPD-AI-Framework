@@ -85,7 +85,15 @@ public sealed record BasePolicyEvaluationAuthority
     public required BasePolicyConstraintAuthority Constraints { get; init; }
     /// <summary>Gets the exact authority checksum.</summary>
     public required BasePolicyEvaluationAuthorityChecksum Checksum { get; init; }
+    internal ImmutableArray<BaseAdmittedGrantSemantics> GrantSemantics { get; init; } = [];
 }
+
+internal sealed record BaseAdmittedGrantSemantics(
+    string GrantId,
+    int GrantVersion,
+    ImmutableArray<byte> GrantRegistrationChecksum,
+    ImmutableArray<byte> GrantChecksum,
+    AccessGrant Grant);
 
 /// <summary>Contains one exact admitted grant receipt.</summary>
 public sealed record BaseAdmittedGrantAuthority
@@ -98,8 +106,6 @@ public sealed record BaseAdmittedGrantAuthority
     public required ImmutableArray<byte> GrantRegistrationChecksum { get; init; }
     /// <summary>Gets the 32-byte exact emitted-grant checksum.</summary>
     public required ImmutableArray<byte> GrantChecksum { get; init; }
-    /// <summary>Gets the deeply owned exact grant semantics admitted for this evaluation.</summary>
-    public required AccessGrant Grant { get; init; }
 }
 
 /// <summary>Contains one applied graph-owned policy receipt.</summary>

@@ -930,6 +930,17 @@ FROM {_names.MutationJournal};
         await EnsureKeepAliveAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
         await _schema.InitializeAsync(connection, cancellationToken).ConfigureAwait(false);
+        await ExecuteSchemaCommandAsync(connection, "BEGIN IMMEDIATE;", TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await InitializeModuleMutationDefinitionsForSchemaApplyAsync(connection, cancellationToken).ConfigureAwait(false);
+            await ExecuteSchemaCommandAsync(connection, "COMMIT;", TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            await ExecuteSchemaCommandAsync(connection, "ROLLBACK;", TimeSpan.FromSeconds(30), CancellationToken.None).ConfigureAwait(false);
+            throw;
+        }
     }
 
     private async ValueTask EnsureKeepAliveAsync(CancellationToken cancellationToken)

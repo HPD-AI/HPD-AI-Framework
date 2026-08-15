@@ -28,10 +28,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             || options?.MaximumWait is { } wait && (wait <= TimeSpan.Zero || wait > definition.Limits.Deadlines.CommitObservationTimeout))
             return Failure<TResult>(OperationStatus.PolicyDenied, BaseModuleMutationErrorCodes.Unauthorized, ErrorCategory.Authorization);
         OperationContext moduleOperation = session.Operation(BaseOperationKind.ModuleMutation, definition.Id);
-        CollectionDefinition policyResource = definition.SystemCollectionIds.Length > 0
-            && collections.Collections.TryGetValue(definition.SystemCollectionIds[0], out CollectionDefinition? installedPolicyCollection)
-            ? installedPolicyCollection
-            : new CollectionDefinition
+        CollectionDefinition policyResource = new()
             {
                 Id = definition.Id, Name = definition.Id, Kind = BaseCollectionKinds.Custom,
                 SchemaMode = SchemaMode.Strict, UnknownFields = UnknownFieldPolicy.Reject, System = true,
@@ -47,7 +44,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
                 definition.OwningModuleId, session.Principal, moduleOperation))
             return Failure<TResult>(OperationStatus.PolicyDenied, BaseModuleMutationErrorCodes.Unauthorized, ErrorCategory.Authorization);
         if (!await AuthorizeDeclaredAuthorityAsync(
-                session, definition, moduleOperation, policyResource, operationPolicy.Value,
+                session, definition, moduleOperation,
                 cancellationToken).ConfigureAwait(false))
             return Failure<TResult>(OperationStatus.PolicyDenied, BaseModuleMutationErrorCodes.Unauthorized, ErrorCategory.Authorization);
         byte[] requestBytes;
@@ -74,7 +71,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         IAtomicRecordStore? atomicStore = ResolveOneStore(authorityCollections);
         if (atomicStore is null || !BaseModuleMutationCapabilityContract.Supports(definition.Limits, atomicStore.Capabilities.ModuleMutation))
             return Failure<TResult>(OperationStatus.Unsupported, BaseModuleMutationErrorCodes.CapabilityMissing, ErrorCategory.Unsupported);
-        BaseAtomicMutationExecutionLimits limits = Limits(definition.Limits);
+        BaseAtomicMutationExecutionLimits limits = ResolveExecutionLimits(definition.Limits);
         OperationResult<BaseAtomicMutationAuthorityRequirement> authority = await atomicStore
             .CaptureAtomicMutationAuthorityRequirementAsync(session.ApplicationId, [.. authorityCollections], limits, cancellationToken)
             .ConfigureAwait(false);
@@ -183,23 +180,22 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         BaseSession session,
         BaseRegisteredModuleMutationDefinition definition,
         OperationContext moduleOperation,
-        CollectionDefinition initialResource,
-        BasePolicyEvaluation initialEvaluation,
         CancellationToken cancellationToken)
     {
-        foreach (string collectionId in definition.SystemCollectionIds)
+        foreach (BaseModuleSystemSourceGrant sourceGrant in definition.SystemSourceGrants)
         {
+            string collectionId = sourceGrant.CollectionId;
             if (!collections.Collections.TryGetValue(collectionId, out CollectionDefinition? collection)) return false;
-            if (string.Equals(collection.Id, initialResource.Id, StringComparison.Ordinal)) continue;
+            OperationContext sourceOperation = moduleOperation with { CollectionId = collection.Id };
             OperationResult<BasePolicyEvaluation> source = await policy.EvaluateWriteAsync(new BasePolicyRequest
             {
                 Principal = session.Principal,
-                Operation = moduleOperation with { CollectionId = collection.Id },
+                Operation = sourceOperation,
                 Collection = collection,
                 ResourceKind = PolicyResourceKind.ModuleMutation,
             }, cancellationToken).ConfigureAwait(false);
-            if (!BaseSystemCollectionGate.HasExactModuleGrant(source, definition.GrantId,
-                    definition.OwningModuleId, session.Principal, moduleOperation)) return false;
+            if (!BaseSystemCollectionGate.HasExactModuleSourceGrant(source, sourceGrant.GrantId,
+                    definition.OwningModuleId, session.Principal, sourceOperation, collection.Id)) return false;
         }
 
         foreach (string contractId in definition.ImportedSubjectContractIds)
@@ -235,7 +231,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             }, cancellationToken).ConfigureAwait(false);
             if (!BaseSystemCollectionGate.HasExactGrant(imported, registration.Definition.ValidationGrantId)) return false;
         }
-        return initialEvaluation.Authority is not null;
+        return true;
     }
 
     private CollectionDefinition PolicyResource(BaseRegisteredModuleMutationDefinition definition) =>
@@ -352,7 +348,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         }
     }
 
-    private static BaseAtomicMutationExecutionLimits Limits(BaseModuleMutationLimits value) => new()
+    internal static BaseAtomicMutationExecutionLimits ResolveExecutionLimits(BaseModuleMutationLimits value) => new()
     {
         MaximumItems = value.MaximumRecordMutations, MaximumQueryNodes = 0, MaximumQueryDepth = 0,
         MaximumLiteralValues = 0, MaximumSelectedRecords = 0, MaximumProducedMutations = value.MaximumRecordMutations,
@@ -467,9 +463,12 @@ internal static class BaseModuleReceiptDisclosure
                 ExistingRecord = resource,
                 RecordId = resource.Id,
             }, cancellationToken).ConfigureAwait(false);
-            if (!disclosure.IsSuccess() || disclosure.Value is null
-                || !BaseSystemCollectionGate.HasExactModuleGrant(disclosure, definition.GrantId,
-                    definition.OwningModuleId, principal, operation)
+            BaseModuleSystemSourceGrant? sourceGrant = definition.SystemSourceGrants
+                .SingleOrDefault(value => string.Equals(value.CollectionId, fact.Collection.Id, StringComparison.Ordinal));
+            OperationContext sourceOperation = operation with { CollectionId = fact.Collection.Id, RecordId = resource.Id.Value };
+            if (!disclosure.IsSuccess() || disclosure.Value is null || sourceGrant is null
+                || !BaseSystemCollectionGate.HasExactModuleSourceGrant(disclosure, sourceGrant.GrantId,
+                    definition.OwningModuleId, principal, sourceOperation, fact.Collection.Id)
                 || !BaseRecordFilterMatcher.Matches(resource, disclosure.Value.EffectiveRecordFilter)) return false;
         }
 

@@ -55,6 +55,11 @@ public static partial class PaymentsOwnerGenerationMutation
         RequestTypeId = "hpd.payments.owner-ledger.advance.request",
         ResultTypeId = "hpd.payments.owner-ledger.advance.result",
         SystemCollectionIds = [PaymentsLedgerHead.Collection.Id, PaymentsOwnerState.Collection.Id],
+        SystemSourceGrants =
+        [
+            new() { CollectionId = PaymentsLedgerHead.Collection.Id, GrantId = "hpd.payments.ledger-head.source" },
+            new() { CollectionId = PaymentsOwnerState.Collection.Id, GrantId = "hpd.payments.owner-state.source" },
+        ],
         GenerationCellIds = [LedgerCellId, OwnerCellId],
         ImportedSubjectContractIds = [],
         Template = Template(),

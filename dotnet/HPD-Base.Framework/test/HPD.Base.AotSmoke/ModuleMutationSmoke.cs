@@ -9,7 +9,7 @@ public static partial class ModuleMutationSmoke
     {
         Id = "hpd.base.aot.module.increment", Version = 1, OwningModuleId = "hpd.base.aot.module", GrantId = "hpd.base.aot.module.increment",
         Audience = BaseModuleMutationAudience.Service, RequestTypeId = "hpd.base.aot.module.request", ResultTypeId = "hpd.base.aot.module.result",
-        SystemCollectionIds = [], GenerationCellIds = ["hpd.base.aot.module.generation"], ImportedSubjectContractIds = [],
+        SystemCollectionIds = [], SystemSourceGrants = [], GenerationCellIds = ["hpd.base.aot.module.generation"], ImportedSubjectContractIds = [],
         Template = new BaseModuleMutationTemplate
         {
             Captures = [new BaseModuleGenerationCapture { Id = "generation", CellId = "hpd.base.aot.module.generation", Absence = BaseModuleGenerationAbsenceBehavior.AllowEither }],
