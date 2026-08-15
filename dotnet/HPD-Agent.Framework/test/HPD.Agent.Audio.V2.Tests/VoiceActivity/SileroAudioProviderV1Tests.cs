@@ -1,6 +1,8 @@
 using System.Buffers.Binary;
 using System.Text.Json;
+using HPD.Agent.Audio.Graph;
 using HPD.Agent.Audio.ProviderContracts.VoiceActivity;
+using HPD.Agent.Audio.VoiceActivity;
 using HPD.Agent.Authority;
 using HPD.Agent.Providers;
 using HPD.Agent.Providers.Audio.Silero;
@@ -11,6 +13,8 @@ public sealed class SileroAudioProviderV1Tests
 {
     private static readonly ClockDomainId Clock = ClockDomainId.Create();
     private static readonly BootId Boot = BootId.Create();
+    private static readonly GraphGenerationId Graph = GraphGenerationId.Create();
+    private static readonly SessionAuthorityStampV1 Session = new(RuntimeGenerationId.Create(), LiveSessionId.Create());
 
     [Fact]
     public void Artifact_and_provider_metadata_are_exact_and_do_not_claim_implicit_download()
@@ -178,6 +182,43 @@ public sealed class SileroAudioProviderV1Tests
     }
 
     [Fact]
+    public void Real_model_scores_flow_through_the_compiled_plan_and_sole_promoter()
+    {
+        using var provider = new SileroAudioProvider();
+        var source = Source(provider);
+        var request = new VoiceActivityRequestV1(
+            VoiceActivityProfileV1.HpdManaged,
+            ActivityResponsivenessV1.Responsive,
+            VoiceActivityNoiseEnvironmentV1.Variable,
+            VoiceActivitySpeechContinuityV1.Natural,
+            TimeSpan.FromMilliseconds(200),
+            [new ActivitySourceRequestV1("silero", ActivitySourceKindV1.LocalDetector,
+                ActivitySourceRoleV1.Authoritative, required: true)],
+            ActivityDegradationPolicyV1.Strict,
+            new VoiceActivityOperationalLimitsV1(1, 4_096, 16, TimeSpan.FromSeconds(1),
+                TimeSpan.FromSeconds(1)));
+        var candidate = new VoiceActivitySourceCandidateV1("silero", ActivitySourceKindV1.LocalDetector,
+            source.Capabilities, available: true, ProviderActivityVisibilityV1.AcceptedLocally);
+        var plan = Assert.IsType<VoiceActivityPlanCompilationResultV1.Compiled>(
+            VoiceActivityPlanCompilerV1.Compile(1, 1, request, [candidate])).Plan;
+        var promoter = new VoiceActivityPromoterV1(plan, Session, GraphDirectionV1.IngressForward,
+            new Dictionary<string, ulong> { ["silero"] = 1 });
+        var pcm = ReadPcm16MonoWav(CorpusPath());
+        for (var offset = 0; offset + 1_024 <= pcm.Length; offset += 1_024)
+        {
+            var sourceOutcome = source.Observe(Window(pcm.AsSpan(offset, 1_024).ToArray(), 16_000,
+                (ulong)((offset / 1_024) + 1)));
+            var observed = Assert.IsType<VoiceActivitySourceOutcomeV1.Observed>(sourceOutcome);
+            Assert.IsType<VoiceActivityPromotionResultV1.Applied>(promoter.Apply(
+                new VoiceActivityPromotionInputV1(1, 1, Session, GraphDirectionV1.IngressForward,
+                    "silero", 1, observed.Sequence, VoiceActivityPromotionEdgeV1.Observation, observed)));
+        }
+        Assert.Contains(promoter.Facts, static fact => fact.Kind == VoiceActivityPromotionFactKindV1.Opened);
+        Assert.Contains(promoter.Facts, static fact => fact.Kind == VoiceActivityPromotionFactKindV1.Closed);
+        (source as IDisposable)?.Dispose();
+    }
+
+    [Fact]
     public void Sustained_streaming_is_bounded_and_does_not_retain_window_buffers()
     {
         using var provider = new SileroAudioProvider();
@@ -215,7 +256,7 @@ public sealed class SileroAudioProviderV1Tests
 
     private static VoiceActivityBorrowedWindowV1 Window(byte[] bytes, int sampleRate, ulong sequence) => new(
         bytes, new VoiceActivityInputFormatV1(VoiceActivitySampleEncodingV1.SignedPcm16, sampleRate, 1),
-        new VoiceActivityMediaExtentV1(GraphGenerationId.Create(), (long)sequence * 1_000,
+        new VoiceActivityMediaExtentV1(Graph, (long)sequence * 1_000,
             ((long)sequence * 1_000) + bytes.Length, true),
         new MonotonicStampV1(Clock, Boot, sequence));
 
