@@ -26,6 +26,7 @@ public sealed class AuthorityScalarTests
         "pvf|ProviderFamilyId|AgentCore|AgentCore|provider", "fac|ProviderFactoryId|AgentCore|AgentCore|provider",
         "pln|LiveAudioPlanId|S1|S1|composition", "env|EnvironmentProfileId|S1|S1|qualification",
         "srf|SurfaceId|S1|S1|qualification", "clk|ClockDomainId|S1|S1|clock", "boo|BootId|S1|S1|clock",
+        "gpa|GlobalParticipantAllocatorJournalId|S1|S1|authority",
     ];
 
     [Fact]
@@ -53,7 +54,7 @@ public sealed class AuthorityScalarTests
         var actual = AuthorityIdFamilyRegistryV1.All.Select(
             row => $"{row.Token}|{row.Type}|{row.Owner}|{row.AllocatorOwner}|{row.Kind}").ToArray();
         Assert.Equal(ExpectedFamilyRows, actual);
-        Assert.Equal(47, actual.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(48, actual.Distinct(StringComparer.Ordinal).Count());
 
         var raw = StableId128.FromBytes(Convert.FromHexString("000102030405060708090a0b0c0d0e0f"));
         foreach (var row in AuthorityIdFamilyRegistryV1.All)

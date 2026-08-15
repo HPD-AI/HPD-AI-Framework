@@ -58,8 +58,8 @@ public sealed class AuthoritySchemaLedgerTests
         Assert.Contains(AuthoritySchemaLedgerV1.Schemas, row => row.StartsWith("hpd.graph-runtime-command.v1|1.0|S2|HPD-Agent.Audio|", StringComparison.Ordinal));
         Assert.Contains(AuthoritySchemaLedgerV1.Schemas, row => row.StartsWith("hpd.graph-runtime-snapshot.v1|1.0|S2|HPD-Agent.Audio|", StringComparison.Ordinal));
         Assert.Contains(AuthoritySchemaLedgerV1.Schemas, row => row.StartsWith("hpd.graph-runtime-fact.v1|1.0|S2|HPD-Agent.Audio|", StringComparison.Ordinal));
-        Assert.Contains("hpd.authority-owner-payload.v1|36|GraphRuntimeCommand|hpd.authority-payload-graph-runtime-command.v1|GraphRuntimeCommandV1|S2", AuthoritySchemaLedgerV1.AuthorityPayloadDiscriminators);
-        Assert.Contains("hpd.authority-owner-payload.v1|37|GraphRuntimeFact|hpd.authority-payload-graph-runtime-fact.v1|GraphRuntimeFactV1|S2", AuthoritySchemaLedgerV1.AuthorityPayloadDiscriminators);
+        Assert.Contains("hpd.authority-owner-payload.v1|36|GraphRuntimeCommand|hpd.authority-payload-graph-runtime-command.v1|GraphRuntimeOwnerPayloadV1|S2", AuthoritySchemaLedgerV1.AuthorityPayloadDiscriminators);
+        Assert.Contains("hpd.authority-owner-payload.v1|37|GraphRuntimeFact|hpd.authority-payload-graph-runtime-fact.v1|GraphRuntimeOwnerPayloadV1|S2", AuthoritySchemaLedgerV1.AuthorityPayloadDiscriminators);
         Assert.DoesNotContain(AuthoritySchemaLedgerV1.GenerationTransitionSchemas, row => row.Contains("GraphRuntime", StringComparison.Ordinal));
         Assert.DoesNotContain(AuthoritySchemaLedgerV1.GenerationInitializationSchemas, row => row.Contains("GraphRuntime", StringComparison.Ordinal));
         Assert.Contains("hpd.authority-owner-payload.v1|38|GraphParticipantReservationCommand|hpd.authority-payload-graph-participant-reservation-command.v1|GraphParticipantReservationCommandV1|S1", AuthoritySchemaLedgerV1.AuthorityPayloadDiscriminators);
@@ -82,7 +82,7 @@ public sealed class AuthoritySchemaLedgerTests
     {
         var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
         var lines = File.ReadAllLines(Path.Combine(root, "src/HPD-Agent/Authority/Generated/authority-schema-ledger-v1.txt"));
-        Assert.Equal("# source-contract-sha256=15f8621a24f86fe01e3dbddf66e2bed089ebd815eb1256ed813895af76a4f07b", lines[0]);
+        Assert.Equal("# source-contract-sha256=751de62504018a277eec7ecd25fb24a972121f24760579f908070e438e954885", lines[0]);
         Assert.Equal("# source-registry-sha256=61630b3b2f890add5146b6c80611316cdf0dba012547fd76dbce02ab155a58da", lines[1]);
         Assert.Contains("hpd.global-participant-page.v1|7|isFinal|UInt16|required=true|range:0..1|union=None", lines);
         var expected = new Dictionary<string, List<string>>(StringComparer.Ordinal);
@@ -112,7 +112,7 @@ public sealed class AuthoritySchemaLedgerTests
         var schemas=AuthoritySchemaLedgerV1.Schemas.Select(row=>row.Split('|')[0]).ToHashSet(StringComparer.Ordinal);
         var payloadDiscriminators=AuthoritySchemaLedgerV1.AuthorityPayloadDiscriminators.ToList();
         Assert.Equal(162,schemas.Count);
-        Assert.Equal(46,payloadDiscriminators.Count);
+        Assert.Equal(48,payloadDiscriminators.Count);
         Assert.Contains("hpd.authority-owner-payload.v1|43|GraphParticipantReservationCommandV2|hpd.authority-payload-graph-participant-reservation-command.v2|GraphParticipantReservationCommandV2|S1",payloadDiscriminators);
         Assert.Contains("hpd.authority-owner-payload.v1|44|GraphParticipantReservationFactV2|hpd.authority-payload-graph-participant-reservation-fact.v2|GraphParticipantReservationFactV2|S1",payloadDiscriminators);
         Assert.Contains("hpd.authority-owner-payload.v1|45|GraphMediaPhysicalReleaseCommand|hpd.authority-payload-graph-media-physical-release-command.v1|GraphMediaPhysicalReleaseOuterV1|S1",payloadDiscriminators);
@@ -140,6 +140,6 @@ public sealed class AuthoritySchemaLedgerTests
 
         Assert.Equal(schemas, codecs);
         Assert.Subset(schemas, fields);
-        Assert.Equal(148, AuthoritySchemaLedgerV1.JsonProjectionContexts.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(161, AuthoritySchemaLedgerV1.JsonProjectionContexts.Distinct(StringComparer.Ordinal).Count());
     }
 }
