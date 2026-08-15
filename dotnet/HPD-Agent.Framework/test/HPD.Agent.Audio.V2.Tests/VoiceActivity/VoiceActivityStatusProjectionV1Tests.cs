@@ -2,6 +2,8 @@ using HPD.Agent.Audio.Graph;
 using HPD.Agent.Audio.ProviderContracts.VoiceActivity;
 using HPD.Agent.Audio.VoiceActivity;
 using HPD.Agent.Authority;
+using HPD.Events;
+using HPD.Events.Core;
 
 namespace HPD.Agent.Audio.V2.Tests.VoiceActivity;
 
@@ -98,6 +100,28 @@ public sealed class VoiceActivityStatusProjectionV1Tests
         Assert.Equal(1, faultedAdapter.Drain(1));
         Assert.Equal(1UL, faultedAdapter.Faulted);
         Assert.NotNull(faultedWriter.Current);
+    }
+
+    [Fact]
+    public async Task Hpd_events_projection_uses_bounded_streaming_diagnostic_delivery()
+    {
+        using var events = new EventCoordinator();
+        await using var inbox = events.CreateInbox<VoiceActivityDiagnosticEventV1>(
+            EventInboxOptions.LossyTelemetry(2));
+        var lifecycle = Lifecycle();
+        using var hub = new VoiceActivityObservationHubV1(1, 1);
+        hub.TrySubscribe(1, out var subscription);
+        var writer = new VoiceActivitySnapshotWriterV1(hub);
+        writer.TryPublish(0, lifecycle.Current, VoiceActivityPromotionStateV1.Open, 1, Health(), ["degraded"]);
+        var adapter = new VoiceActivityDiagnosticAdapterV1(subscription!,
+            new VoiceActivityHpdEventDiagnosticSinkV1(events));
+        Assert.Equal(1, adapter.Drain(1));
+        var emitted = await inbox.Reader.ReadAsync();
+        Assert.Equal(EventChannel.Streaming, emitted.Channel);
+        Assert.Equal(EventKind.Diagnostic, emitted.Kind);
+        Assert.Equal(EventDirection.Upstream, emitted.Direction);
+        Assert.Equal(1, emitted.Projection.WarningCount);
+        Assert.Equal(1UL, adapter.Exported);
     }
 
     private static VoiceActivityProviderStatusTrackerV1 Tracker() =>

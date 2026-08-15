@@ -1,3 +1,5 @@
+using HPD.Events;
+
 namespace HPD.Agent.Audio.VoiceActivity;
 
 internal abstract record VoiceActivityProviderStatusUpdateResultV1
@@ -108,6 +110,27 @@ internal readonly record struct VoiceActivityDiagnosticProjectionV1(
 internal interface IVoiceActivityDiagnosticSinkV1
 {
     bool TryWrite(VoiceActivityDiagnosticProjectionV1 projection);
+}
+
+internal sealed record VoiceActivityDiagnosticEventV1(VoiceActivityDiagnosticProjectionV1 Projection) : Event
+{
+    public override EventChannel Channel { get; init; } = EventChannel.Streaming;
+    public override EventKind Kind { get; init; } = EventKind.Diagnostic;
+    public override EventDirection Direction { get; init; } = EventDirection.Upstream;
+}
+
+internal sealed class VoiceActivityHpdEventDiagnosticSinkV1 : IVoiceActivityDiagnosticSinkV1
+{
+    private readonly IEventCoordinator _events;
+
+    internal VoiceActivityHpdEventDiagnosticSinkV1(IEventCoordinator events) =>
+        _events = events ?? throw new ArgumentNullException(nameof(events));
+
+    public bool TryWrite(VoiceActivityDiagnosticProjectionV1 projection)
+    {
+        _events.Emit(new VoiceActivityDiagnosticEventV1(projection));
+        return true;
+    }
 }
 
 internal sealed class VoiceActivityDiagnosticAdapterV1
