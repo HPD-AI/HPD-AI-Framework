@@ -27,6 +27,12 @@
   <ItemGroup>
     <!-- Exclude V1 archived test files from compilation -->
     <Compile Remove="**/*.V1.OLD.cs" />
+    <!-- Authority kernels run in the dependency-minimal authority test project. -->
+    <Compile Remove="Authority/**/*.cs" />
+    <Compile Include="Authority/SessionLifecycleAuthorityArchitectureV1Tests.cs" />
+    <!-- Provider catalog and generator tests run without the broad provider/Audio graph. -->
+    <Compile Remove="Core/ProviderManifestContractsTests.cs" />
+    <Compile Remove="SourceGenerator/ProviderManifestSourceGeneratorTests.cs" />
   </ItemGroup>
 
   <ItemGroup>

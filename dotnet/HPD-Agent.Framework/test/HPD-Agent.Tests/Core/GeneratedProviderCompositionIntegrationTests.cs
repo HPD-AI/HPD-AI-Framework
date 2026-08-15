@@ -9,6 +9,17 @@ namespace HPD.Agent.Tests.Core;
 public sealed class GeneratedProviderCompositionIntegrationTests
 {
     [Fact]
+    public void BareBuilder_HasNoAssemblyLoadDrivenProviderMembership()
+    {
+        var builder = new AgentBuilder();
+
+        Assert.Empty(builder.ProviderRegistry.GetRegisteredProviders());
+        Assert.Null(typeof(ProviderComposition).Assembly.GetType(
+            "HPD.Agent.Providers.ProviderCompositionGlobalRegistry",
+            throwOnError: false));
+    }
+
+    [Fact]
     public void AgentEventSerializer_RoundTripsTypedRunProviderOptions()
     {
         var services = new ServiceCollection();

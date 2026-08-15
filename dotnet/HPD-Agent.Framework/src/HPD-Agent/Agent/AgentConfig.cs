@@ -78,7 +78,7 @@ public class AgentConfig
             HPD.Agent.Providers.ProviderClientFamily.TextToSpeech => new TextToSpeechClientConfig(),
             HPD.Agent.Providers.ProviderClientFamily.SpeechToText => new SpeechToTextClientConfig(),
             HPD.Agent.Providers.ProviderClientFamily.HostedFiles => new HostedFilesClientConfig(),
-            HPD.Agent.Providers.ProviderClientFamily.VoiceActivityDetection => new VoiceActivityDetectionClientConfig(),
+            HPD.Agent.Providers.ProviderClientFamily.VoiceActivityDetection => new VoiceActivityClientConfig(),
             HPD.Agent.Providers.ProviderClientFamily.EndOfTurnDetection => new EndOfTurnDetectionClientConfig(),
             _ => throw new ArgumentOutOfRangeException(nameof(family), family, "Unknown provider client family.")
         };
@@ -573,7 +573,7 @@ public class AgentClientsConfig
     /// <summary>Gets or sets hosted-file client selection and defaults.</summary>
     public HostedFilesClientConfig? HostedFiles { get; set; }
     /// <summary>Gets or sets voice-activity-detection component selection.</summary>
-    public VoiceActivityDetectionClientConfig? VoiceActivityDetection { get; set; }
+    public VoiceActivityClientConfig? VoiceActivity { get; set; }
     /// <summary>Gets or sets end-of-turn-detection component selection.</summary>
     public EndOfTurnDetectionClientConfig? EndOfTurnDetection { get; set; }
 
@@ -590,7 +590,7 @@ public class AgentClientsConfig
             HPD.Agent.Providers.ProviderClientFamily.ImageGeneration => ImageGeneration,
             HPD.Agent.Providers.ProviderClientFamily.Embeddings => Embeddings,
             HPD.Agent.Providers.ProviderClientFamily.HostedFiles => HostedFiles,
-            HPD.Agent.Providers.ProviderClientFamily.VoiceActivityDetection => VoiceActivityDetection,
+            HPD.Agent.Providers.ProviderClientFamily.VoiceActivityDetection => VoiceActivity,
             HPD.Agent.Providers.ProviderClientFamily.EndOfTurnDetection => EndOfTurnDetection,
             _ => null
         };
@@ -627,7 +627,7 @@ public class AgentClientsConfig
                 HostedFiles = RequireFamilyType<HostedFilesClientConfig>(config, family);
                 break;
             case HPD.Agent.Providers.ProviderClientFamily.VoiceActivityDetection:
-                VoiceActivityDetection = RequireFamilyType<VoiceActivityDetectionClientConfig>(config, family);
+                VoiceActivity = RequireFamilyType<VoiceActivityClientConfig>(config, family);
                 break;
             case HPD.Agent.Providers.ProviderClientFamily.EndOfTurnDetection:
                 EndOfTurnDetection = RequireFamilyType<EndOfTurnDetectionClientConfig>(config, family);
@@ -695,8 +695,6 @@ public class AgentClientMiddlewareConfig
     public List<Func<IEmbeddingGenerator, IServiceProvider?, IEmbeddingGenerator>>? Embeddings { get; set; }
     /// <summary>Gets or sets wrappers applied to resolved hosted-file clients.</summary>
     public List<Func<IHostedFileClient, IServiceProvider?, IHostedFileClient>>? HostedFiles { get; set; }
-    /// <summary>Gets or sets wrappers applied to scoped voice-activity detectors.</summary>
-    public List<Func<IVoiceActivityDetector, HPD.Agent.Providers.ProviderComponentLifetimeContext, IServiceProvider?, IVoiceActivityDetector>>? VoiceActivityDetection { get; set; }
     /// <summary>Gets or sets wrappers applied to scoped end-of-turn detectors.</summary>
     public List<Func<IEotDetector, HPD.Agent.Providers.ProviderComponentLifetimeContext, IServiceProvider?, IEotDetector>>? EndOfTurnDetection { get; set; }
 }
@@ -773,7 +771,7 @@ public static class ProviderClientConfigResolver
         TextToSpeechClientConfig => new TextToSpeechClientConfig(),
         SpeechToTextClientConfig => new SpeechToTextClientConfig(),
         HostedFilesClientConfig => new HostedFilesClientConfig(),
-        VoiceActivityDetectionClientConfig => new VoiceActivityDetectionClientConfig(),
+        VoiceActivityClientConfig => new VoiceActivityClientConfig(),
         EndOfTurnDetectionClientConfig => new EndOfTurnDetectionClientConfig(),
         _ => new ProviderClientConfig()
     };
@@ -869,8 +867,6 @@ public static class ProviderClientConfigResolver
             targetFiles.ProviderOptions = sourceFiles.ProviderOptions ?? targetFiles.ProviderOptions;
             targetFiles.Override = sourceFiles.Override ?? targetFiles.Override;
         }
-        else if (target is VoiceActivityDetectionClientConfig targetVad && source is VoiceActivityDetectionClientConfig sourceVad)
-            targetVad.OverrideFactory = sourceVad.OverrideFactory ?? targetVad.OverrideFactory;
         else if (target is EndOfTurnDetectionClientConfig targetEot && source is EndOfTurnDetectionClientConfig sourceEot)
             targetEot.OverrideFactory = sourceEot.OverrideFactory ?? targetEot.OverrideFactory;
         target.ProviderConfig = source.ProviderConfig ?? target.ProviderConfig;

@@ -1,0 +1,35 @@
+using System.Formats.Cbor;
+
+namespace HPD.Agent.Authority;
+
+internal sealed record CopyReservationV1
+{
+    internal CopyReservationV1(CopyId copyId,FactRangeV1 sourceRange,CustodianDescriptorId custodianId,IEnumerable<SubjectId> subjects,DataClassificationV1 classification,PurposeId purpose,AudienceId audience,ResidencyRuleV1 residency,AuthorizationId authorizationId,RetentionIntervalV1 retention,ExpectedAuthorityVectorV1 authority,OperationId operationId,ulong expectedInventoryFrontier)
+    {
+        ArgumentNullException.ThrowIfNull(subjects);var a=subjects.ToArray();
+        if(!copyId.IsValid||sourceRange is null||!custodianId.IsValid||a.Length>256||a.Any(x=>!x.IsValid)||!Strict(a)||!Enum.IsDefined(classification)||!purpose.IsValid||!audience.IsValid||residency is null||!authorizationId.IsValid||retention is null||authority is null||authority.Session!=sourceRange.First.Session||!operationId.IsValid)throw new ArgumentException("Invalid copy reservation.");
+        CopyId=copyId;SourceRange=sourceRange;CustodianId=custodianId;Subjects=Array.AsReadOnly(a);Classification=classification;Purpose=purpose;Audience=audience;Residency=residency;AuthorizationId=authorizationId;Retention=retention;Authority=authority;OperationId=operationId;ExpectedInventoryFrontier=expectedInventoryFrontier;
+    }
+    internal CopyId CopyId{get;}internal FactRangeV1 SourceRange{get;}internal CustodianDescriptorId CustodianId{get;}internal IReadOnlyList<SubjectId> Subjects{get;}internal DataClassificationV1 Classification{get;}internal PurposeId Purpose{get;}internal AudienceId Audience{get;}internal ResidencyRuleV1 Residency{get;}internal AuthorizationId AuthorizationId{get;}internal RetentionIntervalV1 Retention{get;}internal ExpectedAuthorityVectorV1 Authority{get;}internal OperationId OperationId{get;}internal ulong ExpectedInventoryFrontier{get;}
+    private static bool Strict(SubjectId[]a){Span<byte>x=stackalloc byte[16];Span<byte>y=stackalloc byte[16];for(var i=1;i<a.Length;i++){a[i-1].TryWriteBytes(x);a[i].TryWriteBytes(y);if(x.SequenceCompareTo(y)>=0)return false;}return true;}
+}
+
+internal static class CopyReservationCodecsV1
+{
+    internal const string SchemaId="hpd.copy-reservation.v1";
+    internal static byte[] Encode(CopyReservationV1 v)
+    {ArgumentNullException.ThrowIfNull(v);var w=new CborWriter(CborConformanceMode.Ctap2Canonical);w.WriteStartMap(13);Tag(w,1);Id(w,v.CopyId.TryWriteBytes);Tag(w,2);WriteRange(w,v.SourceRange);Tag(w,3);Id(w,v.CustodianId.TryWriteBytes);Tag(w,4);w.WriteStartArray(v.Subjects.Count);foreach(var x in v.Subjects)Id(w,x.TryWriteBytes);w.WriteEndArray();Tag(w,5);w.WriteUInt64((ushort)v.Classification);Tag(w,6);Id(w,v.Purpose.TryWriteBytes);Tag(w,7);Id(w,v.Audience.TryWriteBytes);Tag(w,8);WriteResidency(w,v.Residency);Tag(w,9);Id(w,v.AuthorizationId.TryWriteBytes);Tag(w,10);WriteRetention(w,v.Retention);Tag(w,11);w.WriteEncodedValue(AuthorityVectorCodecsV1.Encode(v.Authority));Tag(w,12);Id(w,v.OperationId.TryWriteBytes);Tag(w,13);w.WriteUInt64(v.ExpectedInventoryFrontier);w.WriteEndMap();return w.Encode();}
+    internal static bool TryDecode(ReadOnlyMemory<byte>b,out CopyReservationV1? v)
+    {v=null;try{var r=new CborReader(b,CborConformanceMode.Ctap2Canonical,false);if(r.ReadStartMap()!=13)return false;Need(r,1);var copy=CopyId.FromValue(ReadId(r));Need(r,2);var range=ReadRange(r);Need(r,3);var cust=CustodianDescriptorId.FromValue(ReadId(r));Need(r,4);var n=r.ReadStartArray();if(n is null or<0 or>256)return false;var subjects=new SubjectId[n.Value];for(var i=0;i<subjects.Length;i++)subjects[i]=SubjectId.FromValue(ReadId(r));r.ReadEndArray();Need(r,5);var c=checked((DataClassificationV1)r.ReadUInt64());Need(r,6);var purpose=PurposeId.FromValue(ReadId(r));Need(r,7);var audience=AudienceId.FromValue(ReadId(r));Need(r,8);var residency=ReadResidency(r);Need(r,9);var authId=AuthorizationId.FromValue(ReadId(r));Need(r,10);var retention=ReadRetention(r);Need(r,11);if(!AuthorityVectorCodecsV1.TryDecodeVector(r.ReadEncodedValue(),out var authority))return false;Need(r,12);var operation=OperationId.FromValue(ReadId(r));Need(r,13);var frontier=r.ReadUInt64();r.ReadEndMap();var x=new CopyReservationV1(copy,range,cust,subjects,c,purpose,audience,residency,authId,retention,authority!,operation,frontier);if(r.BytesRemaining!=0||!Encode(x).AsSpan().SequenceEqual(b.Span))return false;v=x;return true;}catch(Exception e)when(e is CborContentException or InvalidOperationException or ArgumentException or OverflowException){return false;}}
+    internal static Hash256 ComputeHash(CopyReservationV1 v)=>AuthorityIntegrityHashV1.Compute(SchemaId,1,0,Encode(v));
+    private static void WriteRange(CborWriter w,FactRangeV1 x){w.WriteStartMap(2);Tag(w,1);w.WriteEncodedValue(AuthorityPositionCodecsV1.Encode(x.First));Tag(w,2);w.WriteEncodedValue(AuthorityPositionCodecsV1.Encode(x.Last));w.WriteEndMap();}
+    private static FactRangeV1 ReadRange(CborReader r){if(r.ReadStartMap()!=2)throw Bad();Need(r,1);if(!AuthorityPositionCodecsV1.TryDecodeJournal(r.ReadEncodedValue(),out var a))throw Bad();Need(r,2);if(!AuthorityPositionCodecsV1.TryDecodeJournal(r.ReadEncodedValue(),out var b))throw Bad();r.ReadEndMap();return new(a,b);}
+    private static void WriteResidency(CborWriter w,ResidencyRuleV1 x){w.WriteStartMap(2);Tag(w,1);w.WriteStartArray(x.AllowedRegions.Count);foreach(var v in x.AllowedRegions)BoundedAsciiCodec.Write(w,v);w.WriteEndArray();Tag(w,2);w.WriteBoolean(x.CrossRegionTransfer);w.WriteEndMap();}
+    private static ResidencyRuleV1 ReadResidency(CborReader r){if(r.ReadStartMap()!=2)throw Bad();Need(r,1);var n=r.ReadStartArray();if(n is null or<0 or>256)throw Bad();var a=new BoundedAscii[n.Value];for(var i=0;i<a.Length;i++)a[i]=BoundedAsciiCodec.Read(r);r.ReadEndArray();Need(r,2);var cross=r.ReadBoolean();r.ReadEndMap();return new(a,cross);}
+    private static void WriteRetention(CborWriter w,RetentionIntervalV1 x){w.WriteStartMap(3);Tag(w,1);w.WriteInt64(x.MinimumUntil.NanosecondsSinceUnixEpoch);Tag(w,2);w.WriteInt64(x.MaximumUntil.NanosecondsSinceUnixEpoch);Tag(w,3);w.WriteUInt64((ushort)x.Basis);w.WriteEndMap();}
+    private static RetentionIntervalV1 ReadRetention(CborReader r){if(r.ReadStartMap()!=3)throw Bad();Need(r,1);var a=new UtcInstant(r.ReadInt64());Need(r,2);var b=new UtcInstant(r.ReadInt64());Need(r,3);var c=checked((RetentionBasisV1)r.ReadUInt64());r.ReadEndMap();return new(a,b,c);}
+    private static void Tag(CborWriter w,ulong n)=>w.WriteUInt64(n);private static void Need(CborReader r,ulong n){if(r.ReadUInt64()!=n)throw Bad();}
+    private static void Id(CborWriter w,TryWrite write){Span<byte>b=stackalloc byte[16];if(!write(b))throw new ArgumentException("Invalid identity.");w.WriteByteString(b);}private delegate bool TryWrite(Span<byte>b);
+    private static StableId128 ReadId(CborReader r){Span<byte>b=stackalloc byte[16];if(!r.TryReadByteString(b,out var n)||n!=16)throw Bad();return StableId128.FromBytes(b);}
+    private static CborContentException Bad()=>new("Invalid copy reservation encoding.");
+}

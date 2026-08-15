@@ -1,0 +1,566 @@
+using System.Formats.Cbor;
+using System.Security.Cryptography;
+using System.Text;
+
+namespace HPD.Agent.Authority;
+
+internal enum AuthorityPayloadAdmissionV1
+{
+    Exact,
+    UnknownSchema,
+    OwnerMismatch,
+    InvalidPayload,
+    HashMismatch,
+}
+
+internal abstract class AuthorityPayloadRegistrationV1
+{
+    internal static AuthorityPayloadRegistrationV1 CreateOwnerRegistration(
+        BoundedAscii schemaToken,
+        ushort major,
+        ushort minor,
+        OwnerSliceId owner,
+        int maximumPayloadBytes,
+        Func<ReadOnlyMemory<byte>, SessionAuthorityStampV1, bool> validator) =>
+        new OwnerRegistration(schemaToken, major, minor, owner, maximumPayloadBytes, validator);
+
+    private protected AuthorityPayloadRegistrationV1(
+        BoundedAscii schemaToken,
+        ushort major,
+        ushort minor,
+        OwnerSliceId owner,
+        int maximumPayloadBytes)
+    {
+        if (!schemaToken.IsValid) throw new ArgumentException("A schema token is required.", nameof(schemaToken));
+        if (major == 0) throw new ArgumentOutOfRangeException(nameof(major));
+        if (!Enum.IsDefined(owner)) throw new ArgumentException("A registered owner is required.", nameof(owner));
+        if (maximumPayloadBytes is < 0 or > ProposedAuthorityFactV1.MaximumPayloadBytes) throw new ArgumentOutOfRangeException(nameof(maximumPayloadBytes));
+        var prefix = schemaToken.ToString() + "|" + major.ToString(System.Globalization.CultureInfo.InvariantCulture) + "." +
+            minor.ToString(System.Globalization.CultureInfo.InvariantCulture) + "|";
+        var registered = AuthoritySchemaLedgerV1.Schemas.SingleOrDefault(row => row.StartsWith(prefix, StringComparison.Ordinal));
+        if (registered is null || !string.Equals(registered.Split('|')[2], owner.ToString(), StringComparison.Ordinal))
+            throw new ArgumentException("The schema token, version, and semantic owner must exactly join the generated authority registry.", nameof(schemaToken));
+        Schema = new SchemaReferenceV1(AuthoritySchemaIdentityV1.Derive(schemaToken), major, minor);
+        SchemaToken = schemaToken;
+        Owner = owner;
+        MaximumPayloadBytes = maximumPayloadBytes;
+    }
+
+    internal SchemaReferenceV1 Schema { get; }
+    internal BoundedAscii SchemaToken { get; }
+    internal OwnerSliceId Owner { get; }
+    internal int MaximumPayloadBytes { get; }
+    internal bool Validate(ReadOnlyMemory<byte> payload) =>
+        payload.Length <= MaximumPayloadBytes && ValidateCanonicalPayload(payload, default);
+    internal bool Validate(ReadOnlyMemory<byte> payload, SessionAuthorityStampV1 session) =>
+        payload.Length <= MaximumPayloadBytes && ValidateCanonicalPayload(payload, session);
+    private protected abstract bool ValidateCanonicalPayload(
+        ReadOnlyMemory<byte> payload, SessionAuthorityStampV1 session);
+
+    private sealed class OwnerRegistration : AuthorityPayloadRegistrationV1
+    {
+        private readonly Func<ReadOnlyMemory<byte>, SessionAuthorityStampV1, bool> _validator;
+        internal OwnerRegistration(BoundedAscii schemaToken, ushort major, ushort minor, OwnerSliceId owner,
+            int maximumPayloadBytes, Func<ReadOnlyMemory<byte>, SessionAuthorityStampV1, bool> validator)
+            : base(schemaToken, major, minor, owner, maximumPayloadBytes) =>
+            _validator = validator ?? throw new ArgumentNullException(nameof(validator));
+        private protected override bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload,
+            SessionAuthorityStampV1 session) => _validator(payload, session);
+    }
+}
+
+internal sealed class SessionAuthorityStampPayloadRegistrationV1 : AuthorityPayloadRegistrationV1
+{
+    internal SessionAuthorityStampPayloadRegistrationV1() :
+        base(new BoundedAscii(SessionAuthorityStampV1Codec.SchemaId), SessionAuthorityStampV1Codec.Major,
+            SessionAuthorityStampV1Codec.Minor, OwnerSliceId.S1, 64) { }
+
+    private protected override bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload, SessionAuthorityStampV1 session) =>
+        SessionAuthorityStampV1Codec.TryDecode(payload, out _);
+}
+
+internal sealed class SemanticInputAcceptedPayloadRegistrationV1 : AuthorityPayloadRegistrationV1
+{
+    internal SemanticInputAcceptedPayloadRegistrationV1() :
+        base(new BoundedAscii(SemanticInputAcceptedV1Codec.SchemaId), SemanticInputAcceptedV1Codec.Major,
+            SemanticInputAcceptedV1Codec.Minor, OwnerSliceId.AgentCore, 4096) { }
+
+    private protected override bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload, SessionAuthorityStampV1 session) =>
+        SemanticInputAcceptedV1Codec.TryDecode(payload, out _);
+}
+
+internal sealed class SubmissionDispositionChosenPayloadRegistrationV1 : AuthorityPayloadRegistrationV1
+{
+    internal SubmissionDispositionChosenPayloadRegistrationV1() :
+        base(new BoundedAscii(SubmissionDispositionChosenV1Codec.SchemaId), SubmissionDispositionChosenV1Codec.Major,
+            SubmissionDispositionChosenV1Codec.Minor, OwnerSliceId.S1, 4096) { }
+
+    private protected override bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload, SessionAuthorityStampV1 session) =>
+        SubmissionDispositionChosenV1Codec.TryDecode(payload, out _);
+}
+
+internal sealed class SessionLifecycleCommandPayloadRegistrationV1 : AuthorityPayloadRegistrationV1
+{
+    internal SessionLifecycleCommandPayloadRegistrationV1() :
+        base(new BoundedAscii(SessionLifecyclePayloadV1Codec.CommandSchemaId), SessionLifecyclePayloadV1Codec.Major,
+            SessionLifecyclePayloadV1Codec.Minor, OwnerSliceId.S1, SessionLifecyclePayloadV1Codec.MaximumEncodedBytes) { }
+
+    private protected override bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload, SessionAuthorityStampV1 session) =>
+        SessionLifecyclePayloadV1Codec.TryDecodeCommand(payload, out var value) && value!.Session == session &&
+        value.BodyBytes.Length <= SessionLifecycleBodyCodecsV1.MaximumCommandBytes &&
+        SessionLifecycleBodyCodecsV1.TryDecodeCommand(value.BodyBytes.ToArray(), out var inner) &&
+        (inner!.ExpectedLifecycleFact is null || inner.ExpectedLifecycleFact.Value.Session == session);
+}
+
+internal sealed class SessionLifecycleFactPayloadRegistrationV1 : AuthorityPayloadRegistrationV1
+{
+    internal SessionLifecycleFactPayloadRegistrationV1() :
+        base(new BoundedAscii(SessionLifecyclePayloadV1Codec.FactSchemaId), SessionLifecyclePayloadV1Codec.Major,
+            SessionLifecyclePayloadV1Codec.Minor, OwnerSliceId.S1, SessionLifecyclePayloadV1Codec.MaximumEncodedBytes) { }
+
+    private protected override bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload, SessionAuthorityStampV1 session) =>
+        SessionLifecyclePayloadV1Codec.TryDecodeFact(payload, out var value) && value!.Session == session &&
+        value.BodyBytes.Length <= SessionLifecycleBodyCodecsV1.MaximumFactBytes &&
+        SessionLifecycleBodyCodecsV1.TryDecodeFact(value.BodyBytes.ToArray(), out var inner) &&
+        inner!.CommandPosition.Session == session &&
+        (inner.CommandExpectedLifecycleFact is null || inner.CommandExpectedLifecycleFact.Value.Session == session) &&
+        (inner.PreviousLifecycleFact is null || inner.PreviousLifecycleFact.Value.Session == session);
+}
+
+internal sealed class AuthorityGenerationInitializationPayloadRegistrationV1 : AuthorityPayloadRegistrationV1
+{
+    private readonly AuthorityAxisId _axis;
+
+    internal AuthorityGenerationInitializationPayloadRegistrationV1(AuthorityAxisId axis) :
+        base(AuthorityGenerationInitializationCodecV1.SchemaTokenFor(axis), 1, 0,
+            AuthorityGenerationInitializationCodecV1.OwnerFor(axis), 128) => _axis = axis;
+
+    private protected override bool ValidateCanonicalPayload(
+        ReadOnlyMemory<byte> payload, SessionAuthorityStampV1 session) =>
+        AuthorityGenerationInitializationCodecV1.Decode(
+            Schema, Owner, session, payload, out var decoded) == AuthorityGenerationInitializationDecodeV1.Valid &&
+        decoded.Axis == _axis;
+}
+
+internal sealed class AuthorityGenerationTransitionPayloadRegistrationV1 : AuthorityPayloadRegistrationV1
+{
+    private readonly AuthorityAxisId _axis;
+
+    internal AuthorityGenerationTransitionPayloadRegistrationV1(AuthorityAxisId axis) :
+        base(AuthorityGenerationTransitionCodecV1.SchemaTokenFor(axis), 1, 0,
+            AuthorityGenerationTransitionCodecV1.OwnerFor(axis), 160) => _axis = axis;
+
+    private protected override bool ValidateCanonicalPayload(
+        ReadOnlyMemory<byte> payload, SessionAuthorityStampV1 session) =>
+        AuthorityGenerationTransitionCodecV1.Decode(
+            Schema, Owner, session, payload, out var decoded) == AuthorityGenerationTransitionDecodeV1.Valid &&
+        decoded.Axis == _axis;
+}
+
+internal sealed class CapacityReservationPayloadRegistrationV1 : AuthorityPayloadRegistrationV1
+{
+    internal CapacityReservationPayloadRegistrationV1() :
+        base(new BoundedAscii(CapacityLedgerCodecsV1.ReservationSchemaId), CapacityLedgerCodecsV1.Major,
+            CapacityLedgerCodecsV1.Minor, OwnerSliceId.S2, ProposedAuthorityFactV1.MaximumPayloadBytes) { }
+
+    private protected override bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload, SessionAuthorityStampV1 session) =>
+        CapacityLedgerCodecsV1.TryDecodeReservation(payload, out var value) && value!.Request.Authority.Session == session;
+}
+
+internal sealed class CapacitySettlementPayloadRegistrationV1 : AuthorityPayloadRegistrationV1
+{
+    internal CapacitySettlementPayloadRegistrationV1() :
+        base(new BoundedAscii(CapacityLedgerCodecsV1.SettlementSchemaId), CapacityLedgerCodecsV1.Major,
+            CapacityLedgerCodecsV1.Minor, OwnerSliceId.S2, ProposedAuthorityFactV1.MaximumPayloadBytes) { }
+
+    private protected override bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload, SessionAuthorityStampV1 session) =>
+        CapacityLedgerCodecsV1.TryDecodeSettlement(payload, out var value) && value!.ExpectedFact.Session == session;
+}
+
+internal sealed class CaptureAuthorizationPayloadRegistrationV1 : AuthorityPayloadRegistrationV1
+{
+    internal CaptureAuthorizationPayloadRegistrationV1() :
+        base(new BoundedAscii(CaptureGrantCodecsV1.CommandSchemaId), CaptureGrantCodecsV1.Major,
+            CaptureGrantCodecsV1.Minor, OwnerSliceId.S9, CaptureGrantCodecsV1.MaximumCommandBytes) { }
+
+    private protected override bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload, SessionAuthorityStampV1 session) =>
+        CaptureGrantCodecsV1.TryDecodeCommand(payload, out var value) && value!.Session == session;
+}
+
+internal sealed class CaptureGrantCommittedPayloadRegistrationV1 : AuthorityPayloadRegistrationV1
+{
+    internal CaptureGrantCommittedPayloadRegistrationV1() :
+        base(new BoundedAscii(CaptureGrantCodecsV1.FactSchemaId), CaptureGrantCodecsV1.Major,
+            CaptureGrantCodecsV1.Minor, OwnerSliceId.S9, CaptureGrantCodecsV1.MaximumFactBytes) { }
+
+    private protected override bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload, SessionAuthorityStampV1 session) =>
+        CaptureGrantCodecsV1.TryDecodeFact(payload, out var value) && value!.SourcePosition.Session == session;
+}
+
+internal static class AuthoritySchemaIdentityV1
+{
+    private static ReadOnlySpan<byte> Domain => "hpd-schema-id-v1\0"u8;
+
+    internal static SchemaId Derive(BoundedAscii schemaToken)
+    {
+        if (!schemaToken.IsValid) throw new ArgumentException("A schema token is required.", nameof(schemaToken));
+        var token = Encoding.ASCII.GetBytes(schemaToken.ToString());
+        var preimage = new byte[Domain.Length + token.Length];
+        Domain.CopyTo(preimage);
+        token.CopyTo(preimage.AsSpan(Domain.Length));
+        Span<byte> digest = stackalloc byte[32];
+        SHA256.HashData(preimage, digest);
+        if (digest[..16].IndexOfAnyExcept((byte)0) < 0)
+            throw new InvalidOperationException("The registered schema token derived the reserved all-zero identity.");
+        return SchemaId.FromValue(StableId128.FromBytes(digest[..16]));
+    }
+}
+
+internal sealed class AuthorityPayloadAdmissionRegistryV1
+{
+    private readonly IReadOnlyDictionary<SchemaId, AuthorityPayloadRegistrationV1> _registrations;
+
+    internal AuthorityPayloadAdmissionRegistryV1(IEnumerable<AuthorityPayloadRegistrationV1> registrations)
+    {
+        ArgumentNullException.ThrowIfNull(registrations);
+        var map = new Dictionary<SchemaId, AuthorityPayloadRegistrationV1>();
+        var tuples = new HashSet<(string Token, ushort Major, ushort Minor)>();
+        foreach (var registration in registrations)
+        {
+            if (map.Count == 256) throw new ArgumentOutOfRangeException(nameof(registrations), "At most 256 exact payload codecs may be registered in one journal registry.");
+            if (registration is null || !map.TryAdd(registration.Schema.SchemaId, registration) ||
+                !tuples.Add((registration.SchemaToken.ToString(), registration.Schema.Major, registration.Schema.Minor)))
+                throw new ArgumentException("Schema registrations must be nonnull and unique by stable identity and token-version tuple.", nameof(registrations));
+        }
+        if (map.Count == 0) throw new ArgumentOutOfRangeException(nameof(registrations));
+        _registrations = map;
+    }
+
+    internal AuthorityPayloadAdmissionV1 Validate(
+        SessionAuthorityStampV1 session,
+        ProposedAuthorityFactV1 proposal,
+        out AuthorityPayloadRegistrationV1? registration)
+    {
+        if (!_registrations.TryGetValue(proposal.PayloadSchema.SchemaId, out registration) || registration.Schema != proposal.PayloadSchema)
+            return AuthorityPayloadAdmissionV1.UnknownSchema;
+        if (registration.Owner != proposal.Owner)
+            return AuthorityPayloadAdmissionV1.OwnerMismatch;
+        if (!registration.Validate(proposal.PayloadMemory, session))
+            return AuthorityPayloadAdmissionV1.InvalidPayload;
+        return AuthorityPayloadHashV1.Compute(registration.SchemaToken, proposal.PayloadSchema, proposal.PayloadBytes) == proposal.PayloadHash
+            ? AuthorityPayloadAdmissionV1.Exact
+            : AuthorityPayloadAdmissionV1.HashMismatch;
+    }
+}
+
+internal static class AuthorityPayloadHashV1
+{
+    internal static Hash256 Compute(BoundedAscii schemaToken, SchemaReferenceV1 schema, ReadOnlySpan<byte> canonicalPayload) =>
+        AuthorityIntegrityHashV1.Compute(schemaToken.ToString(), schema.Major, schema.Minor, canonicalPayload);
+}
+
+internal static class AuthorityCanonicalCborV1
+{
+    internal const string CorrelationSchemaId = "hpd.correlation-envelope.v1";
+    internal const string ProposedFactSchemaId = "hpd.proposed-authority-fact.v1";
+    internal const string AppendBatchSchemaId = "hpd.append-authority-batch.v1";
+    internal static bool IsSingleCanonicalValue(ReadOnlyMemory<byte> payload)
+    {
+        try
+        {
+            var reader = new CborReader(payload, CborConformanceMode.Ctap2Canonical, false);
+            reader.SkipValue();
+            return reader.BytesRemaining == 0;
+        }
+        catch (Exception exception) when (exception is CborContentException or InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    internal static ulong GetAppendBatchEncodedLength(AppendAuthorityBatchV1 request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ulong length = 1 + 5; // fixed map(5) and one-byte numeric keys 1..5
+        length = checked(length + (ulong)SessionAuthorityStampV1Codec.Encode(request.Session).Length);
+        length = checked(length + IntegerLength(request.ExpectedSessionHead));
+        length = checked(length + ContainerLength((ulong)request.ExpectedThreadHeads.Count));
+        foreach (var head in request.ExpectedThreadHeads)
+            length = checked(length + (ulong)EncodeThreadExpectedHead(head).Length);
+        length = checked(length + ContainerLength((ulong)request.Facts.Count));
+        foreach (var fact in request.Facts)
+            length = checked(length + (ulong)EncodeProposal(fact).Length);
+        return checked(length + IntegerLength(request.MaximumEncodedBytes));
+    }
+
+    internal static byte[] EncodeAppendBatch(AppendAuthorityBatchV1 request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var writer = new CborWriter(CborConformanceMode.Ctap2Canonical);
+        writer.WriteStartMap(5);
+        writer.WriteUInt64(1);
+        SessionAuthorityStampV1Codec.Write(writer, request.Session);
+        writer.WriteUInt64(2);
+        writer.WriteInt64(request.ExpectedSessionHead);
+        writer.WriteUInt64(3);
+        writer.WriteStartArray(request.ExpectedThreadHeads.Count);
+        foreach (var head in request.ExpectedThreadHeads)
+        {
+            writer.WriteStartMap(3);
+            writer.WriteUInt64(1); WriteId(writer, head.ThreadId);
+            writer.WriteUInt64(2); writer.WriteInt64(head.Generation);
+            writer.WriteUInt64(3); writer.WriteInt64(head.Sequence);
+            writer.WriteEndMap();
+        }
+        writer.WriteEndArray();
+        writer.WriteUInt64(4);
+        writer.WriteStartArray(request.Facts.Count);
+        foreach (var fact in request.Facts) WriteProposal(writer, fact);
+        writer.WriteEndArray();
+        writer.WriteUInt64(5);
+        writer.WriteUInt64(request.MaximumEncodedBytes);
+        writer.WriteEndMap();
+        return writer.Encode();
+    }
+
+    internal static byte[] Encode(ProposedAuthorityFactV1 fact)=>EncodeProposal(fact);
+    internal static byte[] Encode(CorrelationEnvelopeV1 correlation){var writer=new CborWriter(CborConformanceMode.Ctap2Canonical);WriteCorrelation(writer,correlation);return writer.Encode();}
+    internal static Hash256 ComputeHash(CorrelationEnvelopeV1 value)=>AuthorityIntegrityHashV1.Compute(CorrelationSchemaId,1,0,Encode(value));
+    internal static Hash256 ComputeHash(ProposedAuthorityFactV1 value)=>AuthorityIntegrityHashV1.Compute(ProposedFactSchemaId,1,0,Encode(value));
+    internal static Hash256 ComputeHash(AppendAuthorityBatchV1 value)=>AuthorityIntegrityHashV1.Compute(AppendBatchSchemaId,1,0,EncodeAppendBatch(value));
+    internal static bool TryDecodeCorrelation(ReadOnlyMemory<byte> encoded,out CorrelationEnvelopeV1 value)=>
+        TryDecodeValue(encoded,ReadCorrelation,Encode,out value);
+    internal static bool TryDecodeProposal(ReadOnlyMemory<byte> encoded,out ProposedAuthorityFactV1? value)=>
+        TryDecodeClass(encoded,ReadProposal,Encode,out value);
+    internal static bool TryDecodeAppendBatch(ReadOnlyMemory<byte> encoded,out AppendAuthorityBatchV1? value)=>
+        TryDecodeClass(encoded,ReadAppendBatch,EncodeAppendBatch,out value);
+
+    internal static byte[] EncodeEnvelopeWithoutIntegrity(
+        ProposedAuthorityFactV1 fact,
+        JournalPositionV1 position,
+        ThreadPositionV1? threadPosition,
+        UtcInstant admittedAt)
+    {
+        var writer = new CborWriter(CborConformanceMode.Ctap2Canonical);
+        writer.WriteStartMap(11);
+        writer.WriteUInt64(1); writer.WriteUInt64(AuthorityFactEnvelopeV1.SchemaVersion);
+        writer.WriteUInt64(2); WriteId(writer, fact.FactId);
+        writer.WriteUInt64(3); WriteJournalPosition(writer, position);
+        writer.WriteUInt64(4); WriteThreadPositionUnion(writer, threadPosition);
+        writer.WriteUInt64(5); writer.WriteUInt64((ushort)fact.Owner);
+        writer.WriteUInt64(6); WriteSchema(writer, fact.PayloadSchema);
+        writer.WriteUInt64(7); writer.WriteByteString(fact.PayloadBytes);
+        writer.WriteUInt64(8); WriteHash(writer, fact.PayloadHash);
+        writer.WriteUInt64(9); WriteCorrelation(writer, fact.Correlation);
+        writer.WriteUInt64(10); writer.WriteInt64(fact.ObservedAt.NanosecondsSinceUnixEpoch);
+        writer.WriteUInt64(11); writer.WriteInt64(admittedAt.NanosecondsSinceUnixEpoch);
+        writer.WriteEndMap();
+        return writer.Encode();
+    }
+
+    internal static ulong GetEnvelopeEncodedLength(byte[] envelopeWithoutIntegrity, IntegrityEnvelopeV1 integrity)
+    {
+        ArgumentNullException.ThrowIfNull(envelopeWithoutIntegrity);
+        ArgumentNullException.ThrowIfNull(integrity);
+        if (envelopeWithoutIntegrity.Length == 0 || envelopeWithoutIntegrity[0] != 0xab)
+            throw new ArgumentException("The envelope preimage must be the canonical eleven-field map.", nameof(envelopeWithoutIntegrity));
+        return checked((ulong)envelopeWithoutIntegrity.Length + 1UL + (ulong)AuthorityEnvelopePrimitiveCodecsV1.Encode(integrity).Length);
+    }
+
+    internal static ulong GetEnvelopeEncodedLength(AuthorityFactEnvelopeV1 fact)
+    {
+        ArgumentNullException.ThrowIfNull(fact);
+        var proposal = new ProposedAuthorityFactV1(fact.FactId, fact.ThreadScope?.ThreadId, fact.Owner,
+            fact.PayloadSchema, fact.PayloadBytes, fact.PayloadHash, fact.Correlation, fact.ObservedAt);
+        return GetEnvelopeEncodedLength(EncodeEnvelopeWithoutIntegrity(proposal, fact.Position,
+            fact.ThreadScope, fact.AdmittedAt), fact.Integrity);
+    }
+
+    private static void WriteProposal(CborWriter writer, ProposedAuthorityFactV1 fact)
+    {
+        writer.WriteStartMap(8);
+        writer.WriteUInt64(1); WriteId(writer, fact.FactId);
+        writer.WriteUInt64(2); WriteIdUnion(writer, fact.ThreadId);
+        writer.WriteUInt64(3); writer.WriteUInt64((ushort)fact.Owner);
+        writer.WriteUInt64(4); WriteSchema(writer, fact.PayloadSchema);
+        writer.WriteUInt64(5); writer.WriteByteString(fact.PayloadBytes);
+        writer.WriteUInt64(6); WriteHash(writer, fact.PayloadHash);
+        writer.WriteUInt64(7); WriteCorrelation(writer, fact.Correlation);
+        writer.WriteUInt64(8); writer.WriteInt64(fact.ObservedAt.NanosecondsSinceUnixEpoch);
+        writer.WriteEndMap();
+    }
+
+    private static byte[] EncodeProposal(ProposedAuthorityFactV1 fact)
+    {
+        var writer = new CborWriter(CborConformanceMode.Ctap2Canonical);
+        WriteProposal(writer, fact);
+        return writer.Encode();
+    }
+
+    private static byte[] EncodeThreadExpectedHead(ThreadExpectedHeadV1 head)
+    {
+        var writer = new CborWriter(CborConformanceMode.Ctap2Canonical);
+        writer.WriteStartMap(3);
+        writer.WriteUInt64(1); WriteId(writer, head.ThreadId);
+        writer.WriteUInt64(2); writer.WriteInt64(head.Generation);
+        writer.WriteUInt64(3); writer.WriteInt64(head.Sequence);
+        writer.WriteEndMap();
+        return writer.Encode();
+    }
+
+    private static ulong IntegerLength(long value) => value >= 0
+        ? IntegerLength((ulong)value)
+        : IntegerLength((ulong)~value);
+
+    private static ulong IntegerLength(ulong value) => value switch
+    {
+        < 24 => 1,
+        <= byte.MaxValue => 2,
+        <= ushort.MaxValue => 3,
+        <= uint.MaxValue => 5,
+        _ => 9,
+    };
+
+    private static ulong ContainerLength(ulong itemCount) => IntegerLength(itemCount);
+
+    private static void WriteSchema(CborWriter writer, SchemaReferenceV1 schema)
+    {
+        writer.WriteStartMap(3);
+        writer.WriteUInt64(1); WriteId(writer, schema.SchemaId);
+        writer.WriteUInt64(2); writer.WriteUInt64(schema.Major);
+        writer.WriteUInt64(3); writer.WriteUInt64(schema.Minor);
+        writer.WriteEndMap();
+    }
+
+    private static void WriteJournalPosition(CborWriter writer, JournalPositionV1 position)
+    {
+        writer.WriteStartMap(2);
+        writer.WriteUInt64(1); SessionAuthorityStampV1Codec.Write(writer, position.Session);
+        writer.WriteUInt64(2); writer.WriteInt64(position.Sequence);
+        writer.WriteEndMap();
+    }
+
+    private static void WriteThreadPositionUnion(CborWriter writer, ThreadPositionV1? position)
+    {
+        writer.WriteStartMap(position.HasValue ? 2 : 1);
+        writer.WriteUInt64(1); writer.WriteUInt64(position.HasValue ? 1UL : 0UL);
+        if (position is { } value)
+        {
+            writer.WriteUInt64(2);
+            writer.WriteStartMap(3);
+            writer.WriteUInt64(1); WriteId(writer, value.ThreadId);
+            writer.WriteUInt64(2); writer.WriteInt64(value.Generation);
+            writer.WriteUInt64(3); writer.WriteInt64(value.Sequence);
+            writer.WriteEndMap();
+        }
+        writer.WriteEndMap();
+    }
+
+    private static void WriteIdUnion(CborWriter writer, ThreadId? id)
+    {
+        writer.WriteStartMap(id.HasValue ? 2 : 1);
+        writer.WriteUInt64(1); writer.WriteUInt64(id.HasValue ? 1UL : 0UL);
+        if (id is { } value) { writer.WriteUInt64(2); WriteId(writer, value); }
+        writer.WriteEndMap();
+    }
+
+    private static void WriteCorrelation(CborWriter writer, CorrelationEnvelopeV1 correlation)
+    {
+        writer.WriteStartMap(6);
+        writer.WriteUInt64(1); WriteId(writer, correlation.TenantId);
+        writer.WriteUInt64(2); WriteOptionalId(writer, correlation.PrincipalId);
+        writer.WriteUInt64(3); WriteOptionalId(writer, correlation.SessionId);
+        writer.WriteUInt64(4); WriteOptionalId(writer, correlation.ThreadId);
+        writer.WriteUInt64(5); WriteOptionalId(writer, correlation.ParticipantId);
+        writer.WriteUInt64(6); WriteOptionalId(writer, correlation.OperationId);
+        writer.WriteEndMap();
+    }
+
+    private static AppendAuthorityBatchV1 ReadAppendBatch(CborReader reader)
+    {
+        RequireMap(reader,5,1);var session=SessionAuthorityStampV1Codec.Read(reader);
+        RequireTag(reader,2);var sessionHead=reader.ReadInt64();RequireTag(reader,3);
+        var headCount=reader.ReadStartArray();if(headCount is null or<0 or>AppendAuthorityBatchV1.MaximumItems)throw Invalid();
+        var heads=new ThreadExpectedHeadV1[headCount.Value];
+        for(var i=0;i<heads.Length;i++){RequireMap(reader,3,1);var thread=ThreadId.FromValue(ReadStable(reader));RequireTag(reader,2);var generation=reader.ReadInt64();RequireTag(reader,3);var sequence=reader.ReadInt64();reader.ReadEndMap();heads[i]=new(thread,generation,sequence);}
+        reader.ReadEndArray();RequireTag(reader,4);var factCount=reader.ReadStartArray();if(factCount is null or<1 or>AppendAuthorityBatchV1.MaximumItems)throw Invalid();
+        var facts=new ProposedAuthorityFactV1[factCount.Value];for(var i=0;i<facts.Length;i++)facts[i]=ReadProposal(reader);reader.ReadEndArray();
+        RequireTag(reader,5);var maximum=checked((uint)reader.ReadUInt64());reader.ReadEndMap();return new(session,sessionHead,heads,facts,maximum);
+    }
+
+    private static ProposedAuthorityFactV1 ReadProposal(CborReader reader)
+    {
+        RequireMap(reader,8,1);var fact=JournalFactId.FromValue(ReadStable(reader));RequireTag(reader,2);var thread=ReadOptional(reader,ThreadId.FromValue);
+        RequireTag(reader,3);var owner=checked((OwnerSliceId)reader.ReadUInt64());RequireTag(reader,4);var schema=ReadSchema(reader);
+        RequireTag(reader,5);var payload=reader.ReadByteString();if(payload.Length>ProposedAuthorityFactV1.MaximumPayloadBytes)throw Invalid();
+        RequireTag(reader,6);var hash=ReadHash(reader);RequireTag(reader,7);var correlation=ReadCorrelation(reader);
+        RequireTag(reader,8);var observed=new UtcInstant(reader.ReadInt64());reader.ReadEndMap();return new(fact,thread,owner,schema,payload,hash,correlation,observed);
+    }
+
+    private static CorrelationEnvelopeV1 ReadCorrelation(CborReader reader)
+    {
+        RequireMap(reader,6,1);var tenant=TenantId.FromValue(ReadStable(reader));RequireTag(reader,2);var principal=ReadOptional(reader,PrincipalId.FromValue);
+        RequireTag(reader,3);var session=ReadOptional(reader,SessionId.FromValue);RequireTag(reader,4);var thread=ReadOptional(reader,ThreadId.FromValue);
+        RequireTag(reader,5);var participant=ReadOptional(reader,ParticipantId.FromValue);RequireTag(reader,6);var operation=ReadOptional(reader,OperationId.FromValue);
+        reader.ReadEndMap();return new(tenant,principal,session,thread,participant,operation);
+    }
+
+    private static SchemaReferenceV1 ReadSchema(CborReader reader)
+    {RequireMap(reader,3,1);var id=SchemaId.FromValue(ReadStable(reader));RequireTag(reader,2);var major=checked((ushort)reader.ReadUInt64());RequireTag(reader,3);var minor=checked((ushort)reader.ReadUInt64());reader.ReadEndMap();return new(id,major,minor);}
+    private static T? ReadOptional<T>(CborReader reader,Func<StableId128,T> create)where T:struct
+    {var count=reader.ReadStartMap();if(count is null||reader.ReadUInt64()!=1)throw Invalid();var kind=reader.ReadUInt64();if(kind==0&&count==1){reader.ReadEndMap();return null;}if(kind!=1||count!=2||reader.ReadUInt64()!=2)throw Invalid();var value=create(ReadStable(reader));reader.ReadEndMap();return value;}
+    private static StableId128 ReadStable(CborReader reader){Span<byte>b=stackalloc byte[16];if(!reader.TryReadByteString(b,out var n)||n!=16||b.IndexOfAnyExcept((byte)0)<0)throw Invalid();return StableId128.FromBytes(b);}
+    private static Hash256 ReadHash(CborReader reader){Span<byte>b=stackalloc byte[32];if(!reader.TryReadByteString(b,out var n)||n!=32)throw Invalid();return Hash256.FromBytes(b);}
+    private static void RequireMap(CborReader reader,int count,ulong first){if(reader.ReadStartMap()!=count||reader.ReadUInt64()!=first)throw Invalid();}
+    private static void RequireTag(CborReader reader,ulong tag){if(reader.ReadUInt64()!=tag)throw Invalid();}
+    private static CborContentException Invalid()=>new("Invalid canonical authority journal value.");
+    private static bool TryDecodeClass<T>(ReadOnlyMemory<byte> bytes,Func<CborReader,T> read,Func<T,byte[]> encode,out T? value)where T:class
+    {value=null;try{var reader=new CborReader(bytes,CborConformanceMode.Ctap2Canonical,false);var candidate=read(reader);if(reader.BytesRemaining!=0||!bytes.Span.SequenceEqual(encode(candidate)))return false;value=candidate;return true;}catch(Exception e)when(e is CborContentException or InvalidOperationException or ArgumentException or OverflowException){return false;}}
+    private static bool TryDecodeValue<T>(ReadOnlyMemory<byte> bytes,Func<CborReader,T> read,Func<T,byte[]> encode,out T value)where T:struct
+    {value=default;try{var reader=new CborReader(bytes,CborConformanceMode.Ctap2Canonical,false);var candidate=read(reader);if(reader.BytesRemaining!=0||!bytes.Span.SequenceEqual(encode(candidate)))return false;value=candidate;return true;}catch(Exception e)when(e is CborContentException or InvalidOperationException or ArgumentException or OverflowException){return false;}}
+
+    private static void WriteOptionalId<T>(CborWriter writer, T? id) where T : struct
+    {
+        writer.WriteStartMap(id.HasValue ? 2 : 1);
+        writer.WriteUInt64(1); writer.WriteUInt64(id.HasValue ? 1UL : 0UL);
+        if (id.HasValue)
+        {
+            writer.WriteUInt64(2);
+            Span<byte> bytes = stackalloc byte[16];
+            var success = id.Value switch
+            {
+                PrincipalId value => value.TryWriteBytes(bytes),
+                SessionId value => value.TryWriteBytes(bytes),
+                ThreadId value => value.TryWriteBytes(bytes),
+                ParticipantId value => value.TryWriteBytes(bytes),
+                OperationId value => value.TryWriteBytes(bytes),
+                _ => false,
+            };
+            if (!success) throw new ArgumentException("An optional authority identity is invalid.", nameof(id));
+            writer.WriteByteString(bytes);
+        }
+        writer.WriteEndMap();
+    }
+
+    private static void WriteHash(CborWriter writer, Hash256 hash)
+    {
+        Span<byte> bytes = stackalloc byte[32];
+        if (!hash.TryWriteBytes(bytes)) throw new ArgumentException("An authority hash is invalid.", nameof(hash));
+        writer.WriteByteString(bytes);
+    }
+
+    private static void WriteId<T>(CborWriter writer, T id) where T : struct
+    {
+        Span<byte> bytes = stackalloc byte[16];
+        var success = id switch
+        {
+            JournalFactId value => value.TryWriteBytes(bytes),
+            ThreadId value => value.TryWriteBytes(bytes),
+            TenantId value => value.TryWriteBytes(bytes),
+            SchemaId value => value.TryWriteBytes(bytes),
+            _ => false,
+        };
+        if (!success) throw new ArgumentException("An authority identity is invalid.", nameof(id));
+        writer.WriteByteString(bytes);
+    }
+}
