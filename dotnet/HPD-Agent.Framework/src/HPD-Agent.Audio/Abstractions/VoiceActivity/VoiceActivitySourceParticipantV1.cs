@@ -20,6 +20,7 @@ internal sealed class VoiceActivitySourceParticipantV1 : IRuntimeParticipantV1
 {
     private readonly VoiceActivitySourceProductFactoryV1 _factory;
     private readonly VoiceActivityGraphStreamConfigurationV1? _graphConfiguration;
+    private readonly IVoiceActivityDerivedResidenceCommitV1? _derivedResidence;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private VoiceActivitySourceParticipantStateV1 _state = VoiceActivitySourceParticipantStateV1.Created;
     private RuntimePreparedHandleV1? _handle;
@@ -31,11 +32,15 @@ internal sealed class VoiceActivitySourceParticipantV1 : IRuntimeParticipantV1
     internal VoiceActivitySourceParticipantV1(
         RuntimeParticipantDescriptorV1 descriptor,
         VoiceActivitySourceProductFactoryV1 factory,
-        VoiceActivityGraphStreamConfigurationV1? graphConfiguration = null)
+        VoiceActivityGraphStreamConfigurationV1? graphConfiguration = null,
+        IVoiceActivityDerivedResidenceCommitV1? derivedResidence = null)
     {
         Descriptor = descriptor ?? throw new ArgumentNullException(nameof(descriptor));
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
         _graphConfiguration = graphConfiguration;
+        _derivedResidence = derivedResidence;
+        if ((graphConfiguration is null) != (derivedResidence is null))
+            throw new ArgumentException("Graph streams require one prepared derived residence.", nameof(derivedResidence));
     }
 
     public RuntimeParticipantDescriptorV1 Descriptor { get; }
@@ -124,7 +129,7 @@ internal sealed class VoiceActivitySourceParticipantV1 : IRuntimeParticipantV1
                 _transferredWork = new VoiceActivityTransferredWorkRegistryV1(transferred.Source);
             if (_graphConfiguration is not null)
             {
-                try { _graphStream = new VoiceActivityGraphStreamV1(_product, _graphConfiguration, _transferredWork); }
+                try { _graphStream = new VoiceActivityGraphStreamV1(_product, _graphConfiguration, _transferredWork, _derivedResidence!); }
                 catch
                 {
                     _transferredWork = null;

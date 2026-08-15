@@ -1,6 +1,7 @@
 using HPD.Agent.Audio;
 using HPD.Agent.Audio.Graph;
 using HPD.Agent.Audio.Graph.Runtime;
+using HPD.Agent.Audio.VoiceActivity;
 using HPD.Agent.Authority;
 
 namespace HPD.Agent.LiveAudio.Contracts.Tests;
@@ -26,26 +27,43 @@ public sealed class GraphMediaResidenceV1Tests
         var residenceBefore = fixture.Ledger.Fingerprint;
         var ownershipBefore = fixture.Ownership.Fingerprint;
 
-        var planned = fixture.Ledger.PlanDerivedCopy(request, fixture.Ownership);
+        var prepared = Assert.IsType<VoiceActivityDerivedResidencePreparationResultV1.Prepared>(
+            VoiceActivityDerivedResidenceCommitV1.Prepare(request, fixture.Ledger, fixture.Ownership));
+        var commit = prepared.Commit;
 
-        Assert.Equal(GraphMediaDerivedCopyResultV1.Planned, planned.Result);
-        Assert.Same(fixture.Ledger, planned.ResidenceLedger);
-        Assert.Same(fixture.Ownership, planned.OwnershipLedger);
-        Assert.Equal(residenceBefore, planned.ResidenceLedger.Fingerprint);
-        Assert.Equal(ownershipBefore, planned.OwnershipLedger.Fingerprint);
+        Assert.False(commit.IsCommitted);
+        Assert.Same(fixture.Ledger, commit.Residences);
+        Assert.Same(fixture.Ownership, commit.Ownership);
+        Assert.Equal(residenceBefore, commit.Residences.Fingerprint);
+        Assert.Equal(ownershipBefore, commit.Ownership.Fingerprint);
 
-        var committed = fixture.Ledger.CommitDerivedCopy(planned.Plan!, fixture.Ownership);
-        Assert.Equal(GraphMediaDerivedCopyResultV1.Committed, committed.Result);
-        Assert.NotEqual(residenceBefore, committed.ResidenceLedger.Fingerprint);
-        Assert.NotEqual(ownershipBefore, committed.OwnershipLedger.Fingerprint);
-        Assert.Equal(media, committed.OwnershipLedger.Owners[authority.DestinationOwnerId].Media);
-        Assert.Equal(GraphMediaResidenceStateV1.Visible, committed.Residence!.State);
-        Assert.Equal(media, committed.Residence.Media);
+        Assert.True(commit.TryCommit());
+        Assert.True(commit.IsCommitted);
+        Assert.NotEqual(residenceBefore, commit.Residences.Fingerprint);
+        Assert.NotEqual(ownershipBefore, commit.Ownership.Fingerprint);
+        var committedResidence = commit.Residences.Fingerprint;
+        var committedOwnership = commit.Ownership.Fingerprint;
+        Assert.True(commit.TryCommit());
+        Assert.Equal(committedResidence, commit.Residences.Fingerprint);
+        Assert.Equal(committedOwnership, commit.Ownership.Fingerprint);
+        Assert.Equal(media, commit.Ownership.Owners[authority.DestinationOwnerId].Media);
+        var visible = commit.Residences.Residences[authority.ResidenceId];
+        Assert.Equal(GraphMediaResidenceStateV1.Visible, visible.State);
+        Assert.Equal(media, visible.Media);
+        var firstBorrow = commit.Ownership.Acquire(Session(), Graph(), authority.DestinationOwnerId,
+            Id(213), Hash(213));
+        var secondBorrow = firstBorrow.Ledger.Acquire(Session(), Graph(), authority.DestinationOwnerId,
+            Id(214), Hash(214));
+        Assert.Equal(GraphMediaBorrowResultV1.Borrowed, firstBorrow.Result);
+        Assert.Equal(GraphMediaBorrowResultV1.Borrowed, secondBorrow.Result);
+        Assert.Collection(secondBorrow.Ledger.Borrows, _ => { }, _ => { });
+        Assert.Single(commit.Residences.Residences);
+        Assert.Single(commit.Residences.Residences.Values.Select(x => x.Assignment).Distinct());
         Assert.Equal(GraphMediaDerivedCopyResultV1.IdempotentCommitted,
-            committed.ResidenceLedger.PlanDerivedCopy(request, committed.OwnershipLedger).Result);
+            commit.Residences.PlanDerivedCopy(request, commit.Ownership).Result);
         var changedVersion = request with { ExpectedSourceVersion = request.ExpectedSourceVersion + 1 };
         Assert.Equal(GraphMediaDerivedCopyResultV1.ContradictoryDuplicate,
-            committed.ResidenceLedger.PlanDerivedCopy(changedVersion, committed.OwnershipLedger).Result);
+            commit.Residences.PlanDerivedCopy(changedVersion, commit.Ownership).Result);
     }
 
     [Fact]

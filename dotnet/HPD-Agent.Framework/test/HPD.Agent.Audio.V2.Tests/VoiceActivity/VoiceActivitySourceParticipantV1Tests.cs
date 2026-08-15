@@ -1,4 +1,5 @@
 using HPD.Agent.Audio.ProviderContracts.VoiceActivity;
+using HPD.Agent.Audio.Graph;
 using HPD.Agent.Audio.VoiceActivity;
 using HPD.Agent.Authority;
 using HPD.Agent.Runtime;
@@ -155,7 +156,8 @@ public sealed class VoiceActivitySourceParticipantV1Tests
             TimeSpan.FromMilliseconds(10), 1);
         await using var participant = new VoiceActivitySourceParticipantV1(Descriptor(), _ =>
             ValueTask.FromResult<VoiceActivitySourceProductV1>(
-                new VoiceActivitySourceProductV1.BorrowedSynchronous(source)), configuration);
+                new VoiceActivitySourceProductV1.BorrowedSynchronous(source)), configuration,
+            new ResidenceCommit());
         var prepared = await participant.PrepareAsync(Context(), default);
         Assert.Throws<InvalidOperationException>(() => participant.StartedGraphStream);
         Assert.True((await participant.StartAsync(prepared.Handle!, default)).IsSuccess);
@@ -231,5 +233,20 @@ public sealed class VoiceActivitySourceParticipantV1Tests
             OperationId operationId, CancellationToken cancellationToken) =>
             ValueTask.FromResult<VoiceActivitySettlementResultV1>(
                 new VoiceActivitySettlementResultV1.NotFound(operationId));
+    }
+
+    private sealed class ResidenceCommit : IVoiceActivityDerivedResidenceCommitV1
+    {
+        internal ResidenceCommit()
+        {
+            Assert.True(GraphMediaBindingV1.TryCreate(0, 400, StableId128.CreateRandom(), 1,
+                16_000, 1, 2, StableId128.CreateRandom(), 1, 0,
+                GraphMediaDiscontinuityKindV1.ResetBefore, 800, 400, null, out var media));
+            DestinationMedia = media!;
+        }
+
+        public GraphMediaBindingV1 DestinationMedia { get; }
+        public bool IsCommitted { get; private set; }
+        public bool TryCommit() { IsCommitted = true; return true; }
     }
 }

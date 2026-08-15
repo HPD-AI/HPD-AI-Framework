@@ -53,14 +53,16 @@ internal static class VoiceActivityGraphStreamCompilerV1
 internal sealed class VoiceActivityGraphStreamV1
 {
     private readonly VoiceActivitySourceProductV1 _product;
-    private readonly VoiceActivityPcm16WindowAssemblerV1 _assembler;
+    private VoiceActivityPcm16WindowAssemblerV1 _assembler;
+    private readonly IVoiceActivityDerivedResidenceCommitV1 _derivedResidence;
     private readonly VoiceActivityTransferredWorkRegistryV1? _transferredWork;
     private bool _closed;
 
     internal VoiceActivityGraphStreamV1(
         VoiceActivitySourceProductV1 product,
         VoiceActivityGraphStreamConfigurationV1 configuration,
-        VoiceActivityTransferredWorkRegistryV1? transferredWork)
+        VoiceActivityTransferredWorkRegistryV1? transferredWork,
+        IVoiceActivityDerivedResidenceCommitV1 derivedResidence)
     {
         _product = product ?? throw new ArgumentNullException(nameof(product));
         ArgumentNullException.ThrowIfNull(configuration);
@@ -79,6 +81,15 @@ internal sealed class VoiceActivityGraphStreamV1
             throw new ArgumentException("The graph stream window exceeds the created source capability.", nameof(configuration));
         if ((product is VoiceActivitySourceProductV1.Transferred) != (transferredWork is not null))
             throw new ArgumentException("Transferred graph streams require their participant work registry.", nameof(transferredWork));
+        _derivedResidence = derivedResidence ?? throw new ArgumentNullException(nameof(derivedResidence));
+        var windowSamples = checked((long)configuration.OutputFormat.SampleRate * configuration.Window.Ticks /
+            TimeSpan.TicksPerSecond);
+        var requiredFrames = checked(windowSamples * (configuration.MaximumBatchSize + 1L) - 1L);
+        var media = derivedResidence.DestinationMedia;
+        if (media.SampleRateHz != (ulong)configuration.OutputFormat.SampleRate || media.ChannelCount != 1 ||
+            media.BytesPerSample != sizeof(short) || media.FrameCount < requiredFrames ||
+            media.ByteLength < checked(requiredFrames * sizeof(short)))
+            throw new ArgumentException("The derived residence does not cover the bounded conversion buffer.", nameof(derivedResidence));
         _transferredWork = transferredWork;
         _assembler = new VoiceActivityPcm16WindowAssemblerV1(
             configuration.InputFormat, configuration.OutputFormat,
@@ -90,8 +101,10 @@ internal sealed class VoiceActivityGraphStreamV1
         GraphMediaRangeV1 range)
     {
         ThrowIfClosed();
-        return _assembler.Process(frame.Data, frame.Format, frame.SamplesPerChannel,
+        var candidate = _assembler.Fork();
+        var result = candidate.Process(frame.Data, frame.Format, frame.SamplesPerChannel,
             frame.RecoveryKind, frame.Flags, range);
+        return Adopt(candidate, result);
     }
 
     internal VoiceActivityWindowAssemblyResultV1 AssembleOwned(
@@ -102,8 +115,10 @@ internal sealed class VoiceActivityGraphStreamV1
         try
         {
             var frame = ownedFrame.Frame;
-            return _assembler.Process(frame.Data.Span, frame.Format, frame.SamplesPerChannel,
+            var candidate = _assembler.Fork();
+            var result = candidate.Process(frame.Data.Span, frame.Format, frame.SamplesPerChannel,
                 frame.RecoveryKind, frame.Flags, range);
+            return Adopt(candidate, result);
         }
         finally
         {
@@ -156,5 +171,16 @@ internal sealed class VoiceActivityGraphStreamV1
     private void ThrowIfClosed(bool settlement = false)
     {
         if (_closed && !settlement) throw new InvalidOperationException("The voice activity graph stream is closed.");
+    }
+
+    private VoiceActivityWindowAssemblyResultV1 Adopt(
+        VoiceActivityPcm16WindowAssemblerV1 candidate,
+        VoiceActivityWindowAssemblyResultV1 result)
+    {
+        if (result is VoiceActivityWindowAssemblyResultV1.Rejected) return result;
+        if (!_derivedResidence.TryCommit())
+            return new VoiceActivityWindowAssemblyResultV1.Rejected(VoiceActivityInputInvalidReasonV1.ExtentInvalid);
+        _assembler = candidate;
+        return result;
     }
 }

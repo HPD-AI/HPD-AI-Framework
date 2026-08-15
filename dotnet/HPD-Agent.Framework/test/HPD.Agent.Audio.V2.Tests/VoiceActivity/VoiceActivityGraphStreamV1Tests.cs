@@ -61,7 +61,8 @@ public sealed class VoiceActivityGraphStreamV1Tests
         var configuration = Assert.IsType<VoiceActivityGraphStreamCompilationResultV1.Compiled>(
             VoiceActivityGraphStreamCompilerV1.Compile(Plan(source.Capabilities), Format(48_000, 2))).Configuration;
         var stream = new VoiceActivityGraphStreamV1(
-            new VoiceActivitySourceProductV1.BorrowedSynchronous(source), configuration, null);
+            new VoiceActivitySourceProductV1.BorrowedSynchronous(source), configuration, null,
+            new ResidenceCommit(16_000));
         Span<byte> bytes = stackalloc byte[480 * 2 * sizeof(short)];
         var frame = new AudioFrameView(bytes, Format(48_000, 2), 480);
         var window = Assert.Single(Assert.IsType<VoiceActivityWindowAssemblyResultV1.Produced>(
@@ -80,7 +81,8 @@ public sealed class VoiceActivityGraphStreamV1Tests
         var configuration = Assert.IsType<VoiceActivityGraphStreamCompilationResultV1.Compiled>(
             VoiceActivityGraphStreamCompilerV1.Compile(Plan(source.Capabilities), Format(16_000, 1))).Configuration;
         var stream = new VoiceActivityGraphStreamV1(
-            new VoiceActivitySourceProductV1.Transferred(source), configuration, registry);
+            new VoiceActivitySourceProductV1.Transferred(source), configuration, registry,
+            new ResidenceCommit(16_000));
         var lease = new Lease(320);
         var owned = new OwnedAudioFrame
         {
@@ -100,6 +102,29 @@ public sealed class VoiceActivityGraphStreamV1Tests
         Assert.Equal(1, registry.PendingCount);
         Assert.IsType<VoiceActivitySettlementResultV1.Settled>(await stream.SettleAsync(operation, default));
         Assert.Equal(0, registry.PendingCount);
+    }
+
+    [Fact]
+    public void Residence_commit_failure_discards_candidate_tail_and_exposes_no_window()
+    {
+        var source = new BorrowedSource(MonoCapabilities(
+            VoiceActivityInputOwnershipV1.BorrowedSynchronous, 1, 16_000));
+        var configuration = Assert.IsType<VoiceActivityGraphStreamCompilationResultV1.Compiled>(
+            VoiceActivityGraphStreamCompilerV1.Compile(Plan(source.Capabilities), Format(16_000, 1))).Configuration;
+        var residence = new ResidenceCommit(16_000) { AllowCommit = false };
+        var stream = new VoiceActivityGraphStreamV1(
+            new VoiceActivitySourceProductV1.BorrowedSynchronous(source), configuration, null, residence);
+        Span<byte> half = stackalloc byte[80 * sizeof(short)];
+
+        Assert.Equal(VoiceActivityInputInvalidReasonV1.ExtentInvalid,
+            Assert.IsType<VoiceActivityWindowAssemblyResultV1.Rejected>(
+                stream.AssembleBorrowed(new AudioFrameView(half, Format(16_000, 1), 80),
+                    Range(1, half.Length))).Reason);
+        residence.AllowCommit = true;
+        Assert.Empty(Assert.IsType<VoiceActivityWindowAssemblyResultV1.Produced>(
+            stream.AssembleBorrowed(new AudioFrameView(half, Format(16_000, 1), 80),
+                Range(1, half.Length))).Windows);
+        Assert.True(residence.IsCommitted);
     }
 
     private static VoiceActivityEffectiveSourcePlanV1 Plan(VoiceActivitySourceCapabilitiesV1 capabilities) => new(
@@ -179,5 +204,26 @@ public sealed class VoiceActivityGraphStreamV1Tests
         public int DisposeCalls { get; private set; }
         public Memory<byte> Memory => _bytes;
         public void Dispose() => DisposeCalls++;
+    }
+
+    private sealed class ResidenceCommit : IVoiceActivityDerivedResidenceCommitV1
+    {
+        internal ResidenceCommit(int sampleRate)
+        {
+            Assert.True(GraphMediaBindingV1.TryCreate(0, 1_000, StableId128.CreateRandom(), 1,
+                (uint)sampleRate, 1, 2, StableId128.CreateRandom(), 1, 0,
+                GraphMediaDiscontinuityKindV1.ResetBefore, 2_000, 1_000, null, out var media));
+            DestinationMedia = media!;
+        }
+
+        public GraphMediaBindingV1 DestinationMedia { get; }
+        public bool IsCommitted { get; private set; }
+        internal bool AllowCommit { get; set; } = true;
+        public bool TryCommit()
+        {
+            if (!AllowCommit) return false;
+            IsCommitted = true;
+            return true;
+        }
     }
 }

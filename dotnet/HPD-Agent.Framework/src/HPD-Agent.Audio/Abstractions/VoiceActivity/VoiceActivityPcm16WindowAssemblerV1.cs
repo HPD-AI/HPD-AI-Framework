@@ -90,7 +90,26 @@ internal sealed class VoiceActivityPcm16WindowAssemblerV1
         _maximumBatchSize = maximumBatchSize;
     }
 
+    private VoiceActivityPcm16WindowAssemblerV1(VoiceActivityPcm16WindowAssemblerV1 source)
+    {
+        _inputFormat = source._inputFormat;
+        _outputFormat = source._outputFormat;
+        _windowSamples = source._windowSamples;
+        _maximumBatchSize = source._maximumBatchSize;
+        _pending.AddRange(source._pending);
+        foreach (var segment in source._segments) _segments.AddLast(segment);
+        _resampleWeight = source._resampleWeight;
+        _weightedSampleSum = source._weightedSampleSum;
+        _unemittedExtentStart = source._unemittedExtentStart;
+        _unemittedExact = source._unemittedExact;
+        _session = source._session;
+        _graphGeneration = source._graphGeneration;
+        _nextPosition = source._nextPosition;
+    }
+
     internal int RetainedSamples => _pending.Count;
+
+    internal VoiceActivityPcm16WindowAssemblerV1 Fork() => new(this);
 
     internal VoiceActivityWindowAssemblyResultV1 Process(
         ReadOnlySpan<byte> bytes,

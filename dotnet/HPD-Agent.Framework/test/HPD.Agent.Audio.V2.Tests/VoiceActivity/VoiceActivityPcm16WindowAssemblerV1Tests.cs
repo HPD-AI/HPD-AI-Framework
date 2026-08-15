@@ -61,6 +61,23 @@ public sealed class VoiceActivityPcm16WindowAssemblerV1Tests
     }
 
     [Fact]
+    public void Forked_candidate_isolated_until_the_caller_adopts_it()
+    {
+        var assembler = Assembler(Format(16_000, 1), 16_000);
+        var candidate = assembler.Fork();
+        var half = new byte[80 * sizeof(short)];
+
+        Assert.Empty(Produced(candidate.Process(half, Format(16_000, 1), 80,
+            AudioRecoveryKind.None, AudioFrameFlags.None, Range(25, half.Length))).Windows);
+
+        Assert.Equal(0, assembler.RetainedSamples);
+        Assert.Equal(80, candidate.RetainedSamples);
+        Assert.Empty(Produced(assembler.Process(half, Format(16_000, 1), 80,
+            AudioRecoveryKind.None, AudioFrameFlags.None, Range(25, half.Length))).Windows);
+        Assert.Equal(80, assembler.RetainedSamples);
+    }
+
+    [Fact]
     public void Recovery_marks_extent_inexact_and_discontinuity_releases_partial_state()
     {
         var assembler = Assembler(Format(16_000, 1), 16_000);
