@@ -57,7 +57,8 @@ public sealed class VoiceActivityProviderContractsV1Tests
             "IVoiceActivitySourceMiddlewareV1", "IVoiceActivitySourceProviderV1", "VoiceActivityBorrowedWindowV1", "VoiceActivityInputFormatV1",
             "VoiceActivityInputInvalidReasonV1", "VoiceActivityInputOwnershipV1", "VoiceActivityMeasurementDescriptorV1",
             "VoiceActivityMeasurementKindV1", "VoiceActivityMeasurementV1", "VoiceActivityMediaExtentV1",
-            "VoiceActivityNoObservationReasonV1", "VoiceActivityOwnedWindowV1", "VoiceActivityRetryabilityV1",
+            "VoiceActivityNoObservationReasonV1", "VoiceActivityOwnedWindowV1", "VoiceActivityProviderConfigurationV1",
+            "VoiceActivityRetryabilityV1",
             "VoiceActivitySampleEncodingV1", "VoiceActivitySettlementResultV1", "VoiceActivitySourceCapabilitiesV1",
             "VoiceActivitySourceConcurrencyV1", "VoiceActivitySourceControlV1", "VoiceActivitySourceFaultClassV1",
             "VoiceActivitySourceMiddlewareContextV1", "VoiceActivitySourceMiddlewarePipelineV1",
@@ -89,6 +90,32 @@ public sealed class VoiceActivityProviderContractsV1Tests
             registrations[0],
             new VoiceActivitySourceMiddlewareRegistrationV1("z-last", 30, new Middleware("duplicate", calls)),
         ]));
+    }
+
+    [Fact]
+    public void Audio_configuration_projection_uses_shared_precedence_and_copies_mutable_values()
+    {
+        var descriptors = ProviderComposition.Create([
+            new ProviderManifestFragment([new Descriptor()], [], [], [])
+        ]).Descriptors;
+        var runHeaders = new Dictionary<string, string> { ["x-run"] = "one" };
+        var plan = VoiceActivityProviderConfigurationV1.Resolve(descriptors,
+            new ProviderClientConfig { ProviderKey = "vad-alias", ModelName = "host", Endpoint = "https://host" },
+            new ProviderClientConfig { ProviderKey = "vad", ModelName = "profile", AuthenticationKey = "static-key" },
+            new ProviderClientConfig { ProviderKey = "vad", ModelName = "agent" },
+            new ProviderClientConfig { ModelName = "run", CustomHeaders = runHeaders });
+        runHeaders["x-run"] = "mutated";
+        var configuration = VoiceActivityProviderConfigurationV1.ToConfiguration(plan);
+        configuration.CustomHeaders!["x-run"] = "copy-mutated";
+
+        Assert.Equal(ProviderClientFamily.VoiceActivityDetection, plan.Family);
+        Assert.Equal("vad", configuration.ProviderKey);
+        Assert.Equal("run", configuration.ModelName);
+        Assert.Equal("https://host", configuration.Endpoint);
+        Assert.Equal("static-key", configuration.AuthenticationKey);
+        Assert.Equal("one", plan.CustomHeaders!["x-run"]);
+        Assert.Equal(ProviderConfigurationSource.RunOverride,
+            plan.Provenance[nameof(ProviderClientConfig.ModelName)]);
     }
 
     private sealed class Provider(Source source) : IVoiceActivitySourceProviderV1
@@ -143,6 +170,23 @@ public sealed class VoiceActivityProviderContractsV1Tests
             calls.Add(key);
             return current;
         }
+    }
+
+    private sealed class Descriptor : IProviderDescriptor
+    {
+        public string ProviderKey => "vad";
+        public string DisplayName => "VAD";
+        public Uri? DocumentationUri => null;
+        public IReadOnlyDictionary<ProviderClientFamily, ProviderFamilyDescriptor> Families { get; } =
+            new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
+            {
+                [ProviderClientFamily.VoiceActivityDetection] = new()
+                {
+                    Family = ProviderClientFamily.VoiceActivityDetection,
+                    Lifetime = ProviderFamilyLifetime.StatefulPerAudioSession,
+                },
+            };
+        public IReadOnlyList<string> Aliases => ["vad-alias"];
     }
 
     private static VoiceActivitySourceCapabilitiesV1 Capabilities() => new(

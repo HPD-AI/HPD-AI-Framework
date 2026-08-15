@@ -164,3 +164,36 @@ public static class VoiceActivitySourceMiddlewarePipelineV1
         return current;
     }
 }
+
+/// <summary>Projects host, provider, agent and run layers into one Voice Activity family plan.</summary>
+public static class VoiceActivityProviderConfigurationV1
+{
+    /// <summary>Resolves Audio provider configuration using the shared family precedence law.</summary>
+    public static ResolvedProviderFamilyPlan Resolve(
+        IProviderDescriptorRegistry descriptors,
+        ProviderClientConfig? hostFallback,
+        ProviderClientConfig? providerProfile,
+        ProviderClientConfig? agentDefault,
+        ProviderClientConfig? runOverride) =>
+        ProviderFamilyPlanResolver.Resolve(ProviderClientFamily.VoiceActivityDetection, descriptors,
+            hostFallback, providerProfile, agentDefault, runOverride);
+
+    /// <summary>Creates an independent provider construction configuration from a resolved plan.</summary>
+    public static ProviderClientConfig ToConfiguration(ResolvedProviderFamilyPlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        if (plan.Family != ProviderClientFamily.VoiceActivityDetection)
+            throw new ArgumentException("The resolved plan is not for voice activity detection.", nameof(plan));
+        return new ProviderClientConfig
+        {
+            ProviderKey = plan.ProviderKey,
+            ModelName = plan.ModelName,
+            Endpoint = plan.Endpoint,
+            AuthenticationKey = plan.AuthenticationKey,
+            CustomHeaders = plan.CustomHeaders is null
+                ? null
+                : new Dictionary<string, string>(plan.CustomHeaders, StringComparer.OrdinalIgnoreCase),
+            ProviderConfig = plan.ProviderConfig,
+        };
+    }
+}
