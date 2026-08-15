@@ -66,6 +66,7 @@ if (!string.IsNullOrWhiteSpace(sileroModel))
     var soakWindows = string.IsNullOrWhiteSpace(soakText) ? 1 : int.Parse(soakText, System.Globalization.CultureInfo.InvariantCulture);
     if (soakWindows is < 1 or > 1_000_000)
         throw new InvalidOperationException("HPD_SILERO_SOAK_WINDOWS must be between 1 and 1000000.");
+    var soakStarted = System.Diagnostics.Stopwatch.GetTimestamp();
     for (var index = 1; index <= soakWindows; index++)
     {
         var outcome = source.Observe(new VoiceActivityBorrowedWindowV1(bytes,
@@ -75,6 +76,10 @@ if (!string.IsNullOrWhiteSpace(sileroModel))
         if (outcome is not VoiceActivitySourceOutcomeV1.Observed)
             throw new InvalidOperationException("The real Silero ONNX source did not execute under NativeAOT.");
     }
+    var soakElapsed = System.Diagnostics.Stopwatch.GetElapsedTime(soakStarted);
+    if (soakWindows > 1)
+        Console.WriteLine($"silero-soak-windows={soakWindows} elapsed-ms={soakElapsed.TotalMilliseconds:F0} " +
+            $"windows-per-second={soakWindows / soakElapsed.TotalSeconds:F0}");
     (source as IDisposable)?.Dispose();
 }
 

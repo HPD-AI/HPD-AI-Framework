@@ -46,4 +46,5 @@ readonly executable="${work}/publish/HPD-Agent.Audio.VoiceActivity.AotSmoke$([[ 
 HPD_SILERO_VAD_MODEL_PATH="${model}" HPD_SILERO_SOAK_WINDOWS=1000000 \
   "${executable}" >"${work}/aot-run.log" 2>&1
 grep -qx 'voice-activity-aot=pass' "${work}/aot-run.log"
+grep '^silero-soak-windows=' "${work}/aot-run.log"
 printf 'silero-native-aot-%s=pass\n' "${rid}"
