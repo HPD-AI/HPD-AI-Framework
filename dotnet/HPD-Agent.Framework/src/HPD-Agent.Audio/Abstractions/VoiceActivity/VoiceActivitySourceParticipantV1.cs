@@ -23,6 +23,7 @@ internal sealed class VoiceActivitySourceParticipantV1 : IRuntimeParticipantV1
     private VoiceActivitySourceParticipantStateV1 _state = VoiceActivitySourceParticipantStateV1.Created;
     private RuntimePreparedHandleV1? _handle;
     private VoiceActivitySourceProductV1? _product;
+    private VoiceActivityTransferredWorkRegistryV1? _transferredWork;
     private bool _disposed;
 
     internal VoiceActivitySourceParticipantV1(
@@ -41,6 +42,11 @@ internal sealed class VoiceActivitySourceParticipantV1 : IRuntimeParticipantV1
         _state == VoiceActivitySourceParticipantStateV1.Started && _product is not null
             ? _product
             : throw new InvalidOperationException("The voice activity source is not started.");
+
+    internal VoiceActivityTransferredWorkRegistryV1 StartedTransferredWork =>
+        _state == VoiceActivitySourceParticipantStateV1.Started && _transferredWork is not null
+            ? _transferredWork
+            : throw new InvalidOperationException("The transferred voice activity source is not started.");
 
     public async ValueTask<RuntimeParticipantPrepareResultV1> PrepareAsync(
         RuntimeParticipantContextV1 context,
@@ -105,6 +111,8 @@ internal sealed class VoiceActivitySourceParticipantV1 : IRuntimeParticipantV1
                 return Result(RuntimeParticipantDispositionV1.Succeeded, "participant-already-started");
             if (_state != VoiceActivitySourceParticipantStateV1.Prepared || !Equals(_handle, handle) || _product is null)
                 return Result(RuntimeParticipantDispositionV1.Refused, "participant-start-invalid");
+            if (_product is VoiceActivitySourceProductV1.Transferred transferred)
+                _transferredWork = new VoiceActivityTransferredWorkRegistryV1(transferred.Source);
             _state = VoiceActivitySourceParticipantStateV1.Started;
             return Result(RuntimeParticipantDispositionV1.Succeeded, "participant-started");
         }
@@ -126,6 +134,7 @@ internal sealed class VoiceActivitySourceParticipantV1 : IRuntimeParticipantV1
                 return Result(RuntimeParticipantDispositionV1.Succeeded, "participant-already-drained");
             if (_state != VoiceActivitySourceParticipantStateV1.Started)
                 return Result(RuntimeParticipantDispositionV1.Refused, "participant-drain-invalid");
+            _transferredWork?.Close();
             _state = VoiceActivitySourceParticipantStateV1.Drained;
             return Result(RuntimeParticipantDispositionV1.Succeeded, "participant-drained");
         }
@@ -145,6 +154,7 @@ internal sealed class VoiceActivitySourceParticipantV1 : IRuntimeParticipantV1
         {
             if (_state == VoiceActivitySourceParticipantStateV1.Terminated)
                 return Result(RuntimeParticipantDispositionV1.Succeeded, "participant-already-terminated");
+            _transferredWork?.Close();
             try
             {
                 await DisposeProductAsync().ConfigureAwait(false);
@@ -188,6 +198,7 @@ internal sealed class VoiceActivitySourceParticipantV1 : IRuntimeParticipantV1
             VoiceActivitySourceProductV1.Transferred transferred => transferred.Source,
             _ => null,
         };
+        _transferredWork = null;
         _product = null;
         if (source is IAsyncDisposable asyncDisposable)
             await asyncDisposable.DisposeAsync().ConfigureAwait(false);

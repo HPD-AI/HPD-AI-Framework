@@ -112,6 +112,35 @@ public sealed class VoiceActivitySourceParticipantV1Tests
         Assert.Equal(1, source.DisposeCalls);
     }
 
+    [Fact]
+    public async Task Transferred_work_credits_are_created_only_at_start_and_isolated_per_participant()
+    {
+        var firstSource = new TransferredSource(TransferredCapabilities());
+        var secondSource = new TransferredSource(TransferredCapabilities());
+        await using var first = new VoiceActivitySourceParticipantV1(Descriptor(), _ =>
+            ValueTask.FromResult<VoiceActivitySourceProductV1>(new VoiceActivitySourceProductV1.Transferred(firstSource)));
+        await using var second = new VoiceActivitySourceParticipantV1(Descriptor(), _ =>
+            ValueTask.FromResult<VoiceActivitySourceProductV1>(new VoiceActivitySourceProductV1.Transferred(secondSource)));
+        var firstPrepared = await first.PrepareAsync(Context(), default);
+        var secondPrepared = await second.PrepareAsync(Context(), default);
+        Assert.Throws<InvalidOperationException>(() => first.StartedTransferredWork);
+        await first.StartAsync(firstPrepared.Handle!, default);
+        await second.StartAsync(secondPrepared.Handle!, default);
+
+        Assert.NotSame(first.StartedTransferredWork, second.StartedTransferredWork);
+        Assert.Equal(0, first.StartedTransferredWork.PendingCount);
+        Assert.Equal(0, second.StartedTransferredWork.PendingCount);
+        var firstWork = first.StartedTransferredWork;
+        await first.DrainAsync(RuntimeDrainIntentV1.Graceful, default);
+        var rejected = Assert.IsType<VoiceActivityTransferResultV1.Rejected>(await firstWork.TransferAsync(
+            new VoiceActivityOwnedWindowV1(OperationId.Create(), new byte[320],
+                new VoiceActivityInputFormatV1(VoiceActivitySampleEncodingV1.SignedPcm16, 16_000, 1),
+                new VoiceActivityMediaExtentV1(GraphGenerationId.Create(), 1, 2, true),
+                new MonotonicStampV1(ClockDomainId.Create(), BootId.Create(), 1)), default));
+        Assert.Equal(VoiceActivityNoObservationReasonV1.SourceRevoked,
+            Assert.IsType<VoiceActivitySourceOutcomeV1.NoObservation>(rejected.Outcome).Reason);
+    }
+
     private static VoiceActivitySourceParticipantV1 Participant(Action created) =>
         new(Descriptor(), _ =>
         {
@@ -143,6 +172,18 @@ public sealed class VoiceActivitySourceParticipantV1Tests
         VoiceActivitySourceControlV1.Unsupported, VoiceActivitySourceControlV1.ReplacementRequired,
         true, false, 1);
 
+    private static VoiceActivitySourceCapabilitiesV1 TransferredCapabilities() => new(
+        VoiceActivityInputOwnershipV1.IsolatedTransferred,
+        [new VoiceActivityInputFormatV1(VoiceActivitySampleEncodingV1.SignedPcm16, 16_000, 1)],
+        new VoiceActivityWindowCapabilityV1(TimeSpan.FromMilliseconds(10), TimeSpan.FromSeconds(1),
+            TimeSpan.FromMilliseconds(10), 1),
+        new VoiceActivityMeasurementDescriptorV1(VoiceActivityMeasurementKindV1.EngineScore,
+            new BoundedAscii("measurement"), -1, 1, null),
+        VoiceActivitySourceStateModelV1.StreamLocal, VoiceActivitySourceConcurrencyV1.ParallelWindows,
+        VoiceActivitySourceControlV1.Unsupported, VoiceActivitySourceControlV1.Sequenced,
+        VoiceActivitySourceControlV1.Sequenced, VoiceActivitySourceControlV1.ReplacementRequired,
+        true, false, 1);
+
     private sealed class Source(VoiceActivitySourceCapabilitiesV1 capabilities) :
         IBorrowedSynchronousVoiceActivitySourceV1, IDisposable
     {
@@ -151,5 +192,19 @@ public sealed class VoiceActivitySourceParticipantV1Tests
         public VoiceActivitySourceOutcomeV1 Observe(scoped in VoiceActivityBorrowedWindowV1 window) =>
             throw new NotSupportedException();
         public void Dispose() => DisposeCalls++;
+    }
+
+    private sealed class TransferredSource(VoiceActivitySourceCapabilitiesV1 capabilities) :
+        ITransferredVoiceActivitySourceV1
+    {
+        public VoiceActivitySourceCapabilitiesV1 Capabilities { get; } = capabilities;
+        public ValueTask<VoiceActivityTransferResultV1> TransferAsync(
+            VoiceActivityOwnedWindowV1 window, CancellationToken cancellationToken) =>
+            ValueTask.FromResult<VoiceActivityTransferResultV1>(
+                new VoiceActivityTransferResultV1.Accepted(window.OperationId));
+        public ValueTask<VoiceActivitySettlementResultV1> SettleAsync(
+            OperationId operationId, CancellationToken cancellationToken) =>
+            ValueTask.FromResult<VoiceActivitySettlementResultV1>(
+                new VoiceActivitySettlementResultV1.NotFound(operationId));
     }
 }
