@@ -313,7 +313,9 @@ public sealed partial class SqliteRecordStore
                     request.CommitCompletionTimeout).ConfigureAwait(false);
             }
 
-            if (!session.ValidateCommitFinalization(processing))
+            // Duplicate resolution returns the already committed receipt and deliberately performs
+            // no provisional apply, so it has no fresh Runtime-owned commit finalization to validate.
+            if (!duplicate && !session.ValidateCommitFinalization(processing))
             {
                 return await RollbackAsync(
                     resources,
