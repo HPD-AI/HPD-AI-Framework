@@ -91,6 +91,27 @@ public sealed class VoiceActivityGraphAdapterV1Tests
                 new BorrowedSource(Capabilities(VoiceActivityInputOwnershipV1.BorrowedSynchronous))), operation, default));
     }
 
+    [Fact]
+    public void Graph_owned_conversion_dispatches_an_exact_window_without_exposing_its_buffer()
+    {
+        var input = new AudioFormat
+        {
+            SampleRate = 48_000, ChannelCount = 2, SampleFormat = AudioSampleFormat.Pcm16,
+        };
+        var assembler = new VoiceActivityPcm16WindowAssemblerV1(input,
+            new VoiceActivityInputFormatV1(VoiceActivitySampleEncodingV1.SignedPcm16, 16_000, 1),
+            TimeSpan.FromMilliseconds(10), 1);
+        var bytes = new byte[480 * 2 * sizeof(short)];
+        var assembled = Assert.Single(Assert.IsType<VoiceActivityWindowAssemblyResultV1.Produced>(
+            assembler.Process(bytes, input, 480, AudioRecoveryKind.None, AudioFrameFlags.None,
+                Range((ulong)bytes.Length))).Windows);
+        var source = new BorrowedSource(Capabilities(VoiceActivityInputOwnershipV1.BorrowedSynchronous));
+
+        Assert.IsType<VoiceActivitySourceOutcomeV1.Observed>(VoiceActivityGraphAdapterV1.ObserveAssembled(
+            new VoiceActivitySourceProductV1.BorrowedSynchronous(source), assembled, Stamp()));
+        Assert.Equal(320, source.ObservedBytes);
+    }
+
     private static AudioFrameView View(Span<byte> bytes, AudioFrameFlags flags = AudioFrameFlags.None) =>
         new(bytes, Format(), 160, flags: flags);
 

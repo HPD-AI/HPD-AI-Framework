@@ -7,6 +7,42 @@ namespace HPD.Agent.Audio.VoiceActivity;
 
 internal static class VoiceActivityGraphAdapterV1
 {
+    internal static VoiceActivitySourceOutcomeV1 ObserveAssembled(
+        VoiceActivitySourceProductV1 product,
+        VoiceActivityAssembledWindowV1 window,
+        MonotonicStampV1 observedAt)
+    {
+        ArgumentNullException.ThrowIfNull(product);
+        ArgumentNullException.ThrowIfNull(window);
+        if (product is not VoiceActivitySourceProductV1.BorrowedSynchronous borrowed ||
+            !observedAt.IsValid || !borrowed.Source.Capabilities.Formats.Contains(window.Format))
+            return Invalid(VoiceActivityInputInvalidReasonV1.FormatMismatch);
+        var borrowedWindow = new VoiceActivityBorrowedWindowV1(
+            window.Bytes.Span, window.Format, window.Extent, observedAt);
+        return borrowed.Source.Observe(in borrowedWindow)
+            ?? new VoiceActivitySourceOutcomeV1.Fault(
+                VoiceActivitySourceFaultClassV1.ContractViolation,
+                VoiceActivityStateValidityV1.Quarantined, VoiceActivityRetryabilityV1.Never);
+    }
+
+    internal static ValueTask<VoiceActivityTransferResultV1> TransferAssembledAsync(
+        VoiceActivitySourceProductV1 product,
+        OperationId operationId,
+        VoiceActivityAssembledWindowV1 window,
+        MonotonicStampV1 observedAt,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(product);
+        ArgumentNullException.ThrowIfNull(window);
+        if (product is not VoiceActivitySourceProductV1.Transferred transferred ||
+            !observedAt.IsValid || !transferred.Source.Capabilities.Formats.Contains(window.Format))
+            return ValueTask.FromResult<VoiceActivityTransferResultV1>(
+                Rejected(VoiceActivityInputInvalidReasonV1.FormatMismatch));
+        var ownedWindow = new VoiceActivityOwnedWindowV1(
+            operationId, window.Bytes.Span, window.Format, window.Extent, observedAt);
+        return transferred.Source.TransferAsync(ownedWindow, cancellationToken);
+    }
+
     internal static VoiceActivitySourceOutcomeV1 ObserveBorrowed(
         VoiceActivitySourceProductV1 product,
         scoped in AudioFrameView frame,
