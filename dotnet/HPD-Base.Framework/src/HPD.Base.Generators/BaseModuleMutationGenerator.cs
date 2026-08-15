@@ -112,7 +112,7 @@ internal static class BaseModuleMutationGenerator
     {
         source.AppendLine("            new global::HPD.Base.BaseModuleDtoPropertyBinding[]\n            {");
         foreach (PropertyBinding binding in bindings)
-            source.Append("                global::HPD.Base.BaseModuleDtoPropertyBinding.Create<").Append(Type(binding.DeclaringType)).Append(">(")
+            source.Append("                global::HPD.Base.BaseModuleDtoPropertyBinding.Create<").Append(Type(binding.DeclaringType)).Append(", ").Append(Type(binding.PropertyType)).Append(">(")
                 .Append(Literal(binding.Id)).Append(", ").Append(Literal(binding.Name)).AppendLine("),");
         source.Append("            }").AppendLine(trailingComma ? "," : string.Empty);
     }
@@ -122,7 +122,7 @@ internal static class BaseModuleMutationGenerator
         .Select(property => (Property: property, Symbol: root.GetMembers(property.ApplicationName).OfType<IPropertySymbol>().SingleOrDefault()))
         .Where(static value => value.Symbol is not null)
         .Select(value => new PropertyBinding(value.Symbol!.GetAttributes().FirstOrDefault(attribute => attribute.AttributeClass?.ToDisplayString() == FieldAttribute)?.ConstructorArguments.ElementAtOrDefault(0).Value as string ?? string.Empty,
-            value.Property.ApplicationName, value.Property.DeclaringType))
+            value.Property.ApplicationName, value.Property.DeclaringType, value.Property.PropertyType))
         .Where(static value => ValidId(value.Id)).OrderBy(static value => value.Id, StringComparer.Ordinal).ToList();
 
     private static string RenderRecovery(INamedTypeSymbol symbol, INamedTypeSymbol? request, INamedTypeSymbol? result)
@@ -147,12 +147,13 @@ internal static class BaseModuleMutationGenerator
     private static string Sanitize(INamedTypeSymbol symbol) => new(symbol.ToDisplayString().Select(character => char.IsLetterOrDigit(character) ? character : '_').ToArray());
     private sealed class PropertyBinding
     {
-        internal PropertyBinding(string id, string name, INamedTypeSymbol declaringType)
+        internal PropertyBinding(string id, string name, INamedTypeSymbol declaringType, ITypeSymbol propertyType)
         {
-            Id = id; Name = name; DeclaringType = declaringType;
+            Id = id; Name = name; DeclaringType = declaringType; PropertyType = propertyType;
         }
         internal string Id { get; }
         internal string Name { get; }
         internal INamedTypeSymbol DeclaringType { get; }
+        internal ITypeSymbol PropertyType { get; }
     }
 }

@@ -1170,6 +1170,12 @@ FROM {_names.MutationJournal};
             MaxReceiptLifetime = TimeSpan.FromDays(90),
         },
         SelectionMutation = CreateSelectionCapability(options),
+        ModuleMutation = new BaseModuleMutationCapability
+        {
+            Supported = true, SerializableExecution = true, DurableReceipts = true,
+            GenerationCells = true, AtomicRecordAndGenerationCommit = true,
+            MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
+        },
         Administration = administration,
         Streaming = new StreamingCapability { Supported = false }
     };

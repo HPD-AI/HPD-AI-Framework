@@ -18,6 +18,12 @@ internal static class TestStoreProvider
                 (relational ? BaseStoreProviderCapabilities.RelationalExecution : 0),
             RegistrationIds = [store.Capabilities.StoreId + ".records"],
             SubjectReferences = BaseSubjectProviderCapabilities.BuiltIn,
+            ModuleMutations = new BaseModuleMutationCapability
+            {
+                Supported = true, SerializableExecution = true, DurableReceipts = true,
+                GenerationCells = true, AtomicRecordAndGenerationCommit = true,
+                MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
+            },
         }, new Installer(store, schema));
 
     private sealed class Installer(FakeRecordStore store, bool schema) : IHPDBaseStoreInstaller

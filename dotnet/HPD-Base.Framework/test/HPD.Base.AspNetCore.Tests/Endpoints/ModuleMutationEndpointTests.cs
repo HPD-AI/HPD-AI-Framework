@@ -15,17 +15,28 @@ public sealed class ModuleMutationEndpointTests
         builder.WebHost.UseTestServer();
         builder.Services.AddAuthorizationBuilder().AddPolicy("control", policy => policy.RequireAssertion(_ => true));
         builder.Services.AddSingleton<IBaseHttpPrincipalMapper, SystemMapper>();
-        builder.Services.AddHPDBase(hpd => hpd
-            .ConfigureSchema(options => options.ApplicationId = "module.application")
-            .ConfigureInMemoryStore(options => { options.StoreId = "module-store"; options.Collections = []; })
-            .AddAspNetCore()
-            .AddPolicyAuthority(new BasePolicyAuthorityDefinition
+        builder.Services.AddHPDBase(hpd =>
+        {
+            hpd.ConfigureSchema(options => options.ApplicationId = "module.application")
+                .ConfigureInMemoryStore(options => { options.StoreId = "module-store"; options.Collections = []; })
+                .AddAspNetCore()
+                .AddPolicyAuthority(new BasePolicyAuthorityDefinition
             {
                 Id = "module.policy", Version = 1, OwningModuleId = "module",
                 EvaluatorContractId = "module.policy.evaluator", EvaluatorContractVersion = 1, CompositionOrder = 0,
-            }, new AllowPolicyEvaluator())
-            .AddModuleGenerationCell(ModuleMutationEndpointFixture.Cell())
-            .AddModuleMutation(ModuleIncrement.Definition, ModuleIncrement.Identity));
+            }, new AllowPolicyEvaluator());
+            hpd.AddStaticGrantAuthority(new BaseGrantAuthorityDefinition
+            {
+                Id = "module.increment", Version = 1, OwningModuleId = "module",
+                SourceContractId = "module.grants", SourceContractVersion = 1,
+            }, new AccessGrant
+            {
+                Id = "module.increment", Subject = new AccessSubject { Kind = AccessSubjectKind.System },
+                Action = "*", Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime },
+            });
+            hpd.AddModuleGenerationCell(ModuleMutationEndpointFixture.Cell())
+                .AddModuleMutation(ModuleIncrement.Definition, ModuleIncrement.Identity);
+        });
         await using WebApplication app = builder.Build();
         RouteGroupBuilder control = app.MapGroup("/base").RequireAuthorization("control");
         control.MapHPDBaseControlPlaneEndpoints(app, new HPDBaseControlPlaneEndpointSelection
@@ -96,7 +107,7 @@ internal static class ModuleMutationEndpointFixture
 [BaseRegisteredModuleMutation("module.increment", typeof(ModuleMutationJsonContext), typeof(ModuleIncrementRequest), typeof(ModuleIncrementResult), Version = 1, OwningModuleId = "module", GrantId = "module.increment")]
 public static partial class ModuleIncrement
 {
-    internal static BaseRegisteredModuleMutationDefinition Definition { get; } = new()
+    internal static BaseRegisteredModuleMutationDefinition Definition { get; } = BaseModuleMutationContract.Seal(new()
     {
             Id = "module.increment", Version = 1, OwningModuleId = "module", GrantId = "module.increment",
             Audience = BaseModuleMutationAudience.System, RequestTypeId = "module.increment.request", ResultTypeId = "module.increment.result",
@@ -115,7 +126,7 @@ public static partial class ModuleIncrement
             },
             Limits = ModuleMutationEndpointFixture.Limits(), ReceiptPolicy = new BaseModuleMutationReceiptPolicy { FormatVersion = 1, Lifetime = TimeSpan.FromDays(1) },
             Checksum = BaseModuleMutationChecksum.Create(new byte[32]),
-    };
+    });
 }
 
 public sealed record ModuleIncrementRequest { [BaseField("module.request.marker")] public string? Marker { get; init; } }

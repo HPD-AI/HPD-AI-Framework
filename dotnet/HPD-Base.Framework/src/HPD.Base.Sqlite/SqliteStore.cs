@@ -25,6 +25,12 @@ public static class SqliteStore
                 BaseStoreProviderCapabilities.CoLocatedVectors,
             RegistrationIds = ["sqlite.records", "sqlite.vector"],
             SubjectReferences = BaseSubjectProviderCapabilities.BuiltIn,
+            ModuleMutations = new BaseModuleMutationCapability
+            {
+                Supported = true, SerializableExecution = true, DurableReceipts = true,
+                GenerationCells = true, AtomicRecordAndGenerationCommit = true,
+                MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
+            },
         }, new Installer(configure));
 
     private sealed class Installer(Action<HPDBaseSqliteOptions>? configure) : IHPDBaseStoreInstaller
@@ -40,6 +46,8 @@ public static class SqliteStore
                 configure?.Invoke(options);
                 options.Collections = collections;
                 options.ExportedSubjects = context.ExportedSubjects.ToArray();
+                options.ModuleMutations = context.ModuleMutations.ToArray();
+                options.ModuleGenerationCells = context.ModuleGenerationCells.ToArray();
                 storeId = options.StoreId;
             });
             _hasVectors = collections.SelectMany(static item => item.VectorIndexes ?? []).Any();

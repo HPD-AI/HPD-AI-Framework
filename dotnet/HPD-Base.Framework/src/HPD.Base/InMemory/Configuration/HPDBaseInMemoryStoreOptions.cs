@@ -13,6 +13,8 @@ public sealed class HPDBaseInMemoryStoreOptions
     internal string[] CollectionIds { get; set; } = [];
     internal CollectionDefinition[]? Collections { get; set; }
     internal BaseExportedSubjectDefinition[] ExportedSubjects { get; set; } = [];
+    internal BaseRegisteredModuleMutationDefinition[] ModuleMutations { get; set; } = [];
+    internal BaseModuleGenerationCellDefinition[] ModuleGenerationCells { get; set; } = [];
     /// <summary>Gets or sets the default page size used when a query omits page size.</summary>
     public int DefaultPageSize { get; set; } = 100;
     /// <summary>Gets or sets the maximum page size advertised and accepted by the store.</summary>

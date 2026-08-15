@@ -2433,6 +2433,12 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         SelectionMutation = CreateSelectionCapability(
             options.MaxFilterNodes, options.MaxFilterDepth, options.MaxPageSize,
             BaseAtomicSelectionIsolationClass.OptimisticRangeValidatedSerializable),
+        ModuleMutation = new BaseModuleMutationCapability
+        {
+            Supported = true, SerializableExecution = true, DurableReceipts = true,
+            GenerationCells = true, AtomicRecordAndGenerationCommit = true,
+            MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
+        },
         Administration = new BaseAdministrationCapability
         {
             Backup = false, Validate = false, Restore = false, AdministrativePurge = true,
@@ -3184,6 +3190,18 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         private static bool ModuleBindingsValid(BaseAtomicMutationPlan plan, BaseCapturedAtomicMutationAuthority captured)
         {
             if (plan.Module is null || plan.Module.ItemBindings.Length != plan.Items.Length) return false;
+            if (plan.Module.RelationTargets.Select(static value => value.CaptureOrdinal).Distinct().Count()
+                != plan.Module.RelationTargets.Length) return false;
+            foreach (BaseAuthorizedModuleRelationTarget authorized in plan.Module.RelationTargets)
+            {
+                if (authorized.CaptureOrdinal < 0 || authorized.CaptureOrdinal >= captured.ModuleRelationTargets.Length) return false;
+                BaseCapturedModuleRelationTarget actual = captured.ModuleRelationTargets[authorized.CaptureOrdinal];
+                if (actual.Ordinal != authorized.CaptureOrdinal
+                    || !string.Equals(actual.SourceStatementId, authorized.SourceStatementId, StringComparison.Ordinal)
+                    || !string.Equals(actual.SourceFieldId, authorized.SourceFieldId, StringComparison.Ordinal)
+                    || !string.Equals(actual.TargetCollectionId, authorized.TargetCollectionId, StringComparison.Ordinal)
+                    || actual.TargetRecordId != authorized.TargetRecordId) return false;
+            }
             var overlay = new Dictionary<(string CollectionId, RecordId RecordId), RecordEnvelope?>();
             for (int ordinal = 0; ordinal < plan.Items.Length; ordinal++)
             {

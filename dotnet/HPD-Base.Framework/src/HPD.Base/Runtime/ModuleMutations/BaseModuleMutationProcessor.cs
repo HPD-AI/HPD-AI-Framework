@@ -76,12 +76,42 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             return Failed(Error(BaseModuleMutationErrorCodes.Unauthorized, ErrorCategory.Authorization));
 
         BaseAtomicPolicyAuthorityDigest policyDigest = BaseAtomicPolicyAuthority.Compute(
-            intent.Authority.ApplicationId, $"{definition.Id}:{definition.Version}", [operationPolicy, .. recordPlan.Value.PolicyEvaluations]);
+            intent.Authority.ApplicationId, $"{definition.Id}:{definition.Version}",
+            [operationPolicy, .. recordPlan.Value.PolicyEvaluations, .. recordPlan.Value.RelationPolicies.Select(static value => value.Evaluation)]);
+        ImmutableArray<BaseAuthorizedModuleRelationTarget> authorizedRelations = recordPlan.Value.RelationPolicies
+            .Select(relation =>
+            {
+                BaseModuleRelationTargetCaptureRequest capture = extension.RelationTargets.Single(value =>
+                    string.Equals(value.SourceStatementId, relation.SourceStatementId, StringComparison.Ordinal)
+                    && string.Equals(value.SourceFieldId, relation.SourceFieldId, StringComparison.Ordinal)
+                    && string.Equals(value.TargetCollection.Id, relation.TargetCollectionId, StringComparison.Ordinal)
+                    && value.TargetRecordId == relation.TargetRecordId);
+                return new BaseAuthorizedModuleRelationTarget
+                {
+                    CaptureOrdinal = capture.Ordinal,
+                    SourceStatementId = relation.SourceStatementId,
+                    SourceFieldId = relation.SourceFieldId,
+                    TargetCollectionId = relation.TargetCollectionId,
+                    TargetRecordId = relation.TargetRecordId,
+                    PolicyAuthorityDigest = BaseAtomicPolicyAuthority.Compute(
+                        intent.Authority.ApplicationId,
+                        $"{definition.Id}:{definition.Version}:relation:{relation.SourceStatementId}:{relation.SourceFieldId}",
+                        [relation.Evaluation]),
+                };
+            })
+            .OrderBy(static value => value.CaptureOrdinal)
+            .ToImmutableArray();
+        ImmutableArray<BaseModuleGenerationIncrement> orderedIncrements = increments.ToImmutable()
+            .OrderBy(static value => value.CaptureOrdinal).ToImmutableArray();
+        ImmutableArray<BaseModuleGenerationComparison> orderedComparisons = comparisons.ToImmutable()
+            .OrderBy(static value => value.CaptureOrdinal).ThenBy(static value => value.Kind).ToImmutableArray();
         string recordPlanDigest = BaseAtomicPolicyAuthority.BindPlanDigest(DefaultBaseMutationProcessor.ComputePlanDigest(
             intent.IntentDigest, evidence.CaptureDigest, recordPlan.Value.Items, recordPlan.Value.SubjectValidations), policyDigest);
         string planDigest = Digest(recordPlanDigest, extension.RequestDigest, evidence.CaptureDigest,
             string.Join(';', evaluator.Decisions.Select(static value => $"{value.EvaluationOrdinal}:{value.Kind}:{value.DecisionId}:{value.SelectedTrue}")),
-            string.Join(';', increments.Select(static value => $"{value.CaptureOrdinal}:{value.CreateIfAbsent}")));
+            string.Join(';', orderedIncrements.Select(static value => $"{value.CaptureOrdinal}:{value.CreateIfAbsent}")),
+            string.Join(';', authorizedRelations.Select(static value =>
+                $"{value.CaptureOrdinal}:{value.SourceStatementId}:{value.SourceFieldId}:{value.TargetCollectionId}:{value.TargetRecordId.Value}:{Convert.ToHexString(value.PolicyAuthorityDigest.ToArray())}")));
         var plan = new BaseAtomicMutationPlan
         {
             Kind = BaseAtomicMutationExecutionKind.ModuleMutation,
@@ -95,7 +125,8 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             {
                 OperationId = definition.Id, OperationVersion = definition.Version,
                 OperationChecksum = extension.OperationChecksum, Decisions = evaluator.Decisions,
-                ItemBindings = commandResult.Value.Bindings, Comparisons = comparisons.ToImmutable(), Increments = increments.ToImmutable(),
+                ItemBindings = commandResult.Value.Bindings, RelationTargets = authorizedRelations,
+                Comparisons = orderedComparisons, Increments = orderedIncrements,
                 ResultProjectionDigest = Digest(definition.Id, "result", Convert.ToHexString(definition.Checksum.ToArray())),
             },
             Limits = limits,
@@ -161,7 +192,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         return new AtomicMutationProcessingResult(finalization);
     }
 
-    public ValueTask<AtomicMutationProcessingResult> ResolveReceiptAsync(
+    public async ValueTask<AtomicMutationProcessingResult> ResolveReceiptAsync(
         BaseAtomicReceiptResult committedResult,
         CancellationToken cancellationToken = default)
     {
@@ -170,7 +201,10 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         if (committedResult.Kind != BaseAtomicReceiptResultKind.ModuleMutation || module is null
             || !string.Equals(module.OperationId, definition.Id, StringComparison.Ordinal)
             || module.OperationVersion != definition.Version)
-            return ValueTask.FromResult(Failed(Error(BaseModuleMutationErrorCodes.ReceiptUnavailable, ErrorCategory.Authorization)));
+            return Failed(Error(BaseModuleMutationErrorCodes.ReceiptUnavailable, ErrorCategory.Authorization));
+        if (!await BaseModuleReceiptDisclosure.AuthorizeAsync(
+                committedResult, definition, identity.ResultBindings, principal, operation, policy, cancellationToken).ConfigureAwait(false))
+            return Failed(Error(BaseModuleMutationErrorCodes.ReceiptUnavailable, ErrorCategory.Authorization));
         try
         {
             TResult? typed = JsonSerializer.Deserialize(module.CanonicalResultBytes.AsSpan(), identity.ResultTypeInfo);
@@ -181,9 +215,9 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
                 Outcome = BaseModuleMutationOutcome.Duplicate,
                 Result = typed,
             };
-            return ValueTask.FromResult(new AtomicMutationProcessingResult(AtomicMutationProcessingOutcome.ReadyToCommit, committedResult));
+            return new AtomicMutationProcessingResult(AtomicMutationProcessingOutcome.ReadyToCommit, committedResult);
         }
-        catch { return ValueTask.FromResult(Failed(Error(BaseModuleMutationErrorCodes.ReceiptUnavailable, ErrorCategory.Authorization))); }
+        catch { return Failed(Error(BaseModuleMutationErrorCodes.ReceiptUnavailable, ErrorCategory.Authorization)); }
     }
 
     private bool EvaluateBlock(

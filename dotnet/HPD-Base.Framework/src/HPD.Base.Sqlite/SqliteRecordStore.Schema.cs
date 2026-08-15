@@ -232,6 +232,7 @@ public sealed partial class SqliteRecordStore
             }
             await ApplyCollectionMappingsAsync(connection, artifact.CollectionMappings, cancellationToken).ConfigureAwait(false);
             await InitializeSubjectContractsForSchemaApplyAsync(connection, cancellationToken).ConfigureAwait(false);
+            await InitializeModuleMutationDefinitionsForSchemaApplyAsync(connection, cancellationToken).ConfigureAwait(false);
             string[] missing = await _schema.GetMissingSchemaPartsAsync(connection, cancellationToken).ConfigureAwait(false);
             if (missing.Length != 0)
                 throw new InvalidOperationException("The authenticated SQLite schema plan did not produce the required physical state.");
@@ -358,6 +359,93 @@ public sealed partial class SqliteRecordStore
             insert.Parameters.AddWithValue("$position", position);
             insert.Parameters.AddWithValue("$digest", digest);
             await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async ValueTask InitializeModuleMutationDefinitionsForSchemaApplyAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        var installedOperations = _options.ModuleMutations.Select(static value => (value.Id, value.Version)).ToHashSet();
+        await using (SqliteCommand existing = connection.CreateCommand())
+        {
+            existing.CommandTimeout = TimeoutSeconds();
+            existing.CommandText = $"SELECT operation_id,operation_version FROM {_names.ModuleMutationDefinitions} ORDER BY operation_id COLLATE BINARY,operation_version;";
+            await using SqliteDataReader reader = await existing.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            var retired = new List<(string Id, int Version)>();
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                if (!installedOperations.Contains((reader.GetString(0), reader.GetInt32(1))))
+                    retired.Add((reader.GetString(0), reader.GetInt32(1)));
+            await reader.DisposeAsync().ConfigureAwait(false);
+            foreach ((string id, int version) in retired)
+            {
+                await using var retained = connection.CreateCommand();
+                retained.CommandTimeout = TimeoutSeconds();
+                retained.CommandText = $"SELECT 1 FROM {_names.OperationReceipts} WHERE operation=$operation AND expires_at>$now LIMIT 1;";
+                retained.Parameters.AddWithValue("$operation", id);
+                retained.Parameters.AddWithValue("$now", _timeProvider.GetUtcNow().ToString("O", CultureInfo.InvariantCulture));
+                if (await retained.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is not null)
+                    throw new InvalidOperationException("base.moduleMutation.removalRequired");
+                await using var remove = connection.CreateCommand();
+                remove.CommandTimeout = TimeoutSeconds();
+                remove.CommandText = $"DELETE FROM {_names.ModuleMutationDefinitions} WHERE operation_id=$id AND operation_version=$version;";
+                remove.Parameters.AddWithValue("$id", id); remove.Parameters.AddWithValue("$version", version);
+                if (await remove.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                    throw new InvalidOperationException("base.moduleMutation.schemaDrift");
+            }
+        }
+        foreach (BaseRegisteredModuleMutationDefinition operation in _options.ModuleMutations
+            .OrderBy(static value => value.Id, StringComparer.Ordinal).ThenBy(static value => value.Version))
+        {
+            string checksum = Convert.ToHexStringLower(operation.Checksum.ToArray());
+            await using SqliteCommand command = connection.CreateCommand();
+            command.CommandTimeout = TimeoutSeconds();
+            command.CommandText = $"INSERT INTO {_names.ModuleMutationDefinitions}(operation_id,operation_version,owning_module_id,operation_checksum) VALUES($id,$version,$owner,$checksum) ON CONFLICT(operation_id,operation_version) DO UPDATE SET owning_module_id=excluded.owning_module_id,operation_checksum=excluded.operation_checksum WHERE owning_module_id=excluded.owning_module_id AND operation_checksum=excluded.operation_checksum;";
+            command.Parameters.AddWithValue("$id", operation.Id); command.Parameters.AddWithValue("$version", operation.Version);
+            command.Parameters.AddWithValue("$owner", operation.OwningModuleId); command.Parameters.AddWithValue("$checksum", checksum);
+            if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                throw new InvalidOperationException("base.moduleMutation.schemaDrift");
+        }
+
+        var installedCells = _options.ModuleGenerationCells.Select(static value => (value.Id, value.Version)).ToHashSet();
+        await using (SqliteCommand existing = connection.CreateCommand())
+        {
+            existing.CommandTimeout = TimeoutSeconds();
+            existing.CommandText = $"SELECT cell_id,cell_version FROM {_names.ModuleGenerationDefinitions} ORDER BY cell_id COLLATE BINARY,cell_version;";
+            await using SqliteDataReader reader = await existing.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            var retired = new List<(string Id, int Version)>();
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                if (!installedCells.Contains((reader.GetString(0), reader.GetInt32(1))))
+                    retired.Add((reader.GetString(0), reader.GetInt32(1)));
+            await reader.DisposeAsync().ConfigureAwait(false);
+            foreach ((string id, int version) in retired)
+            {
+                await using var retained = connection.CreateCommand();
+                retained.CommandTimeout = TimeoutSeconds();
+                retained.CommandText = $"SELECT 1 FROM {_names.ModuleGenerations} WHERE cell_id=$id AND cell_version=$version LIMIT 1;";
+                retained.Parameters.AddWithValue("$id", id); retained.Parameters.AddWithValue("$version", version);
+                if (await retained.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is not null)
+                    throw new InvalidOperationException("base.moduleMutation.removalRequired");
+                await using var remove = connection.CreateCommand();
+                remove.CommandTimeout = TimeoutSeconds();
+                remove.CommandText = $"DELETE FROM {_names.ModuleGenerationDefinitions} WHERE cell_id=$id AND cell_version=$version;";
+                remove.Parameters.AddWithValue("$id", id); remove.Parameters.AddWithValue("$version", version);
+                if (await remove.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                    throw new InvalidOperationException("base.moduleMutation.schemaDrift");
+            }
+        }
+        foreach (BaseModuleGenerationCellDefinition cell in _options.ModuleGenerationCells
+            .OrderBy(static value => value.Id, StringComparer.Ordinal).ThenBy(static value => value.Version))
+        {
+            await using SqliteCommand command = connection.CreateCommand();
+            command.CommandTimeout = TimeoutSeconds();
+            command.CommandText = $"INSERT INTO {_names.ModuleGenerationDefinitions}(cell_id,cell_version,owning_module_id,scope_kind,maximum_key_bytes,maximum_cells,definition_checksum) VALUES($id,$version,$owner,$scope,$keyBytes,$cells,$checksum) ON CONFLICT(cell_id,cell_version) DO UPDATE SET owning_module_id=excluded.owning_module_id,scope_kind=excluded.scope_kind,maximum_key_bytes=excluded.maximum_key_bytes,maximum_cells=excluded.maximum_cells,definition_checksum=excluded.definition_checksum WHERE owning_module_id=excluded.owning_module_id AND scope_kind=excluded.scope_kind AND maximum_key_bytes=excluded.maximum_key_bytes AND maximum_cells=excluded.maximum_cells AND definition_checksum=excluded.definition_checksum;";
+            command.Parameters.AddWithValue("$id", cell.Id); command.Parameters.AddWithValue("$version", cell.Version);
+            command.Parameters.AddWithValue("$owner", cell.OwningModuleId); command.Parameters.AddWithValue("$scope", (int)cell.Scope);
+            command.Parameters.AddWithValue("$keyBytes", cell.MaximumKeyUtf8Bytes); command.Parameters.AddWithValue("$cells", cell.MaximumCellsPerOperation);
+            command.Parameters.AddWithValue("$checksum", BaseModuleMutationContract.ComputeCellChecksum(cell));
+            if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                throw new InvalidOperationException("base.moduleMutation.schemaDrift");
         }
     }
 

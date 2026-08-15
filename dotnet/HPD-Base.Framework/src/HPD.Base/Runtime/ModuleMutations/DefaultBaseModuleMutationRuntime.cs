@@ -42,7 +42,12 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             Principal = session.Principal, Operation = moduleOperation, Collection = policyResource,
             ResourceKind = PolicyResourceKind.ModuleMutation,
         }, cancellationToken).ConfigureAwait(false);
-        if (!operationPolicy.IsSuccess() || operationPolicy.Value?.Authority is null)
+        if (!operationPolicy.IsSuccess() || operationPolicy.Value?.Authority is null
+            || !BaseSystemCollectionGate.HasExactGrant(operationPolicy, definition.GrantId))
+            return Failure<TResult>(OperationStatus.PolicyDenied, BaseModuleMutationErrorCodes.Unauthorized, ErrorCategory.Authorization);
+        if (!await AuthorizeDeclaredAuthorityAsync(
+                session, definition, moduleOperation, policyResource, operationPolicy.Value,
+                cancellationToken).ConfigureAwait(false))
             return Failure<TResult>(OperationStatus.PolicyDenied, BaseModuleMutationErrorCodes.Unauthorized, ErrorCategory.Authorization);
         byte[] requestBytes;
         try { requestBytes = JsonSerializer.SerializeToUtf8Bytes(request, generatedIdentity.RequestTypeInfo); }
@@ -66,7 +71,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         catch { return Failure<TResult>(OperationStatus.ValidationFailed, BaseModuleMutationErrorCodes.Invalid, ErrorCategory.Validation); }
 
         IAtomicRecordStore? atomicStore = ResolveOneStore(authorityCollections);
-        if (atomicStore is null)
+        if (atomicStore is null || !BaseModuleMutationCapabilityContract.Supports(definition.Limits, atomicStore.Capabilities.ModuleMutation))
             return Failure<TResult>(OperationStatus.Unsupported, BaseModuleMutationErrorCodes.CapabilityMissing, ErrorCategory.Unsupported);
         BaseAtomicMutationExecutionLimits limits = Limits(definition.Limits);
         OperationResult<BaseAtomicMutationAuthorityRequirement> authority = await atomicStore
@@ -148,9 +153,11 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         }
         catch { return Failure<TResult>(OperationStatus.NotFound, BaseModuleMutationErrorCodes.ReceiptUnavailable, ErrorCategory.NotFound); }
         IAtomicRecordStore? store = ResolveOneStore(authorityCollections);
-        if (store is null)
+        if (store is null || !BaseModuleMutationCapabilityContract.Supports(definition.Limits, store.Capabilities.ModuleMutation))
             return Failure<TResult>(OperationStatus.NotFound, BaseModuleMutationErrorCodes.ReceiptUnavailable, ErrorCategory.NotFound);
-        var resolver = new BaseModuleMutationReceiptResolver<TResult>(definition, generatedIdentity.ResultTypeInfo);
+        var resolver = new BaseModuleMutationReceiptResolver<TResult>(
+            definition, generatedIdentity.ResultTypeInfo, generatedIdentity.ResultBindings,
+            session.Principal, session.Operation(BaseOperationKind.ModuleMutation, definition.Id), policy);
         RecordMutationExecutionResult resolution;
         try
         {
@@ -169,6 +176,64 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             ? stores.GetRegistrations()
             : authorityCollections.Select(value => stores.GetRegistrationForCollection(value.Id)).Where(static value => value is not null).Cast<RecordStoreRegistration>().DistinctBy(static value => value.StoreId).ToArray();
         return registrations.Length == 1 ? registrations[0].Store as IAtomicRecordStore : null;
+    }
+
+    private async ValueTask<bool> AuthorizeDeclaredAuthorityAsync(
+        BaseSession session,
+        BaseRegisteredModuleMutationDefinition definition,
+        OperationContext moduleOperation,
+        CollectionDefinition initialResource,
+        BasePolicyEvaluation initialEvaluation,
+        CancellationToken cancellationToken)
+    {
+        foreach (string collectionId in definition.SystemCollectionIds)
+        {
+            if (!collections.Collections.TryGetValue(collectionId, out CollectionDefinition? collection)) return false;
+            if (string.Equals(collection.Id, initialResource.Id, StringComparison.Ordinal)) continue;
+            OperationResult<BasePolicyEvaluation> source = await policy.EvaluateWriteAsync(new BasePolicyRequest
+            {
+                Principal = session.Principal,
+                Operation = moduleOperation with { CollectionId = collection.Id },
+                Collection = collection,
+                ResourceKind = PolicyResourceKind.ModuleMutation,
+            }, cancellationToken).ConfigureAwait(false);
+            if (!BaseSystemCollectionGate.HasExactGrant(source, definition.GrantId)) return false;
+        }
+
+        foreach (string contractId in definition.ImportedSubjectContractIds)
+        {
+            BaseGeneratedSubjectRegistration[] matches = subjects.All
+                .Where(value => string.Equals(value.Definition.Id, contractId, StringComparison.Ordinal))
+                .ToArray();
+            if (matches.Length != 1) return false;
+            BaseGeneratedSubjectRegistration registration = matches[0];
+            OperationResult<BasePolicyEvaluation> imported = await policy.EvaluateWriteAsync(new BasePolicyRequest
+            {
+                Principal = session.Principal,
+                Operation = moduleOperation with
+                {
+                    Operation = BaseOperationKind.SubjectValidate,
+                    CollectionId = registration.Definition.Id,
+                    RecordId = null,
+                    Mode = OperationMode.System,
+                },
+                Collection = new CollectionDefinition
+                {
+                    Id = registration.Definition.Id,
+                    Name = "Exported logical subject contract",
+                    Kind = BaseCollectionKinds.Custom,
+                    SchemaMode = SchemaMode.Strict,
+                    UnknownFields = UnknownFieldPolicy.Reject,
+                    System = true,
+                    SystemOwnerModuleId = registration.Definition.OwningModuleId,
+                },
+                ResourceKind = PolicyResourceKind.SubjectContract,
+                SubjectContractId = registration.Definition.Id,
+                SubjectContractVersion = registration.Definition.Version,
+            }, cancellationToken).ConfigureAwait(false);
+            if (!BaseSystemCollectionGate.HasExactGrant(imported, registration.Definition.ValidationGrantId)) return false;
+        }
+        return initialEvaluation.Authority is not null;
     }
 
     private CollectionDefinition PolicyResource(BaseRegisteredModuleMutationDefinition definition) =>
@@ -323,14 +388,18 @@ internal sealed class DefaultBaseModuleMutationRuntime(
 
 internal sealed class BaseModuleMutationReceiptResolver<TResult>(
     BaseRegisteredModuleMutationDefinition definition,
-    System.Text.Json.Serialization.Metadata.JsonTypeInfo<TResult> resultTypeInfo) : IAtomicMutationProcessor
+    System.Text.Json.Serialization.Metadata.JsonTypeInfo<TResult> resultTypeInfo,
+    IReadOnlyDictionary<string, BaseModuleDtoPropertyBinding> resultBindings,
+    PrincipalContext principal,
+    OperationContext operation,
+    IBasePolicyOrchestrator policy) : IAtomicMutationProcessor
 {
     internal BaseModuleMutationExecutionResult<TResult>? Result { get; private set; }
 
     public ValueTask<AtomicMutationProcessingResult> ProcessAsync(IAtomicRecordSession session, CancellationToken cancellationToken = default) =>
         ValueTask.FromResult(Failed());
 
-    public ValueTask<AtomicMutationProcessingResult> ResolveReceiptAsync(
+    public async ValueTask<AtomicMutationProcessingResult> ResolveReceiptAsync(
         BaseAtomicReceiptResult committedResult,
         CancellationToken cancellationToken = default)
     {
@@ -339,20 +408,23 @@ internal sealed class BaseModuleMutationReceiptResolver<TResult>(
         if (committedResult.Kind != BaseAtomicReceiptResultKind.ModuleMutation || module is null
             || !string.Equals(module.OperationId, definition.Id, StringComparison.Ordinal)
             || module.OperationVersion != definition.Version)
-            return ValueTask.FromResult(Failed());
+            return Failed();
+        if (!await BaseModuleReceiptDisclosure.AuthorizeAsync(
+                committedResult, definition, resultBindings, principal, operation, policy, cancellationToken).ConfigureAwait(false))
+            return Failed();
         try
         {
             TResult? typed = JsonSerializer.Deserialize(module.CanonicalResultBytes.AsSpan(), resultTypeInfo);
-            if (typed is null) return ValueTask.FromResult(Failed());
+            if (typed is null) return Failed();
             Result = new BaseModuleMutationExecutionResult<TResult>
             {
                 Disposition = BaseMutationRequestDisposition.Duplicate,
                 Outcome = BaseModuleMutationOutcome.Duplicate,
                 Result = typed,
             };
-            return ValueTask.FromResult(new AtomicMutationProcessingResult(AtomicMutationProcessingOutcome.ReadyToCommit, committedResult));
+            return new AtomicMutationProcessingResult(AtomicMutationProcessingOutcome.ReadyToCommit, committedResult);
         }
-        catch { return ValueTask.FromResult(Failed()); }
+        catch { return Failed(); }
     }
 
     private static AtomicMutationProcessingResult Failed() => new(
@@ -364,4 +436,67 @@ internal sealed class BaseModuleMutationReceiptResolver<TResult>(
             Message = "The stored module mutation receipt cannot be resolved.",
             Category = ErrorCategory.Authorization,
         });
+}
+
+internal static class BaseModuleReceiptDisclosure
+{
+    internal static async ValueTask<bool> AuthorizeAsync(
+        BaseAtomicReceiptResult committedResult,
+        BaseRegisteredModuleMutationDefinition definition,
+        IReadOnlyDictionary<string, BaseModuleDtoPropertyBinding> resultBindings,
+        PrincipalContext principal,
+        OperationContext operation,
+        IBasePolicyOrchestrator policy,
+        CancellationToken cancellationToken)
+    {
+        foreach (BaseOwnedMutationFact owned in committedResult.Mutations)
+        {
+            BaseRecordMutationFact fact;
+            try { fact = owned.MaterializeOwned(); }
+            catch { return false; }
+            RecordEnvelope? resource = fact.After ?? fact.Before;
+            if (resource is null || !definition.SystemCollectionIds.Contains(fact.Collection.Id, StringComparer.Ordinal)) return false;
+            OperationResult<BasePolicyEvaluation> disclosure = await policy.EvaluateReadAsync(new BasePolicyRequest
+            {
+                Principal = principal,
+                Operation = operation with { CollectionId = fact.Collection.Id, RecordId = resource.Id.Value },
+                Collection = fact.Collection,
+                ResourceKind = PolicyResourceKind.ModuleMutation,
+                ExistingRecord = resource,
+                RecordId = resource.Id,
+            }, cancellationToken).ConfigureAwait(false);
+            if (!disclosure.IsSuccess() || disclosure.Value is null
+                || !BaseSystemCollectionGate.HasExactGrant(disclosure, definition.GrantId)
+                || !BaseRecordFilterMatcher.Matches(resource, disclosure.Value.EffectiveRecordFilter)) return false;
+        }
+
+        OperationResult<BasePolicyEvaluation> result = await policy.EvaluateReadAsync(new BasePolicyRequest
+        {
+            Principal = principal,
+            Operation = operation,
+            Collection = new CollectionDefinition
+            {
+                Id = definition.Id, Name = definition.Id, Kind = BaseCollectionKinds.Custom,
+                SchemaMode = SchemaMode.Strict, UnknownFields = UnknownFieldPolicy.Reject,
+                System = true, SystemOwnerModuleId = definition.OwningModuleId,
+            },
+            ResourceKind = PolicyResourceKind.ModuleMutation,
+        }, cancellationToken).ConfigureAwait(false);
+        return result.IsSuccess() && result.Value is not null
+            && BaseSystemCollectionGate.HasExactGrant(result, definition.GrantId)
+            && ResultMaskAllows(result.Value.EffectiveReadMask, resultBindings.Keys);
+    }
+
+    private static bool ResultMaskAllows(FieldMask? mask, IEnumerable<string> fields)
+    {
+        string[] values = fields.ToArray();
+        return mask?.Mode switch
+        {
+            null or FieldMaskMode.Unspecified or FieldMaskMode.AllowAll => true,
+            FieldMaskMode.DenyAll => values.Length == 0,
+            FieldMaskMode.IncludeOnly => values.All(value => (mask.Include ?? []).Contains(value, StringComparer.Ordinal)),
+            FieldMaskMode.Exclude => values.All(value => !(mask.Exclude ?? []).Contains(value, StringComparer.Ordinal)),
+            _ => false,
+        };
+    }
 }

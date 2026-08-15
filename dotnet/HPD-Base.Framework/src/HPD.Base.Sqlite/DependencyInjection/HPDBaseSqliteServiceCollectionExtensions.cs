@@ -91,5 +91,6 @@ public static class HPDBaseSqliteServiceCollectionExtensions
         IntegrityCheckTimeout = value.IntegrityCheckTimeout, MaxQuarantinedAdministrationExecutions = value.MaxQuarantinedAdministrationExecutions,
         HealthRefId = new string(value.HealthRefId.AsSpan()), DiagnosticRefId = new string(value.DiagnosticRefId.AsSpan()),
         Collections = value.Collections.ToArray(), ExportedSubjects = value.ExportedSubjects.ToArray(),
+        ModuleMutations = value.ModuleMutations.ToArray(), ModuleGenerationCells = value.ModuleGenerationCells.ToArray(),
     };
 }

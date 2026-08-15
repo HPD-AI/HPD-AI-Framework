@@ -4,7 +4,15 @@ namespace HPD.Base;
 internal sealed record BaseFinalizedRecordMutationPlan(
     System.Collections.Immutable.ImmutableArray<BaseAtomicMutationPlanItem> Items,
     System.Collections.Immutable.ImmutableArray<BaseSubjectReferenceValidationPlanItem> SubjectValidations,
-    System.Collections.Immutable.ImmutableArray<BasePolicyEvaluation> PolicyEvaluations);
+    System.Collections.Immutable.ImmutableArray<BasePolicyEvaluation> PolicyEvaluations,
+    System.Collections.Immutable.ImmutableArray<BaseFinalizedRelationPolicy> RelationPolicies);
+
+internal sealed record BaseFinalizedRelationPolicy(
+    string SourceStatementId,
+    string SourceFieldId,
+    string TargetCollectionId,
+    RecordId TargetRecordId,
+    BasePolicyEvaluation Evaluation);
 
 internal sealed record BaseMutationCommand
 {

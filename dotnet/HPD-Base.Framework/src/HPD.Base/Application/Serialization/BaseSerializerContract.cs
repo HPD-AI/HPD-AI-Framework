@@ -189,6 +189,7 @@ internal static class BaseSerializerContract
         type == typeof(float) || type == typeof(double) || type == typeof(decimal) || type == typeof(Guid) ||
         type == typeof(DateTime) || type == typeof(DateTimeOffset) || type == typeof(JsonElement) ||
         type == typeof(BaseBinary) || type == typeof(BaseVector) || type == typeof(RecordId) ||
+        type == typeof(BaseModuleGeneration) ||
         type.IsGenericType && type.GetGenericTypeDefinition() == typeof(BaseSubjectReference<>) ||
         type.IsGenericType && type.GetGenericTypeDefinition() == typeof(BaseRecordId<>);
 

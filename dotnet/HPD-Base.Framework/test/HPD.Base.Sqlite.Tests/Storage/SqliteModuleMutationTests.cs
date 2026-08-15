@@ -78,6 +78,15 @@ public sealed partial class SqliteModuleMutationTests
             Id = "module.policy", Version = 1, OwningModuleId = "module",
             EvaluatorContractId = "module.policy.evaluator", EvaluatorContractVersion = 1, CompositionOrder = 0,
         }, new AllowPolicyEvaluator());
+        builder.AddStaticGrant(new BaseGrantAuthorityDefinition
+        {
+            Id = "module.increment", Version = 1, OwningModuleId = "module",
+            SourceContractId = "module.grants", SourceContractVersion = 1,
+        }, new AccessGrant
+        {
+            Id = "module.increment", Subject = new AccessSubject { Kind = AccessSubjectKind.System },
+            Action = "*", Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime },
+        });
         return new DefaultBasePolicyOrchestrator(builder.Freeze("module.application"));
     }
 
@@ -85,7 +94,7 @@ public sealed partial class SqliteModuleMutationTests
         "module.increment", 1, new byte[32], Json.Default.Request, Json.Default.Result, [],
         [BaseModuleDtoPropertyBinding.Create<Result>("result.generation", nameof(Result.Generation))]);
 
-    private static BaseRegisteredModuleMutationDefinition Definition() => new()
+    private static BaseRegisteredModuleMutationDefinition Definition() => BaseModuleMutationContract.Seal(new()
     {
         Id = "module.increment", Version = 1, OwningModuleId = "module", GrantId = "module.increment",
         Audience = BaseModuleMutationAudience.System, RequestTypeId = "request", ResultTypeId = "result",
@@ -110,7 +119,7 @@ public sealed partial class SqliteModuleMutationTests
         },
         Limits = Limits(), ReceiptPolicy = new BaseModuleMutationReceiptPolicy { FormatVersion = 1, Lifetime = TimeSpan.FromDays(1) },
         Checksum = BaseModuleMutationChecksum.Create(new byte[32]),
-    };
+    });
 
     private static BaseModuleMutationLimits Limits() => new()
     {

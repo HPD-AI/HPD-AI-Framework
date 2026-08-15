@@ -38,6 +38,13 @@ internal static class BaseAtomicMutationOwnership
                 DecisionId = new string(decision.DecisionId.AsSpan()),
             }).ToImmutableArray(),
             ItemBindings = value.Module.ItemBindings.Select(static binding => binding with { }).ToImmutableArray(),
+            RelationTargets = value.Module.RelationTargets.Select(static target => target with
+            {
+                SourceStatementId = new string(target.SourceStatementId.AsSpan()),
+                SourceFieldId = new string(target.SourceFieldId.AsSpan()),
+                TargetCollectionId = new string(target.TargetCollectionId.AsSpan()),
+                PolicyAuthorityDigest = BaseAtomicPolicyAuthorityDigest.Create(target.PolicyAuthorityDigest.ToArray()),
+            }).ToImmutableArray(),
             Comparisons = value.Module.Comparisons.Select(static comparison => comparison with { }).ToImmutableArray(),
             Increments = value.Module.Increments.Select(static increment => increment with { }).ToImmutableArray(),
             ResultProjectionDigest = new string(value.Module.ResultProjectionDigest.AsSpan()),

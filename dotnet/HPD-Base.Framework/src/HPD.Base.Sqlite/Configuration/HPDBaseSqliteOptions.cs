@@ -100,4 +100,6 @@ public sealed class HPDBaseSqliteOptions
     /// <summary>Gets or sets the complete closed collection schemas installed in this store.</summary>
     public CollectionDefinition[] Collections { get; set; } = [];
     internal BaseExportedSubjectDefinition[] ExportedSubjects { get; set; } = [];
+    internal BaseRegisteredModuleMutationDefinition[] ModuleMutations { get; set; } = [];
+    internal BaseModuleGenerationCellDefinition[] ModuleGenerationCells { get; set; } = [];
 }

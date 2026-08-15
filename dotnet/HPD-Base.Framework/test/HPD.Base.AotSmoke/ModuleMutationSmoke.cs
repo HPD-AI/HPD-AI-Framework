@@ -5,7 +5,7 @@ namespace HPD.Base.AotSmoke;
 [BaseRegisteredModuleMutation("hpd.base.aot.module.increment", typeof(ModuleMutationSmokeJsonContext), typeof(ModuleMutationSmokeRequest), typeof(ModuleMutationSmokeResult), Version = 1, OwningModuleId = "hpd.base.aot.module", GrantId = "hpd.base.aot.module.increment")]
 public static partial class ModuleMutationSmoke
 {
-    internal static BaseRegisteredModuleMutationDefinition Definition { get; } = new()
+    internal static BaseRegisteredModuleMutationDefinition Definition { get; } = BaseModuleMutationContract.Seal(new()
     {
         Id = "hpd.base.aot.module.increment", Version = 1, OwningModuleId = "hpd.base.aot.module", GrantId = "hpd.base.aot.module.increment",
         Audience = BaseModuleMutationAudience.Service, RequestTypeId = "hpd.base.aot.module.request", ResultTypeId = "hpd.base.aot.module.result",
@@ -24,7 +24,7 @@ public static partial class ModuleMutationSmoke
         },
         Limits = Limits(), ReceiptPolicy = new BaseModuleMutationReceiptPolicy { FormatVersion = 1, Lifetime = TimeSpan.FromDays(1) },
         Checksum = BaseModuleMutationChecksum.Create(System.Security.Cryptography.SHA256.HashData("hpd.base.aot.module.increment.v1"u8)),
-    };
+    });
 
     internal static BaseModuleGenerationCellDefinition Cell { get; } = new()
     {

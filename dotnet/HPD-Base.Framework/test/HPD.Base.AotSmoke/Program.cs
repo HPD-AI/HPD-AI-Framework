@@ -28,7 +28,7 @@ services.AddHPDBase(hpd =>
         Id = "hpd.base.aot.allow", Version = 1, OwningModuleId = "hpd.base.aot",
         EvaluatorContractId = "hpd.base.aot.policy", EvaluatorContractVersion = 1, CompositionOrder = 0,
     }, new AotAllowPolicyEvaluator());
-    foreach (string grantId in new[] { "hpd.base.aot.subject.private", "hpd.base.aot.subject.acquire", "hpd.base.aot.subject.validate", "hpd.base.aot.subject.rotate" })
+    foreach (string grantId in new[] { "hpd.base.aot.subject.private", "hpd.base.aot.subject.acquire", "hpd.base.aot.subject.validate", "hpd.base.aot.subject.rotate", "hpd.base.aot.module.increment" })
         hpd.AddStaticGrantAuthority(GrantDefinition(grantId, "hpd.base.aot"), Grant(grantId, "aot"));
     hpd.AddModuleGenerationCell(ModuleMutationSmoke.Cell);
     hpd.AddModuleMutation(ModuleMutationSmoke.Definition, ModuleMutationSmoke.Identity);

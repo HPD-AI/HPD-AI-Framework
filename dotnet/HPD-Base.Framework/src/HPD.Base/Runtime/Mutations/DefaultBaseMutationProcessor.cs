@@ -17,6 +17,7 @@ internal sealed class DefaultBaseMutationProcessor(
     BaseSubjectContractRegistry subjects) : IAtomicMutationProcessor
 {
     private readonly List<BaseMutationAttempt> _attempts = [];
+    private readonly List<BaseFinalizedRelationPolicy> _relationPolicies = [];
     private readonly IReadOnlyDictionary<string, CollectionDefinition> _collections = collections.ToDictionary(static value => value.Id, StringComparer.Ordinal);
     private readonly Dictionary<int, BasePolicyEvaluation> _finalizedPolicies = [];
     private long _deadline;
@@ -409,7 +410,8 @@ internal sealed class DefaultBaseMutationProcessor(
         return OperationResults.Ok(new BaseFinalizedRecordMutationPlan(
             subjectsResult.Value.Items,
             subjectsResult.Value.Validations,
-            [.. Enumerable.Range(0, commands.Length).Select(index => _finalizedPolicies[index])]));
+            [.. Enumerable.Range(0, commands.Length).Select(index => _finalizedPolicies[index])],
+            [.. _relationPolicies]));
     }
 
     private async ValueTask<OperationResult<BaseAtomicMutationPlanItem>> FinalizeCommandAsync(
@@ -609,6 +611,10 @@ internal sealed class DefaultBaseMutationProcessor(
                 if (!targetPolicy.IsSuccess() || targetPolicy.Value?.Decision.Effect != PolicyEffect.Allow ||
                     !BaseRecordFilterMatcher.Matches(target, targetPolicy.Value.EffectiveRecordFilter))
                     return RelationError("base.relation.targetUnavailable", "A relation target is unavailable.", ErrorCategory.Authorization);
+                if (targetPolicy.Value.Authority is null)
+                    return RelationError("base.relation.targetUnavailable", "A relation target is unavailable.", ErrorCategory.Authorization);
+                _relationPolicies.Add(new BaseFinalizedRelationPolicy(
+                    command.ItemId, field.Id, targetCollection.Id, id, targetPolicy.Value));
             }
         }
         return null;

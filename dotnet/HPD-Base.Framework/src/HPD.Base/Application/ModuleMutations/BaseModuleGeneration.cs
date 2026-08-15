@@ -1,8 +1,11 @@
 using System.Globalization;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace HPD.Base;
 
 /// <summary>Opaque positive generation value for one registered module cell.</summary>
+[JsonConverter(typeof(BaseModuleGenerationJsonConverter))]
 public sealed class BaseModuleGeneration : IEquatable<BaseModuleGeneration>
 {
     private readonly long _value;
@@ -34,6 +37,23 @@ public sealed class BaseModuleGeneration : IEquatable<BaseModuleGeneration>
     public override int GetHashCode() => _value.GetHashCode();
     /// <inheritdoc />
     public override string ToString() => ToCanonicalString();
+}
+
+/// <summary>Provides the closed canonical JSON string codec for module generations.</summary>
+public sealed class BaseModuleGenerationJsonConverter : JsonConverter<BaseModuleGeneration>
+{
+    /// <inheritdoc />
+    public override BaseModuleGeneration Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String || reader.GetString() is not { } value)
+            throw new JsonException("A module generation must be a canonical JSON string.");
+        try { return BaseModuleGeneration.ParseCanonical(value); }
+        catch (InvalidOperationException exception) { throw new JsonException("A module generation is invalid.", exception); }
+    }
+
+    /// <inheritdoc />
+    public override void Write(Utf8JsonWriter writer, BaseModuleGeneration value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(value.ToCanonicalString());
 }
 
 /// <summary>Classifies the canonical scope of one module generation cell.</summary>

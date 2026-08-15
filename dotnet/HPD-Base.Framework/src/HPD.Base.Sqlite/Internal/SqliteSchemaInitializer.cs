@@ -139,6 +139,18 @@ CREATE TABLE IF NOT EXISTS {_names.ModuleGenerations} (
   generation INTEGER NOT NULL CHECK(generation > 0),
   PRIMARY KEY(cell_id,cell_version,scope_kind,tenant,project,key_bytes)
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.ModuleMutationDefinitions} (
+  operation_id TEXT NOT NULL, operation_version INTEGER NOT NULL CHECK(operation_version > 0),
+  owning_module_id TEXT NOT NULL, operation_checksum TEXT NOT NULL CHECK(length(operation_checksum)=64),
+  PRIMARY KEY(operation_id,operation_version)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.ModuleGenerationDefinitions} (
+  cell_id TEXT NOT NULL, cell_version INTEGER NOT NULL CHECK(cell_version > 0),
+  owning_module_id TEXT NOT NULL, scope_kind INTEGER NOT NULL,
+  maximum_key_bytes INTEGER NOT NULL, maximum_cells INTEGER NOT NULL,
+  definition_checksum TEXT NOT NULL CHECK(length(definition_checksum)=64),
+  PRIMARY KEY(cell_id,cell_version)
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.MutationJournal} (
   position INTEGER PRIMARY KEY AUTOINCREMENT,
   entry_kind INTEGER NOT NULL DEFAULT 0,
@@ -174,6 +186,7 @@ CREATE TABLE IF NOT EXISTS {_names.OperationReceipts} (
   expires_at TEXT NOT NULL,
   PRIMARY KEY(scope, operation, idempotency_key)
 ) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS "{_names.OperationReceipts}_module_retirement" ON {_names.OperationReceipts}(operation, expires_at);
 """);
         foreach (SqlitePhysicalModel.CollectionModel collection in _physical.Collections)
         {
@@ -319,6 +332,18 @@ CREATE TABLE IF NOT EXISTS {_names.ModuleGenerations} (
   generation INTEGER NOT NULL CHECK(generation > 0),
   PRIMARY KEY(cell_id,cell_version,scope_kind,tenant,project,key_bytes)
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.ModuleMutationDefinitions} (
+  operation_id TEXT NOT NULL, operation_version INTEGER NOT NULL CHECK(operation_version > 0),
+  owning_module_id TEXT NOT NULL, operation_checksum TEXT NOT NULL CHECK(length(operation_checksum)=64),
+  PRIMARY KEY(operation_id,operation_version)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.ModuleGenerationDefinitions} (
+  cell_id TEXT NOT NULL, cell_version INTEGER NOT NULL CHECK(cell_version > 0),
+  owning_module_id TEXT NOT NULL, scope_kind INTEGER NOT NULL,
+  maximum_key_bytes INTEGER NOT NULL, maximum_cells INTEGER NOT NULL,
+  definition_checksum TEXT NOT NULL CHECK(length(definition_checksum)=64),
+  PRIMARY KEY(cell_id,cell_version)
+) WITHOUT ROWID;
 """, cancellationToken).ConfigureAwait(false);
 
         await ExecuteAsync(connection, $"""
@@ -357,6 +382,7 @@ CREATE TABLE IF NOT EXISTS {_names.OperationReceipts} (
   expires_at TEXT NOT NULL,
   PRIMARY KEY(scope, operation, idempotency_key)
 ) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS "{_names.OperationReceipts}_module_retirement" ON {_names.OperationReceipts}(operation, expires_at);
 """, cancellationToken).ConfigureAwait(false);
 
         var malformedColumns = new List<string>();
@@ -503,7 +529,7 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
     public async ValueTask<string[]> GetMissingSchemaPartsAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         var missing = new List<string>();
-        foreach (var table in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.OperationReceipts, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease, _names.SubjectContracts, _names.SubjectLifetimes, _names.SubjectMaintenance, _names.SubjectRewriteStage, _names.ModuleGenerations }
+        foreach (var table in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.OperationReceipts, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease, _names.SubjectContracts, _names.SubjectLifetimes, _names.SubjectMaintenance, _names.SubjectRewriteStage, _names.ModuleGenerations, _names.ModuleMutationDefinitions, _names.ModuleGenerationDefinitions }
             .Concat(_physical.Collections.Select(static collection => collection.Table))
             .Concat(_physical.Relations.Select(static relation => relation.Table))
             .Concat(_projectionSchemaTables))

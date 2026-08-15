@@ -494,12 +494,31 @@ public sealed record BaseFinalizedModuleMutationExtension
     public required ImmutableArray<BaseModuleDecisionTraceEntry> Decisions { get; init; }
     /// <summary>Gets mutation-item to record-capture bindings.</summary>
     public required ImmutableArray<BaseModuleMutationItemCaptureBinding> ItemBindings { get; init; }
+    /// <summary>Gets the complete selected relation targets authorized by Runtime.</summary>
+    public required ImmutableArray<BaseAuthorizedModuleRelationTarget> RelationTargets { get; init; }
     /// <summary>Gets ordered generation comparisons.</summary>
     public required ImmutableArray<BaseModuleGenerationComparison> Comparisons { get; init; }
     /// <summary>Gets ordered generation increments.</summary>
     public required ImmutableArray<BaseModuleGenerationIncrement> Increments { get; init; }
     /// <summary>Gets the canonical result projection digest.</summary>
     public required string ResultProjectionDigest { get; init; }
+}
+
+/// <summary>Binds one selected relation target to its exact Runtime policy authority.</summary>
+public sealed record BaseAuthorizedModuleRelationTarget
+{
+    /// <summary>Gets the original relation-target capture ordinal.</summary>
+    public required int CaptureOrdinal { get; init; }
+    /// <summary>Gets the source statement identity.</summary>
+    public required string SourceStatementId { get; init; }
+    /// <summary>Gets the stable source field identity.</summary>
+    public required string SourceFieldId { get; init; }
+    /// <summary>Gets the exact target collection identity.</summary>
+    public required string TargetCollectionId { get; init; }
+    /// <summary>Gets the exact target record identity.</summary>
+    public required RecordId TargetRecordId { get; init; }
+    /// <summary>Gets the exact Runtime policy-authority digest.</summary>
+    public required BaseAtomicPolicyAuthorityDigest PolicyAuthorityDigest { get; init; }
 }
 
 /// <summary>Classifies one evaluated module branch decision.</summary>

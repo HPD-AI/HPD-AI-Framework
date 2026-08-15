@@ -449,7 +449,13 @@ public sealed class HPDBaseBuilder
             if (source.CollectionDefinition is { } bound) _collections[bound.Id] = bound;
         CollectionDefinition[] collections = _collections.Values.ToArray();
         foreach (BaseRegisteredModuleMutationDefinition definition in _moduleMutations.Values)
-            BaseModuleMutationContractValidator.ValidateDefinition(definition, _collections, _moduleGenerationCells);
+        {
+            _moduleMutationRegistrations.TryGetValue((definition.Id, definition.Version), out IBaseModuleMutationRegistration? registration);
+            if (registration is null) throw new InvalidOperationException("base.moduleMutation.invalid");
+            BaseModuleMutationContractValidator.ValidateDefinition(definition, _collections, _moduleGenerationCells, registration);
+            if (!BaseModuleMutationCapabilityContract.Supports(definition.Limits, provider.ModuleMutations))
+                throw new InvalidOperationException(BaseModuleMutationErrorCodes.CapabilityMissing);
+        }
         var moduleMutationRegistry = new BaseModuleMutationRegistry(_moduleMutations.Values, _moduleGenerationCells.Values, _moduleMutationRegistrations.Values);
         BaseSubjectContractRegistry subjectRegistry = FinalizeSubjectGraph(collections);
         foreach (BaseGeneratedSubjectRegistration subject in subjectRegistry.All)
@@ -541,14 +547,17 @@ public sealed class HPDBaseBuilder
         foreach (IHPDBaseBuilderExtension extension in installedExtensions)
             extension.Configure(_services, collections);
         BaseExportedSubjectDefinition[] installedSubjects = subjectRegistry.All.Select(static subject => subject.Definition).ToArray();
-        var installation = new HPDBaseStoreInstallationContext(_services, provider, collections, installedSubjects);
+        var installation = new HPDBaseStoreInstallationContext(
+            _services, provider, collections, installedSubjects,
+            _moduleMutations.Values.ToArray(), _moduleGenerationCells.Values.ToArray());
         HPDBaseStoreRegistrationReceipt receipt;
         try { receipt = provider.Installer.Configure(installation); }
         catch (InvalidOperationException exception) when (exception.Message.StartsWith("base.store.", StringComparison.Ordinal)) { throw; }
         catch (Exception) { throw new InvalidOperationException("base.store.providerInvalid"); }
         finally { installation.Complete(); }
         if (receipt is null || receipt.Kind != provider.Kind || receipt.ProtocolVersion != provider.ProtocolVersion ||
-            !string.Equals(receipt.SchemaDigest, HPDBaseStoreInstallationContext.ComputeSchemaDigest(collections, installedSubjects), StringComparison.Ordinal) ||
+            !string.Equals(receipt.SchemaDigest, HPDBaseStoreInstallationContext.ComputeSchemaDigest(
+                collections, installedSubjects, _moduleMutations.Values, _moduleGenerationCells.Values), StringComparison.Ordinal) ||
             !receipt.ContributorIds.SequenceEqual(provider.RegistrationIds, StringComparer.Ordinal))
             throw new InvalidOperationException("base.store.providerInvalid");
         ConfigureVectorRuntime(collections);

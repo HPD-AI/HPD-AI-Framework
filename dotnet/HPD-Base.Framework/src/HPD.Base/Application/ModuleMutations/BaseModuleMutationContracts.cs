@@ -91,6 +91,105 @@ public sealed record BaseModuleMutationLimits
     public required BaseAtomicMutationDeadlines Deadlines { get; init; }
 }
 
+/// <summary>Describes one provider's immutable registered module-mutation capability.</summary>
+public sealed record BaseModuleMutationCapability
+{
+    /// <summary>Gets whether registered module mutations are supported.</summary>
+    public required bool Supported { get; init; }
+    /// <summary>Gets whether the provider supplies serializable execution.</summary>
+    public required bool SerializableExecution { get; init; }
+    /// <summary>Gets whether receipts survive the provider's declared durability boundary.</summary>
+    public required bool DurableReceipts { get; init; }
+    /// <summary>Gets whether provider-owned generation cells are supported.</summary>
+    public required bool GenerationCells { get; init; }
+    /// <summary>Gets whether records, generations, projections, and receipts commit atomically.</summary>
+    public required bool AtomicRecordAndGenerationCommit { get; init; }
+    /// <summary>Gets the complete provider-certified maxima.</summary>
+    public required BaseModuleMutationLimits MaximumLimits { get; init; }
+}
+
+/// <summary>Provides the fixed L50 platform safety envelope.</summary>
+public static class BaseModuleMutationPlatform
+{
+    /// <summary>Gets a fresh immutable platform-ceiling value.</summary>
+    public static BaseModuleMutationLimits MaximumLimits => new()
+    {
+        MaximumCaptures = 256, MaximumRecordCaptures = 256, MaximumRelationTargetCaptures = 512,
+        MaximumGenerationCaptures = 128, MaximumRecordMutations = 256, MaximumGenerationReads = 128,
+        MaximumGenerationComparisons = 128, MaximumGenerationIncrements = 128, MaximumGuardNodes = 1_024,
+        MaximumGuardDepth = 32, MaximumStatements = 512, MaximumBranches = 64, MaximumExpressionNodes = 2_048,
+        MaximumReadIntervals = 1_024, MaximumSubjectValidations = 1_024, MaximumAuthorityReads = 2_048,
+        MaximumRelationChecks = 4_096, MaximumUniqueConstraintChecks = 4_096,
+        MaximumRequestBytes = 1_048_576, MaximumSelectedBytes = 16_777_216, MaximumGenerationBytes = 1_048_576,
+        MaximumEvidenceBytes = 16_777_216, MaximumWrittenBytes = 16_777_216, MaximumFactBytes = 16_777_216,
+        MaximumJournalBytes = 16_777_216, MaximumReceiptBytes = 16_777_216, MaximumResultBytes = 1_048_576,
+        MaximumTransientBytes = 32_000_000,
+        Deadlines = new BaseAtomicMutationDeadlines
+        {
+            AcquisitionTimeout = TimeSpan.FromSeconds(5), TransactionTimeout = TimeSpan.FromSeconds(30),
+            CommitObservationTimeout = TimeSpan.FromSeconds(30), ReceiptResolutionTimeout = TimeSpan.FromSeconds(30),
+        },
+    };
+}
+
+internal static class BaseModuleMutationCapabilityContract
+{
+    internal static bool IsValid(BaseModuleMutationCapability? capability)
+    {
+        if (capability is not
+            { Supported: true, SerializableExecution: true, DurableReceipts: true, GenerationCells: true,
+                AtomicRecordAndGenerationCommit: true, MaximumLimits: not null }) return false;
+        try
+        {
+            BaseModuleMutationContractValidator.ValidateLimits(capability.MaximumLimits);
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    internal static bool Supports(BaseModuleMutationLimits required, BaseModuleMutationCapability? capability)
+    {
+        if (capability is not { Supported: true, SerializableExecution: true, DurableReceipts: true,
+                GenerationCells: true, AtomicRecordAndGenerationCommit: true }) return false;
+        BaseModuleMutationLimits maximum = capability.MaximumLimits;
+        return required.MaximumCaptures <= maximum.MaximumCaptures
+            && required.MaximumRecordCaptures <= maximum.MaximumRecordCaptures
+            && required.MaximumRelationTargetCaptures <= maximum.MaximumRelationTargetCaptures
+            && required.MaximumGenerationCaptures <= maximum.MaximumGenerationCaptures
+            && required.MaximumRecordMutations <= maximum.MaximumRecordMutations
+            && required.MaximumGenerationReads <= maximum.MaximumGenerationReads
+            && required.MaximumGenerationComparisons <= maximum.MaximumGenerationComparisons
+            && required.MaximumGenerationIncrements <= maximum.MaximumGenerationIncrements
+            && required.MaximumGuardNodes <= maximum.MaximumGuardNodes
+            && required.MaximumGuardDepth <= maximum.MaximumGuardDepth
+            && required.MaximumStatements <= maximum.MaximumStatements
+            && required.MaximumBranches <= maximum.MaximumBranches
+            && required.MaximumExpressionNodes <= maximum.MaximumExpressionNodes
+            && required.MaximumReadIntervals <= maximum.MaximumReadIntervals
+            && required.MaximumSubjectValidations <= maximum.MaximumSubjectValidations
+            && required.MaximumAuthorityReads <= maximum.MaximumAuthorityReads
+            && required.MaximumRelationChecks <= maximum.MaximumRelationChecks
+            && required.MaximumUniqueConstraintChecks <= maximum.MaximumUniqueConstraintChecks
+            && required.MaximumRequestBytes <= maximum.MaximumRequestBytes
+            && required.MaximumSelectedBytes <= maximum.MaximumSelectedBytes
+            && required.MaximumGenerationBytes <= maximum.MaximumGenerationBytes
+            && required.MaximumEvidenceBytes <= maximum.MaximumEvidenceBytes
+            && required.MaximumWrittenBytes <= maximum.MaximumWrittenBytes
+            && required.MaximumFactBytes <= maximum.MaximumFactBytes
+            && required.MaximumJournalBytes <= maximum.MaximumJournalBytes
+            && required.MaximumReceiptBytes <= maximum.MaximumReceiptBytes
+            && required.MaximumResultBytes <= maximum.MaximumResultBytes
+            && required.MaximumTransientBytes <= maximum.MaximumTransientBytes
+            && required.Deadlines.AcquisitionTimeout <= maximum.Deadlines.AcquisitionTimeout
+            && required.Deadlines.TransactionTimeout <= maximum.Deadlines.TransactionTimeout
+            && required.Deadlines.CommitObservationTimeout <= maximum.Deadlines.CommitObservationTimeout
+            && required.Deadlines.ReceiptResolutionTimeout <= maximum.Deadlines.ReceiptResolutionTimeout;
+    }
+}
+
 /// <summary>Distinct deadlines within one atomic mutation.</summary>
 public sealed record BaseAtomicMutationDeadlines
 {

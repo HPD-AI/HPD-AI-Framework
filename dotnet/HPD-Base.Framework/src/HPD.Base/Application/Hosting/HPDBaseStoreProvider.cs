@@ -46,6 +46,8 @@ public sealed class BaseStoreProviderDescriptor
     public int MaximumBinaryFieldBytes { get; init; } = 1_048_576;
     /// <summary>Gets the provider's certified exported-subject validation envelope.</summary>
     public required BaseSubjectReferenceCapability SubjectReferences { get; init; }
+    /// <summary>Gets the provider's certified registered module-mutation envelope.</summary>
+    public required BaseModuleMutationCapability ModuleMutations { get; init; }
 }
 
 /// <summary>Represents one validated immutable authoritative store selection.</summary>
@@ -62,6 +64,7 @@ public sealed class HPDBaseStoreProvider
         _storageProtectionCapabilities = descriptor.StorageProtectionCapabilities.Select(BaseStorageProtectionContract.Clone).ToArray();
         MaximumBinaryFieldBytes = descriptor.MaximumBinaryFieldBytes;
         SubjectReferences = descriptor.SubjectReferences with { };
+        ModuleMutations = descriptor.ModuleMutations with { MaximumLimits = descriptor.ModuleMutations.MaximumLimits with { Deadlines = descriptor.ModuleMutations.MaximumLimits.Deadlines with { } } };
         Installer = installer;
     }
 
@@ -77,6 +80,8 @@ public sealed class HPDBaseStoreProvider
     public int MaximumBinaryFieldBytes { get; }
     /// <summary>Gets the provider's certified exported-subject validation envelope.</summary>
     public BaseSubjectReferenceCapability SubjectReferences { get; }
+    /// <summary>Gets the provider's certified registered module-mutation envelope.</summary>
+    public BaseModuleMutationCapability ModuleMutations { get; }
     internal IHPDBaseStoreInstaller Installer { get; }
 }
 
@@ -92,7 +97,8 @@ public static class HPDBaseStoreProviderFactory
         ArgumentNullException.ThrowIfNull(descriptor);
         ArgumentNullException.ThrowIfNull(installer);
         if (descriptor.ProtocolVersion != ProtocolVersion || !ValidIdentifier(descriptor.Kind) || descriptor.MaximumBinaryFieldBytes is < 1 or > 1_048_576 ||
-            !ValidSubjectCapability(descriptor.SubjectReferences))
+            !ValidSubjectCapability(descriptor.SubjectReferences)
+            || !BaseModuleMutationCapabilityContract.IsValid(descriptor.ModuleMutations))
             throw new InvalidOperationException("base.store.providerInvalid");
         const BaseStoreProviderCapabilities known = BaseStoreProviderCapabilities.Records | BaseStoreProviderCapabilities.AtomicMutations |
             BaseStoreProviderCapabilities.RequiredIndexes | BaseStoreProviderCapabilities.RelationalExecution |
@@ -116,6 +122,11 @@ public static class HPDBaseStoreProviderFactory
             Capabilities = descriptor.Capabilities, RegistrationIds = ids, StorageProtectionCapabilities = protection,
             MaximumBinaryFieldBytes = descriptor.MaximumBinaryFieldBytes,
             SubjectReferences = descriptor.SubjectReferences with { },
+            ModuleMutations = descriptor.ModuleMutations with
+            {
+                MaximumLimits = descriptor.ModuleMutations.MaximumLimits with
+                { Deadlines = descriptor.ModuleMutations.MaximumLimits.Deadlines with { } },
+            },
         }, installer);
     }
 
@@ -147,18 +158,24 @@ public sealed class HPDBaseStoreInstallationContext
     private readonly HPDBaseStoreProvider _provider;
     private readonly CollectionDefinition[] _collections;
     private readonly BaseExportedSubjectDefinition[] _subjects;
+    private readonly BaseRegisteredModuleMutationDefinition[] _moduleMutations;
+    private readonly BaseModuleGenerationCellDefinition[] _moduleGenerationCells;
     private readonly string _schemaDigest;
     internal HPDBaseStoreInstallationContext(
         IServiceCollection services,
         HPDBaseStoreProvider provider,
         CollectionDefinition[] collections,
-        BaseExportedSubjectDefinition[]? subjects = null)
+        BaseExportedSubjectDefinition[]? subjects = null,
+        BaseRegisteredModuleMutationDefinition[]? moduleMutations = null,
+        BaseModuleGenerationCellDefinition[]? moduleGenerationCells = null)
     {
         _services = services;
         _provider = provider;
         _collections = collections.Select(CloneCollection).ToArray();
         _subjects = (subjects ?? []).Select(CloneSubject).ToArray();
-        _schemaDigest = ComputeSchemaDigest(_collections, _subjects);
+        _moduleMutations = (moduleMutations ?? []).Select(static value => BaseModuleMutationContract.Seal(value)).ToArray();
+        _moduleGenerationCells = (moduleGenerationCells ?? []).Select(static value => value with { }).ToArray();
+        _schemaDigest = ComputeSchemaDigest(_collections, _subjects, _moduleMutations, _moduleGenerationCells);
     }
     /// <summary>Gets the host service collection during the installation call.</summary>
     public IServiceCollection Services { get { ThrowIfCompleted(); return _services; } }
@@ -168,6 +185,10 @@ public sealed class HPDBaseStoreInstallationContext
     public IReadOnlyList<CollectionDefinition> Collections { get { ThrowIfCompleted(); return Array.AsReadOnly(_collections.Select(CloneCollection).ToArray()); } }
     /// <summary>Gets an owned view of the accepted exported logical subject definitions.</summary>
     public IReadOnlyList<BaseExportedSubjectDefinition> ExportedSubjects { get { ThrowIfCompleted(); return Array.AsReadOnly(_subjects.Select(CloneSubject).ToArray()); } }
+    /// <summary>Gets an owned view of the accepted registered module mutations.</summary>
+    public IReadOnlyList<BaseRegisteredModuleMutationDefinition> ModuleMutations { get { ThrowIfCompleted(); return Array.AsReadOnly(_moduleMutations.Select(static value => BaseModuleMutationContract.Seal(value)).ToArray()); } }
+    /// <summary>Gets an owned view of the accepted module generation cells.</summary>
+    public IReadOnlyList<BaseModuleGenerationCellDefinition> ModuleGenerationCells { get { ThrowIfCompleted(); return Array.AsReadOnly(_moduleGenerationCells.Select(static value => value with { }).ToArray()); } }
     /// <summary>Creates the single frozen receipt for this installation.</summary>
     public HPDBaseStoreRegistrationReceipt CreateReceipt(string recordStoreRegistrationId)
     {
@@ -209,7 +230,9 @@ public sealed class HPDBaseStoreInstallationContext
 
     internal static string ComputeSchemaDigest(
         IEnumerable<CollectionDefinition> collections,
-        IEnumerable<BaseExportedSubjectDefinition>? subjects = null)
+        IEnumerable<BaseExportedSubjectDefinition>? subjects = null,
+        IEnumerable<BaseRegisteredModuleMutationDefinition>? moduleMutations = null,
+        IEnumerable<BaseModuleGenerationCellDefinition>? moduleGenerationCells = null)
     {
         var canonical = new StringBuilder();
         foreach (CollectionDefinition collection in collections.OrderBy(static value => value.Id, StringComparer.Ordinal))
@@ -225,6 +248,12 @@ public sealed class HPDBaseStoreInstallationContext
         foreach (BaseExportedSubjectDefinition subject in (subjects ?? []).OrderBy(static value => value.Id, StringComparer.Ordinal).ThenBy(static value => value.Version))
             canonical.Append("s:").Append(subject.Id).Append(':').Append(subject.Version).Append(':')
                 .Append(BaseSubjectContractGraph.Checksum(subject)).Append('\n');
+        foreach (BaseRegisteredModuleMutationDefinition operation in (moduleMutations ?? []).OrderBy(static value => value.Id, StringComparer.Ordinal).ThenBy(static value => value.Version))
+            canonical.Append("m:").Append(operation.Id).Append(':').Append(operation.Version).Append(':')
+                .Append(Convert.ToHexStringLower(operation.Checksum.ToArray())).Append('\n');
+        foreach (BaseModuleGenerationCellDefinition cell in (moduleGenerationCells ?? []).OrderBy(static value => value.Id, StringComparer.Ordinal).ThenBy(static value => value.Version))
+            canonical.Append("g:").Append(cell.Id).Append(':').Append(cell.Version).Append(':').Append((int)cell.Scope)
+                .Append(':').Append(cell.OwningModuleId).Append(':').Append(cell.MaximumKeyUtf8Bytes).Append(':').Append(cell.MaximumCellsPerOperation).Append('\n');
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString())));
     }
 

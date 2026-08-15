@@ -28,6 +28,7 @@
   <Project Path="test/HPD.Payments.Serialization.Tests/HPD.Payments.Serialization.Tests.csproj" />
   <Project Path="test/HPD.Payments.Persistence.Tests/HPD.Payments.Persistence.Tests.csproj" />
   <Project Path="test/HPD.Payments.Runtime.Tests/HPD.Payments.Runtime.Tests.csproj" />
+  <Project Path="test/HPD.Payments.BaseIntegration.Tests/HPD.Payments.BaseIntegration.Tests.csproj" />
   <Project Path="test/HPD.Payments.Generators.Tests/HPD.Payments.Generators.Tests.csproj" />
   <Project Path="test/HPD.Payments.Analyzers.Tests/HPD.Payments.Analyzers.Tests.csproj" />
   <Project Path="test/HPD.Payments.Adapters.InMemory.Tests/HPD.Payments.Adapters.InMemory.Tests.csproj" />
