@@ -100,11 +100,10 @@ public sealed class BaseGeneratedModuleMutationIdentity<TRequest, TResult> : IBa
             BaseApplicationId.Validate(binding.StablePropertyId, nameof(bindings));
             if (binding.DeclaringType is null
                 || string.IsNullOrWhiteSpace(binding.ApplicationName)
-                || !result.TryAdd(binding.StablePropertyId, binding with
-                {
-                    StablePropertyId = new string(binding.StablePropertyId.AsSpan()),
-                    ApplicationName = new string(binding.ApplicationName.AsSpan()),
-                }))
+                || !result.TryAdd(binding.StablePropertyId, new BaseModuleDtoPropertyBinding(
+                    new string(binding.StablePropertyId.AsSpan()),
+                    binding.DeclaringType,
+                    new string(binding.ApplicationName.AsSpan()))))
                 throw new InvalidOperationException("base.moduleMutation.invalid");
         }
         return result;
@@ -112,14 +111,26 @@ public sealed class BaseGeneratedModuleMutationIdentity<TRequest, TResult> : IBa
 }
 
 /// <summary>Binds one stable DTO property identity to exact graph-owned serializer metadata.</summary>
-public sealed record BaseModuleDtoPropertyBinding
+public sealed class BaseModuleDtoPropertyBinding
 {
+    internal BaseModuleDtoPropertyBinding(string stablePropertyId, Type declaringType, string applicationName)
+    {
+        StablePropertyId = stablePropertyId;
+        DeclaringType = declaringType;
+        ApplicationName = applicationName;
+    }
+
     /// <summary>Gets the globally stable property edge identity.</summary>
-    public required string StablePropertyId { get; init; }
-    /// <summary>Gets the declaring DTO type.</summary>
-    public required Type DeclaringType { get; init; }
+    public string StablePropertyId { get; }
+    internal Type DeclaringType { get; }
     /// <summary>Gets the exact application property identity.</summary>
-    public required string ApplicationName { get; init; }
+    public string ApplicationName { get; }
+
+    /// <summary>Creates an opaque binding to one exact DTO property.</summary>
+    public static BaseModuleDtoPropertyBinding Create<T>(
+        string stablePropertyId,
+        string applicationName) =>
+        new(stablePropertyId, typeof(T), applicationName);
 }
 
 /// <summary>Infrastructure-only factory used by generated module mutation declarations.</summary>

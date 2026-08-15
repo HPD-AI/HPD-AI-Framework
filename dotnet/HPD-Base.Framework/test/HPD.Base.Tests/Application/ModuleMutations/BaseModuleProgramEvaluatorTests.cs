@@ -167,23 +167,23 @@ public sealed class BaseModuleProgramEvaluatorTests
         "module.test", 1, new byte[32], EvaluatorJsonContext.Default.EvaluatorRequest,
         EvaluatorJsonContext.Default.EvaluatorResult,
         [
-            new BaseModuleDtoPropertyBinding { StablePropertyId = "request.amount", DeclaringType = typeof(EvaluatorRequest), ApplicationName = nameof(EvaluatorRequest.Amount) },
-            new BaseModuleDtoPropertyBinding { StablePropertyId = "request.enabled", DeclaringType = typeof(EvaluatorRequest), ApplicationName = nameof(EvaluatorRequest.Enabled) },
+            BaseModuleDtoPropertyBinding.Create<EvaluatorRequest>("request.amount", nameof(EvaluatorRequest.Amount)),
+            BaseModuleDtoPropertyBinding.Create<EvaluatorRequest>("request.enabled", nameof(EvaluatorRequest.Enabled)),
         ],
-        [new BaseModuleDtoPropertyBinding { StablePropertyId = "result.amount", DeclaringType = typeof(EvaluatorResult), ApplicationName = nameof(EvaluatorResult.Amount) }]);
+        [BaseModuleDtoPropertyBinding.Create<EvaluatorResult>("result.amount", nameof(EvaluatorResult.Amount))]);
 
     private static BaseGeneratedModuleMutationIdentity<GenerationRequest, GenerationResult> GenerationIdentity() => new(
         "module.increment", 1, new byte[32], EvaluatorJsonContext.Default.GenerationRequest,
         EvaluatorJsonContext.Default.GenerationResult, [],
-        [new BaseModuleDtoPropertyBinding { StablePropertyId = "result.generation", DeclaringType = typeof(GenerationResult), ApplicationName = nameof(GenerationResult.Generation) }]);
+        [BaseModuleDtoPropertyBinding.Create<GenerationResult>("result.generation", nameof(GenerationResult.Generation))]);
 
     private static BaseGeneratedModuleMutationIdentity<CreateRequest, CreateResult> CreateIdentity() => new(
         "module.create", 1, new byte[32], EvaluatorJsonContext.Default.CreateRequest, EvaluatorJsonContext.Default.CreateResult,
         [
-            new BaseModuleDtoPropertyBinding { StablePropertyId = "request.id", DeclaringType = typeof(CreateRequest), ApplicationName = nameof(CreateRequest.Id) },
-            new BaseModuleDtoPropertyBinding { StablePropertyId = "request.name", DeclaringType = typeof(CreateRequest), ApplicationName = nameof(CreateRequest.Name) },
+            BaseModuleDtoPropertyBinding.Create<CreateRequest>("request.id", nameof(CreateRequest.Id)),
+            BaseModuleDtoPropertyBinding.Create<CreateRequest>("request.name", nameof(CreateRequest.Name)),
         ],
-        [new BaseModuleDtoPropertyBinding { StablePropertyId = "result.id", DeclaringType = typeof(CreateResult), ApplicationName = nameof(CreateResult.Id) }]);
+        [BaseModuleDtoPropertyBinding.Create<CreateResult>("result.id", nameof(CreateResult.Id))]);
 
     private static BaseRegisteredModuleMutationDefinition CreateDefinition() => new()
     {
@@ -247,7 +247,7 @@ public sealed class BaseModuleProgramEvaluatorTests
             Id = "module.policy", Version = 1, OwningModuleId = "module",
             EvaluatorContractId = "module.policy.evaluator", EvaluatorContractVersion = 1, CompositionOrder = 0,
         }, new AllowPolicyEvaluator());
-        return new DefaultBasePolicyOrchestrator([], Options.Create(HPDBaseRuntimeOptions.CreateDefault()), builder.Freeze("module.application"));
+        return new DefaultBasePolicyOrchestrator(builder.Freeze("module.application"));
     }
 
     private static BaseRegisteredModuleMutationDefinition GenerationDefinition() => new()

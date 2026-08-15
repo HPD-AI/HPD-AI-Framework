@@ -382,6 +382,16 @@ public sealed class HPDBaseBuilder
         return this;
     }
 
+    /// <summary>Adds one explicitly constructed graph-owned policy evaluator.</summary>
+    public HPDBaseBuilder AddPolicyAuthority(
+        BasePolicyAuthorityDefinition definition,
+        IPolicyEvaluator evaluator)
+    {
+        EnsureMutable();
+        PolicyAuthority.AddPolicy(definition, evaluator);
+        return this;
+    }
+
     /// <summary>Performs add Descriptor Contributor.</summary>
     public HPDBaseBuilder AddDescriptorContributor<
     [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]

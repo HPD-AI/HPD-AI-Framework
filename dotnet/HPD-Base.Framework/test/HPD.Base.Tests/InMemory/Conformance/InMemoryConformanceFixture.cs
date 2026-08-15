@@ -71,14 +71,7 @@ public sealed class InMemoryConformanceFixture :
 
         var services = new ServiceCollection();
         services.AddLogging();
-        if (options.PolicyEvaluator is not null)
-        {
-            services.AddSingleton<IPolicyEvaluator>(options.PolicyEvaluator);
-        }
-        else
-        {
-            services.AddSingleton<IPolicyEvaluator, ConformanceAllowPolicyEvaluator>();
-        }
+        IPolicyEvaluator policy = options.PolicyEvaluator ?? new ConformanceAllowPolicyEvaluator();
 
         if (options.EventPublisher is not null)
         {
@@ -87,6 +80,7 @@ public sealed class InMemoryConformanceFixture :
         }
 
         services.AddHPDBaseRuntime()
+            .UsePolicyAuthority("inmemory-conformance", PolicyDefinition(), policy)
             .AddHPDBaseInMemoryStore(options =>
             {
                 options.StoreId = _options.StoreId;
@@ -116,6 +110,14 @@ public sealed class InMemoryConformanceFixture :
         provider.GetRequiredService<IBaseDescriptorRegistry>().RebuildAsync(cancellationToken).AsTask().GetAwaiter().GetResult();
         return ValueTask.FromResult<IServiceProvider>(provider);
     }
+
+    private static BasePolicyAuthorityDefinition PolicyDefinition() => new()
+    {
+        Id = "inmemory-conformance.policy", Version = 1,
+        OwningModuleId = "inmemory-conformance",
+        EvaluatorContractId = "inmemory-conformance.policy-evaluator",
+        EvaluatorContractVersion = 1, CompositionOrder = 0,
+    };
 
     public async ValueTask<RecordEnvelope> CreateRecordAsync(
         IRecordStore store,

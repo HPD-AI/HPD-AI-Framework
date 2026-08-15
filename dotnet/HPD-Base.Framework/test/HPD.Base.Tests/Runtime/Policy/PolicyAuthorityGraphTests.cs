@@ -1,5 +1,4 @@
 using HPD.Base;
-using Microsoft.Extensions.Options;
 
 namespace HPD.Base.Tests.Policy;
 
@@ -13,7 +12,7 @@ public sealed class PolicyAuthorityGraphTests
         builder.AddPolicy(Definition("z-policy", 20), new RecordingPolicy("z", calls, PolicyDecision.Allow()));
         builder.AddPolicy(Definition("a-policy", 10), new RecordingPolicy("a", calls, PolicyDecision.Allow()));
         BasePolicyAuthorityOwner owner = builder.Freeze("policy-test");
-        var orchestrator = new DefaultBasePolicyOrchestrator([], Options.Create(HPDBaseRuntimeOptions.CreateDefault()), owner);
+        var orchestrator = new DefaultBasePolicyOrchestrator(owner);
 
         OperationResult<BasePolicyEvaluation> result = await orchestrator.EvaluateWriteAsync(Request());
 
@@ -32,7 +31,7 @@ public sealed class PolicyAuthorityGraphTests
         builder.AddPolicy(Definition("allow", 0), new RecordingPolicy("allow", calls, PolicyDecision.Allow()));
         builder.AddPolicy(Definition("deny", 1), new RecordingPolicy("deny", calls, PolicyDecision.Deny("denied", "Denied.")));
         builder.AddPolicy(Definition("later", 2), new RecordingPolicy("later", calls, PolicyDecision.Allow()));
-        var orchestrator = new DefaultBasePolicyOrchestrator([], Options.Create(HPDBaseRuntimeOptions.CreateDefault()), builder.Freeze("policy-test"));
+        var orchestrator = new DefaultBasePolicyOrchestrator(builder.Freeze("policy-test"));
 
         OperationResult<BasePolicyEvaluation> result = await orchestrator.EvaluateWriteAsync(Request());
 
@@ -53,7 +52,7 @@ public sealed class PolicyAuthorityGraphTests
         BasePolicyAuthorityOwner secondOwner = second.Freeze("policy-test");
         Assert.NotEqual(Convert.ToHexString(firstOwner.Checksum), Convert.ToHexString(secondOwner.Checksum));
 
-        var orchestrator = new DefaultBasePolicyOrchestrator([], Options.Create(HPDBaseRuntimeOptions.CreateDefault()), firstOwner);
+        var orchestrator = new DefaultBasePolicyOrchestrator(firstOwner);
         OperationResult<BasePolicyEvaluation> result = await orchestrator.EvaluateWriteAsync(Request());
 
         BaseAdmittedGrantAuthority admitted = Assert.Single(result.Value!.Authority!.AdmittedGrants);

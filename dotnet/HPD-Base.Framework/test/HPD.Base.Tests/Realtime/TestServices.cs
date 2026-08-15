@@ -27,8 +27,15 @@ internal static class TestServices
                 options.ProtectionKey = Enumerable.Repeat((byte)0x5A, 32).ToArray();
                 configureDependencies?.Invoke(options);
             });
-        services.AddSingleton(evaluator ?? new AllowPolicyEvaluator());
+        IPolicyEvaluator policy = evaluator ?? new AllowPolicyEvaluator();
         services.AddHPDBaseRuntime()
+            .UsePolicyAuthority("realtime-tests", new BasePolicyAuthorityDefinition
+            {
+                Id = "realtime-tests.policy", Version = 1,
+                OwningModuleId = "realtime-tests",
+                EvaluatorContractId = "realtime-tests.policy-evaluator",
+                EvaluatorContractVersion = 1, CompositionOrder = 0,
+            }, policy)
             .AddHPDBaseRealtime(configureRealtime)
             .AddHPDBaseInMemoryStore(options =>
             {

@@ -7,6 +7,23 @@ namespace HPD.Base;
 /// <summary>Represents hPDBase Runtime Service Collection Extensions.</summary>
 public static class HPDBaseRuntimeServiceCollectionExtensions
 {
+    /// <summary>Installs one explicit graph-owned policy authority for a low-level runtime host.</summary>
+    public static IHPDBaseRuntimeBuilder UsePolicyAuthority(
+        this IHPDBaseRuntimeBuilder builder,
+        string applicationId,
+        BasePolicyAuthorityDefinition definition,
+        IPolicyEvaluator evaluator)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(applicationId);
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(evaluator);
+        var authority = new BasePolicyAuthorityBuilder();
+        authority.AddPolicy(definition, evaluator);
+        builder.Services.AddSingleton(authority.Freeze(applicationId));
+        return builder;
+    }
+
     /// <summary>
     /// Configures HPD.BASE runtime policy handling to fail closed when no evaluator
     /// exists or when every evaluator abstains.

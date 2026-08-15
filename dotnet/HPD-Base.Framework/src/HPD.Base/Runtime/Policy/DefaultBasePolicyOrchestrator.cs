@@ -1,22 +1,15 @@
-using Microsoft.Extensions.Options;
 using System.Collections.Immutable;
 
 namespace HPD.Base;
 
 internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
 {
-    private readonly IEnumerable<IPolicyEvaluator> _evaluators;
-    private readonly HPDBaseRuntimeOptions _options;
     private readonly BasePolicyAuthorityOwner? _owner;
 
     /// <summary>Initializes a new instance.</summary>
     public DefaultBasePolicyOrchestrator(
-        IEnumerable<IPolicyEvaluator> evaluators,
-        IOptions<HPDBaseRuntimeOptions> options,
         BasePolicyAuthorityOwner? owner = null)
     {
-        _evaluators = evaluators;
-        _options = options.Value;
         _owner = owner;
     }
 
@@ -41,80 +34,11 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
 
         if (_owner is { Policies.Length: > 0 })
             return await EvaluateInstalledAsync(request, cancellationToken).ConfigureAwait(false);
-
-        var evaluator = _evaluators.FirstOrDefault();
-        if (evaluator is null)
+        return OperationResults.PolicyDenied<BasePolicyEvaluation>(new BaseError
         {
-            if (_options.AllowPolicyAbstainAsAllowForDevelopment)
-            {
-                return OperationResults.Ok(Allowed());
-            }
-
-            return OperationResults.PolicyDenied<BasePolicyEvaluation>(new BaseError
-            {
-                Code = "base.runtime.policy.unavailable",
-                Message = "No policy evaluator is registered.",
-                Category = ErrorCategory.Authorization
-            });
-        }
-
-        var decision = await evaluator.EvaluateAsync(new PolicyEvaluationRequest
-        {
-            Operation = request.Operation,
-            Principal = request.Principal,
-            Collection = request.Collection,
-            Resource = new PolicyResource
-            {
-                Kind = request.ResourceKind,
-                Query = request.Query,
-                ExistingRecord = request.ExistingRecord,
-                ProposedPayload = request.ProposedPayload,
-                ProposedRecord = request.ProposedRecord,
-                RecordId = request.RecordId?.Value,
-                VectorIndexId = request.VectorIndexId,
-                VectorSpaceId = request.VectorSpaceId,
-                SubjectContractId = request.SubjectContractId,
-                SubjectContractVersion = request.SubjectContractVersion,
-            },
-            Grants = request.Grants,
-            PolicyRefs = request.PolicyRefs
-        }, cancellationToken).ConfigureAwait(false);
-
-        if (decision.Effect != PolicyEffect.Allow && (decision.Effect != PolicyEffect.Abstain || !_options.AllowPolicyAbstainAsAllowForDevelopment))
-        {
-            return OperationResults.PolicyDenied<BasePolicyEvaluation>(new BaseError
-            {
-                Code = decision.ReasonCode ?? "base.runtime.policy.denied",
-                Message = decision.SafeMessage ?? "Policy denied the operation.",
-                Category = ErrorCategory.Authorization,
-                Policy = new PolicyErrorInfo { ReasonCode = decision.ReasonCode }
-            });
-        }
-
-        var requiredObligation = decision.Obligations?.FirstOrDefault(obligation => obligation.Enforcement == ObligationEnforcement.Required);
-        if (requiredObligation is not null)
-        {
-            return OperationResults.Unsupported<BasePolicyEvaluation>(new BaseError
-            {
-                Code = "base.runtime.policy.obligation.unsupported",
-                Message = "Policy returned a required obligation that this runtime cannot enforce.",
-                Category = ErrorCategory.Unsupported,
-                Target = requiredObligation.Kind,
-                Policy = new PolicyErrorInfo
-                {
-                    ReasonCode = requiredObligation.Code ?? requiredObligation.Kind,
-                    Obligations = [requiredObligation.Kind]
-                }
-            });
-        }
-
-        return OperationResults.Ok(new BasePolicyEvaluation
-        {
-            Decision = decision,
-            EffectiveRecordFilter = decision.Constraints?.RecordFilter,
-            EffectiveWriteCheck = decision.Constraints?.WriteCheck,
-            EffectiveReadMask = decision.Constraints?.ReadMask,
-            EffectiveWriteMask = decision.Constraints?.WriteMask
+            Code = "base.runtime.policy.unavailable",
+            Message = "No graph-owned policy authority is installed.",
+            Category = ErrorCategory.Authorization
         });
     }
 
