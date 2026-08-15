@@ -392,6 +392,24 @@ public sealed class HPDBaseBuilder
         return this;
     }
 
+    /// <summary>Adds one immutable graph-owned grant authority.</summary>
+    public BaseInstalledGrantRegistration AddStaticGrantAuthority(
+        BaseGrantAuthorityDefinition definition,
+        AccessGrant grant)
+    {
+        EnsureMutable();
+        return PolicyAuthority.AddStaticGrant(definition, grant);
+    }
+
+    /// <summary>Adds one dynamic graph-owned grant authority source.</summary>
+    public BaseInstalledGrantRegistration AddGrantAuthority(
+        BaseGrantAuthorityDefinition definition,
+        IBaseGrantAuthoritySource source)
+    {
+        EnsureMutable();
+        return PolicyAuthority.AddGrant(definition, source);
+    }
+
     /// <summary>Performs add Descriptor Contributor.</summary>
     public HPDBaseBuilder AddDescriptorContributor<
     [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]

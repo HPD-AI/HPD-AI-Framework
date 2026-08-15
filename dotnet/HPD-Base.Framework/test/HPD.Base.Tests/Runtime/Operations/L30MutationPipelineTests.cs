@@ -548,8 +548,7 @@ public sealed class L30MutationPipelineTests
         services.AddLogging();
         services.AddSingleton<IBaseDescriptorContributor>(
             new MultiCollectionContributor("first-items", "second-items"));
-        services.AddSingleton<IPolicyEvaluator>(new AllowPolicyEvaluator());
-        services.AddHPDBaseRuntime();
+        services.AddHPDBaseRuntime().UseTestPolicyAuthority(new AllowPolicyEvaluator());
         var provider = services.BuildServiceProvider();
         provider.GetRequiredService<IBaseDescriptorRegistry>()
             .RebuildAsync().AsTask().GetAwaiter().GetResult();

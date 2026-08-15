@@ -480,8 +480,7 @@ public sealed class L30MutationCoordinatorTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<IBaseDescriptorContributor>(new TwoCollectionContributor());
-        services.AddSingleton<IPolicyEvaluator>(new AllowPolicyEvaluator());
-        services.AddHPDBaseRuntime();
+        services.AddHPDBaseRuntime().UseTestPolicyAuthority(new AllowPolicyEvaluator());
         var provider = services.BuildServiceProvider();
         provider.GetRequiredService<IBaseDescriptorRegistry>()
             .RebuildAsync().AsTask().GetAwaiter().GetResult();

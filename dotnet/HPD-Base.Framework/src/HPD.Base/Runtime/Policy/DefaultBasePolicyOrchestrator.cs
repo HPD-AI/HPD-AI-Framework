@@ -188,9 +188,24 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
             Constraints = constraints,
             Checksum = BasePolicyEvaluationAuthorityChecksum.Create(checksum),
         };
+        bool hasConstraints = effectiveFilter is not null
+            || effectiveWriteCheck is not null
+            || readMask is not null
+            || writeMask is not null;
         return OperationResults.Ok(new BasePolicyEvaluation
         {
-            Decision = PolicyDecision.Allow(),
+            Decision = new PolicyDecision
+            {
+                Effect = PolicyEffect.Allow,
+                Outcome = hasConstraints ? PolicyOutcome.AllowedWithConstraints : PolicyOutcome.Allowed,
+                Constraints = hasConstraints ? new PolicyConstraints
+                {
+                    RecordFilter = effectiveFilter,
+                    WriteCheck = effectiveWriteCheck,
+                    ReadMask = readMask,
+                    WriteMask = writeMask,
+                } : null,
+            },
             EffectiveRecordFilter = effectiveFilter,
             EffectiveWriteCheck = effectiveWriteCheck,
             EffectiveReadMask = readMask,

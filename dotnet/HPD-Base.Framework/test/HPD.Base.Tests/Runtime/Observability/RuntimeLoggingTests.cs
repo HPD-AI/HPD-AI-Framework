@@ -203,9 +203,8 @@ public sealed class RuntimeLoggingTests
             builder.AddProvider(logs);
         });
         services.AddSingleton<IBaseDescriptorContributor, CollectionContributor>();
-        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
         configure?.Invoke(services);
-        services.AddHPDBaseRuntime();
+        services.AddHPDBaseRuntime().UseTestPolicyAuthority(new AllowPolicyEvaluator());
 
         var provider = services.BuildServiceProvider();
         provider.GetRequiredService<IBaseDescriptorRegistry>()

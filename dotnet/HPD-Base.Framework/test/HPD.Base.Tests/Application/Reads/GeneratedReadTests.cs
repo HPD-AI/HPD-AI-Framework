@@ -67,8 +67,7 @@ public sealed class GeneratedReadTests
     {
         var store = new RelationalReadStore();
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
-        services.AddHPDBase(builder => builder
+                services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>()
             .AddCollection(ReadProject.Collection)
             .AddRead(ProjectNameRead.Definition)
             .UseStore(TestStoreProvider.Create(store, relational: true)));
@@ -109,8 +108,7 @@ public sealed class GeneratedReadTests
     {
         var store = new RelationalReadStore();
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
-        services.AddHPDBase(builder => builder
+                services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>()
             .AddCollection(ReadProject.Collection)
             .AddRead(ProjectNameRead.Definition)
             .UseStore(TestStoreProvider.Create(store, relational: true)));
@@ -173,6 +171,7 @@ public sealed class GeneratedReadTests
         var services = new ServiceCollection().AddLogging();
         services.AddSingleton<IPolicyEvaluator>(evaluator);
         services.AddHPDBase(builder => builder
+            .AddTestPolicyAuthority(evaluator)
             .AddCollection(ReadProject.Collection)
             .AddCollection(ReadOwner.Collection)
             .AddCollection(ReadTask.Collection)
@@ -201,8 +200,8 @@ public sealed class GeneratedReadTests
     {
         var store = new RelationalReadStore();
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, DenyReadSourcePolicyEvaluator>();
         services.AddHPDBase(builder => builder
+            .AddTestPolicyAuthority<DenyReadSourcePolicyEvaluator>()
             .AddCollection(ReadProject.Collection)
             .AddRead(ProjectNameRead.Definition)
             .UseStore(TestStoreProvider.Create(store, relational: true)));
@@ -224,8 +223,8 @@ public sealed class GeneratedReadTests
     {
         var weak = new RelationalReadStore(snapshotConsistency: false);
         var weakServices = new ServiceCollection().AddLogging();
-        weakServices.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
         weakServices.AddHPDBase(builder => builder
+            .AddTestPolicyAuthority<AllowPolicyEvaluator>()
             .AddCollection(ReadProject.Collection)
             .AddRead(ProjectNameRead.Definition)
             .UseStore(TestStoreProvider.Create(weak, relational: true)));
@@ -242,8 +241,8 @@ public sealed class GeneratedReadTests
 
         var unsupported = new RelationalReadStore(comparisonOperators: []);
         var unsupportedServices = new ServiceCollection().AddLogging();
-        unsupportedServices.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
         unsupportedServices.AddHPDBase(builder => builder
+            .AddTestPolicyAuthority<AllowPolicyEvaluator>()
             .AddCollection(ReadProject.Collection)
             .AddRead(ProjectNameRead.Definition)
             .UseStore(TestStoreProvider.Create(unsupported, relational: true)));
@@ -261,8 +260,8 @@ public sealed class GeneratedReadTests
         var first = new RelationalReadStore();
         var second = new RelationalReadStore();
         var mixedServices = new ServiceCollection().AddLogging();
-        mixedServices.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
         mixedServices.AddHPDBase(builder => builder
+            .AddTestPolicyAuthority<AllowPolicyEvaluator>()
             .AddCollection(ReadProject.Collection)
             .AddCollection(ReadOwner.Collection)
             .AddCollection(ReadTask.Collection)
@@ -284,6 +283,7 @@ public sealed class GeneratedReadTests
         var policy = new CountingReadPolicyEvaluator();
         services.AddSingleton<IPolicyEvaluator>(policy);
         services.AddHPDBase(builder => builder
+            .AddTestPolicyAuthority(policy)
             .AddCollection(ReadProject.Collection)
             .AddRead(ProjectNameRead.Definition)
             .UseStore(TestStoreProvider.Create(store, relational: true)));
@@ -309,8 +309,7 @@ public sealed class GeneratedReadTests
     {
         var store = new FakeRecordStore("non-relational");
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
-        services.AddHPDBase(builder => builder
+                services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>()
             .AddCollection(ReadProject.Collection)
             .AddCollection(ReadOwner.Collection)
             .AddRead(ProjectNameRead.Definition)
@@ -358,8 +357,7 @@ public sealed class GeneratedReadTests
             DependencyEvidence = [new BaseReadDependencyEvidence { CollectionId = ReadProject.Collection.Id }],
         };
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
-        services.AddHPDBase(builder => builder
+                services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>()
             .AddCollection(ReadProject.Collection)
             .AddRead(ProjectNameRead.Definition)
             .AddDependencies(options => options.ProtectionKey = Enumerable.Repeat((byte)0x5b, 32).ToArray())
@@ -381,8 +379,7 @@ public sealed class GeneratedReadTests
     public async Task BuiltInInMemoryExecutesJoinGroupAggregateFromOneImmutableSnapshot()
     {
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
-        services.AddHPDBase(builder => builder
+                services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>()
             .AddCollection(ReadProject.Collection)
             .AddCollection(ReadOwner.Collection)
             .AddCollection(ReadTask.Collection)
@@ -419,6 +416,7 @@ public sealed class GeneratedReadTests
         var policy = new CountingReadPolicyEvaluator();
         services.AddSingleton<IPolicyEvaluator>(policy);
         services.AddHPDBase(builder => builder
+            .AddTestPolicyAuthority(policy)
             .AddCollection(ReadProject.Collection)
             .AddCollection(ReadOwner.Collection)
             .AddCollection(ReadTask.Collection)
@@ -462,8 +460,7 @@ public sealed class GeneratedReadTests
         try
         {
             var services = new ServiceCollection().AddLogging();
-            services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
-            services.AddHPDBase(builder => builder
+                        services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>()
                 .ConfigureSchema(options => options.PlanProtectionKey = Enumerable.Repeat((byte)0x62, 32).ToArray())
                 .AddCollection(ReadProject.Collection)
                 .AddCollection(ReadOwner.Collection)
