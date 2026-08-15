@@ -17,7 +17,7 @@ internal abstract record GraphReplacementJournalFoldResultV1
         AuthorityFactEnvelopeV1? TargetCommandFact = null,
         AuthorityFactEnvelopeV1? TargetResultFact = null,
         AuthorityFactEnvelopeV1? InstallationFact = null,
-        GraphReplacementSnapshotWireV1? Wire = null,
+        GraphReplacementSnapshotV1? Wire = null,
         AuthorityFactEnvelopeV1? TargetTransitionFact = null) : GraphReplacementJournalFoldResultV1;
 
     internal sealed record RuntimeReplaced(RuntimeGenerationId Replacement, long LastPosition)
@@ -35,11 +35,11 @@ internal abstract record GraphReplacementJournalInspectionV1
     private GraphReplacementJournalInspectionV1() { }
     internal sealed record Other(AuthorityFactEnvelopeV1 Envelope) : GraphReplacementJournalInspectionV1;
     internal sealed record Installed(AuthorityFactEnvelopeV1 Envelope, GraphOwnerPayloadV1 Outer,
-        GraphTopologyInstalledBodyV1 Body) : GraphReplacementJournalInspectionV1;
+        GraphTopologyInstalledV1 Body) : GraphReplacementJournalInspectionV1;
     internal sealed record Command(AuthorityFactEnvelopeV1 Envelope, GraphOwnerPayloadV1 Outer,
         GraphReplacementJournalCommandV1 Body) : GraphReplacementJournalInspectionV1;
     internal sealed record Fact(AuthorityFactEnvelopeV1 Envelope, GraphOwnerPayloadV1 Outer,
-        GraphReplacementFactBodyV1 Body) : GraphReplacementJournalInspectionV1;
+        GraphReplacementFactV1 Body) : GraphReplacementJournalInspectionV1;
     internal sealed record Invalid(AuthorityFactEnvelopeV1? Envelope, BoundedAscii SafeCode)
         : GraphReplacementJournalInspectionV1;
 
@@ -85,7 +85,7 @@ internal static class GraphReplacementJournalFoldV1
         private readonly Dictionary<long, PendingGraphReplacementCommandV1> _commands = [];
         private long _expectedPosition = 1;
         private GraphReplacementStateV1? _state;
-        private GraphReplacementSnapshotWireV1? _wire;
+        private GraphReplacementSnapshotV1? _wire;
         private GraphReplacementJournalFoldResultV1.InvalidHistory? _invalid;
         private GraphReplacementJournalFoldResultV1.RuntimeReplaced? _runtimeReplaced;
         private AuthorityFactEnvelopeV1? _installationFact;
@@ -268,7 +268,7 @@ internal static class GraphReplacementJournalFoldV1
             var expectedValue = expected.Value;
             var expectedWire = RenderWire(_wire!, expectedValue.State, pending,
                 item.Envelope.Position, reduction is GraphReplacementReductionResultV1.Applied);
-            var expectedBody = new GraphReplacementFactBodyV1(body.CommandFact,
+            var expectedBody = new GraphReplacementFactV1(body.CommandFact,
                 body.ExpectedPredecessor, body.ActualPredecessor, expectedValue.Outcome, expectedWire, expectedValue.SafeCode);
             if (!GraphReplacementCodecsV1.EncodeFact(expectedBody).AsSpan().SequenceEqual(item.Outer.Body.Span))
             { Fail("graph-replacement-reduction-mismatch"); return; }
@@ -351,7 +351,7 @@ internal static class GraphReplacementJournalFoldV1
         _ => throw new InvalidOperationException(),
     };
 
-    internal sealed record RenderedFact(GraphReplacementFactBodyV1 Body, bool RequiresGraphTransition,
+    internal sealed record RenderedFact(GraphReplacementFactV1 Body, bool RequiresGraphTransition,
         GraphGenerationId? PreviousGraph, GraphGenerationId? NextGraph);
 
     internal static RenderedFact? RenderFact(GraphReplacementJournalFoldResultV1.Current current,
@@ -371,7 +371,7 @@ internal static class GraphReplacementJournalFoldV1
         if (successfulCommit && resultPosition.Sequence == long.MaxValue) return null;
         var wire = RenderWire(current.Wire, value.State, pending, resultPosition,
             reduction is GraphReplacementReductionResultV1.Applied);
-        return new(new GraphReplacementFactBodyV1(pending.Envelope.Position,
+        return new(new GraphReplacementFactV1(pending.Envelope.Position,
             pending.Command.ExpectedPredecessor, current.State.LastFact, value.Outcome, wire, value.SafeCode),
             successfulCommit, successfulCommit ? current.State.SourcePlan.GraphGeneration : null,
             successfulCommit ? current.State.TargetPlan!.GraphGeneration : null);
@@ -397,7 +397,7 @@ internal static class GraphReplacementJournalFoldV1
         _ => throw new InvalidOperationException(),
     };
 
-    private static GraphReplacementSnapshotWireV1 RenderWire(GraphReplacementSnapshotWireV1 prior,
+    private static GraphReplacementSnapshotV1 RenderWire(GraphReplacementSnapshotV1 prior,
         GraphReplacementStateV1 state, PendingGraphReplacementCommandV1 pending,
         JournalPositionV1 resultFact, bool applied)
     {
@@ -421,5 +421,5 @@ internal static class GraphReplacementJournalFoldV1
     private static BoundedAscii Code(string value) => new(value);
     private static GraphReplacementJournalFoldResultV1.InvalidHistory Invalid(string code, long position) => new(Code(code), position);
     private sealed record BufferedCommit(AuthorityFactEnvelopeV1 ResultEnvelope,
-        PendingGraphReplacementCommandV1 Pending, GraphReplacementStateV1 State, GraphReplacementSnapshotWireV1 Wire);
+        PendingGraphReplacementCommandV1 Pending, GraphReplacementStateV1 State, GraphReplacementSnapshotV1 Wire);
 }

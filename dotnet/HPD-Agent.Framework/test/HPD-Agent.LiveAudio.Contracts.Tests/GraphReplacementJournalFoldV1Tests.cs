@@ -109,7 +109,7 @@ public sealed class GraphReplacementJournalFoldV1Tests
         var prepare = new GraphReplacementJournalCommandV1.Prepare(f.Operation, f.Position(3),
             f.Source.Fingerprint, f.Target, f.TargetGrant.CurrentFact, f.Authority, f.Observed, f.Deadline);
         a.Apply(a.Inspect(f.Command(4, prepare)), f.TargetGrant);
-        var prepared = new GraphReplacementSnapshotWireV1(GraphReplacementPhaseV1.Prepared, f.Source,
+        var prepared = new GraphReplacementSnapshotV1(GraphReplacementPhaseV1.Prepared, f.Source,
             f.SourceGrant.CurrentFact, new(f.Target, f.TargetGrant.CurrentFact), f.Authority, f.Position(5),
             new(f.Operation, f.Position(4)), null, null);
         a.Apply(a.Inspect(f.Result(5, f.Position(4), f.Position(3), f.Position(3),
@@ -230,7 +230,7 @@ public sealed class GraphReplacementJournalFoldV1Tests
 
         internal AuthorityFactEnvelopeV1 Installed(long sequence)
         {
-            var body = new GraphTopologyInstalledBodyV1(Source, Source.Fingerprint, Position(2), Authority);
+            var body = new GraphTopologyInstalledV1(Source, Source.Fingerprint, Position(2), Authority);
             return ProtocolEnvelope(GraphReplacementFactIdsV1.Installed(Session, Source.Fingerprint), sequence,
                 GraphReplacementPayloadRegistrationsV1.Installed, GraphReplacementCodecsV1.EncodeInstalled(body));
         }
@@ -242,7 +242,7 @@ public sealed class GraphReplacementJournalFoldV1Tests
 
         internal AuthorityFactEnvelopeV1 Result(long sequence, JournalPositionV1 command,
             JournalPositionV1 expected, JournalPositionV1 actual, GraphReplacementJournalOutcomeV1 outcome,
-            GraphReplacementSnapshotWireV1 snapshot, ExpectedAuthorityVectorV1 authority) =>
+            GraphReplacementSnapshotV1 snapshot, ExpectedAuthorityVectorV1 authority) =>
             ProtocolEnvelope(GraphReplacementFactIdsV1.Result(command), sequence,
                 GraphReplacementPayloadRegistrationsV1.Fact,
                 GraphReplacementCodecsV1.EncodeFact(new(command, expected, actual, outcome, snapshot, null)), authority);
@@ -281,7 +281,7 @@ public sealed class GraphReplacementJournalFoldV1Tests
             var prepare = new GraphReplacementJournalCommandV1.Prepare(Operation, Position(3), Source.Fingerprint,
                 Target, TargetGrant.CurrentFact, Authority, Observed, Deadline);
             a.Apply(a.Inspect(Command(4, prepare)), TargetGrant);
-            var prepared = new GraphReplacementSnapshotWireV1(GraphReplacementPhaseV1.Prepared, Source,
+            var prepared = new GraphReplacementSnapshotV1(GraphReplacementPhaseV1.Prepared, Source,
                 SourceGrant.CurrentFact, new(Target, TargetGrant.CurrentFact), Authority, Position(5),
                 new(Operation, Position(4)), null, null);
             a.Apply(a.Inspect(Result(5, Position(4), Position(3), Position(3),

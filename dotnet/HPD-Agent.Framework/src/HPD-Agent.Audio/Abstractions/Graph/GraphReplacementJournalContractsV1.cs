@@ -39,7 +39,7 @@ internal abstract record GraphReplacementJournalCommandV1
     }
 }
 
-internal sealed record GraphTopologyInstalledBodyV1(GraphTopologyPlanV1 Topology,
+internal sealed record GraphTopologyInstalledV1(GraphTopologyPlanV1 Topology,
     Hash256 TopologyFingerprint, JournalPositionV1 ActiveSourceGrantFact,
     ExpectedAuthorityVectorV1 CurrentAuthority);
 
@@ -50,15 +50,15 @@ internal sealed record GraphReplacementCommitArmV1(JournalPositionV1 CommitComma
 internal sealed record GraphReplacementSettlementArmV1(JournalPositionV1 SettleCommandFact,
     JournalPositionV1 SourceSettlementFact);
 
-internal sealed record GraphReplacementSnapshotWireV1(GraphReplacementPhaseV1 Phase,
+internal sealed record GraphReplacementSnapshotV1(GraphReplacementPhaseV1 Phase,
     GraphTopologyPlanV1 SourceTopology, JournalPositionV1 SourceGrantFact,
     GraphReplacementTargetArmV1? Target, ExpectedAuthorityVectorV1 CurrentAuthority,
     JournalPositionV1 LastGraphFact, GraphReplacementIdentityArmV1? Replacement,
     GraphReplacementCommitArmV1? Commit, GraphReplacementSettlementArmV1? Settlement);
 
-internal sealed record GraphReplacementFactBodyV1(JournalPositionV1 CommandFact,
+internal sealed record GraphReplacementFactV1(JournalPositionV1 CommandFact,
     JournalPositionV1 ExpectedPredecessor, JournalPositionV1 ActualPredecessor,
-    GraphReplacementJournalOutcomeV1 Outcome, GraphReplacementSnapshotWireV1 ResultingSnapshot,
+    GraphReplacementJournalOutcomeV1 Outcome, GraphReplacementSnapshotV1 ResultingSnapshot,
     BoundedAscii? SafeCode);
 
 internal sealed class GraphOwnerPayloadV1

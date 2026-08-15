@@ -55,7 +55,7 @@ internal static class GraphTopologyInstallationAdmissionV1
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(journal); ArgumentNullException.ThrowIfNull(request);
-        var body = new GraphTopologyInstalledBodyV1(request.Topology, request.Topology.Fingerprint,
+        var body = new GraphTopologyInstalledV1(request.Topology, request.Topology.Fingerprint,
             request.ActiveSourceGrantFact, request.CurrentAuthority);
         var payload = GraphReplacementCodecsV1.EncodeOuter(new GraphOwnerPayloadV1(request.Session,
             request.CurrentAuthority, GraphReplacementCodecsV1.EncodeInstalled(body)));

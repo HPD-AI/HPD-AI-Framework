@@ -57,7 +57,7 @@ internal static class GraphReplacementCodecsV1
             body.ReadEndMap(); if (body.BytesRemaining != 0) throw Invalid(); return result;
         }, EncodeCommand, out value);
 
-    internal static byte[] EncodeInstalled(GraphTopologyInstalledBodyV1 value)
+    internal static byte[] EncodeInstalled(GraphTopologyInstalledV1 value)
     {
         ValidateInstalled(value);
         var writer = Writer(); writer.WriteStartMap(5);
@@ -69,7 +69,7 @@ internal static class GraphReplacementCodecsV1
         writer.WriteEndMap(); return writer.Encode();
     }
 
-    internal static bool TryDecodeInstalled(ReadOnlyMemory<byte> encoded, out GraphTopologyInstalledBodyV1? value) =>
+    internal static bool TryDecodeInstalled(ReadOnlyMemory<byte> encoded, out GraphTopologyInstalledV1? value) =>
         TryDecode(encoded, reader =>
         {
             RequireMap(reader, 5, 1); if (!SessionAuthorityStampV1Codec.TryDecode(reader.ReadEncodedValue(), out var session)) throw Invalid();
@@ -78,12 +78,12 @@ internal static class GraphReplacementCodecsV1
             RequireTag(reader, 5); if (!AuthorityVectorCodecsV1.TryDecodeVector(reader.ReadEncodedValue(), out var authority)) throw Invalid();
             reader.ReadEndMap();
             if (topology!.Session != session || topology.Fingerprint != fingerprint || grant.Session != session || authority!.Session != session) throw Invalid();
-            var result = new GraphTopologyInstalledBodyV1(topology, fingerprint, grant, authority);
+            var result = new GraphTopologyInstalledV1(topology, fingerprint, grant, authority);
             ValidateInstalled(result);
             return result;
         }, EncodeInstalled, out value);
 
-    internal static byte[] EncodeFact(GraphReplacementFactBodyV1 value)
+    internal static byte[] EncodeFact(GraphReplacementFactV1 value)
     {
         ArgumentNullException.ThrowIfNull(value); ValidateFact(value);
         var writer = Writer(); writer.WriteStartMap(6);
@@ -95,14 +95,14 @@ internal static class GraphReplacementCodecsV1
         writer.WriteUInt64(6); WriteSafeCode(writer, value.SafeCode); writer.WriteEndMap(); return writer.Encode();
     }
 
-    internal static bool TryDecodeFact(ReadOnlyMemory<byte> encoded, out GraphReplacementFactBodyV1? value) =>
+    internal static bool TryDecodeFact(ReadOnlyMemory<byte> encoded, out GraphReplacementFactV1? value) =>
         TryDecode(encoded, reader =>
         {
             RequireMap(reader, 6, 1); var command = ReadPosition(reader); RequireTag(reader, 2); var expected = ReadPosition(reader);
             RequireTag(reader, 3); var actual = ReadPosition(reader); RequireTag(reader, 4);
             var outcome = (GraphReplacementJournalOutcomeV1)ReadClosed(reader, 6); RequireTag(reader, 5);
             var snapshot = ReadSnapshot(reader); RequireTag(reader, 6); var code = ReadSafeCode(reader); reader.ReadEndMap();
-            var result = new GraphReplacementFactBodyV1(command, expected, actual, outcome, snapshot, code); ValidateFact(result); return result;
+            var result = new GraphReplacementFactV1(command, expected, actual, outcome, snapshot, code); ValidateFact(result); return result;
         }, EncodeFact, out value);
 
     internal static byte[] EncodeOuter(GraphOwnerPayloadV1 value)
@@ -141,7 +141,7 @@ internal static class GraphReplacementCodecsV1
     private static GraphReplacementJournalCommandV1 ReadSettle(CborReader body, OperationId operation, JournalPositionV1 predecessor)
     { RequireTag(body, 3); var settlement = ReadPosition(body); if (settlement.Session != predecessor.Session) throw Invalid(); return new GraphReplacementJournalCommandV1.SettleSource(operation, predecessor, settlement); }
 
-    private static void WriteSnapshot(CborWriter writer, GraphReplacementSnapshotWireV1 value)
+    private static void WriteSnapshot(CborWriter writer, GraphReplacementSnapshotV1 value)
     {
         ValidateSnapshot(value); writer.WriteStartMap(9); writer.WriteUInt64(1); writer.WriteUInt64((ushort)value.Phase);
         writer.WriteUInt64(2); writer.WriteEncodedValue(GraphTopologyPlanCodecV1.Encode(value.SourceTopology));
@@ -154,7 +154,7 @@ internal static class GraphReplacementCodecsV1
         writer.WriteUInt64(9); writer.WriteByteString(EncodeOptional(value.Settlement, WriteSettlement)); writer.WriteEndMap();
     }
 
-    private static GraphReplacementSnapshotWireV1 ReadSnapshot(CborReader reader)
+    private static GraphReplacementSnapshotV1 ReadSnapshot(CborReader reader)
     {
         RequireMap(reader, 9, 1); var phase = (GraphReplacementPhaseV1)ReadClosed(reader, 4); RequireTag(reader, 2);
         if (!GraphTopologyPlanCodecV1.TryDecode(reader.ReadEncodedValue(), out var source)) throw Invalid();
@@ -165,7 +165,7 @@ internal static class GraphReplacementCodecsV1
         var replacement = ReadOptional(ReadBoundedBstr(reader, 65_536), ReadReplacement); RequireTag(reader, 8);
         var commit = ReadOptional(ReadBoundedBstr(reader, 4_096), ReadCommit); RequireTag(reader, 9);
         var settlement = ReadOptional(ReadBoundedBstr(reader, 4_096), ReadSettlement); reader.ReadEndMap();
-        var result = new GraphReplacementSnapshotWireV1(phase, source!, sourceGrant, target, authority!, last, replacement, commit, settlement);
+        var result = new GraphReplacementSnapshotV1(phase, source!, sourceGrant, target, authority!, last, replacement, commit, settlement);
         ValidateSnapshot(result); return result;
     }
 
@@ -183,7 +183,7 @@ internal static class GraphReplacementCodecsV1
     private static void WriteSettlement(CborWriter w, GraphReplacementSettlementArmV1 v){w.WriteStartMap(2);w.WriteUInt64(1);WritePosition(w,v.SettleCommandFact);w.WriteUInt64(2);WritePosition(w,v.SourceSettlementFact);w.WriteEndMap();}
     private static GraphReplacementSettlementArmV1 ReadSettlement(CborReader r){RequireMap(r,2,1);var c=ReadPosition(r);RequireTag(r,2);var s=ReadPosition(r);r.ReadEndMap();return new(c,s);}
 
-    private static void ValidateSnapshot(GraphReplacementSnapshotWireV1 value)
+    private static void ValidateSnapshot(GraphReplacementSnapshotV1 value)
     {
         ArgumentNullException.ThrowIfNull(value); var session=value.SourceTopology?.Session ?? default;
         if(!session.IsValid||value.SourceGrantFact.Session!=session||value.CurrentAuthority is null||value.CurrentAuthority.Session!=session||value.LastGraphFact.Session!=session)throw Invalid();
@@ -191,7 +191,7 @@ internal static class GraphReplacementCodecsV1
         var valid=value.Phase switch{GraphReplacementPhaseV1.None=>value.Target is null&&value.Replacement is null&&value.Commit is null&&value.Settlement is null,GraphReplacementPhaseV1.Prepared=>value.Target is not null&&value.Replacement is not null&&value.Commit is null&&value.Settlement is null,GraphReplacementPhaseV1.Committed=>value.Target is not null&&value.Replacement is not null&&value.Commit is not null&&value.Settlement is null,GraphReplacementPhaseV1.SourceSettled=>value.Target is not null&&value.Replacement is not null&&value.Commit is not null&&value.Settlement is not null,_=>false};if(!valid)throw Invalid();
     }
 
-    private static void ValidateInstalled(GraphTopologyInstalledBodyV1 value)
+    private static void ValidateInstalled(GraphTopologyInstalledV1 value)
     {
         ArgumentNullException.ThrowIfNull(value);
         if (value.Topology is null || !value.Topology.Session.IsValid ||
@@ -201,7 +201,7 @@ internal static class GraphReplacementCodecsV1
             throw Invalid();
     }
 
-    private static void ValidateFact(GraphReplacementFactBodyV1 value)
+    private static void ValidateFact(GraphReplacementFactV1 value)
     { var session=value.CommandFact.Session;if(!session.IsValid||!Enum.IsDefined(value.Outcome)||value.ExpectedPredecessor.Session!=session||value.ActualPredecessor.Session!=session||value.ResultingSnapshot is null||value.ResultingSnapshot.SourceTopology.Session!=session)throw Invalid(); var success=value.Outcome is GraphReplacementJournalOutcomeV1.Prepared or GraphReplacementJournalOutcomeV1.Committed or GraphReplacementJournalOutcomeV1.SourceSettled;if(success!=(value.SafeCode is null))throw Invalid();if(value.Outcome==GraphReplacementJournalOutcomeV1.GenerationReplaced&&value.SafeCode?.ToString()!="generation-replaced")throw Invalid(); }
     private static void WriteSafeCode(CborWriter w,BoundedAscii? v){w.WriteStartMap(2);w.WriteUInt64(1);w.WriteUInt64(v is null?0UL:1UL);w.WriteUInt64(2);if(v is null)w.WriteByteString([]);else BoundedAsciiCodec.Write(w,v.Value);w.WriteEndMap();}
     private static BoundedAscii? ReadSafeCode(CborReader r){if(r.ReadStartMap()!=2||r.ReadUInt64()!=1)throw Invalid();var k=r.ReadUInt64();if(r.ReadUInt64()!=2)throw Invalid();BoundedAscii? v;if(k==0){if(r.ReadByteString().Length!=0)throw Invalid();v=null;}else if(k==1)v=BoundedAsciiCodec.Read(r);else throw Invalid();r.ReadEndMap();return v;}

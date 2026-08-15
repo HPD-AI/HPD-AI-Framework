@@ -29,7 +29,7 @@ public sealed class GraphReplacementCodecsV1Tests
     public void Installed_snapshot_and_all_valid_phase_arms_round_trip()
     {
         var f = new Fixture();
-        var installed = new GraphTopologyInstalledBodyV1(f.Source, f.Source.Fingerprint, f.Position(3), f.Authority);
+        var installed = new GraphTopologyInstalledV1(f.Source, f.Source.Fingerprint, f.Position(3), f.Authority);
         var installedBytes = GraphReplacementCodecsV1.EncodeInstalled(installed);
         Assert.True(GraphReplacementCodecsV1.TryDecodeInstalled(installedBytes, out var decodedInstalled));
         Assert.Equal(installedBytes, GraphReplacementCodecsV1.EncodeInstalled(decodedInstalled!));
@@ -46,7 +46,7 @@ public sealed class GraphReplacementCodecsV1Tests
             BoundedAscii? code = outcome == GraphReplacementJournalOutcomeV1.Rejected
                 ? new BoundedAscii("not-prepared")
                 : null;
-            var fact = new GraphReplacementFactBodyV1(f.Position(11), f.Position(10), f.Position(10), outcome, snapshot, code);
+            var fact = new GraphReplacementFactV1(f.Position(11), f.Position(10), f.Position(10), outcome, snapshot, code);
             var bytes = GraphReplacementCodecsV1.EncodeFact(fact);
             Assert.True(GraphReplacementCodecsV1.TryDecodeFact(bytes, out var decoded));
             Assert.Equal(bytes, GraphReplacementCodecsV1.EncodeFact(decoded!));
@@ -58,13 +58,13 @@ public sealed class GraphReplacementCodecsV1Tests
     {
         var f = new Fixture();
         Assert.ThrowsAny<Exception>(() => GraphReplacementCodecsV1.EncodeFact(
-            new GraphReplacementFactBodyV1(f.Position(11), f.Position(10), f.Position(10),
+            new GraphReplacementFactV1(f.Position(11), f.Position(10), f.Position(10),
                 GraphReplacementJournalOutcomeV1.Prepared, f.ValidSnapshots().ElementAt(1), new BoundedAscii("wrong"))));
         Assert.ThrowsAny<Exception>(() => GraphReplacementCodecsV1.EncodeFact(
-            new GraphReplacementFactBodyV1(f.Position(11), f.Position(10), f.Position(10),
+            new GraphReplacementFactV1(f.Position(11), f.Position(10), f.Position(10),
                 GraphReplacementJournalOutcomeV1.Rejected, f.ValidSnapshots().First(), null)));
         Assert.ThrowsAny<Exception>(() => GraphReplacementCodecsV1.EncodeFact(
-            new GraphReplacementFactBodyV1(f.Position(11), f.Position(10), f.Position(10),
+            new GraphReplacementFactV1(f.Position(11), f.Position(10), f.Position(10),
                 GraphReplacementJournalOutcomeV1.GenerationReplaced, f.ValidSnapshots().First(), new BoundedAscii("wrong"))));
 
         var malformed = f.ValidSnapshots().First() with
@@ -74,10 +74,10 @@ public sealed class GraphReplacementCodecsV1Tests
             Replacement = null,
         };
         Assert.ThrowsAny<Exception>(() => GraphReplacementCodecsV1.EncodeFact(
-            new GraphReplacementFactBodyV1(f.Position(11), f.Position(10), f.Position(10),
+            new GraphReplacementFactV1(f.Position(11), f.Position(10), f.Position(10),
                 GraphReplacementJournalOutcomeV1.Rejected, malformed, new BoundedAscii("invalid"))));
         Assert.ThrowsAny<Exception>(() => GraphReplacementCodecsV1.EncodeFact(
-            new GraphReplacementFactBodyV1(f.Position(11), f.Position(10), f.Position(10),
+            new GraphReplacementFactV1(f.Position(11), f.Position(10), f.Position(10),
                 (GraphReplacementJournalOutcomeV1)7, f.ValidSnapshots().First(), new BoundedAscii("unknown"))));
     }
 
@@ -85,7 +85,7 @@ public sealed class GraphReplacementCodecsV1Tests
     public void None_arms_are_explicit_two_field_unions_with_empty_payloads()
     {
         var f = new Fixture();
-        var fact = new GraphReplacementFactBodyV1(f.Position(11), f.Position(10), f.Position(10),
+        var fact = new GraphReplacementFactV1(f.Position(11), f.Position(10), f.Position(10),
             GraphReplacementJournalOutcomeV1.Rejected, f.ValidSnapshots().First(), new BoundedAscii("not-prepared"));
         var hex = Convert.ToHexString(GraphReplacementCodecsV1.EncodeFact(fact)).ToLowerInvariant();
 
@@ -98,10 +98,10 @@ public sealed class GraphReplacementCodecsV1Tests
         var f = new Fixture();
         var other = ExpectedAuthorityVectorV1.Create(f.Session,
             [new AuthorityAxisValueV1.Graph(GraphGenerationId.Create())]);
-        var badInstalled = new GraphTopologyInstalledBodyV1(f.Source, Hash256.Compute([1]), f.Position(3), f.Authority);
+        var badInstalled = new GraphTopologyInstalledV1(f.Source, Hash256.Compute([1]), f.Position(3), f.Authority);
         Assert.ThrowsAny<Exception>(() => GraphReplacementCodecsV1.EncodeInstalled(badInstalled));
 
-        var installed = new GraphTopologyInstalledBodyV1(f.Source, f.Source.Fingerprint, f.Position(3), f.Authority);
+        var installed = new GraphTopologyInstalledV1(f.Source, f.Source.Fingerprint, f.Position(3), f.Authority);
         var installedOuter = GraphReplacementCodecsV1.EncodeOuter(new GraphOwnerPayloadV1(
             f.Session, other, GraphReplacementCodecsV1.EncodeInstalled(installed)));
         Assert.False(GraphReplacementPayloadRegistrationsV1.Installed.Validate(installedOuter, f.Session));
@@ -140,7 +140,7 @@ public sealed class GraphReplacementCodecsV1Tests
         Assert.False(GraphReplacementPayloadRegistrationsV1.Command.Validate(Outer(f.Authority,
             GraphReplacementCodecsV1.EncodeCommand(settle)), f.Session));
 
-        var otherFact = new GraphReplacementFactBodyV1(other.Position(11), other.Position(10), other.Position(10),
+        var otherFact = new GraphReplacementFactV1(other.Position(11), other.Position(10), other.Position(10),
             GraphReplacementJournalOutcomeV1.Rejected, other.ValidSnapshots().First(), new BoundedAscii("rejected"));
         Assert.False(GraphReplacementPayloadRegistrationsV1.Fact.Validate(Outer(f.Authority,
             GraphReplacementCodecsV1.EncodeFact(otherFact)), f.Session));
@@ -148,17 +148,17 @@ public sealed class GraphReplacementCodecsV1Tests
         var ownCommit = new GraphReplacementJournalCommandV1.Commit(f.Operation, f.Position(10));
         Assert.False(GraphReplacementPayloadRegistrationsV1.Command.Validate(Outer(noGraph,
             GraphReplacementCodecsV1.EncodeCommand(ownCommit)), f.Session));
-        var installed = new GraphTopologyInstalledBodyV1(f.Source, f.Source.Fingerprint, f.Position(3), f.Authority);
+        var installed = new GraphTopologyInstalledV1(f.Source, f.Source.Fingerprint, f.Position(3), f.Authority);
         Assert.False(GraphReplacementPayloadRegistrationsV1.Installed.Validate(Outer(noGraph,
             GraphReplacementCodecsV1.EncodeInstalled(installed)), f.Session));
-        var fact = new GraphReplacementFactBodyV1(f.Position(11), f.Position(10), f.Position(10),
+        var fact = new GraphReplacementFactV1(f.Position(11), f.Position(10), f.Position(10),
             GraphReplacementJournalOutcomeV1.Rejected, f.ValidSnapshots().First(), new BoundedAscii("rejected"));
         Assert.False(GraphReplacementPayloadRegistrationsV1.Fact.Validate(Outer(noGraph,
             GraphReplacementCodecsV1.EncodeFact(fact)), f.Session));
 
         var wrongGraph = ExpectedAuthorityVectorV1.Create(f.Session,
             [new AuthorityAxisValueV1.Graph(GraphGenerationId.Create())]);
-        var wrongInstalled = new GraphTopologyInstalledBodyV1(f.Source, f.Source.Fingerprint, f.Position(3), wrongGraph);
+        var wrongInstalled = new GraphTopologyInstalledV1(f.Source, f.Source.Fingerprint, f.Position(3), wrongGraph);
         Assert.False(GraphReplacementPayloadRegistrationsV1.Installed.Validate(Outer(wrongGraph,
             GraphReplacementCodecsV1.EncodeInstalled(wrongInstalled)), f.Session));
     }
@@ -223,7 +223,7 @@ public sealed class GraphReplacementCodecsV1Tests
 
         internal JournalPositionV1 Position(long sequence) => new(Session, sequence);
 
-        internal IEnumerable<GraphReplacementSnapshotWireV1> ValidSnapshots()
+        internal IEnumerable<GraphReplacementSnapshotV1> ValidSnapshots()
         {
             yield return new(GraphReplacementPhaseV1.None, Source, Position(3), null, Authority, Position(10), null, null, null);
             var target = new GraphReplacementTargetArmV1(Target, Position(4));
