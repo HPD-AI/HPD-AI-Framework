@@ -59,13 +59,16 @@ internal abstract record CoreLifecycleRecordV1
 }
 internal sealed record SemanticAcceptanceBoundV1 : CoreLifecycleRecordV1 { internal SemanticAcceptanceBoundV1(OperationId o,JournalPositionV1 p,ExpectedAuthorityVectorV1 a,ushort d):base(o,p,a,d){} }
 internal sealed record SemanticReservationCreatedV1 : CoreLifecycleRecordV1 { internal SemanticReservationCreatedV1(OperationId o,JournalPositionV1 p,ExpectedAuthorityVectorV1 a,ushort d):base(o,p,a,d){} }
+internal sealed record AuthorityFactAdmittedV1 : CoreLifecycleRecordV1 { internal AuthorityFactAdmittedV1(OperationId o,JournalPositionV1 p,ExpectedAuthorityVectorV1 a,ushort d):base(o,p,a,d){} }
 
 internal static class CoreLifecycleRecordCodecsV1
 {
     internal static byte[] Encode(CoreLifecycleRecordV1 v)=>AuthorityLifecycleRecordCodecV1.Encode(v.OperationId,v.SourcePosition,v.Authority,v.Disposition);
     internal static bool TryDecodeAcceptance(ReadOnlyMemory<byte>b,out SemanticAcceptanceBoundV1? v)=>Decode(b,static x=>new(x.OperationId,x.SourcePosition,x.Authority,x.Disposition),out v);
     internal static bool TryDecodeReservation(ReadOnlyMemory<byte>b,out SemanticReservationCreatedV1? v)=>Decode(b,static x=>new(x.OperationId,x.SourcePosition,x.Authority,x.Disposition),out v);
+    internal static bool TryDecodeAdmitted(ReadOnlyMemory<byte>b,out AuthorityFactAdmittedV1? v)=>Decode(b,static x=>new(x.OperationId,x.SourcePosition,x.Authority,x.Disposition),out v);
     internal static Hash256 ComputeHash(SemanticAcceptanceBoundV1 v)=>AuthorityIntegrityHashV1.Compute("hpd.semantic-acceptance-bound.v1",1,0,Encode(v));
     internal static Hash256 ComputeHash(SemanticReservationCreatedV1 v)=>AuthorityIntegrityHashV1.Compute("hpd.semantic-reservation-created.v1",1,0,Encode(v));
+    internal static Hash256 ComputeHash(AuthorityFactAdmittedV1 v)=>AuthorityIntegrityHashV1.Compute("hpd.authority-fact-admitted.v1",1,0,Encode(v));
     private static bool Decode<T>(ReadOnlyMemory<byte>b,Func<DecodedAuthorityLifecycleRecordV1,T> create,out T? value)where T:CoreLifecycleRecordV1{value=null;if(!AuthorityLifecycleRecordCodecV1.TryDecode(b,out var decoded))return false;var candidate=create(decoded);if(!Encode(candidate).AsSpan().SequenceEqual(b.Span))return false;value=candidate;return true;}
 }
