@@ -1,16 +1,20 @@
 using System.Collections.Immutable;
+using Microsoft.Extensions.Options;
 
 namespace HPD.Base;
 
 internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
 {
     private readonly BasePolicyAuthorityOwner? _owner;
+    private readonly HPDBaseRuntimeOptions _options;
 
     /// <summary>Initializes a new instance.</summary>
     public DefaultBasePolicyOrchestrator(
-        BasePolicyAuthorityOwner? owner = null)
+        BasePolicyAuthorityOwner? owner = null,
+        IOptions<HPDBaseRuntimeOptions>? options = null)
     {
         _owner = owner;
+        _options = options?.Value ?? HPDBaseRuntimeOptions.CreateDefault();
     }
 
     /// <summary>Executes the evaluate read async operation.</summary>
@@ -89,6 +93,8 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
         var writeChecks = new List<FilterExpression>();
         FieldMask? readMask = null;
         FieldMask? writeMask = null;
+        PolicyDecision? soleAppliedDecision = null;
+        int appliedDecisionCount = 0;
 
         foreach (BasePolicyRegistration registration in _owner!.Policies)
         {
@@ -118,12 +124,21 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
                 continue;
             }
             if (decision.Obligations?.Any(static obligation => obligation.Enforcement == ObligationEnforcement.Required) == true)
-                return OperationResults.Unsupported<BasePolicyEvaluation>(new BaseError
+            {
+                PolicyObligation obligation = decision.Obligations.First(static value => value.Enforcement == ObligationEnforcement.Required);
+                return new OperationResult<BasePolicyEvaluation>
                 {
-                    Code = "base.runtime.policy.obligation.unsupported",
-                    Message = "Policy returned a required obligation that this runtime cannot enforce.",
-                    Category = ErrorCategory.Unsupported,
-                });
+                    Status = OperationStatus.Unsupported,
+                    Value = new BasePolicyEvaluation { Decision = decision },
+                    Error = new BaseError
+                    {
+                        Code = "base.runtime.policy.obligation.unsupported",
+                        Message = "Policy returned a required obligation that this runtime cannot enforce.",
+                        Category = ErrorCategory.Unsupported,
+                        Target = obligation.Kind,
+                    },
+                };
+            }
 
             BasePolicyAuthorityDefinition definition = registration.Definition;
             applied.Add(new BaseAppliedPolicyAuthority
@@ -133,6 +148,8 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
                 PolicyVersion = definition.Version,
                 PolicyChecksum = [.. BasePolicyAuthorityCanonicalizer.HashPolicyDefinition(definition)],
             });
+            soleAppliedDecision = decision;
+            appliedDecisionCount++;
             if (decision.Constraints?.RecordFilter is { } filter) recordFilters.Add(filter);
             if (decision.Constraints?.WriteCheck is { } check) writeChecks.Add(check);
             readMask = IntersectMasks(request.Collection, readMask, decision.Constraints?.ReadMask);
@@ -140,12 +157,38 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
         }
 
         if (applied.Count == 0)
-            return OperationResults.PolicyDenied<BasePolicyEvaluation>(new BaseError
+        {
+            if (_options.AllowPolicyAbstainAsAllowForDevelopment
+                && request.Operation.Mode != OperationMode.System)
+                return OperationResults.Ok(new BasePolicyEvaluation
+                {
+                    Decision = new PolicyDecision
+                    {
+                        Effect = PolicyEffect.Abstain,
+                        Outcome = PolicyOutcome.Allowed,
+                        ReasonCode = "abstain",
+                    },
+                });
+            return new OperationResult<BasePolicyEvaluation>
             {
-                Code = "base.runtime.policy.denied",
-                Message = "Policy denied the operation.",
-                Category = ErrorCategory.Authorization,
-            });
+                Status = OperationStatus.PolicyDenied,
+                Value = new BasePolicyEvaluation
+                {
+                    Decision = new PolicyDecision
+                    {
+                        Effect = PolicyEffect.Abstain,
+                        Outcome = PolicyOutcome.Denied,
+                        ReasonCode = "abstain",
+                    },
+                },
+                Error = new BaseError
+                {
+                    Code = "base.runtime.policy.denied",
+                    Message = "Policy denied the operation.",
+                    Category = ErrorCategory.Authorization,
+                },
+            };
+        }
 
         FilterExpression? effectiveFilter = Conjoin(recordFilters);
         FilterExpression? effectiveWriteCheck = Conjoin(writeChecks);
@@ -192,19 +235,26 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
             || effectiveWriteCheck is not null
             || readMask is not null
             || writeMask is not null;
+        bool hasDecisionConstraints = hasConstraints
+            || appliedDecisionCount == 1 && soleAppliedDecision?.Constraints?.Tags is { Count: > 0 };
         return OperationResults.Ok(new BasePolicyEvaluation
         {
             Decision = new PolicyDecision
             {
                 Effect = PolicyEffect.Allow,
                 Outcome = hasConstraints ? PolicyOutcome.AllowedWithConstraints : PolicyOutcome.Allowed,
-                Constraints = hasConstraints ? new PolicyConstraints
+                Constraints = hasDecisionConstraints ? new PolicyConstraints
                 {
                     RecordFilter = effectiveFilter,
                     WriteCheck = effectiveWriteCheck,
                     ReadMask = readMask,
                     WriteMask = writeMask,
+                    Tags = appliedDecisionCount == 1 ? soleAppliedDecision?.Constraints?.Tags : null,
                 } : null,
+                Obligations = appliedDecisionCount == 1 ? soleAppliedDecision?.Obligations : null,
+                Audit = appliedDecisionCount == 1 ? soleAppliedDecision?.Audit : null,
+                ReasonCode = appliedDecisionCount == 1 ? soleAppliedDecision?.ReasonCode : null,
+                SafeMessage = appliedDecisionCount == 1 ? soleAppliedDecision?.SafeMessage : null,
             },
             EffectiveRecordFilter = effectiveFilter,
             EffectiveWriteCheck = effectiveWriteCheck,

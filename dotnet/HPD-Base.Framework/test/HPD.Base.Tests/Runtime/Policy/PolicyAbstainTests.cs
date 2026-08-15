@@ -9,8 +9,7 @@ public sealed class PolicyAbstainTests
     public async Task AbstainFailsClosedByDefault()
     {
         var services = new ServiceCollection();
-        services.AddSingleton<IPolicyEvaluator, AbstainPolicyEvaluator>();
-        services.AddHPDBaseRuntime();
+        services.AddHPDBaseRuntime().UsePolicyAuthority("policy-tests", Definition(), new AbstainPolicyEvaluator());
         using var provider = services.BuildServiceProvider();
 
         var result = await provider.GetRequiredService<IBasePolicyOrchestrator>().EvaluateReadAsync(Request());
@@ -22,8 +21,8 @@ public sealed class PolicyAbstainTests
     public async Task TrustedHostCanAllowAbstain()
     {
         var services = new ServiceCollection();
-        services.AddSingleton<IPolicyEvaluator, AbstainPolicyEvaluator>();
         services.AddHPDBaseRuntime()
+            .UsePolicyAuthority("policy-tests", Definition(), new AbstainPolicyEvaluator())
             .UseDevelopmentPolicyAbstainAsAllow();
         using var provider = services.BuildServiceProvider();
 
@@ -36,8 +35,7 @@ public sealed class PolicyAbstainTests
     public async Task RequiredObligationFailsClosed()
     {
         var services = new ServiceCollection();
-        services.AddSingleton<IPolicyEvaluator, RequiredObligationPolicyEvaluator>();
-        services.AddHPDBaseRuntime();
+        services.AddHPDBaseRuntime().UsePolicyAuthority("policy-tests", Definition(), new RequiredObligationPolicyEvaluator());
         using var provider = services.BuildServiceProvider();
 
         var result = await provider.GetRequiredService<IBasePolicyOrchestrator>().EvaluateReadAsync(Request());
@@ -60,6 +58,16 @@ public sealed class PolicyAbstainTests
             SchemaMode = SchemaMode.Loose,
             UnknownFields = UnknownFieldPolicy.Preserve
         }
+    };
+
+    private static BasePolicyAuthorityDefinition Definition() => new()
+    {
+        Id = "policy-tests.policy",
+        Version = 1,
+        OwningModuleId = "policy-tests",
+        EvaluatorContractId = "policy-tests.evaluator",
+        EvaluatorContractVersion = 1,
+        CompositionOrder = 0,
     };
 
     private sealed class RequiredObligationPolicyEvaluator : IPolicyEvaluator

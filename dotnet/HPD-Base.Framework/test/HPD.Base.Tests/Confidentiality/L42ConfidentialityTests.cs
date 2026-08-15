@@ -156,8 +156,22 @@ public sealed class L42ConfidentialityTests
         {
             Effect = PolicyEffect.Allow,
             Outcome = PolicyOutcome.Allowed,
-            Audit = new PolicyAuditInfo { MatchedGrantIds = grantIds }
-        }
+        },
+        Authority = new BasePolicyEvaluationAuthority
+        {
+            PolicyGraphGeneration = 1,
+            PolicyOwnerChecksum = [1],
+            AdmittedGrants = [.. grantIds.Select(id => new BaseAdmittedGrantAuthority
+            {
+                GrantId = id,
+                GrantVersion = 1,
+                GrantRegistrationChecksum = [1],
+                GrantChecksum = [1],
+            })],
+            AppliedPolicies = [],
+            Constraints = new BasePolicyConstraintAuthority(),
+            Checksum = BasePolicyEvaluationAuthorityChecksum.Create(new byte[32]),
+        },
     };
 
     private static BaseStorageProtectionCapability Capability(BaseStorageProtectionState state) => new()

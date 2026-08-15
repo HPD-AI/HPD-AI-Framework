@@ -642,8 +642,18 @@ public sealed class BasePolicyExplainServiceTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<IBaseDescriptorContributor>(new CollectionContributor());
-        services.AddSingleton(policy);
-        var builder = services.AddHPDBaseRuntime(runtimeOptions);
+        var builder = services.AddHPDBaseRuntime(runtimeOptions).UsePolicyAuthority(
+            "policy-explain-tests",
+            new BasePolicyAuthorityDefinition
+            {
+                Id = "policy-explain-tests.policy",
+                Version = 1,
+                OwningModuleId = "policy-explain-tests",
+                EvaluatorContractId = "policy-explain-tests.evaluator",
+                EvaluatorContractVersion = 1,
+                CompositionOrder = 0,
+            },
+            policy);
         configureRuntimeBuilder?.Invoke(builder);
         var provider = services.BuildServiceProvider();
         provider.GetRequiredService<IBaseDescriptorRegistry>().RebuildAsync().AsTask().GetAwaiter().GetResult();
