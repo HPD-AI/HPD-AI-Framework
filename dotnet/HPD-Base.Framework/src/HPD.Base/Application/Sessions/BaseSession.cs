@@ -99,6 +99,9 @@ public sealed class BaseSession
         _liveQueries,
         this);
 
+    /// <summary>Gets registered module mutations bound to this session and installed graph.</summary>
+    public BaseModuleMutationSession ModuleMutations => new(this);
+
     /// <summary>Resolves one generated exported-subject contract from this installed application graph.</summary>
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     public BaseExportedSubjectContract<TSubject> GetExportedSubjectContract<TSubject>(BaseGeneratedSubjectRegistration registration)

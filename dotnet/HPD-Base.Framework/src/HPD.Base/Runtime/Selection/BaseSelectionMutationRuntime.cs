@@ -597,6 +597,7 @@ internal sealed class BaseSelectionMutationProcessor(
         };
         var mutationPlan = new BaseAtomicMutationPlan
         {
+            Kind = BaseAtomicMutationExecutionKind.SelectionMutation,
             IntentDigest = captured.IntentDigest,
             CaptureDigest = captured.CaptureDigest,
             Authority = new BaseAtomicMutationAuthorityRequirement

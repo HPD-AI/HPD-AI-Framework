@@ -724,6 +724,14 @@ public sealed partial class SqliteRecordStore
         private BasePreparedAtomicMutation? _preparedMutation;
         private BaseAtomicMutationPlan? _preparedPlan;
         private Dictionary<int, BaseSubjectIncarnation>? _preparedLifecycleIncarnations;
+        private Dictionary<int, SqliteModuleGenerationKey>? _capturedModuleGenerationKeys;
+        private sealed record SqliteModuleGenerationKey(
+            string CellId,
+            int CellVersion,
+            int ScopeKind,
+            string Tenant,
+            string Project,
+            byte[] KeyBytes);
         public async ValueTask<OperationResult<BaseSelectionMutationCommitAccounting>> MeasureSelectionMutationAsync(
             BaseAtomicReceiptResult receipt, BaseSelectionMutationResult result, CancellationToken cancellationToken = default)
         {
@@ -795,6 +803,8 @@ public sealed partial class SqliteRecordStore
             ArgumentNullException.ThrowIfNull(request);
             BaseAtomicMutationIntent intent = request.Intent;
             BaseAtomicMutationExecutionLimits limits = request.Limits;
+            if (request.Kind == BaseAtomicMutationExecutionKind.ModuleMutation)
+                return await CaptureModuleAuthorityAsync(request, token).ConfigureAwait(false);
             if (_capturedMutation is not null || request.Kind != BaseAtomicMutationExecutionKind.RecordMutations
                 || request.Selection is not null || request.Module is not null
                 || intent.Items.IsDefaultOrEmpty || intent.Items.Length > limits.MaximumItems)
@@ -919,15 +929,246 @@ public sealed partial class SqliteRecordStore
             return OperationResults.Ok(_capturedMutation);
         });
 
+        private async ValueTask<OperationResult<BaseCapturedAtomicMutationAuthority>> CaptureModuleAuthorityAsync(
+            BaseAtomicMutationCaptureRequest request,
+            CancellationToken cancellationToken)
+        {
+            BaseAtomicMutationIntent intent = request.Intent;
+            BaseModuleMutationCaptureExtension? module = request.Module;
+            BaseAtomicMutationExecutionLimits limits = request.Limits;
+            if (_capturedMutation is not null || module is null || request.Selection is not null || !intent.Items.IsDefaultOrEmpty
+                || module.Records.Length > limits.MaximumRecordCaptures
+                || module.RelationTargets.Length > limits.MaximumRelationTargetCaptures
+                || module.Generations.Length > limits.MaximumGenerationReads)
+                return SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.ProviderContractInvalid);
+
+            (string storeId, long restoreEpoch, long schemaGeneration) = await ReadAuthorityAsync(cancellationToken).ConfigureAwait(false);
+            if (!string.Equals(storeId, intent.Authority.StoreInstanceId, StringComparison.Ordinal)
+                || restoreEpoch != intent.Authority.RestoreEpoch || schemaGeneration != intent.Authority.SchemaGeneration
+                || !await CollectionAuthorityMatchesAsync(intent.Authority.Collections, module, cancellationToken).ConfigureAwait(false))
+                return SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.SchemaGenerationChanged, OperationStatus.Conflict, ErrorCategory.Conflict);
+
+            var records = ImmutableArray.CreateBuilder<BaseCapturedModuleRecord>(module.Records.Length);
+            var relations = ImmutableArray.CreateBuilder<BaseCapturedModuleRelationTarget>(module.RelationTargets.Length);
+            var generations = ImmutableArray.CreateBuilder<BaseCapturedModuleGeneration>(module.Generations.Length);
+            var intervals = ImmutableArray.CreateBuilder<BaseAtomicReadIntervalEvidence>(
+                checked(module.Records.Length + module.RelationTargets.Length + module.Generations.Length));
+            var keys = new Dictionary<int, SqliteModuleGenerationKey>();
+            long selectedBytes = 0, relationBytes = 0, generationBytes = 0;
+            using var digest = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            digest.AppendData(System.Text.Encoding.UTF8.GetBytes(intent.IntentDigest));
+
+            for (int index = 0; index < module.Records.Length; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                BaseModuleRecordCaptureRequest capture = module.Records[index];
+                if (capture.Ordinal != index)
+                    return SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                RecordEnvelope? current = await _owner.ReadAsync(
+                    _connection, capture.Collection.Id, capture.RecordId.Value, cancellationToken, _transaction, CommandTimeoutSeconds()).ConfigureAwait(false);
+                if ((capture.Presence == BaseModuleCapturePresence.RequirePresent && current is null)
+                    || (capture.Presence == BaseModuleCapturePresence.RequireMissing && current is not null))
+                    return SubjectFailure<BaseCapturedAtomicMutationAuthority>("base.moduleMutation.captureConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+                byte[] key = System.Text.Encoding.UTF8.GetBytes(capture.RecordId.Value);
+                intervals.Add(ExactInterval($"collection:{capture.Collection.Id}:record", key));
+                if (current is not null)
+                {
+                    byte[] encoded = JsonSerializer.SerializeToUtf8Bytes(current, HPDBaseJsonSerializerContext.Default.RecordEnvelope);
+                    selectedBytes = checked(selectedBytes + encoded.LongLength); digest.AppendData(encoded);
+                }
+                records.Add(new BaseCapturedModuleRecord
+                {
+                    Ordinal = index, CaptureId = new string(capture.CaptureId.AsSpan()), CollectionId = new string(capture.Collection.Id.AsSpan()),
+                    RecordId = capture.RecordId, Exists = current is not null,
+                    Current = current is null ? null : RecordCloneHelpers.CloneEnvelope(current),
+                });
+            }
+
+            for (int index = 0; index < module.RelationTargets.Length; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                BaseModuleRelationTargetCaptureRequest capture = module.RelationTargets[index];
+                if (capture.Ordinal != index)
+                    return SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                RecordEnvelope? current = await _owner.ReadAsync(
+                    _connection, capture.TargetCollection.Id, capture.TargetRecordId.Value, cancellationToken, _transaction, CommandTimeoutSeconds()).ConfigureAwait(false);
+                byte[] key = System.Text.Encoding.UTF8.GetBytes(capture.TargetRecordId.Value);
+                intervals.Add(ExactInterval($"collection:{capture.TargetCollection.Id}:record", key));
+                if (current is not null)
+                {
+                    byte[] encoded = JsonSerializer.SerializeToUtf8Bytes(current, HPDBaseJsonSerializerContext.Default.RecordEnvelope);
+                    relationBytes = checked(relationBytes + encoded.LongLength); digest.AppendData(encoded);
+                }
+                relations.Add(new BaseCapturedModuleRelationTarget
+                {
+                    Ordinal = index, SourceStatementId = new string(capture.SourceStatementId.AsSpan()),
+                    SourceFieldId = new string(capture.SourceFieldId.AsSpan()), TargetCollectionId = new string(capture.TargetCollection.Id.AsSpan()),
+                    TargetRecordId = capture.TargetRecordId,
+                    Current = current is null ? null : RecordCloneHelpers.CloneEnvelope(current),
+                });
+            }
+
+            for (int index = 0; index < module.Generations.Length; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                BaseModuleGenerationCaptureRequest capture = module.Generations[index];
+                if (capture.Ordinal != index || !ValidGenerationScope(capture))
+                    return SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                SqliteModuleGenerationKey key = GenerationKey(capture);
+                keys.Add(index, key);
+                await using SqliteCommand command = _connection.CreateCommand();
+                command.Transaction = _transaction;
+                command.CommandText = $"SELECT generation FROM {_owner._names.ModuleGenerations} WHERE cell_id=$id AND cell_version=$version AND scope_kind=$scope AND tenant=$tenant AND project=$project AND key_bytes=$key;";
+                AddGenerationKeyParameters(command, key);
+                object? raw = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+                bool exists = raw is not null and not DBNull;
+                long value = exists ? Convert.ToInt64(raw, CultureInfo.InvariantCulture) : 0;
+                if ((capture.Absence == BaseModuleGenerationAbsenceBehavior.RequireExisting && !exists)
+                    || (capture.Absence == BaseModuleGenerationAbsenceBehavior.RequireMissing && exists))
+                    return SubjectFailure<BaseCapturedAtomicMutationAuthority>("base.moduleMutation.generationConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+                byte[] canonicalKey = CanonicalGenerationKeyBytes(key);
+                string keyDigest = Convert.ToHexStringLower(SHA256.HashData(canonicalKey));
+                intervals.Add(ExactInterval("module-generation", canonicalKey));
+                generationBytes = checked(generationBytes + canonicalKey.LongLength + 1 + (exists ? 8 : 0));
+                digest.AppendData(canonicalKey); if (exists) digest.AppendData(BitConverter.GetBytes(value));
+                generations.Add(new BaseCapturedModuleGeneration
+                {
+                    Ordinal = index, CaptureId = new string(capture.CaptureId.AsSpan()), CellId = new string(capture.Cell.Id.AsSpan()),
+                    CellVersion = capture.Cell.Version, CanonicalKeyDigest = keyDigest, Exists = exists,
+                    Generation = exists ? BaseModuleGeneration.Create(value) : null,
+                });
+            }
+
+            long evidenceBytes = BaseSubjectCanonicalRetainedWork.MeasureIntervals(intervals);
+            long transient = checked(selectedBytes + relationBytes + generationBytes + evidenceBytes);
+            if (selectedBytes > limits.MaximumSelectedBytes || generationBytes > limits.MaximumGenerationBytes
+                || evidenceBytes > limits.MaximumEvidenceBytes || transient > limits.MaximumTransientBytes
+                || intervals.Count > limits.MaximumReadIntervals)
+                return SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.BudgetExceeded, OperationStatus.ValidationFailed, ErrorCategory.Validation);
+
+            _capturedMutation = new BaseCapturedAtomicMutationAuthority
+            {
+                Kind = request.Kind, IntentDigest = new string(intent.IntentDigest.AsSpan()),
+                CaptureDigest = Convert.ToHexStringLower(digest.GetHashAndReset()),
+                Authority = new BaseAtomicMutationAuthorityEvidence
+                {
+                    ApplicationId = intent.Authority.ApplicationId, StoreInstanceId = storeId, RestoreEpoch = restoreEpoch,
+                    SchemaGeneration = schemaGeneration,
+                    Collections = intent.Authority.Collections.Select(static value => value with { }).ToImmutableArray(),
+                    Isolation = BaseAtomicSelectionIsolationClass.WriteOwningSerializable,
+                    TransactionEvidenceToken = BitConverter.GetBytes(_transactionStarted).ToImmutableArray(),
+                },
+                Items = [], ModuleRecords = records.MoveToImmutable(), ModuleRelationTargets = relations.MoveToImmutable(),
+                Generations = generations.MoveToImmutable(), ReadIntervals = intervals.MoveToImmutable(),
+                Accounting = new BaseAtomicCaptureAccounting
+                {
+                    Records = module.Records.Length, RelationTargetReads = module.RelationTargets.Length,
+                    GenerationReads = module.Generations.Length, ReadIntervals = intervals.Count,
+                    SelectedBytes = selectedBytes, RelationTargetBytes = relationBytes, GenerationBytes = generationBytes,
+                    EvidenceBytes = evidenceBytes, TransientBytes = transient,
+                },
+            };
+            _capturedModuleGenerationKeys = keys;
+            return OperationResults.Ok(_capturedMutation);
+        }
+
+        private async ValueTask<bool> CollectionAuthorityMatchesAsync(
+            ImmutableArray<BaseCollectionGenerationRequirement> requirements,
+            BaseModuleMutationCaptureExtension module,
+            CancellationToken cancellationToken)
+        {
+            string[] expected = module.Records.Select(static value => value.Collection.Id)
+                .Concat(module.RelationTargets.Select(static value => value.TargetCollection.Id))
+                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+            if (requirements.Length != expected.Length
+                || !requirements.Select(static value => value.CollectionId).SequenceEqual(expected, StringComparer.Ordinal)) return false;
+            foreach (BaseCollectionGenerationRequirement requirement in requirements)
+            {
+                await using SqliteCommand command = _connection.CreateCommand();
+                command.Transaction = _transaction;
+                command.CommandText = $"SELECT purge_generation FROM {_owner._names.Collections} WHERE collection_id=$collection;";
+                command.Parameters.AddWithValue("$collection", requirement.CollectionId);
+                object? raw = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+                if (raw is null or DBNull || Convert.ToInt64(raw, CultureInfo.InvariantCulture) != requirement.CollectionGeneration) return false;
+            }
+            return true;
+        }
+
+        private static bool ValidGenerationScope(BaseModuleGenerationCaptureRequest capture)
+        {
+            bool keyed = capture.Cell.Scope is BaseModuleGenerationScope.TenantAndKey or BaseModuleGenerationScope.ProjectAndKey;
+            if (capture.Cell.Scope != capture.Scope.Kind || capture.KeyUtf8.IsDefault
+                || (keyed ? capture.KeyUtf8.IsDefaultOrEmpty || capture.KeyUtf8.Length > capture.Cell.MaximumKeyUtf8Bytes : !capture.KeyUtf8.IsEmpty)) return false;
+            return capture.Scope.Kind switch
+            {
+                BaseModuleGenerationScope.Application => capture.Scope.Tenant is null && capture.Scope.Project is null,
+                BaseModuleGenerationScope.Tenant or BaseModuleGenerationScope.TenantAndKey => !string.IsNullOrEmpty(capture.Scope.Tenant) && capture.Scope.Project is null,
+                BaseModuleGenerationScope.Project or BaseModuleGenerationScope.ProjectAndKey => capture.Scope.Tenant is null && !string.IsNullOrEmpty(capture.Scope.Project),
+                _ => false,
+            };
+        }
+
+        private static SqliteModuleGenerationKey GenerationKey(BaseModuleGenerationCaptureRequest capture) => new(
+            new string(capture.Cell.Id.AsSpan()), capture.Cell.Version, (int)capture.Scope.Kind,
+            capture.Scope.Tenant is null ? string.Empty : new string(capture.Scope.Tenant.AsSpan()),
+            capture.Scope.Project is null ? string.Empty : new string(capture.Scope.Project.AsSpan()), capture.KeyUtf8.ToArray());
+
+        private static void AddGenerationKeyParameters(SqliteCommand command, SqliteModuleGenerationKey key)
+        {
+            command.Parameters.AddWithValue("$id", key.CellId); command.Parameters.AddWithValue("$version", key.CellVersion);
+            command.Parameters.AddWithValue("$scope", key.ScopeKind); command.Parameters.AddWithValue("$tenant", key.Tenant);
+            command.Parameters.AddWithValue("$project", key.Project); command.Parameters.Add("$key", SqliteType.Blob).Value = key.KeyBytes;
+        }
+
+        private static byte[] CanonicalGenerationKeyBytes(SqliteModuleGenerationKey key) => System.Text.Encoding.UTF8.GetBytes(string.Join('\n',
+            key.CellId, key.CellVersion.ToString(CultureInfo.InvariantCulture), key.ScopeKind.ToString(CultureInfo.InvariantCulture),
+            key.Tenant, key.Project, Convert.ToHexStringLower(key.KeyBytes)));
+
         public ValueTask<OperationResult<BasePreparedAtomicMutation>> PrepareAtomicMutationAsync(
             BaseCapturedAtomicMutationAuthority captured, BaseAtomicMutationPlan plan,
             CancellationToken cancellationToken = default) => ExecuteAsync(BaseOperationKind.Query, cancellationToken, async token =>
         {
             token.ThrowIfCancellationRequested(); ArgumentNullException.ThrowIfNull(captured); ArgumentNullException.ThrowIfNull(plan);
-            if (!ReferenceEquals(captured, _capturedMutation) || _preparedMutation is not null ||
+            if (!ReferenceEquals(captured, _capturedMutation) || _preparedMutation is not null || plan.Kind != captured.Kind ||
                 !string.Equals(plan.IntentDigest, captured.IntentDigest, StringComparison.Ordinal) ||
-                !string.Equals(plan.CaptureDigest, captured.CaptureDigest, StringComparison.Ordinal) || plan.Items.Length != captured.Items.Length)
+                !string.Equals(plan.CaptureDigest, captured.CaptureDigest, StringComparison.Ordinal) ||
+                (plan.Kind == BaseAtomicMutationExecutionKind.ModuleMutation
+                    ? plan.Module is null || captured.Items.Length != 0
+                    : plan.Items.Length != captured.Items.Length))
                 return SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
+            var preparedGenerations = ImmutableArray.CreateBuilder<BasePreparedModuleGenerationEvidence>(captured.Generations.Length);
+            if (plan.Kind == BaseAtomicMutationExecutionKind.ModuleMutation)
+            {
+                if (_capturedModuleGenerationKeys is null
+                    || plan.Module!.Comparisons.Select(static value => value.CaptureOrdinal).Distinct().Count() != plan.Module.Comparisons.Length
+                    || plan.Module.Increments.Select(static value => value.CaptureOrdinal).Distinct().Count() != plan.Module.Increments.Length)
+                    return SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                for (int ordinal = 0; ordinal < captured.Generations.Length; ordinal++)
+                {
+                    BaseCapturedModuleGeneration capture = captured.Generations[ordinal];
+                    BaseModuleGenerationComparison? comparison = plan.Module.Comparisons.SingleOrDefault(value => value.CaptureOrdinal == ordinal);
+                    BaseModuleGenerationIncrement? increment = plan.Module.Increments.SingleOrDefault(value => value.CaptureOrdinal == ordinal);
+                    bool comparisonSatisfied = comparison is null || comparison.Kind switch
+                    {
+                        BaseModuleGenerationComparisonKind.MustExist => capture.Exists,
+                        BaseModuleGenerationComparisonKind.MustBeMissing => !capture.Exists,
+                        BaseModuleGenerationComparisonKind.MustEqual => capture.Exists && comparison.Expected is not null && capture.Generation!.Equals(comparison.Expected),
+                        _ => false,
+                    };
+                    if (!comparisonSatisfied || (increment is not null && !capture.Exists && !increment.CreateIfAbsent))
+                        return SubjectFailure<BasePreparedAtomicMutation>("base.moduleMutation.generationConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+                    BaseModuleGeneration? resulting = increment is null ? capture.Generation
+                        : capture.Generation is null ? BaseModuleGeneration.Create(1) : capture.Generation.Increment();
+                    preparedGenerations.Add(new BasePreparedModuleGenerationEvidence
+                    {
+                        CaptureOrdinal = ordinal, CanonicalKeyDigest = new string(capture.CanonicalKeyDigest.AsSpan()),
+                        Previous = capture.Generation, Resulting = resulting,
+                        Disposition = increment is null
+                            ? capture.Exists ? BaseModuleGenerationPreparationDisposition.Preserved : BaseModuleGenerationPreparationDisposition.RemainedAbsent
+                            : capture.Exists ? BaseModuleGenerationPreparationDisposition.Incremented : BaseModuleGenerationPreparationDisposition.Created,
+                    });
+                }
+            }
             var lifetimes = new Dictionary<string, SqlitePreparedSubjectLifetime?>(StringComparer.Ordinal);
             var overlays = new Dictionary<string, BasePreparedSubjectOverlayEvidence>(StringComparer.Ordinal);
             var lifecycleIncarnations = new Dictionary<int, BaseSubjectIncarnation>();
@@ -1090,17 +1331,22 @@ public sealed partial class SqliteRecordStore
             _preparedLifecycleIncarnations = lifecycleIncarnations;
             _preparedMutation = new BasePreparedAtomicMutation
             {
+                Kind = plan.Kind,
                 PlanDigest = new string(plan.PlanDigest.AsSpan()), Authority = captured.Authority with { },
                 SubjectAuthorities = subjectAuthorities.Values.OrderBy(static value => value.ContractId, StringComparer.Ordinal)
                     .ThenBy(static value => value.ContractVersion).ToImmutableArray(),
                 Dispositions = captured.Items.Select(static item => item.Disposition).ToImmutableArray(),
+                Generations = preparedGenerations.MoveToImmutable(),
                 SubjectOverlay = overlays.Values.OrderBy(static value => value.ContractId, StringComparer.Ordinal).ThenBy(static value => value.ContractVersion).ThenBy(static value => value.SubjectId.Value, StringComparer.Ordinal).ToImmutableArray(),
                 SubjectValidations = validationEvidence.MoveToImmutable(),
                 ReadIntervals = intervals.MoveToImmutable(),
                 Accounting = new BasePreparedAtomicMutationAccounting
                 {
-                    AuthorityReads = authorityReads, ReadIntervals = intervalCount,
-                    SelectedBytes = captured.Accounting.SelectedBytes, EvidenceBytes = evidenceBytes,
+                    AuthorityReads = authorityReads, GenerationReads = captured.Generations.Length,
+                    GenerationComparisons = plan.Module?.Comparisons.Length ?? 0,
+                    GenerationIncrements = plan.Module?.Increments.Length ?? 0,
+                    ReadIntervals = intervalCount,
+                    SelectedBytes = captured.Accounting.SelectedBytes, GenerationBytes = captured.Accounting.GenerationBytes, EvidenceBytes = evidenceBytes,
                     TransientBytes = transient,
                 },
             };
@@ -1239,6 +1485,36 @@ public sealed partial class SqliteRecordStore
                 writtenBytes = checked(writtenBytes + (mutation.Value.Record is null
                     ? System.Text.Encoding.UTF8.GetByteCount(item.RecordId.Value) + sizeof(long)
                     : JsonSerializer.SerializeToUtf8Bytes(mutation.Value.Record, HPDBaseJsonSerializerContext.Default.RecordEnvelope).LongLength));
+            }
+            if (plan.Kind == BaseAtomicMutationExecutionKind.ModuleMutation)
+            {
+                if (_capturedModuleGenerationKeys is null || prepared.Generations.Length != _capturedModuleGenerationKeys.Count)
+                    return SubjectFailure<BaseAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                foreach (BasePreparedModuleGenerationEvidence generation in prepared.Generations)
+                {
+                    if (!_capturedModuleGenerationKeys.TryGetValue(generation.CaptureOrdinal, out SqliteModuleGenerationKey? key))
+                        return SubjectFailure<BaseAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                    if (generation.Disposition is BaseModuleGenerationPreparationDisposition.RemainedAbsent
+                        or BaseModuleGenerationPreparationDisposition.Preserved) continue;
+                    await using SqliteCommand command = _connection.CreateCommand();
+                    command.Transaction = _transaction;
+                    AddGenerationKeyParameters(command, key);
+                    command.Parameters.AddWithValue("$result", generation.Resulting!.Value);
+                    if (generation.Disposition == BaseModuleGenerationPreparationDisposition.Created)
+                    {
+                        command.CommandText = $"INSERT INTO {_owner._names.ModuleGenerations}(cell_id,cell_version,scope_kind,tenant,project,key_bytes,generation) VALUES($id,$version,$scope,$tenant,$project,$key,$result);";
+                    }
+                    else
+                    {
+                        command.CommandText = $"UPDATE {_owner._names.ModuleGenerations} SET generation=$result WHERE cell_id=$id AND cell_version=$version AND scope_kind=$scope AND tenant=$tenant AND project=$project AND key_bytes=$key AND generation=$previous;";
+                        command.Parameters.AddWithValue("$previous", generation.Previous!.Value);
+                    }
+                    int changed = await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    if (changed != 1)
+                        return SubjectFailure<BaseAppliedAtomicMutation>("base.moduleMutation.generationConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+                    writtenBytes = checked(writtenBytes + 8);
+                }
+                _capturedModuleGenerationKeys = null;
             }
             BaseRecordMutationFact[] materialized = facts.Select(static fact => fact.MaterializeOwned()).ToArray();
             foreach (ISqliteAtomicMutationProjection contributor in _owner._mutationProjectionContributors)

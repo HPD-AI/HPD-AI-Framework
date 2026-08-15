@@ -417,6 +417,8 @@ public sealed record BaseOwnedSubjectScopeEvidence
 /// <summary>Contains one finalized canonical atomic mutation plan.</summary>
 public sealed record BaseAtomicMutationPlan
 {
+    /// <summary>Gets the closed execution shape.</summary>
+    public required BaseAtomicMutationExecutionKind Kind { get; init; }
     /// <summary>Gets the canonical plan digest.</summary>
     public required string PlanDigest { get; init; }
     /// <summary>Gets the originating intent digest.</summary>
@@ -429,8 +431,82 @@ public sealed record BaseAtomicMutationPlan
     public required ImmutableArray<BaseAtomicMutationPlanItem> Items { get; init; }
     /// <summary>Gets ordered exported-subject validation items.</summary>
     public required ImmutableArray<BaseSubjectReferenceValidationPlanItem> SubjectValidations { get; init; }
+    /// <summary>Gets the L50 finalized extension only for a module mutation.</summary>
+    public BaseFinalizedModuleMutationExtension? Module { get; init; }
     /// <summary>Gets the complete immutable execution limits.</summary>
     public required BaseAtomicMutationExecutionLimits Limits { get; init; }
+}
+
+/// <summary>Contains the finalized L50 program decisions and generation effects.</summary>
+public sealed record BaseFinalizedModuleMutationExtension
+{
+    /// <summary>Gets the operation ID.</summary>
+    public required string OperationId { get; init; }
+    /// <summary>Gets the operation version.</summary>
+    public required int OperationVersion { get; init; }
+    /// <summary>Gets the operation checksum.</summary>
+    public required string OperationChecksum { get; init; }
+    /// <summary>Gets the complete canonical decision trace.</summary>
+    public required ImmutableArray<BaseModuleDecisionTraceEntry> Decisions { get; init; }
+    /// <summary>Gets mutation-item to record-capture bindings.</summary>
+    public required ImmutableArray<BaseModuleMutationItemCaptureBinding> ItemBindings { get; init; }
+    /// <summary>Gets ordered generation comparisons.</summary>
+    public required ImmutableArray<BaseModuleGenerationComparison> Comparisons { get; init; }
+    /// <summary>Gets ordered generation increments.</summary>
+    public required ImmutableArray<BaseModuleGenerationIncrement> Increments { get; init; }
+    /// <summary>Gets the canonical result projection digest.</summary>
+    public required string ResultProjectionDigest { get; init; }
+}
+
+/// <summary>Classifies one evaluated module branch decision.</summary>
+public enum BaseModuleDecisionKind
+{
+    /// <summary>An if-statement decision.</summary>
+    IfStatement = 0,
+    /// <summary>A conditional-expression decision.</summary>
+    ConditionalExpression = 1,
+}
+
+/// <summary>Contains one dense evaluated branch decision.</summary>
+public sealed record BaseModuleDecisionTraceEntry
+{
+    /// <summary>Gets the dense evaluation ordinal.</summary>
+    public required int EvaluationOrdinal { get; init; }
+    /// <summary>Gets the decision kind.</summary>
+    public required BaseModuleDecisionKind Kind { get; init; }
+    /// <summary>Gets the statement or expression ID.</summary>
+    public required string DecisionId { get; init; }
+    /// <summary>Gets whether the true branch was selected.</summary>
+    public required bool SelectedTrue { get; init; }
+}
+
+/// <summary>Binds one finalized mutation item to its captured record.</summary>
+public sealed record BaseModuleMutationItemCaptureBinding
+{
+    /// <summary>Gets the mutation ordinal.</summary>
+    public required int MutationOrdinal { get; init; }
+    /// <summary>Gets the record-capture ordinal.</summary>
+    public required int RecordCaptureOrdinal { get; init; }
+}
+
+/// <summary>Contains one generation comparison selected by Runtime.</summary>
+public sealed record BaseModuleGenerationComparison
+{
+    /// <summary>Gets the generation-capture ordinal.</summary>
+    public required int CaptureOrdinal { get; init; }
+    /// <summary>Gets the comparison kind.</summary>
+    public required BaseModuleGenerationComparisonKind Kind { get; init; }
+    /// <summary>Gets the exact expected value only for MustEqual.</summary>
+    public BaseModuleGeneration? Expected { get; init; }
+}
+
+/// <summary>Contains one selected generation increment.</summary>
+public sealed record BaseModuleGenerationIncrement
+{
+    /// <summary>Gets the generation-capture ordinal.</summary>
+    public required int CaptureOrdinal { get; init; }
+    /// <summary>Gets whether the selected statement may create an absent cell.</summary>
+    public required bool CreateIfAbsent { get; init; }
 }
 
 /// <summary>Contains the complete L45 transaction execution safety envelope.</summary>
@@ -552,10 +628,18 @@ public sealed record BasePreparedAtomicMutationAccounting
 {
     /// <summary>Gets authority reads actually performed.</summary>
     public required int AuthorityReads { get; init; }
+    /// <summary>Gets generation reads performed.</summary>
+    public required int GenerationReads { get; init; }
+    /// <summary>Gets generation comparisons performed.</summary>
+    public required int GenerationComparisons { get; init; }
+    /// <summary>Gets generation increments prepared.</summary>
+    public required int GenerationIncrements { get; init; }
     /// <summary>Gets normalized read intervals retained.</summary>
     public required int ReadIntervals { get; init; }
     /// <summary>Gets canonical selected bytes retained.</summary>
     public required long SelectedBytes { get; init; }
+    /// <summary>Gets canonical generation bytes retained.</summary>
+    public required long GenerationBytes { get; init; }
     /// <summary>Gets canonical evidence bytes retained.</summary>
     public required long EvidenceBytes { get; init; }
     /// <summary>Gets complete transient bytes retained.</summary>
@@ -586,6 +670,8 @@ public sealed record BaseSubjectTransactionAuthorityEvidence
 /// <summary>Contains one single-use mutation preparation bound to an open provider session.</summary>
 public sealed record BasePreparedAtomicMutation
 {
+    /// <summary>Gets the closed execution shape.</summary>
+    public required BaseAtomicMutationExecutionKind Kind { get; init; }
     /// <summary>Gets the finalized plan digest.</summary>
     public required string PlanDigest { get; init; }
     /// <summary>Gets authoritative provider snapshot evidence.</summary>
@@ -594,6 +680,8 @@ public sealed record BasePreparedAtomicMutation
     public required ImmutableArray<BaseSubjectTransactionAuthorityEvidence> SubjectAuthorities { get; init; }
     /// <summary>Gets final resolved dispositions.</summary>
     public required ImmutableArray<BaseCapturedMutationDisposition> Dispositions { get; init; }
+    /// <summary>Gets prepared L50 generation evidence.</summary>
+    public required ImmutableArray<BasePreparedModuleGenerationEvidence> Generations { get; init; }
     /// <summary>Gets canonical final subject overlays.</summary>
     public required ImmutableArray<BasePreparedSubjectOverlayEvidence> SubjectOverlay { get; init; }
     /// <summary>Gets ordered subject-validation results.</summary>
@@ -602,6 +690,34 @@ public sealed record BasePreparedAtomicMutation
     public required ImmutableArray<BaseAtomicReadIntervalEvidence> ReadIntervals { get; init; }
     /// <summary>Gets exact provider preparation accounting.</summary>
     public required BasePreparedAtomicMutationAccounting Accounting { get; init; }
+}
+
+/// <summary>Classifies one prepared generation transition.</summary>
+public enum BaseModuleGenerationPreparationDisposition
+{
+    /// <summary>The cell was absent and remains absent.</summary>
+    RemainedAbsent = 0,
+    /// <summary>The existing generation is preserved.</summary>
+    Preserved = 1,
+    /// <summary>An absent cell is created at generation one.</summary>
+    Created = 2,
+    /// <summary>An existing cell is incremented exactly once.</summary>
+    Incremented = 3,
+}
+
+/// <summary>Contains immutable evidence for one prepared generation cell.</summary>
+public sealed record BasePreparedModuleGenerationEvidence
+{
+    /// <summary>Gets the capture ordinal.</summary>
+    public required int CaptureOrdinal { get; init; }
+    /// <summary>Gets the canonical cell-key digest.</summary>
+    public required string CanonicalKeyDigest { get; init; }
+    /// <summary>Gets the prior generation when present.</summary>
+    public BaseModuleGeneration? Previous { get; init; }
+    /// <summary>Gets the resulting generation when present.</summary>
+    public BaseModuleGeneration? Resulting { get; init; }
+    /// <summary>Gets the closed preparation disposition.</summary>
+    public required BaseModuleGenerationPreparationDisposition Disposition { get; init; }
 }
 
 /// <summary>Contains exact provider accounting for the committed attempt.</summary>

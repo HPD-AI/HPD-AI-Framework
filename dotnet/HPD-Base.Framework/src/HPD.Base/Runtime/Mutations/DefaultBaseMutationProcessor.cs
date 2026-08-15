@@ -279,6 +279,7 @@ internal sealed class DefaultBaseMutationProcessor(
         finalizedItems = subjectPlan.Value.Items;
         var plan = new BaseAtomicMutationPlan
         {
+            Kind = BaseAtomicMutationExecutionKind.RecordMutations,
             IntentDigest = intent.IntentDigest,
             CaptureDigest = capturedEvidence.CaptureDigest,
             Authority = authority with { },

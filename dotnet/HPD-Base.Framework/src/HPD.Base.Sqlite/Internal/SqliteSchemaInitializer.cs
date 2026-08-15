@@ -129,6 +129,16 @@ CREATE TABLE IF NOT EXISTS {_names.SubjectRewriteStage} (
   replacement_revision INTEGER NOT NULL, previous_payload_json BLOB NOT NULL, payload_json BLOB NOT NULL,
   PRIMARY KEY(collection_id,record_id)
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.ModuleGenerations} (
+  cell_id TEXT NOT NULL,
+  cell_version INTEGER NOT NULL CHECK(cell_version > 0),
+  scope_kind INTEGER NOT NULL,
+  tenant TEXT NOT NULL,
+  project TEXT NOT NULL,
+  key_bytes BLOB NOT NULL,
+  generation INTEGER NOT NULL CHECK(generation > 0),
+  PRIMARY KEY(cell_id,cell_version,scope_kind,tenant,project,key_bytes)
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.MutationJournal} (
   position INTEGER PRIMARY KEY AUTOINCREMENT,
   entry_kind INTEGER NOT NULL DEFAULT 0,
@@ -298,6 +308,16 @@ CREATE TABLE IF NOT EXISTS {_names.SubjectRewriteStage} (
   collection_id TEXT NOT NULL, record_id TEXT NOT NULL, previous_revision INTEGER NOT NULL,
   replacement_revision INTEGER NOT NULL, previous_payload_json BLOB NOT NULL, payload_json BLOB NOT NULL,
   PRIMARY KEY(collection_id,record_id)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.ModuleGenerations} (
+  cell_id TEXT NOT NULL,
+  cell_version INTEGER NOT NULL CHECK(cell_version > 0),
+  scope_kind INTEGER NOT NULL,
+  tenant TEXT NOT NULL,
+  project TEXT NOT NULL,
+  key_bytes BLOB NOT NULL,
+  generation INTEGER NOT NULL CHECK(generation > 0),
+  PRIMARY KEY(cell_id,cell_version,scope_kind,tenant,project,key_bytes)
 ) WITHOUT ROWID;
 """, cancellationToken).ConfigureAwait(false);
 
@@ -483,7 +503,7 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
     public async ValueTask<string[]> GetMissingSchemaPartsAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         var missing = new List<string>();
-        foreach (var table in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.OperationReceipts, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease, _names.SubjectContracts, _names.SubjectLifetimes, _names.SubjectMaintenance, _names.SubjectRewriteStage }
+        foreach (var table in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.OperationReceipts, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease, _names.SubjectContracts, _names.SubjectLifetimes, _names.SubjectMaintenance, _names.SubjectRewriteStage, _names.ModuleGenerations }
             .Concat(_physical.Collections.Select(static collection => collection.Table))
             .Concat(_physical.Relations.Select(static relation => relation.Table))
             .Concat(_projectionSchemaTables))

@@ -21,6 +21,7 @@ internal sealed class SqliteNames
         SubjectLifetimes = Prefix + "subject_lifetimes";
         SubjectMaintenance = Prefix + "subject_maintenance";
         SubjectRewriteStage = Prefix + "subject_rewrite_stage";
+        ModuleGenerations = Prefix + "module_generations";
         MutationJournalScopeIndex = "ix_" + Prefix + "mutation_journal_scope_position";
     }
 
@@ -52,6 +53,8 @@ internal sealed class SqliteNames
     public string SubjectMaintenance { get; }
     /// <summary>Gets the provider-owned subject-reference rewrite staging table.</summary>
     public string SubjectRewriteStage { get; }
+    /// <summary>Gets provider-owned registered-module generation cells.</summary>
+    public string ModuleGenerations { get; }
     /// <summary>Gets the mutation journal scope index.</summary>
     public string MutationJournalScopeIndex { get; }
 }

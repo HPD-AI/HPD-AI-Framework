@@ -291,6 +291,21 @@ public sealed class HPDBaseBuilder
         return this;
     }
 
+    /// <summary>Registers one generated module mutation and its graph-owned request/result metadata.</summary>
+    public HPDBaseBuilder AddModuleMutation<TRequest, TResult>(
+        BaseRegisteredModuleMutationDefinition definition,
+        BaseGeneratedModuleMutationIdentity<TRequest, TResult> identity)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        if (!string.Equals(definition.Id, identity.Id, StringComparison.Ordinal)
+            || definition.Version != identity.Version
+            || !definition.Checksum.ToArray().AsSpan().SequenceEqual(identity.Checksum))
+            throw new InvalidOperationException("base.moduleMutation.invalid");
+        AddModuleMutation(definition);
+        _serializerMetadata.Add(identity);
+        return this;
+    }
+
     /// <summary>Configures the single immutable host safety envelope for selection mutations.</summary>
     public HPDBaseBuilder ConfigureSelectionMutations(HPDBaseSelectionMutationOptions options)
     {

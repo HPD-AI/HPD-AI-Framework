@@ -2471,6 +2471,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         private BasePreparedAtomicMutation? _preparedMutation;
         private BaseAtomicMutationPlan? _preparedPlan;
         private Dictionary<int, BaseSubjectIncarnation>? _preparedLifecycleIncarnations;
+        private Dictionary<int, string>? _capturedModuleGenerationKeys;
         public ValueTask<OperationResult<BaseSelectionMutationCommitAccounting>> MeasureSelectionMutationAsync(
             BaseAtomicReceiptResult receipt, BaseSelectionMutationResult result, CancellationToken cancellationToken = default)
         {
@@ -2527,6 +2528,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             ArgumentNullException.ThrowIfNull(request);
             BaseAtomicMutationIntent intent = request.Intent;
             BaseAtomicMutationExecutionLimits limits = request.Limits;
+            if (request.Kind == BaseAtomicMutationExecutionKind.ModuleMutation)
+                return CaptureModuleAuthority(request, token);
             if (_capturedMutation is not null || request.Kind != BaseAtomicMutationExecutionKind.RecordMutations
                 || request.Selection is not null || request.Module is not null
                 || intent.Items.IsDefaultOrEmpty || intent.Items.Length > limits.MaximumItems ||
@@ -2651,6 +2654,138 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             return ValueTask.FromResult(OperationResults.Ok(_capturedMutation));
         });
 
+        private ValueTask<OperationResult<BaseCapturedAtomicMutationAuthority>> CaptureModuleAuthority(
+            BaseAtomicMutationCaptureRequest request,
+            CancellationToken cancellationToken)
+        {
+            BaseAtomicMutationIntent intent = request.Intent;
+            BaseModuleMutationCaptureExtension? module = request.Module;
+            BaseAtomicMutationExecutionLimits limits = request.Limits;
+            if (_capturedMutation is not null || module is null || request.Selection is not null || !intent.Items.IsDefaultOrEmpty
+                || !string.Equals(intent.Authority.StoreInstanceId, _owner._options.StoreId, StringComparison.Ordinal)
+                || intent.Authority.RestoreEpoch != 1 || intent.Authority.SchemaGeneration != 1
+                || module.Records.Length > limits.MaximumRecordCaptures
+                || module.RelationTargets.Length > limits.MaximumRelationTargetCaptures
+                || module.Generations.Length > limits.MaximumGenerationReads
+                || !AuthorityCollectionsMatch(intent.Authority.Collections, module, _owner._generation))
+                return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.ProviderContractInvalid));
+
+            var records = ImmutableArray.CreateBuilder<BaseCapturedModuleRecord>(module.Records.Length);
+            var relations = ImmutableArray.CreateBuilder<BaseCapturedModuleRelationTarget>(module.RelationTargets.Length);
+            var generations = ImmutableArray.CreateBuilder<BaseCapturedModuleGeneration>(module.Generations.Length);
+            var generationKeys = new Dictionary<int, string>();
+            var intervals = ImmutableArray.CreateBuilder<BaseAtomicReadIntervalEvidence>(
+                checked(module.Records.Length + module.RelationTargets.Length + module.Generations.Length));
+            long selectedBytes = 0;
+            long relationBytes = 0;
+            long generationBytes = 0;
+            using var digest = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            digest.AppendData(System.Text.Encoding.UTF8.GetBytes(intent.IntentDigest));
+
+            for (int index = 0; index < module.Records.Length; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                BaseModuleRecordCaptureRequest capture = module.Records[index];
+                if (capture.Ordinal != index) return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.ProviderContractInvalid));
+                RecordEnvelope? current = SnapshotRecord(capture.Collection, capture.RecordId);
+                if ((capture.Presence == BaseModuleCapturePresence.RequirePresent && current is null)
+                    || (capture.Presence == BaseModuleCapturePresence.RequireMissing && current is not null))
+                    return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.ProviderContractInvalid));
+                byte[] key = System.Text.Encoding.UTF8.GetBytes(capture.RecordId.Value);
+                intervals.Add(ExactInterval($"collection:{capture.Collection.Id}:record", key));
+                if (current is not null)
+                {
+                    byte[] encoded = JsonSerializer.SerializeToUtf8Bytes(current, HPDBaseJsonSerializerContext.Default.RecordEnvelope);
+                    selectedBytes = checked(selectedBytes + encoded.LongLength);
+                    digest.AppendData(encoded);
+                }
+                records.Add(new BaseCapturedModuleRecord
+                {
+                    Ordinal = index, CaptureId = new string(capture.CaptureId.AsSpan()), CollectionId = new string(capture.Collection.Id.AsSpan()),
+                    RecordId = capture.RecordId, Exists = current is not null, Current = current,
+                });
+            }
+
+            for (int index = 0; index < module.RelationTargets.Length; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                BaseModuleRelationTargetCaptureRequest capture = module.RelationTargets[index];
+                if (capture.Ordinal != index) return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.ProviderContractInvalid));
+                RecordEnvelope? current = SnapshotRecord(capture.TargetCollection, capture.TargetRecordId);
+                byte[] key = System.Text.Encoding.UTF8.GetBytes(capture.TargetRecordId.Value);
+                intervals.Add(ExactInterval($"collection:{capture.TargetCollection.Id}:record", key));
+                if (current is not null)
+                {
+                    byte[] encoded = JsonSerializer.SerializeToUtf8Bytes(current, HPDBaseJsonSerializerContext.Default.RecordEnvelope);
+                    relationBytes = checked(relationBytes + encoded.LongLength);
+                    digest.AppendData(encoded);
+                }
+                relations.Add(new BaseCapturedModuleRelationTarget
+                {
+                    Ordinal = index, SourceStatementId = new string(capture.SourceStatementId.AsSpan()),
+                    SourceFieldId = new string(capture.SourceFieldId.AsSpan()), TargetCollectionId = new string(capture.TargetCollection.Id.AsSpan()),
+                    TargetRecordId = capture.TargetRecordId, Current = current,
+                });
+            }
+
+            for (int index = 0; index < module.Generations.Length; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                BaseModuleGenerationCaptureRequest capture = module.Generations[index];
+                if (capture.Ordinal != index || !ValidGenerationScope(capture))
+                    return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.ProviderContractInvalid));
+                string storageKey = ModuleGenerationStorageKey(capture);
+                generationKeys.Add(index, storageKey);
+                bool exists = _working.ModuleGenerations.TryGetValue(storageKey, out long value);
+                if ((capture.Absence == BaseModuleGenerationAbsenceBehavior.RequireExisting && !exists)
+                    || (capture.Absence == BaseModuleGenerationAbsenceBehavior.RequireMissing && exists))
+                    return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.ProviderContractInvalid));
+                string keyDigest = Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(storageKey)));
+                byte[] key = System.Text.Encoding.UTF8.GetBytes(storageKey);
+                intervals.Add(ExactInterval("module-generation", key));
+                generationBytes = checked(generationBytes + key.LongLength + 1 + (exists ? 8 : 0));
+                digest.AppendData(key);
+                if (exists) digest.AppendData(BitConverter.GetBytes(value));
+                generations.Add(new BaseCapturedModuleGeneration
+                {
+                    Ordinal = index, CaptureId = new string(capture.CaptureId.AsSpan()), CellId = new string(capture.Cell.Id.AsSpan()),
+                    CellVersion = capture.Cell.Version, CanonicalKeyDigest = keyDigest, Exists = exists,
+                    Generation = exists ? BaseModuleGeneration.Create(value) : null,
+                });
+            }
+
+            long evidenceBytes = BaseSubjectCanonicalRetainedWork.MeasureIntervals(intervals);
+            long transient = checked(selectedBytes + relationBytes + generationBytes + evidenceBytes);
+            if (selectedBytes > limits.MaximumSelectedBytes || generationBytes > limits.MaximumGenerationBytes
+                || evidenceBytes > limits.MaximumEvidenceBytes || transient > limits.MaximumTransientBytes
+                || intervals.Count > limits.MaximumReadIntervals)
+                return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.BudgetExceeded));
+            _capturedMutation = new BaseCapturedAtomicMutationAuthority
+            {
+                Kind = request.Kind, IntentDigest = new string(intent.IntentDigest.AsSpan()),
+                CaptureDigest = Convert.ToHexStringLower(digest.GetHashAndReset()),
+                Authority = new BaseAtomicMutationAuthorityEvidence
+                {
+                    ApplicationId = intent.Authority.ApplicationId, StoreInstanceId = _owner._options.StoreId,
+                    RestoreEpoch = 1, SchemaGeneration = 1,
+                    Collections = intent.Authority.Collections.Select(static value => value with { }).ToImmutableArray(),
+                    Isolation = BaseAtomicSelectionIsolationClass.OptimisticRangeValidatedSerializable,
+                    TransactionEvidenceToken = BitConverter.GetBytes(_working.GlobalMutationPosition).ToImmutableArray(),
+                },
+                Items = [], ModuleRecords = records.MoveToImmutable(), ModuleRelationTargets = relations.MoveToImmutable(),
+                Generations = generations.MoveToImmutable(), ReadIntervals = intervals.MoveToImmutable(),
+                Accounting = new BaseAtomicCaptureAccounting
+                {
+                    Records = module.Records.Length, RelationTargetReads = module.RelationTargets.Length,
+                    GenerationReads = module.Generations.Length, ReadIntervals = intervals.Count,
+                    SelectedBytes = selectedBytes, RelationTargetBytes = relationBytes, GenerationBytes = generationBytes,
+                    EvidenceBytes = evidenceBytes, TransientBytes = transient,
+                },
+            };
+            _capturedModuleGenerationKeys = generationKeys;
+            return ValueTask.FromResult(OperationResults.Ok(_capturedMutation));
+        }
+
         public ValueTask<OperationResult<BasePreparedAtomicMutation>> PrepareAtomicMutationAsync(
             BaseCapturedAtomicMutationAuthority captured,
             BaseAtomicMutationPlan plan,
@@ -2659,10 +2794,49 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             token.ThrowIfCancellationRequested();
             ArgumentNullException.ThrowIfNull(captured); ArgumentNullException.ThrowIfNull(plan);
             if (!ReferenceEquals(captured, _capturedMutation) || _preparedMutation is not null ||
+                plan.Kind != captured.Kind ||
                 !string.Equals(plan.IntentDigest, captured.IntentDigest, StringComparison.Ordinal) ||
                 !string.Equals(plan.CaptureDigest, captured.CaptureDigest, StringComparison.Ordinal) ||
-                plan.Items.Length != captured.Items.Length)
+                (plan.Kind == BaseAtomicMutationExecutionKind.ModuleMutation
+                    ? plan.Module is null || captured.Items.Length != 0
+                    : plan.Items.Length != captured.Items.Length))
                 return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid));
+            var preparedGenerations = ImmutableArray.CreateBuilder<BasePreparedModuleGenerationEvidence>(captured.Generations.Length);
+            if (plan.Kind == BaseAtomicMutationExecutionKind.ModuleMutation)
+            {
+                if (_capturedModuleGenerationKeys is null
+                    || plan.Module!.Comparisons.Select(static value => value.CaptureOrdinal).Distinct().Count() != plan.Module.Comparisons.Length
+                    || plan.Module.Increments.Select(static value => value.CaptureOrdinal).Distinct().Count() != plan.Module.Increments.Length)
+                    return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid));
+                for (int ordinal = 0; ordinal < captured.Generations.Length; ordinal++)
+                {
+                    BaseCapturedModuleGeneration capture = captured.Generations[ordinal];
+                    BaseModuleGenerationComparison? comparison = plan.Module.Comparisons.SingleOrDefault(value => value.CaptureOrdinal == ordinal);
+                    BaseModuleGenerationIncrement? increment = plan.Module.Increments.SingleOrDefault(value => value.CaptureOrdinal == ordinal);
+                    bool comparisonSatisfied = comparison is null || comparison.Kind switch
+                    {
+                        BaseModuleGenerationComparisonKind.MustExist => capture.Exists,
+                        BaseModuleGenerationComparisonKind.MustBeMissing => !capture.Exists,
+                        BaseModuleGenerationComparisonKind.MustEqual => capture.Exists && comparison.Expected is not null && capture.Generation!.Equals(comparison.Expected),
+                        _ => false,
+                    };
+                    if (!comparisonSatisfied || (increment is not null && !capture.Exists && !increment.CreateIfAbsent))
+                        return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>("base.moduleMutation.generationConflict", OperationStatus.Conflict, ErrorCategory.Conflict));
+                    BaseModuleGeneration? resulting = increment is null
+                        ? capture.Generation
+                        : capture.Generation is null ? BaseModuleGeneration.Create(1) : capture.Generation.Increment();
+                    preparedGenerations.Add(new BasePreparedModuleGenerationEvidence
+                    {
+                        CaptureOrdinal = ordinal,
+                        CanonicalKeyDigest = new string(capture.CanonicalKeyDigest.AsSpan()),
+                        Previous = capture.Generation,
+                        Resulting = resulting,
+                        Disposition = increment is null
+                            ? capture.Exists ? BaseModuleGenerationPreparationDisposition.Preserved : BaseModuleGenerationPreparationDisposition.RemainedAbsent
+                            : capture.Exists ? BaseModuleGenerationPreparationDisposition.Incremented : BaseModuleGenerationPreparationDisposition.Created,
+                    });
+                }
+            }
             var lifetimes = new Dictionary<string, InMemorySubjectLifetimeState?>(StringComparer.Ordinal);
             var overlays = new Dictionary<string, BasePreparedSubjectOverlayEvidence>(StringComparer.Ordinal);
             var lifecycleIncarnations = new Dictionary<int, BaseSubjectIncarnation>();
@@ -2869,17 +3043,23 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             _preparedLifecycleIncarnations = lifecycleIncarnations;
             _preparedMutation = new BasePreparedAtomicMutation
             {
+                Kind = plan.Kind,
                 PlanDigest = new string(plan.PlanDigest.AsSpan()), Authority = captured.Authority with { },
                 SubjectAuthorities = subjectAuthorities.Values.OrderBy(static value => value.ContractId, StringComparer.Ordinal)
                     .ThenBy(static value => value.ContractVersion).ToImmutableArray(),
                 Dispositions = captured.Items.Select(static item => item.Disposition).ToImmutableArray(),
+                Generations = preparedGenerations.MoveToImmutable(),
                 SubjectOverlay = overlays.Values.OrderBy(static value => value.ContractId, StringComparer.Ordinal).ThenBy(static value => value.ContractVersion).ThenBy(static value => value.SubjectId.Value, StringComparer.Ordinal).ToImmutableArray(),
                 SubjectValidations = validationEvidence.MoveToImmutable(),
                 ReadIntervals = intervals.MoveToImmutable(),
                 Accounting = new BasePreparedAtomicMutationAccounting
                 {
-                    AuthorityReads = authorityReads, ReadIntervals = intervalCount,
-                    SelectedBytes = captured.Accounting.SelectedBytes, EvidenceBytes = evidenceBytes,
+                    AuthorityReads = authorityReads,
+                    GenerationReads = captured.Generations.Length,
+                    GenerationComparisons = plan.Module?.Comparisons.Length ?? 0,
+                    GenerationIncrements = plan.Module?.Increments.Length ?? 0,
+                    ReadIntervals = intervalCount,
+                    SelectedBytes = captured.Accounting.SelectedBytes, GenerationBytes = captured.Accounting.GenerationBytes, EvidenceBytes = evidenceBytes,
                     TransientBytes = transient,
                 },
             };
@@ -2941,6 +3121,44 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 && requirements.Select(static value => value.CollectionId).SequenceEqual(expected, StringComparer.Ordinal)
                 && requirements.All(value => value.CollectionGeneration == generation);
         }
+
+        private static bool AuthorityCollectionsMatch(
+            ImmutableArray<BaseCollectionGenerationRequirement> requirements,
+            BaseModuleMutationCaptureExtension module,
+            long generation)
+        {
+            string[] expected = module.Records.Select(static value => value.Collection.Id)
+                .Concat(module.RelationTargets.Select(static value => value.TargetCollection.Id))
+                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+            return requirements.Length == expected.Length
+                && requirements.Select(static value => value.CollectionId).SequenceEqual(expected, StringComparer.Ordinal)
+                && requirements.All(value => value.CollectionGeneration == generation);
+        }
+
+        private static bool ValidGenerationScope(BaseModuleGenerationCaptureRequest capture)
+        {
+            bool keyed = capture.Cell.Scope is BaseModuleGenerationScope.TenantAndKey or BaseModuleGenerationScope.ProjectAndKey;
+            if (capture.Cell.Scope != capture.Scope.Kind || capture.KeyUtf8.IsDefault
+                || (keyed ? capture.KeyUtf8.IsDefaultOrEmpty || capture.KeyUtf8.Length > capture.Cell.MaximumKeyUtf8Bytes : !capture.KeyUtf8.IsEmpty))
+                return false;
+            return capture.Scope.Kind switch
+            {
+                BaseModuleGenerationScope.Application => capture.Scope.Tenant is null && capture.Scope.Project is null,
+                BaseModuleGenerationScope.Tenant or BaseModuleGenerationScope.TenantAndKey =>
+                    !string.IsNullOrEmpty(capture.Scope.Tenant) && capture.Scope.Project is null,
+                BaseModuleGenerationScope.Project or BaseModuleGenerationScope.ProjectAndKey =>
+                    capture.Scope.Tenant is null && !string.IsNullOrEmpty(capture.Scope.Project),
+                _ => false,
+            };
+        }
+
+        private static string ModuleGenerationStorageKey(BaseModuleGenerationCaptureRequest capture) => string.Join('\n',
+            capture.Cell.Id,
+            capture.Cell.Version.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ((int)capture.Scope.Kind).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            capture.Scope.Tenant ?? string.Empty,
+            capture.Scope.Project ?? string.Empty,
+            Convert.ToHexStringLower(capture.KeyUtf8.AsSpan()));
 
         private static RecordEnvelope? SimulateIntentRecord(
             BaseAtomicMutationIntentItem item,
@@ -3134,6 +3352,22 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     default:
                         return SubjectFailure<BaseAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
                 }
+            }
+
+            if (plan.Kind == BaseAtomicMutationExecutionKind.ModuleMutation)
+            {
+                if (_capturedModuleGenerationKeys is null || prepared.Generations.Length != _capturedModuleGenerationKeys.Count)
+                    return SubjectFailure<BaseAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                foreach (BasePreparedModuleGenerationEvidence generation in prepared.Generations)
+                {
+                    if (!_capturedModuleGenerationKeys.TryGetValue(generation.CaptureOrdinal, out string? key))
+                        return SubjectFailure<BaseAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                    if (generation.Resulting is null)
+                        _working.ModuleGenerations.Remove(key);
+                    else
+                        _working.ModuleGenerations[key] = generation.Resulting.Value;
+                }
+                _capturedModuleGenerationKeys = null;
             }
 
             BaseRecordMutationFact[] materialized = facts.Select(static fact => fact.MaterializeOwned()).ToArray();

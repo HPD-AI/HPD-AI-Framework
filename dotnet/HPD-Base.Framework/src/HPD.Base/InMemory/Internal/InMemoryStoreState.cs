@@ -21,6 +21,8 @@ internal sealed class InMemoryStoreState
     public Dictionary<string, InMemorySubjectContractState> SubjectContracts { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets current exported-subject lifetimes by canonical subject key.</summary>
     public Dictionary<string, InMemorySubjectLifetimeState> SubjectLifetimes { get; } = new(StringComparer.Ordinal);
+    /// <summary>Gets module-owned generation cells by canonical scoped key.</summary>
+    public Dictionary<string, long> ModuleGenerations { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets the shared record/control mutation journal by append position.</summary>
     public SortedDictionary<long, BaseMutationJournalEntry> MutationJournal { get; } = [];
 
@@ -44,6 +46,8 @@ internal sealed class InMemoryStoreState
             clone.SubjectContracts.Add(id, subject with { });
         foreach (var (id, lifetime) in SubjectLifetimes)
             clone.SubjectLifetimes.Add(id, lifetime with { });
+        foreach ((string key, long generation) in ModuleGenerations)
+            clone.ModuleGenerations.Add(key, generation);
         foreach ((long position, BaseMutationJournalEntry entry) in MutationJournal)
             clone.MutationJournal.Add(position, CloneJournalEntry(entry));
 

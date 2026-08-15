@@ -20,17 +20,46 @@ internal sealed class BaseModuleMutationRegistry
 }
 
 /// <summary>Opaque generated identity for one typed registered module mutation.</summary>
-public sealed class BaseGeneratedModuleMutationIdentity<TRequest, TResult>
+public sealed class BaseGeneratedModuleMutationIdentity<TRequest, TResult> : IBaseSerializerMetadataSource
 {
-    internal BaseGeneratedModuleMutationIdentity(string id, int version, byte[] checksum)
+    private System.Text.Json.Serialization.Metadata.JsonTypeInfo<TRequest>? _request;
+    private System.Text.Json.Serialization.Metadata.JsonTypeInfo<TResult>? _result;
+
+    internal BaseGeneratedModuleMutationIdentity(
+        string id,
+        int version,
+        byte[] checksum,
+        BaseSerializerContextRegistration registration,
+        IReadOnlyList<BaseSerializerPropertyDeclaration> declarations)
     {
         Id = id;
         Version = version;
         Checksum = checksum;
+        Registration = registration;
+        Declarations = declarations;
     }
     internal string Id { get; }
     internal int Version { get; }
     internal byte[] Checksum { get; }
+    internal System.Text.Json.Serialization.Metadata.JsonTypeInfo<TRequest> RequestTypeInfo =>
+        _request ?? throw new InvalidOperationException("base.schema.serializer.ownerRequired");
+    internal System.Text.Json.Serialization.Metadata.JsonTypeInfo<TResult> ResultTypeInfo =>
+        _result ?? throw new InvalidOperationException("base.schema.serializer.ownerRequired");
+    private BaseSerializerContextRegistration Registration { get; }
+    private IReadOnlyList<BaseSerializerPropertyDeclaration> Declarations { get; }
+    IReadOnlyList<System.Text.Json.Serialization.Metadata.JsonTypeInfo> IBaseSerializerMetadataSource.Roots => [];
+    bool IBaseSerializerMetadataSource.Generated => true;
+    BaseSerializerContextRegistration? IBaseSerializerMetadataSource.Registration => Registration;
+    IReadOnlyList<Type> IBaseSerializerMetadataSource.RootTypes => [typeof(TRequest), typeof(TResult)];
+    IReadOnlyList<BaseSerializerPropertyDeclaration>? IBaseSerializerMetadataSource.SerializerDeclarations => Declarations;
+    CollectionDefinition? IBaseSerializerMetadataSource.CollectionDefinition => null;
+    void IBaseSerializerMetadataSource.Bind(BaseSerializerMetadataOwner owner)
+    {
+        _request = owner.Resolve(this, typeof(TRequest)) as System.Text.Json.Serialization.Metadata.JsonTypeInfo<TRequest>
+            ?? throw new InvalidOperationException("base.schema.serializer.ownerRequired");
+        _result = owner.Resolve(this, typeof(TResult)) as System.Text.Json.Serialization.Metadata.JsonTypeInfo<TResult>
+            ?? throw new InvalidOperationException("base.schema.serializer.ownerRequired");
+    }
 }
 
 /// <summary>Infrastructure-only factory used by generated module mutation declarations.</summary>
@@ -41,12 +70,16 @@ public static class BaseGeneratedModuleMutations
     public static BaseGeneratedModuleMutationIdentity<TRequest, TResult> Register<TRequest, TResult>(
         string id,
         int version,
-        ReadOnlySpan<byte> checksum)
+        ReadOnlySpan<byte> checksum,
+        BaseSerializerContextRegistration registration,
+        IReadOnlyList<BaseSerializerPropertyDeclaration> declarations)
     {
+        ArgumentNullException.ThrowIfNull(registration);
+        ArgumentNullException.ThrowIfNull(declarations);
         BaseApplicationId.Validate(id, nameof(id));
         if (version < 1 || checksum.Length != BaseModuleMutationChecksum.Length)
             throw new InvalidOperationException("base.moduleMutation.invalid");
-        return new(new string(id.AsSpan()), version, checksum.ToArray());
+        return new(new string(id.AsSpan()), version, checksum.ToArray(), registration, declarations.ToArray());
     }
 }
 
