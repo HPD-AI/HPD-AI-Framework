@@ -367,7 +367,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         {
             ApplicationId = new string(applicationId.AsSpan()),
             StoreInstanceId = new string(_options.StoreId.AsSpan()),
-            RestoreEpoch = 1,
+            RestoreEpoch = 0,
             SchemaGeneration = 1,
             Collections = [.. generations],
         }));
@@ -2569,7 +2569,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 || request.Selection is not null || request.Module is not null
                 || intent.Items.IsDefaultOrEmpty || intent.Items.Length > limits.MaximumItems ||
                 !string.Equals(intent.Authority.StoreInstanceId, _owner._options.StoreId, StringComparison.Ordinal) ||
-                intent.Authority.RestoreEpoch != 1 || intent.Authority.SchemaGeneration != 1
+                intent.Authority.RestoreEpoch != 0 || intent.Authority.SchemaGeneration != 1
                 || !AuthorityCollectionsMatch(intent.Authority.Collections, intent.Items, _owner._generation))
                 return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.ProviderContractInvalid));
             var items = ImmutableArray.CreateBuilder<BaseCapturedMutationItem>(intent.Items.Length);
@@ -2671,7 +2671,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 Authority = new BaseAtomicMutationAuthorityEvidence
                 {
                     ApplicationId = intent.Authority.ApplicationId, StoreInstanceId = _owner._options.StoreId,
-                    RestoreEpoch = 1, SchemaGeneration = 1,
+                    RestoreEpoch = 0, SchemaGeneration = 1,
                     Collections = intent.Authority.Collections.Select(static value => value with { }).ToImmutableArray(),
                     Isolation = BaseAtomicSelectionIsolationClass.OptimisticRangeValidatedSerializable,
                     TransactionEvidenceToken = BitConverter.GetBytes(_working.GlobalMutationPosition).ToImmutableArray(),
@@ -2698,7 +2698,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             BaseAtomicMutationExecutionLimits limits = request.Limits;
             if (_capturedMutation is not null || module is null || request.Selection is not null || !intent.Items.IsDefaultOrEmpty
                 || !string.Equals(intent.Authority.StoreInstanceId, _owner._options.StoreId, StringComparison.Ordinal)
-                || intent.Authority.RestoreEpoch != 1 || intent.Authority.SchemaGeneration != 1
+                || intent.Authority.RestoreEpoch != 0 || intent.Authority.SchemaGeneration != 1
                 || module.Records.Length > limits.MaximumRecordCaptures
                 || module.RelationTargets.Length > limits.MaximumRelationTargetCaptures
                 || module.Generations.Length > limits.MaximumGenerationReads
@@ -2804,7 +2804,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 Authority = new BaseAtomicMutationAuthorityEvidence
                 {
                     ApplicationId = intent.Authority.ApplicationId, StoreInstanceId = _owner._options.StoreId,
-                    RestoreEpoch = 1, SchemaGeneration = 1,
+                    RestoreEpoch = 0, SchemaGeneration = 1,
                     Collections = intent.Authority.Collections.Select(static value => value with { }).ToImmutableArray(),
                     Isolation = BaseAtomicSelectionIsolationClass.OptimisticRangeValidatedSerializable,
                     TransactionEvidenceToken = BitConverter.GetBytes(_working.GlobalMutationPosition).ToImmutableArray(),

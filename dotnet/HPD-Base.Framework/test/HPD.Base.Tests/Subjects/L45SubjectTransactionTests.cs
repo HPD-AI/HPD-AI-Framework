@@ -20,11 +20,12 @@ public sealed class L45SubjectTransactionTests
         IBaseRecordRuntime runtime = fixture.Services.GetRequiredService<IBaseRecordRuntime>();
         PrincipalContext principal = Principal();
         RecordCreateRequest create = Create("user-1", ("active", true), ("tenant", "tenant-a"));
-        Assert.True((await runtime.CreateAsync(
+        OperationResult<RecordEnvelope> initial = await runtime.CreateAsync(
             Private.Id,
             create,
             principal,
-            Operation(BaseOperationKind.Create, Private.Id))).IsSuccess());
+            Operation(BaseOperationKind.Create, Private.Id));
+        Assert.True(initial.IsSuccess(), initial.Error is null ? null : $"{initial.Error.Code}: {initial.Error.Message}");
 
         OperationResult<RecordEnvelope> duplicate = await runtime.CreateAsync(
             Private.Id,
@@ -346,8 +347,11 @@ public sealed class L45SubjectTransactionTests
         {
             BaseCollection<L45SqlitePrivateUser> privateCollection = L45SqlitePrivateUser.Collection;
             var services = new ServiceCollection().AddLogging();
-            services.AddSingleton<IBasePolicyOrchestrator>(new GrantingPolicy());
             services.AddHPDBase(builder => builder
+                .AddTestPolicyAuthority<GrantingPolicy>()
+                .AddTestStaticGrant("system.private")
+                .AddTestStaticGrant("example.user.validate")
+                .AddTestStaticGrant("example.user.acquire")
                 .ConfigureSchema(options =>
                 {
                     options.ApplicationId = "l45.sqlite.application";
@@ -481,7 +485,7 @@ public sealed class L45SubjectTransactionTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<IBaseDescriptorContributor>(new CollectionsContributor(collections));
-        services.AddSingleton<IBasePolicyOrchestrator>(new GrantingPolicy());
+        services.AddTestPolicyAuthority(new GrantingPolicy(), "system.private", "example.user.validate", "example.user.acquire");
         services.AddSingleton(new BaseSubjectContractRegistry([registration]));
         services.AddHPDBaseRuntime();
         ServiceProvider provider = services.BuildServiceProvider();
@@ -631,22 +635,12 @@ public sealed class L45SubjectTransactionTests
         }
     }
 
-    private sealed class GrantingPolicy : IBasePolicyOrchestrator
+    private sealed class GrantingPolicy : IPolicyEvaluator
     {
-        public ValueTask<OperationResult<BasePolicyEvaluation>> EvaluateReadAsync(BasePolicyRequest request, CancellationToken cancellationToken = default) =>
-            EvaluateAsync(cancellationToken);
-        public ValueTask<OperationResult<BasePolicyEvaluation>> EvaluateWriteAsync(BasePolicyRequest request, CancellationToken cancellationToken = default) =>
-            EvaluateAsync(cancellationToken);
-        private static ValueTask<OperationResult<BasePolicyEvaluation>> EvaluateAsync(CancellationToken cancellationToken)
+        public ValueTask<PolicyDecision> EvaluateAsync(PolicyEvaluationRequest request, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return ValueTask.FromResult(OperationResults.Ok(new BasePolicyEvaluation
-            {
-                Decision = PolicyDecision.Allow() with
-                {
-                    Audit = new PolicyAuditInfo { MatchedGrantIds = ["system.private", "example.user.validate", "example.user.acquire"] },
-                },
-            }));
+            return ValueTask.FromResult(PolicyDecision.Allow());
         }
     }
 
