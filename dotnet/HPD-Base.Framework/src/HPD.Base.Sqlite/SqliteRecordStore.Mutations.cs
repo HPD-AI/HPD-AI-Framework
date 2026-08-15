@@ -1059,6 +1059,7 @@ public sealed partial class SqliteRecordStore
                 || intervals.Count > limits.MaximumReadIntervals)
                 return SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.BudgetExceeded, OperationStatus.ValidationFailed, ErrorCategory.Validation);
 
+            int readIntervalCount = intervals.Count;
             _capturedMutation = new BaseCapturedAtomicMutationAuthority
             {
                 Kind = request.Kind, IntentDigest = new string(intent.IntentDigest.AsSpan()),
@@ -1076,7 +1077,7 @@ public sealed partial class SqliteRecordStore
                 Accounting = new BaseAtomicCaptureAccounting
                 {
                     Records = module.Records.Length, RelationTargetReads = module.RelationTargets.Length,
-                    GenerationReads = module.Generations.Length, ReadIntervals = intervals.Count,
+                    GenerationReads = module.Generations.Length, ReadIntervals = readIntervalCount,
                     SelectedBytes = selectedBytes, RelationTargetBytes = relationBytes, GenerationBytes = generationBytes,
                     EvidenceBytes = evidenceBytes, TransientBytes = transient,
                 },

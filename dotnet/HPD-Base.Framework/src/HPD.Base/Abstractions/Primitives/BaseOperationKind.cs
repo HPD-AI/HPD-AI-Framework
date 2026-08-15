@@ -52,5 +52,7 @@ RealtimeSubscribe,
     /// <summary>Identifies mutation-bound validation of an exported logical-subject reference.</summary>
     SubjectValidate,
     /// <summary>Identifies destructive exported-subject authority-epoch rotation.</summary>
-    SubjectEpochRotate
+    SubjectEpochRotate,
+    /// <summary>Identifies one graph-installed registered module mutation.</summary>
+    ModuleMutation
 }

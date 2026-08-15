@@ -44,6 +44,25 @@ public sealed class BaseGeneratedModuleMutationIdentity<TRequest, TResult> : IBa
         _requestBindings = FreezeBindings(requestBindings);
         _resultBindings = FreezeBindings(resultBindings);
     }
+    internal BaseGeneratedModuleMutationIdentity(
+        string id,
+        int version,
+        byte[] checksum,
+        System.Text.Json.Serialization.Metadata.JsonTypeInfo<TRequest> request,
+        System.Text.Json.Serialization.Metadata.JsonTypeInfo<TResult> result,
+        IReadOnlyList<BaseModuleDtoPropertyBinding> requestBindings,
+        IReadOnlyList<BaseModuleDtoPropertyBinding> resultBindings)
+    {
+        Id = id;
+        Version = version;
+        Checksum = checksum.ToArray();
+        Registration = null!;
+        Declarations = [];
+        _request = request;
+        _result = result;
+        _requestBindings = FreezeBindings(requestBindings);
+        _resultBindings = FreezeBindings(resultBindings);
+    }
     internal string Id { get; }
     internal int Version { get; }
     internal byte[] Checksum { get; }

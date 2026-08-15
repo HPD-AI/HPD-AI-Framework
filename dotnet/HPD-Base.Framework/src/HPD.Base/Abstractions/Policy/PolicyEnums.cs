@@ -29,7 +29,9 @@ AdminMetadata,
     /// <summary>Identifies one vector index and its influence boundary.</summary>
     VectorIndex,
     /// <summary>Identifies one installed exported logical-subject contract.</summary>
-    SubjectContract
+    SubjectContract,
+    /// <summary>Identifies one graph-installed registered module mutation.</summary>
+    ModuleMutation
 }
 
 /// <summary>Defines policy Effect.</summary>

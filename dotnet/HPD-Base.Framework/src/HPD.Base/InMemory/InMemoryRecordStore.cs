@@ -2766,6 +2766,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 || evidenceBytes > limits.MaximumEvidenceBytes || transient > limits.MaximumTransientBytes
                 || intervals.Count > limits.MaximumReadIntervals)
                 return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.BudgetExceeded));
+            int readIntervalCount = intervals.Count;
             _capturedMutation = new BaseCapturedAtomicMutationAuthority
             {
                 Kind = request.Kind, IntentDigest = new string(intent.IntentDigest.AsSpan()),
@@ -2783,7 +2784,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 Accounting = new BaseAtomicCaptureAccounting
                 {
                     Records = module.Records.Length, RelationTargetReads = module.RelationTargets.Length,
-                    GenerationReads = module.Generations.Length, ReadIntervals = intervals.Count,
+                    GenerationReads = module.Generations.Length, ReadIntervals = readIntervalCount,
                     SelectedBytes = selectedBytes, RelationTargetBytes = relationBytes, GenerationBytes = generationBytes,
                     EvidenceBytes = evidenceBytes, TransientBytes = transient,
                 },

@@ -106,4 +106,13 @@ internal static class BaseModuleMutationErrorCodes
     internal const string NotInstalled = "base.moduleMutation.notInstalled";
     internal const string SchemaChanged = "base.moduleMutation.schemaChanged";
     internal const string Invalid = "base.moduleMutation.invalid";
+    internal const string Unauthorized = "base.moduleMutation.unauthorized";
+    internal const string LimitExceeded = "base.moduleMutation.limitExceeded";
+    internal const string CapabilityMissing = "base.moduleMutation.capabilityMissing";
+    internal const string AuthorityChanged = "base.moduleMutation.authorityChanged";
+    internal const string GenerationConflict = "base.moduleMutation.generationConflict";
+    internal const string CommitIndeterminate = "base.moduleMutation.commitIndeterminate";
+    internal const string ReceiptUnavailable = "base.moduleMutation.receiptUnavailable";
+    internal const string Cancelled = "base.moduleMutation.cancelled";
+    internal const string StoreError = "base.moduleMutation.storeError";
 }
