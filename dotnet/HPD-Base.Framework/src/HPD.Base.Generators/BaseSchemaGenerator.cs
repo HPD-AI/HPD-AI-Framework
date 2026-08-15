@@ -16,6 +16,7 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
     private const string CollectionAttribute = "HPD.Base.BaseCollectionAttribute";
     private const string ReadAttribute = "HPD.Base.BaseReadAttribute";
     private const string ExportedSubjectAttribute = "HPD.Base.BaseExportedSubjectAttribute";
+    private const string ModuleMutationAttribute = "HPD.Base.BaseRegisteredModuleMutationAttribute";
     private const string JsonOptionsAttribute = "System.Text.Json.Serialization.JsonSourceGenerationOptionsAttribute";
     private const string JsonIgnoreAttribute = "System.Text.Json.Serialization.JsonIgnoreAttribute";
     private const string JsonConverterAttribute = "System.Text.Json.Serialization.JsonConverterAttribute";
@@ -70,10 +71,15 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
                 ExportedSubjectAttribute,
                 static (node, _) => node is TypeDeclarationSyntax,
                 static (attributeContext, _) => (INamedTypeSymbol)attributeContext.TargetSymbol);
+        IncrementalValuesProvider<INamedTypeSymbol> moduleMutations =
+            context.SyntaxProvider.ForAttributeWithMetadataName(
+                ModuleMutationAttribute,
+                static (node, _) => node is TypeDeclarationSyntax,
+                static (attributeContext, _) => (INamedTypeSymbol)attributeContext.TargetSymbol);
 
-        context.RegisterSourceOutput(collections.Collect().Combine(reads.Collect()).Combine(subjects.Collect()).Combine(context.CompilationProvider),
+        context.RegisterSourceOutput(collections.Collect().Combine(reads.Collect()).Combine(subjects.Collect()).Combine(moduleMutations.Collect()).Combine(context.CompilationProvider),
             static (productionContext, input) => Generate(
-                productionContext, input.Left.Left.Left, input.Left.Left.Right, input.Left.Right, input.Right));
+                productionContext, input.Left.Left.Left.Left, input.Left.Left.Left.Right, input.Left.Left.Right, input.Left.Right, input.Right));
         BaseCollectionGenerator.RegisterForbiddenReferences(context);
     }
 
@@ -82,11 +88,13 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
         ImmutableArray<INamedTypeSymbol> collections,
         ImmutableArray<INamedTypeSymbol> reads,
         ImmutableArray<INamedTypeSymbol> subjects,
+        ImmutableArray<INamedTypeSymbol> moduleMutations,
         Compilation compilation)
     {
         var rootsByContext = new Dictionary<INamedTypeSymbol, HashSet<INamedTypeSymbol>>(SymbolEqualityComparer.Default);
         AddRoots(rootsByContext, collections, CollectionAttribute);
         AddRoots(rootsByContext, reads, ReadAttribute);
+        AddModuleRoots(rootsByContext, moduleMutations);
 
         var results = ImmutableDictionary.CreateBuilder<INamedTypeSymbol, ContextValidationResult>(SymbolEqualityComparer.Default);
         foreach (KeyValuePair<INamedTypeSymbol, HashSet<INamedTypeSymbol>> pair in rootsByContext
@@ -148,6 +156,29 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
         BaseCollectionGenerator.GenerateCombined(context, collections, contextResults);
         BaseReadGenerator.GenerateCombined(context, reads, contextResults);
         BaseSubjectGenerator.Generate(context, subjects);
+        BaseModuleMutationGenerator.GenerateCombined(context, moduleMutations, contextResults);
+    }
+
+    private static void AddModuleRoots(
+        Dictionary<INamedTypeSymbol, HashSet<INamedTypeSymbol>> rootsByContext,
+        ImmutableArray<INamedTypeSymbol> declarations)
+    {
+        foreach (INamedTypeSymbol declaration in declarations.Distinct(SymbolEqualityComparer.Default))
+        {
+            AttributeData attribute = declaration.GetAttributes().FirstOrDefault(value => value.AttributeClass?.ToDisplayString() == ModuleMutationAttribute);
+            if (attribute?.ConstructorArguments.Length < 4
+                || attribute.ConstructorArguments[1].Value is not INamedTypeSymbol context
+                || attribute.ConstructorArguments[2].Value is not INamedTypeSymbol request
+                || attribute.ConstructorArguments[3].Value is not INamedTypeSymbol result)
+                continue;
+            if (!rootsByContext.TryGetValue(context, out HashSet<INamedTypeSymbol> roots))
+            {
+                roots = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+                rootsByContext.Add(context, roots);
+            }
+            roots.Add(request);
+            roots.Add(result);
+        }
     }
 
     private static void ValidateContextAuthority(
