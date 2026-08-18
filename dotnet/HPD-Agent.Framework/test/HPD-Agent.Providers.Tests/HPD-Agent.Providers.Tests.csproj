@@ -25,6 +25,13 @@
     <!-- Reference the main agent library -->
     <ProjectReference Include="../../src/HPD-Agent/HPD-Agent.csproj" />
 
+    <!-- Run the source generator so this assembly carries the generated provider composition,
+         enabling drift tests that compare the runtime IProviderSecretAliasProvider surface
+         against the generated composition's secret-alias registry. -->
+    <ProjectReference Include="../../src/HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="true" />
+
     <!-- Reference all provider packages -->
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.OpenAICompatible/HPD-Agent.Providers.OpenAICompatible.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Anthropic/HPD-Agent.Providers.Anthropic.csproj" />
