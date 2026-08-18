@@ -41,6 +41,8 @@ internal sealed class DeepSeekProvider : OpenAICompatibleChatProviderBase<DeepSe
         DefaultModelId = DefaultChatModel,
         ApiKeySecretKey = "deepseek:ApiKey",
         EndpointSecretKey = "deepseek:Endpoint",
+        ApiKeyEnvironmentVariables = new[] { "DEEPSEEK_API_KEY" },
+        EndpointEnvironmentVariables = new[] { "DEEPSEEK_ENDPOINT", "DEEPSEEK_BASE_URL" },
         ProviderUri = new Uri("https://deepseek.com/"),
         DocumentationUri = new Uri("https://api-docs.deepseek.com/"),
         RequestProfile = ChatRequestProfile,

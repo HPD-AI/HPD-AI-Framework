@@ -380,6 +380,43 @@ public class AgentBuilder
         return registry;
     }
 
+    private IProviderSecretAliasRegistry? BuildSecretAliasRegistry()
+    {
+        var generated = _serviceProvider?.GetService<IProviderSecretAliasRegistry>()
+            ?? (_providerRegistry as ProviderRegistry)?.Composition?.SecretAliases;
+
+        var runtimeAliases = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+        if (_providerRegistry is not null)
+        {
+            foreach (var key in _providerRegistry.GetRegisteredProviders())
+            {
+                if (_providerRegistry.GetProvider(key) is IProviderSecretAliasProvider provider)
+                {
+                    foreach (var registration in provider.SecretAliases)
+                        runtimeAliases.TryAdd(registration.SecretKey, registration.EnvironmentVariables);
+                }
+            }
+        }
+
+        if (generated is null && runtimeAliases.Count == 0)
+            return null;
+        if (generated is null)
+            return new RuntimeSecretAliasRegistry(runtimeAliases);
+        if (runtimeAliases.Count == 0)
+            return generated;
+        return new CompositeProviderSecretAliasRegistry(generated, new RuntimeSecretAliasRegistry(runtimeAliases));
+    }
+
+    private sealed class RuntimeSecretAliasRegistry : IProviderSecretAliasRegistry
+    {
+        private readonly IReadOnlyDictionary<string, IReadOnlyList<string>> _aliases;
+
+        public RuntimeSecretAliasRegistry(IReadOnlyDictionary<string, IReadOnlyList<string>> aliases) => _aliases = aliases;
+
+        public IReadOnlyList<string>? GetEnvironmentVariables(string secretKey) =>
+            _aliases.TryGetValue(secretKey, out var aliases) ? aliases : null;
+    }
+
     private void RegisterGeneratedProviders(IProviderRuntimeRegistry runtime)
     {
         foreach (var registration in runtime.Registrations)
@@ -1776,9 +1813,7 @@ public class AgentBuilder
             }
             else
             {
-                resolvers.Add(new EnvironmentSecretResolver(
-                    _serviceProvider?.GetService<IProviderSecretAliasRegistry>()
-                    ?? (_providerRegistry as ProviderRegistry)?.Composition?.SecretAliases));
+                resolvers.Add(new EnvironmentSecretResolver(BuildSecretAliasRegistry()));
                 resolvers.AddRange(_additionalResolvers);
                 if (_configuration != null)
                     resolvers.Add(new ConfigurationSecretResolver(_configuration));

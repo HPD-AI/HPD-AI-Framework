@@ -13,13 +13,30 @@ namespace HPD.Agent.Providers.OpenAICompatible;
 /// <summary>
 /// Base implementation for small OpenAI-compatible chat-completions providers.
 /// </summary>
-public abstract class OpenAICompatibleChatProviderBase<TConfig> : IChatClientProvider
+public abstract class OpenAICompatibleChatProviderBase<TConfig> : IChatClientProvider, IProviderSecretAliasProvider
     where TConfig : OpenAICompatibleProviderConfig
 {
     protected abstract OpenAICompatibleProviderDefinition Definition { get; }
 
     public string ProviderKey => Definition.ProviderKey;
     public string DisplayName => Definition.DisplayName;
+
+    /// <summary>
+    /// Runtime secret aliases (parallel to the <c>[HpdProviderSecretAlias]</c> manifest attribute)
+    /// so that explicitly-registered providers can resolve secrets without a generated composition.
+    /// </summary>
+    public IReadOnlyList<ProviderSecretAliasRegistration> SecretAliases
+    {
+        get
+        {
+            var registrations = new List<ProviderSecretAliasRegistration>();
+            if (!string.IsNullOrWhiteSpace(Definition.ApiKeySecretKey) && Definition.ApiKeyEnvironmentVariables.Length > 0)
+                registrations.Add(new ProviderSecretAliasRegistration(Definition.ApiKeySecretKey, Definition.ApiKeyEnvironmentVariables));
+            if (!string.IsNullOrWhiteSpace(Definition.EndpointSecretKey) && Definition.EndpointEnvironmentVariables.Length > 0)
+                registrations.Add(new ProviderSecretAliasRegistration(Definition.EndpointSecretKey, Definition.EndpointEnvironmentVariables));
+            return registrations;
+        }
+    }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider packages use generated AOT-compatible payload contracts.")]
     public virtual async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)

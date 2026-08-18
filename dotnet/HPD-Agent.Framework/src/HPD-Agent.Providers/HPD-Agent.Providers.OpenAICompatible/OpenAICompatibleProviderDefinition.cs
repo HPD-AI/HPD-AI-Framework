@@ -14,6 +14,19 @@ public sealed class OpenAICompatibleProviderDefinition
     public required string DefaultModelId { get; init; }
     public required string ApiKeySecretKey { get; init; }
     public string? EndpointSecretKey { get; init; }
+
+    /// <summary>
+    /// Environment variables used to resolve <see cref="ApiKeySecretKey"/> at runtime.
+    /// Parallel to the <c>[HpdProviderSecretAlias]</c> manifest attribute so that
+    /// explicitly-registered providers can resolve secrets without a generated composition.
+    /// </summary>
+    public string[] ApiKeyEnvironmentVariables { get; init; } = Array.Empty<string>();
+
+    /// <summary>
+    /// Environment variables used to resolve <see cref="EndpointSecretKey"/> at runtime.
+    /// Parallel to the <c>[HpdProviderSecretAlias]</c> manifest attribute.
+    /// </summary>
+    public string[] EndpointEnvironmentVariables { get; init; } = Array.Empty<string>();
     public Uri? ProviderUri { get; init; }
     public Uri? DocumentationUri { get; init; }
     public string ChatCompletionsPath { get; init; } = "chat/completions";

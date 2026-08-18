@@ -205,6 +205,24 @@ public interface IProviderSecretAliasRegistry
     IReadOnlyList<string>? GetEnvironmentVariables(string secretKey);
 }
 
+/// <summary>
+/// Optional runtime secret-alias surface implemented by providers so that explicit
+/// registration (for example <c>WithDeepSeek()</c>) can resolve environment variables
+/// even when the source generator does not run in the consuming assembly (file-based
+/// programs and <c>ProjectReference</c> consumers).
+/// <para>
+/// NOTE — Parallel mechanism: aliases also ship in the source-generated composition from
+/// the <c>[HpdProviderSecretAlias]</c> attribute. Keep this runtime surface consistent
+/// with that attribute to avoid drift. When a generated composition is present its aliases
+/// take precedence; this surface is the fallback for hosts without a composition.
+/// </para>
+/// </summary>
+public interface IProviderSecretAliasProvider
+{
+    /// <summary>Gets the canonical-secret to environment-variable alias registrations.</summary>
+    IReadOnlyList<ProviderSecretAliasRegistration> SecretAliases { get; }
+}
+
 /// <summary>Identifies a generated provider manifest exposed by a provider assembly.</summary>
 /// <remarks>
 /// Consuming-host source generation reads this assembly metadata and emits direct
