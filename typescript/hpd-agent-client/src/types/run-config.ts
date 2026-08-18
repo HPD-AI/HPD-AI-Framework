@@ -3,9 +3,9 @@ import type { ClientAppProviderReference } from './client-tool-providers.js';
 
 /**
  * Chat-level sampling parameters.
- * Maps to ChatRunConfigDto on the server.
+ * Maps to ChatClientConfig on the server.
  */
-export interface ChatRunConfig {
+export interface ChatClientConfig {
   /** Sampling temperature — 0.0 to 1.0 */
   temperature?: number;
   /** Top-P nucleus sampling — 0.0 to 1.0 */
@@ -276,7 +276,7 @@ export interface RunConfig {
   /** Additional system instructions appended to the agent's system prompt */
   additionalSystemInstructions?: string;
   /** Chat-level sampling parameters */
-  chat?: ChatRunConfig;
+  chat?: ChatClientConfig;
   /** Per-tool permission overrides — key is tool name, value is allow/deny */
   permissionOverrides?: Record<string, boolean>;
   /** Per-run context values available to agent middleware and toolharness functions */

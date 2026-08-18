@@ -1,14 +1,14 @@
 /**
  * RunConfig type serialization tests (plan items 1.1–1.4)
  *
- * Verifies that RunConfig and ChatRunConfig serialize to the exact camelCase
- * wire format expected by the server's StreamRunConfigDto / ChatRunConfigDto.
+ * Verifies that RunConfig and ChatClientConfig serialize to the exact camelCase
+ * wire format expected by the server's StreamRunConfigDto / ChatClientConfig.
  *
  * Test type: unit (Node) — pure value / JSON serialization, no network I/O.
  */
 
 import { describe, it, expect } from 'vitest';
-import type { RunConfig, ChatRunConfig } from '../src/types/run-config.js';
+import type { RunConfig, ChatClientConfig } from '../src/types/run-config.js';
 import {
   AgentApprovalPolicies,
   AgentSandboxEscapePolicies,
@@ -63,7 +63,7 @@ describe('RunConfig — wire format (camelCase)', () => {
     expect(parsed).toHaveProperty('skipTools', false);
     expect(parsed).toHaveProperty('runTimeout', 'PT5M');
 
-    // Nested chat keys must match ChatRunConfigDto
+    // Nested chat keys must match ChatClientConfig
     expect(parsed.chat).toEqual({ temperature: 0.7, maxOutputTokens: 4096, topP: 0.9 });
 
     // No snake_case leakage
@@ -86,10 +86,10 @@ describe('RunConfig — wire format (camelCase)', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // 1.3 — ChatRunConfig nested inside RunConfig.chat
+  // 1.3 — ChatClientConfig nested inside RunConfig.chat
   // ---------------------------------------------------------------------------
 
-  it('serializes ChatRunConfig correctly under the chat key', () => {
+  it('serializes ChatClientConfig correctly under the chat key', () => {
     const rc: RunConfig = { chat: { temperature: 0.7 } };
     const parsed = JSON.parse(JSON.stringify(rc));
 
@@ -98,7 +98,7 @@ describe('RunConfig — wire format (camelCase)', () => {
     expect(Object.keys(parsed.chat)).toEqual(['temperature']);
   });
 
-  it('ChatRunConfig omits undefined fields within chat', () => {
+  it('ChatClientConfig omits undefined fields within chat', () => {
     const rc: RunConfig = { chat: { maxOutputTokens: 4096 } };
     const parsed = JSON.parse(JSON.stringify(rc));
 
@@ -149,11 +149,11 @@ describe('RunConfig — wire format (camelCase)', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // ChatRunConfig — standalone type verification
+  // ChatClientConfig — standalone type verification
   // ---------------------------------------------------------------------------
 
-  it('ChatRunConfig with all fields serializes correctly', () => {
-    const chat: ChatRunConfig = {
+  it('ChatClientConfig with all fields serializes correctly', () => {
+    const chat: ChatClientConfig = {
       temperature: 0.5,
       maxOutputTokens: 2048,
       topP: 0.95,
