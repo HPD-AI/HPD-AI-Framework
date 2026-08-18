@@ -23,13 +23,23 @@ namespace HPD.Agent.Providers.DashScope;
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.OperationOptions, typeof(DashScopeChatRequestOptions), typeof(DashScopeJsonContext))]
 [HpdProviderPayload(ProviderClientFamily.Embeddings, ProviderPayloadKind.Configuration, typeof(DashScopeProviderConfig), typeof(DashScopeJsonContext))]
 [HpdProviderSecretAlias("dashscope:ApiKey", "DASHSCOPE_API_KEY", "QWEN_API_KEY", "DASHSCOPE_KEY")]
-internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvider
+internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvider, IProviderSecretAliasProvider
 {
     private const string DefaultBaseAddress = "https://dashscope.aliyuncs.com/api/v1/";
     private const string DefaultWebsocketBaseAddress = "wss://dashscope.aliyuncs.com/api-ws/v1/inference/";
 
     public string ProviderKey => "dashscope";
     public string DisplayName => "DashScope";
+
+    /// <summary>
+    /// Runtime secret aliases (parallel to the <c>[HpdProviderSecretAlias]</c> manifest attribute)
+    /// so that explicitly-registered providers can resolve secrets without a generated composition.
+    /// </summary>
+    public IReadOnlyList<ProviderSecretAliasRegistration> SecretAliases { get; } =
+        new ProviderSecretAliasRegistration[]
+        {
+            new("dashscope:ApiKey", new[] { "DASHSCOPE_API_KEY", "QWEN_API_KEY", "DASHSCOPE_KEY" }),
+        };
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
     public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)

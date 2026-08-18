@@ -16,7 +16,7 @@ namespace HPD.Agent.Providers.Moonshot;
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.OperationOptions, typeof(MoonshotChatRequestOptions), typeof(MoonshotJsonContext))]
 [HpdProviderSecretAlias("moonshot:ApiKey", "MOONSHOT_API_KEY", "KIMI_API_KEY")]
 [HpdProviderSecretAlias("moonshot:Endpoint", "MOONSHOT_ENDPOINT", "MOONSHOT_BASE_URL", "KIMI_ENDPOINT", "KIMI_BASE_URL")]
-internal sealed class MoonshotProvider : IChatClientProvider
+internal sealed class MoonshotProvider : IChatClientProvider, IProviderSecretAliasProvider
 {
     internal static readonly Uri DefaultEndpoint = new("https://api.moonshot.ai/v1/");
     internal const string DefaultChatModel = "kimi-k2.5";
@@ -39,6 +39,17 @@ internal sealed class MoonshotProvider : IChatClientProvider
 
     public string ProviderKey => "moonshot";
     public string DisplayName => "Moonshot";
+
+    /// <summary>
+    /// Runtime secret aliases (parallel to the <c>[HpdProviderSecretAlias]</c> manifest attribute)
+    /// so that explicitly-registered providers can resolve secrets without a generated composition.
+    /// </summary>
+    public IReadOnlyList<ProviderSecretAliasRegistration> SecretAliases { get; } =
+        new ProviderSecretAliasRegistration[]
+        {
+            new("moonshot:ApiKey", new[] { "MOONSHOT_API_KEY", "KIMI_API_KEY" }),
+            new("moonshot:Endpoint", new[] { "MOONSHOT_ENDPOINT", "MOONSHOT_BASE_URL", "KIMI_ENDPOINT", "KIMI_BASE_URL" }),
+        };
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
     public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)

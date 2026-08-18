@@ -19,7 +19,7 @@ namespace HPD.Agent.Providers.Together;
 [HpdProviderFamily(ProviderClientFamily.Embeddings)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.OperationOptions, typeof(TogetherChatRequestOptions), typeof(TogetherJsonContext))]
 [HpdProviderSecretAlias("together:ApiKey", "TOGETHER_API_KEY")]
-internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvider
+internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvider, IProviderSecretAliasProvider
 {
     private static readonly Uri DefaultEndpoint = new("https://api.together.ai/v1");
     private const string DefaultChatModel = "meta-llama/Llama-3.3-70B-Instruct-Turbo";
@@ -27,6 +27,16 @@ internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvid
 
     public string ProviderKey => "together";
     public string DisplayName => "Together AI";
+
+    /// <summary>
+    /// Runtime secret aliases (parallel to the <c>[HpdProviderSecretAlias]</c> manifest attribute)
+    /// so that explicitly-registered providers can resolve secrets without a generated composition.
+    /// </summary>
+    public IReadOnlyList<ProviderSecretAliasRegistration> SecretAliases { get; } =
+        new ProviderSecretAliasRegistration[]
+        {
+            new("together:ApiKey", new[] { "TOGETHER_API_KEY" }),
+        };
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
     public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)

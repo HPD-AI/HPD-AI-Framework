@@ -34,6 +34,8 @@ internal sealed class SiliconFlowProvider : OpenAICompatibleChatProviderBase<Sil
         DefaultModelId = DefaultChatModel,
         ApiKeySecretKey = "siliconflow:ApiKey",
         EndpointSecretKey = "siliconflow:Endpoint",
+        ApiKeyEnvironmentVariables = new[] { "SILICONFLOW_API_KEY" },
+        EndpointEnvironmentVariables = new[] { "SILICONFLOW_ENDPOINT", "SILICONFLOW_BASE_URL" },
         ProviderUri = new Uri("https://www.siliconflow.com/"),
         DocumentationUri = new Uri("https://docs.siliconflow.com/en/api-reference/chat-completions/chat-completions"),
         RequiresApiKey = true,

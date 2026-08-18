@@ -18,10 +18,20 @@ namespace HPD.Agent.Providers.OpenRouter;
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(OpenRouterProviderConfig), typeof(OpenRouterJsonContext))]
 [HpdProviderSecretAlias("openrouter:ApiKey", "OPENROUTER_API_KEY")]
-internal class OpenRouterProvider : IChatClientProvider
+internal class OpenRouterProvider : IChatClientProvider, IProviderSecretAliasProvider
 {
     public string ProviderKey => "openrouter";
     public string DisplayName => "OpenRouter";
+
+    /// <summary>
+    /// Runtime secret aliases (parallel to the <c>[HpdProviderSecretAlias]</c> manifest attribute)
+    /// so that explicitly-registered providers can resolve secrets without a generated composition.
+    /// </summary>
+    public IReadOnlyList<ProviderSecretAliasRegistration> SecretAliases { get; } =
+        new ProviderSecretAliasRegistration[]
+        {
+            new("openrouter:ApiKey", new[] { "OPENROUTER_API_KEY" }),
+        };
 
     public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {

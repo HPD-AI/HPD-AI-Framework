@@ -41,6 +41,8 @@ internal sealed class LMStudioProvider : OpenAICompatibleChatProviderBase<LMStud
         DefaultModelId = DefaultChatModel,
         ApiKeySecretKey = "lmstudio:ApiKey",
         EndpointSecretKey = "lmstudio:Endpoint",
+        ApiKeyEnvironmentVariables = new[] { "LMSTUDIO_API_KEY", "LM_STUDIO_API_KEY" },
+        EndpointEnvironmentVariables = new[] { "LMSTUDIO_ENDPOINT", "LMSTUDIO_BASE_URL", "LMSTUDIO_API_BASE", "LM_STUDIO_ENDPOINT", "LM_STUDIO_BASE_URL", "LM_STUDIO_API_BASE" },
         ProviderUri = new Uri("https://lmstudio.ai/"),
         DocumentationUri = new Uri("https://lmstudio.ai/docs/developer/openai-compat"),
         RequiresApiKey = false,

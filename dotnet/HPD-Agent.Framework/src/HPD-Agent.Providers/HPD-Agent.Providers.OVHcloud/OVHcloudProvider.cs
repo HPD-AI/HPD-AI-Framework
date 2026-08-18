@@ -35,6 +35,8 @@ internal sealed class OVHcloudProvider : OpenAICompatibleChatProviderBase<OVHclo
         DefaultModelId = DefaultChatModel,
         ApiKeySecretKey = "ovhcloud:ApiKey",
         EndpointSecretKey = "ovhcloud:Endpoint",
+        ApiKeyEnvironmentVariables = new[] { "OVHCLOUD_API_KEY" },
+        EndpointEnvironmentVariables = new[] { "OVHCLOUD_ENDPOINT", "OVHCLOUD_BASE_URL" },
         ProviderUri = new Uri("https://www.ovhcloud.com/"),
         DocumentationUri = new Uri("https://docs.ovhcloud.com/en/guides/public-cloud/ai-machine-learning/ai-endpoints-getting-started/"),
         RequestProfile = ChatRequestProfile,

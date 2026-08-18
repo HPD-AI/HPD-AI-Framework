@@ -22,7 +22,7 @@ namespace HPD.Agent.Providers.Groq;
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(GroqProviderConfig), typeof(GroqJsonContext))]
 [HpdProviderSecretAlias("groq:ApiKey", "GROQ_API_KEY")]
 [HpdProviderSecretAlias("groq:Endpoint", "GROQ_ENDPOINT")]
-internal sealed class GroqProvider : IChatClientProvider
+internal sealed class GroqProvider : IChatClientProvider, IProviderSecretAliasProvider
 {
     internal static readonly Uri DefaultEndpoint = new("https://api.groq.com/openai/v1/");
     internal const string DefaultChatModel = "llama-3.3-70b-versatile";
@@ -47,6 +47,17 @@ internal sealed class GroqProvider : IChatClientProvider
 
     public string ProviderKey => "groq";
     public string DisplayName => "Groq";
+
+    /// <summary>
+    /// Runtime secret aliases (parallel to the <c>[HpdProviderSecretAlias]</c> manifest attribute)
+    /// so that explicitly-registered providers can resolve secrets without a generated composition.
+    /// </summary>
+    public IReadOnlyList<ProviderSecretAliasRegistration> SecretAliases { get; } =
+        new ProviderSecretAliasRegistration[]
+        {
+            new("groq:ApiKey", new[] { "GROQ_API_KEY" }),
+            new("groq:Endpoint", new[] { "GROQ_ENDPOINT" }),
+        };
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
     public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)

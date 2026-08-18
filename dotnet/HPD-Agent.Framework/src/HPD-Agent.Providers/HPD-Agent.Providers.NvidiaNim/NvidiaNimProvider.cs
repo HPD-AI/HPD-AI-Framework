@@ -30,6 +30,8 @@ internal sealed class NvidiaNimProvider : OpenAICompatibleChatProviderBase<Nvidi
         DefaultModelId = DefaultChatModel,
         ApiKeySecretKey = "nvidia-nim:ApiKey",
         EndpointSecretKey = "nvidia-nim:Endpoint",
+        ApiKeyEnvironmentVariables = new[] { "NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY" },
+        EndpointEnvironmentVariables = new[] { "NVIDIA_NIM_ENDPOINT", "NVIDIA_NIM_BASE_URL", "NVIDIA_ENDPOINT", "NVIDIA_BASE_URL" },
         ProviderUri = new Uri("https://build.nvidia.com/"),
         DocumentationUri = new Uri("https://docs.api.nvidia.com/nim/reference/google-codegemma-7b-infer"),
         RequiresApiKey = true,

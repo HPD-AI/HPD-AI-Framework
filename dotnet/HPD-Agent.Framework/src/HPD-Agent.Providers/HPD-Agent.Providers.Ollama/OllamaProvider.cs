@@ -37,10 +37,21 @@ namespace HPD.Agent.Providers.Ollama;
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.OperationOptions, typeof(OllamaChatRequestOptions), typeof(OllamaJsonContext))]
 [HpdProviderSecretAlias("ollama:Endpoint", "OLLAMA_ENDPOINT")]
 [HpdProviderSecretAlias("ollama:Host", "OLLAMA_HOST")]
-internal class OllamaProvider : IChatClientProvider
+internal class OllamaProvider : IChatClientProvider, IProviderSecretAliasProvider
 {
     public string ProviderKey => "ollama";
     public string DisplayName => "Ollama";
+
+    /// <summary>
+    /// Runtime secret aliases (parallel to the <c>[HpdProviderSecretAlias]</c> manifest attribute)
+    /// so that explicitly-registered providers can resolve secrets without a generated composition.
+    /// </summary>
+    public IReadOnlyList<ProviderSecretAliasRegistration> SecretAliases { get; } =
+        new ProviderSecretAliasRegistration[]
+        {
+            new("ollama:Endpoint", new[] { "OLLAMA_ENDPOINT" }),
+            new("ollama:Host", new[] { "OLLAMA_HOST" }),
+        };
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
     public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)

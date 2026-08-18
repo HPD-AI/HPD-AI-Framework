@@ -18,7 +18,7 @@ namespace HPD.Agent.Providers.Fireworks;
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(FireworksProviderConfig), typeof(FireworksJsonContext))]
 [HpdProviderSecretAlias("fireworks:ApiKey", "FIREWORKS_API_KEY")]
 [HpdProviderSecretAlias("fireworks:Endpoint", "FIREWORKS_ENDPOINT", "FIREWORKS_BASE_URL")]
-internal class FireworksProvider : IChatClientProvider
+internal class FireworksProvider : IChatClientProvider, IProviderSecretAliasProvider
 {
     private static readonly Uri DefaultEndpoint = new("https://api.fireworks.ai/inference/v1/");
     private const string DefaultChatModel = "accounts/fireworks/models/llama-v3p1-8b-instruct";
@@ -46,6 +46,17 @@ internal class FireworksProvider : IChatClientProvider
 
     public string ProviderKey => "fireworks";
     public string DisplayName => "Fireworks AI";
+
+    /// <summary>
+    /// Runtime secret aliases (parallel to the <c>[HpdProviderSecretAlias]</c> manifest attribute)
+    /// so that explicitly-registered providers can resolve secrets without a generated composition.
+    /// </summary>
+    public IReadOnlyList<ProviderSecretAliasRegistration> SecretAliases { get; } =
+        new ProviderSecretAliasRegistration[]
+        {
+            new("fireworks:ApiKey", new[] { "FIREWORKS_API_KEY" }),
+            new("fireworks:Endpoint", new[] { "FIREWORKS_ENDPOINT", "FIREWORKS_BASE_URL" }),
+        };
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
     public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)

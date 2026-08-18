@@ -43,6 +43,8 @@ internal sealed class SambaNovaProvider : OpenAICompatibleChatProviderBase<Samba
         DefaultModelId = DefaultChatModel,
         ApiKeySecretKey = "sambanova:ApiKey",
         EndpointSecretKey = "sambanova:Endpoint",
+        ApiKeyEnvironmentVariables = new[] { "SAMBANOVA_API_KEY" },
+        EndpointEnvironmentVariables = new[] { "SAMBANOVA_ENDPOINT", "SAMBANOVA_BASE_URL" },
         ProviderUri = new Uri("https://sambanova.ai/"),
         DocumentationUri = new Uri("https://docs.sambanova.ai/docs/en/features/openai-compatibility"),
         RequestProfile = ChatRequestProfile,

@@ -38,6 +38,8 @@ internal sealed class NscaleProvider : OpenAICompatibleChatProviderBase<NscalePr
         DefaultModelId = DefaultChatModel,
         ApiKeySecretKey = "nscale:ApiKey",
         EndpointSecretKey = "nscale:Endpoint",
+        ApiKeyEnvironmentVariables = new[] { "NSCALE_API_KEY" },
+        EndpointEnvironmentVariables = new[] { "NSCALE_ENDPOINT", "NSCALE_BASE_URL" },
         ProviderUri = new Uri("https://www.nscale.com/"),
         DocumentationUri = new Uri("https://www.nscale.com/"),
         RequestProfile = ChatRequestProfile,

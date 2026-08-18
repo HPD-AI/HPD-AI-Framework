@@ -21,10 +21,20 @@ namespace HPD.Agent.Providers.OnnxRuntime;
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(OnnxRuntimeProviderConfig), typeof(OnnxRuntimeJsonContext))]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.OperationOptions, typeof(OnnxRuntimeChatRequestOptions), typeof(OnnxRuntimeJsonContext))]
 [HpdProviderSecretAlias("onnx-runtime:ModelPath", "ONNX_MODEL_PATH", "ONNX_RUNTIME_MODEL_PATH")]
-internal class OnnxRuntimeProvider : IChatClientProvider
+internal class OnnxRuntimeProvider : IChatClientProvider, IProviderSecretAliasProvider
 {
     public string ProviderKey => "onnx-runtime";
     public string DisplayName => "ONNX Runtime GenAI";
+
+    /// <summary>
+    /// Runtime secret aliases (parallel to the <c>[HpdProviderSecretAlias]</c> manifest attribute)
+    /// so that explicitly-registered providers can resolve secrets without a generated composition.
+    /// </summary>
+    public IReadOnlyList<ProviderSecretAliasRegistration> SecretAliases { get; } =
+        new ProviderSecretAliasRegistration[]
+        {
+            new("onnx-runtime:ModelPath", new[] { "ONNX_MODEL_PATH", "ONNX_RUNTIME_MODEL_PATH" }),
+        };
 
     public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {

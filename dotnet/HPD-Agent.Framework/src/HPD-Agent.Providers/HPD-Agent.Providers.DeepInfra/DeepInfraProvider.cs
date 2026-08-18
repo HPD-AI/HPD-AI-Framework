@@ -17,7 +17,7 @@ namespace HPD.Agent.Providers.DeepInfra;
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(DeepInfraProviderConfig), typeof(DeepInfraJsonContext))]
 [HpdProviderSecretAlias("deepinfra:ApiKey", "DEEPINFRA_API_KEY")]
 [HpdProviderSecretAlias("deepinfra:Endpoint", "DEEPINFRA_ENDPOINT", "DEEPINFRA_BASE_URL")]
-internal class DeepInfraProvider : IChatClientProvider
+internal class DeepInfraProvider : IChatClientProvider, IProviderSecretAliasProvider
 {
     internal static readonly Uri DefaultEndpoint = new("https://api.deepinfra.com/v1/openai/");
     internal const string DefaultChatModel = "meta-llama/Meta-Llama-3-8B-Instruct";
@@ -43,6 +43,17 @@ internal class DeepInfraProvider : IChatClientProvider
 
     public string ProviderKey => "deepinfra";
     public string DisplayName => "DeepInfra";
+
+    /// <summary>
+    /// Runtime secret aliases (parallel to the <c>[HpdProviderSecretAlias]</c> manifest attribute)
+    /// so that explicitly-registered providers can resolve secrets without a generated composition.
+    /// </summary>
+    public IReadOnlyList<ProviderSecretAliasRegistration> SecretAliases { get; } =
+        new ProviderSecretAliasRegistration[]
+        {
+            new("deepinfra:ApiKey", new[] { "DEEPINFRA_API_KEY" }),
+            new("deepinfra:Endpoint", new[] { "DEEPINFRA_ENDPOINT", "DEEPINFRA_BASE_URL" }),
+        };
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
     public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)

@@ -47,6 +47,8 @@ internal sealed class MiniMaxProvider : OpenAICompatibleChatProviderBase<MiniMax
         DefaultModelId = DefaultChatModel,
         ApiKeySecretKey = "minimax:ApiKey",
         EndpointSecretKey = "minimax:Endpoint",
+        ApiKeyEnvironmentVariables = new[] { "MINIMAX_API_KEY" },
+        EndpointEnvironmentVariables = new[] { "MINIMAX_ENDPOINT", "MINIMAX_BASE_URL", "MINIMAX_API_BASE" },
         ProviderUri = new Uri("https://www.minimax.io/"),
         DocumentationUri = new Uri("https://platform.minimax.io/docs/api-reference/text-chat-openai"),
         RequiresApiKey = true,

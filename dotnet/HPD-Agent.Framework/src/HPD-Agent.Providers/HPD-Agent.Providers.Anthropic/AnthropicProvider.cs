@@ -25,10 +25,20 @@ namespace HPD.Agent.Providers.Anthropic;
     typeof(AnthropicChatRequestOptions),
     typeof(AnthropicJsonContext))]
 [HpdProviderSecretAlias("anthropic:ApiKey", "ANTHROPIC_API_KEY")]
-internal class AnthropicProvider : IChatClientProvider
+internal class AnthropicProvider : IChatClientProvider, IProviderSecretAliasProvider
 {
     public string ProviderKey => "anthropic";
     public string DisplayName => "Anthropic (Claude)";
+
+    /// <summary>
+    /// Runtime secret aliases (parallel to the <c>[HpdProviderSecretAlias]</c> manifest attribute)
+    /// so that explicitly-registered providers can resolve secrets without a generated composition.
+    /// </summary>
+    public IReadOnlyList<ProviderSecretAliasRegistration> SecretAliases { get; } =
+        new ProviderSecretAliasRegistration[]
+        {
+            new("anthropic:ApiKey", new[] { "ANTHROPIC_API_KEY" }),
+        };
 
     public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {

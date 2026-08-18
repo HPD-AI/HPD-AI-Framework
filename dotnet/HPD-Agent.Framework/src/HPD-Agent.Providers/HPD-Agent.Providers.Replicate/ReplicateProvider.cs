@@ -26,7 +26,7 @@ namespace HPD.Agent.Providers.Replicate;
 [HpdProviderPayload(ProviderClientFamily.ImageGeneration, ProviderPayloadKind.Configuration, typeof(ReplicateProviderConfig), typeof(ReplicateJsonContext))]
 [HpdProviderPayload(ProviderClientFamily.ImageGeneration, ProviderPayloadKind.OperationOptions, typeof(ReplicateImageOptions), typeof(ReplicateJsonContext))]
 [HpdProviderSecretAlias("replicate:ApiKey", "REPLICATE_API_KEY", "REPLICATE_API_TOKEN")]
-internal sealed class ReplicateProvider : IImageGeneratorProvider
+internal sealed class ReplicateProvider : IImageGeneratorProvider, IProviderSecretAliasProvider
 {
     internal const string DefaultModel = "black-forest-labs/flux-schnell";
     private static readonly Uri DefaultProviderUri = new("https://replicate.com/");
@@ -35,6 +35,16 @@ internal sealed class ReplicateProvider : IImageGeneratorProvider
 
     public string ProviderKey => "replicate";
     public string DisplayName => "Replicate";
+
+    /// <summary>
+    /// Runtime secret aliases (parallel to the <c>[HpdProviderSecretAlias]</c> manifest attribute)
+    /// so that explicitly-registered providers can resolve secrets without a generated composition.
+    /// </summary>
+    public IReadOnlyList<ProviderSecretAliasRegistration> SecretAliases { get; } =
+        new ProviderSecretAliasRegistration[]
+        {
+            new("replicate:ApiKey", new[] { "REPLICATE_API_KEY", "REPLICATE_API_TOKEN" }),
+        };
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
     public Meai.IImageGenerator CreateImageGenerator(ProviderClientConfig config, IServiceProvider? services = null)

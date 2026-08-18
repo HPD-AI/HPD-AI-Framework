@@ -31,10 +31,20 @@ namespace HPD.Agent.Providers.GoogleAI;
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(GoogleAIProviderConfig), typeof(GoogleAIJsonContext))]
 [HpdProviderSecretAlias("google-ai:ApiKey", "GOOGLE_API_KEY", "GEMINI_API_KEY", "GOOGLE_AI_API_KEY")]
-internal class GoogleAIProvider : IChatClientProvider
+internal class GoogleAIProvider : IChatClientProvider, IProviderSecretAliasProvider
 {
     public string ProviderKey => "google-ai";
     public string DisplayName => "Google AI (Gemini)";
+
+    /// <summary>
+    /// Runtime secret aliases (parallel to the <c>[HpdProviderSecretAlias]</c> manifest attribute)
+    /// so that explicitly-registered providers can resolve secrets without a generated composition.
+    /// </summary>
+    public IReadOnlyList<ProviderSecretAliasRegistration> SecretAliases { get; } =
+        new ProviderSecretAliasRegistration[]
+        {
+            new("google-ai:ApiKey", new[] { "GOOGLE_API_KEY", "GEMINI_API_KEY", "GOOGLE_AI_API_KEY" }),
+        };
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
     public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)

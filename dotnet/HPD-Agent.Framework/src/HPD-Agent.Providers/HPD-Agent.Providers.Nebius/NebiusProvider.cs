@@ -41,6 +41,8 @@ internal sealed class NebiusProvider : OpenAICompatibleChatProviderBase<NebiusPr
         DefaultModelId = DefaultChatModel,
         ApiKeySecretKey = "nebius:ApiKey",
         EndpointSecretKey = "nebius:Endpoint",
+        ApiKeyEnvironmentVariables = new[] { "NEBIUS_API_KEY" },
+        EndpointEnvironmentVariables = new[] { "NEBIUS_ENDPOINT", "NEBIUS_BASE_URL" },
         ProviderUri = new Uri("https://nebius.com/services/token-factory"),
         DocumentationUri = new Uri("https://docs.tokenfactory.nebius.com/api-reference/introduction"),
         RequiresApiKey = true,

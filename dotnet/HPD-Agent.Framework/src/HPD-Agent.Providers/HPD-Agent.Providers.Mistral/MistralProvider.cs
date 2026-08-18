@@ -19,10 +19,20 @@ namespace HPD.Agent.Providers.Mistral;
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(MistralProviderConfig), typeof(MistralJsonContext))]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.OperationOptions, typeof(MistralChatRequestOptions), typeof(MistralJsonContext))]
 [HpdProviderSecretAlias("mistral:ApiKey", "MISTRAL_API_KEY")]
-internal class MistralProvider : IChatClientProvider
+internal class MistralProvider : IChatClientProvider, IProviderSecretAliasProvider
 {
     public string ProviderKey => "mistral";
     public string DisplayName => "Mistral";
+
+    /// <summary>
+    /// Runtime secret aliases (parallel to the <c>[HpdProviderSecretAlias]</c> manifest attribute)
+    /// so that explicitly-registered providers can resolve secrets without a generated composition.
+    /// </summary>
+    public IReadOnlyList<ProviderSecretAliasRegistration> SecretAliases { get; } =
+        new ProviderSecretAliasRegistration[]
+        {
+            new("mistral:ApiKey", new[] { "MISTRAL_API_KEY" }),
+        };
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider registers AOT-compatible deserializer in provider module")]
     public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)

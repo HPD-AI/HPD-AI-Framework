@@ -31,6 +31,8 @@ internal sealed class HyperbolicProvider : OpenAICompatibleChatProviderBase<Hype
         DefaultModelId = DefaultChatModel,
         ApiKeySecretKey = "hyperbolic:ApiKey",
         EndpointSecretKey = "hyperbolic:Endpoint",
+        ApiKeyEnvironmentVariables = new[] { "HYPERBOLIC_API_KEY" },
+        EndpointEnvironmentVariables = new[] { "HYPERBOLIC_ENDPOINT", "HYPERBOLIC_BASE_URL" },
         ProviderUri = new Uri("https://hyperbolic.xyz/"),
         DocumentationUri = new Uri("https://docs.hyperbolic.xyz/"),
         RequestProfile = ChatRequestProfile,

@@ -14,7 +14,7 @@ namespace HPD.Agent.Providers.Xai;
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(XaiProviderConfig), typeof(XaiJsonContext))]
 [HpdProviderSecretAlias("xai:ApiKey", "XAI_API_KEY")]
 [HpdProviderSecretAlias("xai:Endpoint", "XAI_ENDPOINT", "XAI_BASE_URL")]
-internal sealed class XaiProvider : IChatClientProvider
+internal sealed class XaiProvider : IChatClientProvider, IProviderSecretAliasProvider
 {
     internal static readonly Uri DefaultEndpoint = new("https://api.x.ai/v1/");
     internal const string DefaultChatModel = "grok-4.3";
@@ -38,6 +38,17 @@ internal sealed class XaiProvider : IChatClientProvider
 
     public string ProviderKey => "xai";
     public string DisplayName => "xAI";
+
+    /// <summary>
+    /// Runtime secret aliases (parallel to the <c>[HpdProviderSecretAlias]</c> manifest attribute)
+    /// so that explicitly-registered providers can resolve secrets without a generated composition.
+    /// </summary>
+    public IReadOnlyList<ProviderSecretAliasRegistration> SecretAliases { get; } =
+        new ProviderSecretAliasRegistration[]
+        {
+            new("xai:ApiKey", new[] { "XAI_API_KEY" }),
+            new("xai:Endpoint", new[] { "XAI_ENDPOINT", "XAI_BASE_URL" }),
+        };
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
     public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)

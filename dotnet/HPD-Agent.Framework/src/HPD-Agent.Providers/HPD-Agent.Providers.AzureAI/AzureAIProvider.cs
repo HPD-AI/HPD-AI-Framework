@@ -45,10 +45,21 @@ namespace HPD.Agent.Providers.AzureAI;
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(AzureAIProviderConfig), typeof(AzureAIJsonContext))]
 [HpdProviderSecretAlias("azure-ai:ApiKey", "AZURE_AI_API_KEY")]
 [HpdProviderSecretAlias("azure-ai:Endpoint", "AZURE_AI_ENDPOINT")]
-internal class AzureAIProvider : IChatClientProvider
+internal class AzureAIProvider : IChatClientProvider, IProviderSecretAliasProvider
 {
     public string ProviderKey => "azure-ai";
     public string DisplayName => "Azure AI (Projects)";
+
+    /// <summary>
+    /// Runtime secret aliases (parallel to the <c>[HpdProviderSecretAlias]</c> manifest attribute)
+    /// so that explicitly-registered providers can resolve secrets without a generated composition.
+    /// </summary>
+    public IReadOnlyList<ProviderSecretAliasRegistration> SecretAliases { get; } =
+        new ProviderSecretAliasRegistration[]
+        {
+            new("azure-ai:ApiKey", new[] { "AZURE_AI_API_KEY" }),
+            new("azure-ai:Endpoint", new[] { "AZURE_AI_ENDPOINT" }),
+        };
 
     public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {

@@ -47,6 +47,8 @@ internal sealed class VeniceProvider : OpenAICompatibleChatProviderBase<VenicePr
         DefaultModelId = DefaultChatModel,
         ApiKeySecretKey = "venice:ApiKey",
         EndpointSecretKey = "venice:Endpoint",
+        ApiKeyEnvironmentVariables = new[] { "VENICE_API_KEY" },
+        EndpointEnvironmentVariables = new[] { "VENICE_ENDPOINT", "VENICE_BASE_URL" },
         ProviderUri = new Uri("https://venice.ai/"),
         DocumentationUri = new Uri("https://docs.venice.ai/api-reference/api-spec"),
         RequestProfile = ChatRequestProfile,

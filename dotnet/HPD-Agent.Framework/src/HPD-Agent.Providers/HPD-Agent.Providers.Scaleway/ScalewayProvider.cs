@@ -38,6 +38,8 @@ internal sealed class ScalewayProvider : OpenAICompatibleChatProviderBase<Scalew
         DefaultModelId = DefaultChatModel,
         ApiKeySecretKey = "scaleway:ApiKey",
         EndpointSecretKey = "scaleway:Endpoint",
+        ApiKeyEnvironmentVariables = new[] { "SCW_SECRET_KEY", "SCALEWAY_API_KEY", "SCW_API_KEY" },
+        EndpointEnvironmentVariables = new[] { "SCALEWAY_ENDPOINT", "SCALEWAY_BASE_URL", "SCW_ENDPOINT", "SCW_BASE_URL" },
         ProviderUri = new Uri("https://www.scaleway.com/en/generative-apis/"),
         DocumentationUri = new Uri("https://www.scaleway.com/en/docs/generative-apis/reference-content/openai-compatibility/"),
         RequiresApiKey = true,

@@ -35,6 +35,8 @@ internal sealed class PerplexityProvider : OpenAICompatibleChatProviderBase<Perp
         DefaultModelId = DefaultChatModel,
         ApiKeySecretKey = "perplexity:ApiKey",
         EndpointSecretKey = "perplexity:Endpoint",
+        ApiKeyEnvironmentVariables = new[] { "PERPLEXITY_API_KEY" },
+        EndpointEnvironmentVariables = new[] { "PERPLEXITY_ENDPOINT", "PERPLEXITY_BASE_URL" },
         ProviderUri = new Uri("https://www.perplexity.ai/"),
         DocumentationUri = new Uri("https://docs.perplexity.ai/docs/sonar/quickstart"),
         RequiresApiKey = true,

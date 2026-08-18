@@ -42,12 +42,22 @@ namespace HPD.Agent.Providers.HuggingFace;
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(HuggingFaceProviderConfig), typeof(HuggingFaceJsonContext))]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.OperationOptions, typeof(HuggingFaceChatRequestOptions), typeof(HuggingFaceJsonContext))]
 [HpdProviderSecretAlias("huggingface:ApiKey", "HUGGINGFACE_API_KEY")]
-internal class HuggingFaceProvider : IChatClientProvider
+internal class HuggingFaceProvider : IChatClientProvider, IProviderSecretAliasProvider
 {
     private static readonly Uri DefaultEndpoint = new("https://router.huggingface.co/");
 
     public string ProviderKey => "huggingface";
     public string DisplayName => "Hugging Face";
+
+    /// <summary>
+    /// Runtime secret aliases (parallel to the <c>[HpdProviderSecretAlias]</c> manifest attribute)
+    /// so that explicitly-registered providers can resolve secrets without a generated composition.
+    /// </summary>
+    public IReadOnlyList<ProviderSecretAliasRegistration> SecretAliases { get; } =
+        new ProviderSecretAliasRegistration[]
+        {
+            new("huggingface:ApiKey", new[] { "HUGGINGFACE_API_KEY" }),
+        };
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
     public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)

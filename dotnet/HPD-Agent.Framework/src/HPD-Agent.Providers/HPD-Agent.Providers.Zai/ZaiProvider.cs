@@ -36,6 +36,8 @@ internal sealed class ZaiProvider : OpenAICompatibleChatProviderBase<ZaiProvider
         DefaultModelId = DefaultChatModel,
         ApiKeySecretKey = "zai:ApiKey",
         EndpointSecretKey = "zai:Endpoint",
+        ApiKeyEnvironmentVariables = new[] { "ZAI_API_KEY", "Z_AI_API_KEY", "BIGMODEL_API_KEY" },
+        EndpointEnvironmentVariables = new[] { "ZAI_ENDPOINT", "ZAI_BASE_URL", "Z_AI_ENDPOINT", "Z_AI_BASE_URL", "BIGMODEL_ENDPOINT", "BIGMODEL_BASE_URL" },
         ProviderUri = new Uri("https://z.ai/"),
         DocumentationUri = new Uri("https://docs.z.ai/guides/develop/openai/python"),
         RequiresApiKey = true,

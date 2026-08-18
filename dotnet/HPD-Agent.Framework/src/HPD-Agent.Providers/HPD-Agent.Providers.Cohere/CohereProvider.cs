@@ -19,12 +19,22 @@ namespace HPD.Agent.Providers.Cohere;
 [HpdProviderFamily(ProviderClientFamily.Embeddings)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.OperationOptions, typeof(CohereChatRequestOptions), typeof(CohereJsonContext))]
 [HpdProviderSecretAlias("cohere:ApiKey", "COHERE_API_KEY")]
-internal class CohereProvider : IChatClientProvider, IEmbeddingGeneratorProvider
+internal class CohereProvider : IChatClientProvider, IEmbeddingGeneratorProvider, IProviderSecretAliasProvider
 {
     private static readonly Uri DefaultEndpoint = new("https://api.cohere.com/");
 
     public string ProviderKey => "cohere";
     public string DisplayName => "Cohere";
+
+    /// <summary>
+    /// Runtime secret aliases (parallel to the <c>[HpdProviderSecretAlias]</c> manifest attribute)
+    /// so that explicitly-registered providers can resolve secrets without a generated composition.
+    /// </summary>
+    public IReadOnlyList<ProviderSecretAliasRegistration> SecretAliases { get; } =
+        new ProviderSecretAliasRegistration[]
+        {
+            new("cohere:ApiKey", new[] { "COHERE_API_KEY" }),
+        };
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
     public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)

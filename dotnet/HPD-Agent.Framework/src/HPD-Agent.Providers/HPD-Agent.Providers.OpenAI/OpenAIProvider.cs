@@ -44,10 +44,21 @@ internal class OpenAIProvider :
     IChatClientProvider,
     IImageGeneratorProvider,
     IEmbeddingGeneratorProvider,
-    IHostedFileClientProvider
+    IHostedFileClientProvider,
+    IProviderSecretAliasProvider
 {
     public string ProviderKey => "openai";
     public string DisplayName => "OpenAI";
+
+    /// <summary>
+    /// Runtime secret aliases (parallel to the <c>[HpdProviderSecretAlias]</c> manifest attribute)
+    /// so that explicitly-registered providers can resolve secrets without a generated composition.
+    /// </summary>
+    public IReadOnlyList<ProviderSecretAliasRegistration> SecretAliases { get; } =
+        new ProviderSecretAliasRegistration[]
+        {
+            new("openai:ApiKey", new[] { "OPENAI_API_KEY" }),
+        };
 
     public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
@@ -289,10 +300,22 @@ internal class AzureOpenAIProvider :
     IChatClientProvider,
     IImageGeneratorProvider,
     IEmbeddingGeneratorProvider,
-    IHostedFileClientProvider
+    IHostedFileClientProvider,
+    IProviderSecretAliasProvider
 {
     public string ProviderKey => "azure-openai";
     public string DisplayName => "Azure OpenAI (Traditional)";
+
+    /// <summary>
+    /// Runtime secret aliases (parallel to the <c>[HpdProviderSecretAlias]</c> manifest attribute)
+    /// so that explicitly-registered providers can resolve secrets without a generated composition.
+    /// </summary>
+    public IReadOnlyList<ProviderSecretAliasRegistration> SecretAliases { get; } =
+        new ProviderSecretAliasRegistration[]
+        {
+            new("azure-openai:ApiKey", new[] { "AZURE_OPENAI_API_KEY" }),
+            new("azure-openai:Endpoint", new[] { "AZURE_OPENAI_ENDPOINT" }),
+        };
 
     public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {

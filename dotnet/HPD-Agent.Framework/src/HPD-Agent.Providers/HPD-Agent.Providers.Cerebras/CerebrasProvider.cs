@@ -42,6 +42,8 @@ internal sealed class CerebrasProvider : OpenAICompatibleChatProviderBase<Cerebr
         DefaultModelId = DefaultChatModel,
         ApiKeySecretKey = "cerebras:ApiKey",
         EndpointSecretKey = "cerebras:Endpoint",
+        ApiKeyEnvironmentVariables = new[] { "CEREBRAS_API_KEY" },
+        EndpointEnvironmentVariables = new[] { "CEREBRAS_ENDPOINT", "CEREBRAS_BASE_URL" },
         ProviderUri = new Uri("https://cerebras.ai/"),
         DocumentationUri = new Uri("https://inference-docs.cerebras.ai/resources/openai"),
         RequestProfile = ChatRequestProfile,

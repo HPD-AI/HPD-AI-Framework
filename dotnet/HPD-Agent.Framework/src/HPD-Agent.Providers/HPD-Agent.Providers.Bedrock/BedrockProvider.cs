@@ -51,10 +51,23 @@ namespace HPD.Agent.Providers.Bedrock;
 [HpdProviderSecretAlias("bedrock:SecretAccessKey", "AWS_SECRET_ACCESS_KEY")]
 [HpdProviderSecretAlias("bedrock:SessionToken", "AWS_SESSION_TOKEN")]
 [HpdProviderSecretAlias("bedrock:Region", "AWS_REGION", "AWS_DEFAULT_REGION")]
-internal class BedrockProvider : IChatClientProvider
+internal class BedrockProvider : IChatClientProvider, IProviderSecretAliasProvider
 {
     public string ProviderKey => "bedrock";
     public string DisplayName => "AWS Bedrock";
+
+    /// <summary>
+    /// Runtime secret aliases (parallel to the <c>[HpdProviderSecretAlias]</c> manifest attribute)
+    /// so that explicitly-registered providers can resolve secrets without a generated composition.
+    /// </summary>
+    public IReadOnlyList<ProviderSecretAliasRegistration> SecretAliases { get; } =
+        new ProviderSecretAliasRegistration[]
+        {
+            new("bedrock:AccessKeyId", new[] { "AWS_ACCESS_KEY_ID" }),
+            new("bedrock:SecretAccessKey", new[] { "AWS_SECRET_ACCESS_KEY" }),
+            new("bedrock:SessionToken", new[] { "AWS_SESSION_TOKEN" }),
+            new("bedrock:Region", new[] { "AWS_REGION", "AWS_DEFAULT_REGION" }),
+        };
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
     public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
