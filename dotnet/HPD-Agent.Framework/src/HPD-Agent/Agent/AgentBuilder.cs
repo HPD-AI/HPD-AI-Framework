@@ -281,7 +281,7 @@ public class AgentBuilder
     public AgentBuilder()
     {
         _config = new AgentConfig();
-        _providerRegistry = new ProviderRegistry();
+        _providerRegistry = CreateRegistryFromHost();
 
         LoadGeneratedRegistries();
     }
@@ -293,7 +293,7 @@ public class AgentBuilder
     public AgentBuilder(AgentConfig config)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
-        _providerRegistry = new ProviderRegistry();
+        _providerRegistry = CreateRegistryFromHost();
 
         LoadGeneratedRegistries();
     }
@@ -366,6 +366,18 @@ public class AgentBuilder
 
         foreach (var factory in states)
             _stateFactories.TryAdd(factory.FullyQualifiedName, factory);
+    }
+
+    private static ProviderRegistry CreateRegistryFromHost()
+    {
+        var composition = ProviderCompositionHost.Current;
+        if (composition is null)
+            return new ProviderRegistry();
+
+        var registry = new ProviderRegistry(composition);
+        foreach (var registration in composition.Runtime.Registrations)
+            registry.Register(registration.Factory());
+        return registry;
     }
 
     private void RegisterGeneratedProviders(IProviderRuntimeRegistry runtime)
