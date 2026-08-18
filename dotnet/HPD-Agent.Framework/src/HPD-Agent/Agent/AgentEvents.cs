@@ -812,6 +812,18 @@ public record TextMessageEndEvent(string MessageId) : AgentEvent
 }
 
 /// <summary>
+/// Outbound, lean projection of a user input into the transcript stream.
+/// Emitted once per user message at commit time. Carries only the transcript
+/// facts needed to render the user bubble; never the AgentInputEvent (RunConfig,
+/// ClientInputId, etc.). Consumers that render a user bubble MUST handle this
+/// type; consumers that only render agent output may ignore it.
+/// </summary>
+public sealed record UserMessageEvent(string Text, string MessageId) : AgentEvent
+{
+    public override EventChannel Channel { get; init; } = EventChannel.Streaming;
+}
+
+/// <summary>
 /// Emitted when a realtime provider produces a user input transcript update.
 /// </summary>
 public sealed record UserAudioTranscriptDeltaEvent(

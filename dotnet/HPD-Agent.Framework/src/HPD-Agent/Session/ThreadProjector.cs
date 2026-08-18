@@ -143,6 +143,28 @@ public static class ThreadProjector
                 break;
             }
 
+            case UserMessageEvent data:
+            {
+                GetOrStartMessage(
+                        messages,
+                        messageOrder,
+                        data.MessageId,
+                        ChatRole.User,
+                        null,
+                        evt.Timestamp.UtcDateTime,
+                        null)
+                    .SetPolicy(
+                        AgentMessageSource.UserInput,
+                        AgentMessageVisibility.Transcript,
+                        AgentMessagePersistence.ThreadHistory)
+                    .SetMessageTurnId(evt.EventFlowId);
+                AddTextContent(
+                    GetMessage(messages, messageOrder, data.MessageId, ChatRole.User),
+                    data.Text);
+                thread.LastActivity = evt.Timestamp.UtcDateTime;
+                break;
+            }
+
             case ReasoningMessageStartEvent data:
             {
                 GetMessage(messages, messageOrder, data.MessageId, ParseRole(data.Role))

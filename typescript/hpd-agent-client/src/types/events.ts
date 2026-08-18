@@ -93,6 +93,7 @@ export const EventTypes = {
   TEXT_MESSAGE_START: 'TEXT_MESSAGE_START',
   TEXT_DELTA: 'TEXT_DELTA',
   TEXT_MESSAGE_END: 'TEXT_MESSAGE_END',
+  USER_MESSAGE: 'USER_MESSAGE',
 
   // Reasoning (extended thinking)
   REASONING_MESSAGE_START: 'REASONING_MESSAGE_START',
@@ -770,6 +771,12 @@ export interface TextMessageEndEvent extends BaseEvent {
   messageId: string;
 }
 
+export interface UserMessageEvent extends BaseEvent {
+  type: typeof EventTypes.USER_MESSAGE;
+  messageId: string;
+  text: string;
+}
+
 // ============================================
 // Reasoning Events
 // ============================================
@@ -1061,6 +1068,7 @@ export type KnownAgentEvent =
   | TextMessageStartEvent
   | TextDeltaEvent
   | TextMessageEndEvent
+  | UserMessageEvent
   // Reasoning Events
   | ReasoningMessageStartEvent
   | ReasoningDeltaEvent
@@ -1116,6 +1124,10 @@ export type AgentEventOfType<TType extends KnownAgentEvent['type']> =
 
 export function isTextDeltaEvent(event: BaseEvent): event is TextDeltaEvent {
   return event.type === EventTypes.TEXT_DELTA;
+}
+
+export function isUserMessageEvent(event: BaseEvent): event is UserMessageEvent {
+  return event.type === EventTypes.USER_MESSAGE;
 }
 
 export function isToolCallStartEvent(event: BaseEvent): event is ToolCallStartEvent {

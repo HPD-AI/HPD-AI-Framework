@@ -303,6 +303,18 @@ public static class ThreadEventFactory
             EventFlowId = messageTurnId
         });
 
+    public static AgentEvent UserMessage(
+        string sessionId,
+        string threadId,
+        string? messageTurnId,
+        string messageId,
+        string text,
+        int iteration) =>
+        Scope(sessionId, threadId, new UserMessageEvent(text, messageId)
+        {
+            EventFlowId = messageTurnId
+        });
+
     public static AgentEvent TextMessageCompleted(
         string sessionId,
         string threadId,

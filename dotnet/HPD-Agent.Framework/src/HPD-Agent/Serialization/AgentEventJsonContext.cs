@@ -149,6 +149,7 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(TextMessageStartEvent))]
 [JsonSerializable(typeof(TextDeltaEvent))]
 [JsonSerializable(typeof(TextMessageEndEvent))]
+[JsonSerializable(typeof(UserMessageEvent))]
 [JsonSerializable(typeof(UserAudioTranscriptDeltaEvent))]
 [JsonSerializable(typeof(UserAudioTranscriptCompletedEvent))]
 [JsonSerializable(typeof(UserAudioTranscriptFailedEvent))]

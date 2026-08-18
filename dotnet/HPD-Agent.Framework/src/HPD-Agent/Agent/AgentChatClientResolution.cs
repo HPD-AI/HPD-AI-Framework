@@ -167,13 +167,12 @@ internal sealed class AgentChatClientResolver : IDisposable
 
     public AgentChatClientResolver(
         IProviderRegistry? providerRegistry,
-        IServiceProvider? services,
-        AgentClientMiddlewareConfig? middleware = null)
+        IServiceProvider? services)
     {
         _providerRegistry = providerRegistry;
         _composition = (providerRegistry as ProviderRegistry)?.Composition;
         _services = services;
-        _clientManager = new AgentProviderChatClientManager(providerRegistry, services, middleware?.Chat);
+        _clientManager = new AgentProviderChatClientManager(providerRegistry, services);
     }
 
     public async ValueTask<AgentChatClientLease> ResolveAsync(
@@ -547,18 +546,15 @@ internal sealed class AgentProviderChatClientManager : IDisposable
 {
     private readonly IProviderRegistry? _providerRegistry;
     private readonly IServiceProvider? _services;
-    private readonly IReadOnlyList<Func<IChatClient, IServiceProvider?, IChatClient>>? _middleware;
     private readonly ProviderClientManager<IChatClient> _clients = new();
     private int _disposed;
 
     public AgentProviderChatClientManager(
         IProviderRegistry? providerRegistry,
-        IServiceProvider? services,
-        IReadOnlyList<Func<IChatClient, IServiceProvider?, IChatClient>>? middleware)
+        IServiceProvider? services)
     {
         _providerRegistry = providerRegistry;
         _services = services;
-        _middleware = middleware;
     }
 
     public async ValueTask<AgentChatClientLease> AcquireAsync(
@@ -619,26 +615,16 @@ internal sealed class AgentProviderChatClientManager : IDisposable
             throw new InvalidOperationException(
                 $"Provider configuration for '{config.ProviderKey}' is invalid: {string.Join("; ", validation.Errors)}");
         }
-        return CreateAndWrapAsync(provider, config, cancellationToken);
+        return CreateClientAsync(provider, config, cancellationToken);
     }
 
-    private async ValueTask<IChatClient> CreateAndWrapAsync(
+    private async ValueTask<IChatClient> CreateClientAsync(
         IChatClientProvider provider,
         ProviderClientConfig config,
         CancellationToken cancellationToken)
     {
-        var client = await provider.CreateChatClientAsync(config, _services, cancellationToken)
+        return await provider.CreateChatClientAsync(config, _services, cancellationToken)
             .ConfigureAwait(false);
-        if (_middleware is null)
-            return client;
-
-        for (var index = _middleware.Count - 1; index >= 0; index--)
-        {
-            client = _middleware[index](client, _services)
-                ?? throw new InvalidOperationException("Chat client middleware returned null.");
-        }
-
-        return client;
     }
 
 }

@@ -87,6 +87,22 @@ public class AgentEventSerializerTests
     }
 
     [Fact]
+    public void ToJson_UserMessageEvent_SerializesCorrectly()
+    {
+        // Arrange
+        var evt = new UserMessageEvent("who are you", "msg-123");
+
+        // Act
+        var json = AgentEventSerializer.ToJson(evt);
+
+        // Assert
+        Assert.Contains("\"version\":\"1.0\"", json);
+        Assert.Contains("\"type\":\"USER_MESSAGE\"", json);
+        Assert.Contains("\"text\":\"who are you\"", json);
+        Assert.Contains("\"messageId\":\"msg-123\"", json);
+    }
+
+    [Fact]
     public void ToJson_TypeField_UsesScreamingSnakeCase()
     {
         // Arrange
@@ -558,6 +574,7 @@ public class AgentEventSerializerTests
     {
         // Known event types
         Assert.Equal("TEXT_DELTA", AgentEventSerializer.GetEventTypeName(typeof(TextDeltaEvent)));
+        Assert.Equal("USER_MESSAGE", AgentEventSerializer.GetEventTypeName(typeof(UserMessageEvent)));
         Assert.Equal("TOOL_CALL_START", AgentEventSerializer.GetEventTypeName(typeof(ToolCallStartEvent)));
         Assert.Equal("PERMISSION_REQUEST", AgentEventSerializer.GetEventTypeName(typeof(PermissionRequestEvent)));
         Assert.Equal("MESSAGE_TURN_STARTED", AgentEventSerializer.GetEventTypeName(typeof(MessageTurnStartedEvent)));

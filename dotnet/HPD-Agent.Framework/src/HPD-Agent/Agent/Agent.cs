@@ -286,7 +286,7 @@ public sealed class Agent
                 _baseClient,
                 AgentChatClientSource.BuilderDefault,
                 clientSet?.GetResolvedConfig(Providers.ProviderClientFamily.Chat));
-        _chatClientResolver = new AgentChatClientResolver(providerRegistry, serviceProvider, config.ClientMiddleware);
+        _chatClientResolver = new AgentChatClientResolver(providerRegistry, serviceProvider);
         _name = config.Name ?? "Agent"; // Default to "Agent" to prevent null dictionary key exceptions
 
         // Initialize unified middleware pipeline
@@ -6742,6 +6742,7 @@ public sealed class Agent
             TextMessageStartEvent data => copiedMessageIds.Contains(data.MessageId),
             TextDeltaEvent data => copiedMessageIds.Contains(data.MessageId),
             TextMessageEndEvent data => copiedMessageIds.Contains(data.MessageId),
+            UserMessageEvent data => copiedMessageIds.Contains(data.MessageId),
             ReasoningMessageStartEvent data => copiedMessageIds.Contains(data.MessageId),
             ReasoningDeltaEvent data => copiedMessageIds.Contains(data.MessageId),
             ReasoningMessageEndEvent data => copiedMessageIds.Contains(data.MessageId),

@@ -81,6 +81,13 @@ export function projectThreadEventsToMessages(events: readonly ThreadEvent[]): T
       if (message && text) {
         message.contents.push({ $type: 'text', text });
       }
+    } else if (event.type === EventTypes.USER_MESSAGE) {
+      const message = ensureMessage(event, 'user');
+      const text = getStringProperty(event, 'text');
+      if (message && text) {
+        message.role = 'user';
+        message.contents.push({ $type: 'text', text });
+      }
     } else if (event.type === EventTypes.REASONING_MESSAGE_START) {
       ensureMessage(event);
     } else if (event.type === EventTypes.REASONING_DELTA) {

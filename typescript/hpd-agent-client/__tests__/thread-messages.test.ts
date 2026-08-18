@@ -131,6 +131,59 @@ describe('thread message helpers', () => {
     ]);
   });
 
+  it('projects a UserMessageEvent into a user message', () => {
+    const events: ThreadEvent[] = [
+      {
+        type: EventTypes.USER_MESSAGE,
+        messageId: 'u1',
+        text: 'who are you',
+        timestamp: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        type: EventTypes.TEXT_MESSAGE_START,
+        messageId: 'a1',
+        role: 'assistant',
+        timestamp: '2026-01-01T00:00:01.000Z',
+      },
+      {
+        type: EventTypes.TEXT_DELTA,
+        messageId: 'a1',
+        text: 'I am HPD-OS.',
+      },
+    ];
+
+    expect(mapThreadMessages(projectThreadEventsToMessages(events))).toEqual([
+      {
+        id: 'u1',
+        role: 'user',
+        text: 'who are you',
+        contents: [{ $type: 'text', text: 'who are you' }],
+        additionalProperties: undefined,
+        reasoningText: undefined,
+        source: undefined,
+        visibility: undefined,
+        persistence: undefined,
+        timestamp: '2026-01-01T00:00:00.000Z',
+        toolCalls: [],
+        authorName: undefined,
+      },
+      {
+        id: 'a1',
+        role: 'assistant',
+        text: 'I am HPD-OS.',
+        contents: [{ $type: 'text', text: 'I am HPD-OS.' }],
+        additionalProperties: undefined,
+        reasoningText: undefined,
+        source: undefined,
+        visibility: undefined,
+        persistence: undefined,
+        timestamp: '2026-01-01T00:00:01.000Z',
+        toolCalls: [],
+        authorName: undefined,
+      },
+    ]);
+  });
+
   it('preserves HPD message policy from message and text-start events', () => {
     const events: ThreadEvent[] = [
       {

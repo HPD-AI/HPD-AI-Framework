@@ -552,9 +552,12 @@ public class ThreadEventStoreTests : AgentTestBase
         var document = await store.CollectThreadEventsAsync(sessionId, "main", TestCancellationToken);
         Assert.NotNull(document);
 
+        var userMessages = document.OfType<UserMessageEvent>().ToList();
+        Assert.Contains(userMessages, e => e.Text == "who are you");
+
         var textDeltas = document.OfType<TextDeltaEvent>().ToList();
-        Assert.Contains(textDeltas, e => e.Text == "who are you");
         Assert.Contains(textDeltas, e => e.Text == "hello human");
+        Assert.DoesNotContain(textDeltas, e => e.Text == "who are you");
 
         var loaded = await store.ProjectThreadAsync(sessionId, "main", ThreadProjectionPurpose.ThreadHistory, TestCancellationToken);
         Assert.NotNull(loaded);

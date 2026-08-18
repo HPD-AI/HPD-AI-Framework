@@ -59,6 +59,21 @@ internal static class ThreadMessageEventConverter
                     break;
 
                 case TextContent text:
+                    if (string.Equals(role, ChatRole.User.Value, StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!string.IsNullOrEmpty(text.Text))
+                        {
+                            events.Add(ThreadEventFactory.UserMessage(
+                                sessionId,
+                                threadId,
+                                messageTurnId,
+                                messageId,
+                                text.Text,
+                                iteration));
+                        }
+                        break;
+                    }
+
                     events.Add(ThreadEventFactory.TextMessageStarted(
                         sessionId,
                         threadId,
