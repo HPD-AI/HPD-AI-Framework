@@ -1,6 +1,6 @@
 # HPD AI Framework
 
-A set of C# (.NET 10) frameworks for building production AI applications, autonomous agents, sandboxed compute environments, high-precision document extraction, data persistence, and sovereign financial infrastructure. Use the package family that matches the thing you need to build: AI agents, RAG, graph workflows, terminal UIs, ML pipelines, authentication, document extraction, realtime media streaming, sandboxed execution, application data, API gateways, or financial ledgers.
+A set of C# (.NET) frameworks for building production AI applications, autonomous agents, sandboxed compute environments, high-precision document extraction, data persistence, and sovereign financial infrastructure. Use the package family that matches the thing you need to build: AI agents, RAG, graph workflows, terminal UIs, ML pipelines, authentication, document extraction, realtime media streaming, sandboxed execution, application data, API gateways, or financial ledgers.
 
 Product documentation, websites, and opinionated product layers live in their own repositories. Use the links under each package section for the canonical source and published docs when available.
 
