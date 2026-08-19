@@ -47,6 +47,13 @@ public class RuntimeLifecycleTests : AgentTestBase
     private static ActiveRuntimeInput? GetActiveRuntimeInput(Agent agent)
         => (ActiveRuntimeInput?)ActiveRuntimeInputField.GetValue(agent);
 
+    private static FieldInfo CancelDrainRemainingField { get; } =
+        typeof(Agent).GetField("_runtimeCancelDrainRemaining", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Agent._runtimeCancelDrainRemaining field was not found.");
+
+    private static void SetCancelDrainRemaining(Agent agent, int remaining)
+        => CancelDrainRemainingField.SetValue(agent, remaining);
+
     private sealed class BlockingChatClient : IChatClient
     {
         public TaskCompletionSource Started { get; } =
@@ -2362,6 +2369,41 @@ public class RuntimeLifecycleTests : AgentTestBase
         Assert.Equal(AgentInputDisposition.Accepted, result.Disposition);
         Assert.True(cancellation.IsCancellationRequested);
         Assert.Same(activeInput, GetActiveRuntimeInput(agent));
+    }
+
+    [Fact]
+    public async Task CancelDrainPending_WhenInterruptArrivesWithNoActiveExecution_DrainsQueuedInputsAsCancelled()
+    {
+        // Regression: an interrupt arriving in the NoActiveExecution window (loop between queued
+        // inputs) must cancel the queued backlog rather than being silently lost. The single-reader
+        // loop drains the inputs the interrupt counted, resolving their completions as cancelled and
+        // never running a model turn.
+        var client = new DelayedChatClient(TimeSpan.FromMilliseconds(1));
+        var agent = CreateAgent(client: client);
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
+
+        const int queued = 2;
+        SetCancelDrainRemaining(agent, queued);
+
+        var submissions = new List<Task<AgentRuntimeInputOutcome>>();
+        for (var i = 0; i < queued; i++)
+        {
+            var submission = await agent.EnqueueAsync(new UserMessagesInputEvent
+            {
+                ThreadExecutionId = $"run-{i}"
+            }, TestCancellationToken);
+            submissions.Add(submission.Completion);
+        }
+
+        var outcomes = await Task.WhenAll(submissions).WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        Assert.All(outcomes, outcome =>
+        {
+            Assert.True(outcome.Cancelled);
+            Assert.Null(outcome.Error);
+        });
+        Assert.Empty(client.Requests);
+
+        await agent.StopAsync(TestCancellationToken);
     }
 
     [Fact]
