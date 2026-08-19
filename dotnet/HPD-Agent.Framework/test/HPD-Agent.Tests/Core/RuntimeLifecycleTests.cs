@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Reflection;
 using System.Threading.Channels;
 using HPD.Agent.Tests.Infrastructure;
 using HPD.Agent.ClientTools;
@@ -35,6 +36,16 @@ public class RuntimeLifecycleTests : AgentTestBase
         public string RequestId { get; init; } = "non-event-response";
         public string SourceName { get; init; } = "test";
     }
+
+    private static FieldInfo ActiveRuntimeInputField { get; } =
+        typeof(Agent).GetField("_activeRuntimeInput", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Agent._activeRuntimeInput field was not found.");
+
+    private static void SetActiveRuntimeInput(Agent agent, ActiveRuntimeInput? activeInput)
+        => ActiveRuntimeInputField.SetValue(agent, activeInput);
+
+    private static ActiveRuntimeInput? GetActiveRuntimeInput(Agent agent)
+        => (ActiveRuntimeInput?)ActiveRuntimeInputField.GetValue(agent);
 
     private sealed class BlockingChatClient : IChatClient
     {
@@ -2322,6 +2333,35 @@ public class RuntimeLifecycleTests : AgentTestBase
         Assert.True(agent.IsRunning);
 
         await agent.StopAsync(TestCancellationToken);
+    }
+
+    [Fact]
+    public async Task InterruptionRequest_WhileActiveInputFinishing_IsAcceptedAndCancels()
+    {
+        // Regression: an interrupt arriving while the active input is in the short-lived
+        // Finishing state must still be accepted. It was previously rejected with
+        // ExecutionFinishing, creating a "cannot cancel" window as a turn wrapped up.
+        var agent = CreateAgent(client: new FakeChatClient());
+        var input = new UserMessagesInputEvent { ThreadExecutionId = "run-finishing" };
+        var cancellation = new CancellationTokenSource();
+        var activeInput = new ActiveRuntimeInput(input, cancellation)
+        {
+            State = ActiveRuntimeInputState.Finishing
+        };
+
+        SetActiveRuntimeInput(agent, activeInput);
+
+        var result = await agent.RunAsync(new InterruptionRequestEvent(
+            eventFlowId: null,
+            Reason: "stop a finishing execution",
+            Source: InterruptionSource.User)
+        {
+            ThreadExecutionId = "run-finishing"
+        }, TestCancellationToken);
+
+        Assert.Equal(AgentInputDisposition.Accepted, result.Disposition);
+        Assert.True(cancellation.IsCancellationRequested);
+        Assert.Same(activeInput, GetActiveRuntimeInput(agent));
     }
 
     [Fact]

@@ -1147,8 +1147,10 @@ public sealed class Agent
                 return ControlResult(AgentInputDisposition.NoActiveExecution, interruption.ThreadExecutionId);
             if (!string.Equals(activeInput.ThreadExecutionId, interruption.ThreadExecutionId, StringComparison.Ordinal))
                 return ControlResult(AgentInputDisposition.ActiveExecutionMismatch, activeInput.ThreadExecutionId);
-            if (activeInput.State != ActiveRuntimeInputState.Accepting)
-                return ControlResult(AgentInputDisposition.ExecutionFinishing, activeInput.ThreadExecutionId);
+            // An interrupt is accepted regardless of state: unlike steering it does not need
+            // to attach to a live accepting turn. Rejecting while Finishing created a false
+            // "cannot cancel" window right as a turn was wrapping up. Cancelling a Finishing
+            // input is safe - the runtime loop unwinds cooperatively.
         }
 
         eventCoordinator.EventFlows.InterruptAll();
