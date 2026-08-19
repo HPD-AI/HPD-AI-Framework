@@ -4,8 +4,6 @@ A set of C# (.NET 10) frameworks for building production AI applications, autono
 
 Product documentation, websites, and opinionated product layers live in their own repositories. Use the links under each package section for the canonical source and published docs when available.
 
-[GitHub](https://github.com/HPD-AI/HPD-AI-Platform)
-
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/svg/overview-dark.svg">
   <source media="(prefers-color-scheme: light)" srcset="assets/svg/overview.svg">
