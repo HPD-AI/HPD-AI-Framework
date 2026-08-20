@@ -43,7 +43,7 @@ jobs:
           $log = Join-Path $env:RUNNER_TEMP 'hpd-integrated-kernel.log'
           foreach ($tfm in @('net8.0','net9.0','net10.0')) {
             "BEGIN $tfm ${{ matrix.rid }}" | Out-File $log -Append
-            dotnet test test/HPD-Agent.Tests/HPD-Agent.Tests.csproj -c Release -f $tfm -r '${{ matrix.rid }}' --no-self-contained -m:1 /nodeReuse:false 2>&1 | Out-File $log -Append
+            dotnet test test/HPD-Agent.Tests/HPD-Agent.Tests.csproj -c Release -f $tfm -r '${{ matrix.rid }}' -m:1 /nodeReuse:false 2>&1 | Out-File $log -Append
             if ($LASTEXITCODE) { Get-Content $log -Tail 120; exit $LASTEXITCODE }
             "PASS $tfm ${{ matrix.rid }}" | Out-File $log -Append
           }
