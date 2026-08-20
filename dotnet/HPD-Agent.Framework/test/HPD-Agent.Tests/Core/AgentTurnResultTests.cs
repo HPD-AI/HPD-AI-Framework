@@ -67,7 +67,16 @@ public sealed class AgentTurnResultTests : AgentTestBase
         var result = await agent.RunAsync("test", cancellationToken: TestCancellationToken);
 
         Assert.Equal("Live and final", result.Text);
+        await WaitUntilAsync(() => string.Concat(observed) == result.Text);
         Assert.Equal("Live and final", string.Concat(observed));
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        for (var attempt = 0; attempt < 100 && !condition(); attempt++)
+            await Task.Delay(10);
+
+        Assert.True(condition(), "Expected subscriber events were not published within one second.");
     }
 
     [Fact]
