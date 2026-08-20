@@ -1,0 +1,91 @@
+name: HPD Audio release stress and soak
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  authority-recovery-chaos:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: dotnet/HPD-Agent.Framework
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+            10.0.x
+      - name: Repeat crash, ambiguity, recovery, and fencing cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="${RUNNER_TEMP}/authority-recovery-chaos.log"
+          filter='FullyQualifiedName~FileAuthorityJournalV1Tests|FullyQualifiedName~AuthorityJournalPortV1Tests|FullyQualifiedName~CapacityAdmissionCoordinatorV1Tests|FullyQualifiedName~SessionLifecycleAdmissionCoordinatorV1Tests|FullyQualifiedName~SessionLifecycleSnapshotReaderV1Tests'
+          for tfm in net8.0 net9.0 net10.0; do
+            for pass in $(seq 1 10); do
+              dotnet test test/HPD-Agent.Tests/HPD-Agent.Tests.csproj -c Release -f "$tfm" --filter "$filter" -m:1 /nodeReuse:false >>"$log" 2>&1 || { tail -120 "$log"; exit 1; }
+              printf 'PASS %s recovery-chaos %s\n' "$tfm" "$pass" >>"$log"
+            done
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hpd-authority-recovery-chaos
+          path: ${{ runner.temp }}/authority-recovery-chaos.log
+
+  fuzz-privacy-performance:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: dotnet/HPD-Agent.Framework
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+            10.0.x
+      - name: Execute native mutation, privacy, and performance gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="${RUNNER_TEMP}/fuzz-privacy-performance.log"
+          for tfm in net8.0 net9.0 net10.0; do
+            dotnet test test/HPD-Agent.History.Abi.Tests/HPD-Agent.History.Abi.Tests.csproj -c Release -f "$tfm" -m:1 /nodeReuse:false >>"$log" 2>&1 || { tail -120 "$log"; exit 1; }
+            dotnet test test/HPD-Agent.Replay.Abi.Tests/HPD-Agent.Replay.Abi.Tests.csproj -c Release -f "$tfm" -m:1 /nodeReuse:false >>"$log" 2>&1 || { tail -120 "$log"; exit 1; }
+            dotnet test test/HPD-Agent.Tests/HPD-Agent.Tests.csproj -c Release -f "$tfm" --filter 'FullyQualifiedName~PrivacyCopyLifecycleV1Tests|FullyQualifiedName~PerformanceBaselineTests' -m:1 /nodeReuse:false >>"$log" 2>&1 || { tail -120 "$log"; exit 1; }
+            printf 'PASS %s fuzz-privacy-performance\n' "$tfm" >>"$log"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hpd-fuzz-privacy-performance
+          path: ${{ runner.temp }}/fuzz-privacy-performance.log
+
+  native-long-soak:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: dotnet/HPD-Agent.Framework
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - name: Publish and execute million-window NativeAOT soak
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/silero-soak"
+          log="${RUNNER_TEMP}/native-long-soak.log"
+          dotnet publish test/HPD-Agent.Audio.VoiceActivity.AotSmoke/HPD-Agent.Audio.VoiceActivity.AotSmoke.csproj -c Release -r linux-x64 -o "$out" >"$log" 2>&1
+          HPD_SILERO_SOAK_WINDOWS=1000000 "$out/HPD-Agent.Audio.VoiceActivity.AotSmoke" >>"$log" 2>&1 || { tail -120 "$log"; exit 1; }
+          grep -E 'silero-soak-windows=1000000' "$log"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hpd-native-million-window-soak
+          path: ${{ runner.temp }}/native-long-soak.log
