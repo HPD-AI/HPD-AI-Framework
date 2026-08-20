@@ -107,14 +107,6 @@ public interface IHostedFileClientProvider : IProvider
         IServiceProvider? services = null);
 }
 
-public interface IEndOfTurnDetectorProvider : IProvider
-{
-    IEotDetector CreateEndOfTurnDetector(
-        ProviderClientConfig config,
-        ProviderComponentLifetimeContext context,
-        IServiceProvider? services = null);
-}
-
 public enum ProviderClientFamily
 {
     Chat,
@@ -124,8 +116,7 @@ public enum ProviderClientFamily
     ImageGeneration,
     Embeddings,
     HostedFiles,
-    VoiceActivityDetection,
-    EndOfTurnDetection
+    VoiceActivityDetection
 }
 
 public enum ProviderFamilyLifetime

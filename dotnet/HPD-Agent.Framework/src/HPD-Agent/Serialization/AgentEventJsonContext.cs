@@ -97,7 +97,6 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(SpeechToTextClientConfig))]
 [JsonSerializable(typeof(HostedFilesClientConfig))]
 [JsonSerializable(typeof(VoiceActivityClientConfig))]
-[JsonSerializable(typeof(EndOfTurnDetectionClientConfig))]
 [JsonSerializable(typeof(RealtimeAudioFormatRunConfig))]
 [JsonSerializable(typeof(RealtimeTranscriptionRunConfig))]
 [JsonSerializable(typeof(ReasoningOptions))]

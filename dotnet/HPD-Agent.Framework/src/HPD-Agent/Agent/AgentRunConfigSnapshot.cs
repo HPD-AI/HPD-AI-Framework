@@ -53,8 +53,7 @@ internal static class AgentRunConfigSnapshot
         TextToSpeech = CloneClient<TextToSpeechClientConfig>(source.TextToSpeech),
         SpeechToText = CloneClient<SpeechToTextClientConfig>(source.SpeechToText),
         HostedFiles = CloneClient<HostedFilesClientConfig>(source.HostedFiles),
-        VoiceActivity = CloneClient<VoiceActivityClientConfig>(source.VoiceActivity),
-        EndOfTurnDetection = CloneClient<EndOfTurnDetectionClientConfig>(source.EndOfTurnDetection)
+        VoiceActivity = CloneClient<VoiceActivityClientConfig>(source.VoiceActivity)
     };
 
     private static TConfig? CloneClient<TConfig>(TConfig? source)

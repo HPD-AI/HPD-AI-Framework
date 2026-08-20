@@ -581,8 +581,7 @@ public static class HpdAgentConfigSerializer
         ("textToSpeech", ProviderClientFamily.TextToSpeech),
         ("speechToText", ProviderClientFamily.SpeechToText),
         ("hostedFiles", ProviderClientFamily.HostedFiles),
-        ("voiceActivity", ProviderClientFamily.VoiceActivityDetection),
-        ("endOfTurnDetection", ProviderClientFamily.EndOfTurnDetection)
+        ("voiceActivity", ProviderClientFamily.VoiceActivityDetection)
     ];
 
     private sealed record ExtractedPayload(

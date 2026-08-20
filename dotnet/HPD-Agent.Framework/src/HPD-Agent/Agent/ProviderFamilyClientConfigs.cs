@@ -198,11 +198,3 @@ public sealed class HostedFilesClientConfig : ProviderClientConfig
 
 /// <summary>Common provider-family selection consumed by the leaf-owned voice-activity source contract.</summary>
 public sealed class VoiceActivityClientConfig : ProviderClientConfig;
-
-/// <summary>Common provider selection for end-of-turn detection.</summary>
-public sealed class EndOfTurnDetectionClientConfig : ProviderClientConfig
-{
-    /// <summary>Gets or sets a borrowed component factory override.</summary>
-    [JsonIgnore]
-    public Func<ProviderComponentLifetimeContext, IEotDetector>? OverrideFactory { get; set; }
-}

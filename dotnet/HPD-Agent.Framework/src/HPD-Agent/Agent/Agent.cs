@@ -5354,7 +5354,6 @@ public sealed class Agent
             ImageGenerator = image,
             EmbeddingGenerator = embeddings,
             HostedFiles = hostedFiles,
-            EndOfTurnDetectorFactory = _clientSet?.EndOfTurnDetectorFactory,
             ResolvedConfigs = resolved
         };
         result.SetOwnedClients(owned);

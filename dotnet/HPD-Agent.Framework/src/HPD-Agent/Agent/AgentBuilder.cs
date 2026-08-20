@@ -1734,16 +1734,6 @@ public class AgentBuilder
         return this;
     }
 
-    public AgentBuilder UseEndOfTurnDetectorMiddleware(
-        Func<IEotDetector, ProviderComponentLifetimeContext, IServiceProvider?, IEotDetector> middleware)
-    {
-        ArgumentNullException.ThrowIfNull(middleware);
-        _config.ClientMiddleware ??= new();
-        _config.ClientMiddleware.EndOfTurnDetection ??= new();
-        _config.ClientMiddleware.EndOfTurnDetection.Add(middleware);
-        return this;
-    }
-
     /// <summary>
     /// Sets an existing chat client to use instead of creating one from a provider.
     /// This is useful for SubAgents that want to inherit the parent's chat client.
@@ -2709,7 +2699,6 @@ public class AgentBuilder
         var imageGenerator = CaptureOverride(ProviderClientFamily.ImageGeneration, clients.ImageGeneration, clients.ImageGeneration?.Override?.Client, resolvedConfigs);
         var embeddingGenerator = CaptureOverride(ProviderClientFamily.Embeddings, clients.Embeddings, clients.Embeddings?.Override?.Client, resolvedConfigs);
         var hostedFiles = CaptureOverride(ProviderClientFamily.HostedFiles, clients.HostedFiles, clients.HostedFiles?.Override?.Client, resolvedConfigs);
-        var eotFactory = ResolveComponentFactory<IEndOfTurnDetectorProvider, IEotDetector>(ProviderClientFamily.EndOfTurnDetection, ProviderFamilyLifetime.StatefulPerAudioSession, static (p, c, x, s) => p.CreateEndOfTurnDetector(c, x, s), resolvedConfigs);
 
         return new AgentClientSet
         {
@@ -2719,7 +2708,6 @@ public class AgentBuilder
             ImageGenerator = imageGenerator,
             EmbeddingGenerator = embeddingGenerator,
             HostedFiles = hostedFiles,
-            EndOfTurnDetectorFactory = eotFactory,
             ResolvedConfigs = resolvedConfigs
         };
     }
@@ -2761,12 +2749,7 @@ public class AgentBuilder
         };
     }
 
-    private TComponent ApplyComponentMiddleware<TComponent>(ProviderClientFamily family, TComponent component, ProviderComponentLifetimeContext context)
-        => family switch
-        {
-            ProviderClientFamily.EndOfTurnDetection when component is IEotDetector value => (TComponent)(object)ApplyMiddleware(value, _config.ClientMiddleware?.EndOfTurnDetection, context, "end-of-turn detector"),
-            _ => component
-        };
+    private static TComponent ApplyComponentMiddleware<TComponent>(ProviderClientFamily family, TComponent component, ProviderComponentLifetimeContext context) => component;
 
     private TClient ApplyMiddleware<TClient>(TClient client, IReadOnlyList<Func<TClient, IServiceProvider?, TClient>>? middleware, string description)
     {

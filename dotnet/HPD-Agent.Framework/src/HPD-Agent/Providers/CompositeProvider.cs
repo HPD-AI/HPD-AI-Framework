@@ -10,8 +10,7 @@ internal sealed class CompositeProvider :
     IRealtimeClientProvider,
     IImageGeneratorProvider,
     IEmbeddingGeneratorProvider,
-    IHostedFileClientProvider,
-    IEndOfTurnDetectorProvider
+    IHostedFileClientProvider
 {
     private readonly List<IProvider> _providers = [];
 
@@ -81,13 +80,6 @@ internal sealed class CompositeProvider :
 
     public IHostedFileClient CreateHostedFileClient(ProviderClientConfig config, IServiceProvider? services = null) =>
         GetFamilyProvider<IHostedFileClientProvider>(ProviderClientFamily.HostedFiles).CreateHostedFileClient(config, services);
-
-    public IEotDetector CreateEndOfTurnDetector(
-        ProviderClientConfig config,
-        ProviderComponentLifetimeContext context,
-        IServiceProvider? services = null) =>
-        GetFamilyProvider<IEndOfTurnDetectorProvider>(ProviderClientFamily.EndOfTurnDetection)
-            .CreateEndOfTurnDetector(config, context, services);
 
     public IProviderErrorHandler CreateErrorHandler() => _providers[0].CreateErrorHandler();
 

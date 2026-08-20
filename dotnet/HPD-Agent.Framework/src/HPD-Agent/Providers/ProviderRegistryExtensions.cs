@@ -117,9 +117,6 @@ public static class ProviderRegistryExtensions
             return ProviderClientFamily.Embeddings.ToString();
         if (providerType == typeof(IHostedFileClientProvider))
             return ProviderClientFamily.HostedFiles.ToString();
-        if (providerType == typeof(IEndOfTurnDetectorProvider))
-            return ProviderClientFamily.EndOfTurnDetection.ToString();
-
         return providerType.Name;
     }
 }
