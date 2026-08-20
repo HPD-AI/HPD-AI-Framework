@@ -126,6 +126,101 @@ public sealed partial class SqliteModuleMutationTests
         }
     }
 
+    [Fact]
+    public async Task Module_receipts_and_generations_round_trip_through_backup_restore()
+    {
+        string temporary = Path.GetFullPath(Path.GetTempPath());
+        if (OperatingSystem.IsMacOS() && temporary.StartsWith("/var/", StringComparison.Ordinal))
+            temporary = "/private" + temporary;
+        string path = Path.Combine(temporary, $"hpd-base-l50-administration-{Guid.NewGuid():N}.db");
+        using BaseOpaqueTokenProtector protector = Protector();
+        try
+        {
+            await using SqliteRecordStore store = AdministrationStore(path, protector);
+            store.AdministrationCapability.Backup.Should().BeTrue();
+            DefaultBaseModuleMutationRuntime runtime = Runtime(store);
+            BaseMutationRequestIdentity original = BaseMutationRequestIdentity.Create(
+                "module", "increment", "before-backup", BaseMutationRequestFingerprint.Create(new byte[32]));
+            (await runtime.ExecuteAsync(Session(), Definition(), Identity(), new Request(), original, null, default))
+                .RequireValue().Result.Generation.Should().Be("1");
+
+            var artifact = new MemoryStream();
+            OperationResult<BaseBackupManifest> backup = await store.CreateBackupAsync(artifact, new BaseBackupRequest
+            {
+                StoreId = "module-store", Principal = AdministrationPrincipal(),
+            });
+            backup.IsSuccess().Should().BeTrue(backup.Error?.Code);
+
+            (await runtime.ExecuteAsync(Session(), Definition(), Identity(), new Request(),
+                BaseMutationRequestIdentity.Create("module", "increment", "after-backup", BaseMutationRequestFingerprint.Create(new byte[32])),
+                null, default)).RequireValue().Result.Generation.Should().Be("2");
+
+            artifact.Position = 0;
+            BaseBackupManifest manifest = backup.Value!;
+            OperationResult<BaseRestoreResult> restore = await store.RestoreAsync(artifact, new BaseRestoreRequest
+            {
+                StoreId = "module-store", Principal = AdministrationPrincipal(),
+                ExpectedCurrentStoreIdentityDigest = manifest.StoreIdentityDigest,
+                ExpectedArtifactStoreIdentityDigest = manifest.StoreIdentityDigest,
+                IdentityMode = BaseRestoreIdentityMode.RequireCurrentStoreIdentity,
+                RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
+                ConfirmDestructiveReplacement = true,
+            });
+            restore.IsSuccess().Should().BeTrue(restore.Error?.Code);
+
+            (await Runtime(store).ResolveAsync(Session(), Definition(), Identity(), original, default))
+                .RequireValue().Result.Generation.Should().Be("1");
+            (await Runtime(store).ExecuteAsync(Session(), Definition(), Identity(), new Request(),
+                BaseMutationRequestIdentity.Create("module", "increment", "after-restore", BaseMutationRequestFingerprint.Create(new byte[32])),
+                null, default)).RequireValue().Result.Generation.Should().Be("2");
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            foreach (string candidate in Directory.GetFiles(Path.GetDirectoryName(path)!)
+                .Where(file => Path.GetFileName(file).Contains(Path.GetFileName(path), StringComparison.Ordinal)))
+                File.Delete(candidate);
+        }
+    }
+
+    private static SqliteRecordStore AdministrationStore(string path, BaseOpaqueTokenProtector protector)
+    {
+        var options = new HPDBaseSqliteOptions
+        {
+            StoreId = "module-store", DataSource = path, AdministrationEnabled = true,
+            Collections = [SqliteTestFactory.Collection()], ModuleMutations = [Definition()],
+            ModuleGenerationCells = [Cell()], MaxBackupArtifactBytes = 16 * 1024 * 1024,
+        };
+        SqliteRecordStore store = SqliteTestFactory.Create(options, tokenProtector: protector);
+        using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path};Pooling=False");
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT OR IGNORE INTO hpd_base_schema_identity(singleton,store_instance_id) VALUES (1,'module-store-instance');
+            INSERT OR IGNORE INTO hpd_base_schema_baseline(application_id,store_instance_id,baseline_id,checksum,generation,last_plan_id,applied_at)
+            VALUES ('module.application','module-store-instance','baseline-1','checksum-1',1,'plan-1','2026-08-19T00:00:00Z');
+            """;
+        command.ExecuteNonQuery();
+        return store;
+    }
+
+    private static BaseOpaqueTokenProtector Protector() => new(Microsoft.Extensions.Options.Options.Create(
+        new HPDBaseTokenProtectionOptions
+        {
+            ActiveKey = new BaseOpaqueTokenKey
+            {
+                Id = 50, Key = Enumerable.Repeat((byte)0x50, 32).ToArray(),
+                IssueNotBefore = DateTimeOffset.UnixEpoch,
+            },
+        }));
+
+    private static PrincipalContext AdministrationPrincipal() => new()
+    {
+        AuthenticationState = PrincipalAuthenticationState.System,
+        SubjectKind = AccessSubjectKind.System,
+        SubjectId = "system",
+    };
+
     private static SqliteRecordStore Store(
         string path,
         bool installModuleAssets = true,
