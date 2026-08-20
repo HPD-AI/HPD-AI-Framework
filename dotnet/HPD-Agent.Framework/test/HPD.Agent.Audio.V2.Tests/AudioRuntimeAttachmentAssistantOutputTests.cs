@@ -51,12 +51,30 @@ public sealed class AudioRuntimeAttachmentAssistantOutputTests
     }
 
     [Fact]
+    public async Task AfterMessageTurn_EnabledTtsWithoutPreparedAuthority_FailsClosedBeforeEffect()
+    {
+        var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
+        {
+            AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.FinalText,
+            AssistantOutputTextToSpeechClient = new FakeTextToSpeechClient(new byte[] { 1, 2, 3 })
+        });
+        var context = CreateAfterMessageTurnContext("authority is required");
+
+        await attachment.AfterMessageTurnAsync(context, CancellationToken.None);
+
+        Assert.Empty(attachment.LastOutputResults);
+        Assert.Empty(attachment.LastOutputLedger);
+        Assert.Empty(attachment.LastOutputTrace);
+    }
+
+    [Fact]
     public async Task AfterMessageTurn_EnabledTts_SynthesizesArtifactWithoutPlaybackClaim()
     {
         var contentStore = new InMemoryContentStore();
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.FinalText,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = new FakeTextToSpeechClient(new byte[] { 1, 2, 3, 4 }),
             AssistantOutputProviderKey = "fake-tts",
             AssistantOutputModelId = "voice-model",
@@ -142,6 +160,7 @@ public sealed class AudioRuntimeAttachmentAssistantOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.FinalText,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = new FakeTextToSpeechClient(new InvalidOperationException("tts down")),
             AssistantOutputProviderKey = "fake-tts"
         });
@@ -195,6 +214,7 @@ public sealed class AudioRuntimeAttachmentAssistantOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.FinalText,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = new FakeTextToSpeechClient(new byte[] { 1, 2, 3 }),
             AssistantOutputProviderKey = "fake-tts"
         });
@@ -235,6 +255,7 @@ public sealed class AudioRuntimeAttachmentAssistantOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.FinalText,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = new FakeTextToSpeechClient(new byte[] { 1, 2, 3 }),
             AssistantOutputProviderKey = "fake-tts",
             AssistantOutputArtifactCapturePolicy = AssistantAudioArtifactCapturePolicy.Disabled

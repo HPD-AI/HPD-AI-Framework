@@ -52,7 +52,8 @@ public static class AudioRuntimeOptionsCompiler
             AssistantOutputLanguage = source.AssistantOutputLanguage,
             AssistantOutputFormat = source.AssistantOutputFormat,
             AssistantOutputContentType = source.AssistantOutputContentType,
-            AssistantOutputSpeed = source.AssistantOutputSpeed
+            AssistantOutputSpeed = source.AssistantOutputSpeed,
+            PreparedOutputResolver = source.PreparedOutputResolver
         };
     }
 

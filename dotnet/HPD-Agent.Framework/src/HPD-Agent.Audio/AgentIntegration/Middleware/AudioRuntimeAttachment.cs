@@ -16,6 +16,7 @@ using HPD.Agent.Audio.Trace;
 using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
 using System.Runtime.CompilerServices;
+using HPD.Agent.Authority;
 
 namespace HPD.Agent.Audio.AgentIntegration.Middleware;
 
@@ -244,6 +245,27 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
         }
 
         var outputOptions = ResolveAssistantOutputOptions(options, context.Services, context.ClientSet, context.ContentStore);
+        var preparedOutput = options.PreparedOutputResolver?.Invoke(context.SessionId ?? context.ConversationId);
+        if (preparedOutput is null)
+        {
+            return;
+        }
+        var outputOperation = OperationId.Create();
+        var outputBytes = System.Text.Encoding.UTF8.GetBytes(text);
+        var activation = preparedOutput.Activate(
+            outputOperation,
+            Math.Max(1, outputBytes.LongLength),
+            Hash256.Compute(outputBytes));
+        var controller = activation switch
+        {
+            LiveAudioOutputActivationResultV2.Activated value => value.Controller,
+            LiveAudioOutputActivationResultV2.Duplicate value => value.Controller,
+            _ => null
+        };
+        if (controller is null)
+        {
+            return;
+        }
         var result = await _assistantOutputService.RunAsync(
             new AssistantFinalTextToSpeechOutputRequest
             {
@@ -253,7 +275,9 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
                 RequestId = context.TraceId,
                 ResponseId = responseId,
                 Options = outputOptions,
-                PublishEventAsync = context.PublishAsync
+                PublishEventAsync = context.PublishAsync,
+                AuthorityController = controller,
+                AuthorityOperation = outputOperation
             },
             cancellationToken).ConfigureAwait(false);
 

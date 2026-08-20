@@ -5,6 +5,7 @@ using HPD.Agent.Audio.Ledger;
 using HPD.Agent.Audio.Runtime.Output;
 using HPD.Agent.Audio.Trace;
 using Microsoft.Extensions.AI;
+using HPD.Agent.Authority;
 
 namespace HPD.Agent.Audio.AgentIntegration.Output;
 
@@ -125,6 +126,16 @@ public sealed class AssistantFinalTextToSpeechOutputService
 
         if (segmentResult.Disposition == TtsSynthesisDisposition.Synthesized)
         {
+            if (request.AuthorityController is null || request.AuthorityOperation is null)
+                throw new InvalidOperationException("Synthesized output requires an admitted S6 controller.");
+            var generatedUnits = System.Text.Encoding.UTF8.GetByteCount(request.Text);
+            var authority = request.AuthorityController.Generate(new OutputSynthesisEvidenceV2(
+                request.AuthorityOperation.Value,
+                OutputSynthesisFamilyV2.SegmentedPcm,
+                generatedUnits,
+                Hash256.Compute(System.Text.Encoding.UTF8.GetBytes(request.Text))));
+            if (authority is not OutputPipelineResultV2.Applied)
+                throw new InvalidOperationException("S6 rejected synthesized output evidence.");
             var commit = await flow.CompleteSynthesizedNotPlayedAsync(cancellationToken)
                 .ConfigureAwait(false);
             _ledgerTraceWriter.AppendAssistantOutput(
@@ -221,4 +232,8 @@ public sealed record AssistantFinalTextToSpeechOutputRequest
     public AssistantTextToSpeechOutputOptions? Options { get; init; }
 
     public Func<AgentEvent, CancellationToken, ValueTask<AgentEvent>>? PublishEventAsync { get; init; }
+
+    internal InMemoryOutputControllerV2? AuthorityController { get; init; }
+
+    internal OperationId? AuthorityOperation { get; init; }
 }

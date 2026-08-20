@@ -282,7 +282,8 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
     {
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
-            AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.FinalText
+            AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.FinalText,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create()
         });
         var message = new ChatMessage(ChatRole.User, [new TextContent("tell me a joke")]);
         var context = CreateBeforeMessageTurnContext("session-text-only-default", message);

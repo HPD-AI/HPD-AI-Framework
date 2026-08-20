@@ -5,6 +5,7 @@ using HPD.Agent.Audio.Interaction;
 using HPD.Agent.Audio.Media;
 using HPD.Agent.Audio.Output;
 using HPD.Agent.Audio.Providers;
+using HPD.Agent.Audio.Runtime.Output;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Audio;
@@ -70,4 +71,6 @@ public sealed class AudioRuntimeAttachmentOptions
     public string? AssistantOutputContentType { get; set; }
 
     public float? AssistantOutputSpeed { get; set; }
+
+    internal Func<string?, PreparedOutputExecutionV2?>? PreparedOutputResolver { get; set; }
 }
