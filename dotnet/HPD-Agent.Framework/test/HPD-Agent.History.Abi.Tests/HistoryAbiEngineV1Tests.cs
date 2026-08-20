@@ -1,4 +1,6 @@
 using HPD.Agent.History.Abi;
+using System.Buffers.Binary;
+using System.Security.Cryptography;
 namespace HPD.Agent.History.Abi.Tests;
 public sealed class HistoryAbiEngineV1Tests
 {
@@ -33,6 +35,7 @@ public sealed class HistoryAbiEngineV1Tests
         var e=new HistoryAbiEngineV1();Assert.Equal(HistoryApiStatusV1.InvalidArgument,e.Open(HistoryHandleKindV1.Query,[],out _));
         Assert.Equal(HistoryApiStatusV1.InvalidArgument,e.Open(HistoryHandleKindV1.Query,Request(HistoryHandleKindV1.Subscription,[1]),out _));
         var zeroAuthorization=Request(HistoryHandleKindV1.Query,[1]);zeroAuthorization.AsSpan(8,32).Clear();Assert.Equal(HistoryApiStatusV1.InvalidArgument,e.Open(HistoryHandleKindV1.Query,zeroAuthorization,out _));
+        var corruptIntegrity=Request(HistoryHandleKindV1.Query,[1]);corruptIntegrity[^1]^=0xff;Assert.Equal(HistoryApiStatusV1.InvalidArgument,e.Open(HistoryHandleKindV1.Query,corruptIntegrity,out _));
         var noncanonical=Request(HistoryHandleKindV1.Query,[1]);noncanonical[^1]=0x18;Assert.Equal(HistoryApiStatusV1.InvalidArgument,e.Open(HistoryHandleKindV1.Query,noncanonical,out _));
         Assert.Equal(HistoryApiStatusV1.InvalidArgument,e.Open(HistoryHandleKindV1.Query,new byte[HistoryAbiEngineV1.MaximumRequestBytes+1],out _));
         var handles=new List<ulong>();for(var i=0;i<HistoryAbiEngineV1.MaximumSlots;i++){Assert.Equal(HistoryApiStatusV1.Ok,e.Open(HistoryHandleKindV1.Query,Request(HistoryHandleKindV1.Query,[0xf4]),out var h));handles.Add(h);}
@@ -40,6 +43,6 @@ public sealed class HistoryAbiEngineV1Tests
     }
     private static byte[] Request(HistoryHandleKindV1 kind,ReadOnlySpan<byte> payload)
     {
-        Assert.InRange(payload.Length,1,23);var result=new byte[44+payload.Length];var offset=0;result[offset++]=0xa5;result[offset++]=0x01;result[offset++]=0x01;result[offset++]=0x02;result[offset++]=(byte)kind;result[offset++]=0x03;result[offset++]=0x58;result[offset++]=0x20;for(var i=0;i<32;i++)result[offset++]=(byte)(i+1);result[offset++]=0x04;result[offset++]=0x01;result[offset++]=0x05;result[offset++]=(byte)(0x40+payload.Length);payload.CopyTo(result.AsSpan(offset));return result;
+        Assert.InRange(payload.Length,1,23);var result=new byte[79+payload.Length];var offset=0;result[offset++]=0xa6;result[offset++]=0x01;result[offset++]=0x01;result[offset++]=0x02;result[offset++]=(byte)kind;result[offset++]=0x03;result[offset++]=0x58;result[offset++]=0x20;for(var i=0;i<32;i++)result[offset++]=(byte)(i+1);result[offset++]=0x04;result[offset++]=0x01;result[offset++]=0x05;result[offset++]=(byte)(0x40+payload.Length);payload.CopyTo(result.AsSpan(offset));offset+=payload.Length;result[offset++]=0x06;result[offset++]=0x58;result[offset++]=0x20;Span<byte> revision=stackalloc byte[8];BinaryPrimitives.WriteUInt64BigEndian(revision,1);using var hash=IncrementalHash.CreateHash(HashAlgorithmName.SHA256);hash.AppendData("HPD.HISTORY.REQUEST.V1\0"u8);hash.AppendData([(byte)kind]);hash.AppendData(result.AsSpan(8,32));hash.AppendData(revision);hash.AppendData(payload);hash.GetHashAndReset().CopyTo(result,offset);return result;
     }
 }
