@@ -25,8 +25,8 @@ public sealed class InputMediaSliceTests
         var result = await RunScenarioAsync(content);
         var envelope = Assert.Single(result.Envelopes);
         var ledgerRecords = result.Ledger.ToArray();
-        Assert.NotNull(result.TurnSnapshot);
-        var turnSnapshot = result.TurnSnapshot!;
+        Assert.NotNull(result.EndpointSnapshotProjectionV1);
+        var turnSnapshot = result.EndpointSnapshotProjectionV1!;
 
         Assert.Equal(content.Id, envelope.PayloadInputContent().Id);
         Assert.Equal(MediaCaptureDisposition.MetadataOnly, envelope.CaptureDisposition);
@@ -39,13 +39,13 @@ public sealed class InputMediaSliceTests
             r.IsFinal);
         Assert.Contains(ledgerRecords.OfType<UserTurnLedgerRecord>(), r =>
             r.Text == "transcript:question.wav" &&
-            r.CommitReason == TurnCommitReason.InputMediaTranscript);
+            r.CommitReason == EndpointCommitProjectionReasonV1.InputMediaTranscript);
         Assert.Contains(turnSnapshot.Evidence, e =>
-            e.Kind == TurnEvidenceKind.InputMediaContent &&
-            e.Source == TurnEvidenceSource.InputContent);
+            e.Kind == EndpointEvidenceProjectionKindV1.InputMediaContent &&
+            e.Source == EndpointEvidenceProjectionSourceV1.InputContent);
         Assert.Contains(turnSnapshot.Evidence, e =>
-            e.Kind == TurnEvidenceKind.InputMediaTranscribed &&
-            e.Detail is TranscriptEvidenceDetail { Text: "transcript:question.wav", IsFinal: true });
+            e.Kind == EndpointEvidenceProjectionKindV1.InputMediaTranscribed &&
+            e.Detail is TranscriptEvidenceProjectionDetailV1 { Text: "transcript:question.wav", IsFinal: true });
     }
 
     [Fact]
@@ -230,11 +230,11 @@ public sealed class InputMediaSliceTests
 
         var interactionTrace = Assert.Single(result.Trace.ToArray().OfType<AudioInteractionUpdateTraceRecord>());
         var transcriptUpdate = Assert.IsType<TranscriptUpdate>(interactionTrace.Update);
-        Assert.Equal(TranscriptStage.Final, transcriptUpdate.Stage);
+        Assert.Equal(TranscriptProjectionStageV1.Final, transcriptUpdate.Stage);
         Assert.Equal("transcript:final-update.wav", transcriptUpdate.Text);
         Assert.Contains(result.Ledger.ToArray().OfType<UserTurnLedgerRecord>(), r =>
             r.Text == transcriptUpdate.Text &&
-            r.CommitReason == TurnCommitReason.InputMediaTranscript);
+            r.CommitReason == EndpointCommitProjectionReasonV1.InputMediaTranscript);
     }
 
     [Fact]

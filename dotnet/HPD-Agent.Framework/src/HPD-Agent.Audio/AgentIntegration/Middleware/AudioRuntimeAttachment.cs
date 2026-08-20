@@ -771,7 +771,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
             ledger.Count,
             trace.Count,
             ledger.OfType<ThreadProjectionLedgerRecord>().Count(),
-            result.TurnDecision?.Commit?.Text,
+            result.EndpointDecisionProjectionV1?.Commit?.Text,
             plan?.RouteEpoch.ProviderKey ?? result.RouteDecision?.Epoch.ProviderKey,
             result.RouteDecision?.Kind.ToString(),
             plan?.Topology.ToString(),
@@ -784,7 +784,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
         IReadOnlyList<AudioInteractionRuntimeResult> results)
     {
         var transcripts = results
-            .Select(r => r.TurnDecision?.Commit?.Text)
+            .Select(r => r.EndpointDecisionProjectionV1?.Commit?.Text)
             .Where(text => !string.IsNullOrWhiteSpace(text))
             .Select(text => text!)
             .Distinct(StringComparer.Ordinal)

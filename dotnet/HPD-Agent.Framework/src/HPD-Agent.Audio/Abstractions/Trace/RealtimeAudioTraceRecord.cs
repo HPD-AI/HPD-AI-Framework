@@ -19,7 +19,7 @@ public enum RealtimeAudioTraceRecordFamily
     Policy = 1,
     Route = 2,
     InteractionUpdate = 3,
-    TurnDecision = 4,
+    EndpointDecisionProjectionV1 = 4,
     Ledger = 5,
     ThreadProjection = 6,
     Clock = 7,

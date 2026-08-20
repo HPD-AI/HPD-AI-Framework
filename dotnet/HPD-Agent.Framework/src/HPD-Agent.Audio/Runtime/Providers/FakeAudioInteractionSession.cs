@@ -112,7 +112,7 @@ public sealed class FakeAudioInteractionSession : IAudioInteractionSession
                 SessionId = Id,
                 ObservedAt = _clock.Tick(),
                 RouteEpochId = Plan.RouteEpoch.Id,
-                Stage = TranscriptStage.Final,
+                Stage = TranscriptProjectionStageV1.Final,
                 Text = _transcriptFactory(inputContent.Content),
                 Confidence = 1.0f,
                 InputContentId = inputContent.Content.Id,

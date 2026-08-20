@@ -35,7 +35,7 @@ public sealed class RuntimeIdFactory
 
     public AudioTurnId NextTurnId() => new($"turn-{Interlocked.Increment(ref _turn):D4}");
 
-    public TurnEvidenceId NextTurnEvidenceId() => new($"turn-evidence-{Interlocked.Increment(ref _turnEvidence):D4}");
+    public EndpointEvidenceIdV1 NextEndpointEvidenceIdV1() => new($"endpoint-evidence-{Interlocked.Increment(ref _turnEvidence):D4}");
 
     public TransportAdapterId NextTransportAdapterId() => new($"transport-{Interlocked.Increment(ref _transportAdapter):D4}");
 }

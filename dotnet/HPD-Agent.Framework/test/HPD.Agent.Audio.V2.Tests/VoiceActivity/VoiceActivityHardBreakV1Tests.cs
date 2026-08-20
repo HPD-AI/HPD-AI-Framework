@@ -1,5 +1,6 @@
 using System.Text.Json;
 using HPD.Agent.Audio.Turns;
+using HPD.Agent.Audio.Runtime.Scenarios;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
 
@@ -15,13 +16,20 @@ public sealed class VoiceActivityHardBreakV1Tests
         "Vad" + "Result",
         "Vad" + "State",
         "VoiceActivityEvidence" + "Detail",
+        "ITurn" + "Controller",
+        "InputTurn" + "Controller",
+        "Turn" + "Evidence",
+        "Turn" + "Decision",
+        "Turn" + "Commit",
+        "Turn" + "Snapshot",
+        "Transcript" + "Stage",
     ];
 
     [Fact]
     public void Legacy_detector_and_summary_evidence_types_are_absent()
     {
         var exported = typeof(AgentBuilder).Assembly.GetExportedTypes()
-            .Concat(typeof(TurnEvidenceDetail).Assembly.GetExportedTypes())
+            .Concat(typeof(EndpointEvidenceProjectionDetailV1).Assembly.GetExportedTypes())
             .Select(static type => type.Name)
             .ToHashSet(StringComparer.Ordinal);
         Assert.All(RemovedTypeNames, name => Assert.DoesNotContain(name, exported));
@@ -34,6 +42,7 @@ public sealed class VoiceActivityHardBreakV1Tests
         Assert.Null(typeof(AgentBuilder).GetMethod("UseVoiceActivity" + "DetectorMiddleware"));
         Assert.DoesNotContain(typeof(CompositeProvider).GetInterfaces(),
             contract => contract.Name == "IVoiceActivity" + "DetectorProvider");
+        Assert.Null(typeof(AudioInteractionRuntimeRequest).GetProperty("Turn" + "Controller"));
     }
 
     [Fact]

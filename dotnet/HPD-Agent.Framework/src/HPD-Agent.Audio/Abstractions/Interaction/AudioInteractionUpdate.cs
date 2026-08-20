@@ -15,7 +15,7 @@ public abstract record AudioInteractionUpdate
 
 public sealed record TranscriptUpdate : AudioInteractionUpdate
 {
-    public required TranscriptStage Stage { get; init; }
+    public required TranscriptProjectionStageV1 Stage { get; init; }
 
     public required string Text { get; init; }
 
@@ -68,7 +68,7 @@ public sealed record ProviderRepairUpdate : AudioInteractionUpdate
     public required ProviderRepairResult Result { get; init; }
 }
 
-public enum TranscriptStage
+public enum TranscriptProjectionStageV1
 {
     Partial = 0,
     Preflight = 1,

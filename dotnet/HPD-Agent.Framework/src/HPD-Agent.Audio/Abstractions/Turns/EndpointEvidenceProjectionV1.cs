@@ -2,28 +2,28 @@ using HPD.Agent.Audio.Media;
 
 namespace HPD.Agent.Audio.Turns;
 
-public sealed record TurnEvidence
+public sealed record EndpointEvidenceProjectionV1
 {
-    public required TurnEvidenceId Id { get; init; }
+    public required EndpointEvidenceIdV1 Id { get; init; }
 
     public required AudioSessionId SessionId { get; init; }
 
     public AudioTurnId? TurnId { get; init; }
 
-    public required TurnEvidenceKind Kind { get; init; }
+    public required EndpointEvidenceProjectionKindV1 Kind { get; init; }
 
-    public required TurnEvidenceSource Source { get; init; }
+    public required EndpointEvidenceProjectionSourceV1 Source { get; init; }
 
     public required DateTimeOffset ObservedAt { get; init; }
 
     public MediaTimeline? MediaTime { get; init; }
 
-    public required TurnEvidenceDetail Detail { get; init; }
+    public required EndpointEvidenceProjectionDetailV1 Detail { get; init; }
 
     public AudioCorrelation Correlation { get; init; } = AudioCorrelation.Empty;
 }
 
-public enum TurnEvidenceKind
+public enum EndpointEvidenceProjectionKindV1
 {
     AudioActivityStarted = 0,
     AudioActivityStopped = 1,
@@ -47,7 +47,7 @@ public enum TurnEvidenceKind
     FalseInterruptionTimer = 19
 }
 
-public enum TurnEvidenceSource
+public enum EndpointEvidenceProjectionSourceV1
 {
     LocalProcessor = 0,
     Provider = 1,
@@ -59,9 +59,9 @@ public enum TurnEvidenceSource
     OutputFlow = 7
 }
 
-public abstract record TurnEvidenceDetail;
+public abstract record EndpointEvidenceProjectionDetailV1;
 
-public sealed record TranscriptEvidenceDetail : TurnEvidenceDetail
+public sealed record TranscriptEvidenceProjectionDetailV1 : EndpointEvidenceProjectionDetailV1
 {
     public required string Text { get; init; }
 
@@ -70,43 +70,43 @@ public sealed record TranscriptEvidenceDetail : TurnEvidenceDetail
     public bool IsFinal { get; init; }
 }
 
-public sealed record InputContentEvidenceDetail : TurnEvidenceDetail
+public sealed record InputContentEvidenceProjectionDetailV1 : EndpointEvidenceProjectionDetailV1
 {
     public required InputContentRef Content { get; init; }
 }
 
-public sealed record TimerEvidenceDetail : TurnEvidenceDetail
+public sealed record TimerEvidenceProjectionDetailV1 : EndpointEvidenceProjectionDetailV1
 {
     public required string TimerName { get; init; }
 
     public required TimeSpan Elapsed { get; init; }
 }
 
-public sealed record OutputPlaybackEvidenceDetail : TurnEvidenceDetail
+public sealed record OutputPlaybackEvidenceProjectionDetailV1 : EndpointEvidenceProjectionDetailV1
 {
     public required OutputFlowId OutputFlowId { get; init; }
 
     public required string State { get; init; }
 }
 
-public sealed record ProviderCommitEvidenceDetail : TurnEvidenceDetail
+public sealed record ProviderCommitEvidenceProjectionDetailV1 : EndpointEvidenceProjectionDetailV1
 {
     public required ProviderItemRef ProviderItem { get; init; }
 }
 
-public sealed record ManualInputEvidenceDetail : TurnEvidenceDetail
+public sealed record ManualInputEvidenceProjectionDetailV1 : EndpointEvidenceProjectionDetailV1
 {
     public required string Text { get; init; }
 }
 
-public sealed record ControlInputEvidenceDetail : TurnEvidenceDetail
+public sealed record ControlInputEvidenceProjectionDetailV1 : EndpointEvidenceProjectionDetailV1
 {
     public required string ControlKind { get; init; }
 
     public AudioExtensionData Metadata { get; init; } = AudioExtensionData.Empty;
 }
 
-public sealed record UnknownEvidenceDetail : TurnEvidenceDetail
+public sealed record UnknownEvidenceProjectionDetailV1 : EndpointEvidenceProjectionDetailV1
 {
     public string? Reason { get; init; }
 }

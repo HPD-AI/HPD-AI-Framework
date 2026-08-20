@@ -159,21 +159,21 @@ public sealed class AudioInteractionRuntimeRunner
         }
 
         var route = request.ProviderRoute ?? new FakeProviderRoute(_ids, _clock);
-        var turnController = request.TurnController ?? new InputTurnController(request.SessionId, _ids, _clock);
+        var turnController = new EndpointTurnCoordinatorV1(request.SessionId, _ids, _clock);
         var turnId = _ids.NextTurnId();
-        TurnDecision? finalDecision = null;
+        EndpointDecisionProjectionV1? finalDecision = null;
 
         if (envelopes.Count > 0)
         {
-            var inputContentEvidence = new TurnEvidence
+            var inputContentEvidence = new EndpointEvidenceProjectionV1
             {
-                Id = _ids.NextTurnEvidenceId(),
+                Id = _ids.NextEndpointEvidenceIdV1(),
                 SessionId = request.SessionId,
                 TurnId = turnId,
-                Kind = TurnEvidenceKind.InputMediaContent,
-                Source = TurnEvidenceSource.InputContent,
+                Kind = EndpointEvidenceProjectionKindV1.InputMediaContent,
+                Source = EndpointEvidenceProjectionSourceV1.InputContent,
                 ObservedAt = _clock.Tick(),
-                Detail = new InputContentEvidenceDetail
+                Detail = new InputContentEvidenceProjectionDetailV1
                 {
                     Content = inputMedia[0]
                 },
@@ -181,11 +181,11 @@ public sealed class AudioInteractionRuntimeRunner
             };
 
             finalDecision = await turnController.ObserveAsync(inputContentEvidence, cancellationToken);
-            await TraceAsync(trace, new AudioTurnDecisionTraceRecord
+            await TraceAsync(trace, new AudioEndpointDecisionProjectionV1TraceRecord
             {
                 Id = _ids.NextTraceRecordId(),
                 SessionId = request.SessionId,
-                Family = RealtimeAudioTraceRecordFamily.TurnDecision,
+                Family = RealtimeAudioTraceRecordFamily.EndpointDecisionProjectionV1,
                 RecordedAt = _clock.Tick(),
                 Decision = finalDecision,
                 Correlation = inputContentEvidence.Correlation
@@ -290,7 +290,7 @@ public sealed class AudioInteractionRuntimeRunner
             }, cancellationToken);
 
             if (update is TranscriptUpdate transcriptUpdate &&
-                transcriptUpdate.Stage is TranscriptStage.Final)
+                transcriptUpdate.Stage is TranscriptProjectionStageV1.Final)
             {
                 if (policy.InputMedia.AllowDerivedTextPersistence)
                 {
@@ -320,15 +320,15 @@ public sealed class AudioInteractionRuntimeRunner
                     update.Correlation,
                     cancellationToken);
 
-                var transcriptEvidence = new TurnEvidence
+                var transcriptEvidence = new EndpointEvidenceProjectionV1
                 {
-                    Id = _ids.NextTurnEvidenceId(),
+                    Id = _ids.NextEndpointEvidenceIdV1(),
                     SessionId = request.SessionId,
                     TurnId = turnId,
-                    Kind = TurnEvidenceKind.InputMediaTranscribed,
-                    Source = TurnEvidenceSource.InputContent,
+                    Kind = EndpointEvidenceProjectionKindV1.InputMediaTranscribed,
+                    Source = EndpointEvidenceProjectionSourceV1.InputContent,
                     ObservedAt = _clock.Tick(),
-                    Detail = new TranscriptEvidenceDetail
+                    Detail = new TranscriptEvidenceProjectionDetailV1
                     {
                         Text = transcriptUpdate.Text,
                         Confidence = transcriptUpdate.Confidence,
@@ -338,11 +338,11 @@ public sealed class AudioInteractionRuntimeRunner
                 };
 
                 finalDecision = await turnController.ObserveAsync(transcriptEvidence, cancellationToken);
-                await TraceAsync(trace, new AudioTurnDecisionTraceRecord
+                await TraceAsync(trace, new AudioEndpointDecisionProjectionV1TraceRecord
                 {
                     Id = _ids.NextTraceRecordId(),
                     SessionId = request.SessionId,
-                    Family = RealtimeAudioTraceRecordFamily.TurnDecision,
+                    Family = RealtimeAudioTraceRecordFamily.EndpointDecisionProjectionV1,
                     RecordedAt = _clock.Tick(),
                     Decision = finalDecision,
                     Correlation = transcriptEvidence.Correlation
@@ -464,8 +464,8 @@ public sealed class AudioInteractionRuntimeRunner
         IThreadProjectionSink thread,
         IReadOnlyList<CanonicalMediaEnvelope>? envelopes,
         ProviderRouteDecision? routeDecision,
-        TurnDecision? turnDecision,
-        TurnSnapshot? turnSnapshot,
+        EndpointDecisionProjectionV1? turnDecision,
+        EndpointSnapshotProjectionV1? turnSnapshot,
         CancellationToken cancellationToken)
     {
         return new AudioInteractionRuntimeResult(
@@ -474,8 +474,8 @@ public sealed class AudioInteractionRuntimeRunner
             Thread: thread,
             Envelopes: envelopes ?? [],
             RouteDecision: routeDecision,
-            TurnDecision: turnDecision,
-            TurnSnapshot: turnSnapshot);
+            EndpointDecisionProjectionV1: turnDecision,
+            EndpointSnapshotProjectionV1: turnSnapshot);
     }
 
     private async ValueTask AppendInputDispositionAsync(
@@ -646,8 +646,6 @@ public sealed record AudioInteractionRuntimeRequest
 
     public IAudioInteractionSessionFactory? InteractionSessionFactory { get; init; }
 
-    public ITurnController? TurnController { get; init; }
-
     public IRealtimeConversationLedger? Ledger { get; init; }
 
     public IRealtimeAudioTraceStore? Trace { get; init; }
@@ -661,5 +659,5 @@ public sealed record AudioInteractionRuntimeResult(
     IThreadProjectionSink Thread,
     IReadOnlyList<CanonicalMediaEnvelope> Envelopes,
     ProviderRouteDecision? RouteDecision,
-    TurnDecision? TurnDecision,
-    TurnSnapshot? TurnSnapshot);
+    EndpointDecisionProjectionV1? EndpointDecisionProjectionV1,
+    EndpointSnapshotProjectionV1? EndpointSnapshotProjectionV1);

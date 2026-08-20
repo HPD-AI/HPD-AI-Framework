@@ -28,7 +28,7 @@ public sealed class MeaiBatchSpeechToTextInteractionSessionTests
 
         var update = Assert.Single(await ReadUpdatesAsync(session));
         var transcript = Assert.IsType<TranscriptUpdate>(update);
-        Assert.Equal(TranscriptStage.Final, transcript.Stage);
+        Assert.Equal(TranscriptProjectionStageV1.Final, transcript.Stage);
         Assert.Equal("hello from meai", transcript.Text);
         Assert.Equal(content.Id, transcript.InputContentId);
     }
@@ -211,7 +211,7 @@ public sealed class MeaiBatchSpeechToTextInteractionSessionTests
             r.Text == "runtime transcript");
         Assert.Contains(result.Ledger.ToArray().OfType<UserTurnLedgerRecord>(), r =>
             r.Text == "runtime transcript" &&
-            r.CommitReason == TurnCommitReason.InputMediaTranscript);
+            r.CommitReason == EndpointCommitProjectionReasonV1.InputMediaTranscript);
         Assert.Equal([3, 2, 1], client.LastAudioBytes);
     }
 

@@ -45,7 +45,7 @@ public readonly record struct ThreadProjectionId(string Value)
     public override string ToString() => Value;
 }
 
-public readonly record struct TurnEvidenceId(string Value)
+public readonly record struct EndpointEvidenceIdV1(string Value)
 {
     public override string ToString() => Value;
 }

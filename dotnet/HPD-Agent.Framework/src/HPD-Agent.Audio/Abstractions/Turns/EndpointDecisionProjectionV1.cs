@@ -1,8 +1,8 @@
 namespace HPD.Agent.Audio.Turns;
 
-public sealed record TurnDecision
+public sealed record EndpointDecisionProjectionV1
 {
-    public required TurnDecisionKind Kind { get; init; }
+    public required EndpointDecisionProjectionKindV1 Kind { get; init; }
 
     public required DateTimeOffset DecidedAt { get; init; }
 
@@ -10,10 +10,10 @@ public sealed record TurnDecision
 
     public string? Reason { get; init; }
 
-    public TurnCommit? Commit { get; init; }
+    public EndpointCommitProjectionV1? Commit { get; init; }
 }
 
-public enum TurnDecisionKind
+public enum EndpointDecisionProjectionKindV1
 {
     ContinueListening = 0,
     CommitUserTurn = 1,
@@ -22,18 +22,18 @@ public enum TurnDecisionKind
     CancelInterruptionCandidate = 4
 }
 
-public sealed record TurnCommit
+public sealed record EndpointCommitProjectionV1
 {
     public required AudioTurnId TurnId { get; init; }
 
     public required string Text { get; init; }
 
-    public required TurnCommitReason Reason { get; init; }
+    public required EndpointCommitProjectionReasonV1 Reason { get; init; }
 
-    public required IReadOnlyList<TurnEvidenceId> EvidenceIds { get; init; }
+    public required IReadOnlyList<EndpointEvidenceIdV1> EvidenceIds { get; init; }
 }
 
-public enum TurnCommitReason
+public enum EndpointCommitProjectionReasonV1
 {
     InputMediaTranscript = 0,
     EndOfTurn = 1,
@@ -41,11 +41,11 @@ public enum TurnCommitReason
     ProviderCommit = 3
 }
 
-public sealed record TurnSnapshot
+public sealed record EndpointSnapshotProjectionV1
 {
     public required AudioSessionId SessionId { get; init; }
 
     public AudioTurnId? CurrentTurnId { get; init; }
 
-    public IReadOnlyList<TurnEvidence> Evidence { get; init; } = [];
+    public IReadOnlyList<EndpointEvidenceProjectionV1> Evidence { get; init; } = [];
 }

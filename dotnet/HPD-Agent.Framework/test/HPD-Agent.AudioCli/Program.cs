@@ -863,7 +863,7 @@ static async Task PrintAudioInteractionRuntimeAsync(AudioRuntimeAttachment audio
         var transcript = snapshot.Records
             .OfType<TranscriptLedgerRecord>()
             .LastOrDefault()?.Text;
-        var committed = result.TurnDecision?.Commit?.Text;
+        var committed = result.EndpointDecisionProjectionV1?.Commit?.Text;
 
         Console.ForegroundColor = ConsoleColor.DarkCyan;
         Console.WriteLine($"[audio-runtime:{i}] envelopes={result.Envelopes.Count} route={result.RouteDecision?.Plan?.Topology.ToString() ?? result.RouteDecision?.Kind.ToString() ?? "-"} ledger={snapshot.Records.Count}");
@@ -2255,7 +2255,7 @@ file sealed class AudioCliBenchmarkCollector(bool enabled)
             ["format"] = state.OutputFormat,
             ["max_segment_chars"] = state.MaxSegmentChars,
             ["transcript_chars"] = attachment.LastResults
-                .Select(result => result.TurnDecision?.Commit?.Text)
+                .Select(result => result.EndpointDecisionProjectionV1?.Commit?.Text)
                 .FirstOrDefault(text => !string.IsNullOrWhiteSpace(text))?.Length,
             ["assistant_text_chars"] = state.AssistantTextChars,
             ["tts_source_text_chars"] = sourceTextChars,
