@@ -1258,6 +1258,11 @@ public sealed partial class SqliteRecordStore
             var preparedGenerations = ImmutableArray.CreateBuilder<BasePreparedModuleGenerationEvidence>(captured.Generations.Length);
             if (plan.Kind == BaseAtomicMutationExecutionKind.ModuleMutation)
             {
+                if (captured.Accounting.GenerationReads > plan.Limits.MaximumGenerationReads
+                    || captured.Accounting.GenerationBytes > plan.Limits.MaximumGenerationBytes
+                    || plan.Module!.Comparisons.Length > plan.Limits.MaximumGenerationComparisons
+                    || plan.Module.Increments.Length > plan.Limits.MaximumGenerationIncrements)
+                    return SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.BudgetExceeded, OperationStatus.ValidationFailed, ErrorCategory.Validation);
                 if (_capturedModuleGenerationKeys is null
                     || !ModuleBindingsValid(plan, captured)
                     || plan.Module!.Comparisons.Select(static value => value.CaptureOrdinal).Distinct().Count() != plan.Module.Comparisons.Length

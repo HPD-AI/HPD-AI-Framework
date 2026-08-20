@@ -225,6 +225,39 @@ public sealed class AtomicExecutionTests
     }
 
     [Fact]
+    public async Task ModuleGenerationAccountingIsEnforcedAtTheMeasuredBoundary()
+    {
+        var store = new InMemoryRecordStore();
+        BaseAtomicMutationExecutionLimits generous = ModuleLimits();
+        BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync(
+            "module.application", [], generous, default)).Value!;
+        var baseline = new PreparedModuleProbe(authority, generous, applyTwice: false);
+        await store.ExecuteAtomicAsync(baseline, ExecutionRequest);
+        BasePreparedAtomicMutationAccounting measured = baseline.Prepared!.Accounting;
+
+        BaseAtomicMutationExecutionLimits exact = generous with
+        {
+            MaximumGenerationReads = measured.GenerationReads,
+            MaximumGenerationIncrements = measured.GenerationIncrements,
+            MaximumGenerationBytes = measured.GenerationBytes,
+            MaximumReadIntervals = measured.ReadIntervals,
+            MaximumEvidenceBytes = measured.EvidenceBytes,
+            MaximumTransientBytes = measured.TransientBytes,
+        };
+        var accepted = new PreparedModuleProbe(authority, exact, applyTwice: false);
+        await store.ExecuteAtomicAsync(accepted, ExecutionRequest);
+        accepted.Prepared.Should().NotBeNull();
+
+        var rejected = new PreparedModuleProbe(authority, exact with
+        {
+            MaximumGenerationIncrements = checked(measured.GenerationIncrements - 1),
+        }, applyTwice: false);
+        await store.ExecuteAtomicAsync(rejected, ExecutionRequest);
+        rejected.Prepared.Should().BeNull();
+        rejected.RejectedCode.Should().Be(BaseSubjectErrorCodes.BudgetExceeded);
+    }
+
+    [Fact]
     public void CapabilitiesAdvertiseOnlyProvenL30GuaranteesAndBounds()
     {
         var capabilities = new InMemoryRecordStore().Capabilities;
@@ -355,7 +388,11 @@ public sealed class AtomicExecutionTests
             };
             OperationResult<BaseCapturedAtomicMutationAuthority> captured =
                 await session.CaptureAtomicMutationAuthorityAsync(capture, cancellationToken);
-            if (!captured.IsSuccess() || captured.Value is null) return ProbeFailure(captured.Error);
+            if (!captured.IsSuccess() || captured.Value is null)
+            {
+                RejectedCode = captured.Error?.Code;
+                return ProbeFailure(captured.Error);
+            }
             var plan = new BaseAtomicMutationPlan
             {
                 Kind = BaseAtomicMutationExecutionKind.ModuleMutation, PlanDigest = "in-memory-l50-probe-plan",
@@ -373,7 +410,11 @@ public sealed class AtomicExecutionTests
             };
             OperationResult<BasePreparedAtomicMutation> prepared =
                 await session.PrepareAtomicMutationAsync(captured.Value, plan, cancellationToken);
-            if (!prepared.IsSuccess() || prepared.Value is null) return ProbeFailure(prepared.Error);
+            if (!prepared.IsSuccess() || prepared.Value is null)
+            {
+                RejectedCode = prepared.Error?.Code;
+                return ProbeFailure(prepared.Error);
+            }
             Prepared = prepared.Value;
             if (!applyTwice) return ProbeFailure(null);
             OperationResult<BaseProvisionalAppliedAtomicMutation> first =

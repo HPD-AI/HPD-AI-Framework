@@ -71,6 +71,60 @@ public sealed partial class SqliteModuleMutationTests
     }
 
     [Fact]
+    public async Task Generation_provider_accounting_is_enforced_at_exact_boundaries()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-l50-accounting-{Guid.NewGuid():N}.db");
+        try
+        {
+            await using SqliteRecordStore store = Store(path);
+            BaseAtomicMutationExecutionLimits generous = ExecutionLimits();
+            BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync(
+                "module.application", [], generous, default)).Value!;
+            var baseline = new PreparedPlanProbe(authority, applyTwice: false, generous);
+            await store.ExecuteAtomicAsync(baseline, ExecutionRequest());
+            BasePreparedAtomicMutationAccounting measured = baseline.Prepared!.Accounting;
+
+            BaseAtomicMutationExecutionLimits[] exactLimits =
+            [
+                generous with { MaximumGenerationReads = measured.GenerationReads },
+                generous with { MaximumGenerationIncrements = measured.GenerationIncrements },
+                generous with { MaximumReadIntervals = measured.ReadIntervals },
+                generous with { MaximumGenerationBytes = measured.GenerationBytes },
+                generous with { MaximumEvidenceBytes = measured.EvidenceBytes },
+                generous with { MaximumTransientBytes = measured.TransientBytes },
+            ];
+            foreach (BaseAtomicMutationExecutionLimits exact in exactLimits)
+            {
+                var accepted = new PreparedPlanProbe(authority, applyTwice: false, exact);
+                await store.ExecuteAtomicAsync(accepted, ExecutionRequest());
+                accepted.Prepared.Should().NotBeNull();
+            }
+
+            BaseAtomicMutationExecutionLimits[] belowLimits =
+            [
+                generous with { MaximumGenerationReads = checked(measured.GenerationReads - 1) },
+                generous with { MaximumGenerationIncrements = checked(measured.GenerationIncrements - 1) },
+                generous with { MaximumReadIntervals = checked(measured.ReadIntervals - 1) },
+                generous with { MaximumGenerationBytes = checked(measured.GenerationBytes - 1) },
+                generous with { MaximumEvidenceBytes = checked(measured.EvidenceBytes - 1) },
+                generous with { MaximumTransientBytes = checked(measured.TransientBytes - 1) },
+            ];
+            for (int index = 0; index < belowLimits.Length; index++)
+            {
+                BaseAtomicMutationExecutionLimits below = belowLimits[index];
+                var rejected = new PreparedPlanProbe(authority, applyTwice: false, below);
+                await store.ExecuteAtomicAsync(rejected, ExecutionRequest());
+                rejected.Prepared.Should().BeNull("boundary {0} must reject measured work plus one", index);
+                rejected.RejectedCode.Should().NotBeNull("boundary {0} must report a stable provider failure", index);
+            }
+        }
+        finally
+        {
+            foreach (string suffix in new[] { "", "-wal", "-shm" }) if (File.Exists(path + suffix)) File.Delete(path + suffix);
+        }
+    }
+
+    [Fact]
     public async Task Operation_and_cell_removal_are_rejected_while_receipt_and_generation_authority_remain()
     {
         string path = Path.Combine(Path.GetTempPath(), $"hpd-base-l50-removal-{Guid.NewGuid():N}.db");
@@ -341,7 +395,8 @@ public sealed partial class SqliteModuleMutationTests
 
     private sealed class PreparedPlanProbe(
         BaseAtomicMutationAuthorityRequirement authority,
-        bool applyTwice) : IAtomicMutationProcessor
+        bool applyTwice,
+        BaseAtomicMutationExecutionLimits? suppliedLimits = null) : IAtomicMutationProcessor
     {
         public BasePreparedAtomicMutation? Prepared { get; private set; }
         public string? RejectedCode { get; private set; }
@@ -350,7 +405,7 @@ public sealed partial class SqliteModuleMutationTests
             IAtomicRecordSession session,
             CancellationToken cancellationToken = default)
         {
-            BaseAtomicMutationExecutionLimits limits = ExecutionLimits();
+            BaseAtomicMutationExecutionLimits limits = suppliedLimits ?? ExecutionLimits();
             var capture = new BaseAtomicMutationCaptureRequest
             {
                 Kind = BaseAtomicMutationExecutionKind.ModuleMutation,
@@ -371,7 +426,11 @@ public sealed partial class SqliteModuleMutationTests
             };
             OperationResult<BaseCapturedAtomicMutationAuthority> captured =
                 await session.CaptureAtomicMutationAuthorityAsync(capture, cancellationToken);
-            if (!captured.IsSuccess() || captured.Value is null) return Failure(captured.Error);
+            if (!captured.IsSuccess() || captured.Value is null)
+            {
+                RejectedCode = captured.Error?.Code;
+                return Failure(captured.Error);
+            }
             var plan = new BaseAtomicMutationPlan
             {
                 Kind = BaseAtomicMutationExecutionKind.ModuleMutation, PlanDigest = "l50-probe-plan",
@@ -389,7 +448,11 @@ public sealed partial class SqliteModuleMutationTests
             };
             OperationResult<BasePreparedAtomicMutation> prepared =
                 await session.PrepareAtomicMutationAsync(captured.Value, plan, cancellationToken);
-            if (!prepared.IsSuccess() || prepared.Value is null) return Failure(prepared.Error);
+            if (!prepared.IsSuccess() || prepared.Value is null)
+            {
+                RejectedCode = prepared.Error?.Code;
+                return Failure(prepared.Error);
+            }
             Prepared = prepared.Value;
             if (!applyTwice) return Failure(null);
             OperationResult<BaseProvisionalAppliedAtomicMutation> first =
