@@ -52,15 +52,23 @@ jobs:
           "${RUNNER_TEMP}/hpd-audio-abi-smoke"
       - name: Verify Windows ABI and C lifecycle
         if: matrix.os == 'windows'
-        shell: cmd
+        shell: pwsh
         run: |
-          dumpbin /exports "%RUNNER_TEMP%\hpd-audio-abi\${{ matrix.library }}" > "%RUNNER_TEMP%\exports.txt" || exit /b 1
-          for %%E in (create bind start stop destroy) do findstr /c:"hpd_audio_transport_%%E" "%RUNNER_TEMP%\exports.txt" >nul || exit /b 1
-          (echo LIBRARY HPD-Agent.Audio.TransportAbi.NativeAot&amp; echo EXPORTS&amp; for %%E in (create bind start stop destroy) do @echo hpd_audio_transport_%%E) > "%RUNNER_TEMP%\hpd-audio-abi\transport.def"
-          lib /nologo /def:"%RUNNER_TEMP%\hpd-audio-abi\transport.def" /machine:${{ matrix.machine }} /out:"%RUNNER_TEMP%\hpd-audio-abi\transport.lib" || exit /b 1
-          cl /nologo /W4 /WX test\HPD-Agent.Audio.TransportAbi.NativeAot\transport_abi_smoke.c /Itest\HPD-Agent.Audio.TransportAbi.NativeAot /link "%RUNNER_TEMP%\hpd-audio-abi\transport.lib" /out:"%RUNNER_TEMP%\hpd-audio-abi-smoke.exe" || exit /b 1
-          set "PATH=%RUNNER_TEMP%\hpd-audio-abi;%PATH%"
-          "%RUNNER_TEMP%\hpd-audio-abi-smoke.exe" || exit /b 1
+          $out = Join-Path $env:RUNNER_TEMP 'hpd-audio-abi'
+          $dll = Join-Path $out '${{ matrix.library }}'
+          $exports = & dumpbin /exports $dll
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          foreach ($name in 'create','bind','start','stop','destroy') {
+            if ($exports -notmatch "hpd_audio_transport_$name") { throw "missing export $name" }
+          }
+          @('LIBRARY HPD-Agent.Audio.TransportAbi.NativeAot','EXPORTS','hpd_audio_transport_create','hpd_audio_transport_bind','hpd_audio_transport_start','hpd_audio_transport_stop','hpd_audio_transport_destroy') | Set-Content (Join-Path $out 'transport.def')
+          & lib /nologo "/def:$out\transport.def" '/machine:${{ matrix.machine }}' "/out:$out\transport.lib"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & cl /nologo /W4 /WX test\HPD-Agent.Audio.TransportAbi.NativeAot\transport_abi_smoke.c /Itest\HPD-Agent.Audio.TransportAbi.NativeAot /link "$out\transport.lib" "/out:$env:RUNNER_TEMP\hpd-audio-abi-smoke.exe"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $env:PATH = "$out;$env:PATH"
+          & "$env:RUNNER_TEMP\hpd-audio-abi-smoke.exe"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         with:
           name: hpd-audio-transport-abi-${{ matrix.rid }}
