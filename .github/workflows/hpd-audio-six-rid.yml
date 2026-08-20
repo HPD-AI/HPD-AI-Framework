@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: hpd-audio-six-rid-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   native-abi:
     strategy:

@@ -9,6 +9,7 @@ public enum ReplayAbiStatusV1 : int
     InvalidArgument = 14,
     InvalidHandleGeneration = 16,
     AlreadyClosed = 17,
+    Conflict = 20,
     CapacityRejected = 21,
 }
 
@@ -93,13 +94,12 @@ public sealed class ReplayAbiEngineV1
 
     private ReplayAbiStatusV1 Mutate(ulong handle, ReadOnlySpan<byte> request, bool step,byte expectedOperation)
     {
-        if (request.IsEmpty || request.Length > MaximumOperationBytes || !ReplayAbiRequestCodecV1.TryDecodeOperation(request,expectedOperation,out var payload)) return ReplayAbiStatusV1.InvalidArgument;
+        if (request.IsEmpty || request.Length > MaximumOperationBytes || !ReplayAbiRequestCodecV1.TryDecodeOperation(request,expectedOperation,out var payload,out var first,out var second)) return ReplayAbiStatusV1.InvalidArgument;
         lock (_gate)
         {
             if (!TryGet(handle, out _, out var slot)) return ReplayAbiStatusV1.InvalidHandleGeneration;
             if (slot.Completed) return ReplayAbiStatusV1.AlreadyClosed;
-            slot.Apply(payload, step);
-            return ReplayAbiStatusV1.Ok;
+            return slot.Apply(payload, step,expectedOperation,first,second);
         }
     }
 
@@ -127,6 +127,7 @@ public sealed class ReplayAbiEngineV1
     {
         private readonly byte[] _artifactHash;
         private byte[] _stateHash;
+        private readonly HashSet<ulong> _completedWork=[];
         internal Slot(ReadOnlySpan<byte> artifact)
         {
             _artifactHash = SHA256.HashData(artifact);
@@ -134,10 +135,15 @@ public sealed class ReplayAbiEngineV1
         }
         internal ulong AdvanceCount { get; private set; }
         internal ulong StepCount { get; private set; }
+        internal ulong Now { get; private set; }
+        internal ulong ScheduleBranches { get; private set; }
         internal bool Completed { get; set; }
 
-        internal void Apply(ReadOnlySpan<byte> request, bool step)
+        internal ReplayAbiStatusV1 Apply(ReadOnlySpan<byte> request, bool step,byte operation,ulong first,ulong second)
         {
+            if(operation==1){if(second<Now)return ReplayAbiStatusV1.Conflict;if(second==Now)return ReplayAbiStatusV1.Ok;Now=second;}
+            else if(operation==2&&!_completedWork.Add(first))return ReplayAbiStatusV1.Ok;
+            else if(operation==3){if(first>4096-ScheduleBranches)return ReplayAbiStatusV1.CapacityRejected;ScheduleBranches+=first;}
             Span<byte> prefix = stackalloc byte[49];
             _stateHash.CopyTo(prefix);
             BinaryPrimitives.WriteUInt64BigEndian(prefix[32..], AdvanceCount);
@@ -149,17 +155,20 @@ public sealed class ReplayAbiEngineV1
             hash.AppendData(request);
             _stateHash = hash.GetHashAndReset();
             if (step) StepCount++; else AdvanceCount++;
+            return ReplayAbiStatusV1.Ok;
         }
 
         internal byte[] Snapshot(bool complete)
         {
-            var payload = new byte[88];
+            var payload = new byte[104];
             payload[0] = 1;
             payload[1] = complete ? (byte)1 : (byte)0;
-            BinaryPrimitives.WriteUInt64BigEndian(payload.AsSpan(8), AdvanceCount);
-            BinaryPrimitives.WriteUInt64BigEndian(payload.AsSpan(16), StepCount);
-            _artifactHash.CopyTo(payload, 24);
-            _stateHash.CopyTo(payload, 56);
+            BinaryPrimitives.WriteUInt64BigEndian(payload.AsSpan(8), Now);
+            BinaryPrimitives.WriteUInt64BigEndian(payload.AsSpan(16), AdvanceCount);
+            BinaryPrimitives.WriteUInt64BigEndian(payload.AsSpan(24), StepCount);
+            BinaryPrimitives.WriteUInt64BigEndian(payload.AsSpan(32), ScheduleBranches);
+            _artifactHash.CopyTo(payload, 40);
+            _stateHash.CopyTo(payload, 72);
             return payload;
         }
     }
@@ -173,10 +182,13 @@ internal static class ReplayAbiRequestCodecV1
         var offset=4;if(!ByteString(request,ref offset,out var payload)||offset+35!=request.Length||request[offset++]!=0x03||request[offset++]!=0x58||request[offset++]!=0x20)return false;
         var expected=request[offset..];Span<byte> actual=stackalloc byte[32];SHA256.HashData(payload,actual);if(!actual.SequenceEqual(expected))return false;artifact=payload;return true;
     }
-    internal static bool TryDecodeOperation(ReadOnlySpan<byte> request,byte expectedOperation,out byte[] payload)
+    internal static bool TryDecodeOperation(ReadOnlySpan<byte> request,byte expectedOperation,out byte[] payload,out ulong first,out ulong second)
     {
-        payload=[];if(!CanonicalCborValidatorV1.IsValid(request)||request.Length<6||request[0]!=0xa2||request[1]!=0x01||request[2]!=expectedOperation||request[3]!=0x02)return false;var offset=4;if(!ByteString(request,ref offset,out payload)||offset!=request.Length)return false;return true;
+        payload=[];first=0;second=0;if(!CanonicalCborValidatorV1.IsValid(request)||request.Length<6||request[0]!=0xa2||request[1]!=0x01||request[2]!=expectedOperation||request[3]!=0x02)return false;var offset=4;if(!ByteString(request,ref offset,out payload)||offset!=request.Length)return false;
+        if(expectedOperation==1)return payload.Length==5&&payload[0]==0xa2&&payload[1]==0x01&&Positive(payload[2],out first)&&payload[3]==0x02&&Positive(payload[4],out second);
+        return payload.Length==3&&payload[0]==0xa1&&payload[1]==0x01&&Positive(payload[2],out first);
     }
+    private static bool Positive(byte encoded,out ulong value){value=encoded;return encoded is >0 and <24;}
     private static bool ByteString(ReadOnlySpan<byte> bytes,ref int offset,out byte[] value)
     {
         value=[];if(offset>=bytes.Length)return false;var initial=bytes[offset++];if(initial>>5!=2)return false;var additional=initial&31;ulong length;if(additional<24)length=(ulong)additional;else if(additional==24){if(offset>=bytes.Length||bytes[offset]<24)return false;length=bytes[offset++];}else if(additional==25){if(offset>bytes.Length-2)return false;length=System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(bytes[offset..]);if(length<=byte.MaxValue)return false;offset+=2;}else if(additional==26){if(offset>bytes.Length-4)return false;length=System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes[offset..]);if(length<=ushort.MaxValue)return false;offset+=4;}else return false;if(length>int.MaxValue||offset>bytes.Length-(int)length)return false;value=bytes.Slice(offset,(int)length).ToArray();offset+=(int)length;return true;

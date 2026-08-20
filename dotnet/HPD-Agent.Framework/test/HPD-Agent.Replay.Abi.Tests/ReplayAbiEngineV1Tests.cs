@@ -20,7 +20,7 @@ public sealed class ReplayAbiEngineV1Tests
         var engine = new ReplayAbiEngineV1();
         Assert.Equal(ReplayAbiStatusV1.Ok, engine.Open(Artifact([1]), out var first));
         Assert.Equal(ReplayAbiStatusV1.Ok, engine.Complete(first, out _));
-        Assert.Equal(ReplayAbiStatusV1.AlreadyClosed, engine.Step(first, Operation(2,[2])));
+        Assert.Equal(ReplayAbiStatusV1.AlreadyClosed, engine.Step(first, Operation(2,[0xa1,0x01,0x02])));
         Assert.Equal(ReplayAbiStatusV1.Ok, engine.Close(first));
         Assert.Equal(ReplayAbiStatusV1.AlreadyClosed, engine.Close(first));
         Assert.Equal(ReplayAbiStatusV1.InvalidHandleGeneration, engine.Status(first, out _));
@@ -53,14 +53,16 @@ public sealed class ReplayAbiEngineV1Tests
     {
         var engine = new ReplayAbiEngineV1();
         Assert.Equal(ReplayAbiStatusV1.Ok, engine.Open(Artifact([0xa1, 0x01, 0x01]), out var handle));
-        Assert.Equal(ReplayAbiStatusV1.Ok, engine.Advance(handle, Operation(1,[0xa1, 0x02, 0x01])));
-        Assert.Equal(ReplayAbiStatusV1.InvalidArgument, engine.Advance(handle, Operation(2,[0xa1, 0x02, 0x01])));
-        Assert.Equal(ReplayAbiStatusV1.Ok, engine.Step(handle, Operation(2,[0xa1, 0x03, 0x01])));
-        Assert.Equal(ReplayAbiStatusV1.Ok, engine.Explore(handle, Operation(3,[0xa1, 0x04, 0x01]), out var explored));
+        Assert.Equal(ReplayAbiStatusV1.Ok, engine.Advance(handle, Operation(1,[0xa2,0x01,0x01,0x02,0x05])));
+        Assert.Equal(ReplayAbiStatusV1.Conflict, engine.Advance(handle, Operation(1,[0xa2,0x01,0x01,0x02,0x04])));
+        Assert.Equal(ReplayAbiStatusV1.InvalidArgument, engine.Advance(handle, Operation(2,[0xa1,0x01,0x01])));
+        Assert.Equal(ReplayAbiStatusV1.Ok, engine.Step(handle, Operation(2,[0xa1,0x01,0x07])));
+        Assert.Equal(ReplayAbiStatusV1.Ok, engine.Status(handle,out var beforeDuplicate));Assert.Equal(ReplayAbiStatusV1.Ok,engine.Step(handle,Operation(2,[0xa1,0x01,0x07])));Assert.Equal(ReplayAbiStatusV1.Ok,engine.Status(handle,out var afterDuplicate));Assert.Equal(beforeDuplicate,afterDuplicate);
+        Assert.Equal(ReplayAbiStatusV1.Ok, engine.Explore(handle, Operation(3,[0xa1,0x01,0x03]), out var explored));
         Assert.Equal(ReplayAbiStatusV1.Ok, engine.Status(handle, out var status));
-        Assert.Equal(88, explored.Length);
+        Assert.Equal(104, explored.Length);
         Assert.Equal(explored, status);
-        explored[56] ^= 0xff;
+        explored[72] ^= 0xff;
         Assert.NotEqual(explored, status);
     }
 
@@ -89,8 +91,8 @@ public sealed class ReplayAbiEngineV1Tests
     {
         var engine = new ReplayAbiEngineV1();
         Assert.Equal(ReplayAbiStatusV1.Ok, engine.Open(Artifact([0xa1, 0x01, 0x01]), out var handle));
-        Assert.Equal(ReplayAbiStatusV1.Ok, engine.Advance(handle, Operation(1,[0xa1, 0x02, 0x01])));
-        Assert.Equal(ReplayAbiStatusV1.Ok, engine.Step(handle, Operation(2,[0xa1, 0x03, 0x01])));
+        Assert.Equal(ReplayAbiStatusV1.Ok, engine.Advance(handle, Operation(1,[0xa2,0x01,0x01,0x02,0x05])));
+        Assert.Equal(ReplayAbiStatusV1.Ok, engine.Step(handle, Operation(2,[0xa1,0x01,0x07])));
         Assert.Equal(ReplayAbiStatusV1.Ok, engine.Complete(handle, out var result));
         return result;
     }
