@@ -1,6 +1,7 @@
 using HPD.Agent.Authority;
 using HPD.Agent.Audio.Runtime.Output;
 using HPD.Agent.Audio.Runtime.Tools;
+using HPD.Agent.Audio.Runtime.Routing;
 
 namespace HPD.Agent.Audio;
 
@@ -43,6 +44,7 @@ internal sealed class LiveAudioPreparedSessionV1
         ReservationPosition = reservationPosition;
         OutputV2 = LiveAudioOutputGenerationV2.TryCreate(request.ExpectedAuthority);
         ToolV1 = LiveAudioToolGenerationV1.TryCreate(request.ExpectedAuthority);
+        RouteV1 = LiveAudioRouteGenerationV1.TryCreate(request.ExpectedAuthority);
         EffectiveFingerprint = prepared.EffectiveFingerprint;
         SkippedOptionalFactories = prepared.SkippedOptionalFactories;
         var descriptors = plan.Descriptors.ToDictionary(value => value.FactoryKey.ToString(), StringComparer.Ordinal);
@@ -55,6 +57,7 @@ internal sealed class LiveAudioPreparedSessionV1
     internal JournalPositionV1 ReservationPosition { get; }
     internal LiveAudioOutputGenerationV2? OutputV2 { get; }
     internal LiveAudioToolGenerationV1? ToolV1 { get; }
+    internal LiveAudioRouteGenerationV1? RouteV1 { get; }
     internal Hash256 EffectiveFingerprint { get; }
     internal IReadOnlyList<BoundedAscii> SkippedOptionalFactories { get; }
     internal IReadOnlyList<ILiveAudioPreparedParticipantV1> Participants =>

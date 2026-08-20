@@ -3,6 +3,7 @@ using HPD.Agent.Audio.Authority;
 using HPD.Agent.Audio.Runtime.Output;
 using HPD.Agent.Audio.Runtime.Providers;
 using HPD.Agent.Audio.Runtime.Tools;
+using HPD.Agent.Audio.Runtime.Routing;
 using System.Formats.Cbor;
 
 namespace HPD.Agent.Audio.Tests;
@@ -58,6 +59,7 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
         Assert.Equal(2, prepared.Session.Participants.Count);
         Assert.Null(prepared.Session.OutputV2);
         Assert.Null(prepared.Session.ToolV1);
+        Assert.Null(prepared.Session.RouteV1);
         var mutableView = Assert.IsAssignableFrom<IList<ILiveAudioPreparedParticipantV1>>(prepared.Session.Participants);
         Assert.Throws<NotSupportedException>(() => mutableView[0] = mutableView[1]);
         Assert.DoesNotContain(prepared.Session.GetType().GetMethods(), method =>
@@ -77,6 +79,7 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
             LiveAudioParticipantFactoryCatalogV1.CreateExplicit([new Factory("media", OwnerSliceId.S2, calls)])));
         var generation = Assert.IsType<LiveAudioOutputGenerationV2>(prepared.Session.OutputV2);
         var tools = Assert.IsType<LiveAudioToolGenerationV1>(prepared.Session.ToolV1);
+        var routes = Assert.IsType<LiveAudioRouteGenerationV1>(prepared.Session.RouteV1);
         var authority = fixture.Request.ExpectedAuthority;
         var provider = Assert.IsType<AuthorityAxisValueV1.Provider>(authority.Axes.Single(x => x.AxisId == AuthorityAxisId.Provider).Value).Value;
         var route = Assert.IsType<AuthorityAxisValueV1.Route>(authority.Axes.Single(x => x.AxisId == AuthorityAxisId.Route).Value).Value;
@@ -89,6 +92,7 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
         Assert.Equal(authority, activated.Receipt.Plan.Authority);
         Assert.Equal(0UL, activated.Controller.Read().Revision);
         Assert.Equal(output,tools.OutputGeneration);
+        Assert.Equal(route,routes.RouteGeneration);
         await prepared.Session.UnwindAsync();
     }
 
