@@ -238,6 +238,7 @@ public sealed class AtomicExecutionTests
         BaseAtomicMutationExecutionLimits exact = generous with
         {
             MaximumGenerationReads = measured.GenerationReads,
+            MaximumGenerationComparisons = measured.GenerationComparisons,
             MaximumGenerationIncrements = measured.GenerationIncrements,
             MaximumGenerationBytes = measured.GenerationBytes,
             MaximumReadIntervals = measured.ReadIntervals,
@@ -251,6 +252,14 @@ public sealed class AtomicExecutionTests
         var rejected = new PreparedModuleProbe(authority, exact with
         {
             MaximumGenerationIncrements = checked(measured.GenerationIncrements - 1),
+        }, applyTwice: false);
+        await store.ExecuteAtomicAsync(rejected, ExecutionRequest);
+        rejected.Prepared.Should().BeNull();
+        rejected.RejectedCode.Should().Be(BaseSubjectErrorCodes.BudgetExceeded);
+
+        rejected = new PreparedModuleProbe(authority, exact with
+        {
+            MaximumGenerationComparisons = checked(measured.GenerationComparisons - 1),
         }, applyTwice: false);
         await store.ExecuteAtomicAsync(rejected, ExecutionRequest);
         rejected.Prepared.Should().BeNull();
@@ -403,7 +412,10 @@ public sealed class AtomicExecutionTests
                 {
                     OperationId = "module.increment", OperationVersion = 1,
                     OperationChecksum = new string('a', 64), Decisions = [], ItemBindings = [],
-                    RelationTargets = [], Comparisons = [],
+                    RelationTargets = [], Comparisons = [new BaseModuleGenerationComparison
+                    {
+                        CaptureOrdinal = 0, Kind = BaseModuleGenerationComparisonKind.MustBeMissing,
+                    }],
                     Increments = [new BaseModuleGenerationIncrement { CaptureOrdinal = 0, CreateIfAbsent = true }],
                     ResultProjectionDigest = "in-memory-l50-probe-result",
                 },

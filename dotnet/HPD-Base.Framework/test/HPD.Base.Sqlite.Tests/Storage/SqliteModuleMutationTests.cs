@@ -87,6 +87,7 @@ public sealed partial class SqliteModuleMutationTests
             BaseAtomicMutationExecutionLimits[] exactLimits =
             [
                 generous with { MaximumGenerationReads = measured.GenerationReads },
+                generous with { MaximumGenerationComparisons = measured.GenerationComparisons },
                 generous with { MaximumGenerationIncrements = measured.GenerationIncrements },
                 generous with { MaximumReadIntervals = measured.ReadIntervals },
                 generous with { MaximumGenerationBytes = measured.GenerationBytes },
@@ -103,6 +104,7 @@ public sealed partial class SqliteModuleMutationTests
             BaseAtomicMutationExecutionLimits[] belowLimits =
             [
                 generous with { MaximumGenerationReads = checked(measured.GenerationReads - 1) },
+                generous with { MaximumGenerationComparisons = checked(measured.GenerationComparisons - 1) },
                 generous with { MaximumGenerationIncrements = checked(measured.GenerationIncrements - 1) },
                 generous with { MaximumReadIntervals = checked(measured.ReadIntervals - 1) },
                 generous with { MaximumGenerationBytes = checked(measured.GenerationBytes - 1) },
@@ -448,7 +450,11 @@ public sealed partial class SqliteModuleMutationTests
                 {
                     OperationId = Definition().Id, OperationVersion = Definition().Version,
                     OperationChecksum = Convert.ToHexString(Definition().Checksum.ToArray()).ToLowerInvariant(),
-                    Decisions = [], ItemBindings = [], RelationTargets = [], Comparisons = [],
+                    Decisions = [], ItemBindings = [], RelationTargets = [],
+                    Comparisons = [new BaseModuleGenerationComparison
+                    {
+                        CaptureOrdinal = 0, Kind = BaseModuleGenerationComparisonKind.MustBeMissing,
+                    }],
                     Increments = [new BaseModuleGenerationIncrement { CaptureOrdinal = 0, CreateIfAbsent = true }],
                     ResultProjectionDigest = "l50-probe-result",
                 },
