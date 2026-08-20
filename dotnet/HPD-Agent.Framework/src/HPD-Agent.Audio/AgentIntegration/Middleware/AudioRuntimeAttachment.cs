@@ -296,14 +296,16 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
         var preparedOutput = options.PreparedOutputResolver?.Invoke(
             request.Session?.Id ?? request.State.ConversationId ?? request.State.RunId);
         return mode is AssistantOutputSynthesisMode.Progressive or AssistantOutputSynthesisMode.ProgressiveWithFinalFallback
-            ? WrapProgressiveOutputAsync(request, options, preparedOutput, handler, cancellationToken)
+            ? preparedOutput is null
+                ? null
+                : WrapProgressiveOutputAsync(request, options, preparedOutput, handler, cancellationToken)
             : null;
     }
 
     private async IAsyncEnumerable<AgentModelUpdate> WrapProgressiveOutputAsync(
         AgentModelTurnRequest request,
         AudioRuntimeAttachmentOptions options,
-        PreparedOutputExecutionV2? preparedOutput,
+        PreparedOutputExecutionV2 preparedOutput,
         Func<AgentModelTurnRequest, IAsyncEnumerable<AgentModelUpdate>> handler,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
@@ -316,34 +318,29 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
         var responseId = new ResponseId($"response-{Guid.NewGuid():N}");
         var outputFlowId = new OutputFlowId($"output-{Guid.NewGuid():N}");
         var outputOptions = ResolveAssistantOutputOptions(options, null, request.ClientSet, request.ContentStore);
-        InMemoryOutputControllerV2? authorityController = null;
-        OperationId? authorityOperation = null;
+        var authorityOperation = OperationId.Create();
         IAudioOutputSink? outputSink = options.AssistantAudioOutputSink;
-        if (preparedOutput is not null)
+        var descriptor = System.Text.Encoding.UTF8.GetBytes(
+            $"{request.State.RunId}|{request.State.ConversationId}|{request.Iteration}|{responseId.Value}");
+        var activation = preparedOutput.Activate(
+            authorityOperation,
+            ProgressiveOutputMaximumUnits,
+            Hash256.Compute(descriptor));
+        var authorityController = activation switch
         {
-            authorityOperation = OperationId.Create();
-            var descriptor = System.Text.Encoding.UTF8.GetBytes(
-                $"{request.State.RunId}|{request.State.ConversationId}|{request.Iteration}|{responseId.Value}");
-            var activation = preparedOutput.Activate(
-                authorityOperation.Value,
-                ProgressiveOutputMaximumUnits,
-                Hash256.Compute(descriptor));
-            authorityController = activation switch
-            {
-                LiveAudioOutputActivationResultV2.Activated value => value.Controller,
-                LiveAudioOutputActivationResultV2.Duplicate value => value.Controller,
-                _ => null
-            };
-            if (authorityController is null)
-            {
-                await foreach (var update in handler(request).WithCancellation(cancellationToken).ConfigureAwait(false))
-                    yield return update;
-                yield break;
-            }
-            if (outputSink is not null)
-                outputSink = new S6AuthoritativeAudioOutputSinkV2(
-                    outputSink, authorityController, OutputSynthesisFamilyV2.PushPcm);
+            LiveAudioOutputActivationResultV2.Activated value => value.Controller,
+            LiveAudioOutputActivationResultV2.Duplicate value => value.Controller,
+            _ => null
+        };
+        if (authorityController is null)
+        {
+            await foreach (var update in handler(request).WithCancellation(cancellationToken).ConfigureAwait(false))
+                yield return update;
+            yield break;
         }
+        if (outputSink is not null)
+            outputSink = new S6AuthoritativeAudioOutputSinkV2(
+                outputSink, authorityController, OutputSynthesisFamilyV2.PushPcm);
         var eventFlowHandle = options.EnableAssistantOutputPlayback
             ? request.EventFlows?.Create(outputFlowId.Value)
             : null;

@@ -21,6 +21,24 @@ namespace HPD.Agent.Audio.V2.Tests;
 public sealed class AudioRuntimeAttachmentProgressiveOutputTests
 {
     [Fact]
+    public void WrapModelTurnStreamingAsync_ProgressiveWithoutPreparedAuthority_FailsClosedBeforeEffect()
+    {
+        var tts = new FakeTextToSpeechClient();
+        var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
+        {
+            AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Progressive,
+            AssistantOutputTextToSpeechClient = tts
+        });
+        var request = CreateModelRequest(new InMemoryContentStore(), new EventCoordinator());
+
+        var stream = attachment.WrapModelTurnStreamingAsync(request, StreamingHandler, CancellationToken.None);
+
+        Assert.Null(stream);
+        Assert.Empty(tts.Texts);
+        Assert.Empty(attachment.LastOutputResults);
+    }
+
+    [Fact]
     public async Task WrapModelTurnStreamingAsync_ProgressiveMode_YieldsOriginalUpdatesAndStoresSegments()
     {
         var contentStore = new InMemoryContentStore();
@@ -97,6 +115,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.ProgressiveWithFinalFallback,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = tts,
             AssistantOutputProviderKey = "fake-tts"
         });
@@ -124,6 +143,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.ProgressiveWithFinalFallback,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = tts,
             AssistantOutputProviderKey = "fake-tts"
         });
@@ -154,6 +174,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Progressive,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = new FakeTextToSpeechClient(),
             AssistantOutputProviderKey = "fake-tts"
         });
@@ -188,6 +209,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Progressive,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = new FakeTextToSpeechClient(),
             AssistantOutputProviderKey = "fake-tts",
             AssistantOutputArtifactCapturePolicy = AssistantAudioArtifactCapturePolicy.Disabled
@@ -374,6 +396,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Progressive,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = tts,
             AssistantOutputProviderKey = "fake-tts",
             AssistantAudioOutputSink = sink,
@@ -416,6 +439,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Progressive,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = tts,
             AssistantOutputProviderKey = "fake-tts",
             AssistantAudioOutputSink = sink,
@@ -470,6 +494,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Progressive,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = new FakeTextToSpeechClient(),
             AssistantOutputProviderKey = "fake-tts",
             AssistantAudioOutputSink = new CompletingAudioOutputSink(),
@@ -511,6 +536,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Progressive,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = new FakeTextToSpeechClient(),
             AssistantOutputProviderKey = "fake-tts",
             AssistantAudioOutputSink = new CompletingAudioOutputSink(),
@@ -549,6 +575,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Progressive,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = new FakeTextToSpeechClient(),
             AssistantOutputProviderKey = "fake-tts",
             AssistantAudioOutputSink = new CompletingAudioOutputSink(),
@@ -610,6 +637,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Progressive,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = tts,
             AssistantOutputProviderKey = "fake-tts",
             AssistantAudioOutputSink = sink,
@@ -699,6 +727,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Progressive,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = tts,
             AssistantOutputProviderKey = "fake-tts",
             AssistantAudioOutputSink = sink,
@@ -785,6 +814,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Progressive,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = tts,
             AssistantOutputProviderKey = "fake-tts",
             AssistantAudioOutputSink = sink,
@@ -841,6 +871,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Progressive,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = tts,
             AssistantOutputProviderKey = "fake-tts",
             AssistantAudioOutputSink = sink,
@@ -876,6 +907,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Progressive,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = tts,
             AssistantOutputProviderKey = "fake-tts"
         });
@@ -912,6 +944,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Progressive,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = tts,
             AssistantOutputProviderKey = "fake-tts",
             AssistantOutputPacingOptions = new TextToSpeechPacingOptions
@@ -964,6 +997,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Progressive,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = new UnsupportedTextToSpeechClient(),
             AssistantOutputProviderKey = "unsupported-tts"
         });
@@ -1002,6 +1036,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Progressive,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = tts,
             AssistantOutputProviderKey = "streaming-tts",
             AssistantAudioOutputSink = sink,
@@ -1041,6 +1076,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Progressive,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = tts,
             AssistantOutputProviderKey = "push-tts",
             AssistantOutputProgressiveRouteMode = ProgressiveTextToSpeechRouteMode.Auto
@@ -1073,6 +1109,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Progressive,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = tts,
             AssistantOutputProviderKey = "push-tts",
             AssistantOutputProgressiveRouteMode = ProgressiveTextToSpeechRouteMode.ForceSegment
@@ -1097,6 +1134,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Progressive,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = tts,
             AssistantOutputProviderKey = "fake-tts",
             AssistantOutputProgressiveRouteMode = ProgressiveTextToSpeechRouteMode.ForcePushText
@@ -1123,6 +1161,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Progressive,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = tts,
             AssistantOutputProviderKey = "lying-push-tts",
             AssistantOutputProgressiveRouteMode = ProgressiveTextToSpeechRouteMode.Auto
@@ -1147,6 +1186,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Progressive,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = tts,
             AssistantOutputProviderKey = "factory-only-tts",
             AssistantOutputProgressiveRouteMode = ProgressiveTextToSpeechRouteMode.Auto
@@ -1172,6 +1212,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Progressive,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = tts,
             AssistantOutputProviderKey = "lying-push-tts",
             AssistantOutputProgressiveRouteMode = ProgressiveTextToSpeechRouteMode.ForcePushText
@@ -1198,6 +1239,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Progressive,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = tts,
             AssistantOutputProviderKey = "factory-only-tts",
             AssistantOutputProgressiveRouteMode = ProgressiveTextToSpeechRouteMode.ForcePushText
@@ -1229,6 +1271,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Progressive,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = tts,
             AssistantOutputProviderKey = "push-tts",
             AssistantOutputProgressiveRouteMode = ProgressiveTextToSpeechRouteMode.Auto
@@ -1258,6 +1301,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Progressive,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = tts,
             AssistantOutputProviderKey = "push-tts",
             AssistantOutputProgressiveRouteMode = ProgressiveTextToSpeechRouteMode.ForcePushText
@@ -1288,6 +1332,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Progressive,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = tts,
             AssistantOutputProviderKey = "push-tts",
             AssistantOutputProgressiveRouteMode = ProgressiveTextToSpeechRouteMode.Auto
