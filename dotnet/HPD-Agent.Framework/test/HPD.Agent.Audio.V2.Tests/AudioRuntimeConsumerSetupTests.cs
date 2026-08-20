@@ -35,6 +35,7 @@ public sealed class AudioRuntimeConsumerSetupTests
                 options.AssistantOutputModelId = "fake-model";
                 options.AssistantOutputVoiceId = "fake-voice";
                 options.AssistantOutputFormat = "mp3";
+                options.PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create();
             })
             .BuildAsync();
 
