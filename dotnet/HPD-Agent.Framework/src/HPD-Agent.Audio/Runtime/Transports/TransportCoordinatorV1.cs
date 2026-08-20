@@ -4,7 +4,7 @@ using HPD.Agent.Authority;
 
 namespace HPD.Agent.Audio.Runtime.Transports;
 
-internal enum TransportProfileV1:ushort{FiniteContent=1,Manual=2}
+internal enum TransportProfileV1:ushort{FiniteContent=1,Manual=2,LocalDevice=3}
 internal enum TransportLifecycleV1:ushort{Proposed=1,Bound=2,Active=3,Stopped=4,Quarantined=5}
 internal sealed record TransportPlanV1
 {
