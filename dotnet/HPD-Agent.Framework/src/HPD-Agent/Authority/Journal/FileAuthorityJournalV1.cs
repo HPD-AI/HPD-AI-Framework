@@ -36,7 +36,15 @@ internal sealed class FileAuthorityJournalV1 : IAuthorityJournalV1, IAsyncDispos
         _stream = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read,
             64 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
         _memory = new InMemoryAuthorityJournalV1(_registry, _clock, _capacity);
-        ReloadFromDurableFile();
+        try
+        {
+            ReloadFromDurableFile();
+        }
+        catch
+        {
+            _stream.Dispose();
+            throw;
+        }
     }
 
     internal static ValueTask<FileAuthorityJournalV1> OpenAsync(string path,

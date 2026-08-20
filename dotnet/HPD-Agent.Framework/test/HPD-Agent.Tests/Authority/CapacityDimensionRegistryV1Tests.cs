@@ -96,7 +96,7 @@ public sealed class CapacityDimensionRegistryV1Tests
             descriptor.SchemaVersion,
             descriptor.SettlementEvidence)));
 
-        Assert.Equal(FrozenRows, actual);
+        Assert.Equal(FrozenRows.ReplaceLineEndings("\n"), actual);
         Assert.All(CapacityDimensionRegistryV1.All, static descriptor => Assert.Equal(OwnerSliceId.S2, descriptor.Owner));
         Assert.Equal(CapacityDimensionsV1.JournalBytes, CapacityDimensionRegistryV1.All[9].Id);
     }
