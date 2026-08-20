@@ -186,26 +186,3 @@ public sealed record AudioErrorTraceRecord : RealtimeAudioTraceRecord
 {
     public required AudioErrorInfo Error { get; init; }
 }
-
-public sealed record AudioReplayScenario
-{
-    public required AudioSessionId SessionId { get; init; }
-
-    public required IReadOnlyList<RealtimeAudioTraceRecord> Records { get; init; }
-
-    public bool IsPrivacySafe { get; init; } = true;
-}
-
-public interface IRealtimeAudioTraceMaterializer
-{
-    ValueTask<AudioReplayScenario> MaterializeAsync(
-        AudioSessionId sessionId,
-        CancellationToken cancellationToken = default);
-}
-
-public interface IRealtimeAudioTraceAsserter
-{
-    ValueTask AssertAsync(
-        AudioReplayScenario scenario,
-        CancellationToken cancellationToken = default);
-}

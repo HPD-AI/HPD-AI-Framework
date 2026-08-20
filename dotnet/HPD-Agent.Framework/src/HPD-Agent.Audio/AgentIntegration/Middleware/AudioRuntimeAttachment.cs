@@ -702,7 +702,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
             : [];
         var trace = result.Trace is InMemoryRealtimeAudioTraceStore inMemoryTrace
             ? inMemoryTrace.ToArray()
-            : result.Replay.Records;
+            : [];
         var plan = result.RouteDecision?.Plan;
         var assistantOutputTexts = ledger
             .OfType<AssistantOutputLedgerRecord>()

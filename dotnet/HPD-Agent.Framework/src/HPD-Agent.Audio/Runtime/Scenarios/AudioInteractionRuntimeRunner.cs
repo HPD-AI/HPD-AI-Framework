@@ -6,7 +6,6 @@ using HPD.Agent.Audio.Providers;
 using HPD.Agent.Audio.Runtime.Thread;
 using HPD.Agent.Audio.Runtime.Ledger;
 using HPD.Agent.Audio.Runtime.Providers;
-using HPD.Agent.Audio.Runtime.Replay;
 using HPD.Agent.Audio.Runtime.Trace;
 using HPD.Agent.Audio.Runtime.Transports;
 using HPD.Agent.Audio.Runtime.Turns;
@@ -492,7 +491,6 @@ public sealed class AudioInteractionRuntimeRunner
         TurnSnapshot? turnSnapshot,
         CancellationToken cancellationToken)
     {
-        var replay = await new PrivacySafeAudioTraceMaterializer(trace).MaterializeAsync(sessionId, cancellationToken);
         return new AudioInteractionRuntimeResult(
             Ledger: ledger,
             Trace: trace,
@@ -500,8 +498,7 @@ public sealed class AudioInteractionRuntimeRunner
             Envelopes: envelopes ?? [],
             RouteDecision: routeDecision,
             TurnDecision: turnDecision,
-            TurnSnapshot: turnSnapshot,
-            Replay: replay);
+            TurnSnapshot: turnSnapshot);
     }
 
     private async ValueTask AppendInputDispositionAsync(
@@ -692,5 +689,4 @@ public sealed record AudioInteractionRuntimeResult(
     IReadOnlyList<CanonicalMediaEnvelope> Envelopes,
     ProviderRouteDecision? RouteDecision,
     TurnDecision? TurnDecision,
-    TurnSnapshot? TurnSnapshot,
-    AudioReplayScenario Replay);
+    TurnSnapshot? TurnSnapshot);

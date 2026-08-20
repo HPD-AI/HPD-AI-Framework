@@ -8,6 +8,7 @@ using HPD.Agent.Audio.Providers;
 using HPD.Agent.Audio.Runtime;
 using HPD.Agent.Audio.Runtime.Providers;
 using HPD.Agent.Audio.Runtime.Scenarios;
+using HPD.Agent.Audio.Runtime.Trace;
 using HPD.Agent.Audio.Trace;
 using HPD.Agent.Audio.Turns;
 using Microsoft.Extensions.AI;
@@ -108,15 +109,15 @@ public sealed class InputMediaSliceTests
         var content = TestInputContent.Audio(name: "replay.flac", mediaType: "audio/flac", sha256: "sha256-replay");
 
         var result = await RunScenarioAsync(content);
-        var replay = result.Replay;
+        var trace = Assert.IsType<InMemoryRealtimeAudioTraceStore>(result.Trace);
+        var records = trace.ToArray();
 
-        Assert.True(replay.IsPrivacySafe);
-        Assert.Equal(TestSessionId, replay.SessionId);
-        Assert.Contains(replay.Records.OfType<AudioInputContentTraceRecord>(), r =>
+        Assert.All(records, record => Assert.Equal(TestSessionId, record.SessionId));
+        Assert.Contains(records.OfType<AudioInputContentTraceRecord>(), r =>
             r.Content.Id == content.Id &&
             r.Content.Sha256 == "sha256-replay" &&
             r.Content.Source is not null);
-        Assert.DoesNotContain(replay.Records.OfType<AudioInputContentTraceRecord>(), r =>
+        Assert.DoesNotContain(records.OfType<AudioInputContentTraceRecord>(), r =>
             r.Content.Artifact is not null ||
             r.Content.ProviderRef is not null);
     }
