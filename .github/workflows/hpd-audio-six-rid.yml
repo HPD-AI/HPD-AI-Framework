@@ -43,7 +43,8 @@ jobs:
           set -euo pipefail
           lib="${RUNNER_TEMP}/hpd-audio-abi/${{ matrix.library }}"
           test -f "$lib"
-          count="$(nm -g "$lib" | grep -E 'hpd_audio_transport_(create|bind|start|stop|destroy)' | wc -l | tr -d ' ')"
+          if [[ "${{ matrix.rid }}" == linux-* ]]; then symbols="$(nm -D "$lib")"; else symbols="$(nm -gU "$lib")"; fi
+          count="$(printf '%s\n' "$symbols" | grep -E 'hpd_audio_transport_(create|bind|start|stop|destroy)' | wc -l | tr -d ' ')"
           test "$count" = 5
           cc -Wall -Wextra -Werror test/HPD-Agent.Audio.TransportAbi.NativeAot/transport_abi_smoke.c \
             -Itest/HPD-Agent.Audio.TransportAbi.NativeAot "$lib" \
@@ -53,10 +54,10 @@ jobs:
         if: matrix.os == 'windows'
         shell: cmd
         run: |
-          dumpbin /exports "%RUNNER_TEMP%\hpd-audio-abi\${{ matrix.library }}" > "%RUNNER_TEMP%\exports.txt"
+          dumpbin /exports "%RUNNER_TEMP%\hpd-audio-abi\${{ matrix.library }}" > "%RUNNER_TEMP%\exports.txt" || exit /b 1
           for %%E in (create bind start stop destroy) do findstr /c:"hpd_audio_transport_%%E" "%RUNNER_TEMP%\exports.txt" >nul || exit /b 1
-          cl /nologo /W4 /WX test\HPD-Agent.Audio.TransportAbi.NativeAot\transport_abi_smoke.c /Itest\HPD-Agent.Audio.TransportAbi.NativeAot /link "%RUNNER_TEMP%\hpd-audio-abi\${{ matrix.library }}.lib" /out:"%RUNNER_TEMP%\hpd-audio-abi-smoke.exe"
-          "%RUNNER_TEMP%\hpd-audio-abi-smoke.exe"
+          cl /nologo /W4 /WX test\HPD-Agent.Audio.TransportAbi.NativeAot\transport_abi_smoke.c /Itest\HPD-Agent.Audio.TransportAbi.NativeAot /link "%RUNNER_TEMP%\hpd-audio-abi\HPD-Agent.Audio.TransportAbi.NativeAot.lib" /out:"%RUNNER_TEMP%\hpd-audio-abi-smoke.exe" || exit /b 1
+          "%RUNNER_TEMP%\hpd-audio-abi-smoke.exe" || exit /b 1
       - uses: actions/upload-artifact@v4
         with:
           name: hpd-audio-transport-abi-${{ matrix.rid }}
