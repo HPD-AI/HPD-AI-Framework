@@ -62,12 +62,12 @@ internal sealed class InMemoryOutputControllerV2 : IOutputControllerV2,IOutputSt
         =>ApplyPipeline(OutputTtsSinkPipelineV2.Generate(_state,request,provider,_maximumReceipts));
     internal OutputPipelineResultV2 Generate(OutputSynthesisEvidenceV2 evidence)
         =>ApplyPipeline(OutputTtsSinkPipelineV2.Generate(_state,evidence,_maximumReceipts));
-    internal OutputPipelineResultV2 Send(OutputSinkEffectV2.Send effect,IOutputSinkEffectPortV2 sink)
-        =>ApplyPipeline(OutputTtsSinkPipelineV2.Send(_state,effect,sink,_maximumReceipts));
-    internal OutputPipelineResultV2 Play(OutputSinkEffectV2.Play effect,IOutputSinkEffectPortV2 sink)
-        =>ApplyPipeline(OutputTtsSinkPipelineV2.Play(_state,effect,sink,_maximumReceipts));
-    internal OutputPipelineResultV2 Hear(OutputSinkEffectV2.Hear effect,IOutputSinkEffectPortV2 sink)
-        =>ApplyPipeline(OutputTtsSinkPipelineV2.Hear(_state,effect,sink,_maximumReceipts));
+    internal async ValueTask<OutputPipelineResultV2> SendAsync(OutputSinkEffectV2.Send effect,IOutputSinkEffectPortV2 sink,CancellationToken cancellationToken=default)
+        =>ApplyPipeline(await OutputTtsSinkPipelineV2.SendAsync(_state,effect,sink,_maximumReceipts,cancellationToken).ConfigureAwait(false));
+    internal async ValueTask<OutputPipelineResultV2> PlayAsync(OutputSinkEffectV2.Play effect,IOutputSinkEffectPortV2 sink,CancellationToken cancellationToken=default)
+        =>ApplyPipeline(await OutputTtsSinkPipelineV2.PlayAsync(_state,effect,sink,_maximumReceipts,cancellationToken).ConfigureAwait(false));
+    internal async ValueTask<OutputPipelineResultV2> HearAsync(OutputSinkEffectV2.Hear effect,IOutputSinkEffectPortV2 sink,CancellationToken cancellationToken=default)
+        =>ApplyPipeline(await OutputTtsSinkPipelineV2.HearAsync(_state,effect,sink,_maximumReceipts,cancellationToken).ConfigureAwait(false));
     internal OutputPlanV2 Plan=>_state.Plan;
     internal OutputControllerStateV2 State=>_state;
     internal OutputInterruptionResultV2 Interrupt(ToolTransactionStateV1 tool,OperationId operationId,ushort maximumToolReceipts)

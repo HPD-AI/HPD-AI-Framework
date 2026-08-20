@@ -62,7 +62,7 @@ public sealed class LiveAudioOutputGenerationV2Tests
     }
 
     [Fact]
-    public void Activated_controller_persists_distinct_generated_sent_played_and_heard_axes()
+    public async Task Activated_controller_persists_distinct_generated_sent_played_and_heard_axes()
     {
         var fixture = Fixture();
         var generation = new LiveAudioOutputGenerationV2(fixture.Authority, 4, 16);
@@ -74,11 +74,11 @@ public sealed class LiveAudioOutputGenerationV2Tests
         Assert.IsType<OutputPipelineResultV2.Applied>(controller.Generate(
             new OutputSynthesisRequestV2(OperationId.Create(), OutputSynthesisFamilyV2.SegmentedPcm, "hello", 10),
             provider));
-        Assert.IsType<OutputPipelineResultV2.Applied>(controller.Send(
+        Assert.IsType<OutputPipelineResultV2.Applied>(await controller.SendAsync(
             new OutputSinkEffectV2.Send(OperationId.Create(), 5), sink));
-        Assert.IsType<OutputPipelineResultV2.Applied>(controller.Play(
+        Assert.IsType<OutputPipelineResultV2.Applied>(await controller.PlayAsync(
             new OutputSinkEffectV2.Play(OperationId.Create(), 4), sink));
-        Assert.IsType<OutputPipelineResultV2.Applied>(controller.Hear(
+        Assert.IsType<OutputPipelineResultV2.Applied>(await controller.HearAsync(
             new OutputSinkEffectV2.Hear(OperationId.Create(), 3), sink));
 
         var status = controller.Read();
