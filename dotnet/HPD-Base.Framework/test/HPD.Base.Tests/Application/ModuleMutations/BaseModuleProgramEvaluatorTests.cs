@@ -303,6 +303,89 @@ public sealed class BaseModuleProgramEvaluatorTests
     }
 
     [Fact]
+    public void Every_manual_factory_matches_its_direct_closed_union_shape()
+    {
+        BaseModuleValueExpression constant = BaseModuleMutationTemplateBuilder.Constant("constant", "int64", "1"u8);
+        var requestReference = new BaseModuleRequestPropertyReference { StablePropertyPath = ["request.value"], DeclaredTypeId = "int64" };
+        var fieldReference = new BaseModuleCapturedFieldReference { CaptureId = "record", StableFieldId = "record.value", DeclaredTypeId = "int64" };
+        BaseModuleObjectExpression payload = BaseModuleMutationTemplateBuilder.Object("payload", "payload",
+            BaseModuleMutationTemplateBuilder.Property("payload.value", constant));
+        BaseModuleMutationBlock empty = BaseModuleMutationTemplateBuilder.Block();
+
+        (object Factory, object Direct)[] pairs =
+        [
+            (BaseModuleMutationTemplateBuilder.CaptureRecord("record", "records", constant, BaseModuleCapturePresence.RequirePresent),
+                new BaseModuleRecordCapture { Id = "record", CollectionId = "records", RecordId = constant, Presence = BaseModuleCapturePresence.RequirePresent }),
+            (BaseModuleMutationTemplateBuilder.CaptureGeneration("generation", "module.generation", constant, BaseModuleGenerationAbsenceBehavior.AllowEither),
+                new BaseModuleGenerationCapture { Id = "generation", CellId = "module.generation", Key = constant, Absence = BaseModuleGenerationAbsenceBehavior.AllowEither }),
+            (BaseModuleMutationTemplateBuilder.RecordPresent("record-present", "record", true),
+                new BaseModuleRecordPresenceGuard { Id = "record-present", CaptureId = "record", MustBePresent = true }),
+            (BaseModuleMutationTemplateBuilder.RevisionEquals("revision", "record", constant),
+                new BaseModuleRevisionEqualsGuard { Id = "revision", CaptureId = "record", Expected = constant }),
+            (BaseModuleMutationTemplateBuilder.FieldEquals("field-equals", fieldReference, constant),
+                new BaseModuleFieldEqualsGuard { Id = "field-equals", Field = fieldReference, Expected = constant }),
+            (BaseModuleMutationTemplateBuilder.FieldPresence("field-present", fieldReference, BaseModuleFieldPresenceTest.PresentValue),
+                new BaseModuleFieldPresenceGuard { Id = "field-present", Field = fieldReference, Test = BaseModuleFieldPresenceTest.PresentValue }),
+            (BaseModuleMutationTemplateBuilder.Generation("generation-equals", "generation", BaseModuleGenerationComparisonKind.MustEqual, constant),
+                new BaseModuleGenerationGuard { Id = "generation-equals", CaptureId = "generation", Comparison = BaseModuleGenerationComparisonKind.MustEqual, Expected = constant }),
+            (BaseModuleMutationTemplateBuilder.And("and", "a", "b"),
+                new BaseModuleLogicalGuard { Id = "and", Kind = BaseModuleLogicalGuardKind.And, ChildGuardIds = ["a", "b"] }),
+            (BaseModuleMutationTemplateBuilder.Or("or", "a", "b"),
+                new BaseModuleLogicalGuard { Id = "or", Kind = BaseModuleLogicalGuardKind.Or, ChildGuardIds = ["a", "b"] }),
+            (BaseModuleMutationTemplateBuilder.Not("not", "a"),
+                new BaseModuleLogicalGuard { Id = "not", Kind = BaseModuleLogicalGuardKind.Not, ChildGuardIds = ["a"] }),
+            (BaseModuleMutationTemplateBuilder.Create("create", "records", constant, payload),
+                new BaseModuleCreateStatement { Id = "create", CollectionId = "records", RecordId = constant, Payload = payload }),
+            (BaseModuleMutationTemplateBuilder.Patch("patch", "records", constant, payload, constant),
+                new BaseModulePatchStatement { Id = "patch", CollectionId = "records", RecordId = constant, Patch = payload, ExpectedRevision = constant }),
+            (BaseModuleMutationTemplateBuilder.Replace("replace", "records", constant, payload, constant),
+                new BaseModuleReplaceStatement { Id = "replace", CollectionId = "records", RecordId = constant, Payload = payload, ExpectedRevision = constant }),
+            (BaseModuleMutationTemplateBuilder.Delete("delete", "records", constant, constant),
+                new BaseModuleDeleteStatement { Id = "delete", CollectionId = "records", RecordId = constant, ExpectedRevision = constant }),
+            (BaseModuleMutationTemplateBuilder.Upsert("upsert", "records", constant, payload, payload, RecordUpsertUpdateMode.Replace, constant),
+                new BaseModuleUpsertStatement { Id = "upsert", CollectionId = "records", RecordId = constant, Create = payload, Update = payload, UpdateMode = RecordUpsertUpdateMode.Replace, ExpectedRevision = constant }),
+            (BaseModuleMutationTemplateBuilder.IncrementGeneration("increment", "generation", true),
+                new BaseModuleIncrementGenerationStatement { Id = "increment", CaptureId = "generation", CreateIfAbsent = true }),
+            (BaseModuleMutationTemplateBuilder.If("if", "guard", empty, empty),
+                new BaseModuleIfStatement { Id = "if", GuardId = "guard", WhenTrue = empty, WhenFalse = empty }),
+            (BaseModuleMutationTemplateBuilder.Require("require", "guard", "requirement"),
+                new BaseModuleRequireStatement { Id = "require", GuardId = "guard", RequirementId = "requirement" }),
+            (BaseModuleMutationTemplateBuilder.RequestProperty("request", "int64", requestReference),
+                new BaseModuleRequestPropertyExpression { Id = "request", ResultTypeId = "int64", Property = requestReference }),
+            (constant, new BaseModuleConstantExpression { Id = "constant", ResultTypeId = "int64", CanonicalBaseJson = "1"u8.ToArray().ToImmutableArray() }),
+            (BaseModuleMutationTemplateBuilder.CapturedField("captured-field", "int64", fieldReference),
+                new BaseModuleCapturedFieldExpression { Id = "captured-field", ResultTypeId = "int64", Field = fieldReference }),
+            (BaseModuleMutationTemplateBuilder.CapturedRecordId("captured-id", "recordId", "record"),
+                new BaseModuleCapturedRecordIdExpression { Id = "captured-id", ResultTypeId = "recordId", CaptureId = "record" }),
+            (BaseModuleMutationTemplateBuilder.CapturedRevision("captured-revision", "record"),
+                new BaseModuleCapturedRevisionExpression { Id = "captured-revision", ResultTypeId = "revision", CaptureId = "record" }),
+            (BaseModuleMutationTemplateBuilder.CapturedGeneration("captured-generation", "base.moduleGeneration", "generation"),
+                new BaseModuleCapturedGenerationExpression { Id = "captured-generation", ResultTypeId = "base.moduleGeneration", CaptureId = "generation" }),
+            (BaseModuleMutationTemplateBuilder.CommittedRecordId("committed-id", "recordId", "create"),
+                new BaseModuleCommittedRecordIdExpression { Id = "committed-id", ResultTypeId = "recordId", StatementId = "create" }),
+            (BaseModuleMutationTemplateBuilder.CommittedRevision("committed-revision", "create"),
+                new BaseModuleCommittedRevisionExpression { Id = "committed-revision", ResultTypeId = "revision", StatementId = "create" }),
+            (BaseModuleMutationTemplateBuilder.CommittedUpsertDisposition("upsert-disposition", "upsertDisposition", "upsert"),
+                new BaseModuleCommittedUpsertDispositionExpression { Id = "upsert-disposition", ResultTypeId = "upsertDisposition", StatementId = "upsert" }),
+            (BaseModuleMutationTemplateBuilder.ResultingGeneration("resulting-generation", "base.moduleGeneration", "generation"),
+                new BaseModuleResultingGenerationExpression { Id = "resulting-generation", ResultTypeId = "base.moduleGeneration", CaptureId = "generation" }),
+            (BaseModuleMutationTemplateBuilder.Coalesce("coalesce", "int64", constant, constant),
+                new BaseModuleCoalesceExpression { Id = "coalesce", ResultTypeId = "int64", Values = [constant, constant] }),
+            (BaseModuleMutationTemplateBuilder.Conditional("conditional", "int64", "guard", constant, constant),
+                new BaseModuleConditionalExpression { Id = "conditional", ResultTypeId = "int64", GuardId = "guard", WhenTrue = constant, WhenFalse = constant }),
+            (BaseModuleMutationTemplateBuilder.Numeric("numeric", "int64", BaseModuleNumericOperator.IntegerAddChecked, constant, constant),
+                new BaseModuleBinaryNumericExpression { Id = "numeric", ResultTypeId = "int64", Operator = BaseModuleNumericOperator.IntegerAddChecked, Left = constant, Right = constant }),
+            (payload, new BaseModuleObjectExpression { Id = "payload", ResultTypeId = "payload", Properties = [new BaseModuleObjectPropertyExpression { StablePropertyId = "payload.value", Value = constant }] }),
+            (BaseModuleMutationTemplateBuilder.Block(new BaseModuleRequireStatement { Id = "required", GuardId = "guard", RequirementId = "required" }),
+                new BaseModuleMutationBlock { Statements = [new BaseModuleRequireStatement { Id = "required", GuardId = "guard", RequirementId = "required" }] }),
+            (BaseModuleMutationTemplateBuilder.Result(payload), new BaseModuleResultProjection { Value = payload }),
+        ];
+
+        foreach ((object factory, object direct) in pairs)
+            factory.Should().BeEquivalentTo(direct, options => options.RespectingRuntimeTypes(), factory.GetType().Name);
+    }
+
+    [Fact]
     public void Conditional_result_definite_assignment_is_validated_per_execution_path()
     {
         BaseModuleGenerationCellDefinition Cell(string id) => new()
