@@ -1,6 +1,8 @@
 name: HPD Audio release stress and soak
 
 on:
+  push:
+    branches: [codex/hpd-audio-release-closure]
   workflow_dispatch:
 
 permissions:
