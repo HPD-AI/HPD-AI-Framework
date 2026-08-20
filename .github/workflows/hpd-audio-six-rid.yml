@@ -67,6 +67,7 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           & cl /nologo /W4 /WX test\HPD-Agent.Audio.TransportAbi.NativeAot\transport_abi_smoke.c /Itest\HPD-Agent.Audio.TransportAbi.NativeAot /link "$out\transport.lib" "/out:$env:RUNNER_TEMP\hpd-audio-abi-smoke.exe"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Copy-Item $dll (Join-Path $env:RUNNER_TEMP '${{ matrix.library }}')
           $env:PATH = "$out;$env:PATH"
           & "$env:RUNNER_TEMP\hpd-audio-abi-smoke.exe"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
