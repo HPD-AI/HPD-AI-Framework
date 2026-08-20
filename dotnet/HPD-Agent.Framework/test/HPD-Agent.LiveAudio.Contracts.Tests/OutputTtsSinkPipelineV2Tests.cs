@@ -1,0 +1,16 @@
+using HPD.Agent.Audio.Runtime.Output;
+using HPD.Agent.Authority;
+
+namespace HPD.Agent.LiveAudio.Contracts.Tests;
+
+public sealed class OutputTtsSinkPipelineV2Tests
+{
+    [Fact] public void Segmented_and_push_families_produce_concrete_generated_evidence(){foreach(var family in new[]{OutputSynthesisFamilyV2.SegmentedPcm,OutputSynthesisFamilyV2.PushPcm}){var s=State();var r=Assert.IsType<OutputPipelineResultV2.Applied>(OutputTtsSinkPipelineV2.Generate(s,new(OperationId.Create(),family,"hello",20),new DeterministicPcmSynthesisProviderV2(family),16));Assert.Equal(5,r.State.Status.GeneratedUntil);}}
+    [Fact] public void Generated_sent_played_and_heard_are_settled_by_distinct_effects(){var s=Generated();s=A(OutputTtsSinkPipelineV2.Send(s,new(OperationId.Create(),5),new ManualOutputSinkEffectPortV2(),16));s=A(OutputTtsSinkPipelineV2.Play(s,new(OperationId.Create(),4),new ManualOutputSinkEffectPortV2(),16));s=A(OutputTtsSinkPipelineV2.Hear(s,new(OperationId.Create(),3),new ManualOutputSinkEffectPortV2(),16));Assert.Equal((5L,5L,4L,3L),(s.Status.GeneratedUntil,s.Status.SentUntil,s.Status.PlayedUntil,s.Status.HeardUntil));}
+    [Fact] public void Sink_refusal_preserves_every_output_axis(){var s=Generated();var r=Assert.IsType<OutputPipelineResultV2.EffectRefused>(OutputTtsSinkPipelineV2.Send(s,new(OperationId.Create(),5),new ManualOutputSinkEffectPortV2(_=>new OutputSinkEffectResultV2.Refused(new BoundedAscii("sink-refused"))),16));Assert.Same(s,r.State);Assert.Equal(0,r.State.Status.SentUntil);}
+    [Fact] public void Unknown_sink_outcome_cannot_be_promoted_to_sent(){var s=Generated();var r=Assert.IsType<OutputPipelineResultV2.OutcomeUnknown>(OutputTtsSinkPipelineV2.Send(s,new(OperationId.Create(),5),new ManualOutputSinkEffectPortV2(_=>new OutputSinkEffectResultV2.OutcomeUnknown(new BoundedAscii("sink-outcome-unknown"))),16));Assert.Equal(0,r.State.Status.SentUntil);}
+    [Fact] public void Sink_acknowledgement_cannot_skip_upstream_authority(){var s=Generated();var r=Assert.IsType<OutputPipelineResultV2.Rejected>(OutputTtsSinkPipelineV2.Play(s,new(OperationId.Create(),1),new ManualOutputSinkEffectPortV2(),16));Assert.Equal("output-transition-invalid",r.SafeCode.ToString());}
+    private static OutputControllerStateV2 Generated()=>A(OutputTtsSinkPipelineV2.Generate(State(),new(OperationId.Create(),OutputSynthesisFamilyV2.SegmentedPcm,"hello",20),new DeterministicPcmSynthesisProviderV2(OutputSynthesisFamilyV2.SegmentedPcm),16));
+    private static OutputControllerStateV2 State(){var s=new SessionAuthorityStampV1(RuntimeGenerationId.Create(),LiveSessionId.Create());var o=OutputGenerationId.Create();var a=ExpectedAuthorityVectorV1.Create(s,[new AuthorityAxisValueV1.Output(o)]);return new(new OutputPlanV2(OperationId.Create(),o,a,20),new(0,0,0,0,0,false));}
+    private static OutputControllerStateV2 A(OutputPipelineResultV2 r)=>Assert.IsType<OutputPipelineResultV2.Applied>(r).State;
+}
