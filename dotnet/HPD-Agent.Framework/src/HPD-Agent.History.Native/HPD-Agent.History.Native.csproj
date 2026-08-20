@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework><OutputType>Library</OutputType>
+    <PublishAot>true</PublishAot><NativeLib>Shared</NativeLib><InvariantGlobalization>true</InvariantGlobalization>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>true</IsPackable><PackageId>HPD-Agent.History.Native</PackageId><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup><ProjectReference Include="../HPD-Agent.History.Abi/HPD-Agent.History.Abi.csproj" /></ItemGroup>
+</Project>

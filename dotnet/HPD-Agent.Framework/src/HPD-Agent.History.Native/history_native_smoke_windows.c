@@ -1,0 +1,5 @@
+#include <windows.h>
+#include <stdint.h>
+#include "hpd_history_v1.h"
+typedef uint32_t (__cdecl *version_fn)(void);typedef int32_t (__cdecl *open_fn)(const hpd_bytes_v1*,hpd_handle_v1*,hpd_error_v1*);typedef int32_t (__cdecl *next_fn)(hpd_handle_v1,hpd_output_v1*,hpd_error_v1*);typedef int32_t (__cdecl *close_fn)(hpd_handle_v1,hpd_error_v1*);
+int main(void){HMODULE m=LoadLibraryA("HPD-Agent.History.Native.dll");if(!m)return 1;version_fn version=(version_fn)GetProcAddress(m,"hpd_history_abi_version");open_fn open=(open_fn)GetProcAddress(m,"hpd_history_query_open");next_fn next=(next_fn)GetProcAddress(m,"hpd_history_query_next");close_fn close=(close_fn)GetProcAddress(m,"hpd_history_query_close");if(!version||!open||!next||!close||version()!=0x00010000)return 2;const uint8_t req[]={0xa1,0x01,0x01};uint8_t bytes[8]={0};hpd_bytes_v1 in={24,0x00010000,req,sizeof req,0};hpd_output_v1 out={40,0x00010000,bytes,sizeof bytes,0,0,0};hpd_error_v1 error={32,0x00010000,0,0,0,0};hpd_handle_v1 h=0;if(open(&in,&h,&error)||next(h,&out,&error)||out.written!=sizeof req||close(h,&error))return 3;FreeLibrary(m);return 0;}
