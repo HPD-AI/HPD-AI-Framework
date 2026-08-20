@@ -4,7 +4,17 @@ using HPD.Agent.Authority;
 
 namespace HPD.Agent.Audio.Runtime.Routing;
 
-internal sealed record RouteCutoverEvidenceV1(RoutePreparationStateV1 Preparation,ProviderParticipantSnapshotV1 Provider,JournalPositionV1 ReceiptPosition);
+internal sealed record AdmittedRouteAuthorityV1(CompiledRouteV1 Route,ExpectedAuthorityVectorV1 Authority,JournalPositionV1 AdmissionPosition);
+internal static class RouteAuthorityAdmissionV1
+{
+    internal static AdmittedRouteAuthorityV1 Admit(CompiledRouteV1 route,JournalPositionV1 admissionPosition)
+    {
+        ArgumentNullException.ThrowIfNull(route);if(!admissionPosition.IsValid||admissionPosition.Session!=route.Authority.Session)throw new ArgumentException("Route admission position is invalid.");
+        var axes=route.Authority.Axes.Select(static x=>x.Value).Where(static x=>x is not AuthorityAxisValueV1.Route).Append<AuthorityAxisValueV1>(new AuthorityAxisValueV1.Route(route.ProposedGeneration)).ToArray();
+        return new(route,ExpectedAuthorityVectorV1.Create(route.Authority.Session,axes),admissionPosition);
+    }
+}
+internal sealed record RouteCutoverEvidenceV1(RoutePreparationStateV1 Preparation,ProviderParticipantSnapshotV1 Provider,AdmittedRouteAuthorityV1 Admission);
 internal sealed record RouteCutoverReceiptV1(OperationId OperationId,CompiledRouteV1 Route,JournalPositionV1 ReceiptPosition);
 internal abstract record RouteCutoverResultV1
 {
@@ -18,9 +28,10 @@ internal static class RouteCutoverCoordinatorV1
         var prep=evidence.Preparation;var provider=evidence.Provider;var plan=provider.Plan;
         if(prep.Snapshot.Phase!=RoutePreparationPhaseV1.CutoverAuthorized||prep.Snapshot.PreparationOwner!=OwnerSliceId.S5)return Reject("route-cutover-not-authorized");
         if(provider.Phase!=ProviderParticipantPhaseV1.Effective||plan is null)return Reject("route-provider-not-effective");
+        if(evidence.Admission.Route!=prep.Route)return Reject("route-admission-mismatch");
         if(plan.ProviderId!=prep.Route.ProviderId||plan.RouteGeneration!=prep.Route.ProposedGeneration)return Reject("route-provider-evidence-mismatch");
-        if(!Same(plan.Authority,prep.Route.Authority)||evidence.ReceiptPosition.Session!=prep.Route.Authority.Session)return Reject("route-authority-mismatch");
-        return new RouteCutoverResultV1.Committed(new(operationId,prep.Route,evidence.ReceiptPosition));
+        if(!Same(plan.Authority,evidence.Admission.Authority)||evidence.Admission.AdmissionPosition.Session!=prep.Route.Authority.Session)return Reject("route-authority-mismatch");
+        return new RouteCutoverResultV1.Committed(new(operationId,prep.Route,evidence.Admission.AdmissionPosition));
     }
     private static bool Same(ExpectedAuthorityVectorV1 x,ExpectedAuthorityVectorV1 y)=>x.Session==y.Session&&x.Axes.SequenceEqual(y.Axes);
     private static RouteCutoverResultV1.Rejected Reject(string code)=>new(new BoundedAscii(code));
