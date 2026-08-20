@@ -575,13 +575,23 @@ internal sealed class GraphRuntimeRecoveryReadSupervisorV1
             return Unknown("runtime-recovery-read-occupied");
         // Scheduler delay is outside the frozen recovery budget. The worker signals
         // immediately before invoking ReadAsync; only then does the caller arm 30s.
-        var started = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var task = Task.Run(async () =>
+        var started = new TaskCompletionSource<(Task<GraphRuntimeSnapshotReadResultV1> Read,
+            Task Deadline)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _ = Task.Run(() =>
         {
             var deadline = Task.Delay(GraphRuntimeAdmissionCoordinatorV1.RecoveryReadTimeout,_timeProvider);
-            started.SetResult(deadline);
-            return await reader(journal,session,CancellationToken.None).ConfigureAwait(false);
+            Task<GraphRuntimeSnapshotReadResultV1> read;
+            try
+            {
+                read = reader(journal,session,CancellationToken.None).AsTask();
+            }
+            catch (Exception error)
+            {
+                read = Task.FromException<GraphRuntimeSnapshotReadResultV1>(error);
+            }
+            started.SetResult((read,deadline));
         });
+        var (task,deadline) = await started.Task.ConfigureAwait(false);
         slot.Task=task;
         _ = task.ContinueWith(static (_,state) =>
         {
@@ -589,7 +599,6 @@ internal sealed class GraphRuntimeRecoveryReadSupervisorV1
             release.Sessions.TryRemove(new KeyValuePair<SessionAuthorityStampV1,Slot>(release.Session,release.Slot));
         },new Release(sessions,session,slot),CancellationToken.None,
             TaskContinuationOptions.ExecuteSynchronously,TaskScheduler.Default);
-        var deadline = await started.Task.ConfigureAwait(false);
         if (task.IsCompleted) return await Complete(task).ConfigureAwait(false);
         await Task.WhenAny(task,deadline).ConfigureAwait(false);
         // Completion wins when both signals are observable at the deadline.
