@@ -91,6 +91,21 @@ public sealed class SemanticAcceptanceAdmissionV1Tests
         Assert.Equal("append-exception", ambiguous.SafeCode.ToString());
     }
 
+    [Fact]
+    public async Task Admission_ReconcilesACommittedFactAfterTheAppendAcknowledgementIsLost()
+    {
+        var fixture = new Fixture();
+        var disposition = await fixture.SeedDispositionAsync(SubmissionDispositionV1.SubmissionClaimed);
+
+        var result = await SemanticAcceptanceAdmissionV1.AdmitAsync(
+            new CommitThenThrowJournal(fixture.Journal), disposition);
+
+        var reconciled = Assert.IsType<SemanticAcceptanceAdmissionResultV1.AlreadyCommitted>(result).Envelope;
+        Assert.Equal(3, reconciled.Position.Sequence);
+        Assert.True(SemanticInputAcceptedV1Codec.TryDecode(reconciled.PayloadMemory, out var accepted));
+        Assert.Equal(disposition, accepted!.SourcePosition);
+    }
+
     [Theory]
     [InlineData("id")]
     [InlineData("session")]
@@ -246,6 +261,20 @@ public sealed class SemanticAcceptanceAdmissionV1Tests
     {
         public ValueTask<AppendAuthorityResultV1> AppendAsync(AppendAuthorityBatchV1 request, CancellationToken cancellationToken = default) => throw new IOException("fixture");
         public ValueTask<ReadAuthorityRangeResultV1> ReadAsync(ReadAuthorityRangeV1 request, CancellationToken cancellationToken = default) => inner.ReadAsync(request, cancellationToken);
+    }
+
+    private sealed class CommitThenThrowJournal(IAuthorityJournalV1 inner) : IAuthorityJournalV1
+    {
+        public async ValueTask<AppendAuthorityResultV1> AppendAsync(
+            AppendAuthorityBatchV1 request, CancellationToken cancellationToken = default)
+        {
+            _ = await inner.AppendAsync(request, cancellationToken);
+            throw new IOException("lost acknowledgement");
+        }
+
+        public ValueTask<ReadAuthorityRangeResultV1> ReadAsync(
+            ReadAuthorityRangeV1 request, CancellationToken cancellationToken = default) =>
+            inner.ReadAsync(request, cancellationToken);
     }
 
     private sealed class ContradictorySuccessJournal(IAuthorityJournalV1 inner, string mutation) : IAuthorityJournalV1

@@ -59,13 +59,16 @@ internal static class SemanticAcceptanceAdmissionV1
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            var reconciled = await ReconcileAsync(journal, dispositionPosition, factId).ConfigureAwait(false);
+            if (reconciled is not null) return reconciled;
             throw;
         }
         catch (Exception)
         {
-            return Unknown(factId, "append-exception");
+            return await ReconcileAsync(journal, dispositionPosition, factId).ConfigureAwait(false) ??
+                Unknown(factId, "append-exception");
         }
-        return result switch
+        SemanticAcceptanceAdmissionResultV1? mapped = result switch
         {
             AppendAuthorityResultV1.Committed committed when committed.PreviousHead == proven.SnapshotThrough && committed.Envelopes.Count == 1 &&
                 Matches(committed.Envelopes[0], proposal, dispositionPosition.Session) =>
@@ -79,9 +82,27 @@ internal static class SemanticAcceptanceAdmissionV1
             AppendAuthorityResultV1.UnknownSchema => new SemanticAcceptanceAdmissionResultV1.Rejected(new BoundedAscii("unknown-schema")),
             AppendAuthorityResultV1.CapacityRefused => new SemanticAcceptanceAdmissionResultV1.Rejected(new BoundedAscii("capacity-refused")),
             AppendAuthorityResultV1.StoreUnavailable unavailable => new SemanticAcceptanceAdmissionResultV1.OutcomeUnknown(factId, unavailable.SafeCode),
-            AppendAuthorityResultV1.OutcomeUnknown => Unknown(factId, "append-outcome-unknown"),
+            AppendAuthorityResultV1.OutcomeUnknown => null,
             _ => Unknown(factId, "unexpected-append-result"),
         };
+        if (mapped is not null) return mapped;
+        return await ReconcileAsync(journal, dispositionPosition, factId).ConfigureAwait(false) ??
+            Unknown(factId, "append-outcome-unknown");
+    }
+
+    private static async ValueTask<SemanticAcceptanceAdmissionResultV1?> ReconcileAsync(
+        IAuthorityJournalV1 journal,
+        JournalPositionV1 dispositionPosition,
+        JournalFactId expectedFactId)
+    {
+        var proof = await SemanticAcceptanceProofReaderV1.ReadAsync(
+            journal, dispositionPosition, cancellationToken: CancellationToken.None).ConfigureAwait(false);
+        if (proof is not SemanticAcceptanceProofResultV1.AlreadyAccepted accepted)
+            return null;
+        return accepted.Envelope.FactId == expectedFactId
+            ? new SemanticAcceptanceAdmissionResultV1.AlreadyCommitted(accepted.Envelope)
+            : new SemanticAcceptanceAdmissionResultV1.OutcomeUnknown(
+                expectedFactId, new BoundedAscii("reconcile-identity-mismatch"));
     }
 
     private static SemanticAcceptanceAdmissionResultV1.OutcomeUnknown Unknown(JournalFactId factId, string code) =>
