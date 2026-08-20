@@ -1,4 +1,5 @@
 using HPD.Agent.Authority;
+using HPD.Agent.Audio.Runtime.Output;
 
 namespace HPD.Agent.Audio;
 
@@ -39,6 +40,7 @@ internal sealed class LiveAudioPreparedSessionV1
         Plan = plan ?? throw new ArgumentNullException(nameof(plan));
         if (!reservationPosition.IsValid) throw new ArgumentException("A reservation position is required.", nameof(reservationPosition));
         ReservationPosition = reservationPosition;
+        OutputV2 = LiveAudioOutputGenerationV2.TryCreate(request.ExpectedAuthority);
         EffectiveFingerprint = prepared.EffectiveFingerprint;
         SkippedOptionalFactories = prepared.SkippedOptionalFactories;
         var descriptors = plan.Descriptors.ToDictionary(value => value.FactoryKey.ToString(), StringComparer.Ordinal);
@@ -49,6 +51,7 @@ internal sealed class LiveAudioPreparedSessionV1
     internal LiveAudioSessionStartRequestV1 Request { get; }
     internal LiveAudioParticipantPlanV1 Plan { get; }
     internal JournalPositionV1 ReservationPosition { get; }
+    internal LiveAudioOutputGenerationV2? OutputV2 { get; }
     internal Hash256 EffectiveFingerprint { get; }
     internal IReadOnlyList<BoundedAscii> SkippedOptionalFactories { get; }
     internal IReadOnlyList<ILiveAudioPreparedParticipantV1> Participants =>

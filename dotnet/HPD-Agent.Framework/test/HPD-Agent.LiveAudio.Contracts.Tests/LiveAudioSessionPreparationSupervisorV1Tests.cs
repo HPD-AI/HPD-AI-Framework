@@ -1,4 +1,7 @@
 using HPD.Agent.Authority;
+using HPD.Agent.Audio.Authority;
+using HPD.Agent.Audio.Runtime.Output;
+using HPD.Agent.Audio.Runtime.Providers;
 using System.Formats.Cbor;
 
 namespace HPD.Agent.Audio.Tests;
@@ -52,6 +55,7 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
         var prepared = Assert.IsType<LiveAudioSessionPreparationResultV1.Prepared>(await fixture.PrepareAsync(catalog, includeActivity: true));
         Assert.Equal(["prepare:media", "prepare:activity"], calls);
         Assert.Equal(2, prepared.Session.Participants.Count);
+        Assert.Null(prepared.Session.OutputV2);
         var mutableView = Assert.IsAssignableFrom<IList<ILiveAudioPreparedParticipantV1>>(prepared.Session.Participants);
         Assert.Throws<NotSupportedException>(() => mutableView[0] = mutableView[1]);
         Assert.DoesNotContain(prepared.Session.GetType().GetMethods(), method =>
@@ -61,6 +65,27 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
         var unwind = await Task.WhenAll(firstUnwind, secondUnwind);
         Assert.All(unwind, value => Assert.IsType<LiveAudioPreparedSessionUnwindResultV1.Clean>(value));
         Assert.Equal(["prepare:media", "prepare:activity", "dispose:activity", "dispose:media"], calls);
+    }
+
+    [Fact]
+    public async Task New_Output_generation_is_owned_by_the_prepared_session()
+    {
+        var fixture = await Fixture.CreateAsync(includeOutputGeneration: true); var calls = new List<string>();
+        var prepared = Assert.IsType<LiveAudioSessionPreparationResultV1.Prepared>(await fixture.PrepareAsync(
+            LiveAudioParticipantFactoryCatalogV1.CreateExplicit([new Factory("media", OwnerSliceId.S2, calls)])));
+        var generation = Assert.IsType<LiveAudioOutputGenerationV2>(prepared.Session.OutputV2);
+        var authority = fixture.Request.ExpectedAuthority;
+        var provider = Assert.IsType<AuthorityAxisValueV1.Provider>(authority.Axes.Single(x => x.AxisId == AuthorityAxisId.Provider).Value).Value;
+        var route = Assert.IsType<AuthorityAxisValueV1.Route>(authority.Axes.Single(x => x.AxisId == AuthorityAxisId.Route).Value).Value;
+        var output = Assert.IsType<AuthorityAxisValueV1.Output>(authority.Axes.Single(x => x.AxisId == AuthorityAxisId.Output).Value).Value;
+        var decision = new TurnDecisionFinalizedV1(OperationId.Create(), fixture.ReservationPosition(4), authority, 1);
+        var plan = new ProviderParticipantPlanV1(ParticipantId.Create(), ProviderId.Create(), provider, route, authority, Hash(40), 1);
+        var offer = new OutputOfferV2(OperationId.Create(), output, 16, Hash(41), new OutputOriginEvidenceV2(decision,
+            new ProviderParticipantSnapshotV1(1, ProviderParticipantPhaseV1.Effective, plan, 0, null)));
+        var activated = Assert.IsType<LiveAudioOutputActivationResultV2.Activated>(generation.Activate(offer));
+        Assert.Equal(authority, activated.Receipt.Plan.Authority);
+        Assert.Equal(0UL, activated.Controller.Read().Revision);
+        await prepared.Session.UnwindAsync();
     }
 
     [Fact]
@@ -184,21 +209,30 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
         private readonly BootId _boot = BootId.Create();
         private readonly CapacityRequestV1 _capacityRequest;
 
-        private Fixture()
+        private Fixture(bool includeOutputGeneration)
         {
             Session = new(RuntimeGenerationId.Create(), LiveSessionId.Create()); Operation = OperationId.Create();
-            Authority = ExpectedAuthorityVectorV1.Create(Session,
-            [
+            var axes = new List<AuthorityAxisValueV1>
+            {
                 new AuthorityAxisValueV1.Graph(GraphGenerationId.Create()),
                 new AuthorityAxisValueV1.Activity(ActivityGenerationId.Create()),
-            ]);
-            Journal = new InMemoryAuthorityJournalV1(new AuthorityPayloadAdmissionRegistryV1([
-                new AuthorityGenerationInitializationPayloadRegistrationV1(AuthorityAxisId.Graph),
-                new AuthorityGenerationInitializationPayloadRegistrationV1(AuthorityAxisId.Activity),
+            };
+            if (includeOutputGeneration)
+            {
+                axes.Add(new AuthorityAxisValueV1.Turn(TurnGenerationId.Create()));
+                axes.Add(new AuthorityAxisValueV1.Provider(ProviderGenerationId.Create()));
+                axes.Add(new AuthorityAxisValueV1.Route(RouteGenerationId.Create()));
+                axes.Add(new AuthorityAxisValueV1.Output(OutputGenerationId.Create()));
+            }
+            Authority = ExpectedAuthorityVectorV1.Create(Session, axes);
+            var registrations = Authority.Axes.Select(axis =>
+                    (AuthorityPayloadRegistrationV1)new AuthorityGenerationInitializationPayloadRegistrationV1(axis.AxisId))
+                .Concat([
                 new AuthorityGenerationTransitionPayloadRegistrationV1(AuthorityAxisId.Graph),
                 new CapacityReservationPayloadRegistrationV1(), new CapacitySettlementPayloadRegistrationV1(),
                 new CaptureAuthorizationPayloadRegistrationV1(), new CaptureGrantCommittedPayloadRegistrationV1(),
-                new SessionLifecycleCommandPayloadRegistrationV1(), new SessionLifecycleFactPayloadRegistrationV1()]),
+                new SessionLifecycleCommandPayloadRegistrationV1(), new SessionLifecycleFactPayloadRegistrationV1()]);
+            Journal = new InMemoryAuthorityJournalV1(new AuthorityPayloadAdmissionRegistryV1(registrations),
                 () => new UtcInstant(1), new AuthorityJournalCapacityV1(8, 64, 2_000_000));
             _capacityRequest = new CapacityRequestV1(Operation, Authority,
                 [new CapacityChargeV1(CapacityDimensionsV1.QueueItems,
@@ -212,9 +246,9 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
         internal InMemoryAuthorityJournalV1 Journal { get; }
         internal LiveAudioSessionStartRequestV1 Request { get; private set; } = null!;
 
-        internal static async Task<Fixture> CreateAsync()
+        internal static async Task<Fixture> CreateAsync(bool includeOutputGeneration = false)
         {
-            var fixture = new Fixture();
+            var fixture = new Fixture(includeOutputGeneration);
             var initializations = fixture.Authority.Axes.Select(axis => fixture.Initialization(axis.Value)).ToArray();
             Assert.IsType<AppendAuthorityResultV1.Committed>(await fixture.Journal.AppendAsync(
                 new AppendAuthorityBatchV1(fixture.Session, 0, [], initializations, 16_384)));
@@ -276,6 +310,7 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
 
         private CorrelationEnvelopeV1 Correlation() => new(_tenant, operationId: Operation);
         internal MonotonicStampV1 Stamp(ulong value) => new(_clock, _boot, value);
+        internal JournalPositionV1 ReservationPosition(long value) => new(Session, value);
 
         private ProposedAuthorityFactV1 Initialization(AuthorityAxisValueV1 axis)
         {
@@ -285,6 +320,10 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
             {
                 AuthorityAxisValueV1.Graph graph => graph.Value.TryWriteBytes(value),
                 AuthorityAxisValueV1.Activity activity => activity.Value.TryWriteBytes(value),
+                AuthorityAxisValueV1.Turn turn => turn.Value.TryWriteBytes(value),
+                AuthorityAxisValueV1.Provider provider => provider.Value.TryWriteBytes(value),
+                AuthorityAxisValueV1.Route route => route.Value.TryWriteBytes(value),
+                AuthorityAxisValueV1.Output output => output.Value.TryWriteBytes(value),
                 _ => false,
             });
             var writer = new CborWriter(CborConformanceMode.Ctap2Canonical);
