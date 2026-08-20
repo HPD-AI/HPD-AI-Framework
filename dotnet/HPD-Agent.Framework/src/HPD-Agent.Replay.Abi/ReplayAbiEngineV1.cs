@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Security.Cryptography;
+using HPD.Agent.Authority;
 
 namespace HPD.Agent.Replay.Abi;
 
@@ -24,7 +25,7 @@ public sealed class ReplayAbiEngineV1
     public ReplayAbiStatusV1 Open(ReadOnlySpan<byte> request, out ulong handle)
     {
         handle = 0;
-        if (request.IsEmpty || request.Length > MaximumArtifactBytes) return ReplayAbiStatusV1.InvalidArgument;
+        if (request.IsEmpty || request.Length > MaximumArtifactBytes || !CanonicalCborValidatorV1.IsValid(request)) return ReplayAbiStatusV1.InvalidArgument;
         lock (_gate)
         {
             for (var index = 0; index < MaximumSlots; index++)
@@ -87,7 +88,7 @@ public sealed class ReplayAbiEngineV1
 
     private ReplayAbiStatusV1 Mutate(ulong handle, ReadOnlySpan<byte> request, bool step)
     {
-        if (request.IsEmpty || request.Length > MaximumOperationBytes) return ReplayAbiStatusV1.InvalidArgument;
+        if (request.IsEmpty || request.Length > MaximumOperationBytes || !CanonicalCborValidatorV1.IsValid(request)) return ReplayAbiStatusV1.InvalidArgument;
         lock (_gate)
         {
             if (!TryGet(handle, out _, out var slot)) return ReplayAbiStatusV1.InvalidHandleGeneration;

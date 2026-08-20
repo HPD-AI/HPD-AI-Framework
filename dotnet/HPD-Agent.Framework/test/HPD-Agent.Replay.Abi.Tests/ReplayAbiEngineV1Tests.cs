@@ -31,11 +31,14 @@ public sealed class ReplayAbiEngineV1Tests
     {
         var engine = new ReplayAbiEngineV1();
         Assert.Equal(ReplayAbiStatusV1.InvalidArgument, engine.Open([], out _));
+        Assert.Equal(ReplayAbiStatusV1.InvalidArgument, engine.Open([0x18,0x01], out _));
+        Assert.Equal(ReplayAbiStatusV1.InvalidArgument, engine.Open([0xbf,0xff], out _));
+        Assert.Equal(ReplayAbiStatusV1.InvalidArgument, engine.Open([0xa2,0x02,0x01,0x01,0x01], out _));
         Assert.Equal(ReplayAbiStatusV1.InvalidArgument, engine.Open(new byte[ReplayAbiEngineV1.MaximumArtifactBytes + 1], out _));
         var handles = new List<ulong>();
         for (var i = 0; i < ReplayAbiEngineV1.MaximumSlots; i++)
         {
-            Assert.Equal(ReplayAbiStatusV1.Ok, engine.Open([(byte)(i + 1)], out var handle));
+            Assert.Equal(ReplayAbiStatusV1.Ok, engine.Open([0xf4], out var handle));
             handles.Add(handle);
         }
         Assert.Equal(ReplayAbiStatusV1.CapacityRejected, engine.Open([1], out _));

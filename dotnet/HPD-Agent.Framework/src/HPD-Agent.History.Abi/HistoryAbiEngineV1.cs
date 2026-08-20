@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Security.Cryptography;
+using HPD.Agent.Authority;
 
 namespace HPD.Agent.History.Abi;
 
@@ -22,7 +23,7 @@ public sealed class HistoryAbiEngineV1
 
     public HistoryApiStatusV1 Open(HistoryHandleKindV1 kind,ReadOnlySpan<byte> request,out ulong handle)
     {
-        handle=0;if(request.IsEmpty||request.Length>MaximumRequestBytes)return HistoryApiStatusV1.InvalidArgument;
+        handle=0;if(request.IsEmpty||request.Length>MaximumRequestBytes||!CanonicalCborValidatorV1.IsValid(request))return HistoryApiStatusV1.InvalidArgument;
         lock(_gate){for(var index=0;index<MaximumSlots;index++){if(_slots[index] is not null)continue;var generation=unchecked(_generations[index]+1);if(generation==0)generation=1;_generations[index]=generation;_slots[index]=new(kind,request);handle=((ulong)generation<<32)|(uint)(index+1);return HistoryApiStatusV1.Ok;}}
         return HistoryApiStatusV1.CapacityRejected;
     }
@@ -41,7 +42,7 @@ public sealed class HistoryAbiEngineV1
     public HistoryApiStatusV1 Close(ulong handle,HistoryHandleKindV1 kind)
     {lock(_gate){if(!TryGet(handle,kind,out var index,out _))return HistoryApiStatusV1.InvalidHandleGeneration;_slots[index]=null;return HistoryApiStatusV1.Ok;}}
     public HistoryApiStatusV1 ReleaseHold(ulong handle,ReadOnlySpan<byte> request)
-    {if(request.IsEmpty)return HistoryApiStatusV1.InvalidArgument;return Cancel(handle,HistoryHandleKindV1.Hold);}
+    {if(request.IsEmpty||!CanonicalCborValidatorV1.IsValid(request))return HistoryApiStatusV1.InvalidArgument;return Cancel(handle,HistoryHandleKindV1.Hold);}
     private HistoryApiStatusV1 OpenUnderLock(HistoryHandleKindV1 kind,ReadOnlySpan<byte> request,out ulong handle)
     {handle=0;for(var index=0;index<MaximumSlots;index++){if(_slots[index] is not null)continue;var generation=unchecked(_generations[index]+1);if(generation==0)generation=1;_generations[index]=generation;_slots[index]=new(kind,request);handle=((ulong)generation<<32)|(uint)(index+1);return HistoryApiStatusV1.Ok;}return HistoryApiStatusV1.CapacityRejected;}
     private bool TryGet(ulong handle,HistoryHandleKindV1 kind,out int index,out Slot slot)
