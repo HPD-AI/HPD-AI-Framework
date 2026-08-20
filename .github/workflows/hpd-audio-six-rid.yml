@@ -58,8 +58,9 @@ jobs:
           $dll = Join-Path $out '${{ matrix.library }}'
           $exports = & dumpbin /exports $dll
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $exportText = $exports -join "`n"
           foreach ($name in 'create','bind','start','stop','destroy') {
-            if ($exports -notmatch "hpd_audio_transport_$name") { throw "missing export $name" }
+            if ($exportText -notmatch "hpd_audio_transport_$name") { throw "missing export $name" }
           }
           @('LIBRARY HPD-Agent.Audio.TransportAbi.NativeAot','EXPORTS','hpd_audio_transport_create','hpd_audio_transport_bind','hpd_audio_transport_start','hpd_audio_transport_stop','hpd_audio_transport_destroy') | Set-Content (Join-Path $out 'transport.def')
           & lib /nologo "/def:$out\transport.def" '/machine:${{ matrix.machine }}' "/out:$out\transport.lib"
