@@ -42,7 +42,10 @@ public sealed class HistoryAbiEngineV1
     public HistoryApiStatusV1 Close(ulong handle,HistoryHandleKindV1 kind)
     {lock(_gate){uint number=(uint)handle,generation=(uint)(handle>>32);if(number==0||number>MaximumSlots||generation==0)return HistoryApiStatusV1.InvalidHandleGeneration;var index=(int)number-1;if(_slots[index] is null&&_closedGenerations[index]==generation)return HistoryApiStatusV1.Ok;if(!TryGet(handle,kind,out index,out _))return HistoryApiStatusV1.InvalidHandleGeneration;_closedGenerations[index]=generation;_slots[index]=null;return HistoryApiStatusV1.Ok;}}
     public HistoryApiStatusV1 ReleaseHold(ulong handle,ReadOnlySpan<byte> request)
-    {if(request.IsEmpty||!HistoryAbiRequestCodecV1.TryDecode(request,HistoryHandleKindV1.Hold,out _,out _,out _))return HistoryApiStatusV1.InvalidArgument;return Cancel(handle,HistoryHandleKindV1.Hold);}
+    {
+        if(request.IsEmpty||!HistoryAbiRequestCodecV1.TryDecode(request,HistoryHandleKindV1.Hold,out _,out var authorization,out var policyRevision))return HistoryApiStatusV1.InvalidArgument;
+        lock(_gate){if(!TryGet(handle,HistoryHandleKindV1.Hold,out _,out var slot))return HistoryApiStatusV1.InvalidHandleGeneration;if(policyRevision!=slot.PolicyRevision||!CryptographicOperations.FixedTimeEquals(authorization,slot.Authorization))return HistoryApiStatusV1.InvalidArgument;slot.Cancelled=true;return HistoryApiStatusV1.Ok;}
+    }
     private HistoryApiStatusV1 OpenUnderLock(HistoryHandleKindV1 kind,ReadOnlySpan<byte> request,ReadOnlySpan<byte> authorization,ulong policyRevision,out ulong handle)
     {handle=0;for(var index=0;index<MaximumSlots;index++){if(_slots[index] is not null)continue;var generation=unchecked(_generations[index]+1);if(generation==0)generation=1;_generations[index]=generation;_slots[index]=new(kind,request,authorization,policyRevision);handle=((ulong)generation<<32)|(uint)(index+1);return HistoryApiStatusV1.Ok;}return HistoryApiStatusV1.CapacityRejected;}
     private bool TryGet(ulong handle,HistoryHandleKindV1 kind,out int index,out Slot slot)

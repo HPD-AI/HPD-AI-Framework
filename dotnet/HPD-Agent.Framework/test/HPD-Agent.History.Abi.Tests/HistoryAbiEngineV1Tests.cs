@@ -50,6 +50,12 @@ public sealed class HistoryAbiEngineV1Tests
         Assert.Equal(1ul,BinaryPrimitives.ReadUInt64BigEndian(firstStatus.AsSpan(64,8)));Assert.Equal(2ul,BinaryPrimitives.ReadUInt64BigEndian(secondStatus.AsSpan(64,8)));
         Assert.False(firstStatus.AsSpan(72,32).SequenceEqual(secondStatus.AsSpan(72,32)));
     }
+    [Fact] public void Hold_release_requires_the_open_authority()
+    {
+        var e=new HistoryAbiEngineV1();var request=Request(HistoryHandleKindV1.Hold,[1],1,1);Assert.Equal(HistoryApiStatusV1.Ok,e.Open(HistoryHandleKindV1.Hold,request,out var handle));
+        Assert.Equal(HistoryApiStatusV1.InvalidArgument,e.ReleaseHold(handle,Request(HistoryHandleKindV1.Hold,[1],2,1)));Assert.Equal(HistoryApiStatusV1.InvalidArgument,e.ReleaseHold(handle,Request(HistoryHandleKindV1.Hold,[1],1,2)));
+        Assert.Equal(HistoryApiStatusV1.Ok,e.Status(handle,HistoryHandleKindV1.Hold,out var before));Assert.Equal(0,before[1]);Assert.Equal(HistoryApiStatusV1.Ok,e.ReleaseHold(handle,request));Assert.Equal(HistoryApiStatusV1.Ok,e.Status(handle,HistoryHandleKindV1.Hold,out var after));Assert.Equal(1,after[1]);
+    }
     private static byte[] Request(HistoryHandleKindV1 kind,ReadOnlySpan<byte> payload)
         =>Request(kind,payload,1,1);
     private static byte[] Request(HistoryHandleKindV1 kind,ReadOnlySpan<byte> payload,byte authorizationSeed,byte policyRevision)
