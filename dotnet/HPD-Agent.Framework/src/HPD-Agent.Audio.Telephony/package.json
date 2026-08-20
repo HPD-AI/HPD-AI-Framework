@@ -1,0 +1,8 @@
+{
+  "name": "@hpd/agent-audio-telephony",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test test/*.spec.js" },
+  "engines": { "node": ">=22" }
+}
