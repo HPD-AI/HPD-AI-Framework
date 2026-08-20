@@ -78,30 +78,30 @@ internal sealed class DefaultHPDBaseAdministration(
         return result;
     }
 
-    public async ValueTask<BaseResult<BaseSubjectLifecycleMaintenanceResult>> ExecuteSubjectLifecycleMaintenanceAsync(
+    public async ValueTask<BaseResult<BaseSubjectLifecycleMaintenanceResult>> ExecuteSubjectAuthorityMaintenanceAsync(
         string storeId,
         PrincipalContext principal,
-        BaseSubjectLifecycleMaintenanceExecutionRequest request,
+        BaseSubjectAuthorityMaintenanceExecutionRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(principal);
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
-        if (string.IsNullOrWhiteSpace(storeId) || stores.GetRegistration(storeId)?.Store is not IBaseSubjectLifecycleStore store)
+        if (string.IsNullOrWhiteSpace(storeId) || stores.GetRegistration(storeId)?.Store is not IBaseSubjectAuthorityMaintenanceStore store)
             return await Unsupported<BaseSubjectLifecycleMaintenanceResult>(cancellationToken).ConfigureAwait(false);
 
         const string rotationGrant = "base.subjectLifecycle.scope.rotate";
-        BaseGeneratedSubjectRegistration? target = request.ContractId is null || request.ContractVersion is null
+        BaseGeneratedSubjectRegistration? target = request.Lifecycle.ContractId is null || request.Lifecycle.ContractVersion is null
             ? null
-            : subjects.Find(request.ContractId, request.ContractVersion.Value);
-        if (request.Kind != BaseSubjectLifecycleMaintenanceKind.RotateScopeProtection && target is null)
+            : subjects.Find(request.Lifecycle.ContractId, request.Lifecycle.ContractVersion.Value);
+        if (request.Lifecycle.Kind != BaseSubjectLifecycleMaintenanceKind.RotateScopeProtection && target is null)
             return new BaseFailure<BaseSubjectLifecycleMaintenanceResult>(OperationStatus.ValidationFailed,
                 new BaseError { Code = BaseSubjectErrorCodes.LifecycleContractInvalid, Message = "The subject lifecycle contract is invalid.", Category = ErrorCategory.Validation }, null, null);
 
-        string action = request.Kind == BaseSubjectLifecycleMaintenanceKind.RotateScopeProtection
+        string action = request.Lifecycle.Kind == BaseSubjectLifecycleMaintenanceKind.RotateScopeProtection
             ? rotationGrant
             : target!.Definition.AdministrationGrantId;
-        string owner = request.Kind == BaseSubjectLifecycleMaintenanceKind.RotateScopeProtection
+        string owner = request.Lifecycle.Kind == BaseSubjectLifecycleMaintenanceKind.RotateScopeProtection
             ? "base"
             : target!.Definition.OwningModuleId;
         var operation = new OperationContext
@@ -143,11 +143,11 @@ internal sealed class DefaultHPDBaseAdministration(
             return new BaseFailure<BaseSubjectLifecycleMaintenanceResult>(OperationStatus.PolicyDenied,
                 new BaseError { Code = BaseSubjectErrorCodes.LifecycleUnauthorized, Message = "The subject lifecycle operation is not authorized.", Category = ErrorCategory.Authorization }, null, null);
 
-        var normalized = request with { PlanChecksum = BaseSubjectLifecycleMaintenanceProcessor.PlanChecksum(request with { PlanChecksum = new byte[32] }) };
-        var processor = new BaseSubjectLifecycleMaintenanceProcessor();
+        var normalized = request with { CombinedPlanChecksum = BaseSubjectAuthorityMaintenanceProcessor.PlanChecksum(request with { CombinedPlanChecksum = new byte[32] }) };
+        var processor = new BaseSubjectAuthorityMaintenanceProcessor();
         RecordMutationExecutionResult execution = await store.ExecuteMaintenanceAsync(processor, normalized, cancellationToken).ConfigureAwait(false);
-        if (execution.Outcome == RecordMutationExecutionOutcome.Committed && processor.Result is not null)
-            return new BaseSuccess<BaseSubjectLifecycleMaintenanceResult>(processor.Result, processor.Result.Duplicate ? OperationStatus.Ok : OperationStatus.Updated, null, null, null, null);
+        if (execution.Outcome == RecordMutationExecutionOutcome.Committed && processor.LifecycleResult is not null)
+            return new BaseSuccess<BaseSubjectLifecycleMaintenanceResult>(processor.LifecycleResult, processor.LifecycleResult.Duplicate ? OperationStatus.Ok : OperationStatus.Updated, null, null, null, null);
         BaseError error = execution.Error ?? execution.Processing?.Error ?? new BaseError
         {
             Code = execution.Outcome == RecordMutationExecutionOutcome.Indeterminate ? BaseSubjectErrorCodes.LifecycleCommitIndeterminate : BaseSubjectErrorCodes.LifecycleProviderContractInvalid,

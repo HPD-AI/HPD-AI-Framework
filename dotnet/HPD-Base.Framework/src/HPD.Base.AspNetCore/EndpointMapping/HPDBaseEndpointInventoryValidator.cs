@@ -71,7 +71,13 @@ internal sealed class HPDBaseEndpointInventoryValidator(
         ,
         ["base.subjectLifecycle.feed.read"] = Application("POST", "/subject-lifecycle/feed/read", HPDBaseEndpointOperation.SubjectLifecycleRead, HPDBaseCapabilities.SubjectLifecycleFeedRead),
         ["base.subjectLifecycle.feed.checkpoint"] = Application("POST", "/subject-lifecycle/feed/checkpoints", HPDBaseEndpointOperation.SubjectLifecycleCheckpoint, HPDBaseCapabilities.SubjectLifecycleFeedCheckpoint),
-        ["base.subjectLifecycle.reconciliation.read"] = Application("POST", "/subject-lifecycle/reconciliation/read", HPDBaseEndpointOperation.SubjectLifecycleReconciliationRead, HPDBaseCapabilities.SubjectLifecycleReconcileRead)
+        ["base.subjectLifecycle.reconciliation.read"] = Application("POST", "/subject-lifecycle/reconciliation/read", HPDBaseEndpointOperation.SubjectLifecycleReconciliationRead, HPDBaseCapabilities.SubjectLifecycleReconcileRead),
+        ["base.subjectRetirement.acknowledge"] = Application("POST", "/subject-retirement/acknowledgements", HPDBaseEndpointOperation.SubjectRetirementAcknowledge, HPDBaseCapabilities.SubjectRetirementAcknowledge),
+        ["base.subjectRetirement.barriers.query"] = Control("POST", "/subject-retirement/barriers/query", HPDBaseEndpointOperation.SubjectRetirementBarrierQuery, HPDBaseCapabilities.SubjectRetirementBarrierInspect),
+        ["base.subjectRetirement.timeouts.process"] = Control("POST", "/subject-retirement/timeouts/process", HPDBaseEndpointOperation.SubjectRetirementTimeoutProcess, HPDBaseCapabilities.SubjectRetirementTimeoutProcess),
+        ["base.subjectRetirement.overrides.create"] = Control("POST", "/subject-retirement/overrides", HPDBaseEndpointOperation.SubjectRetirementOverride, HPDBaseCapabilities.SubjectRetirementOverride),
+        ["base.subjectRetirement.purge"] = Control("POST", "/subject-retirement/purge", HPDBaseEndpointOperation.SubjectRetirementPurge, HPDBaseCapabilities.SubjectRetirementPurge),
+        ["base.subjectRetirement.consumers.remove"] = Control("POST", "/subject-retirement/consumers/remove", HPDBaseEndpointOperation.SubjectRetirementConsumerRemoval, HPDBaseCapabilities.SubjectRetirementConsumerRemoval)
     };
 
     internal void Validate()

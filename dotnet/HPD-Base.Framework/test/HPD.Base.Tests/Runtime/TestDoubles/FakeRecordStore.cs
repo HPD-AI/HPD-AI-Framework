@@ -405,6 +405,7 @@ internal class FakeRecordStore : IAtomicRecordStore
                     ReadIntervals = intervals.Length,
                     EvidenceBytes = evidence,
                     TransientBytes = selected + evidence,
+                    RetirementBarrierReads=0,RetirementAcknowledgementReads=0,RetirementProjections=0,RetirementPublications=0,RetirementEvidenceBytes=0,RetirementPublicationBytes=0,
                 },
             };
             return ValueTask.FromResult(OperationResults.Ok(_captured));
@@ -452,6 +453,7 @@ internal class FakeRecordStore : IAtomicRecordStore
                     GenerationBytes = 0,
                     EvidenceBytes = captured.Accounting.EvidenceBytes,
                     TransientBytes = captured.Accounting.TransientBytes,
+                    RetirementBarrierReads=0,RetirementAcknowledgementReads=0,RetirementProjections=0,RetirementPublications=0,RetirementEvidenceBytes=0,RetirementPublicationBytes=0,
                 },
             };
             return ValueTask.FromResult(OperationResults.Ok(_prepared));
@@ -511,6 +513,7 @@ internal class FakeRecordStore : IAtomicRecordStore
                     SelectedBytes = 0,
                     EvidenceBytes = 0,
                     TransientBytes = bytes * 3,
+                    RetirementBarrierReads=0,RetirementAcknowledgementReads=0,RetirementProjections=0,RetirementPublications=0,RetirementEvidenceBytes=0,RetirementPublicationBytes=0,
                 },
             });
         }
@@ -747,6 +750,24 @@ internal class FakeRecordStore : IAtomicRecordStore
                 Category = ErrorCategory.NotFound
             }
         };
+
+        public ValueTask<OperationResult<BaseSubjectAcknowledgementResult>> ApplySubjectRetirementAcknowledgementAsync(
+            BaseSubjectRetirementProviderAcknowledgementRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            EnsureActive();
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(new OperationResult<BaseSubjectAcknowledgementResult>
+            {
+                Status = OperationStatus.CapabilityUnavailable,
+                Error = new BaseError
+                {
+                    Code = BaseSubjectRetirementErrorCodes.ProviderContractInvalid,
+                    Message = "Subject retirement is not supported by this test store.",
+                    Category = ErrorCategory.Capability,
+                },
+            });
+        }
 
         private static OperationResult<RecordMutationSessionResult> Conflict() => new()
         {

@@ -99,6 +99,8 @@ internal static class HPDBaseInMemoryServiceCollectionExtensions
         ModuleMutations = value.ModuleMutations.ToArray(), ModuleGenerationCells = value.ModuleGenerationCells.ToArray(),
         SubjectLifecycleConsumers = value.SubjectLifecycleConsumers.Select(static item => BaseSubjectLifecycleRegistry.Normalize(item)).ToArray(),
         SubjectLifecycleInspectionAuthorities = value.SubjectLifecycleInspectionAuthorities.Select(static item => item with { }).ToArray(),
+        SubjectRetirementConsumers = value.SubjectRetirementConsumers.Select(static item => BaseSubjectRetirementRegistry.Normalize(item)).ToArray(),
+        SubjectRetirementPolicies = value.SubjectRetirementPolicies.Select(static item => BaseSubjectRetirementRegistry.NormalizePolicy(item)).ToArray(),
         DefaultPageSize = value.DefaultPageSize,
         MaxPageSize = value.MaxPageSize, MaxFilterDepth = value.MaxFilterDepth,
         MaxFilterNodes = value.MaxFilterNodes, MaxSerializedQueryLength = value.MaxSerializedQueryLength,

@@ -979,6 +979,8 @@ public sealed partial class SqliteRecordStore
                 await CaptureLifecycleConsumerProjectionsAsync(request.LifecycleConsumerProjections, digest, intervals, token).ConfigureAwait(false);
             if (!lifecycleProjectionResult.IsSuccess() || lifecycleProjectionResult.Value.IsDefault)
                 return SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.ProviderContractInvalid);
+            OperationResult<ImmutableArray<BaseCapturedSubjectRetirementProjection>> retirementResult=await CaptureRetirementAsync(request.SubjectRetirement,intent,request.Module,digest,intervals,token).ConfigureAwait(false);
+            if(!retirementResult.IsSuccess()||retirementResult.Value.IsDefault)return SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);
             ImmutableArray<BaseAtomicReadIntervalEvidence> ownedIntervals = intervals.ToImmutable();
             long evidenceBytes = BaseSubjectCanonicalRetainedWork.MeasureIntervals(ownedIntervals);
             long transient = BaseSubjectCanonicalRetainedWork.MeasureCapture(intent, ownedItems, ownedIntervals, lifecycleProjectionResult.Value);
@@ -998,6 +1000,7 @@ public sealed partial class SqliteRecordStore
                 },
                 Items = ownedItems, ModuleRecords = [], ModuleRelationTargets = [], Generations = [],
                 LifecycleConsumerProjections = lifecycleProjectionResult.Value,
+                SubjectRetirement=retirementResult.Value,
                 ReadIntervals = ownedIntervals,
                 Accounting = new BaseAtomicCaptureAccounting
                 {
@@ -1006,10 +1009,27 @@ public sealed partial class SqliteRecordStore
                     SelectedBytes = selectedBytes, ReadIntervals = intervals.Count,
                     RelationTargetBytes = 0, GenerationBytes = 0,
                     EvidenceBytes = evidenceBytes, TransientBytes = transient,
+                    RetirementBarrierReads=0,RetirementAcknowledgementReads=0,RetirementProjections=request.SubjectRetirement?.Projections.Length??0,RetirementPublications=0,RetirementEvidenceBytes=0,RetirementPublicationBytes=0,
                 },
             };
             return OperationResults.Ok(_capturedMutation);
         });
+
+        private async ValueTask<OperationResult<ImmutableArray<BaseCapturedSubjectRetirementProjection>>> CaptureRetirementAsync(BaseSubjectRetirementCaptureExtension? extension,BaseAtomicMutationIntent intent,BaseModuleMutationCaptureExtension? module,IncrementalHash digest,ImmutableArray<BaseAtomicReadIntervalEvidence>.Builder intervals,CancellationToken cancellationToken)
+        {
+            if(extension is null)return OperationResults.Ok(ImmutableArray<BaseCapturedSubjectRetirementProjection>.Empty);
+            var result=ImmutableArray.CreateBuilder<BaseCapturedSubjectRetirementProjection>(extension.Projections.Length);
+            foreach(BaseSubjectRetirementProjectionCaptureRequest request in extension.Projections)
+            {
+                BaseAtomicMutationIntentItem? item=intent.Items.SingleOrDefault(value=>value.Ordinal==request.SourceMutationOrdinal);BaseModuleRecordCaptureRequest? moduleRecord=module?.Records.SingleOrDefault(value=>value.Ordinal==request.SourceMutationOrdinal);CollectionDefinition? sourceCollection=item?.Collection??moduleRecord?.Collection;RecordId? sourceRecord=item?.RecordId??moduleRecord?.RecordId;if(sourceCollection is null||sourceRecord is null)return SubjectFailure<ImmutableArray<BaseCapturedSubjectRetirementProjection>>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);
+                await using SqliteCommand command=_connection.CreateCommand();command.Transaction=_transaction;command.CommandTimeout=CommandTimeoutSeconds();command.CommandText=$"SELECT c.contract_checksum,c.authority_epoch,l.subject_id,l.incarnation,l.lifecycle_state,l.subject_sequence,l.scope_kind,l.scope_index_digest,b.tombstone_sequence,b.required_consumer_set_checksum,b.created_at,b.deadline_at,b.state,b.generation,b.barrier_checksum,l.protected_scope_value FROM {_owner._names.SubjectLifetimes} l JOIN {_owner._names.SubjectContracts} c ON c.contract_id=l.contract_id AND c.contract_version=l.contract_version LEFT JOIN {_owner._names.SubjectRetirementBarriers} b ON b.scope_kind=l.scope_kind AND b.scope_index_digest=l.scope_index_digest AND b.contract_id=l.contract_id AND b.contract_version=l.contract_version AND b.subject_id=l.subject_id AND b.authority_epoch=c.authority_epoch AND b.incarnation=l.incarnation WHERE l.contract_id=$contract AND l.contract_version=$version AND l.private_collection_id=$collection AND l.private_record_id=$record;";command.Parameters.AddWithValue("$contract",request.ContractId);command.Parameters.AddWithValue("$version",request.ContractVersion);command.Parameters.AddWithValue("$collection",sourceCollection.Id);command.Parameters.AddWithValue("$record",sourceRecord.Value.Value);
+                await using SqliteDataReader reader=await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);if(!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)||reader.GetString(0)!=request.ContractChecksum)return SubjectFailure<ImmutableArray<BaseCapturedSubjectRetirementProjection>>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);
+                BaseExportedSubjectDefinition? definition=_owner._options.ExportedSubjects.SingleOrDefault(value=>value.Id==request.ContractId&&value.Version==request.ContractVersion);if(definition is null)return SubjectFailure<ImmutableArray<BaseCapturedSubjectRetirementProjection>>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);var subjectId=BaseSubjectId.Create(reader.GetString(2),definition.SubjectIdKind,definition.MaximumSubjectIdUtf8Bytes);var epoch=new BaseSubjectAuthorityEpoch((byte[])reader.GetValue(1));var incarnation=new BaseSubjectIncarnation((byte[])reader.GetValue(3));BaseSubjectRetirementBarrier? barrier=reader.IsDBNull(8)?null:new(){ContractId=request.ContractId,ContractVersion=request.ContractVersion,SubjectId=subjectId,AuthorityEpoch=epoch,Incarnation=incarnation,TombstoneSequence=reader.GetInt64(8),RequiredConsumerSetChecksum=reader.GetString(9),CreatedAtUtc=DateTimeOffset.Parse(reader.GetString(10),CultureInfo.InvariantCulture),DeadlineUtc=DateTimeOffset.Parse(reader.GetString(11),CultureInfo.InvariantCulture),State=(BaseSubjectRetirementBarrierState)reader.GetInt32(12),Generation=reader.GetInt64(13),BarrierChecksum=reader.GetString(14)};
+                var protectedScope=new BaseProtectedSubjectScope{Kind=(BaseSubjectScopeKind)reader.GetInt32(6),IndexDigest=(byte[])reader.GetValue(7),ProtectedCanonicalValue=(byte[])reader.GetValue(15)};var currentState=(BaseSubjectLifecycleState)reader.GetInt32(4);long currentSequence=reader.GetInt64(5);
+                result.Add(new(){SourceMutationOrdinal=request.SourceMutationOrdinal,ContractId=request.ContractId,ContractVersion=request.ContractVersion,ContractChecksum=request.ContractChecksum,RetirementPolicyChecksum=request.RetirementPolicyChecksum,AcceptedConsumerSetChecksum=request.AcceptedConsumerSetChecksum,SubjectId=subjectId,ProtectedScope=protectedScope,AuthorityEpoch=epoch,Incarnation=incarnation,CurrentState=currentState,CurrentSubjectSequence=currentSequence,CurrentBarrier=barrier});byte[] key=Encoding.UTF8.GetBytes($"{(int)protectedScope.Kind}\n{Convert.ToHexString(protectedScope.IndexDigest)}\n{request.ContractId}\n{request.ContractVersion}\n{subjectId.Value}\n{Convert.ToHexString(epoch.ToArray())}\n{Convert.ToHexString(incarnation.ToArray())}");digest.AppendData(key);intervals.Add(ExactInterval($"subjectRetirement:{request.ContractId}:barrier",key));
+            }
+            return OperationResults.Ok(result.MoveToImmutable());
+        }
 
         private async ValueTask<OperationResult<ImmutableArray<BaseCapturedSubjectLifecycleConsumerProjection>>> CaptureLifecycleConsumerProjectionsAsync(
             ImmutableArray<BaseSubjectLifecycleConsumerProjectionCaptureRequest> requests,
@@ -1201,6 +1221,7 @@ public sealed partial class SqliteRecordStore
                     GenerationReads = module.Generations.Length, ReadIntervals = readIntervalCount,
                     SelectedBytes = selectedBytes, RelationTargetBytes = relationBytes, GenerationBytes = generationBytes,
                     EvidenceBytes = evidenceBytes, TransientBytes = transient,
+                    RetirementBarrierReads=0,RetirementAcknowledgementReads=0,RetirementProjections=request.SubjectRetirement?.Projections.Length??0,RetirementPublications=0,RetirementEvidenceBytes=0,RetirementPublicationBytes=0,
                 },
             };
             _capturedModuleGenerationKeys = keys;
@@ -1563,6 +1584,63 @@ public sealed partial class SqliteRecordStore
             if (authorityReads > plan.Limits.MaximumAuthorityReads || intervalCount > plan.Limits.MaximumReadIntervals
                 || evidenceBytes > plan.Limits.MaximumEvidenceBytes || transient > plan.Limits.MaximumTransientBytes)
                 return SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.BudgetExceeded, OperationStatus.ValidationFailed, ErrorCategory.Validation);
+            BaseSubjectRetirementPreparedEvidence? preparedRetirement = null;
+            if (plan.SubjectRetirement is { } retirementPlan)
+            {
+                long publicationPosition;
+                await using (SqliteCommand position = _connection.CreateCommand())
+                {
+                    position.Transaction = _transaction;
+                    position.CommandTimeout = CommandTimeoutSeconds();
+                    position.CommandText = $"SELECT CAST(value AS INTEGER) FROM {_owner._names.ProviderState} WHERE key='subject_retirement_position';";
+                    object? raw = await position.ExecuteScalarAsync(token).ConfigureAwait(false);
+                    if (raw is null or DBNull)
+                        return SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);
+                    publicationPosition = Convert.ToInt64(raw, CultureInfo.InvariantCulture);
+                }
+                var retirementItems = ImmutableArray.CreateBuilder<BaseSubjectRetirementPreparedEvidenceItem>(retirementPlan.Items.Length);
+                foreach (BaseSubjectRetirementProjectionPlanItem projection in retirementPlan.Items)
+                {
+                    BaseProtectedSubjectScope protectedScope = ProtectScope(projection.Scope);
+                    await using SqliteCommand exists = _connection.CreateCommand();
+                    exists.Transaction = _transaction;
+                    exists.CommandTimeout = CommandTimeoutSeconds();
+                    exists.CommandText = $"SELECT 1 FROM {_owner._names.SubjectRetirementBarriers} WHERE scope_kind=$scopeKind AND scope_index_digest=$scopeDigest AND contract_id=$contract AND contract_version=$version AND subject_id=$subject AND authority_epoch=$epoch AND incarnation=$incarnation;";
+                    AddProtectedScope(exists, protectedScope);
+                    exists.Parameters.AddWithValue("$contract", projection.ContractId);
+                    exists.Parameters.AddWithValue("$version", projection.ContractVersion);
+                    exists.Parameters.AddWithValue("$subject", projection.SubjectId.Value);
+                    exists.Parameters.Add("$epoch", SqliteType.Blob).Value = projection.AuthorityEpoch.ToArray();
+                    exists.Parameters.Add("$incarnation", SqliteType.Blob).Value = projection.Incarnation.ToArray();
+                    if (await exists.ExecuteScalarAsync(token).ConfigureAwait(false) is not null)
+                        return SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);
+                    var barrier = new BaseSubjectRetirementBarrier
+                    {
+                        ContractId = projection.ContractId, ContractVersion = projection.ContractVersion,
+                        SubjectId = projection.SubjectId, AuthorityEpoch = projection.AuthorityEpoch,
+                        Incarnation = projection.Incarnation, TombstoneSequence = projection.TombstoneSequence,
+                        RequiredConsumerSetChecksum = projection.AcceptedConsumerSetChecksum,
+                        CreatedAtUtc = projection.TombstonedAtUtc, DeadlineUtc = projection.DeadlineUtc,
+                        State = BaseSubjectRetirementBarrierState.Pending, Generation = 1, BarrierChecksum = string.Empty,
+                    };
+                    barrier = barrier with { BarrierChecksum = BaseSubjectRetirementRegistry.BarrierChecksum(barrier, []) };
+                    retirementItems.Add(new BaseSubjectRetirementPreparedEvidenceItem
+                    {
+                        ProjectionOrdinal = projection.ProjectionOrdinal, Previous = null, Resulting = barrier,
+                        ProtectedScope = protectedScope, PublicationPosition = checked(publicationPosition + projection.ProjectionOrdinal + 1),
+                    });
+                }
+                preparedRetirement = new BaseSubjectRetirementPreparedEvidence
+                {
+                    Items = retirementItems.MoveToImmutable(), PlanChecksum = retirementPlan.PlanChecksum,
+                };
+            }
+            long retirementEvidenceBytes=BaseSubjectCanonicalRetainedWork.MeasureRetirementPreparedEvidence(preparedRetirement);
+            evidenceBytes=checked(evidenceBytes+retirementEvidenceBytes);transient=checked(transient+retirementEvidenceBytes);
+            int retirementReads=preparedRetirement?.Items.Length??0;
+            if(retirementReads>plan.Limits.MaximumRetirementBarrierReads||retirementReads>plan.Limits.MaximumRetirementProjections
+                ||retirementEvidenceBytes>plan.Limits.MaximumRetirementEvidenceBytes||evidenceBytes>plan.Limits.MaximumEvidenceBytes||transient>plan.Limits.MaximumTransientBytes)
+                return SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.BudgetExceeded,OperationStatus.ValidationFailed,ErrorCategory.Validation);
             _preparedPlan = plan;
             _preparedLifecycleIncarnations = lifecycleIncarnations;
             _preparedMutation = new BasePreparedAtomicMutation
@@ -1583,6 +1661,7 @@ public sealed partial class SqliteRecordStore
                 SubjectOverlay = overlays.Values.OrderBy(static value => value.ContractId, StringComparer.Ordinal).ThenBy(static value => value.ContractVersion).ThenBy(static value => value.SubjectId.Value, StringComparer.Ordinal).ToImmutableArray(),
                 SubjectValidations = validationEvidence.MoveToImmutable(),
                 ReadIntervals = intervals.ToImmutable(),
+                SubjectRetirement = preparedRetirement,
                 Accounting = new BasePreparedAtomicMutationAccounting
                 {
                     AuthorityReads = authorityReads, GenerationReads = captured.Generations.Length,
@@ -1591,6 +1670,7 @@ public sealed partial class SqliteRecordStore
                     ReadIntervals = intervalCount,
                     SelectedBytes = captured.Accounting.SelectedBytes, GenerationBytes = captured.Accounting.GenerationBytes, EvidenceBytes = evidenceBytes,
                     TransientBytes = transient,
+                    RetirementBarrierReads=retirementReads,RetirementAcknowledgementReads=0,RetirementProjections=plan.SubjectRetirement?.Items.Length??0,RetirementPublications=0,RetirementEvidenceBytes=retirementEvidenceBytes,RetirementPublicationBytes=0,
                 },
             };
             return OperationResults.Ok(_preparedMutation);
@@ -1737,6 +1817,65 @@ public sealed partial class SqliteRecordStore
                     ? System.Text.Encoding.UTF8.GetByteCount(item.RecordId.Value) + sizeof(long)
                     : JsonSerializer.SerializeToUtf8Bytes(mutation.Value.Record, HPDBaseJsonSerializerContext.Default.RecordEnvelope).LongLength));
             }
+            BaseSubjectRetirementProvisionalEvidence? appliedRetirement = null;
+            long retirementPublicationBytes = 0;
+            if (prepared.SubjectRetirement is { } retirement)
+            {
+                if (plan.SubjectRetirement is not { } retirementPlan
+                    || !string.Equals(retirement.PlanChecksum, retirementPlan.PlanChecksum, StringComparison.Ordinal)
+                    || retirement.Items.Length != retirementPlan.Items.Length)
+                    return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);
+                long expectedPosition;
+                await using (SqliteCommand readPosition = _connection.CreateCommand())
+                {
+                    readPosition.Transaction = _transaction;
+                    readPosition.CommandTimeout = CommandTimeoutSeconds();
+                    readPosition.CommandText = $"SELECT CAST(value AS INTEGER) FROM {_owner._names.ProviderState} WHERE key='subject_retirement_position';";
+                    object? raw = await readPosition.ExecuteScalarAsync(token).ConfigureAwait(false);
+                    if (raw is null or DBNull)
+                        return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);
+                    expectedPosition = Convert.ToInt64(raw, CultureInfo.InvariantCulture);
+                }
+                foreach (BaseSubjectRetirementPreparedEvidenceItem evidence in retirement.Items)
+                {
+                    BaseSubjectRetirementProjectionPlanItem? retirementProjection = retirementPlan.Items.SingleOrDefault(
+                        value => value.ProjectionOrdinal == evidence.ProjectionOrdinal);
+                    if (retirementProjection is null || evidence.Previous is not null
+                        || evidence.PublicationPosition != checked(expectedPosition + 1)
+                        || !RetirementProjectionMatches(retirementProjection, evidence))
+                        return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);
+                    await using SqliteCommand insert = _connection.CreateCommand();
+                    insert.Transaction = _transaction; insert.CommandTimeout = CommandTimeoutSeconds();
+                    insert.CommandText = $"INSERT INTO {_owner._names.SubjectRetirementBarriers}(scope_kind,scope_index_digest,protected_scope_value,contract_id,contract_version,subject_id,authority_epoch,incarnation,tombstone_sequence,required_consumer_set_checksum,created_at,deadline_at,state,generation,barrier_checksum,policy_checksum) VALUES($scopeKind,$scopeDigest,$scopeValue,$contract,$version,$subject,$epoch,$incarnation,$sequence,$set,$created,$deadline,$state,$generation,$checksum,$policy);";
+                    AddProtectedScope(insert, evidence.ProtectedScope);
+                    insert.Parameters.AddWithValue("$contract", retirementProjection.ContractId); insert.Parameters.AddWithValue("$version", retirementProjection.ContractVersion);
+                    insert.Parameters.AddWithValue("$subject", retirementProjection.SubjectId.Value); insert.Parameters.Add("$epoch", SqliteType.Blob).Value = retirementProjection.AuthorityEpoch.ToArray();
+                    insert.Parameters.Add("$incarnation", SqliteType.Blob).Value = retirementProjection.Incarnation.ToArray(); insert.Parameters.AddWithValue("$sequence", retirementProjection.TombstoneSequence);
+                    insert.Parameters.AddWithValue("$set", retirementProjection.AcceptedConsumerSetChecksum); insert.Parameters.AddWithValue("$created", retirementProjection.TombstonedAtUtc.ToString("O", CultureInfo.InvariantCulture));
+                    insert.Parameters.AddWithValue("$deadline", retirementProjection.DeadlineUtc.ToString("O", CultureInfo.InvariantCulture)); insert.Parameters.AddWithValue("$state", (int)evidence.Resulting.State);
+                    insert.Parameters.AddWithValue("$generation", evidence.Resulting.Generation); insert.Parameters.AddWithValue("$checksum", evidence.Resulting.BarrierChecksum);
+                    insert.Parameters.AddWithValue("$policy", retirementProjection.RetirementPolicyChecksum);
+                    if (await insert.ExecuteNonQueryAsync(token).ConfigureAwait(false) != 1)
+                        return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);
+                    await using SqliteCommand advance = _connection.CreateCommand();
+                    advance.Transaction = _transaction; advance.CommandTimeout = CommandTimeoutSeconds();
+                    advance.CommandText = $"UPDATE {_owner._names.ProviderState} SET value=$next WHERE key='subject_retirement_position' AND CAST(value AS INTEGER)=$expected;";
+                    advance.Parameters.AddWithValue("$next", evidence.PublicationPosition); advance.Parameters.AddWithValue("$expected", expectedPosition);
+                    if (await advance.ExecuteNonQueryAsync(token).ConfigureAwait(false) != 1)
+                        return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);
+                    var retirementPublication = new BaseSubjectRetirementPublicationFact
+                    {
+                        Position = new(evidence.PublicationPosition), Kind = BaseSubjectRetirementPublicationKind.BarrierCreated,
+                        Barrier = BarrierPublication(evidence.Resulting, 0, null),
+                    };
+                    await WriteRetirementPublicationAsync(evidence.ProtectedScope, retirementPublication, token).ConfigureAwait(false);
+                    retirementPublicationBytes=checked(retirementPublicationBytes+BaseSubjectCanonicalRetainedWork.MeasureRetirementPublication(retirementPublication));
+                    expectedPosition = evidence.PublicationPosition;
+                }
+                appliedRetirement = new BaseSubjectRetirementProvisionalEvidence { Items = retirement.Items, PlanChecksum = retirement.PlanChecksum };
+                if(retirement.Items.Length>plan.Limits.MaximumRetirementPublications||retirementPublicationBytes>plan.Limits.MaximumRetirementPublicationBytes)
+                    return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectErrorCodes.BudgetExceeded,OperationStatus.ValidationFailed,ErrorCategory.Validation);
+            }
             if (plan.Kind == BaseAtomicMutationExecutionKind.ModuleMutation)
             {
                 if (_capturedModuleGenerationKeys is null || prepared.Generations.Length != _capturedModuleGenerationKeys.Count)
@@ -1789,6 +1928,7 @@ public sealed partial class SqliteRecordStore
                 Authority = prepared.Authority with { },
                 Facts = facts.MoveToImmutable(),
                 Generations = generations,
+                SubjectRetirement = appliedRetirement,
                 Accounting = new BaseProvisionalAtomicMutationAccounting
                 {
                     WrittenBytes = writtenBytes,
@@ -1802,11 +1942,31 @@ public sealed partial class SqliteRecordStore
                     SelectedBytes = prepared.Accounting.SelectedBytes,
                     EvidenceBytes = prepared.Accounting.EvidenceBytes,
                     TransientBytes = transient,
+                    RetirementBarrierReads=prepared.Accounting.RetirementBarrierReads,RetirementAcknowledgementReads=prepared.Accounting.RetirementAcknowledgementReads,RetirementProjections=prepared.Accounting.RetirementProjections,RetirementPublications=prepared.SubjectRetirement?.Items.Length??0,RetirementEvidenceBytes=prepared.Accounting.RetirementEvidenceBytes,RetirementPublicationBytes=retirementPublicationBytes,
                 },
             };
             _appliedProvisional = applied;
             return OperationResults.Ok(applied);
         });
+
+        private static bool RetirementProjectionMatches(
+            BaseSubjectRetirementProjectionPlanItem projection,
+            BaseSubjectRetirementPreparedEvidenceItem evidence)
+        {
+            BaseSubjectRetirementBarrier barrier = evidence.Resulting;
+            return projection.ContractId == barrier.ContractId
+                && projection.ContractVersion == barrier.ContractVersion
+                && projection.SubjectId.Equals(barrier.SubjectId)
+                && projection.AuthorityEpoch.Equals(barrier.AuthorityEpoch)
+                && projection.Incarnation.Equals(barrier.Incarnation)
+                && projection.TombstoneSequence == barrier.TombstoneSequence
+                && projection.AcceptedConsumerSetChecksum == barrier.RequiredConsumerSetChecksum
+                && projection.TombstonedAtUtc == barrier.CreatedAtUtc
+                && projection.DeadlineUtc == barrier.DeadlineUtc
+                && barrier.State == BaseSubjectRetirementBarrierState.Pending
+                && barrier.Generation == 1
+                && barrier.BarrierChecksum == BaseSubjectRetirementRegistry.BarrierChecksum(barrier, []);
+        }
 
         internal bool ValidateCommitFinalization(AtomicMutationProcessingResult processing)
         {
@@ -2457,6 +2617,7 @@ public sealed partial class SqliteRecordStore
                     ReadIntervals = 1,
                     EvidenceBytes = boundary.LongLength,
                     TransientBytes = _selectionRetainedBytes,
+                    RetirementBarrierReads=0,RetirementAcknowledgementReads=0,RetirementProjections=0,RetirementPublications=0,RetirementEvidenceBytes=0,RetirementPublicationBytes=0,
                 },
             };
             return OperationResults.Ok(_capturedMutation);
@@ -2570,6 +2731,84 @@ public sealed partial class SqliteRecordStore
                 BaseOperationKind.Purge,
                 cancellationToken,
                 token => AdvancePurgeGenerationCoreAsync(collection, expectedGeneration, token));
+
+        public ValueTask<OperationResult<BaseSubjectAcknowledgementResult>> ApplySubjectRetirementAcknowledgementAsync(
+            BaseSubjectRetirementProviderAcknowledgementRequest request,
+            CancellationToken cancellationToken = default) => ExecuteAsync(BaseOperationKind.SubjectLifecycleCheckpoint, cancellationToken, async token =>
+        {
+            BaseSubjectLifecycleAcknowledgement acknowledgement=request.Acknowledgement;
+            BaseSubjectRetirementConsumerDefinition? consumer=_owner._options.SubjectRetirementConsumers.SingleOrDefault(value=>value.ConsumerId==acknowledgement.ConsumerId&&value.ConsumerVersion==acknowledgement.ConsumerVersion);
+            if(consumer is null||BaseSubjectRetirementRegistry.ConsumerChecksum(consumer)!=request.RetirementConsumerChecksum||consumer.Participation!=acknowledgement.Participation||consumer.LifecycleConsumerChecksum!=acknowledgement.ConsumerChecksum)
+                return RetirementFailure(BaseSubjectRetirementErrorCodes.ProviderContractInvalid,OperationStatus.CapabilityUnavailable,ErrorCategory.Capability);
+            BaseProtectedSubjectScope scope=ProtectScope(request.Scope);
+            if(acknowledgement.Participation==BaseSubjectRetirementParticipation.AdvisoryAcknowledgement)
+            {
+                await using SqliteCommand delivered=_connection.CreateCommand();delivered.Transaction=_transaction;delivered.CommandTimeout=CommandTimeoutSeconds();delivered.CommandText=$"SELECT 1 FROM {_owner._names.SubjectLifecycleMemberships} WHERE consumer_id=$consumer AND consumer_version=$consumerVersion AND contract_id=$contract AND contract_version=$version AND scope_kind=$scopeKind AND scope_index_digest=$scopeDigest AND subject_id=$subject AND authority_epoch=$epoch AND incarnation=$incarnation AND subject_sequence=$sequence LIMIT 1;";
+                AddRetirementIdentity(delivered,scope,acknowledgement);object? exists=await delivered.ExecuteScalarAsync(token).ConfigureAwait(false);if(exists is null)return RetirementFailure(BaseSubjectRetirementErrorCodes.ProviderContractInvalid,OperationStatus.ValidationFailed,ErrorCategory.Validation);
+                long advisoryPosition=await NextRetirementPositionAsync(token).ConfigureAwait(false);await WriteRetirementPublicationAsync(scope,new(){Position=new(advisoryPosition),Kind=BaseSubjectRetirementPublicationKind.AdvisoryAcknowledgementAccepted,AdvisoryAcknowledgement=new(){ContractId=acknowledgement.ContractId,ContractVersion=acknowledgement.ContractVersion,SubjectId=acknowledgement.SubjectId,AuthorityEpoch=acknowledgement.AuthorityEpoch,Incarnation=acknowledgement.Incarnation,ThroughSubjectSequence=acknowledgement.ThroughSubjectSequence,ConsumerId=acknowledgement.ConsumerId,ConsumerVersion=acknowledgement.ConsumerVersion,Disposition=acknowledgement.Disposition}},token).ConfigureAwait(false);return OperationResults.Ok(new BaseSubjectAcknowledgementResult{Outcome=BaseSubjectRetirementMutationOutcome.Applied,ThroughSubjectSequence=acknowledgement.ThroughSubjectSequence});
+            }
+            if(acknowledgement.Participation!=BaseSubjectRetirementParticipation.RequiredBeforePurge||acknowledgement.RequiredBarrier is null)return RetirementFailure(BaseSubjectRetirementErrorCodes.ContractInvalid,OperationStatus.ValidationFailed,ErrorCategory.Validation);
+            BaseSubjectRetirementPolicy? policy=_owner._options.SubjectRetirementPolicies.SingleOrDefault(value=>value.ContractId==acknowledgement.ContractId&&value.ContractVersion==acknowledgement.ContractVersion);
+            if(policy is null||policy.PolicyChecksum!=request.RetirementPolicyChecksum||!policy.AcceptedConsumers.Any(value=>value.ConsumerId==acknowledgement.ConsumerId&&value.ConsumerVersion==acknowledgement.ConsumerVersion&&value.RetirementConsumerChecksum==request.RetirementConsumerChecksum))return RetirementFailure(BaseSubjectRetirementErrorCodes.ProviderContractInvalid,OperationStatus.CapabilityUnavailable,ErrorCategory.Capability);
+            BaseSubjectRetirementBarrier? barrier=null;
+            await using(SqliteCommand read=_connection.CreateCommand()){read.Transaction=_transaction;read.CommandTimeout=CommandTimeoutSeconds();read.CommandText=$"SELECT tombstone_sequence,required_consumer_set_checksum,created_at,deadline_at,state,generation,barrier_checksum FROM {_owner._names.SubjectRetirementBarriers} WHERE scope_kind=$scopeKind AND scope_index_digest=$scopeDigest AND contract_id=$contract AND contract_version=$version AND subject_id=$subject AND authority_epoch=$epoch AND incarnation=$incarnation;";AddRetirementIdentity(read,scope,acknowledgement);await using SqliteDataReader reader=await read.ExecuteReaderAsync(token).ConfigureAwait(false);if(await reader.ReadAsync(token).ConfigureAwait(false))barrier=new BaseSubjectRetirementBarrier{ContractId=acknowledgement.ContractId,ContractVersion=acknowledgement.ContractVersion,SubjectId=acknowledgement.SubjectId,AuthorityEpoch=acknowledgement.AuthorityEpoch,Incarnation=acknowledgement.Incarnation,TombstoneSequence=reader.GetInt64(0),RequiredConsumerSetChecksum=reader.GetString(1),CreatedAtUtc=DateTimeOffset.Parse(reader.GetString(2),CultureInfo.InvariantCulture),DeadlineUtc=DateTimeOffset.Parse(reader.GetString(3),CultureInfo.InvariantCulture),State=(BaseSubjectRetirementBarrierState)reader.GetInt32(4),Generation=reader.GetInt64(5),BarrierChecksum=reader.GetString(6)};}
+            if(barrier is null||barrier.Generation!=acknowledgement.RequiredBarrier.Generation||barrier.BarrierChecksum!=acknowledgement.RequiredBarrier.Checksum||barrier.TombstoneSequence!=acknowledgement.ThroughSubjectSequence)return RetirementFailure("base.subjectRetirement.acknowledgementConflict",OperationStatus.Conflict,ErrorCategory.Conflict);
+            if(request.ObservedAtUtc>barrier.DeadlineUtc||barrier.State!=BaseSubjectRetirementBarrierState.Pending)return RetirementFailure("base.subjectRetirement.barrierTimedOut",OperationStatus.Conflict,ErrorCategory.Conflict);
+            var inputs=new List<string>();bool existing=false;
+            await using(SqliteCommand rows=_connection.CreateCommand()){rows.Transaction=_transaction;rows.CommandTimeout=CommandTimeoutSeconds();rows.CommandText=$"SELECT consumer_id,consumer_version,consumer_checksum,through_sequence,disposition,retirement_position FROM {_owner._names.SubjectRetirementAcknowledgements} WHERE scope_kind=$scopeKind AND scope_index_digest=$scopeDigest AND contract_id=$contract AND contract_version=$version AND subject_id=$subject AND authority_epoch=$epoch AND incarnation=$incarnation ORDER BY consumer_id,consumer_version;";AddRetirementIdentity(rows,scope,acknowledgement);await using SqliteDataReader reader=await rows.ExecuteReaderAsync(token).ConfigureAwait(false);while(await reader.ReadAsync(token).ConfigureAwait(false)){string id=reader.GetString(0);int version=reader.GetInt32(1);if(id==acknowledgement.ConsumerId&&version==acknowledgement.ConsumerVersion)existing=true;inputs.Add(BaseSubjectRetirementRegistry.AcknowledgementChecksumInput(id,version,reader.GetString(2),reader.GetInt64(3),(BaseSubjectAcknowledgementDisposition)reader.GetInt32(4),reader.GetInt64(5)));}}
+            if(existing)return OperationResults.Ok(new BaseSubjectAcknowledgementResult{Outcome=BaseSubjectRetirementMutationOutcome.Obsolete,BarrierState=barrier.State,BarrierGeneration=barrier.Generation,BarrierChecksum=barrier.BarrierChecksum,ThroughSubjectSequence=acknowledgement.ThroughSubjectSequence});
+            long position=await NextRetirementPositionAsync(token).ConfigureAwait(false);inputs.Add(BaseSubjectRetirementRegistry.AcknowledgementChecksumInput(acknowledgement.ConsumerId,acknowledgement.ConsumerVersion,acknowledgement.ConsumerChecksum,acknowledgement.ThroughSubjectSequence,acknowledgement.Disposition,position));
+            await using(SqliteCommand insert=_connection.CreateCommand()){insert.Transaction=_transaction;insert.CommandTimeout=CommandTimeoutSeconds();insert.CommandText=$"INSERT INTO {_owner._names.SubjectRetirementAcknowledgements}(scope_kind,scope_index_digest,protected_scope_value,contract_id,contract_version,subject_id,authority_epoch,incarnation,consumer_id,consumer_version,consumer_checksum,through_sequence,disposition,retirement_position) VALUES($scopeKind,$scopeDigest,$scopeValue,$contract,$version,$subject,$epoch,$incarnation,$consumer,$consumerVersion,$consumerChecksum,$sequence,$disposition,$position);";AddRetirementIdentity(insert,scope,acknowledgement);insert.Parameters.Add("$scopeValue",SqliteType.Blob).Value=scope.ProtectedCanonicalValue;insert.Parameters.AddWithValue("$consumerChecksum",acknowledgement.ConsumerChecksum);insert.Parameters.AddWithValue("$disposition",(int)acknowledgement.Disposition);insert.Parameters.AddWithValue("$position",position);await insert.ExecuteNonQueryAsync(token).ConfigureAwait(false);}
+            bool satisfied=policy.AcceptedConsumers.All(value=>inputs.Any(input=>input.StartsWith(value.ConsumerId+"\0"+value.ConsumerVersion+"\0",StringComparison.Ordinal)));BaseSubjectRetirementBarrier resulting=barrier with{State=satisfied?BaseSubjectRetirementBarrierState.Satisfied:BaseSubjectRetirementBarrierState.Pending,Generation=checked(barrier.Generation+1),BarrierChecksum=string.Empty};resulting=resulting with{BarrierChecksum=BaseSubjectRetirementRegistry.BarrierChecksum(resulting,inputs)};
+            await using(SqliteCommand update=_connection.CreateCommand()){update.Transaction=_transaction;update.CommandTimeout=CommandTimeoutSeconds();update.CommandText=$"UPDATE {_owner._names.SubjectRetirementBarriers} SET state=$state,generation=$generation,barrier_checksum=$result WHERE scope_kind=$scopeKind AND scope_index_digest=$scopeDigest AND contract_id=$contract AND contract_version=$version AND subject_id=$subject AND authority_epoch=$epoch AND incarnation=$incarnation AND generation=$expected AND barrier_checksum=$checksum;";AddRetirementIdentity(update,scope,acknowledgement);update.Parameters.AddWithValue("$state",(int)resulting.State);update.Parameters.AddWithValue("$generation",resulting.Generation);update.Parameters.AddWithValue("$result",resulting.BarrierChecksum);update.Parameters.AddWithValue("$expected",barrier.Generation);update.Parameters.AddWithValue("$checksum",barrier.BarrierChecksum);if(await update.ExecuteNonQueryAsync(token).ConfigureAwait(false)!=1)return RetirementFailure("base.subjectRetirement.acknowledgementConflict",OperationStatus.Conflict,ErrorCategory.Conflict);}
+            await WriteRetirementPublicationAsync(scope,new(){Position=new(position),Kind=satisfied?BaseSubjectRetirementPublicationKind.BarrierSatisfied:BaseSubjectRetirementPublicationKind.RequiredAcknowledgementAccepted,Barrier=BarrierPublication(resulting,barrier.Generation,acknowledgement.ConsumerId)},token).ConfigureAwait(false);
+            return OperationResults.Ok(new BaseSubjectAcknowledgementResult{Outcome=BaseSubjectRetirementMutationOutcome.Applied,BarrierState=resulting.State,BarrierGeneration=resulting.Generation,BarrierChecksum=resulting.BarrierChecksum,ThroughSubjectSequence=acknowledgement.ThroughSubjectSequence});
+        });
+
+        public ValueTask<OperationResult<BaseSubjectRetirementTimeoutResult>> ApplySubjectRetirementTimeoutAsync(BaseSubjectRetirementProviderTimeoutRequest request,CancellationToken cancellationToken=default)=>ExecuteAsync(BaseOperationKind.SubjectRetirementTimeout,cancellationToken,async token=>
+        {
+            ArgumentNullException.ThrowIfNull(request);BaseSubjectRetirementTimeoutRequest command=request.Request;if(!RetirementPolicyMatches(command.ContractId,command.ContractVersion,request.RetirementPolicyChecksum)||request.ObservedAtUtc.Offset!=TimeSpan.Zero)return RetirementFailure<BaseSubjectRetirementTimeoutResult>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid,OperationStatus.CapabilityUnavailable,ErrorCategory.Capability);BaseProtectedSubjectScope scope=ProtectScope(request.Scope);
+            BaseSubjectRetirementBarrier? barrier=await ReadRetirementBarrierAsync(scope,command.ContractId,command.ContractVersion,command.SubjectId,command.AuthorityEpoch,command.Incarnation,token).ConfigureAwait(false);if(barrier is null||barrier.Generation!=command.ExpectedBarrierGeneration||barrier.BarrierChecksum!=command.ExpectedBarrierChecksum)return RetirementFailure<BaseSubjectRetirementTimeoutResult>("base.subjectRetirement.timeoutConflict",OperationStatus.Conflict,ErrorCategory.Conflict);if(barrier.State!=BaseSubjectRetirementBarrierState.Pending)return OperationResults.Ok(new BaseSubjectRetirementTimeoutResult{Outcome=BaseSubjectRetirementMutationOutcome.Obsolete,State=barrier.State,Generation=barrier.Generation,BarrierChecksum=barrier.BarrierChecksum});if(request.ObservedAtUtc<=barrier.DeadlineUtc)return RetirementFailure<BaseSubjectRetirementTimeoutResult>("base.subjectRetirement.barrierPending",OperationStatus.Conflict,ErrorCategory.Conflict);BaseSubjectRetirementPolicy policy=_owner._options.SubjectRetirementPolicies.Single(value=>value.ContractId==command.ContractId&&value.ContractVersion==command.ContractVersion);BaseSubjectRetirementBarrierState timeoutState=policy.TimeoutBehavior==BaseSubjectRetirementTimeoutBehavior.Quarantine?BaseSubjectRetirementBarrierState.Quarantined:BaseSubjectRetirementBarrierState.TimedOut;
+            BaseSubjectRetirementBarrier resulting=await TransitionRetirementBarrierAsync(scope,barrier,timeoutState,token).ConfigureAwait(false);return OperationResults.Ok(new BaseSubjectRetirementTimeoutResult{Outcome=BaseSubjectRetirementMutationOutcome.Applied,State=resulting.State,Generation=resulting.Generation,BarrierChecksum=resulting.BarrierChecksum});
+        });
+
+        public ValueTask<OperationResult<BaseSubjectRetirementOverrideResult>> ApplySubjectRetirementOverrideAsync(BaseSubjectRetirementProviderOverrideRequest request,CancellationToken cancellationToken=default)=>ExecuteAsync(BaseOperationKind.SubjectRetirementOverride,cancellationToken,async token=>
+        {
+            ArgumentNullException.ThrowIfNull(request);BaseSubjectRetirementOverrideRequest command=request.Request;if(command.Intent!="override-subject-retirement-barrier"||command.ChangeReference.Length is<1 or>256||!RetirementPolicyMatches(command.ContractId,command.ContractVersion,request.RetirementPolicyChecksum))return RetirementFailure<BaseSubjectRetirementOverrideResult>(BaseSubjectRetirementErrorCodes.ContractInvalid,OperationStatus.ValidationFailed,ErrorCategory.Validation);BaseProtectedSubjectScope scope=ProtectScope(request.Scope);
+            BaseSubjectRetirementBarrier? barrier=await ReadRetirementBarrierAsync(scope,command.ContractId,command.ContractVersion,command.SubjectId,command.AuthorityEpoch,command.Incarnation,token).ConfigureAwait(false);if(barrier is null||barrier.TombstoneSequence!=command.ExpectedTombstoneSequence||barrier.Generation!=command.ExpectedBarrierGeneration||barrier.BarrierChecksum!=command.ExpectedBarrierChecksum)return RetirementFailure<BaseSubjectRetirementOverrideResult>("base.subjectRetirement.overrideConflict",OperationStatus.Conflict,ErrorCategory.Conflict);if(barrier.State==BaseSubjectRetirementBarrierState.Overridden)return OperationResults.Ok(new BaseSubjectRetirementOverrideResult{Outcome=BaseSubjectRetirementMutationOutcome.Obsolete,Generation=barrier.Generation,BarrierChecksum=barrier.BarrierChecksum});if(barrier.State is not(BaseSubjectRetirementBarrierState.TimedOut or BaseSubjectRetirementBarrierState.Quarantined))return RetirementFailure<BaseSubjectRetirementOverrideResult>("base.subjectRetirement.overrideConflict",OperationStatus.Conflict,ErrorCategory.Conflict);
+            BaseSubjectRetirementBarrier resulting=await TransitionRetirementBarrierAsync(scope,barrier,BaseSubjectRetirementBarrierState.Overridden,token).ConfigureAwait(false);return OperationResults.Ok(new BaseSubjectRetirementOverrideResult{Outcome=BaseSubjectRetirementMutationOutcome.Applied,Generation=resulting.Generation,BarrierChecksum=resulting.BarrierChecksum});
+        });
+
+        public ValueTask<OperationResult<BaseSubjectRetirementPurgeApplied>> ApplySubjectRetirementPurgeAsync(BaseSubjectRetirementProviderPurgeRequest request,CancellationToken cancellationToken=default)=>ExecuteAsync(BaseOperationKind.SubjectRetirementPurge,cancellationToken,async token=>
+        {
+            ArgumentNullException.ThrowIfNull(request);BaseSubjectFinalPurgeRequest command=request.Request;BaseSubjectRetirementPolicy? policy=_owner._options.SubjectRetirementPolicies.SingleOrDefault(value=>value.ContractId==command.ContractId&&value.ContractVersion==command.ContractVersion);BaseExportedSubjectDefinition? definition=_owner._options.ExportedSubjects.SingleOrDefault(value=>value.Id==command.ContractId&&value.Version==command.ContractVersion);if(policy is null||definition is null||policy.PolicyChecksum!=request.RetirementPolicyChecksum||BaseSubjectContractGraph.Checksum(definition)!=request.ContractChecksum||policy.PurgeRetention.MinimumTombstoneAge!=request.MinimumTombstoneAge)return RetirementFailure<BaseSubjectRetirementPurgeApplied>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid,OperationStatus.CapabilityUnavailable,ErrorCategory.Capability);BaseProtectedSubjectScope scope=ProtectScope(request.Scope);BaseSubjectRetirementBarrier? barrier=await ReadRetirementBarrierAsync(scope,command.ContractId,command.ContractVersion,command.SubjectId,command.AuthorityEpoch,command.Incarnation,token).ConfigureAwait(false);if(barrier is null||barrier.TombstoneSequence!=command.ExpectedTombstoneSequence||barrier.Generation!=command.ExpectedBarrierGeneration||barrier.BarrierChecksum!=command.ExpectedBarrierChecksum||barrier.State is not(BaseSubjectRetirementBarrierState.Satisfied or BaseSubjectRetirementBarrierState.Overridden)||barrier.RequiredConsumerSetChecksum!=BaseSubjectRetirementRegistry.AcceptedSetChecksum(policy.AcceptedConsumers)||request.ObservedAtUtc<checked(barrier.CreatedAtUtc+request.MinimumTombstoneAge))return RetirementFailure<BaseSubjectRetirementPurgeApplied>("base.subjectRetirement.purgeConflict",OperationStatus.Conflict,ErrorCategory.Conflict);
+            string? collectionId=null;RecordId? recordId=null;long sequence=0;await using(SqliteCommand lifetime=_connection.CreateCommand()){lifetime.Transaction=_transaction;lifetime.CommandTimeout=CommandTimeoutSeconds();lifetime.CommandText=$"SELECT private_collection_id,private_record_id,subject_sequence FROM {_owner._names.SubjectLifetimes} WHERE scope_kind=$scopeKind AND scope_index_digest=$scopeDigest AND contract_id=$contract AND contract_version=$version AND subject_id=$subject AND incarnation=$incarnation AND lifecycle_state=$state;";AddRetirementKey(lifetime,scope,command.ContractId,command.ContractVersion,command.SubjectId,command.AuthorityEpoch,command.Incarnation);lifetime.Parameters.AddWithValue("$state",(int)BaseSubjectLifecycleState.Tombstoned);await using SqliteDataReader reader=await lifetime.ExecuteReaderAsync(token).ConfigureAwait(false);if(await reader.ReadAsync(token).ConfigureAwait(false)){collectionId=reader.GetString(0);recordId=new(reader.GetString(1));sequence=reader.GetInt64(2);}}if(collectionId is null||recordId is null)return RetirementFailure<BaseSubjectRetirementPurgeApplied>("base.subjectRetirement.purgeConflict",OperationStatus.Conflict,ErrorCategory.Conflict);CollectionDefinition? collection=(_owner._options.Collections??[]).SingleOrDefault(value=>value.Id==collectionId);if(collection is null)return RetirementFailure<BaseSubjectRetirementPurgeApplied>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid,OperationStatus.CapabilityUnavailable,ErrorCategory.Capability);
+            var memberships=ImmutableArray.CreateBuilder<BaseSubjectLifecycleMembershipPlanItem>();foreach(BaseSubjectLifecycleConsumerDefinition consumer in _owner._options.SubjectLifecycleConsumers.Where(value=>value.ContractId==command.ContractId&&value.ContractVersion==command.ContractVersion&&value.ObservedStates.Contains(BaseSubjectLifecycleState.Retired))){await using SqliteCommand projection=_connection.CreateCommand();projection.Transaction=_transaction;projection.CommandTimeout=CommandTimeoutSeconds();projection.CommandText=$"SELECT consumer_checksum,projection_generation FROM {_owner._names.SubjectLifecycleConsumers} WHERE consumer_id=$consumer AND consumer_version=$version AND state=0;";projection.Parameters.AddWithValue("$consumer",consumer.Id);projection.Parameters.AddWithValue("$version",consumer.Version);await using SqliteDataReader reader=await projection.ExecuteReaderAsync(token).ConfigureAwait(false);if(await reader.ReadAsync(token).ConfigureAwait(false))memberships.Add(new(){ConsumerId=consumer.Id,ConsumerVersion=consumer.Version,ConsumerChecksum=reader.GetString(0),ProjectionGeneration=reader.GetInt64(1),MatchedObservedState=BaseSubjectLifecycleState.Retired});}
+            var context=new RecordMutationSessionContext{ItemId="subject-retirement-purge",RequestedOperation=BaseRecordMutationKind.Delete,EventId=Guid.NewGuid().ToString("N"),Operation=request.Operation,ChangedFields=[]};OperationResult<RecordMutationSessionResult> deleted=await DeleteCoreAsync(collection,recordId.Value,new(){ExpectedRevision=command.ExpectedPrivateRevision,ReturnPrevious=true},context,token).ConfigureAwait(false);if(!deleted.IsSuccess()||deleted.Value is null)return new(){Status=deleted.Status,Error=deleted.Error};var lifecyclePlan=new BaseSubjectLifecyclePlanItem{ContractId=command.ContractId,ContractVersion=command.ContractVersion,ContractChecksum=request.ContractChecksum,Kind=BaseSubjectLifecycleMutationKind.Retire,SubjectId=command.SubjectId,PreviousState=BaseSubjectLifecycleState.Tombstoned,ResultingState=BaseSubjectLifecycleState.Retired,PublishFact=true,Memberships=memberships.MoveToImmutable()};var item=new BaseAtomicMutationPlanItem{Ordinal=0,ItemId="subject-retirement-purge",EventId=context.EventId,Collection=collection,Kind=BaseCommittedRecordMutationKind.Delete,RequestedKind=BaseRecordMutationKind.Delete,RecordId=recordId.Value,Delete=new(){ExpectedRevision=command.ExpectedPrivateRevision,ReturnPrevious=true},Current=deleted.Value.Mutation.Before,ChangedFields=[],SubjectLifecycle=lifecyclePlan,Operation=request.Operation};OperationResult<BaseSubjectLifecycleCommitEvidence> lifecycle=await ApplySubjectLifecycleAsync(item,lifecyclePlan,null,deleted.Value.Mutation.JournalPosition,token).ConfigureAwait(false);if(!lifecycle.IsSuccess()||lifecycle.Value is null)return new(){Status=lifecycle.Status,Error=lifecycle.Error};BaseRecordMutationFact fact=deleted.Value.Mutation with{SubjectLifecycle=lifecycle.Value};
+            var acknowledgements=ImmutableArray.CreateBuilder<BaseSubjectTerminalAcknowledgement>();await using(SqliteCommand rows=_connection.CreateCommand()){rows.Transaction=_transaction;rows.CommandTimeout=CommandTimeoutSeconds();rows.CommandText=$"SELECT consumer_id,consumer_version,consumer_checksum,through_sequence,disposition,retirement_position FROM {_owner._names.SubjectRetirementAcknowledgements} WHERE scope_kind=$scopeKind AND scope_index_digest=$scopeDigest AND contract_id=$contract AND contract_version=$version AND subject_id=$subject AND authority_epoch=$epoch AND incarnation=$incarnation ORDER BY consumer_id,consumer_version;";AddRetirementKey(rows,scope,command.ContractId,command.ContractVersion,command.SubjectId,command.AuthorityEpoch,command.Incarnation);await using SqliteDataReader reader=await rows.ExecuteReaderAsync(token).ConfigureAwait(false);while(await reader.ReadAsync(token).ConfigureAwait(false))acknowledgements.Add(new(){ConsumerId=reader.GetString(0),ConsumerVersion=reader.GetInt32(1),ConsumerChecksum=reader.GetString(2),ThroughSubjectSequence=reader.GetInt64(3),Disposition=(BaseSubjectAcknowledgementDisposition)reader.GetInt32(4),AcknowledgedPosition=new(reader.GetInt64(5))});}
+            var terminal=new BaseSubjectRetirementTerminalReceipt{ContractId=command.ContractId,ContractVersion=command.ContractVersion,SubjectId=command.SubjectId,Scope=scope,AuthorityEpoch=command.AuthorityEpoch,Incarnation=command.Incarnation,TombstoneSequence=barrier.TombstoneSequence,AuthorizingState=barrier.State,FinalBarrierGeneration=barrier.Generation,FinalBarrierChecksum=barrier.BarrierChecksum,RequiredConsumerSetChecksum=barrier.RequiredConsumerSetChecksum,Acknowledgements=acknowledgements.MoveToImmutable(),RetiredPosition=deleted.Value.Mutation.JournalPosition,PurgedAtUtc=request.ObservedAtUtc,ReceiptChecksum=string.Empty};terminal=terminal with{ReceiptChecksum=BaseSubjectRetirementRegistry.TerminalChecksum(terminal)};byte[] acknowledgementBytes=Encoding.UTF8.GetBytes(string.Join('\n',terminal.Acknowledgements.Select(static value=>$"{value.ConsumerId}\0{value.ConsumerVersion}\0{value.ConsumerChecksum}\0{value.ThroughSubjectSequence}\0{(int)value.Disposition}\0{value.AcknowledgedPosition.Value}")));
+            await using(SqliteCommand insert=_connection.CreateCommand()){insert.Transaction=_transaction;insert.CommandTimeout=CommandTimeoutSeconds();insert.CommandText=$"INSERT INTO {_owner._names.SubjectRetirementTerminals}(scope_kind,scope_index_digest,protected_scope_value,contract_id,contract_version,subject_id,authority_epoch,incarnation,tombstone_sequence,authorizing_state,final_barrier_generation,final_barrier_checksum,required_consumer_set_checksum,acknowledgements_blob,retired_position,purged_at,receipt_checksum) VALUES($scopeKind,$scopeDigest,$scopeValue,$contract,$version,$subject,$epoch,$incarnation,$sequence,$state,$generation,$barrierChecksum,$set,$acknowledgements,$position,$purged,$receipt) ON CONFLICT(scope_kind,scope_index_digest,contract_id,contract_version,subject_id) DO UPDATE SET protected_scope_value=excluded.protected_scope_value,authority_epoch=excluded.authority_epoch,incarnation=excluded.incarnation,tombstone_sequence=excluded.tombstone_sequence,authorizing_state=excluded.authorizing_state,final_barrier_generation=excluded.final_barrier_generation,final_barrier_checksum=excluded.final_barrier_checksum,required_consumer_set_checksum=excluded.required_consumer_set_checksum,acknowledgements_blob=excluded.acknowledgements_blob,retired_position=excluded.retired_position,purged_at=excluded.purged_at,receipt_checksum=excluded.receipt_checksum;";insert.Parameters.AddWithValue("$scopeKind",(int)scope.Kind);insert.Parameters.Add("$scopeDigest",SqliteType.Blob).Value=scope.IndexDigest;insert.Parameters.Add("$scopeValue",SqliteType.Blob).Value=scope.ProtectedCanonicalValue;insert.Parameters.AddWithValue("$contract",command.ContractId);insert.Parameters.AddWithValue("$version",command.ContractVersion);insert.Parameters.AddWithValue("$subject",command.SubjectId.Value);insert.Parameters.Add("$epoch",SqliteType.Blob).Value=command.AuthorityEpoch.ToArray();insert.Parameters.Add("$incarnation",SqliteType.Blob).Value=command.Incarnation.ToArray();insert.Parameters.AddWithValue("$sequence",barrier.TombstoneSequence);insert.Parameters.AddWithValue("$state",(int)barrier.State);insert.Parameters.AddWithValue("$generation",barrier.Generation);insert.Parameters.AddWithValue("$barrierChecksum",barrier.BarrierChecksum);insert.Parameters.AddWithValue("$set",barrier.RequiredConsumerSetChecksum);insert.Parameters.Add("$acknowledgements",SqliteType.Blob).Value=acknowledgementBytes;insert.Parameters.AddWithValue("$position",deleted.Value.Mutation.JournalPosition.Value);insert.Parameters.AddWithValue("$purged",request.ObservedAtUtc.ToString("O",CultureInfo.InvariantCulture));insert.Parameters.AddWithValue("$receipt",terminal.ReceiptChecksum);await insert.ExecuteNonQueryAsync(token).ConfigureAwait(false);}
+            foreach(string table in new[]{_owner._names.SubjectRetirementAcknowledgements,_owner._names.SubjectRetirementBarriers}){await using SqliteCommand remove=_connection.CreateCommand();remove.Transaction=_transaction;remove.CommandTimeout=CommandTimeoutSeconds();remove.CommandText=$"DELETE FROM {table} WHERE scope_kind=$scopeKind AND scope_index_digest=$scopeDigest AND contract_id=$contract AND contract_version=$version AND subject_id=$subject AND authority_epoch=$epoch AND incarnation=$incarnation;";AddRetirementKey(remove,scope,command.ContractId,command.ContractVersion,command.SubjectId,command.AuthorityEpoch,command.Incarnation);await remove.ExecuteNonQueryAsync(token).ConfigureAwait(false);}long publicationPosition=await NextRetirementPositionAsync(token).ConfigureAwait(false);await WriteRetirementPublicationAsync(scope,new(){Position=new(publicationPosition),Kind=BaseSubjectRetirementPublicationKind.SubjectPurged,Purged=new(){ContractId=command.ContractId,ContractVersion=command.ContractVersion,SubjectId=command.SubjectId,AuthorityEpoch=command.AuthorityEpoch,Incarnation=command.Incarnation,TombstoneSequence=barrier.TombstoneSequence,FinalBarrierGeneration=barrier.Generation,FinalBarrierChecksum=barrier.BarrierChecksum,TerminalReceiptChecksum=terminal.ReceiptChecksum,RetiredLifecyclePosition=deleted.Value.Mutation.JournalPosition}},token).ConfigureAwait(false);long retiredSequence=checked(sequence+1);return OperationResults.Ok(new BaseSubjectRetirementPurgeApplied{Result=new(){Outcome=BaseSubjectRetirementMutationOutcome.Applied,RetiredSubjectSequence=retiredSequence,RetiredPosition=deleted.Value.Mutation.JournalPosition,TerminalReceiptChecksum=terminal.ReceiptChecksum},Mutation=fact,Terminal=terminal});
+        });
+
+        private bool RetirementPolicyMatches(string contractId,int contractVersion,string checksum)=>_owner._options.SubjectRetirementPolicies.SingleOrDefault(value=>value.ContractId==contractId&&value.ContractVersion==contractVersion)?.PolicyChecksum==checksum;
+        private async ValueTask<BaseSubjectRetirementBarrier?> ReadRetirementBarrierAsync(BaseProtectedSubjectScope scope,string contractId,int contractVersion,BaseSubjectId subjectId,BaseSubjectAuthorityEpoch epoch,BaseSubjectIncarnation incarnation,CancellationToken token)
+        {
+            await using SqliteCommand command=_connection.CreateCommand();command.Transaction=_transaction;command.CommandTimeout=CommandTimeoutSeconds();command.CommandText=$"SELECT tombstone_sequence,required_consumer_set_checksum,created_at,deadline_at,state,generation,barrier_checksum FROM {_owner._names.SubjectRetirementBarriers} WHERE scope_kind=$scopeKind AND scope_index_digest=$scopeDigest AND contract_id=$contract AND contract_version=$version AND subject_id=$subject AND authority_epoch=$epoch AND incarnation=$incarnation;";AddRetirementKey(command,scope,contractId,contractVersion,subjectId,epoch,incarnation);await using SqliteDataReader reader=await command.ExecuteReaderAsync(token).ConfigureAwait(false);return await reader.ReadAsync(token).ConfigureAwait(false)?new(){ContractId=contractId,ContractVersion=contractVersion,SubjectId=subjectId,AuthorityEpoch=epoch,Incarnation=incarnation,TombstoneSequence=reader.GetInt64(0),RequiredConsumerSetChecksum=reader.GetString(1),CreatedAtUtc=DateTimeOffset.Parse(reader.GetString(2),CultureInfo.InvariantCulture),DeadlineUtc=DateTimeOffset.Parse(reader.GetString(3),CultureInfo.InvariantCulture),State=(BaseSubjectRetirementBarrierState)reader.GetInt32(4),Generation=reader.GetInt64(5),BarrierChecksum=reader.GetString(6)}:null;
+        }
+        private async ValueTask<BaseSubjectRetirementBarrier> TransitionRetirementBarrierAsync(BaseProtectedSubjectScope scope,BaseSubjectRetirementBarrier barrier,BaseSubjectRetirementBarrierState state,CancellationToken token)
+        {
+            var inputs=new List<string>();await using(SqliteCommand rows=_connection.CreateCommand()){rows.Transaction=_transaction;rows.CommandTimeout=CommandTimeoutSeconds();rows.CommandText=$"SELECT consumer_id,consumer_version,consumer_checksum,through_sequence,disposition,retirement_position FROM {_owner._names.SubjectRetirementAcknowledgements} WHERE scope_kind=$scopeKind AND scope_index_digest=$scopeDigest AND contract_id=$contract AND contract_version=$version AND subject_id=$subject AND authority_epoch=$epoch AND incarnation=$incarnation ORDER BY consumer_id,consumer_version;";AddRetirementKey(rows,scope,barrier.ContractId,barrier.ContractVersion,barrier.SubjectId,barrier.AuthorityEpoch,barrier.Incarnation);await using SqliteDataReader reader=await rows.ExecuteReaderAsync(token).ConfigureAwait(false);while(await reader.ReadAsync(token).ConfigureAwait(false))inputs.Add(BaseSubjectRetirementRegistry.AcknowledgementChecksumInput(reader.GetString(0),reader.GetInt32(1),reader.GetString(2),reader.GetInt64(3),(BaseSubjectAcknowledgementDisposition)reader.GetInt32(4),reader.GetInt64(5)));}
+            BaseSubjectRetirementBarrier resulting=barrier with{State=state,Generation=checked(barrier.Generation+1),BarrierChecksum=string.Empty};resulting=resulting with{BarrierChecksum=BaseSubjectRetirementRegistry.BarrierChecksum(resulting,inputs)};await using SqliteCommand update=_connection.CreateCommand();update.Transaction=_transaction;update.CommandTimeout=CommandTimeoutSeconds();update.CommandText=$"UPDATE {_owner._names.SubjectRetirementBarriers} SET state=$state,generation=$generation,barrier_checksum=$result WHERE scope_kind=$scopeKind AND scope_index_digest=$scopeDigest AND contract_id=$contract AND contract_version=$version AND subject_id=$subject AND authority_epoch=$epoch AND incarnation=$incarnation AND generation=$expected AND barrier_checksum=$checksum;";AddRetirementKey(update,scope,barrier.ContractId,barrier.ContractVersion,barrier.SubjectId,barrier.AuthorityEpoch,barrier.Incarnation);update.Parameters.AddWithValue("$state",(int)resulting.State);update.Parameters.AddWithValue("$generation",resulting.Generation);update.Parameters.AddWithValue("$result",resulting.BarrierChecksum);update.Parameters.AddWithValue("$expected",barrier.Generation);update.Parameters.AddWithValue("$checksum",barrier.BarrierChecksum);if(await update.ExecuteNonQueryAsync(token).ConfigureAwait(false)!=1)throw new InvalidDataException(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);long position=await NextRetirementPositionAsync(token).ConfigureAwait(false);BaseSubjectRetirementPublicationKind kind=state switch{BaseSubjectRetirementBarrierState.TimedOut=>BaseSubjectRetirementPublicationKind.BarrierTimedOut,BaseSubjectRetirementBarrierState.Quarantined=>BaseSubjectRetirementPublicationKind.BarrierQuarantined,BaseSubjectRetirementBarrierState.Overridden=>BaseSubjectRetirementPublicationKind.BarrierOverridden,_=>throw new InvalidDataException(BaseSubjectRetirementErrorCodes.ProviderContractInvalid)};await WriteRetirementPublicationAsync(scope,new(){Position=new(position),Kind=kind,Barrier=BarrierPublication(resulting,barrier.Generation,null)},token).ConfigureAwait(false);return resulting;
+        }
+        private static void AddRetirementKey(SqliteCommand command,BaseProtectedSubjectScope scope,string contractId,int contractVersion,BaseSubjectId subjectId,BaseSubjectAuthorityEpoch epoch,BaseSubjectIncarnation incarnation){command.Parameters.AddWithValue("$scopeKind",(int)scope.Kind);command.Parameters.Add("$scopeDigest",SqliteType.Blob).Value=scope.IndexDigest;command.Parameters.AddWithValue("$contract",contractId);command.Parameters.AddWithValue("$version",contractVersion);command.Parameters.AddWithValue("$subject",subjectId.Value);command.Parameters.Add("$epoch",SqliteType.Blob).Value=epoch.ToArray();command.Parameters.Add("$incarnation",SqliteType.Blob).Value=incarnation.ToArray();}
+
+        private void AddRetirementIdentity(SqliteCommand command,BaseProtectedSubjectScope scope,BaseSubjectLifecycleAcknowledgement acknowledgement){command.Parameters.AddWithValue("$scopeKind",(int)scope.Kind);command.Parameters.Add("$scopeDigest",SqliteType.Blob).Value=scope.IndexDigest;command.Parameters.AddWithValue("$contract",acknowledgement.ContractId);command.Parameters.AddWithValue("$version",acknowledgement.ContractVersion);command.Parameters.AddWithValue("$subject",acknowledgement.SubjectId.Value);command.Parameters.Add("$epoch",SqliteType.Blob).Value=acknowledgement.AuthorityEpoch.ToArray();command.Parameters.Add("$incarnation",SqliteType.Blob).Value=acknowledgement.Incarnation.ToArray();command.Parameters.AddWithValue("$consumer",acknowledgement.ConsumerId);command.Parameters.AddWithValue("$consumerVersion",acknowledgement.ConsumerVersion);command.Parameters.AddWithValue("$sequence",acknowledgement.ThroughSubjectSequence);}
+        private async ValueTask<long> NextRetirementPositionAsync(CancellationToken cancellationToken){await using SqliteCommand command=_connection.CreateCommand();command.Transaction=_transaction;command.CommandTimeout=CommandTimeoutSeconds();command.CommandText=$"UPDATE {_owner._names.ProviderState} SET value=CAST(value AS INTEGER)+1 WHERE key='subject_retirement_position' RETURNING CAST(value AS INTEGER);";object? value=await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);if(value is null)throw new InvalidDataException(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);return Convert.ToInt64(value,CultureInfo.InvariantCulture);}
+        private static BaseSubjectBarrierPublication BarrierPublication(BaseSubjectRetirementBarrier barrier,long previous,string? consumer)=>new(){ContractId=barrier.ContractId,ContractVersion=barrier.ContractVersion,SubjectId=barrier.SubjectId,AuthorityEpoch=barrier.AuthorityEpoch,Incarnation=barrier.Incarnation,TombstoneSequence=barrier.TombstoneSequence,PreviousGeneration=previous,PublishedGeneration=barrier.Generation,ConsumerId=consumer};
+        private async ValueTask WriteRetirementPublicationAsync(BaseProtectedSubjectScope? scope,BaseSubjectRetirementPublicationFact fact,CancellationToken token){BaseSubjectRetirementRegistry.ValidatePublication(new(){Scope=scope,Fact=fact});byte[] payload=JsonSerializer.SerializeToUtf8Bytes(fact,HPDBaseJsonSerializerContext.Default.BaseSubjectRetirementPublicationFact);await using SqliteCommand command=_connection.CreateCommand();command.Transaction=_transaction;command.CommandTimeout=CommandTimeoutSeconds();command.CommandText=$"INSERT INTO {_owner._names.SubjectRetirementPublications}(position,kind,scope_kind,scope_index_digest,protected_scope_value,payload) VALUES($position,$kind,$scopeKind,$scopeDigest,$scopeValue,$payload);";command.Parameters.AddWithValue("$position",fact.Position.Value);command.Parameters.AddWithValue("$kind",(int)fact.Kind);command.Parameters.AddWithValue("$scopeKind",scope is null?DBNull.Value:(int)scope.Kind);command.Parameters.Add("$scopeDigest",SqliteType.Blob).Value=scope is null?DBNull.Value:scope.IndexDigest;command.Parameters.Add("$scopeValue",SqliteType.Blob).Value=scope is null?DBNull.Value:scope.ProtectedCanonicalValue;command.Parameters.Add("$payload",SqliteType.Blob).Value=payload;if(await command.ExecuteNonQueryAsync(token).ConfigureAwait(false)!=1)throw new InvalidDataException(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);}
+        private static OperationResult<BaseSubjectAcknowledgementResult> RetirementFailure(string code,OperationStatus status,ErrorCategory category)=>new(){Status=status,Error=new BaseError{Code=code,Message="The subject retirement operation failed.",Category=category}};
+        private static OperationResult<T> RetirementFailure<T>(string code,OperationStatus status,ErrorCategory category)=>new(){Status=status,Error=new BaseError{Code=code,Message="The subject retirement operation failed.",Category=category}};
 
         public ValueTask<OperationResult<BaseSubjectLifecycleCheckpointResult>> AdvanceSubjectLifecycleCheckpointAsync(
             BaseSubjectLifecycleProviderCheckpointRequest request,
@@ -2981,7 +3220,7 @@ public sealed partial class SqliteRecordStore
                     BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge,
                 BaseOperationKind.Patch or BaseOperationKind.Replace =>
                     collection.MutationMode == BaseCollectionMutationMode.Mutable,
-                BaseOperationKind.Delete or BaseOperationKind.SubjectLifecycleFinalizeRetirement =>
+                BaseOperationKind.Delete or BaseOperationKind.SubjectLifecycleFinalizeRetirement or BaseOperationKind.SubjectRetirementPurge =>
                     collection.MutationMode == BaseCollectionMutationMode.Mutable,
                 BaseOperationKind.Purge =>
                     collection.MutationMode == BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge,
@@ -2994,7 +3233,7 @@ public sealed partial class SqliteRecordStore
                     ? BaseCollectionErrorCodes.ReadOnlyMutationForbidden
                     : operation is BaseOperationKind.Patch or BaseOperationKind.Replace
                         ? BaseCollectionErrorCodes.AppendOnlyUpdateForbidden
-                        : operation is BaseOperationKind.Delete or BaseOperationKind.SubjectLifecycleFinalizeRetirement
+                        : operation is BaseOperationKind.Delete or BaseOperationKind.SubjectLifecycleFinalizeRetirement or BaseOperationKind.SubjectRetirementPurge
                             ? BaseCollectionErrorCodes.AppendOnlyDeleteForbidden
                             : BaseCollectionErrorCodes.PurgeUnsupported;
             return SqliteResultFactory.Unsupported<RecordMutationSessionResult>(

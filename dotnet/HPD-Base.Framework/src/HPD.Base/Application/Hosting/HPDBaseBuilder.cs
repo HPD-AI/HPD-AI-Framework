@@ -45,6 +45,8 @@ public sealed class HPDBaseBuilder
     private readonly Dictionary<(string Id, int Version), IBaseModuleMutationRegistration> _moduleMutationRegistrations = [];
     private readonly List<BaseSubjectAcquisitionDefinition> _subjectAcquisitions = [];
     private readonly List<BaseSubjectLifecycleConsumerDefinition> _subjectLifecycleConsumers = [];
+    private readonly List<BaseSubjectRetirementConsumerDefinition> _subjectRetirementConsumers = [];
+    private readonly List<BaseSubjectRetirementPolicy> _subjectRetirementPolicies = [];
     private HPDBaseSelectionMutationOptions? _selectionOptions;
     private HPDBaseStoreProvider? _storeProvider;
     /// <summary>Provides _runtime.</summary>
@@ -289,6 +291,24 @@ public sealed class HPDBaseBuilder
         return this;
     }
 
+    /// <summary>Registers one consumer-owned advisory or required retirement profile.</summary>
+    public HPDBaseBuilder AddSubjectRetirementConsumer(BaseSubjectRetirementConsumerDefinition definition)
+    {
+        EnsureMutable();
+        ArgumentNullException.ThrowIfNull(definition);
+        _subjectRetirementConsumers.Add(BaseSubjectRetirementRegistry.Normalize(definition));
+        return this;
+    }
+
+    /// <summary>Registers one exporter-owned coordinated-retirement policy.</summary>
+    public HPDBaseBuilder AddSubjectRetirementPolicy(BaseSubjectRetirementPolicy policy)
+    {
+        EnsureMutable();
+        ArgumentNullException.ThrowIfNull(policy);
+        _subjectRetirementPolicies.Add(BaseSubjectRetirementRegistry.NormalizePolicy(policy));
+        return this;
+    }
+
     /// <summary>Registers one immutable module generation-cell definition.</summary>
     public HPDBaseBuilder AddModuleGenerationCell(BaseModuleGenerationCellDefinition definition)
     {
@@ -479,6 +499,7 @@ public sealed class HPDBaseBuilder
         var moduleMutationRegistry = new BaseModuleMutationRegistry(_moduleMutations.Values, _moduleGenerationCells.Values, _moduleMutationRegistrations.Values);
         BaseSubjectContractRegistry subjectRegistry = FinalizeSubjectGraph(collections);
         var subjectLifecycleRegistry = new BaseSubjectLifecycleRegistry(_subjectLifecycleConsumers, subjectRegistry);
+        var subjectRetirementRegistry = new BaseSubjectRetirementRegistry(_subjectRetirementConsumers, _subjectRetirementPolicies, subjectLifecycleRegistry);
         foreach (BaseGeneratedSubjectRegistration subject in subjectRegistry.All)
             if (!Fits(subject.Definition, provider.SubjectReferences))
                 throw new InvalidOperationException(BaseSubjectErrorCodes.GuaranteeUnavailable);
@@ -490,6 +511,20 @@ public sealed class HPDBaseBuilder
                     value.Definition.Limits.ReadTimeout > provider.SubjectLifecycle.MaximumReadTimeout ||
                     value.Definition.ReconciliationGrantId is not null && !provider.SubjectLifecycle.ReconciliationSupported))
                 throw new InvalidOperationException(BaseSubjectErrorCodes.GuaranteeUnavailable);
+        }
+        foreach (BaseInstalledSubjectRetirementPolicy policy in subjectRetirementRegistry.Policies)
+        {
+            if (policy.RequiredConsumers.Length > provider.SubjectRetirement.MaximumRequiredConsumersPerContract
+                || policy.Definition.CoordinationWindow > provider.SubjectRetirement.MaximumCoordinationWindow)
+                throw new InvalidOperationException(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);
+        }
+        foreach (BaseInstalledSubjectRetirementConsumer consumer in subjectRetirementRegistry.Consumers)
+        {
+            if (consumer.Definition.Limits.MaximumAcknowledgementsPerCommit > provider.SubjectRetirement.MaximumAcknowledgementsPerCommit
+                || consumer.Definition.Limits.MaximumReceiptBytes > provider.SubjectRetirement.MaximumResultBytes
+                || consumer.Definition.Limits.AcknowledgementTimeout > provider.SubjectRetirement.MaximumTransactionTimeout
+                || consumer.Definition.Limits.ReceiptResolutionTimeout > provider.SubjectRetirement.MaximumReceiptResolutionTimeout)
+                throw new InvalidOperationException(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);
         }
         var relationalOptions = new HPDBaseRelationalOptions();
         _relational?.Invoke(relationalOptions);
@@ -531,6 +566,8 @@ public sealed class HPDBaseBuilder
         _services.AddSingleton(new BaseSelectionProfileRegistry(_selectionProfiles));
         _services.AddSingleton(subjectRegistry);
         _services.AddSingleton(subjectLifecycleRegistry);
+        _services.AddSingleton(subjectRetirementRegistry);
+        _services.AddSingleton(subjectRetirementRegistry);
         if (_selectionOptions is not null) _services.AddSingleton(_selectionOptions);
         _services.AddHPDBaseRuntime(_runtime).UseFailClosedPolicy();
         _services.AddSingleton(Microsoft.Extensions.Options.Options.Create(relationalOptions));
@@ -591,7 +628,9 @@ public sealed class HPDBaseBuilder
             _services, provider, collections, installedSubjects,
             _moduleMutations.Values.ToArray(), _moduleGenerationCells.Values.ToArray(),
             subjectLifecycleRegistry.All.Select(static value => value.Definition).ToArray(),
-            lifecycleInspectionAuthorities.All.ToArray());
+            lifecycleInspectionAuthorities.All.ToArray(),
+            subjectRetirementRegistry.Consumers.Select(static value => value.Definition).ToArray(),
+            subjectRetirementRegistry.Policies.Select(static value => value.Definition).ToArray());
         HPDBaseStoreRegistrationReceipt receipt;
         try { receipt = provider.Installer.Configure(installation); }
         catch (InvalidOperationException exception) when (exception.Message.StartsWith("base.store.", StringComparison.Ordinal)) { throw; }
@@ -600,7 +639,9 @@ public sealed class HPDBaseBuilder
         if (receipt is null || receipt.Kind != provider.Kind || receipt.ProtocolVersion != provider.ProtocolVersion ||
             !string.Equals(receipt.SchemaDigest, HPDBaseStoreInstallationContext.ComputeSchemaDigest(
                 collections, installedSubjects, _moduleMutations.Values, _moduleGenerationCells.Values,
-                subjectLifecycleRegistry.All.Select(static value => value.Definition), lifecycleInspectionAuthorities.All), StringComparison.Ordinal) ||
+                subjectLifecycleRegistry.All.Select(static value => value.Definition), lifecycleInspectionAuthorities.All,
+                subjectRetirementRegistry.Consumers.Select(static value => value.Definition),
+                subjectRetirementRegistry.Policies.Select(static value => value.Definition)), StringComparison.Ordinal) ||
             !receipt.ContributorIds.SequenceEqual(provider.RegistrationIds, StringComparer.Ordinal))
             throw new InvalidOperationException("base.store.providerInvalid");
         ConfigureVectorRuntime(collections);

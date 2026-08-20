@@ -16,6 +16,8 @@ public enum BaseAtomicReceiptResultKind
     SubjectLifecycleCheckpoint,
     /// <summary>An identified subject-lifecycle maintenance publication.</summary>
     SubjectLifecycleMaintenance,
+    /// <summary>An identified coordinated subject-retirement operation.</summary>
+    SubjectRetirement,
 }
 
 /// <summary>Stores one committed module generation without disclosing its scoped provider key.</summary>
@@ -152,6 +154,8 @@ public sealed record BaseAtomicReceiptWire
     public BaseSubjectLifecycleCheckpointResult? SubjectLifecycleCheckpoint { get; init; }
     /// <summary>Gets the optional subject-lifecycle maintenance result.</summary>
     public BaseSubjectLifecycleMaintenanceResult? SubjectLifecycleMaintenance { get; init; }
+    /// <summary>Gets the coordinated-retirement result.</summary>
+    public BaseSubjectRetirementReceiptResult? SubjectRetirement { get; init; }
     internal static BaseAtomicReceiptWire From(BaseAtomicReceiptResult result)
     {
         ValidateShape(result);
@@ -186,6 +190,7 @@ public sealed record BaseAtomicReceiptWire
             SubjectLifecycleMaintenance = result.SubjectLifecycleMaintenance is null
                 ? null
                 : CloneMaintenance(result.SubjectLifecycleMaintenance),
+            SubjectRetirement = result.SubjectRetirement is null ? null : CloneRetirement(result.SubjectRetirement),
         };
     }
     internal BaseAtomicReceiptResult Materialize()
@@ -217,6 +222,7 @@ public sealed record BaseAtomicReceiptWire
             SubjectLifecycleMaintenance = SubjectLifecycleMaintenance is null
                 ? null
                 : CloneMaintenance(SubjectLifecycleMaintenance),
+            SubjectRetirement = SubjectRetirement is null ? null : CloneRetirement(SubjectRetirement),
         };
         ValidateShape(result);
         return result;
@@ -226,19 +232,49 @@ public sealed record BaseAtomicReceiptWire
     {
         bool valid = result.Kind switch
         {
-            BaseAtomicReceiptResultKind.RecordMutations => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null,
-            BaseAtomicReceiptResultKind.SelectionMutation => result.SelectionMutation is not null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null,
-            BaseAtomicReceiptResultKind.ModuleMutation => result.SelectionMutation is null && result.ModuleMutation is not null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null,
-            BaseAtomicReceiptResultKind.SubjectLifecycleCheckpoint => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is not null && result.SubjectLifecycleMaintenance is null,
-            BaseAtomicReceiptResultKind.SubjectLifecycleMaintenance => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is not null,
+            BaseAtomicReceiptResultKind.RecordMutations => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null,
+            BaseAtomicReceiptResultKind.SelectionMutation => result.SelectionMutation is not null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null,
+            BaseAtomicReceiptResultKind.ModuleMutation => result.SelectionMutation is null && result.ModuleMutation is not null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null,
+            BaseAtomicReceiptResultKind.SubjectLifecycleCheckpoint => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is not null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null,
+            BaseAtomicReceiptResultKind.SubjectLifecycleMaintenance => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is not null
+                && (result.SubjectRetirement is null || result.SubjectRetirement.Operation == BaseSubjectRetirementReceiptOperation.Maintenance),
+            BaseAtomicReceiptResultKind.SubjectRetirement => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is not null,
             _ => false,
         };
+        if (valid && result.SubjectRetirement is { } retirement)
+        {
+            int payloads = (retirement.Acknowledgement is null ? 0 : 1) + (retirement.Timeout is null ? 0 : 1)
+                + (retirement.Override is null ? 0 : 1) + (retirement.Purge is null ? 0 : 1)
+                + (retirement.ConsumerRemoval is null ? 0 : 1) + (retirement.Maintenance is null ? 0 : 1);
+            valid = payloads == 1 && retirement.Operation switch
+            {
+                BaseSubjectRetirementReceiptOperation.Acknowledgement => retirement.Acknowledgement is not null,
+                BaseSubjectRetirementReceiptOperation.Timeout => retirement.Timeout is not null,
+                BaseSubjectRetirementReceiptOperation.Override => retirement.Override is not null,
+                BaseSubjectRetirementReceiptOperation.FinalPurge => retirement.Purge is not null,
+                BaseSubjectRetirementReceiptOperation.ConsumerRemoval => retirement.ConsumerRemoval is not null,
+                BaseSubjectRetirementReceiptOperation.Maintenance => retirement.Maintenance is not null,
+                _ => false,
+            };
+        }
         if (!valid) throw new InvalidOperationException("base.mutation.receipt.invalid");
     }
 
     private static BaseSubjectLifecycleMaintenanceResult CloneMaintenance(BaseSubjectLifecycleMaintenanceResult value) => value with
     {
         RollingChecksum = new string(value.RollingChecksum.AsSpan()),
+    };
+    private static BaseSubjectRetirementReceiptResult CloneRetirement(BaseSubjectRetirementReceiptResult value) => value with
+    {
+        Acknowledgement = value.Acknowledgement is null ? null : value.Acknowledgement with
+        {
+            BarrierChecksum = value.Acknowledgement.BarrierChecksum is null ? null : new string(value.Acknowledgement.BarrierChecksum.AsSpan()),
+        },
+        Timeout = value.Timeout is null ? null : value.Timeout with { BarrierChecksum = new string(value.Timeout.BarrierChecksum.AsSpan()) },
+        Override = value.Override is null ? null : value.Override with { BarrierChecksum = new string(value.Override.BarrierChecksum.AsSpan()) },
+        Purge = value.Purge is null ? null : value.Purge with { TerminalReceiptChecksum = new string(value.Purge.TerminalReceiptChecksum.AsSpan()) },
+        ConsumerRemoval = value.ConsumerRemoval is null ? null : value.ConsumerRemoval with { AcceptedConsumerSetChecksum = new string(value.ConsumerRemoval.AcceptedConsumerSetChecksum.AsSpan()) },
+        Maintenance = value.Maintenance is null ? null : value.Maintenance with { RollingChecksum = new string(value.Maintenance.RollingChecksum.AsSpan()) },
     };
 }
 
@@ -266,6 +302,8 @@ public sealed record BaseAtomicReceiptResult
     public BaseSubjectLifecycleCheckpointResult? SubjectLifecycleCheckpoint { get; init; }
     /// <summary>Gets the lifecycle maintenance result when <see cref="Kind"/> is maintenance.</summary>
     public BaseSubjectLifecycleMaintenanceResult? SubjectLifecycleMaintenance { get; init; }
+    /// <summary>Gets the subject-retirement result when <see cref="Kind"/> is retirement.</summary>
+    public BaseSubjectRetirementReceiptResult? SubjectRetirement { get; init; }
 
     internal static BaseAtomicReceiptResult FromFacts(IEnumerable<BaseRecordMutationFact> facts) => new()
     {
@@ -275,6 +313,7 @@ public sealed record BaseAtomicReceiptResult
         ModuleMutation = null,
         SubjectLifecycleCheckpoint = null,
         SubjectLifecycleMaintenance = null,
+        SubjectRetirement = null,
     };
     internal BaseRecordMutationFact[] MaterializeFacts() => Mutations.Select(static fact => fact.MaterializeOwned()).ToArray();
 }

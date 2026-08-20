@@ -28,17 +28,17 @@ INSERT INTO hpd_base_subject_lifecycle_facts(commit_position,contract_id,contrac
 SELECT value,'example.subject',1,printf('subject-%03d',value),$epoch,$incarnation,1,1,1,0,NULL,0,0,$digest,X'' FROM rows;
 """; seed.Parameters.Add("$digest", SqliteType.Blob).Value = new byte[32]; seed.Parameters.Add("$epoch", SqliteType.Blob).Value = new byte[16]; seed.Parameters.Add("$incarnation", SqliteType.Blob).Value = Incarnation(1); await seed.ExecuteNonQueryAsync();
             }
-            var request = new BaseSubjectLifecycleMaintenanceExecutionRequest
+            var request = new BaseSubjectAuthorityMaintenanceExecutionRequest
             {
-                FormatVersion = 1, Kind = BaseSubjectLifecycleMaintenanceKind.Prune, ContractId = "example.subject", ContractVersion = 1,
-                RetainedFrom = new BaseSubjectLifecycleOrderingBoundary { CommitPosition = new BaseMutationJournalPosition(301), SubjectId = BaseSubjectId.Create("terminal", BaseSubjectIdKind.OrdinalString), AuthorityEpoch = new BaseSubjectAuthorityEpoch(new byte[16]), Incarnation = new BaseSubjectIncarnation(Incarnation(1)), SubjectSequence = 1 },
+                Lifecycle = new() { Kind = BaseSubjectLifecycleMaintenanceKind.Prune, ContractId = "example.subject", ContractVersion = 1,
+                RetainedFrom = new BaseSubjectLifecycleOrderingBoundary { CommitPosition = new BaseMutationJournalPosition(301), SubjectId = BaseSubjectId.Create("terminal", BaseSubjectIdKind.OrdinalString), AuthorityEpoch = new BaseSubjectAuthorityEpoch(new byte[16]), Incarnation = new BaseSubjectIncarnation(Incarnation(1)), SubjectSequence = 1 }, ExpectedDeliveryEpoch=1, PlanChecksum=System.Security.Cryptography.SHA256.HashData("prune-plan"u8) },
                 Identity = BaseMutationRequestIdentity.Create("control-plane", "prune-lifecycle", "prune-lifecycle-1", BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("prune-lifecycle"u8))),
-                PlanChecksum = new byte[32], ExpectedStoreGeneration = store.VectorSchemaGeneration, ExpectedSchemaGeneration = store.VectorSchemaGeneration, ExpectedRestoreEpoch = 0, ExpectedDeliveryEpoch = 1, ExpectedScopeProtectionGeneration = 1, ExpectedScopeProtectionKeyId = "31", PageSize = 256, OperationTimeout = TimeSpan.FromSeconds(5), CommitCompletionTimeout = TimeSpan.FromSeconds(5),
+                CombinedPlanChecksum = new byte[32], ExpectedStoreGeneration = store.VectorSchemaGeneration, ExpectedSchemaGeneration = store.VectorSchemaGeneration, ExpectedRestoreEpoch = 0, ExpectedScopeProtectionGeneration = 1, ExpectedScopeProtectionKeyId = "31", PageSize = 256, OperationTimeout = TimeSpan.FromSeconds(5), CommitCompletionTimeout = TimeSpan.FromSeconds(5),
             };
-            request = request with { PlanChecksum = BaseSubjectLifecycleMaintenanceProcessor.PlanChecksum(request) };
-            await FluentActions.Awaiting(async () => await store.ExecuteMaintenanceAsync(new BaseSubjectLifecycleMaintenanceProcessor(), request)).Should().ThrowAsync<IOException>();
+            request = request with { CombinedPlanChecksum = BaseSubjectAuthorityMaintenanceProcessor.PlanChecksum(request) };
+            await FluentActions.Awaiting(async () => await store.ExecuteMaintenanceAsync(new BaseSubjectAuthorityMaintenanceProcessor(), request)).Should().ThrowAsync<IOException>();
             await using (var progress = new SqliteConnection($"Data Source={path};Pooling=False")) { await progress.OpenAsync(); await using SqliteCommand count = progress.CreateCommand(); count.CommandText = "SELECT (SELECT changed_count FROM hpd_base_subject_lifecycle_maintenance),(SELECT COUNT(*) FROM hpd_base_subject_lifecycle_scope_stage),(SELECT COUNT(*) FROM hpd_base_subject_lifecycle_facts);"; await using SqliteDataReader reader = await count.ExecuteReaderAsync(); (await reader.ReadAsync()).Should().BeTrue(); reader.GetInt64(0).Should().Be(256); reader.GetInt64(1).Should().Be(256); reader.GetInt64(2).Should().Be(44); }
-            var processor = new BaseSubjectLifecycleMaintenanceProcessor(); RecordMutationExecutionResult resumed = await store.ExecuteMaintenanceAsync(processor, request); resumed.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed, resumed.Error?.Code); processor.Result!.ChangedCount.Should().Be(300); processor.Result.ExaminedCount.Should().Be(300);
+            var processor = new BaseSubjectAuthorityMaintenanceProcessor(); RecordMutationExecutionResult resumed = await store.ExecuteMaintenanceAsync(processor, request); resumed.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed, resumed.Error?.Code); processor.LifecycleResult!.ChangedCount.Should().Be(300); processor.LifecycleResult.ExaminedCount.Should().Be(300);
             await using var verify = new SqliteConnection($"Data Source={path};Pooling=False"); await verify.OpenAsync(); await using SqliteCommand final = verify.CreateCommand(); final.CommandText = "SELECT (SELECT COUNT(*) FROM hpd_base_subject_lifecycle_facts),(SELECT COUNT(*) FROM hpd_base_subject_lifecycle_maintenance),(SELECT COUNT(*) FROM hpd_base_subject_lifecycle_scope_stage);"; await using SqliteDataReader finalReader = await final.ExecuteReaderAsync(); (await finalReader.ReadAsync()).Should().BeTrue(); finalReader.GetInt64(0).Should().Be(0); finalReader.GetInt64(1).Should().Be(0); finalReader.GetInt64(2).Should().Be(0);
         }
         finally { SqliteConnection.ClearAllPools(); foreach (string candidate in new[] { path, path + "-wal", path + "-shm" }) if (File.Exists(candidate)) File.Delete(candidate); }
@@ -65,16 +65,16 @@ INSERT INTO hpd_base_subject_lifecycle_facts(commit_position,contract_id,contrac
 SELECT value,'example.subject',1,printf('subject-%03d',value),$epoch,$incarnation,1,1,1,0,NULL,0,0,$digest,X'' FROM rows;
 """; seed.Parameters.AddWithValue("$checksum", BaseSubjectLifecycleRegistry.Checksum(BaseSubjectLifecycleRegistry.Normalize(consumer), checksum)); seed.Parameters.Add("$digest", SqliteType.Blob).Value = new byte[32]; seed.Parameters.Add("$epoch", SqliteType.Blob).Value = new byte[16]; seed.Parameters.Add("$incarnation", SqliteType.Blob).Value = Incarnation(1); await seed.ExecuteNonQueryAsync();
             }
-            var request = new BaseSubjectLifecycleMaintenanceExecutionRequest { FormatVersion = 1, Kind = BaseSubjectLifecycleMaintenanceKind.RebuildDeliveryProjection, ContractId = "example.subject", ContractVersion = 1, ConsumerId = consumer.Id, ConsumerVersion = consumer.Version, ExpectedProjectionGeneration = 1, Identity = BaseMutationRequestIdentity.Create("control-plane", "rebuild-delivery", "rebuild-delivery-1", BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("rebuild-delivery"u8))), PlanChecksum = new byte[32], ExpectedStoreGeneration = store.VectorSchemaGeneration, ExpectedSchemaGeneration = store.VectorSchemaGeneration, ExpectedRestoreEpoch = 0, ExpectedDeliveryEpoch = 1, ExpectedScopeProtectionGeneration = 1, ExpectedScopeProtectionKeyId = "31", PageSize = 256, OperationTimeout = TimeSpan.FromSeconds(5), CommitCompletionTimeout = TimeSpan.FromSeconds(5) };
-            request = request with { PlanChecksum = BaseSubjectLifecycleMaintenanceProcessor.PlanChecksum(request) };
-            await FluentActions.Awaiting(async () => await store.ExecuteMaintenanceAsync(new BaseSubjectLifecycleMaintenanceProcessor(), request)).Should().ThrowAsync<IOException>();
+            var request = new BaseSubjectAuthorityMaintenanceExecutionRequest { Lifecycle=new(){Kind=BaseSubjectLifecycleMaintenanceKind.RebuildDeliveryProjection,ContractId="example.subject",ContractVersion=1,ConsumerId=consumer.Id,ConsumerVersion=consumer.Version,ExpectedProjectionGeneration=1,ExpectedDeliveryEpoch=1,PlanChecksum=System.Security.Cryptography.SHA256.HashData("rebuild-plan"u8)}, Identity = BaseMutationRequestIdentity.Create("control-plane", "rebuild-delivery", "rebuild-delivery-1", BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("rebuild-delivery"u8))), CombinedPlanChecksum = new byte[32], ExpectedStoreGeneration = store.VectorSchemaGeneration, ExpectedSchemaGeneration = store.VectorSchemaGeneration, ExpectedRestoreEpoch = 0, ExpectedScopeProtectionGeneration = 1, ExpectedScopeProtectionKeyId = "31", PageSize = 256, OperationTimeout = TimeSpan.FromSeconds(5), CommitCompletionTimeout = TimeSpan.FromSeconds(5) };
+            request = request with { CombinedPlanChecksum = BaseSubjectAuthorityMaintenanceProcessor.PlanChecksum(request) };
+            await FluentActions.Awaiting(async () => await store.ExecuteMaintenanceAsync(new BaseSubjectAuthorityMaintenanceProcessor(), request)).Should().ThrowAsync<IOException>();
             if (corruptStage)
             {
                 await using var corrupt = new SqliteConnection($"Data Source={path};Pooling=False"); await corrupt.OpenAsync(); await using SqliteCommand command = corrupt.CreateCommand(); command.CommandText = "UPDATE hpd_base_subject_lifecycle_membership_stage SET subject_id='corrupt' WHERE source_rowid=(SELECT MIN(source_rowid) FROM hpd_base_subject_lifecycle_membership_stage);"; (await command.ExecuteNonQueryAsync()).Should().Be(1);
-                RecordMutationExecutionResult rejected = await store.ExecuteMaintenanceAsync(new BaseSubjectLifecycleMaintenanceProcessor(), request); rejected.Outcome.Should().Be(RecordMutationExecutionOutcome.RollbackConfirmed); rejected.Error!.Code.Should().Be(BaseSubjectErrorCodes.LifecycleProviderContractInvalid);
+                RecordMutationExecutionResult rejected = await store.ExecuteMaintenanceAsync(new BaseSubjectAuthorityMaintenanceProcessor(), request); rejected.Outcome.Should().Be(RecordMutationExecutionOutcome.RollbackConfirmed); rejected.Error!.Code.Should().Be(BaseSubjectErrorCodes.LifecycleProviderContractInvalid);
                 await using SqliteCommand retained = corrupt.CreateCommand(); retained.CommandText = "SELECT (SELECT COUNT(*) FROM hpd_base_subject_lifecycle_maintenance),(SELECT COUNT(*) FROM hpd_base_subject_lifecycle_membership_stage);"; await using SqliteDataReader retainedReader = await retained.ExecuteReaderAsync(); (await retainedReader.ReadAsync()).Should().BeTrue(); retainedReader.GetInt64(0).Should().Be(1); retainedReader.GetInt64(1).Should().BeGreaterThan(0); return;
             }
-            var processor = new BaseSubjectLifecycleMaintenanceProcessor(); RecordMutationExecutionResult resumed = await store.ExecuteMaintenanceAsync(processor, request); resumed.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed, resumed.Error?.Code); processor.Result!.ProjectionGeneration.Should().Be(2); processor.Result.ExaminedCount.Should().Be(301); processor.Result.ChangedCount.Should().Be(301);
+            var processor = new BaseSubjectAuthorityMaintenanceProcessor(); RecordMutationExecutionResult resumed = await store.ExecuteMaintenanceAsync(processor, request); resumed.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed, resumed.Error?.Code); processor.LifecycleResult!.ProjectionGeneration.Should().Be(2); processor.LifecycleResult.ExaminedCount.Should().Be(301); processor.LifecycleResult.ChangedCount.Should().Be(301);
             await using var verify = new SqliteConnection($"Data Source={path};Pooling=False"); await verify.OpenAsync(); await using SqliteCommand count = verify.CreateCommand(); count.CommandText = "SELECT (SELECT projection_generation FROM hpd_base_subject_lifecycle_consumers WHERE consumer_id='consumer.rebuild'),(SELECT COUNT(*) FROM hpd_base_subject_lifecycle_memberships WHERE consumer_id='consumer.rebuild' AND projection_generation=2),(SELECT COUNT(*) FROM hpd_base_subject_lifecycle_membership_stage);"; await using SqliteDataReader reader = await count.ExecuteReaderAsync(); (await reader.ReadAsync()).Should().BeTrue(); reader.GetInt64(0).Should().Be(2); reader.GetInt64(1).Should().Be(300); reader.GetInt64(2).Should().Be(0);
         }
         finally { SqliteConnection.ClearAllPools(); foreach (string candidate in new[] { path, path + "-wal", path + "-shm" }) if (File.Exists(candidate)) File.Delete(candidate); }
@@ -114,23 +114,21 @@ SELECT 'consumer.remove',1,$checksum,'example.subject',1,1,0,0,$digest,X'',value
                 seed.Parameters.Add("$incarnation", SqliteType.Blob).Value = Incarnation(1);
                 await seed.ExecuteNonQueryAsync();
             }
-            var request = new BaseSubjectLifecycleMaintenanceExecutionRequest
+            var request = new BaseSubjectAuthorityMaintenanceExecutionRequest
             {
-                FormatVersion = 1, Kind = BaseSubjectLifecycleMaintenanceKind.RemoveConsumer,
-                ContractId = "example.subject", ContractVersion = 1, ConsumerId = "consumer.remove", ConsumerVersion = 1,
-                ExpectedProjectionGeneration = 1,
+                Lifecycle=new(){Kind=BaseSubjectLifecycleMaintenanceKind.RemoveConsumer,ContractId="example.subject",ContractVersion=1,ConsumerId="consumer.remove",ConsumerVersion=1,ExpectedProjectionGeneration=1,ExpectedDeliveryEpoch=1,PlanChecksum=System.Security.Cryptography.SHA256.HashData("remove-plan"u8)},
                 Identity = BaseMutationRequestIdentity.Create("control-plane", "remove-consumer", "remove-consumer-1", BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("remove-consumer"u8))),
-                PlanChecksum = new byte[32], ExpectedStoreGeneration = store.VectorSchemaGeneration, ExpectedSchemaGeneration = store.VectorSchemaGeneration,
-                ExpectedRestoreEpoch = 0, ExpectedDeliveryEpoch = 1, ExpectedScopeProtectionGeneration = 1, ExpectedScopeProtectionKeyId = "31",
+                CombinedPlanChecksum = new byte[32], ExpectedStoreGeneration = store.VectorSchemaGeneration, ExpectedSchemaGeneration = store.VectorSchemaGeneration,
+                ExpectedRestoreEpoch = 0, ExpectedScopeProtectionGeneration = 1, ExpectedScopeProtectionKeyId = "31",
                 PageSize = 256, OperationTimeout = TimeSpan.FromSeconds(5), CommitCompletionTimeout = TimeSpan.FromSeconds(5),
             };
-            request = request with { PlanChecksum = BaseSubjectLifecycleMaintenanceProcessor.PlanChecksum(request) };
-            await FluentActions.Awaiting(async () => await store.ExecuteMaintenanceAsync(new BaseSubjectLifecycleMaintenanceProcessor(), request)).Should().ThrowAsync<IOException>();
-            var processor = new BaseSubjectLifecycleMaintenanceProcessor();
+            request = request with { CombinedPlanChecksum = BaseSubjectAuthorityMaintenanceProcessor.PlanChecksum(request) };
+            await FluentActions.Awaiting(async () => await store.ExecuteMaintenanceAsync(new BaseSubjectAuthorityMaintenanceProcessor(), request)).Should().ThrowAsync<IOException>();
+            var processor = new BaseSubjectAuthorityMaintenanceProcessor();
             RecordMutationExecutionResult resumed = await store.ExecuteMaintenanceAsync(processor, request);
             resumed.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed, resumed.Error?.Code);
-            processor.Result!.ExaminedCount.Should().Be(301);
-            processor.Result.ChangedCount.Should().Be(301);
+            processor.LifecycleResult!.ExaminedCount.Should().Be(301);
+            processor.LifecycleResult.ChangedCount.Should().Be(301);
             await using var verify = new SqliteConnection($"Data Source={path};Pooling=False"); await verify.OpenAsync();
             await using SqliteCommand count = verify.CreateCommand(); count.CommandText = "SELECT (SELECT COUNT(*) FROM hpd_base_subject_lifecycle_consumers WHERE consumer_id='consumer.remove'),(SELECT COUNT(*) FROM hpd_base_subject_lifecycle_memberships WHERE consumer_id='consumer.remove'),(SELECT COUNT(*) FROM hpd_base_subject_lifecycle_maintenance),(SELECT COUNT(*) FROM hpd_base_subject_lifecycle_scope_stage);";
             await using SqliteDataReader reader = await count.ExecuteReaderAsync(); (await reader.ReadAsync()).Should().BeTrue();
@@ -194,24 +192,23 @@ SELECT 'consumer.remove',1,$checksum,'example.subject',1,1,0,0,$digest,X'',value
             }
             byte[] fingerprint = System.Security.Cryptography.SHA256.HashData("scope-rotation"u8);
             BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create("control-plane", "rotate-subject-scope-protection", "scope-rotation-1", BaseMutationRequestFingerprint.Create(fingerprint));
-            var request = new BaseSubjectLifecycleMaintenanceExecutionRequest
+            var request = new BaseSubjectAuthorityMaintenanceExecutionRequest
             {
-                FormatVersion = 1,
-                Kind = BaseSubjectLifecycleMaintenanceKind.RotateScopeProtection, Identity = identity, PlanChecksum = new byte[32],
-                ExpectedStoreGeneration = store.VectorSchemaGeneration, ExpectedSchemaGeneration = store.VectorSchemaGeneration, ExpectedRestoreEpoch = 0, ExpectedDeliveryEpoch = 1,
+                Lifecycle=new(){Kind=BaseSubjectLifecycleMaintenanceKind.RotateScopeProtection,ExpectedDeliveryEpoch=1,PlanChecksum=System.Security.Cryptography.SHA256.HashData("rotate-plan"u8)}, Identity = identity, CombinedPlanChecksum = new byte[32],
+                ExpectedStoreGeneration = store.VectorSchemaGeneration, ExpectedSchemaGeneration = store.VectorSchemaGeneration, ExpectedRestoreEpoch = 0,
                 ExpectedScopeProtectionGeneration = 1, ExpectedScopeProtectionKeyId = "31", ReplacementScopeProtectionKeyId = "32",
                 PageSize = 256, OperationTimeout = TimeSpan.FromSeconds(5), CommitCompletionTimeout = TimeSpan.FromSeconds(5),
             };
-            request = request with { PlanChecksum = BaseSubjectLifecycleMaintenanceProcessor.PlanChecksum(request) };
-            var processor = new BaseSubjectLifecycleMaintenanceProcessor();
+            request = request with { CombinedPlanChecksum = BaseSubjectAuthorityMaintenanceProcessor.PlanChecksum(request) };
+            var processor = new BaseSubjectAuthorityMaintenanceProcessor();
             RecordMutationExecutionResult execution = await store.ExecuteMaintenanceAsync(processor, request);
             execution.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed, execution.Error?.Code ?? execution.Processing?.Error?.Code);
-            processor.Result!.DeliveryEpoch.Should().Be(2);
-            var duplicateProcessor = new BaseSubjectLifecycleMaintenanceProcessor();
+            processor.LifecycleResult!.DeliveryEpoch.Should().Be(2);
+            var duplicateProcessor = new BaseSubjectAuthorityMaintenanceProcessor();
             RecordMutationExecutionResult duplicate = await store.ExecuteMaintenanceAsync(duplicateProcessor, request);
             duplicate.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
-            duplicateProcessor.Result!.Duplicate.Should().BeTrue();
-            duplicateProcessor.Result.DeliveryEpoch.Should().Be(2);
+            duplicateProcessor.LifecycleResult!.Duplicate.Should().BeTrue();
+            duplicateProcessor.LifecycleResult.DeliveryEpoch.Should().Be(2);
             BaseProtectedSubjectScope expected = scopes.Protect(logicalScope, 32);
             await using (var connection = new SqliteConnection($"Data Source={path};Pooling=False"))
             {
@@ -269,17 +266,16 @@ SELECT 'consumer.remove',1,$checksum,'example.subject',1,1,0,0,$digest,X'',value
                 await insert.ExecuteNonQueryAsync();
             }
             byte[] fingerprint = System.Security.Cryptography.SHA256.HashData("scope-rotation-resume"u8);
-            var request = new BaseSubjectLifecycleMaintenanceExecutionRequest
+            var request = new BaseSubjectAuthorityMaintenanceExecutionRequest
             {
-                FormatVersion = 1,
-                Kind = BaseSubjectLifecycleMaintenanceKind.RotateScopeProtection,
+                Lifecycle=new(){Kind=BaseSubjectLifecycleMaintenanceKind.RotateScopeProtection,ExpectedDeliveryEpoch=1,PlanChecksum=System.Security.Cryptography.SHA256.HashData("rotate-resume-plan"u8)},
                 Identity = BaseMutationRequestIdentity.Create("control-plane", "rotate-subject-scope-protection", "scope-rotation-resume-1", BaseMutationRequestFingerprint.Create(fingerprint)),
-                PlanChecksum = new byte[32], ExpectedStoreGeneration = store.VectorSchemaGeneration, ExpectedSchemaGeneration = store.VectorSchemaGeneration, ExpectedRestoreEpoch = 0, ExpectedDeliveryEpoch = 1,
+                CombinedPlanChecksum = new byte[32], ExpectedStoreGeneration = store.VectorSchemaGeneration, ExpectedSchemaGeneration = store.VectorSchemaGeneration, ExpectedRestoreEpoch = 0,
                 ExpectedScopeProtectionGeneration = 1, ExpectedScopeProtectionKeyId = "31", ReplacementScopeProtectionKeyId = "32",
                 PageSize = 1, OperationTimeout = TimeSpan.FromSeconds(5), CommitCompletionTimeout = TimeSpan.FromSeconds(5),
             };
-            request = request with { PlanChecksum = BaseSubjectLifecycleMaintenanceProcessor.PlanChecksum(request) };
-            await FluentActions.Awaiting(async () => await store.ExecuteMaintenanceAsync(new BaseSubjectLifecycleMaintenanceProcessor(), request))
+            request = request with { CombinedPlanChecksum = BaseSubjectAuthorityMaintenanceProcessor.PlanChecksum(request) };
+            await FluentActions.Awaiting(async () => await store.ExecuteMaintenanceAsync(new BaseSubjectAuthorityMaintenanceProcessor(), request))
                 .Should().ThrowAsync<IOException>();
             await using (var connection = new SqliteConnection($"Data Source={path};Pooling=False"))
             {
@@ -299,7 +295,7 @@ SELECT 'consumer.remove',1,$checksum,'example.subject',1,1,0,0,$digest,X'',value
                     (await corrupt.ExecuteNonQueryAsync()).Should().Be(1);
                 }
             }
-            var resumedProcessor = new BaseSubjectLifecycleMaintenanceProcessor();
+            var resumedProcessor = new BaseSubjectAuthorityMaintenanceProcessor();
             RecordMutationExecutionResult resumed = await store.ExecuteMaintenanceAsync(resumedProcessor, request);
             if (corruptStage)
             {
@@ -316,7 +312,7 @@ SELECT 'consumer.remove',1,$checksum,'example.subject',1,1,0,0,$digest,X'',value
                 return;
             }
             resumed.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed, resumed.Error?.Code ?? resumed.Processing?.Error?.Code);
-            resumedProcessor.Result!.DeliveryEpoch.Should().Be(2);
+            resumedProcessor.LifecycleResult!.DeliveryEpoch.Should().Be(2);
             BaseProtectedSubjectScope expected = scopes.Protect(logicalScope, 32);
             await using (var connection = new SqliteConnection($"Data Source={path};Pooling=False"))
             {

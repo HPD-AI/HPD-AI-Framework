@@ -103,6 +103,8 @@ public sealed class BaseSession
     public BaseModuleMutationSession ModuleMutations => new(this);
     /// <summary>Gets graph-installed durable exported-subject lifecycle consumers.</summary>
     public BaseSubjectLifecycleSession SubjectLifecycle => new(this);
+    /// <summary>Gets mutually installed exported-subject retirement consumers.</summary>
+    public BaseSubjectRetirementSession SubjectRetirements => new(this);
 
     /// <summary>Resolves one generated exported-subject contract from this installed application graph.</summary>
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]

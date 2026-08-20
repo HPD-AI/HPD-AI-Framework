@@ -13,6 +13,50 @@ namespace HPD.Base.Tests.Subjects;
 public sealed class L45SubjectTransactionTests
 {
     [Fact]
+    public async Task L48_tombstone_atomically_creates_the_required_consumer_barrier()
+    {
+        await using SubjectFixture fixture=Build(retirement:true);
+        IBaseRecordRuntime records=fixture.Services.GetRequiredService<IBaseRecordRuntime>();PrincipalContext principal=Principal();
+        OperationResult<RecordEnvelope> created=await records.CreateAsync(Private.Id,Create("retirement-user",("active",true),("tenant","tenant-a")),principal,Operation(BaseOperationKind.Create,Private.Id));Assert.True(created.IsSuccess(),created.Error?.Code);
+        JsonElement encoded=await fixture.AcquireAsync("retirement-user");var reference=new BaseSubjectReference<UserSubject>(BaseSubjectId.Create(encoded.GetProperty("subjectId").GetString()!,BaseSubjectIdKind.OrdinalString),BaseSubjectAuthorityEpoch.Parse(encoded.GetProperty("authorityEpoch").GetString()!),BaseSubjectIncarnation.Parse(encoded.GetProperty("incarnation").GetString()!));
+        RecordEnvelope current=(await records.GetAsync(Private.Id,new RecordId("retirement-user"),principal,Operation(BaseOperationKind.Get,Private.Id))).Value!;
+        BaseSession session=fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);BaseExportedSubjectContract<UserSubject> exporter=session.GetExportedSubjectContract<UserSubject>(fixture.Registration);
+        BaseResult<BaseSubjectLifecycleFact<UserSubject>> tombstoned=await exporter.TombstoneAsync(new(){Subject=reference,ExpectedPrivateRevision=current.Metadata.Revision!.Value,Identity=BaseMutationRequestIdentity.Create("l48-tests","tombstone","barrier-create",BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("l48-barrier-create"u8)))});
+        Assert.True(tombstoned is BaseSuccess<BaseSubjectLifecycleFact<UserSubject>>,tombstoned is BaseFailure<BaseSubjectLifecycleFact<UserSubject>> failed?$"{failed.Error.Code}: {failed.Error.Message}":null);
+        BaseSubjectRetirementPolicy policy=fixture.Services.GetRequiredService<BaseSubjectRetirementRegistry>().Policies.Single().Definition;
+        OperationResult<BaseSubjectRetirementBarrierPage> page=await fixture.Store.ReadBarriersAsync(new(){ApplicationId="test.application",ContractId="example.user",ContractVersion=1,ScopeAuthority=new(){Mode=BaseSubjectScopeQueryMode.ExactScope,ExactScope=new(){Kind=BaseSubjectScopeKind.Tenant,Value="tenant-a"},InstalledAuthorityDigest=fixture.Registration.Checksum},Take=16,MaximumResultBytes=65_536,DeadlineUtc=DateTimeOffset.UtcNow.AddMinutes(1)});
+        Assert.True(page.IsSuccess(),page.Error?.Code);BaseSubjectRetirementBarrier barrier=Assert.Single(page.Value!.Barriers).Barrier;
+        Assert.Equal(reference.AuthorityEpoch,barrier.AuthorityEpoch);Assert.Equal(reference.Incarnation,barrier.Incarnation);Assert.Equal(BaseSubjectRetirementBarrierState.Pending,barrier.State);Assert.Equal(1,barrier.Generation);
+        Assert.Equal(BaseSubjectRetirementRegistry.AcceptedSetChecksum(policy.AcceptedConsumers),barrier.RequiredConsumerSetChecksum);
+    }
+
+    [Fact]
+    public async Task L48_required_delivery_acknowledges_once_and_satisfies_the_barrier()
+    {
+        await using SubjectFixture fixture=Build(retirement:true);PrincipalContext principal=Principal();IBaseRecordRuntime records=fixture.Services.GetRequiredService<IBaseRecordRuntime>();
+        Assert.True((await records.CreateAsync(Private.Id,Create("ack-user",("active",true),("tenant","tenant-a")),principal,Operation(BaseOperationKind.Create,Private.Id))).IsSuccess());
+        JsonElement encoded=await fixture.AcquireAsync("ack-user");var reference=new BaseSubjectReference<UserSubject>(BaseSubjectId.Create(encoded.GetProperty("subjectId").GetString()!,BaseSubjectIdKind.OrdinalString),BaseSubjectAuthorityEpoch.Parse(encoded.GetProperty("authorityEpoch").GetString()!),BaseSubjectIncarnation.Parse(encoded.GetProperty("incarnation").GetString()!));RecordEnvelope current=(await records.GetAsync(Private.Id,new("ack-user"),principal,Operation(BaseOperationKind.Get,Private.Id))).Value!;
+        BaseSession session=fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);BaseExportedSubjectContract<UserSubject> exporter=session.GetExportedSubjectContract<UserSubject>(fixture.Registration);BaseResult<BaseSubjectLifecycleFact<UserSubject>> tombstone=await exporter.TombstoneAsync(new(){Subject=reference,ExpectedPrivateRevision=current.Metadata.Revision!.Value,Identity=Identity("ack-tombstone")});Assert.IsType<BaseSuccess<BaseSubjectLifecycleFact<UserSubject>>>(tombstone);
+        BaseSubjectLifecycleConsumerDefinition lifecycle=LifecycleConsumer();var lifecycleIdentity=BaseGeneratedSubjectLifecycleConsumers.Register<UserSubject>(lifecycle,fixture.Registration);BaseSubjectRetirementConsumerDefinition retirement=RetirementConsumer(BaseSubjectLifecycleRegistry.Checksum(BaseSubjectLifecycleRegistry.Normalize(lifecycle),fixture.Registration.Checksum));var retirementIdentity=BaseGeneratedSubjectRetirementConsumers.Register(lifecycleIdentity,retirement);BaseInstalledSubjectRetirementConsumer<UserSubject> consumer=session.SubjectRetirements.Get(retirementIdentity);
+        await using IAsyncEnumerator<BaseSubjectRequiredLifecycleDelivery<UserSubject>> deliveries=consumer.ReadRequiredAsync().GetAsyncEnumerator();Assert.True(await deliveries.MoveNextAsync());BaseSubjectRequiredLifecycleDelivery<UserSubject> delivery=deliveries.Current;
+        BaseResult<BaseSubjectAcknowledgementResult> accepted=await consumer.AcknowledgeAsync(delivery.Acknowledgement,BaseSubjectAcknowledgementDisposition.Completed,delivery.AcknowledgementIdentity);Assert.True(accepted is BaseSuccess<BaseSubjectAcknowledgementResult>,accepted is BaseFailure<BaseSubjectAcknowledgementResult> failed?failed.Error.Code:null);BaseSubjectAcknowledgementResult applied=accepted.RequireValue();Assert.Equal(BaseSubjectRetirementMutationOutcome.Applied,applied.Outcome);Assert.Equal(BaseSubjectRetirementBarrierState.Satisfied,applied.BarrierState);Assert.Equal(2,applied.BarrierGeneration);
+        BaseResult<BaseSubjectAcknowledgementResult> duplicate=await consumer.AcknowledgeAsync(delivery.Acknowledgement,BaseSubjectAcknowledgementDisposition.Completed,delivery.AcknowledgementIdentity);Assert.Equal(BaseSubjectRetirementMutationOutcome.Duplicate,duplicate.RequireValue().Outcome);
+    }
+
+    [Fact]
+    public async Task L48_timeout_quarantines_and_identified_override_advances_once()
+    {
+        var clock=new LifecycleTimeProvider(new DateTimeOffset(2030,1,1,0,0,0,TimeSpan.Zero));await using SubjectFixture fixture=Build(retirement:true,timeProvider:clock);PrincipalContext principal=Principal();IBaseRecordRuntime records=fixture.Services.GetRequiredService<IBaseRecordRuntime>();Assert.True((await records.CreateAsync(Private.Id,Create("timeout-user",("active",true),("tenant","tenant-a")),principal,Operation(BaseOperationKind.Create,Private.Id))).IsSuccess());JsonElement encoded=await fixture.AcquireAsync("timeout-user");var reference=new BaseSubjectReference<UserSubject>(BaseSubjectId.Create(encoded.GetProperty("subjectId").GetString()!,BaseSubjectIdKind.OrdinalString),BaseSubjectAuthorityEpoch.Parse(encoded.GetProperty("authorityEpoch").GetString()!),BaseSubjectIncarnation.Parse(encoded.GetProperty("incarnation").GetString()!));RecordEnvelope current=(await records.GetAsync(Private.Id,new("timeout-user"),principal,Operation(BaseOperationKind.Get,Private.Id))).Value!;BaseSession session=fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);Assert.IsType<BaseSuccess<BaseSubjectLifecycleFact<UserSubject>>>(await session.GetExportedSubjectContract<UserSubject>(fixture.Registration).TombstoneAsync(new(){Subject=reference,ExpectedPrivateRevision=current.Metadata.Revision!.Value,Identity=Identity("timeout-tombstone")}));
+        BaseSubjectRetirementBarrier barrier=Assert.Single((await fixture.Store.ReadBarriersAsync(new(){ApplicationId="test.application",ContractId="example.user",ContractVersion=1,ScopeAuthority=new(){Mode=BaseSubjectScopeQueryMode.ExactScope,ExactScope=new(){Kind=BaseSubjectScopeKind.Tenant,Value="tenant-a"},InstalledAuthorityDigest=fixture.Registration.Checksum},Take=4,MaximumResultBytes=65_536,DeadlineUtc=clock.GetUtcNow().AddMinutes(1)})).Value!.Barriers).Barrier;clock.Advance(TimeSpan.FromHours(1)+TimeSpan.FromTicks(1));BaseSubjectRetirementPolicy policy=fixture.Services.GetRequiredService<BaseSubjectRetirementRegistry>().Policies.Single().Definition;
+        var timeoutRequest=new BaseSubjectRetirementTimeoutRequest{ContractId="example.user",ContractVersion=1,SubjectId=reference.SubjectId,AuthorityEpoch=reference.AuthorityEpoch,Incarnation=reference.Incarnation,ExpectedBarrierGeneration=barrier.Generation,ExpectedBarrierChecksum=barrier.BarrierChecksum,Identity=Identity("timeout")};var timeoutProcessor=new BaseSubjectRetirementTimeoutProcessor(new(){Request=timeoutRequest,Scope=new(){Kind=BaseSubjectScopeKind.Tenant,Value="tenant-a"},RetirementPolicyChecksum=policy.PolicyChecksum,ObservedAtUtc=clock.GetUtcNow()});RecordMutationExecutionResult timeout=await fixture.Store.ExecuteAsync(timeoutProcessor,Execution(timeoutRequest.Identity,"timeout",clock));Assert.Equal(RecordMutationExecutionOutcome.Committed,timeout.Outcome);Assert.Equal(BaseSubjectRetirementBarrierState.Quarantined,timeoutProcessor.Result!.State);Assert.Equal(2,timeoutProcessor.Result.Generation);
+        var overrideRequest=new BaseSubjectRetirementOverrideRequest{ContractId="example.user",ContractVersion=1,SubjectId=reference.SubjectId,AuthorityEpoch=reference.AuthorityEpoch,Incarnation=reference.Incarnation,ExpectedTombstoneSequence=barrier.TombstoneSequence,ExpectedBarrierGeneration=timeoutProcessor.Result.Generation,ExpectedBarrierChecksum=timeoutProcessor.Result.BarrierChecksum,Intent="override-subject-retirement-barrier",ChangeReference="CHG-42",Identity=Identity("override")};var overrideProcessor=new BaseSubjectRetirementOverrideProcessor(new(){Request=overrideRequest,Scope=new(){Kind=BaseSubjectScopeKind.Tenant,Value="tenant-a"},RetirementPolicyChecksum=policy.PolicyChecksum,ObservedAtUtc=clock.GetUtcNow()});RecordMutationExecutionResult overridden=await fixture.Store.ExecuteAsync(overrideProcessor,Execution(overrideRequest.Identity,"override",clock));Assert.Equal(RecordMutationExecutionOutcome.Committed,overridden.Outcome);Assert.Equal(3,overrideProcessor.Result!.Generation);
+        RecordEnvelope tombstoned=(await records.GetAsync(Private.Id,new("timeout-user"),principal,Operation(BaseOperationKind.Get,Private.Id))).Value!;var purgeRequest=new BaseSubjectFinalPurgeRequest{ContractId="example.user",ContractVersion=1,SubjectId=reference.SubjectId,AuthorityEpoch=reference.AuthorityEpoch,Incarnation=reference.Incarnation,ExpectedTombstoneSequence=barrier.TombstoneSequence,ExpectedPrivateRevision=tombstoned.Metadata.Revision!.Value,ExpectedBarrierGeneration=overrideProcessor.Result.Generation,ExpectedBarrierChecksum=overrideProcessor.Result.BarrierChecksum,Identity=Identity("purge")};var purgeProcessor=new BaseSubjectRetirementPurgeProcessor(new(){Request=purgeRequest,Scope=new(){Kind=BaseSubjectScopeKind.Tenant,Value="tenant-a"},ContractChecksum=fixture.Registration.Checksum,RetirementPolicyChecksum=policy.PolicyChecksum,MinimumTombstoneAge=TimeSpan.Zero,ObservedAtUtc=clock.GetUtcNow(),Operation=Operation(BaseOperationKind.SubjectRetirementPurge,Private.Id)});RecordMutationExecutionResult purged=await fixture.Store.ExecuteAsync(purgeProcessor,Execution(purgeRequest.Identity,"purge",clock));Assert.Equal(RecordMutationExecutionOutcome.Committed,purged.Outcome);Assert.NotNull(purgeProcessor.Result);Assert.Equal(OperationStatus.NotFound,(await records.GetAsync(Private.Id,new("timeout-user"),principal,Operation(BaseOperationKind.Get,Private.Id))).Status);OperationResult<BaseSubjectRetirementInspection> terminal=await ((IBaseSubjectRetirementStore)fixture.Store).InspectAsync(new(){ContractId="example.user",ContractVersion=1,SubjectId=reference.SubjectId,AuthorityEpoch=reference.AuthorityEpoch,Incarnation=reference.Incarnation,ScopeAuthority=new(){Mode=BaseSubjectScopeQueryMode.ExactScope,ExactScope=new(){Kind=BaseSubjectScopeKind.Tenant,Value="tenant-a"},InstalledAuthorityDigest=fixture.Registration.Checksum},IncludeTerminalSummary=true,MaximumResultBytes=65_536,DeadlineUtc=clock.GetUtcNow().AddMinutes(1)});Assert.NotNull(terminal.Value!.TerminalSummary);Assert.Null(terminal.Value.CurrentBarrier);
+    }
+
+    private static BaseMutationRequestIdentity Identity(string value){byte[] digest=System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(value));return BaseMutationRequestIdentity.Create("l48-tests","subject-retirement",value,BaseMutationRequestFingerprint.Create(digest));}
+    private static RecordMutationExecutionRequest Execution(BaseMutationRequestIdentity identity,string value,TimeProvider clock)=>new(){AcquisitionTimeout=TimeSpan.FromSeconds(2),TransactionTimeout=TimeSpan.FromSeconds(2),CommitCompletionTimeout=TimeSpan.FromSeconds(2),AtomicRequest=new(){Identity=identity,StructuralDigest=System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(value)),ExpiresAt=clock.GetUtcNow().AddDays(1),MaxReceiptBytes=65_536}};
+
+    [Fact]
     public void L47_consumer_graph_checksum_is_normalized_deterministic_and_duplicate_identity_fails()
     {
         SubjectFixture fixture = Build();
@@ -369,19 +413,14 @@ public sealed class L45SubjectTransactionTests
         BaseSubjectLifecycleOrderingBoundary retained = page.Value.Facts[^1].Boundary;
         BaseMutationRequestIdentity pruneIdentity = BaseMutationRequestIdentity.Create(
             "l47-tests", "prune", "tenant-a", BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("prune-tenant-a"u8)));
-        var pruneRequest = new BaseSubjectLifecycleMaintenanceExecutionRequest
+        var pruneRequest = new BaseSubjectAuthorityMaintenanceExecutionRequest
         {
-            FormatVersion = 1,
-            Kind = BaseSubjectLifecycleMaintenanceKind.Prune,
-            ContractId = "example.user",
-            ContractVersion = 1,
-            RetainedFrom = retained,
+            Lifecycle=new(){Kind=BaseSubjectLifecycleMaintenanceKind.Prune,ContractId="example.user",ContractVersion=1,RetainedFrom=retained,ExpectedDeliveryEpoch=1,PlanChecksum=System.Security.Cryptography.SHA256.HashData("prune-plan"u8)},
             Identity = pruneIdentity,
-            PlanChecksum = new byte[32],
+            CombinedPlanChecksum = new byte[32],
             ExpectedStoreGeneration = 1,
             ExpectedSchemaGeneration = 1,
             ExpectedRestoreEpoch = 0,
-            ExpectedDeliveryEpoch = 1,
             ExpectedScopeProtectionGeneration = 1,
             ExpectedScopeProtectionKeyId = "0",
             PageSize = 1,
@@ -390,9 +429,9 @@ public sealed class L45SubjectTransactionTests
         };
         pruneRequest = pruneRequest with
         {
-            PlanChecksum = BaseSubjectLifecycleMaintenanceProcessor.PlanChecksum(pruneRequest),
+            CombinedPlanChecksum = BaseSubjectAuthorityMaintenanceProcessor.PlanChecksum(pruneRequest),
         };
-        var pruneProcessor = new BaseSubjectLifecycleMaintenanceProcessor();
+        var pruneProcessor = new BaseSubjectAuthorityMaintenanceProcessor();
         RecordMutationExecutionResult interrupted = await fixture.Store.ExecuteMaintenanceAsync(pruneProcessor, pruneRequest);
         Assert.Equal(RecordMutationExecutionOutcome.RollbackConfirmed, interrupted.Outcome);
         Assert.Equal(BaseSubjectErrorCodes.Timeout, interrupted.Error?.Code ?? interrupted.Processing?.Error?.Code);
@@ -401,14 +440,14 @@ public sealed class L45SubjectTransactionTests
         Assert.Equal(OperationStatus.CapabilityUnavailable, closed.Status);
         Assert.Equal(BaseSubjectErrorCodes.MaintenanceRequired, closed.Error?.Code);
 
-        pruneProcessor = new BaseSubjectLifecycleMaintenanceProcessor();
+        pruneProcessor = new BaseSubjectAuthorityMaintenanceProcessor();
         RecordMutationExecutionResult pruned = await fixture.Store.ExecuteMaintenanceAsync(pruneProcessor, pruneRequest);
 
         Assert.True(pruned.Outcome == RecordMutationExecutionOutcome.Committed,
             pruned.Error?.Code ?? pruned.Processing?.Error?.Code);
-        Assert.Equal(BaseSubjectLifecycleMaintenanceKind.Prune, pruneProcessor.Result!.Kind);
-        Assert.Equal(7, pruneProcessor.Result.ExaminedCount);
-        Assert.Equal(4, pruneProcessor.Result.ChangedCount);
+        Assert.Equal(BaseSubjectLifecycleMaintenanceKind.Prune, pruneProcessor.LifecycleResult!.Kind);
+        Assert.Equal(7, pruneProcessor.LifecycleResult.ExaminedCount);
+        Assert.Equal(4, pruneProcessor.LifecycleResult.ChangedCount);
     }
 
     [Fact]
@@ -464,18 +503,18 @@ public sealed class L45SubjectTransactionTests
         OperationResult<BaseSubjectLifecycleProviderPage> page = await fixture.Store.ReadAsync(LifecycleReadRequest(fixture, consumer));
         Assert.True(page.IsSuccess(), page.Error?.Code);
         BaseSubjectLifecycleOrderingBoundary retainedFrom = Assert.Single(page.Value!.Facts).Boundary;
-        BaseSubjectLifecycleMaintenanceExecutionRequest request = OvertakeRequest(fixture, consumer, retainedFrom);
+        BaseSubjectAuthorityMaintenanceExecutionRequest request = OvertakeRequest(fixture, consumer, retainedFrom);
 
-        var premature = new BaseSubjectLifecycleMaintenanceProcessor();
+        var premature = new BaseSubjectAuthorityMaintenanceProcessor();
         RecordMutationExecutionResult rejected = await fixture.Store.ExecuteMaintenanceAsync(premature, request);
         Assert.Equal(RecordMutationExecutionOutcome.RollbackConfirmed, rejected.Outcome);
         Assert.Equal(BaseSubjectErrorCodes.LifecycleRegistrationConflict, rejected.Error?.Code ?? rejected.Processing?.Error?.Code);
 
         clock.Advance(TimeSpan.FromDays(1));
-        var eligible = new BaseSubjectLifecycleMaintenanceProcessor();
+        var eligible = new BaseSubjectAuthorityMaintenanceProcessor();
         RecordMutationExecutionResult overtaken = await fixture.Store.ExecuteMaintenanceAsync(eligible, request);
         Assert.Equal(RecordMutationExecutionOutcome.Committed, overtaken.Outcome);
-        Assert.Equal(1, eligible.Result!.ChangedCount);
+        Assert.Equal(1, eligible.LifecycleResult!.ChangedCount);
         OperationResult<BaseSubjectLifecycleProviderPage> closed = await fixture.Store.ReadAsync(LifecycleReadRequest(fixture, consumer));
         Assert.Equal(BaseSubjectErrorCodes.CursorOvertaken, closed.Error?.Code);
     }
@@ -629,17 +668,17 @@ public sealed class L45SubjectTransactionTests
         Assert.True((await runtime.CreateAsync(Private.Id, Create("staged-user", ("active", true), ("tenant", "tenant-a")), Principal(), Operation(BaseOperationKind.Create, Private.Id))).IsSuccess());
         BaseSubjectLifecycleConsumerDefinition consumer = LifecycleConsumer();
 
-        BaseSubjectLifecycleMaintenanceExecutionRequest rebuild = Maintenance(BaseSubjectLifecycleMaintenanceKind.RebuildDeliveryProjection, "rebuild", projection: 1);
-        var rebuildProcessor = new BaseSubjectLifecycleMaintenanceProcessor();
+        BaseSubjectAuthorityMaintenanceExecutionRequest rebuild = Maintenance(BaseSubjectLifecycleMaintenanceKind.RebuildDeliveryProjection, "rebuild", projection: 1);
+        var rebuildProcessor = new BaseSubjectAuthorityMaintenanceProcessor();
         RecordMutationExecutionResult rebuilt = await fixture.Store.ExecuteMaintenanceAsync(rebuildProcessor, rebuild);
         Assert.Equal(RecordMutationExecutionOutcome.Committed, rebuilt.Outcome);
-        Assert.Equal(2, rebuildProcessor.Result!.ProjectionGeneration);
+        Assert.Equal(2, rebuildProcessor.LifecycleResult!.ProjectionGeneration);
 
-        BaseSubjectLifecycleMaintenanceExecutionRequest removal = Maintenance(BaseSubjectLifecycleMaintenanceKind.RemoveConsumer, "remove", projection: 2);
-        var removalProcessor = new BaseSubjectLifecycleMaintenanceProcessor();
+        BaseSubjectAuthorityMaintenanceExecutionRequest removal = Maintenance(BaseSubjectLifecycleMaintenanceKind.RemoveConsumer, "remove", projection: 2);
+        var removalProcessor = new BaseSubjectAuthorityMaintenanceProcessor();
         RecordMutationExecutionResult removed = await fixture.Store.ExecuteMaintenanceAsync(removalProcessor, removal);
         Assert.Equal(RecordMutationExecutionOutcome.Committed, removed.Outcome);
-        Assert.Null(removalProcessor.Result!.ProjectionGeneration);
+        Assert.Null(removalProcessor.LifecycleResult!.ProjectionGeneration);
         OperationResult<BaseSubjectLifecycleProviderPage> denied = await fixture.Store.ReadAsync(new()
         {
             ApplicationId = "test.application", ContractId = "example.user", ContractVersion = 1, ContractChecksum = fixture.Registration.Checksum,
@@ -649,17 +688,16 @@ public sealed class L45SubjectTransactionTests
         Assert.False(denied.IsSuccess());
         Assert.Equal(BaseSubjectErrorCodes.LifecycleProviderContractInvalid, denied.Error?.Code);
 
-        BaseSubjectLifecycleMaintenanceExecutionRequest Maintenance(BaseSubjectLifecycleMaintenanceKind kind, string suffix, long projection)
+        BaseSubjectAuthorityMaintenanceExecutionRequest Maintenance(BaseSubjectLifecycleMaintenanceKind kind, string suffix, long projection)
         {
             BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create("l47-tests", suffix, suffix, BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(suffix))));
-            var request = new BaseSubjectLifecycleMaintenanceExecutionRequest
+            var request = new BaseSubjectAuthorityMaintenanceExecutionRequest
             {
-                FormatVersion = 1, Kind = kind, ContractId = "example.user", ContractVersion = 1, ConsumerId = consumer.Id, ConsumerVersion = consumer.Version,
-                ExpectedProjectionGeneration = projection, Identity = identity, PlanChecksum = new byte[32], ExpectedStoreGeneration = 1, ExpectedSchemaGeneration = 1,
-                ExpectedRestoreEpoch = 0, ExpectedDeliveryEpoch = 1, ExpectedScopeProtectionGeneration = 1, ExpectedScopeProtectionKeyId = "0", PageSize = 1,
+                Lifecycle=new(){Kind=kind,ContractId="example.user",ContractVersion=1,ConsumerId=consumer.Id,ConsumerVersion=consumer.Version,ExpectedProjectionGeneration=projection,ExpectedDeliveryEpoch=1,PlanChecksum=System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes($"{suffix}-plan"))}, Identity = identity, CombinedPlanChecksum = new byte[32], ExpectedStoreGeneration = 1, ExpectedSchemaGeneration = 1,
+                ExpectedRestoreEpoch = 0, ExpectedScopeProtectionGeneration = 1, ExpectedScopeProtectionKeyId = "0", PageSize = 1,
                 OperationTimeout = TimeSpan.FromSeconds(5), CommitCompletionTimeout = TimeSpan.FromSeconds(5),
             };
-            return request with { PlanChecksum = BaseSubjectLifecycleMaintenanceProcessor.PlanChecksum(request) };
+            return request with { CombinedPlanChecksum = BaseSubjectAuthorityMaintenanceProcessor.PlanChecksum(request) };
         }
     }
 
@@ -701,19 +739,19 @@ public sealed class L45SubjectTransactionTests
         Assert.Equal(0, foreignSeek.Value.Accounting.RowsHydrated);
 
         BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create("l47-tests", "scope-rotation", "scope-rotation", BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("scope-rotation"u8)));
-        var request = new BaseSubjectLifecycleMaintenanceExecutionRequest
+        var request = new BaseSubjectAuthorityMaintenanceExecutionRequest
         {
-            FormatVersion = 1, Kind = BaseSubjectLifecycleMaintenanceKind.RotateScopeProtection, Identity = identity, PlanChecksum = new byte[32],
-            ExpectedStoreGeneration = 1, ExpectedSchemaGeneration = 1, ExpectedRestoreEpoch = 0, ExpectedDeliveryEpoch = 1,
+            Lifecycle=new(){Kind=BaseSubjectLifecycleMaintenanceKind.RotateScopeProtection,ExpectedDeliveryEpoch=1,PlanChecksum=System.Security.Cryptography.SHA256.HashData("rotate-plan"u8)}, Identity = identity, CombinedPlanChecksum = new byte[32],
+            ExpectedStoreGeneration = 1, ExpectedSchemaGeneration = 1, ExpectedRestoreEpoch = 0,
             ExpectedScopeProtectionGeneration = 1, ExpectedScopeProtectionKeyId = "0", ReplacementScopeProtectionKeyId = "1", PageSize = 1,
             OperationTimeout = TimeSpan.FromSeconds(5), CommitCompletionTimeout = TimeSpan.FromSeconds(5),
         };
-        request = request with { PlanChecksum = BaseSubjectLifecycleMaintenanceProcessor.PlanChecksum(request) };
-        var processor = new BaseSubjectLifecycleMaintenanceProcessor();
+        request = request with { CombinedPlanChecksum = BaseSubjectAuthorityMaintenanceProcessor.PlanChecksum(request) };
+        var processor = new BaseSubjectAuthorityMaintenanceProcessor();
         RecordMutationExecutionResult rotated = await fixture.Store.ExecuteMaintenanceAsync(processor, request);
-        Assert.Equal(RecordMutationExecutionOutcome.Committed, rotated.Outcome);
-        Assert.Equal(2, processor.Result!.DeliveryEpoch);
-        Assert.Equal(2, processor.Result.ProjectionGeneration);
+        Assert.True(rotated.Outcome == RecordMutationExecutionOutcome.Committed, rotated.Error?.Code ?? rotated.Processing?.Error?.Code);
+        Assert.Equal(2, processor.LifecycleResult!.DeliveryEpoch);
+        Assert.Equal(2, processor.LifecycleResult.ProjectionGeneration);
 
         BaseResult<BaseUntypedSubjectLifecyclePage> resumed = await lifecycle.ReadUntypedAsync(session, installed, oldCursor, 1, CancellationToken.None);
         BaseFailure<BaseUntypedSubjectLifecyclePage> failure = Assert.IsType<BaseFailure<BaseUntypedSubjectLifecyclePage>>(resumed);
@@ -1311,10 +1349,10 @@ public sealed class L45SubjectTransactionTests
         await transaction.CommitAsync();
     }
 
-    private static SubjectFixture Build(bool lifecycleConsumer = false, string? allScopeInspectionDigest = null, Func<int, CancellationToken, ValueTask>? lifecycleMaintenancePageCompleted = null, bool scopeRotationKeys = false, TimeSpan? lifecycleReadTimeout = null, BaseSubjectLifecycleConsumerDefinition[]? lifecycleConsumers = null, TimeProvider? timeProvider = null)
+    private static SubjectFixture Build(bool lifecycleConsumer = false, string? allScopeInspectionDigest = null, Func<int, CancellationToken, ValueTask>? lifecycleMaintenancePageCompleted = null, bool scopeRotationKeys = false, TimeSpan? lifecycleReadTimeout = null, BaseSubjectLifecycleConsumerDefinition[]? lifecycleConsumers = null, TimeProvider? timeProvider = null, bool retirement = false)
     {
         timeProvider ??= TimeProvider.System;
-        BaseGeneratedSubjectRegistration registration = BaseGeneratedSubjects.Register<UserSubject>(SubjectDefinition());
+        BaseGeneratedSubjectRegistration registration = BaseGeneratedSubjects.Register<UserSubject>(SubjectDefinition(retirement));
         BaseExportedSubjectDefinition subject = registration.Definition;
         CollectionDefinition[] collections = [Private, Consumer with
         {
@@ -1324,7 +1362,15 @@ public sealed class L45SubjectTransactionTests
             }).ToArray(),
         }];
         BaseSubjectLifecycleConsumerDefinition[] installedLifecycleConsumers = lifecycleConsumers
-            ?? (lifecycleConsumer ? [LifecycleConsumer(lifecycleReadTimeout)] : []);
+            ?? (lifecycleConsumer||retirement ? [LifecycleConsumer(lifecycleReadTimeout)] : []);
+        BaseSubjectRetirementConsumerDefinition[] retirementConsumers=[];BaseSubjectRetirementPolicy[] retirementPolicies=[];
+        if(retirement)
+        {
+            string lifecycleChecksum=BaseSubjectLifecycleRegistry.Checksum(BaseSubjectLifecycleRegistry.Normalize(installedLifecycleConsumers.Single()),registration.Checksum);
+            BaseSubjectRetirementConsumerDefinition consumer=RetirementConsumer(lifecycleChecksum);string consumerChecksum=BaseSubjectRetirementRegistry.ConsumerChecksum(BaseSubjectRetirementRegistry.Normalize(consumer));
+            BaseSubjectRetirementPolicy policy=RetirementPolicy(consumer,consumerChecksum);policy=policy with{PolicyChecksum=BaseSubjectRetirementRegistry.PolicyChecksum(policy with{PolicyChecksum=string.Empty})};
+            retirementConsumers=[consumer];retirementPolicies=[policy];
+        }
         var services = new ServiceCollection();
         var lifecycleTokens = new BaseOpaqueTokenProtector(Microsoft.Extensions.Options.Options.Create(new HPDBaseTokenProtectionOptions
         {
@@ -1346,9 +1392,15 @@ public sealed class L45SubjectTransactionTests
             TestPolicyAuthorityExtensions.TestSubjectLifecycleGrant("base.subjectLifecycle.feed.read", "hpd.base.application", "example.profiles", "base.subjectLifecycle.feed.read", "example.user", 1),
             TestPolicyAuthorityExtensions.TestSubjectLifecycleGrant("base.subjectLifecycle.feed.checkpoint", "hpd.base.application", "example.profiles", "base.subjectLifecycle.feed.checkpoint", "example.user", 1),
             TestPolicyAuthorityExtensions.TestSubjectLifecycleGrant("example.profile.lifecycle.reconcile", "hpd.base.application", "example.profiles", "example.profile.lifecycle", "example.user", 1),
-            TestPolicyAuthorityExtensions.TestSubjectLifecycleGrant("base.subjectLifecycle.reconcile.read", "hpd.base.application", "example.profiles", "base.subjectLifecycle.reconcile.read", "example.user", 1));
+            TestPolicyAuthorityExtensions.TestSubjectLifecycleGrant("base.subjectLifecycle.reconcile.read", "hpd.base.application", "example.profiles", "base.subjectLifecycle.reconcile.read", "example.user", 1),
+            TestPolicyAuthorityExtensions.TestSubjectLifecycleGrant("example.profile.retirement.ack", "hpd.base.application", "example.profiles", "example.profile.lifecycle", "example.user", 1),
+            TestPolicyAuthorityExtensions.TestSubjectLifecycleGrant("base.subjectRetirement.acknowledge", "hpd.base.application", "example.profiles", "base.subjectRetirement.acknowledge", "example.user", 1));
         services.AddSingleton(new BaseSubjectContractRegistry([registration]));
-        if (installedLifecycleConsumers.Length != 0) services.AddSingleton(new BaseSubjectLifecycleRegistry(installedLifecycleConsumers, new BaseSubjectContractRegistry([registration])));
+        if (installedLifecycleConsumers.Length != 0)
+        {
+            var lifecycleRegistry=new BaseSubjectLifecycleRegistry(installedLifecycleConsumers,new BaseSubjectContractRegistry([registration]));services.AddSingleton(lifecycleRegistry);
+            if(retirement)services.AddSingleton(new BaseSubjectRetirementRegistry(retirementConsumers,retirementPolicies,lifecycleRegistry));
+        }
         services.AddHPDBaseRuntime();
         services.AddSingleton<IBaseSessionFactory, DefaultBaseSessionFactory>();
         ServiceProvider provider = services.BuildServiceProvider();
@@ -1360,6 +1412,7 @@ public sealed class L45SubjectTransactionTests
             CollectionIds = collections.Select(static value => value.Id).ToArray(),
             ExportedSubjects = [subject],
             SubjectLifecycleConsumers = installedLifecycleConsumers,
+            SubjectRetirementConsumers=retirementConsumers,SubjectRetirementPolicies=retirementPolicies,
             SubjectLifecycleMaintenancePageCompleted = lifecycleMaintenancePageCompleted,
             SubjectLifecycleInspectionAuthorities = allScopeInspectionDigest is null ? [] : [new BaseSubjectLifecycleInspectionAuthority
             {
@@ -1386,6 +1439,18 @@ public sealed class L45SubjectTransactionTests
         Limits = new BaseSubjectLifecycleConsumerLimits { MaximumFactsPerPage = 256, MaximumResultBytes = 1_048_576, MaximumCheckpointLag = TimeSpan.FromDays(1), ReadTimeout = readTimeout ?? TimeSpan.FromSeconds(5) },
     };
 
+    private static BaseSubjectRetirementConsumerDefinition RetirementConsumer(string lifecycleChecksum)=>new()
+    {
+        ConsumerId="example.profile.lifecycle",ConsumerVersion=1,OwningModuleId="example.profiles",Audience=BaseSubjectLifecycleConsumerAudience.Service,LifecycleConsumerChecksum=lifecycleChecksum,
+        RetirementProfileId="example.profile.retirement",RetirementProfileVersion=1,RetirementProfileChecksum=new string('a',64),Participation=BaseSubjectRetirementParticipation.RequiredBeforePurge,
+        AcknowledgementGrantId="example.profile.retirement.ack",Limits=new(){MaximumAcknowledgementsPerCommit=16,MaximumAcknowledgementRequestBytes=65_536,MaximumReceiptBytes=65_536,AcknowledgementTimeout=TimeSpan.FromSeconds(2),ReceiptResolutionTimeout=TimeSpan.FromSeconds(2)},
+    };
+
+    private static BaseSubjectRetirementPolicy RetirementPolicy(BaseSubjectRetirementConsumerDefinition consumer,string checksum)=>new()
+    {
+        ContractId="example.user",ContractVersion=1,AcceptedConsumers=[new(){ConsumerId=consumer.ConsumerId,ConsumerVersion=consumer.ConsumerVersion,OwningModuleId=consumer.OwningModuleId,Audience=consumer.Audience,LifecycleConsumerChecksum=consumer.LifecycleConsumerChecksum,RetirementProfileId=consumer.RetirementProfileId,RetirementProfileVersion=consumer.RetirementProfileVersion,RetirementProfileChecksum=consumer.RetirementProfileChecksum,Participation=consumer.Participation,AcknowledgementGrantId=consumer.AcknowledgementGrantId,Limits=consumer.Limits,RetirementConsumerChecksum=checksum}],CoordinationWindow=TimeSpan.FromHours(1),TimeoutBehavior=BaseSubjectRetirementTimeoutBehavior.Quarantine,PurgeRetention=new(){MinimumTombstoneAge=TimeSpan.Zero},PolicyChecksum=new string('0',64),
+    };
+
     private static BaseSubjectLifecycleProviderReadRequest LifecycleReadRequest(SubjectFixture fixture, BaseSubjectLifecycleConsumerDefinition consumer) => new()
     {
         ApplicationId = "test.application", ContractId = "example.user", ContractVersion = 1,
@@ -1395,22 +1460,19 @@ public sealed class L45SubjectTransactionTests
         Take = 256, MaximumResultBytes = 1_048_576, DeadlineUtc = DateTimeOffset.Parse("2030-01-01T00:00:00Z"),
     };
 
-    private static BaseSubjectLifecycleMaintenanceExecutionRequest OvertakeRequest(
+    private static BaseSubjectAuthorityMaintenanceExecutionRequest OvertakeRequest(
         SubjectFixture fixture, BaseSubjectLifecycleConsumerDefinition consumer, BaseSubjectLifecycleOrderingBoundary retainedFrom)
     {
         BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create("l47-tests", "overtake", "tenant-a",
             BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("overtake-tenant-a"u8)));
-        var request = new BaseSubjectLifecycleMaintenanceExecutionRequest
+        var request = new BaseSubjectAuthorityMaintenanceExecutionRequest
         {
-            FormatVersion = 1, Kind = BaseSubjectLifecycleMaintenanceKind.MarkCheckpointOvertaken,
-            ContractId = "example.user", ContractVersion = 1, ConsumerId = consumer.Id, ConsumerVersion = consumer.Version,
-            Scope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Tenant, Value = "tenant-a" },
-            RetainedFrom = retainedFrom, ExpectedProjectionGeneration = 1, Identity = identity, PlanChecksum = new byte[32],
-            ExpectedStoreGeneration = 1, ExpectedSchemaGeneration = 1, ExpectedRestoreEpoch = 0, ExpectedDeliveryEpoch = 1,
+            Lifecycle=new(){Kind=BaseSubjectLifecycleMaintenanceKind.MarkCheckpointOvertaken,ContractId="example.user",ContractVersion=1,ConsumerId=consumer.Id,ConsumerVersion=consumer.Version,Scope=new BaseOwnedSubjectScopeEvidence{Kind=BaseSubjectScopeKind.Tenant,Value="tenant-a"},RetainedFrom=retainedFrom,ExpectedProjectionGeneration=1,ExpectedDeliveryEpoch=1,PlanChecksum=System.Security.Cryptography.SHA256.HashData("overtake-plan"u8)}, Identity = identity, CombinedPlanChecksum = new byte[32],
+            ExpectedStoreGeneration = 1, ExpectedSchemaGeneration = 1, ExpectedRestoreEpoch = 0,
             ExpectedScopeProtectionGeneration = 1, ExpectedScopeProtectionKeyId = "0", PageSize = 1,
             OperationTimeout = TimeSpan.FromSeconds(5), CommitCompletionTimeout = TimeSpan.FromSeconds(5),
         };
-        return request with { PlanChecksum = BaseSubjectLifecycleMaintenanceProcessor.PlanChecksum(request) };
+        return request with { CombinedPlanChecksum = BaseSubjectAuthorityMaintenanceProcessor.PlanChecksum(request) };
     }
 
     private static BaseSubjectLifecycleConsumerDefinition SqliteLifecycleConsumer() => new()
@@ -1470,13 +1532,13 @@ public sealed class L45SubjectTransactionTests
         ],
     };
 
-    private static BaseExportedSubjectDefinition SubjectDefinition() => new()
+    private static BaseExportedSubjectDefinition SubjectDefinition(bool coordinatedRetirement=false) => new()
     {
         Id = "example.user", Version = 1, OwningModuleId = "example.auth",
         SubjectIdKind = BaseSubjectIdKind.OrdinalString, MaximumSubjectIdUtf8Bytes = 64,
         Scope = BaseSubjectScopeKind.Tenant, AcquisitionGrantId = "example.user.acquire",
         ValidationGrantId = "example.user.validate", AdministrationGrantId = "example.user.admin", TombstoneFieldId = "user.tombstoned",
-        SupportsCoordinatedRetirement = false, Audiences = [HPDBaseEndpointAudience.Application],
+        SupportsCoordinatedRetirement = coordinatedRetirement, Audiences = [HPDBaseEndpointAudience.Application],
         ValidationPlan = new BaseSubjectValidationPlanDefinition
         {
             Id = "example.user.validate.v1", Version = 1, ContractId = "example.user", ContractVersion = 1,
@@ -1613,8 +1675,6 @@ public sealed class L45SubjectTransactionTests
             inner.ReconcileAsync(request, cancellationToken);
         public ValueTask<OperationResult<BaseSubjectLifecycleProviderInspection>> InspectAsync(BaseSubjectLifecycleProviderInspectionRequest request, CancellationToken cancellationToken = default) =>
             inner.InspectAsync(request, cancellationToken);
-        public ValueTask<RecordMutationExecutionResult> ExecuteMaintenanceAsync(IBaseSubjectLifecycleMaintenanceProcessor processor, BaseSubjectLifecycleMaintenanceExecutionRequest request, CancellationToken cancellationToken = default) =>
-            inner.ExecuteMaintenanceAsync(processor, request, cancellationToken);
     }
 
     private sealed class ReconcilingLifecycleStore(IBaseSubjectLifecycleStore inner, BaseOpaqueTokenProtector tokens)
@@ -1643,7 +1703,6 @@ public sealed class L45SubjectTransactionTests
         public ValueTask<OperationResult<BaseSubjectLifecycleProviderPage>> ReadAsync(BaseSubjectLifecycleProviderReadRequest request, CancellationToken cancellationToken = default) => inner.ReadAsync(request, cancellationToken);
         public ValueTask<RecordMutationExecutionResult> AdvanceCheckpointAsync(IAtomicMutationProcessor processor, RecordMutationExecutionRequest execution, CancellationToken cancellationToken = default) => inner.AdvanceCheckpointAsync(processor, execution, cancellationToken);
         public ValueTask<OperationResult<BaseSubjectLifecycleProviderInspection>> InspectAsync(BaseSubjectLifecycleProviderInspectionRequest request, CancellationToken cancellationToken = default) => inner.InspectAsync(request, cancellationToken);
-        public ValueTask<RecordMutationExecutionResult> ExecuteMaintenanceAsync(IBaseSubjectLifecycleMaintenanceProcessor processor, BaseSubjectLifecycleMaintenanceExecutionRequest request, CancellationToken cancellationToken = default) => inner.ExecuteMaintenanceAsync(processor, request, cancellationToken);
     }
 
     private sealed class TransformingLifecycleStore(
@@ -1659,7 +1718,6 @@ public sealed class L45SubjectTransactionTests
         public ValueTask<RecordMutationExecutionResult> AdvanceCheckpointAsync(IAtomicMutationProcessor processor, RecordMutationExecutionRequest execution, CancellationToken cancellationToken = default) => inner.AdvanceCheckpointAsync(processor, execution, cancellationToken);
         public ValueTask<OperationResult<BaseSubjectLifecycleProviderReconciliationPage>> ReconcileAsync(BaseSubjectLifecycleProviderReconciliationRequest request, CancellationToken cancellationToken = default) => inner.ReconcileAsync(request, cancellationToken);
         public ValueTask<OperationResult<BaseSubjectLifecycleProviderInspection>> InspectAsync(BaseSubjectLifecycleProviderInspectionRequest request, CancellationToken cancellationToken = default) => inner.InspectAsync(request, cancellationToken);
-        public ValueTask<RecordMutationExecutionResult> ExecuteMaintenanceAsync(IBaseSubjectLifecycleMaintenanceProcessor processor, BaseSubjectLifecycleMaintenanceExecutionRequest request, CancellationToken cancellationToken = default) => inner.ExecuteMaintenanceAsync(processor, request, cancellationToken);
     }
 
     private sealed class SingleStoreRegistry(string collectionId, IRecordStore store) : IRecordStoreRegistry

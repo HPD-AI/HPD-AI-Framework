@@ -265,6 +265,7 @@ public sealed class BaseModuleProgramEvaluatorTests
                 Records = 0, RelationTargetReads = expected.Count, GenerationReads = 0,
                 SelectedBytes = 0, RelationTargetBytes = 0, GenerationBytes = 0,
                 ReadIntervals = intervals.Length, EvidenceBytes = evidenceBytes, TransientBytes = evidenceBytes,
+                RetirementBarrierReads=0,RetirementAcknowledgementReads=0,RetirementProjections=0,RetirementPublications=0,RetirementEvidenceBytes=0,RetirementPublicationBytes=0,
             },
         };
     }
@@ -1123,6 +1124,7 @@ public sealed class BaseModuleProgramEvaluatorTests
         {
             Records = 0, RelationTargetReads = 0, GenerationReads = 0, SelectedBytes = 0,
             RelationTargetBytes = 0, GenerationBytes = 0, ReadIntervals = 0, EvidenceBytes = 0, TransientBytes = 0,
+            RetirementBarrierReads=0,RetirementAcknowledgementReads=0,RetirementProjections=0,RetirementPublications=0,RetirementEvidenceBytes=0,RetirementPublicationBytes=0,
         },
     };
 }

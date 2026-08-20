@@ -15,7 +15,8 @@ internal sealed class DefaultBaseMutationProcessor(
     BaseAtomicMutationExecutionLimits executionLimits,
     BaseAtomicMutationAuthorityRequirement authority,
     BaseSubjectContractRegistry subjects,
-    BaseSubjectLifecycleRegistry lifecycleConsumers) : IAtomicMutationProcessor
+    BaseSubjectLifecycleRegistry lifecycleConsumers,
+    BaseSubjectRetirementRegistry retirement) : IAtomicMutationProcessor
 {
     private readonly List<BaseMutationAttempt> _attempts = [];
     private readonly List<BaseFinalizedRelationPolicy> _relationPolicies = [];
@@ -25,6 +26,7 @@ internal sealed class DefaultBaseMutationProcessor(
     private IReadOnlyDictionary<int, BaseCapturedMutationItem> _captured = new Dictionary<int, BaseCapturedMutationItem>();
     private IReadOnlyDictionary<(string Id, int Version), BaseCapturedSubjectLifecycleConsumerProjection> _capturedLifecycleConsumers =
         new Dictionary<(string, int), BaseCapturedSubjectLifecycleConsumerProjection>();
+    private ImmutableArray<BaseCapturedSubjectRetirementProjection> _capturedRetirement=[];
 
     /// <summary>Gets the attempts.</summary>
     public IReadOnlyList<BaseMutationAttempt> Attempts => _attempts;
@@ -219,6 +221,7 @@ internal sealed class DefaultBaseMutationProcessor(
                     ContractId = value.Definition.ContractId,
                     ContractVersion = value.Definition.ContractVersion,
                 })],
+            SubjectRetirement = CreateRetirementCapture(commands, subjects, retirement),
         };
         OperationResult<BaseCapturedAtomicMutationAuthority> capture = await session.CaptureAtomicMutationAuthorityAsync(captureRequest, cancellationToken).ConfigureAwait(false);
         if (!capture.IsSuccess() || capture.Value is null)
@@ -231,11 +234,12 @@ internal sealed class DefaultBaseMutationProcessor(
         {
             return Failed(Error(BaseSubjectErrorCodes.ProviderContractInvalid, "The provider authority capture was invalid.", ErrorCategory.Store));
         }
-        bool capturedValid = ValidateCaptured(intent, captureRequest.LifecycleConsumerProjections, capturedEvidence, executionLimits);
+        bool capturedValid = ValidateCaptured(intent, captureRequest.LifecycleConsumerProjections, captureRequest.SubjectRetirement, capturedEvidence, executionLimits);
         if (!capturedValid)
             return Failed(Error(BaseSubjectErrorCodes.ProviderContractInvalid, "The provider authority capture was invalid.", ErrorCategory.Store));
         _capturedLifecycleConsumers = capturedEvidence.LifecycleConsumerProjections.ToDictionary(
             static value => (value.ConsumerId, value.ConsumerVersion));
+        _capturedRetirement = capturedEvidence.SubjectRetirement;
         OperationResult<BaseFinalizedRecordMutationPlan> finalizedPlan = await FinalizeCapturedCommandsAsync(
             capturedEvidence.Items.ToDictionary(static item => item.Ordinal), cancellationToken).ConfigureAwait(false);
         if (!finalizedPlan.IsSuccess() || finalizedPlan.Value is null)
@@ -245,6 +249,11 @@ internal sealed class DefaultBaseMutationProcessor(
         ImmutableArray<BaseAtomicMutationPlanItem> finalizedItems = finalizedPlan.Value.Items;
         BaseAtomicPolicyAuthorityDigest policyDigest = BaseAtomicPolicyAuthority.Compute(
             authority.ApplicationId, "base.l30.recordMutations", finalizedPlan.Value.PolicyEvaluations);
+        BaseSubjectRetirementProjectionPlan? retirementPlan = BuildRetirementPlan(finalizedItems, retirement);
+        string planDigest = BaseAtomicPolicyAuthority.BindPlanDigest(
+            ComputePlanDigest(intent.IntentDigest, capturedEvidence.CaptureDigest, finalizedItems, finalizedPlan.Value.SubjectValidations), policyDigest);
+        if (retirementPlan is not null)
+            planDigest = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"base.subjectRetirement.boundPlan.v1\0{planDigest}\0{retirementPlan.PlanChecksum}")));
         var plan = new BaseAtomicMutationPlan
         {
             Kind = BaseAtomicMutationExecutionKind.RecordMutations,
@@ -254,9 +263,9 @@ internal sealed class DefaultBaseMutationProcessor(
             Authority = authority with { },
             Items = finalizedItems,
             SubjectValidations = finalizedPlan.Value.SubjectValidations,
+            SubjectRetirement = retirementPlan,
             Limits = executionLimits with { },
-            PlanDigest = BaseAtomicPolicyAuthority.BindPlanDigest(
-                ComputePlanDigest(intent.IntentDigest, capturedEvidence.CaptureDigest, finalizedItems, finalizedPlan.Value.SubjectValidations), policyDigest),
+            PlanDigest = planDigest,
         };
         BaseAtomicMutationPlan retainedPlan = BaseAtomicMutationOwnership.FreezePlan(plan);
         BaseAtomicMutationPlan providerPlan = BaseAtomicMutationOwnership.FreezePlan(retainedPlan);
@@ -364,6 +373,7 @@ internal sealed class DefaultBaseMutationProcessor(
             ConsumerChecksum = new string(projection.ConsumerChecksum.AsSpan()),
             ContractId = new string(projection.ContractId.AsSpan()),
         }).ToImmutableArray(),
+        SubjectRetirement=value.SubjectRetirement.Select(static value=>value with{ContractId=new string(value.ContractId.AsSpan()),ContractChecksum=new string(value.ContractChecksum.AsSpan()),RetirementPolicyChecksum=new string(value.RetirementPolicyChecksum.AsSpan()),AcceptedConsumerSetChecksum=new string(value.AcceptedConsumerSetChecksum.AsSpan()),ProtectedScope=value.ProtectedScope with{IndexDigest=value.ProtectedScope.IndexDigest.ToArray(),ProtectedCanonicalValue=value.ProtectedScope.ProtectedCanonicalValue.ToArray()},CurrentBarrier=value.CurrentBarrier is null?null:value.CurrentBarrier with{BarrierChecksum=new string(value.CurrentBarrier.BarrierChecksum.AsSpan()),RequiredConsumerSetChecksum=new string(value.CurrentBarrier.RequiredConsumerSetChecksum.AsSpan())}}).ToImmutableArray(),
         ReadIntervals = value.ReadIntervals.Select(static interval => interval with
         {
             LogicalAccessPathId = new string(interval.LogicalAccessPathId.AsSpan()),
@@ -767,6 +777,33 @@ internal sealed class DefaultBaseMutationProcessor(
         return projection.ProjectionGeneration;
     }
 
+    internal static BaseSubjectRetirementCaptureExtension? CreateRetirementCapture(BaseMutationCommand[] source,BaseSubjectContractRegistry contracts,BaseSubjectRetirementRegistry registry)
+    {
+        ImmutableArray<BaseSubjectRetirementProjectionCaptureRequest> projections=[.. source.OrderBy(static value=>value.Index).Where(static command=>command.Kind!=BaseRecordMutationKind.Create).Select(command=>
+        {
+            BaseGeneratedSubjectRegistration? contract=contracts.All.SingleOrDefault(value=>value.Definition.ValidationPlan.PrivateCollectionId==command.CollectionId);
+            BaseInstalledSubjectRetirementPolicy? policy=contract is null?null:registry.FindPolicy(contract.Definition.Id,contract.Definition.Version);
+            return contract is null||policy is null?null:new BaseSubjectRetirementProjectionCaptureRequest{SourceMutationOrdinal=command.Index,ContractId=contract.Definition.Id,ContractVersion=contract.Definition.Version,ContractChecksum=contract.Checksum,RetirementPolicyChecksum=policy.Definition.PolicyChecksum,AcceptedConsumerSetChecksum=BaseSubjectRetirementRegistry.AcceptedSetChecksum(policy.Definition.AcceptedConsumers)};
+        }).Where(static value=>value is not null).Select(static value=>value!)];
+        return projections.IsEmpty?null:new(){Projections=projections};
+    }
+
+    internal void AdoptCapturedRetirement(ImmutableArray<BaseCapturedSubjectRetirementProjection> captured) =>
+        _capturedRetirement = captured;
+
+    internal BaseSubjectRetirementProjectionPlan? BuildRetirementPlan(ImmutableArray<BaseAtomicMutationPlanItem> items,BaseSubjectRetirementRegistry registry)
+    {
+        var builder=ImmutableArray.CreateBuilder<BaseSubjectRetirementProjectionPlanItem>();
+        foreach(BaseAtomicMutationPlanItem item in items.Where(static value=>value.SubjectLifecycle?.ResultingState==BaseSubjectLifecycleState.Tombstoned&&value.SubjectLifecycle.PreviousState!=BaseSubjectLifecycleState.Tombstoned))
+        {
+            BaseSubjectLifecyclePlanItem lifecycle=item.SubjectLifecycle!;BaseInstalledSubjectRetirementPolicy? policy=registry.FindPolicy(lifecycle.ContractId,lifecycle.ContractVersion);if(policy is null)continue;
+            BaseCapturedSubjectRetirementProjection? captured=_capturedRetirement.SingleOrDefault(value=>value.SourceMutationOrdinal==item.Ordinal&&value.ContractId==lifecycle.ContractId&&value.ContractVersion==lifecycle.ContractVersion);if(captured is null||captured.CurrentState!=lifecycle.PreviousState)throw new InvalidOperationException(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);
+            OperationContext operation=commands[item.Ordinal].Context;BaseGeneratedSubjectRegistration contract=subjects.Find(lifecycle.ContractId,lifecycle.ContractVersion)!;var scope=new BaseOwnedSubjectScopeEvidence{Kind=contract.Definition.Scope,Value=contract.Definition.Scope switch{BaseSubjectScopeKind.Global=>null,BaseSubjectScopeKind.Tenant=>operation.TenantId,BaseSubjectScopeKind.Project=>operation.ProjectId,_=>null}};
+            builder.Add(new(){ProjectionOrdinal=builder.Count,SourceMutationOrdinal=item.Ordinal,Scope=scope,ContractId=lifecycle.ContractId,ContractVersion=lifecycle.ContractVersion,ContractChecksum=lifecycle.ContractChecksum,SubjectId=lifecycle.SubjectId,AuthorityEpoch=captured.AuthorityEpoch,Incarnation=captured.Incarnation,TombstoneSequence=checked(captured.CurrentSubjectSequence+1),TombstonedAtUtc=operation.Now,DeadlineUtc=checked(operation.Now+policy.Definition.CoordinationWindow),RequiredConsumers=policy.Definition.AcceptedConsumers,AcceptedConsumerSetChecksum=captured.AcceptedConsumerSetChecksum,RetirementPolicyChecksum=policy.Definition.PolicyChecksum});
+        }
+        if(builder.Count==0)return null;ImmutableArray<BaseSubjectRetirementProjectionPlanItem> result=builder.ToImmutable();string canonical=string.Join('\n',result.Select(static value=>$"{value.ProjectionOrdinal}\0{value.SourceMutationOrdinal}\0{value.ContractId}\0{value.ContractVersion}\0{value.SubjectId.Value}\0{value.AuthorityEpoch.ToBase64Url()}\0{value.Incarnation.ToBase64Url()}\0{value.TombstoneSequence}\0{value.DeadlineUtc.UtcTicks}\0{value.AcceptedConsumerSetChecksum}\0{value.RetirementPolicyChecksum}"));return new(){Items=result,PlanChecksum=Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes("base.subjectRetirement.plan.v1\0"+canonical)))};
+    }
+
     private static bool HasValidSubjectLogicalState(BaseAtomicMutationPlanItem item, BaseExportedSubjectDefinition definition)
     {
         if (item.ProposedPayload?.Fields is not { } fields)
@@ -886,6 +923,7 @@ internal sealed class DefaultBaseMutationProcessor(
     private static bool ValidateCaptured(
         BaseAtomicMutationIntent intent,
         ImmutableArray<BaseSubjectLifecycleConsumerProjectionCaptureRequest> lifecycleProjections,
+        BaseSubjectRetirementCaptureExtension? retirement,
         BaseCapturedAtomicMutationAuthority captured,
         BaseAtomicMutationExecutionLimits limits)
     {
@@ -967,6 +1005,25 @@ internal sealed class DefaultBaseMutationProcessor(
             digest.AppendData(Encoding.UTF8.GetBytes($"\0lifecycle-consumer\0{projection.ConsumerId}\0{projection.ConsumerVersion}\0{projection.ConsumerChecksum}\0{projection.ContractId}\0{projection.ContractVersion}\0{projection.ProjectionGeneration}\0{projection.PublishedGraphGeneration}\0"));
             expectedIntervals.Add(("subject-lifecycle:consumer-projection", Encoding.UTF8.GetBytes($"{projection.ConsumerId}\0{projection.ConsumerVersion}")));
         }
+        ImmutableArray<BaseSubjectRetirementProjectionCaptureRequest> retirementRequests = retirement?.Projections ?? [];
+        if (captured.SubjectRetirement.Length != retirementRequests.Length) return false;
+        for (int index = 0; index < retirementRequests.Length; index++)
+        {
+            BaseSubjectRetirementProjectionCaptureRequest expected = retirementRequests[index];
+            BaseCapturedSubjectRetirementProjection actual = captured.SubjectRetirement[index];
+            if (actual.SourceMutationOrdinal != expected.SourceMutationOrdinal
+                || actual.ContractId != expected.ContractId || actual.ContractVersion != expected.ContractVersion
+                || actual.ContractChecksum != expected.ContractChecksum
+                || actual.RetirementPolicyChecksum != expected.RetirementPolicyChecksum
+                || actual.AcceptedConsumerSetChecksum != expected.AcceptedConsumerSetChecksum
+                || actual.CurrentSubjectSequence < 1 || !Enum.IsDefined(actual.CurrentState)
+                || actual.ProtectedScope.IndexDigest is not { Length: 32 }
+                || actual.ProtectedScope.ProtectedCanonicalValue.Length == 0)
+                return false;
+            byte[] key = RetirementCaptureKey(actual);
+            digest.AppendData(key);
+            expectedIntervals.Add(($"subjectRetirement:{actual.ContractId}:barrier", key));
+        }
         if (!string.Equals(captured.CaptureDigest, Convert.ToHexStringLower(digest.GetHashAndReset()), StringComparison.Ordinal)
             || captured.ReadIntervals.Length != expectedIntervals.Count
             || captured.Accounting.Records != intent.Items.Length + intent.Items.Sum(static item => item.RelationTargets.Length)
@@ -1003,6 +1060,9 @@ internal sealed class DefaultBaseMutationProcessor(
             catch { return false; }
         }
     }
+
+    private static byte[] RetirementCaptureKey(BaseCapturedSubjectRetirementProjection value) => Encoding.UTF8.GetBytes(
+        $"{(int)value.ProtectedScope.Kind}\n{Convert.ToHexString(value.ProtectedScope.IndexDigest)}\n{value.ContractId}\n{value.ContractVersion}\n{value.SubjectId.Value}\n{Convert.ToHexString(value.AuthorityEpoch.ToArray())}\n{Convert.ToHexString(value.Incarnation.ToArray())}");
 
     private static string CaptureRecordKey(string collectionId, RecordId recordId) =>
         collectionId + "\n" + recordId.Value;
@@ -1063,13 +1123,24 @@ internal sealed class DefaultBaseMutationProcessor(
         && prepared.Accounting.AuthorityReads >= 0
         && prepared.Accounting.ReadIntervals == prepared.ReadIntervals.Length
         && prepared.Accounting.SelectedBytes >= captured.Accounting.SelectedBytes
-        && prepared.Accounting.EvidenceBytes == BaseSubjectCanonicalRetainedWork.MeasureIntervals(prepared.ReadIntervals)
+        && prepared.Accounting.EvidenceBytes == checked(BaseSubjectCanonicalRetainedWork.MeasureIntervals(prepared.ReadIntervals)
+            + BaseSubjectCanonicalRetainedWork.MeasureRetirementPreparedEvidence(prepared.SubjectRetirement))
         && prepared.Accounting.TransientBytes >= prepared.Accounting.SelectedBytes + prepared.Accounting.EvidenceBytes
         && prepared.Accounting.AuthorityReads <= plan.Limits.MaximumAuthorityReads
         && prepared.Accounting.ReadIntervals <= plan.Limits.MaximumReadIntervals
         && prepared.Accounting.SelectedBytes <= plan.Limits.MaximumSelectedBytes
         && prepared.Accounting.EvidenceBytes <= plan.Limits.MaximumEvidenceBytes
         && prepared.Accounting.TransientBytes <= plan.Limits.MaximumTransientBytes
+        && prepared.Accounting.RetirementBarrierReads == (prepared.SubjectRetirement?.Items.Length ?? 0)
+        && prepared.Accounting.RetirementAcknowledgementReads == 0
+        && prepared.Accounting.RetirementProjections == (plan.SubjectRetirement?.Items.Length ?? 0)
+        && prepared.Accounting.RetirementPublications == 0
+        && prepared.Accounting.RetirementEvidenceBytes == BaseSubjectCanonicalRetainedWork.MeasureRetirementPreparedEvidence(prepared.SubjectRetirement)
+        && prepared.Accounting.RetirementPublicationBytes == 0
+        && prepared.Accounting.RetirementBarrierReads <= plan.Limits.MaximumRetirementBarrierReads
+        && prepared.Accounting.RetirementProjections <= plan.Limits.MaximumRetirementProjections
+        && prepared.Accounting.RetirementEvidenceBytes <= plan.Limits.MaximumRetirementEvidenceBytes
+        && RetirementEvidenceMatches(plan.SubjectRetirement, prepared.SubjectRetirement)
         && ValidateSubjectAuthorityEvidence(plan, prepared)
         && prepared.SubjectValidations.Select((validation, index) =>
             validation.Ordinal == index
@@ -1231,7 +1302,15 @@ internal sealed class DefaultBaseMutationProcessor(
     {
         bool strict = plan.SubjectValidations.Length != 0 || plan.Items.Any(static item => item.SubjectLifecycle is not null);
         if (!string.Equals(applied.PlanDigest, plan.PlanDigest, StringComparison.Ordinal)
-            || applied.Facts.Length != plan.Items.Length)
+            || !RetirementEvidenceMatches(plan.SubjectRetirement, applied.SubjectRetirement)
+            || applied.Facts.Length != plan.Items.Length
+            || applied.Accounting.RetirementBarrierReads != prepared.Accounting.RetirementBarrierReads
+            || applied.Accounting.RetirementAcknowledgementReads != prepared.Accounting.RetirementAcknowledgementReads
+            || applied.Accounting.RetirementProjections != prepared.Accounting.RetirementProjections
+            || applied.Accounting.RetirementPublications != (applied.SubjectRetirement?.Items.Length ?? 0)
+            || applied.Accounting.RetirementEvidenceBytes != prepared.Accounting.RetirementEvidenceBytes
+            || applied.Accounting.RetirementPublicationBytes > plan.Limits.MaximumRetirementPublicationBytes
+            || applied.Accounting.RetirementPublications > plan.Limits.MaximumRetirementPublications)
             return false;
         for (int index = 0; index < plan.Items.Length; index++)
         {
@@ -1255,6 +1334,37 @@ internal sealed class DefaultBaseMutationProcessor(
         }
         return true;
     }
+
+    internal static bool RetirementEvidenceMatches(
+        BaseSubjectRetirementProjectionPlan? plan,
+        BaseSubjectRetirementPreparedEvidence? evidence) =>
+        plan is null ? evidence is null : evidence is not null
+        && string.Equals(plan.PlanChecksum, evidence.PlanChecksum, StringComparison.Ordinal)
+        && plan.Items.Length == evidence.Items.Length
+        && evidence.Items.Select((actual, index) =>
+        {
+            BaseSubjectRetirementProjectionPlanItem expected = plan.Items[index];
+            BaseSubjectRetirementBarrier barrier = actual.Resulting;
+            return actual.ProjectionOrdinal == expected.ProjectionOrdinal && actual.Previous is null
+                && barrier.ContractId == expected.ContractId && barrier.ContractVersion == expected.ContractVersion
+                && barrier.SubjectId.Equals(expected.SubjectId) && barrier.AuthorityEpoch.Equals(expected.AuthorityEpoch)
+                && barrier.Incarnation.Equals(expected.Incarnation) && barrier.TombstoneSequence == expected.TombstoneSequence
+                && barrier.RequiredConsumerSetChecksum == expected.AcceptedConsumerSetChecksum
+                && barrier.CreatedAtUtc == expected.TombstonedAtUtc && barrier.DeadlineUtc == expected.DeadlineUtc
+                && barrier.State == BaseSubjectRetirementBarrierState.Pending && barrier.Generation == 1
+                && actual.PublicationPosition > 0;
+        }).All(static value => value);
+
+    internal static bool RetirementEvidenceMatches(
+        BaseSubjectRetirementProjectionPlan? plan,
+        BaseSubjectRetirementProvisionalEvidence? evidence) =>
+        evidence is null
+            ? plan is null
+            : RetirementEvidenceMatches(plan, new BaseSubjectRetirementPreparedEvidence
+            {
+                Items = evidence.Items,
+                PlanChecksum = evidence.PlanChecksum,
+            });
 
     private static bool ValidCommittedLifecycle(
         BaseSubjectLifecyclePlanItem? expected,
@@ -1994,6 +2104,10 @@ internal sealed class DefaultBaseMutationProcessor(
             MaximumAuthorityReads = MinInt(static value => value.MaximumAuthorityReads, 1_024),
             MaximumRelationChecks = 1_024,
             MaximumUniqueConstraintChecks = 1_024,
+            MaximumRetirementProjections = 1_024,
+            MaximumRetirementBarrierReads = 1_024,
+            MaximumRetirementAcknowledgementReads = 1,
+            MaximumRetirementPublications = 1_024,
             MaximumRequestBytes = 8_388_608,
             MaximumGenerationBytes = 1,
             MaximumWrittenBytes = 67_108_864,
@@ -2001,6 +2115,8 @@ internal sealed class DefaultBaseMutationProcessor(
             MaximumJournalBytes = 67_108_864,
             MaximumReceiptBytes = 8_388_608,
             MaximumResultBytes = 8_388_608,
+            MaximumRetirementEvidenceBytes = 8_388_608,
+            MaximumRetirementPublicationBytes = 8_388_608,
             Deadlines = new BaseAtomicMutationDeadlines
             {
                 AcquisitionTimeout = timeout,
@@ -2100,7 +2216,7 @@ internal sealed class DefaultBaseMutationProcessor(
             .ToArray(), error);
 
     private AtomicMutationProcessingResult FailedProvider(OperationStatus status, BaseError? error) =>
-        Failed(BaseSubjectFailureContract.NormalizeProviderError(status, error));
+        Failed(error ?? BaseSubjectFailureContract.NormalizeProviderError(status, error));
 
     private static BaseMutationAttempt FromFailure<T>(
         BaseMutationCommand command,

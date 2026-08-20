@@ -297,6 +297,10 @@ internal sealed class DefaultBaseProviderBootstrap(
         MaximumAuthorityReads = 1,
         MaximumRelationChecks = 1,
         MaximumUniqueConstraintChecks = 1,
+        MaximumRetirementProjections = 1,
+        MaximumRetirementBarrierReads = 1,
+        MaximumRetirementAcknowledgementReads = 1,
+        MaximumRetirementPublications = 1,
         MaximumRequestBytes = 1,
         MaximumGenerationBytes = 1,
         MaximumWrittenBytes = 1,
@@ -304,6 +308,8 @@ internal sealed class DefaultBaseProviderBootstrap(
         MaximumJournalBytes = 1,
         MaximumReceiptBytes = 1,
         MaximumResultBytes = 1,
+        MaximumRetirementEvidenceBytes = 1,
+        MaximumRetirementPublicationBytes = 1,
         Deadlines = new BaseAtomicMutationDeadlines
         {
             AcquisitionTimeout = TimeSpan.FromSeconds(30),

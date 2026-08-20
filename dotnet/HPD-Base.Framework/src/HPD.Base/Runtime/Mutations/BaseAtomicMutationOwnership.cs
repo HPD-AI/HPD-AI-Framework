@@ -49,6 +49,17 @@ internal static class BaseAtomicMutationOwnership
             Increments = value.Module.Increments.Select(static increment => increment with { }).ToImmutableArray(),
             ResultProjectionDigest = new string(value.Module.ResultProjectionDigest.AsSpan()),
         },
+        SubjectRetirement=value.SubjectRetirement is null?null:value.SubjectRetirement with
+        {
+            PlanChecksum=new string(value.SubjectRetirement.PlanChecksum.AsSpan()),
+            Items=value.SubjectRetirement.Items.Select(static item=>item with
+            {
+                ContractId=new string(item.ContractId.AsSpan()),ContractChecksum=new string(item.ContractChecksum.AsSpan()),
+                RetirementPolicyChecksum=new string(item.RetirementPolicyChecksum.AsSpan()),AcceptedConsumerSetChecksum=new string(item.AcceptedConsumerSetChecksum.AsSpan()),
+                Scope=item.Scope with{Value=item.Scope.Value is null?null:new string(item.Scope.Value.AsSpan())},
+                RequiredConsumers=item.RequiredConsumers.Select(static consumer=>consumer with{ConsumerId=new string(consumer.ConsumerId.AsSpan()),OwningModuleId=new string(consumer.OwningModuleId.AsSpan()),LifecycleConsumerChecksum=new string(consumer.LifecycleConsumerChecksum.AsSpan()),RetirementProfileId=new string(consumer.RetirementProfileId.AsSpan()),RetirementProfileChecksum=new string(consumer.RetirementProfileChecksum.AsSpan()),AcknowledgementGrantId=new string(consumer.AcknowledgementGrantId.AsSpan()),RetirementConsumerChecksum=new string(consumer.RetirementConsumerChecksum.AsSpan()),Limits=consumer.Limits with{}}).ToImmutableArray(),
+            }).ToImmutableArray(),
+        },
         Limits = value.Limits with { },
     };
 

@@ -85,7 +85,7 @@ test("service generation emits lifecycle workers while application generation re
       { id: "base.subjectLifecycle.fact", node: { kind: "object", properties: [], additionalProperties: false } },
       { id: "base.subjectLifecycle.page", node: { kind: "object", properties: [], additionalProperties: false } },
     ] }, endpoints: [], capabilities: [], registeredReads: [], dependencyTemplates: [], vectorIndexes: [], selectionMutations: [], moduleMutations: [],
-    subjectLifecycleConsumers: [{ id: "profiles.user-lifecycle", version: 1, checksum: "a".repeat(64), generatedName: "profilesUserLifecycle", audience: "service", contractId: "auth.user", contractVersion: 1, observedStates: ["inactive", "tombstoned", "retired"], readRoute: "/base/subject-lifecycle/feed/read", checkpointRoute: "/base/subject-lifecycle/feed/checkpoints", maximumFactsPerPage: 256, maximumResultBytes: 1048576 }], errors: []
+    subjectLifecycleConsumers: [{ id: "profiles.user-lifecycle", version: 1, checksum: "a".repeat(64), generatedName: "profilesUserLifecycle", audience: "service", contractId: "auth.user", contractVersion: 1, observedStates: ["inactive", "tombstoned", "retired"], readRoute: "/base/subject-lifecycle/feed/read", checkpointRoute: "/base/subject-lifecycle/feed/checkpoints", reconciliationRoute: null, retirementParticipation: "observeOnly", acknowledgementRoute: null, retirementChecksum: null, maximumFactsPerPage: 256, maximumResultBytes: 1048576 }], errors: []
   };
   const snapshot = { ...base, digest: structuralDigest(base) };
   await generate({ snapshot, out: output, expectedAudience: "service" });

@@ -42,10 +42,10 @@ public interface IHPDBaseAdministration
         CancellationToken cancellationToken = default);
 
     /// <summary>Executes one exact identified durable subject-lifecycle maintenance operation.</summary>
-    ValueTask<BaseResult<BaseSubjectLifecycleMaintenanceResult>> ExecuteSubjectLifecycleMaintenanceAsync(
+    ValueTask<BaseResult<BaseSubjectLifecycleMaintenanceResult>> ExecuteSubjectAuthorityMaintenanceAsync(
         string storeId,
         PrincipalContext principal,
-        BaseSubjectLifecycleMaintenanceExecutionRequest request,
+        BaseSubjectAuthorityMaintenanceExecutionRequest request,
         CancellationToken cancellationToken = default);
 
     /// <summary>Reads one grant-authorized sanitized lifecycle authority inspection.</summary>

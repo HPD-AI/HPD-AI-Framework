@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS {_names.ProviderState} (
 );
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('restore_epoch', '0');
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('subject_lifecycle_delivery_epoch', '1');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('subject_retirement_position', '0');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('subject_retirement_position', '0');
 CREATE TABLE IF NOT EXISTS {_names.SchemaIdentity} (
   singleton INTEGER NOT NULL PRIMARY KEY CHECK (singleton = 1),
   store_instance_id TEXT NOT NULL
@@ -190,6 +192,38 @@ CREATE TABLE IF NOT EXISTS {_names.SubjectLifecycleMembershipStage} (
   protected_scope_value BLOB NOT NULL, commit_position INTEGER NOT NULL, subject_id TEXT NOT NULL,
   authority_epoch BLOB NOT NULL CHECK(length(authority_epoch)=16), incarnation BLOB NOT NULL CHECK(length(incarnation)=24), subject_sequence INTEGER NOT NULL
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.SubjectRetirementBarriers} (
+  scope_kind INTEGER NOT NULL CHECK(scope_kind BETWEEN 0 AND 2), scope_index_digest BLOB NOT NULL CHECK(length(scope_index_digest)=32), protected_scope_value BLOB NOT NULL,
+  contract_id TEXT NOT NULL, contract_version INTEGER NOT NULL, subject_id TEXT NOT NULL,
+  authority_epoch BLOB NOT NULL CHECK(length(authority_epoch)=16), incarnation BLOB NOT NULL CHECK(length(incarnation)=24),
+  tombstone_sequence INTEGER NOT NULL CHECK(tombstone_sequence>0), required_consumer_set_checksum TEXT NOT NULL CHECK(length(required_consumer_set_checksum)=64),
+  created_at TEXT NOT NULL, deadline_at TEXT NOT NULL, state INTEGER NOT NULL CHECK(state BETWEEN 0 AND 4),
+  generation INTEGER NOT NULL CHECK(generation>0), barrier_checksum TEXT NOT NULL CHECK(length(barrier_checksum)=64),
+  policy_checksum TEXT NOT NULL CHECK(length(policy_checksum)=64),
+  PRIMARY KEY(scope_kind,scope_index_digest,contract_id,contract_version,subject_id,authority_epoch,incarnation)
+);
+CREATE TABLE IF NOT EXISTS {_names.SubjectRetirementAcknowledgements} (
+  scope_kind INTEGER NOT NULL, scope_index_digest BLOB NOT NULL, protected_scope_value BLOB NOT NULL, contract_id TEXT NOT NULL, contract_version INTEGER NOT NULL,
+  subject_id TEXT NOT NULL, authority_epoch BLOB NOT NULL, incarnation BLOB NOT NULL,
+  consumer_id TEXT NOT NULL, consumer_version INTEGER NOT NULL, consumer_checksum TEXT NOT NULL,
+  through_sequence INTEGER NOT NULL, disposition INTEGER NOT NULL, retirement_position INTEGER NOT NULL,
+  PRIMARY KEY(scope_kind,scope_index_digest,contract_id,contract_version,subject_id,authority_epoch,incarnation,consumer_id,consumer_version)
+);
+CREATE TABLE IF NOT EXISTS {_names.SubjectRetirementTerminals} (
+  scope_kind INTEGER NOT NULL, scope_index_digest BLOB NOT NULL, protected_scope_value BLOB NOT NULL,
+  contract_id TEXT NOT NULL, contract_version INTEGER NOT NULL, subject_id TEXT NOT NULL,
+  authority_epoch BLOB NOT NULL, incarnation BLOB NOT NULL, tombstone_sequence INTEGER NOT NULL,
+  authorizing_state INTEGER NOT NULL, final_barrier_generation INTEGER NOT NULL, final_barrier_checksum TEXT NOT NULL,
+  required_consumer_set_checksum TEXT NOT NULL, acknowledgements_blob BLOB NOT NULL,
+  retired_position INTEGER NOT NULL, purged_at TEXT NOT NULL, receipt_checksum TEXT NOT NULL,
+  PRIMARY KEY(scope_kind,scope_index_digest,contract_id,contract_version,subject_id)
+);
+CREATE TABLE IF NOT EXISTS {_names.SubjectRetirementPublications} (
+  position INTEGER NOT NULL PRIMARY KEY CHECK(position>0), kind INTEGER NOT NULL CHECK(kind BETWEEN 0 AND 9),
+  scope_kind INTEGER NULL, scope_index_digest BLOB NULL, protected_scope_value BLOB NULL,
+  payload BLOB NOT NULL, CHECK((scope_kind IS NULL AND scope_index_digest IS NULL AND protected_scope_value IS NULL) OR
+    (scope_kind BETWEEN 0 AND 2 AND length(scope_index_digest)=32 AND protected_scope_value IS NOT NULL))
+);
 CREATE TABLE IF NOT EXISTS {_names.SubjectMaintenance} (
   singleton INTEGER NOT NULL PRIMARY KEY CHECK(singleton=1), contract_id TEXT NOT NULL,
   contract_version INTEGER NOT NULL, expected_generation INTEGER NOT NULL,
@@ -457,6 +491,38 @@ CREATE TABLE IF NOT EXISTS {_names.SubjectLifecycleMembershipStage} (
   protected_scope_value BLOB NOT NULL, commit_position INTEGER NOT NULL, subject_id TEXT NOT NULL,
   authority_epoch BLOB NOT NULL CHECK(length(authority_epoch)=16), incarnation BLOB NOT NULL CHECK(length(incarnation)=24), subject_sequence INTEGER NOT NULL
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.SubjectRetirementBarriers} (
+  scope_kind INTEGER NOT NULL CHECK(scope_kind BETWEEN 0 AND 2), scope_index_digest BLOB NOT NULL CHECK(length(scope_index_digest)=32), protected_scope_value BLOB NOT NULL,
+  contract_id TEXT NOT NULL, contract_version INTEGER NOT NULL, subject_id TEXT NOT NULL,
+  authority_epoch BLOB NOT NULL CHECK(length(authority_epoch)=16), incarnation BLOB NOT NULL CHECK(length(incarnation)=24),
+  tombstone_sequence INTEGER NOT NULL CHECK(tombstone_sequence>0), required_consumer_set_checksum TEXT NOT NULL CHECK(length(required_consumer_set_checksum)=64),
+  created_at TEXT NOT NULL, deadline_at TEXT NOT NULL, state INTEGER NOT NULL CHECK(state BETWEEN 0 AND 4),
+  generation INTEGER NOT NULL CHECK(generation>0), barrier_checksum TEXT NOT NULL CHECK(length(barrier_checksum)=64),
+  policy_checksum TEXT NOT NULL CHECK(length(policy_checksum)=64),
+  PRIMARY KEY(scope_kind,scope_index_digest,contract_id,contract_version,subject_id,authority_epoch,incarnation)
+);
+CREATE TABLE IF NOT EXISTS {_names.SubjectRetirementAcknowledgements} (
+  scope_kind INTEGER NOT NULL, scope_index_digest BLOB NOT NULL, protected_scope_value BLOB NOT NULL, contract_id TEXT NOT NULL, contract_version INTEGER NOT NULL,
+  subject_id TEXT NOT NULL, authority_epoch BLOB NOT NULL, incarnation BLOB NOT NULL,
+  consumer_id TEXT NOT NULL, consumer_version INTEGER NOT NULL, consumer_checksum TEXT NOT NULL,
+  through_sequence INTEGER NOT NULL, disposition INTEGER NOT NULL, retirement_position INTEGER NOT NULL,
+  PRIMARY KEY(scope_kind,scope_index_digest,contract_id,contract_version,subject_id,authority_epoch,incarnation,consumer_id,consumer_version)
+);
+CREATE TABLE IF NOT EXISTS {_names.SubjectRetirementTerminals} (
+  scope_kind INTEGER NOT NULL, scope_index_digest BLOB NOT NULL, protected_scope_value BLOB NOT NULL,
+  contract_id TEXT NOT NULL, contract_version INTEGER NOT NULL, subject_id TEXT NOT NULL,
+  authority_epoch BLOB NOT NULL, incarnation BLOB NOT NULL, tombstone_sequence INTEGER NOT NULL,
+  authorizing_state INTEGER NOT NULL, final_barrier_generation INTEGER NOT NULL, final_barrier_checksum TEXT NOT NULL,
+  required_consumer_set_checksum TEXT NOT NULL, acknowledgements_blob BLOB NOT NULL,
+  retired_position INTEGER NOT NULL, purged_at TEXT NOT NULL, receipt_checksum TEXT NOT NULL,
+  PRIMARY KEY(scope_kind,scope_index_digest,contract_id,contract_version,subject_id)
+);
+CREATE TABLE IF NOT EXISTS {_names.SubjectRetirementPublications} (
+  position INTEGER NOT NULL PRIMARY KEY CHECK(position>0), kind INTEGER NOT NULL CHECK(kind BETWEEN 0 AND 9),
+  scope_kind INTEGER NULL, scope_index_digest BLOB NULL, protected_scope_value BLOB NULL,
+  payload BLOB NOT NULL, CHECK((scope_kind IS NULL AND scope_index_digest IS NULL AND protected_scope_value IS NULL) OR
+    (scope_kind BETWEEN 0 AND 2 AND length(scope_index_digest)=32 AND protected_scope_value IS NOT NULL))
+);
 CREATE TABLE IF NOT EXISTS {_names.SubjectMaintenance} (
   singleton INTEGER NOT NULL PRIMARY KEY CHECK(singleton=1), contract_id TEXT NOT NULL,
   contract_version INTEGER NOT NULL, expected_generation INTEGER NOT NULL,
@@ -677,7 +743,7 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
     public async ValueTask<string[]> GetMissingSchemaPartsAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         var missing = new List<string>();
-        foreach (var table in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.OperationReceipts, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease, _names.SubjectContracts, _names.SubjectLifetimes, _names.SubjectTerminalLifetimes, _names.SubjectLifecycleFacts, _names.SubjectLifecycleMemberships, _names.SubjectLifecycleConsumers, _names.SubjectLifecycleCheckpoints, _names.SubjectLifecycleMaintenance, _names.SubjectLifecycleScopeStage, _names.SubjectLifecycleMembershipStage, _names.SubjectMaintenance, _names.SubjectRewriteStage, _names.ModuleGenerations, _names.ModuleMutationDefinitions, _names.ModuleGenerationDefinitions }
+        foreach (var table in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.OperationReceipts, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease, _names.SubjectContracts, _names.SubjectLifetimes, _names.SubjectTerminalLifetimes, _names.SubjectLifecycleFacts, _names.SubjectLifecycleMemberships, _names.SubjectLifecycleConsumers, _names.SubjectLifecycleCheckpoints, _names.SubjectLifecycleMaintenance, _names.SubjectLifecycleScopeStage, _names.SubjectLifecycleMembershipStage, _names.SubjectRetirementBarriers, _names.SubjectRetirementAcknowledgements, _names.SubjectRetirementTerminals, _names.SubjectRetirementPublications, _names.SubjectMaintenance, _names.SubjectRewriteStage, _names.ModuleGenerations, _names.ModuleMutationDefinitions, _names.ModuleGenerationDefinitions }
             .Concat(_physical.Collections.Select(static collection => collection.Table))
             .Concat(_physical.Relations.Select(static relation => relation.Table))
             .Concat(_projectionSchemaTables))

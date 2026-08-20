@@ -152,6 +152,60 @@ internal struct BaseSubjectCanonicalRetainedWork
         return counter.Bytes;
     }
 
+    internal static long MeasureRetirementPreparedEvidence(BaseSubjectRetirementPreparedEvidence? value)
+    {
+        if (value is null) return 0;
+        var counter = new BaseSubjectCanonicalRetainedWork();
+        counter.AddContainer(); counter.AddString(value.PlanChecksum); counter.AddSequence(value.Items.Length);
+        foreach (BaseSubjectRetirementPreparedEvidenceItem item in value.Items)
+        {
+            counter.AddContainer(); counter.AddInteger(); counter.Add(1);
+            if (item.Previous is not null) AddRetirementBarrier(ref counter, item.Previous);
+            AddRetirementBarrier(ref counter, item.Resulting); AddProtectedScope(ref counter, item.ProtectedScope); counter.AddInteger();
+        }
+        return counter.Bytes;
+    }
+
+    internal static long MeasureRetirementPublication(BaseSubjectRetirementPublicationFact value)
+    {
+        var counter = new BaseSubjectCanonicalRetainedWork(); counter.AddContainer(); counter.AddInteger(); counter.AddInteger();
+        if (value.Barrier is { } barrier)
+        {
+            counter.AddContainer(); counter.AddString(barrier.ContractId); counter.AddInteger(); counter.AddString(barrier.SubjectId.Value);
+            counter.AddFixed16(); counter.AddFixed24(); counter.AddInteger(); counter.AddInteger(); counter.AddInteger(); counter.AddNullableString(barrier.ConsumerId);
+        }
+        else if (value.AdvisoryAcknowledgement is { } advisory)
+        {
+            counter.AddContainer(); counter.AddString(advisory.ContractId); counter.AddInteger(); counter.AddString(advisory.SubjectId.Value);
+            counter.AddFixed16(); counter.AddFixed24(); counter.AddInteger(); counter.AddString(advisory.ConsumerId); counter.AddInteger(); counter.AddInteger();
+        }
+        else if (value.Purged is { } purged)
+        {
+            counter.AddContainer(); counter.AddString(purged.ContractId); counter.AddInteger(); counter.AddString(purged.SubjectId.Value);
+            counter.AddFixed16(); counter.AddFixed24(); counter.AddInteger(); counter.AddInteger(); counter.AddString(purged.FinalBarrierChecksum);
+            counter.AddString(purged.TerminalReceiptChecksum); counter.AddInteger();
+        }
+        else if (value.ConsumerSet is { } set)
+        {
+            counter.AddContainer(); counter.AddString(set.ContractId); counter.AddInteger(); counter.AddString(set.PreviousConsumerSetChecksum);
+            counter.AddString(set.PublishedConsumerSetChecksum); counter.AddInteger(); counter.AddInteger(); counter.AddNullableString(set.RemovedConsumerId);
+        }
+        else if (value.Restore is { } restore)
+        {
+            counter.AddContainer(); counter.AddString(restore.ContractId); counter.AddInteger(); counter.AddInteger(); counter.AddInteger();
+            counter.AddInteger(); counter.AddInteger(); counter.AddInteger(); counter.AddString(restore.TransformationChecksum);
+        }
+        else throw new ArgumentException("The retirement publication payload is missing.", nameof(value));
+        return counter.Bytes;
+    }
+
+    private static void AddRetirementBarrier(ref BaseSubjectCanonicalRetainedWork counter, BaseSubjectRetirementBarrier value)
+    {
+        counter.AddContainer(); counter.AddString(value.ContractId); counter.AddInteger(); counter.AddString(value.SubjectId.Value);
+        counter.AddFixed16(); counter.AddFixed24(); counter.AddInteger(); counter.AddString(value.RequiredConsumerSetChecksum);
+        counter.AddInteger(); counter.AddInteger(); counter.AddInteger(); counter.AddInteger(); counter.AddString(value.BarrierChecksum);
+    }
+
     private static void AddLifecycleFact(ref BaseSubjectCanonicalRetainedWork counter, BaseSubjectLifecycleFact value)
     {
         counter.AddContainer(); counter.AddInteger();

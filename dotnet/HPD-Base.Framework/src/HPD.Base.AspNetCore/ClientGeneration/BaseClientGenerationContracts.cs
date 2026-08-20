@@ -56,6 +56,12 @@ public sealed record BaseClientSubjectLifecycleConsumerDescriptor
     public required string CheckpointRoute { get; init; }
     /// <summary>Gets the optional separately authorized reconciliation route.</summary>
     public string? ReconciliationRoute { get; init; }
+    /// <summary>Gets observe-only, advisory, or required retirement participation.</summary>
+    public required string RetirementParticipation { get; init; }
+    /// <summary>Gets the acknowledgement route only for advisory or required participation.</summary>
+    public string? AcknowledgementRoute { get; init; }
+    /// <summary>Gets the immutable retirement-consumer checksum when acknowledgement authority is installed.</summary>
+    public string? RetirementChecksum { get; init; }
     /// <summary>Gets the maximum facts per page.</summary>
     public required int MaximumFactsPerPage { get; init; }
     /// <summary>Gets the maximum encoded page bytes.</summary>

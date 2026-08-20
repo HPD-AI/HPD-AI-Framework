@@ -17,6 +17,8 @@ public sealed class HPDBaseInMemoryStoreOptions
     internal BaseModuleGenerationCellDefinition[] ModuleGenerationCells { get; set; } = [];
     internal BaseSubjectLifecycleConsumerDefinition[] SubjectLifecycleConsumers { get; set; } = [];
     internal BaseSubjectLifecycleInspectionAuthority[] SubjectLifecycleInspectionAuthorities { get; set; } = [];
+    internal BaseSubjectRetirementConsumerDefinition[] SubjectRetirementConsumers { get; set; } = [];
+    internal BaseSubjectRetirementPolicy[] SubjectRetirementPolicies { get; set; } = [];
     internal Func<int, CancellationToken, ValueTask>? SubjectLifecycleMaintenancePageCompleted { get; set; }
     /// <summary>Gets or sets the default page size used when a query omits page size.</summary>
     public int DefaultPageSize { get; set; } = 100;

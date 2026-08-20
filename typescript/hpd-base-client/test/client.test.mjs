@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { BaseHttpTransport, advanceSubjectLifecycle, baseRedacted, collection, createBaseClient, decodeBaseJson, decodeBaseValue, encodeBaseJson, executeModuleMutation, executeSelectionMutation, field, isBaseRedacted, iterateSubjectLifecycle, moduleMutation, parseBaseJson, read, readSubjectLifecycle, reconcileSubjectLifecycle, selectionMutation, subjectLifecycleConsumer } from "../dist/index.js";
+import { BaseHttpTransport, acknowledgeSubjectRetirement, advanceSubjectLifecycle, baseRedacted, collection, createBaseClient, decodeBaseJson, decodeBaseValue, encodeBaseJson, executeModuleMutation, executeSelectionMutation, field, isBaseRedacted, iterateSubjectLifecycle, moduleMutation, parseBaseJson, read, readSubjectLifecycle, reconcileSubjectLifecycle, selectionMutation, subjectLifecycleConsumer } from "../dist/index.js";
 import { BaseRealtimeManager } from "../dist/realtime.js";
 
 const basicGraph = Object.freeze({
@@ -333,7 +333,7 @@ test("lifecycle workers preserve opaque authority and advance only explicit chec
     calls.push({ body: JSON.parse(new TextDecoder().decode(init.body)), key: new Headers(init.headers).get("Idempotency-Key") });
     return Response.json(calls.length === 1 ? { facts: [{ commitPosition: "1", contractId: "auth.user", contractVersion: 1, subjectId: "u1", authorityEpoch: epoch, incarnation, subjectSequence: "1", contractStateGeneration: "1", deliveryEpoch: "1", kind: "created", currentState: "active" }], next: "abcdefghijklmnop", checkpoint: "ponmlkjihgfedcba" } : { checkpointGeneration: "1", advancedAtUtc: "2026-01-01T00:00:00Z", duplicate: false }, { headers: { "X-Correlation-ID": "lifecycle" } });
   } });
-  const consumer = subjectLifecycleConsumer({ id: "profiles.lifecycle", version: 1, checksum: "a".repeat(64), audience: "service", contractId: "auth.user", contractVersion: 1, observedStates: ["active", "retired"], readRoute: "/base/subject-lifecycle/feed/read", checkpointRoute: "/base/subject-lifecycle/feed/checkpoints", maximumFactsPerPage: 256, maximumResultBytes: 1048576 });
+  const consumer = subjectLifecycleConsumer({ id: "profiles.lifecycle", version: 1, checksum: "a".repeat(64), audience: "service", contractId: "auth.user", contractVersion: 1, observedStates: ["active", "retired"], readRoute: "/base/subject-lifecycle/feed/read", checkpointRoute: "/base/subject-lifecycle/feed/checkpoints", retirementParticipation: "observeOnly", acknowledgementRoute: null, retirementChecksum: null, maximumFactsPerPage: 256, maximumResultBytes: 1048576 });
   const page = await readSubjectLifecycle(transport, consumer, { projectId: "project-a", take: 1 }); assert.equal(page.ok, true); assert.equal(page.value.facts[0].subjectId, "u1");
   assert.equal(calls.length, 1); assert.equal(calls[0].key, null); assert.equal(calls[0].body.projectId, "project-a");
   const advanced = await advanceSubjectLifecycle(transport, consumer, page.value.checkpoint, {
@@ -368,6 +368,19 @@ test("lifecycle workers preserve opaque authority and advance only explicit chec
   const reconciled = await reconcileSubjectLifecycle(reconciliationTransport, reconciling, { projectId: "project-a", take: 1 });
   assert.equal(reconciled.ok, true); assert.equal(reconciled.value.subjects[0].subjectId, "u1"); assert.equal(reconciled.value.capturedHighWater.commitPosition, "7"); assert.equal(reconciled.value.capturedHighWater.authorityEpoch, epoch);
   assert.deepEqual(reconciliationBody, { consumerId: "profiles.lifecycle", consumerVersion: 1, contractId: "auth.user", contractVersion: 1, projectId: "project-a", take: 1, afterSubjectId: null });
+});
+
+test("retirement acknowledgement keeps advisory and required authority opaque", async () => {
+  let observed;
+  const transport = new BaseHttpTransport({ url: "https://base.test/base/", fetch: async (_url, init) => {
+    observed = { body: JSON.parse(new TextDecoder().decode(init.body)), key: new Headers(init.headers).get("Idempotency-Key") };
+    return Response.json({ outcome: "applied", throughSubjectSequence: "4", barrierState: "pending", barrierGeneration: "2", barrierChecksum: "b".repeat(64) });
+  } });
+  const identity = { scope: "subject-retirement:billing", operation: "subjectRetirement.acknowledge", idempotencyKey: "c".repeat(64), fingerprint: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" };
+  const result = await acknowledgeSubjectRetirement(transport, { id: "billing", version: 1, checksum: "d".repeat(64), participation: "required", acknowledgementRoute: "/base/subject-retirement/acknowledgements" }, "abcdefghijklmnop", "completed", identity, "project-a");
+  assert.equal(result.ok, true); assert.equal(result.value.barrierGeneration, "2"); assert.equal(observed.key, "c".repeat(64));
+  assert.deepEqual(observed.body, { consumerId: "billing", consumerVersion: 1, participation: "required", evidence: "abcdefghijklmnop", disposition: "completed", identity, projectId: "project-a" });
+  await assert.rejects(() => acknowledgeSubjectRetirement(transport, { id: "billing", version: 1, checksum: "d".repeat(64), participation: "required", acknowledgementRoute: "/base/subject-retirement/acknowledgements" }, "not padded!", "completed", identity), /responseInvalid/u);
 });
 
 class FakeSocket {

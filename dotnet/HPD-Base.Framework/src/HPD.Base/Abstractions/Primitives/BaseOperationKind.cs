@@ -65,6 +65,18 @@ RealtimeSubscribe,
     SubjectLifecycleFinalizeRetirement,
     /// <summary>Performs one identified subject-lifecycle maintenance operation.</summary>
     SubjectLifecycleMaintenance,
+    /// <summary>Identifies an advisory or required subject-retirement acknowledgement.</summary>
+    SubjectRetirementAcknowledge,
+    /// <summary>Inspects current subject-retirement barrier authority.</summary>
+    SubjectRetirementInspect,
+    /// <summary>Processes elapsed subject-retirement deadlines.</summary>
+    SubjectRetirementTimeout,
+    /// <summary>Overrides one current subject-retirement barrier.</summary>
+    SubjectRetirementOverride,
+    /// <summary>Physically purges one eligible retired subject lifetime.</summary>
+    SubjectRetirementPurge,
+    /// <summary>Removes one explicitly drained subject-retirement consumer.</summary>
+    SubjectRetirementConsumerRemoval,
     /// <summary>Identifies one graph-installed registered module mutation.</summary>
     ModuleMutation
 }

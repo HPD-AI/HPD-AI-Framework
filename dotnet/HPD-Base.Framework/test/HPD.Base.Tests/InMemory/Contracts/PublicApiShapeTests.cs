@@ -63,7 +63,9 @@ public sealed class PublicApiShapeTests
                 typeof(IBaseSubjectAdministration),
                 typeof(IBaseSubjectPublicationStore),
                 typeof(IBaseSubjectValidationPlanReceiptStore),
-                typeof(IBaseSubjectLifecycleStore)
+                typeof(IBaseSubjectLifecycleStore),
+                typeof(IBaseSubjectRetirementStore),
+                typeof(IBaseSubjectAuthorityMaintenanceStore)
             ]);
     }
 

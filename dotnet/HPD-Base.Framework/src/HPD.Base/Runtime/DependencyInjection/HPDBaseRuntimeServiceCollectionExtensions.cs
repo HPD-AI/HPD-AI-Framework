@@ -106,6 +106,7 @@ public static class HPDBaseRuntimeServiceCollectionExtensions
         services.TryAddSingleton<IBaseMutationPostCommitDispatcher, DefaultBaseMutationPostCommitDispatcher>();
         services.TryAddSingleton(new BaseSubjectContractRegistry([]));
         services.TryAddSingleton(static provider => new BaseSubjectLifecycleRegistry([], provider.GetRequiredService<BaseSubjectContractRegistry>()));
+        services.TryAddSingleton(static provider => new BaseSubjectRetirementRegistry([], [], provider.GetRequiredService<BaseSubjectLifecycleRegistry>()));
         services.TryAddSingleton(Microsoft.Extensions.Options.Options.Create(new HPDBaseSubjectLifecycleOptions()));
         services.TryAddSingleton(BaseSubjectLifecycleRuntimeLimits.Default);
         services.TryAddSingleton<BaseSubjectLifecycleOperationalState>();
@@ -113,6 +114,7 @@ public static class HPDBaseRuntimeServiceCollectionExtensions
         services.TryAddSingleton<IBaseSelectionMutationRuntime, DefaultBaseSelectionMutationRuntime>();
         services.TryAddSingleton<IBaseModuleMutationRuntime, DefaultBaseModuleMutationRuntime>();
         services.TryAddSingleton<IBaseSubjectLifecycleRuntime, DefaultBaseSubjectLifecycleRuntime>();
+        services.TryAddSingleton<IBaseSubjectRetirementRuntime, DefaultBaseSubjectRetirementRuntime>();
         services.TryAddSingleton<IBaseSubjectLifecycleExporterRuntime, DefaultBaseSubjectLifecycleExporterRuntime>();
         services.TryAddSingleton<IBaseRecordRuntime, DefaultBaseRecordRuntime>();
         services.TryAddSingleton(new BaseReadRegistry(new Dictionary<string, IBaseReadRegistration>(StringComparer.Ordinal)));

@@ -71,6 +71,7 @@ public static class HPDBaseEndpointRouteBuilderExtensions
         }
         SelectionMutationEndpoints.Map(group, HPDBaseEndpointAudience.ControlPlane, convention);
         ModuleMutationEndpoints.Map(group, convention);
+        SubjectRetirementEndpoints.MapControlPlane(group, convention);
         return group;
     }
 
@@ -136,7 +137,10 @@ public static class HPDBaseEndpointRouteBuilderExtensions
         if (options.MapRealtime)
             HPDBaseRealtimeEndpointRouteBuilderExtensions.MapCore(group, HPDBaseEndpointAudience.Application);
         if (options.MapSubjectLifecycle)
+        {
             SubjectLifecycleEndpoints.Map(group);
+            SubjectRetirementEndpoints.MapApplication(group);
+        }
         if (options.MapClientGeneration)
         {
             endpoints.ServiceProvider.GetRequiredService<HPDBaseEndpointFamilySelectionState>()

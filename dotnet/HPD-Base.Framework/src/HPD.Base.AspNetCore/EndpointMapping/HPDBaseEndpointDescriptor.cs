@@ -27,6 +27,18 @@ public enum HPDBaseEndpointOperation
     SubjectLifecycleCheckpoint,
     /// <summary>Reads one separately authorized subject-lifecycle reconciliation page.</summary>
     SubjectLifecycleReconciliationRead,
+    /// <summary>Submits one installed subject-retirement acknowledgement.</summary>
+    SubjectRetirementAcknowledge,
+    /// <summary>Reads retirement barriers through ControlPlane authority.</summary>
+    SubjectRetirementBarrierQuery,
+    /// <summary>Processes elapsed retirement deadlines.</summary>
+    SubjectRetirementTimeoutProcess,
+    /// <summary>Applies an audited retirement override.</summary>
+    SubjectRetirementOverride,
+    /// <summary>Performs final physical subject purge.</summary>
+    SubjectRetirementPurge,
+    /// <summary>Removes one accepted retirement consumer.</summary>
+    SubjectRetirementConsumerRemoval,
     /// <summary>Reads files.</summary>
     FileRead,
     /// <summary>Writes files.</summary>
@@ -77,6 +89,18 @@ public sealed record HPDBaseEndpointDescriptor
 /// <summary>Names stable product capabilities for BASE HTTP endpoints.</summary>
 public static class HPDBaseCapabilities
 {
+    /// <summary>Reads sanitized retirement barriers.</summary>
+    public const string SubjectRetirementBarrierInspect = "base.subjectRetirement.barrier.inspect";
+    /// <summary>Processes one elapsed retirement timeout.</summary>
+    public const string SubjectRetirementTimeoutProcess = "base.subjectRetirement.timeout.process";
+    /// <summary>Overrides one timed-out retirement barrier.</summary>
+    public const string SubjectRetirementOverride = "base.subjectRetirement.override";
+    /// <summary>Performs final subject purge.</summary>
+    public const string SubjectRetirementPurge = "base.subjectRetirement.purge";
+    /// <summary>Removes one accepted retirement consumer.</summary>
+    public const string SubjectRetirementConsumerRemoval = "base.subjectRetirement.consumerRemoval";
+    /// <summary>Submits one installed subject-retirement acknowledgement.</summary>
+    public const string SubjectRetirementAcknowledge = "base.subjectRetirement.acknowledge";
     /// <summary>Reads an installed durable subject-lifecycle feed.</summary>
     public const string SubjectLifecycleFeedRead = "base.subjectLifecycle.feed.read";
     /// <summary>Advances an installed durable subject-lifecycle checkpoint.</summary>

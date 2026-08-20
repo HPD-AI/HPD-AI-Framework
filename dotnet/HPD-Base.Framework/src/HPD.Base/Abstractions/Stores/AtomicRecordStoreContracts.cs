@@ -412,6 +412,26 @@ public interface IAtomicRecordSession
         BaseSubjectLifecycleProviderCheckpointRequest request,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Applies one Runtime-authorized subject-retirement acknowledgement.</summary>
+    ValueTask<OperationResult<BaseSubjectAcknowledgementResult>> ApplySubjectRetirementAcknowledgementAsync(
+        BaseSubjectRetirementProviderAcknowledgementRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Applies one Runtime-authorized retirement timeout transition.</summary>
+    ValueTask<OperationResult<BaseSubjectRetirementTimeoutResult>> ApplySubjectRetirementTimeoutAsync(
+        BaseSubjectRetirementProviderTimeoutRequest request,
+        CancellationToken cancellationToken = default) => ValueTask.FromResult(OperationResults.Unsupported<BaseSubjectRetirementTimeoutResult>(new BaseError { Code = BaseSubjectRetirementErrorCodes.ProviderContractInvalid, Message = "The provider does not support retirement timeout processing.", Category = ErrorCategory.Unsupported }));
+
+    /// <summary>Applies one Runtime-authorized retirement override transition.</summary>
+    ValueTask<OperationResult<BaseSubjectRetirementOverrideResult>> ApplySubjectRetirementOverrideAsync(
+        BaseSubjectRetirementProviderOverrideRequest request,
+        CancellationToken cancellationToken = default) => ValueTask.FromResult(OperationResults.Unsupported<BaseSubjectRetirementOverrideResult>(new BaseError { Code = BaseSubjectRetirementErrorCodes.ProviderContractInvalid, Message = "The provider does not support retirement override.", Category = ErrorCategory.Unsupported }));
+
+    /// <summary>Applies one Runtime-authorized final physical purge.</summary>
+    ValueTask<OperationResult<BaseSubjectRetirementPurgeApplied>> ApplySubjectRetirementPurgeAsync(
+        BaseSubjectRetirementProviderPurgeRequest request,
+        CancellationToken cancellationToken = default) => ValueTask.FromResult(OperationResults.Unsupported<BaseSubjectRetirementPurgeApplied>(new BaseError { Code = BaseSubjectRetirementErrorCodes.ProviderContractInvalid, Message = "The provider does not support final subject purge.", Category = ErrorCategory.Unsupported }));
+
     /// <summary>Applies every installed provider-owned projection inside this transaction.</summary>
     /// <param name="request">The deeply immutable canonical projection facts.</param>
     /// <param name="cancellationToken">Cancellation requested before confirmed commit.</param>

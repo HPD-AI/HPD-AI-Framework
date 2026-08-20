@@ -88,6 +88,8 @@ public sealed record BaseAtomicMutationCaptureRequest
     public BaseModuleMutationCaptureExtension? Module { get; init; }
     /// <summary>Gets the graph-selected lifecycle consumer projections whose current generations must be captured.</summary>
     public ImmutableArray<BaseSubjectLifecycleConsumerProjectionCaptureRequest> LifecycleConsumerProjections { get; init; } = [];
+    /// <summary>Gets the orthogonal retirement projection capture authority.</summary>
+    public BaseSubjectRetirementCaptureExtension? SubjectRetirement { get; init; }
     /// <summary>Gets the sole complete safety envelope.</summary>
     public required BaseAtomicMutationExecutionLimits Limits { get; init; }
 }
@@ -250,6 +252,18 @@ public sealed record BaseAtomicCaptureAccounting
     public required long EvidenceBytes { get; init; }
     /// <summary>Gets complete retained transient bytes.</summary>
     public required long TransientBytes { get; init; }
+    /// <summary>Gets retirement barrier reads performed.</summary>
+    public required int RetirementBarrierReads { get; init; }
+    /// <summary>Gets retirement acknowledgement reads performed.</summary>
+    public required int RetirementAcknowledgementReads { get; init; }
+    /// <summary>Gets retirement projections prepared.</summary>
+    public required int RetirementProjections { get; init; }
+    /// <summary>Gets retirement publications prepared.</summary>
+    public required int RetirementPublications { get; init; }
+    /// <summary>Gets retirement evidence bytes.</summary>
+    public required long RetirementEvidenceBytes { get; init; }
+    /// <summary>Gets retirement publication bytes.</summary>
+    public required long RetirementPublicationBytes { get; init; }
 }
 
 /// <summary>Contains immutable authority captured from one open provider transaction.</summary>
@@ -275,10 +289,43 @@ public sealed record BaseCapturedAtomicMutationAuthority
     public required ImmutableArray<BaseCapturedModuleGeneration> Generations { get; init; }
     /// <summary>Gets current transaction-bound lifecycle consumer projection generations.</summary>
     public ImmutableArray<BaseCapturedSubjectLifecycleConsumerProjection> LifecycleConsumerProjections { get; init; } = [];
+    /// <summary>Gets transaction-captured current retirement projection authority.</summary>
+    public ImmutableArray<BaseCapturedSubjectRetirementProjection> SubjectRetirement { get; init; } = [];
     /// <summary>Gets normalized transaction read intervals.</summary>
     public required ImmutableArray<BaseAtomicReadIntervalEvidence> ReadIntervals { get; init; }
     /// <summary>Gets exact capture accounting.</summary>
     public required BaseAtomicCaptureAccounting Accounting { get; init; }
+}
+
+/// <summary>Contains authoritative current lifetime state for one requested retirement projection.</summary>
+public sealed record BaseCapturedSubjectRetirementProjection
+{
+    /// <summary>Gets the source mutation ordinal.</summary>
+    public required int SourceMutationOrdinal { get; init; }
+    /// <summary>Gets the contract ID.</summary>
+    public required string ContractId { get; init; }
+    /// <summary>Gets the contract version.</summary>
+    public required int ContractVersion { get; init; }
+    /// <summary>Gets the contract checksum.</summary>
+    public required string ContractChecksum { get; init; }
+    /// <summary>Gets the retirement-policy checksum.</summary>
+    public required string RetirementPolicyChecksum { get; init; }
+    /// <summary>Gets the accepted-consumer-set checksum.</summary>
+    public required string AcceptedConsumerSetChecksum { get; init; }
+    /// <summary>Gets the subject ID bound to the captured lifetime.</summary>
+    public required BaseSubjectId SubjectId { get; init; }
+    /// <summary>Gets the protected provider scope bound to the captured lifetime.</summary>
+    public required BaseProtectedSubjectScope ProtectedScope { get; init; }
+    /// <summary>Gets the current authority epoch.</summary>
+    public required BaseSubjectAuthorityEpoch AuthorityEpoch { get; init; }
+    /// <summary>Gets the current incarnation.</summary>
+    public required BaseSubjectIncarnation Incarnation { get; init; }
+    /// <summary>Gets the current subject-local sequence.</summary>
+    public required long CurrentSubjectSequence { get; init; }
+    /// <summary>Gets the current lifecycle state.</summary>
+    public required BaseSubjectLifecycleState CurrentState { get; init; }
+    /// <summary>Gets the current barrier when present.</summary>
+    public BaseSubjectRetirementBarrier? CurrentBarrier { get; init; }
 }
 
 /// <summary>Contains current authority for one graph-installed lifecycle consumer projection.</summary>
@@ -522,6 +569,8 @@ public sealed record BaseAtomicMutationPlan
     public required ImmutableArray<BaseSubjectReferenceValidationPlanItem> SubjectValidations { get; init; }
     /// <summary>Gets the L50 finalized extension only for a module mutation.</summary>
     public BaseFinalizedModuleMutationExtension? Module { get; init; }
+    /// <summary>Gets the Runtime-finalized retirement projection plan.</summary>
+    public BaseSubjectRetirementProjectionPlan? SubjectRetirement { get; init; }
     /// <summary>Gets the complete immutable execution limits.</summary>
     public required BaseAtomicMutationExecutionLimits Limits { get; init; }
 }
@@ -701,6 +750,14 @@ public sealed record BaseAtomicMutationExecutionLimits
     public required int MaximumRelationChecks { get; init; }
     /// <summary>Gets the maximum unique-constraint-check count.</summary>
     public required int MaximumUniqueConstraintChecks { get; init; }
+    /// <summary>Gets the maximum retirement projections.</summary>
+    public required int MaximumRetirementProjections { get; init; }
+    /// <summary>Gets the maximum retirement barrier reads.</summary>
+    public required int MaximumRetirementBarrierReads { get; init; }
+    /// <summary>Gets the maximum retirement acknowledgement reads.</summary>
+    public required int MaximumRetirementAcknowledgementReads { get; init; }
+    /// <summary>Gets the maximum retirement publications.</summary>
+    public required int MaximumRetirementPublications { get; init; }
     /// <summary>Gets the maximum canonical request bytes.</summary>
     public required long MaximumRequestBytes { get; init; }
     /// <summary>Gets the maximum retained generation bytes.</summary>
@@ -715,6 +772,10 @@ public sealed record BaseAtomicMutationExecutionLimits
     public required long MaximumReceiptBytes { get; init; }
     /// <summary>Gets the maximum public result bytes.</summary>
     public required long MaximumResultBytes { get; init; }
+    /// <summary>Gets the maximum canonical retirement evidence bytes.</summary>
+    public required long MaximumRetirementEvidenceBytes { get; init; }
+    /// <summary>Gets the maximum canonical retirement publication bytes.</summary>
+    public required long MaximumRetirementPublicationBytes { get; init; }
     /// <summary>Gets the four independently owned execution deadlines.</summary>
     public required BaseAtomicMutationDeadlines Deadlines { get; init; }
 }
@@ -787,6 +848,18 @@ public sealed record BasePreparedAtomicMutationAccounting
     public required long EvidenceBytes { get; init; }
     /// <summary>Gets complete transient bytes retained.</summary>
     public required long TransientBytes { get; init; }
+    /// <summary>Gets retirement barrier reads performed.</summary>
+    public required int RetirementBarrierReads { get; init; }
+    /// <summary>Gets retirement acknowledgement reads performed.</summary>
+    public required int RetirementAcknowledgementReads { get; init; }
+    /// <summary>Gets retirement projections prepared.</summary>
+    public required int RetirementProjections { get; init; }
+    /// <summary>Gets retirement publications prepared.</summary>
+    public required int RetirementPublications { get; init; }
+    /// <summary>Gets retirement evidence bytes.</summary>
+    public required long RetirementEvidenceBytes { get; init; }
+    /// <summary>Gets retirement publication bytes.</summary>
+    public required long RetirementPublicationBytes { get; init; }
 }
 
 /// <summary>Contains current transaction-bound authority for one exported logical-subject contract.</summary>
@@ -833,6 +906,8 @@ public sealed record BasePreparedAtomicMutation
     public required ImmutableArray<BaseAtomicReadIntervalEvidence> ReadIntervals { get; init; }
     /// <summary>Gets exact provider preparation accounting.</summary>
     public required BasePreparedAtomicMutationAccounting Accounting { get; init; }
+    /// <summary>Gets provider-prepared retirement evidence.</summary>
+    public BaseSubjectRetirementPreparedEvidence? SubjectRetirement { get; init; }
 }
 
 /// <summary>Classifies one prepared generation transition.</summary>
@@ -888,6 +963,18 @@ public sealed record BaseProvisionalAtomicMutationAccounting
     public required long EvidenceBytes { get; init; }
     /// <summary>Gets complete retained transient bytes.</summary>
     public required long TransientBytes { get; init; }
+    /// <summary>Gets retirement barrier reads performed.</summary>
+    public required int RetirementBarrierReads { get; init; }
+    /// <summary>Gets retirement acknowledgement reads performed.</summary>
+    public required int RetirementAcknowledgementReads { get; init; }
+    /// <summary>Gets retirement projections applied.</summary>
+    public required int RetirementProjections { get; init; }
+    /// <summary>Gets retirement publications applied.</summary>
+    public required int RetirementPublications { get; init; }
+    /// <summary>Gets retirement evidence bytes.</summary>
+    public required long RetirementEvidenceBytes { get; init; }
+    /// <summary>Gets retirement publication bytes.</summary>
+    public required long RetirementPublicationBytes { get; init; }
 }
 
 /// <summary>Contains one applied but not yet externally confirmed atomic mutation.</summary>
@@ -905,6 +992,8 @@ public sealed record BaseProvisionalAppliedAtomicMutation
     public required ImmutableArray<BaseModuleCommittedGeneration> Generations { get; init; }
     /// <summary>Gets exact provisional apply accounting.</summary>
     public required BaseProvisionalAtomicMutationAccounting Accounting { get; init; }
+    /// <summary>Gets applied retirement projection evidence.</summary>
+    public BaseSubjectRetirementProvisionalEvidence? SubjectRetirement { get; init; }
 }
 
 /// <summary>Contains Runtime-owned result and receipt authority produced before provider commit.</summary>
@@ -949,4 +1038,16 @@ public sealed record BaseAtomicCommitAccounting
     public required long EvidenceBytes { get; init; }
     /// <summary>Gets the complete aggregate transient bytes.</summary>
     public required long TransientBytes { get; init; }
+    /// <summary>Gets retirement barrier reads performed.</summary>
+    public required int RetirementBarrierReads { get; init; }
+    /// <summary>Gets retirement acknowledgement reads performed.</summary>
+    public required int RetirementAcknowledgementReads { get; init; }
+    /// <summary>Gets retirement projections committed.</summary>
+    public required int RetirementProjections { get; init; }
+    /// <summary>Gets retirement publications committed.</summary>
+    public required int RetirementPublications { get; init; }
+    /// <summary>Gets canonical retirement evidence bytes.</summary>
+    public required long RetirementEvidenceBytes { get; init; }
+    /// <summary>Gets canonical retirement publication bytes.</summary>
+    public required long RetirementPublicationBytes { get; init; }
 }

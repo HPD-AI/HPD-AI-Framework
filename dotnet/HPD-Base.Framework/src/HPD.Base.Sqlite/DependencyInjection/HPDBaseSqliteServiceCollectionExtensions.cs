@@ -94,6 +94,8 @@ public static class HPDBaseSqliteServiceCollectionExtensions
         Collections = value.Collections.ToArray(), ExportedSubjects = value.ExportedSubjects.ToArray(),
         ModuleMutations = value.ModuleMutations.ToArray(), ModuleGenerationCells = value.ModuleGenerationCells.ToArray(),
         SubjectLifecycleConsumers = value.SubjectLifecycleConsumers.Select(static item => BaseSubjectLifecycleRegistry.Normalize(item)).ToArray(),
+        SubjectRetirementConsumers = value.SubjectRetirementConsumers.Select(static item => BaseSubjectRetirementRegistry.Normalize(item)).ToArray(),
+        SubjectRetirementPolicies = value.SubjectRetirementPolicies.Select(static item => BaseSubjectRetirementRegistry.NormalizePolicy(item)).ToArray(),
         SubjectLifecycleInspectionAuthorities = value.SubjectLifecycleInspectionAuthorities.Select(static item => item with { }).ToArray(),
     };
 }

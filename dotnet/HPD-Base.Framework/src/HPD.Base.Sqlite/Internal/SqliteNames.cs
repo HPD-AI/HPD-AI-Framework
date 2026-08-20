@@ -27,6 +27,10 @@ internal sealed class SqliteNames
         SubjectLifecycleMaintenance = Prefix + "subject_lifecycle_maintenance";
         SubjectLifecycleScopeStage = Prefix + "subject_lifecycle_scope_stage";
         SubjectLifecycleMembershipStage = Prefix + "subject_lifecycle_membership_stage";
+        SubjectRetirementBarriers = Prefix + "subject_retirement_barriers";
+        SubjectRetirementAcknowledgements = Prefix + "subject_retirement_acknowledgements";
+        SubjectRetirementTerminals = Prefix + "subject_retirement_terminals";
+        SubjectRetirementPublications = Prefix + "subject_retirement_publications";
         SubjectMaintenance = Prefix + "subject_maintenance";
         SubjectRewriteStage = Prefix + "subject_rewrite_stage";
         ModuleGenerations = Prefix + "module_generations";
@@ -67,6 +71,10 @@ internal sealed class SqliteNames
     public string SubjectLifecycleMaintenance { get; }
     public string SubjectLifecycleScopeStage { get; }
     public string SubjectLifecycleMembershipStage { get; }
+    public string SubjectRetirementBarriers { get; }
+    public string SubjectRetirementAcknowledgements { get; }
+    public string SubjectRetirementTerminals { get; }
+    public string SubjectRetirementPublications { get; }
     /// <summary>Gets the provider-owned subject-authority maintenance checkpoint table.</summary>
     public string SubjectMaintenance { get; }
     /// <summary>Gets the provider-owned subject-reference rewrite staging table.</summary>

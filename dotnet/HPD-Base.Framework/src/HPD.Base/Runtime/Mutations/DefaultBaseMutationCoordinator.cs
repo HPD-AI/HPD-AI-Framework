@@ -17,6 +17,7 @@ internal sealed class DefaultBaseMutationCoordinator(
     IBaseDescriptorRegistry descriptors,
     BaseSubjectContractRegistry subjects,
     BaseSubjectLifecycleRegistry lifecycleConsumers,
+    BaseSubjectRetirementRegistry retirement,
     IOptions<HPDBaseRuntimeOptions> options,
     TimeProvider timeProvider,
     ILogger<DefaultBaseMutationCoordinator> logger) : IBaseMutationCoordinator
@@ -511,7 +512,8 @@ internal sealed class DefaultBaseMutationCoordinator(
             executionLimits,
             authority.Value,
             subjects,
-            lifecycleConsumers);
+            lifecycleConsumers,
+            retirement);
         var request = new RecordMutationExecutionRequest
         {
             AcquisitionTimeout = _limits.StoreAcquisitionTimeout,

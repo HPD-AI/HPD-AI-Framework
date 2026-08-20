@@ -64,6 +64,8 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
     BaseModuleMutationRegistry? moduleMutations = null,
     BaseSubjectLifecycleRegistry? lifecycleConsumers = null,
     IBaseSubjectLifecycleRuntime? lifecycleRuntime = null,
+    BaseSubjectRetirementRegistry? retirementConsumers = null,
+    IBaseSubjectRetirementRuntime? retirementRuntime = null,
     IBaseSessionFactory? sessions = null,
     IBaseHttpPrincipalContextFactory? principalFactory = null)
 {
@@ -78,6 +80,7 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
 
         var authorizedLifecycle = new List<BaseInstalledSubjectLifecycleConsumer>();
         var authorizedLifecycleReconciliation = new HashSet<string>(StringComparer.Ordinal);
+        var authorizedRetirement = new Dictionary<string, BaseInstalledSubjectRetirementConsumer>(StringComparer.Ordinal);
         string? lifecycleAudience = null;
         if (current.Audience == HPDBaseEndpointAudience.Application && lifecycleConsumers is not null && lifecycleRuntime is not null && sessions is not null && principalFactory is not null)
         {
@@ -91,6 +94,9 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
                     authorizedLifecycle.Add(candidate);
                     if (await lifecycleRuntime.AuthorizeReconciliationGenerationAsync(session, candidate, cancellationToken).ConfigureAwait(false))
                         authorizedLifecycleReconciliation.Add(candidate.Definition.Id + "\n" + candidate.Definition.Version);
+                    BaseInstalledSubjectRetirementConsumer? retirement=retirementConsumers?.FindConsumer(candidate.Definition.Id,candidate.Definition.Version);
+                    if(retirement is not null&&retirementRuntime is not null&&await retirementRuntime.AuthorizeGenerationAsync(session,retirement,cancellationToken).ConfigureAwait(false))
+                        authorizedRetirement.Add(candidate.Definition.Id+"\n"+candidate.Definition.Version,retirement);
                 }
         }
 
@@ -179,14 +185,19 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
             Route = $"{basePath}/module-mutations/v1/{registration.Id}:execute",
             MaximumRequestBytes = moduleMutations!.Find(registration.Id, registration.Version)!.Limits.MaximumRequestBytes,
         }).ToArray();
-        BaseClientSubjectLifecycleConsumerDescriptor[] generatedLifecycle = [.. authorizedLifecycle.Select(value => new BaseClientSubjectLifecycleConsumerDescriptor
+        BaseClientSubjectLifecycleConsumerDescriptor[] generatedLifecycle = [.. authorizedLifecycle.Select(value =>
+        {
+            authorizedRetirement.TryGetValue(value.Definition.Id+"\n"+value.Definition.Version,out BaseInstalledSubjectRetirementConsumer? retirement);
+            return new BaseClientSubjectLifecycleConsumerDescriptor
         {
             Id=value.Definition.Id,Version=value.Definition.Version,Checksum=value.Checksum,GeneratedName=GeneratedName(value.Definition.Id),
             Audience=value.Definition.Audience==BaseSubjectLifecycleConsumerAudience.System?"system":"service",ContractId=value.Definition.ContractId,ContractVersion=value.Definition.ContractVersion,
             ObservedStates=[..value.Definition.ObservedStates.Select(static state=>state.ToString().ToLowerInvariant())],ReadRoute=basePath+"/subject-lifecycle/feed/read",CheckpointRoute=basePath+"/subject-lifecycle/feed/checkpoints",
             ReconciliationRoute=authorizedLifecycleReconciliation.Contains(value.Definition.Id+"\n"+value.Definition.Version)?basePath+"/subject-lifecycle/reconciliation/read":null,
+            RetirementParticipation=retirement is null?"observeOnly":retirement.Definition.Participation==BaseSubjectRetirementParticipation.AdvisoryAcknowledgement?"advisory":"required",
+            AcknowledgementRoute=retirement is null?null:basePath+"/subject-retirement/acknowledgements",RetirementChecksum=retirement?.Checksum,
             MaximumFactsPerPage=value.Definition.Limits.MaximumFactsPerPage,MaximumResultBytes=value.Definition.Limits.MaximumResultBytes,
-        })];
+        };})];
         if (capabilities.Length > 256 || installedReads.Length > 256 || templates.Length > 512 || vectors.Length > 256 || selectionMutations.Length > 256 || generatedModules.Length > 256)
             return Failure("base.clientGeneration.snapshotTooLarge");
         var generatedNames = new HashSet<string>(["reads", "files", "close", "collection", "connectivity", "$control", "$dynamic"], StringComparer.Ordinal);

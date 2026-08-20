@@ -47,15 +47,54 @@ internal static class SubjectLifecycleEndpoints
         BaseResult<BaseUntypedSubjectLifecyclePage> result = await state.Runtime.ReadUntypedAsync(state.Session(request.ProjectId), installed, cursor, request.Take, context.RequestAborted).ConfigureAwait(false);
         if (result is BaseFailure<BaseUntypedSubjectLifecyclePage> failure) { await Problem(context, failure.Status, failure.Error.Code).ConfigureAwait(false); return; }
         BaseUntypedSubjectLifecyclePage page = ((BaseSuccess<BaseUntypedSubjectLifecyclePage>)result).Value;
+        BaseInstalledSubjectRetirementConsumer? retirement=context.RequestServices.GetService<BaseSubjectRetirementRegistry>()?.FindConsumer(installed.Definition.Id,installed.Definition.Version);
+        IBaseSubjectRetirementRuntime? retirementRuntime=context.RequestServices.GetService<IBaseSubjectRetirementRuntime>();
+        BaseSubjectAdvisoryLifecycleDelivery<object>? advisory=null;BaseSubjectRequiredLifecycleDelivery<object>? required=null;
+        if(retirement is not null)
+        {
+            if(retirementRuntime is null||page.Facts.Length!=1){await Problem(context,OperationStatus.CapabilityUnavailable,BaseSubjectRetirementErrorCodes.ProviderContractInvalid).ConfigureAwait(false);return;}
+            BaseSubjectLifecycleFact fact=page.Facts[0];BaseMutationRequestIdentity processing=DeliveryIdentity(installed,"process",fact);BaseMutationRequestIdentity advance=DeliveryIdentity(installed,"advance",fact);
+            var delivery=new BaseSubjectLifecycleDelivery<object>{Fact=new BaseSubjectLifecycleFact<object>{Subject=default,Fact=fact},Checkpoint=page.Through,ProcessingIdentity=processing,AdvanceIdentity=advance};
+            if(retirement.Definition.Participation==BaseSubjectRetirementParticipation.AdvisoryAcknowledgement)
+            {BaseResult<BaseSubjectAdvisoryLifecycleDelivery<object>> issued=await retirementRuntime.IssueAdvisoryAsync(state.Session(request.ProjectId),retirement,delivery,context.RequestAborted).ConfigureAwait(false);if(issued is BaseFailure<BaseSubjectAdvisoryLifecycleDelivery<object>> issueFailure){await Problem(context,issueFailure.Status,issueFailure.Error.Code).ConfigureAwait(false);return;}advisory=((BaseSuccess<BaseSubjectAdvisoryLifecycleDelivery<object>>)issued).Value;}
+            else
+            {BaseResult<BaseSubjectRequiredLifecycleDelivery<object>> issued=await retirementRuntime.IssueRequiredAsync(state.Session(request.ProjectId),retirement,delivery,context.RequestAborted).ConfigureAwait(false);if(issued is BaseFailure<BaseSubjectRequiredLifecycleDelivery<object>> issueFailure){await Problem(context,issueFailure.Status,issueFailure.Error.Code).ConfigureAwait(false);return;}required=((BaseSuccess<BaseSubjectRequiredLifecycleDelivery<object>>)issued).Value;}
+        }
         context.Response.StatusCode = StatusCodes.Status200OK; context.Response.ContentType = "application/json; charset=utf-8";
         await using var writer = new Utf8JsonWriter(context.Response.BodyWriter);
-        writer.WriteStartObject(); writer.WritePropertyName("facts"); writer.WriteStartArray();
-        foreach (BaseSubjectLifecycleFact fact in page.Facts) WriteFact(writer, fact);
+        writer.WriteStartObject(); writer.WritePropertyName(retirement is null?"facts":"deliveries"); writer.WriteStartArray();
+        foreach (BaseSubjectLifecycleFact fact in page.Facts)
+        {
+            if(retirement is null){WriteFact(writer,fact);continue;}
+            BaseMutationRequestIdentity processing=DeliveryIdentity(installed,"process",fact);BaseMutationRequestIdentity advance=DeliveryIdentity(installed,"advance",fact);
+            var lifecycleDelivery=new BaseSubjectLifecycleDelivery<object>{Fact=new BaseSubjectLifecycleFact<object>{Subject=default,Fact=fact},Checkpoint=page.Through,ProcessingIdentity=processing,AdvanceIdentity=advance};
+            writer.WriteStartObject();writer.WritePropertyName("lifecycle");WriteDelivery(writer,lifecycleDelivery);
+            if(retirement.Definition.Participation==BaseSubjectRetirementParticipation.AdvisoryAcknowledgement)
+            {
+                writer.WriteString("acknowledgement",advisory!.Acknowledgement.ToString());writer.WritePropertyName("acknowledgementIdentity");WriteIdentity(writer,advisory.AcknowledgementIdentity);
+            }
+            else
+            {
+                writer.WriteString("acknowledgement",required!.Acknowledgement.ToString());writer.WritePropertyName("acknowledgementIdentity");WriteIdentity(writer,required.AcknowledgementIdentity);
+            }
+            writer.WriteEndObject();
+        }
         writer.WriteEndArray();
         if (page.Next is null) writer.WriteNull("next"); else writer.WriteString("next", Encode(page.Next.ToArray()));
         writer.WriteString("checkpoint", Encode(page.Through.ToArray())); writer.WriteEndObject();
         await writer.FlushAsync(context.RequestAborted).ConfigureAwait(false);
     }
+
+    private static void WriteDelivery(Utf8JsonWriter writer,BaseSubjectLifecycleDelivery<object> delivery)
+    {
+        writer.WriteStartObject();writer.WritePropertyName("fact");WriteFact(writer,delivery.Fact.Fact);writer.WriteString("checkpoint",Encode(delivery.Checkpoint.ToArray()));writer.WritePropertyName("processingIdentity");WriteIdentity(writer,delivery.ProcessingIdentity);writer.WritePropertyName("advanceIdentity");WriteIdentity(writer,delivery.AdvanceIdentity);writer.WriteEndObject();
+    }
+
+    private static void WriteIdentity(Utf8JsonWriter writer,BaseMutationRequestIdentity identity)
+    {writer.WriteStartObject();writer.WriteString("scope",identity.Scope);writer.WriteString("operation",identity.Operation);writer.WriteString("idempotencyKey",identity.IdempotencyKey);writer.WriteString("fingerprint",Convert.ToBase64String(identity.Fingerprint.ToArray()));writer.WriteEndObject();}
+
+    private static BaseMutationRequestIdentity DeliveryIdentity(BaseInstalledSubjectLifecycleConsumer installed,string operation,BaseSubjectLifecycleFact fact)
+    {string semantic=$"base.subjectLifecycle.delivery.{operation}.v1\0{installed.Checksum}\0{fact.CommitPosition.Value}\0{fact.SubjectId.Value}\0{fact.AuthorityEpoch.ToBase64Url()}\0{fact.Incarnation.ToBase64Url()}\0{fact.SubjectSequence}";byte[] digest=SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(semantic));return BaseMutationRequestIdentity.Create($"subject-lifecycle:{installed.Definition.Id}",$"subjectLifecycle.{operation}",Convert.ToHexStringLower(digest),BaseMutationRequestFingerprint.Create(digest));}
 
     private static async Task Advance(HttpContext context)
     {

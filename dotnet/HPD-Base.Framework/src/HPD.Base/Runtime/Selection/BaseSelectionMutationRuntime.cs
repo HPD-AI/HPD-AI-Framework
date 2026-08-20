@@ -179,6 +179,10 @@ internal sealed class DefaultBaseSelectionMutationRuntime(
         MaximumAuthorityReads = limits.MaximumReadIntervals,
         MaximumRelationChecks = limits.MaximumProducedMutations,
         MaximumUniqueConstraintChecks = limits.MaximumUniqueConstraintChecks,
+        MaximumRetirementProjections = limits.MaximumProducedMutations,
+        MaximumRetirementBarrierReads = limits.MaximumProducedMutations,
+        MaximumRetirementAcknowledgementReads = 1,
+        MaximumRetirementPublications = limits.MaximumProducedMutations,
         MaximumRequestBytes = limits.MaximumTransientBytes,
         MaximumGenerationBytes = 1,
         MaximumWrittenBytes = limits.MaximumTransientBytes,
@@ -186,6 +190,8 @@ internal sealed class DefaultBaseSelectionMutationRuntime(
         MaximumJournalBytes = limits.MaximumTransientBytes,
         MaximumReceiptBytes = limits.MaximumTransientBytes,
         MaximumResultBytes = limits.MaximumTransientBytes,
+        MaximumRetirementEvidenceBytes = limits.MaximumTransientBytes,
+        MaximumRetirementPublicationBytes = limits.MaximumTransientBytes,
         Deadlines = new BaseAtomicMutationDeadlines
         {
             AcquisitionTimeout = limits.AcquisitionTimeout,
@@ -663,6 +669,10 @@ internal sealed class BaseSelectionMutationProcessor(
             MaximumAuthorityReads = authorityReadLimit,
             MaximumRelationChecks = profile.Limits.MaximumProducedMutations,
             MaximumUniqueConstraintChecks = profile.Limits.MaximumUniqueConstraintChecks,
+            MaximumRetirementProjections = profile.Limits.MaximumProducedMutations,
+            MaximumRetirementBarrierReads = profile.Limits.MaximumProducedMutations,
+            MaximumRetirementAcknowledgementReads = 1,
+            MaximumRetirementPublications = profile.Limits.MaximumProducedMutations,
             MaximumRequestBytes = profile.Limits.MaximumTransientBytes,
             MaximumGenerationBytes = 1,
             MaximumWrittenBytes = profile.Limits.MaximumTransientBytes,
@@ -670,6 +680,8 @@ internal sealed class BaseSelectionMutationProcessor(
             MaximumJournalBytes = profile.Limits.MaximumTransientBytes,
             MaximumReceiptBytes = profile.Limits.MaximumTransientBytes,
             MaximumResultBytes = profile.Limits.MaximumTransientBytes,
+            MaximumRetirementEvidenceBytes = profile.Limits.MaximumTransientBytes,
+            MaximumRetirementPublicationBytes = profile.Limits.MaximumTransientBytes,
             Deadlines = new BaseAtomicMutationDeadlines
             {
                 AcquisitionTimeout = executionTimeout,

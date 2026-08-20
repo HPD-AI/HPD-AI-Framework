@@ -146,7 +146,8 @@ public readonly struct BaseSubjectAuthorityEpoch : IEquatable<BaseSubjectAuthori
     /// <summary>Returns the canonical unpadded base64url representation.</summary>
     public string ToBase64Url() => BaseSubjectReferenceEncoding.Encode(ToArray());
     internal static BaseSubjectAuthorityEpoch Create() => new(RandomNumberGenerator.GetBytes(16));
-    internal static BaseSubjectAuthorityEpoch Parse(string value) => new(BaseSubjectReferenceEncoding.Decode(value, 16));
+    /// <summary>Parses the canonical unpadded base64url representation.</summary>
+    public static BaseSubjectAuthorityEpoch Parse(string value) => new(BaseSubjectReferenceEncoding.Decode(value, 16));
     /// <inheritdoc />
     public bool Equals(BaseSubjectAuthorityEpoch other) => _high == other._high && _low == other._low;
     /// <inheritdoc />
@@ -192,7 +193,8 @@ public readonly struct BaseSubjectIncarnation : IEquatable<BaseSubjectIncarnatio
         RandomNumberGenerator.Fill(value.AsSpan(8));
         return new(value);
     }
-    internal static BaseSubjectIncarnation Parse(string value) => new(BaseSubjectReferenceEncoding.Decode(value, 24));
+    /// <summary>Parses the canonical unpadded base64url representation.</summary>
+    public static BaseSubjectIncarnation Parse(string value) => new(BaseSubjectReferenceEncoding.Decode(value, 24));
     /// <inheritdoc />
     public bool Equals(BaseSubjectIncarnation other) => _generation == other._generation && _high == other._high && _low == other._low;
     /// <inheritdoc />

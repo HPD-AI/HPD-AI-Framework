@@ -37,6 +37,9 @@ export interface BaseSubjectLifecycleConsumerDefinition {
   readonly id: string; readonly version: number; readonly checksum: string; readonly audience: "service" | "system"; readonly contractId: string; readonly contractVersion: number;
   readonly observedStates: readonly BaseSubjectLifecycleState[]; readonly readRoute: string; readonly checkpointRoute: string;
   readonly reconciliationRoute?: string | null;
+  readonly retirementParticipation: "observeOnly" | "advisory" | "required";
+  readonly acknowledgementRoute?: string | null;
+  readonly retirementChecksum?: string | null;
   readonly maximumFactsPerPage: number; readonly maximumResultBytes: number;
 }
 export interface BaseSubjectLifecycleReadOptions { readonly projectId?: string; readonly cursor?: BaseSubjectLifecycleCursor; readonly take?: number; readonly signal?: AbortSignal; }
@@ -50,7 +53,10 @@ export function subjectLifecycleConsumer(definition: BaseSubjectLifecycleConsume
   if (!/^[0-9a-f]{64}$/u.test(definition.checksum) || !Number.isSafeInteger(definition.version) || definition.version < 1
     || !Number.isSafeInteger(definition.contractVersion) || definition.contractVersion < 1 || definition.observedStates.length === 0
     || new Set(definition.observedStates).size !== definition.observedStates.length || definition.maximumFactsPerPage < 1 || definition.maximumFactsPerPage > 256
-    || definition.maximumResultBytes < 1 || definition.maximumResultBytes > 1_048_576) invalid();
+    || definition.maximumResultBytes < 1 || definition.maximumResultBytes > 1_048_576
+    || !["observeOnly", "advisory", "required"].includes(definition.retirementParticipation)
+    || definition.retirementParticipation === "observeOnly" && (definition.acknowledgementRoute != null || definition.retirementChecksum != null)
+    || definition.retirementParticipation !== "observeOnly" && (typeof definition.acknowledgementRoute !== "string" || !definition.acknowledgementRoute.startsWith("/") || typeof definition.retirementChecksum !== "string" || !/^[0-9a-f]{64}$/u.test(definition.retirementChecksum))) invalid();
   return Object.freeze({ ...definition, observedStates: Object.freeze([...definition.observedStates]) });
 }
 
@@ -129,6 +135,12 @@ function decodeFact(input: unknown, definition: BaseSubjectLifecycleConsumerDefi
     authorityEpoch: value.authorityEpoch as BaseSubjectLifecycleAuthorityEpoch, incarnation: value.incarnation as BaseSubjectLifecycleIncarnation, subjectSequence: value.subjectSequence as string,
     contractStateGeneration: value.contractStateGeneration as string, deliveryEpoch: value.deliveryEpoch as string, kind,
     ...(previous === undefined ? {} : { previousState: previous as BaseSubjectLifecycleState }), ...(current === undefined ? {} : { currentState: current as BaseSubjectLifecycleState }) });
+}
+/** Decodes one closed generated lifecycle delivery embedded by another BASE worker protocol. */
+export function decodeSubjectLifecycleDelivery(input: unknown, definition: BaseSubjectLifecycleConsumerDefinition): BaseSubjectLifecycleDelivery {
+  const value=object(input);exact(value,["fact","checkpoint","processingIdentity","advanceIdentity"]);if(!token(value.checkpoint))invalid();
+  const decodeIdentity=(input:unknown):BaseSubjectLifecycleMutationIdentity=>{const identity=object(input);exact(identity,["scope","operation","idempotencyKey","fingerprint"]);if(identity.scope!==`subject-lifecycle:${definition.id}`||!['subjectLifecycle.process','subjectLifecycle.advance'].includes(identity.operation as string)||!/^[0-9a-f]{64}$/u.test(identity.idempotencyKey as string)||!fingerprint(identity.fingerprint))invalid();return Object.freeze(identity as unknown as BaseSubjectLifecycleMutationIdentity);};
+  return Object.freeze({fact:decodeFact(value.fact,definition),checkpoint:value.checkpoint as BaseSubjectLifecycleCheckpoint,processingIdentity:decodeIdentity(value.processingIdentity),advanceIdentity:decodeIdentity(value.advanceIdentity)});
 }
 function object(value: unknown): Record<string, unknown> { if (value === null || typeof value !== "object" || Array.isArray(value)) invalid(); return value as Record<string, unknown>; }
 function exact(value: Record<string, unknown>, keys: readonly string[]): void { if (Object.keys(value).length !== keys.length || keys.some(key => !Object.hasOwn(value, key))) invalid(); }

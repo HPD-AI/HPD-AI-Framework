@@ -32,6 +32,14 @@ internal sealed class InMemoryStoreState
     public Dictionary<string, InMemorySubjectLifecycleConsumerProjection> SubjectLifecycleConsumers { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, InMemorySubjectLifecycleCheckpointState> SubjectLifecycleCheckpoints { get; } = new(StringComparer.Ordinal);
     public long SubjectLifecycleDeliveryEpoch { get; set; } = 1;
+    /// <summary>Gets current coordinated-retirement barriers by protected lifetime key.</summary>
+    public Dictionary<string, InMemorySubjectRetirementBarrierState> SubjectRetirementBarriers { get; } = new(StringComparer.Ordinal);
+    /// <summary>Gets immutable terminal coordinated-retirement evidence.</summary>
+    public Dictionary<string, InMemorySubjectRetirementTerminalState> SubjectRetirementTerminals { get; } = new(StringComparer.Ordinal);
+    /// <summary>Gets the next dedicated retirement-control position.</summary>
+    public long SubjectRetirementPosition { get; set; }
+    /// <summary>Gets sanitized retirement control publications in provider order.</summary>
+    public List<BaseSubjectRetirementPublicationRow> SubjectRetirementPublications { get; } = [];
     /// <summary>Gets module-owned generation cells by canonical scoped key.</summary>
     public Dictionary<string, long> ModuleGenerations { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets the shared record/control mutation journal by append position.</summary>
@@ -46,6 +54,7 @@ internal sealed class InMemoryStoreState
             NextRevision = NextRevision,
             GlobalMutationPosition = GlobalMutationPosition,
             SubjectLifecycleDeliveryEpoch = SubjectLifecycleDeliveryEpoch,
+            SubjectRetirementPosition = SubjectRetirementPosition,
         };
 
         foreach (var (id, collection) in Collections)
@@ -77,6 +86,15 @@ internal sealed class InMemoryStoreState
             Scope = checkpoint.Scope with { IndexDigest = [.. checkpoint.Scope.IndexDigest], ProtectedCanonicalValue = [.. checkpoint.Scope.ProtectedCanonicalValue] },
             Through = checkpoint.Through is null ? null : checkpoint.Through with { },
         });
+        foreach ((string key, InMemorySubjectRetirementBarrierState barrier) in SubjectRetirementBarriers)
+            clone.SubjectRetirementBarriers.Add(key, barrier.DeepClone());
+        foreach ((string key, InMemorySubjectRetirementTerminalState terminal) in SubjectRetirementTerminals)
+            clone.SubjectRetirementTerminals.Add(key, terminal.DeepClone());
+        clone.SubjectRetirementPublications.AddRange(SubjectRetirementPublications.Select(static row => row with
+        {
+            Scope = row.Scope is null ? null : row.Scope with { IndexDigest = [.. row.Scope.IndexDigest], ProtectedCanonicalValue = [.. row.Scope.ProtectedCanonicalValue] },
+            Fact = row.Fact with { },
+        }));
         foreach ((string key, long generation) in ModuleGenerations)
             clone.ModuleGenerations.Add(key, generation);
         foreach ((long position, BaseMutationJournalEntry entry) in MutationJournal)
@@ -159,6 +177,23 @@ internal sealed record InMemorySubjectLifecycleFactRow(BaseProtectedSubjectScope
 internal sealed record InMemorySubjectLifecycleMembershipRow(string ConsumerId, int ConsumerVersion, string ConsumerChecksum, long ProjectionGeneration, BaseSubjectLifecycleState MatchedState, BaseProtectedSubjectScope Scope, int FactIndex);
 internal sealed record InMemorySubjectLifecycleConsumerProjection(string ConsumerId, int ConsumerVersion, string ConsumerChecksum, string ContractId, int ContractVersion, long ProjectionGeneration, BaseSubjectLifecycleOrderingBoundary? Cutoff, long PublishedGraphGeneration, DateTimeOffset InstalledAtUtc, TimeSpan MaximumCheckpointLag);
 internal sealed record InMemorySubjectLifecycleCheckpointState(string ConsumerId, int ConsumerVersion, string ConsumerChecksum, string ContractId, int ContractVersion, long ProjectionGeneration, BaseProtectedSubjectScope Scope, BaseSubjectLifecycleOrderingBoundary? Through, long Generation, DateTimeOffset AdvancedAtUtc, bool Overtaken);
+internal sealed record InMemorySubjectRetirementAcknowledgement(string ConsumerId, int ConsumerVersion, string ConsumerChecksum, long ThroughSequence, BaseSubjectAcknowledgementDisposition Disposition, long Position);
+internal sealed record InMemorySubjectRetirementBarrierState(BaseProtectedSubjectScope Scope, BaseSubjectRetirementBarrier Barrier, Dictionary<string, InMemorySubjectRetirementAcknowledgement> Acknowledgements)
+{
+    internal InMemorySubjectRetirementBarrierState DeepClone() => new(
+        Scope with { IndexDigest = [.. Scope.IndexDigest], ProtectedCanonicalValue = [.. Scope.ProtectedCanonicalValue] },
+        Barrier with { AuthorityEpoch = new BaseSubjectAuthorityEpoch(Barrier.AuthorityEpoch.ToArray()), Incarnation = new BaseSubjectIncarnation(Barrier.Incarnation.ToArray()) },
+        Acknowledgements.ToDictionary(static pair => new string(pair.Key.AsSpan()), static pair => pair.Value with { }, StringComparer.Ordinal));
+}
+internal sealed record InMemorySubjectRetirementTerminalState(BaseSubjectRetirementTerminalReceipt Receipt)
+{
+    internal InMemorySubjectRetirementTerminalState DeepClone() => new(Receipt with
+    {
+        Scope=Receipt.Scope with{IndexDigest=[..Receipt.Scope.IndexDigest],ProtectedCanonicalValue=[..Receipt.Scope.ProtectedCanonicalValue]},
+        AuthorityEpoch=new BaseSubjectAuthorityEpoch(Receipt.AuthorityEpoch.ToArray()),Incarnation=new BaseSubjectIncarnation(Receipt.Incarnation.ToArray()),
+        Acknowledgements=[..Receipt.Acknowledgements.Select(static value=>value with{})],
+    });
+}
 
 internal sealed class InMemoryVectorProjectionState
 {
@@ -212,6 +247,18 @@ internal sealed record InMemoryMutationReceipt(
         SubjectLifecycleMaintenance = result.SubjectLifecycleMaintenance is null
             ? null
             : result.SubjectLifecycleMaintenance with { RollingChecksum = new string(result.SubjectLifecycleMaintenance.RollingChecksum.AsSpan()) },
+        SubjectRetirement = result.SubjectRetirement is null ? null : result.SubjectRetirement with
+        {
+            Acknowledgement = result.SubjectRetirement.Acknowledgement is null ? null : result.SubjectRetirement.Acknowledgement with
+            {
+                BarrierChecksum = result.SubjectRetirement.Acknowledgement.BarrierChecksum is null ? null : new string(result.SubjectRetirement.Acknowledgement.BarrierChecksum.AsSpan()),
+            },
+            Timeout = result.SubjectRetirement.Timeout is null ? null : result.SubjectRetirement.Timeout with { BarrierChecksum = new string(result.SubjectRetirement.Timeout.BarrierChecksum.AsSpan()) },
+            Override = result.SubjectRetirement.Override is null ? null : result.SubjectRetirement.Override with { BarrierChecksum = new string(result.SubjectRetirement.Override.BarrierChecksum.AsSpan()) },
+            Purge = result.SubjectRetirement.Purge is null ? null : result.SubjectRetirement.Purge with { TerminalReceiptChecksum = new string(result.SubjectRetirement.Purge.TerminalReceiptChecksum.AsSpan()) },
+            ConsumerRemoval = result.SubjectRetirement.ConsumerRemoval is null ? null : result.SubjectRetirement.ConsumerRemoval with { AcceptedConsumerSetChecksum = new string(result.SubjectRetirement.ConsumerRemoval.AcceptedConsumerSetChecksum.AsSpan()) },
+            Maintenance = result.SubjectRetirement.Maintenance is null ? null : result.SubjectRetirement.Maintenance with { RollingChecksum = new string(result.SubjectRetirement.Maintenance.RollingChecksum.AsSpan()) },
+        },
     };
 }
 

@@ -751,6 +751,12 @@ public sealed record BaseSubjectLifecycleProviderInspection
     public required long RestoreEpoch { get; init; }
     /// <summary>Gets the delivery epoch.</summary>
     public required long DeliveryEpoch { get; init; }
+    /// <summary>Gets the current protected-scope index generation.</summary>
+    public required long ScopeProtectionGeneration { get; init; }
+    /// <summary>Gets the current protected-scope key identity.</summary>
+    public required string ScopeProtectionKeyId { get; init; }
+    /// <summary>Gets the current retirement control generation.</summary>
+    public required long RetirementControlGeneration { get; init; }
     /// <summary>Gets the earliest retained boundary.</summary>
     public BaseSubjectLifecycleOrderingBoundary? EarliestRetained { get; init; }
     /// <summary>Gets the current high water.</summary>
@@ -782,65 +788,6 @@ public enum BaseSubjectLifecycleMaintenanceKind
     RotateScopeProtection = 6,
 }
 
-/// <summary>Requests one identified bounded lifecycle maintenance operation.</summary>
-public sealed record BaseSubjectLifecycleMaintenanceExecutionRequest
-{
-    private byte[] _planChecksum = [];
-    private byte[]? _lastCanonicalKey;
-    /// <summary>Gets the closed maintenance request format version.</summary>
-    public required int FormatVersion { get; init; }
-    /// <summary>Gets the maintenance kind.</summary>
-    public required BaseSubjectLifecycleMaintenanceKind Kind { get; init; }
-    /// <summary>Gets the exact contract for contract- or consumer-scoped work.</summary>
-    public string? ContractId { get; init; }
-    /// <summary>Gets the exact positive contract version when a contract is present.</summary>
-    public int? ContractVersion { get; init; }
-    /// <summary>Gets the exact consumer for consumer-scoped work.</summary>
-    public string? ConsumerId { get; init; }
-    /// <summary>Gets the exact positive consumer version when a consumer is present.</summary>
-    public int? ConsumerVersion { get; init; }
-    /// <summary>Gets the exact protected logical scope for scope-scoped work.</summary>
-    public BaseOwnedSubjectScopeEvidence? Scope { get; init; }
-    /// <summary>Gets the inclusive retained boundary used by prune and overtake operations.</summary>
-    public BaseSubjectLifecycleOrderingBoundary? RetainedFrom { get; init; }
-    /// <summary>Gets identified request authority.</summary>
-    public required BaseMutationRequestIdentity Identity { get; init; }
-    /// <summary>Gets the canonical plan checksum.</summary>
-    public required byte[] PlanChecksum
-    {
-        get => [.. _planChecksum];
-        init => _planChecksum = value is null ? throw new ArgumentNullException(nameof(value)) : [.. value];
-    }
-    /// <summary>Gets the expected store generation.</summary>
-    public required long ExpectedStoreGeneration { get; init; }
-    /// <summary>Gets the expected installed schema generation.</summary>
-    public required long ExpectedSchemaGeneration { get; init; }
-    /// <summary>Gets the expected restore epoch.</summary>
-    public required long ExpectedRestoreEpoch { get; init; }
-    /// <summary>Gets the expected delivery epoch.</summary>
-    public required long ExpectedDeliveryEpoch { get; init; }
-    /// <summary>Gets the expected consumer projection generation for consumer-scoped work.</summary>
-    public long? ExpectedProjectionGeneration { get; init; }
-    /// <summary>Gets the expected scope-protection generation.</summary>
-    public required long ExpectedScopeProtectionGeneration { get; init; }
-    /// <summary>Gets the expected active scope-protection key.</summary>
-    public required string ExpectedScopeProtectionKeyId { get; init; }
-    /// <summary>Gets the replacement key only for rotation.</summary>
-    public string? ReplacementScopeProtectionKeyId { get; init; }
-    /// <summary>Gets the exclusive canonical resume key; null starts at the first page.</summary>
-    public byte[]? LastCanonicalKey
-    {
-        get => _lastCanonicalKey is null ? null : [.. _lastCanonicalKey];
-        init => _lastCanonicalKey = value is null ? null : [.. value];
-    }
-    /// <summary>Gets the fixed bounded page size.</summary>
-    public required int PageSize { get; init; }
-    /// <summary>Gets the operation timeout.</summary>
-    public required TimeSpan OperationTimeout { get; init; }
-    /// <summary>Gets the commit-completion timeout.</summary>
-    public required TimeSpan CommitCompletionTimeout { get; init; }
-}
-
 /// <summary>Returns canonical evidence for one completed lifecycle maintenance publication.</summary>
 public sealed record BaseSubjectLifecycleMaintenanceResult
 {
@@ -862,25 +809,6 @@ public sealed record BaseSubjectLifecycleMaintenanceResult
     public required bool Duplicate { get; init; }
 }
 
-/// <summary>Provides one provider-owned, maintenance-closed lifecycle operation.</summary>
-public interface IBaseSubjectLifecycleMaintenanceSession
-{
-    /// <summary>Executes or resumes the exact bounded provider plan.</summary>
-    ValueTask<OperationResult<BaseSubjectLifecycleMaintenanceResult>> ExecuteAsync(
-        BaseSubjectLifecycleMaintenanceExecutionRequest request,
-        CancellationToken cancellationToken = default);
-}
-
-/// <summary>Processes only BASE-owned lifecycle maintenance plans.</summary>
-public interface IBaseSubjectLifecycleMaintenanceProcessor
-{
-    /// <summary>Executes one provider-bound maintenance request.</summary>
-    ValueTask<RecordMutationExecutionResult> ExecuteAsync(
-        IBaseSubjectLifecycleMaintenanceSession session,
-        BaseSubjectLifecycleMaintenanceExecutionRequest request,
-        CancellationToken cancellationToken = default);
-}
-
 /// <summary>Provides dedicated durable exported-subject lifecycle delivery.</summary>
 public interface IBaseSubjectLifecycleStore
 {
@@ -892,6 +820,4 @@ public interface IBaseSubjectLifecycleStore
     ValueTask<OperationResult<BaseSubjectLifecycleProviderReconciliationPage>> ReconcileAsync(BaseSubjectLifecycleProviderReconciliationRequest request, CancellationToken cancellationToken = default);
     /// <summary>Inspects protected lifecycle authority.</summary>
     ValueTask<OperationResult<BaseSubjectLifecycleProviderInspection>> InspectAsync(BaseSubjectLifecycleProviderInspectionRequest request, CancellationToken cancellationToken = default);
-    /// <summary>Executes one BASE-owned lifecycle maintenance operation.</summary>
-    ValueTask<RecordMutationExecutionResult> ExecuteMaintenanceAsync(IBaseSubjectLifecycleMaintenanceProcessor processor, BaseSubjectLifecycleMaintenanceExecutionRequest request, CancellationToken cancellationToken = default);
 }

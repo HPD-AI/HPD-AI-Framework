@@ -35,7 +35,7 @@ public sealed class BaseExportedSubjectAttribute(string id) : Attribute
     public bool ActiveValue { get; set; } = true;
     /// <summary>Gets or sets the stable required Boolean tombstone-state field ID.</summary>
     public required string TombstoneFieldId { get; set; }
-    /// <summary>Gets or sets whether L48 coordinated retirement may be installed.</summary>
+    /// <summary>Gets or sets whether coordinated retirement may be installed.</summary>
     public bool SupportsCoordinatedRetirement { get; set; }
     /// <summary>Gets or sets the stable required ordinal scope field ID.</summary>
     public string? ScopeFieldId { get; set; }

@@ -23,6 +23,8 @@ public sealed partial class SqliteRecordStore :
     IBaseSubjectPublicationStore,
     IBaseSubjectValidationPlanReceiptStore,
     IBaseSubjectLifecycleStore,
+    IBaseSubjectRetirementStore,
+    IBaseSubjectAuthorityMaintenanceStore,
     IAsyncDisposable
 {
     /// <inheritdoc />

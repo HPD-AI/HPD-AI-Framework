@@ -14,9 +14,11 @@ internal sealed class DefaultBaseModuleMutationRuntime(
     IBaseResultNormalizer normalizer,
     BaseSubjectContractRegistry subjects,
     TimeProvider timeProvider,
-    BaseSubjectLifecycleRegistry? lifecycleRegistry = null) : IBaseModuleMutationRuntime
+    BaseSubjectLifecycleRegistry? lifecycleRegistry = null,
+    BaseSubjectRetirementRegistry? retirementRegistry = null) : IBaseModuleMutationRuntime
 {
     private readonly BaseSubjectLifecycleRegistry lifecycleConsumers = lifecycleRegistry ?? new([], subjects);
+    private readonly BaseSubjectRetirementRegistry retirement = retirementRegistry ?? new([], [], lifecycleRegistry ?? new([], subjects));
     public async ValueTask<BaseResult<BaseModuleMutationExecutionResult<TResult>>> ExecuteAsync<TRequest, TResult>(
         BaseSession session,
         BaseRegisteredModuleMutationDefinition definition,
@@ -90,7 +92,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         var processor = new BaseModuleMutationProcessor<TRequest, TResult>(
             definition, generatedIdentity, request, intent, extension, limits, installed,
             session.Principal, moduleOperation, operationPolicy.Value,
-            schemaValidator, policy, normalizer, subjects, lifecycleConsumers);
+            schemaValidator, policy, normalizer, subjects, lifecycleConsumers, retirement);
         var executionRequest = new RecordMutationExecutionRequest
         {
             AcquisitionTimeout = definition.Limits.Deadlines.AcquisitionTimeout,
@@ -364,9 +366,12 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         MaximumReadIntervals = value.MaximumReadIntervals, MaximumSubjectValidations = value.MaximumSubjectValidations,
         MaximumAuthorityReads = value.MaximumAuthorityReads, MaximumRelationChecks = value.MaximumRelationChecks,
         MaximumUniqueConstraintChecks = value.MaximumUniqueConstraintChecks, MaximumRequestBytes = value.MaximumRequestBytes,
+        MaximumRetirementProjections = value.MaximumRecordMutations, MaximumRetirementBarrierReads = value.MaximumRecordMutations,
+        MaximumRetirementAcknowledgementReads = 1, MaximumRetirementPublications = value.MaximumRecordMutations,
         MaximumGenerationBytes = value.MaximumGenerationBytes, MaximumWrittenBytes = value.MaximumWrittenBytes,
         MaximumFactBytes = value.MaximumFactBytes, MaximumJournalBytes = value.MaximumJournalBytes,
         MaximumReceiptBytes = value.MaximumReceiptBytes, MaximumResultBytes = value.MaximumResultBytes,
+        MaximumRetirementEvidenceBytes = value.MaximumEvidenceBytes, MaximumRetirementPublicationBytes = value.MaximumFactBytes,
         Deadlines = value.Deadlines with { },
     };
 
