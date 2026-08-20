@@ -61,6 +61,31 @@ public sealed class LiveAudioOutputGenerationV2Tests
             method.ReturnType.Name.Contains("OutputFlow", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void Activated_controller_persists_distinct_generated_sent_played_and_heard_axes()
+    {
+        var fixture = Fixture();
+        var generation = new LiveAudioOutputGenerationV2(fixture.Authority, 4, 16);
+        var controller = Assert.IsType<LiveAudioOutputActivationResultV2.Activated>(
+            generation.Activate(fixture.Offer)).Controller;
+        var provider = new DeterministicPcmSynthesisProviderV2(OutputSynthesisFamilyV2.SegmentedPcm);
+        var sink = new ManualOutputSinkEffectPortV2();
+
+        Assert.IsType<OutputPipelineResultV2.Applied>(controller.Generate(
+            new OutputSynthesisRequestV2(OperationId.Create(), OutputSynthesisFamilyV2.SegmentedPcm, "hello", 10),
+            provider));
+        Assert.IsType<OutputPipelineResultV2.Applied>(controller.Send(
+            new OutputSinkEffectV2.Send(OperationId.Create(), 5), sink));
+        Assert.IsType<OutputPipelineResultV2.Applied>(controller.Play(
+            new OutputSinkEffectV2.Play(OperationId.Create(), 4), sink));
+        Assert.IsType<OutputPipelineResultV2.Applied>(controller.Hear(
+            new OutputSinkEffectV2.Hear(OperationId.Create(), 3), sink));
+
+        var status = controller.Read();
+        Assert.Equal((5L, 5L, 4L, 3L),
+            (status.GeneratedUntil, status.SentUntil, status.PlayedUntil, status.HeardUntil));
+    }
+
     private static (OutputOfferV2 Offer, ExpectedAuthorityVectorV1 Authority, OutputGenerationId Output) Fixture()
     {
         var session = new SessionAuthorityStampV1(RuntimeGenerationId.Create(), LiveSessionId.Create());

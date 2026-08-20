@@ -58,10 +58,20 @@ internal sealed class InMemoryOutputControllerV2 : IOutputControllerV2,IOutputSt
     public OutputCommandResultV2 Apply(OutputCommandV2 command)
     {var result=OutputReducerV2.Apply(_state,command,_maximumReceipts);if(result is OutputCommandResultV2.Applied applied)_state=applied.State;return result;}
     public OutputStatusV2 Read()=>_state.Status with{};
+    internal OutputPipelineResultV2 Generate(OutputSynthesisRequestV2 request,IOutputSynthesisProviderV2 provider)
+        =>ApplyPipeline(OutputTtsSinkPipelineV2.Generate(_state,request,provider,_maximumReceipts));
+    internal OutputPipelineResultV2 Send(OutputSinkEffectV2.Send effect,IOutputSinkEffectPortV2 sink)
+        =>ApplyPipeline(OutputTtsSinkPipelineV2.Send(_state,effect,sink,_maximumReceipts));
+    internal OutputPipelineResultV2 Play(OutputSinkEffectV2.Play effect,IOutputSinkEffectPortV2 sink)
+        =>ApplyPipeline(OutputTtsSinkPipelineV2.Play(_state,effect,sink,_maximumReceipts));
+    internal OutputPipelineResultV2 Hear(OutputSinkEffectV2.Hear effect,IOutputSinkEffectPortV2 sink)
+        =>ApplyPipeline(OutputTtsSinkPipelineV2.Hear(_state,effect,sink,_maximumReceipts));
     internal OutputPlanV2 Plan=>_state.Plan;
     internal OutputControllerStateV2 State=>_state;
     internal OutputInterruptionResultV2 Interrupt(ToolTransactionStateV1 tool,OperationId operationId,ushort maximumToolReceipts)
     {var result=OutputInterruptionCoordinatorV2.Interrupt(new(_state,tool),operationId,_maximumReceipts,maximumToolReceipts);if(result is OutputInterruptionResultV2.Applied applied)_state=applied.State.Output;return result;}
+    private OutputPipelineResultV2 ApplyPipeline(OutputPipelineResultV2 result)
+    {if(result is OutputPipelineResultV2.Applied applied)_state=applied.State;return result;}
 }
 
 internal static class OutputReducerV2
