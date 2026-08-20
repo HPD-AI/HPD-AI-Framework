@@ -88,8 +88,11 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
         var plan = new ProviderParticipantPlanV1(ParticipantId.Create(), ProviderId.Create(), provider, route, authority, Hash(40), 1);
         var offer = new OutputOfferV2(OperationId.Create(), output, 16, Hash(41), new OutputOriginEvidenceV2(decision,
             new ProviderParticipantSnapshotV1(1, ProviderParticipantPhaseV1.Effective, plan, 0, null)));
-        var activated = Assert.IsType<LiveAudioOutputActivationResultV2.Activated>(prepared.Session.ActivateOutput(offer));
+        var execution = prepared.Session.BindOutputOrigin(offer.Origin);
+        var activated = Assert.IsType<LiveAudioOutputActivationResultV2.Activated>(execution.Activate(
+            offer.OperationId, offer.MaximumUnits, offer.ContentFingerprint));
         Assert.Equal(authority, activated.Receipt.Plan.Authority);
+        Assert.Equal(output, execution.OutputGeneration);
         Assert.Equal(0UL, activated.Controller.Read().Revision);
         Assert.Equal(output,tools.OutputGeneration);
         Assert.Equal(route,routes.RouteGeneration);

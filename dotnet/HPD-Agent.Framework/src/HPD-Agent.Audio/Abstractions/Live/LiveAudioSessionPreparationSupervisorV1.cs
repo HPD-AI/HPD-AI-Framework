@@ -71,6 +71,14 @@ internal sealed class LiveAudioPreparedSessionV1
             : OutputV2.Activate(offer);
     }
 
+    internal PreparedOutputExecutionV2 BindOutputOrigin(OutputOriginEvidenceV2 origin)
+    {
+        ArgumentNullException.ThrowIfNull(origin);
+        return OutputV2 is null
+            ? throw new InvalidOperationException("The prepared session has no admitted output generation.")
+            : new PreparedOutputExecutionV2(OutputV2, origin);
+    }
+
     internal async ValueTask<LiveAudioPreparedSessionUnwindResultV1> UnwindAsync()
     {
         await _unwindGate.WaitAsync().ConfigureAwait(false);
