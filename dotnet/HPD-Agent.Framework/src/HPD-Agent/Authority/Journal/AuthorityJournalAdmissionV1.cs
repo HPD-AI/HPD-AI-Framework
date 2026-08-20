@@ -99,6 +99,24 @@ internal sealed class SubmissionDispositionChosenPayloadRegistrationV1 : Authori
         SubmissionDispositionChosenV1Codec.TryDecode(payload, out _);
 }
 
+internal sealed class SemanticReservationCreatedPayloadRegistrationV1 : AuthorityPayloadRegistrationV1
+{
+    internal SemanticReservationCreatedPayloadRegistrationV1() :
+        base(new BoundedAscii(CoreLifecycleRecordCodecsV1.ReservationSchemaId), 1, 0, OwnerSliceId.S1, 16_384) { }
+
+    private protected override bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload, SessionAuthorityStampV1 session) =>
+        CoreLifecycleRecordCodecsV1.TryDecodeReservation(payload, out var value) && value!.SourcePosition.Session == session;
+}
+
+internal sealed class SemanticAcceptanceBoundPayloadRegistrationV1 : AuthorityPayloadRegistrationV1
+{
+    internal SemanticAcceptanceBoundPayloadRegistrationV1() :
+        base(new BoundedAscii(CoreLifecycleRecordCodecsV1.AcceptanceSchemaId), 1, 0, OwnerSliceId.S1, 16_384) { }
+
+    private protected override bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload, SessionAuthorityStampV1 session) =>
+        CoreLifecycleRecordCodecsV1.TryDecodeAcceptance(payload, out var value) && value!.SourcePosition.Session == session;
+}
+
 internal sealed class SessionLifecycleCommandPayloadRegistrationV1 : AuthorityPayloadRegistrationV1
 {
     internal SessionLifecycleCommandPayloadRegistrationV1() :

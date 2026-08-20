@@ -63,12 +63,19 @@ internal sealed record AuthorityFactAdmittedV1 : CoreLifecycleRecordV1 { interna
 
 internal static class CoreLifecycleRecordCodecsV1
 {
+    internal const string AcceptanceSchemaId = "hpd.semantic-acceptance-bound.v1";
+    internal const string ReservationSchemaId = "hpd.semantic-reservation-created.v1";
+    internal const string AdmittedSchemaId = "hpd.authority-fact-admitted.v1";
+    internal static SchemaReferenceV1 AcceptanceSchema { get; } = Schema(AcceptanceSchemaId);
+    internal static SchemaReferenceV1 ReservationSchema { get; } = Schema(ReservationSchemaId);
+    internal static SchemaReferenceV1 AdmittedSchema { get; } = Schema(AdmittedSchemaId);
     internal static byte[] Encode(CoreLifecycleRecordV1 v)=>AuthorityLifecycleRecordCodecV1.Encode(v.OperationId,v.SourcePosition,v.Authority,v.Disposition);
     internal static bool TryDecodeAcceptance(ReadOnlyMemory<byte>b,out SemanticAcceptanceBoundV1? v)=>Decode(b,static x=>new(x.OperationId,x.SourcePosition,x.Authority,x.Disposition),out v);
     internal static bool TryDecodeReservation(ReadOnlyMemory<byte>b,out SemanticReservationCreatedV1? v)=>Decode(b,static x=>new(x.OperationId,x.SourcePosition,x.Authority,x.Disposition),out v);
     internal static bool TryDecodeAdmitted(ReadOnlyMemory<byte>b,out AuthorityFactAdmittedV1? v)=>Decode(b,static x=>new(x.OperationId,x.SourcePosition,x.Authority,x.Disposition),out v);
-    internal static Hash256 ComputeHash(SemanticAcceptanceBoundV1 v)=>AuthorityIntegrityHashV1.Compute("hpd.semantic-acceptance-bound.v1",1,0,Encode(v));
-    internal static Hash256 ComputeHash(SemanticReservationCreatedV1 v)=>AuthorityIntegrityHashV1.Compute("hpd.semantic-reservation-created.v1",1,0,Encode(v));
-    internal static Hash256 ComputeHash(AuthorityFactAdmittedV1 v)=>AuthorityIntegrityHashV1.Compute("hpd.authority-fact-admitted.v1",1,0,Encode(v));
+    internal static Hash256 ComputeHash(SemanticAcceptanceBoundV1 v)=>AuthorityIntegrityHashV1.Compute(AcceptanceSchemaId,1,0,Encode(v));
+    internal static Hash256 ComputeHash(SemanticReservationCreatedV1 v)=>AuthorityIntegrityHashV1.Compute(ReservationSchemaId,1,0,Encode(v));
+    internal static Hash256 ComputeHash(AuthorityFactAdmittedV1 v)=>AuthorityIntegrityHashV1.Compute(AdmittedSchemaId,1,0,Encode(v));
+    private static SchemaReferenceV1 Schema(string id)=>new(AuthoritySchemaIdentityV1.Derive(new BoundedAscii(id)),1,0);
     private static bool Decode<T>(ReadOnlyMemory<byte>b,Func<DecodedAuthorityLifecycleRecordV1,T> create,out T? value)where T:CoreLifecycleRecordV1{value=null;if(!AuthorityLifecycleRecordCodecV1.TryDecode(b,out var decoded))return false;var candidate=create(decoded);if(!Encode(candidate).AsSpan().SequenceEqual(b.Span))return false;value=candidate;return true;}
 }
