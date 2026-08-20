@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using HPD.Agent.Authority;
+using HPD.Agent.Audio.Runtime.Tools;
 
 namespace HPD.Agent.Audio.Runtime.Output;
 
@@ -57,6 +58,10 @@ internal sealed class InMemoryOutputControllerV2 : IOutputControllerV2,IOutputSt
     public OutputCommandResultV2 Apply(OutputCommandV2 command)
     {var result=OutputReducerV2.Apply(_state,command,_maximumReceipts);if(result is OutputCommandResultV2.Applied applied)_state=applied.State;return result;}
     public OutputStatusV2 Read()=>_state.Status with{};
+    internal OutputPlanV2 Plan=>_state.Plan;
+    internal OutputControllerStateV2 State=>_state;
+    internal OutputInterruptionResultV2 Interrupt(ToolTransactionStateV1 tool,OperationId operationId,ushort maximumToolReceipts)
+    {var result=OutputInterruptionCoordinatorV2.Interrupt(new(_state,tool),operationId,_maximumReceipts,maximumToolReceipts);if(result is OutputInterruptionResultV2.Applied applied)_state=applied.State.Output;return result;}
 }
 
 internal static class OutputReducerV2

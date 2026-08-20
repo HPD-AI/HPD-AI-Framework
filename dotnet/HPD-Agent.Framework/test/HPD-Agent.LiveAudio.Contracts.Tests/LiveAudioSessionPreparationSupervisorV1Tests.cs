@@ -2,6 +2,7 @@ using HPD.Agent.Authority;
 using HPD.Agent.Audio.Authority;
 using HPD.Agent.Audio.Runtime.Output;
 using HPD.Agent.Audio.Runtime.Providers;
+using HPD.Agent.Audio.Runtime.Tools;
 using System.Formats.Cbor;
 
 namespace HPD.Agent.Audio.Tests;
@@ -56,6 +57,7 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
         Assert.Equal(["prepare:media", "prepare:activity"], calls);
         Assert.Equal(2, prepared.Session.Participants.Count);
         Assert.Null(prepared.Session.OutputV2);
+        Assert.Null(prepared.Session.ToolV1);
         var mutableView = Assert.IsAssignableFrom<IList<ILiveAudioPreparedParticipantV1>>(prepared.Session.Participants);
         Assert.Throws<NotSupportedException>(() => mutableView[0] = mutableView[1]);
         Assert.DoesNotContain(prepared.Session.GetType().GetMethods(), method =>
@@ -74,6 +76,7 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
         var prepared = Assert.IsType<LiveAudioSessionPreparationResultV1.Prepared>(await fixture.PrepareAsync(
             LiveAudioParticipantFactoryCatalogV1.CreateExplicit([new Factory("media", OwnerSliceId.S2, calls)])));
         var generation = Assert.IsType<LiveAudioOutputGenerationV2>(prepared.Session.OutputV2);
+        var tools = Assert.IsType<LiveAudioToolGenerationV1>(prepared.Session.ToolV1);
         var authority = fixture.Request.ExpectedAuthority;
         var provider = Assert.IsType<AuthorityAxisValueV1.Provider>(authority.Axes.Single(x => x.AxisId == AuthorityAxisId.Provider).Value).Value;
         var route = Assert.IsType<AuthorityAxisValueV1.Route>(authority.Axes.Single(x => x.AxisId == AuthorityAxisId.Route).Value).Value;
@@ -85,6 +88,7 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
         var activated = Assert.IsType<LiveAudioOutputActivationResultV2.Activated>(generation.Activate(offer));
         Assert.Equal(authority, activated.Receipt.Plan.Authority);
         Assert.Equal(0UL, activated.Controller.Read().Revision);
+        Assert.Equal(output,tools.OutputGeneration);
         await prepared.Session.UnwindAsync();
     }
 
@@ -223,6 +227,7 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
                 axes.Add(new AuthorityAxisValueV1.Provider(ProviderGenerationId.Create()));
                 axes.Add(new AuthorityAxisValueV1.Route(RouteGenerationId.Create()));
                 axes.Add(new AuthorityAxisValueV1.Output(OutputGenerationId.Create()));
+                axes.Add(new AuthorityAxisValueV1.Tool(ToolGenerationId.Create()));
             }
             Authority = ExpectedAuthorityVectorV1.Create(Session, axes);
             var registrations = Authority.Axes.Select(axis =>
@@ -324,6 +329,7 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
                 AuthorityAxisValueV1.Provider provider => provider.Value.TryWriteBytes(value),
                 AuthorityAxisValueV1.Route route => route.Value.TryWriteBytes(value),
                 AuthorityAxisValueV1.Output output => output.Value.TryWriteBytes(value),
+                AuthorityAxisValueV1.Tool tool => tool.Value.TryWriteBytes(value),
                 _ => false,
             });
             var writer = new CborWriter(CborConformanceMode.Ctap2Canonical);
