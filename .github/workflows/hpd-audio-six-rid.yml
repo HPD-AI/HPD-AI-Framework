@@ -62,10 +62,7 @@ jobs:
           foreach ($name in 'create','bind','start','stop','destroy') {
             if ($exportText -notmatch "hpd_audio_transport_$name") { throw "missing export $name" }
           }
-          @('LIBRARY HPD-Agent.Audio.TransportAbi.NativeAot','EXPORTS','hpd_audio_transport_create','hpd_audio_transport_bind','hpd_audio_transport_start','hpd_audio_transport_stop','hpd_audio_transport_destroy') | Set-Content (Join-Path $out 'transport.def')
-          & lib /nologo "/def:$out\transport.def" '/machine:${{ matrix.machine }}' "/out:$out\transport.lib"
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          & cl /nologo /W4 /WX test\HPD-Agent.Audio.TransportAbi.NativeAot\transport_abi_smoke.c /Itest\HPD-Agent.Audio.TransportAbi.NativeAot /link "$out\transport.lib" "/out:$env:RUNNER_TEMP\hpd-audio-abi-smoke.exe"
+          & cl /nologo /W4 /WX test\HPD-Agent.Audio.TransportAbi.NativeAot\transport_abi_smoke_windows.c /Itest\HPD-Agent.Audio.TransportAbi.NativeAot "/Fe:$env:RUNNER_TEMP\hpd-audio-abi-smoke.exe"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           Copy-Item $dll (Join-Path $env:RUNNER_TEMP '${{ matrix.library }}')
           $env:PATH = "$out;$env:PATH"
