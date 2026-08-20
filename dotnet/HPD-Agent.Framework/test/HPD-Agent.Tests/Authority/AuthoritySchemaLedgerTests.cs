@@ -80,8 +80,7 @@ public sealed class AuthoritySchemaLedgerTests
     [Fact]
     public void GeneratedLedger_ExactlyMatchesEveryCheckedInInputRow()
     {
-        var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
-        var lines = File.ReadAllLines(Path.Combine(root, "src/HPD-Agent/Authority/Generated/authority-schema-ledger-v1.txt"));
+        var lines = File.ReadAllLines(FindLedger());
         Assert.Equal("# source-contract-sha256=c8f12e2cd0b43fbcd1e796eee3b4a8c90341fb93c3b3a78c42e0d1f03737895f", lines[0]);
         Assert.Equal("# source-registry-sha256=c8f12e2cd0b43fbcd1e796eee3b4a8c90341fb93c3b3a78c42e0d1f03737895f", lines[1]);
         Assert.Contains("hpd.global-participant-page.v1|7|isFinal|UInt16|required=true|range:0..1|union=None", lines);
@@ -104,6 +103,16 @@ public sealed class AuthoritySchemaLedgerTests
         Assert.Equal(GeneratedSections.Select(section => section.Name), expected.Keys);
         foreach (var section in GeneratedSections)
             Assert.Equal(expected[section.Name], section.Rows);
+    }
+
+    private static string FindLedger()
+    {
+        for(var current=new DirectoryInfo(AppContext.BaseDirectory);current is not null;current=current.Parent)
+        {
+            var candidate=Path.Combine(current.FullName,"src/HPD-Agent/Authority/Generated/authority-schema-ledger-v1.txt");
+            if(File.Exists(candidate))return candidate;
+        }
+        throw new DirectoryNotFoundException("Could not locate the HPD-Agent authority schema ledger from the test output directory.");
     }
 
     [Fact]

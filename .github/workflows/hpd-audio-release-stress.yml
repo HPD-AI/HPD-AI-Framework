@@ -86,10 +86,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          out="${RUNNER_TEMP}/silero-soak"
           log="${RUNNER_TEMP}/native-long-soak.log"
-          dotnet publish test/HPD-Agent.Audio.VoiceActivity.AotSmoke/HPD-Agent.Audio.VoiceActivity.AotSmoke.csproj -c Release -r linux-x64 -o "$out" >"$log" 2>&1
-          HPD_SILERO_SOAK_WINDOWS=1000000 "$out/HPD-Agent.Audio.VoiceActivity.AotSmoke" >>"$log" 2>&1 || { tail -120 "$log"; exit 1; }
+          eng/qualify-silero-vad.sh linux-x64 >"$log" 2>&1 || { tail -120 "$log"; exit 1; }
           grep -E 'silero-soak-windows=1000000' "$log"
       - uses: actions/upload-artifact@v4
         with:

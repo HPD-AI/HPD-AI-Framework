@@ -90,8 +90,12 @@ public sealed class AuthoritySchemaLedgerSourceGeneratorTests
 
     private static string LoadLedger()
     {
-        var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
-        return File.ReadAllText(Path.Combine(root, "src/HPD-Agent/Authority/Generated/authority-schema-ledger-v1.txt"));
+        for(var current=new DirectoryInfo(AppContext.BaseDirectory);current is not null;current=current.Parent)
+        {
+            var candidate=Path.Combine(current.FullName,"src/HPD-Agent/Authority/Generated/authority-schema-ledger-v1.txt");
+            if(File.Exists(candidate))return File.ReadAllText(candidate);
+        }
+        throw new DirectoryNotFoundException("Could not locate the HPD-Agent authority schema ledger from the test output directory.");
     }
 
     private sealed class LedgerText(string text) : AdditionalText
