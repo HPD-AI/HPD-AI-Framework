@@ -1,4 +1,5 @@
 using HPD.Agent.Replay.Abi;
+using HPD.Agent.Replay;
 
 namespace HPD.Agent.Replay.Abi.Tests;
 
@@ -54,6 +55,27 @@ public sealed class ReplayAbiEngineV1Tests
         Assert.Equal(explored, status);
         explored[56] ^= 0xff;
         Assert.NotEqual(explored, status);
+    }
+
+    [Fact]
+    public void Replay_ids_are_family_scoped_canonical_and_nonzero()
+    {
+        Assert.True(ReplayArtifactId.TryCreate("rpa:00000000000000000000000001", out var artifact));
+        Assert.Equal("rpa:00000000000000000000000001", artifact.Value);
+        Assert.False(ReplayArtifactId.TryCreate("run:00000000000000000000000001", out _));
+        Assert.False(ReplayArtifactId.TryCreate("rpa:00000000000000000000000000", out _));
+        Assert.False(ReplayArtifactId.TryCreate("rpa:80000000000000000000000001", out _));
+        Assert.False(ReplayArtifactId.TryCreate("rpa:0000000000000000000000000I", out _));
+    }
+
+    [Fact]
+    public void Replay_bounds_reject_zero_and_inconsistent_capacity()
+    {
+        Assert.False(ReplayBoundsV1.TryCreate(0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,out _));
+        Assert.False(ReplayBoundsV1.TryCreate(1,2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,out _));
+        Assert.False(ReplayBoundsV1.TryCreate(2,1,1,1,1,2,1,1,1,1,1,1,1,1,1,1,out _));
+        Assert.True(ReplayBoundsV1.TryCreate(2,1,1,1,2,1,1,1,1,2,1,1,1,1,1,1,out var bounds));
+        Assert.NotNull(bounds);
     }
 
     private static byte[] Execute()
