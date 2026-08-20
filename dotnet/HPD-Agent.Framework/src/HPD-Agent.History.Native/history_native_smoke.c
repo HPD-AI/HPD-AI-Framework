@@ -19,7 +19,7 @@ int main(void){
   if(hpd_history_query_next(h,&out,&e)!=1)return 4;
   if(hpd_history_query_close(h,&e)||hpd_history_query_next(h,&out,&e)!=16)return 5;
   in=input_value(request,2);if(hpd_history_subscription_open(&in,&h,&e)||hpd_history_subscription_next(h,1,&out,&e)||hpd_history_subscription_ack(h,out.cursor,&e)||hpd_history_subscription_close(h,&e))return 6;
-  in=input_value(request,3);if(hpd_history_export_start(&in,&h,&e)||hpd_history_export_status(h,&out,&e)||out.written!=80)return 7;
+  in=input_value(request,3);if(hpd_history_export_start(&in,&h,&e)||hpd_history_export_status(h,&out,&e)||out.written!=104)return 7;
   if(hpd_history_export_content_open(h,&c,&e)||hpd_history_export_content_next(c,&out,&e)||hpd_history_export_content_close(c,&e)||hpd_history_export_cancel(h,&e))return 8;
   in=input_value(request,5);if(hpd_privacy_delete_start(&in,&h,&e)||hpd_privacy_status(h,&out,&e)||hpd_privacy_cancel(h,&e))return 9;
   in=input_value(request,6);if(hpd_privacy_hold_start(&in,&h,&e)||hpd_privacy_hold_release(h,&in,&e))return 10;
