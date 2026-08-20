@@ -1,0 +1,12 @@
+{
+  "schema": "hpd.audio.transport-abi-qualification.v1",
+  "advertisedRids": ["osx-arm64"],
+  "callingConvention": "cdecl",
+  "exports": [
+    "hpd_audio_transport_create",
+    "hpd_audio_transport_bind",
+    "hpd_audio_transport_start",
+    "hpd_audio_transport_stop",
+    "hpd_audio_transport_destroy"
+  ]
+}
