@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Security.Cryptography;
-using HPD.Agent.Authority;
 
 namespace HPD.Agent.Replay.Abi;
 
@@ -20,6 +19,7 @@ public sealed class ReplayAbiEngineV1
     public const int MaximumSlots = 64;
     private readonly Slot[] _slots = new Slot[MaximumSlots];
     private readonly uint[] _generations = new uint[MaximumSlots];
+    private readonly uint[] _closedGenerations = new uint[MaximumSlots];
     private readonly object _gate = new();
 
     public ReplayAbiStatusV1 Open(ReadOnlySpan<byte> request, out ulong handle)
@@ -80,7 +80,12 @@ public sealed class ReplayAbiEngineV1
     {
         lock (_gate)
         {
-            if (!TryGet(handle, out var index, out _)) return ReplayAbiStatusV1.InvalidHandleGeneration;
+            var slotNumber=(uint)handle;var generation=(uint)(handle>>32);
+            if(slotNumber==0||slotNumber>MaximumSlots||generation==0)return ReplayAbiStatusV1.InvalidHandleGeneration;
+            var index=(int)slotNumber-1;
+            if(_slots[index] is null&&_closedGenerations[index]==generation)return ReplayAbiStatusV1.AlreadyClosed;
+            if (!TryGet(handle, out index, out _)) return ReplayAbiStatusV1.InvalidHandleGeneration;
+            _closedGenerations[index]=generation;
             _slots[index] = null!;
             return ReplayAbiStatusV1.Ok;
         }

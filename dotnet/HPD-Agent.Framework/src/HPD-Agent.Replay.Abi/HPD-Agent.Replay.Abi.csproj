@@ -12,4 +12,5 @@
     <ProjectReference Include="../HPD-Agent/HPD-Agent.csproj" />
     <ProjectReference Include="../HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
   </ItemGroup>
+  <ItemGroup><Compile Include="../HPD-Agent.Native.Abi.Shared/CanonicalCborValidatorV1.cs" Link="CanonicalCborValidatorV1.cs" /></ItemGroup>
 </Project>

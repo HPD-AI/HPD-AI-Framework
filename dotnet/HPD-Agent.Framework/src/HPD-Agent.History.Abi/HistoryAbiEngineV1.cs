@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Security.Cryptography;
-using HPD.Agent.Authority;
 
 namespace HPD.Agent.History.Abi;
 
@@ -19,6 +18,7 @@ public sealed class HistoryAbiEngineV1
     public const int MaximumSlots=64;
     private readonly Slot?[] _slots=new Slot?[MaximumSlots];
     private readonly uint[] _generations=new uint[MaximumSlots];
+    private readonly uint[] _closedGenerations=new uint[MaximumSlots];
     private readonly object _gate=new();
 
     public HistoryApiStatusV1 Open(HistoryHandleKindV1 kind,ReadOnlySpan<byte> request,out ulong handle)
@@ -40,7 +40,7 @@ public sealed class HistoryAbiEngineV1
     public HistoryApiStatusV1 Cancel(ulong handle,HistoryHandleKindV1 kind)
     {lock(_gate){if(!TryGet(handle,kind,out _,out var slot))return HistoryApiStatusV1.InvalidHandleGeneration;slot.Cancelled=true;return HistoryApiStatusV1.Ok;}}
     public HistoryApiStatusV1 Close(ulong handle,HistoryHandleKindV1 kind)
-    {lock(_gate){if(!TryGet(handle,kind,out var index,out _))return HistoryApiStatusV1.InvalidHandleGeneration;_slots[index]=null;return HistoryApiStatusV1.Ok;}}
+    {lock(_gate){uint number=(uint)handle,generation=(uint)(handle>>32);if(number==0||number>MaximumSlots||generation==0)return HistoryApiStatusV1.InvalidHandleGeneration;var index=(int)number-1;if(_slots[index] is null&&_closedGenerations[index]==generation)return HistoryApiStatusV1.Ok;if(!TryGet(handle,kind,out index,out _))return HistoryApiStatusV1.InvalidHandleGeneration;_closedGenerations[index]=generation;_slots[index]=null;return HistoryApiStatusV1.Ok;}}
     public HistoryApiStatusV1 ReleaseHold(ulong handle,ReadOnlySpan<byte> request)
     {if(request.IsEmpty||!CanonicalCborValidatorV1.IsValid(request))return HistoryApiStatusV1.InvalidArgument;return Cancel(handle,HistoryHandleKindV1.Hold);}
     private HistoryApiStatusV1 OpenUnderLock(HistoryHandleKindV1 kind,ReadOnlySpan<byte> request,out ulong handle)

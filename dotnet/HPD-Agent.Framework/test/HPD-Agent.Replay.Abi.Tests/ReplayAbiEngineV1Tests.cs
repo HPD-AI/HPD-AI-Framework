@@ -21,6 +21,7 @@ public sealed class ReplayAbiEngineV1Tests
         Assert.Equal(ReplayAbiStatusV1.Ok, engine.Complete(first, out _));
         Assert.Equal(ReplayAbiStatusV1.AlreadyClosed, engine.Step(first, [2]));
         Assert.Equal(ReplayAbiStatusV1.Ok, engine.Close(first));
+        Assert.Equal(ReplayAbiStatusV1.AlreadyClosed, engine.Close(first));
         Assert.Equal(ReplayAbiStatusV1.InvalidHandleGeneration, engine.Status(first, out _));
         Assert.Equal(ReplayAbiStatusV1.Ok, engine.Open([1], out var second));
         Assert.NotEqual(first, second);

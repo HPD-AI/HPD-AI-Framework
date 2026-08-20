@@ -7,4 +7,5 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../HPD-Agent/HPD-Agent.csproj" /></ItemGroup>
+  <ItemGroup><Compile Include="../HPD-Agent.Native.Abi.Shared/CanonicalCborValidatorV1.cs" Link="CanonicalCborValidatorV1.cs" /></ItemGroup>
 </Project>

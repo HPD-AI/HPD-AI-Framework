@@ -1,8 +1,6 @@
 using System.Buffers.Binary;
 using System.Text;
 
-namespace HPD.Agent.Authority;
-
 internal static class CanonicalCborValidatorV1
 {
     private const int MaximumDepth=64;
