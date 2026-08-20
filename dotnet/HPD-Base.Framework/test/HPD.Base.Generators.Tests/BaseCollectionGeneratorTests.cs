@@ -18,12 +18,18 @@ public sealed class BaseCollectionGeneratorTests
             using System.Text.Json.Serialization;
 
             [BaseExportedSubject("hpd.auth.user-subject", Version = 1, OwningModuleId = "hpd.auth", SubjectIdKind = BaseSubjectIdKind.Guid, MaximumSubjectIdUtf8Bytes = 36,
-                PrivateRecordType = typeof(Profile), AcquisitionGrantId = "hpd.auth.user.acquire", ValidationGrantId = "hpd.auth.user.validate", AdministrationGrantId = "hpd.auth.user.admin", ValidationPlanId = "hpd.auth.user.validate.v1")]
+                PrivateRecordType = typeof(Profile), AcquisitionGrantId = "hpd.auth.user.acquire", ValidationGrantId = "hpd.auth.user.validate", AdministrationGrantId = "hpd.auth.user.admin", ValidationPlanId = "hpd.auth.user.validate.v1", ActiveFieldId = "profile.active", TombstoneFieldId = "profile.tombstoned")]
             public sealed partial class AuthUserSubject;
 
             [BaseCollection("profiles", typeof(AppJsonContext))]
             public sealed partial record Profile
             {
+                [BaseField("profile.active")]
+                public required bool Active { get; init; }
+
+                [BaseField("profile.tombstoned")]
+                public required bool Tombstoned { get; init; }
+
                 [BaseField("profile.user")]
                 [BaseSubjectReference(typeof(AuthUserSubject), Requirement = BaseSubjectReferenceRequirement.Active)]
                 public required BaseSubjectReference<AuthUserSubject> User { get; init; }

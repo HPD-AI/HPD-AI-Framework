@@ -29,17 +29,21 @@ internal sealed class BaseOpaqueTokenProtector : IDisposable
     }
 
     public string Protect(string purpose, byte version, ReadOnlySpan<byte> plaintext, ReadOnlySpan<byte> scopeDigest)
+        => Protect(purpose, version, plaintext, scopeDigest, _activeId);
+
+    internal string Protect(string purpose, byte version, ReadOnlySpan<byte> plaintext, ReadOnlySpan<byte> scopeDigest, byte keyId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(purpose);
         if (plaintext.Length > 65_536) throw new ArgumentOutOfRangeException(nameof(plaintext));
         if (scopeDigest.Length != 32) throw new ArgumentOutOfRangeException(nameof(scopeDigest));
-        KeyState active = _keys[_activeId];
+        if (!_keys.TryGetValue(keyId, out KeyState? active))
+            throw new KeyNotFoundException("The requested token key is unavailable.");
         DateTimeOffset now = _timeProvider.GetUtcNow();
         if (now < active.IssueNotBefore || active.IssueUntil is { } issueUntil && now >= issueUntil)
             throw new InvalidOperationException("The active token key is outside its issuance lifetime.");
         byte[] key = Derive(active.Key, purpose, version);
         byte[] token = new byte[2 + NonceLength + plaintext.Length + TagLength];
-        token[0] = _activeId; token[1] = version;
+        token[0] = keyId; token[1] = version;
         RandomNumberGenerator.Fill(token.AsSpan(2, NonceLength));
         byte[] associated = Associated(purpose, version, scopeDigest);
         try
@@ -101,6 +105,14 @@ internal sealed class BaseOpaqueTokenProtector : IDisposable
 
     internal bool HasKey(byte keyId) => _keys.TryGetValue(keyId, out KeyState? state)
         && (state.DecryptUntil is null || _timeProvider.GetUtcNow() < state.DecryptUntil);
+
+    internal bool CanIssueWithKey(byte keyId)
+    {
+        if (!_keys.TryGetValue(keyId, out KeyState? state)) return false;
+        DateTimeOffset now = _timeProvider.GetUtcNow();
+        return now >= state.IssueNotBefore && (state.IssueUntil is null || now < state.IssueUntil)
+            && (state.DecryptUntil is null || now < state.DecryptUntil);
+    }
 
     private void Add(BaseOpaqueTokenKey key)
     {

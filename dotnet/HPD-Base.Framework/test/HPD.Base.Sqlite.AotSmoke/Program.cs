@@ -13,6 +13,19 @@ try
 {
     BaseCollection<SmokeRecord> items = SmokeRecord.Collection;
     BaseCollection<SmokePrivateSubjectRecord> privateSubjects = SmokePrivateSubjectRecord.Collection;
+    var lifecycleConsumer = new BaseSubjectLifecycleConsumerDefinition
+    {
+        Id = "hpd.base.sqlite.aot.subject.lifecycle", Version = 1,
+        OwningModuleId = "hpd.base.sqlite.aot.consumer", Audience = BaseSubjectLifecycleConsumerAudience.Service,
+        ContractId = "hpd.base.sqlite.aot.subject", ContractVersion = 1,
+        ObservedStates = [BaseSubjectLifecycleState.Active, BaseSubjectLifecycleState.Inactive],
+        DeliveryGrantId = "hpd.base.sqlite.aot.subject.lifecycle.read",
+        Limits = new BaseSubjectLifecycleConsumerLimits
+        {
+            MaximumFactsPerPage = 64, MaximumResultBytes = 131_072,
+            MaximumCheckpointLag = TimeSpan.FromDays(1), ReadTimeout = TimeSpan.FromSeconds(5),
+        },
+    };
     BaseCollection<JsonElement>[] authorityCollections =
     [
         AuthorityCollection("authority.revisions", BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge),
@@ -47,6 +60,7 @@ try
         builder.AddCollection(privateSubjects);
         builder.AddCollection(SmokeSubjectConsumerRecord.Collection);
         builder.AddExportedSubject(SmokeSubject.HPDBaseSubjectRegistration);
+        builder.AddSubjectLifecycleConsumer(lifecycleConsumer);
         builder.AddRead(SmokeAcquireSubject.Definition);
         builder.AddSubjectAcquisition(new BaseSubjectAcquisitionDefinition
         {
@@ -66,7 +80,7 @@ try
             Id = "hpd.base.sqlite.aot.allow", Version = 1, OwningModuleId = "hpd.base.sqlite.aot",
             EvaluatorContractId = "hpd.base.sqlite.aot.policy", EvaluatorContractVersion = 1, CompositionOrder = 0,
         });
-        foreach (string grantId in new[] { "hpd.base.sqlite.aot.subject.private", "hpd.base.sqlite.aot.subject.acquire", "hpd.base.sqlite.aot.subject.validate", "hpd.base.sqlite.aot.subject.rotate", "hpd.base.sqlite.aot.module.increment" })
+        foreach (string grantId in new[] { "hpd.base.sqlite.aot.subject.private", "hpd.base.sqlite.aot.subject.acquire", "hpd.base.sqlite.aot.subject.validate", "hpd.base.sqlite.aot.subject.rotate", "hpd.base.sqlite.aot.subject.lifecycle.read", "base.subjectLifecycle.feed.read", "base.subjectLifecycle.feed.checkpoint", "hpd.base.sqlite.aot.module.increment" })
             builder.AddStaticGrantAuthority(GrantDefinition(grantId, "hpd.base.sqlite.aot"), Grant(grantId, "sqlite-aot-service"));
         builder.AddModuleGenerationCell(ModuleMutationSmoke.Cell);
         builder.AddModuleMutation(ModuleMutationSmoke.Definition, ModuleMutationSmoke.Identity);
@@ -140,7 +154,7 @@ try
         new RecordCreateRequest
         {
             RequestedId = new RecordId("subject-1"),
-            Payload = JsonObjectPayload(("active", "true"), ("tenant", "\"tenant-a\"")),
+            Payload = JsonObjectPayload(("active", "true"), ("tombstoned", "false"), ("tenant", "\"tenant-a\"")),
         },
         principal,
         Operation(BaseOperationKind.Create, privateSubjects.Id));
@@ -174,6 +188,21 @@ try
         principal,
         Operation(BaseOperationKind.Patch, privateSubjects.Id));
     Require(deactivatedSubject.IsSuccess(), "Subject deactivation failed: " + deactivatedSubject.Error?.Code);
+    BaseGeneratedSubjectLifecycleConsumerIdentity<SmokeSubject> lifecycleIdentity =
+        BaseGeneratedSubjectLifecycleConsumers.Register<SmokeSubject>(lifecycleConsumer, SmokeSubject.HPDBaseSubjectRegistration);
+    BaseInstalledSubjectLifecycleConsumer<SmokeSubject> lifecycle = session.SubjectLifecycle.Get(lifecycleIdentity);
+    var lifecycleDeliveries = new List<BaseSubjectLifecycleDelivery<SmokeSubject>>();
+    await foreach (BaseSubjectLifecycleDelivery<SmokeSubject> delivery in lifecycle.ReadAsync(CancellationToken.None))
+        lifecycleDeliveries.Add(delivery);
+    Require(lifecycleDeliveries.Select(static delivery => delivery.Fact.Fact.Kind).ToArray()
+            is [BaseSubjectLifecycleFactKind.Created, BaseSubjectLifecycleFactKind.Transitioned]
+        && lifecycleDeliveries[^1].Fact.Fact.Transitioned?.CurrentState == BaseSubjectLifecycleState.Inactive,
+        "SQLite Native AOT lifecycle delivery did not preserve canonical state ordering.");
+    BaseSubjectLifecycleDelivery<SmokeSubject> lifecycleThrough = lifecycleDeliveries[^1];
+    BaseSubjectLifecycleCheckpointResult lifecycleAdvanced =
+        (await lifecycle.AdvanceAsync(lifecycleThrough.Checkpoint, lifecycleThrough.AdvanceIdentity)).RequireValue();
+    Require(lifecycleAdvanced.CheckpointGeneration == 1 && !lifecycleAdvanced.Duplicate,
+        "SQLite Native AOT lifecycle checkpoint did not advance exactly once.");
     OperationResult<RecordEnvelope> rejectedReference = await runtime.CreateAsync(
         SmokeSubjectConsumerRecord.Collection.Id,
         new RecordCreateRequest
@@ -336,10 +365,13 @@ static BaseGrantAuthorityDefinition GrantDefinition(string id, string owner) => 
 };
 static AccessGrant Grant(string id, string subjectId) => new()
 {
-    Id = id, ApplicationId = "hpd.base.sqlite.aot", ModuleId = id == "hpd.base.sqlite.aot.module.increment" ? "hpd.base.sqlite.aot.module" : "hpd.base.sqlite.aot",
+    Id = id, ApplicationId = "hpd.base.sqlite.aot", ModuleId = id == "hpd.base.sqlite.aot.module.increment" ? "hpd.base.sqlite.aot.module" : id.Contains("subjectLifecycle", StringComparison.Ordinal) || id.Contains("subject.lifecycle", StringComparison.Ordinal) ? "hpd.base.sqlite.aot.consumer" : "hpd.base.sqlite.aot",
     Audience = HPDBaseEndpointAudience.Application,
     Subject = new AccessSubject { Kind = AccessSubjectKind.ServicePrincipal, Id = subjectId, TenantId = "tenant-a" },
-    Action = id, Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime, TenantId = "tenant-a" },
+    Action = id == "hpd.base.sqlite.aot.subject.lifecycle.read" ? "hpd.base.sqlite.aot.subject.lifecycle" : id,
+    Scope = id.Contains("subjectLifecycle", StringComparison.Ordinal) || id.Contains("subject.lifecycle", StringComparison.Ordinal)
+        ? new ResourceScope { Kind = ResourceScopeKind.SubjectContract, SubjectContractId = "hpd.base.sqlite.aot.subject", SubjectContractVersion = 1, TenantId = "tenant-a" }
+        : new ResourceScope { Kind = ResourceScopeKind.Runtime, TenantId = "tenant-a" },
 };
 
 static BaseCollection<JsonElement> AuthorityCollection(string id, BaseCollectionMutationMode mode) =>
@@ -488,6 +520,9 @@ internal sealed partial record SmokePrivateSubjectRecord
     [BaseField("subject.active")]
     public required bool Active { get; init; }
 
+    [BaseField("subject.tombstoned")]
+    public required bool Tombstoned { get; init; }
+
     [BaseField("subject.tenant")]
     public required string Tenant { get; init; }
 }
@@ -501,6 +536,7 @@ internal sealed partial record SmokePrivateSubjectRecord
     ValidationPlanId = "hpd.base.sqlite.aot.subject.validate.v1",
     Scope = BaseSubjectScopeKind.Tenant,
     ActiveFieldId = "subject.active",
+    TombstoneFieldId = "subject.tombstoned",
     ScopeFieldId = "subject.tenant")]
 internal sealed partial class SmokeSubject;
 

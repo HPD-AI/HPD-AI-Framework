@@ -13,8 +13,10 @@ internal sealed class DefaultBaseModuleMutationRuntime(
     IBasePolicyOrchestrator policy,
     IBaseResultNormalizer normalizer,
     BaseSubjectContractRegistry subjects,
-    TimeProvider timeProvider) : IBaseModuleMutationRuntime
+    TimeProvider timeProvider,
+    BaseSubjectLifecycleRegistry? lifecycleRegistry = null) : IBaseModuleMutationRuntime
 {
+    private readonly BaseSubjectLifecycleRegistry lifecycleConsumers = lifecycleRegistry ?? new([], subjects);
     public async ValueTask<BaseResult<BaseModuleMutationExecutionResult<TResult>>> ExecuteAsync<TRequest, TResult>(
         BaseSession session,
         BaseRegisteredModuleMutationDefinition definition,
@@ -88,7 +90,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         var processor = new BaseModuleMutationProcessor<TRequest, TResult>(
             definition, generatedIdentity, request, intent, extension, limits, installed,
             session.Principal, moduleOperation, operationPolicy.Value,
-            schemaValidator, policy, normalizer, subjects);
+            schemaValidator, policy, normalizer, subjects, lifecycleConsumers);
         var executionRequest = new RecordMutationExecutionRequest
         {
             AcquisitionTimeout = definition.Limits.Deadlines.AcquisitionTimeout,

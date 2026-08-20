@@ -40,6 +40,90 @@ public interface IHPDBaseAdministration
         PrincipalContext principal,
         BaseSubjectEpochRotationRequest request,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Executes one exact identified durable subject-lifecycle maintenance operation.</summary>
+    ValueTask<BaseResult<BaseSubjectLifecycleMaintenanceResult>> ExecuteSubjectLifecycleMaintenanceAsync(
+        string storeId,
+        PrincipalContext principal,
+        BaseSubjectLifecycleMaintenanceExecutionRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Reads one grant-authorized sanitized lifecycle authority inspection.</summary>
+    ValueTask<BaseResult<BaseSubjectLifecycleInspectionResult>> InspectSubjectLifecycleAsync(
+        string storeId,
+        PrincipalContext principal,
+        BaseSubjectLifecycleInspectionRequest request,
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>Requests sanitized lifecycle authority inspection after exact ControlPlane authorization.</summary>
+public sealed record BaseSubjectLifecycleInspectionRequest
+{
+    /// <summary>Gets the exported contract identity.</summary>
+    public required string ContractId { get; init; }
+    /// <summary>Gets the exported contract version.</summary>
+    public required int ContractVersion { get; init; }
+    /// <summary>Gets the optional exact consumer identity.</summary>
+    public string? ConsumerId { get; init; }
+    /// <summary>Gets the requested scope-query mode.</summary>
+    public required BaseSubjectScopeQueryMode ScopeMode { get; init; }
+    /// <summary>Gets exact scope authority when exact-scope inspection is requested.</summary>
+    public BaseOwnedSubjectScopeEvidence? ExactScope { get; init; }
+    /// <summary>Gets the optional subject identity for exact-scope terminal inspection.</summary>
+    public BaseSubjectId? SubjectId { get; init; }
+    /// <summary>Gets whether exact-scope terminal evidence is requested.</summary>
+    public required bool IncludeTerminalReceipt { get; init; }
+    /// <summary>Gets the maximum canonical result bytes.</summary>
+    public required long MaximumResultBytes { get; init; }
+    /// <summary>Gets the bounded inspection timeout.</summary>
+    public required TimeSpan Timeout { get; init; }
+}
+
+/// <summary>Contains sanitized terminal lifetime evidence without protected provider scope material.</summary>
+public sealed record BaseSubjectTerminalLifetimeInspection
+{
+    /// <summary>Gets the contract identity.</summary>
+    public required string ContractId { get; init; }
+    /// <summary>Gets the contract version.</summary>
+    public required int ContractVersion { get; init; }
+    /// <summary>Gets the retired subject identity.</summary>
+    public required BaseSubjectId SubjectId { get; init; }
+    /// <summary>Gets the retired authority epoch.</summary>
+    public required BaseSubjectAuthorityEpoch RetiredAuthorityEpoch { get; init; }
+    /// <summary>Gets the retired incarnation.</summary>
+    public required BaseSubjectIncarnation RetiredIncarnation { get; init; }
+    /// <summary>Gets the retired lifetime generation.</summary>
+    public required long RetiredLifetimeGeneration { get; init; }
+    /// <summary>Gets the retired subject sequence.</summary>
+    public required long RetiredSubjectSequence { get; init; }
+    /// <summary>Gets the retirement journal position.</summary>
+    public required BaseMutationJournalPosition RetiredPosition { get; init; }
+    /// <summary>Gets the contract state generation.</summary>
+    public required long ContractStateGeneration { get; init; }
+    /// <summary>Gets the restore epoch.</summary>
+    public required long RestoreEpoch { get; init; }
+    /// <summary>Gets the corruption checksum.</summary>
+    public required string ReceiptChecksum { get; init; }
+}
+
+/// <summary>Contains one sanitized ControlPlane lifecycle inspection.</summary>
+public sealed record BaseSubjectLifecycleInspectionResult
+{
+    private BaseSubjectLifecycleConsumerInspection[] _consumers = [];
+    /// <summary>Gets the current delivery epoch.</summary>
+    public required long DeliveryEpoch { get; init; }
+    /// <summary>Gets the earliest retained lifecycle boundary.</summary>
+    public BaseSubjectLifecycleOrderingBoundary? EarliestRetained { get; init; }
+    /// <summary>Gets the current lifecycle high-water boundary.</summary>
+    public BaseSubjectLifecycleOrderingBoundary? HighWater { get; init; }
+    /// <summary>Gets sanitized installed-consumer authority.</summary>
+    public required IReadOnlyList<BaseSubjectLifecycleConsumerInspection> Consumers
+    {
+        get => Array.AsReadOnly(_consumers.ToArray());
+        init => _consumers = value?.Select(static item => item with { }).ToArray() ?? throw new ArgumentNullException(nameof(value));
+    }
+    /// <summary>Gets sanitized terminal evidence when exact-scope inspection requested it.</summary>
+    public BaseSubjectTerminalLifetimeInspection? TerminalReceipt { get; init; }
 }
 
 /// <summary>Describes provider administration guarantees.</summary>

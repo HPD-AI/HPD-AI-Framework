@@ -44,6 +44,7 @@ public sealed class HPDBaseBuilder
     private readonly Dictionary<(string Id, int Version), BaseRegisteredModuleMutationDefinition> _moduleMutations = [];
     private readonly Dictionary<(string Id, int Version), IBaseModuleMutationRegistration> _moduleMutationRegistrations = [];
     private readonly List<BaseSubjectAcquisitionDefinition> _subjectAcquisitions = [];
+    private readonly List<BaseSubjectLifecycleConsumerDefinition> _subjectLifecycleConsumers = [];
     private HPDBaseSelectionMutationOptions? _selectionOptions;
     private HPDBaseStoreProvider? _storeProvider;
     /// <summary>Provides _runtime.</summary>
@@ -63,6 +64,7 @@ public sealed class HPDBaseBuilder
     /// <summary>Provides _schema.</summary>
     private Action<HPDBaseSchemaOptions>? _schema;
     private Action<HPDBaseTokenProtectionOptions>? _tokenProtection;
+    private Action<HPDBaseSubjectLifecycleOptions>? _subjectLifecycle;
     private Action<HPDBaseVectorOptions>? _vector;
     /// <summary>Gets the graph-owned policy and grant authority builder.</summary>
     public BasePolicyAuthorityBuilder PolicyAuthority { get; }
@@ -106,6 +108,15 @@ public sealed class HPDBaseBuilder
         EnsureMutable();
         ArgumentNullException.ThrowIfNull(configure);
         _tokenProtection += configure;
+        return this;
+    }
+
+    /// <summary>Configures durable exported-subject lifecycle continuation authority.</summary>
+    public HPDBaseBuilder ConfigureSubjectLifecycle(Action<HPDBaseSubjectLifecycleOptions> configure)
+    {
+        EnsureMutable();
+        ArgumentNullException.ThrowIfNull(configure);
+        _subjectLifecycle += configure;
         return this;
     }
 
@@ -266,6 +277,15 @@ public sealed class HPDBaseBuilder
             RegisteredReadId = new string(definition.RegisteredReadId.AsSpan()),
             RequiredGrantId = new string(definition.RequiredGrantId.AsSpan()),
         });
+        return this;
+    }
+
+    /// <summary>Registers one immutable durable exported-subject lifecycle consumer.</summary>
+    public HPDBaseBuilder AddSubjectLifecycleConsumer(BaseSubjectLifecycleConsumerDefinition definition)
+    {
+        EnsureMutable();
+        ArgumentNullException.ThrowIfNull(definition);
+        _subjectLifecycleConsumers.Add(BaseSubjectLifecycleRegistry.Normalize(definition));
         return this;
     }
 
@@ -458,9 +478,19 @@ public sealed class HPDBaseBuilder
         }
         var moduleMutationRegistry = new BaseModuleMutationRegistry(_moduleMutations.Values, _moduleGenerationCells.Values, _moduleMutationRegistrations.Values);
         BaseSubjectContractRegistry subjectRegistry = FinalizeSubjectGraph(collections);
+        var subjectLifecycleRegistry = new BaseSubjectLifecycleRegistry(_subjectLifecycleConsumers, subjectRegistry);
         foreach (BaseGeneratedSubjectRegistration subject in subjectRegistry.All)
             if (!Fits(subject.Definition, provider.SubjectReferences))
                 throw new InvalidOperationException(BaseSubjectErrorCodes.GuaranteeUnavailable);
+        foreach (IGrouping<(string ContractId, int ContractVersion), BaseInstalledSubjectLifecycleConsumer> group in subjectLifecycleRegistry.All.GroupBy(static value => (value.Definition.ContractId, value.Definition.ContractVersion)))
+        {
+            if (group.Count() > provider.SubjectLifecycle.MaximumConsumersPerContract ||
+                group.Any(value => value.Definition.Limits.MaximumFactsPerPage > provider.SubjectLifecycle.MaximumFactsPerPage ||
+                    value.Definition.Limits.MaximumResultBytes > provider.SubjectLifecycle.MaximumResultBytes ||
+                    value.Definition.Limits.ReadTimeout > provider.SubjectLifecycle.MaximumReadTimeout ||
+                    value.Definition.ReconciliationGrantId is not null && !provider.SubjectLifecycle.ReconciliationSupported))
+                throw new InvalidOperationException(BaseSubjectErrorCodes.GuaranteeUnavailable);
+        }
         var relationalOptions = new HPDBaseRelationalOptions();
         _relational?.Invoke(relationalOptions);
         relationalOptions.Validate();
@@ -480,6 +510,8 @@ public sealed class HPDBaseBuilder
             throw new InvalidOperationException(BaseConfidentialityErrorCodes.ProviderCapabilityMissing);
         BaseLogicalSchema logicalSchema = BaseLogicalSchemaFactory.Create(schemaOptions, collections, _reads.Values, storageProtection, subjectRegistry);
         BasePolicyAuthorityOwner policyAuthorityOwner = PolicyAuthority.Freeze(logicalSchema.ApplicationId);
+        var lifecycleInspectionAuthorities = new BaseSubjectLifecycleInspectionAuthorityRegistry(
+            logicalSchema.ApplicationId, subjectRegistry.All, policyAuthorityOwner);
         ValidateIndexCapabilities(collections, provider);
         _services.AddSingleton(new BaseReadRegistry(new Dictionary<string, IBaseReadRegistration>(_reads, StringComparer.Ordinal)));
         _services.AddSingleton(new BaseCollectionRegistry(collections.ToDictionary(static collection => collection.Id, StringComparer.Ordinal)));
@@ -487,6 +519,7 @@ public sealed class HPDBaseBuilder
         _services.AddSingleton(storageProtection);
         _services.AddSingleton(serializerMetadataOwner);
         _services.AddSingleton(policyAuthorityOwner);
+        _services.AddSingleton(lifecycleInspectionAuthorities);
         _services.AddSingleton(moduleMutationRegistry);
         foreach (BaseSelectionOperationProfile profile in _selectionProfiles)
         {
@@ -497,15 +530,22 @@ public sealed class HPDBaseBuilder
         }
         _services.AddSingleton(new BaseSelectionProfileRegistry(_selectionProfiles));
         _services.AddSingleton(subjectRegistry);
+        _services.AddSingleton(subjectLifecycleRegistry);
         if (_selectionOptions is not null) _services.AddSingleton(_selectionOptions);
         _services.AddHPDBaseRuntime(_runtime).UseFailClosedPolicy();
         _services.AddSingleton(Microsoft.Extensions.Options.Options.Create(relationalOptions));
         _services.AddSingleton(Microsoft.Extensions.Options.Options.Create(schemaOptions));
         HPDBaseTokenProtectionOptions tokenOptions = CreateTokenOptions();
         _tokenProtection?.Invoke(tokenOptions);
+        if (subjectRegistry.All.Count != 0 && _tokenProtection is null)
+            throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
         ValidateTokenOptions(tokenOptions);
         tokenOptions = CloneTokenOptions(tokenOptions);
         _services.AddSingleton(Microsoft.Extensions.Options.Options.Create(tokenOptions));
+        var subjectLifecycleOptions = new HPDBaseSubjectLifecycleOptions();
+        _subjectLifecycle?.Invoke(subjectLifecycleOptions);
+        subjectLifecycleOptions.Validate();
+        _services.AddSingleton(Microsoft.Extensions.Options.Options.Create(subjectLifecycleOptions));
         _services.AddSingleton(new BaseTokenProtectionRegistration(_tokenProtection is not null));
         _services.TryAddSingleton<BaseOpaqueTokenProtector>();
         _services.AddSingleton<IBaseSchemaPlanProtector, DefaultBaseSchemaPlanProtector>();
@@ -549,7 +589,9 @@ public sealed class HPDBaseBuilder
         BaseExportedSubjectDefinition[] installedSubjects = subjectRegistry.All.Select(static subject => subject.Definition).ToArray();
         var installation = new HPDBaseStoreInstallationContext(
             _services, provider, collections, installedSubjects,
-            _moduleMutations.Values.ToArray(), _moduleGenerationCells.Values.ToArray());
+            _moduleMutations.Values.ToArray(), _moduleGenerationCells.Values.ToArray(),
+            subjectLifecycleRegistry.All.Select(static value => value.Definition).ToArray(),
+            lifecycleInspectionAuthorities.All.ToArray());
         HPDBaseStoreRegistrationReceipt receipt;
         try { receipt = provider.Installer.Configure(installation); }
         catch (InvalidOperationException exception) when (exception.Message.StartsWith("base.store.", StringComparison.Ordinal)) { throw; }
@@ -557,7 +599,8 @@ public sealed class HPDBaseBuilder
         finally { installation.Complete(); }
         if (receipt is null || receipt.Kind != provider.Kind || receipt.ProtocolVersion != provider.ProtocolVersion ||
             !string.Equals(receipt.SchemaDigest, HPDBaseStoreInstallationContext.ComputeSchemaDigest(
-                collections, installedSubjects, _moduleMutations.Values, _moduleGenerationCells.Values), StringComparison.Ordinal) ||
+                collections, installedSubjects, _moduleMutations.Values, _moduleGenerationCells.Values,
+                subjectLifecycleRegistry.All.Select(static value => value.Definition), lifecycleInspectionAuthorities.All), StringComparison.Ordinal) ||
             !receipt.ContributorIds.SequenceEqual(provider.RegistrationIds, StringComparer.Ordinal))
             throw new InvalidOperationException("base.store.providerInvalid");
         ConfigureVectorRuntime(collections);
@@ -575,6 +618,11 @@ public sealed class HPDBaseBuilder
         _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseHealthContributor, BaseApplicationHealthContributor>());
         _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseHealthContributor, BaseSubjectControlHealthContributor>());
         _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDiagnosticContributor, BaseSubjectControlHealthContributor>());
+        if (subjectLifecycleRegistry.All.Count != 0)
+        {
+            _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseHealthContributor, BaseSubjectLifecycleHealthContributor>());
+            _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDiagnosticContributor, BaseSubjectLifecycleHealthContributor>());
+        }
     }
 
     private static HPDBaseTokenProtectionOptions CreateTokenOptions() => new()
@@ -739,6 +787,10 @@ public sealed class HPDBaseBuilder
             var fields = (source.Fields ?? []).ToDictionary(static field => field.Id, StringComparer.Ordinal);
             if (plan.Active.Kind == BaseSubjectActiveBindingKind.RequiredBooleanField &&
                 (!fields.TryGetValue(plan.Active.FieldId!, out FieldDefinition? active) || active.Type != "boolean" || !active.Required || active.Nullable))
+                throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+            if (plan.Active.Kind != BaseSubjectActiveBindingKind.RequiredBooleanField ||
+                !fields.TryGetValue(contract.TombstoneFieldId, out FieldDefinition? tombstone) || tombstone.Type != "boolean" || !tombstone.Required || tombstone.Nullable ||
+                string.Equals(plan.Active.FieldId, contract.TombstoneFieldId, StringComparison.Ordinal))
                 throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
             if (plan.Scope.Kind != BaseSubjectScopeBindingKind.Global &&
                 (!fields.TryGetValue(plan.Scope.FieldId!, out FieldDefinition? scope) || scope.Type != "string" || !scope.Required || scope.Nullable))

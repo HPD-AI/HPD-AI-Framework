@@ -65,6 +65,18 @@ internal static class BaseAtomicMutationOwnership
         {
             ContractId = new string(value.SubjectLifecycle.ContractId.AsSpan()),
             ContractChecksum = new string(value.SubjectLifecycle.ContractChecksum.AsSpan()),
+            Memberships = value.SubjectLifecycle.Memberships.Select(static membership => membership with
+            {
+                ConsumerId = new string(membership.ConsumerId.AsSpan()),
+                ConsumerChecksum = new string(membership.ConsumerChecksum.AsSpan()),
+            }).ToImmutableArray(),
+        },
+        SubjectLifecycleTransition = value.SubjectLifecycleTransition is null ? null : value.SubjectLifecycleTransition with
+        {
+            Subject = new BaseOwnedSubjectReference(
+                value.SubjectLifecycleTransition.Subject.SubjectId,
+                value.SubjectLifecycleTransition.Subject.AuthorityEpoch,
+                value.SubjectLifecycleTransition.Subject.Incarnation),
         },
         Operation = value.Operation with
         {

@@ -9,7 +9,19 @@ namespace HPD.Base;
 [System.Text.Json.Serialization.JsonDerivedType(typeof(BaseRealtimeDurableFeedRequest), "durable")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(BaseRealtimeResumeFeedRequest), "resume")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(BaseRealtimeLiveQueryJoinRequest), "liveQuery")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseRealtimeSubjectLifecycleHintRequest), "subjectLifecycleHints")]
 public abstract record BaseRealtimeChannelRequest;
+
+/// <summary>Requests non-authoritative wake-up hints for one installed durable lifecycle consumer.</summary>
+public sealed record BaseRealtimeSubjectLifecycleHintRequest : BaseRealtimeChannelRequest
+{
+    /// <summary>Gets the installed consumer ID.</summary>
+    public required string ConsumerId { get; init; }
+    /// <summary>Gets the installed consumer version.</summary>
+    public required int ConsumerVersion { get; init; }
+    /// <summary>Gets the exact project scope for project-bound contracts.</summary>
+    public string? ProjectId { get; init; }
+}
 
 /// <summary>Defines the bounded filter shared by record-feed requests.</summary>
 public sealed record BaseRealtimeRecordFeedFilter

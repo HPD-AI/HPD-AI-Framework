@@ -19,6 +19,14 @@ internal sealed class SqliteNames
         SchemaLease = Prefix + "schema_lease";
         SubjectContracts = Prefix + "subject_contracts";
         SubjectLifetimes = Prefix + "subject_lifetimes";
+        SubjectTerminalLifetimes = Prefix + "subject_terminal_lifetimes";
+        SubjectLifecycleFacts = Prefix + "subject_lifecycle_facts";
+        SubjectLifecycleMemberships = Prefix + "subject_lifecycle_memberships";
+        SubjectLifecycleConsumers = Prefix + "subject_lifecycle_consumers";
+        SubjectLifecycleCheckpoints = Prefix + "subject_lifecycle_checkpoints";
+        SubjectLifecycleMaintenance = Prefix + "subject_lifecycle_maintenance";
+        SubjectLifecycleScopeStage = Prefix + "subject_lifecycle_scope_stage";
+        SubjectLifecycleMembershipStage = Prefix + "subject_lifecycle_membership_stage";
         SubjectMaintenance = Prefix + "subject_maintenance";
         SubjectRewriteStage = Prefix + "subject_rewrite_stage";
         ModuleGenerations = Prefix + "module_generations";
@@ -51,6 +59,14 @@ internal sealed class SqliteNames
     public string SubjectContracts { get; }
     /// <summary>Gets the provider-owned current subject-lifetime table.</summary>
     public string SubjectLifetimes { get; }
+    public string SubjectTerminalLifetimes { get; }
+    public string SubjectLifecycleFacts { get; }
+    public string SubjectLifecycleMemberships { get; }
+    public string SubjectLifecycleConsumers { get; }
+    public string SubjectLifecycleCheckpoints { get; }
+    public string SubjectLifecycleMaintenance { get; }
+    public string SubjectLifecycleScopeStage { get; }
+    public string SubjectLifecycleMembershipStage { get; }
     /// <summary>Gets the provider-owned subject-authority maintenance checkpoint table.</summary>
     public string SubjectMaintenance { get; }
     /// <summary>Gets the provider-owned subject-reference rewrite staging table.</summary>

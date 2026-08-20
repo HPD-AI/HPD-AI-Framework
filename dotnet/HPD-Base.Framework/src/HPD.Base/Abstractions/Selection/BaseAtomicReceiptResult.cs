@@ -12,6 +12,10 @@ public enum BaseAtomicReceiptResultKind
     SelectionMutation,
     /// <summary>A registered module-mutation result.</summary>
     ModuleMutation,
+    /// <summary>An identified durable subject-lifecycle checkpoint advancement.</summary>
+    SubjectLifecycleCheckpoint,
+    /// <summary>An identified subject-lifecycle maintenance publication.</summary>
+    SubjectLifecycleMaintenance,
 }
 
 /// <summary>Stores one committed module generation without disclosing its scoped provider key.</summary>
@@ -144,6 +148,10 @@ public sealed record BaseAtomicReceiptWire
     public BaseSelectionMutationReceiptResult? SelectionMutation { get; init; }
     /// <summary>Gets the optional registered module-mutation result.</summary>
     public BaseModuleMutationReceiptResultWire? ModuleMutation { get; init; }
+    /// <summary>Gets the optional subject-lifecycle checkpoint result.</summary>
+    public BaseSubjectLifecycleCheckpointResult? SubjectLifecycleCheckpoint { get; init; }
+    /// <summary>Gets the optional subject-lifecycle maintenance result.</summary>
+    public BaseSubjectLifecycleMaintenanceResult? SubjectLifecycleMaintenance { get; init; }
     internal static BaseAtomicReceiptWire From(BaseAtomicReceiptResult result)
     {
         ValidateShape(result);
@@ -172,6 +180,12 @@ public sealed record BaseAtomicReceiptWire
                 }).ToArray(),
                 CanonicalResultBytes = result.ModuleMutation.CanonicalResultBytes.ToArray(),
             },
+            SubjectLifecycleCheckpoint = result.SubjectLifecycleCheckpoint is null
+                ? null
+                : BaseSubjectLifecycleReceiptOwnership.Clone(result.SubjectLifecycleCheckpoint),
+            SubjectLifecycleMaintenance = result.SubjectLifecycleMaintenance is null
+                ? null
+                : CloneMaintenance(result.SubjectLifecycleMaintenance),
         };
     }
     internal BaseAtomicReceiptResult Materialize()
@@ -197,6 +211,12 @@ public sealed record BaseAtomicReceiptWire
                 }).ToImmutableArray(),
                 CanonicalResultBytes = ModuleMutation.CanonicalResultBytes.ToArray().ToImmutableArray(),
             },
+            SubjectLifecycleCheckpoint = SubjectLifecycleCheckpoint is null
+                ? null
+                : BaseSubjectLifecycleReceiptOwnership.Clone(SubjectLifecycleCheckpoint),
+            SubjectLifecycleMaintenance = SubjectLifecycleMaintenance is null
+                ? null
+                : CloneMaintenance(SubjectLifecycleMaintenance),
         };
         ValidateShape(result);
         return result;
@@ -206,13 +226,20 @@ public sealed record BaseAtomicReceiptWire
     {
         bool valid = result.Kind switch
         {
-            BaseAtomicReceiptResultKind.RecordMutations => result.SelectionMutation is null && result.ModuleMutation is null,
-            BaseAtomicReceiptResultKind.SelectionMutation => result.SelectionMutation is not null && result.ModuleMutation is null,
-            BaseAtomicReceiptResultKind.ModuleMutation => result.SelectionMutation is null && result.ModuleMutation is not null,
+            BaseAtomicReceiptResultKind.RecordMutations => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null,
+            BaseAtomicReceiptResultKind.SelectionMutation => result.SelectionMutation is not null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null,
+            BaseAtomicReceiptResultKind.ModuleMutation => result.SelectionMutation is null && result.ModuleMutation is not null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null,
+            BaseAtomicReceiptResultKind.SubjectLifecycleCheckpoint => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is not null && result.SubjectLifecycleMaintenance is null,
+            BaseAtomicReceiptResultKind.SubjectLifecycleMaintenance => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is not null,
             _ => false,
         };
         if (!valid) throw new InvalidOperationException("base.mutation.receipt.invalid");
     }
+
+    private static BaseSubjectLifecycleMaintenanceResult CloneMaintenance(BaseSubjectLifecycleMaintenanceResult value) => value with
+    {
+        RollingChecksum = new string(value.RollingChecksum.AsSpan()),
+    };
 }
 
 /// <summary>Provides the source-generated persistence representation of one owned fact.</summary>
@@ -235,6 +262,10 @@ public sealed record BaseAtomicReceiptResult
     public BaseSelectionMutationReceiptResult? SelectionMutation { get; init; }
     /// <summary>Gets the module result when <see cref="Kind"/> is module mutation.</summary>
     public BaseModuleMutationReceiptResult? ModuleMutation { get; init; }
+    /// <summary>Gets the lifecycle checkpoint result when <see cref="Kind"/> is a checkpoint advancement.</summary>
+    public BaseSubjectLifecycleCheckpointResult? SubjectLifecycleCheckpoint { get; init; }
+    /// <summary>Gets the lifecycle maintenance result when <see cref="Kind"/> is maintenance.</summary>
+    public BaseSubjectLifecycleMaintenanceResult? SubjectLifecycleMaintenance { get; init; }
 
     internal static BaseAtomicReceiptResult FromFacts(IEnumerable<BaseRecordMutationFact> facts) => new()
     {
@@ -242,6 +273,8 @@ public sealed record BaseAtomicReceiptResult
         Mutations = facts.Select(static fact => BaseOwnedMutationFact.Freeze(fact, 1)).ToImmutableArray(),
         SelectionMutation = null,
         ModuleMutation = null,
+        SubjectLifecycleCheckpoint = null,
+        SubjectLifecycleMaintenance = null,
     };
     internal BaseRecordMutationFact[] MaterializeFacts() => Mutations.Select(static fact => fact.MaterializeOwned()).ToArray();
 }

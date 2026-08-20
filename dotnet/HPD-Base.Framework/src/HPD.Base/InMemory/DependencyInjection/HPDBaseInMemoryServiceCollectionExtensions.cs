@@ -60,6 +60,7 @@ internal static class HPDBaseInMemoryServiceCollectionExtensions
         services.TryAddSingleton<IRecordStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
         services.TryAddSingleton<IRecordMutationStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
         services.TryAddSingleton<IAtomicRecordStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
+        services.TryAddSingleton<IBaseSubjectLifecycleStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
         services.TryAddSingleton<IStreamingRecordStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
 
         if (options.ContributeModuleDescriptor || options.ContributeCapabilities || options.Collections is not null)
@@ -96,6 +97,8 @@ internal static class HPDBaseInMemoryServiceCollectionExtensions
         StoreVersion = value.StoreVersion, CollectionIds = value.CollectionIds.ToArray(),
         Collections = value.Collections?.ToArray(), ExportedSubjects = value.ExportedSubjects.ToArray(),
         ModuleMutations = value.ModuleMutations.ToArray(), ModuleGenerationCells = value.ModuleGenerationCells.ToArray(),
+        SubjectLifecycleConsumers = value.SubjectLifecycleConsumers.Select(static item => BaseSubjectLifecycleRegistry.Normalize(item)).ToArray(),
+        SubjectLifecycleInspectionAuthorities = value.SubjectLifecycleInspectionAuthorities.Select(static item => item with { }).ToArray(),
         DefaultPageSize = value.DefaultPageSize,
         MaxPageSize = value.MaxPageSize, MaxFilterDepth = value.MaxFilterDepth,
         MaxFilterNodes = value.MaxFilterNodes, MaxSerializedQueryLength = value.MaxSerializedQueryLength,

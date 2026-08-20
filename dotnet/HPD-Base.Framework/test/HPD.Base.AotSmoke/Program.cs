@@ -10,6 +10,19 @@ var value = new AotProject
     OrganizationId = "org_aot",
     Name = "AOT",
 };
+var lifecycleConsumer = new BaseSubjectLifecycleConsumerDefinition
+{
+    Id = "hpd.base.aot.subject.lifecycle", Version = 1, OwningModuleId = "hpd.base.aot.consumer",
+    Audience = BaseSubjectLifecycleConsumerAudience.Service,
+    ContractId = "hpd.base.aot.subject", ContractVersion = 1,
+    ObservedStates = [BaseSubjectLifecycleState.Active, BaseSubjectLifecycleState.Inactive],
+    DeliveryGrantId = "hpd.base.aot.subject.lifecycle.read",
+    Limits = new BaseSubjectLifecycleConsumerLimits
+    {
+        MaximumFactsPerPage = 64, MaximumResultBytes = 131_072,
+        MaximumCheckpointLag = TimeSpan.FromDays(1), ReadTimeout = TimeSpan.FromSeconds(5),
+    },
+};
 
 if (AotProject.Fields.OrganizationId.Id != "organization-id" ||
     AotProject.Fields.OrganizationId.WireName != "organizationId" ||
@@ -23,12 +36,17 @@ var services = new ServiceCollection();
 services.AddLogging();
 services.AddHPDBase(hpd =>
 {
+    hpd.ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey
+    {
+        Id = 1, Key = System.Security.Cryptography.SHA256.HashData("hpd-base-aot-subject-token-key"u8),
+        IssueNotBefore = DateTimeOffset.UnixEpoch,
+    });
     hpd.AddPolicyAuthority(new BasePolicyAuthorityDefinition
     {
         Id = "hpd.base.aot.allow", Version = 1, OwningModuleId = "hpd.base.aot",
         EvaluatorContractId = "hpd.base.aot.policy", EvaluatorContractVersion = 1, CompositionOrder = 0,
     }, new AotAllowPolicyEvaluator());
-    foreach (string grantId in new[] { "hpd.base.aot.subject.private", "hpd.base.aot.subject.acquire", "hpd.base.aot.subject.validate", "hpd.base.aot.subject.rotate", "hpd.base.aot.module.increment" })
+    foreach (string grantId in new[] { "hpd.base.aot.subject.private", "hpd.base.aot.subject.acquire", "hpd.base.aot.subject.validate", "hpd.base.aot.subject.rotate", "hpd.base.aot.subject.lifecycle.read", "base.subjectLifecycle.feed.read", "base.subjectLifecycle.feed.checkpoint", "hpd.base.aot.module.increment" })
         hpd.AddStaticGrantAuthority(GrantDefinition(grantId, "hpd.base.aot"), Grant(grantId, "aot"));
     hpd.AddModuleGenerationCell(ModuleMutationSmoke.Cell);
     hpd.AddModuleMutation(ModuleMutationSmoke.Definition, ModuleMutationSmoke.Identity);
@@ -36,6 +54,7 @@ services.AddHPDBase(hpd =>
     hpd.AddCollection(AotPrivateSubjectRecord.Collection);
     hpd.AddCollection(AotSubjectConsumerRecord.Collection);
     hpd.AddExportedSubject(AotSubject.HPDBaseSubjectRegistration);
+    hpd.AddSubjectLifecycleConsumer(lifecycleConsumer);
     hpd.AddRead(AotAcquireSubject.Definition);
     hpd.AddSubjectAcquisition(new BaseSubjectAcquisitionDefinition
     {
@@ -117,7 +136,7 @@ OperationResult<RecordEnvelope> subjectCreate = await runtime.CreateAsync(
     new RecordCreateRequest
     {
         RequestedId = new RecordId("subject-1"),
-        Payload = JsonPayload("""{"active":true,"tenant":"tenant-a"}"""),
+        Payload = JsonPayload("""{"active":true,"tombstoned":false,"tenant":"tenant-a"}"""),
     },
     principal,
     Operation(BaseOperationKind.Create, AotPrivateSubjectRecord.Collection.Id));
@@ -158,6 +177,22 @@ OperationResult<RecordEnvelope> deactivate = await runtime.PatchAsync(
 if (!deactivate.IsSuccess())
     throw new InvalidOperationException("InMemory subject deactivation failed: " + deactivate.Error?.Code);
 
+BaseGeneratedSubjectLifecycleConsumerIdentity<AotSubject> lifecycleIdentity =
+    BaseGeneratedSubjectLifecycleConsumers.Register<AotSubject>(lifecycleConsumer, AotSubject.HPDBaseSubjectRegistration);
+BaseInstalledSubjectLifecycleConsumer<AotSubject> lifecycle = subjectSession.SubjectLifecycle.Get(lifecycleIdentity);
+var lifecycleDeliveries = new List<BaseSubjectLifecycleDelivery<AotSubject>>();
+await foreach (BaseSubjectLifecycleDelivery<AotSubject> delivery in lifecycle.ReadAsync(CancellationToken.None))
+    lifecycleDeliveries.Add(delivery);
+if (lifecycleDeliveries.Select(static delivery => delivery.Fact.Fact.Kind).ToArray()
+        is not [BaseSubjectLifecycleFactKind.Created, BaseSubjectLifecycleFactKind.Transitioned]
+    || lifecycleDeliveries[^1].Fact.Fact.Transitioned?.CurrentState != BaseSubjectLifecycleState.Inactive)
+    throw new InvalidOperationException("InMemory Native AOT lifecycle delivery did not preserve canonical state ordering.");
+BaseSubjectLifecycleDelivery<AotSubject> lifecycleThrough = lifecycleDeliveries[^1];
+BaseSubjectLifecycleCheckpointResult lifecycleAdvanced =
+    (await lifecycle.AdvanceAsync(lifecycleThrough.Checkpoint, lifecycleThrough.AdvanceIdentity)).RequireValue();
+if (lifecycleAdvanced.CheckpointGeneration != 1 || lifecycleAdvanced.Duplicate)
+    throw new InvalidOperationException("InMemory Native AOT lifecycle checkpoint did not advance exactly once.");
+
 OperationResult<RecordEnvelope> invalidReference = await runtime.CreateAsync(
     AotSubjectConsumerRecord.Collection.Id,
     new RecordCreateRequest
@@ -191,10 +226,13 @@ static BaseGrantAuthorityDefinition GrantDefinition(string id, string owner) => 
 
 static AccessGrant Grant(string id, string subjectId) => new()
 {
-    Id = id, ApplicationId = "hpd.base.application", ModuleId = id == "hpd.base.aot.module.increment" ? "hpd.base.aot.module" : "hpd.base.aot",
+    Id = id, ApplicationId = "hpd.base.application", ModuleId = id == "hpd.base.aot.module.increment" ? "hpd.base.aot.module" : id.Contains("subjectLifecycle", StringComparison.Ordinal) || id.Contains("subject.lifecycle", StringComparison.Ordinal) ? "hpd.base.aot.consumer" : "hpd.base.aot",
     Audience = HPDBaseEndpointAudience.Application,
     Subject = new AccessSubject { Kind = AccessSubjectKind.ServicePrincipal, Id = subjectId, TenantId = "tenant-a" },
-    Action = id, Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime, TenantId = "tenant-a" },
+    Action = id == "hpd.base.aot.subject.lifecycle.read" ? "hpd.base.aot.subject.lifecycle" : id,
+    Scope = id.Contains("subjectLifecycle", StringComparison.Ordinal) || id.Contains("subject.lifecycle", StringComparison.Ordinal)
+        ? new ResourceScope { Kind = ResourceScopeKind.SubjectContract, SubjectContractId = "hpd.base.aot.subject", SubjectContractVersion = 1, TenantId = "tenant-a" }
+        : new ResourceScope { Kind = ResourceScopeKind.Runtime, TenantId = "tenant-a" },
 };
 
 static RecordPayload JsonPayload(string json)
@@ -243,6 +281,9 @@ namespace HPD.Base.AotSmoke
         [BaseField("subject.active")]
         public required bool Active { get; init; }
 
+        [BaseField("subject.tombstoned")]
+        public required bool Tombstoned { get; init; }
+
         [BaseField("subject.tenant")]
         public required string Tenant { get; init; }
     }
@@ -256,6 +297,7 @@ namespace HPD.Base.AotSmoke
         ValidationPlanId = "hpd.base.aot.subject.validate.v1",
         Scope = BaseSubjectScopeKind.Tenant,
         ActiveFieldId = "subject.active",
+        TombstoneFieldId = "subject.tombstoned",
         ScopeFieldId = "subject.tenant")]
     internal sealed partial class AotSubject;
 

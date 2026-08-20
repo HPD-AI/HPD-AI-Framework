@@ -46,6 +46,8 @@ public sealed class BaseStoreProviderDescriptor
     public int MaximumBinaryFieldBytes { get; init; } = 1_048_576;
     /// <summary>Gets the provider's certified exported-subject validation envelope.</summary>
     public required BaseSubjectReferenceCapability SubjectReferences { get; init; }
+    /// <summary>Gets the provider's certified exported-subject lifecycle envelope.</summary>
+    public required BaseSubjectLifecycleCapability SubjectLifecycle { get; init; }
     /// <summary>Gets the provider's certified registered module-mutation envelope.</summary>
     public required BaseModuleMutationCapability ModuleMutations { get; init; }
 }
@@ -64,6 +66,7 @@ public sealed class HPDBaseStoreProvider
         _storageProtectionCapabilities = descriptor.StorageProtectionCapabilities.Select(BaseStorageProtectionContract.Clone).ToArray();
         MaximumBinaryFieldBytes = descriptor.MaximumBinaryFieldBytes;
         SubjectReferences = descriptor.SubjectReferences with { };
+        SubjectLifecycle = descriptor.SubjectLifecycle with { };
         ModuleMutations = descriptor.ModuleMutations with { MaximumLimits = descriptor.ModuleMutations.MaximumLimits with { Deadlines = descriptor.ModuleMutations.MaximumLimits.Deadlines with { } } };
         Installer = installer;
     }
@@ -80,6 +83,8 @@ public sealed class HPDBaseStoreProvider
     public int MaximumBinaryFieldBytes { get; }
     /// <summary>Gets the provider's certified exported-subject validation envelope.</summary>
     public BaseSubjectReferenceCapability SubjectReferences { get; }
+    /// <summary>Gets the provider's certified exported-subject lifecycle envelope.</summary>
+    public BaseSubjectLifecycleCapability SubjectLifecycle { get; }
     /// <summary>Gets the provider's certified registered module-mutation envelope.</summary>
     public BaseModuleMutationCapability ModuleMutations { get; }
     internal IHPDBaseStoreInstaller Installer { get; }
@@ -98,6 +103,7 @@ public static class HPDBaseStoreProviderFactory
         ArgumentNullException.ThrowIfNull(installer);
         if (descriptor.ProtocolVersion != ProtocolVersion || !ValidIdentifier(descriptor.Kind) || descriptor.MaximumBinaryFieldBytes is < 1 or > 1_048_576 ||
             !ValidSubjectCapability(descriptor.SubjectReferences)
+            || !ValidLifecycleCapability(descriptor.SubjectLifecycle)
             || !BaseModuleMutationCapabilityContract.IsValid(descriptor.ModuleMutations))
             throw new InvalidOperationException("base.store.providerInvalid");
         const BaseStoreProviderCapabilities known = BaseStoreProviderCapabilities.Records | BaseStoreProviderCapabilities.AtomicMutations |
@@ -122,6 +128,7 @@ public static class HPDBaseStoreProviderFactory
             Capabilities = descriptor.Capabilities, RegistrationIds = ids, StorageProtectionCapabilities = protection,
             MaximumBinaryFieldBytes = descriptor.MaximumBinaryFieldBytes,
             SubjectReferences = descriptor.SubjectReferences with { },
+            SubjectLifecycle = descriptor.SubjectLifecycle with { },
             ModuleMutations = descriptor.ModuleMutations with
             {
                 MaximumLimits = descriptor.ModuleMutations.MaximumLimits with
@@ -136,6 +143,12 @@ public static class HPDBaseStoreProviderFactory
         value.MaximumAuthorityReads is >= 1 and <= 1_024 && value.MaximumReadIntervals is >= 1 and <= 1_024 &&
         value.MaximumSelectedBytes is >= 1_024 and <= 8_388_608 && value.MaximumEvidenceBytes is >= 1_024 and <= 8_388_608 &&
         value.MaximumTransientBytes is >= 65_536 and <= 67_108_864 && value.MaximumExecutionTime >= TimeSpan.FromMilliseconds(100) && value.MaximumExecutionTime <= TimeSpan.FromMinutes(2);
+
+    private static bool ValidLifecycleCapability(BaseSubjectLifecycleCapability? value) => value is not null &&
+        value.TransactionalPublicationSupported && value.IndependentCursorSupported &&
+        value.MaximumConsumersPerContract is >= 1 and <= 32 && value.MaximumFactsPerPage is >= 1 and <= 256 &&
+        value.MaximumResultBytes is >= 1_024 and <= 1_048_576 && value.MaximumRetainedFacts >= 1 &&
+        value.MaximumReadTimeout >= TimeSpan.FromMilliseconds(100) && value.MaximumReadTimeout <= TimeSpan.FromMinutes(2);
 
     internal static bool ValidIdentifier(string? value) => value is { Length: >= 1 and <= 128 } && value.All(static character => character is >= '!' and <= '~');
 }
@@ -160,6 +173,8 @@ public sealed class HPDBaseStoreInstallationContext
     private readonly BaseExportedSubjectDefinition[] _subjects;
     private readonly BaseRegisteredModuleMutationDefinition[] _moduleMutations;
     private readonly BaseModuleGenerationCellDefinition[] _moduleGenerationCells;
+    private readonly BaseSubjectLifecycleConsumerDefinition[] _lifecycleConsumers;
+    private readonly BaseSubjectLifecycleInspectionAuthority[] _lifecycleInspectionAuthorities;
     private readonly string _schemaDigest;
     internal HPDBaseStoreInstallationContext(
         IServiceCollection services,
@@ -167,7 +182,9 @@ public sealed class HPDBaseStoreInstallationContext
         CollectionDefinition[] collections,
         BaseExportedSubjectDefinition[]? subjects = null,
         BaseRegisteredModuleMutationDefinition[]? moduleMutations = null,
-        BaseModuleGenerationCellDefinition[]? moduleGenerationCells = null)
+        BaseModuleGenerationCellDefinition[]? moduleGenerationCells = null,
+        BaseSubjectLifecycleConsumerDefinition[]? lifecycleConsumers = null,
+        BaseSubjectLifecycleInspectionAuthority[]? lifecycleInspectionAuthorities = null)
     {
         _services = services;
         _provider = provider;
@@ -175,7 +192,9 @@ public sealed class HPDBaseStoreInstallationContext
         _subjects = (subjects ?? []).Select(CloneSubject).ToArray();
         _moduleMutations = (moduleMutations ?? []).Select(static value => BaseModuleMutationContract.Seal(value)).ToArray();
         _moduleGenerationCells = (moduleGenerationCells ?? []).Select(static value => value with { }).ToArray();
-        _schemaDigest = ComputeSchemaDigest(_collections, _subjects, _moduleMutations, _moduleGenerationCells);
+        _lifecycleConsumers = (lifecycleConsumers ?? []).Select(static value => BaseSubjectLifecycleRegistry.Normalize(value)).ToArray();
+        _lifecycleInspectionAuthorities = (lifecycleInspectionAuthorities ?? []).Select(static value => value with { }).ToArray();
+        _schemaDigest = ComputeSchemaDigest(_collections, _subjects, _moduleMutations, _moduleGenerationCells, _lifecycleConsumers, _lifecycleInspectionAuthorities);
     }
     /// <summary>Gets the host service collection during the installation call.</summary>
     public IServiceCollection Services { get { ThrowIfCompleted(); return _services; } }
@@ -189,6 +208,10 @@ public sealed class HPDBaseStoreInstallationContext
     public IReadOnlyList<BaseRegisteredModuleMutationDefinition> ModuleMutations { get { ThrowIfCompleted(); return Array.AsReadOnly(_moduleMutations.Select(static value => BaseModuleMutationContract.Seal(value)).ToArray()); } }
     /// <summary>Gets an owned view of the accepted module generation cells.</summary>
     public IReadOnlyList<BaseModuleGenerationCellDefinition> ModuleGenerationCells { get { ThrowIfCompleted(); return Array.AsReadOnly(_moduleGenerationCells.Select(static value => value with { }).ToArray()); } }
+    /// <summary>Gets an owned view of installed exported-subject lifecycle consumers.</summary>
+    public IReadOnlyList<BaseSubjectLifecycleConsumerDefinition> SubjectLifecycleConsumers { get { ThrowIfCompleted(); return Array.AsReadOnly(_lifecycleConsumers.Select(static value => BaseSubjectLifecycleRegistry.Normalize(value)).ToArray()); } }
+    /// <summary>Gets immutable all-scope lifecycle inspection authority receipts.</summary>
+    public IReadOnlyList<BaseSubjectLifecycleInspectionAuthority> SubjectLifecycleInspectionAuthorities { get { ThrowIfCompleted(); return Array.AsReadOnly(_lifecycleInspectionAuthorities.Select(static value => value with { }).ToArray()); } }
     /// <summary>Creates the single frozen receipt for this installation.</summary>
     public HPDBaseStoreRegistrationReceipt CreateReceipt(string recordStoreRegistrationId)
     {
@@ -232,7 +255,9 @@ public sealed class HPDBaseStoreInstallationContext
         IEnumerable<CollectionDefinition> collections,
         IEnumerable<BaseExportedSubjectDefinition>? subjects = null,
         IEnumerable<BaseRegisteredModuleMutationDefinition>? moduleMutations = null,
-        IEnumerable<BaseModuleGenerationCellDefinition>? moduleGenerationCells = null)
+        IEnumerable<BaseModuleGenerationCellDefinition>? moduleGenerationCells = null,
+        IEnumerable<BaseSubjectLifecycleConsumerDefinition>? lifecycleConsumers = null,
+        IEnumerable<BaseSubjectLifecycleInspectionAuthority>? lifecycleInspectionAuthorities = null)
     {
         var canonical = new StringBuilder();
         foreach (CollectionDefinition collection in collections.OrderBy(static value => value.Id, StringComparer.Ordinal))
@@ -254,11 +279,20 @@ public sealed class HPDBaseStoreInstallationContext
         foreach (BaseModuleGenerationCellDefinition cell in (moduleGenerationCells ?? []).OrderBy(static value => value.Id, StringComparer.Ordinal).ThenBy(static value => value.Version))
             canonical.Append("g:").Append(cell.Id).Append(':').Append(cell.Version).Append(':').Append((int)cell.Scope)
                 .Append(':').Append(cell.OwningModuleId).Append(':').Append(cell.MaximumKeyUtf8Bytes).Append(':').Append(cell.MaximumCellsPerOperation).Append('\n');
+        foreach (BaseSubjectLifecycleConsumerDefinition consumer in (lifecycleConsumers ?? []).OrderBy(static value => value.Id, StringComparer.Ordinal).ThenBy(static value => value.Version))
+            canonical.Append("l:").Append(consumer.Id).Append(':').Append(consumer.Version).Append(':')
+                .Append(BaseSubjectLifecycleRegistry.Checksum(
+                    BaseSubjectLifecycleRegistry.Normalize(consumer),
+                    BaseSubjectContractGraph.Checksum((subjects ?? []).Single(subject => subject.Id == consumer.ContractId && subject.Version == consumer.ContractVersion)))).Append('\n');
+        foreach (BaseSubjectLifecycleInspectionAuthority authority in (lifecycleInspectionAuthorities ?? []).OrderBy(static value => value.ContractId, StringComparer.Ordinal).ThenBy(static value => value.ContractVersion))
+            canonical.Append("la:").Append(authority.ContractId).Append(':').Append(authority.ContractVersion).Append(':')
+                .Append(authority.OwningModuleId).Append(':').Append(authority.GrantId).Append(':').Append(authority.Digest).Append('\n');
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString())));
     }
 
     private static BaseExportedSubjectDefinition CloneSubject(BaseExportedSubjectDefinition value) => value with
     {
+        TombstoneFieldId = new string(value.TombstoneFieldId.AsSpan()),
         Audiences = value.Audiences.ToArray(),
         ValidationPlan = value.ValidationPlan with
         {

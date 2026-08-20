@@ -36,6 +36,10 @@ public sealed record BaseExportedSubjectDefinition
     public required string ValidationGrantId { get; init; }
     /// <summary>Gets the exact L38 grant required for authority-epoch administration.</summary>
     public required string AdministrationGrantId { get; init; }
+    /// <summary>Gets the stable required Boolean tombstone-state field ID.</summary>
+    public required string TombstoneFieldId { get; init; }
+    /// <summary>Gets whether the contract permits L48 coordinated retirement.</summary>
+    public required bool SupportsCoordinatedRetirement { get; init; }
     /// <summary>Gets the audiences to which this contract may be projected.</summary>
     public required HPDBaseEndpointAudience[] Audiences { get; init; }
     /// <summary>Gets the closed transaction-local validation plan.</summary>

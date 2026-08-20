@@ -30,6 +30,8 @@ AdminMetadata,
     VectorIndex,
     /// <summary>Identifies one installed exported logical-subject contract.</summary>
     SubjectContract,
+    /// <summary>Identifies one graph-installed exported-subject lifecycle consumer.</summary>
+    SubjectLifecycle,
     /// <summary>Identifies one graph-installed registered module mutation.</summary>
     ModuleMutation
 }

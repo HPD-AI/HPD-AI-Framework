@@ -28,6 +28,8 @@ namespace HPD.Base;
 [JsonSerializable(typeof(BaseRealtimeDurableSubjectAuthorityChanged))]
 [JsonSerializable(typeof(BaseRealtimeLiveSubjectAuthorityChanged))]
 [JsonSerializable(typeof(BaseRealtimeLiveQuerySubjectAuthorityChanged))]
+[JsonSerializable(typeof(BaseRealtimeSubjectLifecycleHintRequest))]
+[JsonSerializable(typeof(BaseRealtimeSubjectLifecycleHintMessage))]
 [JsonSerializable(typeof(BaseDependencyInvalidation))]
 [JsonSerializable(typeof(BaseDependencyReference))]
 [JsonSerializable(typeof(BaseDependencyReference[]))]

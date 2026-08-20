@@ -124,6 +124,7 @@ public readonly struct BaseSubjectId : IEquatable<BaseSubjectId>
 }
 
 /// <summary>Represents one opaque 128-bit exported-subject authority epoch.</summary>
+[JsonConverter(typeof(BaseSubjectAuthorityEpochJsonConverter))]
 public readonly struct BaseSubjectAuthorityEpoch : IEquatable<BaseSubjectAuthorityEpoch>
 {
     private readonly ulong _high;
@@ -145,7 +146,7 @@ public readonly struct BaseSubjectAuthorityEpoch : IEquatable<BaseSubjectAuthori
     /// <summary>Returns the canonical unpadded base64url representation.</summary>
     public string ToBase64Url() => BaseSubjectReferenceEncoding.Encode(ToArray());
     internal static BaseSubjectAuthorityEpoch Create() => new(RandomNumberGenerator.GetBytes(16));
-    internal static BaseSubjectAuthorityEpoch Parse(string value) => new(BaseSubjectReferenceEncoding.Decode(value));
+    internal static BaseSubjectAuthorityEpoch Parse(string value) => new(BaseSubjectReferenceEncoding.Decode(value, 16));
     /// <inheritdoc />
     public bool Equals(BaseSubjectAuthorityEpoch other) => _high == other._high && _low == other._low;
     /// <inheritdoc />
@@ -156,37 +157,74 @@ public readonly struct BaseSubjectAuthorityEpoch : IEquatable<BaseSubjectAuthori
     public override string ToString() => nameof(BaseSubjectAuthorityEpoch);
 }
 
-/// <summary>Represents one opaque 128-bit logical subject lifetime incarnation.</summary>
+/// <summary>Represents one opaque logical subject lifetime incarnation.</summary>
+[JsonConverter(typeof(BaseSubjectIncarnationJsonConverter))]
 public readonly struct BaseSubjectIncarnation : IEquatable<BaseSubjectIncarnation>
 {
+    private readonly long _generation;
     private readonly ulong _high;
     private readonly ulong _low;
     internal BaseSubjectIncarnation(ReadOnlySpan<byte> value)
     {
-        if (value.Length != 16) throw new ArgumentOutOfRangeException(nameof(value));
-        _high = BinaryPrimitives.ReadUInt64BigEndian(value);
-        _low = BinaryPrimitives.ReadUInt64BigEndian(value[8..]);
+        if (value.Length != 24) throw new ArgumentOutOfRangeException(nameof(value));
+        _generation = BinaryPrimitives.ReadInt64BigEndian(value);
+        if (_generation < 1) throw new ArgumentOutOfRangeException(nameof(value));
+        _high = BinaryPrimitives.ReadUInt64BigEndian(value[8..]);
+        _low = BinaryPrimitives.ReadUInt64BigEndian(value[16..]);
     }
     /// <summary>Returns a defensive copy of the incarnation bytes.</summary>
     public byte[] ToArray()
     {
-        byte[] value = new byte[16];
-        BinaryPrimitives.WriteUInt64BigEndian(value, _high);
-        BinaryPrimitives.WriteUInt64BigEndian(value.AsSpan(8), _low);
+        byte[] value = new byte[24];
+        BinaryPrimitives.WriteInt64BigEndian(value, _generation);
+        BinaryPrimitives.WriteUInt64BigEndian(value.AsSpan(8), _high);
+        BinaryPrimitives.WriteUInt64BigEndian(value.AsSpan(16), _low);
         return value;
     }
     /// <summary>Returns the canonical unpadded base64url representation.</summary>
     public string ToBase64Url() => BaseSubjectReferenceEncoding.Encode(ToArray());
-    internal static BaseSubjectIncarnation Create() => new(RandomNumberGenerator.GetBytes(16));
-    internal static BaseSubjectIncarnation Parse(string value) => new(BaseSubjectReferenceEncoding.Decode(value));
+    internal long LifetimeGeneration => _generation;
+    internal static BaseSubjectIncarnation Create(long lifetimeGeneration)
+    {
+        if (lifetimeGeneration < 1) throw new ArgumentOutOfRangeException(nameof(lifetimeGeneration));
+        byte[] value = new byte[24];
+        BinaryPrimitives.WriteInt64BigEndian(value, lifetimeGeneration);
+        RandomNumberGenerator.Fill(value.AsSpan(8));
+        return new(value);
+    }
+    internal static BaseSubjectIncarnation Parse(string value) => new(BaseSubjectReferenceEncoding.Decode(value, 24));
     /// <inheritdoc />
-    public bool Equals(BaseSubjectIncarnation other) => _high == other._high && _low == other._low;
+    public bool Equals(BaseSubjectIncarnation other) => _generation == other._generation && _high == other._high && _low == other._low;
     /// <inheritdoc />
     public override bool Equals(object? obj) => obj is BaseSubjectIncarnation other && Equals(other);
     /// <inheritdoc />
-    public override int GetHashCode() => HashCode.Combine(_high, _low);
+    public override int GetHashCode() => HashCode.Combine(_generation, _high, _low);
     /// <inheritdoc />
     public override string ToString() => nameof(BaseSubjectIncarnation);
+}
+
+/// <summary>Encodes authority epochs as their canonical opaque base64url text.</summary>
+public sealed class BaseSubjectAuthorityEpochJsonConverter : JsonConverter<BaseSubjectAuthorityEpoch>
+{
+    /// <inheritdoc />
+    public override BaseSubjectAuthorityEpoch Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        reader.TokenType == JsonTokenType.String && reader.GetString() is { } value
+            ? BaseSubjectAuthorityEpoch.Parse(value)
+            : throw new JsonException(BaseSubjectErrorCodes.ReferenceInvalid);
+    /// <inheritdoc />
+    public override void Write(Utf8JsonWriter writer, BaseSubjectAuthorityEpoch value, JsonSerializerOptions options) => writer.WriteStringValue(value.ToBase64Url());
+}
+
+/// <summary>Encodes subject incarnations as their canonical opaque base64url text.</summary>
+public sealed class BaseSubjectIncarnationJsonConverter : JsonConverter<BaseSubjectIncarnation>
+{
+    /// <inheritdoc />
+    public override BaseSubjectIncarnation Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        reader.TokenType == JsonTokenType.String && reader.GetString() is { } value
+            ? BaseSubjectIncarnation.Parse(value)
+            : throw new JsonException(BaseSubjectErrorCodes.ReferenceInvalid);
+    /// <inheritdoc />
+    public override void Write(Utf8JsonWriter writer, BaseSubjectIncarnation value, JsonSerializerOptions options) => writer.WriteStringValue(value.ToBase64Url());
 }
 
 /// <summary>References one lifetime of a public logical subject without exposing its private storage.</summary>
@@ -295,12 +333,14 @@ public sealed class BaseSubjectReferenceJsonConverterFactory : JsonConverterFact
 internal static class BaseSubjectReferenceEncoding
 {
     internal static string Encode(ReadOnlySpan<byte> value) => Convert.ToBase64String(value).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-    internal static byte[] Decode(string value)
+    internal static byte[] Decode(string value, int expectedLength)
     {
-        if (value.Length != 22 || value.Contains('=')) throw new FormatException(BaseSubjectErrorCodes.ReferenceInvalid);
-        string padded = value.Replace('-', '+').Replace('_', '/') + "==";
+        int encodedLength = checked((expectedLength * 8 + 5) / 6);
+        if (value.Length != encodedLength || value.Contains('=')) throw new FormatException(BaseSubjectErrorCodes.ReferenceInvalid);
+        int padding = (4 - value.Length % 4) % 4;
+        string padded = value.Replace('-', '+').Replace('_', '/') + new string('=', padding);
         byte[] bytes = Convert.FromBase64String(padded);
-        if (bytes.Length != 16 || !string.Equals(Encode(bytes), value, StringComparison.Ordinal)) throw new FormatException(BaseSubjectErrorCodes.ReferenceInvalid);
+        if (bytes.Length != expectedLength || !string.Equals(Encode(bytes), value, StringComparison.Ordinal)) throw new FormatException(BaseSubjectErrorCodes.ReferenceInvalid);
         return bytes;
     }
 
@@ -327,7 +367,7 @@ internal static class BaseSubjectReferenceEncoding
         {
             if (!BaseSubjectAuthorityEpoch.Parse(properties[1].Value.GetString()!).Equals(expected))
                 return false;
-            _ = BaseSubjectReferenceEncoding.Decode(properties[2].Value.GetString()!);
+            _ = BaseSubjectReferenceEncoding.Decode(properties[2].Value.GetString()!, 24);
         }
         catch (Exception exception) when (exception is FormatException or ArgumentException)
         {
@@ -352,6 +392,22 @@ internal static class BaseSubjectReferenceEncoding
 /// <summary>Contains stable exported-subject failure codes.</summary>
 public static class BaseSubjectErrorCodes
 {
+    /// <summary>The subject-lifecycle contract is invalid.</summary>
+    public const string LifecycleContractInvalid = "base.subjectLifecycle.contractInvalid";
+    /// <summary>The subject-lifecycle registration conflicts with the installed graph.</summary>
+    public const string LifecycleRegistrationConflict = "base.subjectLifecycle.registrationConflict";
+    /// <summary>Subject-lifecycle reconciliation is unavailable.</summary>
+    public const string LifecycleReconciliationUnavailable = "base.subjectLifecycle.reconciliationUnavailable";
+    /// <summary>The provider cannot satisfy the subject-lifecycle contract.</summary>
+    public const string LifecycleProviderContractInvalid = "base.subjectLifecycle.providerContractInvalid";
+    /// <summary>The subject-lifecycle commit outcome is indeterminate.</summary>
+    public const string LifecycleCommitIndeterminate = "base.subjectLifecycle.commitIndeterminate";
+    /// <summary>A subject incarnation could not be allocated.</summary>
+    public const string LifecycleIncarnationUnavailable = "base.subjectLifecycle.incarnationUnavailable";
+    /// <summary>The lifecycle cursor belongs to a different authorized scope.</summary>
+    public const string CursorScopeMismatch = "base.subjectLifecycle.cursorScopeMismatch";
+    /// <summary>The protected lifecycle scope authority is invalid.</summary>
+    public const string ScopeAuthorityInvalid = "base.subjectLifecycle.scopeAuthorityInvalid";
     /// <summary>The exported-subject contract is invalid.</summary>
     public const string ContractInvalid = "base.subject.contractInvalid";
     /// <summary>The exported-subject registration conflicts with another registration.</summary>
@@ -374,4 +430,26 @@ public static class BaseSubjectErrorCodes
     public const string CommitIndeterminate = "base.subject.commitIndeterminate";
     /// <summary>An identified request conflicts with its stored receipt.</summary>
     public const string ReceiptMismatch = "base.subject.receiptMismatch";
+    /// <summary>The lifecycle transition is invalid.</summary>
+    public const string LifecycleTransitionInvalid = "base.subjectLifecycle.transitionInvalid";
+    /// <summary>The lifecycle sequence cannot advance.</summary>
+    public const string SequenceExhausted = "base.subjectLifecycle.sequenceExhausted";
+    /// <summary>The lifetime generation cannot advance.</summary>
+    public const string LifetimeGenerationExhausted = "base.subjectLifecycle.lifetimeGenerationExhausted";
+    /// <summary>The lifecycle cursor is invalid.</summary>
+    public const string CursorInvalid = "base.subjectLifecycle.cursorInvalid";
+    /// <summary>Lifecycle cursor or checkpoint evidence has expired.</summary>
+    public const string CursorExpired = "base.subjectLifecycle.cursorExpired";
+    /// <summary>The lifecycle cursor is no longer retained.</summary>
+    public const string CursorOvertaken = "base.subjectLifecycle.cursorOvertaken";
+    /// <summary>Lifecycle retention capacity is unavailable.</summary>
+    public const string LifecycleCapacityExceeded = "base.subjectLifecycle.capacityExceeded";
+    /// <summary>The lifecycle operation is not authorized.</summary>
+    public const string LifecycleUnauthorized = "base.subjectLifecycle.unauthorized";
+    /// <summary>Lifecycle maintenance must complete before ordinary work resumes.</summary>
+    public const string MaintenanceRequired = "base.subjectLifecycle.maintenanceRequired";
+    /// <summary>Lifecycle maintenance exceeded its bounded deadline.</summary>
+    public const string Timeout = "base.subjectLifecycle.timeout";
+    /// <summary>Scope-protection authority changed or conflicted.</summary>
+    public const string ScopeProtectionRotationConflict = "base.subjectLifecycle.scopeProtectionRotationConflict";
 }

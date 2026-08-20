@@ -84,6 +84,7 @@ internal static class BaseSubjectContractGraph
             BaseApplicationId.Validate(value.AcquisitionGrantId, nameof(value));
             BaseApplicationId.Validate(value.ValidationGrantId, nameof(value));
             BaseApplicationId.Validate(value.AdministrationGrantId, nameof(value));
+            BaseApplicationId.Validate(value.TombstoneFieldId, nameof(value));
         }
         catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
         {
@@ -107,6 +108,7 @@ internal static class BaseSubjectContractGraph
             Id = Copy(value.Id), OwningModuleId = Copy(value.OwningModuleId),
             AcquisitionGrantId = Copy(value.AcquisitionGrantId), ValidationGrantId = Copy(value.ValidationGrantId),
             AdministrationGrantId = Copy(value.AdministrationGrantId),
+            TombstoneFieldId = Copy(value.TombstoneFieldId),
             Audiences = [.. value.Audiences.Order()], ValidationPlan = normalizedPlan,
         };
         string checksum = Checksum(initial);
@@ -121,6 +123,7 @@ internal static class BaseSubjectContractGraph
         Write(writer, "hpd.base.exported-subject.v1"); Write(writer, value.Id); Write(writer, value.Version);
         Write(writer, value.OwningModuleId); Write(writer, (int)value.SubjectIdKind); Write(writer, value.MaximumSubjectIdUtf8Bytes);
         Write(writer, (int)value.Scope); Write(writer, value.AcquisitionGrantId); Write(writer, value.ValidationGrantId); Write(writer, value.AdministrationGrantId);
+        Write(writer, value.TombstoneFieldId); Write(writer, value.SupportsCoordinatedRetirement ? 1 : 0);
         foreach (HPDBaseEndpointAudience audience in value.Audiences) Write(writer, (int)audience);
         BaseSubjectValidationPlanDefinition plan = value.ValidationPlan;
         Write(writer, plan.Id); Write(writer, plan.Version); Write(writer, plan.PrivateCollectionId); Write(writer, (int)plan.SubjectId);
@@ -152,8 +155,12 @@ internal static class BaseSubjectContractGraph
 /// <summary>Binds one installed exported-subject contract to its public marker type.</summary>
 public sealed class BaseExportedSubjectContract<TSubject>
 {
-    internal BaseExportedSubjectContract(BaseGeneratedSubjectRegistration registration)
+    private readonly BaseSession _session;
+    private readonly BaseGeneratedSubjectRegistration _registration;
+    internal BaseExportedSubjectContract(BaseSession session, BaseGeneratedSubjectRegistration registration)
     {
+        _session = session;
+        _registration = registration;
         Id = registration.Definition.Id;
         Version = registration.Definition.Version;
         Checksum = registration.Checksum;
@@ -164,4 +171,26 @@ public sealed class BaseExportedSubjectContract<TSubject>
     public int Version { get; }
     /// <summary>Gets the installed normalized contract checksum.</summary>
     public string Checksum { get; }
+
+    /// <summary>Atomically tombstones one exact exported-subject lifetime.</summary>
+    public ValueTask<BaseResult<BaseSubjectLifecycleFact<TSubject>>> TombstoneAsync(
+        BaseSubjectTombstoneRequest<TSubject> request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        IBaseSubjectLifecycleExporterRuntime runtime = _session.Services.GetService(typeof(IBaseSubjectLifecycleExporterRuntime)) as IBaseSubjectLifecycleExporterRuntime
+            ?? throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+        return runtime.TombstoneAsync(_session, _registration, request, cancellationToken);
+    }
+
+    /// <summary>Atomically performs uncoordinated final retirement of one tombstoned lifetime.</summary>
+    public ValueTask<BaseResult<BaseSubjectFinalRetirementResult<TSubject>>> FinalizeRetirementAsync(
+        BaseSubjectFinalRetirementRequest<TSubject> request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        IBaseSubjectLifecycleExporterRuntime runtime = _session.Services.GetService(typeof(IBaseSubjectLifecycleExporterRuntime)) as IBaseSubjectLifecycleExporterRuntime
+            ?? throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+        return runtime.FinalizeRetirementAsync(_session, _registration, request, cancellationToken);
+    }
 }

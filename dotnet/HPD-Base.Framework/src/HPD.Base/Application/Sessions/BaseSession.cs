@@ -101,6 +101,8 @@ public sealed class BaseSession
 
     /// <summary>Gets registered module mutations bound to this session and installed graph.</summary>
     public BaseModuleMutationSession ModuleMutations => new(this);
+    /// <summary>Gets graph-installed durable exported-subject lifecycle consumers.</summary>
+    public BaseSubjectLifecycleSession SubjectLifecycle => new(this);
 
     /// <summary>Resolves one generated exported-subject contract from this installed application graph.</summary>
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
@@ -113,7 +115,7 @@ public sealed class BaseSession
             !string.Equals(installed.Checksum, registration.Checksum, StringComparison.Ordinal) ||
             !installed.Definition.Audiences.Contains(_options.Audience))
             throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
-        return new BaseExportedSubjectContract<TSubject>(installed);
+        return new BaseExportedSubjectContract<TSubject>(this, installed);
     }
 
     internal IBaseRecordRuntime Runtime => _runtime;

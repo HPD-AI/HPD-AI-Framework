@@ -1,5 +1,6 @@
 import { toWireLiveQuery, type BaseQueryInput, type BaseQuerySnapshot, type BaseSubscription } from "./query.js";
 import { materializeBaseJsonValue, parseBaseJsonDocument } from "./codec.js";
+import type { BaseSubjectLifecycleCheckpoint } from "./subject-lifecycle.js";
 
 export interface BaseWebSocketLike {
   readonly readyState: number;
@@ -20,7 +21,8 @@ interface Snapshot { readonly protocol: 2; readonly kind: "liveQuerySnapshot"; r
 interface ErrorMessage { readonly protocol: 2; readonly kind: "error"; readonly connectionId: string; readonly connectionEpoch: string; readonly ref?: string; readonly channelEpoch?: string; readonly terminal: boolean; readonly error: { readonly code: string }; }
 interface RecordEventMessage { readonly protocol: 2; readonly kind: "liveRecordEvent" | "durableRecordEvent"; readonly connectionId: string; readonly connectionEpoch: string; readonly ref: string; readonly channelEpoch: string; readonly event: BaseRecordRealtimeEvent; readonly cursor?: string; }
 interface SubjectAuthorityChangedMessage { readonly protocol: 2; readonly kind: "durableSubjectAuthorityChanged" | "liveSubjectAuthorityChanged" | "liveQuerySubjectAuthorityChanged"; readonly connectionId: string; readonly connectionEpoch: string; readonly ref: string; readonly channelEpoch: string; readonly contractId: string; readonly contractVersion: number; readonly stateGeneration: string; readonly cursor?: string; }
-type ServerMessage = Welcome | Joined | Snapshot | RecordEventMessage | SubjectAuthorityChangedMessage | ErrorMessage | { readonly protocol: 2; readonly kind: "heartbeatAck"; readonly connectionId: string; readonly connectionEpoch: string; readonly heartbeatId: string } | { readonly protocol: 2; readonly kind: "closed"; readonly connectionId: string; readonly connectionEpoch: string; readonly code: string; readonly retryable: boolean };
+interface SubjectLifecycleHintMessage { readonly protocol: 2; readonly kind: "subjectLifecycleHint"; readonly connectionId: string; readonly connectionEpoch: string; readonly ref: string; readonly channelEpoch: string; readonly checkpoint: string; }
+type ServerMessage = Welcome | Joined | Snapshot | RecordEventMessage | SubjectAuthorityChangedMessage | SubjectLifecycleHintMessage | ErrorMessage | { readonly protocol: 2; readonly kind: "heartbeatAck"; readonly connectionId: string; readonly connectionEpoch: string; readonly heartbeatId: string } | { readonly protocol: 2; readonly kind: "closed"; readonly connectionId: string; readonly connectionEpoch: string; readonly code: string; readonly retryable: boolean };
 
 export interface BaseRecordRealtimeEvent { readonly eventId: string; readonly collectionId: string; readonly recordId: string; readonly operation: string; readonly occurredAt: string; readonly snapshot?: unknown; readonly before?: unknown; readonly invalidations?: readonly string[]; }
 export interface BaseRecordFeedFilter { readonly recordId?: string; readonly operations?: readonly string[]; readonly eventTypes?: readonly string[]; readonly tenantId?: string; readonly includeSnapshots?: boolean; readonly includeBefore?: boolean; }
@@ -47,6 +49,7 @@ interface SharedQuery {
 }
 interface OptimisticOverlay { readonly mutationId: string; readonly collectionId: string; readonly recordId: string; readonly kind: "create" | "patch" | "replace" | "delete" | "upsert"; readonly value: unknown; readonly expectedRevision?: string; readonly requestBytes: Uint8Array; readonly affectedQueryKeys: readonly string[]; readonly order: number; status: "pending" | "indeterminate"; }
 interface SharedFeed { readonly ref: string; readonly collectionId: string; readonly request: BaseRecordFeedRequest; readonly observer: (delivery: BaseRecordFeedDelivery) => void | Promise<void>; readonly decodeRecord: (value: unknown) => unknown; readonly processedSubjectControls: Map<string, string>; channelEpoch: string | undefined; lastCursor: string | undefined; lastSubjectControl: { readonly cursor: string; readonly key: string; readonly generation: string } | undefined; closed: boolean; }
+interface SharedLifecycleHints { readonly ref: string; readonly consumerId: string; readonly consumerVersion: number; readonly projectId?: string; readonly observer: (checkpoint: BaseSubjectLifecycleCheckpoint) => void | Promise<void>; channelEpoch: string | undefined; lastCheckpoint: string | undefined; closed: boolean; }
 
 export class BaseRealtimeManager {
   readonly #url: URL;
@@ -57,6 +60,7 @@ export class BaseRealtimeManager {
   readonly #collectionContracts: ReadonlyMap<string, ReadonlySet<string>>;
   readonly #queries = new Map<string, SharedQuery>();
   readonly #feeds = new Map<string, SharedFeed>();
+  readonly #lifecycleHints = new Map<string, SharedLifecycleHints>();
   readonly #overlays = new Map<string, OptimisticOverlay>();
   #overlayOrder = 0;
   #socket: BaseWebSocketLike | undefined;
@@ -135,11 +139,21 @@ export class BaseRealtimeManager {
 
   public subscribeFeed(collectionId: string, request: BaseRecordFeedRequest, observer: (delivery: BaseRecordFeedDelivery) => void | Promise<void>, decodeRecord: (value: unknown) => unknown): BaseSubscription {
     if (this.#closed) throw new Error("base.client.closed");
-    if (this.#queries.size + this.#feeds.size >= 128) throw new Error("base.client.subscriptionLimit");
+    if (this.#queries.size + this.#feeds.size + this.#lifecycleHints.size >= 128) throw new Error("base.client.subscriptionLimit");
     if (request.kind === "resume" && request.cursor.length === 0) throw new TypeError("base.client.cursorInvalid");
     const ref = crypto.randomUUID(); const feed: SharedFeed = { ref, collectionId, request: clone(request), observer, decodeRecord, processedSubjectControls: new Map(), channelEpoch: undefined, lastCursor: undefined, lastSubjectControl: undefined, closed: false };
     this.#feeds.set(ref, feed); void this.connect(); let closed = false;
-    return { get closed() { return closed; }, close: () => { if (closed) return; closed = true; feed.closed = true; this.leaveFeed(feed); this.#feeds.delete(ref); if (this.#queries.size === 0 && this.#feeds.size === 0) this.disconnect(); } };
+    return { get closed() { return closed; }, close: () => { if (closed) return; closed = true; feed.closed = true; this.leaveFeed(feed); this.#feeds.delete(ref); if (this.#queries.size + this.#feeds.size + this.#lifecycleHints.size === 0) this.disconnect(); } };
+  }
+
+  /** Subscribes an eligible Service/System client to non-authoritative lifecycle wake-up hints. */
+  public subscribeSubjectLifecycleHints(consumerId: string, consumerVersion: number, observer: (checkpoint: BaseSubjectLifecycleCheckpoint) => void | Promise<void>, projectId?: string): BaseSubscription {
+    if (this.#closed) throw new Error("base.client.closed");
+    if (!boundedString(consumerId, 256) || !Number.isInteger(consumerVersion) || consumerVersion < 1 || projectId !== undefined && !boundedString(projectId, 256)) throw new TypeError("base.subjectLifecycle.contractInvalid");
+    if (this.#queries.size + this.#feeds.size + this.#lifecycleHints.size >= 128) throw new Error("base.client.subscriptionLimit");
+    const ref = crypto.randomUUID(); const hint: SharedLifecycleHints = { ref, consumerId, consumerVersion, ...(projectId === undefined ? {} : { projectId }), observer, channelEpoch: undefined, lastCheckpoint: undefined, closed: false };
+    this.#lifecycleHints.set(ref, hint); void this.connect(); let closed = false;
+    return { get closed() { return closed; }, close: () => { if (closed) return; closed = true; hint.closed = true; this.leaveLifecycleHints(hint); this.#lifecycleHints.delete(ref); if (this.#queries.size + this.#feeds.size + this.#lifecycleHints.size === 0) this.disconnect(); } };
   }
 
   public readonly connectivity = {
@@ -163,10 +177,10 @@ export class BaseRealtimeManager {
   }
   public reject(mutationId: string, collectionId: string): void { if (this.#overlays.delete(mutationId)) this.recompute(collectionId); }
 
-  public close(): void { this.#closed = true; this.#queries.clear(); this.#feeds.clear(); this.disconnect(); this.setConnectivity({ kind: "closed" }); }
+  public close(): void { this.#closed = true; this.#queries.clear(); this.#feeds.clear(); this.#lifecycleHints.clear(); this.disconnect(); this.setConnectivity({ kind: "closed" }); }
 
   private async connect(): Promise<void> {
-    if (this.#closed || this.#socket !== undefined || this.#queries.size + this.#feeds.size === 0) return;
+    if (this.#closed || this.#socket !== undefined || this.#queries.size + this.#feeds.size + this.#lifecycleHints.size === 0) return;
     this.setConnectivity({ kind: "connecting", attempt: this.#attempt + 1 });
     try {
       const token = await this.#token?.();
@@ -193,9 +207,11 @@ export class BaseRealtimeManager {
     if (message.kind === "joined") {
       const query = this.byRef(message.ref);
       const feed = this.#feeds.get(message.ref);
-      if ((query === undefined) === (feed === undefined) || !opaque(message.channelEpoch) || !["live-at-most-once", "durable-at-least-once", "live-query-snapshots"].includes(message.delivery)) { this.#socket?.close(1008, "base.realtime.protocol.invalid"); return; }
+      const hints = this.#lifecycleHints.get(message.ref);
+      if ([query, feed, hints].filter(value => value !== undefined).length !== 1 || !opaque(message.channelEpoch) || !["live-at-most-once", "durable-at-least-once", "live-query-snapshots", "lifecycle-hints-non-authoritative"].includes(message.delivery)) { this.#socket?.close(1008, "base.realtime.protocol.invalid"); return; }
       if (query !== undefined) query.channelEpoch = message.channelEpoch;
-      else feed!.channelEpoch = message.channelEpoch;
+      else if (feed !== undefined) feed.channelEpoch = message.channelEpoch;
+      else hints!.channelEpoch = message.channelEpoch;
       return;
     }
     if (message.kind === "liveQuerySnapshot") {
@@ -213,13 +229,22 @@ export class BaseRealtimeManager {
       if (++this.#pendingDispatch > 256) { this.#socket?.close(1008, "base.realtime.inboundOverflow"); return; }
       this.#dispatch = this.#dispatch.then(() => this.subjectAuthorityChanged(message)).finally(() => { this.#pendingDispatch--; });
     }
+    else if (message.kind === "subjectLifecycleHint") {
+      const hints = this.#lifecycleHints.get(message.ref);
+      if (hints === undefined || hints.channelEpoch !== message.channelEpoch || !lifecycleToken(message.checkpoint)) { this.#socket?.close(1008, "base.realtime.protocol.invalid"); return; }
+      if (message.checkpoint === hints.lastCheckpoint) return;
+      if (++this.#pendingDispatch > 256) { this.#socket?.close(1008, "base.realtime.inboundOverflow"); return; }
+      this.#dispatch = this.#dispatch.then(async () => { await hints.observer(message.checkpoint as BaseSubjectLifecycleCheckpoint); hints.lastCheckpoint = message.checkpoint; }).catch(() => {
+        hints.closed = true; this.leaveLifecycleHints(hints); this.#lifecycleHints.delete(hints.ref); this.setConnectivity({ kind: "degraded", reason: "base.client.observerFailed" });
+      }).finally(() => { this.#pendingDispatch--; });
+    }
     else if (message.kind === "heartbeatAck" && message.heartbeatId === this.#heartbeatId) { this.#heartbeatId = undefined; if (this.#heartbeatDeadline !== undefined) clearTimeout(this.#heartbeatDeadline); this.#heartbeatDeadline = undefined; }
     else if (message.kind === "error" && message.terminal) {
       if (!isRecord(message.error) || typeof message.error.code !== "string" || message.error.code.length === 0 || message.error.code.length > 128) { this.#socket?.close(1008, "base.realtime.protocol.invalid"); return; }
       if (message.ref === undefined) { this.setConnectivity({ kind: "degraded", reason: message.error.code }); this.#socket?.close(1008, "terminal"); return; }
-      const query = this.byRef(message.ref); const feed = this.#feeds.get(message.ref);
-      if (query === undefined && feed === undefined) { this.#socket?.close(1008, "base.realtime.protocol.invalid"); return; }
-      if (query !== undefined) this.#queries.delete(query.key); else { feed!.closed = true; this.#feeds.delete(message.ref); }
+      const query = this.byRef(message.ref); const feed = this.#feeds.get(message.ref); const hints = this.#lifecycleHints.get(message.ref);
+      if (query === undefined && feed === undefined && hints === undefined) { this.#socket?.close(1008, "base.realtime.protocol.invalid"); return; }
+      if (query !== undefined) this.#queries.delete(query.key); else if (feed !== undefined) { feed.closed = true; this.#feeds.delete(message.ref); } else { hints!.closed = true; this.#lifecycleHints.delete(message.ref); }
       this.setConnectivity({ kind: "degraded", reason: message.error.code });
     }
     else if (message.kind === "closed" && !message.retryable) this.close();
@@ -246,6 +271,11 @@ export class BaseRealtimeManager {
       const kind = feed.request.kind === "live" ? "live" : feed.lastCursor !== undefined || feed.request.kind === "resume" ? "resume" : "durable";
       const cursor = feed.lastCursor ?? (feed.request.kind === "resume" ? feed.request.cursor : undefined);
       this.send({ protocol: 2, kind: "join", connectionId: message.connectionId, connectionEpoch: message.connectionEpoch, ref: feed.ref, channel: { kind, collection: feed.collectionId, ...(cursor === undefined ? {} : { cursor }), filter: feed.request.filter ?? {} } });
+    }
+    for (const hints of this.#lifecycleHints.values()) {
+      hints.channelEpoch = undefined;
+      this.send({ protocol: 2, kind: "join", connectionId: message.connectionId, connectionEpoch: message.connectionEpoch, ref: hints.ref,
+        channel: { kind: "subjectLifecycleHints", consumerId: hints.consumerId, consumerVersion: hints.consumerVersion, ...(hints.projectId === undefined ? {} : { projectId: hints.projectId }) } });
     }
   }
 
@@ -343,6 +373,7 @@ export class BaseRealtimeManager {
     this.send({ protocol: 2, kind: "leave", connectionId: this.#connectionId, connectionEpoch: this.#connectionEpoch, ref: query.ref });
   }
   private leaveFeed(feed: SharedFeed): void { if (this.#connectionId !== undefined && this.#connectionEpoch !== undefined) this.send({ protocol: 2, kind: "leave", connectionId: this.#connectionId, connectionEpoch: this.#connectionEpoch, ref: feed.ref }); }
+  private leaveLifecycleHints(hints: SharedLifecycleHints): void { if (this.#connectionId !== undefined && this.#connectionEpoch !== undefined) this.send({ protocol: 2, kind: "leave", connectionId: this.#connectionId, connectionEpoch: this.#connectionEpoch, ref: hints.ref }); }
 
   private send(value: unknown): void { if (this.#socket?.readyState === 1) this.#socket.send(JSON.stringify(value)); }
   private sendRaw(value: string): void { if (this.#socket?.readyState === 1) this.#socket.send(value); }
@@ -351,7 +382,7 @@ export class BaseRealtimeManager {
   private closed(): void {
     if (this.#heartbeat !== undefined) clearTimeout(this.#heartbeat); if (this.#heartbeatDeadline !== undefined) clearTimeout(this.#heartbeatDeadline); this.#heartbeat = undefined; this.#heartbeatDeadline = undefined; this.#heartbeatId = undefined;
     this.#socket = undefined; this.#connectionId = undefined; this.#connectionEpoch = undefined;
-    if (this.#closed || this.#queries.size + this.#feeds.size === 0) return;
+    if (this.#closed || this.#queries.size + this.#feeds.size + this.#lifecycleHints.size === 0) return;
     this.setConnectivity({ kind: "offline" });
     const cap = Math.min(30_000, 250 * 2 ** Math.min(this.#attempt++, 7));
     this.#reconnect = setTimeout(() => { this.#reconnect = undefined; void this.connect(); }, Math.floor(Math.random() * cap));
@@ -416,12 +447,13 @@ function validServerMessage(value: unknown): value is ServerMessage {
   if (!isRecord(value) || value.protocol !== 2 || typeof value.kind !== "string") return false;
   const envelope = (extra: readonly string[]): boolean => exact(value, ["protocol", "kind", "connectionId", "connectionEpoch", ...extra]) && (value.kind === "welcome" || opaque(value.connectionId)) && (value.kind === "welcome" || opaque(value.connectionEpoch));
   if (value.kind === "welcome") return envelope(["heartbeatIntervalMs", "maxInboundBytes", "maxChannels"]) && opaque(value.connectionId) && opaque(value.connectionEpoch) && integerIn(value.heartbeatIntervalMs, 1, 60_000) && integerIn(value.maxInboundBytes, 256, 1024 * 1024) && integerIn(value.maxChannels, 1, 128);
-  if (value.kind === "joined") return envelope(["ref", "channelEpoch", "delivery"]) && opaque(value.ref) && opaque(value.channelEpoch) && ["live-at-most-once", "durable-at-least-once", "live-query-snapshots"].includes(value.delivery as string);
+  if (value.kind === "joined") return envelope(["ref", "channelEpoch", "delivery"]) && opaque(value.ref) && opaque(value.channelEpoch) && ["live-at-most-once", "durable-at-least-once", "live-query-snapshots", "lifecycle-hints-non-authoritative"].includes(value.delivery as string);
   if (value.kind === "liveQuerySnapshot") return envelope(["ref", "channelEpoch", "version", "source", "value"]) && opaque(value.ref) && opaque(value.channelEpoch) && typeof value.version === "string" && /^\d+$/u.test(value.version) && (value.source === "initial" || value.source === "rerun");
   if (value.kind === "liveRecordEvent") return envelope(["ref", "channelEpoch", "event"]) && opaque(value.ref) && opaque(value.channelEpoch) && validRecordEvent(value.event);
   if (value.kind === "durableRecordEvent") return envelope(["ref", "channelEpoch", "event", "cursor"]) && opaque(value.ref) && opaque(value.channelEpoch) && validRecordEvent(value.event) && opaque(value.cursor);
   if (value.kind === "durableSubjectAuthorityChanged") return envelope(["ref", "channelEpoch", "contractId", "contractVersion", "stateGeneration", "cursor"]) && validSubjectControl(value, true);
   if (value.kind === "liveSubjectAuthorityChanged" || value.kind === "liveQuerySubjectAuthorityChanged") return envelope(["ref", "channelEpoch", "contractId", "contractVersion", "stateGeneration"]) && validSubjectControl(value, false);
+  if (value.kind === "subjectLifecycleHint") return envelope(["ref", "channelEpoch", "checkpoint"]) && opaque(value.ref) && opaque(value.channelEpoch) && lifecycleToken(value.checkpoint);
   if (value.kind === "heartbeatAck") return envelope(["heartbeatId"]) && opaque(value.heartbeatId);
   if (value.kind === "error") return exact(value, ["protocol", "kind", "connectionId", "connectionEpoch", "terminal", "error", ...(value.ref === undefined ? [] : ["ref"]), ...(value.channelEpoch === undefined ? [] : ["channelEpoch"])]) && opaque(value.connectionId) && opaque(value.connectionEpoch) && typeof value.terminal === "boolean" && isRecord(value.error) && exact(value.error, ["code"]) && boundedString(value.error.code, 128) && (value.ref === undefined || opaque(value.ref)) && (value.channelEpoch === undefined || opaque(value.channelEpoch));
   if (value.kind === "closed") return envelope(["code", "retryable"]) && boundedString(value.code, 128) && typeof value.retryable === "boolean";
@@ -438,6 +470,7 @@ function materializeRealtimeEnvelope(value: unknown): unknown {
 function exact(value: Record<string, unknown>, keys: readonly string[]): boolean { return Object.keys(value).length === keys.length && Object.keys(value).every(key => keys.includes(key)); }
 function integerIn(value: unknown, minimum: number, maximum: number): boolean { return Number.isInteger(value) && (value as number) >= minimum && (value as number) <= maximum; }
 function validSubjectControl(value: Record<string, unknown>, durable: boolean): boolean { return opaque(value.ref) && opaque(value.channelEpoch) && boundedString(value.contractId, 256) && integerIn(value.contractVersion, 1, 2_147_483_647) && typeof value.stateGeneration === "string" && /^[1-9]\d*$/u.test(value.stateGeneration) && BigInt(value.stateGeneration) <= 9_223_372_036_854_775_807n && (!durable || opaque(value.cursor)); }
+function lifecycleToken(value: unknown): value is string { return typeof value === "string" && value.length >= 16 && value.length <= 16_384 && /^[A-Za-z0-9_-]+$/u.test(value); }
 function subjectKey(contractId: string, version: number): string { return `${contractId}@${version}`; }
 function validSnapshotPage(value: unknown): value is { readonly items: readonly unknown[]; readonly page: Record<string, unknown>; readonly count?: Record<string, unknown> } { if (!isRecord(value) || !exact(value, ["items", "page", ...(value.count === undefined ? [] : ["count"])]) || !Array.isArray(value.items) || !isRecord(value.page)) return false; const page = value.page; if (!exact(page, ["hasMore", ...["page", "perPage", "offset", "limit", "cursor", "nextCursor"].filter(key => page[key] !== undefined)]) || typeof page.hasMore !== "boolean") return false; for (const key of ["page", "perPage", "offset", "limit"]) if (page[key] !== undefined && (!Number.isSafeInteger(page[key]) || (page[key] as number) < 0)) return false; for (const key of ["cursor", "nextCursor"]) if (page[key] !== undefined && !boundedString(page[key], 4096)) return false; return value.count === undefined || isRecord(value.count) && exact(value.count, ["mode", "isExact", ...(value.count.total === undefined ? [] : ["total"])]) && ["none", "ifAvailable", "exact", "estimated", "limited"].includes(value.count.mode as string) && typeof value.count.isExact === "boolean" && (value.count.total === undefined || Number.isSafeInteger(value.count.total) && (value.count.total as number) >= 0); }
 

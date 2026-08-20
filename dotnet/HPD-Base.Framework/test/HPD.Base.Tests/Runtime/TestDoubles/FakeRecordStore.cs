@@ -667,6 +667,16 @@ internal class FakeRecordStore : IAtomicRecordStore
             return ValueTask.FromResult(OperationResults.Ok(++_purgeGeneration));
         }
 
+        public ValueTask<OperationResult<BaseSubjectLifecycleCheckpointResult>> AdvanceSubjectLifecycleCheckpointAsync(
+            BaseSubjectLifecycleProviderCheckpointRequest request,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(OperationResults.Unsupported<BaseSubjectLifecycleCheckpointResult>(new BaseError
+            {
+                Code = BaseSubjectErrorCodes.ProviderContractInvalid,
+                Message = "This test store does not provide subject lifecycle delivery.",
+                Category = ErrorCategory.Unsupported,
+            }));
+
         public ValueTask<OperationResult> ApplyMutationProjectionsAsync(
             BaseAtomicMutationProjectionRequest request,
             CancellationToken cancellationToken = default)

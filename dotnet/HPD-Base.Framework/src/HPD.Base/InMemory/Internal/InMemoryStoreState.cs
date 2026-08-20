@@ -21,6 +21,15 @@ internal sealed class InMemoryStoreState
     public Dictionary<string, InMemorySubjectContractState> SubjectContracts { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets current exported-subject lifetimes by canonical subject key.</summary>
     public Dictionary<string, InMemorySubjectLifetimeState> SubjectLifetimes { get; } = new(StringComparer.Ordinal);
+    /// <summary>Gets latest terminal lifetime evidence by logical subject key.</summary>
+    public Dictionary<string, InMemorySubjectTerminalState> SubjectTerminals { get; } = new(StringComparer.Ordinal);
+    /// <summary>Gets canonical durable lifecycle facts.</summary>
+    public List<InMemorySubjectLifecycleFactRow> SubjectLifecycleFacts { get; } = [];
+    /// <summary>Gets consumer-indexed lifecycle memberships.</summary>
+    public List<InMemorySubjectLifecycleMembershipRow> SubjectLifecycleMemberships { get; } = [];
+    public Dictionary<string, InMemorySubjectLifecycleConsumerProjection> SubjectLifecycleConsumers { get; } = new(StringComparer.Ordinal);
+    public Dictionary<string, InMemorySubjectLifecycleCheckpointState> SubjectLifecycleCheckpoints { get; } = new(StringComparer.Ordinal);
+    public long SubjectLifecycleDeliveryEpoch { get; set; } = 1;
     /// <summary>Gets module-owned generation cells by canonical scoped key.</summary>
     public Dictionary<string, long> ModuleGenerations { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets the shared record/control mutation journal by append position.</summary>
@@ -34,6 +43,7 @@ internal sealed class InMemoryStoreState
             NextRecordId = NextRecordId,
             NextRevision = NextRevision,
             GlobalMutationPosition = GlobalMutationPosition,
+            SubjectLifecycleDeliveryEpoch = SubjectLifecycleDeliveryEpoch,
         };
 
         foreach (var (id, collection) in Collections)
@@ -46,6 +56,12 @@ internal sealed class InMemoryStoreState
             clone.SubjectContracts.Add(id, subject with { });
         foreach (var (id, lifetime) in SubjectLifetimes)
             clone.SubjectLifetimes.Add(id, lifetime with { });
+        foreach (var (id, terminal) in SubjectTerminals)
+            clone.SubjectTerminals.Add(id, terminal with { });
+        clone.SubjectLifecycleFacts.AddRange(SubjectLifecycleFacts.Select(static value => value with { Fact = value.Fact with { } }));
+        clone.SubjectLifecycleMemberships.AddRange(SubjectLifecycleMemberships.Select(static value => value with { }));
+        foreach (var (id, consumer) in SubjectLifecycleConsumers) clone.SubjectLifecycleConsumers.Add(id, consumer with { Cutoff = consumer.Cutoff is null ? null : consumer.Cutoff with { } });
+        foreach (var (id, checkpoint) in SubjectLifecycleCheckpoints) clone.SubjectLifecycleCheckpoints.Add(id, checkpoint with { Through = checkpoint.Through is null ? null : checkpoint.Through with { } });
         foreach ((string key, long generation) in ModuleGenerations)
             clone.ModuleGenerations.Add(key, generation);
         foreach ((long position, BaseMutationJournalEntry entry) in MutationJournal)
@@ -89,9 +105,32 @@ internal sealed record InMemorySubjectLifetimeState(
     int ContractVersion,
     BaseSubjectId SubjectId,
     BaseSubjectIncarnation Incarnation,
+    long LifetimeGeneration,
+    BaseSubjectLifecycleState LifecycleState,
+    long SubjectSequence,
+    BaseOwnedSubjectScopeEvidence Scope,
     string PrivateCollectionId,
     RecordId PrivateRecordId,
-    long CreatedJournalPosition);
+    long CreatedJournalPosition,
+    long LastLifecyclePosition);
+
+internal sealed record InMemorySubjectTerminalState(
+    string ContractId,
+    int ContractVersion,
+    BaseSubjectId SubjectId,
+    BaseOwnedSubjectScopeEvidence Scope,
+    BaseSubjectAuthorityEpoch AuthorityEpoch,
+    BaseSubjectIncarnation Incarnation,
+    long LifetimeGeneration,
+    long SubjectSequence,
+    long RetiredPosition,
+    long ContractStateGeneration,
+    long RestoreEpoch,
+    string ReceiptChecksum);
+internal sealed record InMemorySubjectLifecycleFactRow(BaseOwnedSubjectScopeEvidence Scope, BaseSubjectLifecycleOrderingBoundary Boundary, BaseSubjectLifecycleFact Fact);
+internal sealed record InMemorySubjectLifecycleMembershipRow(string ConsumerId, int ConsumerVersion, string ConsumerChecksum, long ProjectionGeneration, BaseSubjectLifecycleState MatchedState, int FactIndex);
+internal sealed record InMemorySubjectLifecycleConsumerProjection(string ConsumerId, int ConsumerVersion, string ConsumerChecksum, string ContractId, int ContractVersion, long ProjectionGeneration, BaseSubjectLifecycleOrderingBoundary? Cutoff, long PublishedGraphGeneration);
+internal sealed record InMemorySubjectLifecycleCheckpointState(string ConsumerId, int ConsumerVersion, string ConsumerChecksum, string ContractId, int ContractVersion, long ProjectionGeneration, BaseOwnedSubjectScopeEvidence Scope, BaseSubjectLifecycleOrderingBoundary? Through, long Generation, DateTimeOffset AdvancedAtUtc, bool Overtaken);
 
 internal sealed class InMemoryVectorProjectionState
 {
@@ -139,6 +178,12 @@ internal sealed record InMemoryMutationReceipt(
             }).ToImmutableArray(),
             CanonicalResultBytes = result.ModuleMutation.CanonicalResultBytes.ToArray().ToImmutableArray(),
         },
+        SubjectLifecycleCheckpoint = result.SubjectLifecycleCheckpoint is null
+            ? null
+            : BaseSubjectLifecycleReceiptOwnership.Clone(result.SubjectLifecycleCheckpoint),
+        SubjectLifecycleMaintenance = result.SubjectLifecycleMaintenance is null
+            ? null
+            : result.SubjectLifecycleMaintenance with { RollingChecksum = new string(result.SubjectLifecycleMaintenance.RollingChecksum.AsSpan()) },
     };
 }
 

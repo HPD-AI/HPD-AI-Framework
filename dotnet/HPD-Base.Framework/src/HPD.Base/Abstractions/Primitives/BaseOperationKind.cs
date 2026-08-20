@@ -53,6 +53,18 @@ RealtimeSubscribe,
     SubjectValidate,
     /// <summary>Identifies destructive exported-subject authority-epoch rotation.</summary>
     SubjectEpochRotate,
+    /// <summary>Identifies an authorized durable subject-lifecycle feed read.</summary>
+    SubjectLifecycleRead,
+    /// <summary>Identifies an identified durable subject-lifecycle checkpoint advance.</summary>
+    SubjectLifecycleCheckpoint,
+    /// <summary>Identifies an authorized current subject-lifecycle reconciliation read.</summary>
+    SubjectLifecycleReconcile,
+    /// <summary>Identifies the generated constrained subject tombstone mutation.</summary>
+    SubjectLifecycleTombstone,
+    /// <summary>Identifies generated uncoordinated final subject retirement.</summary>
+    SubjectLifecycleFinalizeRetirement,
+    /// <summary>Performs one identified subject-lifecycle maintenance operation.</summary>
+    SubjectLifecycleMaintenance,
     /// <summary>Identifies one graph-installed registered module mutation.</summary>
     ModuleMutation
 }

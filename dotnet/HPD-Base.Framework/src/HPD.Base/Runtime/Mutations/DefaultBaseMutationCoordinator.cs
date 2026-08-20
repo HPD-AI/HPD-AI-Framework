@@ -16,6 +16,7 @@ internal sealed class DefaultBaseMutationCoordinator(
     IBaseMutationPostCommitDispatcher postCommit,
     IBaseDescriptorRegistry descriptors,
     BaseSubjectContractRegistry subjects,
+    BaseSubjectLifecycleRegistry lifecycleConsumers,
     IOptions<HPDBaseRuntimeOptions> options,
     TimeProvider timeProvider,
     ILogger<DefaultBaseMutationCoordinator> logger) : IBaseMutationCoordinator
@@ -509,7 +510,8 @@ internal sealed class DefaultBaseMutationCoordinator(
             descriptors.Current.Schema.Collections ?? [],
             executionLimits,
             authority.Value,
-            subjects);
+            subjects,
+            lifecycleConsumers);
         var request = new RecordMutationExecutionRequest
         {
             AcquisitionTimeout = _limits.StoreAcquisitionTimeout,
@@ -710,7 +712,7 @@ internal sealed class DefaultBaseMutationCoordinator(
             if (string.IsNullOrWhiteSpace(item.CollectionId) || !ValidUnion(item))
                 return Validation<BaseMutationCommand[]>(BaseMutationErrorCodes.BatchItemInvalid, "A batch item is invalid.");
 
-            var kind = ToOperation(item.Kind);
+            var kind = item.OperationOverride ?? ToOperation(item.Kind);
             var recordId = TargetId(item);
             if (recordId is { } id && string.IsNullOrWhiteSpace(id.Value))
                 return Validation<BaseMutationCommand[]>(BaseMutationErrorCodes.BatchItemInvalid, "A record identifier is invalid.");
@@ -1036,6 +1038,7 @@ internal sealed class DefaultBaseMutationCoordinator(
             Upsert = preparedUpsert,
             CreatePayload = createPayload,
             UpdatePayload = updatePayload
+            ,SubjectLifecycleTransition = item.SubjectLifecycleTransition
         });
     }
 
@@ -1269,6 +1272,7 @@ internal sealed class DefaultBaseMutationCoordinator(
             Upsert = upsert,
             Revision = attempt.Revision,
             Events = [mutation.Event],
+            SubjectLifecycle = mutation.SubjectLifecycle,
             Warnings =
             [
                 new OperationWarning

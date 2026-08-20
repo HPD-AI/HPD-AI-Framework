@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Base.Sqlite;
@@ -11,7 +12,89 @@ namespace HPD.Base.Tests.Subjects;
 
 public sealed class L45SubjectTransactionTests
 {
+    [Fact]
+    public void L47_consumer_graph_checksum_is_normalized_deterministic_and_duplicate_identity_fails()
+    {
+        SubjectFixture fixture = Build();
+        BaseGeneratedSubjectRegistration subject = fixture.Services.GetRequiredService<BaseSubjectContractRegistry>().All.Single();
+        BaseSubjectLifecycleConsumerDefinition left = LifecycleConsumer() with
+        {
+            ObservedStates = [BaseSubjectLifecycleState.Retired, BaseSubjectLifecycleState.Active, BaseSubjectLifecycleState.Retired],
+        };
+        BaseSubjectLifecycleConsumerDefinition right = LifecycleConsumer() with
+        {
+            ObservedStates = [BaseSubjectLifecycleState.Active, BaseSubjectLifecycleState.Retired],
+        };
+
+        BaseSubjectLifecycleConsumerDefinition normalizedLeft = BaseSubjectLifecycleRegistry.Normalize(left);
+        BaseSubjectLifecycleConsumerDefinition normalizedRight = BaseSubjectLifecycleRegistry.Normalize(right);
+        string leftChecksum = BaseSubjectLifecycleRegistry.Checksum(normalizedLeft, subject.Checksum);
+        string rightChecksum = BaseSubjectLifecycleRegistry.Checksum(normalizedRight, subject.Checksum);
+
+        Assert.Equal([BaseSubjectLifecycleState.Active, BaseSubjectLifecycleState.Retired], normalizedLeft.ObservedStates.ToArray());
+        Assert.Equal(leftChecksum, rightChecksum);
+        InvalidOperationException duplicate = Assert.Throws<InvalidOperationException>(() =>
+            new BaseSubjectLifecycleRegistry([left, right], new BaseSubjectContractRegistry([subject])));
+        Assert.Equal(BaseSubjectErrorCodes.LifecycleRegistrationConflict, duplicate.Message);
+    }
+
+    [Fact]
+    public async Task L47_InMemory_sequence_overflow_fails_atomically_with_the_stable_contract_error()
+    {
+        await using SubjectFixture fixture = Build();
+        IBaseRecordRuntime runtime = fixture.Services.GetRequiredService<IBaseRecordRuntime>();
+        PrincipalContext principal = Principal();
+        OperationResult<RecordEnvelope> created = await runtime.CreateAsync(
+            Private.Id, Create("overflow-user", ("active", true), ("tenant", "tenant-a")), principal,
+            Operation(BaseOperationKind.Create, Private.Id));
+        Assert.True(created.IsSuccess(), created.Error?.Code);
+
+        InMemoryStoreState state = fixture.Store.CaptureVectorRoot();
+        KeyValuePair<string, InMemorySubjectLifetimeState> lifetime = Assert.Single(state.SubjectLifetimes);
+        state.SubjectLifetimes[lifetime.Key] = lifetime.Value with { SubjectSequence = long.MaxValue };
+        int factCount = state.SubjectLifecycleFacts.Count;
+
+        OperationResult<RecordEnvelope> result = await runtime.PatchAsync(
+            Private.Id, new RecordId("overflow-user"), Patch(("active", false)), principal,
+            Operation(BaseOperationKind.Patch, Private.Id));
+
+        Assert.Equal(OperationStatus.Conflict, result.Status);
+        Assert.Equal(BaseSubjectErrorCodes.SequenceExhausted, result.Error?.Code);
+        Assert.Equal(factCount, fixture.Store.CaptureVectorRoot().SubjectLifecycleFacts.Count);
+        RecordEnvelope current = (await runtime.GetAsync(
+            Private.Id, new RecordId("overflow-user"), principal,
+            Operation(BaseOperationKind.Get, Private.Id))).Value!;
+        Assert.True(current.Payload.Fields!["active"].GetBoolean());
+    }
+
     private sealed class UserSubject;
+
+    [Fact]
+    public async Task L47_ControlPlane_all_scope_inspection_uses_graph_installed_authority_receipt()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddHPDBase(builder => builder
+            .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey { Id = 9, Key = Enumerable.Repeat((byte)9, 32).ToArray(), IssueNotBefore = DateTimeOffset.UnixEpoch })
+            .AddTestPolicyAuthority(new GrantingPolicy())
+            .AddTestSubjectLifecycleGrant("example.user.admin", "hpd.base.application", "example.auth", "example.user.admin", "example.sqlite-user", 1, audience: HPDBaseEndpointAudience.ControlPlane)
+            .AddCollection(L45SqlitePrivateUser.Collection)
+            .AddExportedSubject(L45SqliteUserSubject.HPDBaseSubjectRegistration));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        OperationResult<BaseApplicationReadiness> readiness = await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync();
+        Assert.True(readiness.IsSuccess(), readiness.Error?.Code);
+        string storeId = provider.GetRequiredService<IRecordStoreRegistry>().GetRegistrations().Single().Store.Capabilities.StoreId;
+        BaseResult<BaseSubjectLifecycleInspectionResult> result = await provider.GetRequiredService<IHPDBaseAdministration>().InspectSubjectLifecycleAsync(
+            storeId,
+            Principal(),
+            new BaseSubjectLifecycleInspectionRequest
+            {
+                ContractId = "example.sqlite-user", ContractVersion = 1,
+                ScopeMode = BaseSubjectScopeQueryMode.AllAuthorizedScopes,
+                IncludeTerminalReceipt = false, MaximumResultBytes = 4096, Timeout = TimeSpan.FromSeconds(2),
+            });
+        Assert.True(result is BaseSuccess<BaseSubjectLifecycleInspectionResult>, result is BaseFailure<BaseSubjectLifecycleInspectionResult> failure ? $"{failure.Status}: {failure.Error.Code}" : null);
+    }
 
     [Fact]
     public async Task Capture_preserves_normal_duplicate_and_missing_record_outcomes_with_subject_contracts_installed()
@@ -72,8 +155,8 @@ public sealed class L45SubjectTransactionTests
             Create("profile-wrong-tenant", ("owner", firstReference)),
             principal with { CurrentTenantId = "tenant-b" },
             Operation(BaseOperationKind.Create, Consumer.Id));
-        Assert.Equal(OperationStatus.ValidationFailed, wrongTenant.Status);
         Assert.Equal(BaseSubjectErrorCodes.ReferenceInvalid, wrongTenant.Error?.Code);
+        Assert.Equal(OperationStatus.ValidationFailed, wrongTenant.Status);
 
         OperationResult<RecordEnvelope> deactivated = await runtime.PatchAsync(
             Private.Id, new RecordId("user-1"), Patch(("active", false)), principal, Operation(BaseOperationKind.Patch, Private.Id));
@@ -83,10 +166,30 @@ public sealed class L45SubjectTransactionTests
         Assert.Equal(OperationStatus.ValidationFailed, inactive.Status);
         Assert.Equal(BaseSubjectErrorCodes.ReferenceInvalid, inactive.Error?.Code);
 
-        Assert.True((await runtime.DeleteAsync(Private.Id, new RecordId("user-1"), new RecordDeleteRequest(), principal,
-            Operation(BaseOperationKind.Delete, Private.Id))).IsSuccess());
-        Assert.True((await runtime.CreateAsync(Private.Id, Create("user-1", ("active", true), ("tenant", "tenant-a")), principal,
-            Operation(BaseOperationKind.Create, Private.Id))).IsSuccess());
+        BaseSubjectReference<UserSubject> typedFirstReference = new(
+            BaseSubjectId.Create(firstReference.GetProperty("subjectId").GetString()!, BaseSubjectIdKind.OrdinalString),
+            BaseSubjectAuthorityEpoch.Parse(firstReference.GetProperty("authorityEpoch").GetString()!),
+            BaseSubjectIncarnation.Parse(firstReference.GetProperty("incarnation").GetString()!));
+        BaseSession lifecycleSession = fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);
+        BaseExportedSubjectContract<UserSubject> exporter = lifecycleSession.GetExportedSubjectContract<UserSubject>(fixture.Registration);
+        RecordEnvelope beforeTombstone = (await runtime.GetAsync(Private.Id, new RecordId("user-1"), principal, Operation(BaseOperationKind.Get, Private.Id))).Value!;
+        BaseSubjectLifecycleFact<UserSubject> tombstone = (await exporter.TombstoneAsync(new()
+        {
+            Subject = typedFirstReference, ExpectedPrivateRevision = beforeTombstone.Metadata.Revision!.Value,
+            Identity = BaseMutationRequestIdentity.Create("l47-tests", "tombstone", "stale-user-1", BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("stale-tombstone-user-1"u8))),
+        })).RequireValue();
+        RecordEnvelope beforeRetirement = (await runtime.GetAsync(Private.Id, new RecordId("user-1"), principal, Operation(BaseOperationKind.Get, Private.Id))).Value!;
+        BaseResult<BaseSubjectFinalRetirementResult<UserSubject>> retirement = await exporter.FinalizeRetirementAsync(new()
+        {
+            Subject = typedFirstReference, ExpectedTombstoneSequence = tombstone.Fact.SubjectSequence,
+            ExpectedPrivateRevision = beforeRetirement.Metadata.Revision!.Value,
+            Identity = BaseMutationRequestIdentity.Create("l47-tests", "retire", "stale-user-1", BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("stale-retire-user-1"u8))),
+        });
+        Assert.True(retirement is BaseSuccess<BaseSubjectFinalRetirementResult<UserSubject>>, (retirement as BaseFailure<BaseSubjectFinalRetirementResult<UserSubject>>)?.Error.Code);
+        OperationResult<RecordEnvelope> created = await runtime.CreateAsync(
+            Private.Id, Create("user-1", ("active", true), ("tenant", "tenant-a")), principal,
+            Operation(BaseOperationKind.Create, Private.Id));
+        Assert.True(created.IsSuccess(), created.Error?.Code);
         JsonElement secondReference = await fixture.AcquireAsync("user-1");
         Assert.NotEqual(firstReference.GetProperty("incarnation").GetString(), secondReference.GetProperty("incarnation").GetString());
 
@@ -111,9 +214,23 @@ public sealed class L45SubjectTransactionTests
         await using SubjectFixture fixture = Build();
         IBaseRecordRuntime runtime = fixture.Services.GetRequiredService<IBaseRecordRuntime>();
         PrincipalContext principal = Principal();
-        Assert.True((await runtime.CreateAsync(Private.Id, Create("user-1", ("active", true), ("tenant", "tenant-a")), principal,
-            Operation(BaseOperationKind.Create, Private.Id))).IsSuccess());
+        OperationResult<RecordEnvelope> created = await runtime.CreateAsync(
+            Private.Id, Create("user-1", ("active", true), ("tenant", "tenant-a")), principal,
+            Operation(BaseOperationKind.Create, Private.Id));
+        Assert.True(created.IsSuccess(), created.Error?.Code);
         JsonElement reference = await fixture.AcquireAsync("user-1");
+        BaseSubjectLifecycleOrderingBoundary? lifecycleHighWaterBefore = (await fixture.Store.InspectAsync(new()
+        {
+            ContractId = "example.user", ContractVersion = 1,
+            ScopeAuthority = new BaseSubjectScopeQueryAuthority
+            {
+                Mode = BaseSubjectScopeQueryMode.ExactScope,
+                ExactScope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Tenant, Value = "tenant-a" },
+                InstalledAuthorityDigest = fixture.Registration.Checksum,
+            },
+            IncludeTerminalReceipt = false, MaximumResultBytes = 4096,
+            DeadlineUtc = DateTimeOffset.UtcNow.AddMinutes(1),
+        })).Value!.HighWater;
 
         var consumer = new BaseRecordBatchItem
         {
@@ -136,8 +253,8 @@ public sealed class L45SubjectTransactionTests
             },
             "delete" => new BaseRecordBatchItem
             {
-                ItemId = "delete", CollectionId = Private.Id, Kind = BaseRecordMutationKind.Delete,
-                RecordId = new RecordId("user-1"), Delete = new RecordDeleteRequest(),
+                ItemId = "tombstone", CollectionId = Private.Id, Kind = BaseRecordMutationKind.Patch,
+                RecordId = new RecordId("user-1"), Patch = Patch(("active", false), ("tombstoned", true)),
             },
             _ => throw new ArgumentOutOfRangeException(nameof(lifecycle)),
         };
@@ -148,11 +265,483 @@ public sealed class L45SubjectTransactionTests
         }, principal, Operation(BaseOperationKind.Batch, Consumer.Id));
 
         Assert.Equal(BaseRecordBatchOutcome.RolledBack, result.Value?.Outcome);
-        Assert.Contains(result.Value!.Items, item => item.Error?.Code == BaseSubjectErrorCodes.ReferenceInvalid);
+        Assert.Contains(result.Value!.Items, item => item.Error?.Code == (lifecycle == "delete"
+            ? BaseSubjectErrorCodes.LifecycleUnauthorized
+            : BaseSubjectErrorCodes.ReferenceInvalid));
         Assert.Equal(OperationStatus.NotFound, (await runtime.GetAsync(Consumer.Id, new RecordId("profile"), principal, Operation(BaseOperationKind.Get, Consumer.Id))).Status);
         RecordEnvelope current = (await runtime.GetAsync(Private.Id, new RecordId("user-1"), principal, Operation(BaseOperationKind.Get, Private.Id))).Value!;
         Assert.True(current.Payload.Fields!["active"].GetBoolean());
         Assert.Equal("tenant-a", current.Payload.Fields["tenant"].GetString());
+        BaseSubjectLifecycleOrderingBoundary? lifecycleHighWaterAfter = (await fixture.Store.InspectAsync(new()
+        {
+            ContractId = "example.user", ContractVersion = 1,
+            ScopeAuthority = new BaseSubjectScopeQueryAuthority
+            {
+                Mode = BaseSubjectScopeQueryMode.ExactScope,
+                ExactScope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Tenant, Value = "tenant-a" },
+                InstalledAuthorityDigest = fixture.Registration.Checksum,
+            },
+            IncludeTerminalReceipt = false, MaximumResultBytes = 4096,
+            DeadlineUtc = DateTimeOffset.UtcNow.AddMinutes(1),
+        })).Value!.HighWater;
+        Assert.Equal(lifecycleHighWaterBefore, lifecycleHighWaterAfter);
+    }
+
+    [Fact]
+    public async Task L47_InMemory_publishes_consumer_indexed_lifecycle_facts_in_canonical_order()
+    {
+        bool interruptMaintenance = true;
+        int completedMaintenancePages = 0;
+        await using SubjectFixture fixture = Build(lifecycleConsumer: true, lifecycleMaintenancePageCompleted: (page, _) =>
+        {
+            completedMaintenancePages = page;
+            if (interruptMaintenance) { interruptMaintenance = false; throw new OperationCanceledException(); }
+            return ValueTask.CompletedTask;
+        });
+        IBaseRecordRuntime runtime = fixture.Services.GetRequiredService<IBaseRecordRuntime>();
+        PrincipalContext principal = Principal();
+        OperationResult<RecordEnvelope> created = await runtime.CreateAsync(
+            Private.Id, Create("user-1", ("active", true), ("tenant", "tenant-a")), principal,
+            Operation(BaseOperationKind.Create, Private.Id));
+        Assert.True(created.IsSuccess(), created.Error?.Code);
+        Assert.True((await runtime.PatchAsync(Private.Id, new RecordId("user-1"), Patch(("active", false)), principal,
+            Operation(BaseOperationKind.Patch, Private.Id))).IsSuccess());
+        JsonElement encodedReference = await fixture.AcquireAsync("user-1");
+        BaseSubjectReference<UserSubject> subjectReference = new(
+            BaseSubjectId.Create(encodedReference.GetProperty("subjectId").GetString()!, BaseSubjectIdKind.OrdinalString),
+            BaseSubjectAuthorityEpoch.Parse(encodedReference.GetProperty("authorityEpoch").GetString()!),
+            BaseSubjectIncarnation.Parse(encodedReference.GetProperty("incarnation").GetString()!));
+        RecordEnvelope beforeTombstone = (await runtime.GetAsync(Private.Id, new RecordId("user-1"), principal,
+            Operation(BaseOperationKind.Get, Private.Id))).Value!;
+        BaseSession session = fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);
+        BaseExportedSubjectContract<UserSubject> exporter = session.GetExportedSubjectContract<UserSubject>(fixture.Registration);
+        BaseResult<BaseSubjectLifecycleFact<UserSubject>> tombstoned = await exporter.TombstoneAsync(new()
+        {
+            Subject = subjectReference,
+            ExpectedPrivateRevision = beforeTombstone.Metadata.Revision!.Value,
+            Identity = BaseMutationRequestIdentity.Create("l47-tests", "tombstone", "user-1", BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("tombstone-user-1"u8))),
+        });
+        Assert.True(tombstoned is BaseSuccess<BaseSubjectLifecycleFact<UserSubject>>, (tombstoned as BaseFailure<BaseSubjectLifecycleFact<UserSubject>>)?.Error.Code);
+        Assert.Equal(BaseSubjectLifecycleState.Tombstoned, tombstoned.RequireValue().Fact.Transitioned!.CurrentState);
+
+        BaseSubjectLifecycleConsumerDefinition consumer = LifecycleConsumer();
+        OperationResult<BaseSubjectLifecycleProviderPage> page = await fixture.Store.ReadAsync(new BaseSubjectLifecycleProviderReadRequest
+        {
+            ApplicationId = "test.application", ContractId = "example.user", ContractVersion = 1,
+            ContractChecksum = BaseSubjectContractGraph.Checksum(SubjectDefinition()), ConsumerId = consumer.Id,
+            ConsumerVersion = consumer.Version, ConsumerChecksum = BaseSubjectLifecycleRegistry.Checksum(BaseSubjectLifecycleRegistry.Normalize(consumer), fixture.Registration.Checksum),
+            ProjectionGeneration = 1, Scope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Tenant, Value = "tenant-a" },
+            Take = 256, MaximumResultBytes = 1_048_576, DeadlineUtc = DateTimeOffset.UtcNow.AddMinutes(1),
+        });
+        Assert.True(page.IsSuccess(), page.Error?.Code);
+        Assert.Equal([BaseSubjectLifecycleFactKind.Created, BaseSubjectLifecycleFactKind.Transitioned, BaseSubjectLifecycleFactKind.Transitioned], page.Value!.Facts.Select(static fact => fact.Fact.Kind));
+        Assert.Equal([1L, 2L, 3L], page.Value.Facts.Select(static fact => fact.Fact.SubjectSequence));
+        Assert.All(page.Value.Facts, fact => Assert.Equal(fact.Fact.AuthorityEpoch, fact.Boundary.AuthorityEpoch));
+        BaseSubjectLifecycleProviderReadRequest oneFactRequest = new()
+        {
+            ApplicationId = "test.application", ContractId = "example.user", ContractVersion = 1,
+            ContractChecksum = fixture.Registration.Checksum, ConsumerId = consumer.Id, ConsumerVersion = consumer.Version,
+            ConsumerChecksum = BaseSubjectLifecycleRegistry.Checksum(BaseSubjectLifecycleRegistry.Normalize(consumer), fixture.Registration.Checksum),
+            ProjectionGeneration = 1, Scope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Tenant, Value = "tenant-a" },
+            Take = 1, MaximumResultBytes = 1_048_576, DeadlineUtc = DateTimeOffset.UtcNow.AddMinutes(1),
+        };
+        OperationResult<BaseSubjectLifecycleProviderPage> measuredPage = await fixture.Store.ReadAsync(oneFactRequest);
+        Assert.True(measuredPage.IsSuccess(), measuredPage.Error?.Code);
+        long exactResultBytes = measuredPage.Value!.Accounting.ResultBytes;
+        Assert.True((await fixture.Store.ReadAsync(oneFactRequest with { MaximumResultBytes = exactResultBytes })).IsSuccess());
+        OperationResult<BaseSubjectLifecycleProviderPage> oneByteShort = await fixture.Store.ReadAsync(oneFactRequest with { MaximumResultBytes = exactResultBytes - 1 });
+        Assert.Equal(BaseSubjectErrorCodes.LifecycleCapacityExceeded, oneByteShort.Error?.Code);
+        BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create("l47-tests", "advance", "one", BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("advance-one"u8)));
+        var checkpointRequest = new BaseSubjectLifecycleProviderCheckpointRequest
+        {
+            ApplicationId = "test.application", ContractId = "example.user", ContractVersion = 1, ConsumerId = consumer.Id,
+            ConsumerVersion = consumer.Version, ConsumerChecksum = BaseSubjectLifecycleRegistry.Checksum(BaseSubjectLifecycleRegistry.Normalize(consumer), fixture.Registration.Checksum), ProjectionGeneration = 1,
+            Scope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Tenant, Value = "tenant-a" }, Through = page.Value.Through,
+            ExpectedCheckpointGeneration = 0, Identity = identity, DeadlineUtc = DateTimeOffset.UtcNow.AddMinutes(1),
+        };
+        var checkpointProcessor = new BaseSubjectLifecycleCheckpointProcessor(checkpointRequest);
+        RecordMutationExecutionResult advanced = await fixture.Store.AdvanceCheckpointAsync(checkpointProcessor, LifecycleCheckpointExecution(checkpointRequest));
+        Assert.True(advanced.Outcome == RecordMutationExecutionOutcome.Committed, advanced.Error?.Code ?? advanced.Processing?.Error?.Code); Assert.Equal(1, checkpointProcessor.Result!.CheckpointGeneration); Assert.False(checkpointProcessor.Result.Duplicate);
+        var duplicateProcessor = new BaseSubjectLifecycleCheckpointProcessor(checkpointRequest);
+        RecordMutationExecutionResult duplicate = await fixture.Store.AdvanceCheckpointAsync(duplicateProcessor, LifecycleCheckpointExecution(checkpointRequest));
+        Assert.True(duplicate.Outcome == RecordMutationExecutionOutcome.Committed, duplicate.Error?.Code ?? duplicate.Processing?.Error?.Code); Assert.True(duplicateProcessor.Result!.Duplicate); Assert.Equal(1, duplicateProcessor.Result.CheckpointGeneration);
+
+        BaseSubjectLifecycleOrderingBoundary retained = page.Value.Facts[^1].Boundary;
+        BaseMutationRequestIdentity pruneIdentity = BaseMutationRequestIdentity.Create(
+            "l47-tests", "prune", "tenant-a", BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("prune-tenant-a"u8)));
+        var pruneRequest = new BaseSubjectLifecycleMaintenanceExecutionRequest
+        {
+            FormatVersion = 1,
+            Kind = BaseSubjectLifecycleMaintenanceKind.Prune,
+            ContractId = "example.user",
+            ContractVersion = 1,
+            RetainedFrom = retained,
+            Identity = pruneIdentity,
+            PlanChecksum = new byte[32],
+            ExpectedStoreGeneration = 1,
+            ExpectedSchemaGeneration = 1,
+            ExpectedRestoreEpoch = 0,
+            ExpectedDeliveryEpoch = 1,
+            ExpectedScopeProtectionGeneration = 1,
+            ExpectedScopeProtectionKeyId = "0",
+            PageSize = 1,
+            OperationTimeout = TimeSpan.FromSeconds(5),
+            CommitCompletionTimeout = TimeSpan.FromSeconds(5),
+        };
+        pruneRequest = pruneRequest with
+        {
+            PlanChecksum = BaseSubjectLifecycleMaintenanceProcessor.PlanChecksum(pruneRequest),
+        };
+        var pruneProcessor = new BaseSubjectLifecycleMaintenanceProcessor();
+        RecordMutationExecutionResult interrupted = await fixture.Store.ExecuteMaintenanceAsync(pruneProcessor, pruneRequest);
+        Assert.Equal(RecordMutationExecutionOutcome.RollbackConfirmed, interrupted.Outcome);
+        Assert.Equal(BaseSubjectErrorCodes.Timeout, interrupted.Error?.Code ?? interrupted.Processing?.Error?.Code);
+        Assert.Equal(1, completedMaintenancePages);
+        OperationResult<RecordEnvelope> closed = await fixture.Store.GetAsync(Private, new RecordId("user-1"), Operation(BaseOperationKind.Get, Private.Id));
+        Assert.Equal(OperationStatus.CapabilityUnavailable, closed.Status);
+        Assert.Equal(BaseSubjectErrorCodes.MaintenanceRequired, closed.Error?.Code);
+
+        pruneProcessor = new BaseSubjectLifecycleMaintenanceProcessor();
+        RecordMutationExecutionResult pruned = await fixture.Store.ExecuteMaintenanceAsync(pruneProcessor, pruneRequest);
+
+        Assert.True(pruned.Outcome == RecordMutationExecutionOutcome.Committed,
+            pruned.Error?.Code ?? pruned.Processing?.Error?.Code);
+        Assert.Equal(BaseSubjectLifecycleMaintenanceKind.Prune, pruneProcessor.Result!.Kind);
+        Assert.Equal(7, pruneProcessor.Result.ExaminedCount);
+        Assert.Equal(4, pruneProcessor.Result.ChangedCount);
+    }
+
+    [Fact]
+    public async Task L47_reconciliation_fails_before_subject_enumeration_when_no_safe_plan_is_installed()
+    {
+        await using SubjectFixture fixture = Build(lifecycleConsumer: true);
+        BaseSubjectLifecycleConsumerDefinition consumer = LifecycleConsumer();
+        OperationResult<BaseSubjectLifecycleProviderReconciliationPage> result = await fixture.Store.ReconcileAsync(new()
+        {
+            ApplicationId = "test.application", ContractId = "example.user", ContractVersion = 1,
+            ContractChecksum = fixture.Registration.Checksum, ConsumerId = consumer.Id, ConsumerVersion = consumer.Version,
+            ConsumerChecksum = BaseSubjectLifecycleRegistry.Checksum(BaseSubjectLifecycleRegistry.Normalize(consumer), fixture.Registration.Checksum),
+            ProjectionGeneration = 1, Scope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Tenant, Value = "tenant-a" },
+            Take = 1, MaximumResultBytes = 4096, DeadlineUtc = DateTimeOffset.UtcNow.AddMinutes(1),
+        });
+
+        Assert.False(result.IsSuccess());
+        Assert.Equal(OperationStatus.CapabilityUnavailable, result.Status);
+        Assert.Equal(BaseSubjectErrorCodes.LifecycleReconciliationUnavailable, result.Error?.Code);
+    }
+
+    [Fact]
+    public async Task L47_noncooperative_provider_read_times_out_retains_one_slot_and_recovers_after_late_completion()
+    {
+        await using SubjectFixture fixture = Build(lifecycleConsumer: true, scopeRotationKeys: true,
+            lifecycleReadTimeout: TimeSpan.FromMilliseconds(100));
+        IBaseRecordRuntime records = fixture.Services.GetRequiredService<IBaseRecordRuntime>();
+        Assert.True((await records.CreateAsync(Private.Id, Create("slow-user", ("active", true), ("tenant", "tenant-a")),
+            Principal(), Operation(BaseOperationKind.Create, Private.Id))).IsSuccess());
+        BaseSubjectContractRegistry contracts = fixture.Services.GetRequiredService<BaseSubjectContractRegistry>();
+        BaseInstalledSubjectLifecycleConsumer installed = fixture.Services.GetRequiredService<BaseSubjectLifecycleRegistry>().All.Single();
+        var hanging = new HangingLifecycleStore(fixture.Store);
+        var operational = new BaseSubjectLifecycleOperationalState();
+        var runtime = new DefaultBaseSubjectLifecycleRuntime(
+            new SingleStoreRegistry(Private.Id, hanging), contracts,
+            fixture.Services.GetRequiredService<IBasePolicyOrchestrator>(),
+            fixture.Services.GetRequiredService<BaseOpaqueTokenProtector>(), TimeProvider.System,
+            Microsoft.Extensions.Options.Options.Create(new HPDBaseSubjectLifecycleOptions { CursorLifetime = TimeSpan.FromHours(1) }),
+            new BaseSubjectLifecycleRuntimeLimits(1, TimeSpan.FromMilliseconds(100)), operational);
+        await using (runtime.ConfigureAwait(false))
+        {
+            BaseSession session = fixture.Services.GetRequiredService<IBaseSessionFactory>().For(Principal());
+            BaseResult<BaseUntypedSubjectLifecyclePage> timedOut = await runtime.ReadUntypedAsync(session, installed, null, 1, CancellationToken.None);
+            Assert.Equal(BaseSubjectErrorCodes.Timeout, Assert.IsType<BaseFailure<BaseUntypedSubjectLifecyclePage>>(timedOut).Error.Code);
+            Assert.Equal(1, hanging.ReadCalls);
+            Assert.Equal(1, operational.Quarantined);
+            HealthDescriptor health = Assert.Single(await new BaseSubjectLifecycleHealthContributor(operational, TimeProvider.System).GetHealthAsync());
+            Assert.Equal(HealthStatus.Degraded, health.Status);
+
+            BaseResult<BaseUntypedSubjectLifecyclePage> capacityTimedOut = await runtime.ReadUntypedAsync(session, installed, null, 1, CancellationToken.None);
+            Assert.Equal(BaseSubjectErrorCodes.Timeout, Assert.IsType<BaseFailure<BaseUntypedSubjectLifecyclePage>>(capacityTimedOut).Error.Code);
+            Assert.Equal(1, hanging.ReadCalls);
+
+            await hanging.ReleaseAsync();
+            Assert.True(SpinWait.SpinUntil(() => operational.Quarantined == 0, TimeSpan.FromSeconds(1)));
+            BaseResult<BaseUntypedSubjectLifecyclePage> recovered = await runtime.ReadUntypedAsync(session, installed, null, 1, CancellationToken.None);
+            Assert.True(recovered is BaseSuccess<BaseUntypedSubjectLifecyclePage>,
+                (recovered as BaseFailure<BaseUntypedSubjectLifecyclePage>)?.Error.Code);
+            Assert.Equal(2, hanging.ReadCalls);
+        }
+    }
+
+    [Fact]
+    public async Task L47_runtime_rejects_hostile_page_identity_scope_interval_and_accounting_evidence()
+    {
+        await using SubjectFixture fixture = Build(lifecycleConsumer: true, scopeRotationKeys: true);
+        IBaseRecordRuntime records = fixture.Services.GetRequiredService<IBaseRecordRuntime>();
+        Assert.True((await records.CreateAsync(Private.Id, Create("hostile-user", ("active", true), ("tenant", "tenant-a")),
+            Principal(), Operation(BaseOperationKind.Create, Private.Id))).IsSuccess());
+        BaseInstalledSubjectLifecycleConsumer installed = fixture.Services.GetRequiredService<BaseSubjectLifecycleRegistry>().All.Single();
+        BaseSubjectContractRegistry contracts = fixture.Services.GetRequiredService<BaseSubjectContractRegistry>();
+        BaseSession session = fixture.Services.GetRequiredService<IBaseSessionFactory>().For(Principal());
+
+        await Reject(page => page with
+        {
+            Facts = [page.Facts[0] with
+            {
+                Boundary = page.Facts[0].Boundary with { AuthorityEpoch = new BaseSubjectAuthorityEpoch(new byte[16]) },
+            }],
+        });
+        await Reject(page => page with { Facts = [page.Facts[0], page.Facts[0]] });
+        await Reject(page => page with { Intervals = [] });
+        await Reject(page => page with { Accounting = page.Accounting with { ResultBytes = checked(page.Accounting.ResultBytes + 1) } });
+        await Reject(page => page with
+        {
+            Scope = page.Scope with { IndexDigest = System.Security.Cryptography.SHA256.HashData("substituted-scope"u8) },
+        });
+
+        async Task Reject(Func<BaseSubjectLifecycleProviderPage, BaseSubjectLifecycleProviderPage> transform)
+        {
+            await using var runtime = new DefaultBaseSubjectLifecycleRuntime(
+                new SingleStoreRegistry(Private.Id, new TransformingLifecycleStore(fixture.Store, transform)), contracts,
+                fixture.Services.GetRequiredService<IBasePolicyOrchestrator>(),
+                fixture.Services.GetRequiredService<BaseOpaqueTokenProtector>(), TimeProvider.System,
+                Microsoft.Extensions.Options.Options.Create(new HPDBaseSubjectLifecycleOptions()),
+                BaseSubjectLifecycleRuntimeLimits.Default,
+                new BaseSubjectLifecycleOperationalState());
+            BaseResult<BaseUntypedSubjectLifecyclePage> result = await runtime.ReadUntypedAsync(session, installed, null, 1, CancellationToken.None);
+            BaseFailure<BaseUntypedSubjectLifecyclePage> failure = Assert.IsType<BaseFailure<BaseUntypedSubjectLifecyclePage>>(result);
+            Assert.Equal(BaseSubjectErrorCodes.LifecycleProviderContractInvalid, failure.Error.Code);
+        }
+    }
+
+    [Fact]
+    public async Task L47_canonical_facts_are_deduplicated_while_consumers_receive_distinct_observed_states()
+    {
+        BaseSubjectLifecycleConsumerDefinition active = LifecycleConsumer() with
+        {
+            Id = "example.active.lifecycle", ObservedStates = [BaseSubjectLifecycleState.Active],
+            DeliveryGrantId = "example.active.lifecycle.read",
+        };
+        BaseSubjectLifecycleConsumerDefinition inactive = LifecycleConsumer() with
+        {
+            Id = "example.inactive.lifecycle", ObservedStates = [BaseSubjectLifecycleState.Inactive],
+            DeliveryGrantId = "example.inactive.lifecycle.read",
+        };
+        await using SubjectFixture fixture = Build(lifecycleConsumers: [active, inactive]);
+        IBaseRecordRuntime records = fixture.Services.GetRequiredService<IBaseRecordRuntime>();
+        Assert.True((await records.CreateAsync(Private.Id, Create("split-user", ("active", true), ("tenant", "tenant-a")),
+            Principal(), Operation(BaseOperationKind.Create, Private.Id))).IsSuccess());
+        Assert.True((await records.PatchAsync(Private.Id, new RecordId("split-user"), Patch(("active", false)),
+            Principal(), Operation(BaseOperationKind.Patch, Private.Id))).IsSuccess());
+
+        OperationResult<BaseSubjectLifecycleProviderPage> activePage = await Read(active);
+        OperationResult<BaseSubjectLifecycleProviderPage> inactivePage = await Read(inactive);
+        Assert.Equal(BaseSubjectLifecycleState.Active, Assert.Single(activePage.Value!.Facts).MatchedObservedState);
+        Assert.Equal(BaseSubjectLifecycleState.Inactive, Assert.Single(inactivePage.Value!.Facts).MatchedObservedState);
+        Assert.NotEqual(activePage.Value.Facts[0].Boundary, inactivePage.Value.Facts[0].Boundary);
+        OperationResult<BaseSubjectLifecycleProviderInspection> inspection = await fixture.Store.InspectAsync(new()
+        {
+            ContractId = "example.user", ContractVersion = 1,
+            ScopeAuthority = new BaseSubjectScopeQueryAuthority
+            {
+                Mode = BaseSubjectScopeQueryMode.ExactScope,
+                ExactScope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Tenant, Value = "tenant-a" },
+                InstalledAuthorityDigest = fixture.Registration.Checksum,
+            },
+            IncludeTerminalReceipt = false, MaximumResultBytes = 4096, DeadlineUtc = DateTimeOffset.UtcNow.AddMinutes(1),
+        });
+        Assert.Equal(2, inspection.Value!.Consumers.Length);
+
+        ValueTask<OperationResult<BaseSubjectLifecycleProviderPage>> Read(BaseSubjectLifecycleConsumerDefinition consumer) => fixture.Store.ReadAsync(new()
+        {
+            ApplicationId = "test.application", ContractId = "example.user", ContractVersion = 1,
+            ContractChecksum = fixture.Registration.Checksum, ConsumerId = consumer.Id, ConsumerVersion = consumer.Version,
+            ConsumerChecksum = BaseSubjectLifecycleRegistry.Checksum(BaseSubjectLifecycleRegistry.Normalize(consumer), fixture.Registration.Checksum),
+            ProjectionGeneration = 1, Scope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Tenant, Value = "tenant-a" },
+            Take = 16, MaximumResultBytes = 1_048_576, DeadlineUtc = DateTimeOffset.UtcNow.AddMinutes(1),
+        });
+    }
+
+    [Fact]
+    public async Task L47_InMemory_rebuild_and_consumer_removal_use_bounded_identified_staging()
+    {
+        await using SubjectFixture fixture = Build(lifecycleConsumer: true);
+        IBaseRecordRuntime runtime = fixture.Services.GetRequiredService<IBaseRecordRuntime>();
+        Assert.True((await runtime.CreateAsync(Private.Id, Create("staged-user", ("active", true), ("tenant", "tenant-a")), Principal(), Operation(BaseOperationKind.Create, Private.Id))).IsSuccess());
+        BaseSubjectLifecycleConsumerDefinition consumer = LifecycleConsumer();
+
+        BaseSubjectLifecycleMaintenanceExecutionRequest rebuild = Maintenance(BaseSubjectLifecycleMaintenanceKind.RebuildDeliveryProjection, "rebuild", projection: 1);
+        var rebuildProcessor = new BaseSubjectLifecycleMaintenanceProcessor();
+        RecordMutationExecutionResult rebuilt = await fixture.Store.ExecuteMaintenanceAsync(rebuildProcessor, rebuild);
+        Assert.Equal(RecordMutationExecutionOutcome.Committed, rebuilt.Outcome);
+        Assert.Equal(2, rebuildProcessor.Result!.ProjectionGeneration);
+
+        BaseSubjectLifecycleMaintenanceExecutionRequest removal = Maintenance(BaseSubjectLifecycleMaintenanceKind.RemoveConsumer, "remove", projection: 2);
+        var removalProcessor = new BaseSubjectLifecycleMaintenanceProcessor();
+        RecordMutationExecutionResult removed = await fixture.Store.ExecuteMaintenanceAsync(removalProcessor, removal);
+        Assert.Equal(RecordMutationExecutionOutcome.Committed, removed.Outcome);
+        Assert.Null(removalProcessor.Result!.ProjectionGeneration);
+        OperationResult<BaseSubjectLifecycleProviderPage> denied = await fixture.Store.ReadAsync(new()
+        {
+            ApplicationId = "test.application", ContractId = "example.user", ContractVersion = 1, ContractChecksum = fixture.Registration.Checksum,
+            ConsumerId = consumer.Id, ConsumerVersion = consumer.Version, ConsumerChecksum = BaseSubjectLifecycleRegistry.Checksum(BaseSubjectLifecycleRegistry.Normalize(consumer), fixture.Registration.Checksum), ProjectionGeneration = 2,
+            Scope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Tenant, Value = "tenant-a" }, Take = 1, MaximumResultBytes = 4096, DeadlineUtc = DateTimeOffset.UtcNow.AddMinutes(1),
+        });
+        Assert.False(denied.IsSuccess());
+        Assert.Equal(BaseSubjectErrorCodes.LifecycleProviderContractInvalid, denied.Error?.Code);
+
+        BaseSubjectLifecycleMaintenanceExecutionRequest Maintenance(BaseSubjectLifecycleMaintenanceKind kind, string suffix, long projection)
+        {
+            BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create("l47-tests", suffix, suffix, BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(suffix))));
+            var request = new BaseSubjectLifecycleMaintenanceExecutionRequest
+            {
+                FormatVersion = 1, Kind = kind, ContractId = "example.user", ContractVersion = 1, ConsumerId = consumer.Id, ConsumerVersion = consumer.Version,
+                ExpectedProjectionGeneration = projection, Identity = identity, PlanChecksum = new byte[32], ExpectedStoreGeneration = 1, ExpectedSchemaGeneration = 1,
+                ExpectedRestoreEpoch = 0, ExpectedDeliveryEpoch = 1, ExpectedScopeProtectionGeneration = 1, ExpectedScopeProtectionKeyId = "0", PageSize = 1,
+                OperationTimeout = TimeSpan.FromSeconds(5), CommitCompletionTimeout = TimeSpan.FromSeconds(5),
+            };
+            return request with { PlanChecksum = BaseSubjectLifecycleMaintenanceProcessor.PlanChecksum(request) };
+        }
+    }
+
+    [Fact]
+    public async Task L47_InMemory_scope_rotation_is_bounded_atomic_and_invalidates_old_cursor_authority()
+    {
+        await using SubjectFixture fixture = Build(lifecycleConsumer: true, scopeRotationKeys: true);
+        IBaseRecordRuntime records = fixture.Services.GetRequiredService<IBaseRecordRuntime>();
+        PrincipalContext principal = Principal();
+        Assert.True((await records.CreateAsync(Private.Id, Create("rotation-user", ("active", true), ("tenant", "tenant-a")), principal, Operation(BaseOperationKind.Create, Private.Id))).IsSuccess());
+        Assert.True((await records.PatchAsync(Private.Id, new RecordId("rotation-user"), Patch(("active", false)), principal, Operation(BaseOperationKind.Patch, Private.Id))).IsSuccess());
+        BaseInstalledSubjectLifecycleConsumer installed = fixture.Services.GetRequiredService<BaseSubjectLifecycleRegistry>().All.Single();
+        IBaseSubjectLifecycleRuntime lifecycle = fixture.Services.GetRequiredService<IBaseSubjectLifecycleRuntime>();
+        BaseSession session = fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);
+        BaseResult<BaseUntypedSubjectLifecyclePage> before = await lifecycle.ReadUntypedAsync(session, installed, null, 1, CancellationToken.None);
+        BaseSubjectLifecycleCursor oldCursor = Assert.IsType<BaseSuccess<BaseUntypedSubjectLifecyclePage>>(before).Value.Next!;
+        PrincipalContext otherTenant = new()
+        {
+            AuthenticationState = PrincipalAuthenticationState.Service,
+            SubjectKind = AccessSubjectKind.ServicePrincipal,
+            SubjectId = "service-1",
+            CurrentTenantId = "tenant-b",
+        };
+        BaseSession otherTenantSession = fixture.Services.GetRequiredService<IBaseSessionFactory>().For(otherTenant);
+        BaseFailure<BaseUntypedSubjectLifecyclePage> crossScope = Assert.IsType<BaseFailure<BaseUntypedSubjectLifecyclePage>>(
+            await lifecycle.ReadUntypedAsync(otherTenantSession, installed, oldCursor, 1, CancellationToken.None));
+        Assert.Equal(BaseSubjectErrorCodes.LifecycleUnauthorized, crossScope.Error.Code);
+        BaseSubjectLifecycleConsumerDefinition consumer = LifecycleConsumer();
+        OperationResult<BaseSubjectLifecycleProviderPage> foreignSeek = await fixture.Store.ReadAsync(new()
+        {
+            ApplicationId = "test.application", ContractId = "example.user", ContractVersion = 1,
+            ContractChecksum = fixture.Registration.Checksum, ConsumerId = consumer.Id, ConsumerVersion = consumer.Version,
+            ConsumerChecksum = BaseSubjectLifecycleRegistry.Checksum(BaseSubjectLifecycleRegistry.Normalize(consumer), fixture.Registration.Checksum),
+            ProjectionGeneration = 1, Scope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Tenant, Value = "tenant-b" },
+            Take = 1, MaximumResultBytes = 4096, DeadlineUtc = DateTimeOffset.UtcNow.AddMinutes(1),
+        });
+        Assert.True(foreignSeek.IsSuccess(), foreignSeek.Error?.Code);
+        Assert.Empty(foreignSeek.Value!.Facts);
+        Assert.Equal(0, foreignSeek.Value.Accounting.RowsHydrated);
+
+        BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create("l47-tests", "scope-rotation", "scope-rotation", BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("scope-rotation"u8)));
+        var request = new BaseSubjectLifecycleMaintenanceExecutionRequest
+        {
+            FormatVersion = 1, Kind = BaseSubjectLifecycleMaintenanceKind.RotateScopeProtection, Identity = identity, PlanChecksum = new byte[32],
+            ExpectedStoreGeneration = 1, ExpectedSchemaGeneration = 1, ExpectedRestoreEpoch = 0, ExpectedDeliveryEpoch = 1,
+            ExpectedScopeProtectionGeneration = 1, ExpectedScopeProtectionKeyId = "0", ReplacementScopeProtectionKeyId = "1", PageSize = 1,
+            OperationTimeout = TimeSpan.FromSeconds(5), CommitCompletionTimeout = TimeSpan.FromSeconds(5),
+        };
+        request = request with { PlanChecksum = BaseSubjectLifecycleMaintenanceProcessor.PlanChecksum(request) };
+        var processor = new BaseSubjectLifecycleMaintenanceProcessor();
+        RecordMutationExecutionResult rotated = await fixture.Store.ExecuteMaintenanceAsync(processor, request);
+        Assert.Equal(RecordMutationExecutionOutcome.Committed, rotated.Outcome);
+        Assert.Equal(2, processor.Result!.DeliveryEpoch);
+        Assert.Equal(2, processor.Result.ProjectionGeneration);
+
+        BaseResult<BaseUntypedSubjectLifecyclePage> resumed = await lifecycle.ReadUntypedAsync(session, installed, oldCursor, 1, CancellationToken.None);
+        BaseFailure<BaseUntypedSubjectLifecyclePage> failure = Assert.IsType<BaseFailure<BaseUntypedSubjectLifecyclePage>>(resumed);
+        Assert.Equal(OperationStatus.Conflict, failure.Status);
+        Assert.Equal(BaseSubjectErrorCodes.CursorOvertaken, failure.Error.Code);
+    }
+
+    [Fact]
+    public async Task L47_zero_consumer_graph_preserves_canonical_fact_without_delivery_authority()
+    {
+        await using SubjectFixture fixture = Build(lifecycleConsumer: false);
+        IBaseRecordRuntime runtime = fixture.Services.GetRequiredService<IBaseRecordRuntime>();
+        OperationResult<RecordEnvelope> created = await runtime.CreateAsync(
+            Private.Id, Create("user-zero", ("active", true), ("tenant", "tenant-a")), Principal(),
+            Operation(BaseOperationKind.Create, Private.Id));
+        Assert.True(created.IsSuccess(), created.Error?.Code);
+
+        OperationResult<BaseSubjectLifecycleProviderInspection> inspection = await fixture.Store.InspectAsync(new()
+        {
+            ContractId = "example.user", ContractVersion = 1,
+            ScopeAuthority = new BaseSubjectScopeQueryAuthority
+            {
+                Mode = BaseSubjectScopeQueryMode.ExactScope,
+                ExactScope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Tenant, Value = "tenant-a" },
+                InstalledAuthorityDigest = fixture.Registration.Checksum,
+            },
+            IncludeTerminalReceipt = false, MaximumResultBytes = 4096,
+            DeadlineUtc = DateTimeOffset.UtcNow.AddMinutes(1),
+        });
+
+        Assert.True(inspection.IsSuccess(), inspection.Error?.Code);
+        Assert.Empty(inspection.Value!.Consumers);
+        Assert.NotNull(inspection.Value.EarliestRetained);
+        Assert.Equal(inspection.Value.EarliestRetained, inspection.Value.HighWater);
+
+        OperationResult<BaseSubjectLifecycleProviderPage> delivery = await fixture.Store.ReadAsync(new()
+        {
+            ApplicationId = "test.application", ContractId = "example.user", ContractVersion = 1,
+            ContractChecksum = fixture.Registration.Checksum, ConsumerId = "uninstalled", ConsumerVersion = 1,
+            ConsumerChecksum = new string('0', 64), ProjectionGeneration = 1,
+            Scope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Tenant, Value = "tenant-a" },
+            Take = 1, MaximumResultBytes = 4096, DeadlineUtc = DateTimeOffset.UtcNow.AddMinutes(1),
+        });
+        Assert.False(delivery.IsSuccess());
+        Assert.Equal(BaseSubjectErrorCodes.LifecycleProviderContractInvalid, delivery.Error?.Code);
+    }
+
+    [Fact]
+    public async Task L47_provider_rejects_uninstalled_all_scope_inspection_authority()
+    {
+        await using SubjectFixture fixture = Build();
+        OperationResult<BaseSubjectLifecycleProviderInspection> inspection = await fixture.Store.InspectAsync(new()
+        {
+            ContractId = "example.user",
+            ContractVersion = 1,
+            ScopeAuthority = new BaseSubjectScopeQueryAuthority
+            {
+                Mode = BaseSubjectScopeQueryMode.AllAuthorizedScopes,
+                InstalledAuthorityDigest = new string('0', 64),
+            },
+            IncludeTerminalReceipt = false,
+            MaximumResultBytes = 4096,
+            DeadlineUtc = DateTimeOffset.UtcNow.AddMinutes(1),
+        });
+
+        Assert.False(inspection.IsSuccess());
+        Assert.Equal(OperationStatus.PolicyDenied, inspection.Status);
+        Assert.Equal(BaseSubjectErrorCodes.LifecycleUnauthorized, inspection.Error?.Code);
+    }
+
+    [Fact]
+    public async Task L47_provider_accepts_only_the_immutable_installed_all_scope_inspection_receipt()
+    {
+        const string digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        await using SubjectFixture fixture = Build(allScopeInspectionDigest: digest);
+        OperationResult<BaseSubjectLifecycleProviderInspection> inspection = await fixture.Store.InspectAsync(new()
+        {
+            ContractId = "example.user", ContractVersion = 1,
+            ScopeAuthority = new BaseSubjectScopeQueryAuthority
+            {
+                Mode = BaseSubjectScopeQueryMode.AllAuthorizedScopes,
+                InstalledAuthorityDigest = digest,
+            },
+            IncludeTerminalReceipt = false, MaximumResultBytes = 4096,
+            DeadlineUtc = DateTimeOffset.UtcNow.AddMinutes(1),
+        });
+
+        Assert.True(inspection.IsSuccess(), inspection.Error?.Code);
+        Assert.Null(inspection.Value!.TerminalReceipt);
     }
 
     [Fact]
@@ -182,7 +771,7 @@ public sealed class L45SubjectTransactionTests
     }
 
     [Fact]
-    public async Task Mixed_delete_recreate_uses_the_new_final_incarnation_and_rolls_back_to_the_old_lifetime()
+    public async Task Ordinary_mixed_delete_recreate_is_rejected_and_preserves_the_old_lifetime()
     {
         await using SubjectFixture fixture = Build();
         IBaseRecordRuntime runtime = fixture.Services.GetRequiredService<IBaseRecordRuntime>();
@@ -207,6 +796,11 @@ public sealed class L45SubjectTransactionTests
                     },
                     new BaseRecordBatchItem
                     {
+                        ItemId = "tombstone", CollectionId = Private.Id, Kind = BaseRecordMutationKind.Patch,
+                        RecordId = new RecordId("user-1"), Patch = Patch(("active", false), ("tombstoned", true)),
+                    },
+                    new BaseRecordBatchItem
+                    {
                         ItemId = "retire", CollectionId = Private.Id, Kind = BaseRecordMutationKind.Delete,
                         RecordId = new RecordId("user-1"), Delete = new RecordDeleteRequest(),
                     },
@@ -221,7 +815,7 @@ public sealed class L45SubjectTransactionTests
             Operation(BaseOperationKind.Batch, Consumer.Id));
 
         Assert.Equal(BaseRecordBatchOutcome.RolledBack, result.Value?.Outcome);
-        Assert.Contains(result.Value!.Items, item => item.Error?.Code == BaseSubjectErrorCodes.ReferenceInvalid);
+        Assert.Contains(result.Value!.Items, item => item.Error?.Code == BaseSubjectErrorCodes.LifecycleUnauthorized);
         JsonElement stillCurrent = await fixture.AcquireAsync("user-1");
         Assert.Equal(
             oldReference.GetProperty("incarnation").GetString(),
@@ -352,6 +946,11 @@ public sealed class L45SubjectTransactionTests
                 .AddTestStaticGrant("system.private")
                 .AddTestStaticGrant("example.user.validate")
                 .AddTestStaticGrant("example.user.acquire")
+                .AddTestSubjectLifecycleGrant("example.sqlite-profile.lifecycle.read", "l45.sqlite.application", "example.profiles", "example.sqlite-profile.lifecycle", "example.sqlite-user", 1)
+                .AddTestSubjectLifecycleGrant("base.subjectLifecycle.feed.read", "l45.sqlite.application", "example.profiles", "base.subjectLifecycle.feed.read", "example.sqlite-user", 1)
+                .AddTestSubjectLifecycleGrant("base.subjectLifecycle.feed.checkpoint", "l45.sqlite.application", "example.profiles", "base.subjectLifecycle.feed.checkpoint", "example.sqlite-user", 1)
+                .AddTestSubjectLifecycleGrant("base.subjectLifecycle.tombstone", "l45.sqlite.application", "example.auth", "base.subjectLifecycle.tombstone", "example.sqlite-user", 1)
+                .AddTestSubjectLifecycleGrant("base.subjectLifecycle.finalizeRetirement", "l45.sqlite.application", "example.auth", "base.subjectLifecycle.finalizeRetirement", "example.sqlite-user", 1)
                 .ConfigureSchema(options =>
                 {
                     options.ApplicationId = "l45.sqlite.application";
@@ -360,6 +959,11 @@ public sealed class L45SubjectTransactionTests
                 .AddCollection(privateCollection)
                 .AddCollection(L45SqliteProfile.Collection)
                 .AddExportedSubject(L45SqliteUserSubject.HPDBaseSubjectRegistration)
+                .AddSubjectLifecycleConsumer(SqliteLifecycleConsumer())
+                .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey
+                {
+                    Id = 47, Key = Enumerable.Repeat((byte)0x47, 32).ToArray(), IssueNotBefore = DateTimeOffset.UnixEpoch,
+                })
                 .AddRead(L45AcquireSqliteUser.Definition)
                 .AddSubjectAcquisition(new BaseSubjectAcquisitionDefinition
                 {
@@ -441,6 +1045,12 @@ public sealed class L45SubjectTransactionTests
                         },
                         new BaseRecordBatchItem
                         {
+                            ItemId = "tombstone", CollectionId = privateCollection.Id,
+                            Kind = BaseRecordMutationKind.Patch, RecordId = new RecordId("user-1"),
+                            Patch = Patch(("active", false), ("tombstoned", true)),
+                        },
+                        new BaseRecordBatchItem
+                        {
                             ItemId = "retire", CollectionId = privateCollection.Id,
                             Kind = BaseRecordMutationKind.Delete, RecordId = new RecordId("user-1"),
                             Delete = new RecordDeleteRequest(),
@@ -456,12 +1066,146 @@ public sealed class L45SubjectTransactionTests
                 principal,
                 Operation(BaseOperationKind.Batch, L45SqliteProfile.Collection.Id));
             Assert.Equal(BaseRecordBatchOutcome.RolledBack, recreate.Value?.Outcome);
-            Assert.Contains(recreate.Value!.Items, item => item.Error?.Code == BaseSubjectErrorCodes.ReferenceInvalid);
+            Assert.Contains(recreate.Value!.Items, item => item.Error?.Code == BaseSubjectErrorCodes.LifecycleUnauthorized);
             Assert.Equal(OperationStatus.NotFound, (await runtime.GetAsync(
                 L45SqliteProfile.Collection.Id,
                 new RecordId("profile-3"),
                 principal,
                 Operation(BaseOperationKind.Get, L45SqliteProfile.Collection.Id))).Status);
+
+            RecordEnvelope beforeTombstone = (await runtime.GetAsync(privateCollection.Id, new RecordId("user-1"), principal,
+                Operation(BaseOperationKind.Get, privateCollection.Id))).Value!;
+            BaseMutationRequestIdentity tombstoneIdentity = BaseMutationRequestIdentity.Create("l47-sqlite", "tombstone", "user-1", BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("l47-sqlite-tombstone"u8)));
+            BaseExportedSubjectContract<L45SqliteUserSubject> exporter = L45SqliteUserSubject.Contract(session);
+            BaseResult<BaseSubjectLifecycleFact<L45SqliteUserSubject>> tombstoned = await exporter.TombstoneAsync(new()
+            {
+                Subject = typedReference,
+                ExpectedPrivateRevision = beforeTombstone.Metadata.Revision!.Value,
+                Identity = tombstoneIdentity,
+            });
+            Assert.Equal(BaseSubjectLifecycleState.Tombstoned, tombstoned.RequireValue().Fact.Transitioned!.CurrentState);
+            BaseResult<BaseSubjectLifecycleFact<L45SqliteUserSubject>> tombstoneReplay = await exporter.TombstoneAsync(new()
+            {
+                Subject = typedReference,
+                ExpectedPrivateRevision = beforeTombstone.Metadata.Revision!.Value,
+                Identity = tombstoneIdentity,
+            });
+            Assert.Equal(tombstoned.RequireValue().Fact.SubjectSequence, tombstoneReplay.RequireValue().Fact.SubjectSequence);
+
+            RecordEnvelope beforeRetirement = (await runtime.GetAsync(privateCollection.Id, new RecordId("user-1"), principal,
+                Operation(BaseOperationKind.Get, privateCollection.Id))).Value!;
+            BaseMutationRequestIdentity retirementIdentity = BaseMutationRequestIdentity.Create("l47-sqlite", "retire", "user-1", BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("l47-sqlite-retire"u8)));
+            BaseResult<BaseSubjectFinalRetirementResult<L45SqliteUserSubject>> retired = await exporter.FinalizeRetirementAsync(new()
+            {
+                Subject = typedReference,
+                ExpectedTombstoneSequence = tombstoned.RequireValue().Fact.SubjectSequence,
+                ExpectedPrivateRevision = beforeRetirement.Metadata.Revision!.Value,
+                Identity = retirementIdentity,
+            });
+            Assert.True(retired is BaseSuccess<BaseSubjectFinalRetirementResult<L45SqliteUserSubject>>, (retired as BaseFailure<BaseSubjectFinalRetirementResult<L45SqliteUserSubject>>)?.Error.Code);
+            Assert.False(retired.RequireValue().Duplicate);
+            BaseResult<BaseSubjectFinalRetirementResult<L45SqliteUserSubject>> retirementReplay = await exporter.FinalizeRetirementAsync(new()
+            {
+                Subject = typedReference,
+                ExpectedTombstoneSequence = tombstoned.RequireValue().Fact.SubjectSequence,
+                ExpectedPrivateRevision = beforeRetirement.Metadata.Revision!.Value,
+                Identity = retirementIdentity,
+            });
+            Assert.True(retirementReplay.RequireValue().Duplicate);
+
+            BaseSubjectLifecycleConsumerDefinition lifecycleConsumer = SqliteLifecycleConsumer();
+            var lifecycleStore = (IBaseSubjectLifecycleStore)provider.GetRequiredService<IRecordStoreRegistry>().GetStore("l45-sqlite")!;
+            OperationResult<BaseSubjectLifecycleProviderInspection> terminal = await lifecycleStore.InspectAsync(new()
+            {
+                ContractId = "example.sqlite-user", ContractVersion = 1,
+                ScopeAuthority = new BaseSubjectScopeQueryAuthority
+                {
+                    Mode = BaseSubjectScopeQueryMode.ExactScope,
+                    ExactScope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Tenant, Value = "tenant-a" },
+                    InstalledAuthorityDigest = L45SqliteUserSubject.HPDBaseSubjectRegistration.Checksum,
+                },
+                SubjectId = BaseSubjectId.Create("user-1", BaseSubjectIdKind.OrdinalString),
+                IncludeTerminalReceipt = true, MaximumResultBytes = 4096,
+                DeadlineUtc = DateTimeOffset.UtcNow.AddMinutes(1),
+            });
+            Assert.True(terminal.IsSuccess(), terminal.Error?.Code);
+            Assert.Equal(typedReference.AuthorityEpoch, terminal.Value!.TerminalReceipt!.RetiredAuthorityEpoch);
+            Assert.Equal(typedReference.Incarnation, terminal.Value.TerminalReceipt.RetiredIncarnation);
+            Assert.Equal(retired.RequireValue().RetiredSubjectSequence, terminal.Value.TerminalReceipt.RetiredSubjectSequence);
+
+            OperationResult<RecordEnvelope> recreatedSubject = await runtime.CreateAsync(privateCollection.Id,
+                Create("user-1", ("active", true), ("tenant", "tenant-a")), principal,
+                Operation(BaseOperationKind.Create, privateCollection.Id));
+            Assert.True(recreatedSubject.IsSuccess(), recreatedSubject.Error?.Code);
+            L45AcquireSqliteUser.Row recreatedReference = Assert.Single((await session.Reads.ToArrayAsync(
+                L45AcquireSqliteUser.Handle,
+                new L45AcquireSqliteUser { UserId = BaseRecordId<L45SqlitePrivateUser>.Create("user-1") })).RequireValue());
+            Assert.Equal(typedReference.AuthorityEpoch, recreatedReference.Reference.AuthorityEpoch);
+            Assert.NotEqual(typedReference.Incarnation, recreatedReference.Reference.Incarnation);
+
+            await MakeFirstTwoLifecycleFactsShareCommitPositionAsync(database);
+            BaseSubjectLifecycleProviderReadRequest firstPageRequest = LifecycleRead(after: null, take: 1);
+            OperationResult<BaseSubjectLifecycleProviderPage> firstBoundaryPage = await lifecycleStore.ReadAsync(firstPageRequest);
+            Assert.True(firstBoundaryPage.IsSuccess(), firstBoundaryPage.Error?.Code);
+            BaseSubjectLifecycleProviderFact firstBoundaryFact = Assert.Single(firstBoundaryPage.Value!.Facts);
+            long sqliteExactResultBytes = firstBoundaryPage.Value.Accounting.ResultBytes;
+            Assert.True((await lifecycleStore.ReadAsync(firstPageRequest with { MaximumResultBytes = sqliteExactResultBytes })).IsSuccess());
+            OperationResult<BaseSubjectLifecycleProviderPage> sqliteOneByteShort = await lifecycleStore.ReadAsync(
+                firstPageRequest with { MaximumResultBytes = sqliteExactResultBytes - 1 });
+            Assert.Equal(BaseSubjectErrorCodes.LifecycleCapacityExceeded, sqliteOneByteShort.Error?.Code);
+            OperationResult<BaseSubjectLifecycleProviderPage> secondBoundaryPage = await lifecycleStore.ReadAsync(
+                LifecycleRead(firstBoundaryFact.Boundary, take: 1));
+            Assert.True(secondBoundaryPage.IsSuccess(), secondBoundaryPage.Error?.Code);
+            BaseSubjectLifecycleProviderFact secondBoundaryFact = Assert.Single(secondBoundaryPage.Value!.Facts);
+            Assert.Equal(firstBoundaryFact.Boundary.CommitPosition, secondBoundaryFact.Boundary.CommitPosition);
+            Assert.NotEqual(firstBoundaryFact.Boundary.SubjectSequence, secondBoundaryFact.Boundary.SubjectSequence);
+
+            OperationResult<BaseSubjectLifecycleProviderPage> lifecyclePage = await lifecycleStore.ReadAsync(new BaseSubjectLifecycleProviderReadRequest
+            {
+                ApplicationId = "l45.sqlite.application", ContractId = "example.sqlite-user", ContractVersion = 1,
+                ContractChecksum = L45SqliteUserSubject.HPDBaseSubjectRegistration.Checksum,
+                ConsumerId = lifecycleConsumer.Id, ConsumerVersion = lifecycleConsumer.Version,
+                ConsumerChecksum = BaseSubjectLifecycleRegistry.Checksum(BaseSubjectLifecycleRegistry.Normalize(lifecycleConsumer), L45SqliteUserSubject.HPDBaseSubjectRegistration.Checksum),
+                ProjectionGeneration = 1, Scope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Tenant, Value = "tenant-a" },
+                Take = 256, MaximumResultBytes = 1_048_576, DeadlineUtc = DateTimeOffset.UtcNow.AddMinutes(1),
+            });
+            Assert.True(lifecyclePage.IsSuccess(), lifecyclePage.Error?.Code);
+            Assert.Contains(lifecyclePage.Value!.Facts, static value => value.Fact.Kind == BaseSubjectLifecycleFactKind.Created);
+            Assert.Contains(lifecyclePage.Value.Facts, static value => value.Fact.Transitioned?.CurrentState == BaseSubjectLifecycleState.Inactive);
+            Assert.Contains(lifecyclePage.Value.Facts, static value => value.Fact.Transitioned?.CurrentState == BaseSubjectLifecycleState.Tombstoned);
+            Assert.Contains(lifecyclePage.Value.Facts, static value => value.Fact.Kind == BaseSubjectLifecycleFactKind.Retired);
+            Assert.Contains(lifecyclePage.Value.Facts, value => value.Fact.Kind == BaseSubjectLifecycleFactKind.Created
+                && value.Fact.Incarnation.Equals(recreatedReference.Reference.Incarnation)
+                && value.Fact.SubjectSequence == 1);
+            BaseGeneratedSubjectLifecycleConsumerIdentity<L45SqliteUserSubject> generatedConsumer = BaseGeneratedSubjectLifecycleConsumers.Register<L45SqliteUserSubject>(lifecycleConsumer, L45SqliteUserSubject.HPDBaseSubjectRegistration);
+            BaseInstalledSubjectLifecycleConsumer<L45SqliteUserSubject> handle = session.SubjectLifecycle.Get(generatedConsumer);
+            BaseResult<BaseSubjectLifecyclePage<L45SqliteUserSubject>> typedPage = await handle.ReadAsync(take: 2);
+            Assert.IsType<BaseSuccess<BaseSubjectLifecyclePage<L45SqliteUserSubject>>>(typedPage); Assert.Equal(2, typedPage.RequireValue().Facts.Length);
+            await using IAsyncEnumerator<BaseSubjectLifecycleDelivery<L45SqliteUserSubject>> deliveries = handle.ReadAsync(CancellationToken.None).GetAsyncEnumerator();
+            Assert.True(await deliveries.MoveNextAsync()); BaseSubjectLifecycleDelivery<L45SqliteUserSubject> delivery = deliveries.Current;
+            BaseResult<BaseSubjectLifecycleCheckpointResult> substitutedAdvance = await handle.AdvanceAsync(delivery.Checkpoint,
+                BaseMutationRequestIdentity.Create("subject-lifecycle:example.sqlite-profile.lifecycle", "subjectLifecycle.advance", "substituted", BaseMutationRequestFingerprint.Create(new byte[32])));
+            Assert.Equal(BaseSubjectErrorCodes.LifecycleContractInvalid, Assert.IsType<BaseFailure<BaseSubjectLifecycleCheckpointResult>>(substitutedAdvance).Error.Code);
+            BaseResult<BaseSubjectLifecycleCheckpointResult> handleAdvance = await handle.AdvanceAsync(delivery.Checkpoint, delivery.AdvanceIdentity);
+            Assert.True(handleAdvance is BaseSuccess<BaseSubjectLifecycleCheckpointResult>, (handleAdvance as BaseFailure<BaseSubjectLifecycleCheckpointResult>)?.Error.Code); Assert.Equal(1, handleAdvance.RequireValue().CheckpointGeneration);
+            BaseMutationRequestIdentity checkpointIdentity = BaseMutationRequestIdentity.Create("l47-sqlite", "advance", "one", BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("l47-sqlite-advance"u8)));
+            var checkpointRequest = new BaseSubjectLifecycleProviderCheckpointRequest { ApplicationId = "l45.sqlite.application", ContractId = "example.sqlite-user", ContractVersion = 1, ConsumerId = lifecycleConsumer.Id, ConsumerVersion = lifecycleConsumer.Version, ConsumerChecksum = BaseSubjectLifecycleRegistry.Checksum(BaseSubjectLifecycleRegistry.Normalize(lifecycleConsumer), L45SqliteUserSubject.HPDBaseSubjectRegistration.Checksum), ProjectionGeneration = 1, Scope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Tenant, Value = "tenant-a" }, Through = lifecyclePage.Value.Through, ExpectedCheckpointGeneration = 1, Identity = checkpointIdentity, DeadlineUtc = DateTimeOffset.UtcNow.AddMinutes(1) };
+            var sqliteCheckpointProcessor = new BaseSubjectLifecycleCheckpointProcessor(checkpointRequest);
+            RecordMutationExecutionResult sqliteAdvance = await lifecycleStore.AdvanceCheckpointAsync(sqliteCheckpointProcessor, LifecycleCheckpointExecution(checkpointRequest));
+            Assert.Equal(RecordMutationExecutionOutcome.Committed, sqliteAdvance.Outcome); Assert.Equal(2, sqliteCheckpointProcessor.Result!.CheckpointGeneration);
+            var sqliteDuplicateProcessor = new BaseSubjectLifecycleCheckpointProcessor(checkpointRequest);
+            RecordMutationExecutionResult sqliteDuplicate = await lifecycleStore.AdvanceCheckpointAsync(sqliteDuplicateProcessor, LifecycleCheckpointExecution(checkpointRequest));
+            Assert.Equal(RecordMutationExecutionOutcome.Committed, sqliteDuplicate.Outcome); Assert.True(sqliteDuplicateProcessor.Result!.Duplicate);
+
+            BaseSubjectLifecycleProviderReadRequest LifecycleRead(BaseSubjectLifecycleOrderingBoundary? after, int take) => new()
+            {
+                ApplicationId = "l45.sqlite.application", ContractId = "example.sqlite-user", ContractVersion = 1,
+                ContractChecksum = L45SqliteUserSubject.HPDBaseSubjectRegistration.Checksum,
+                ConsumerId = lifecycleConsumer.Id, ConsumerVersion = lifecycleConsumer.Version,
+                ConsumerChecksum = BaseSubjectLifecycleRegistry.Checksum(BaseSubjectLifecycleRegistry.Normalize(lifecycleConsumer), L45SqliteUserSubject.HPDBaseSubjectRegistration.Checksum),
+                ProjectionGeneration = 1, Scope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Tenant, Value = "tenant-a" },
+                After = after, Take = take, MaximumResultBytes = 1_048_576, DeadlineUtc = DateTimeOffset.UtcNow.AddMinutes(1),
+            };
         }
         finally
         {
@@ -471,7 +1215,40 @@ public sealed class L45SubjectTransactionTests
         }
     }
 
-    private static SubjectFixture Build()
+    private static async ValueTask MakeFirstTwoLifecycleFactsShareCommitPositionAsync(string database)
+    {
+        await using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={database};Pooling=False");
+        await connection.OpenAsync();
+        var rows = new List<(long Position, string Subject, byte[] Epoch, byte[] Incarnation, long Sequence)>();
+        await using (Microsoft.Data.Sqlite.SqliteCommand select = connection.CreateCommand())
+        {
+            select.CommandText = "SELECT commit_position,subject_id,authority_epoch,incarnation,subject_sequence FROM hpd_base_subject_lifecycle_facts ORDER BY commit_position,subject_id,authority_epoch,incarnation,subject_sequence LIMIT 2;";
+            await using Microsoft.Data.Sqlite.SqliteDataReader reader = await select.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+                rows.Add((reader.GetInt64(0), reader.GetString(1), (byte[])reader.GetValue(2), (byte[])reader.GetValue(3), reader.GetInt64(4)));
+        }
+        Assert.Equal(2, rows.Count);
+        (long firstPosition, _, _, _, _) = rows[0];
+        (long secondPosition, string subject, byte[] epoch, byte[] incarnation, long sequence) = rows[1];
+        Assert.NotEqual(firstPosition, secondPosition);
+        await using Microsoft.Data.Sqlite.SqliteTransaction transaction = (Microsoft.Data.Sqlite.SqliteTransaction)await connection.BeginTransactionAsync();
+        foreach (string table in new[] { "hpd_base_subject_lifecycle_memberships", "hpd_base_subject_lifecycle_facts" })
+        {
+            await using Microsoft.Data.Sqlite.SqliteCommand update = connection.CreateCommand();
+            update.Transaction = transaction;
+            update.CommandText = $"UPDATE {table} SET commit_position=$first WHERE commit_position=$second AND subject_id=$subject AND authority_epoch=$epoch AND incarnation=$incarnation AND subject_sequence=$sequence;";
+            update.Parameters.AddWithValue("$first", firstPosition);
+            update.Parameters.AddWithValue("$second", secondPosition);
+            update.Parameters.AddWithValue("$subject", subject);
+            update.Parameters.Add("$epoch", Microsoft.Data.Sqlite.SqliteType.Blob).Value = epoch;
+            update.Parameters.Add("$incarnation", Microsoft.Data.Sqlite.SqliteType.Blob).Value = incarnation;
+            update.Parameters.AddWithValue("$sequence", sequence);
+            Assert.True(await update.ExecuteNonQueryAsync() > 0);
+        }
+        await transaction.CommitAsync();
+    }
+
+    private static SubjectFixture Build(bool lifecycleConsumer = false, string? allScopeInspectionDigest = null, Func<int, CancellationToken, ValueTask>? lifecycleMaintenancePageCompleted = null, bool scopeRotationKeys = false, TimeSpan? lifecycleReadTimeout = null, BaseSubjectLifecycleConsumerDefinition[]? lifecycleConsumers = null)
     {
         BaseGeneratedSubjectRegistration registration = BaseGeneratedSubjects.Register<UserSubject>(SubjectDefinition());
         BaseExportedSubjectDefinition subject = registration.Definition;
@@ -482,29 +1259,90 @@ public sealed class L45SubjectTransactionTests
                 SubjectReference = field.SubjectReference with { ContractChecksum = registration.Checksum },
             }).ToArray(),
         }];
+        BaseSubjectLifecycleConsumerDefinition[] installedLifecycleConsumers = lifecycleConsumers
+            ?? (lifecycleConsumer ? [LifecycleConsumer(lifecycleReadTimeout)] : []);
         var services = new ServiceCollection();
+        var lifecycleTokens = new BaseOpaqueTokenProtector(Microsoft.Extensions.Options.Options.Create(new HPDBaseTokenProtectionOptions
+        {
+            ActiveKey = new BaseOpaqueTokenKey { Id = 0, Key = Enumerable.Repeat((byte)7, 32).ToArray(), IssueNotBefore = DateTimeOffset.UnixEpoch },
+            DecryptionKeys = scopeRotationKeys ? [new BaseOpaqueTokenKey { Id = 1, Key = Enumerable.Repeat((byte)9, 32).ToArray(), IssueNotBefore = DateTimeOffset.UnixEpoch }] : [],
+        }), TimeProvider.System);
         services.AddLogging();
+        services.AddSingleton(lifecycleTokens);
         services.AddSingleton<IBaseDescriptorContributor>(new CollectionsContributor(collections));
-        services.AddTestPolicyAuthority(new GrantingPolicy(), "system.private", "example.user.validate", "example.user.acquire");
+        services.AddSingleton(new BaseCollectionRegistry(collections.ToDictionary(static value => value.Id, StringComparer.Ordinal)));
+        services.AddTestSubjectLifecyclePolicyAuthority(new GrantingPolicy(),
+            TestPolicyAuthorityExtensions.TestRuntimeGrant("system.private"),
+            TestPolicyAuthorityExtensions.TestRuntimeGrant("example.user.validate"),
+            TestPolicyAuthorityExtensions.TestRuntimeGrant("example.user.acquire"),
+            TestPolicyAuthorityExtensions.TestSubjectLifecycleGrant("base.subjectLifecycle.tombstone", "hpd.base.application", "example.auth", "base.subjectLifecycle.tombstone", "example.user", 1),
+            TestPolicyAuthorityExtensions.TestSubjectLifecycleGrant("base.subjectLifecycle.finalizeRetirement", "hpd.base.application", "example.auth", "base.subjectLifecycle.finalizeRetirement", "example.user", 1),
+            TestPolicyAuthorityExtensions.TestSubjectLifecycleGrant("example.profile.lifecycle.read", "hpd.base.application", "example.profiles", "example.profile.lifecycle", "example.user", 1),
+            TestPolicyAuthorityExtensions.TestSubjectLifecycleGrant("base.subjectLifecycle.feed.read", "hpd.base.application", "example.profiles", "base.subjectLifecycle.feed.read", "example.user", 1),
+            TestPolicyAuthorityExtensions.TestSubjectLifecycleGrant("base.subjectLifecycle.feed.checkpoint", "hpd.base.application", "example.profiles", "base.subjectLifecycle.feed.checkpoint", "example.user", 1));
         services.AddSingleton(new BaseSubjectContractRegistry([registration]));
+        if (installedLifecycleConsumers.Length != 0) services.AddSingleton(new BaseSubjectLifecycleRegistry(installedLifecycleConsumers, new BaseSubjectContractRegistry([registration])));
         services.AddHPDBaseRuntime();
+        services.AddSingleton<IBaseSessionFactory, DefaultBaseSessionFactory>();
         ServiceProvider provider = services.BuildServiceProvider();
         provider.GetRequiredService<IBaseDescriptorRegistry>().RebuildAsync().AsTask().GetAwaiter().GetResult();
-        var store = new InMemoryRecordStore(new HPDBaseInMemoryStoreOptions
+        var storeOptions = new HPDBaseInMemoryStoreOptions
         {
             StoreId = "subject-transaction",
             Collections = collections,
             CollectionIds = collections.Select(static value => value.Id).ToArray(),
             ExportedSubjects = [subject],
-        });
+            SubjectLifecycleConsumers = installedLifecycleConsumers,
+            SubjectLifecycleMaintenancePageCompleted = lifecycleMaintenancePageCompleted,
+            SubjectLifecycleInspectionAuthorities = allScopeInspectionDigest is null ? [] : [new BaseSubjectLifecycleInspectionAuthority
+            {
+                ContractId = subject.Id, ContractVersion = subject.Version, OwningModuleId = subject.OwningModuleId,
+                GrantId = subject.AdministrationGrantId, Digest = allScopeInspectionDigest,
+            }],
+        };
+        InMemoryRecordStore store = scopeRotationKeys
+            ? new InMemoryRecordStore(storeOptions, lifecycleTokens, TimeProvider.System)
+            : new InMemoryRecordStore(storeOptions);
         provider.GetRequiredService<IRecordStoreRegistry>().Add(new RecordStoreRegistration
         {
             StoreId = store.Capabilities.StoreId,
             Store = store,
             CollectionIds = collections.Select(static value => value.Id).ToArray(),
         });
-        return new SubjectFixture(provider, store, subject);
+        return new SubjectFixture(provider, store, subject, registration);
     }
+
+    private static BaseSubjectLifecycleConsumerDefinition LifecycleConsumer(TimeSpan? readTimeout = null) => new()
+    {
+        Id = "example.profile.lifecycle", Version = 1, OwningModuleId = "example.profiles", Audience = BaseSubjectLifecycleConsumerAudience.Service,
+        ContractId = "example.user", ContractVersion = 1,
+        ObservedStates = [BaseSubjectLifecycleState.Active, BaseSubjectLifecycleState.Inactive, BaseSubjectLifecycleState.Tombstoned, BaseSubjectLifecycleState.Retired],
+        DeliveryGrantId = "example.profile.lifecycle.read",
+        Limits = new BaseSubjectLifecycleConsumerLimits { MaximumFactsPerPage = 256, MaximumResultBytes = 1_048_576, MaximumCheckpointLag = TimeSpan.FromDays(1), ReadTimeout = readTimeout ?? TimeSpan.FromSeconds(5) },
+    };
+
+    private static BaseSubjectLifecycleConsumerDefinition SqliteLifecycleConsumer() => new()
+    {
+        Id = "example.sqlite-profile.lifecycle", Version = 1, OwningModuleId = "example.profiles", Audience = BaseSubjectLifecycleConsumerAudience.Service,
+        ContractId = "example.sqlite-user", ContractVersion = 1,
+        ObservedStates = [BaseSubjectLifecycleState.Active, BaseSubjectLifecycleState.Inactive, BaseSubjectLifecycleState.Tombstoned, BaseSubjectLifecycleState.Retired],
+        DeliveryGrantId = "example.sqlite-profile.lifecycle.read",
+        Limits = new BaseSubjectLifecycleConsumerLimits { MaximumFactsPerPage = 256, MaximumResultBytes = 1_048_576, MaximumCheckpointLag = TimeSpan.FromDays(1), ReadTimeout = TimeSpan.FromSeconds(5) },
+    };
+
+    private static RecordMutationExecutionRequest LifecycleCheckpointExecution(BaseSubjectLifecycleProviderCheckpointRequest request) => new()
+    {
+        AcquisitionTimeout = TimeSpan.FromSeconds(5),
+        TransactionTimeout = TimeSpan.FromSeconds(5),
+        CommitCompletionTimeout = TimeSpan.FromSeconds(5),
+        AtomicRequest = new BaseAtomicMutationExecutionRequest
+        {
+            Identity = request.Identity,
+            StructuralDigest = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"l47-checkpoint:{request.ConsumerId}:{request.ExpectedCheckpointGeneration}")),
+            ExpiresAt = DateTimeOffset.UtcNow.AddDays(30),
+            MaxReceiptBytes = 4096,
+        },
+    };
 
     private static readonly CollectionDefinition Private = new()
     {
@@ -515,6 +1353,7 @@ public sealed class L45SubjectTransactionTests
         Fields =
         [
             new FieldDefinition { Id = "user.active", ApplicationName = "active", WireName = "active", Type = BaseFieldTypes.Boolean, Required = true, Nullable = false },
+            new FieldDefinition { Id = "user.tombstoned", ApplicationName = "tombstoned", WireName = "tombstoned", Type = BaseFieldTypes.Boolean, Required = true, Nullable = false },
             new FieldDefinition { Id = "user.tenant", ApplicationName = "tenant", WireName = "tenant", Type = BaseFieldTypes.String, Required = true, Nullable = false },
         ],
     };
@@ -544,7 +1383,8 @@ public sealed class L45SubjectTransactionTests
         Id = "example.user", Version = 1, OwningModuleId = "example.auth",
         SubjectIdKind = BaseSubjectIdKind.OrdinalString, MaximumSubjectIdUtf8Bytes = 64,
         Scope = BaseSubjectScopeKind.Tenant, AcquisitionGrantId = "example.user.acquire",
-        ValidationGrantId = "example.user.validate", AdministrationGrantId = "example.user.admin", Audiences = [HPDBaseEndpointAudience.Application],
+        ValidationGrantId = "example.user.validate", AdministrationGrantId = "example.user.admin", TombstoneFieldId = "user.tombstoned",
+        SupportsCoordinatedRetirement = false, Audiences = [HPDBaseEndpointAudience.Application],
         ValidationPlan = new BaseSubjectValidationPlanDefinition
         {
             Id = "example.user.validate.v1", Version = 1, ContractId = "example.user", ContractVersion = 1,
@@ -557,10 +1397,12 @@ public sealed class L45SubjectTransactionTests
         },
     };
 
-    private static RecordCreateRequest Create(string id, params (string Name, object Value)[] fields) => new()
+    private static RecordCreateRequest Create(string id, params (string Name, object Value)[] fields)
     {
-        RequestedId = new RecordId(id), Payload = Payload(fields),
-    };
+        if (fields.Any(static field => field.Name == "active") && fields.All(static field => field.Name != "tombstoned"))
+            fields = [.. fields, ("tombstoned", false)];
+        return new() { RequestedId = new RecordId(id), Payload = Payload(fields) };
+    }
 
     private static RecordPatchRequest Patch(params (string Name, object Value)[] fields) => new() { Patch = Payload(fields) };
 
@@ -644,6 +1486,72 @@ public sealed class L45SubjectTransactionTests
         }
     }
 
+    private sealed class HangingLifecycleStore(IBaseSubjectLifecycleStore inner)
+        : FakeRecordStore("l47-hanging"), IBaseSubjectLifecycleStore
+    {
+        private readonly TaskCompletionSource<OperationResult<BaseSubjectLifecycleProviderPage>> _late =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private BaseSubjectLifecycleProviderReadRequest? _heldRequest;
+        private int _released;
+        public int ReadCalls { get; private set; }
+
+        public ValueTask<OperationResult<BaseSubjectLifecycleProviderPage>> ReadAsync(
+            BaseSubjectLifecycleProviderReadRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            ReadCalls++;
+            if (Volatile.Read(ref _released) != 0)
+                return inner.ReadAsync(request, cancellationToken);
+            _heldRequest = request;
+            return new(_late.Task);
+        }
+
+        public async Task ReleaseAsync()
+        {
+            BaseSubjectLifecycleProviderReadRequest request = _heldRequest ?? throw new InvalidOperationException();
+            OperationResult<BaseSubjectLifecycleProviderPage> result = await inner.ReadAsync(request, CancellationToken.None);
+            Volatile.Write(ref _released, 1);
+            _late.TrySetResult(result);
+            await Task.Yield();
+        }
+
+        public ValueTask<RecordMutationExecutionResult> AdvanceCheckpointAsync(IAtomicMutationProcessor processor, RecordMutationExecutionRequest execution, CancellationToken cancellationToken = default) =>
+            inner.AdvanceCheckpointAsync(processor, execution, cancellationToken);
+        public ValueTask<OperationResult<BaseSubjectLifecycleProviderReconciliationPage>> ReconcileAsync(BaseSubjectLifecycleProviderReconciliationRequest request, CancellationToken cancellationToken = default) =>
+            inner.ReconcileAsync(request, cancellationToken);
+        public ValueTask<OperationResult<BaseSubjectLifecycleProviderInspection>> InspectAsync(BaseSubjectLifecycleProviderInspectionRequest request, CancellationToken cancellationToken = default) =>
+            inner.InspectAsync(request, cancellationToken);
+        public ValueTask<RecordMutationExecutionResult> ExecuteMaintenanceAsync(IBaseSubjectLifecycleMaintenanceProcessor processor, BaseSubjectLifecycleMaintenanceExecutionRequest request, CancellationToken cancellationToken = default) =>
+            inner.ExecuteMaintenanceAsync(processor, request, cancellationToken);
+    }
+
+    private sealed class TransformingLifecycleStore(
+        IBaseSubjectLifecycleStore inner,
+        Func<BaseSubjectLifecycleProviderPage, BaseSubjectLifecycleProviderPage> transform)
+        : FakeRecordStore("l47-transforming"), IBaseSubjectLifecycleStore
+    {
+        public async ValueTask<OperationResult<BaseSubjectLifecycleProviderPage>> ReadAsync(BaseSubjectLifecycleProviderReadRequest request, CancellationToken cancellationToken = default)
+        {
+            OperationResult<BaseSubjectLifecycleProviderPage> result = await inner.ReadAsync(request, cancellationToken);
+            return !result.IsSuccess() || result.Value is null ? result : OperationResults.Ok(transform(result.Value));
+        }
+        public ValueTask<RecordMutationExecutionResult> AdvanceCheckpointAsync(IAtomicMutationProcessor processor, RecordMutationExecutionRequest execution, CancellationToken cancellationToken = default) => inner.AdvanceCheckpointAsync(processor, execution, cancellationToken);
+        public ValueTask<OperationResult<BaseSubjectLifecycleProviderReconciliationPage>> ReconcileAsync(BaseSubjectLifecycleProviderReconciliationRequest request, CancellationToken cancellationToken = default) => inner.ReconcileAsync(request, cancellationToken);
+        public ValueTask<OperationResult<BaseSubjectLifecycleProviderInspection>> InspectAsync(BaseSubjectLifecycleProviderInspectionRequest request, CancellationToken cancellationToken = default) => inner.InspectAsync(request, cancellationToken);
+        public ValueTask<RecordMutationExecutionResult> ExecuteMaintenanceAsync(IBaseSubjectLifecycleMaintenanceProcessor processor, BaseSubjectLifecycleMaintenanceExecutionRequest request, CancellationToken cancellationToken = default) => inner.ExecuteMaintenanceAsync(processor, request, cancellationToken);
+    }
+
+    private sealed class SingleStoreRegistry(string collectionId, IRecordStore store) : IRecordStoreRegistry
+    {
+        public void Add(RecordStoreRegistration registration) => throw new NotSupportedException();
+        public IRecordStore? GetStore(string storeId) => store;
+        public IRecordStore? GetStoreForCollection(string requestedCollectionId) =>
+            string.Equals(collectionId, requestedCollectionId, StringComparison.Ordinal) ? store : null;
+        public RecordStoreRegistration? GetRegistration(string storeId) => null;
+        public RecordStoreRegistration? GetRegistrationForCollection(string requestedCollectionId) => null;
+        public RecordStoreRegistration[] GetRegistrations() => [];
+    }
+
     private sealed class MissingGrantPolicy : IBasePolicyOrchestrator
     {
         public ValueTask<OperationResult<BasePolicyEvaluation>> EvaluateReadAsync(BasePolicyRequest request, CancellationToken cancellationToken = default) =>
@@ -666,10 +1574,11 @@ public sealed class L45SubjectTransactionTests
             throw new InvalidOperationException("Provider resolution occurred before subject authorization.");
     }
 
-    private sealed class SubjectFixture(ServiceProvider services, InMemoryRecordStore store, BaseExportedSubjectDefinition subject) : IAsyncDisposable
+    private sealed class SubjectFixture(ServiceProvider services, InMemoryRecordStore store, BaseExportedSubjectDefinition subject, BaseGeneratedSubjectRegistration registration) : IAsyncDisposable
     {
         internal ServiceProvider Services { get; } = services;
         internal InMemoryRecordStore Store { get; } = store;
+        internal BaseGeneratedSubjectRegistration Registration { get; } = registration;
         internal async ValueTask<JsonElement> AcquireAsync(string id)
         {
             var operand = new BaseRelationalOperand
@@ -715,6 +1624,9 @@ internal sealed partial record L45SqlitePrivateUser
     [BaseField("user.active")]
     public required bool Active { get; init; }
 
+    [BaseField("user.tombstoned")]
+    public required bool Tombstoned { get; init; }
+
     [BaseField("user.tenant")]
     public required string Tenant { get; init; }
 }
@@ -722,7 +1634,7 @@ internal sealed partial record L45SqlitePrivateUser
 [BaseExportedSubject("example.sqlite-user", OwningModuleId = "example.auth",
     PrivateRecordType = typeof(L45SqlitePrivateUser), AcquisitionGrantId = "example.user.acquire",
     ValidationGrantId = "example.user.validate", AdministrationGrantId = "example.user.admin", ValidationPlanId = "example.sqlite-user.validate.v1",
-    Scope = BaseSubjectScopeKind.Tenant, ActiveFieldId = "user.active", ScopeFieldId = "user.tenant")]
+    Scope = BaseSubjectScopeKind.Tenant, ActiveFieldId = "user.active", TombstoneFieldId = "user.tombstoned", ScopeFieldId = "user.tenant")]
 internal sealed partial class L45SqliteUserSubject;
 
 [BaseCollection("l45.profiles", typeof(L45SqliteJsonContext))]

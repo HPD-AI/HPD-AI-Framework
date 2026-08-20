@@ -23,10 +23,41 @@ public sealed record BaseClientGenerationSnapshotV2
     public required BaseClientSelectionMutationDescriptor[] SelectionMutations { get; init; }
     /// <summary>Gets generated Service/System registered module mutations.</summary>
     public required BaseClientModuleMutationDescriptor[] ModuleMutations { get; init; }
+    /// <summary>Gets generated Service/System durable lifecycle consumers; interactive snapshots always contain an empty array.</summary>
+    public required BaseClientSubjectLifecycleConsumerDescriptor[] SubjectLifecycleConsumers { get; init; }
     /// <summary>Gets the stable error taxonomy.</summary>
     public required BaseClientErrorDescriptor[] Errors { get; init; }
     /// <summary>Gets the canonical structural SHA-256 digest.</summary>
     public required string Digest { get; init; }
+}
+
+/// <summary>Describes one generated non-browser durable lifecycle worker.</summary>
+public sealed record BaseClientSubjectLifecycleConsumerDescriptor
+{
+    /// <summary>Gets the stable consumer ID.</summary>
+    public required string Id { get; init; }
+    /// <summary>Gets the positive consumer version.</summary>
+    public required int Version { get; init; }
+    /// <summary>Gets the installed immutable consumer checksum.</summary>
+    public required string Checksum { get; init; }
+    /// <summary>Gets the deterministic generated member name.</summary>
+    public required string GeneratedName { get; init; }
+    /// <summary>Gets service or system.</summary>
+    public required string Audience { get; init; }
+    /// <summary>Gets the exported subject contract ID.</summary>
+    public required string ContractId { get; init; }
+    /// <summary>Gets the exported subject contract version.</summary>
+    public required int ContractVersion { get; init; }
+    /// <summary>Gets the observed sanitized states.</summary>
+    public required string[] ObservedStates { get; init; }
+    /// <summary>Gets the durable feed-read route.</summary>
+    public required string ReadRoute { get; init; }
+    /// <summary>Gets the identified checkpoint route.</summary>
+    public required string CheckpointRoute { get; init; }
+    /// <summary>Gets the maximum facts per page.</summary>
+    public required int MaximumFactsPerPage { get; init; }
+    /// <summary>Gets the maximum encoded page bytes.</summary>
+    public required long MaximumResultBytes { get; init; }
 }
 
 /// <summary>Describes one generated Service/System registered module mutation.</summary>
@@ -89,7 +120,7 @@ public sealed record BaseClientProtocolDescriptor
     /// <summary>Gets the minimum compatible client minor.</summary>
     public int MinimumClientMinor { get; init; }
     /// <summary>Gets the snapshot schema version.</summary>
-    public int SnapshotSchemaVersion { get; init; } = 4;
+    public int SnapshotSchemaVersion { get; init; } = 5;
     /// <summary>Gets the application identifier.</summary>
     public required string ApplicationId { get; init; }
     /// <summary>Gets the logical schema generation.</summary>

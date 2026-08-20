@@ -178,6 +178,44 @@ internal static class BaseSystemCollectionGate
         });
     }
 
+    internal static bool HasExactSubjectLifecycleGrant(
+        OperationResult<BasePolicyEvaluation> result,
+        string requiredGrantId,
+        string owningModuleId,
+        string action,
+        string contractId,
+        int contractVersion,
+        PrincipalContext principal,
+        OperationContext operation)
+    {
+        if (!result.IsSuccess() || result.Value?.Authority is not { } authority)
+            return false;
+        return authority.GrantSemantics.Any(semantics =>
+        {
+            AccessGrant grant = semantics.Grant;
+            return ReceiptMatches(authority, semantics)
+                && string.Equals(semantics.GrantId, requiredGrantId, StringComparison.Ordinal)
+                && string.Equals(grant.Id, requiredGrantId, StringComparison.Ordinal)
+                && grant.Effect == GrantEffect.Allow
+                && string.Equals(grant.ApplicationId, operation.ApplicationId, StringComparison.Ordinal)
+                && string.Equals(grant.ModuleId, owningModuleId, StringComparison.Ordinal)
+                && grant.Audience == operation.Audience
+                && string.Equals(grant.Action, action, StringComparison.Ordinal)
+                && grant.Subject.Kind == principal.SubjectKind
+                && string.Equals(grant.Subject.Id, principal.SubjectId, StringComparison.Ordinal)
+                && string.Equals(grant.Subject.TenantId, principal.CurrentTenantId, StringComparison.Ordinal)
+                && grant.Scope.Kind == ResourceScopeKind.SubjectContract
+                && string.Equals(grant.Scope.SubjectContractId, contractId, StringComparison.Ordinal)
+                && grant.Scope.SubjectContractVersion == contractVersion
+                && grant.Scope.CollectionId is null && grant.Scope.RecordId is null
+                && grant.Scope.FieldPath is null && grant.Scope.VectorIndexId is null
+                && string.Equals(grant.Scope.TenantId, operation.TenantId, StringComparison.Ordinal)
+                && string.Equals(grant.Scope.ProjectId, operation.ProjectId, StringComparison.Ordinal)
+                && grant.Condition is null && grant.WriteCondition is null
+                && (grant.ExpiresAt is null || grant.ExpiresAt > operation.Now);
+        });
+    }
+
     private static bool ReceiptMatches(BasePolicyEvaluationAuthority authority, BaseAdmittedGrantSemantics semantics) =>
         authority.AdmittedGrants.Any(receipt =>
             string.Equals(receipt.GrantId, semantics.GrantId, StringComparison.Ordinal)

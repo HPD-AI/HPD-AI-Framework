@@ -19,7 +19,8 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
     IBaseSchemaValidator schemaValidator,
     IBasePolicyOrchestrator policy,
     IBaseResultNormalizer normalizer,
-    BaseSubjectContractRegistry subjects) : IAtomicMutationProcessor
+    BaseSubjectContractRegistry subjects,
+    BaseSubjectLifecycleRegistry lifecycleConsumers) : IAtomicMutationProcessor
 {
     internal BaseModuleMutationExecutionResult<TResult>? Result { get; private set; }
 
@@ -66,7 +67,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         if (!commandResult.IsSuccess() || commandResult.Value == default)
             return Failed(commandResult.Error ?? Error(BaseModuleMutationErrorCodes.Invalid, ErrorCategory.Validation));
         var recordPlanner = new DefaultBaseMutationProcessor(
-            commandResult.Value.Commands, principal, policy, normalizer, collections.Values.ToArray(), limits, intent.Authority, subjects);
+            commandResult.Value.Commands, principal, policy, normalizer, collections.Values.ToArray(), limits, intent.Authority, subjects, lifecycleConsumers);
         IReadOnlyDictionary<int, BaseCapturedMutationItem> capturedItems = BuildCapturedItems(commandResult.Value.Commands, evidence);
         OperationResult<BaseFinalizedRecordMutationPlan> recordPlan = await recordPlanner
             .FinalizeCapturedCommandsAsync(capturedItems, cancellationToken).ConfigureAwait(false);

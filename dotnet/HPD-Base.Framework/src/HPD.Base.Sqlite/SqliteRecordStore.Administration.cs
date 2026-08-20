@@ -64,7 +64,9 @@ public sealed partial class SqliteRecordStore
 
             pathGuard.ValidateSibling(staging, mustExist: true);
             SqliteBackupDatabaseFacts stagedFacts = await ValidateDatabaseFileAsync(staging, null, cancellationToken).ConfigureAwait(false);
-            await using SqliteConnection source = await OpenInitializedAsync(cancellationToken).ConfigureAwait(false);
+            if (RestoreRecoveryIndeterminate || RestoreRecoveryPending)
+                throw new InvalidOperationException("HPD.BASE SQLite restore recovery is incomplete; backup authority is unavailable.");
+            await using SqliteConnection source = await OpenSubjectMaintenanceAsync(cancellationToken).ConfigureAwait(false);
             BaseBackupManifest manifest = await ReadManifestAsync(source, new FileInfo(staging).Length, cancellationToken).ConfigureAwait(false);
             EnsureManifestMatchesDatabase(manifest, stagedFacts);
 
@@ -234,6 +236,7 @@ public sealed partial class SqliteRecordStore
         bool retainRecovery = false;
         bool administrationSlot = false;
         IReadOnlyDictionary<string, long> preRestoreSubjectGenerations = new Dictionary<string, long>(StringComparer.Ordinal);
+        long preRestoreLifecycleDeliveryEpoch = 1;
         RestoreFilePolicy? filePolicy = null;
         try
         {
@@ -306,6 +309,7 @@ public sealed partial class SqliteRecordStore
             pathGuard.RevalidateActive();
             (string ActiveIdentity, long PreRestoreEpoch) = await ReadActiveIdentityAsync(acquisition.Token).ConfigureAwait(false);
             preRestoreSubjectGenerations = await ReadSubjectStateGenerationsAsync(acquisition.Token).ConfigureAwait(false);
+            preRestoreLifecycleDeliveryEpoch = await ReadSubjectLifecycleDeliveryEpochAsync(acquisition.Token).ConfigureAwait(false);
             if (!FixedHexEquals(request.ExpectedCurrentStoreIdentityDigest, ActiveIdentity)
                 || request.IdentityMode == BaseRestoreIdentityMode.RequireCurrentStoreIdentity
                     && !FixedHexEquals(ActiveIdentity, manifest.StoreIdentityDigest))
@@ -360,6 +364,7 @@ public sealed partial class SqliteRecordStore
                     installed,
                     epoch,
                     preRestoreSubjectGenerations,
+                    preRestoreLifecycleDeliveryEpoch,
                     cancellationToken).ConfigureAwait(false);
             }
             Volatile.Write(ref _schemaGeneration, manifest.SchemaGeneration);

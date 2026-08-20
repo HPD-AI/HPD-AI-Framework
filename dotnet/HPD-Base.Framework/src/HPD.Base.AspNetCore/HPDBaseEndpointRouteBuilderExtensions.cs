@@ -110,7 +110,7 @@ public static class HPDBaseEndpointRouteBuilderExtensions
         ArgumentNullException.ThrowIfNull(endpoints);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentException.ThrowIfNullOrWhiteSpace(options.AuthorizationPolicy);
-        if (!options.MapRecords && !options.MapRegisteredReads && !options.MapFiles && !options.MapRealtime && !options.MapClientGeneration)
+        if (!options.MapRecords && !options.MapRegisteredReads && !options.MapFiles && !options.MapRealtime && !options.MapSubjectLifecycle && !options.MapClientGeneration)
             throw new ArgumentException("At least one Application endpoint family must be selected.", nameof(options));
 
         string prefix = EndpointRouteBuilderValidation.RoutePrefix(options.RoutePrefix);
@@ -135,6 +135,8 @@ public static class HPDBaseEndpointRouteBuilderExtensions
         }
         if (options.MapRealtime)
             HPDBaseRealtimeEndpointRouteBuilderExtensions.MapCore(group, HPDBaseEndpointAudience.Application);
+        if (options.MapSubjectLifecycle)
+            SubjectLifecycleEndpoints.Map(group);
         if (options.MapClientGeneration)
         {
             endpoints.ServiceProvider.GetRequiredService<HPDBaseEndpointFamilySelectionState>()

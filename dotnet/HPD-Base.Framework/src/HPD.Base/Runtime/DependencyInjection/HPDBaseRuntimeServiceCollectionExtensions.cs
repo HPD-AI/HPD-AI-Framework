@@ -105,9 +105,15 @@ public static class HPDBaseRuntimeServiceCollectionExtensions
         services.TryAddSingleton<IBaseRecordRedactor, DefaultBaseRecordRedactor>();
         services.TryAddSingleton<IBaseMutationPostCommitDispatcher, DefaultBaseMutationPostCommitDispatcher>();
         services.TryAddSingleton(new BaseSubjectContractRegistry([]));
+        services.TryAddSingleton(static provider => new BaseSubjectLifecycleRegistry([], provider.GetRequiredService<BaseSubjectContractRegistry>()));
+        services.TryAddSingleton(Microsoft.Extensions.Options.Options.Create(new HPDBaseSubjectLifecycleOptions()));
+        services.TryAddSingleton(BaseSubjectLifecycleRuntimeLimits.Default);
+        services.TryAddSingleton<BaseSubjectLifecycleOperationalState>();
         services.TryAddSingleton<IBaseMutationCoordinator, DefaultBaseMutationCoordinator>();
         services.TryAddSingleton<IBaseSelectionMutationRuntime, DefaultBaseSelectionMutationRuntime>();
         services.TryAddSingleton<IBaseModuleMutationRuntime, DefaultBaseModuleMutationRuntime>();
+        services.TryAddSingleton<IBaseSubjectLifecycleRuntime, DefaultBaseSubjectLifecycleRuntime>();
+        services.TryAddSingleton<IBaseSubjectLifecycleExporterRuntime, DefaultBaseSubjectLifecycleExporterRuntime>();
         services.TryAddSingleton<IBaseRecordRuntime, DefaultBaseRecordRuntime>();
         services.TryAddSingleton(new BaseReadRegistry(new Dictionary<string, IBaseReadRegistration>(StringComparer.Ordinal)));
         services.TryAddSingleton(new BaseCollectionRegistry(new Dictionary<string, CollectionDefinition>(StringComparer.Ordinal)));
@@ -123,6 +129,7 @@ public static class HPDBaseRuntimeServiceCollectionExtensions
         services.TryAddSingleton<IBaseEventPublisher, HPDEventsBaseEventPublisher>();
         services.TryAddSingleton<IBaseEventFactory, DefaultBaseEventFactory>();
         services.TryAddSingleton<IBaseEventDispatcher, DefaultBaseEventDispatcher>();
+        services.TryAddSingleton<BaseSubjectLifecycleHintHub>();
         services.TryAddSingleton<IHPDBaseRuntime, DefaultHPDBaseRuntime>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDescriptorContributor, BaseMutationDescriptorContributor>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDescriptorContributor, PolicyAdminDescriptorContributor>());

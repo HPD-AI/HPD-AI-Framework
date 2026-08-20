@@ -15,6 +15,7 @@ internal sealed class InMemoryProviderInstaller(Action<HPDBaseInMemoryStoreOptio
                 BaseStoreProviderCapabilities.CoLocatedVectors,
             RegistrationIds = ["inmemory.records"],
             SubjectReferences = BaseSubjectProviderCapabilities.BuiltIn,
+            SubjectLifecycle = BaseSubjectLifecycleProviderCapabilities.BuiltIn,
             ModuleMutations = new BaseModuleMutationCapability
             {
                 Supported = true, SerializableExecution = true, DurableReceipts = true,
@@ -35,6 +36,8 @@ internal sealed class InMemoryProviderInstaller(Action<HPDBaseInMemoryStoreOptio
             options.ExportedSubjects = context.ExportedSubjects.ToArray();
             options.ModuleMutations = context.ModuleMutations.ToArray();
             options.ModuleGenerationCells = context.ModuleGenerationCells.ToArray();
+            options.SubjectLifecycleConsumers = context.SubjectLifecycleConsumers.ToArray();
+            options.SubjectLifecycleInspectionAuthorities = context.SubjectLifecycleInspectionAuthorities.ToArray();
             storeId = options.StoreId;
         });
         if (hasVectors && !context.Services.Any(static descriptor => descriptor.ServiceType == typeof(BaseExplicitVectorProviderRegistration)))

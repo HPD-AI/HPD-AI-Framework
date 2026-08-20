@@ -25,6 +25,7 @@ public static class SqliteStore
                 BaseStoreProviderCapabilities.CoLocatedVectors,
             RegistrationIds = ["sqlite.records", "sqlite.vector"],
             SubjectReferences = BaseSubjectProviderCapabilities.BuiltIn,
+            SubjectLifecycle = BaseSubjectLifecycleProviderCapabilities.BuiltIn,
             ModuleMutations = new BaseModuleMutationCapability
             {
                 Supported = true, SerializableExecution = true, DurableReceipts = true,
@@ -48,6 +49,8 @@ public static class SqliteStore
                 options.ExportedSubjects = context.ExportedSubjects.ToArray();
                 options.ModuleMutations = context.ModuleMutations.ToArray();
                 options.ModuleGenerationCells = context.ModuleGenerationCells.ToArray();
+                options.SubjectLifecycleConsumers = context.SubjectLifecycleConsumers.ToArray();
+                options.SubjectLifecycleInspectionAuthorities = context.SubjectLifecycleInspectionAuthorities.ToArray();
                 storeId = options.StoreId;
             });
             _hasVectors = collections.SelectMany(static item => item.VectorIndexes ?? []).Any();

@@ -7,8 +7,10 @@ internal sealed class DefaultHPDBaseAdministration(
     IRecordStoreRegistry stores,
     IBasePolicyOrchestrator policy,
     BaseSubjectContractRegistry subjects,
+    BaseSubjectLifecycleInspectionAuthorityRegistry lifecycleInspectionAuthorities,
     BaseSubjectControlOperationalState subjectControlState,
-    HPDBaseInstalledFeatures features) : IHPDBaseAdministration
+    HPDBaseInstalledFeatures features,
+    TimeProvider timeProvider) : IHPDBaseAdministration
 {
     public BaseAdministrationCapability Capability =>
         stores.GetRegistrations().Select(static registration => registration.Store).OfType<IRecordStoreAdministration>().ToArray() is [{ } administration]
@@ -74,6 +76,183 @@ internal sealed class DefaultHPDBaseAdministration(
             catch when (!cancellationToken.IsCancellationRequested) { }
         }
         return result;
+    }
+
+    public async ValueTask<BaseResult<BaseSubjectLifecycleMaintenanceResult>> ExecuteSubjectLifecycleMaintenanceAsync(
+        string storeId,
+        PrincipalContext principal,
+        BaseSubjectLifecycleMaintenanceExecutionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(principal);
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (string.IsNullOrWhiteSpace(storeId) || stores.GetRegistration(storeId)?.Store is not IBaseSubjectLifecycleStore store)
+            return await Unsupported<BaseSubjectLifecycleMaintenanceResult>(cancellationToken).ConfigureAwait(false);
+
+        const string rotationGrant = "base.subjectLifecycle.scope.rotate";
+        BaseGeneratedSubjectRegistration? target = request.ContractId is null || request.ContractVersion is null
+            ? null
+            : subjects.Find(request.ContractId, request.ContractVersion.Value);
+        if (request.Kind != BaseSubjectLifecycleMaintenanceKind.RotateScopeProtection && target is null)
+            return new BaseFailure<BaseSubjectLifecycleMaintenanceResult>(OperationStatus.ValidationFailed,
+                new BaseError { Code = BaseSubjectErrorCodes.LifecycleContractInvalid, Message = "The subject lifecycle contract is invalid.", Category = ErrorCategory.Validation }, null, null);
+
+        string action = request.Kind == BaseSubjectLifecycleMaintenanceKind.RotateScopeProtection
+            ? rotationGrant
+            : target!.Definition.AdministrationGrantId;
+        string owner = request.Kind == BaseSubjectLifecycleMaintenanceKind.RotateScopeProtection
+            ? "base"
+            : target!.Definition.OwningModuleId;
+        var operation = new OperationContext
+        {
+            ApplicationId = features.LogicalSchema.ApplicationId,
+            Audience = HPDBaseEndpointAudience.ControlPlane,
+            Operation = BaseOperationKind.SubjectLifecycleMaintenance,
+            CollectionId = action,
+            TenantId = principal.CurrentTenantId,
+            Mode = OperationMode.System,
+            Now = timeProvider.GetUtcNow(),
+        };
+        var resource = new CollectionDefinition
+        {
+            Id = action,
+            Name = "Subject lifecycle maintenance",
+            Kind = BaseCollectionKinds.Custom,
+            Exposed = false,
+            System = true,
+            SystemOwnerModuleId = owner,
+            SchemaMode = SchemaMode.Strict,
+            UnknownFields = UnknownFieldPolicy.Reject,
+            Store = new StoreAnnotation { StoreId = storeId },
+        };
+        OperationResult<BasePolicyEvaluation> authorization = await policy.EvaluateWriteAsync(new BasePolicyRequest
+        {
+            Principal = principal,
+            Operation = operation,
+            Collection = resource,
+            ResourceKind = target is null ? PolicyResourceKind.AdminMetadata : PolicyResourceKind.SubjectLifecycle,
+            SubjectContractId = target?.Definition.Id,
+            SubjectContractVersion = target?.Definition.Version,
+        }, cancellationToken).ConfigureAwait(false);
+        bool admitted = target is null
+            ? BaseSystemCollectionGate.HasExactModuleGrant(authorization, rotationGrant, "base", principal, operation)
+            : BaseSystemCollectionGate.HasExactSubjectLifecycleGrant(authorization, action, owner, action,
+                target.Definition.Id, target.Definition.Version, principal, operation);
+        if (!admitted)
+            return new BaseFailure<BaseSubjectLifecycleMaintenanceResult>(OperationStatus.PolicyDenied,
+                new BaseError { Code = BaseSubjectErrorCodes.LifecycleUnauthorized, Message = "The subject lifecycle operation is not authorized.", Category = ErrorCategory.Authorization }, null, null);
+
+        var normalized = request with { PlanChecksum = BaseSubjectLifecycleMaintenanceProcessor.PlanChecksum(request with { PlanChecksum = new byte[32] }) };
+        var processor = new BaseSubjectLifecycleMaintenanceProcessor();
+        RecordMutationExecutionResult execution = await store.ExecuteMaintenanceAsync(processor, normalized, cancellationToken).ConfigureAwait(false);
+        if (execution.Outcome == RecordMutationExecutionOutcome.Committed && processor.Result is not null)
+            return new BaseSuccess<BaseSubjectLifecycleMaintenanceResult>(processor.Result, processor.Result.Duplicate ? OperationStatus.Ok : OperationStatus.Updated, null, null, null, null);
+        BaseError error = execution.Error ?? execution.Processing?.Error ?? new BaseError
+        {
+            Code = execution.Outcome == RecordMutationExecutionOutcome.Indeterminate ? BaseSubjectErrorCodes.LifecycleCommitIndeterminate : BaseSubjectErrorCodes.LifecycleProviderContractInvalid,
+            Message = "The subject lifecycle maintenance operation failed.",
+            Category = ErrorCategory.Store,
+        };
+        return new BaseFailure<BaseSubjectLifecycleMaintenanceResult>(execution.Outcome == RecordMutationExecutionOutcome.Indeterminate ? OperationStatus.StoreError : OperationStatus.Conflict, error, null, null);
+    }
+
+    public async ValueTask<BaseResult<BaseSubjectLifecycleInspectionResult>> InspectSubjectLifecycleAsync(
+        string storeId,
+        PrincipalContext principal,
+        BaseSubjectLifecycleInspectionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(principal);
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (string.IsNullOrWhiteSpace(storeId) || stores.GetRegistration(storeId)?.Store is not IBaseSubjectLifecycleStore store)
+            return await Unsupported<BaseSubjectLifecycleInspectionResult>(cancellationToken).ConfigureAwait(false);
+        BaseGeneratedSubjectRegistration? target = subjects.Find(request.ContractId, request.ContractVersion);
+        if (target is null || !Enum.IsDefined(request.ScopeMode) || request.MaximumResultBytes is < 1 or > 1_048_576
+            || request.Timeout < TimeSpan.FromMilliseconds(100) || request.Timeout > TimeSpan.FromMinutes(2)
+            || request.ScopeMode == BaseSubjectScopeQueryMode.ExactScope != (request.ExactScope is not null)
+            || request.ScopeMode == BaseSubjectScopeQueryMode.AllAuthorizedScopes && (request.IncludeTerminalReceipt || request.SubjectId is not null))
+            return new BaseFailure<BaseSubjectLifecycleInspectionResult>(OperationStatus.ValidationFailed,
+                new BaseError { Code = BaseSubjectErrorCodes.LifecycleContractInvalid, Message = "The subject lifecycle inspection request is invalid.", Category = ErrorCategory.Validation }, null, null);
+
+        var operation = new OperationContext
+        {
+            ApplicationId = features.LogicalSchema.ApplicationId,
+            Audience = HPDBaseEndpointAudience.ControlPlane,
+            Operation = BaseOperationKind.SubjectLifecycleMaintenance,
+            CollectionId = target.Definition.AdministrationGrantId,
+            TenantId = principal.CurrentTenantId,
+            Mode = OperationMode.System,
+            Now = timeProvider.GetUtcNow(),
+        };
+        OperationResult<BasePolicyEvaluation> authorization = await policy.EvaluateReadAsync(new BasePolicyRequest
+        {
+            Principal = principal,
+            Operation = operation,
+            Collection = new CollectionDefinition
+            {
+                Id = target.Definition.AdministrationGrantId,
+                Name = "Subject lifecycle inspection",
+                Kind = BaseCollectionKinds.Custom,
+                Exposed = false,
+                System = true,
+                SystemOwnerModuleId = target.Definition.OwningModuleId,
+                SchemaMode = SchemaMode.Strict,
+                UnknownFields = UnknownFieldPolicy.Reject,
+                Store = new StoreAnnotation { StoreId = storeId },
+            },
+            ResourceKind = PolicyResourceKind.SubjectLifecycle,
+            SubjectContractId = target.Definition.Id,
+            SubjectContractVersion = target.Definition.Version,
+        }, cancellationToken).ConfigureAwait(false);
+        if (!BaseSystemCollectionGate.HasExactSubjectLifecycleGrant(authorization, target.Definition.AdministrationGrantId,
+                target.Definition.OwningModuleId, target.Definition.AdministrationGrantId, target.Definition.Id,
+                target.Definition.Version, principal, operation))
+            return new BaseFailure<BaseSubjectLifecycleInspectionResult>(OperationStatus.PolicyDenied,
+                new BaseError { Code = BaseSubjectErrorCodes.LifecycleUnauthorized, Message = "The subject lifecycle operation is not authorized.", Category = ErrorCategory.Authorization }, null, null);
+
+        string authorityDigest;
+        if (request.ScopeMode == BaseSubjectScopeQueryMode.AllAuthorizedScopes)
+        {
+            BaseSubjectLifecycleInspectionAuthority? authority = lifecycleInspectionAuthorities.Find(request.ContractId, request.ContractVersion);
+            if (authority is null)
+                return new BaseFailure<BaseSubjectLifecycleInspectionResult>(OperationStatus.PolicyDenied,
+                    new BaseError { Code = BaseSubjectErrorCodes.LifecycleUnauthorized, Message = "The subject lifecycle operation is not authorized.", Category = ErrorCategory.Authorization }, null, null);
+            authorityDigest = authority.Digest;
+        }
+        else authorityDigest = target.Checksum;
+
+        OperationResult<BaseSubjectLifecycleProviderInspection> inspected = await store.InspectAsync(new BaseSubjectLifecycleProviderInspectionRequest
+        {
+            ContractId = request.ContractId,
+            ContractVersion = request.ContractVersion,
+            ConsumerId = request.ConsumerId,
+            ScopeAuthority = new BaseSubjectScopeQueryAuthority { Mode = request.ScopeMode, ExactScope = request.ExactScope, InstalledAuthorityDigest = authorityDigest },
+            SubjectId = request.SubjectId,
+            IncludeTerminalReceipt = request.IncludeTerminalReceipt,
+            MaximumResultBytes = request.MaximumResultBytes,
+            DeadlineUtc = timeProvider.GetUtcNow().Add(request.Timeout),
+        }, cancellationToken).ConfigureAwait(false);
+        if (!inspected.IsSuccess() || inspected.Value is null)
+            return new BaseFailure<BaseSubjectLifecycleInspectionResult>(inspected.Status,
+                BaseSubjectFailureContract.NormalizeProviderError(inspected.Status, inspected.Error), null, null);
+        BaseSubjectTerminalLifetimeReceipt? terminal = inspected.Value.TerminalReceipt;
+        return new BaseSuccess<BaseSubjectLifecycleInspectionResult>(new BaseSubjectLifecycleInspectionResult
+        {
+            DeliveryEpoch = inspected.Value.DeliveryEpoch,
+            EarliestRetained = inspected.Value.EarliestRetained,
+            HighWater = inspected.Value.HighWater,
+            Consumers = inspected.Value.Consumers.ToArray(),
+            TerminalReceipt = terminal is null ? null : new BaseSubjectTerminalLifetimeInspection
+            {
+                ContractId = terminal.ContractId, ContractVersion = terminal.ContractVersion, SubjectId = terminal.SubjectId,
+                RetiredAuthorityEpoch = terminal.RetiredAuthorityEpoch, RetiredIncarnation = terminal.RetiredIncarnation,
+                RetiredLifetimeGeneration = terminal.RetiredLifetimeGeneration, RetiredSubjectSequence = terminal.RetiredSubjectSequence,
+                RetiredPosition = terminal.RetiredPosition, ContractStateGeneration = terminal.ContractStateGeneration,
+                RestoreEpoch = terminal.RestoreEpoch, ReceiptChecksum = terminal.ReceiptChecksum,
+            },
+        }, OperationStatus.Ok, null, null, null, null);
     }
 
     private async ValueTask<BaseResult<T>> RouteSubjectAsync<T>(

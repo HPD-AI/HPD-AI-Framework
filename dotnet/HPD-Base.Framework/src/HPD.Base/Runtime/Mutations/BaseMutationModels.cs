@@ -50,6 +50,8 @@ internal sealed record BaseMutationCommand
     public BaseValidatedPayload? CreatePayload { get; init; }
     /// <summary>Gets or sets the update payload.</summary>
     public BaseValidatedPayload? UpdatePayload { get; init; }
+    /// <summary>Gets the generated lifecycle CAS precondition.</summary>
+    public BaseSubjectLifecycleTransitionPrecondition? SubjectLifecycleTransition { get; init; }
 }
 
 internal sealed record BaseMutationAttempt

@@ -162,6 +162,11 @@ public sealed class EndpointIntegrationTests
         builder.Services.AddSingleton<IBaseHttpPrincipalMapper, TestPrincipalMapper>();
         builder.Services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
         builder.Services.AddHPDBase(hpd => hpd
+            .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey
+            {
+                Id = 1, Key = System.Security.Cryptography.SHA256.HashData("hpd-base-http-subject-token-key"u8),
+                IssueNotBefore = DateTimeOffset.UnixEpoch,
+            })
             .AddCollection(HttpPrivateSubjectRecord.Collection)
             .AddCollection(HttpSubjectConsumerRecord.Collection)
             .AddExportedSubject(HttpExportedSubject.HPDBaseSubjectRegistration));
@@ -268,6 +273,8 @@ public sealed class EndpointIntegrationTests
         public ValueTask<BaseResult<BaseRestoreResult>> RestoreAsync(Stream source, BaseRestoreRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<BaseResult<BasePurgeResult>> PurgeAsync(BasePurgeRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseVectorRebuildResult>> RebuildVectorIndexAsync(BaseVectorRebuildRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<BaseResult<BaseSubjectLifecycleMaintenanceResult>> ExecuteSubjectLifecycleMaintenanceAsync(string storeId, PrincipalContext principal, BaseSubjectLifecycleMaintenanceExecutionRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<BaseResult<BaseSubjectLifecycleInspectionResult>> InspectSubjectLifecycleAsync(string storeId, PrincipalContext principal, BaseSubjectLifecycleInspectionRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }
 
@@ -276,6 +283,8 @@ internal sealed partial record HttpPrivateSubjectRecord
 {
     [BaseField("http.subject.active")]
     public required bool Active { get; init; }
+    [BaseField("http.subject.tombstoned")]
+    public required bool Tombstoned { get; init; }
 }
 
 [BaseExportedSubject(
@@ -286,7 +295,8 @@ internal sealed partial record HttpPrivateSubjectRecord
     ValidationGrantId = "http.subject.validate",
     AdministrationGrantId = "http.subject.rotate",
     ValidationPlanId = "http.subject.validate.v1",
-    ActiveFieldId = "http.subject.active")]
+    ActiveFieldId = "http.subject.active",
+    TombstoneFieldId = "http.subject.tombstoned")]
 internal sealed partial class HttpExportedSubject;
 
 [BaseCollection("http.subject.consumer", typeof(HttpSubjectJsonContext))]

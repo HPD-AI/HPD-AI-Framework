@@ -21,6 +21,10 @@ public enum HPDBaseEndpointOperation
     RegisteredRead,
     /// <summary>Executes one registered Service/System module mutation.</summary>
     ModuleMutation,
+    /// <summary>Reads one installed durable subject-lifecycle feed.</summary>
+    SubjectLifecycleRead,
+    /// <summary>Advances one installed durable subject-lifecycle checkpoint.</summary>
+    SubjectLifecycleCheckpoint,
     /// <summary>Reads files.</summary>
     FileRead,
     /// <summary>Writes files.</summary>
@@ -71,6 +75,12 @@ public sealed record HPDBaseEndpointDescriptor
 /// <summary>Names stable product capabilities for BASE HTTP endpoints.</summary>
 public static class HPDBaseCapabilities
 {
+    /// <summary>Reads an installed durable subject-lifecycle feed.</summary>
+    public const string SubjectLifecycleFeedRead = "base.subjectLifecycle.feed.read";
+    /// <summary>Advances an installed durable subject-lifecycle checkpoint.</summary>
+    public const string SubjectLifecycleFeedCheckpoint = "base.subjectLifecycle.feed.checkpoint";
+    /// <summary>Generates one Service/System lifecycle-worker contract.</summary>
+    public const string SubjectLifecycleClientGenerate = "base.subjectLifecycle.client.generate";
     /// <summary>Reads records.</summary>
     public const string RecordsRead = "base.records.read";
     /// <summary>Writes records.</summary>

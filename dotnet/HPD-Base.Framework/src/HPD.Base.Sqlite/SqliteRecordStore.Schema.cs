@@ -224,6 +224,7 @@ public sealed partial class SqliteRecordStore
 
             foreach (string statement in artifact.ExecutionStatements)
                 await ExecuteSchemaCommandAsync(connection, statement, request.ApplyTimeout, cancellationToken).ConfigureAwait(false);
+            await InitializeSubjectScopeProtectionAuthorityAsync(connection, cancellationToken).ConfigureAwait(false);
             if (!await AcquirePersistedSchemaLeaseAsync(connection, artifact.ApplicationId, request.ExpectedGeneration, envelope.PlanId, cancellationToken).ConfigureAwait(false))
             {
                 await ExecuteSchemaCommandAsync(connection, "ROLLBACK;", request.CommitCompletionTimeout, CancellationToken.None).ConfigureAwait(false);
@@ -269,6 +270,32 @@ public sealed partial class SqliteRecordStore
         }
     }
 
+    private async ValueTask InitializeSubjectScopeProtectionAuthorityAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        if (_tokenProtector is null || _subjectScopeProtectionKey is null)
+            return;
+        await using (SqliteCommand initialize = connection.CreateCommand())
+        {
+            initialize.CommandTimeout = TimeoutSeconds();
+            initialize.CommandText = $"""
+INSERT OR IGNORE INTO {_names.ProviderState}(key,value) VALUES('subject_scope_protection_generation','1');
+INSERT OR IGNORE INTO {_names.ProviderState}(key,value) VALUES('subject_scope_protection_key_id',$key);
+""";
+            initialize.Parameters.AddWithValue("$key", _subjectScopeProtectionKey.Value.ToString(CultureInfo.InvariantCulture));
+            await initialize.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        await using SqliteCommand read = connection.CreateCommand();
+        read.CommandTimeout = TimeoutSeconds();
+        read.CommandText = $"SELECT CAST((SELECT value FROM {_names.ProviderState} WHERE key='subject_scope_protection_generation') AS INTEGER),(SELECT value FROM {_names.ProviderState} WHERE key='subject_scope_protection_key_id');";
+        await using SqliteDataReader reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false) || reader.GetInt64(0) < 1
+            || !byte.TryParse(reader.GetString(1), NumberStyles.None, CultureInfo.InvariantCulture, out byte keyId)
+            || !_tokenProtector.HasKey(keyId))
+            throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+        _subjectScopeProtectionKey = keyId;
+        _subjectScopeProtectionKeyId = keyId.ToString(CultureInfo.InvariantCulture);
+    }
+
     private async ValueTask InitializeSubjectContractsForSchemaApplyAsync(
         SqliteConnection connection,
         CancellationToken cancellationToken)
@@ -290,6 +317,32 @@ public sealed partial class SqliteRecordStore
         }
         foreach ((string id, int version) in stale)
         {
+            await using (SqliteCommand retainedConsumer = connection.CreateCommand())
+            {
+                retainedConsumer.CommandTimeout = TimeoutSeconds();
+                retainedConsumer.CommandText = $"SELECT EXISTS(SELECT 1 FROM {_names.SubjectLifecycleConsumers} WHERE contract_id=$id AND contract_version=$version);";
+                retainedConsumer.Parameters.AddWithValue("$id", id);
+                retainedConsumer.Parameters.AddWithValue("$version", version);
+                if (Convert.ToInt32(await retainedConsumer.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture) != 0)
+                    throw new InvalidOperationException(BaseSubjectErrorCodes.RegistrationConflict);
+            }
+
+            foreach (string lifecycleTable in new[]
+            {
+                _names.SubjectLifecycleMemberships,
+                _names.SubjectLifecycleCheckpoints,
+                _names.SubjectLifecycleFacts,
+                _names.SubjectTerminalLifetimes,
+            })
+            {
+                await using SqliteCommand removeLifecycle = connection.CreateCommand();
+                removeLifecycle.CommandTimeout = TimeoutSeconds();
+                removeLifecycle.CommandText = $"DELETE FROM {lifecycleTable} WHERE contract_id=$id AND contract_version=$version;";
+                removeLifecycle.Parameters.AddWithValue("$id", id);
+                removeLifecycle.Parameters.AddWithValue("$version", version);
+                await removeLifecycle.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
             await using SqliteCommand removeLifetimes = connection.CreateCommand();
             removeLifetimes.CommandTimeout = TimeoutSeconds();
             removeLifetimes.CommandText = $"DELETE FROM {_names.SubjectLifetimes} WHERE contract_id=$id AND contract_version=$version;";
@@ -359,6 +412,61 @@ public sealed partial class SqliteRecordStore
             insert.Parameters.AddWithValue("$position", position);
             insert.Parameters.AddWithValue("$digest", digest);
             await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        var installedConsumers = _options.SubjectLifecycleConsumers
+            .Select(static value => (value.Id, value.Version)).ToHashSet();
+        await using (SqliteCommand currentConsumers = connection.CreateCommand())
+        {
+            currentConsumers.CommandTimeout = TimeoutSeconds();
+            currentConsumers.CommandText = $"SELECT consumer_id,consumer_version FROM {_names.SubjectLifecycleConsumers};";
+            await using SqliteDataReader reader = await currentConsumers.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                if (!installedConsumers.Contains((reader.GetString(0), reader.GetInt32(1))))
+                    throw new InvalidOperationException(BaseSubjectErrorCodes.RegistrationConflict);
+        }
+        long cutoff;
+        string? cutoffSubject = null;
+        byte[]? cutoffEpoch = null;
+        byte[]? cutoffIncarnation = null;
+        long? cutoffSequence = null;
+        await using (SqliteCommand highWater = connection.CreateCommand())
+        {
+            highWater.CommandTimeout = TimeoutSeconds();
+            highWater.CommandText = $"SELECT commit_position,subject_id,authority_epoch,incarnation,subject_sequence FROM {_names.SubjectLifecycleFacts} ORDER BY commit_position DESC,subject_id COLLATE BINARY DESC,authority_epoch DESC,incarnation DESC,subject_sequence DESC LIMIT 1;";
+            await using SqliteDataReader reader = await highWater.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                cutoff = reader.GetInt64(0); cutoffSubject = reader.GetString(1); cutoffEpoch = (byte[])reader.GetValue(2);
+                cutoffIncarnation = (byte[])reader.GetValue(3); cutoffSequence = reader.GetInt64(4);
+            }
+            else
+            {
+                await reader.DisposeAsync().ConfigureAwait(false);
+                await using SqliteCommand journal = connection.CreateCommand(); journal.CommandTimeout = TimeoutSeconds();
+                journal.CommandText = $"SELECT COALESCE(MAX(position),0) FROM {_names.MutationJournal};";
+                cutoff = Convert.ToInt64(await journal.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
+            }
+        }
+        foreach (BaseSubjectLifecycleConsumerDefinition candidate in _options.SubjectLifecycleConsumers
+            .OrderBy(static value => value.Id, StringComparer.Ordinal).ThenBy(static value => value.Version))
+        {
+            BaseSubjectLifecycleConsumerDefinition consumer = BaseSubjectLifecycleRegistry.Normalize(candidate);
+            BaseExportedSubjectDefinition subject = _options.ExportedSubjects.Single(value => value.Id == consumer.ContractId && value.Version == consumer.ContractVersion);
+            string checksum = BaseSubjectLifecycleRegistry.Checksum(consumer, BaseSubjectContractGraph.Checksum(subject));
+            await using SqliteCommand install = connection.CreateCommand();
+            install.CommandTimeout = TimeoutSeconds();
+            install.CommandText = $"INSERT INTO {_names.SubjectLifecycleConsumers}(consumer_id,consumer_version,consumer_checksum,contract_id,contract_version,projection_generation,cutoff_position,cutoff_subject_id,cutoff_authority_epoch,cutoff_incarnation,cutoff_sequence,published_graph_generation,state) VALUES($id,$version,$checksum,$contract,$contractVersion,1,$cutoff,$cutoffSubject,$cutoffEpoch,$cutoffIncarnation,$cutoffSequence,$graph,0) ON CONFLICT(consumer_id,consumer_version) DO UPDATE SET consumer_checksum=excluded.consumer_checksum WHERE consumer_checksum=excluded.consumer_checksum AND contract_id=excluded.contract_id AND contract_version=excluded.contract_version;";
+            install.Parameters.AddWithValue("$id", consumer.Id); install.Parameters.AddWithValue("$version", consumer.Version);
+            install.Parameters.AddWithValue("$checksum", checksum); install.Parameters.AddWithValue("$contract", consumer.ContractId);
+            install.Parameters.AddWithValue("$contractVersion", consumer.ContractVersion); install.Parameters.AddWithValue("$cutoff", cutoff);
+            install.Parameters.AddWithValue("$cutoffSubject", cutoffSubject is null ? DBNull.Value : cutoffSubject);
+            install.Parameters.Add("$cutoffEpoch", SqliteType.Blob).Value = cutoffEpoch is null ? DBNull.Value : cutoffEpoch;
+            install.Parameters.Add("$cutoffIncarnation", SqliteType.Blob).Value = cutoffIncarnation is null ? DBNull.Value : cutoffIncarnation;
+            install.Parameters.AddWithValue("$cutoffSequence", cutoffSequence is null ? DBNull.Value : cutoffSequence.Value);
+            install.Parameters.AddWithValue("$graph", checked(_schemaGeneration + 1));
+            if (await install.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                throw new InvalidOperationException(BaseSubjectErrorCodes.RegistrationConflict);
         }
     }
 

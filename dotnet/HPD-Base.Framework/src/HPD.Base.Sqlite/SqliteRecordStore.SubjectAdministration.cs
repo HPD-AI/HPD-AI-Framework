@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 
@@ -250,6 +252,7 @@ WHERE contract_id=$contract AND contract_version=$version AND state_generation=$
         SqliteConnection connection,
         long restoreEpoch,
         IReadOnlyDictionary<string, long> preRestoreGenerations,
+        long preRestoreLifecycleDeliveryEpoch,
         CancellationToken cancellationToken)
     {
         await using (SqliteCommand updateRestore = connection.CreateCommand())
@@ -333,6 +336,152 @@ WHERE contract_id=$contract AND contract_version=$version AND state_generation=$
             await _administrationOperations.BeforePhaseAsync("subjectRewriteBeforePublicationCommit", cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         }
+
+        await PublishRestoredLifecycleDeliveryAuthorityAsync(
+            connection,
+            preRestoreLifecycleDeliveryEpoch,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask PublishRestoredLifecycleDeliveryAuthorityAsync(
+        SqliteConnection connection,
+        long preRestoreLifecycleDeliveryEpoch,
+        CancellationToken cancellationToken)
+    {
+        long artifactDeliveryEpoch;
+        await using (SqliteCommand read = connection.CreateCommand())
+        {
+            read.CommandTimeout = TimeoutSeconds();
+            read.CommandText = $"SELECT COALESCE((SELECT CAST(value AS INTEGER) FROM {_names.ProviderState} WHERE key='subject_lifecycle_delivery_epoch'),1);";
+            artifactDeliveryEpoch = Convert.ToInt64(await read.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
+        }
+        long replacementDeliveryEpoch = checked(Math.Max(preRestoreLifecycleDeliveryEpoch, artifactDeliveryEpoch) + 1);
+
+        long consumerCount = await CountLifecycleRowsAsync(connection, null, _names.SubjectLifecycleConsumers, cancellationToken).ConfigureAwait(false);
+        long membershipCount = await CountLifecycleRowsAsync(connection, null, _names.SubjectLifecycleMemberships, cancellationToken).ConfigureAwait(false);
+        long checkpointCount = await CountLifecycleRowsAsync(connection, null, _names.SubjectLifecycleCheckpoints, cancellationToken).ConfigureAwait(false);
+
+        LifecycleRestoreEvidence evidence = new(0, 0, 0, SHA256.HashData("base.subjectLifecycle.restore.empty.v1"u8));
+        evidence = await TransformRestoredLifecycleRowsAsync(connection, _names.SubjectLifecycleConsumers, checkpoint: false, evidence, cancellationToken).ConfigureAwait(false);
+        evidence = await TransformRestoredLifecycleRowsAsync(connection, _names.SubjectLifecycleMemberships, checkpoint: false, evidence, cancellationToken).ConfigureAwait(false);
+        evidence = await TransformRestoredLifecycleRowsAsync(connection, _names.SubjectLifecycleCheckpoints, checkpoint: true, evidence, cancellationToken).ConfigureAwait(false);
+        if (evidence.Rows != checked(consumerCount + membershipCount + checkpointCount) || evidence.Bytes < 0 || evidence.Checksum.Length != 32)
+            throw new InvalidDataException(BaseSubjectErrorCodes.LifecycleProviderContractInvalid);
+
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection
+            .BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        await using (SqliteCommand publish = connection.CreateCommand())
+        {
+            publish.Transaction = transaction;
+            publish.CommandTimeout = TimeoutSeconds();
+            publish.CommandText = $"""
+INSERT INTO {_names.ProviderState}(key,value)
+VALUES ('subject_lifecycle_delivery_epoch',$delivery)
+ON CONFLICT(key) DO UPDATE SET value=excluded.value;
+""";
+            publish.Parameters.AddWithValue("$delivery", replacementDeliveryEpoch.ToString(CultureInfo.InvariantCulture));
+            await publish.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        if (consumerCount != await CountLifecycleRowsAsync(connection, transaction, _names.SubjectLifecycleConsumers, cancellationToken).ConfigureAwait(false)
+            || membershipCount != await CountLifecycleRowsAsync(connection, transaction, _names.SubjectLifecycleMemberships, cancellationToken).ConfigureAwait(false)
+            || checkpointCount != await CountLifecycleRowsAsync(connection, transaction, _names.SubjectLifecycleCheckpoints, cancellationToken).ConfigureAwait(false))
+            throw new InvalidDataException(BaseSubjectErrorCodes.ProviderContractInvalid);
+
+        await _administrationOperations.BeforePhaseAsync("subjectLifecycleBeforeRestorePublicationCommit", cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask<LifecycleRestoreEvidence> TransformRestoredLifecycleRowsAsync(
+        SqliteConnection connection,
+        string table,
+        bool checkpoint,
+        LifecycleRestoreEvidence prior,
+        CancellationToken cancellationToken)
+    {
+        long after = 0;
+        LifecycleRestoreEvidence evidence = prior;
+        while (true)
+        {
+            await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            await using SqliteCommand select = connection.CreateCommand();
+            select.Transaction = transaction;
+            select.CommandTimeout = TimeoutSeconds();
+            select.CommandText = checkpoint
+                ? $"SELECT rowid,projection_generation,checkpoint_generation FROM {table} WHERE rowid>$after ORDER BY rowid LIMIT 256;"
+                : $"SELECT rowid,projection_generation FROM {table} WHERE rowid>$after ORDER BY rowid LIMIT 256;";
+            select.Parameters.AddWithValue("$after", after);
+            var rows = new List<(long RowId, long Projection, long? Checkpoint)>();
+            await using (SqliteDataReader reader = await select.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                    rows.Add((reader.GetInt64(0), reader.GetInt64(1), checkpoint ? reader.GetInt64(2) : null));
+            foreach ((long rowId, long projection, long? checkpointGeneration) in rows)
+            {
+                long nextProjection = checked(projection + 1);
+                long? nextCheckpoint = checkpointGeneration is null ? null : checked(checkpointGeneration.Value + 1);
+                await using SqliteCommand update = connection.CreateCommand();
+                update.Transaction = transaction;
+                update.CommandTimeout = TimeoutSeconds();
+                update.CommandText = checkpoint
+                    ? $"UPDATE {table} SET projection_generation=$projection,checkpoint_generation=$checkpoint WHERE rowid=$rowid AND projection_generation=$priorProjection AND checkpoint_generation=$priorCheckpoint;"
+                    : $"UPDATE {table} SET projection_generation=$projection WHERE rowid=$rowid AND projection_generation=$priorProjection;";
+                update.Parameters.AddWithValue("$projection", nextProjection);
+                update.Parameters.AddWithValue("$priorProjection", projection);
+                update.Parameters.AddWithValue("$rowid", rowId);
+                if (checkpoint)
+                {
+                    update.Parameters.AddWithValue("$checkpoint", nextCheckpoint!.Value);
+                    update.Parameters.AddWithValue("$priorCheckpoint", checkpointGeneration!.Value);
+                }
+                if (await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                    throw new InvalidDataException(BaseSubjectErrorCodes.LifecycleProviderContractInvalid);
+                byte[] canonical = Encoding.UTF8.GetBytes($"{table}\0{rowId}\0{projection}\0{nextProjection}\0{checkpointGeneration}\0{nextCheckpoint}");
+                evidence = evidence.Add(canonical);
+                after = rowId;
+            }
+            await transaction.CommitAsync(CancellationToken.None).ConfigureAwait(false);
+            if (rows.Count != 0)
+            {
+                evidence = evidence with { Pages = checked(evidence.Pages + 1) };
+                await _administrationOperations.BeforePhaseAsync("subjectLifecycleRestorePageCommitted", cancellationToken).ConfigureAwait(false);
+            }
+            if (rows.Count < 256) return evidence;
+        }
+    }
+
+    private async ValueTask<long> CountLifecycleRowsAsync(
+        SqliteConnection connection,
+        SqliteTransaction? transaction,
+        string table,
+        CancellationToken cancellationToken)
+    {
+        await using SqliteCommand command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandTimeout = TimeoutSeconds();
+        command.CommandText = $"SELECT COUNT(*) FROM {table};";
+        return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
+    }
+
+    private sealed record LifecycleRestoreEvidence(long Rows, long Bytes, long Pages, byte[] Checksum)
+    {
+        internal LifecycleRestoreEvidence Add(byte[] canonical)
+        {
+            byte[] input = new byte[checked(Checksum.Length + 4 + canonical.Length)];
+            Checksum.CopyTo(input, 0);
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(input.AsSpan(Checksum.Length, 4), canonical.Length);
+            canonical.CopyTo(input, Checksum.Length + 4);
+            return new(checked(Rows + 1), checked(Bytes + 4L + canonical.Length), Pages, SHA256.HashData(input));
+        }
+    }
+
+    private async ValueTask<long> ReadSubjectLifecycleDeliveryEpochAsync(CancellationToken cancellationToken)
+    {
+        await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandTimeout = TimeoutSeconds();
+        command.CommandText = $"SELECT COALESCE((SELECT CAST(value AS INTEGER) FROM {_names.ProviderState} WHERE key='subject_lifecycle_delivery_epoch'),1);";
+        return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
     }
 
     private async ValueTask<SubjectRewriteCheckpoint> StageSubjectReferenceRewriteAsync(

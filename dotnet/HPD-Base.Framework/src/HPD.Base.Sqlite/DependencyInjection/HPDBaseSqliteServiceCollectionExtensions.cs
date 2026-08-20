@@ -41,6 +41,7 @@ public static class HPDBaseSqliteServiceCollectionExtensions
         services.TryAddSingleton<IRecordStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
         services.TryAddSingleton<IRecordMutationStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
         services.TryAddSingleton<IAtomicRecordStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
+        services.TryAddSingleton<IBaseSubjectLifecycleStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
         services.TryAddSingleton<ITransactionalMutationJournalStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
         if (options.ContributeRelationalDescriptors)
         {
@@ -92,5 +93,7 @@ public static class HPDBaseSqliteServiceCollectionExtensions
         HealthRefId = new string(value.HealthRefId.AsSpan()), DiagnosticRefId = new string(value.DiagnosticRefId.AsSpan()),
         Collections = value.Collections.ToArray(), ExportedSubjects = value.ExportedSubjects.ToArray(),
         ModuleMutations = value.ModuleMutations.ToArray(), ModuleGenerationCells = value.ModuleGenerationCells.ToArray(),
+        SubjectLifecycleConsumers = value.SubjectLifecycleConsumers.Select(static item => BaseSubjectLifecycleRegistry.Normalize(item)).ToArray(),
+        SubjectLifecycleInspectionAuthorities = value.SubjectLifecycleInspectionAuthorities.Select(static item => item with { }).ToArray(),
     };
 }

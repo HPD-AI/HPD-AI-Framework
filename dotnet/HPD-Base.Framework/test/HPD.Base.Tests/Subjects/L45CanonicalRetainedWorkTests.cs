@@ -38,15 +38,16 @@ public sealed class L45CanonicalRetainedWorkTests
             ContractId = "c", ContractVersion = 1,
             SubjectId = BaseSubjectId.Create("s", BaseSubjectIdKind.OrdinalString),
             Exists = true, Incarnation = null, Active = null, Scope = null,
+            ProtectedScope = new BaseProtectedSubjectScope { Kind = BaseSubjectScopeKind.Global, IndexDigest = new byte[32], ProtectedCanonicalValue = [1] },
         };
         var present = absent with
         {
-            Incarnation = new BaseSubjectIncarnation(Enumerable.Repeat((byte)1, 16).ToArray()),
+            Incarnation = BaseSubjectIncarnation.Create(1),
             Active = true,
             Scope = "t",
         };
 
-        Assert.Equal(30, BaseSubjectCanonicalRetainedWork.MeasureOverlay(absent));
-        Assert.Equal(52, BaseSubjectCanonicalRetainedWork.MeasureOverlay(present));
+        Assert.Equal(81, BaseSubjectCanonicalRetainedWork.MeasureOverlay(absent));
+        Assert.Equal(111, BaseSubjectCanonicalRetainedWork.MeasureOverlay(present));
     }
 }

@@ -14,7 +14,8 @@ internal sealed class DefaultBaseMutationProcessor(
     CollectionDefinition[] collections,
     BaseAtomicMutationExecutionLimits executionLimits,
     BaseAtomicMutationAuthorityRequirement authority,
-    BaseSubjectContractRegistry subjects) : IAtomicMutationProcessor
+    BaseSubjectContractRegistry subjects,
+    BaseSubjectLifecycleRegistry lifecycleConsumers) : IAtomicMutationProcessor
 {
     private readonly List<BaseMutationAttempt> _attempts = [];
     private readonly List<BaseFinalizedRelationPolicy> _relationPolicies = [];
@@ -22,6 +23,8 @@ internal sealed class DefaultBaseMutationProcessor(
     private readonly Dictionary<int, BasePolicyEvaluation> _finalizedPolicies = [];
     private long _deadline;
     private IReadOnlyDictionary<int, BaseCapturedMutationItem> _captured = new Dictionary<int, BaseCapturedMutationItem>();
+    private IReadOnlyDictionary<(string Id, int Version), BaseCapturedSubjectLifecycleConsumerProjection> _capturedLifecycleConsumers =
+        new Dictionary<(string, int), BaseCapturedSubjectLifecycleConsumerProjection>();
 
     /// <summary>Gets the attempts.</summary>
     public IReadOnlyList<BaseMutationAttempt> Attempts => _attempts;
@@ -205,6 +208,17 @@ internal sealed class DefaultBaseMutationProcessor(
             Kind = BaseAtomicMutationExecutionKind.RecordMutations,
             Intent = intent,
             Limits = executionLimits,
+            LifecycleConsumerProjections = [.. lifecycleConsumers.All
+                .OrderBy(static value => value.Definition.Id, StringComparer.Ordinal)
+                .ThenBy(static value => value.Definition.Version)
+                .Select(static value => new BaseSubjectLifecycleConsumerProjectionCaptureRequest
+                {
+                    ConsumerId = value.Definition.Id,
+                    ConsumerVersion = value.Definition.Version,
+                    ConsumerChecksum = value.Checksum,
+                    ContractId = value.Definition.ContractId,
+                    ContractVersion = value.Definition.ContractVersion,
+                })],
         };
         OperationResult<BaseCapturedAtomicMutationAuthority> capture = await session.CaptureAtomicMutationAuthorityAsync(captureRequest, cancellationToken).ConfigureAwait(false);
         if (!capture.IsSuccess() || capture.Value is null)
@@ -217,9 +231,11 @@ internal sealed class DefaultBaseMutationProcessor(
         {
             return Failed(Error(BaseSubjectErrorCodes.ProviderContractInvalid, "The provider authority capture was invalid.", ErrorCategory.Store));
         }
-        bool capturedValid = ValidateCaptured(intent, capturedEvidence, executionLimits);
+        bool capturedValid = ValidateCaptured(intent, captureRequest.LifecycleConsumerProjections, capturedEvidence, executionLimits);
         if (!capturedValid)
             return Failed(Error(BaseSubjectErrorCodes.ProviderContractInvalid, "The provider authority capture was invalid.", ErrorCategory.Store));
+        _capturedLifecycleConsumers = capturedEvidence.LifecycleConsumerProjections.ToDictionary(
+            static value => (value.ConsumerId, value.ConsumerVersion));
         OperationResult<BaseFinalizedRecordMutationPlan> finalizedPlan = await FinalizeCapturedCommandsAsync(
             capturedEvidence.Items.ToDictionary(static item => item.Ordinal), cancellationToken).ConfigureAwait(false);
         if (!finalizedPlan.IsSuccess() || finalizedPlan.Value is null)
@@ -341,6 +357,12 @@ internal sealed class DefaultBaseMutationProcessor(
             CaptureId = new string(generation.CaptureId.AsSpan()),
             CellId = new string(generation.CellId.AsSpan()),
             CanonicalKeyDigest = new string(generation.CanonicalKeyDigest.AsSpan()),
+        }).ToImmutableArray(),
+        LifecycleConsumerProjections = value.LifecycleConsumerProjections.Select(static projection => projection with
+        {
+            ConsumerId = new string(projection.ConsumerId.AsSpan()),
+            ConsumerChecksum = new string(projection.ConsumerChecksum.AsSpan()),
+            ContractId = new string(projection.ContractId.AsSpan()),
         }).ToImmutableArray(),
         ReadIntervals = value.ReadIntervals.Select(static interval => interval with
         {
@@ -550,6 +572,7 @@ internal sealed class DefaultBaseMutationProcessor(
             Current = current is null ? null : RecordCloneHelpers.CloneEnvelope(current),
             ChangedFields = changed,
             SubjectLifecycle = null,
+            SubjectLifecycleTransition = command.SubjectLifecycleTransition,
             Operation = command.Context with { },
         });
     }
@@ -651,10 +674,41 @@ internal sealed class DefaultBaseMutationProcessor(
                         BaseCommittedRecordMutationKind.Delete => BaseSubjectLifecycleMutationKind.Retire,
                         _ => BaseSubjectLifecycleMutationKind.Preserve,
                     },
+                    PreviousState = SubjectState(item.Current, item.Collection, subject.Definition),
+                    ResultingState = item.Kind == BaseCommittedRecordMutationKind.Delete
+                        ? BaseSubjectLifecycleState.Retired
+                        : SubjectState(item.ProposedPayload, item.Collection, subject.Definition) ?? BaseSubjectLifecycleState.Retired,
+                    PublishFact = false,
+                    Memberships = [],
                 };
-                if (item.Kind != BaseCommittedRecordMutationKind.Delete &&
+                if (!ValidTransition(lifecycle) || item.Kind != BaseCommittedRecordMutationKind.Delete &&
                     !HasValidSubjectLogicalState(item, subject.Definition))
                     return SubjectPlanFailure(BaseSubjectErrorCodes.ContractInvalid);
+                if (lifecycle.ResultingState == BaseSubjectLifecycleState.Tombstoned
+                    && (item.Operation.Operation != BaseOperationKind.SubjectLifecycleTombstone
+                        || item.SubjectLifecycleTransition is null))
+                    return SubjectPlanFailure(BaseSubjectErrorCodes.LifecycleUnauthorized, OperationStatus.PolicyDenied, ErrorCategory.Authorization);
+                if (item.Kind == BaseCommittedRecordMutationKind.Delete
+                    && (item.Operation.Operation != BaseOperationKind.SubjectLifecycleFinalizeRetirement
+                        || item.SubjectLifecycleTransition is null))
+                    return SubjectPlanFailure(BaseSubjectErrorCodes.LifecycleUnauthorized, OperationStatus.PolicyDenied, ErrorCategory.Authorization);
+                if (item.SubjectLifecycleTransition is { } generated
+                    && (!generated.Subject.SubjectId.Equals(subjectId)
+                        || generated.ResultingState != lifecycle.ResultingState))
+                    return SubjectPlanFailure(BaseSubjectErrorCodes.ProviderContractInvalid);
+                bool publish = lifecycle.PreviousState != lifecycle.ResultingState;
+                lifecycle = lifecycle with
+                {
+                    PublishFact = publish,
+                    Memberships = publish ? [.. lifecycleConsumers.ForContract(lifecycle.ContractId, lifecycle.ContractVersion)
+                        .Where(value => value.Definition.ObservedStates.Contains(lifecycle.ResultingState))
+                        .Select(value => new BaseSubjectLifecycleMembershipPlanItem
+                        {
+                            ConsumerId = value.Definition.Id, ConsumerVersion = value.Definition.Version,
+                            ConsumerChecksum = value.Checksum, ProjectionGeneration = CapturedProjectionGeneration(value),
+                            MatchedObservedState = lifecycle.ResultingState,
+                        })] : [],
+                };
             }
 
             if (item.Kind != BaseCommittedRecordMutationKind.Delete && item.ProposedPayload?.Fields is { } fields)
@@ -702,6 +756,17 @@ internal sealed class DefaultBaseMutationProcessor(
         return OperationResults.Ok((finalized.MoveToImmutable(), validations.ToImmutable()));
     }
 
+    private long CapturedProjectionGeneration(BaseInstalledSubjectLifecycleConsumer consumer)
+    {
+        if (!_capturedLifecycleConsumers.TryGetValue((consumer.Definition.Id, consumer.Definition.Version), out BaseCapturedSubjectLifecycleConsumerProjection? projection)
+            || projection.ConsumerChecksum != consumer.Checksum
+            || projection.ContractId != consumer.Definition.ContractId
+            || projection.ContractVersion != consumer.Definition.ContractVersion
+            || projection.ProjectionGeneration < 1)
+            throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+        return projection.ProjectionGeneration;
+    }
+
     private static bool HasValidSubjectLogicalState(BaseAtomicMutationPlanItem item, BaseExportedSubjectDefinition definition)
     {
         if (item.ProposedPayload?.Fields is not { } fields)
@@ -728,6 +793,32 @@ internal sealed class DefaultBaseMutationProcessor(
         }
         return true;
     }
+
+    private static BaseSubjectLifecycleState? SubjectState(RecordEnvelope? record, CollectionDefinition collection, BaseExportedSubjectDefinition definition) =>
+        record is null ? null : SubjectState(record.Payload, collection, definition);
+
+    private static BaseSubjectLifecycleState? SubjectState(RecordPayload? payload, CollectionDefinition collection, BaseExportedSubjectDefinition definition)
+    {
+        if (payload?.Fields is not { } fields) return null;
+        FieldDefinition? activeField = (collection.Fields ?? []).SingleOrDefault(field => field.Id == definition.ValidationPlan.Active.FieldId);
+        FieldDefinition? tombstoneField = (collection.Fields ?? []).SingleOrDefault(field => field.Id == definition.TombstoneFieldId);
+        if (activeField is null || tombstoneField is null || !fields.TryGetValue(activeField.WireName, out JsonElement active) ||
+            !fields.TryGetValue(tombstoneField.WireName, out JsonElement tombstone) ||
+            active.ValueKind is not (JsonValueKind.True or JsonValueKind.False) || tombstone.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) return null;
+        bool isActive = active.GetBoolean() == definition.ValidationPlan.Active.ActiveValue;
+        bool isTombstoned = tombstone.GetBoolean();
+        if (isActive && isTombstoned) return null;
+        return isTombstoned ? BaseSubjectLifecycleState.Tombstoned : isActive ? BaseSubjectLifecycleState.Active : BaseSubjectLifecycleState.Inactive;
+    }
+
+    private static bool ValidTransition(BaseSubjectLifecyclePlanItem value) => (value.PreviousState, value.ResultingState) switch
+    {
+        (null, BaseSubjectLifecycleState.Active) => true,
+        (BaseSubjectLifecycleState.Active, BaseSubjectLifecycleState.Active or BaseSubjectLifecycleState.Inactive or BaseSubjectLifecycleState.Tombstoned) => true,
+        (BaseSubjectLifecycleState.Inactive, BaseSubjectLifecycleState.Inactive or BaseSubjectLifecycleState.Active or BaseSubjectLifecycleState.Tombstoned) => true,
+        (BaseSubjectLifecycleState.Tombstoned, BaseSubjectLifecycleState.Tombstoned or BaseSubjectLifecycleState.Retired) => true,
+        _ => false,
+    };
 
     private static OperationResult<(ImmutableArray<BaseAtomicMutationPlanItem>, ImmutableArray<BaseSubjectReferenceValidationPlanItem>)> SubjectPlanFailure(
         string code,
@@ -794,6 +885,7 @@ internal sealed class DefaultBaseMutationProcessor(
 
     private static bool ValidateCaptured(
         BaseAtomicMutationIntent intent,
+        ImmutableArray<BaseSubjectLifecycleConsumerProjectionCaptureRequest> lifecycleProjections,
         BaseCapturedAtomicMutationAuthority captured,
         BaseAtomicMutationExecutionLimits limits)
     {
@@ -808,6 +900,18 @@ internal sealed class DefaultBaseMutationProcessor(
             || !Enum.IsDefined(captured.Authority.Isolation)
             || captured.Authority.TransactionEvidenceToken.IsDefaultOrEmpty)
             return false;
+        if (captured.LifecycleConsumerProjections.Length != lifecycleProjections.Length)
+            return false;
+        for (int index = 0; index < lifecycleProjections.Length; index++)
+        {
+            BaseSubjectLifecycleConsumerProjectionCaptureRequest expected = lifecycleProjections[index];
+            BaseCapturedSubjectLifecycleConsumerProjection actual = captured.LifecycleConsumerProjections[index];
+            if (actual.ConsumerId != expected.ConsumerId || actual.ConsumerVersion != expected.ConsumerVersion
+                || actual.ConsumerChecksum != expected.ConsumerChecksum || actual.ContractId != expected.ContractId
+                || actual.ContractVersion != expected.ContractVersion || actual.ProjectionGeneration < 1
+                || actual.PublishedGraphGeneration < 1)
+                return false;
+        }
 
         long selectedBytes = 0;
         var expectedIntervals = new List<(string Path, byte[] Key)>();
@@ -857,6 +961,11 @@ internal sealed class DefaultBaseMutationProcessor(
             }
             expectedIntervals.Add(($"collection:{expected.Collection.Id}:record", recordKey));
             transactionRecords[itemKey] = SimulateCapturedIntent(expected, actual.Current);
+        }
+        foreach (BaseCapturedSubjectLifecycleConsumerProjection projection in captured.LifecycleConsumerProjections)
+        {
+            digest.AppendData(Encoding.UTF8.GetBytes($"\0lifecycle-consumer\0{projection.ConsumerId}\0{projection.ConsumerVersion}\0{projection.ConsumerChecksum}\0{projection.ContractId}\0{projection.ContractVersion}\0{projection.ProjectionGeneration}\0{projection.PublishedGraphGeneration}\0"));
+            expectedIntervals.Add(("subject-lifecycle:consumer-projection", Encoding.UTF8.GetBytes($"{projection.ConsumerId}\0{projection.ConsumerVersion}")));
         }
         if (!string.Equals(captured.CaptureDigest, Convert.ToHexStringLower(digest.GetHashAndReset()), StringComparison.Ordinal)
             || captured.ReadIntervals.Length != expectedIntervals.Count
@@ -1011,39 +1120,67 @@ internal sealed class DefaultBaseMutationProcessor(
                 || evidence.StateGeneration < 1)
                 return false;
         }
+        string? LifecycleScope(BaseAtomicMutationPlanItem item)
+        {
+            BaseSubjectLifecyclePlanItem lifecycle = item.SubjectLifecycle!;
+            BaseGeneratedSubjectRegistration registration = expected[(lifecycle.ContractId, lifecycle.ContractVersion)];
+            return registration.Definition.Scope switch
+            {
+                BaseSubjectScopeKind.Global => null,
+                BaseSubjectScopeKind.Tenant or BaseSubjectScopeKind.Project => ReadLifecycleScope(item, registration.Definition),
+                _ => null,
+            };
+        }
+
+        static string? ReadLifecycleScope(BaseAtomicMutationPlanItem item, BaseExportedSubjectDefinition definition)
+        {
+            string fieldId = definition.ValidationPlan.Scope.FieldId
+                ?? throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+            FieldDefinition field = (item.Collection.Fields ?? []).Single(candidate =>
+                string.Equals(candidate.Id, fieldId, StringComparison.Ordinal));
+            RecordPayload? payload = item.Kind == BaseCommittedRecordMutationKind.Delete
+                ? item.Current?.Payload
+                : item.ProposedPayload;
+            return payload?.Fields is not null
+                && payload.Fields.TryGetValue(field.WireName, out JsonElement value)
+                && value.ValueKind == JsonValueKind.String
+                    ? value.GetString()
+                    : null;
+        }
         var expectedOverlayKeys = plan.Items
             .Where(static item => item.SubjectLifecycle is not null)
-            .Select(static item => item.SubjectLifecycle!)
-            .Select(static lifecycle => (lifecycle.ContractId, lifecycle.ContractVersion, lifecycle.SubjectId.Value))
+            .Select(item => (item.SubjectLifecycle!.ContractId, item.SubjectLifecycle.ContractVersion, item.SubjectLifecycle.SubjectId.Value, Scope: LifecycleScope(item)))
             .Concat(plan.SubjectValidations.Select(validation =>
             {
                 BaseGeneratedSubjectRegistration registration = expected.Values.Single(candidate =>
                     candidate.Definition.ValidationPlan.Id == validation.ValidationPlanId
                     && candidate.Definition.ValidationPlan.Version == validation.ValidationPlanVersion);
-                return (registration.Definition.Id, registration.Definition.Version, validation.Reference.SubjectId.Value);
+                return (registration.Definition.Id, registration.Definition.Version, validation.Reference.SubjectId.Value, Scope: validation.Scope.Value);
             }))
             .ToHashSet();
         var actualOverlayKeys = prepared.SubjectOverlay
-            .Select(static value => (value.ContractId, value.ContractVersion, value.SubjectId.Value))
+            .Select(static value => (value.ContractId, value.ContractVersion, value.SubjectId.Value, value.Scope))
             .ToArray();
         if (actualOverlayKeys.Length != expectedOverlayKeys.Count
             || actualOverlayKeys.Distinct().Count() != actualOverlayKeys.Length
             || actualOverlayKeys.Any(key => !expectedOverlayKeys.Contains(key)))
             return false;
-        foreach (IGrouping<(string ContractId, int ContractVersion, string SubjectId), BaseSubjectLifecyclePlanItem> group in plan.Items
+        foreach (IGrouping<(string ContractId, int ContractVersion, string SubjectId, string? Scope), BaseAtomicMutationPlanItem> group in plan.Items
             .Where(static item => item.SubjectLifecycle is not null)
-            .Select(static item => item.SubjectLifecycle!)
-            .GroupBy(static value => (value.ContractId, value.ContractVersion, value.SubjectId.Value)))
+            .GroupBy(item => (item.SubjectLifecycle!.ContractId, item.SubjectLifecycle.ContractVersion, item.SubjectLifecycle.SubjectId.Value, LifecycleScope(item))))
         {
-            BaseSubjectLifecyclePlanItem final = group.Last();
+            BaseSubjectLifecyclePlanItem final = group.Last().SubjectLifecycle!;
             BasePreparedSubjectOverlayEvidence? overlay = prepared.SubjectOverlay.SingleOrDefault(value =>
                 value.ContractId == final.ContractId && value.ContractVersion == final.ContractVersion
-                && value.SubjectId.Equals(final.SubjectId));
+                && value.SubjectId.Equals(final.SubjectId)
+                && string.Equals(value.Scope, group.Key.Scope, StringComparison.Ordinal));
+            byte[] scopedLifetimeKey = overlay is null ? [] : Encoding.UTF8.GetBytes($"{(int)overlay.ProtectedScope.Kind}\n{Convert.ToHexString(overlay.ProtectedScope.IndexDigest)}\n{final.ContractId}\n{final.ContractVersion}\n{final.SubjectId.Value}");
             if (overlay is null || (final.Kind == BaseSubjectLifecycleMutationKind.Retire
                     ? overlay.Exists || overlay.Incarnation is not null
                     : !overlay.Exists || overlay.Incarnation is null)
+                || overlay.ProtectedScope.IndexDigest.Length != 32 || overlay.ProtectedScope.ProtectedCanonicalValue.Length == 0
                 || !HasExactInterval(prepared.ReadIntervals, $"subject:{final.ContractId}:contract", Encoding.UTF8.GetBytes($"{final.ContractId}\n{final.ContractVersion}"))
-                || !HasExactInterval(prepared.ReadIntervals, $"subject:{final.ContractId}:lifetime", Encoding.UTF8.GetBytes($"{final.ContractId}\n{final.ContractVersion}\n{final.SubjectId.Value}"))
+                || !HasExactInterval(prepared.ReadIntervals, $"subject:{final.ContractId}:lifetime", scopedLifetimeKey)
                 || !HasExactInterval(prepared.ReadIntervals, $"subject:{final.ContractId}:record", Encoding.UTF8.GetBytes(final.SubjectId.Value)))
                 return false;
         }
@@ -1057,7 +1194,8 @@ internal sealed class DefaultBaseMutationProcessor(
                 value.ContractId == registration.Definition.Id && value.ContractVersion == registration.Definition.Version);
             BasePreparedSubjectOverlayEvidence? overlay = prepared.SubjectOverlay.SingleOrDefault(value =>
                 value.ContractId == registration.Definition.Id && value.ContractVersion == registration.Definition.Version
-                && value.SubjectId.Equals(validation.Reference.SubjectId));
+                && value.SubjectId.Equals(validation.Reference.SubjectId)
+                && string.Equals(value.Scope, validation.Scope.Value, StringComparison.Ordinal));
             if (overlay is null) return false;
             bool structurallyValid = overlay.Exists && overlay.Incarnation is { } incarnation
                 && incarnation.Equals(validation.Reference.Incarnation)
@@ -1069,9 +1207,10 @@ internal sealed class DefaultBaseMutationProcessor(
             if ((prepared.SubjectValidations[index].State == BaseSubjectValidationState.Valid) != structurallyValid)
                 return false;
             byte[] contractKey = Encoding.UTF8.GetBytes($"{registration.Definition.Id}\n{registration.Definition.Version}");
-            byte[] subjectKey = Encoding.UTF8.GetBytes($"{registration.Definition.Id}\n{registration.Definition.Version}\n{validation.Reference.SubjectId.Value}");
+            byte[] subjectKey = Encoding.UTF8.GetBytes($"{(int)overlay.ProtectedScope.Kind}\n{Convert.ToHexString(overlay.ProtectedScope.IndexDigest)}\n{registration.Definition.Id}\n{registration.Definition.Version}\n{validation.Reference.SubjectId.Value}");
             byte[] recordKey = Encoding.UTF8.GetBytes(validation.Reference.SubjectId.Value);
-            if (!HasExactInterval(prepared.ReadIntervals, $"subject:{registration.Definition.Id}:contract", contractKey)
+            if (overlay.ProtectedScope.IndexDigest.Length != 32 || overlay.ProtectedScope.ProtectedCanonicalValue.Length == 0
+                || !HasExactInterval(prepared.ReadIntervals, $"subject:{registration.Definition.Id}:contract", contractKey)
                 || !HasExactInterval(prepared.ReadIntervals, $"subject:{registration.Definition.Id}:lifetime", subjectKey)
                 || !HasExactInterval(prepared.ReadIntervals, $"subject:{registration.Definition.Id}:record", recordKey))
                 return false;
@@ -1105,7 +1244,7 @@ internal sealed class DefaultBaseMutationProcessor(
                 || fact.RequestedOperation != item.RequestedKind
                 || fact.CommittedOperation != item.Kind
                 || (fact.After ?? fact.Before)?.Id != item.RecordId
-                || !ValidCommittedLifecycle(item.SubjectLifecycle, prepared.SubjectOverlay, fact.SubjectLifecycle)
+                || !ValidCommittedLifecycle(item.SubjectLifecycle, item.SubjectLifecycleTransition, prepared.SubjectAuthorities, prepared.SubjectOverlay, fact.SubjectLifecycle)
                 || item.Kind == BaseCommittedRecordMutationKind.Delete && (fact.Before is null || fact.After is not null)
                 || item.Kind != BaseCommittedRecordMutationKind.Delete && fact.After is null
                 || strict && item.Current is not null && !RecordEquals(fact.Before, item.Current)
@@ -1119,6 +1258,8 @@ internal sealed class DefaultBaseMutationProcessor(
 
     private static bool ValidCommittedLifecycle(
         BaseSubjectLifecyclePlanItem? expected,
+        BaseSubjectLifecycleTransitionPrecondition? transition,
+        ImmutableArray<BaseSubjectTransactionAuthorityEvidence> authorities,
         ImmutableArray<BasePreparedSubjectOverlayEvidence> overlays,
         BaseSubjectLifecycleCommitEvidence? actual) => expected is null
         ? actual is null
@@ -1127,20 +1268,29 @@ internal sealed class DefaultBaseMutationProcessor(
             && actual.ContractVersion == expected.ContractVersion
             && string.Equals(actual.SubjectId, expected.SubjectId.Value, StringComparison.Ordinal)
             && actual.Kind == expected.Kind
+            && actual.PreviousState == expected.PreviousState
+            && actual.ResultingState == expected.ResultingState
+            && actual.SubjectSequence > 0
+            && actual.CommitPosition.Value > 0
+            && actual.DeliveryEpoch > 0
+            && authorities.SingleOrDefault(value => value.ContractId == expected.ContractId && value.ContractVersion == expected.ContractVersion) is { } authority
+            && actual.AuthorityEpoch.Equals(authority.AuthorityEpoch)
+            && actual.ContractStateGeneration == authority.StateGeneration
+            && (transition is null || transition.Subject.SubjectId.Equals(expected.SubjectId)
+                && transition.Subject.AuthorityEpoch.Equals(actual.AuthorityEpoch)
+                && transition.Subject.Incarnation.Equals(actual.Incarnation)
+                && transition.ResultingState == actual.ResultingState
+                && (transition.ExpectedSubjectSequence is null
+                    || transition.ExpectedSubjectSequence.Value < long.MaxValue
+                        && actual.SubjectSequence == transition.ExpectedSubjectSequence.Value + 1))
             && overlays.SingleOrDefault(value => value.ContractId == expected.ContractId
                 && value.ContractVersion == expected.ContractVersion
                 && value.SubjectId.Equals(expected.SubjectId)) is { } overlay
             && (expected.Kind == BaseSubjectLifecycleMutationKind.Retire
-                ? actual.Incarnation is null && !overlay.Exists && overlay.Incarnation is null
-                : actual.Incarnation is { Length: 22 } && IsCanonicalIncarnation(actual.Incarnation)
+                ? !overlay.Exists && overlay.Incarnation is null
+                : actual.Incarnation.LifetimeGeneration > 0
                     && overlay.Exists && overlay.Incarnation is { } incarnation
-                    && string.Equals(actual.Incarnation, incarnation.ToBase64Url(), StringComparison.Ordinal));
-
-    private static bool IsCanonicalIncarnation(string value)
-    {
-        try { return BaseSubjectIncarnation.Parse(value).ToBase64Url() == value; }
-        catch { return false; }
-    }
+                    && actual.Incarnation.Equals(incarnation));
 
     private static bool RecordEquals(RecordEnvelope? left, RecordEnvelope right)
     {

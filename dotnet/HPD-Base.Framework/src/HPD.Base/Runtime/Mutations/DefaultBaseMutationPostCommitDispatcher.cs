@@ -16,7 +16,8 @@ internal interface IBaseMutationPostCommitDispatcher
 internal sealed class DefaultBaseMutationPostCommitDispatcher(
     IBaseRecordRedactor redactor,
     IBaseEventFactory eventFactory,
-    IBaseEventDispatcher eventDispatcher) : IBaseMutationPostCommitDispatcher
+    IBaseEventDispatcher eventDispatcher,
+    BaseSubjectLifecycleHintHub lifecycleHints) : IBaseMutationPostCommitDispatcher
 {
     /// <summary>Executes the dispatch async operation.</summary>
     public async ValueTask<BaseRecordBatchItemResult> DispatchAsync(
@@ -71,6 +72,9 @@ internal sealed class DefaultBaseMutationPostCommitDispatcher(
             dispatched = HPDBaseRuntimeTelemetry.FinishEventDispatch(activity, dispatched, command.Context, startedAt);
             events = Merge(mutation.Event, dispatched.Value);
             warnings = dispatched.Warnings;
+            if (mutation.SubjectLifecycle is { } lifecycle
+                && lifecycle.PreviousState != lifecycle.ResultingState)
+                lifecycleHints.Publish(lifecycle);
         }
         else
         {
@@ -95,7 +99,8 @@ internal sealed class DefaultBaseMutationPostCommitDispatcher(
                 : null,
             Revision = attempt.Revision,
             Events = events,
-            Warnings = warnings
+            Warnings = warnings,
+            SubjectLifecycle = mutation.SubjectLifecycle
         };
     }
 

@@ -51,6 +51,7 @@ public sealed record BaseRealtimeHeartbeatMessage : BaseRealtimeClientMessage
 [JsonDerivedType(typeof(BaseRealtimeDurableSubjectAuthorityChanged), "durableSubjectAuthorityChanged")]
 [JsonDerivedType(typeof(BaseRealtimeLiveSubjectAuthorityChanged), "liveSubjectAuthorityChanged")]
 [JsonDerivedType(typeof(BaseRealtimeLiveQuerySubjectAuthorityChanged), "liveQuerySubjectAuthorityChanged")]
+[JsonDerivedType(typeof(BaseRealtimeSubjectLifecycleHintMessage), "subjectLifecycleHint")]
 [JsonDerivedType(typeof(BaseRealtimeHeartbeatAckMessage), "heartbeatAck")]
 [JsonDerivedType(typeof(BaseRealtimeErrorMessage), "error")]
 [JsonDerivedType(typeof(BaseRealtimeClosedMessage), "closed")]
@@ -62,6 +63,17 @@ public abstract record BaseRealtimeServerMessage
     public required string ConnectionId { get; init; }
     /// <summary>Gets the server-issued connection epoch.</summary>
     public required string ConnectionEpoch { get; init; }
+}
+
+/// <summary>Delivers a non-authoritative wake-up hint for one durable lifecycle consumer feed.</summary>
+public sealed record BaseRealtimeSubjectLifecycleHintMessage : BaseRealtimeServerMessage
+{
+    /// <summary>Gets the join reference.</summary>
+    public required string Ref { get; init; }
+    /// <summary>Gets the active channel epoch.</summary>
+    public required string ChannelEpoch { get; init; }
+    /// <summary>Gets the protected durable feed checkpoint through the hinted transition.</summary>
+    public required string Checkpoint { get; init; }
 }
 
 /// <summary>Advertises the negotiated connection limits.</summary>

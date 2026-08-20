@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { baseRedacted, collection, createBaseClient, decodeBaseJson, decodeBaseValue, encodeBaseJson, executeModuleMutation, executeSelectionMutation, field, isBaseRedacted, moduleMutation, parseBaseJson, read, selectionMutation } from "../dist/index.js";
+import { BaseHttpTransport, advanceSubjectLifecycle, baseRedacted, collection, createBaseClient, decodeBaseJson, decodeBaseValue, encodeBaseJson, executeModuleMutation, executeSelectionMutation, field, isBaseRedacted, iterateSubjectLifecycle, moduleMutation, parseBaseJson, read, readSubjectLifecycle, selectionMutation, subjectLifecycleConsumer } from "../dist/index.js";
 import { BaseRealtimeManager } from "../dist/realtime.js";
 
 const basicGraph = Object.freeze({
@@ -81,7 +81,7 @@ test("realtime v2 joins after welcome and resumes from the last delivered durabl
 });
 
 test("subject-authority controls invalidate live state and advance durable cursors only after processing", async () => {
-  const subjectGraph = Object.freeze({ ...basicGraph, subject: { kind: "subjectReference", contractId: "hpd.auth.user-subject", contractVersion: 1, subjectIdKind: "guid", maximumSubjectIdUtf8Bytes: 36, authorityEpochBytes: 16, incarnationBytes: 16 } });
+  const subjectGraph = Object.freeze({ ...basicGraph, subject: { kind: "subjectReference", contractId: "hpd.auth.user-subject", contractVersion: 1, subjectIdKind: "guid", maximumSubjectIdUtf8Bytes: 36, authorityEpochBytes: 16, incarnationBytes: 24 } });
   const subjectCollections = { documents: collection({ ...schema.collections.documents, fields: { ...schema.collections.documents.fields, owner: field("owner", "owner", ["equal"], "subject") } }) };
   const sockets = [];
   const manager = new BaseRealtimeManager("https://example.test/base", () => { const socket = new FakeSocket(); sockets.push(socket); return socket; }, undefined, undefined, subjectGraph, subjectCollections);
@@ -101,7 +101,7 @@ test("subject-authority controls invalidate live state and advance durable curso
 });
 
 test("durable subject controls reject conflicting cursor replay and generation regression", async () => {
-  const subjectGraph = Object.freeze({ ...basicGraph, subject: { kind: "subjectReference", contractId: "hpd.auth.user-subject", contractVersion: 1, subjectIdKind: "guid", maximumSubjectIdUtf8Bytes: 36, authorityEpochBytes: 16, incarnationBytes: 16 } });
+  const subjectGraph = Object.freeze({ ...basicGraph, subject: { kind: "subjectReference", contractId: "hpd.auth.user-subject", contractVersion: 1, subjectIdKind: "guid", maximumSubjectIdUtf8Bytes: 36, authorityEpochBytes: 16, incarnationBytes: 24 } });
   const subjectCollections = { documents: collection({ ...schema.collections.documents, fields: { ...schema.collections.documents.fields, owner: field("owner", "owner", ["equal"], "subject") } }) };
   const open = async () => {
     const socket = new FakeSocket();
@@ -127,7 +127,7 @@ test("durable subject controls reject conflicting cursor replay and generation r
 });
 
 test("subject controls mark the addressed registered read stale before its rerun", async () => {
-  const subjectGraph = Object.freeze({ ...basicGraph, subject: { kind: "subjectReference", contractId: "hpd.auth.user-subject", contractVersion: 1, subjectIdKind: "guid", maximumSubjectIdUtf8Bytes: 36, authorityEpochBytes: 16, incarnationBytes: 16 } });
+  const subjectGraph = Object.freeze({ ...basicGraph, subject: { kind: "subjectReference", contractId: "hpd.auth.user-subject", contractVersion: 1, subjectIdKind: "guid", maximumSubjectIdUtf8Bytes: 36, authorityEpochBytes: 16, incarnationBytes: 24 } });
   const socket = new FakeSocket();
   const snapshots = [];
   const manager = new BaseRealtimeManager("https://example.test/base", () => socket, undefined, undefined, subjectGraph, schema.collections);
@@ -143,6 +143,31 @@ test("subject controls mark the addressed registered read stale before its rerun
   await waitUntil(() => snapshots.length === 2);
   assert.equal(snapshots[1].stale, true);
   manager.close();
+});
+
+test("lifecycle hints are non-authoritative, duplicate-safe, and isolate observer failure", async () => {
+  const socket = new FakeSocket(); const delivered = [];
+  const manager = new BaseRealtimeManager("https://example.test/base", () => socket);
+  const subscription = manager.subscribeSubjectLifecycleHints("profiles.lifecycle", 1, checkpoint => { delivered.push(checkpoint); });
+  await waitUntil(() => socket.onmessage !== null);
+  socket.receive(JSON.stringify({ protocol: 2, kind: "welcome", connectionId: "c", connectionEpoch: "e", heartbeatIntervalMs: 1000, maxInboundBytes: 2048, maxChannels: 8 }));
+  const join = JSON.parse(socket.sent[0]); assert.equal(join.channel.kind, "subjectLifecycleHints"); assert.equal(join.channel.consumerId, "profiles.lifecycle");
+  socket.receive(JSON.stringify({ protocol: 2, kind: "joined", connectionId: "c", connectionEpoch: "e", ref: join.ref, channelEpoch: "ch", delivery: "lifecycle-hints-non-authoritative" }));
+  const checkpoint = "abcdefghijklmnop";
+  socket.receive(JSON.stringify({ protocol: 2, kind: "subjectLifecycleHint", connectionId: "c", connectionEpoch: "e", ref: join.ref, channelEpoch: "ch", checkpoint }));
+  await waitUntil(() => delivered.length === 1);
+  socket.receive(JSON.stringify({ protocol: 2, kind: "subjectLifecycleHint", connectionId: "c", connectionEpoch: "e", ref: join.ref, channelEpoch: "ch", checkpoint }));
+  await new Promise(resolve => setTimeout(resolve, 0)); assert.deepEqual(delivered, [checkpoint]); assert.equal(socket.closedCode, undefined); subscription.close(); manager.close();
+
+  const failingSocket = new FakeSocket(); const failingManager = new BaseRealtimeManager("https://example.test/base", () => failingSocket);
+  failingManager.subscribeSubjectLifecycleHints("profiles.lifecycle", 1, () => { throw new Error("observer"); });
+  await waitUntil(() => failingSocket.onmessage !== null);
+  failingSocket.receive(JSON.stringify({ protocol: 2, kind: "welcome", connectionId: "c2", connectionEpoch: "e2", heartbeatIntervalMs: 1000, maxInboundBytes: 2048, maxChannels: 8 }));
+  const failingJoin = JSON.parse(failingSocket.sent[0]);
+  failingSocket.receive(JSON.stringify({ protocol: 2, kind: "joined", connectionId: "c2", connectionEpoch: "e2", ref: failingJoin.ref, channelEpoch: "ch2", delivery: "lifecycle-hints-non-authoritative" }));
+  failingSocket.receive(JSON.stringify({ protocol: 2, kind: "subjectLifecycleHint", connectionId: "c2", connectionEpoch: "e2", ref: failingJoin.ref, channelEpoch: "ch2", checkpoint }));
+  await waitUntil(() => failingSocket.sent.some(value => JSON.parse(value).kind === "leave"));
+  assert.equal(failingSocket.closedCode, undefined); failingManager.close();
 });
 
 test("configured control client validates and canonically sends subject epoch rotation", async () => {
@@ -300,6 +325,39 @@ test("fixed-marker and omission are distinct closed disclosure shapes", () => {
   assert.equal(Object.hasOwn(decoded, "omitted"), false); assert.equal(decoded.marked, baseRedacted); assert.equal(isBaseRedacted(decoded.marked), true);
   assert.throws(() => decodeBaseJson('{"marked":{"$base":"redacted","extra":true}}', "record", graph), /responseInvalid/u);
   assert.throws(() => encodeBaseJson({ omitted: "x", marked: baseRedacted }, "record", graph), /responseInvalid/u);
+});
+
+test("lifecycle workers preserve opaque authority and advance only explicit checkpoints", async () => {
+  const calls = []; const epoch = Buffer.alloc(16, 1).toString("base64url"); const incarnation = Buffer.alloc(24, 2).toString("base64url");
+  const transport = new BaseHttpTransport({ url: "https://base.test/base/", fetch: async (_url, init) => {
+    calls.push({ body: JSON.parse(new TextDecoder().decode(init.body)), key: new Headers(init.headers).get("Idempotency-Key") });
+    return Response.json(calls.length === 1 ? { facts: [{ commitPosition: "1", contractId: "auth.user", contractVersion: 1, subjectId: "u1", authorityEpoch: epoch, incarnation, subjectSequence: "1", contractStateGeneration: "1", deliveryEpoch: "1", kind: "created", currentState: "active" }], next: "abcdefghijklmnop", checkpoint: "ponmlkjihgfedcba" } : { checkpointGeneration: "1", advancedAtUtc: "2026-01-01T00:00:00Z", duplicate: false }, { headers: { "X-Correlation-ID": "lifecycle" } });
+  } });
+  const consumer = subjectLifecycleConsumer({ id: "profiles.lifecycle", version: 1, checksum: "a".repeat(64), audience: "service", contractId: "auth.user", contractVersion: 1, observedStates: ["active", "retired"], readRoute: "/base/subject-lifecycle/feed/read", checkpointRoute: "/base/subject-lifecycle/feed/checkpoints", maximumFactsPerPage: 256, maximumResultBytes: 1048576 });
+  const page = await readSubjectLifecycle(transport, consumer, { projectId: "project-a", take: 1 }); assert.equal(page.ok, true); assert.equal(page.value.facts[0].subjectId, "u1");
+  assert.equal(calls.length, 1); assert.equal(calls[0].key, null); assert.equal(calls[0].body.projectId, "project-a");
+  const advanced = await advanceSubjectLifecycle(transport, consumer, page.value.checkpoint, {
+    scope: "subject-lifecycle:profiles.lifecycle", operation: "subjectLifecycle.advance",
+    idempotencyKey: "a".repeat(64), fingerprint: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+  }, "project-a"); assert.equal(advanced.ok, true); assert.equal(advanced.value.checkpointGeneration, "1");
+  assert.equal(calls[1].key, "a".repeat(64)); assert.equal(calls[1].body.checkpoint, "ponmlkjihgfedcba");
+  assert.equal(calls[1].body.projectId, "project-a");
+  assert.deepEqual(calls[1].body.identity, {
+    scope: "subject-lifecycle:profiles.lifecycle", operation: "subjectLifecycle.advance",
+    idempotencyKey: "a".repeat(64), fingerprint: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+  });
+  await assert.rejects(() => advanceSubjectLifecycle(transport, consumer, page.value.checkpoint, {
+    scope: "subject-lifecycle:profiles.lifecycle", operation: "subjectLifecycle.advance",
+    idempotencyKey: "b".repeat(64), fingerprint: "AA==",
+  }), /contractInvalid/u);
+
+  const iteratorTransport = new BaseHttpTransport({ url: "https://base.test/base/", fetch: async () => Response.json({ facts: [{ commitPosition: "1", contractId: "auth.user", contractVersion: 1, subjectId: "u1", authorityEpoch: epoch, incarnation, subjectSequence: "1", contractStateGeneration: "1", deliveryEpoch: "1", kind: "created", currentState: "active" }], next: null, checkpoint: "ponmlkjihgfedcba" }, { headers: { "X-Correlation-ID": "lifecycle-iterator" } }) });
+  const deliveries = iterateSubjectLifecycle(iteratorTransport, consumer); const delivery = (await deliveries.next()).value;
+  assert.equal(delivery.fact.subjectId, "u1"); assert.equal(delivery.checkpoint, "ponmlkjihgfedcba");
+  assert.equal(delivery.processingIdentity.scope, "subject-lifecycle:profiles.lifecycle");
+  assert.equal(delivery.processingIdentity.operation, "subjectLifecycle.process");
+  assert.match(delivery.processingIdentity.idempotencyKey, /^[0-9a-f]{64}$/u);
+  assert.notEqual(delivery.processingIdentity.idempotencyKey, delivery.advanceIdentity.idempotencyKey);
 });
 
 class FakeSocket {

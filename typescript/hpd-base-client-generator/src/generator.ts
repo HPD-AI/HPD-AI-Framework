@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import type { CollectionDescriptor, GenerationSnapshot, NamedTypeDescriptor, TypeNode, VectorDescriptor } from "./types.js";
 
-export interface GenerateOptions { readonly snapshot: GenerationSnapshot; readonly out: string; readonly expectedAudience?: "application" | "controlPlane"; }
+export interface GenerateOptions { readonly snapshot: GenerationSnapshot; readonly out: string; readonly expectedAudience?: "application" | "controlPlane" | "service" | "system"; }
 
 export async function generate(options: GenerateOptions): Promise<void> {
   validate(options.snapshot, options.expectedAudience);
@@ -31,15 +31,28 @@ export async function generate(options: GenerateOptions): Promise<void> {
   }
 }
 
-export function validate(snapshot: GenerationSnapshot, expectedAudience?: "application" | "controlPlane"): void {
-  exactKeys(snapshot as unknown as Record<string, unknown>, ["protocol", "application", "schema", "endpoints", "capabilities", "registeredReads", "dependencyTemplates", "vectorIndexes", "selectionMutations", "moduleMutations", "errors", "digest"]);
+export function validate(snapshot: GenerationSnapshot, expectedAudience?: "application" | "controlPlane" | "service" | "system"): void {
+  exactKeys(snapshot as unknown as Record<string, unknown>, ["protocol", "application", "schema", "endpoints", "capabilities", "registeredReads", "dependencyTemplates", "vectorIndexes", "selectionMutations", "moduleMutations", "subjectLifecycleConsumers", "errors", "digest"]);
   exactKeys(snapshot.protocol as unknown as Record<string, unknown>, ["protocolMajor", "protocolMinor", "minimumClientMinor", "snapshotSchemaVersion", "applicationId", "schemaGeneration", "endpointInventoryDigest", "errorTaxonomyVersion", "realtimeProtocolVersion", "liveQueryProtocolVersion", "serializationProfile", "generatedAt"]);
   exactKeys(snapshot.application as unknown as Record<string, unknown>, ["applicationId", "audience", "basePath"]);
-  if (snapshot.protocol.protocolMajor !== 2 || snapshot.protocol.snapshotSchemaVersion !== 4 || snapshot.protocol.realtimeProtocolVersion !== 2 || snapshot.protocol.liveQueryProtocolVersion !== 1 || snapshot.protocol.serializationProfile !== "base-json-v1" || snapshot.protocol.applicationId !== snapshot.application.applicationId || snapshot.protocol.schemaGeneration !== snapshot.schema.generation) throw new Error("base.client.protocolMismatch");
+  if (snapshot.protocol.protocolMajor !== 2 || snapshot.protocol.snapshotSchemaVersion !== 5 || snapshot.protocol.realtimeProtocolVersion !== 2 || snapshot.protocol.liveQueryProtocolVersion !== 1 || snapshot.protocol.serializationProfile !== "base-json-v1" || snapshot.protocol.applicationId !== snapshot.application.applicationId || snapshot.protocol.schemaGeneration !== snapshot.schema.generation) throw new Error("base.client.protocolMismatch");
   if (expectedAudience !== undefined && snapshot.application.audience !== expectedAudience) throw new Error("base.client.endpointMismatch");
   if (!/^sha256:[0-9a-f]{64}$/u.test(snapshot.digest) || structuralDigest(digestInput(snapshot)) !== snapshot.digest) throw new Error("base.client.snapshotInvalid");
   const names = new Set<string>(["reads", "files", "close", "collection", "connectivity", "$control", "$dynamic"]);
-  if (snapshot.schema.collections.length > 256 || snapshot.schema.types.length > 512 || snapshot.endpoints.length > 256 || snapshot.registeredReads.length > 256 || snapshot.vectorIndexes.length > 256 || snapshot.selectionMutations.length > 256 || snapshot.moduleMutations.length > 256 || snapshot.dependencyTemplates.length > 512) throw new Error("base.client.snapshotTooLarge");
+  if (snapshot.schema.collections.length > 256 || snapshot.schema.types.length > 512 || snapshot.endpoints.length > 256 || snapshot.registeredReads.length > 256 || snapshot.vectorIndexes.length > 256 || snapshot.selectionMutations.length > 256 || snapshot.moduleMutations.length > 256 || snapshot.subjectLifecycleConsumers.length > 32 || snapshot.dependencyTemplates.length > 512) throw new Error("base.client.snapshotTooLarge");
+  if (snapshot.application.audience === "application" || snapshot.application.audience === "controlPlane") {
+    if (snapshot.subjectLifecycleConsumers.length !== 0) throw new Error("base.client.audienceMismatch");
+  } else {
+    const names = unique(snapshot.subjectLifecycleConsumers.map(value => value.generatedName), "base.client.nameCollision");
+    if (names.size !== snapshot.subjectLifecycleConsumers.length) throw new Error("base.client.nameCollision");
+    for (const consumer of snapshot.subjectLifecycleConsumers) {
+      exactKeys(consumer as unknown as Record<string, unknown>, ["id", "version", "checksum", "generatedName", "audience", "contractId", "contractVersion", "observedStates", "readRoute", "checkpointRoute", "maximumFactsPerPage", "maximumResultBytes"]);
+      if (!/^[0-9a-f]{64}$/u.test(consumer.checksum)) throw new Error("base.client.snapshotInvalid");
+      if (!stableId(consumer.id) || !stableId(consumer.contractId) || !stableProperty(consumer.generatedName) || !safeBound(consumer.version, 1, 2147483647) || !safeBound(consumer.contractVersion, 1, 2147483647)
+        || snapshot.application.audience === "service" && consumer.audience !== "service" || consumer.observedStates.length === 0 || consumer.observedStates.some(state => !["active", "inactive", "tombstoned", "retired"].includes(state))
+        || !consumer.readRoute.startsWith("/") || !consumer.checkpointRoute.startsWith("/") || !safeBound(consumer.maximumFactsPerPage, 1, 256) || !safeBound(consumer.maximumResultBytes, 1, 1_048_576)) throw new Error("base.client.contractInvalid");
+    }
+  }
   const typeIds = unique(snapshot.schema.types.map(type => type.id), "base.clientGeneration.typeCollision");
   unique(snapshot.endpoints.map(endpoint => endpoint.id), "base.clientGeneration.endpointCollision");
   exactKeys(snapshot.schema as unknown as Record<string, unknown>, ["generation", "collections", "types"]);
@@ -63,8 +76,22 @@ export function validate(snapshot: GenerationSnapshot, expectedAudience?: "appli
   for (const read of snapshot.registeredReads) for (const id of [read.parameterTypeId, read.rowTypeId]) if (!typeIds.has(id)) throw new Error("base.clientGeneration.typeMissing");
   for (const endpoint of snapshot.endpoints) for (const id of [endpoint.requestTypeId, endpoint.responseTypeId]) if (id !== undefined && !typeIds.has(id) && !wellKnownWireTypeIds.has(id)) throw new Error("base.clientGeneration.typeMissing");
   validateTypeGraph(snapshot.schema.types, typeIds);
+  if (snapshot.subjectLifecycleConsumers.length !== 0) {
+    const byId = new Map(snapshot.schema.types.map(type => [type.id, type.node.kind]));
+    for (const [id, kind] of Object.entries(requiredLifecycleTypeKinds))
+      if (byId.get(id) !== kind) throw new Error("base.clientGeneration.typeMissing");
+  }
   validateCollectionDtoBindings(snapshot.schema.collections, snapshot.schema.types);
 }
+
+const requiredLifecycleTypeKinds = {
+  "base.subjectLifecycle.authorityEpoch": "subject-lifecycle-authority-epoch",
+  "base.subjectLifecycle.incarnation": "subject-lifecycle-incarnation",
+  "base.subjectLifecycle.cursor": "subject-lifecycle-cursor",
+  "base.subjectLifecycle.checkpoint": "subject-lifecycle-checkpoint",
+  "base.subjectLifecycle.fact": "object",
+  "base.subjectLifecycle.page": "object",
+} as const;
 
 const wellKnownWireTypeIds = new Set([
   "application/octet-stream", "base.clientGeneration.snapshot.v2", "base.recordEnvelope", "base.recordPage", "base.deleteResult",
@@ -106,7 +133,7 @@ function validateTypeGraph(types: readonly NamedTypeDescriptor[], ids: ReadonlyS
     if (!stableId(type.id)) invalidType();
     const node = type.node;
     const keys: Record<TypeNode["kind"], readonly string[]> = {
-      "selection-query": ["kind", "maximumNodes", "maximumDepth", "maximumLiterals", "maximumTake"], "selection-previous-state": ["kind", "maximumFields"], "selection-identity": ["kind"], "selection-patch": ["kind", "patchTypeId"], "module-generation": ["kind"], boolean: ["kind"], string: ["kind", "minLength", "maxLength", "format"], integer: ["kind", "minimum", "maximum", "wire"], decimal: ["kind", "wire"], floating: ["kind", "precision", "finiteOnly"], bytes: ["kind", "wire", "maxBytes"], redacted: ["kind"], subjectReference: ["kind", "contractId", "contractVersion", "subjectIdKind", "maximumSubjectIdUtf8Bytes", "authorityEpochBytes", "incarnationBytes"], literal: ["kind", "value"], enum: ["kind", "values"], array: ["kind", "elementTypeId", "minItems", "maxItems"], object: ["kind", "properties", "additionalProperties"], union: ["kind", "discriminator", "variants"]
+      "selection-query": ["kind", "maximumNodes", "maximumDepth", "maximumLiterals", "maximumTake"], "selection-previous-state": ["kind", "maximumFields"], "selection-identity": ["kind"], "selection-patch": ["kind", "patchTypeId"], "module-generation": ["kind"], "subject-lifecycle-cursor": ["kind"], "subject-lifecycle-checkpoint": ["kind"], "subject-lifecycle-authority-epoch": ["kind"], "subject-lifecycle-incarnation": ["kind"], boolean: ["kind"], string: ["kind", "minLength", "maxLength", "format"], integer: ["kind", "minimum", "maximum", "wire"], decimal: ["kind", "wire"], floating: ["kind", "precision", "finiteOnly"], bytes: ["kind", "wire", "maxBytes"], redacted: ["kind"], subjectReference: ["kind", "contractId", "contractVersion", "subjectIdKind", "maximumSubjectIdUtf8Bytes", "authorityEpochBytes", "incarnationBytes"], literal: ["kind", "value"], enum: ["kind", "values"], array: ["kind", "elementTypeId", "minItems", "maxItems"], object: ["kind", "properties", "additionalProperties"], union: ["kind", "discriminator", "variants"]
     };
     if (!Object.hasOwn(keys, node.kind)) invalidType();
     exactKeys(node as unknown as Record<string, unknown>, keys[node.kind]);
@@ -120,7 +147,7 @@ function validateTypeGraph(types: readonly NamedTypeDescriptor[], ids: ReadonlyS
     if (node.kind === "bytes" && (node.wire !== "base64" || !safeBound(node.maxBytes, 0, 16 * 1024 * 1024))) invalidType();
     if (node.kind === "subjectReference" && (!stableId(node.contractId) || !safeBound(node.contractVersion, 1, 2147483647)
       || !["ordinalString", "guid", "uint64"].includes(node.subjectIdKind)
-      || !safeBound(node.maximumSubjectIdUtf8Bytes, 1, 256) || node.authorityEpochBytes !== 16 || node.incarnationBytes !== 16)) invalidType();
+      || !safeBound(node.maximumSubjectIdUtf8Bytes, 1, 256) || node.authorityEpochBytes !== 16 || node.incarnationBytes !== 24)) invalidType();
     if (node.kind === "literal" && node.value !== null && typeof node.value !== "string" && typeof node.value !== "boolean") invalidType();
     if (node.kind === "enum" && (node.values.length === 0 || node.values.length > 256 || node.values.some(value => typeof value !== "string" || value.length === 0 || value.length > 256) || unique(node.values, "base.clientGeneration.typeInvalid").size !== node.values.length)) invalidType();
     if (node.kind === "array" && (!ids.has(node.elementTypeId) || !safeBound(node.minItems, 0, 1_048_576) || !safeBound(node.maxItems, node.minItems, 1_048_576))) throw new Error(!ids.has(node.elementTypeId) ? "base.clientGeneration.typeMissing" : "base.clientGeneration.typeInvalid");
@@ -172,6 +199,7 @@ function render(snapshot: GenerationSnapshot): Record<string, string> {
   const selectionTypes = snapshot.selectionMutations.map(item => `export interface ${pascal(item.generatedName)}Request { readonly query: BaseSelectionHttpQuery; ${item.mutationKind === "mergePatch" ? "readonly patch: GeneratedTypes." + typeNames.get(snapshot.schema.collections.find(collection => collection.id === item.collectionId)!.patchTypeId) + "; " : ""}readonly previousState: BaseSelectionPreviousState; readonly requestIdentity?: BaseSelectionRequestIdentity; readonly callerWaitTimeoutTicks?: number; }`).join("\n");
   const moduleTypes = snapshot.moduleMutations.map(item => `export type ${pascal(item.generatedName)}Request = GeneratedTypes.${typeNames.get(item.requestTypeId)!};\nexport type ${pascal(item.generatedName)}Result = GeneratedTypes.${typeNames.get(item.resultTypeId)!};`).join("\n");
   const moduleValues = snapshot.moduleMutations.map(item => `  ${safe(item.generatedName)}: moduleMutation<${pascal(item.generatedName)}Request, ${pascal(item.generatedName)}Result>({ ...${JSON.stringify({ route: item.route, maximumRequestBytes: item.maximumRequestBytes, audience: item.audience, requestTypeId: item.requestTypeId, resultTypeId: item.resultTypeId })}, typeGraph })`).join(",\n");
+  const lifecycleValues = snapshot.subjectLifecycleConsumers.map(item => `  ${safe(item.generatedName)}: subjectLifecycleConsumer(${JSON.stringify({ id: item.id, version: item.version, checksum: item.checksum, audience: item.audience, contractId: item.contractId, contractVersion: item.contractVersion, observedStates: item.observedStates, readRoute: item.readRoute, checkpointRoute: item.checkpointRoute, maximumFactsPerPage: item.maximumFactsPerPage, maximumResultBytes: item.maximumResultBytes })})`).join(",\n");
   const features = { files: snapshot.endpoints.some(endpoint => endpoint.operation.startsWith("File")), realtime: snapshot.endpoints.some(endpoint => endpoint.operation === "RealtimeSubscribe"), batch: snapshot.schema.collections.some(collection => collection.operations.includes("batch")), controlOperations: snapshot.application.audience === "controlPlane" ? snapshot.endpoints.map(endpoint => endpoint.id).filter(id => id.startsWith("base.admin.") || id.startsWith("hpd.base.vector.")).sort() : [] };
   const files: Record<string, string> = {
     "collections.ts": `import { collection, field } from "@hpd/base-client";\nimport type { BaseFieldDefinition } from "@hpd/base-client";\nimport type * as GeneratedTypes from "./types.js";\n${records}\nexport const collections = {\n${collectionValues}\n} as const;\n`,
@@ -190,6 +218,10 @@ function render(snapshot: GenerationSnapshot): Record<string, string> {
     files["module-mutations.ts"] = `import { moduleMutation } from "@hpd/base-client";\nimport { typeGraph } from "./types.js";\nimport type * as GeneratedTypes from "./types.js";\n${moduleTypes}\nexport const moduleMutations = {\n${moduleValues}\n} as const;\n`;
     files["schema.ts"] = `import { collections } from "./collections.js";\nimport { reads } from "./reads.js";\nimport { selectionMutations } from "./selection-mutations.js";\nimport { moduleMutations } from "./module-mutations.js";\nimport { protocol } from "./protocol.js";\nimport { typeGraph } from "./types.js";\nexport const schema = Object.freeze({ ...protocol, collections, reads, selectionMutations, moduleMutations, typeGraph });\n`;
     files["index.ts"] = files["index.ts"]!.replace('export * from "./selection-mutations.js";\n', 'export * from "./selection-mutations.js";\nexport * from "./module-mutations.js";\n');
+  }
+  if (snapshot.application.audience === "service" || snapshot.application.audience === "system") {
+    files["subject-lifecycle.ts"] = `import { advanceSubjectLifecycle, iterateSubjectLifecycle, readSubjectLifecycle, subjectLifecycleConsumer } from "@hpd/base-client";\nimport type { BaseHttpTransport, BaseSubjectLifecycleCheckpoint, BaseSubjectLifecycleMutationIdentity, BaseSubjectLifecycleReadOptions } from "@hpd/base-client";\nexport const subjectLifecycleConsumers = {\n${lifecycleValues}\n} as const;\nexport function createSubjectLifecycleWorkers(transport: BaseHttpTransport) { return Object.freeze({ ${snapshot.subjectLifecycleConsumers.map(item => `${safe(item.generatedName)}: Object.freeze({ read: (options?: BaseSubjectLifecycleReadOptions) => readSubjectLifecycle(transport, subjectLifecycleConsumers.${safe(item.generatedName)}, options), deliveries: (options?: BaseSubjectLifecycleReadOptions) => iterateSubjectLifecycle(transport, subjectLifecycleConsumers.${safe(item.generatedName)}, options), advance: (checkpoint: BaseSubjectLifecycleCheckpoint, identity: BaseSubjectLifecycleMutationIdentity, projectId?: string, signal?: AbortSignal) => advanceSubjectLifecycle(transport, subjectLifecycleConsumers.${safe(item.generatedName)}, checkpoint, identity, projectId, signal) })`).join(", ")} }); }\n`;
+    files["index.ts"] += `export * from "./subject-lifecycle.js";\n`;
   }
   return files;
 }
@@ -216,6 +248,10 @@ function renderType(node: TypeNode, names: ReadonlyMap<string, string>): string 
     case "selection-identity": return "import(\"@hpd/base-client\").BaseSelectionRequestIdentity";
     case "selection-patch": return names.get(node.patchTypeId)!;
     case "module-generation": return "import(\"@hpd/base-client\").BaseModuleGeneration";
+    case "subject-lifecycle-cursor": return "import(\"@hpd/base-client\").BaseSubjectLifecycleCursor";
+    case "subject-lifecycle-checkpoint": return "import(\"@hpd/base-client\").BaseSubjectLifecycleCheckpoint";
+    case "subject-lifecycle-authority-epoch": return "import(\"@hpd/base-client\").BaseSubjectLifecycleAuthorityEpoch";
+    case "subject-lifecycle-incarnation": return "import(\"@hpd/base-client\").BaseSubjectLifecycleIncarnation";
     case "string": case "decimal": return "string";
     case "bytes": return "Uint8Array";
     case "redacted": return "import(\"@hpd/base-client\").BaseRedacted";

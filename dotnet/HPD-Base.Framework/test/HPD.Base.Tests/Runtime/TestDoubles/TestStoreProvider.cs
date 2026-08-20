@@ -18,6 +18,7 @@ internal static class TestStoreProvider
                 (relational ? BaseStoreProviderCapabilities.RelationalExecution : 0),
             RegistrationIds = [store.Capabilities.StoreId + ".records"],
             SubjectReferences = BaseSubjectProviderCapabilities.BuiltIn,
+            SubjectLifecycle = BaseSubjectLifecycleProviderCapabilities.BuiltIn,
             ModuleMutations = new BaseModuleMutationCapability
             {
                 Supported = true, SerializableExecution = true, DurableReceipts = true,

@@ -18,6 +18,7 @@ internal struct BaseSubjectCanonicalRetainedWork
     internal void AddInteger() => Add(8);
     internal void AddBoolean() => Add(1);
     internal void AddFixed16() => Add(16);
+    internal void AddFixed24() => Add(24);
     internal void AddString(string value)
     {
         ArgumentNullException.ThrowIfNull(value);
@@ -38,10 +39,20 @@ internal struct BaseSubjectCanonicalRetainedWork
         Add(1);
         if (present) AddFixed16();
     }
+    internal void AddNullableFixed24(bool present)
+    {
+        Add(1);
+        if (present) AddFixed24();
+    }
     internal void AddNullableBoolean(bool? value)
     {
         Add(1);
         if (value.HasValue) AddBoolean();
+    }
+    internal void AddNullableInteger(bool present)
+    {
+        Add(1);
+        if (present) AddInteger();
     }
     internal void Add(long bytes) => _bytes = checked(_bytes + bytes);
 
@@ -53,9 +64,14 @@ internal struct BaseSubjectCanonicalRetainedWork
         counter.AddInteger();
         counter.AddString(value.SubjectId.Value);
         counter.AddBoolean();
-        counter.AddNullableFixed16(value.Incarnation is not null);
+        counter.AddNullableFixed24(value.Incarnation is not null);
         counter.AddNullableBoolean(value.Active);
         counter.AddNullableString(value.Scope);
+        counter.AddInteger();
+        counter.AddBytes(value.ProtectedScope.IndexDigest.LongLength);
+        counter.AddBytes(value.ProtectedScope.ProtectedCanonicalValue.LongLength);
+        counter.AddNullableInteger(value.LifecycleState.HasValue);
+        counter.AddNullableInteger(value.SubjectSequence.HasValue);
         return counter.Bytes;
     }
 
@@ -97,6 +113,75 @@ internal struct BaseSubjectCanonicalRetainedWork
             counter.AddBoolean();
         }
         return counter.Bytes;
+    }
+
+    internal static long MeasureLifecycleIntervals(IReadOnlyCollection<BaseReadIntervalEvidence> values)
+    {
+        var counter = new BaseSubjectCanonicalRetainedWork();
+        counter.AddSequence(values.Count);
+        foreach (BaseReadIntervalEvidence value in values)
+        {
+            counter.AddContainer();
+            counter.AddString(value.LogicalAccessPathId);
+            counter.AddBytes(value.LowerInclusive.LongLength);
+            counter.AddBytes(value.UpperInclusive.LongLength);
+        }
+        return counter.Bytes;
+    }
+
+    internal static long MeasureLifecycleProviderFact(BaseSubjectLifecycleProviderFact value)
+    {
+        var counter = new BaseSubjectCanonicalRetainedWork();
+        counter.AddContainer();
+        AddLifecycleBoundary(ref counter, value.Boundary);
+        AddProtectedScope(ref counter, value.Scope);
+        AddLifecycleFact(ref counter, value.Fact);
+        counter.AddString(value.ConsumerId);
+        counter.AddInteger();
+        counter.AddString(value.ConsumerChecksum);
+        counter.AddInteger();
+        counter.AddInteger();
+        return counter.Bytes;
+    }
+
+    internal static long MeasureLifecycleProviderFacts(IReadOnlyCollection<BaseSubjectLifecycleProviderFact> values)
+    {
+        var counter = new BaseSubjectCanonicalRetainedWork();
+        counter.AddSequence(values.Count);
+        foreach (BaseSubjectLifecycleProviderFact value in values) counter.Add(MeasureLifecycleProviderFact(value));
+        return counter.Bytes;
+    }
+
+    private static void AddLifecycleFact(ref BaseSubjectCanonicalRetainedWork counter, BaseSubjectLifecycleFact value)
+    {
+        counter.AddContainer(); counter.AddInteger();
+        counter.AddString(value.ContractId); counter.AddInteger(); counter.AddString(value.SubjectId.Value);
+        counter.AddFixed16(); counter.AddFixed24();
+        counter.AddInteger(); counter.AddInteger(); counter.AddInteger(); counter.AddInteger();
+        counter.Add(1);
+        switch (value.Kind)
+        {
+            case BaseSubjectLifecycleFactKind.Created:
+                counter.AddContainer(); counter.AddInteger(); break;
+            case BaseSubjectLifecycleFactKind.Transitioned:
+                counter.AddContainer(); counter.AddInteger(); counter.AddInteger(); break;
+            case BaseSubjectLifecycleFactKind.Retired:
+                counter.AddContainer(); counter.AddInteger(); break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(value));
+        }
+    }
+
+    private static void AddLifecycleBoundary(ref BaseSubjectCanonicalRetainedWork counter, BaseSubjectLifecycleOrderingBoundary value)
+    {
+        counter.AddContainer(); counter.AddInteger(); counter.AddString(value.SubjectId.Value);
+        counter.AddFixed16(); counter.AddFixed24(); counter.AddInteger();
+    }
+
+    private static void AddProtectedScope(ref BaseSubjectCanonicalRetainedWork counter, BaseProtectedSubjectScope value)
+    {
+        counter.AddContainer(); counter.AddInteger(); counter.AddBytes(value.IndexDigest.LongLength);
+        counter.AddBytes(value.ProtectedCanonicalValue.LongLength);
     }
 
     internal static long MeasurePreparedEvidence(
@@ -184,7 +269,8 @@ internal struct BaseSubjectCanonicalRetainedWork
     internal static long MeasureCapture(
         BaseAtomicMutationIntent intent,
         IReadOnlyCollection<BaseCapturedMutationItem> items,
-        IReadOnlyCollection<BaseAtomicReadIntervalEvidence> intervals)
+        IReadOnlyCollection<BaseAtomicReadIntervalEvidence> intervals,
+        IReadOnlyCollection<BaseCapturedSubjectLifecycleConsumerProjection>? lifecycleProjections = null)
     {
         var counter = new BaseSubjectCanonicalRetainedWork();
         counter.AddContainer();
@@ -209,6 +295,14 @@ internal struct BaseSubjectCanonicalRetainedWork
                 retainedRecords.TryAdd(relation.TargetCollectionId + "\n" + relation.TargetRecordId.Value, relation.Current);
             }
         }
+        counter.AddSequence(lifecycleProjections?.Count ?? 0);
+        if (lifecycleProjections is not null)
+            foreach (BaseCapturedSubjectLifecycleConsumerProjection projection in lifecycleProjections)
+            {
+                counter.AddContainer(); counter.AddString(projection.ConsumerId); counter.AddInteger();
+                counter.AddString(projection.ConsumerChecksum); counter.AddString(projection.ContractId);
+                counter.AddInteger(); counter.AddInteger(); counter.AddInteger();
+            }
         counter.AddContainer();
         foreach ((string key, RecordEnvelope? record) in retainedRecords)
         {

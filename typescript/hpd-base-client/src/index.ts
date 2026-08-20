@@ -9,4 +9,5 @@ export * from "./files.js";
 export * from "./vector.js";
 export * from "./selection.js";
 export * from "./module-mutations.js";
+export * from "./subject-lifecycle.js";
 export type { BaseBackupCreateRequest, BaseBackupManifest, BaseBackupValidationRequest, BaseControlPlaneClient, BasePurgeRequest, BasePurgeResult, BaseRestoreRequest, BaseRestoreResult, BaseSubjectEpochRotationRequest, BaseSubjectEpochRotationResult } from "./control.js";

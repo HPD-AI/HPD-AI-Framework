@@ -11,6 +11,8 @@ internal sealed partial class InMemoryRecordStore
     public ValueTask<OperationResult<RecordIncludeExecutionResult>> ExecuteIncludeAsync(RecordIncludeExecutionRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request); cancellationToken.ThrowIfCancellationRequested();
+        if (_lifecycleMaintenance is not null)
+            return ValueTask.FromResult(LifecycleMaintenanceRequired<RecordIncludeExecutionResult>());
         try
         {
             InMemoryStoreState snapshot = Volatile.Read(ref _publishedState);

@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS {_names.ProviderState} (
   value TEXT NOT NULL
 );
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('restore_epoch', '0');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('subject_lifecycle_delivery_epoch', '1');
 CREATE TABLE IF NOT EXISTS {_names.SchemaIdentity} (
   singleton INTEGER NOT NULL PRIMARY KEY CHECK (singleton = 1),
   store_instance_id TEXT NOT NULL
@@ -109,13 +110,85 @@ CREATE TABLE IF NOT EXISTS {_names.SubjectLifetimes} (
   contract_id TEXT NOT NULL,
   contract_version INTEGER NOT NULL,
   subject_id TEXT NOT NULL,
-  incarnation BLOB NOT NULL CHECK(length(incarnation) = 16),
+  incarnation BLOB NOT NULL CHECK(length(incarnation) = 24),
+  lifetime_generation INTEGER NOT NULL CHECK(lifetime_generation > 0),
+  lifecycle_state INTEGER NOT NULL CHECK(lifecycle_state BETWEEN 0 AND 2),
+  subject_sequence INTEGER NOT NULL CHECK(subject_sequence > 0),
+  scope_kind INTEGER NOT NULL CHECK(scope_kind BETWEEN 0 AND 2),
+  scope_index_digest BLOB NOT NULL CHECK(length(scope_index_digest)=32),
+  protected_scope_value BLOB NOT NULL,
   private_collection_id TEXT NOT NULL,
   private_record_id TEXT NOT NULL,
-  created_journal_position INTEGER NOT NULL CHECK(created_journal_position >= 0),
-  PRIMARY KEY(contract_id, contract_version, subject_id),
+  created_journal_position INTEGER NOT NULL CHECK(created_journal_position > 0),
+  last_lifecycle_position INTEGER NOT NULL CHECK(last_lifecycle_position > 0),
+  PRIMARY KEY(scope_kind, scope_index_digest, contract_id, contract_version, subject_id),
   FOREIGN KEY(contract_id, contract_version) REFERENCES {_names.SubjectContracts}(contract_id, contract_version) ON DELETE RESTRICT
 );
+CREATE TABLE IF NOT EXISTS {_names.SubjectTerminalLifetimes} (
+  contract_id TEXT NOT NULL, contract_version INTEGER NOT NULL, subject_id TEXT NOT NULL,
+  scope_kind INTEGER NOT NULL CHECK(scope_kind BETWEEN 0 AND 2), scope_index_digest BLOB NOT NULL CHECK(length(scope_index_digest)=32), protected_scope_value BLOB NOT NULL,
+  retired_authority_epoch BLOB NOT NULL CHECK(length(retired_authority_epoch)=16),
+  retired_incarnation BLOB NOT NULL CHECK(length(retired_incarnation)=24),
+  retired_lifetime_generation INTEGER NOT NULL CHECK(retired_lifetime_generation > 0),
+  retired_subject_sequence INTEGER NOT NULL CHECK(retired_subject_sequence > 0),
+  retired_position INTEGER NOT NULL CHECK(retired_position > 0), contract_state_generation INTEGER NOT NULL CHECK(contract_state_generation > 0),
+  restore_epoch INTEGER NOT NULL CHECK(restore_epoch >= 0), receipt_checksum TEXT NOT NULL CHECK(length(receipt_checksum)=64),
+  PRIMARY KEY(scope_kind,scope_index_digest,contract_id,contract_version,subject_id)
+);
+CREATE TABLE IF NOT EXISTS {_names.SubjectLifecycleFacts} (
+  commit_position INTEGER NOT NULL CHECK(commit_position > 0), contract_id TEXT NOT NULL, contract_version INTEGER NOT NULL,
+  subject_id TEXT NOT NULL, authority_epoch BLOB NOT NULL CHECK(length(authority_epoch)=16), incarnation BLOB NOT NULL CHECK(length(incarnation)=24),
+  subject_sequence INTEGER NOT NULL CHECK(subject_sequence > 0), contract_state_generation INTEGER NOT NULL CHECK(contract_state_generation > 0),
+  delivery_epoch INTEGER NOT NULL CHECK(delivery_epoch > 0), fact_kind INTEGER NOT NULL CHECK(fact_kind BETWEEN 0 AND 2),
+  previous_state INTEGER NULL, current_state INTEGER NULL, scope_kind INTEGER NOT NULL CHECK(scope_kind BETWEEN 0 AND 2), scope_index_digest BLOB NOT NULL CHECK(length(scope_index_digest)=32), protected_scope_value BLOB NOT NULL,
+  PRIMARY KEY(commit_position,subject_id,authority_epoch,incarnation,subject_sequence)
+);
+CREATE TABLE IF NOT EXISTS {_names.SubjectLifecycleMemberships} (
+  consumer_id TEXT NOT NULL, consumer_version INTEGER NOT NULL, consumer_checksum TEXT NOT NULL CHECK(length(consumer_checksum)=64),
+  contract_id TEXT NOT NULL, contract_version INTEGER NOT NULL, projection_generation INTEGER NOT NULL CHECK(projection_generation > 0),
+  matched_state INTEGER NOT NULL CHECK(matched_state BETWEEN 0 AND 3), scope_kind INTEGER NOT NULL CHECK(scope_kind BETWEEN 0 AND 2), scope_index_digest BLOB NOT NULL CHECK(length(scope_index_digest)=32), protected_scope_value BLOB NOT NULL,
+  commit_position INTEGER NOT NULL, subject_id TEXT NOT NULL, authority_epoch BLOB NOT NULL, incarnation BLOB NOT NULL, subject_sequence INTEGER NOT NULL,
+  PRIMARY KEY(consumer_id,consumer_version,consumer_checksum,contract_id,contract_version,projection_generation,scope_kind,scope_index_digest,commit_position,subject_id,authority_epoch,incarnation,subject_sequence)
+);
+CREATE TABLE IF NOT EXISTS {_names.SubjectLifecycleConsumers} (
+  consumer_id TEXT NOT NULL, consumer_version INTEGER NOT NULL, consumer_checksum TEXT NOT NULL CHECK(length(consumer_checksum)=64),
+  contract_id TEXT NOT NULL, contract_version INTEGER NOT NULL, projection_generation INTEGER NOT NULL CHECK(projection_generation > 0),
+  cutoff_position INTEGER NOT NULL CHECK(cutoff_position >= 0), cutoff_subject_id TEXT NULL, cutoff_authority_epoch BLOB NULL,
+  cutoff_incarnation BLOB NULL, cutoff_sequence INTEGER NULL, published_graph_generation INTEGER NOT NULL CHECK(published_graph_generation > 0),
+  state INTEGER NOT NULL DEFAULT 0,
+  CHECK((cutoff_subject_id IS NULL AND cutoff_authority_epoch IS NULL AND cutoff_incarnation IS NULL AND cutoff_sequence IS NULL)
+     OR (cutoff_subject_id IS NOT NULL AND length(cutoff_authority_epoch)=16 AND length(cutoff_incarnation)=24 AND cutoff_sequence > 0)),
+  PRIMARY KEY(consumer_id,consumer_version)
+);
+CREATE TABLE IF NOT EXISTS {_names.SubjectLifecycleCheckpoints} (
+  consumer_id TEXT NOT NULL, consumer_version INTEGER NOT NULL, consumer_checksum TEXT NOT NULL, contract_id TEXT NOT NULL, contract_version INTEGER NOT NULL,
+  projection_generation INTEGER NOT NULL, scope_kind INTEGER NOT NULL, scope_index_digest BLOB NOT NULL CHECK(length(scope_index_digest)=32), protected_scope_value BLOB NOT NULL, through_position INTEGER NULL, through_subject_id TEXT NULL,
+  through_authority_epoch BLOB NULL, through_incarnation BLOB NULL, through_sequence INTEGER NULL, checkpoint_generation INTEGER NOT NULL CHECK(checkpoint_generation > 0),
+  advanced_at TEXT NOT NULL, overtaken_at TEXT NULL, state INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY(consumer_id,consumer_version,scope_kind,scope_index_digest)
+);
+CREATE TABLE IF NOT EXISTS {_names.SubjectLifecycleMaintenance} (
+  singleton INTEGER NOT NULL PRIMARY KEY CHECK(singleton=1), kind INTEGER NOT NULL,
+  request_scope TEXT NOT NULL, request_operation TEXT NOT NULL, request_key TEXT NOT NULL,
+  fingerprint BLOB NOT NULL CHECK(length(fingerprint)=32), plan_checksum BLOB NOT NULL CHECK(length(plan_checksum)=32),
+  expected_store_generation INTEGER NOT NULL, expected_restore_epoch INTEGER NOT NULL, expected_delivery_epoch INTEGER NOT NULL,
+  expected_scope_generation INTEGER NOT NULL, old_key_id TEXT NOT NULL, replacement_key_id TEXT NOT NULL,
+  domain_ordinal INTEGER NOT NULL, last_rowid INTEGER NOT NULL, examined_count INTEGER NOT NULL,
+  changed_count INTEGER NOT NULL, canonical_bytes INTEGER NOT NULL, rolling_checksum TEXT NOT NULL CHECK(length(rolling_checksum)=64)
+);
+CREATE TABLE IF NOT EXISTS {_names.SubjectLifecycleScopeStage} (
+  domain_ordinal INTEGER NOT NULL, source_rowid INTEGER NOT NULL, prior_digest BLOB NOT NULL CHECK(length(prior_digest)=32),
+  prior_value BLOB NOT NULL, replacement_digest BLOB NOT NULL CHECK(length(replacement_digest)=32), replacement_value BLOB NOT NULL,
+  PRIMARY KEY(domain_ordinal,source_rowid)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.SubjectLifecycleMembershipStage} (
+  source_rowid INTEGER NOT NULL PRIMARY KEY, consumer_id TEXT NOT NULL, consumer_version INTEGER NOT NULL,
+  consumer_checksum TEXT NOT NULL CHECK(length(consumer_checksum)=64), contract_id TEXT NOT NULL, contract_version INTEGER NOT NULL,
+  projection_generation INTEGER NOT NULL CHECK(projection_generation > 0), matched_state INTEGER NOT NULL CHECK(matched_state BETWEEN 0 AND 3),
+  scope_kind INTEGER NOT NULL CHECK(scope_kind BETWEEN 0 AND 2), scope_index_digest BLOB NOT NULL CHECK(length(scope_index_digest)=32),
+  protected_scope_value BLOB NOT NULL, commit_position INTEGER NOT NULL, subject_id TEXT NOT NULL,
+  authority_epoch BLOB NOT NULL CHECK(length(authority_epoch)=16), incarnation BLOB NOT NULL CHECK(length(incarnation)=24), subject_sequence INTEGER NOT NULL
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.SubjectMaintenance} (
   singleton INTEGER NOT NULL PRIMARY KEY CHECK(singleton=1), contract_id TEXT NOT NULL,
   contract_version INTEGER NOT NULL, expected_generation INTEGER NOT NULL,
@@ -236,6 +309,7 @@ CREATE TABLE IF NOT EXISTS {_names.ProviderState} (
   value TEXT NOT NULL
 );
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('restore_epoch', '0');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('subject_lifecycle_delivery_epoch', '1');
 """, cancellationToken).ConfigureAwait(false);
 
         await ExecuteAsync(connection, $"""
@@ -302,13 +376,85 @@ CREATE TABLE IF NOT EXISTS {_names.SubjectLifetimes} (
   contract_id TEXT NOT NULL,
   contract_version INTEGER NOT NULL,
   subject_id TEXT NOT NULL,
-  incarnation BLOB NOT NULL CHECK(length(incarnation) = 16),
+  incarnation BLOB NOT NULL CHECK(length(incarnation) = 24),
+  lifetime_generation INTEGER NOT NULL CHECK(lifetime_generation > 0),
+  lifecycle_state INTEGER NOT NULL CHECK(lifecycle_state BETWEEN 0 AND 2),
+  subject_sequence INTEGER NOT NULL CHECK(subject_sequence > 0),
+  scope_kind INTEGER NOT NULL CHECK(scope_kind BETWEEN 0 AND 2),
+  scope_index_digest BLOB NOT NULL CHECK(length(scope_index_digest)=32),
+  protected_scope_value BLOB NOT NULL,
   private_collection_id TEXT NOT NULL,
   private_record_id TEXT NOT NULL,
-  created_journal_position INTEGER NOT NULL CHECK(created_journal_position >= 0),
-  PRIMARY KEY(contract_id, contract_version, subject_id),
+  created_journal_position INTEGER NOT NULL CHECK(created_journal_position > 0),
+  last_lifecycle_position INTEGER NOT NULL CHECK(last_lifecycle_position > 0),
+  PRIMARY KEY(scope_kind, scope_index_digest, contract_id, contract_version, subject_id),
   FOREIGN KEY(contract_id, contract_version) REFERENCES {_names.SubjectContracts}(contract_id, contract_version) ON DELETE RESTRICT
 );
+CREATE TABLE IF NOT EXISTS {_names.SubjectTerminalLifetimes} (
+  contract_id TEXT NOT NULL, contract_version INTEGER NOT NULL, subject_id TEXT NOT NULL,
+  scope_kind INTEGER NOT NULL CHECK(scope_kind BETWEEN 0 AND 2), scope_index_digest BLOB NOT NULL CHECK(length(scope_index_digest)=32), protected_scope_value BLOB NOT NULL,
+  retired_authority_epoch BLOB NOT NULL CHECK(length(retired_authority_epoch)=16),
+  retired_incarnation BLOB NOT NULL CHECK(length(retired_incarnation)=24),
+  retired_lifetime_generation INTEGER NOT NULL CHECK(retired_lifetime_generation > 0),
+  retired_subject_sequence INTEGER NOT NULL CHECK(retired_subject_sequence > 0),
+  retired_position INTEGER NOT NULL CHECK(retired_position > 0), contract_state_generation INTEGER NOT NULL CHECK(contract_state_generation > 0),
+  restore_epoch INTEGER NOT NULL CHECK(restore_epoch >= 0), receipt_checksum TEXT NOT NULL CHECK(length(receipt_checksum)=64),
+  PRIMARY KEY(scope_kind,scope_index_digest,contract_id,contract_version,subject_id)
+);
+CREATE TABLE IF NOT EXISTS {_names.SubjectLifecycleFacts} (
+  commit_position INTEGER NOT NULL CHECK(commit_position > 0), contract_id TEXT NOT NULL, contract_version INTEGER NOT NULL,
+  subject_id TEXT NOT NULL, authority_epoch BLOB NOT NULL CHECK(length(authority_epoch)=16), incarnation BLOB NOT NULL CHECK(length(incarnation)=24),
+  subject_sequence INTEGER NOT NULL CHECK(subject_sequence > 0), contract_state_generation INTEGER NOT NULL CHECK(contract_state_generation > 0),
+  delivery_epoch INTEGER NOT NULL CHECK(delivery_epoch > 0), fact_kind INTEGER NOT NULL CHECK(fact_kind BETWEEN 0 AND 2),
+  previous_state INTEGER NULL, current_state INTEGER NULL, scope_kind INTEGER NOT NULL CHECK(scope_kind BETWEEN 0 AND 2), scope_index_digest BLOB NOT NULL CHECK(length(scope_index_digest)=32), protected_scope_value BLOB NOT NULL,
+  PRIMARY KEY(commit_position,subject_id,authority_epoch,incarnation,subject_sequence)
+);
+CREATE TABLE IF NOT EXISTS {_names.SubjectLifecycleMemberships} (
+  consumer_id TEXT NOT NULL, consumer_version INTEGER NOT NULL, consumer_checksum TEXT NOT NULL CHECK(length(consumer_checksum)=64),
+  contract_id TEXT NOT NULL, contract_version INTEGER NOT NULL, projection_generation INTEGER NOT NULL CHECK(projection_generation > 0),
+  matched_state INTEGER NOT NULL CHECK(matched_state BETWEEN 0 AND 3), scope_kind INTEGER NOT NULL CHECK(scope_kind BETWEEN 0 AND 2), scope_index_digest BLOB NOT NULL CHECK(length(scope_index_digest)=32), protected_scope_value BLOB NOT NULL,
+  commit_position INTEGER NOT NULL, subject_id TEXT NOT NULL, authority_epoch BLOB NOT NULL, incarnation BLOB NOT NULL, subject_sequence INTEGER NOT NULL,
+  PRIMARY KEY(consumer_id,consumer_version,consumer_checksum,contract_id,contract_version,projection_generation,scope_kind,scope_index_digest,commit_position,subject_id,authority_epoch,incarnation,subject_sequence)
+);
+CREATE TABLE IF NOT EXISTS {_names.SubjectLifecycleConsumers} (
+  consumer_id TEXT NOT NULL, consumer_version INTEGER NOT NULL, consumer_checksum TEXT NOT NULL CHECK(length(consumer_checksum)=64),
+  contract_id TEXT NOT NULL, contract_version INTEGER NOT NULL, projection_generation INTEGER NOT NULL CHECK(projection_generation > 0),
+  cutoff_position INTEGER NOT NULL CHECK(cutoff_position >= 0), cutoff_subject_id TEXT NULL, cutoff_authority_epoch BLOB NULL,
+  cutoff_incarnation BLOB NULL, cutoff_sequence INTEGER NULL, published_graph_generation INTEGER NOT NULL CHECK(published_graph_generation > 0),
+  state INTEGER NOT NULL DEFAULT 0,
+  CHECK((cutoff_subject_id IS NULL AND cutoff_authority_epoch IS NULL AND cutoff_incarnation IS NULL AND cutoff_sequence IS NULL)
+     OR (cutoff_subject_id IS NOT NULL AND length(cutoff_authority_epoch)=16 AND length(cutoff_incarnation)=24 AND cutoff_sequence > 0)),
+  PRIMARY KEY(consumer_id,consumer_version)
+);
+CREATE TABLE IF NOT EXISTS {_names.SubjectLifecycleCheckpoints} (
+  consumer_id TEXT NOT NULL, consumer_version INTEGER NOT NULL, consumer_checksum TEXT NOT NULL, contract_id TEXT NOT NULL, contract_version INTEGER NOT NULL,
+  projection_generation INTEGER NOT NULL, scope_kind INTEGER NOT NULL, scope_index_digest BLOB NOT NULL CHECK(length(scope_index_digest)=32), protected_scope_value BLOB NOT NULL, through_position INTEGER NULL, through_subject_id TEXT NULL,
+  through_authority_epoch BLOB NULL, through_incarnation BLOB NULL, through_sequence INTEGER NULL, checkpoint_generation INTEGER NOT NULL CHECK(checkpoint_generation > 0),
+  advanced_at TEXT NOT NULL, overtaken_at TEXT NULL, state INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY(consumer_id,consumer_version,scope_kind,scope_index_digest)
+);
+CREATE TABLE IF NOT EXISTS {_names.SubjectLifecycleMaintenance} (
+  singleton INTEGER NOT NULL PRIMARY KEY CHECK(singleton=1), kind INTEGER NOT NULL,
+  request_scope TEXT NOT NULL, request_operation TEXT NOT NULL, request_key TEXT NOT NULL,
+  fingerprint BLOB NOT NULL CHECK(length(fingerprint)=32), plan_checksum BLOB NOT NULL CHECK(length(plan_checksum)=32),
+  expected_store_generation INTEGER NOT NULL, expected_restore_epoch INTEGER NOT NULL, expected_delivery_epoch INTEGER NOT NULL,
+  expected_scope_generation INTEGER NOT NULL, old_key_id TEXT NOT NULL, replacement_key_id TEXT NOT NULL,
+  domain_ordinal INTEGER NOT NULL, last_rowid INTEGER NOT NULL, examined_count INTEGER NOT NULL,
+  changed_count INTEGER NOT NULL, canonical_bytes INTEGER NOT NULL, rolling_checksum TEXT NOT NULL CHECK(length(rolling_checksum)=64)
+);
+CREATE TABLE IF NOT EXISTS {_names.SubjectLifecycleScopeStage} (
+  domain_ordinal INTEGER NOT NULL, source_rowid INTEGER NOT NULL, prior_digest BLOB NOT NULL CHECK(length(prior_digest)=32),
+  prior_value BLOB NOT NULL, replacement_digest BLOB NOT NULL CHECK(length(replacement_digest)=32), replacement_value BLOB NOT NULL,
+  PRIMARY KEY(domain_ordinal,source_rowid)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.SubjectLifecycleMembershipStage} (
+  source_rowid INTEGER NOT NULL PRIMARY KEY, consumer_id TEXT NOT NULL, consumer_version INTEGER NOT NULL,
+  consumer_checksum TEXT NOT NULL CHECK(length(consumer_checksum)=64), contract_id TEXT NOT NULL, contract_version INTEGER NOT NULL,
+  projection_generation INTEGER NOT NULL CHECK(projection_generation > 0), matched_state INTEGER NOT NULL CHECK(matched_state BETWEEN 0 AND 3),
+  scope_kind INTEGER NOT NULL CHECK(scope_kind BETWEEN 0 AND 2), scope_index_digest BLOB NOT NULL CHECK(length(scope_index_digest)=32),
+  protected_scope_value BLOB NOT NULL, commit_position INTEGER NOT NULL, subject_id TEXT NOT NULL,
+  authority_epoch BLOB NOT NULL CHECK(length(authority_epoch)=16), incarnation BLOB NOT NULL CHECK(length(incarnation)=24), subject_sequence INTEGER NOT NULL
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.SubjectMaintenance} (
   singleton INTEGER NOT NULL PRIMARY KEY CHECK(singleton=1), contract_id TEXT NOT NULL,
   contract_version INTEGER NOT NULL, expected_generation INTEGER NOT NULL,
@@ -529,7 +675,7 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
     public async ValueTask<string[]> GetMissingSchemaPartsAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         var missing = new List<string>();
-        foreach (var table in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.OperationReceipts, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease, _names.SubjectContracts, _names.SubjectLifetimes, _names.SubjectMaintenance, _names.SubjectRewriteStage, _names.ModuleGenerations, _names.ModuleMutationDefinitions, _names.ModuleGenerationDefinitions }
+        foreach (var table in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.OperationReceipts, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease, _names.SubjectContracts, _names.SubjectLifetimes, _names.SubjectTerminalLifetimes, _names.SubjectLifecycleFacts, _names.SubjectLifecycleMemberships, _names.SubjectLifecycleConsumers, _names.SubjectLifecycleCheckpoints, _names.SubjectLifecycleMaintenance, _names.SubjectLifecycleScopeStage, _names.SubjectLifecycleMembershipStage, _names.SubjectMaintenance, _names.SubjectRewriteStage, _names.ModuleGenerations, _names.ModuleMutationDefinitions, _names.ModuleGenerationDefinitions }
             .Concat(_physical.Collections.Select(static collection => collection.Table))
             .Concat(_physical.Relations.Select(static relation => relation.Table))
             .Concat(_projectionSchemaTables))

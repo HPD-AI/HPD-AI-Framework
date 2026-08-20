@@ -102,4 +102,6 @@ public sealed class HPDBaseSqliteOptions
     internal BaseExportedSubjectDefinition[] ExportedSubjects { get; set; } = [];
     internal BaseRegisteredModuleMutationDefinition[] ModuleMutations { get; set; } = [];
     internal BaseModuleGenerationCellDefinition[] ModuleGenerationCells { get; set; } = [];
+    internal BaseSubjectLifecycleConsumerDefinition[] SubjectLifecycleConsumers { get; set; } = [];
+    internal BaseSubjectLifecycleInspectionAuthority[] SubjectLifecycleInspectionAuthorities { get; set; } = [];
 }

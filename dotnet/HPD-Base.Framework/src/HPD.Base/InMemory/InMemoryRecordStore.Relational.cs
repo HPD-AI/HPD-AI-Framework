@@ -38,6 +38,8 @@ internal sealed partial class InMemoryRecordStore
     {
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
+        if (_lifecycleMaintenance is not null)
+            return ValueTask.FromResult(LifecycleMaintenanceRequired<BaseRelationalReadExecutionResult>());
         try
         {
             return ValueTask.FromResult(OperationResults.Ok(ExecuteRead(request, cancellationToken)));
@@ -340,8 +342,11 @@ internal sealed partial class InMemoryRecordStore
             && subject.Version == operand.SubjectContractVersion);
         if (!string.Equals(definition.ValidationPlan.PrivateCollectionId, record.CollectionId, StringComparison.Ordinal)
             || !state.SubjectContracts.TryGetValue(SubjectContractKey(definition.Id, definition.Version), out InMemorySubjectContractState? contract)
-            || !state.SubjectLifetimes.TryGetValue(SubjectKey(definition.Id, definition.Version,
-                BaseSubjectId.Create(record.Id.Value, definition.SubjectIdKind, definition.MaximumSubjectIdUtf8Bytes)), out InMemorySubjectLifetimeState? lifetime)
+            || state.SubjectLifetimes.Values.SingleOrDefault(candidate =>
+                string.Equals(candidate.ContractId, definition.Id, StringComparison.Ordinal)
+                && candidate.ContractVersion == definition.Version
+                && string.Equals(candidate.PrivateCollectionId, record.CollectionId, StringComparison.Ordinal)
+                && candidate.PrivateRecordId == record.Id) is not InMemorySubjectLifetimeState lifetime
             || !string.Equals(lifetime.PrivateCollectionId, record.CollectionId, StringComparison.Ordinal)
             || lifetime.PrivateRecordId != record.Id)
             throw new InvalidOperationException();

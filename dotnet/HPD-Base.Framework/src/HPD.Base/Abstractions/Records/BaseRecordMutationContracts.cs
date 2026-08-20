@@ -171,6 +171,12 @@ public sealed record BaseRecordBatchItem
 
     /// <summary>Gets the upsert request when <see cref="Kind"/> is <see cref="BaseRecordMutationKind.Upsert"/>.</summary>
     public RecordUpsertRequest? Upsert { get; init; }
+
+    /// <summary>Gets the BASE-owned generated lifecycle precondition, never caller supplied.</summary>
+    internal BaseSubjectLifecycleTransitionPrecondition? SubjectLifecycleTransition { get; init; }
+
+    /// <summary>Gets the BASE-owned logical operation override for generated constrained mutations.</summary>
+    internal BaseOperationKind? OperationOverride { get; init; }
 }
 
 /// <summary>Returns the ordered result of a record batch.</summary>
@@ -234,4 +240,7 @@ public sealed record BaseRecordBatchItemResult
 
     /// <summary>Gets committed event references.</summary>
     public EventReference[]? Events { get; init; }
+
+    /// <summary>Gets BASE-owned lifecycle receipt evidence for generated exporter operations.</summary>
+    internal BaseSubjectLifecycleCommitEvidence? SubjectLifecycle { get; init; }
 }

@@ -12,7 +12,7 @@ export type BaseTypeNode =
   | { readonly kind: "floating"; readonly precision: "binary32" | "binary64"; readonly finiteOnly: true }
   | { readonly kind: "bytes"; readonly wire: "base64"; readonly maxBytes: number }
   | { readonly kind: "redacted" }
-  | { readonly kind: "subjectReference"; readonly contractId: string; readonly contractVersion: number; readonly subjectIdKind: "ordinalString" | "guid" | "uint64"; readonly maximumSubjectIdUtf8Bytes: number; readonly authorityEpochBytes: 16; readonly incarnationBytes: 16 }
+  | { readonly kind: "subjectReference"; readonly contractId: string; readonly contractVersion: number; readonly subjectIdKind: "ordinalString" | "guid" | "uint64"; readonly maximumSubjectIdUtf8Bytes: number; readonly authorityEpochBytes: 16; readonly incarnationBytes: 24 }
   | { readonly kind: "literal"; readonly value: string | boolean | null }
   | { readonly kind: "enum"; readonly values: readonly string[] }
   | { readonly kind: "array"; readonly elementTypeId: string; readonly minItems: number; readonly maxItems: number }
@@ -134,9 +134,9 @@ function subjectReference(value: unknown, node: Extract<BaseTypeNode, { kind: "s
   if (typeof value.subjectId !== "string" || new TextEncoder().encode(value.subjectId).length < 1
     || new TextEncoder().encode(value.subjectId).length > node.maximumSubjectIdUtf8Bytes
     || typeof value.authorityEpoch !== "string" || typeof value.incarnation !== "string"
-    || !/^[A-Za-z0-9_-]{22}$/u.test(value.authorityEpoch) || !/^[A-Za-z0-9_-]{22}$/u.test(value.incarnation)
-    || !canonicalBase64Url16(value.authorityEpoch) || !canonicalBase64Url16(value.incarnation)
-    || node.authorityEpochBytes !== 16 || node.incarnationBytes !== 16 || !Number.isSafeInteger(node.contractVersion) || node.contractVersion < 1)
+    || !/^[A-Za-z0-9_-]{22}$/u.test(value.authorityEpoch) || !/^[A-Za-z0-9_-]{32}$/u.test(value.incarnation)
+    || !canonicalBase64Url(value.authorityEpoch, 16) || !canonicalBase64Url(value.incarnation, 24)
+    || node.authorityEpochBytes !== 16 || node.incarnationBytes !== 24 || !Number.isSafeInteger(node.contractVersion) || node.contractVersion < 1)
     invalid();
   const subject = value.subjectId;
   if (node.subjectIdKind === "ordinalString") {
@@ -156,11 +156,12 @@ function unicodeScalarText(value: string): boolean {
   }
   return true;
 }
-function canonicalBase64Url16(value: string): boolean {
+function canonicalBase64Url(value: string, expectedBytes: number): boolean {
   try {
-    const base64 = value.replaceAll("-", "+").replaceAll("_", "/") + "==";
+    const padding = "=".repeat((4 - value.length % 4) % 4);
+    const base64 = value.replaceAll("-", "+").replaceAll("_", "/") + padding;
     const bytes = Uint8Array.from(atob(base64), character => character.charCodeAt(0));
-    if (bytes.length !== 16) return false;
+    if (bytes.length !== expectedBytes) return false;
     const encoded = btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
     return encoded === value;
   } catch { return false; }

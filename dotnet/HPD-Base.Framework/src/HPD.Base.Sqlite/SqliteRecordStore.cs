@@ -22,6 +22,7 @@ public sealed partial class SqliteRecordStore :
     IBaseSubjectAdministration,
     IBaseSubjectPublicationStore,
     IBaseSubjectValidationPlanReceiptStore,
+    IBaseSubjectLifecycleStore,
     IAsyncDisposable
 {
     /// <inheritdoc />
@@ -85,6 +86,9 @@ public sealed partial class SqliteRecordStore :
     private readonly SqlitePhysicalModel _physical;
     private readonly BaseQueryCursorCodec? _queryCursors;
     private readonly BaseOpaqueTokenProtector? _tokenProtector;
+    private readonly BaseSubjectScopeProtector? _subjectScopes;
+    private string? _subjectScopeProtectionKeyId;
+    private byte? _subjectScopeProtectionKey;
     private readonly ILogger<SqliteRecordStore> _logger;
     private readonly TimeProvider _timeProvider;
     private readonly ISqliteTransactionController _transactions;
@@ -159,6 +163,9 @@ public sealed partial class SqliteRecordStore :
         RecoverRestoreMarkerIfPresent();
         _queryCursors = tokenProtector is null ? null : new BaseQueryCursorCodec(tokenProtector, timeProvider);
         _tokenProtector = tokenProtector;
+        _subjectScopes = tokenProtector is null ? null : new BaseSubjectScopeProtector(tokenProtector);
+        _subjectScopeProtectionKey = tokenProtector?.ActiveKeyId;
+        _subjectScopeProtectionKeyId = _subjectScopeProtectionKey?.ToString(System.Globalization.CultureInfo.InvariantCulture);
         Includes = new RecordIncludeExecutionCapability
         {
             Supported = true, MaxDepth = 3, MaxIncludes = 8,
@@ -879,7 +886,7 @@ FROM {_names.MutationJournal};
         }
         await using SqliteCommand maintenance = connection.CreateCommand();
         maintenance.CommandTimeout = TimeoutSeconds();
-        maintenance.CommandText = $"SELECT EXISTS(SELECT 1 FROM {_names.SubjectMaintenance} WHERE singleton=1);";
+        maintenance.CommandText = $"SELECT EXISTS(SELECT 1 FROM {_names.SubjectMaintenance} WHERE singleton=1) OR EXISTS(SELECT 1 FROM {_names.SubjectLifecycleMaintenance} WHERE singleton=1);";
         if (Convert.ToInt32(await maintenance.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture) != 0)
         {
             await connection.DisposeAsync().ConfigureAwait(false);
@@ -930,6 +937,7 @@ FROM {_names.MutationJournal};
         await EnsureKeepAliveAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
         await _schema.InitializeAsync(connection, cancellationToken).ConfigureAwait(false);
+        await InitializeSubjectScopeProtectionAuthorityAsync(connection, cancellationToken).ConfigureAwait(false);
         await ExecuteSchemaCommandAsync(connection, "BEGIN IMMEDIATE;", TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
         try
         {

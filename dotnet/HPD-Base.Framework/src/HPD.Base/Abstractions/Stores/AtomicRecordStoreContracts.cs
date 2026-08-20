@@ -183,8 +183,24 @@ public sealed record BaseSubjectLifecycleCommitEvidence
     public required string SubjectId { get; init; }
     /// <summary>Gets the committed lifecycle transition.</summary>
     public required BaseSubjectLifecycleMutationKind Kind { get; init; }
-    /// <summary>Gets the canonical provider-allocated incarnation text for create/preserve, or null for retirement.</summary>
-    public string? Incarnation { get; init; }
+    /// <summary>Gets the exact authority epoch that owns the committed lifetime.</summary>
+    public required BaseSubjectAuthorityEpoch AuthorityEpoch { get; init; }
+    /// <summary>Gets the exact committed incarnation, including terminal retirement.</summary>
+    public required BaseSubjectIncarnation Incarnation { get; init; }
+    /// <summary>Gets the positive subject-local sequence after the transition.</summary>
+    public required long SubjectSequence { get; init; }
+    /// <summary>Gets the contract state generation that authorized publication.</summary>
+    public required long ContractStateGeneration { get; init; }
+    /// <summary>Gets the lifecycle delivery epoch.</summary>
+    public required long DeliveryEpoch { get; init; }
+    /// <summary>Gets the exact logical tenant/project scope that owns this lifecycle transition.</summary>
+    public required BaseOwnedSubjectScopeEvidence Scope { get; init; }
+    /// <summary>Gets the prior lifecycle state, or null for creation.</summary>
+    public BaseSubjectLifecycleState? PreviousState { get; init; }
+    /// <summary>Gets the resulting lifecycle state.</summary>
+    public required BaseSubjectLifecycleState ResultingState { get; init; }
+    /// <summary>Gets the exact committed mutation-journal position.</summary>
+    public required BaseMutationJournalPosition CommitPosition { get; init; }
 }
 
 /// <summary>Supplies Runtime-owned identity and context to one physical session mutation.</summary>
@@ -389,6 +405,11 @@ public interface IAtomicRecordSession
     ValueTask<OperationResult<long>> AdvancePurgeGenerationAsync(
         CollectionDefinition collection,
         long? expectedGeneration,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Advances one provider-owned durable subject-lifecycle checkpoint in this transaction.</summary>
+    ValueTask<OperationResult<BaseSubjectLifecycleCheckpointResult>> AdvanceSubjectLifecycleCheckpointAsync(
+        BaseSubjectLifecycleProviderCheckpointRequest request,
         CancellationToken cancellationToken = default);
 
     /// <summary>Applies every installed provider-owned projection inside this transaction.</summary>

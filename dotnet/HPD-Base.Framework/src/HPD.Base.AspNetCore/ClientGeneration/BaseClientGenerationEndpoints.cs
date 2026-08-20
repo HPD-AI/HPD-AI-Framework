@@ -75,7 +75,10 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
         RouteEndpoint[] materialized = endpointDataSource.Endpoints.OfType<RouteEndpoint>()
             .Where(endpoint => endpoint.Metadata.GetMetadata<HPDBaseEndpointDescriptor>() is { } descriptor
                 && descriptor.Audience == current.Audience
-                && descriptor.Operation != HPDBaseEndpointOperation.ModuleMutation)
+                && descriptor.Operation != HPDBaseEndpointOperation.ModuleMutation
+                && descriptor.Operation != HPDBaseEndpointOperation.SubjectLifecycleRead
+                && descriptor.Operation != HPDBaseEndpointOperation.SubjectLifecycleCheckpoint
+                && !string.Equals(descriptor.Capability, HPDBaseCapabilities.SubjectLifecycleClientGenerate, StringComparison.Ordinal))
             .OrderBy(endpoint => endpoint.Metadata.GetMetadata<HPDBaseEndpointDescriptor>()!.EndpointId, StringComparer.Ordinal)
             .ToArray();
         if (materialized.Length is 0 or > 256)
@@ -189,6 +192,7 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
             VectorIndexes = vectors,
             SelectionMutations = selectionMutations,
             ModuleMutations = generatedModules,
+            SubjectLifecycleConsumers = [],
             Errors = ErrorTaxonomy(endpoints),
             Digest = string.Empty
         };
@@ -553,7 +557,7 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
             SubjectIdKind = contract.SubjectIdKind switch { BaseSubjectIdKind.OrdinalString => "ordinalString", BaseSubjectIdKind.Guid => "guid", _ => "uint64" },
             MaximumSubjectIdUtf8Bytes = contract.MaximumSubjectIdUtf8Bytes,
             AuthorityEpochBytes = 16,
-            IncarnationBytes = 16,
+            IncarnationBytes = 24,
         };
     }
 

@@ -16,6 +16,11 @@ internal sealed class BaseRealtimeWebSocketSession
     private readonly TimeProvider _timeProvider;
     private readonly BaseRealtimeJoinRateLimiter _joinRateLimiter;
     private readonly BaseRealtimeLiveQueryTransport? _liveQueries;
+    private readonly BaseSubjectLifecycleHintHub? _lifecycleHints;
+    private readonly IBaseSubjectLifecycleRuntime? _lifecycleRuntime;
+    private readonly BaseSubjectLifecycleRegistry? _lifecycleConsumers;
+    private readonly BaseSubjectContractRegistry? _subjectContracts;
+    private readonly IBaseSessionFactory? _sessionFactory;
     private readonly Dictionary<string, ActiveChannel> _channels = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private readonly string _connectionId = Guid.NewGuid().ToString("N");
@@ -31,7 +36,12 @@ internal sealed class BaseRealtimeWebSocketSession
         PrincipalContext principal,
         ILogger<BaseRealtimeWebSocketSession> logger,
         TimeProvider timeProvider,
-        BaseRealtimeLiveQueryTransport? liveQueries = null)
+        BaseRealtimeLiveQueryTransport? liveQueries = null,
+        BaseSubjectLifecycleHintHub? lifecycleHints = null,
+        IBaseSubjectLifecycleRuntime? lifecycleRuntime = null,
+        BaseSubjectLifecycleRegistry? lifecycleConsumers = null,
+        BaseSubjectContractRegistry? subjectContracts = null,
+        IBaseSessionFactory? sessionFactory = null)
     {
         _socket = socket;
         _feeds = feeds;
@@ -42,6 +52,11 @@ internal sealed class BaseRealtimeWebSocketSession
         _logger = logger;
         _timeProvider = timeProvider;
         _liveQueries = liveQueries;
+        _lifecycleHints = lifecycleHints;
+        _lifecycleRuntime = lifecycleRuntime;
+        _lifecycleConsumers = lifecycleConsumers;
+        _subjectContracts = subjectContracts;
+        _sessionFactory = sessionFactory;
         _joinRateLimiter = new BaseRealtimeJoinRateLimiter(timeProvider, options.Limits.MaxJoinsPerSecond);
     }
 
@@ -141,6 +156,11 @@ internal sealed class BaseRealtimeWebSocketSession
             await JoinLiveQueryAsync(message.Ref, liveQuery, cancellationToken).ConfigureAwait(false);
             return;
         }
+        if (message.Channel is BaseRealtimeSubjectLifecycleHintRequest lifecycleHint)
+        {
+            await JoinSubjectLifecycleHintsAsync(message.Ref, lifecycleHint, cancellationToken).ConfigureAwait(false);
+            return;
+        }
 
         BaseRealtimeChannelJoinRequest join = ToFeedJoin(message.Channel);
         if (!TenantRequestAllowed(join.TenantId))
@@ -202,6 +222,61 @@ internal sealed class BaseRealtimeWebSocketSession
             throw;
         }
     }
+
+    private async Task JoinSubjectLifecycleHintsAsync(string reference, BaseRealtimeSubjectLifecycleHintRequest request, CancellationToken cancellationToken)
+    {
+        if (_lifecycleHints is null || _lifecycleRuntime is null || _lifecycleConsumers is null || _subjectContracts is null || _sessionFactory is null
+            || _principal.AuthenticationState is not (PrincipalAuthenticationState.Service or PrincipalAuthenticationState.System)
+            || _lifecycleConsumers.All.SingleOrDefault(value => value.Definition.Id == request.ConsumerId && value.Definition.Version == request.ConsumerVersion) is not { } installed
+            || _subjectContracts.Find(installed.Definition.ContractId, installed.Definition.ContractVersion) is not { } contract)
+        {
+            await SendErrorAsync(reference, null, BaseRealtimeErrorCodes.ChannelUnauthorized, true, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+        BaseSession session = _sessionFactory.For(_principal, options => options.ProjectId = request.ProjectId);
+        BaseResult<BaseUntypedSubjectLifecyclePage> authorized = await _lifecycleRuntime.ReadUntypedAsync(session, installed, null, 1, cancellationToken).ConfigureAwait(false);
+        if (authorized is not BaseSuccess<BaseUntypedSubjectLifecyclePage>)
+        {
+            await SendErrorAsync(reference, null, BaseRealtimeErrorCodes.ChannelUnauthorized, true, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+        BaseOwnedSubjectScopeEvidence scope = new()
+        {
+            Kind = contract.Definition.Scope,
+            Value = contract.Definition.Scope switch
+            {
+                BaseSubjectScopeKind.Global => null,
+                BaseSubjectScopeKind.Tenant => _principal.CurrentTenantId,
+                BaseSubjectScopeKind.Project => request.ProjectId,
+                _ => null,
+            },
+        };
+        string epoch = Guid.NewGuid().ToString("N");
+        BaseSubjectLifecycleHintHub.Lease lease = _lifecycleHints.Subscribe(contract.Definition.Id, contract.Definition.Version, scope);
+        var owner = new BaseRealtimeSubjectLifecycleHintOwner(lease, _lifecycleRuntime, session, installed, cancellationToken,
+            (checkpoint, token) => SendAsync(new BaseRealtimeSubjectLifecycleHintMessage
+            {
+                ConnectionId = _connectionId, ConnectionEpoch = _connectionEpoch, Ref = reference,
+                ChannelEpoch = epoch, Checkpoint = BaseSubjectReferenceEncoding.Encode(checkpoint.ToArray()),
+            }, token),
+            (exception, token) => HandleLifecycleHintFailureAsync(reference, epoch, exception, token));
+        _channels.Add(reference, ActiveChannel.Lifecycle(owner, epoch));
+        try
+        {
+            await SendAsync(new BaseRealtimeJoinedMessage { ConnectionId = _connectionId, ConnectionEpoch = _connectionEpoch,
+                Ref = reference, ChannelEpoch = epoch, Delivery = "lifecycle-hints-non-authoritative" }, cancellationToken).ConfigureAwait(false);
+            owner.Activate();
+        }
+        catch
+        {
+            _channels.Remove(reference); await owner.DisposeAsync().ConfigureAwait(false); throw;
+        }
+    }
+
+    private Task HandleLifecycleHintFailureAsync(string reference, string epoch, Exception exception, CancellationToken cancellationToken) =>
+        SendErrorAsync(reference, epoch,
+            exception is BaseRealtimeFeedException feed ? feed.Code : BaseRealtimeErrorCodes.ReplacementRequired,
+            true, cancellationToken);
 
     private async Task LeaveAsync(string reference)
     {
@@ -512,14 +587,16 @@ internal sealed class BaseRealtimeWebSocketSession
     {
         private readonly BaseRealtimeChannelOwner? _record;
         private readonly BaseRealtimeLiveQueryOwner? _liveQuery;
-        private ActiveChannel(BaseRealtimeChannelOwner? record, BaseRealtimeLiveQueryOwner? liveQuery, string epoch, bool durable)
-        { _record = record; _liveQuery = liveQuery; Epoch = epoch; Durable = durable; }
+        private readonly BaseRealtimeSubjectLifecycleHintOwner? _lifecycle;
+        private ActiveChannel(BaseRealtimeChannelOwner? record, BaseRealtimeLiveQueryOwner? liveQuery, BaseRealtimeSubjectLifecycleHintOwner? lifecycle, string epoch, bool durable)
+        { _record = record; _liveQuery = liveQuery; _lifecycle = lifecycle; Epoch = epoch; Durable = durable; }
         internal string Epoch { get; }
         internal bool Durable { get; }
-        internal bool IsCompleted => _record?.IsCompleted ?? _liveQuery?.IsCompleted ?? true;
-        internal static ActiveChannel Record(BaseRealtimeChannelOwner owner, string epoch, bool durable) => new(owner, null, epoch, durable);
-        internal static ActiveChannel LiveQuery(BaseRealtimeLiveQueryOwner owner, string epoch) => new(null, owner, epoch, false);
-        internal Task StopAsync() => _record is not null ? _record.StopAsync() : _liveQuery!.DisposeAsync().AsTask();
+        internal bool IsCompleted => _record?.IsCompleted ?? _liveQuery?.IsCompleted ?? _lifecycle?.IsCompleted ?? true;
+        internal static ActiveChannel Record(BaseRealtimeChannelOwner owner, string epoch, bool durable) => new(owner, null, null, epoch, durable);
+        internal static ActiveChannel LiveQuery(BaseRealtimeLiveQueryOwner owner, string epoch) => new(null, owner, null, epoch, false);
+        internal static ActiveChannel Lifecycle(BaseRealtimeSubjectLifecycleHintOwner owner, string epoch) => new(null, null, owner, epoch, false);
+        internal Task StopAsync() => _record is not null ? _record.StopAsync() : _liveQuery is not null ? _liveQuery.DisposeAsync().AsTask() : _lifecycle!.DisposeAsync().AsTask();
     }
     private sealed record ReceiveResult(BaseRealtimeClientMessage? Message, string? ErrorCode, bool Closed);
 }
