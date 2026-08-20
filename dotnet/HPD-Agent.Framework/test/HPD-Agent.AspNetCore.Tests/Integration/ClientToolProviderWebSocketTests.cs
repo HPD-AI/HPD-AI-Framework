@@ -79,7 +79,7 @@ public sealed class ClientToolProviderWebSocketTests
             services.AddSingleton<IClientToolProviderConnectionAuthorizer>(
                 new AllowAuthorizer(runtimeIdentity)));
         using var socket = await factory.Server.CreateWebSocketClient().ConnectAsync(
-            new Uri("ws://localhost/client-tool-providers/connect"),
+            new Uri("ws://localhost/authorized-client-tool-providers/connect"),
             CancellationToken.None);
 
         await SendAsync(
@@ -115,7 +115,7 @@ public sealed class ClientToolProviderWebSocketTests
             services.AddSingleton<IClientToolProviderConnectionAuthorizer>(
                 new AllowAuthorizer(CreateRuntimeIdentity())));
         using var socket = await factory.Server.CreateWebSocketClient().ConnectAsync(
-            new Uri("ws://localhost/client-tool-providers/connect"),
+            new Uri("ws://localhost/authorized-client-tool-providers/connect"),
             CancellationToken.None);
 
         await SendAsync(

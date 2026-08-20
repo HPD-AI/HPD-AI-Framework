@@ -78,12 +78,12 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
 
         var threadEvents = await ObserveUntilAsync(
             sessionId,
-            events => events.OfType<TextMessageStartEvent>().Any(e => e.ClientInputId == "client-input-1") &&
+            events => events.OfType<UserMessageEvent>().Any(e => e.Text == "admit this text") &&
                       events.OfType<TextDeltaEvent>().Any());
 
         threadEvents.Should().NotContain(e => e is UserMessagesInputEvent);
-        threadEvents.OfType<TextMessageStartEvent>()
-            .Should().Contain(e => e.ClientInputId == "client-input-1");
+        threadEvents.OfType<UserMessageEvent>()
+            .Should().Contain(e => e.Text == "admit this text");
         threadEvents.Should().Contain(e => e is TextDeltaEvent);
     }
 

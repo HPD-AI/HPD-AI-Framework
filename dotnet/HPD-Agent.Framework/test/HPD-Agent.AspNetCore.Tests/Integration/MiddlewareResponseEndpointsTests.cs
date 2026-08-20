@@ -106,14 +106,18 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
             Outcome = ClientToolInvokeOutcomeKind.Completed,
             Content = new[] { new TextContent("Tool execution succeeded") }
         };
+        var json = AgentEventSerializer.ToJson(evt);
+        AgentEventSerializer.FromJson(json).Should().BeOfType<ClientToolInvokeOutcomeEvent>(json);
 
         // Act
-        var response = await PostEventAsync(
-             $"/agents/test-agent/sessions/{sessionId}/threads/main/responses",
-            evt);
+        var response = await _client.PostAsync(
+            $"/agents/test-agent/sessions/{sessionId}/threads/main/responses",
+            new StringContent(json, Encoding.UTF8, "application/json"));
 
         // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.StatusCode.Should().Be(
+            HttpStatusCode.OK,
+            await response.Content.ReadAsStringAsync());
     }
 
     [Fact]

@@ -93,6 +93,8 @@ public class TestWebApplicationFactory : IDisposable
                 {
                     // Map at root level (no prefix) for integration tests
                     endpoints.MapGroup("").MapHPDAgentApi("test-agent");
+                    endpoints.MapAuthorizedHPDClientToolProviderConnection(
+                        "/authorized-client-tool-providers/connect");
                 });
             });
 

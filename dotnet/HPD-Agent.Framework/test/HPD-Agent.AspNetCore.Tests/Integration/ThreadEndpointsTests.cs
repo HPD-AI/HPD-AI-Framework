@@ -103,12 +103,9 @@ public class ThreadEndpointsTests : IClassFixture<TestWebApplicationFactory>
             _client,
             sessionId,
             threadId,
-            static observed => observed.OfType<TextMessageStartEvent>()
-                .Any(evt => string.Equals(evt.Role, "user", StringComparison.OrdinalIgnoreCase)),
+            static observed => observed.OfType<UserMessageEvent>().Any(),
             timeout ?? TimeSpan.FromMilliseconds(150));
-        return events.OfType<TextMessageStartEvent>()
-            .FirstOrDefault(evt => string.Equals(evt.Role, "user", StringComparison.OrdinalIgnoreCase))
-            ?.MessageId;
+        return events.OfType<UserMessageEvent>().FirstOrDefault()?.MessageId;
     }
 
     #region GET /sessions/{sid}/threads

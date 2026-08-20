@@ -124,7 +124,8 @@ public sealed class ProviderManifestSourceGeneratorTests
         Assert.Contains("ProviderCatalogV1 AuthorityCatalog", generated);
         Assert.Contains("AddHpdGeneratedProviders", generated);
         Assert.Contains("internal static class HpdGeneratedProviderServiceCollectionExtensions", generated);
-        Assert.DoesNotContain("ModuleInitializer", generated);
+        Assert.Contains("[ModuleInitializer]", generated);
+        Assert.Contains("ProviderCompositionHost.Register(GeneratedProviderComposition.Composition)", generated);
         Assert.DoesNotContain("ProviderCompositionGlobalRegistry", generated);
         Assert.DoesNotContain("Assembly.Load", generated);
         Assert.DoesNotContain("GetTypes", generated);

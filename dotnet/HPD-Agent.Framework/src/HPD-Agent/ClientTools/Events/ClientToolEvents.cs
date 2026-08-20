@@ -1,6 +1,7 @@
 // Copyright 2026 Einstein Essibu
 // SPDX-License-Identifier: FSL-1.1-ALv2
 
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Agent.Middleware;
 using HPD.Events;
@@ -108,7 +109,40 @@ public record ClientToolInvokeOutcomeEvent : AgentEvent, IAgentResponseEvent
     public string SourceName => "HPD.Agent.ClientTools";
     public string? ResponderId { get; init; }
     public string? ResponderGroup { get; init; }
+    [JsonConverter(typeof(ReadOnlyStringSetJsonConverter))]
     public IReadOnlySet<string> Capabilities { get; init; } = new HashSet<string>();
+}
+
+internal sealed class ReadOnlyStringSetJsonConverter : JsonConverter<IReadOnlySet<string>>
+{
+    public override IReadOnlySet<string> Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.StartArray)
+            throw new JsonException("A responder capability set must be a JSON array.");
+
+        var values = new HashSet<string>(StringComparer.Ordinal);
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+        {
+            if (reader.TokenType != JsonTokenType.String || reader.GetString() is not { } value)
+                throw new JsonException("Responder capabilities must be strings.");
+            values.Add(value);
+        }
+        return values;
+    }
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        IReadOnlySet<string> value,
+        JsonSerializerOptions options)
+    {
+        writer.WriteStartArray();
+        foreach (string capability in value.Order(StringComparer.Ordinal))
+            writer.WriteStringValue(capability);
+        writer.WriteEndArray();
+    }
 }
 
 /// <summary>

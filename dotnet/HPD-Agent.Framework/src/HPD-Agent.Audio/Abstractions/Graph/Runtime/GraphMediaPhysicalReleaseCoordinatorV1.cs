@@ -370,12 +370,11 @@ internal sealed class GraphMediaPhysicalReleaseCoordinatorV1
             if (found is not null) return (found, null);
             if (proposal.PayloadSchema == GraphMediaPhysicalReleasePayloadRegistrationsV1.Command.Schema)
             {
-                if (reread.Result is GraphMediaPhysicalReleaseFoldResultV1.CommandOnly)
+                if (reread.Result is GraphMediaPhysicalReleaseFoldResultV1.CommandOnly or
+                    GraphMediaPhysicalReleaseFoldResultV1.Released or
+                    GraphMediaPhysicalReleaseFoldResultV1.Rejected or
+                    GraphMediaPhysicalReleaseFoldResultV1.Unknown)
                     return (null, new GraphMediaPhysicalReleaseResultV1.RetryRequired(new("release-predecessor-conflict")));
-                var terminal = ToResult(reread.Result!);
-                if (terminal is GraphMediaPhysicalReleaseResultV1.Released or GraphMediaPhysicalReleaseResultV1.Unknown or
-                    GraphMediaPhysicalReleaseResultV1.Quarantined)
-                    return (null, terminal);
             }
             expectedHead = reread.Through;
             if (result is AppendAuthorityResultV1.StoreUnavailable)

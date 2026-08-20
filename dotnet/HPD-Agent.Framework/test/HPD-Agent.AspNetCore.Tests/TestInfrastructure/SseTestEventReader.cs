@@ -16,19 +16,18 @@ internal static class SseTestEventReader
             HttpMethod.Get,
             $"/agents/test-agent/sessions/{sessionId}/threads/{threadId}/events?after=1:0");
         request.Headers.Accept.ParseAdd("text/event-stream");
-
-        using var response = await client.SendAsync(
-            request,
-            HttpCompletionOption.ResponseHeadersRead,
-            cancellation.Token);
-        response.EnsureSuccessStatusCode();
-
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellation.Token);
-        using var reader = new StreamReader(stream);
         var events = new List<AgentEvent>();
 
         try
         {
+            using var response = await client.SendAsync(
+                request,
+                HttpCompletionOption.ResponseHeadersRead,
+                cancellation.Token);
+            response.EnsureSuccessStatusCode();
+
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellation.Token);
+            using var reader = new StreamReader(stream);
             while (!completed(events))
             {
                 var line = await reader.ReadLineAsync(cancellation.Token);

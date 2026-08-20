@@ -128,13 +128,10 @@ public class RecursiveThreadDeleteTests : IClassFixture<RecursiveDeleteEnabledFa
             _client,
             sessionId,
             threadId,
-            observed => observed.OfType<TextMessageStartEvent>()
-                            .Any(evt => string.Equals(evt.Role, "user", StringComparison.OrdinalIgnoreCase)) &&
+            observed => observed.OfType<UserMessageEvent>().Any() &&
                         (!waitForRunCompletion || observed.OfType<ThreadExecutionFinishedEvent>().Any()),
             timeout ?? TimeSpan.FromMilliseconds(150));
-        return events.OfType<TextMessageStartEvent>()
-            .FirstOrDefault(evt => string.Equals(evt.Role, "user", StringComparison.OrdinalIgnoreCase))
-            ?.MessageId;
+        return events.OfType<UserMessageEvent>().FirstOrDefault()?.MessageId;
     }
 
     private async Task<ThreadDto?> GetThread(string sessionId, string threadId)
@@ -396,12 +393,9 @@ public class RecursiveThreadDeleteGuardTests : IClassFixture<TestWebApplicationF
             _client,
             sessionId,
             threadId,
-            static observed => observed.OfType<TextMessageStartEvent>()
-                .Any(evt => string.Equals(evt.Role, "user", StringComparison.OrdinalIgnoreCase)),
+            static observed => observed.OfType<UserMessageEvent>().Any(),
             timeout ?? TimeSpan.FromMilliseconds(150));
-        return events.OfType<TextMessageStartEvent>()
-            .FirstOrDefault(evt => string.Equals(evt.Role, "user", StringComparison.OrdinalIgnoreCase))
-            ?.MessageId;
+        return events.OfType<UserMessageEvent>().FirstOrDefault()?.MessageId;
     }
 
     [Fact]

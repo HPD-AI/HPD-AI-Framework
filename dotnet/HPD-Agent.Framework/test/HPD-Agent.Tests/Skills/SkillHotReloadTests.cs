@@ -15,9 +15,13 @@ public sealed class SkillHotReloadTests
             .WithToolHarness<CombinedCapabilitiesTools>(options => options.AddSkillSource(source))
             .BuildAsync();
         var events = new System.Collections.Concurrent.ConcurrentQueue<AgentEvent>();
+        var rejectedObserved = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         using var subscription = agent.SubscribeAny(@event =>
         {
             events.Enqueue(@event);
+            if (@event is SkillReloadRejectedEvent)
+                rejectedObserved.TrySetResult();
             return ValueTask.CompletedTask;
         });
         try
@@ -32,6 +36,7 @@ public sealed class SkillHotReloadTests
 
         source.Replace([RuntimeSkill("DataAnalysis")]);
         var rejected = await agent.ReloadSkillsAsync();
+            await rejectedObserved.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
             Assert.False(rejected.Published);
             Assert.Equal(1, agent.SkillCatalogEpoch);

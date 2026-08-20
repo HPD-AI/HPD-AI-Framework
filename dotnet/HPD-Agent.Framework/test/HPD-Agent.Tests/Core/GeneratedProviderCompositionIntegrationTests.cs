@@ -9,11 +9,11 @@ namespace HPD.Agent.Tests.Core;
 public sealed class GeneratedProviderCompositionIntegrationTests
 {
     [Fact]
-    public void BareBuilder_HasNoAssemblyLoadDrivenProviderMembership()
+    public void BareBuilder_UsesImplicitGeneratedProviderMembershipWithoutAssemblyScanning()
     {
         var builder = new AgentBuilder();
 
-        Assert.Empty(builder.ProviderRegistry.GetRegisteredProviders());
+        Assert.Contains("anthropic", builder.ProviderRegistry.GetRegisteredProviders());
         Assert.Null(typeof(ProviderComposition).Assembly.GetType(
             "HPD.Agent.Providers.ProviderCompositionGlobalRegistry",
             throwOnError: false));

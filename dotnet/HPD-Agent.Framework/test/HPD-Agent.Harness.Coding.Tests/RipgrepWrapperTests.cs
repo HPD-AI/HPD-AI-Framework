@@ -267,7 +267,7 @@ public sealed class RipgrepWrapperTests
 
         executor.LastRequest.Should().NotBeNull();
         executor.LastRequest!.Arguments.Should().ContainInOrder("--regexp", "-TODO", "--", "src");
-        executor.LastRequest.WorkingDirectory.Should().Be(Directory.GetCurrentDirectory());
+        executor.LastRequest.WorkingDirectory.Should().Be(AppContext.BaseDirectory);
     }
 
     [Fact]

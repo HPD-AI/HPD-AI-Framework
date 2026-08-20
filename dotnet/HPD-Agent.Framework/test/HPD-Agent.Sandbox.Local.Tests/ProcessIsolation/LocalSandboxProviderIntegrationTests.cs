@@ -238,14 +238,27 @@ public sealed class LocalSandboxProviderIntegrationTests
 
         await using var manager = new SandboxIsolationManager();
         var registry = new EnvironmentProviderRegistry();
-        registry.RegisterModule(new LocalProcessProviderModule(new LocalProcessProvider(
+        var processProvider = new LocalProcessProvider(
             new SandboxIsolationPlanner(),
-            new HostSandboxApplicator(manager))));
+            new HostSandboxApplicator(manager));
+        registry.RegisterModule(new RuntimeOwnershipProviderModule(processProvider));
         var runtime = new InMemoryEnvironmentRuntime(registry);
+
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> host =
+            await runtime.EnsureHostAsync(new RuntimeHostSpec
+            {
+                PreferredProvider = LocalProcessProvider.LocalProviderId,
+                Platform = LocalProcessProvider.CurrentPlatform(),
+            });
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> unit =
+            await runtime.EnsureExecutionUnitAsync(new ExecutionUnitSpec
+            {
+                PreferredHost = new ResourceRef<RuntimeHost>(host.Metadata.Id, host.Metadata.Scope, host.Metadata.Generation),
+            });
 
         ProcessInvocationSpec invocation = new()
         {
-            Target = Handle<ExecutionUnit>(TargetRouteSegmentKind.ExecutionUnit, "unit-1"),
+            Target = unit.Status.Handle!.Value,
             Command = ShellInvocation("runtime-local-isolated-ok"),
             Isolation = MinimalExecutableIsolation(),
         };
@@ -258,6 +271,102 @@ public sealed class LocalSandboxProviderIntegrationTests
             .Trim()
             .Should()
             .Be("runtime-local-isolated-ok");
+    }
+
+    private sealed class RuntimeOwnershipProviderModule(LocalProcessProvider processProvider) :
+        IProviderModule,
+        IRuntimeHostProvider,
+        IExecutionUnitProvider
+    {
+        public ProviderDescriptor Descriptor { get; } = new()
+        {
+            Id = LocalProcessProvider.LocalProviderId,
+            DisplayName = "HPD Local Process Runtime Test Provider",
+            ContractVersion = new SemanticVersion(1, 0, 0),
+            ProviderVersion = new SemanticVersion(1, 0, 0),
+            ContractKinds = ProviderContractKind.RuntimeHost |
+                ProviderContractKind.ExecutionUnit |
+                ProviderContractKind.ProcessInvocation |
+                ProviderContractKind.ProcessIsolation,
+            TrustLevel = ProviderTrustLevel.BuiltIn,
+            DefaultActivationScope = ProviderActivationScope.Runtime,
+            ActivationModels =
+            [
+                new ProviderActivationModel(
+                    ProviderActivationKind.InProcess,
+                    ProviderActivationScope.Runtime,
+                    ProviderTransportKind.None),
+            ],
+            HostPlatforms = [LocalProcessProvider.CurrentPlatform()],
+        };
+
+        public ProviderId ProviderId => LocalProcessProvider.LocalProviderId;
+
+        public void Register(IProviderRegistrationBuilder builder)
+        {
+            builder.AddRuntimeHostProvider(this);
+            builder.AddExecutionUnitProvider(this);
+            builder.AddProcessProvider(processProvider);
+        }
+
+        public void RegisterJsonTypes(IProviderJsonTypeRegistry registry)
+        {
+        }
+
+        public ValueTask<RuntimeHostStatus> EnsureAsync(
+            ResourceMetadata<RuntimeHost> metadata,
+            RuntimeHostSpec spec,
+            RuntimeHostStatus? observed,
+            CancellationToken cancellationToken = default) =>
+            new(new RuntimeHostStatus
+            {
+                Phase = ResourcePhase.Ready,
+                HostPhase = RuntimeHostPhase.Ready,
+                ObservedGeneration = metadata.Generation,
+                Handle = Handle<RuntimeHost>(TargetRouteSegmentKind.RuntimeHost, metadata.Id.Value),
+            });
+
+        public ValueTask<RuntimeHostStatus> StopAsync(
+            TargetHandle<RuntimeHost> host,
+            StopPolicy policy,
+            CancellationToken cancellationToken = default) =>
+            new(new RuntimeHostStatus { Phase = ResourcePhase.Ready, HostPhase = RuntimeHostPhase.Stopped, Handle = host });
+
+        public ValueTask DeleteAsync(ResourceRef<RuntimeHost> host, CancellationToken cancellationToken = default) =>
+            ValueTask.CompletedTask;
+
+        public ValueTask<RuntimeHostStatus> GetStatusAsync(
+            TargetHandle<RuntimeHost> host,
+            CancellationToken cancellationToken = default) =>
+            new(new RuntimeHostStatus { Phase = ResourcePhase.Ready, HostPhase = RuntimeHostPhase.Ready, Handle = host });
+
+        public ValueTask<ExecutionUnitStatus> EnsureAsync(
+            ResourceMetadata<ExecutionUnit> metadata,
+            ExecutionUnitSpec spec,
+            ExecutionUnitStatus? observed,
+            CancellationToken cancellationToken = default) =>
+            new(new ExecutionUnitStatus
+            {
+                Phase = ResourcePhase.Ready,
+                UnitPhase = ExecutionUnitPhase.Ready,
+                ObservedGeneration = metadata.Generation,
+                AssignedHost = spec.PreferredHost,
+                Handle = Handle<ExecutionUnit>(TargetRouteSegmentKind.ExecutionUnit, metadata.Id.Value),
+            });
+
+        public ValueTask<ExecutionUnitStatus> StopAsync(
+            TargetHandle<ExecutionUnit> unit,
+            StopPolicy policy,
+            CancellationToken cancellationToken = default) =>
+            new(new ExecutionUnitStatus { Phase = ResourcePhase.Ready, UnitPhase = ExecutionUnitPhase.Stopped, Handle = unit });
+
+        public ValueTask DeleteAsync(ResourceRef<ExecutionUnit> unit, CancellationToken cancellationToken = default) =>
+            ValueTask.CompletedTask;
+
+        public ValueTask<ExecutionUnitStatus> GetStatusAsync(
+            TargetHandle<ExecutionUnit> unit,
+            CancellationToken cancellationToken = default) =>
+            new(new ExecutionUnitStatus { Phase = ResourcePhase.Ready, UnitPhase = ExecutionUnitPhase.Ready, Handle = unit });
     }
 
     [SkippableFact]
