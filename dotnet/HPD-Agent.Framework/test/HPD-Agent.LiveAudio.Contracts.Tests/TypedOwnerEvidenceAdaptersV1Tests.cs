@@ -141,4 +141,108 @@ public sealed class TypedOwnerEvidenceAdaptersV1Tests
                 parameter.ParameterType.Name.Contains("Store", StringComparison.Ordinal));
         });
     }
+
+    [Fact]
+    public async Task Typed_proposal_survives_crash_conflict_retry_replay_and_stale_fencing()
+    {
+        var directory = Path.Combine(Path.GetTempPath(),
+            "hpd-owner-adapter-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "authority.log");
+        FileAuthorityJournalV1? journal = null;
+        try
+        {
+            var session = new SessionAuthorityStampV1(
+                RuntimeGenerationId.Create(), LiveSessionId.Create());
+            var authority = ExpectedAuthorityVectorV1.Create(session, []);
+            var correlation = new CorrelationEnvelopeV1(
+                TenantId.Create(), operationId: OperationId.Create());
+            var registration = ActivityAuthorityPayloadRegistrationsV1.VadObservation;
+            var runtimeRegistration =
+                new AuthorityGenerationTransitionPayloadRegistrationV1(AuthorityAxisId.Runtime);
+            var registry = new AuthorityPayloadAdmissionRegistryV1(
+                [registration, runtimeRegistration]);
+            var capacity = new AuthorityJournalCapacityV1(4, 32, 4 * 1024 * 1024);
+
+            var proposal = TypedOwnerEvidenceAdaptersV1.VadObservation(
+                new VadObservationV1(session, authority, [1, 2, 3]),
+                JournalFactId.Create(), null, correlation, new UtcInstant(10));
+            AppendAuthorityBatchV1 Batch(long head, ProposedAuthorityFactV1 fact) =>
+                new(session, head, [], [fact], ProposedAuthorityFactV1.MaximumPayloadBytes);
+            ValueTask<FileAuthorityJournalV1> Open() =>
+                FileAuthorityJournalV1.OpenAsync(path, registry,
+                    static () => new UtcInstant(20), capacity);
+            ValueTask<FileAuthorityJournalV1> OpenWithFault(string stage) =>
+                FileAuthorityJournalV1.OpenForTestingAsync(path, registry,
+                    static () => new UtcInstant(20), capacity,
+                    value => value.ToString() == stage
+                        ? ValueTask.FromException(new IOException("injected-owner-adapter-crash"))
+                        : ValueTask.CompletedTask);
+
+            journal = await OpenWithFault("before-record-write");
+            await Assert.ThrowsAsync<IOException>(async () =>
+                await journal.AppendAsync(Batch(0, proposal)));
+            await journal.DisposeAsync();
+            journal = await Open();
+            var before = Assert.IsType<ReadAuthorityRangeResultV1.Batch>(
+                await journal.ReadAsync(new ReadAuthorityRangeV1(
+                    session, 0, long.MaxValue, 32, ProposedAuthorityFactV1.MaximumPayloadBytes)));
+            Assert.Empty(before.Facts);
+            await journal.DisposeAsync();
+
+            journal = await OpenWithFault("after-record-flush");
+            await Assert.ThrowsAsync<IOException>(async () =>
+                await journal.AppendAsync(Batch(0, proposal)));
+            await journal.DisposeAsync();
+            journal = await Open();
+            var after = Assert.IsType<ReadAuthorityRangeResultV1.Batch>(
+                await journal.ReadAsync(new ReadAuthorityRangeV1(
+                    session, 0, long.MaxValue, 32, ProposedAuthorityFactV1.MaximumPayloadBytes)));
+            var replayed = Assert.Single(after.Facts);
+            Assert.Equal(proposal.FactId, replayed.FactId);
+            Assert.Equal(proposal.Payload, replayed.Payload);
+
+            var retry = Assert.IsType<AppendAuthorityResultV1.AlreadyCommitted>(
+                await journal.AppendAsync(Batch(0, proposal)));
+            Assert.Equal(replayed.FactId, Assert.Single(retry.Envelopes).FactId);
+
+            var competing = TypedOwnerEvidenceAdaptersV1.VadObservation(
+                new VadObservationV1(session, authority, [4, 5, 6]),
+                JournalFactId.Create(), null, correlation, new UtcInstant(11));
+            Assert.IsType<AppendAuthorityResultV1.SessionConflict>(
+                await journal.AppendAsync(Batch(0, competing)));
+
+            Span<byte> currentBytes = stackalloc byte[16];
+            Assert.True(session.RuntimeGenerationId.TryWriteBytes(currentBytes));
+            var nextRuntime = RuntimeGenerationId.Create();
+            Span<byte> nextBytes = stackalloc byte[16];
+            Assert.True(nextRuntime.TryWriteBytes(nextBytes));
+            var transitionPayload = AuthorityGenerationTransitionCodecV1.Encode(
+                session, AuthorityAxisId.Runtime, StableId128.FromBytes(currentBytes),
+                StableId128.FromBytes(nextBytes));
+            var transition = new ProposedAuthorityFactV1(
+                JournalFactId.Create(), null, runtimeRegistration.Owner,
+                runtimeRegistration.Schema, transitionPayload,
+                AuthorityPayloadHashV1.Compute(runtimeRegistration.SchemaToken,
+                    runtimeRegistration.Schema, transitionPayload), correlation,
+                new UtcInstant(12));
+            Assert.IsType<AppendAuthorityResultV1.Committed>(
+                await journal.AppendAsync(Batch(1, transition)));
+            await journal.DisposeAsync();
+            journal = await Open();
+
+            var stale = TypedOwnerEvidenceAdaptersV1.VadObservation(
+                new VadObservationV1(session, authority, [7, 8, 9]),
+                JournalFactId.Create(), null, correlation, new UtcInstant(13));
+            var staleResult = Assert.IsType<AppendAuthorityResultV1.InvalidPayload>(
+                await journal.AppendAsync(Batch(2, stale)));
+            Assert.Equal("generation-state-conflict", staleResult.SafeCode.ToString());
+        }
+        finally
+        {
+            if (journal is not null) await journal.DisposeAsync();
+            try { Directory.Delete(directory, recursive: true); }
+            catch (DirectoryNotFoundException) { }
+        }
+    }
 }
