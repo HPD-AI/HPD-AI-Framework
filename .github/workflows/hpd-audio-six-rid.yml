@@ -14,12 +14,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { runner: ubuntu-24.04, rid: linux-x64, os: unix, library: HPD-Agent.Audio.TransportAbi.NativeAot.so }
-          - { runner: ubuntu-24.04-arm, rid: linux-arm64, os: unix, library: HPD-Agent.Audio.TransportAbi.NativeAot.so }
-          - { runner: macos-15-intel, rid: osx-x64, os: unix, library: HPD-Agent.Audio.TransportAbi.NativeAot.dylib }
-          - { runner: macos-14, rid: osx-arm64, os: unix, library: HPD-Agent.Audio.TransportAbi.NativeAot.dylib }
-          - { runner: windows-2025, rid: win-x64, os: windows, arch: x64, machine: X64, library: HPD-Agent.Audio.TransportAbi.NativeAot.dll }
-          - { runner: windows-11-arm, rid: win-arm64, os: windows, arch: arm64, machine: ARM64, library: HPD-Agent.Audio.TransportAbi.NativeAot.dll }
+          - { runner: ubuntu-24.04, rid: linux-x64, os: unix, library: HPD-Agent.Audio.Transport.Native.so }
+          - { runner: ubuntu-24.04-arm, rid: linux-arm64, os: unix, library: HPD-Agent.Audio.Transport.Native.so }
+          - { runner: macos-15-intel, rid: osx-x64, os: unix, library: HPD-Agent.Audio.Transport.Native.dylib }
+          - { runner: macos-14, rid: osx-arm64, os: unix, library: HPD-Agent.Audio.Transport.Native.dylib }
+          - { runner: windows-2025, rid: win-x64, os: windows, arch: x64, machine: X64, library: HPD-Agent.Audio.Transport.Native.dll }
+          - { runner: windows-11-arm, rid: win-arm64, os: windows, arch: arm64, machine: ARM64, library: HPD-Agent.Audio.Transport.Native.dll }
     runs-on: ${{ matrix.runner }}
     defaults:
       run:
@@ -35,7 +35,7 @@ jobs:
           arch: ${{ matrix.arch }}
       - name: Publish exact matching RID
         shell: pwsh
-        run: dotnet publish test/HPD-Agent.Audio.TransportAbi.NativeAot/HPD-Agent.Audio.TransportAbi.NativeAot.csproj -c Release -r ${{ matrix.rid }} -o ${{ runner.temp }}/hpd-audio-abi
+        run: dotnet publish src/HPD-Agent.Audio.Transport.Native/HPD-Agent.Audio.Transport.Native.csproj -c Release -r ${{ matrix.rid }} -o ${{ runner.temp }}/hpd-audio-abi
       - name: Verify Unix ABI and C lifecycle
         if: matrix.os == 'unix'
         shell: bash
@@ -44,10 +44,10 @@ jobs:
           lib="${RUNNER_TEMP}/hpd-audio-abi/${{ matrix.library }}"
           test -f "$lib"
           if [[ "${{ matrix.rid }}" == linux-* ]]; then symbols="$(nm -D "$lib")"; else symbols="$(nm -gU "$lib")"; fi
-          count="$(printf '%s\n' "$symbols" | grep -E 'hpd_audio_transport_(create|bind|start|stop|destroy)' | wc -l | tr -d ' ')"
+          count="$(printf '%s\n' "$symbols" | grep -E 'hpd_audio_transport_v1_(create|bind|start|stop|destroy)' | wc -l | tr -d ' ')"
           test "$count" = 5
-          cc -Wall -Wextra -Werror test/HPD-Agent.Audio.TransportAbi.NativeAot/transport_abi_smoke.c \
-            -Itest/HPD-Agent.Audio.TransportAbi.NativeAot "$lib" \
+          cc -Wall -Wextra -Werror src/HPD-Agent.Audio.Transport.Native/transport_native_smoke.c \
+            -Isrc/HPD-Agent.Audio.Transport.Native "$lib" \
             -Wl,-rpath,"${RUNNER_TEMP}/hpd-audio-abi" -o "${RUNNER_TEMP}/hpd-audio-abi-smoke"
           "${RUNNER_TEMP}/hpd-audio-abi-smoke"
       - name: Verify Windows ABI and C lifecycle
@@ -60,9 +60,9 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $exportText = $exports -join "`n"
           foreach ($name in 'create','bind','start','stop','destroy') {
-            if ($exportText -notmatch "hpd_audio_transport_$name") { throw "missing export $name" }
+            if ($exportText -notmatch "hpd_audio_transport_v1_$name") { throw "missing export $name" }
           }
-          & cl /nologo /W4 /WX test\HPD-Agent.Audio.TransportAbi.NativeAot\transport_abi_smoke_windows.c /Itest\HPD-Agent.Audio.TransportAbi.NativeAot "/Fe:$env:RUNNER_TEMP\hpd-audio-abi-smoke.exe"
+          & cl /nologo /W4 /WX src\HPD-Agent.Audio.Transport.Native\transport_native_smoke_windows.c /Isrc\HPD-Agent.Audio.Transport.Native "/Fe:$env:RUNNER_TEMP\hpd-audio-abi-smoke.exe"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           Copy-Item $dll (Join-Path $env:RUNNER_TEMP '${{ matrix.library }}')
           $env:PATH = "$out;$env:PATH"

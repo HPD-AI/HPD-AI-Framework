@@ -7,6 +7,11 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Agent.Audio.Transport.Native</PackageId>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../HPD-Agent.Audio.Transport.Abi/HPD-Agent.Audio.Transport.Abi.csproj" />
+  </ItemGroup>
 </Project>

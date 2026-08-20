@@ -1,0 +1,7 @@
+{
+  "schema": "hpd.audio.transport-native-qualification.v1",
+  "advertisedRids": ["linux-x64", "linux-arm64", "osx-x64", "osx-arm64", "win-x64", "win-arm64"],
+  "callingConvention": "cdecl",
+  "symbolPrefix": "hpd_audio_transport_v1_",
+  "exports": ["create", "bind", "start", "stop", "destroy"]
+}
