@@ -37,6 +37,11 @@ public sealed class GeneratedAgentCapabilityInvocationTests
 
         await agent.RunAsync(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "Use the generated capabilities.")] }, CancellationToken.None);
 
+        await WaitUntilAsync(() =>
+            events.OfType<ToolCallResultEvent>().Count() >= 2 &&
+            events.OfType<TextDeltaEvent>().Any(delta =>
+                delta.Text.Contains("generated capabilities completed", StringComparison.Ordinal)));
+
         var toolResults = events.OfType<ToolCallResultEvent>().ToArray();
         Assert.Contains(toolResults, result =>
             result.CallId == "call-subagent" &&
@@ -122,6 +127,14 @@ public sealed class GeneratedAgentCapabilityInvocationTests
         }
 
         return string.Empty;
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        for (var attempt = 0; attempt < 100 && !condition(); attempt++)
+            await Task.Delay(10);
+
+        Assert.True(condition(), "Expected generated capability events were not published within one second.");
     }
 
     private static AgentConfig DefaultConfig() => new()
