@@ -1,0 +1,18 @@
+{
+  "name": "@hpd/agent-audio-livekit",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/livekit-audio-transport-v1.js --bundle --format=iife --global-name=HpdLiveKit --outfile=dist/livekit-audio-transport-v1.js",
+    "test": "npm run build && playwright test --workers=1"
+  },
+  "dependencies": {
+    "livekit-client": "2.17.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "esbuild": "0.25.12",
+    "livekit-server-sdk": "2.15.0"
+  }
+}
