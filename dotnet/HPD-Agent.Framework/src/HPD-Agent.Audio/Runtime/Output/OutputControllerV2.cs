@@ -60,6 +60,8 @@ internal sealed class InMemoryOutputControllerV2 : IOutputControllerV2,IOutputSt
     public OutputStatusV2 Read()=>_state.Status with{};
     internal OutputPipelineResultV2 Generate(OutputSynthesisRequestV2 request,IOutputSynthesisProviderV2 provider)
         =>ApplyPipeline(OutputTtsSinkPipelineV2.Generate(_state,request,provider,_maximumReceipts));
+    internal OutputPipelineResultV2 Generate(OutputSynthesisEvidenceV2 evidence)
+        =>ApplyPipeline(OutputTtsSinkPipelineV2.Generate(_state,evidence,_maximumReceipts));
     internal OutputPipelineResultV2 Send(OutputSinkEffectV2.Send effect,IOutputSinkEffectPortV2 sink)
         =>ApplyPipeline(OutputTtsSinkPipelineV2.Send(_state,effect,sink,_maximumReceipts));
     internal OutputPipelineResultV2 Play(OutputSinkEffectV2.Play effect,IOutputSinkEffectPortV2 sink)

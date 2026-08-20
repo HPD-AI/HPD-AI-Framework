@@ -42,8 +42,10 @@ internal static class OutputTtsSinkPipelineV2
 {
     internal static OutputPipelineResultV2 Generate(OutputControllerStateV2 state,OutputSynthesisRequestV2 request,IOutputSynthesisProviderV2 provider,ushort maximumReceipts)
     {
-        ArgumentNullException.ThrowIfNull(state);ArgumentNullException.ThrowIfNull(provider);var evidence=provider.Synthesize(request);if(evidence.GeneratedUnits<=state.Status.GeneratedUntil||evidence.GeneratedUnits>state.Plan.MaximumUnits)return Reject(state,"output-synthesis-evidence-invalid");return Reduce(state,new OutputCommandV2.Generate(evidence.OperationId,state.Status.Revision,evidence.GeneratedUnits),maximumReceipts);
+        ArgumentNullException.ThrowIfNull(state);ArgumentNullException.ThrowIfNull(provider);return Generate(state,provider.Synthesize(request),maximumReceipts);
     }
+    internal static OutputPipelineResultV2 Generate(OutputControllerStateV2 state,OutputSynthesisEvidenceV2 evidence,ushort maximumReceipts)
+    {ArgumentNullException.ThrowIfNull(state);ArgumentNullException.ThrowIfNull(evidence);if(evidence.GeneratedUnits<=state.Status.GeneratedUntil||evidence.GeneratedUnits>state.Plan.MaximumUnits)return Reject(state,"output-synthesis-evidence-invalid");return Reduce(state,new OutputCommandV2.Generate(evidence.OperationId,state.Status.Revision,evidence.GeneratedUnits),maximumReceipts);}
     internal static OutputPipelineResultV2 Send(OutputControllerStateV2 state,OutputSinkEffectV2.Send effect,IOutputSinkEffectPortV2 sink,ushort maximumReceipts)=>Effect(state,effect,sink,new OutputCommandV2.Send(effect.OperationId,state.Status.Revision,effect.Until),maximumReceipts);
     internal static OutputPipelineResultV2 Play(OutputControllerStateV2 state,OutputSinkEffectV2.Play effect,IOutputSinkEffectPortV2 sink,ushort maximumReceipts)=>Effect(state,effect,sink,new OutputCommandV2.Play(effect.OperationId,state.Status.Revision,effect.Until),maximumReceipts);
     internal static OutputPipelineResultV2 Hear(OutputControllerStateV2 state,OutputSinkEffectV2.Hear effect,IOutputSinkEffectPortV2 sink,ushort maximumReceipts)=>Effect(state,effect,sink,new OutputCommandV2.Hear(effect.OperationId,state.Status.Revision,effect.Until),maximumReceipts);
