@@ -44,18 +44,6 @@ public sealed class AudioInteractionRuntimeRunner
             RequestId = request.RequestId
         };
         var inputMedia = request.InputContentRefs.ToArray();
-        var inputBindings = request.InputBindings.Count > 0
-            ? request.InputBindings
-            : inputMedia
-                .Select(content => new TransportBinding
-                {
-                    Kind = TransportBindingKind.ContentInput,
-                    SessionId = request.SessionId,
-                    Content = content,
-                    Thread = request.ThreadRef,
-                    Correlation = correlation
-                })
-                .ToArray();
 
         await TraceAsync(trace, new AudioPolicyTraceRecord
         {
@@ -127,21 +115,10 @@ public sealed class AudioInteractionRuntimeRunner
         }
 
         var envelopes = new List<CanonicalMediaEnvelope>();
-        var transportContext = new AudioTransportContext
+        foreach (var inputContent in inputMedia)
         {
-            SessionId = request.SessionId,
-            Thread = request.ThreadRef,
-            PolicySet = policy,
-            Correlation = correlation
-        };
-        var transportAdapters = request.TransportAdapters ??
-            new DefaultTransportAdapterRegistry(new ContentInputTransportAdapterFactory(_clock, _ids));
-
-        foreach (var binding in inputBindings)
-        {
-            await using var adapter = await transportAdapters
-                .CreateAsync(binding, transportContext, cancellationToken)
-                .ConfigureAwait(false);
+            await using var adapter = new ContentInputTransportAdapter(
+                _ids.NextTransportAdapterId(), request.SessionId, inputContent, policy, _clock);
 
             await adapter.StartAsync(cancellationToken: cancellationToken);
             await foreach (var transportEvent in adapter.ReadEventsAsync(cancellationToken))
@@ -655,15 +632,11 @@ public sealed record AudioInteractionRuntimeRequest
 
     public IReadOnlyList<InputContentRef> InputContentRefs { get; init; } = [];
 
-    public IReadOnlyList<TransportBinding> InputBindings { get; init; } = [];
-
     public ThreadRef ThreadRef { get; init; } = new("agent", "session", "main");
 
     public string? RequestId { get; init; }
 
     public AudioPolicySet? PolicySet { get; init; }
-
-    public ITransportAdapterRegistry? TransportAdapters { get; init; }
 
     public IProviderRoute? ProviderRoute { get; init; }
 

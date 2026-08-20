@@ -27,11 +27,11 @@ internal sealed class TransportCoordinatorStateV1
 }
 internal abstract record TransportAdapterEffectResultV1{private TransportAdapterEffectResultV1(){}internal sealed record Completed:TransportAdapterEffectResultV1;internal sealed record Refused(BoundedAscii SafeCode):TransportAdapterEffectResultV1;internal sealed record OutcomeUnknown(BoundedAscii SafeCode):TransportAdapterEffectResultV1;}
 internal interface ITransportLifecycleEffectPortV1{ValueTask<TransportAdapterEffectResultV1> ApplyAsync(TransportLifecycleCommandV1 command,CancellationToken cancellationToken);}
-internal sealed class FiniteManualTransportAdapterPortV1(ITransportAdapter adapter):ITransportLifecycleEffectPortV1
+internal sealed class FiniteManualTransportAdapterPortV1(ContentInputTransportAdapter adapter):ITransportLifecycleEffectPortV1
 {
     public async ValueTask<TransportAdapterEffectResultV1> ApplyAsync(TransportLifecycleCommandV1 command,CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(command);try{switch(command){case TransportLifecycleCommandV1.Bind:return new TransportAdapterEffectResultV1.Completed();case TransportLifecycleCommandV1.Start:await adapter.StartAsync(null,cancellationToken).ConfigureAwait(false);break;case TransportLifecycleCommandV1.Stop:await adapter.StopAsync(cancellationToken).ConfigureAwait(false);break;}return new TransportAdapterEffectResultV1.Completed();}
+        ArgumentNullException.ThrowIfNull(command);try{switch(command){case TransportLifecycleCommandV1.Bind:return new TransportAdapterEffectResultV1.Completed();case TransportLifecycleCommandV1.Start:await adapter.StartAsync(cancellationToken).ConfigureAwait(false);break;case TransportLifecycleCommandV1.Stop:await adapter.StopAsync(cancellationToken).ConfigureAwait(false);break;}return new TransportAdapterEffectResultV1.Completed();}
         catch(OperationCanceledException) when(cancellationToken.IsCancellationRequested){throw;}catch(Exception){return new TransportAdapterEffectResultV1.OutcomeUnknown(new BoundedAscii("transport-adapter-outcome-unknown"));}
     }
 }

@@ -4,7 +4,7 @@ using HPD.Agent.Audio.Transports;
 
 namespace HPD.Agent.Audio.Runtime.Transports;
 
-public sealed class ContentInputTransportAdapter : ITransportAdapter
+internal sealed class ContentInputTransportAdapter : IAsyncDisposable
 {
     private readonly List<TransportEvent> _events = [];
     private readonly RuntimeClock _clock;
@@ -33,8 +33,6 @@ public sealed class ContentInputTransportAdapter : ITransportAdapter
     public InputContentRef InputContent { get; }
 
     public TransportAdapterState State { get; private set; } = TransportAdapterState.Created;
-
-    public TransportCapability Capabilities => TransportCapability.FiniteInput | InputCapability(InputContent.Kind);
 
     public async IAsyncEnumerable<TransportEvent> ReadEventsAsync(
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
@@ -68,29 +66,11 @@ public sealed class ContentInputTransportAdapter : ITransportAdapter
         await Task.Yield();
     }
 
-    public ValueTask StartAsync(TransportOptions? options = null, CancellationToken cancellationToken = default)
+    public ValueTask StartAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         SetState(TransportAdapterState.Starting);
         SetState(TransportAdapterState.Active);
-        return ValueTask.CompletedTask;
-    }
-
-    public ValueTask SendAsync(CanonicalMediaEnvelope envelope, CancellationToken cancellationToken = default)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.CompletedTask;
-    }
-
-    public ValueTask ExecuteAsync(TransportCommand command, CancellationToken cancellationToken = default)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-
-        if (command is StopTransportCommand)
-        {
-            SetState(TransportAdapterState.Stopped);
-        }
-
         return ValueTask.CompletedTask;
     }
 
@@ -173,84 +153,4 @@ public sealed class ContentInputTransportAdapter : ITransportAdapter
             _ => MediaKind.Unknown
         };
 
-    private static TransportCapability InputCapability(InputContentKind kind) =>
-        kind switch
-        {
-            InputContentKind.Audio => TransportCapability.InputAudio,
-            InputContentKind.Image => TransportCapability.InputImage,
-            InputContentKind.Video => TransportCapability.InputVideo,
-            InputContentKind.Document => TransportCapability.InputDocument,
-            InputContentKind.Text => TransportCapability.InputControl,
-            _ => TransportCapability.None
-        };
-}
-
-public sealed class ContentInputTransportAdapterFactory : ITransportAdapterFactory
-{
-    private readonly RuntimeClock _clock;
-    private readonly RuntimeIdFactory _ids;
-
-    public ContentInputTransportAdapterFactory(RuntimeClock? clock = null, RuntimeIdFactory? ids = null)
-    {
-        _clock = clock ?? new RuntimeClock();
-        _ids = ids ?? new RuntimeIdFactory();
-    }
-
-    public bool CanCreate(TransportBinding binding) =>
-        binding.Kind is TransportBindingKind.ContentInput && binding.Content is not null;
-
-    public ValueTask<ITransportAdapter> CreateAsync(
-        TransportBinding binding,
-        AudioTransportContext context,
-        CancellationToken cancellationToken = default)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        if (!CanCreate(binding) || binding.Content is null)
-        {
-            throw new InvalidOperationException("Content input transport factory requires a content input binding.");
-        }
-
-        ITransportAdapter adapter = new ContentInputTransportAdapter(
-            _ids.NextTransportAdapterId(),
-            context.SessionId,
-            binding.Content,
-            context.PolicySet,
-            _clock);
-        return ValueTask.FromResult(adapter);
-    }
-}
-
-public sealed class DefaultTransportAdapterRegistry : ITransportAdapterRegistry
-{
-    private readonly IReadOnlyList<ITransportAdapterFactory> _factories;
-
-    public DefaultTransportAdapterRegistry(IEnumerable<ITransportAdapterFactory> factories)
-    {
-        ArgumentNullException.ThrowIfNull(factories);
-        _factories = factories.ToArray();
-    }
-
-    public DefaultTransportAdapterRegistry(params ITransportAdapterFactory[] factories)
-        : this((IEnumerable<ITransportAdapterFactory>)factories)
-    {
-    }
-
-    public async ValueTask<ITransportAdapter> CreateAsync(
-        TransportBinding binding,
-        AudioTransportContext context,
-        CancellationToken cancellationToken = default)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        foreach (var factory in _factories)
-        {
-            if (factory.CanCreate(binding))
-            {
-                return await factory.CreateAsync(binding, context, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-        }
-
-        throw new InvalidOperationException(
-            $"No transport adapter factory can create binding kind '{binding.Kind}'.");
-    }
 }
