@@ -59,7 +59,7 @@ SELECT value,'example.subject',1,printf('subject-%03d',value),$epoch,$incarnatio
             await using (var connection = new SqliteConnection($"Data Source={path};Pooling=False"))
             {
                 await connection.OpenAsync(); await using SqliteCommand seed = connection.CreateCommand(); seed.CommandText = """
-INSERT INTO hpd_base_subject_lifecycle_consumers(consumer_id,consumer_version,consumer_checksum,contract_id,contract_version,projection_generation,cutoff_position,published_graph_generation,state) VALUES('consumer.rebuild',1,$checksum,'example.subject',1,1,0,1,0);
+INSERT INTO hpd_base_subject_lifecycle_consumers(consumer_id,consumer_version,consumer_checksum,contract_id,contract_version,projection_generation,cutoff_position,published_graph_generation,state,installed_at,maximum_checkpoint_lag_ticks) VALUES('consumer.rebuild',1,$checksum,'example.subject',1,1,0,1,0,'2026-01-01T00:00:00.0000000+00:00',864000000000);
 WITH RECURSIVE rows(value) AS (VALUES(1) UNION ALL SELECT value+1 FROM rows WHERE value<300)
 INSERT INTO hpd_base_subject_lifecycle_facts(commit_position,contract_id,contract_version,subject_id,authority_epoch,incarnation,subject_sequence,contract_state_generation,delivery_epoch,fact_kind,previous_state,current_state,scope_kind,scope_index_digest,protected_scope_value)
 SELECT value,'example.subject',1,printf('subject-%03d',value),$epoch,$incarnation,1,1,1,0,NULL,0,0,$digest,X'' FROM rows;
@@ -102,8 +102,8 @@ SELECT value,'example.subject',1,printf('subject-%03d',value),$epoch,$incarnatio
                 await connection.OpenAsync();
                 await using SqliteCommand seed = connection.CreateCommand();
                 seed.CommandText = """
-INSERT INTO hpd_base_subject_lifecycle_consumers(consumer_id,consumer_version,consumer_checksum,contract_id,contract_version,projection_generation,cutoff_position,published_graph_generation,state)
-VALUES('consumer.remove',1,$checksum,'example.subject',1,1,0,1,0);
+INSERT INTO hpd_base_subject_lifecycle_consumers(consumer_id,consumer_version,consumer_checksum,contract_id,contract_version,projection_generation,cutoff_position,published_graph_generation,state,installed_at,maximum_checkpoint_lag_ticks)
+VALUES('consumer.remove',1,$checksum,'example.subject',1,1,0,1,0,'2026-01-01T00:00:00.0000000+00:00',864000000000);
 WITH RECURSIVE rows(value) AS (VALUES(1) UNION ALL SELECT value+1 FROM rows WHERE value<300)
 INSERT INTO hpd_base_subject_lifecycle_memberships(consumer_id,consumer_version,consumer_checksum,contract_id,contract_version,projection_generation,matched_state,scope_kind,scope_index_digest,protected_scope_value,commit_position,subject_id,authority_epoch,incarnation,subject_sequence)
 SELECT 'consumer.remove',1,$checksum,'example.subject',1,1,0,0,$digest,X'',value,printf('subject-%03d',value),$epoch,$incarnation,1 FROM rows;
@@ -776,7 +776,7 @@ SELECT 'consumer.remove',1,$checksum,'example.subject',1,1,0,0,$digest,X'',value
         {
             await using SqliteCommand command = connection.CreateCommand();
             command.Transaction = transaction;
-            command.CommandText = "INSERT INTO hpd_base_subject_lifecycle_consumers(consumer_id,consumer_version,consumer_checksum,contract_id,contract_version,projection_generation,cutoff_position,published_graph_generation,state) VALUES($consumer,1,$checksum,'example.subject',1,1,0,1,0);";
+            command.CommandText = "INSERT INTO hpd_base_subject_lifecycle_consumers(consumer_id,consumer_version,consumer_checksum,contract_id,contract_version,projection_generation,cutoff_position,published_graph_generation,state,installed_at,maximum_checkpoint_lag_ticks) VALUES($consumer,1,$checksum,'example.subject',1,1,0,1,0,'2026-01-01T00:00:00.0000000+00:00',864000000000);";
             command.Parameters.AddWithValue("$consumer", index == 0 ? "restore-consumer" : $"restore-consumer-{index:D3}");
             command.Parameters.AddWithValue("$checksum", new string('b', 64));
             await command.ExecuteNonQueryAsync();

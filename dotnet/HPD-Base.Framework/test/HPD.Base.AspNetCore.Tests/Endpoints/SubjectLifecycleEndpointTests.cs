@@ -141,10 +141,9 @@ public sealed class SubjectLifecycleEndpointTests
         {
             "/base/subject-lifecycle/feed/read",
             "/base/subject-lifecycle/feed/checkpoints",
-            "/base/subject-lifecycle/client-generation",
         })
         {
-            using var request = new HttpRequestMessage(route.EndsWith("client-generation", StringComparison.Ordinal) ? HttpMethod.Get : HttpMethod.Post, route);
+            using var request = new HttpRequestMessage(HttpMethod.Post, route);
             request.Headers.Add("X-Test-Principal", "service");
             using HttpResponseMessage response = await client.SendAsync(request);
             response.StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -168,19 +167,32 @@ public sealed class SubjectLifecycleEndpointTests
                     IssueNotBefore = DateTimeOffset.UnixEpoch,
                 })
                 .AddAspNetCore();
+            hpd.AddPolicyAuthority<RealtimeAllowPolicy>(new BasePolicyAuthorityDefinition
+            {
+                Id = "lifecycle.http.policy", Version = 1, OwningModuleId = "tests",
+                EvaluatorContractId = "lifecycle.http.policy", EvaluatorContractVersion = 1,
+                CompositionOrder = 0,
+            });
+            AddLifecycleGrant(hpd, "profiles.lifecycle.read", "lifecycle.http.application", "profiles.lifecycle");
+            AddLifecycleGrant(hpd, "base.subjectLifecycle.feed.read", "lifecycle.http.application", "base.subjectLifecycle.feed.read");
             hpd.AddCollection(HttpPrivateSubjectRecord.Collection);
             hpd.AddExportedSubject(HttpExportedSubject.HPDBaseSubjectRegistration).AddSubjectLifecycleConsumer(new()
             {
                 Id = "profiles.lifecycle", Version = 1, OwningModuleId = "profiles", Audience = BaseSubjectLifecycleConsumerAudience.Service,
                 ContractId = "http.exported-subject", ContractVersion = 1, ObservedStates = [BaseSubjectLifecycleState.Inactive, BaseSubjectLifecycleState.Tombstoned, BaseSubjectLifecycleState.Retired],
                 DeliveryGrantId = "profiles.lifecycle.read", Limits = new() { MaximumFactsPerPage = 64, MaximumResultBytes = 131072, MaximumCheckpointLag = TimeSpan.FromDays(1), ReadTimeout = TimeSpan.FromSeconds(5) },
+            }).AddSubjectLifecycleConsumer(new()
+            {
+                Id = "private.lifecycle", Version = 1, OwningModuleId = "private", Audience = BaseSubjectLifecycleConsumerAudience.Service,
+                ContractId = "http.exported-subject", ContractVersion = 1, ObservedStates = [BaseSubjectLifecycleState.Retired],
+                DeliveryGrantId = "private.lifecycle.read", Limits = new() { MaximumFactsPerPage = 64, MaximumResultBytes = 131072, MaximumCheckpointLag = TimeSpan.FromDays(1), ReadTimeout = TimeSpan.FromSeconds(5) },
             });
         });
         await using WebApplication app = builder.Build();
         app.MapHPDBaseApplicationApi(new() { AuthorizationPolicy = "application", MapRecords = false, MapRegisteredReads = false, MapClientGeneration = true, MapSubjectLifecycle = true });
         await app.StartAsync(); HttpClient client = app.GetTestClient();
 
-        using var generationRequest = new HttpRequestMessage(HttpMethod.Get, "/base/subject-lifecycle/client-generation");
+        using var generationRequest = new HttpRequestMessage(HttpMethod.Get, "/base/client-generation");
         generationRequest.Headers.Add("X-Test-Principal", "service");
         using HttpResponseMessage generated = await client.SendAsync(generationRequest);
         generated.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -212,18 +224,18 @@ public sealed class SubjectLifecycleEndpointTests
         browserSnapshot.RootElement.GetProperty("endpoints").EnumerateArray().Select(value => value.GetProperty("operation").GetString()).Should()
             .NotContain(["SubjectLifecycleRead", "SubjectLifecycleCheckpoint"]);
         browserSnapshot.RootElement.GetProperty("capabilities").EnumerateArray().Select(value => value.GetProperty("id").GetString()).Should()
-            .NotContain([HPDBaseCapabilities.SubjectLifecycleFeedRead, HPDBaseCapabilities.SubjectLifecycleFeedCheckpoint, HPDBaseCapabilities.SubjectLifecycleClientGenerate]);
+            .NotContain([HPDBaseCapabilities.SubjectLifecycleFeedRead, HPDBaseCapabilities.SubjectLifecycleFeedCheckpoint]);
 
         using var browserRead = new HttpRequestMessage(HttpMethod.Post, "/base/subject-lifecycle/feed/read")
-        { Content = new StringContent("{\"consumerId\":\"profiles.lifecycle\",\"consumerVersion\":1,\"take\":1}", Encoding.UTF8, "application/json") };
+        { Content = new StringContent("{\"consumerId\":\"profiles.lifecycle\",\"consumerVersion\":1,\"contractId\":\"http.exported-subject\",\"contractVersion\":1,\"take\":1}", Encoding.UTF8, "application/json") };
         browserRead.Headers.Add("X-Test-Principal", "application");
         using HttpResponseMessage denied = await client.SendAsync(browserRead);
         denied.StatusCode.Should().Be(HttpStatusCode.Forbidden);
 
         foreach (string invalidBody in new[]
         {
-            "{\"consumerId\":\"profiles.lifecycle\",\"consumerId\":\"profiles.lifecycle\",\"consumerVersion\":1,\"take\":1}",
-            "{\"consumerId\":\"profiles.lifecycle\",\"consumerVersion\":1,\"take\":1,\"checkpoint\":\"forbidden\"}",
+            "{\"consumerId\":\"profiles.lifecycle\",\"consumerId\":\"profiles.lifecycle\",\"consumerVersion\":1,\"contractId\":\"http.exported-subject\",\"contractVersion\":1,\"take\":1}",
+            "{\"consumerId\":\"profiles.lifecycle\",\"consumerVersion\":1,\"contractId\":\"http.exported-subject\",\"contractVersion\":1,\"take\":1,\"checkpoint\":\"forbidden\"}",
         })
         {
             using var invalidRead = new HttpRequestMessage(HttpMethod.Post, "/base/subject-lifecycle/feed/read")
@@ -235,7 +247,7 @@ public sealed class SubjectLifecycleEndpointTests
 
         using var substitutedIdentity = new HttpRequestMessage(HttpMethod.Post, "/base/subject-lifecycle/feed/checkpoints")
         {
-            Content = new StringContent("""{"consumerId":"profiles.lifecycle","consumerVersion":1,"checkpoint":"ponmlkjihgfedcba","identity":{"scope":"subject-lifecycle:profiles.lifecycle","operation":"subjectLifecycle.advance","idempotencyKey":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","fingerprint":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}}""", Encoding.UTF8, "application/json"),
+            Content = new StringContent("""{"consumerId":"profiles.lifecycle","consumerVersion":1,"contractId":"http.exported-subject","contractVersion":1,"checkpoint":"ponmlkjihgfedcba","identity":{"scope":"subject-lifecycle:profiles.lifecycle","operation":"subjectLifecycle.advance","idempotencyKey":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","fingerprint":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}}""", Encoding.UTF8, "application/json"),
         };
         substitutedIdentity.Headers.Add("X-Test-Principal", "service");
         substitutedIdentity.Headers.Add(BaseHttpHeaders.IdempotencyKey, new string('b', 64));

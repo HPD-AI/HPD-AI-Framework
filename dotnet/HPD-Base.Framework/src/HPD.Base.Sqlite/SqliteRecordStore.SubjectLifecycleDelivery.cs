@@ -37,6 +37,7 @@ public sealed partial class SqliteRecordStore
         await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
         if (await LifecycleMaintenanceActiveAsync(connection, cancellationToken).ConfigureAwait(false))
             return LifecycleReadFailure(BaseSubjectErrorCodes.MaintenanceRequired, OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
+        long installedProjectionGeneration;
         await using (SqliteCommand installed = connection.CreateCommand())
         {
             installed.CommandTimeout = TimeoutSeconds();
@@ -46,8 +47,9 @@ public sealed partial class SqliteRecordStore
             if (!await installedReader.ReadAsync(cancellationToken).ConfigureAwait(false)
                 || !string.Equals(installedReader.GetString(0), request.ConsumerChecksum, StringComparison.Ordinal)
                 || !string.Equals(installedReader.GetString(1), request.ContractId, StringComparison.Ordinal)
-                || installedReader.GetInt32(2) != request.ContractVersion || installedReader.GetInt64(3) != request.ProjectionGeneration || installedReader.GetInt32(4) != 0)
+                || installedReader.GetInt32(2) != request.ContractVersion || installedReader.GetInt32(4) != 0)
                 return LifecycleReadFailure(BaseSubjectErrorCodes.LifecycleProviderContractInvalid, OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
+            installedProjectionGeneration = installedReader.GetInt64(3);
         }
 
         BaseSubjectLifecycleOrderingBoundary? durableThrough = null; long durableGeneration = 0;
@@ -58,6 +60,8 @@ public sealed partial class SqliteRecordStore
             await using SqliteDataReader checkpointReader = await durable.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             if (await checkpointReader.ReadAsync(cancellationToken).ConfigureAwait(false)) { if (!_subjectScopes.Matches(new BaseProtectedSubjectScope { Kind = request.Scope.Kind, IndexDigest = protectedScope.IndexDigest, ProtectedCanonicalValue = (byte[])checkpointReader.GetValue(6) }, request.Scope)) return LifecycleReadFailure(BaseSubjectErrorCodes.LifecycleProviderContractInvalid, OperationStatus.CapabilityUnavailable, ErrorCategory.Capability); if (checkpointReader.GetInt32(7) != 0) return LifecycleReadFailure(BaseSubjectErrorCodes.CursorOvertaken, OperationStatus.Conflict, ErrorCategory.Conflict); durableGeneration = checkpointReader.GetInt64(5); if (!checkpointReader.IsDBNull(0)) durableThrough = new() { CommitPosition = new(checkpointReader.GetInt64(0)), SubjectId = BaseSubjectId.Create(checkpointReader.GetString(1), contract.SubjectIdKind), AuthorityEpoch = new((byte[])checkpointReader.GetValue(2)), Incarnation = new((byte[])checkpointReader.GetValue(3)), SubjectSequence = checkpointReader.GetInt64(4) }; }
         }
+        if (installedProjectionGeneration != request.ProjectionGeneration)
+            return LifecycleReadFailure(BaseSubjectErrorCodes.LifecycleProviderContractInvalid, OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
         BaseSubjectLifecycleOrderingBoundary? earliestRetained = await ReadLifecycleMembershipBoundaryAsync(connection, request, protectedScope, contract, descending: false, cancellationToken).ConfigureAwait(false);
         BaseSubjectLifecycleOrderingBoundary? highWater = await ReadLifecycleMembershipBoundaryAsync(connection, request, protectedScope, contract, descending: true, cancellationToken).ConfigureAwait(false);
         BaseSubjectLifecycleOrderingBoundary? effectiveAfter = request.After is null ? durableThrough
@@ -1204,11 +1208,63 @@ DELETE FROM {owner._names.SubjectLifecycleMaintenance} WHERE singleton=1;
         {
             if (owner._subjectScopes is null) return null;
             BaseProtectedSubjectScope scope = owner._subjectScopes.Protect(request.Scope!, owner._subjectScopeProtectionKey!.Value);
-            await using SqliteCommand update = connection.CreateCommand(); update.Transaction = transaction; update.CommandTimeout = owner.TimeoutSeconds();
-            update.CommandText = $"UPDATE {owner._names.SubjectLifecycleCheckpoints} SET state=1,overtaken_at=$at,checkpoint_generation=checkpoint_generation+1 WHERE consumer_id=$consumer AND consumer_version=$version AND scope_kind=$scopeKind AND scope_index_digest=$scopeDigest AND state=0 RETURNING projection_generation;";
-            update.Parameters.AddWithValue("$at", owner._timeProvider.GetUtcNow().ToString("O")); update.Parameters.AddWithValue("$consumer", request.ConsumerId!); update.Parameters.AddWithValue("$version", request.ConsumerVersion!.Value); AddScopeQuery(update, scope);
-            object? value = await update.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false); if (value is null) return null;
-            changed.Add($"checkpoint\0{request.ConsumerId}\0{request.ConsumerVersion}"); return Convert.ToInt64(value, System.Globalization.CultureInfo.InvariantCulture);
+            BaseExportedSubjectDefinition? contract = owner._options.ExportedSubjects.SingleOrDefault(value => value.Id == request.ContractId && value.Version == request.ContractVersion);
+            if (contract is null || request.RetainedFrom is null) return null;
+            await using SqliteCommand read = connection.CreateCommand(); read.Transaction = transaction; read.CommandTimeout = owner.TimeoutSeconds();
+            read.CommandText = $"""
+SELECT p.projection_generation,p.consumer_checksum,p.contract_id,p.contract_version,
+       p.cutoff_position,p.cutoff_subject_id,p.cutoff_authority_epoch,p.cutoff_incarnation,p.cutoff_sequence,
+       p.installed_at,p.maximum_checkpoint_lag_ticks,
+       c.through_position,c.through_subject_id,c.through_authority_epoch,c.through_incarnation,c.through_sequence,
+       c.checkpoint_generation,c.advanced_at,c.state,c.protected_scope_value
+FROM {owner._names.SubjectLifecycleConsumers} p
+LEFT JOIN {owner._names.SubjectLifecycleCheckpoints} c
+  ON c.consumer_id=p.consumer_id AND c.consumer_version=p.consumer_version
+ AND c.scope_kind=$scopeKind AND c.scope_index_digest=$scopeDigest
+WHERE p.consumer_id=$consumer AND p.consumer_version=$version AND p.state=0;
+""";
+            read.Parameters.AddWithValue("$consumer", request.ConsumerId!); read.Parameters.AddWithValue("$version", request.ConsumerVersion!.Value); AddScopeQuery(read, scope);
+            long projectionGeneration; string checksum; string contractId; int contractVersion; BaseSubjectLifecycleOrderingBoundary? cutoff; DateTimeOffset installedAt; TimeSpan maximumLag;
+            BaseSubjectLifecycleOrderingBoundary? through; long? checkpointGeneration; DateTimeOffset? advancedAt; int? state;
+            await using (SqliteDataReader reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) return null;
+                projectionGeneration=reader.GetInt64(0); checksum=reader.GetString(1); contractId=reader.GetString(2); contractVersion=reader.GetInt32(3);
+                cutoff=reader.IsDBNull(5)?null:new(){CommitPosition=new(reader.GetInt64(4)),SubjectId=BaseSubjectId.Create(reader.GetString(5),contract.SubjectIdKind),AuthorityEpoch=new((byte[])reader.GetValue(6)),Incarnation=new((byte[])reader.GetValue(7)),SubjectSequence=reader.GetInt64(8)};
+                installedAt=DateTimeOffset.Parse(reader.GetString(9),System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.RoundtripKind);
+                maximumLag=TimeSpan.FromTicks(reader.GetInt64(10));
+                through=reader.IsDBNull(12)?null:new(){CommitPosition=new(reader.GetInt64(11)),SubjectId=BaseSubjectId.Create(reader.GetString(12),contract.SubjectIdKind),AuthorityEpoch=new((byte[])reader.GetValue(13)),Incarnation=new((byte[])reader.GetValue(14)),SubjectSequence=reader.GetInt64(15)};
+                checkpointGeneration=reader.IsDBNull(16)?null:reader.GetInt64(16); advancedAt=reader.IsDBNull(17)?null:DateTimeOffset.Parse(reader.GetString(17),System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.RoundtripKind); state=reader.IsDBNull(18)?null:reader.GetInt32(18);
+                if (!reader.IsDBNull(19) && !owner._subjectScopes.Matches(new BaseProtectedSubjectScope{Kind=request.Scope!.Kind,IndexDigest=scope.IndexDigest,ProtectedCanonicalValue=(byte[])reader.GetValue(19)},request.Scope)) return null;
+            }
+            if (state is not null and not 0) return null;
+            BaseSubjectLifecycleOrderingBoundary? effective = checkpointGeneration is null ? cutoff : through;
+            if (effective is not null && CompareLifecycleBoundary(effective, request.RetainedFrom) >= 0) return null;
+            await using (SqliteCommand retained = connection.CreateCommand())
+            {
+                retained.Transaction = transaction; retained.CommandTimeout = owner.TimeoutSeconds();
+                retained.CommandText = $"SELECT EXISTS(SELECT 1 FROM {owner._names.SubjectLifecycleFacts} WHERE contract_id=$contract AND contract_version=$contractVersion AND scope_kind=$scopeKind AND scope_index_digest=$scopeDigest AND commit_position=$position AND subject_id=$subject AND authority_epoch=$epoch AND incarnation=$incarnation AND subject_sequence=$sequence);";
+                retained.Parameters.AddWithValue("$contract", contractId); retained.Parameters.AddWithValue("$contractVersion", contractVersion); AddScopeQuery(retained, scope);
+                retained.Parameters.AddWithValue("$position", request.RetainedFrom.CommitPosition.Value); retained.Parameters.AddWithValue("$subject", request.RetainedFrom.SubjectId.Value);
+                retained.Parameters.Add("$epoch", SqliteType.Blob).Value = request.RetainedFrom.AuthorityEpoch.ToArray(); retained.Parameters.Add("$incarnation", SqliteType.Blob).Value = request.RetainedFrom.Incarnation.ToArray(); retained.Parameters.AddWithValue("$sequence", request.RetainedFrom.SubjectSequence);
+                if (Convert.ToInt32(await retained.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture) == 0) return null;
+            }
+            DateTimeOffset authorityTime = advancedAt ?? installedAt;
+            DateTimeOffset now = owner._timeProvider.GetUtcNow();
+            if (now < authorityTime.Add(maximumLag)) return null;
+            if (checkpointGeneration is null)
+            {
+                await using SqliteCommand insert = connection.CreateCommand(); insert.Transaction=transaction; insert.CommandTimeout=owner.TimeoutSeconds();
+                insert.CommandText=$"INSERT INTO {owner._names.SubjectLifecycleCheckpoints}(consumer_id,consumer_version,consumer_checksum,contract_id,contract_version,projection_generation,scope_kind,scope_index_digest,protected_scope_value,through_position,through_subject_id,through_authority_epoch,through_incarnation,through_sequence,checkpoint_generation,advanced_at,overtaken_at,state) VALUES($consumer,$version,$checksum,$contract,$contractVersion,$projection,$scopeKind,$scopeDigest,$scopeValue,$position,$subject,$epoch,$incarnation,$sequence,1,$advanced,$overtaken,1);";
+                insert.Parameters.AddWithValue("$consumer",request.ConsumerId!);insert.Parameters.AddWithValue("$version",request.ConsumerVersion.Value);insert.Parameters.AddWithValue("$checksum",checksum);insert.Parameters.AddWithValue("$contract",contractId);insert.Parameters.AddWithValue("$contractVersion",contractVersion);insert.Parameters.AddWithValue("$projection",projectionGeneration);insert.Parameters.AddWithValue("$scopeKind",(int)scope.Kind);insert.Parameters.Add("$scopeDigest",SqliteType.Blob).Value=scope.IndexDigest;insert.Parameters.Add("$scopeValue",SqliteType.Blob).Value=scope.ProtectedCanonicalValue;
+                insert.Parameters.AddWithValue("$position",cutoff is null?DBNull.Value:cutoff.CommitPosition.Value);insert.Parameters.AddWithValue("$subject",cutoff is null?DBNull.Value:cutoff.SubjectId.Value);insert.Parameters.Add("$epoch",SqliteType.Blob).Value=cutoff is null?DBNull.Value:cutoff.AuthorityEpoch.ToArray();insert.Parameters.Add("$incarnation",SqliteType.Blob).Value=cutoff is null?DBNull.Value:cutoff.Incarnation.ToArray();insert.Parameters.AddWithValue("$sequence",cutoff is null?DBNull.Value:cutoff.SubjectSequence);insert.Parameters.AddWithValue("$advanced",installedAt.ToString("O",System.Globalization.CultureInfo.InvariantCulture));insert.Parameters.AddWithValue("$overtaken",now.ToString("O",System.Globalization.CultureInfo.InvariantCulture));
+                if(await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false)!=1)return null;
+            }
+            else
+            {
+                await using SqliteCommand update=connection.CreateCommand();update.Transaction=transaction;update.CommandTimeout=owner.TimeoutSeconds();update.CommandText=$"UPDATE {owner._names.SubjectLifecycleCheckpoints} SET state=1,overtaken_at=$at,checkpoint_generation=checkpoint_generation+1 WHERE consumer_id=$consumer AND consumer_version=$version AND scope_kind=$scopeKind AND scope_index_digest=$scopeDigest AND checkpoint_generation=$generation AND state=0;";update.Parameters.AddWithValue("$at",now.ToString("O",System.Globalization.CultureInfo.InvariantCulture));update.Parameters.AddWithValue("$consumer",request.ConsumerId!);update.Parameters.AddWithValue("$version",request.ConsumerVersion.Value);update.Parameters.AddWithValue("$generation",checkpointGeneration.Value);AddScopeQuery(update,scope);if(await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false)!=1)return null;
+            }
+            changed.Add($"checkpoint\0{request.ConsumerId}\0{request.ConsumerVersion}\0{request.RetainedFrom.CommitPosition.Value}"); return projectionGeneration;
         }
 
         private async ValueTask<long> ReadMaximumProjectionGenerationAsync(SqliteConnection connection, SqliteTransaction transaction, CancellationToken cancellationToken)

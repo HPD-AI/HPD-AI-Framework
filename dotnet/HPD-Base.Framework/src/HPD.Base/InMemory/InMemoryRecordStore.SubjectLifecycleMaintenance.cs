@@ -104,7 +104,7 @@ internal sealed partial class InMemoryRecordStore
         }
     }
 
-    private static void PagePrune(InMemoryLifecycleMaintenanceProgress p, ref int consumed, int take)
+    private void PagePrune(InMemoryLifecycleMaintenanceProgress p, ref int consumed, int take)
     {
         BaseSubjectLifecycleOrderingBoundary retained = p.Request.RetainedFrom!;
         if (p.Domain == 0)
@@ -115,7 +115,7 @@ internal sealed partial class InMemoryRecordStore
                 checked { consumed++; }
                 if (row.Fact.ContractId != p.Request.ContractId || row.Fact.ContractVersion != p.Request.ContractVersion || CompareBoundary(row.Boundary, retained) >= 0) continue;
                 checked { p.Examined++; }
-                InMemorySubjectLifecycleCheckpointState? checkpoint = p.Original.SubjectLifecycleCheckpoints.Values.SingleOrDefault(value => value.ConsumerId == membership.ConsumerId && value.ConsumerVersion == membership.ConsumerVersion && ScopeEquals(value.Scope, row.Scope));
+                InMemorySubjectLifecycleCheckpointState? checkpoint = p.Original.SubjectLifecycleCheckpoints.GetValueOrDefault(ProtectedScopeKey(membership.ConsumerId, membership.ConsumerVersion, membership.Scope));
                 if (checkpoint is null || !checkpoint.Overtaken && (checkpoint.Through is null || CompareBoundary(checkpoint.Through, row.Boundary) < 0)) continue;
                 p.MembershipRemovals.Add(index); p.Evidence($"membership\0{membership.ConsumerId}\0{row.Boundary.CommitPosition.Value}\0{row.Boundary.SubjectId.Value}");
             }
@@ -140,7 +140,7 @@ internal sealed partial class InMemoryRecordStore
                 checked { consumed++; }
                 if (row.Fact.ContractId != p.Request.ContractId || row.Fact.ContractVersion != p.Request.ContractVersion || CompareBoundary(row.Boundary, retained) >= 0) continue;
                 checked { p.Examined++; }
-                bool terminal = p.Original.SubjectTerminals.Values.Any(value => value.ContractId == row.Fact.ContractId && value.ContractVersion == row.Fact.ContractVersion && ScopeEquals(value.Scope, row.Scope) && value.RetiredPosition == row.Boundary.CommitPosition.Value && value.SubjectId.Equals(row.Boundary.SubjectId) && value.AuthorityEpoch.Equals(row.Boundary.AuthorityEpoch) && value.Incarnation.Equals(row.Boundary.Incarnation) && value.SubjectSequence == row.Boundary.SubjectSequence);
+                bool terminal = p.Original.SubjectTerminals.Values.Any(value => value.ContractId == row.Fact.ContractId && value.ContractVersion == row.Fact.ContractVersion && _subjectScopes.Matches(row.Scope, value.Scope) && value.RetiredPosition == row.Boundary.CommitPosition.Value && value.SubjectId.Equals(row.Boundary.SubjectId) && value.AuthorityEpoch.Equals(row.Boundary.AuthorityEpoch) && value.Incarnation.Equals(row.Boundary.Incarnation) && value.SubjectSequence == row.Boundary.SubjectSequence);
                 if (p.RetainedFactIndexes.Contains(index) || terminal) continue;
                 p.FactRemovals.Add(index); p.Evidence($"fact\0{row.Boundary.CommitPosition.Value}\0{row.Boundary.SubjectId.Value}");
             }
@@ -202,7 +202,7 @@ internal sealed partial class InMemoryRecordStore
             checked { p.Examined++; }
             BaseSubjectLifecycleState state = row.Fact.Kind switch { BaseSubjectLifecycleFactKind.Created => row.Fact.Created!.CurrentState, BaseSubjectLifecycleFactKind.Transitioned => row.Fact.Transitioned!.CurrentState, _ => BaseSubjectLifecycleState.Retired };
             if (!definition.ObservedStates.Contains(state)) continue;
-            p.MembershipAdds.Add(new(definition.Id, definition.Version, projection.ConsumerChecksum, p.ProjectionGeneration.Value, state, index)); p.Evidence($"membership\0{definition.Id}\0{row.Boundary.CommitPosition.Value}\0{row.Boundary.SubjectId.Value}");
+            p.MembershipAdds.Add(new(definition.Id, definition.Version, projection.ConsumerChecksum, p.ProjectionGeneration.Value, state, row.Scope, index)); p.Evidence($"membership\0{definition.Id}\0{row.Boundary.CommitPosition.Value}\0{row.Boundary.SubjectId.Value}");
         }
         if (p.Index >= p.Original.SubjectLifecycleFacts.Count) { checked { p.Examined++; } p.Evidence($"consumer\0{key}\0{p.ProjectionGeneration}"); p.Complete = true; }
     }
@@ -218,8 +218,9 @@ internal sealed partial class InMemoryRecordStore
         if (p.Domain == 0) { RotateDictionaryPage(p, p.Original.SubjectLifetimes.Keys.Order(StringComparer.Ordinal).ToArray(), ref consumed, take, key => { InMemorySubjectLifetimeState value=p.Original.SubjectLifetimes[key];p.Working.SubjectLifetimes.Remove(key);string replacement=LifecycleScopeKey(value.Scope,value.ContractId,value.ContractVersion,value.SubjectId,keyId);if(!p.Working.SubjectLifetimes.TryAdd(replacement,value))throw new InvalidDataException(BaseSubjectErrorCodes.LifecycleProviderContractInvalid);return $"lifetime\0{replacement}";}); return; }
         if (p.Domain == 1) { RotateDictionaryPage(p, p.Original.SubjectTerminals.Keys.Order(StringComparer.Ordinal).ToArray(), ref consumed, take, key => { InMemorySubjectTerminalState value=p.Original.SubjectTerminals[key];p.Working.SubjectTerminals.Remove(key);string replacement=LifecycleScopeKey(value.Scope,value.ContractId,value.ContractVersion,value.SubjectId,keyId);if(!p.Working.SubjectTerminals.TryAdd(replacement,value))throw new InvalidDataException(BaseSubjectErrorCodes.LifecycleProviderContractInvalid);return $"terminal\0{replacement}";}); return; }
         if (p.Domain == 2) { string[] keys=p.Original.SubjectLifecycleConsumers.Keys.Order(StringComparer.Ordinal).ToArray();RotateDictionaryPage(p,keys,ref consumed,take,key=>{InMemorySubjectLifecycleConsumerProjection value=p.Original.SubjectLifecycleConsumers[key];p.Working.SubjectLifecycleConsumers[key]=value with { ProjectionGeneration=checked(value.ProjectionGeneration+1),PublishedGraphGeneration=checked(value.PublishedGraphGeneration+1)};p.ProjectionGeneration=Math.Max(p.ProjectionGeneration??1,value.ProjectionGeneration+1);return $"consumer\0{key}";});return; }
-        if (p.Domain == 3) { while(p.Index<p.Original.SubjectLifecycleMemberships.Count&&consumed<take){int index=p.Index++;InMemorySubjectLifecycleMembershipRow value=p.Original.SubjectLifecycleMemberships[index];p.Working.SubjectLifecycleMemberships[index]=value with { ProjectionGeneration=checked(value.ProjectionGeneration+1)};checked{p.Examined++;consumed++;}p.Evidence($"membership\0{value.ConsumerId}\0{index}");}if(p.Index>=p.Original.SubjectLifecycleMemberships.Count){p.Domain++;p.Index=0;}return; }
-        if (p.Domain == 4) { RotateDictionaryPage(p,p.Original.SubjectLifecycleCheckpoints.Keys.Order(StringComparer.Ordinal).ToArray(),ref consumed,take,key=>{InMemorySubjectLifecycleCheckpointState value=p.Original.SubjectLifecycleCheckpoints[key];p.Working.SubjectLifecycleCheckpoints[key]=value with { ProjectionGeneration=checked(value.ProjectionGeneration+1),Generation=checked(value.Generation+1)};return $"checkpoint\0{key}";});return; }
+        if (p.Domain == 3) { while(p.Index<p.Original.SubjectLifecycleFacts.Count&&consumed<take){int index=p.Index++;InMemorySubjectLifecycleFactRow value=p.Original.SubjectLifecycleFacts[index];BaseOwnedSubjectScopeEvidence scope=_subjectScopes.Unprotect(value.Scope)??throw new InvalidDataException(BaseSubjectErrorCodes.LifecycleProviderContractInvalid);p.Working.SubjectLifecycleFacts[index]=value with { Scope=_subjectScopes.Protect(scope,keyId)};checked{p.Examined++;consumed++;}p.Evidence($"fact\0{index}");}if(p.Index>=p.Original.SubjectLifecycleFacts.Count){p.Domain++;p.Index=0;}return; }
+        if (p.Domain == 4) { while(p.Index<p.Original.SubjectLifecycleMemberships.Count&&consumed<take){int index=p.Index++;InMemorySubjectLifecycleMembershipRow value=p.Original.SubjectLifecycleMemberships[index];BaseOwnedSubjectScopeEvidence scope=_subjectScopes.Unprotect(value.Scope)??throw new InvalidDataException(BaseSubjectErrorCodes.LifecycleProviderContractInvalid);p.Working.SubjectLifecycleMemberships[index]=value with { ProjectionGeneration=checked(value.ProjectionGeneration+1),Scope=_subjectScopes.Protect(scope,keyId)};checked{p.Examined++;consumed++;}p.Evidence($"membership\0{value.ConsumerId}\0{index}");}if(p.Index>=p.Original.SubjectLifecycleMemberships.Count){p.Domain++;p.Index=0;}return; }
+        if (p.Domain == 5) { string[] keys=p.Original.SubjectLifecycleCheckpoints.Keys.Order(StringComparer.Ordinal).ToArray();while(p.Index<keys.Length&&consumed<take){string oldKey=keys[p.Index++];InMemorySubjectLifecycleCheckpointState value=p.Original.SubjectLifecycleCheckpoints[oldKey];BaseOwnedSubjectScopeEvidence scope=_subjectScopes.Unprotect(value.Scope)??throw new InvalidDataException(BaseSubjectErrorCodes.LifecycleProviderContractInvalid);BaseProtectedSubjectScope replacement=_subjectScopes.Protect(scope,keyId);string newKey=ProtectedScopeKey(value.ConsumerId,value.ConsumerVersion,replacement);p.Working.SubjectLifecycleCheckpoints.Remove(oldKey);if(!p.Working.SubjectLifecycleCheckpoints.TryAdd(newKey,value with { Scope=replacement,ProjectionGeneration=checked(value.ProjectionGeneration+1),Generation=checked(value.Generation+1)}))throw new InvalidDataException(BaseSubjectErrorCodes.LifecycleProviderContractInvalid);checked{p.Examined++;consumed++;}p.Evidence($"checkpoint\0{newKey}");}if(p.Index>=keys.Length){p.Domain++;p.Index=0;}return; }
         checked { p.Working.SubjectLifecycleDeliveryEpoch++; p.Examined++; consumed++; }
         p.Evidence($"authority\0{p.ReplacementScopeGeneration}\0{p.Working.SubjectLifecycleDeliveryEpoch}"); p.Complete=true;
     }
@@ -252,6 +253,7 @@ internal sealed partial class InMemoryRecordStore
             p.Working.SubjectLifecycleMemberships.AddRange(p.MembershipAdds);string key=$"{p.Request.ConsumerId}\n{p.Request.ConsumerVersion}";InMemorySubjectLifecycleConsumerProjection projection=p.Working.SubjectLifecycleConsumers[key];p.Working.SubjectLifecycleConsumers[key]=projection with { ProjectionGeneration=p.ProjectionGeneration!.Value };
             foreach((string checkpointKey,InMemorySubjectLifecycleCheckpointState checkpoint) in p.Working.SubjectLifecycleCheckpoints.Where(pair=>pair.Value.ConsumerId==p.Request.ConsumerId&&pair.Value.ConsumerVersion==p.Request.ConsumerVersion).ToArray())p.Working.SubjectLifecycleCheckpoints[checkpointKey]=checkpoint with { ProjectionGeneration=p.ProjectionGeneration.Value,Generation=checked(checkpoint.Generation+1),Overtaken=false};
         }
+        p.Working.RebuildSubjectLifecycleMembershipIndex();
     }
 
     private static OperationResult<BaseSubjectLifecycleMaintenanceResult> LifecycleMaintenanceFailure(string code,OperationStatus status,ErrorCategory category)=>new(){Status=status,Error=new BaseError{Code=code,Category=category,Message="The subject lifecycle maintenance operation failed."}};

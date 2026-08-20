@@ -69,9 +69,9 @@ internal sealed class HPDBaseEndpointInventoryValidator(
         ["hpd.base.vector.diagnostics.read"] = Control("GET", "/base/vector/indexes/{collectionId}/{vectorIndexId}/diagnostics", HPDBaseEndpointOperation.DiagnosticsRead, HPDBaseCapabilities.VectorDiagnosticsRead),
         ["hpd.base.vector.rebuild"] = Control("POST", "/base/vector/indexes/{collectionId}/{vectorIndexId}/rebuild", HPDBaseEndpointOperation.VectorRebuild, HPDBaseCapabilities.VectorRebuild)
         ,
-        ["base.subject-lifecycle.feed.read"] = Application("POST", "/subject-lifecycle/feed/read", HPDBaseEndpointOperation.SubjectLifecycleRead, HPDBaseCapabilities.SubjectLifecycleFeedRead),
-        ["base.subject-lifecycle.feed.checkpoint"] = Application("POST", "/subject-lifecycle/feed/checkpoints", HPDBaseEndpointOperation.SubjectLifecycleCheckpoint, HPDBaseCapabilities.SubjectLifecycleFeedCheckpoint),
-        ["base.subject-lifecycle.client-generation"] = Application("GET", "/subject-lifecycle/client-generation", HPDBaseEndpointOperation.ClientGenerationRead, HPDBaseCapabilities.SubjectLifecycleClientGenerate)
+        ["base.subjectLifecycle.feed.read"] = Application("POST", "/subject-lifecycle/feed/read", HPDBaseEndpointOperation.SubjectLifecycleRead, HPDBaseCapabilities.SubjectLifecycleFeedRead),
+        ["base.subjectLifecycle.feed.checkpoint"] = Application("POST", "/subject-lifecycle/feed/checkpoints", HPDBaseEndpointOperation.SubjectLifecycleCheckpoint, HPDBaseCapabilities.SubjectLifecycleFeedCheckpoint),
+        ["base.subjectLifecycle.reconciliation.read"] = Application("POST", "/subject-lifecycle/reconciliation/read", HPDBaseEndpointOperation.SubjectLifecycleReconciliationRead, HPDBaseCapabilities.SubjectLifecycleReconcileRead)
     };
 
     internal void Validate()

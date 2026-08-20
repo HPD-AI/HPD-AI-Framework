@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { BaseHttpTransport, advanceSubjectLifecycle, baseRedacted, collection, createBaseClient, decodeBaseJson, decodeBaseValue, encodeBaseJson, executeModuleMutation, executeSelectionMutation, field, isBaseRedacted, iterateSubjectLifecycle, moduleMutation, parseBaseJson, read, readSubjectLifecycle, selectionMutation, subjectLifecycleConsumer } from "../dist/index.js";
+import { BaseHttpTransport, advanceSubjectLifecycle, baseRedacted, collection, createBaseClient, decodeBaseJson, decodeBaseValue, encodeBaseJson, executeModuleMutation, executeSelectionMutation, field, isBaseRedacted, iterateSubjectLifecycle, moduleMutation, parseBaseJson, read, readSubjectLifecycle, reconcileSubjectLifecycle, selectionMutation, subjectLifecycleConsumer } from "../dist/index.js";
 import { BaseRealtimeManager } from "../dist/realtime.js";
 
 const basicGraph = Object.freeze({
@@ -358,6 +358,16 @@ test("lifecycle workers preserve opaque authority and advance only explicit chec
   assert.equal(delivery.processingIdentity.operation, "subjectLifecycle.process");
   assert.match(delivery.processingIdentity.idempotencyKey, /^[0-9a-f]{64}$/u);
   assert.notEqual(delivery.processingIdentity.idempotencyKey, delivery.advanceIdentity.idempotencyKey);
+
+  let reconciliationBody;
+  const reconciliationTransport = new BaseHttpTransport({ url: "https://base.test/base/", fetch: async (_url, init) => {
+    reconciliationBody = JSON.parse(new TextDecoder().decode(init.body));
+    return Response.json({ subjects: [{ subjectId: "u1", authorityEpoch: epoch, incarnation, state: "active", subjectSequence: "1" }], nextSubjectId: null, capturedHighWater: { commitPosition: "7", subjectId: "u1", authorityEpoch: epoch, incarnation, subjectSequence: "1" } });
+  } });
+  const reconciling = subjectLifecycleConsumer({ ...consumer, reconciliationRoute: "/base/subject-lifecycle/reconciliation/read" });
+  const reconciled = await reconcileSubjectLifecycle(reconciliationTransport, reconciling, { projectId: "project-a", take: 1 });
+  assert.equal(reconciled.ok, true); assert.equal(reconciled.value.subjects[0].subjectId, "u1"); assert.equal(reconciled.value.capturedHighWater.commitPosition, "7"); assert.equal(reconciled.value.capturedHighWater.authorityEpoch, epoch);
+  assert.deepEqual(reconciliationBody, { consumerId: "profiles.lifecycle", consumerVersion: 1, contractId: "auth.user", contractVersion: 1, projectId: "project-a", take: 1, afterSubjectId: null });
 });
 
 class FakeSocket {

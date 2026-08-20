@@ -181,6 +181,17 @@ public sealed record BaseSubjectLifecyclePage<TSubject>
     public required BaseSubjectLifecycleCheckpoint Through { get; init; }
 }
 
+/// <summary>Contains one bounded authorized current-state reconciliation page.</summary>
+public sealed record BaseSubjectLifecycleReconciliationPage<TSubject>
+{
+    /// <summary>Gets current subject lifetimes in canonical subject-ID order.</summary>
+    public required ImmutableArray<BaseCurrentSubjectLifecycle<TSubject>> Subjects { get; init; }
+    /// <summary>Gets the exclusive subject boundary for the next page.</summary>
+    public BaseSubjectId? NextSubjectId { get; init; }
+    /// <summary>Gets the captured durable-feed high-water boundary.</summary>
+    public BaseSubjectLifecycleOrderingBoundary? CapturedHighWater { get; init; }
+}
+
 /// <summary>Defines immutable bounds for one lifecycle consumer.</summary>
 public sealed record BaseSubjectLifecycleConsumerLimits
 {

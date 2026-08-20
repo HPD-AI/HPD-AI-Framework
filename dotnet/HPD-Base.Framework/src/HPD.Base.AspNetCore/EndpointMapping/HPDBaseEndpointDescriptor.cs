@@ -25,6 +25,8 @@ public enum HPDBaseEndpointOperation
     SubjectLifecycleRead,
     /// <summary>Advances one installed durable subject-lifecycle checkpoint.</summary>
     SubjectLifecycleCheckpoint,
+    /// <summary>Reads one separately authorized subject-lifecycle reconciliation page.</summary>
+    SubjectLifecycleReconciliationRead,
     /// <summary>Reads files.</summary>
     FileRead,
     /// <summary>Writes files.</summary>
@@ -79,8 +81,8 @@ public static class HPDBaseCapabilities
     public const string SubjectLifecycleFeedRead = "base.subjectLifecycle.feed.read";
     /// <summary>Advances an installed durable subject-lifecycle checkpoint.</summary>
     public const string SubjectLifecycleFeedCheckpoint = "base.subjectLifecycle.feed.checkpoint";
-    /// <summary>Generates one Service/System lifecycle-worker contract.</summary>
-    public const string SubjectLifecycleClientGenerate = "base.subjectLifecycle.client.generate";
+    /// <summary>Reads an installed bounded subject-lifecycle reconciliation projection.</summary>
+    public const string SubjectLifecycleReconcileRead = "base.subjectLifecycle.reconcile.read";
     /// <summary>Reads records.</summary>
     public const string RecordsRead = "base.records.read";
     /// <summary>Writes records.</summary>

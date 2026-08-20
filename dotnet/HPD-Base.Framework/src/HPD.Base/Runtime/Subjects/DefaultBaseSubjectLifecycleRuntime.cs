@@ -16,6 +16,7 @@ internal sealed class DefaultBaseSubjectLifecycleRuntime(
 {
     private const string FeedReadGrant = "base.subjectLifecycle.feed.read";
     private const string FeedCheckpointGrant = "base.subjectLifecycle.feed.checkpoint";
+    private const string ReconciliationReadGrant = "base.subjectLifecycle.reconcile.read";
     private readonly BaseSubjectLifecycleTokenCodec _tokenCodec = new(tokens, timeProvider);
     private readonly BaseSubjectScopeProtector _scopes = new(tokens);
     private readonly TimeSpan _cursorLifetime = options.Value.CursorLifetime;
@@ -23,6 +24,41 @@ internal sealed class DefaultBaseSubjectLifecycleRuntime(
     private readonly SemaphoreSlim _providerReadSlots = new(
         runtimeLimits.MaximumActiveAndQuarantinedReads,
         runtimeLimits.MaximumActiveAndQuarantinedReads);
+
+    public async ValueTask<bool> AuthorizeGenerationAsync(BaseSession session, BaseInstalledSubjectLifecycleConsumer installed, CancellationToken cancellationToken)
+    {
+        BaseSubjectLifecycleConsumerDefinition consumer = installed.Definition;
+        BaseGeneratedSubjectRegistration? contract = contracts.Find(consumer.ContractId, consumer.ContractVersion);
+        if (contract is null || !AudienceAllows(consumer.Audience, session.Principal.AuthenticationState)) return false;
+        OperationContext operation = session.Operation(BaseOperationKind.SubjectLifecycleRead, consumer.Id);
+        if (contract.Definition.Scope == BaseSubjectScopeKind.Tenant && string.IsNullOrEmpty(operation.TenantId)
+            || contract.Definition.Scope == BaseSubjectScopeKind.Project && string.IsNullOrEmpty(operation.ProjectId)) return false;
+        var resource = new CollectionDefinition { Id = consumer.Id, Name = consumer.Id, Kind = BaseCollectionKinds.Custom, SchemaMode = SchemaMode.Strict, UnknownFields = UnknownFieldPolicy.Reject, System = true, SystemOwnerModuleId = consumer.OwningModuleId };
+        OperationResult<BasePolicyEvaluation> authorization = await policy.EvaluateReadAsync(new BasePolicyRequest { Principal = session.Principal, Operation = operation, Collection = resource, ResourceKind = PolicyResourceKind.SubjectLifecycle }, cancellationToken).ConfigureAwait(false);
+        if (!BaseSystemCollectionGate.HasExactSubjectLifecycleGrant(authorization, consumer.DeliveryGrantId, consumer.OwningModuleId,
+            consumer.Id, consumer.ContractId, consumer.ContractVersion, session.Principal, operation)) return false;
+        OperationContext fixedOperation = session.Operation(BaseOperationKind.SubjectLifecycleRead, FeedReadGrant);
+        OperationResult<BasePolicyEvaluation> fixedAuthorization = await policy.EvaluateReadAsync(new BasePolicyRequest { Principal = session.Principal, Operation = fixedOperation, Collection = resource, ResourceKind = PolicyResourceKind.SubjectLifecycle }, cancellationToken).ConfigureAwait(false);
+        return BaseSystemCollectionGate.HasExactSubjectLifecycleGrant(fixedAuthorization, FeedReadGrant, consumer.OwningModuleId,
+            FeedReadGrant, consumer.ContractId, consumer.ContractVersion, session.Principal, fixedOperation);
+    }
+
+    public async ValueTask<bool> AuthorizeReconciliationGenerationAsync(BaseSession session, BaseInstalledSubjectLifecycleConsumer installed, CancellationToken cancellationToken)
+    {
+        BaseSubjectLifecycleConsumerDefinition consumer = installed.Definition;
+        if (consumer.ReconciliationGrantId is null) return false;
+        BaseGeneratedSubjectRegistration? contract = contracts.Find(consumer.ContractId, consumer.ContractVersion);
+        if (contract is null || !AudienceAllows(consumer.Audience, session.Principal.AuthenticationState)) return false;
+        OperationContext operation = session.Operation(BaseOperationKind.SubjectLifecycleReconcile, consumer.Id);
+        if (contract.Definition.Scope == BaseSubjectScopeKind.Tenant && string.IsNullOrEmpty(operation.TenantId)
+            || contract.Definition.Scope == BaseSubjectScopeKind.Project && string.IsNullOrEmpty(operation.ProjectId)) return false;
+        var resource = new CollectionDefinition { Id=consumer.Id,Name=consumer.Id,Kind=BaseCollectionKinds.Custom,SchemaMode=SchemaMode.Strict,UnknownFields=UnknownFieldPolicy.Reject,System=true,SystemOwnerModuleId=consumer.OwningModuleId };
+        OperationResult<BasePolicyEvaluation> authorization = await policy.EvaluateReadAsync(new BasePolicyRequest { Principal=session.Principal,Operation=operation,Collection=resource,ResourceKind=PolicyResourceKind.SubjectLifecycle }, cancellationToken).ConfigureAwait(false);
+        if (!BaseSystemCollectionGate.HasExactSubjectLifecycleGrant(authorization,consumer.ReconciliationGrantId,consumer.OwningModuleId,consumer.Id,consumer.ContractId,consumer.ContractVersion,session.Principal,operation)) return false;
+        OperationContext fixedOperation=session.Operation(BaseOperationKind.SubjectLifecycleReconcile,ReconciliationReadGrant);
+        OperationResult<BasePolicyEvaluation> fixedAuthorization=await policy.EvaluateReadAsync(new BasePolicyRequest{Principal=session.Principal,Operation=fixedOperation,Collection=resource,ResourceKind=PolicyResourceKind.SubjectLifecycle},cancellationToken).ConfigureAwait(false);
+        return BaseSystemCollectionGate.HasExactSubjectLifecycleGrant(fixedAuthorization,ReconciliationReadGrant,consumer.OwningModuleId,ReconciliationReadGrant,consumer.ContractId,consumer.ContractVersion,session.Principal,fixedOperation);
+    }
 
     public async ValueTask<BaseResult<BaseSubjectLifecycleCheckpoint>> CreateHintCheckpointAsync(
         BaseSession session,
@@ -125,7 +161,8 @@ internal sealed class DefaultBaseSubjectLifecycleRuntime(
             },
         }, cancellationToken).ConfigureAwait(false);
         if (execution.Outcome == RecordMutationExecutionOutcome.Committed && processor.Result is not null)
-            return new BaseSuccess<BaseSubjectLifecycleCheckpointResult>(processor.Result, OperationStatus.Updated, null, null, null, null);
+            return new BaseSuccess<BaseSubjectLifecycleCheckpointResult>(processor.Result,
+                processor.Result.Duplicate ? OperationStatus.Ok : OperationStatus.Updated, null, null, null, null);
         BaseError? inherited = execution.Error ?? execution.Processing?.Error;
         if (inherited is not null && !inherited.Code.StartsWith("base.subjectLifecycle.", StringComparison.Ordinal))
             return new BaseFailure<BaseSubjectLifecycleCheckpointResult>(
@@ -226,6 +263,52 @@ internal sealed class DefaultBaseSubjectLifecycleRuntime(
             : _tokenCodec.ProtectCursor(new(page.StoreInstanceId, page.RestoreEpoch, page.DeliveryEpoch, page.ProjectionGeneration, page.CheckpointGeneration, page.Through, issued, expires), binding);
         ImmutableArray<BaseSubjectLifecycleFact> facts = [.. page.Facts.Select(static value => value.Fact with { })];
         return new BaseSuccess<BaseUntypedSubjectLifecyclePage>(new() { Facts = facts, Next = next, Through = checkpoint }, OperationStatus.Ok, null, null, null, null);
+    }
+
+    public async ValueTask<BaseResult<BaseSubjectLifecycleReconciliationPage<TSubject>>> ReconcileAsync<TSubject>(BaseSession session, BaseGeneratedSubjectLifecycleConsumerIdentity<TSubject> identity, BaseInstalledSubjectLifecycleConsumer installed, BaseSubjectId? afterSubjectId, int? take, CancellationToken cancellationToken)
+    {
+        BaseResult<BaseSubjectLifecycleProviderReconciliationPage> result = await ReconcileUntypedAsync(session, installed, afterSubjectId, take, cancellationToken).ConfigureAwait(false);
+        if (result is BaseFailure<BaseSubjectLifecycleProviderReconciliationPage> failure)
+            return ReconciliationFailure<TSubject>(failure.Status, failure.Error.Code, failure.Error.Category);
+        BaseSubjectLifecycleProviderReconciliationPage page = ((BaseSuccess<BaseSubjectLifecycleProviderReconciliationPage>)result).Value;
+        return new BaseSuccess<BaseSubjectLifecycleReconciliationPage<TSubject>>(new()
+        {
+            Subjects = [.. page.Subjects.Select(value => new BaseCurrentSubjectLifecycle<TSubject>
+            {
+                SubjectId=value.SubjectId,AuthorityEpoch=value.AuthorityEpoch,Incarnation=value.Incarnation,State=value.State,SubjectSequence=value.SubjectSequence,
+            })],
+            NextSubjectId = page.NextSubjectId,
+            CapturedHighWater = page.CapturedHighWater,
+        }, OperationStatus.Ok, null, null, null, null);
+    }
+
+    public async ValueTask<BaseResult<BaseSubjectLifecycleProviderReconciliationPage>> ReconcileUntypedAsync(BaseSession session, BaseInstalledSubjectLifecycleConsumer installed, BaseSubjectId? afterSubjectId, int? take, CancellationToken cancellationToken)
+    {
+        BaseSubjectLifecycleConsumerDefinition consumer = installed.Definition;
+        if (consumer.ReconciliationGrantId is null) return ReconciliationFailure(OperationStatus.CapabilityUnavailable, BaseSubjectErrorCodes.LifecycleReconciliationUnavailable, ErrorCategory.Capability);
+        BaseGeneratedSubjectRegistration? contract = contracts.Find(consumer.ContractId, consumer.ContractVersion);
+        if (contract is null || !AudienceAllows(consumer.Audience, session.Principal.AuthenticationState)) return ReconciliationFailure(OperationStatus.PolicyDenied, BaseSubjectErrorCodes.LifecycleUnauthorized, ErrorCategory.Authorization);
+        OperationContext operation = session.Operation(BaseOperationKind.SubjectLifecycleReconcile, consumer.Id);
+        var resource = new CollectionDefinition { Id=consumer.Id,Name=consumer.Id,Kind=BaseCollectionKinds.Custom,SchemaMode=SchemaMode.Strict,UnknownFields=UnknownFieldPolicy.Reject,System=true,SystemOwnerModuleId=consumer.OwningModuleId };
+        OperationResult<BasePolicyEvaluation> authorization = await policy.EvaluateReadAsync(new BasePolicyRequest { Principal=session.Principal,Operation=operation,Collection=resource,ResourceKind=PolicyResourceKind.SubjectLifecycle }, cancellationToken).ConfigureAwait(false);
+        if (!BaseSystemCollectionGate.HasExactSubjectLifecycleGrant(authorization,consumer.ReconciliationGrantId,consumer.OwningModuleId,consumer.Id,consumer.ContractId,consumer.ContractVersion,session.Principal,operation)) return ReconciliationFailure(OperationStatus.PolicyDenied,BaseSubjectErrorCodes.LifecycleUnauthorized,ErrorCategory.Authorization);
+        OperationContext fixedOperation=session.Operation(BaseOperationKind.SubjectLifecycleReconcile,ReconciliationReadGrant);
+        OperationResult<BasePolicyEvaluation> fixedAuthorization=await policy.EvaluateReadAsync(new BasePolicyRequest{Principal=session.Principal,Operation=fixedOperation,Collection=resource,ResourceKind=PolicyResourceKind.SubjectLifecycle},cancellationToken).ConfigureAwait(false);
+        if(!BaseSystemCollectionGate.HasExactSubjectLifecycleGrant(fixedAuthorization,ReconciliationReadGrant,consumer.OwningModuleId,ReconciliationReadGrant,consumer.ContractId,consumer.ContractVersion,session.Principal,fixedOperation))return ReconciliationFailure(OperationStatus.PolicyDenied,BaseSubjectErrorCodes.LifecycleUnauthorized,ErrorCategory.Authorization);
+        BaseOwnedSubjectScopeEvidence scope=new(){Kind=contract.Definition.Scope,Value=contract.Definition.Scope switch{BaseSubjectScopeKind.Global=>null,BaseSubjectScopeKind.Tenant=>operation.TenantId,BaseSubjectScopeKind.Project=>operation.ProjectId,_=>null}};
+        if(scope.Kind!=BaseSubjectScopeKind.Global&&string.IsNullOrEmpty(scope.Value))return ReconciliationFailure(OperationStatus.PolicyDenied,BaseSubjectErrorCodes.LifecycleUnauthorized,ErrorCategory.Authorization);
+        if(stores.GetStoreForCollection(contract.Definition.ValidationPlan.PrivateCollectionId) is not IBaseSubjectLifecycleStore store)return ReconciliationFailure(OperationStatus.CapabilityUnavailable,BaseSubjectErrorCodes.LifecycleProviderContractInvalid,ErrorCategory.Capability);
+        OperationResult<BaseSubjectLifecycleProviderInspection> inspection;
+        try{inspection=await InvokeProviderReadAsync(token=>store.InspectAsync(new(){ContractId=consumer.ContractId,ContractVersion=consumer.ContractVersion,ConsumerId=consumer.Id,ScopeAuthority=new(){Mode=BaseSubjectScopeQueryMode.ExactScope,ExactScope=scope,InstalledAuthorityDigest=installed.Checksum},IncludeTerminalReceipt=false,MaximumResultBytes=4096,DeadlineUtc=timeProvider.GetUtcNow().Add(consumer.Limits.ReadTimeout)},token),consumer.Limits.ReadTimeout,cancellationToken).ConfigureAwait(false);}catch(TimeoutException){return ReconciliationFailure(OperationStatus.StoreError,BaseSubjectErrorCodes.Timeout,ErrorCategory.Store);}catch(Exception){return ReconciliationFailure(OperationStatus.CapabilityUnavailable,BaseSubjectErrorCodes.LifecycleProviderContractInvalid,ErrorCategory.Capability);}
+        BaseSubjectLifecycleConsumerInspection? projection=inspection.IsSuccess()&&inspection.Value is not null?inspection.Value.Consumers.SingleOrDefault(value=>value.ConsumerId==consumer.Id&&value.ConsumerVersion==consumer.Version):null;
+        if(projection is null)return ReconciliationFailure(OperationStatus.CapabilityUnavailable,BaseSubjectErrorCodes.LifecycleProviderContractInvalid,ErrorCategory.Capability);
+        int pageSize=Math.Min(take??consumer.Limits.MaximumFactsPerPage,consumer.Limits.MaximumFactsPerPage);if(pageSize<1)return ReconciliationFailure(OperationStatus.ValidationFailed,BaseSubjectErrorCodes.LifecycleContractInvalid,ErrorCategory.Validation);
+        var request=new BaseSubjectLifecycleProviderReconciliationRequest{ApplicationId=session.ApplicationId,ContractId=consumer.ContractId,ContractVersion=consumer.ContractVersion,ContractChecksum=contract.Checksum,ConsumerId=consumer.Id,ConsumerVersion=consumer.Version,ConsumerChecksum=installed.Checksum,ProjectionGeneration=projection.ProjectionGeneration,Scope=scope,AfterSubjectId=afterSubjectId,Take=pageSize,MaximumResultBytes=consumer.Limits.MaximumResultBytes,DeadlineUtc=timeProvider.GetUtcNow().Add(consumer.Limits.ReadTimeout)};
+        OperationResult<BaseSubjectLifecycleProviderReconciliationPage> read;try{read=await InvokeProviderReadAsync(token=>store.ReconcileAsync(request,token),consumer.Limits.ReadTimeout,cancellationToken).ConfigureAwait(false);}catch(TimeoutException){return ReconciliationFailure(OperationStatus.StoreError,BaseSubjectErrorCodes.Timeout,ErrorCategory.Store);}catch(Exception){return ReconciliationFailure(OperationStatus.CapabilityUnavailable,BaseSubjectErrorCodes.LifecycleProviderContractInvalid,ErrorCategory.Capability);}
+        if(!read.IsSuccess()||read.Value is null)return ReconciliationFailure(read.Status,read.Error?.Code??BaseSubjectErrorCodes.LifecycleProviderContractInvalid,read.Error?.Category??ErrorCategory.Store);
+        BaseSubjectLifecycleProviderReconciliationPage page=read.Value;long bytes=0;BaseSubjectId? previous=null;try{foreach(BaseCurrentSubjectLifecycle value in page.Subjects){bytes=checked(bytes+96L+Encoding.UTF8.GetByteCount(value.SubjectId.Value));if(value.SubjectSequence<1||previous is not null&&string.CompareOrdinal(previous.Value.Value,value.SubjectId.Value)>=0||afterSubjectId is not null&&string.CompareOrdinal(afterSubjectId.Value.Value,value.SubjectId.Value)>=0)return ReconciliationFailure(OperationStatus.CapabilityUnavailable,BaseSubjectErrorCodes.LifecycleProviderContractInvalid,ErrorCategory.Capability);previous=value.SubjectId;}}catch(OverflowException){return ReconciliationFailure(OperationStatus.CapabilityUnavailable,BaseSubjectErrorCodes.LifecycleProviderContractInvalid,ErrorCategory.Capability);}
+        if(page.Subjects.IsDefault||page.Subjects.Length>pageSize||page.ProjectionGeneration!=projection.ProjectionGeneration||!_scopes.Matches(page.Scope,scope)||page.Accounting.RowsHydrated!=page.Subjects.Length||page.Accounting.RowsSought<page.Accounting.RowsHydrated||page.Accounting.ResultBytes!=bytes||page.Accounting.ResultBytes>consumer.Limits.MaximumResultBytes||page.NextSubjectId is not null&&(page.Subjects.Length==0||!page.NextSubjectId.Value.Equals(page.Subjects[^1].SubjectId)))return ReconciliationFailure(OperationStatus.CapabilityUnavailable,BaseSubjectErrorCodes.LifecycleProviderContractInvalid,ErrorCategory.Capability);
+        return new BaseSuccess<BaseSubjectLifecycleProviderReconciliationPage>(page,OperationStatus.Ok,null,null,null,null);
     }
 
     private bool Validate(
@@ -369,6 +452,8 @@ internal sealed class DefaultBaseSubjectLifecycleRuntime(
     private static BaseFailure<BaseSubjectLifecyclePage<TSubject>> Failure<TSubject>(OperationStatus status, string code, ErrorCategory category) => new(status, BaseSubjectFailureContract.Error(code), null, null);
     private static BaseFailure<BaseUntypedSubjectLifecyclePage> UntypedFailure(OperationStatus status, string code, ErrorCategory category) => new(status, BaseSubjectFailureContract.Error(code), null, null);
     private static BaseFailure<BaseSubjectLifecycleCheckpointResult> CheckpointFailure(OperationStatus status, string code, ErrorCategory category) => new(status, BaseSubjectFailureContract.Error(code), null, null);
+    private static BaseFailure<BaseSubjectLifecycleProviderReconciliationPage> ReconciliationFailure(OperationStatus status,string code,ErrorCategory category)=>new(status,BaseSubjectFailureContract.Error(code),null,null);
+    private static BaseFailure<BaseSubjectLifecycleReconciliationPage<TSubject>> ReconciliationFailure<TSubject>(OperationStatus status,string code,ErrorCategory category)=>new(status,BaseSubjectFailureContract.Error(code),null,null);
     private static BaseFailure<BaseSubjectLifecycleCheckpoint> HintFailure(OperationStatus status, string code, ErrorCategory category) => new(status, BaseSubjectFailureContract.Error(code), null, null);
 }
 

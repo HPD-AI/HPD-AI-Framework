@@ -36,9 +36,14 @@ export interface BaseSubjectLifecycleCheckpointResult { readonly checkpointGener
 export interface BaseSubjectLifecycleConsumerDefinition {
   readonly id: string; readonly version: number; readonly checksum: string; readonly audience: "service" | "system"; readonly contractId: string; readonly contractVersion: number;
   readonly observedStates: readonly BaseSubjectLifecycleState[]; readonly readRoute: string; readonly checkpointRoute: string;
+  readonly reconciliationRoute?: string | null;
   readonly maximumFactsPerPage: number; readonly maximumResultBytes: number;
 }
 export interface BaseSubjectLifecycleReadOptions { readonly projectId?: string; readonly cursor?: BaseSubjectLifecycleCursor; readonly take?: number; readonly signal?: AbortSignal; }
+export interface BaseCurrentSubjectLifecycle { readonly subjectId: string; readonly authorityEpoch: BaseSubjectLifecycleAuthorityEpoch; readonly incarnation: BaseSubjectLifecycleIncarnation; readonly state: BaseSubjectLifecycleState; readonly subjectSequence: string; }
+export interface BaseSubjectLifecycleOrderingBoundary { readonly commitPosition: string; readonly subjectId: string; readonly authorityEpoch: BaseSubjectLifecycleAuthorityEpoch; readonly incarnation: BaseSubjectLifecycleIncarnation; readonly subjectSequence: string; }
+export interface BaseSubjectLifecycleReconciliationPage { readonly subjects: readonly BaseCurrentSubjectLifecycle[]; readonly nextSubjectId: string | null; readonly capturedHighWater: BaseSubjectLifecycleOrderingBoundary | null; }
+export interface BaseSubjectLifecycleReconciliationOptions { readonly projectId?: string; readonly afterSubjectId?: string; readonly take?: number; readonly signal?: AbortSignal; }
 
 /** Creates one immutable generated lifecycle-worker descriptor. */
 export function subjectLifecycleConsumer(definition: BaseSubjectLifecycleConsumerDefinition): BaseSubjectLifecycleConsumerDefinition {
@@ -54,7 +59,7 @@ export async function readSubjectLifecycle(transport: BaseHttpTransport, definit
   const take = options.take ?? definition.maximumFactsPerPage;
   if (!Number.isSafeInteger(take) || take < 1 || take > definition.maximumFactsPerPage) throw new RangeError("base.subjectLifecycle.contractInvalid");
   if (options.projectId !== undefined && (options.projectId.length < 1 || options.projectId.length > 256)) throw new RangeError("base.subjectLifecycle.contractInvalid");
-  const body = new TextEncoder().encode(JSON.stringify({ consumerId: definition.id, consumerVersion: definition.version, projectId: options.projectId ?? null, take, cursor: options.cursor ?? null }));
+  const body = new TextEncoder().encode(JSON.stringify({ consumerId: definition.id, consumerVersion: definition.version, contractId: definition.contractId, contractVersion: definition.contractVersion, projectId: options.projectId ?? null, take, cursor: options.cursor ?? null }));
   const response = await transport.json("POST", definition.readRoute, body, options.signal);
   if (!response.ok) return response;
   return { ...response, value: decodePage(response.value, definition) };
@@ -66,12 +71,21 @@ export async function advanceSubjectLifecycle(transport: BaseHttpTransport, defi
     || !/^[0-9a-f]{64}$/u.test(identity.idempotencyKey) || !fingerprint(identity.fingerprint))
     throw new TypeError("base.subjectLifecycle.contractInvalid");
   if (projectId !== undefined && (projectId.length < 1 || projectId.length > 256)) throw new RangeError("base.subjectLifecycle.contractInvalid");
-  const body = new TextEncoder().encode(JSON.stringify({ consumerId: definition.id, consumerVersion: definition.version, projectId: projectId ?? null, checkpoint, identity }));
+  const body = new TextEncoder().encode(JSON.stringify({ consumerId: definition.id, consumerVersion: definition.version, contractId: definition.contractId, contractVersion: definition.contractVersion, projectId: projectId ?? null, checkpoint, identity }));
   const response = await transport.json("POST", definition.checkpointRoute, body, signal, identity.idempotencyKey);
   if (!response.ok) return response;
   const value = object(response.value); exact(value, ["checkpointGeneration", "advancedAtUtc", "duplicate"]);
   if (!positive(value.checkpointGeneration) || typeof value.advancedAtUtc !== "string" || !utc(value.advancedAtUtc) || typeof value.duplicate !== "boolean") invalid();
   return { ...response, value: { checkpointGeneration: value.checkpointGeneration as string, advancedAtUtc: value.advancedAtUtc, duplicate: value.duplicate } };
+}
+
+/** Reads one separately authorized bounded current-state reconciliation page. */
+export async function reconcileSubjectLifecycle(transport: BaseHttpTransport, definition: BaseSubjectLifecycleConsumerDefinition, options: BaseSubjectLifecycleReconciliationOptions = {}): Promise<BaseResult<BaseSubjectLifecycleReconciliationPage>> {
+  if (!definition.reconciliationRoute) throw new TypeError("base.subjectLifecycle.reconciliationUnavailable");
+  const take=options.take??definition.maximumFactsPerPage;if(!Number.isSafeInteger(take)||take<1||take>definition.maximumFactsPerPage)throw new RangeError("base.subjectLifecycle.contractInvalid");
+  const body=new TextEncoder().encode(JSON.stringify({consumerId:definition.id,consumerVersion:definition.version,contractId:definition.contractId,contractVersion:definition.contractVersion,projectId:options.projectId??null,take,afterSubjectId:options.afterSubjectId??null}));
+  const response=await transport.json("POST",definition.reconciliationRoute,body,options.signal);if(!response.ok)return response;const value=object(response.value);exact(value,["subjects","nextSubjectId","capturedHighWater"]);if(!Array.isArray(value.subjects)||value.subjects.length>take||value.nextSubjectId!==null&&typeof value.nextSubjectId!=="string")invalid();
+  const subjects=value.subjects.map(item=>{const row=object(item);exact(row,["subjectId","authorityEpoch","incarnation","state","subjectSequence"]);if(typeof row.subjectId!=="string"||!fixedToken(row.authorityEpoch,16)||!fixedToken(row.incarnation,24)||!state(row.state)||!positive(row.subjectSequence))invalid();return Object.freeze({subjectId:row.subjectId,authorityEpoch:row.authorityEpoch as BaseSubjectLifecycleAuthorityEpoch,incarnation:row.incarnation as BaseSubjectLifecycleIncarnation,state:row.state as BaseSubjectLifecycleState,subjectSequence:row.subjectSequence as string});});let capturedHighWater:BaseSubjectLifecycleOrderingBoundary|null=null;if(value.capturedHighWater!==null){const boundary=object(value.capturedHighWater);exact(boundary,["commitPosition","subjectId","authorityEpoch","incarnation","subjectSequence"]);if(!positive(boundary.commitPosition)||typeof boundary.subjectId!=="string"||!fixedToken(boundary.authorityEpoch,16)||!fixedToken(boundary.incarnation,24)||!positive(boundary.subjectSequence))invalid();capturedHighWater=Object.freeze({commitPosition:boundary.commitPosition as string,subjectId:boundary.subjectId,authorityEpoch:boundary.authorityEpoch as BaseSubjectLifecycleAuthorityEpoch,incarnation:boundary.incarnation as BaseSubjectLifecycleIncarnation,subjectSequence:boundary.subjectSequence as string});}return{...response,value:{subjects:Object.freeze(subjects),nextSubjectId:value.nextSubjectId as string|null,capturedHighWater}};
 }
 
 /** Enumerates one fact at a time as inert evidence without implicitly advancing its checkpoint. */

@@ -27,6 +27,8 @@ internal sealed class InMemoryStoreState
     public List<InMemorySubjectLifecycleFactRow> SubjectLifecycleFacts { get; } = [];
     /// <summary>Gets consumer-indexed lifecycle memberships.</summary>
     public List<InMemorySubjectLifecycleMembershipRow> SubjectLifecycleMemberships { get; } = [];
+    /// <summary>Gets exact protected-scope membership seeks without cross-scope enumeration.</summary>
+    public Dictionary<string, List<int>> SubjectLifecycleMembershipIndex { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, InMemorySubjectLifecycleConsumerProjection> SubjectLifecycleConsumers { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, InMemorySubjectLifecycleCheckpointState> SubjectLifecycleCheckpoints { get; } = new(StringComparer.Ordinal);
     public long SubjectLifecycleDeliveryEpoch { get; set; } = 1;
@@ -58,16 +60,42 @@ internal sealed class InMemoryStoreState
             clone.SubjectLifetimes.Add(id, lifetime with { });
         foreach (var (id, terminal) in SubjectTerminals)
             clone.SubjectTerminals.Add(id, terminal with { });
-        clone.SubjectLifecycleFacts.AddRange(SubjectLifecycleFacts.Select(static value => value with { Fact = value.Fact with { } }));
-        clone.SubjectLifecycleMemberships.AddRange(SubjectLifecycleMemberships.Select(static value => value with { }));
+        clone.SubjectLifecycleFacts.AddRange(SubjectLifecycleFacts.Select(static value => value with
+        {
+            Scope = value.Scope with { IndexDigest = [.. value.Scope.IndexDigest], ProtectedCanonicalValue = [.. value.Scope.ProtectedCanonicalValue] },
+            Fact = value.Fact with { },
+        }));
+        clone.SubjectLifecycleMemberships.AddRange(SubjectLifecycleMemberships.Select(static value => value with
+        {
+            Scope = value.Scope with { IndexDigest = [.. value.Scope.IndexDigest], ProtectedCanonicalValue = [.. value.Scope.ProtectedCanonicalValue] },
+        }));
+        foreach ((string key, List<int> indexes) in SubjectLifecycleMembershipIndex)
+            clone.SubjectLifecycleMembershipIndex.Add(key, [.. indexes]);
         foreach (var (id, consumer) in SubjectLifecycleConsumers) clone.SubjectLifecycleConsumers.Add(id, consumer with { Cutoff = consumer.Cutoff is null ? null : consumer.Cutoff with { } });
-        foreach (var (id, checkpoint) in SubjectLifecycleCheckpoints) clone.SubjectLifecycleCheckpoints.Add(id, checkpoint with { Through = checkpoint.Through is null ? null : checkpoint.Through with { } });
+        foreach (var (id, checkpoint) in SubjectLifecycleCheckpoints) clone.SubjectLifecycleCheckpoints.Add(id, checkpoint with
+        {
+            Scope = checkpoint.Scope with { IndexDigest = [.. checkpoint.Scope.IndexDigest], ProtectedCanonicalValue = [.. checkpoint.Scope.ProtectedCanonicalValue] },
+            Through = checkpoint.Through is null ? null : checkpoint.Through with { },
+        });
         foreach ((string key, long generation) in ModuleGenerations)
             clone.ModuleGenerations.Add(key, generation);
         foreach ((long position, BaseMutationJournalEntry entry) in MutationJournal)
             clone.MutationJournal.Add(position, CloneJournalEntry(entry));
 
         return clone;
+    }
+
+    internal void RebuildSubjectLifecycleMembershipIndex()
+    {
+        SubjectLifecycleMembershipIndex.Clear();
+        for (int index = 0; index < SubjectLifecycleMemberships.Count; index++)
+        {
+            InMemorySubjectLifecycleMembershipRow membership = SubjectLifecycleMemberships[index];
+            string key = $"{membership.ConsumerId}\n{membership.ConsumerVersion}\n{(int)membership.Scope.Kind}\n{Convert.ToHexString(membership.Scope.IndexDigest)}";
+            if (!SubjectLifecycleMembershipIndex.TryGetValue(key, out List<int>? indexes))
+                SubjectLifecycleMembershipIndex.Add(key, indexes = []);
+            indexes.Add(index);
+        }
     }
 
     private static BaseMutationJournalEntry CloneJournalEntry(BaseMutationJournalEntry entry) => new()
@@ -127,10 +155,10 @@ internal sealed record InMemorySubjectTerminalState(
     long ContractStateGeneration,
     long RestoreEpoch,
     string ReceiptChecksum);
-internal sealed record InMemorySubjectLifecycleFactRow(BaseOwnedSubjectScopeEvidence Scope, BaseSubjectLifecycleOrderingBoundary Boundary, BaseSubjectLifecycleFact Fact);
-internal sealed record InMemorySubjectLifecycleMembershipRow(string ConsumerId, int ConsumerVersion, string ConsumerChecksum, long ProjectionGeneration, BaseSubjectLifecycleState MatchedState, int FactIndex);
-internal sealed record InMemorySubjectLifecycleConsumerProjection(string ConsumerId, int ConsumerVersion, string ConsumerChecksum, string ContractId, int ContractVersion, long ProjectionGeneration, BaseSubjectLifecycleOrderingBoundary? Cutoff, long PublishedGraphGeneration);
-internal sealed record InMemorySubjectLifecycleCheckpointState(string ConsumerId, int ConsumerVersion, string ConsumerChecksum, string ContractId, int ContractVersion, long ProjectionGeneration, BaseOwnedSubjectScopeEvidence Scope, BaseSubjectLifecycleOrderingBoundary? Through, long Generation, DateTimeOffset AdvancedAtUtc, bool Overtaken);
+internal sealed record InMemorySubjectLifecycleFactRow(BaseProtectedSubjectScope Scope, BaseSubjectLifecycleOrderingBoundary Boundary, BaseSubjectLifecycleFact Fact);
+internal sealed record InMemorySubjectLifecycleMembershipRow(string ConsumerId, int ConsumerVersion, string ConsumerChecksum, long ProjectionGeneration, BaseSubjectLifecycleState MatchedState, BaseProtectedSubjectScope Scope, int FactIndex);
+internal sealed record InMemorySubjectLifecycleConsumerProjection(string ConsumerId, int ConsumerVersion, string ConsumerChecksum, string ContractId, int ContractVersion, long ProjectionGeneration, BaseSubjectLifecycleOrderingBoundary? Cutoff, long PublishedGraphGeneration, DateTimeOffset InstalledAtUtc, TimeSpan MaximumCheckpointLag);
+internal sealed record InMemorySubjectLifecycleCheckpointState(string ConsumerId, int ConsumerVersion, string ConsumerChecksum, string ContractId, int ContractVersion, long ProjectionGeneration, BaseProtectedSubjectScope Scope, BaseSubjectLifecycleOrderingBoundary? Through, long Generation, DateTimeOffset AdvancedAtUtc, bool Overtaken);
 
 internal sealed class InMemoryVectorProjectionState
 {

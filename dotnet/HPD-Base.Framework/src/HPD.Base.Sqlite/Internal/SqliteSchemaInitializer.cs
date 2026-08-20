@@ -155,6 +155,7 @@ CREATE TABLE IF NOT EXISTS {_names.SubjectLifecycleConsumers} (
   contract_id TEXT NOT NULL, contract_version INTEGER NOT NULL, projection_generation INTEGER NOT NULL CHECK(projection_generation > 0),
   cutoff_position INTEGER NOT NULL CHECK(cutoff_position >= 0), cutoff_subject_id TEXT NULL, cutoff_authority_epoch BLOB NULL,
   cutoff_incarnation BLOB NULL, cutoff_sequence INTEGER NULL, published_graph_generation INTEGER NOT NULL CHECK(published_graph_generation > 0),
+  installed_at TEXT NOT NULL, maximum_checkpoint_lag_ticks INTEGER NOT NULL CHECK(maximum_checkpoint_lag_ticks > 0),
   state INTEGER NOT NULL DEFAULT 0,
   CHECK((cutoff_subject_id IS NULL AND cutoff_authority_epoch IS NULL AND cutoff_incarnation IS NULL AND cutoff_sequence IS NULL)
      OR (cutoff_subject_id IS NOT NULL AND length(cutoff_authority_epoch)=16 AND length(cutoff_incarnation)=24 AND cutoff_sequence > 0)),
@@ -421,6 +422,7 @@ CREATE TABLE IF NOT EXISTS {_names.SubjectLifecycleConsumers} (
   contract_id TEXT NOT NULL, contract_version INTEGER NOT NULL, projection_generation INTEGER NOT NULL CHECK(projection_generation > 0),
   cutoff_position INTEGER NOT NULL CHECK(cutoff_position >= 0), cutoff_subject_id TEXT NULL, cutoff_authority_epoch BLOB NULL,
   cutoff_incarnation BLOB NULL, cutoff_sequence INTEGER NULL, published_graph_generation INTEGER NOT NULL CHECK(published_graph_generation > 0),
+  installed_at TEXT NOT NULL, maximum_checkpoint_lag_ticks INTEGER NOT NULL CHECK(maximum_checkpoint_lag_ticks > 0),
   state INTEGER NOT NULL DEFAULT 0,
   CHECK((cutoff_subject_id IS NULL AND cutoff_authority_epoch IS NULL AND cutoff_incarnation IS NULL AND cutoff_sequence IS NULL)
      OR (cutoff_subject_id IS NOT NULL AND length(cutoff_authority_epoch)=16 AND length(cutoff_incarnation)=24 AND cutoff_sequence > 0)),

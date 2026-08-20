@@ -456,7 +456,7 @@ INSERT OR IGNORE INTO {_names.ProviderState}(key,value) VALUES('subject_scope_pr
             string checksum = BaseSubjectLifecycleRegistry.Checksum(consumer, BaseSubjectContractGraph.Checksum(subject));
             await using SqliteCommand install = connection.CreateCommand();
             install.CommandTimeout = TimeoutSeconds();
-            install.CommandText = $"INSERT INTO {_names.SubjectLifecycleConsumers}(consumer_id,consumer_version,consumer_checksum,contract_id,contract_version,projection_generation,cutoff_position,cutoff_subject_id,cutoff_authority_epoch,cutoff_incarnation,cutoff_sequence,published_graph_generation,state) VALUES($id,$version,$checksum,$contract,$contractVersion,1,$cutoff,$cutoffSubject,$cutoffEpoch,$cutoffIncarnation,$cutoffSequence,$graph,0) ON CONFLICT(consumer_id,consumer_version) DO UPDATE SET consumer_checksum=excluded.consumer_checksum WHERE consumer_checksum=excluded.consumer_checksum AND contract_id=excluded.contract_id AND contract_version=excluded.contract_version;";
+            install.CommandText = $"INSERT INTO {_names.SubjectLifecycleConsumers}(consumer_id,consumer_version,consumer_checksum,contract_id,contract_version,projection_generation,cutoff_position,cutoff_subject_id,cutoff_authority_epoch,cutoff_incarnation,cutoff_sequence,published_graph_generation,installed_at,maximum_checkpoint_lag_ticks,state) VALUES($id,$version,$checksum,$contract,$contractVersion,1,$cutoff,$cutoffSubject,$cutoffEpoch,$cutoffIncarnation,$cutoffSequence,$graph,$installed,$lag,0) ON CONFLICT(consumer_id,consumer_version) DO UPDATE SET consumer_checksum=excluded.consumer_checksum WHERE consumer_checksum=excluded.consumer_checksum AND contract_id=excluded.contract_id AND contract_version=excluded.contract_version AND maximum_checkpoint_lag_ticks=excluded.maximum_checkpoint_lag_ticks;";
             install.Parameters.AddWithValue("$id", consumer.Id); install.Parameters.AddWithValue("$version", consumer.Version);
             install.Parameters.AddWithValue("$checksum", checksum); install.Parameters.AddWithValue("$contract", consumer.ContractId);
             install.Parameters.AddWithValue("$contractVersion", consumer.ContractVersion); install.Parameters.AddWithValue("$cutoff", cutoff);
@@ -465,6 +465,8 @@ INSERT OR IGNORE INTO {_names.ProviderState}(key,value) VALUES('subject_scope_pr
             install.Parameters.Add("$cutoffIncarnation", SqliteType.Blob).Value = cutoffIncarnation is null ? DBNull.Value : cutoffIncarnation;
             install.Parameters.AddWithValue("$cutoffSequence", cutoffSequence is null ? DBNull.Value : cutoffSequence.Value);
             install.Parameters.AddWithValue("$graph", checked(_schemaGeneration + 1));
+            install.Parameters.AddWithValue("$installed", _timeProvider.GetUtcNow().ToString("O", CultureInfo.InvariantCulture));
+            install.Parameters.AddWithValue("$lag", consumer.Limits.MaximumCheckpointLag.Ticks);
             if (await install.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
                 throw new InvalidOperationException(BaseSubjectErrorCodes.RegistrationConflict);
         }

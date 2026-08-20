@@ -61,28 +61,53 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
     TimeProvider timeProvider,
     IServiceProvider services,
     BaseSelectionProfileRegistry? selectionProfiles = null,
-    BaseModuleMutationRegistry? moduleMutations = null)
+    BaseModuleMutationRegistry? moduleMutations = null,
+    BaseSubjectLifecycleRegistry? lifecycleConsumers = null,
+    IBaseSubjectLifecycleRuntime? lifecycleRuntime = null,
+    IBaseSessionFactory? sessions = null,
+    IBaseHttpPrincipalContextFactory? principalFactory = null)
 {
     private const int MaximumSnapshotBytes = 4 * 1024 * 1024;
 
-    internal ValueTask<OperationResult<BaseClientGenerationSnapshotV2>> BuildAsync(HttpContext context, CancellationToken cancellationToken)
+    internal async ValueTask<OperationResult<BaseClientGenerationSnapshotV2>> BuildAsync(HttpContext context, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         HPDBaseEndpointDescriptor? current = context.GetEndpoint()?.Metadata.GetMetadata<HPDBaseEndpointDescriptor>();
         if (current is null || current.Operation != HPDBaseEndpointOperation.ClientGenerationRead)
-            return ValueTask.FromResult(Failure("base.clientGeneration.inventoryUnavailable"));
+            return Failure("base.clientGeneration.inventoryUnavailable");
+
+        var authorizedLifecycle = new List<BaseInstalledSubjectLifecycleConsumer>();
+        var authorizedLifecycleReconciliation = new HashSet<string>(StringComparer.Ordinal);
+        string? lifecycleAudience = null;
+        if (current.Audience == HPDBaseEndpointAudience.Application && lifecycleConsumers is not null && lifecycleRuntime is not null && sessions is not null && principalFactory is not null)
+        {
+            PrincipalContext principal = await principalFactory.CreateAsync(context, cancellationToken).ConfigureAwait(false);
+            lifecycleAudience = principal.AuthenticationState == PrincipalAuthenticationState.System ? "system"
+                : principal.AuthenticationState == PrincipalAuthenticationState.Service ? "service" : null;
+            BaseSession session = sessions.For(principal, options => options.ProjectId = context.Request.Query["projectId"].Count == 1 ? context.Request.Query["projectId"][0] : null);
+            foreach (BaseInstalledSubjectLifecycleConsumer candidate in lifecycleConsumers.All.OrderBy(static value => value.Definition.Id, StringComparer.Ordinal).ThenBy(static value => value.Definition.Version))
+                if (await lifecycleRuntime.AuthorizeGenerationAsync(session, candidate, cancellationToken).ConfigureAwait(false))
+                {
+                    authorizedLifecycle.Add(candidate);
+                    if (await lifecycleRuntime.AuthorizeReconciliationGenerationAsync(session, candidate, cancellationToken).ConfigureAwait(false))
+                        authorizedLifecycleReconciliation.Add(candidate.Definition.Id + "\n" + candidate.Definition.Version);
+                }
+        }
 
         RouteEndpoint[] materialized = endpointDataSource.Endpoints.OfType<RouteEndpoint>()
             .Where(endpoint => endpoint.Metadata.GetMetadata<HPDBaseEndpointDescriptor>() is { } descriptor
                 && descriptor.Audience == current.Audience
                 && descriptor.Operation != HPDBaseEndpointOperation.ModuleMutation
-                && descriptor.Operation != HPDBaseEndpointOperation.SubjectLifecycleRead
-                && descriptor.Operation != HPDBaseEndpointOperation.SubjectLifecycleCheckpoint
-                && !string.Equals(descriptor.Capability, HPDBaseCapabilities.SubjectLifecycleClientGenerate, StringComparison.Ordinal))
+                && (descriptor.Operation switch
+                {
+                    HPDBaseEndpointOperation.SubjectLifecycleRead or HPDBaseEndpointOperation.SubjectLifecycleCheckpoint => authorizedLifecycle.Count != 0,
+                    HPDBaseEndpointOperation.SubjectLifecycleReconciliationRead => authorizedLifecycleReconciliation.Count != 0,
+                    _ => true,
+                }))
             .OrderBy(endpoint => endpoint.Metadata.GetMetadata<HPDBaseEndpointDescriptor>()!.EndpointId, StringComparer.Ordinal)
             .ToArray();
         if (materialized.Length is 0 or > 256)
-            return ValueTask.FromResult(Failure("base.clientGeneration.inventoryUnavailable"));
+            return Failure("base.clientGeneration.inventoryUnavailable");
 
         IReadOnlyDictionary<string, RouteDescriptor> routeContracts = descriptors.Current.Manifest.Projections?
             .SelectMany(projection => projection.Routes ?? [])
@@ -92,14 +117,14 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
             ?? new Dictionary<string, RouteDescriptor>(StringComparer.Ordinal);
         BaseClientEndpointDescriptor[] endpoints;
         try { endpoints = materialized.Select(endpoint => ToEndpoint(endpoint, routeContracts, reads, aspNetCore.Limits.MaxRequestBodyLength, aspNetCore.Administration.MaxArtifactBytes)).ToArray(); }
-        catch (InvalidOperationException) { return ValueTask.FromResult(Failure("base.clientGeneration.contractMissing")); }
+        catch (InvalidOperationException) { return Failure("base.clientGeneration.contractMissing"); }
         BaseClientCollectionDescriptor[] generatedCollections = collections.Collections.Values
             .Where(collection => collection.Enabled && collection.Exposed)
             .OrderBy(collection => collection.Id, StringComparer.Ordinal)
             .Select(collection => ToCollection(collection, stores, endpoints, installedFeatures))
             .ToArray();
         if (generatedCollections.Length > 256)
-            return ValueTask.FromResult(Failure("base.clientGeneration.snapshotTooLarge"));
+            return Failure("base.clientGeneration.snapshotTooLarge");
 
         IBaseReadRegistration[] installedReads = reads.Registrations.Values
             .Where(read => endpoints.Any(endpoint => endpoint.Id.EndsWith("." + read.Id, StringComparison.Ordinal) && endpoint.Operation == "RegisteredRead"))
@@ -112,14 +137,17 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
             ? (moduleMutations?.Registrations ?? []).OrderBy(static value => value.Id, StringComparer.Ordinal).ToArray()
             : [];
         BaseClientNamedTypeDescriptor[] types = BuildTypes(collections.Collections.Values, installedReads, templates.Length != 0, graphSelections, logicalSchema.ExportedSubjects)
-            .Concat(graphModules.SelectMany(ModuleTypes)).OrderBy(static value => value.Id, StringComparer.Ordinal).ToArray();
+            .Concat(graphModules.SelectMany(ModuleTypes)).Concat(authorizedLifecycle.Count == 0 ? [] : SubjectLifecycleEndpoints.LifecycleTypes())
+            .OrderBy(static value => value.Id, StringComparer.Ordinal).ToArray();
         if (types.Length > 512)
-            return ValueTask.FromResult(Failure("base.clientGeneration.snapshotTooLarge"));
+            return Failure("base.clientGeneration.snapshotTooLarge");
 
         string schemaGeneration = (application.CurrentReadiness.SchemaGeneration ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture);
         string endpointDigest = Hash(Canonicalize(JsonSerializer.SerializeToUtf8Bytes(endpoints, HPDBaseClientGenerationJsonContext.Default.BaseClientEndpointDescriptorArray)));
         string basePath = BasePath(context.Request.Path.Value ?? "/base/client-generation");
-        string audience = current.Audience == HPDBaseEndpointAudience.Application ? "application" : "controlPlane";
+        string audience = current.Audience == HPDBaseEndpointAudience.Application
+            ? authorizedLifecycle.Count == 0 ? "application" : lifecycleAudience!
+            : "controlPlane";
         BaseClientCapabilityDescriptor[] capabilities = endpoints
             .Where(endpoint => endpoint.Capability is not null)
             .Select(endpoint => endpoint.Capability!)
@@ -151,13 +179,21 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
             Route = $"{basePath}/module-mutations/v1/{registration.Id}:execute",
             MaximumRequestBytes = moduleMutations!.Find(registration.Id, registration.Version)!.Limits.MaximumRequestBytes,
         }).ToArray();
+        BaseClientSubjectLifecycleConsumerDescriptor[] generatedLifecycle = [.. authorizedLifecycle.Select(value => new BaseClientSubjectLifecycleConsumerDescriptor
+        {
+            Id=value.Definition.Id,Version=value.Definition.Version,Checksum=value.Checksum,GeneratedName=GeneratedName(value.Definition.Id),
+            Audience=value.Definition.Audience==BaseSubjectLifecycleConsumerAudience.System?"system":"service",ContractId=value.Definition.ContractId,ContractVersion=value.Definition.ContractVersion,
+            ObservedStates=[..value.Definition.ObservedStates.Select(static state=>state.ToString().ToLowerInvariant())],ReadRoute=basePath+"/subject-lifecycle/feed/read",CheckpointRoute=basePath+"/subject-lifecycle/feed/checkpoints",
+            ReconciliationRoute=authorizedLifecycleReconciliation.Contains(value.Definition.Id+"\n"+value.Definition.Version)?basePath+"/subject-lifecycle/reconciliation/read":null,
+            MaximumFactsPerPage=value.Definition.Limits.MaximumFactsPerPage,MaximumResultBytes=value.Definition.Limits.MaximumResultBytes,
+        })];
         if (capabilities.Length > 256 || installedReads.Length > 256 || templates.Length > 512 || vectors.Length > 256 || selectionMutations.Length > 256 || generatedModules.Length > 256)
-            return ValueTask.FromResult(Failure("base.clientGeneration.snapshotTooLarge"));
+            return Failure("base.clientGeneration.snapshotTooLarge");
         var generatedNames = new HashSet<string>(["reads", "files", "close", "collection", "connectivity", "$control", "$dynamic"], StringComparer.Ordinal);
         if (generatedCollections.Any(collection => !generatedNames.Add(collection.GeneratedName))
             || installedReads.Any(read => !generatedNames.Add("read:" + GeneratedName(read.Id)))
             || vectors.GroupBy(vector => vector.CollectionId, StringComparer.Ordinal).Any(group => group.Select(vector => vector.GeneratedName).Distinct(StringComparer.Ordinal).Count() != group.Count()))
-            return ValueTask.FromResult(Failure("base.clientGeneration.nameCollision"));
+            return Failure("base.clientGeneration.nameCollision");
 
         var snapshot = new BaseClientGenerationSnapshotV2
         {
@@ -192,22 +228,22 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
             VectorIndexes = vectors,
             SelectionMutations = selectionMutations,
             ModuleMutations = generatedModules,
-            SubjectLifecycleConsumers = [],
+            SubjectLifecycleConsumers = generatedLifecycle,
             Errors = ErrorTaxonomy(endpoints),
             Digest = string.Empty
         };
         byte[] serialized = JsonSerializer.SerializeToUtf8Bytes(snapshot, HPDBaseClientGenerationJsonContext.Default.BaseClientGenerationSnapshotV2);
         byte[] canonical = Canonicalize(serialized, snapshotDigestInput: true);
         if (canonical.Length > MaximumSnapshotBytes)
-            return ValueTask.FromResult(Failure("base.clientGeneration.snapshotTooLarge"));
+            return Failure("base.clientGeneration.snapshotTooLarge");
         snapshot = snapshot with
         {
             Digest = Hash(canonical),
             Protocol = snapshot.Protocol with { GeneratedAt = timeProvider.GetUtcNow().ToString("O", System.Globalization.CultureInfo.InvariantCulture) }
         };
         if (JsonSerializer.SerializeToUtf8Bytes(snapshot, HPDBaseClientGenerationJsonContext.Default.BaseClientGenerationSnapshotV2).Length > MaximumSnapshotBytes)
-            return ValueTask.FromResult(Failure("base.clientGeneration.snapshotTooLarge"));
-        return ValueTask.FromResult(new OperationResult<BaseClientGenerationSnapshotV2> { Status = OperationStatus.Ok, Value = snapshot });
+            return Failure("base.clientGeneration.snapshotTooLarge");
+        return new OperationResult<BaseClientGenerationSnapshotV2> { Status = OperationStatus.Ok, Value = snapshot };
     }
 
     private static IEnumerable<BaseClientNamedTypeDescriptor> ModuleTypes(IBaseModuleMutationRegistration registration)
@@ -302,6 +338,9 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
                 "hpd.base.vector.metadata.list" => new RouteDescriptor { OperationId = descriptor.EndpointId, Method = HttpMethodKind.Get, Path = endpoint.RoutePattern.RawText ?? "", ResponseDtoId = "base.vector.indexStatus.array" },
                 "hpd.base.vector.diagnostics.read" => new RouteDescriptor { OperationId = descriptor.EndpointId, Method = HttpMethodKind.Get, Path = endpoint.RoutePattern.RawText ?? "", ResponseDtoId = "base.vector.indexStatus" },
                 "hpd.base.vector.rebuild" => new RouteDescriptor { OperationId = descriptor.EndpointId, Method = HttpMethodKind.Post, Path = endpoint.RoutePattern.RawText ?? "", RequestDtoId = "base.vector.rebuild.request", ResponseDtoId = "base.vector.rebuild.result" },
+                "base.subjectLifecycle.feed.read" => new RouteDescriptor { OperationId = descriptor.EndpointId, Method = HttpMethodKind.Post, Path = endpoint.RoutePattern.RawText ?? "", RequestDtoId = "base.subjectLifecycle.feed.read.request", ResponseDtoId = "base.subjectLifecycle.page" },
+                "base.subjectLifecycle.feed.checkpoint" => new RouteDescriptor { OperationId = descriptor.EndpointId, Method = HttpMethodKind.Post, Path = endpoint.RoutePattern.RawText ?? "", RequestDtoId = "base.subjectLifecycle.feed.checkpoint.request", ResponseDtoId = "base.subjectLifecycle.checkpoint" },
+                "base.subjectLifecycle.reconciliation.read" => new RouteDescriptor { OperationId = descriptor.EndpointId, Method = HttpMethodKind.Post, Path = endpoint.RoutePattern.RawText ?? "", RequestDtoId = "base.subjectLifecycle.reconciliation.read.request", ResponseDtoId = "base.subjectLifecycle.reconciliation.page" },
                 _ => null!
             };
             if (route is not null) goto ContractResolved;
@@ -609,6 +648,16 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
     {
         HPDBaseEndpointOperation.RealtimeSubscribe => [BaseRealtimeErrorCodes.CursorExpired, "base.realtime.protocolInvalid", "base.realtime.payloadTooLarge"],
         HPDBaseEndpointOperation.BackupCreate or HPDBaseEndpointOperation.BackupValidate or HPDBaseEndpointOperation.BackupRestore => ["base.admin.backup.busy", "base.admin.backup.artifactInvalid", "base.admin.backup.multipartInvalid"],
+        HPDBaseEndpointOperation.SubjectLifecycleRead or HPDBaseEndpointOperation.SubjectLifecycleCheckpoint or HPDBaseEndpointOperation.SubjectLifecycleReconciliationRead =>
+        [
+            BaseSubjectErrorCodes.LifecycleContractInvalid, BaseSubjectErrorCodes.LifecycleUnauthorized,
+            BaseSubjectErrorCodes.CursorInvalid, BaseSubjectErrorCodes.CursorExpired,
+            BaseSubjectErrorCodes.CursorScopeMismatch, BaseSubjectErrorCodes.ScopeAuthorityInvalid,
+            BaseSubjectErrorCodes.CursorOvertaken, BaseSubjectErrorCodes.LifecycleReconciliationUnavailable,
+            BaseSubjectErrorCodes.LifecycleProviderContractInvalid, BaseSubjectErrorCodes.LifecycleCapacityExceeded,
+            BaseSubjectErrorCodes.Timeout, BaseSubjectErrorCodes.LifecycleCommitIndeterminate,
+            BaseSubjectErrorCodes.MaintenanceRequired,
+        ],
         _ => ["base.runtime.validation", "base.http.authenticationRequired", "base.http.authorizationDenied"]
     };
 
@@ -627,12 +676,17 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
         .Select(static code => new BaseClientErrorDescriptor
         {
             Code = code,
-            Category = code.Contains("authentic", StringComparison.OrdinalIgnoreCase) ? "authentication"
+            Category = code is BaseSubjectErrorCodes.LifecycleProviderContractInvalid or BaseSubjectErrorCodes.LifecycleReconciliationUnavailable or BaseSubjectErrorCodes.MaintenanceRequired ? "capability"
+                : code == BaseSubjectErrorCodes.LifecycleCapacityExceeded || code == BaseSubjectErrorCodes.Timeout || code == BaseSubjectErrorCodes.LifecycleCommitIndeterminate ? "store"
+                : code is BaseSubjectErrorCodes.LifecycleUnauthorized or BaseSubjectErrorCodes.CursorScopeMismatch or BaseSubjectErrorCodes.ScopeAuthorityInvalid ? "authorization"
+                : code is BaseSubjectErrorCodes.CursorExpired or BaseSubjectErrorCodes.CursorOvertaken ? "conflict"
+                : code.Contains("authentic", StringComparison.OrdinalIgnoreCase) ? "authentication"
                 : code.Contains("authoriz", StringComparison.OrdinalIgnoreCase) ? "authorization"
                 : code.Contains("conflict", StringComparison.OrdinalIgnoreCase) || code.Contains("expired", StringComparison.OrdinalIgnoreCase) ? "conflict"
                 : code.Contains("indeterminate", StringComparison.OrdinalIgnoreCase) || code.Contains("busy", StringComparison.OrdinalIgnoreCase) ? "store"
                 : "validation",
-            Retryable = code.Contains("busy", StringComparison.OrdinalIgnoreCase)
+            Retryable = code == BaseSubjectErrorCodes.LifecycleCapacityExceeded || code == BaseSubjectErrorCodes.Timeout || code == BaseSubjectErrorCodes.MaintenanceRequired
+                || code.Contains("busy", StringComparison.OrdinalIgnoreCase)
         })
         .ToArray();
 

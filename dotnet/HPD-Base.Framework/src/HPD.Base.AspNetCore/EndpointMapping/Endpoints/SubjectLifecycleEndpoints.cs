@@ -17,80 +17,19 @@ internal static class SubjectLifecycleEndpoints
         if (registry is null || registry.All.Count == 0)
             return;
         endpoints.MapPost("/subject-lifecycle/feed/read", (RequestDelegate)Read)
-            .WithHPDBaseEndpoint("base.subject-lifecycle.feed.read", HPDBaseEndpointAudience.Application,
+            .WithHPDBaseEndpoint("base.subjectLifecycle.feed.read", HPDBaseEndpointAudience.Application,
                 HPDBaseEndpointOperation.SubjectLifecycleRead, HPDBaseCapabilities.SubjectLifecycleFeedRead)
-            .WithName("base.subject-lifecycle.feed.read");
+            .WithName("base.subjectLifecycle.feed.read");
         endpoints.MapPost("/subject-lifecycle/feed/checkpoints", (RequestDelegate)Advance)
-            .WithHPDBaseEndpoint("base.subject-lifecycle.feed.checkpoint", HPDBaseEndpointAudience.Application,
+            .WithHPDBaseEndpoint("base.subjectLifecycle.feed.checkpoint", HPDBaseEndpointAudience.Application,
                 HPDBaseEndpointOperation.SubjectLifecycleCheckpoint, HPDBaseCapabilities.SubjectLifecycleFeedCheckpoint)
-            .WithName("base.subject-lifecycle.feed.checkpoint");
-        endpoints.MapGet("/subject-lifecycle/client-generation", (RequestDelegate)Generate)
-            .WithHPDBaseEndpoint("base.subject-lifecycle.client-generation", HPDBaseEndpointAudience.Application,
-                HPDBaseEndpointOperation.ClientGenerationRead, HPDBaseCapabilities.SubjectLifecycleClientGenerate)
-            .WithName("base.subject-lifecycle.client-generation");
+            .WithName("base.subjectLifecycle.feed.checkpoint");
+        if (registry.All.Any(static value => value.Definition.ReconciliationGrantId is not null))
+            endpoints.MapPost("/subject-lifecycle/reconciliation/read", (RequestDelegate)Reconcile)
+                .WithHPDBaseEndpoint("base.subjectLifecycle.reconciliation.read", HPDBaseEndpointAudience.Application,
+                    HPDBaseEndpointOperation.SubjectLifecycleReconciliationRead, HPDBaseCapabilities.SubjectLifecycleReconcileRead)
+                .WithName("base.subjectLifecycle.reconciliation.read");
     }
-
-    private static async Task Generate(HttpContext context)
-    {
-        EndpointState? state = await TryContext(context).ConfigureAwait(false);
-        if (state is null) return;
-        string audience = state.Principal.AuthenticationState == PrincipalAuthenticationState.System ? "system" : "service";
-        BaseInstalledSubjectLifecycleConsumer[] installed = state.Registry.All
-            .Where(value => audience == "system" || value.Definition.Audience == BaseSubjectLifecycleConsumerAudience.Service)
-            .OrderBy(static value => value.Definition.Id, StringComparer.Ordinal).ThenBy(static value => value.Definition.Version).ToArray();
-        BaseLogicalSchema schema = context.RequestServices.GetRequiredService<BaseLogicalSchema>();
-        IHPDBaseApplication application = context.RequestServices.GetRequiredService<IHPDBaseApplication>();
-        string basePath = context.Request.PathBase.Add(new PathString(context.Request.Path.Value![..^"/subject-lifecycle/client-generation".Length])).Value ?? "/base";
-        var snapshot = new BaseClientGenerationSnapshotV2
-        {
-            Protocol = new BaseClientProtocolDescriptor { ApplicationId = schema.ApplicationId, SchemaGeneration = (application.CurrentReadiness.SchemaGeneration ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture), EndpointInventoryDigest = "sha256:" + Convert.ToHexStringLower(SHA256.HashData("base.subjectLifecycle.worker.endpoints.v1"u8)), GeneratedAt = string.Empty },
-            Application = new BaseClientApplicationDescriptor { ApplicationId = schema.ApplicationId, Audience = audience, BasePath = basePath },
-            Schema = new BaseClientSchemaDescriptor { Generation = (application.CurrentReadiness.SchemaGeneration ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture), Collections = [], Types = LifecycleTypes() },
-            Endpoints = [], Capabilities = [new() { Id = HPDBaseCapabilities.SubjectLifecycleFeedRead, Available = true }, new() { Id = HPDBaseCapabilities.SubjectLifecycleFeedCheckpoint, Available = true }],
-            RegisteredReads = [], DependencyTemplates = [], VectorIndexes = [], SelectionMutations = [], ModuleMutations = [],
-            SubjectLifecycleConsumers = [.. installed.Select(value => new BaseClientSubjectLifecycleConsumerDescriptor
-            {
-                Id = value.Definition.Id, Version = value.Definition.Version, Checksum = value.Checksum, GeneratedName = GeneratedName(value.Definition.Id),
-                Audience = value.Definition.Audience == BaseSubjectLifecycleConsumerAudience.System ? "system" : "service",
-                ContractId = value.Definition.ContractId, ContractVersion = value.Definition.ContractVersion,
-                ObservedStates = [.. value.Definition.ObservedStates.Select(static state => state.ToString().ToLowerInvariant())],
-                ReadRoute = basePath + "/subject-lifecycle/feed/read", CheckpointRoute = basePath + "/subject-lifecycle/feed/checkpoints",
-                MaximumFactsPerPage = value.Definition.Limits.MaximumFactsPerPage, MaximumResultBytes = value.Definition.Limits.MaximumResultBytes,
-            })],
-            Errors = LifecycleErrors(), Digest = string.Empty,
-        };
-        byte[] digestInput = BaseClientGenerationSnapshotBuilder.Canonicalize(JsonSerializer.SerializeToUtf8Bytes(snapshot, HPDBaseClientGenerationJsonContext.Default.BaseClientGenerationSnapshotV2), snapshotDigestInput: true);
-        snapshot = snapshot with { Digest = "sha256:" + Convert.ToHexStringLower(SHA256.HashData(digestInput)), Protocol = snapshot.Protocol with { GeneratedAt = context.RequestServices.GetRequiredService<TimeProvider>().GetUtcNow().ToString("O", System.Globalization.CultureInfo.InvariantCulture) } };
-        byte[] bytes = BaseClientGenerationSnapshotBuilder.Canonicalize(JsonSerializer.SerializeToUtf8Bytes(snapshot, HPDBaseClientGenerationJsonContext.Default.BaseClientGenerationSnapshotV2));
-        context.Response.StatusCode = StatusCodes.Status200OK; context.Response.ContentType = "application/json; charset=utf-8"; context.Response.ContentLength = bytes.Length;
-        await context.Response.Body.WriteAsync(bytes, context.RequestAborted).ConfigureAwait(false);
-    }
-
-    private static BaseClientErrorDescriptor[] LifecycleErrors() =>
-    [
-        Error(BaseSubjectErrorCodes.LifecycleContractInvalid, "validation"),
-        Error(BaseSubjectErrorCodes.LifecycleRegistrationConflict, "conflict"),
-        Error(BaseSubjectErrorCodes.LifecycleUnauthorized, "authorization"),
-        Error(BaseSubjectErrorCodes.LifecycleTransitionInvalid, "conflict"),
-        Error(BaseSubjectErrorCodes.SequenceExhausted, "conflict"),
-        Error(BaseSubjectErrorCodes.LifetimeGenerationExhausted, "conflict"),
-        Error(BaseSubjectErrorCodes.LifecycleIncarnationUnavailable, "store", retryable: true),
-        Error(BaseSubjectErrorCodes.CursorInvalid, "validation"),
-        Error(BaseSubjectErrorCodes.CursorExpired, "conflict"),
-        Error(BaseSubjectErrorCodes.CursorScopeMismatch, "authorization"),
-        Error(BaseSubjectErrorCodes.ScopeAuthorityInvalid, "authorization"),
-        Error(BaseSubjectErrorCodes.CursorOvertaken, "conflict"),
-        Error(BaseSubjectErrorCodes.LifecycleReconciliationUnavailable, "capability"),
-        Error(BaseSubjectErrorCodes.LifecycleProviderContractInvalid, "capability"),
-        Error(BaseSubjectErrorCodes.LifecycleCapacityExceeded, "store", retryable: true),
-        Error(BaseSubjectErrorCodes.Timeout, "store", retryable: true),
-        Error(BaseSubjectErrorCodes.LifecycleCommitIndeterminate, "store"),
-        Error(BaseSubjectErrorCodes.MaintenanceRequired, "capability", retryable: true),
-        Error(BaseSubjectErrorCodes.ScopeProtectionRotationConflict, "conflict"),
-    ];
-
-    private static BaseClientErrorDescriptor Error(string code, string category, bool retryable = false) =>
-        new() { Code = code, Category = category, Retryable = retryable };
 
     private static async Task Read(HttpContext context)
     {
@@ -100,7 +39,7 @@ internal static class SubjectLifecycleEndpoints
         if (request is null) return;
         BaseInstalledSubjectLifecycleConsumer? installed = state.Registry.All.SingleOrDefault(value =>
             string.Equals(value.Definition.Id, request.ConsumerId, StringComparison.Ordinal) && value.Definition.Version == request.ConsumerVersion);
-        if (installed is null) { await Problem(context, OperationStatus.PolicyDenied, BaseSubjectErrorCodes.LifecycleUnauthorized).ConfigureAwait(false); return; }
+        if (installed is null || installed.Definition.ContractId != request.ContractId || installed.Definition.ContractVersion != request.ContractVersion) { await Problem(context, OperationStatus.PolicyDenied, BaseSubjectErrorCodes.LifecycleUnauthorized).ConfigureAwait(false); return; }
         if (!AudienceAllows(installed.Definition.Audience, state.Principal.AuthenticationState)) { await Problem(context, OperationStatus.PolicyDenied, BaseSubjectErrorCodes.LifecycleUnauthorized).ConfigureAwait(false); return; }
         BaseSubjectLifecycleCursor? cursor;
         try { cursor = request.Cursor is null ? null : new BaseSubjectLifecycleCursor(Decode(request.Cursor, 8192)); }
@@ -129,7 +68,7 @@ internal static class SubjectLifecycleEndpoints
         { await Problem(context, OperationStatus.ValidationFailed, BaseSubjectErrorCodes.LifecycleContractInvalid).ConfigureAwait(false); return; }
         BaseInstalledSubjectLifecycleConsumer? installed = state.Registry.All.SingleOrDefault(value =>
             string.Equals(value.Definition.Id, request.ConsumerId, StringComparison.Ordinal) && value.Definition.Version == request.ConsumerVersion);
-        if (installed is null) { await Problem(context, OperationStatus.PolicyDenied, BaseSubjectErrorCodes.LifecycleUnauthorized).ConfigureAwait(false); return; }
+        if (installed is null || installed.Definition.ContractId != request.ContractId || installed.Definition.ContractVersion != request.ContractVersion) { await Problem(context, OperationStatus.PolicyDenied, BaseSubjectErrorCodes.LifecycleUnauthorized).ConfigureAwait(false); return; }
         if (!AudienceAllows(installed.Definition.Audience, state.Principal.AuthenticationState)) { await Problem(context, OperationStatus.PolicyDenied, BaseSubjectErrorCodes.LifecycleUnauthorized).ConfigureAwait(false); return; }
         BaseSubjectLifecycleCheckpoint checkpoint;
         try { checkpoint = new BaseSubjectLifecycleCheckpoint(Decode(request.Checkpoint, 8192)); }
@@ -161,6 +100,21 @@ internal static class SubjectLifecycleEndpoints
         await writer.FlushAsync(context.RequestAborted).ConfigureAwait(false);
     }
 
+    private static async Task Reconcile(HttpContext context)
+    {
+        EndpointState? state=await TryContext(context).ConfigureAwait(false);if(state is null)return;
+        WireRequest? request=await ReadRequest(context,checkpointRequest:false,reconciliationRequest:true).ConfigureAwait(false);if(request is null)return;
+        BaseInstalledSubjectLifecycleConsumer? installed=state.Registry.All.SingleOrDefault(value=>value.Definition.Id==request.ConsumerId&&value.Definition.Version==request.ConsumerVersion&&value.Definition.ContractId==request.ContractId&&value.Definition.ContractVersion==request.ContractVersion);
+        if(installed is null||!AudienceAllows(installed.Definition.Audience,state.Principal.AuthenticationState)){await Problem(context,OperationStatus.PolicyDenied,BaseSubjectErrorCodes.LifecycleUnauthorized).ConfigureAwait(false);return;}
+        BaseGeneratedSubjectRegistration? contract=state.Contracts.Find(request.ContractId,request.ContractVersion);
+        if(contract is null){await Problem(context,OperationStatus.PolicyDenied,BaseSubjectErrorCodes.LifecycleUnauthorized).ConfigureAwait(false);return;}
+        BaseSubjectId? after=null;try{if(request.AfterSubjectId is not null)after=BaseSubjectId.Create(request.AfterSubjectId,contract.Definition.SubjectIdKind,contract.Definition.MaximumSubjectIdUtf8Bytes);}catch(ArgumentException){await Problem(context,OperationStatus.ValidationFailed,BaseSubjectErrorCodes.LifecycleContractInvalid).ConfigureAwait(false);return;}
+        BaseResult<BaseSubjectLifecycleProviderReconciliationPage> result=await state.Runtime.ReconcileUntypedAsync(state.Session(request.ProjectId),installed,after,request.Take,context.RequestAborted).ConfigureAwait(false);
+        if(result is BaseFailure<BaseSubjectLifecycleProviderReconciliationPage> failure){await Problem(context,failure.Status,failure.Error.Code).ConfigureAwait(false);return;}
+        BaseSubjectLifecycleProviderReconciliationPage page=((BaseSuccess<BaseSubjectLifecycleProviderReconciliationPage>)result).Value;
+        context.Response.StatusCode=StatusCodes.Status200OK;context.Response.ContentType="application/json; charset=utf-8";await using var writer=new Utf8JsonWriter(context.Response.BodyWriter);writer.WriteStartObject();writer.WritePropertyName("subjects");writer.WriteStartArray();foreach(BaseCurrentSubjectLifecycle subject in page.Subjects){writer.WriteStartObject();writer.WriteString("subjectId",subject.SubjectId.Value);writer.WriteString("authorityEpoch",subject.AuthorityEpoch.ToBase64Url());writer.WriteString("incarnation",subject.Incarnation.ToBase64Url());writer.WriteString("state",State(subject.State));writer.WriteString("subjectSequence",subject.SubjectSequence.ToString(System.Globalization.CultureInfo.InvariantCulture));writer.WriteEndObject();}writer.WriteEndArray();if(page.NextSubjectId is null)writer.WriteNull("nextSubjectId");else writer.WriteString("nextSubjectId",page.NextSubjectId.Value.Value);if(page.CapturedHighWater is null)writer.WriteNull("capturedHighWater");else{writer.WritePropertyName("capturedHighWater");WriteBoundary(writer,page.CapturedHighWater);}writer.WriteEndObject();await writer.FlushAsync(context.RequestAborted).ConfigureAwait(false);
+    }
+
     private static async ValueTask<EndpointState?> TryContext(HttpContext context)
     {
         PrincipalContext principal = await context.RequestServices.GetRequiredService<IBaseHttpPrincipalContextFactory>().CreateAsync(context, context.RequestAborted).ConfigureAwait(false);
@@ -170,10 +124,10 @@ internal static class SubjectLifecycleEndpoints
         IBaseSubjectLifecycleRuntime? runtime = context.RequestServices.GetService<IBaseSubjectLifecycleRuntime>();
         if (registry is null || runtime is null)
         { await Problem(context, OperationStatus.CapabilityUnavailable, BaseSubjectErrorCodes.LifecycleProviderContractInvalid).ConfigureAwait(false); return null; }
-        return new(registry, runtime, principal, context.RequestServices.GetRequiredService<IBaseSessionFactory>());
+        return new(registry, runtime, context.RequestServices.GetRequiredService<BaseSubjectContractRegistry>(), principal, context.RequestServices.GetRequiredService<IBaseSessionFactory>());
     }
 
-    private static async ValueTask<WireRequest?> ReadRequest(HttpContext context, bool checkpointRequest)
+    private static async ValueTask<WireRequest?> ReadRequest(HttpContext context, bool checkpointRequest, bool reconciliationRequest = false)
     {
         try
         {
@@ -183,26 +137,31 @@ internal static class SubjectLifecycleEndpoints
             JsonElement root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object) throw new JsonException();
             string[] allowed = checkpointRequest
-                ? ["consumerId", "consumerVersion", "projectId", "checkpoint", "identity"]
-                : ["consumerId", "consumerVersion", "projectId", "take", "cursor"];
+                ? ["consumerId", "consumerVersion", "contractId", "contractVersion", "projectId", "checkpoint", "identity"]
+                : reconciliationRequest
+                    ? ["consumerId", "consumerVersion", "contractId", "contractVersion", "projectId", "take", "afterSubjectId"]
+                    : ["consumerId", "consumerVersion", "contractId", "contractVersion", "projectId", "take", "cursor"];
             var names = new HashSet<string>(StringComparer.Ordinal);
             foreach (JsonProperty property in root.EnumerateObject())
                 if (!names.Add(property.Name) || !allowed.Contains(property.Name, StringComparer.Ordinal))
                     throw new JsonException();
-            if (!names.Contains("consumerId") || !names.Contains("consumerVersion")
+            if (!names.Contains("consumerId") || !names.Contains("consumerVersion") || !names.Contains("contractId") || !names.Contains("contractVersion")
                 || checkpointRequest && (!names.Contains("checkpoint") || !names.Contains("identity")))
                 throw new JsonException();
             string consumerId = root.GetProperty("consumerId").GetString() ?? throw new JsonException();
             int consumerVersion = root.GetProperty("consumerVersion").GetInt32();
+            string contractId = root.GetProperty("contractId").GetString() ?? throw new JsonException();
+            int contractVersion = root.GetProperty("contractVersion").GetInt32();
             int? take = root.TryGetProperty("take", out JsonElement takeValue) ? takeValue.GetInt32() : null;
             string? cursor = root.TryGetProperty("cursor", out JsonElement cursorValue) && cursorValue.ValueKind != JsonValueKind.Null ? cursorValue.GetString() : null;
             string? checkpoint = root.TryGetProperty("checkpoint", out JsonElement checkpointValue) && checkpointValue.ValueKind != JsonValueKind.Null ? checkpointValue.GetString() : null;
             string? projectId = root.TryGetProperty("projectId", out JsonElement projectValue) && projectValue.ValueKind != JsonValueKind.Null ? projectValue.GetString() : null;
             WireIdentity? identity = checkpointRequest ? ReadIdentity(root.GetProperty("identity")) : null;
-            if (consumerVersion < 1 || consumerId.Length is < 1 or > 128
+            string? afterSubjectId=root.TryGetProperty("afterSubjectId",out JsonElement afterValue)&&afterValue.ValueKind!=JsonValueKind.Null?afterValue.GetString():null;
+            if (consumerVersion < 1 || consumerId.Length is < 1 or > 128 || contractVersion<1 || contractId.Length is < 1 or > 128
                 || projectId is { Length: < 1 or > 256 }
                 || checkpointRequest && checkpoint is null) throw new JsonException();
-            return new(consumerId, consumerVersion, projectId, take, cursor, checkpoint, identity);
+            return new(consumerId, consumerVersion, contractId, contractVersion, projectId, take, cursor, checkpoint, afterSubjectId, identity);
         }
         catch (Exception exception) when (exception is InvalidDataException or JsonException or KeyNotFoundException)
         { await Problem(context, OperationStatus.ValidationFailed, BaseSubjectErrorCodes.LifecycleContractInvalid).ConfigureAwait(false); return null; }
@@ -235,8 +194,19 @@ internal static class SubjectLifecycleEndpoints
         writer.WriteEndObject();
     }
 
+    private static void WriteBoundary(Utf8JsonWriter writer, BaseSubjectLifecycleOrderingBoundary boundary)
+    {
+        writer.WriteStartObject();
+        writer.WriteString("commitPosition", boundary.CommitPosition.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        writer.WriteString("subjectId", boundary.SubjectId.Value);
+        writer.WriteString("authorityEpoch", boundary.AuthorityEpoch.ToBase64Url());
+        writer.WriteString("incarnation", boundary.Incarnation.ToBase64Url());
+        writer.WriteString("subjectSequence", boundary.SubjectSequence.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        writer.WriteEndObject();
+    }
+
     private static string State(BaseSubjectLifecycleState state) => state.ToString().ToLowerInvariant();
-    private static BaseClientNamedTypeDescriptor[] LifecycleTypes()
+    internal static BaseClientNamedTypeDescriptor[] LifecycleTypes()
     {
         static BaseClientPropertyDescriptor Property(string name, string type, bool required, bool nullable = false) => new()
         {
@@ -270,13 +240,25 @@ internal static class SubjectLifecycleEndpoints
                 Property("facts", "base.subjectLifecycle.facts", true), Property("next", "base.subjectLifecycle.cursor", true, true),
                 Property("checkpoint", "base.subjectLifecycle.checkpoint", true),
             ] } },
+            new() { Id = "base.subjectLifecycle.current", Node = new() { Kind = "object", AdditionalProperties = false, Properties =
+            [
+                Property("subjectId", "base.subjectLifecycle.subjectId", true), Property("authorityEpoch", "base.subjectLifecycle.authorityEpoch", true),
+                Property("incarnation", "base.subjectLifecycle.incarnation", true), Property("state", "base.subjectLifecycle.state", true),
+                Property("subjectSequence", "base.subjectLifecycle.integer", true),
+            ] } },
+            new() { Id = "base.subjectLifecycle.currentItems", Node = new() { Kind = "array", ElementTypeId = "base.subjectLifecycle.current", MinItems = 0, MaxItems = 256 } },
+            new() { Id = "base.subjectLifecycle.orderingBoundary", Node = new() { Kind = "object", AdditionalProperties = false, Properties =
+            [
+                Property("commitPosition", "base.subjectLifecycle.integer", true), Property("subjectId", "base.subjectLifecycle.subjectId", true),
+                Property("authorityEpoch", "base.subjectLifecycle.authorityEpoch", true), Property("incarnation", "base.subjectLifecycle.incarnation", true),
+                Property("subjectSequence", "base.subjectLifecycle.integer", true),
+            ] } },
+            new() { Id = "base.subjectLifecycle.reconciliation.page", Node = new() { Kind = "object", AdditionalProperties = false, Properties =
+            [
+                Property("subjects", "base.subjectLifecycle.currentItems", true), Property("nextSubjectId", "base.subjectLifecycle.subjectId", true, true),
+                Property("capturedHighWater", "base.subjectLifecycle.orderingBoundary", true, true),
+            ] } },
         ];
-    }
-    private static string GeneratedName(string value)
-    {
-        string[] segments = value.Split(['.', '-', ':', '/'], StringSplitOptions.RemoveEmptyEntries);
-        string name = string.Concat(segments.Select((segment, index) => index == 0 ? char.ToLowerInvariant(segment[0]) + segment[1..] : char.ToUpperInvariant(segment[0]) + segment[1..]));
-        return string.IsNullOrEmpty(name) ? "lifecycle" : name;
     }
     private static bool AudienceAllows(BaseSubjectLifecycleConsumerAudience audience, PrincipalAuthenticationState principal) => audience == BaseSubjectLifecycleConsumerAudience.System ? principal == PrincipalAuthenticationState.System : principal is PrincipalAuthenticationState.Service or PrincipalAuthenticationState.System;
     private static string Encode(byte[] value) => Convert.ToBase64String(value).TrimEnd('=').Replace('+', '-').Replace('/', '_');
@@ -317,9 +299,9 @@ internal static class SubjectLifecycleEndpoints
         BaseSubjectErrorCodes.ScopeProtectionRotationConflict => "The subject scope-protection rotation conflicts with current authority.",
         _ => "The subject lifecycle operation failed.",
     };
-    private sealed record WireRequest(string ConsumerId, int ConsumerVersion, string? ProjectId, int? Take, string? Cursor, string? Checkpoint, WireIdentity? Identity);
+    private sealed record WireRequest(string ConsumerId, int ConsumerVersion, string ContractId, int ContractVersion, string? ProjectId, int? Take, string? Cursor, string? Checkpoint, string? AfterSubjectId, WireIdentity? Identity);
     private sealed record WireIdentity(string Scope, string Operation, string IdempotencyKey, string Fingerprint);
-    private sealed record EndpointState(BaseSubjectLifecycleRegistry Registry, IBaseSubjectLifecycleRuntime Runtime, PrincipalContext Principal, IBaseSessionFactory Sessions)
+    private sealed record EndpointState(BaseSubjectLifecycleRegistry Registry, IBaseSubjectLifecycleRuntime Runtime, BaseSubjectContractRegistry Contracts, PrincipalContext Principal, IBaseSessionFactory Sessions)
     {
         internal BaseSession Session(string? projectId) => Sessions.For(Principal, options => options.ProjectId = projectId);
     }

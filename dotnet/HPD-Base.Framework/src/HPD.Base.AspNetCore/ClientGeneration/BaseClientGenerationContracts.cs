@@ -54,6 +54,8 @@ public sealed record BaseClientSubjectLifecycleConsumerDescriptor
     public required string ReadRoute { get; init; }
     /// <summary>Gets the identified checkpoint route.</summary>
     public required string CheckpointRoute { get; init; }
+    /// <summary>Gets the optional separately authorized reconciliation route.</summary>
+    public string? ReconciliationRoute { get; init; }
     /// <summary>Gets the maximum facts per page.</summary>
     public required int MaximumFactsPerPage { get; init; }
     /// <summary>Gets the maximum encoded page bytes.</summary>
