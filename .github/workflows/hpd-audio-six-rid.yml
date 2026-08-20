@@ -13,6 +13,45 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  managed-kernel:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, rid: linux-x64 }
+          - { runner: ubuntu-24.04-arm, rid: linux-arm64 }
+          - { runner: macos-15-intel, rid: osx-x64 }
+          - { runner: macos-14, rid: osx-arm64 }
+          - { runner: windows-2025, rid: win-x64 }
+          - { runner: windows-11-arm, rid: win-arm64 }
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        working-directory: dotnet/HPD-Agent.Framework
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+            10.0.x
+      - name: Build and execute integrated kernel on matching host
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $log = Join-Path $env:RUNNER_TEMP 'hpd-integrated-kernel.log'
+          foreach ($tfm in @('net8.0','net9.0','net10.0')) {
+            "BEGIN $tfm ${{ matrix.rid }}" | Out-File $log -Append
+            dotnet test test/HPD-Agent.Tests/HPD-Agent.Tests.csproj -c Release -f $tfm -r '${{ matrix.rid }}' --no-self-contained -m:1 /nodeReuse:false 2>&1 | Out-File $log -Append
+            if ($LASTEXITCODE) { Get-Content $log -Tail 120; exit $LASTEXITCODE }
+            "PASS $tfm ${{ matrix.rid }}" | Out-File $log -Append
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hpd-integrated-kernel-${{ matrix.rid }}
+          path: ${{ runner.temp }}/hpd-integrated-kernel.log
+
   native-abi:
     strategy:
       fail-fast: false
