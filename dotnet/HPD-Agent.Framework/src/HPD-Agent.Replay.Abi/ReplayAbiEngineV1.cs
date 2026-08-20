@@ -185,10 +185,23 @@ internal static class ReplayAbiRequestCodecV1
     internal static bool TryDecodeOperation(ReadOnlySpan<byte> request,byte expectedOperation,out byte[] payload,out ulong first,out ulong second)
     {
         payload=[];first=0;second=0;if(!CanonicalCborValidatorV1.IsValid(request)||request.Length<6||request[0]!=0xa2||request[1]!=0x01||request[2]!=expectedOperation||request[3]!=0x02)return false;var offset=4;if(!ByteString(request,ref offset,out payload)||offset!=request.Length)return false;
-        if(expectedOperation==1)return payload.Length==5&&payload[0]==0xa2&&payload[1]==0x01&&Positive(payload[2],out first)&&payload[3]==0x02&&Positive(payload[4],out second);
-        return payload.Length==3&&payload[0]==0xa1&&payload[1]==0x01&&Positive(payload[2],out first);
+        var payloadOffset=0;
+        if(expectedOperation==1)return Read(payload,ref payloadOffset,0xa2)&&Read(payload,ref payloadOffset,0x01)&&Unsigned(payload,ref payloadOffset,out first)&&Read(payload,ref payloadOffset,0x02)&&Unsigned(payload,ref payloadOffset,out second)&&payloadOffset==payload.Length;
+        return Read(payload,ref payloadOffset,0xa1)&&Read(payload,ref payloadOffset,0x01)&&Unsigned(payload,ref payloadOffset,out first)&&payloadOffset==payload.Length;
     }
-    private static bool Positive(byte encoded,out ulong value){value=encoded;return encoded is >0 and <24;}
+    private static bool Read(ReadOnlySpan<byte> bytes,ref int offset,byte expected)
+    {if(offset>=bytes.Length||bytes[offset]!=expected)return false;offset++;return true;}
+    private static bool Unsigned(ReadOnlySpan<byte> bytes,ref int offset,out ulong value)
+    {
+        value=0;if(offset>=bytes.Length)return false;var initial=bytes[offset++];if(initial>>5!=0)return false;var additional=initial&31;
+        if(additional<24)value=(ulong)additional;
+        else if(additional==24){if(offset>=bytes.Length||bytes[offset]<24)return false;value=bytes[offset++];}
+        else if(additional==25){if(offset>bytes.Length-2)return false;value=BinaryPrimitives.ReadUInt16BigEndian(bytes[offset..]);if(value<=byte.MaxValue)return false;offset+=2;}
+        else if(additional==26){if(offset>bytes.Length-4)return false;value=BinaryPrimitives.ReadUInt32BigEndian(bytes[offset..]);if(value<=ushort.MaxValue)return false;offset+=4;}
+        else if(additional==27){if(offset>bytes.Length-8)return false;value=BinaryPrimitives.ReadUInt64BigEndian(bytes[offset..]);if(value<=uint.MaxValue)return false;offset+=8;}
+        else return false;
+        return value>0;
+    }
     private static bool ByteString(ReadOnlySpan<byte> bytes,ref int offset,out byte[] value)
     {
         value=[];if(offset>=bytes.Length)return false;var initial=bytes[offset++];if(initial>>5!=2)return false;var additional=initial&31;ulong length;if(additional<24)length=(ulong)additional;else if(additional==24){if(offset>=bytes.Length||bytes[offset]<24)return false;length=bytes[offset++];}else if(additional==25){if(offset>bytes.Length-2)return false;length=System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(bytes[offset..]);if(length<=byte.MaxValue)return false;offset+=2;}else if(additional==26){if(offset>bytes.Length-4)return false;length=System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes[offset..]);if(length<=ushort.MaxValue)return false;offset+=4;}else return false;if(length>int.MaxValue||offset>bytes.Length-(int)length)return false;value=bytes.Slice(offset,(int)length).ToArray();offset+=(int)length;return true;
