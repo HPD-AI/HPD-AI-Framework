@@ -205,6 +205,13 @@ public sealed partial class SqliteModuleMutationTests
             });
             backup.IsSuccess().Should().BeTrue(backup.Error?.Code);
 
+            byte[] corrupted = artifact.ToArray();
+            corrupted[corrupted.Length / 2] ^= 0xff;
+            OperationResult<BaseBackupManifest> validation = await store.ValidateBackupAsync(
+                new MemoryStream(corrupted),
+                new BaseBackupValidationRequest { StoreId = "module-store", Principal = AdministrationPrincipal() });
+            validation.Error!.Code.Should().Be(BaseAdministrationErrorCodes.ArtifactInvalid);
+
             (await runtime.ExecuteAsync(Session(), Definition(), Identity(), new Request(),
                 BaseMutationRequestIdentity.Create("module", "increment", "after-backup", BaseMutationRequestFingerprint.Create(new byte[32])),
                 null, default)).RequireValue().Result.Generation.Should().Be("2");
