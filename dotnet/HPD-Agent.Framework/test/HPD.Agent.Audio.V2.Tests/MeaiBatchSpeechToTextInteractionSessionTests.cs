@@ -206,10 +206,10 @@ public sealed class MeaiBatchSpeechToTextInteractionSessionTests
                 resolver)
         });
 
-        Assert.Contains(result.Ledger.ToArray().OfType<TranscriptLedgerRecord>(), r =>
+        Assert.Contains(result.LedgerRecords.ToArray().OfType<TranscriptLedgerRecord>(), r =>
             r.InputContentId == content.Id &&
             r.Text == "runtime transcript");
-        Assert.Contains(result.Ledger.ToArray().OfType<UserTurnLedgerRecord>(), r =>
+        Assert.Contains(result.LedgerRecords.ToArray().OfType<UserTurnLedgerRecord>(), r =>
             r.Text == "runtime transcript" &&
             r.CommitReason == EndpointCommitProjectionReasonV1.InputMediaTranscript);
         Assert.Equal([3, 2, 1], client.LastAudioBytes);

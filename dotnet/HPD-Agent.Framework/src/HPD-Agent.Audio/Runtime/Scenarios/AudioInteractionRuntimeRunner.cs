@@ -33,8 +33,8 @@ public sealed class AudioInteractionRuntimeRunner
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var ledger = request.Ledger ?? new InMemoryRealtimeConversationLedger();
-        var trace = request.Trace ?? new InMemoryRealtimeAudioTraceStore();
+        var ledger = new InMemoryConversationProjectionV1();
+        var trace = new InMemoryAudioTraceProjectionV1();
         var inMemoryThread = new InMemoryThreadProjectionSink();
         var thread = request.ThreadProjectionSink ?? inMemoryThread;
         var policy = request.PolicySet ?? new AudioPolicySet();
@@ -459,8 +459,8 @@ public sealed class AudioInteractionRuntimeRunner
 
     private async ValueTask<AudioInteractionRuntimeResult> BuildResultAsync(
         AudioSessionId sessionId,
-        IRealtimeConversationLedger ledger,
-        IRealtimeAudioTraceStore trace,
+        InMemoryConversationProjectionV1 ledger,
+        InMemoryAudioTraceProjectionV1 trace,
         IThreadProjectionSink thread,
         IReadOnlyList<CanonicalMediaEnvelope>? envelopes,
         ProviderRouteDecision? routeDecision,
@@ -469,8 +469,8 @@ public sealed class AudioInteractionRuntimeRunner
         CancellationToken cancellationToken)
     {
         return new AudioInteractionRuntimeResult(
-            Ledger: ledger,
-            Trace: trace,
+            LedgerRecords: ledger.ToArray(),
+            TraceRecords: trace.ToArray(),
             Thread: thread,
             Envelopes: envelopes ?? [],
             RouteDecision: routeDecision,
@@ -479,8 +479,8 @@ public sealed class AudioInteractionRuntimeRunner
     }
 
     private async ValueTask AppendInputDispositionAsync(
-        IRealtimeConversationLedger ledger,
-        IRealtimeAudioTraceStore trace,
+        InMemoryConversationProjectionV1 ledger,
+        InMemoryAudioTraceProjectionV1 trace,
         AudioSessionId sessionId,
         InputContentRef content,
         InputMediaDisposition disposition,
@@ -516,8 +516,8 @@ public sealed class AudioInteractionRuntimeRunner
 
     private async ValueTask ProjectThreadAsync(
         IThreadProjectionSink thread,
-        IRealtimeConversationLedger ledger,
-        IRealtimeAudioTraceStore trace,
+        InMemoryConversationProjectionV1 ledger,
+        InMemoryAudioTraceProjectionV1 trace,
         AudioInteractionRuntimeRequest request,
         AudioTurnId turnId,
         string text,
@@ -590,7 +590,7 @@ public sealed class AudioInteractionRuntimeRunner
     }
 
     private ValueTask TraceLedgerAsync(
-        IRealtimeAudioTraceStore trace,
+        InMemoryAudioTraceProjectionV1 trace,
         AudioSessionId sessionId,
         RealtimeLedgerRecord ledgerRecord,
         AudioCorrelation correlation,
@@ -609,7 +609,7 @@ public sealed class AudioInteractionRuntimeRunner
     }
 
     private static ValueTask TraceAsync(
-        IRealtimeAudioTraceStore trace,
+        InMemoryAudioTraceProjectionV1 trace,
         RealtimeAudioTraceRecord record,
         CancellationToken cancellationToken)
     {
@@ -646,16 +646,12 @@ public sealed record AudioInteractionRuntimeRequest
 
     public IAudioInteractionSessionFactory? InteractionSessionFactory { get; init; }
 
-    public IRealtimeConversationLedger? Ledger { get; init; }
-
-    public IRealtimeAudioTraceStore? Trace { get; init; }
-
     public IThreadProjectionSink? ThreadProjectionSink { get; init; }
 }
 
 public sealed record AudioInteractionRuntimeResult(
-    IRealtimeConversationLedger Ledger,
-    IRealtimeAudioTraceStore Trace,
+    IReadOnlyList<RealtimeLedgerRecord> LedgerRecords,
+    IReadOnlyList<RealtimeAudioTraceRecord> TraceRecords,
     IThreadProjectionSink Thread,
     IReadOnlyList<CanonicalMediaEnvelope> Envelopes,
     ProviderRouteDecision? RouteDecision,

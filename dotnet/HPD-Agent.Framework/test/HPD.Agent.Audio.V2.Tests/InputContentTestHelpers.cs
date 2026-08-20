@@ -42,12 +42,6 @@ internal static class CanonicalMediaEnvelopeTestExtensions
 
 internal static class RuntimeResultTestExtensions
 {
-    public static IReadOnlyList<RealtimeLedgerRecord> ToArray(this IRealtimeConversationLedger ledger)
-        => Assert.IsType<InMemoryRealtimeConversationLedger>(ledger).ToArray();
-
-    public static IReadOnlyList<RealtimeAudioTraceRecord> ToArray(this IRealtimeAudioTraceStore trace)
-        => Assert.IsType<InMemoryRealtimeAudioTraceStore>(trace).ToArray();
-
     public static InMemoryThreadProjectionSink AsInMemoryThread(this IThreadProjectionSink thread)
         => Assert.IsType<InMemoryThreadProjectionSink>(thread);
 }

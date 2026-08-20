@@ -23,6 +23,10 @@ public sealed class VoiceActivityHardBreakV1Tests
         "Turn" + "Commit",
         "Turn" + "Snapshot",
         "Transcript" + "Stage",
+        "IRealtimeConversation" + "Ledger",
+        "IRealtimeAudioTrace" + "Store",
+        "InMemoryRealtimeConversation" + "Ledger",
+        "InMemoryRealtimeAudioTrace" + "Store",
     ];
 
     [Fact]
@@ -43,6 +47,10 @@ public sealed class VoiceActivityHardBreakV1Tests
         Assert.DoesNotContain(typeof(CompositeProvider).GetInterfaces(),
             contract => contract.Name == "IVoiceActivity" + "DetectorProvider");
         Assert.Null(typeof(AudioInteractionRuntimeRequest).GetProperty("Turn" + "Controller"));
+        Assert.Null(typeof(AudioInteractionRuntimeRequest).GetProperty("Ledger"));
+        Assert.Null(typeof(AudioInteractionRuntimeRequest).GetProperty("Trace"));
+        Assert.Null(typeof(AudioInteractionRuntimeResult).GetProperty("Ledger"));
+        Assert.Null(typeof(AudioInteractionRuntimeResult).GetProperty("Trace"));
     }
 
     [Fact]

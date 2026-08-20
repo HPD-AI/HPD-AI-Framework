@@ -24,7 +24,7 @@ public sealed class InputMediaSliceTests
 
         var result = await RunScenarioAsync(content);
         var envelope = Assert.Single(result.Envelopes);
-        var ledgerRecords = result.Ledger.ToArray();
+        var ledgerRecords = result.LedgerRecords.ToArray();
         Assert.NotNull(result.EndpointSnapshotProjectionV1);
         var turnSnapshot = result.EndpointSnapshotProjectionV1!;
 
@@ -62,8 +62,8 @@ public sealed class InputMediaSliceTests
         };
 
         var result = await RunScenarioAsync(content, policySet: policy);
-        var ledgerRecords = result.Ledger.ToArray();
-        var traceRecords = result.Trace.ToArray();
+        var ledgerRecords = result.LedgerRecords.ToArray();
+        var traceRecords = result.TraceRecords.ToArray();
 
         Assert.Empty(result.Envelopes);
         Assert.Contains(ledgerRecords.OfType<InputContentLedgerRecord>(), r =>
@@ -84,8 +84,8 @@ public sealed class InputMediaSliceTests
 
         var result = await RunScenarioAsync(content);
         var envelope = Assert.Single(result.Envelopes);
-        var ledgerRecords = result.Ledger.ToArray();
-        var traceRecords = result.Trace.ToArray();
+        var ledgerRecords = result.LedgerRecords.ToArray();
+        var traceRecords = result.TraceRecords.ToArray();
 
         Assert.NotEqual(MediaCaptureDisposition.RawRetained, envelope.CaptureDisposition);
         Assert.All(ledgerRecords.OfType<InputContentLedgerRecord>(), r =>
@@ -109,8 +109,7 @@ public sealed class InputMediaSliceTests
         var content = TestInputContent.Audio(name: "replay.flac", mediaType: "audio/flac", sha256: "sha256-replay");
 
         var result = await RunScenarioAsync(content);
-        var trace = Assert.IsType<InMemoryRealtimeAudioTraceStore>(result.Trace);
-        var records = trace.ToArray();
+        var records = result.TraceRecords;
 
         Assert.All(records, record => Assert.Equal(TestSessionId, record.SessionId));
         Assert.Contains(records.OfType<AudioInputContentTraceRecord>(), r =>
@@ -128,7 +127,7 @@ public sealed class InputMediaSliceTests
         var content = TestInputContent.Audio(name: "thread.ogg", mediaType: "audio/ogg");
 
         var result = await RunScenarioAsync(content);
-        var ledgerRecords = result.Ledger.ToArray();
+        var ledgerRecords = result.LedgerRecords.ToArray();
 
         var projection = Assert.Single(result.Thread.AsInMemoryThread().ProjectedTurns);
         Assert.Equal("session-1", projection.Thread.SessionId);
@@ -184,7 +183,7 @@ public sealed class InputMediaSliceTests
 
         var result = await RunScenarioAsync(content, interactionSessionFactory: factory);
 
-        Assert.Contains(result.Ledger.ToArray().OfType<TranscriptLedgerRecord>(), r =>
+        Assert.Contains(result.LedgerRecords.ToArray().OfType<TranscriptLedgerRecord>(), r =>
             r.InputContentId == content.Id &&
             r.Text == "factory transcript:factory.wav");
     }
@@ -201,8 +200,8 @@ public sealed class InputMediaSliceTests
         Assert.Equal(0, factory.CreateCount);
         Assert.Equal(ProviderRouteDecisionKind.Reject, result.RouteDecision?.Kind);
         Assert.Null(result.RouteDecision?.Plan);
-        Assert.DoesNotContain(result.Ledger.ToArray(), r => r is TranscriptLedgerRecord);
-        Assert.DoesNotContain(result.Trace.ToArray(), r => r is AudioInteractionUpdateTraceRecord);
+        Assert.DoesNotContain(result.LedgerRecords.ToArray(), r => r is TranscriptLedgerRecord);
+        Assert.DoesNotContain(result.TraceRecords.ToArray(), r => r is AudioInteractionUpdateTraceRecord);
     }
 
     [Fact]
@@ -217,8 +216,8 @@ public sealed class InputMediaSliceTests
         Assert.Equal(0, factory.CreateCount);
         Assert.Equal(ProviderRouteDecisionKind.ReferenceOnly, result.RouteDecision?.Kind);
         Assert.Null(result.RouteDecision?.Plan);
-        Assert.DoesNotContain(result.Ledger.ToArray(), r => r is TranscriptLedgerRecord);
-        Assert.DoesNotContain(result.Trace.ToArray(), r => r is AudioInteractionUpdateTraceRecord);
+        Assert.DoesNotContain(result.LedgerRecords.ToArray(), r => r is TranscriptLedgerRecord);
+        Assert.DoesNotContain(result.TraceRecords.ToArray(), r => r is AudioInteractionUpdateTraceRecord);
     }
 
     [Fact]
@@ -228,11 +227,11 @@ public sealed class InputMediaSliceTests
 
         var result = await RunScenarioAsync(content);
 
-        var interactionTrace = Assert.Single(result.Trace.ToArray().OfType<AudioInteractionUpdateTraceRecord>());
+        var interactionTrace = Assert.Single(result.TraceRecords.ToArray().OfType<AudioInteractionUpdateTraceRecord>());
         var transcriptUpdate = Assert.IsType<TranscriptUpdate>(interactionTrace.Update);
         Assert.Equal(TranscriptProjectionStageV1.Final, transcriptUpdate.Stage);
         Assert.Equal("transcript:final-update.wav", transcriptUpdate.Text);
-        Assert.Contains(result.Ledger.ToArray().OfType<UserTurnLedgerRecord>(), r =>
+        Assert.Contains(result.LedgerRecords.ToArray().OfType<UserTurnLedgerRecord>(), r =>
             r.Text == transcriptUpdate.Text &&
             r.CommitReason == EndpointCommitProjectionReasonV1.InputMediaTranscript);
     }
@@ -256,7 +255,7 @@ public sealed class InputMediaSliceTests
             interactionSessionFactory: new StaticInteractionSessionFactory(session));
 
         Assert.Empty(session.ReceivedToolResults);
-        Assert.Contains(result.Trace.ToArray().OfType<AudioInteractionUpdateTraceRecord>(), trace =>
+        Assert.Contains(result.TraceRecords.ToArray().OfType<AudioInteractionUpdateTraceRecord>(), trace =>
             trace.Update is ToolCallUpdate toolCall &&
             toolCall.ToolCallId == "call-1" &&
             toolCall.Name == "lookup" &&

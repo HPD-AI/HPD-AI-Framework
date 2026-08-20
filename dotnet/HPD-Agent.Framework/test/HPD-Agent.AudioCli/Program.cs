@@ -853,23 +853,17 @@ static async Task PrintAudioInteractionRuntimeAsync(AudioRuntimeAttachment audio
     for (var i = 0; i < audioAttachment.LastResults.Count; i++)
     {
         var result = audioAttachment.LastResults[i];
-        var snapshot = await result.Ledger.SnapshotAsync();
-        var traceRecords = new List<RealtimeAudioTraceRecord>();
-        await foreach (var traceRecord in result.Trace.ReadAsync())
-        {
-            traceRecords.Add(traceRecord);
-        }
-
-        var transcript = snapshot.Records
+        var traceRecords = result.TraceRecords;
+        var transcript = result.LedgerRecords
             .OfType<TranscriptLedgerRecord>()
             .LastOrDefault()?.Text;
         var committed = result.EndpointDecisionProjectionV1?.Commit?.Text;
 
         Console.ForegroundColor = ConsoleColor.DarkCyan;
-        Console.WriteLine($"[audio-runtime:{i}] envelopes={result.Envelopes.Count} route={result.RouteDecision?.Plan?.Topology.ToString() ?? result.RouteDecision?.Kind.ToString() ?? "-"} ledger={snapshot.Records.Count}");
+        Console.WriteLine($"[audio-runtime:{i}] envelopes={result.Envelopes.Count} route={result.RouteDecision?.Plan?.Topology.ToString() ?? result.RouteDecision?.Kind.ToString() ?? "-"} ledger={result.LedgerRecords.Count}");
         Console.ResetColor();
 
-        foreach (var record in snapshot.Records)
+        foreach (var record in result.LedgerRecords)
         {
             Console.ForegroundColor = record switch
             {

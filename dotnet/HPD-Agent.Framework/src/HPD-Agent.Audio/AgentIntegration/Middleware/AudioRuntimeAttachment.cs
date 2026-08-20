@@ -752,12 +752,8 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
     private static AudioInteractionRuntimeMetadata CreateRuntimeMetadata(
         AudioInteractionRuntimeResult result)
     {
-        var ledger = result.Ledger is InMemoryRealtimeConversationLedger inMemoryLedger
-            ? inMemoryLedger.ToArray()
-            : [];
-        var trace = result.Trace is InMemoryRealtimeAudioTraceStore inMemoryTrace
-            ? inMemoryTrace.ToArray()
-            : [];
+        var ledger = result.LedgerRecords;
+        var trace = result.TraceRecords;
         var plan = result.RouteDecision?.Plan;
         var assistantOutputTexts = ledger
             .OfType<AssistantOutputLedgerRecord>()
