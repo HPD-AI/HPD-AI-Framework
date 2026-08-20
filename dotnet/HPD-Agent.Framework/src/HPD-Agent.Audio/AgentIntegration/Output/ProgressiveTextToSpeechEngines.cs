@@ -15,7 +15,7 @@ internal interface IProgressiveTextToSpeechEngine
 {
     OutputFlowId OutputFlowId { get; }
 
-    IOutputFlow Flow { get; }
+    IOutputProjectionSinkV2 Flow { get; }
 
     ValueTask StartAsync(CancellationToken cancellationToken = default);
 
@@ -45,8 +45,8 @@ internal sealed record ProgressiveTextToSpeechEngineCompletion
 internal sealed class ProgressiveTextToSpeechEngineFactory
 {
     public IProgressiveTextToSpeechEngine Create(
-        ProgressiveOutputCoordinatorOptions options,
-        IOutputFlow flow)
+        S6ProgressiveOutputParticipantOptionsV2 options,
+        IOutputProjectionSinkV2 flow)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(flow);
@@ -76,8 +76,8 @@ internal sealed class ProgressiveTextToSpeechEngineFactory
     }
 
     private static IProgressiveTextToSpeechEngine CreateSegment(
-        ProgressiveOutputCoordinatorOptions options,
-        IOutputFlow flow) =>
+        S6ProgressiveOutputParticipantOptionsV2 options,
+        IOutputProjectionSinkV2 flow) =>
         new SegmentTextToSpeechEngine(
             options,
             flow,
@@ -88,8 +88,8 @@ internal sealed class ProgressiveTextToSpeechEngineFactory
 
 internal abstract class ProgressiveTextToSpeechEngineBase : IProgressiveTextToSpeechEngine
 {
-    protected readonly ProgressiveOutputCoordinatorOptions Options;
-    protected readonly IOutputFlow OutputFlow;
+    protected readonly S6ProgressiveOutputParticipantOptionsV2 Options;
+    protected readonly IOutputProjectionSinkV2 OutputFlow;
     protected readonly OutputLedgerTraceWriter LedgerTraceWriter = new();
     private readonly List<AssistantTextToSpeechOutputResult> _results = [];
     private readonly List<OutputPlaybackFailedEvent> _playbackStartFailures = [];
@@ -97,8 +97,8 @@ internal abstract class ProgressiveTextToSpeechEngineBase : IProgressiveTextToSp
     private bool _started;
 
     protected ProgressiveTextToSpeechEngineBase(
-        ProgressiveOutputCoordinatorOptions options,
-        IOutputFlow outputFlow)
+        S6ProgressiveOutputParticipantOptionsV2 options,
+        IOutputProjectionSinkV2 outputFlow)
     {
         Options = options ?? throw new ArgumentNullException(nameof(options));
         OutputFlow = outputFlow ?? throw new ArgumentNullException(nameof(outputFlow));
@@ -106,7 +106,7 @@ internal abstract class ProgressiveTextToSpeechEngineBase : IProgressiveTextToSp
 
     public OutputFlowId OutputFlowId => OutputFlow.Id;
 
-    public IOutputFlow Flow => OutputFlow;
+    public IOutputProjectionSinkV2 Flow => OutputFlow;
 
     public abstract ValueTask StartAsync(CancellationToken cancellationToken = default);
 
@@ -291,8 +291,8 @@ internal sealed class SegmentTextToSpeechEngine : ProgressiveTextToSpeechEngineB
     private int _generatedTextLength;
 
     public SegmentTextToSpeechEngine(
-        ProgressiveOutputCoordinatorOptions options,
-        IOutputFlow outputFlow,
+        S6ProgressiveOutputParticipantOptionsV2 options,
+        IOutputProjectionSinkV2 outputFlow,
         ITtsPacer pacer,
         TextToSpeechTextSanitizer sanitizer,
         ITextToSpeechSegmentSynthesizer synthesizer,
@@ -558,8 +558,8 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
     private int _generatedTextLength;
 
     public PushTextToSpeechEngine(
-        ProgressiveOutputCoordinatorOptions options,
-        IOutputFlow outputFlow,
+        S6ProgressiveOutputParticipantOptionsV2 options,
+        IOutputProjectionSinkV2 outputFlow,
         IPushTextToSpeechStreamFactory streamFactory)
         : base(options, outputFlow)
     {
@@ -1323,8 +1323,8 @@ internal sealed class UnsupportedPushTextToSpeechEngine : ProgressiveTextToSpeec
     private readonly bool _hasFactory;
 
     public UnsupportedPushTextToSpeechEngine(
-        ProgressiveOutputCoordinatorOptions options,
-        IOutputFlow outputFlow,
+        S6ProgressiveOutputParticipantOptionsV2 options,
+        IOutputProjectionSinkV2 outputFlow,
         TextToSpeechCapabilityProfile profile,
         bool hasFactory)
         : base(options, outputFlow)

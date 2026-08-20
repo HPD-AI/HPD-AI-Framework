@@ -25,7 +25,7 @@ public sealed class FakeProviderOutputTruthTests
         var ledger = new InMemoryRealtimeConversationLedger();
         var trace = new InMemoryRealtimeAudioTraceStore();
         var thread = new InMemoryThreadProjectionSink();
-        IOutputFlow outputFlow = new InMemoryOutputFlow(ids.NextOutputFlowId());
+        IOutputProjectionSinkV2 outputFlow = new InMemoryOutputProjectionSinkV2(ids.NextOutputFlowId());
         var responseId = ids.NextResponseId();
         const string generatedText = "hello there, this tail was never heard";
         const string playedPrefix = "hello there";
@@ -228,7 +228,7 @@ public sealed class FakeProviderOutputTruthTests
         var ledger = new InMemoryRealtimeConversationLedger();
         var trace = new InMemoryRealtimeAudioTraceStore();
         var thread = new InMemoryThreadProjectionSink();
-        IOutputFlow outputFlow = new InMemoryOutputFlow(ids.NextOutputFlowId());
+        IOutputProjectionSinkV2 outputFlow = new InMemoryOutputProjectionSinkV2(ids.NextOutputFlowId());
         var responseId = ids.NextResponseId();
         var interactionSessionId = ids.NextInteractionSessionId();
         var correlation = new AudioCorrelation

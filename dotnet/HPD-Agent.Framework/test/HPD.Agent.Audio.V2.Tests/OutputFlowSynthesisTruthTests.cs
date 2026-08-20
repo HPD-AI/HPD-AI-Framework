@@ -13,7 +13,7 @@ public sealed class OutputFlowSynthesisTruthTests
     public async Task CompleteSynthesizedNotPlayedAsync_AttachesArtifactWithoutPlaybackBoundary()
     {
         var ids = new RuntimeIdFactory();
-        var outputFlow = new InMemoryOutputFlow(ids.NextOutputFlowId());
+        var outputFlow = new InMemoryOutputProjectionSinkV2(ids.NextOutputFlowId());
         var responseId = ids.NextResponseId();
         const string assistantText = "Here is the spoken response.";
         var artifact = new AudioArtifactRef(
@@ -106,7 +106,7 @@ public sealed class OutputFlowSynthesisTruthTests
     public async Task CompleteTextOnlyAsync_CompletesWithoutSynthesisOrPlayback()
     {
         var ids = new RuntimeIdFactory();
-        var outputFlow = new InMemoryOutputFlow(ids.NextOutputFlowId());
+        var outputFlow = new InMemoryOutputProjectionSinkV2(ids.NextOutputFlowId());
         var responseId = ids.NextResponseId();
         const string assistantText = "Text-only response.";
 
@@ -133,7 +133,7 @@ public sealed class OutputFlowSynthesisTruthTests
         OutputFlowState expectedState)
     {
         var ids = new RuntimeIdFactory();
-        var outputFlow = new InMemoryOutputFlow(ids.NextOutputFlowId());
+        var outputFlow = new InMemoryOutputProjectionSinkV2(ids.NextOutputFlowId());
         var responseId = ids.NextResponseId();
         var segmentId = ids.NextOutputSegmentId();
 

@@ -4,7 +4,7 @@ using HPD.Agent.Audio.Media;
 
 namespace HPD.Agent.Audio.Runtime.Output;
 
-public sealed class InMemoryOutputFlow : IOutputFlow
+internal sealed class InMemoryOutputProjectionSinkV2 : IOutputProjectionSinkV2
 {
     private readonly List<OutputSegment> _segments = [];
     private readonly List<OutputAudioStream> _audioStreams = [];
@@ -16,7 +16,7 @@ public sealed class InMemoryOutputFlow : IOutputFlow
     private OutputPlaybackBoundary? _playbackBoundary;
     private string? _completionReason;
 
-    public InMemoryOutputFlow(OutputFlowId id)
+    internal InMemoryOutputProjectionSinkV2(OutputFlowId id)
     {
         Id = id;
     }

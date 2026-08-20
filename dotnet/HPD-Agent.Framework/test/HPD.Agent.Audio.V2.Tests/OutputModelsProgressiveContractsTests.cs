@@ -3,6 +3,7 @@ using HPD.Agent.Audio.Output;
 using HPD.Agent.Audio.Ledger;
 using HPD.Agent.Audio.Media;
 using HPD.Agent.Audio.Runtime;
+using HPD.Agent.Audio.Runtime.Output;
 using HPD.Agent.Audio.Trace;
 using HPD.Audio.Primitives;
 
@@ -13,17 +14,17 @@ public sealed class OutputModelsProgressiveContractsTests
     [Fact]
     public void OutputFlowContract_ExposesStreamChunkAndPlaybackTruthMethods()
     {
-        var methodNames = typeof(IOutputFlow)
+        var methodNames = typeof(IOutputProjectionSinkV2)
             .GetMethods()
             .Select(method => method.Name)
             .ToArray();
 
-        Assert.Contains(nameof(IOutputFlow.StartAudioStreamAsync), methodNames);
-        Assert.Contains(nameof(IOutputFlow.AppendAudioChunkAsync), methodNames);
-        Assert.Contains(nameof(IOutputFlow.CompleteAudioStreamAsync), methodNames);
-        Assert.Contains(nameof(IOutputFlow.AttachAudioArtifactAsync), methodNames);
-        Assert.Contains(nameof(IOutputFlow.MarkQueuedAsync), methodNames);
-        Assert.Contains(nameof(IOutputFlow.CompletePlayedAsync), methodNames);
+        Assert.Contains(nameof(IOutputProjectionSinkV2.StartAudioStreamAsync), methodNames);
+        Assert.Contains(nameof(IOutputProjectionSinkV2.AppendAudioChunkAsync), methodNames);
+        Assert.Contains(nameof(IOutputProjectionSinkV2.CompleteAudioStreamAsync), methodNames);
+        Assert.Contains(nameof(IOutputProjectionSinkV2.AttachAudioArtifactAsync), methodNames);
+        Assert.Contains(nameof(IOutputProjectionSinkV2.MarkQueuedAsync), methodNames);
+        Assert.Contains(nameof(IOutputProjectionSinkV2.CompletePlayedAsync), methodNames);
         Assert.DoesNotContain("EnqueueAsync", methodNames);
     }
 
@@ -79,11 +80,11 @@ public sealed class OutputModelsProgressiveContractsTests
     }
 
     [Fact]
-    public void InMemoryOutputFlow_CanBeUsedThroughUnifiedOutputFlowContract()
+    public void InMemoryProjectionSink_ImplementsTheInternalProjectionContract()
     {
-        var flow = new HPD.Agent.Audio.Runtime.Output.InMemoryOutputFlow(new OutputFlowId("output-contract"));
+        var flow = new HPD.Agent.Audio.Runtime.Output.InMemoryOutputProjectionSinkV2(new OutputFlowId("output-contract"));
 
-        Assert.IsAssignableFrom<IOutputFlow>(flow);
+        Assert.IsAssignableFrom<IOutputProjectionSinkV2>(flow);
     }
 
     [Fact]

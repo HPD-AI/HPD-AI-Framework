@@ -344,7 +344,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
         var eventFlowHandle = options.EnableAssistantOutputPlayback
             ? request.EventFlows?.Create(outputFlowId.Value)
             : null;
-        var coordinator = new ProgressiveOutputCoordinator(new ProgressiveOutputCoordinatorOptions
+        var coordinator = new S6ProgressiveOutputParticipantV2(new S6ProgressiveOutputParticipantOptionsV2
         {
             SessionId = sessionId,
             Thread = threadRef,

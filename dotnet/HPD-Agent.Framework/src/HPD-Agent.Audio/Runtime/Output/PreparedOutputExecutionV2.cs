@@ -10,8 +10,10 @@ internal sealed class PreparedOutputExecutionV2
     {
         _generation = generation ?? throw new ArgumentNullException(nameof(generation));
         Origin = origin ?? throw new ArgumentNullException(nameof(origin));
+        var providerPlan = origin.Provider.Plan ??
+            throw new ArgumentException("Output origin requires an effective provider plan.", nameof(origin));
         if (!SameAuthority(generation.Authority, origin.Decision.Authority) ||
-            !SameAuthority(generation.Authority, origin.Provider.Plan.Authority))
+            !SameAuthority(generation.Authority, providerPlan.Authority))
             throw new ArgumentException("Output origin must be effective under the prepared output authority.", nameof(origin));
     }
 

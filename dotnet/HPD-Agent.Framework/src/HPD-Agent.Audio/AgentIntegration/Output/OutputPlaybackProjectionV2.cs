@@ -3,15 +3,16 @@ using HPD.Agent.Audio;
 using HPD.Agent.Audio.Output;
 using HPD.Agent.Audio.Ledger;
 using HPD.Agent.Audio.Trace;
+using HPD.Agent.Audio.Runtime.Output;
 using HPD.Events;
 using HPD.Events.Struct;
 
 namespace HPD.Agent.Audio.AgentIntegration.Output;
 
-internal sealed class OutputPlaybackCoordinator
+internal sealed class OutputPlaybackProjectionV2
 {
-    private readonly OutputPlaybackCoordinatorOptions _options;
-    private readonly IOutputFlow _flow;
+    private readonly OutputPlaybackProjectionOptionsV2 _options;
+    private readonly IOutputProjectionSinkV2 _flow;
     private readonly Dictionary<OutputSegmentId, OutputPlaybackRequest> _requests = [];
     private readonly HashSet<int> _completedSegmentIndexes = [];
     private readonly OutputLedgerTraceWriter _writer = new();
@@ -23,9 +24,9 @@ internal sealed class OutputPlaybackCoordinator
     private long _playoutSampleTraceSequence;
     private long _queueDepthSampleTraceSequence;
 
-    public OutputPlaybackCoordinator(
-        OutputPlaybackCoordinatorOptions options,
-        IOutputFlow flow)
+    public OutputPlaybackProjectionV2(
+        OutputPlaybackProjectionOptionsV2 options,
+        IOutputProjectionSinkV2 flow)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _flow = flow ?? throw new ArgumentNullException(nameof(flow));
@@ -573,7 +574,7 @@ internal sealed class OutputPlaybackCoordinator
     }
 }
 
-internal sealed record OutputPlaybackCoordinatorOptions
+internal sealed record OutputPlaybackProjectionOptionsV2
 {
     public required AudioSessionId SessionId { get; init; }
 

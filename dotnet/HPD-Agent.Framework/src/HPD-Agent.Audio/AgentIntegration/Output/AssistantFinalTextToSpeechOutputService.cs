@@ -47,7 +47,7 @@ public sealed class AssistantFinalTextToSpeechOutputService
         };
         var ledger = new List<RealtimeLedgerRecord>();
         var trace = new List<RealtimeAudioTraceRecord>();
-        var flow = new InMemoryOutputFlow(outputFlowId);
+        var flow = new InMemoryOutputProjectionSinkV2(outputFlowId);
 
         if (string.IsNullOrWhiteSpace(request.Text))
         {

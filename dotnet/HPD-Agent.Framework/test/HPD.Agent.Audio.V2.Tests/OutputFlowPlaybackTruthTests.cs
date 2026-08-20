@@ -11,7 +11,7 @@ public sealed class OutputFlowPlaybackTruthTests
     public async Task MarkQueuedAsync_DoesNotClaimStartedOrPlayedTruth()
     {
         var ids = new RuntimeIdFactory();
-        var flow = new InMemoryOutputFlow(ids.NextOutputFlowId());
+        var flow = new InMemoryOutputProjectionSinkV2(ids.NextOutputFlowId());
         var responseId = ids.NextResponseId();
         const string text = "Queued speech is not heard yet.";
 
@@ -30,7 +30,7 @@ public sealed class OutputFlowPlaybackTruthTests
     public async Task PlaybackProgress_StoresBoundaryWithoutCompletingOutput()
     {
         var ids = new RuntimeIdFactory();
-        var flow = new InMemoryOutputFlow(ids.NextOutputFlowId());
+        var flow = new InMemoryOutputProjectionSinkV2(ids.NextOutputFlowId());
         var responseId = ids.NextResponseId();
         const string text = "Only this prefix was heard before more audio queued.";
         var segmentId = ids.NextOutputSegmentId();
@@ -60,7 +60,7 @@ public sealed class OutputFlowPlaybackTruthTests
     public async Task CompletePlayedAsync_CommitsPlayedCompleteWithPlaybackBoundary()
     {
         var ids = new RuntimeIdFactory();
-        var flow = new InMemoryOutputFlow(ids.NextOutputFlowId());
+        var flow = new InMemoryOutputProjectionSinkV2(ids.NextOutputFlowId());
         var responseId = ids.NextResponseId();
         const string text = "The full synthesized response was played.";
         var segmentId = ids.NextOutputSegmentId();
@@ -91,7 +91,7 @@ public sealed class OutputFlowPlaybackTruthTests
     public async Task FailPlaybackAsync_CommitsPlaybackFailedWithoutClaimingPlayedBoundary()
     {
         var ids = new RuntimeIdFactory();
-        var flow = new InMemoryOutputFlow(ids.NextOutputFlowId());
+        var flow = new InMemoryOutputProjectionSinkV2(ids.NextOutputFlowId());
         var responseId = ids.NextResponseId();
         const string text = "This audio failed before playback truth.";
         var segmentId = ids.NextOutputSegmentId();
@@ -124,7 +124,7 @@ public sealed class OutputFlowPlaybackTruthTests
     public async Task CommitQueuedUnplayedAsync_CommitsZeroBoundaryWithoutClaimingHeardText()
     {
         var ids = new RuntimeIdFactory();
-        var flow = new InMemoryOutputFlow(ids.NextOutputFlowId());
+        var flow = new InMemoryOutputProjectionSinkV2(ids.NextOutputFlowId());
         var responseId = ids.NextResponseId();
         const string text = "This was queued but never played.";
         var segmentId = ids.NextOutputSegmentId();

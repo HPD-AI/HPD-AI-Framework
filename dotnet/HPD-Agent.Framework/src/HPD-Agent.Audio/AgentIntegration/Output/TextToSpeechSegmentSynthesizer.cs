@@ -2,6 +2,7 @@ using HPD.Agent.Audio;
 using HPD.Agent.Audio.Output;
 using HPD.Agent.Audio.Ledger;
 using HPD.Agent.Audio.Trace;
+using HPD.Agent.Audio.Runtime.Output;
 using HPD.Agent;
 using Microsoft.Extensions.AI;
 
@@ -12,7 +13,7 @@ namespace HPD.Agent.Audio.AgentIntegration.Output;
 internal interface ITextToSpeechSegmentSynthesizer
 {
     ValueTask<TextToSpeechSegmentSynthesisResult> SynthesizeAsync(
-        IOutputFlow outputFlow,
+        IOutputProjectionSinkV2 outputFlow,
         TextToSpeechSegmentRequest request,
         TextToSpeechSynthesisContext context,
         CancellationToken cancellationToken = default);
@@ -37,7 +38,7 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
     }
 
     public async ValueTask<TextToSpeechSegmentSynthesisResult> SynthesizeAsync(
-        IOutputFlow outputFlow,
+        IOutputProjectionSinkV2 outputFlow,
         TextToSpeechSegmentRequest request,
         TextToSpeechSynthesisContext context,
         CancellationToken cancellationToken = default)
@@ -473,7 +474,7 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
     }
 
     private async ValueTask<TextToSpeechSegmentSynthesisResult> SynthesizeStreamingAudioAsync(
-        IOutputFlow outputFlow,
+        IOutputProjectionSinkV2 outputFlow,
         TextToSpeechSegmentRequest request,
         TextToSpeechSynthesisContext context,
         string providerKey,
@@ -690,7 +691,7 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
     }
 
     private static async ValueTask<OutputAudioStreamStart> StartAudioStreamAsync(
-        IOutputFlow outputFlow,
+        IOutputProjectionSinkV2 outputFlow,
         TextToSpeechSegmentRequest request,
         TextToSpeechSynthesisContext context,
         OutputSegmentId segmentId,

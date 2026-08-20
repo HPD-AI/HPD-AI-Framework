@@ -8,10 +8,10 @@ namespace HPD.Agent.Audio.V2.Tests;
 public sealed class OutputFlowProgressiveSynthesisTests
 {
     [Fact]
-    public async Task InMemoryOutputFlow_AppendsMultipleAudioStreamsAndArtifactsInOrder()
+    public async Task InMemoryProjectionSink_AppendsMultipleAudioStreamsAndArtifactsInOrder()
     {
         var ids = new RuntimeIdFactory();
-        var flow = new InMemoryOutputFlow(ids.NextOutputFlowId());
+        var flow = new InMemoryOutputProjectionSinkV2(ids.NextOutputFlowId());
         var responseId = ids.NextResponseId();
         var firstSegmentId = new OutputSegmentId("audio-0001");
         var secondSegmentId = new OutputSegmentId("audio-0002");
@@ -38,7 +38,7 @@ public sealed class OutputFlowProgressiveSynthesisTests
     public async Task CompleteSynthesizedNotPlayedAsync_DoesNotClaimPlayedOrHeard()
     {
         var ids = new RuntimeIdFactory();
-        var flow = new InMemoryOutputFlow(ids.NextOutputFlowId());
+        var flow = new InMemoryOutputProjectionSinkV2(ids.NextOutputFlowId());
         var responseId = ids.NextResponseId();
         var firstSegmentId = new OutputSegmentId("audio-0001");
         var secondSegmentId = new OutputSegmentId("audio-0002");
@@ -59,7 +59,7 @@ public sealed class OutputFlowProgressiveSynthesisTests
     }
 
     private static async Task AppendStreamAsync(
-        InMemoryOutputFlow flow,
+        InMemoryOutputProjectionSinkV2 flow,
         ResponseId responseId,
         OutputSegmentId segmentId,
         int index,

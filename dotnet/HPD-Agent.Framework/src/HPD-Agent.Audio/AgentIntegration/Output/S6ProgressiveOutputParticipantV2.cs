@@ -11,24 +11,24 @@ namespace HPD.Agent.Audio.AgentIntegration.Output;
 
 #pragma warning disable MEAI001
 
-internal sealed class ProgressiveOutputCoordinator
+internal sealed class S6ProgressiveOutputParticipantV2
 {
     private readonly IProgressiveTextToSpeechEngine _engine;
-    private readonly IOutputFlow _flow;
-    private readonly ProgressiveOutputCoordinatorOptions _options;
+    private readonly IOutputProjectionSinkV2 _flow;
+    private readonly S6ProgressiveOutputParticipantOptionsV2 _options;
     private readonly OutputLedgerTraceWriter _ledgerTraceWriter = new();
 
-    public ProgressiveOutputCoordinator(ProgressiveOutputCoordinatorOptions options)
+    public S6ProgressiveOutputParticipantV2(S6ProgressiveOutputParticipantOptionsV2 options)
         : this(
             options,
-            new InMemoryOutputFlow(options.OutputFlowId),
+            new InMemoryOutputProjectionSinkV2(options.OutputFlowId),
             new ProgressiveTextToSpeechEngineFactory())
     {
     }
 
-    internal ProgressiveOutputCoordinator(
-        ProgressiveOutputCoordinatorOptions options,
-        IOutputFlow flow,
+    internal S6ProgressiveOutputParticipantV2(
+        S6ProgressiveOutputParticipantOptionsV2 options,
+        IOutputProjectionSinkV2 flow,
         ProgressiveTextToSpeechEngineFactory engineFactory)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
@@ -82,7 +82,7 @@ internal sealed class ProgressiveOutputCoordinator
                 _options.EnablePlayback &&
                 _options.OutputSink is not null)
             {
-                var playback = new OutputPlaybackCoordinator(new OutputPlaybackCoordinatorOptions
+                var playback = new OutputPlaybackProjectionV2(new OutputPlaybackProjectionOptionsV2
                 {
                     SessionId = _options.SessionId,
                     Sink = _options.OutputSink,
@@ -226,7 +226,7 @@ internal sealed class ProgressiveOutputCoordinator
     }
 }
 
-internal sealed record ProgressiveOutputCoordinatorOptions
+internal sealed record S6ProgressiveOutputParticipantOptionsV2
 {
     public required AudioSessionId SessionId { get; init; }
 
