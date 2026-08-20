@@ -77,7 +77,7 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
         var fixture = await Fixture.CreateAsync(includeOutputGeneration: true); var calls = new List<string>();
         var prepared = Assert.IsType<LiveAudioSessionPreparationResultV1.Prepared>(await fixture.PrepareAsync(
             LiveAudioParticipantFactoryCatalogV1.CreateExplicit([new Factory("media", OwnerSliceId.S2, calls)])));
-        var generation = Assert.IsType<LiveAudioOutputGenerationV2>(prepared.Session.OutputV2);
+        Assert.IsType<LiveAudioOutputGenerationV2>(prepared.Session.OutputV2);
         var tools = Assert.IsType<LiveAudioToolGenerationV1>(prepared.Session.ToolV1);
         var routes = Assert.IsType<LiveAudioRouteGenerationV1>(prepared.Session.RouteV1);
         var authority = fixture.Request.ExpectedAuthority;
@@ -88,7 +88,7 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
         var plan = new ProviderParticipantPlanV1(ParticipantId.Create(), ProviderId.Create(), provider, route, authority, Hash(40), 1);
         var offer = new OutputOfferV2(OperationId.Create(), output, 16, Hash(41), new OutputOriginEvidenceV2(decision,
             new ProviderParticipantSnapshotV1(1, ProviderParticipantPhaseV1.Effective, plan, 0, null)));
-        var activated = Assert.IsType<LiveAudioOutputActivationResultV2.Activated>(generation.Activate(offer));
+        var activated = Assert.IsType<LiveAudioOutputActivationResultV2.Activated>(prepared.Session.ActivateOutput(offer));
         Assert.Equal(authority, activated.Receipt.Plan.Authority);
         Assert.Equal(0UL, activated.Controller.Read().Revision);
         Assert.Equal(output,tools.OutputGeneration);

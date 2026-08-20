@@ -63,6 +63,14 @@ internal sealed class LiveAudioPreparedSessionV1
     internal IReadOnlyList<ILiveAudioPreparedParticipantV1> Participants =>
         Array.AsReadOnly(_participants.Select(value => value.Participant).ToArray());
 
+    internal LiveAudioOutputActivationResultV2 ActivateOutput(OutputOfferV2 offer)
+    {
+        ArgumentNullException.ThrowIfNull(offer);
+        return OutputV2 is null
+            ? new LiveAudioOutputActivationResultV2.Rejected(new BoundedAscii("output-generation-unavailable"))
+            : OutputV2.Activate(offer);
+    }
+
     internal async ValueTask<LiveAudioPreparedSessionUnwindResultV1> UnwindAsync()
     {
         await _unwindGate.WaitAsync().ConfigureAwait(false);
