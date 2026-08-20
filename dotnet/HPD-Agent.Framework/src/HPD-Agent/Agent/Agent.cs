@@ -57,7 +57,7 @@ public sealed class Agent
     private readonly FunctionCallProcessor _functionCallProcessor;
     private readonly AgentTurn _agentTurn;
     private readonly ChatModelTurnExecutor _chatModelTurnExecutor;
-    private readonly RealtimeModelTurnExecutor _realtimeModelTurnExecutor;
+    private readonly RealtimeProviderProtocolParticipantV1 _realtimeProviderProtocolParticipant;
     private readonly HPD.Events.IEventCoordinator _eventCoordinator;
     private readonly StructEventHub _structEvents = new();
     private readonly IReadOnlyList<IDisposable> _eventSubscriptions;
@@ -343,7 +343,7 @@ public sealed class Agent
             config.ClientMiddleware?.Chat,
             serviceProvider);  
         _chatModelTurnExecutor = new ChatModelTurnExecutor(_agentTurn);
-        _realtimeModelTurnExecutor = new RealtimeModelTurnExecutor();
+        _realtimeProviderProtocolParticipant = new RealtimeProviderProtocolParticipantV1();
 
         // Resolve optional dependencies from service provider
         var loggerFactory = serviceProvider?.GetService(typeof(ILoggerFactory))
@@ -2859,7 +2859,7 @@ public sealed class Agent
                         };
 
                         var modelTurnExecutor = selectedTransport is Middleware.AgentModelTransport.Realtime
-                            ? (Middleware.IAgentModelTurnExecutor)_realtimeModelTurnExecutor
+                            ? (Middleware.IAgentModelTurnExecutor)_realtimeProviderProtocolParticipant
                             : _chatModelTurnExecutor;
                         currentModelRequest = modelRequest;
                         currentModelTurnExecutor = modelTurnExecutor;
@@ -3989,7 +3989,7 @@ public sealed class Agent
         _imageGeneratorManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
         _embeddingGeneratorManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
         _hostedFileClientManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        _realtimeModelTurnExecutor.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        _realtimeProviderProtocolParticipant.DisposeAsync().AsTask().GetAwaiter().GetResult();
         (_eventCoordinator as IDisposable)?.Dispose();
         if (_ownedHttpClients != null)
             foreach (var client in _ownedHttpClients)

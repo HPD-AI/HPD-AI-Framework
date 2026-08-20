@@ -4,27 +4,44 @@ using Microsoft.Extensions.AI;
 
 namespace HPD.Agent;
 
+internal enum RealtimeProviderProtocolPhaseV1 : ushort
+{
+    Created = 1,
+    SessionOpen = 2,
+    ResponsePending = 3,
+    Disposed = 4,
+}
+
+internal sealed record RealtimeProviderProtocolSnapshotV1(
+    ulong Revision,
+    RealtimeProviderProtocolPhaseV1 Phase,
+    int SubmittedUserMessageCount);
+
 /// <summary>
-/// Executes one agent model turn against a Microsoft.Extensions.AI realtime client.
+/// Owns one S5 realtime provider protocol session and projects transport-neutral model updates.
 /// </summary>
-internal sealed class RealtimeModelTurnExecutor : IAgentInteractiveModelTurnExecutor, IAsyncDisposable
+internal sealed class RealtimeProviderProtocolParticipantV1 : IAgentInteractiveModelTurnExecutor, IAsyncDisposable
 {
     private static readonly TimeSpan InputTranscriptDrainTimeout = TimeSpan.FromSeconds(2);
 
     private IRealtimeClientSession? _session;
     private bool _responseRequested;
     private readonly HashSet<string> _submittedUserMessageKeys = new(StringComparer.Ordinal);
+    private ulong _revision;
+    private RealtimeProviderProtocolPhaseV1 _phase = RealtimeProviderProtocolPhaseV1.Created;
 
     public AgentModelTransport Transport => AgentModelTransport.Realtime;
+    internal RealtimeProviderProtocolSnapshotV1 Snapshot => new(_revision, _phase, _submittedUserMessageKeys.Count);
 
     public async IAsyncEnumerable<AgentModelUpdate> RunAsync(
         AgentModelTurnRequest request,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        ThrowIfDisposed();
         if (request.Transport is not AgentModelTransport.Realtime)
         {
             throw new InvalidOperationException(
-                $"Realtime model turn executor cannot run '{request.Transport}' transport.");
+                $"Realtime provider protocol participant cannot run '{request.Transport}' transport.");
         }
 
         if (request.RealtimeModel is null)
@@ -39,6 +56,7 @@ internal sealed class RealtimeModelTurnExecutor : IAgentInteractiveModelTurnExec
                     CreateSessionOptions(request),
                     cancellationToken)
                 .ConfigureAwait(false);
+            MoveTo(RealtimeProviderProtocolPhaseV1.SessionOpen);
         }
 
         var newUserMessages = CollectNewUserMessages(request);
@@ -61,6 +79,7 @@ internal sealed class RealtimeModelTurnExecutor : IAgentInteractiveModelTurnExec
                 .ConfigureAwait(false);
 
             _responseRequested = true;
+            MoveTo(RealtimeProviderProtocolPhaseV1.ResponsePending);
         }
 
         try
@@ -145,6 +164,10 @@ internal sealed class RealtimeModelTurnExecutor : IAgentInteractiveModelTurnExec
         finally
         {
             _responseRequested = false;
+            if (_phase != RealtimeProviderProtocolPhaseV1.Disposed)
+            {
+                MoveTo(RealtimeProviderProtocolPhaseV1.SessionOpen);
+            }
         }
     }
 
@@ -153,6 +176,7 @@ internal sealed class RealtimeModelTurnExecutor : IAgentInteractiveModelTurnExec
         AgentModelTurnRequest request,
         CancellationToken cancellationToken = default)
     {
+        ThrowIfDisposed();
         if (_session is null)
         {
             throw new InvalidOperationException(
@@ -174,6 +198,7 @@ internal sealed class RealtimeModelTurnExecutor : IAgentInteractiveModelTurnExec
                 cancellationToken)
             .ConfigureAwait(false);
         _responseRequested = true;
+        MoveTo(RealtimeProviderProtocolPhaseV1.ResponsePending);
     }
 
     public async ValueTask DisposeAsync()
@@ -185,6 +210,20 @@ internal sealed class RealtimeModelTurnExecutor : IAgentInteractiveModelTurnExec
             _responseRequested = false;
             _submittedUserMessageKeys.Clear();
         }
+        MoveTo(RealtimeProviderProtocolPhaseV1.Disposed);
+    }
+
+    private void ThrowIfDisposed()
+    {
+        if (_phase == RealtimeProviderProtocolPhaseV1.Disposed)
+            throw new ObjectDisposedException(nameof(RealtimeProviderProtocolParticipantV1));
+    }
+
+    private void MoveTo(RealtimeProviderProtocolPhaseV1 phase)
+    {
+        if (_phase == phase) return;
+        _phase = phase;
+        _revision++;
     }
 
     private IReadOnlyList<ChatMessage> CollectNewUserMessages(AgentModelTurnRequest request)

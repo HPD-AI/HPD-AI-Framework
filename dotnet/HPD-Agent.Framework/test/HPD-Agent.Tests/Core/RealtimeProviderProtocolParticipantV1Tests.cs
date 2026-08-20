@@ -6,8 +6,28 @@ namespace HPD.Agent.Tests.Core;
 
 #pragma warning disable MEAI001
 
-public sealed class RealtimeModelTurnExecutorTests
+public sealed class RealtimeProviderProtocolParticipantV1Tests
 {
+    [Fact]
+    public async Task Participant_owns_explicit_session_lifecycle_and_disposal()
+    {
+        var session = new FakeRealtimeSession();
+        session.ServerMessages.Enqueue(new ResponseCreatedRealtimeServerMessage(RealtimeServerMessageType.ResponseDone)
+        {
+            ResponseId = "resp-lifecycle",
+            Status = RealtimeResponseStatus.Completed
+        });
+        var participant = new RealtimeProviderProtocolParticipantV1();
+        Assert.Equal(RealtimeProviderProtocolPhaseV1.Created, participant.Snapshot.Phase);
+        _ = await ReadUpdatesAsync(participant.RunAsync(CreateRequest(session)));
+        Assert.Equal(RealtimeProviderProtocolPhaseV1.SessionOpen, participant.Snapshot.Phase);
+        Assert.Equal(1, participant.Snapshot.SubmittedUserMessageCount);
+        await participant.DisposeAsync();
+        Assert.Equal(RealtimeProviderProtocolPhaseV1.Disposed, participant.Snapshot.Phase);
+        await Assert.ThrowsAsync<ObjectDisposedException>(async () =>
+            await ReadUpdatesAsync(participant.RunAsync(CreateRequest(session))));
+    }
+
     [Fact]
     public async Task RunAsync_SendsMessagesAndResponseRequest()
     {
@@ -17,7 +37,7 @@ public sealed class RealtimeModelTurnExecutorTests
             ResponseId = "resp-1",
             Status = RealtimeResponseStatus.Completed
         });
-        var executor = new RealtimeModelTurnExecutor();
+        var executor = new RealtimeProviderProtocolParticipantV1();
         var request = CreateRequest(session);
 
         var updates = await ReadUpdatesAsync(executor.RunAsync(request));
@@ -47,7 +67,7 @@ public sealed class RealtimeModelTurnExecutorTests
             ResponseId = "resp-1",
             Status = RealtimeResponseStatus.Completed
         });
-        var executor = new RealtimeModelTurnExecutor();
+        var executor = new RealtimeProviderProtocolParticipantV1();
         var request = CreateRequest(
             session,
             [
@@ -92,7 +112,7 @@ public sealed class RealtimeModelTurnExecutorTests
     public async Task RunAsync_RejectsEncodedInputAudioForNativeRealtime()
     {
         var session = new FakeRealtimeSession();
-        var executor = new RealtimeModelTurnExecutor();
+        var executor = new RealtimeProviderProtocolParticipantV1();
         var request = CreateRequest(
             session,
             [
@@ -135,7 +155,7 @@ public sealed class RealtimeModelTurnExecutorTests
                         new Dictionary<string, object?> { ["left"] = 2, ["right"] = 3 })
                 ])
         });
-        var executor = new RealtimeModelTurnExecutor();
+        var executor = new RealtimeProviderProtocolParticipantV1();
         var request = CreateRequest(session);
 
         var updates = await ReadUpdatesAsync(executor.RunAsync(request));
@@ -181,7 +201,7 @@ public sealed class RealtimeModelTurnExecutorTests
             ModelId = "whisper-1",
             SpeechLanguage = "en"
         };
-        var executor = new RealtimeModelTurnExecutor();
+        var executor = new RealtimeProviderProtocolParticipantV1();
         var request = CreateRequest(session) with
         {
             RunConfig = new AgentRunConfig
@@ -241,7 +261,7 @@ public sealed class RealtimeModelTurnExecutorTests
             Transcription = "How are you doing today?"
         });
         session.ServerMessages.Enqueue(ResponseDone("resp-final"));
-        var executor = new RealtimeModelTurnExecutor();
+        var executor = new RealtimeProviderProtocolParticipantV1();
         var request = CreateRequest(session);
 
         var updates = await ReadUpdatesAsync(executor.RunAsync(request));
@@ -283,7 +303,7 @@ public sealed class RealtimeModelTurnExecutorTests
             ContentIndex = 0,
             Transcription = "How are you doing today?"
         });
-        var executor = new RealtimeModelTurnExecutor();
+        var executor = new RealtimeProviderProtocolParticipantV1();
         var request = CreateRequest(
             session,
             [
@@ -332,7 +352,7 @@ public sealed class RealtimeModelTurnExecutorTests
                 ErrorCode = "transcription.failed"
             }
         });
-        var executor = new RealtimeModelTurnExecutor();
+        var executor = new RealtimeProviderProtocolParticipantV1();
         var request = CreateRequest(session);
 
         var updates = await ReadUpdatesAsync(executor.RunAsync(request));
@@ -355,7 +375,7 @@ public sealed class RealtimeModelTurnExecutorTests
                 ErrorCode = "provider.error"
             }
         });
-        var executor = new RealtimeModelTurnExecutor();
+        var executor = new RealtimeProviderProtocolParticipantV1();
         var request = CreateRequest(session);
 
         var updates = await ReadUpdatesAsync(executor.RunAsync(request));
@@ -370,7 +390,7 @@ public sealed class RealtimeModelTurnExecutorTests
     public async Task RunAsync_FinalToolCall_ReturnsControlWithoutWaitingForProviderCompletion()
     {
         var session = new HangingAfterToolRealtimeSession();
-        var executor = new RealtimeModelTurnExecutor();
+        var executor = new RealtimeProviderProtocolParticipantV1();
         var request = CreateRequest(session);
 
         var updates = await ReadUpdatesAsync(executor.RunAsync(request))
@@ -396,7 +416,7 @@ public sealed class RealtimeModelTurnExecutorTests
             ResponseId = "resp-final",
             Text = "The final answer is 20."
         });
-        var executor = new RealtimeModelTurnExecutor();
+        var executor = new RealtimeProviderProtocolParticipantV1();
         var request = CreateRequest(session);
 
         var updates = await ReadUpdatesAsync(executor.RunAsync(request));
@@ -431,7 +451,7 @@ public sealed class RealtimeModelTurnExecutorTests
             ResponseId = "resp-2",
             Status = RealtimeResponseStatus.Completed
         });
-        var executor = new RealtimeModelTurnExecutor();
+        var executor = new RealtimeProviderProtocolParticipantV1();
         var firstUser = new ChatMessage(ChatRole.User, "Use math.")
         {
             MessageId = "user-1"
@@ -484,7 +504,7 @@ public sealed class RealtimeModelTurnExecutorTests
     public async Task SubmitToolResultsAsync_SendsRealtimeFunctionResultAndCreatesNextResponse()
     {
         var session = new FakeRealtimeSession();
-        var executor = new RealtimeModelTurnExecutor();
+        var executor = new RealtimeProviderProtocolParticipantV1();
         var request = CreateRequest(session);
         _ = await ReadUpdatesAsync(executor.RunAsync(request));
         session.Sent.Clear();
@@ -511,7 +531,7 @@ public sealed class RealtimeModelTurnExecutorTests
         var session = new FakeRealtimeSession();
         session.ServerMessages.Enqueue(ToolCallDone("resp-add-1", "call-add-1"));
         session.ServerMessages.Enqueue(ToolCallDone("resp-add-2", "call-add-2"));
-        var executor = new RealtimeModelTurnExecutor();
+        var executor = new RealtimeProviderProtocolParticipantV1();
         var request = CreateRequest(session);
 
         var firstUpdates = await ReadUpdatesAsync(executor.RunAsync(request));
