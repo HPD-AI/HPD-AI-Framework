@@ -5,6 +5,7 @@ using HPD.Agent.Audio.Ledger;
 using HPD.Agent.Audio.Runtime.Output;
 using HPD.Agent.Audio.Trace;
 using Microsoft.Extensions.AI;
+using HPD.Agent.Authority;
 
 namespace HPD.Agent.Audio.AgentIntegration.Output;
 
@@ -68,6 +69,15 @@ internal sealed class ProgressiveOutputCoordinator
         if (hasGeneratedText)
         {
             var synthesized = results.Any(result => result.Status == AssistantTextToSpeechOutputStatus.SynthesizedNotPlayed);
+            if (synthesized && _options.AuthorityController is { } authority && authority.Read().GeneratedUntil == 0)
+            {
+                if (_options.AuthorityOperation is not { } operation)
+                    throw new InvalidOperationException("Progressive synthesis requires an admitted S6 operation.");
+                var textBytes=System.Text.Encoding.UTF8.GetBytes(_flow.Snapshot.Text);
+                var admitted=authority.Generate(new OutputSynthesisEvidenceV2(operation,OutputSynthesisFamilyV2.SegmentedPcm,textBytes.LongLength,Hash256.Compute(textBytes)));
+                if(admitted is not OutputPipelineResultV2.Applied)
+                    throw new InvalidOperationException("S6 rejected progressive synthesis evidence.");
+            }
             if (synthesized &&
                 _options.EnablePlayback &&
                 _options.OutputSink is not null)
@@ -248,6 +258,10 @@ internal sealed record ProgressiveOutputCoordinatorOptions
     public HPD.Events.Struct.IStructEventHub? StructEvents { get; init; }
 
     public bool CaptureStructEventSamplesInTrace { get; init; }
+
+    internal InMemoryOutputControllerV2? AuthorityController { get; init; }
+
+    internal OperationId? AuthorityOperation { get; init; }
 }
 
 internal sealed record ProgressiveOutputCompletion

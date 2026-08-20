@@ -28,6 +28,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.ProgressiveWithFinalFallback,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = tts,
             AssistantOutputProviderKey = "fake-tts",
             AssistantOutputModelId = "fake-model",
@@ -253,6 +254,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Progressive,
+            PreparedOutputResolver = _ => PreparedOutputExecutionTestFixture.Create(),
             AssistantOutputTextToSpeechClient = tts,
             AssistantOutputProviderKey = "fake-tts",
             AssistantAudioOutputSink = sink,

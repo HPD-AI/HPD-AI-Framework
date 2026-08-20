@@ -24,6 +24,7 @@ namespace HPD.Agent.Audio.AgentIntegration.Middleware;
 
 public sealed class AudioRuntimeAttachment : IAgentMiddleware
 {
+    private const long ProgressiveOutputMaximumUnits = 64L * 1024 * 1024;
     public const string AudioInteractionInputsMetadataKey = "hpd.audio.inputs";
     public const string AudioInteractionRuntimeResultsKey = "hpd.audio.interactionRuntime";
     public const string AssistantOutputRuntimeResultsKey = "hpd.audio.assistantOutputRuntime";
@@ -292,14 +293,17 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
     {
         var options = EffectiveOptions(request.RunConfig);
         var mode = EffectiveOutputSynthesisMode(options);
+        var preparedOutput = options.PreparedOutputResolver?.Invoke(
+            request.Session?.Id ?? request.State.ConversationId ?? request.State.RunId);
         return mode is AssistantOutputSynthesisMode.Progressive or AssistantOutputSynthesisMode.ProgressiveWithFinalFallback
-            ? WrapProgressiveOutputAsync(request, options, handler, cancellationToken)
+            ? WrapProgressiveOutputAsync(request, options, preparedOutput, handler, cancellationToken)
             : null;
     }
 
     private async IAsyncEnumerable<AgentModelUpdate> WrapProgressiveOutputAsync(
         AgentModelTurnRequest request,
         AudioRuntimeAttachmentOptions options,
+        PreparedOutputExecutionV2? preparedOutput,
         Func<AgentModelTurnRequest, IAsyncEnumerable<AgentModelUpdate>> handler,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
@@ -312,6 +316,34 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
         var responseId = new ResponseId($"response-{Guid.NewGuid():N}");
         var outputFlowId = new OutputFlowId($"output-{Guid.NewGuid():N}");
         var outputOptions = ResolveAssistantOutputOptions(options, null, request.ClientSet, request.ContentStore);
+        InMemoryOutputControllerV2? authorityController = null;
+        OperationId? authorityOperation = null;
+        IAudioOutputSink? outputSink = options.AssistantAudioOutputSink;
+        if (preparedOutput is not null)
+        {
+            authorityOperation = OperationId.Create();
+            var descriptor = System.Text.Encoding.UTF8.GetBytes(
+                $"{request.State.RunId}|{request.State.ConversationId}|{request.Iteration}|{responseId.Value}");
+            var activation = preparedOutput.Activate(
+                authorityOperation.Value,
+                ProgressiveOutputMaximumUnits,
+                Hash256.Compute(descriptor));
+            authorityController = activation switch
+            {
+                LiveAudioOutputActivationResultV2.Activated value => value.Controller,
+                LiveAudioOutputActivationResultV2.Duplicate value => value.Controller,
+                _ => null
+            };
+            if (authorityController is null)
+            {
+                await foreach (var update in handler(request).WithCancellation(cancellationToken).ConfigureAwait(false))
+                    yield return update;
+                yield break;
+            }
+            if (outputSink is not null)
+                outputSink = new S6AuthoritativeAudioOutputSinkV2(
+                    outputSink, authorityController, OutputSynthesisFamilyV2.PushPcm);
+        }
         var eventFlowHandle = options.EnableAssistantOutputPlayback
             ? request.EventFlows?.Create(outputFlowId.Value)
             : null;
@@ -327,11 +359,13 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
             PushTextAggregationMode = options.AssistantOutputPushTextAggregationMode,
             RequestId = request.State.RunId,
             PublishEventAsync = request.EventPublisher,
-            OutputSink = options.AssistantAudioOutputSink,
+            OutputSink = outputSink,
             EnablePlayback = options.EnableAssistantOutputPlayback,
             EventFlowHandle = eventFlowHandle,
             StructEvents = request.StructEvents,
-            CaptureStructEventSamplesInTrace = options.PolicySet.Trace.CaptureStructEventSamples
+            CaptureStructEventSamplesInTrace = options.PolicySet.Trace.CaptureStructEventSamples,
+            AuthorityController = authorityController,
+            AuthorityOperation = authorityOperation
         });
         coordinator.Start(cancellationToken);
 
