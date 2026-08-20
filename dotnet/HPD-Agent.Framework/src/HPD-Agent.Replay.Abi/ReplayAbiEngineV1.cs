@@ -141,7 +141,7 @@ public sealed class ReplayAbiEngineV1
 
         internal ReplayAbiStatusV1 Apply(ReadOnlySpan<byte> request, bool step,byte operation,ulong first,ulong second)
         {
-            if(operation==1){if(second<Now)return ReplayAbiStatusV1.Conflict;if(second==Now)return ReplayAbiStatusV1.Ok;Now=second;}
+            if(operation==1){if(first!=1)return ReplayAbiStatusV1.InvalidArgument;if(second<Now)return ReplayAbiStatusV1.Conflict;if(second==Now)return ReplayAbiStatusV1.Ok;Now=second;}
             else if(operation==2&&!_completedWork.Add(first))return ReplayAbiStatusV1.Ok;
             else if(operation==3){if(first>4096-ScheduleBranches)return ReplayAbiStatusV1.CapacityRejected;ScheduleBranches+=first;}
             Span<byte> prefix = stackalloc byte[49];

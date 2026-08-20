@@ -54,8 +54,9 @@ public sealed class ReplayAbiEngineV1Tests
         var engine = new ReplayAbiEngineV1();
         Assert.Equal(ReplayAbiStatusV1.Ok, engine.Open(Artifact([0xa1, 0x01, 0x01]), out var handle));
         Assert.Equal(ReplayAbiStatusV1.Ok, engine.Advance(handle, Operation(1,[0xa2,0x01,0x01,0x02,0x05])));
-        Assert.Equal(ReplayAbiStatusV1.Ok, engine.Advance(handle, Operation(1,[0xa2,0x01,0x19,0x03,0xe8,0x02,0x19,0x03,0xe8])));
+        Assert.Equal(ReplayAbiStatusV1.Ok, engine.Advance(handle, Operation(1,[0xa2,0x01,0x01,0x02,0x19,0x03,0xe8])));
         Assert.Equal(ReplayAbiStatusV1.Ok,engine.Status(handle,out var largeStatus));Assert.Equal(1000ul,System.Buffers.Binary.BinaryPrimitives.ReadUInt64BigEndian(largeStatus.AsSpan(8,8)));
+        Assert.Equal(ReplayAbiStatusV1.InvalidArgument,engine.Advance(handle,Operation(1,[0xa2,0x01,0x02,0x02,0x19,0x03,0xe9])));
         Assert.Equal(ReplayAbiStatusV1.Conflict, engine.Advance(handle, Operation(1,[0xa2,0x01,0x01,0x02,0x04])));
         Assert.Equal(ReplayAbiStatusV1.InvalidArgument, engine.Advance(handle, Operation(2,[0xa1,0x01,0x01])));
         Assert.Equal(ReplayAbiStatusV1.Ok, engine.Step(handle, Operation(2,[0xa1,0x01,0x07])));
@@ -87,6 +88,13 @@ public sealed class ReplayAbiEngineV1Tests
         Assert.False(ReplayBoundsV1.TryCreate(2,1,1,1,1,2,1,1,1,1,1,1,1,1,1,1,out _));
         Assert.True(ReplayBoundsV1.TryCreate(2,1,1,1,2,1,1,1,1,2,1,1,1,1,1,1,out var bounds));
         Assert.NotNull(bounds);
+    }
+
+    [Fact]
+    public void Every_single_byte_artifact_mutation_fails_closed()
+    {
+        var canonical=Artifact([0xa1,0x01,0x01]);
+        for(var index=0;index<canonical.Length;index++){var mutated=canonical.ToArray();mutated[index]^=0x01;var engine=new ReplayAbiEngineV1();Assert.Equal(ReplayAbiStatusV1.InvalidArgument,engine.Open(mutated,out _));}
     }
 
     private static byte[] Execute()

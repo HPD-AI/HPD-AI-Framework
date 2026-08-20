@@ -56,6 +56,11 @@ public sealed class HistoryAbiEngineV1Tests
         Assert.Equal(HistoryApiStatusV1.InvalidArgument,e.ReleaseHold(handle,Request(HistoryHandleKindV1.Hold,[1],2,1)));Assert.Equal(HistoryApiStatusV1.InvalidArgument,e.ReleaseHold(handle,Request(HistoryHandleKindV1.Hold,[1],1,2)));
         Assert.Equal(HistoryApiStatusV1.Ok,e.Status(handle,HistoryHandleKindV1.Hold,out var before));Assert.Equal(0,before[1]);Assert.Equal(HistoryApiStatusV1.Ok,e.ReleaseHold(handle,request));Assert.Equal(HistoryApiStatusV1.Ok,e.Status(handle,HistoryHandleKindV1.Hold,out var after));Assert.Equal(1,after[1]);
     }
+    [Fact] public void Every_single_byte_request_mutation_fails_closed()
+    {
+        var canonical=Request(HistoryHandleKindV1.Query,[0xa1,0x01,0x01]);
+        for(var index=0;index<canonical.Length;index++){var mutated=canonical.ToArray();mutated[index]^=0x01;var engine=new HistoryAbiEngineV1();Assert.Equal(HistoryApiStatusV1.InvalidArgument,engine.Open(HistoryHandleKindV1.Query,mutated,out _));}
+    }
     private static byte[] Request(HistoryHandleKindV1 kind,ReadOnlySpan<byte> payload)
         =>Request(kind,payload,1,1);
     private static byte[] Request(HistoryHandleKindV1 kind,ReadOnlySpan<byte> payload,byte authorizationSeed,byte policyRevision)
