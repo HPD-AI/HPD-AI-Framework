@@ -280,6 +280,9 @@ internal sealed partial class InMemoryRecordStore
                     result = complete.CanonicalResult.ToArray();
                     break;
                 case BaseActivationFailRequest failed when ClaimMatches(row, failed.Claim):
+                    if ((failed.Disposition == BaseActivationFailureDisposition.Retry) != failed.RetryDueAt.HasValue ||
+                        failed.RetryDueAt is < 0)
+                        return ActivationFailure<BaseActivationTransitionResult>("base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
                     resultingState = failed.Disposition == BaseActivationFailureDisposition.Retry
                         ? BaseActivationState.RetryPending
                         : BaseActivationState.Exhausted;
@@ -302,7 +305,7 @@ internal sealed partial class InMemoryRecordStore
                 Lease = null,
                 CanonicalResult = result,
                 EffectiveDueAt = resultingState == BaseActivationState.RetryPending
-                    ? request.AcceptedTime.CapturedUtc
+                    ? ((BaseActivationFailRequest)request).RetryDueAt!.Value
                     : row.EffectiveDueAt,
                 ControlChecksum = checksum,
             };

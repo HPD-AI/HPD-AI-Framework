@@ -327,6 +327,8 @@ public sealed record BaseActivationFailRequest : BaseActivationTransitionRequest
     public required string StableFailureCode { get; init; }
     /// <summary>Gets retry or exhaustion disposition.</summary>
     public required BaseActivationFailureDisposition Disposition { get; init; }
+    /// <summary>Gets the exact Runtime-computed retry due instant, required only for retry.</summary>
+    public long? RetryDueAt { get; init; }
 }
 
 /// <summary>Requests cancellation using an exact control generation.</summary>

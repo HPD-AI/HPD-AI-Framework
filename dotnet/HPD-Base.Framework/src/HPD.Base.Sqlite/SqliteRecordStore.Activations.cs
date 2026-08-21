@@ -237,6 +237,8 @@ public sealed partial class SqliteRecordStore
         }
         else if (request is BaseActivationFailRequest failed)
         {
+            if ((failed.Disposition == BaseActivationFailureDisposition.Retry) != failed.RetryDueAt.HasValue || failed.RetryDueAt is < 0)
+                return ActivationFailure<BaseActivationTransitionResult>("base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
             claim = failed.Claim;
             state = failed.Disposition == BaseActivationFailureDisposition.Retry ? BaseActivationState.RetryPending : BaseActivationState.Exhausted;
         }
@@ -253,7 +255,8 @@ public sealed partial class SqliteRecordStore
         command.CommandText = $"UPDATE {_names.Activations} SET state=$state,generation=$generation,claim_fence=NULL,claim_worker=NULL,lease_revision=NULL,lease_expires_at=NULL,canonical_result=$result,effective_due_at=CASE WHEN $state=$retry THEN $now ELSE effective_due_at END,control_checksum=$checksum WHERE activation_id=$id AND generation=$expected;";
         command.Parameters.AddWithValue("$state", (int)state); command.Parameters.AddWithValue("$generation", generation);
         command.Parameters.Add("$result", SqliteType.Blob).Value = (object?)result ?? DBNull.Value;
-        command.Parameters.AddWithValue("$retry", (int)BaseActivationState.RetryPending); command.Parameters.AddWithValue("$now", request.AcceptedTime.CapturedUtc);
+        command.Parameters.AddWithValue("$retry", (int)BaseActivationState.RetryPending);
+        command.Parameters.AddWithValue("$now", request is BaseActivationFailRequest retry ? (object?)retry.RetryDueAt ?? request.AcceptedTime.CapturedUtc : request.AcceptedTime.CapturedUtc);
         command.Parameters.Add("$checksum", SqliteType.Blob).Value = control; command.Parameters.AddWithValue("$id", row.ActivationId); command.Parameters.AddWithValue("$expected", row.Generation);
         if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
             return ActivationFailure<BaseActivationTransitionResult>("base.activation.claimLost", OperationStatus.Conflict, ErrorCategory.Conflict);

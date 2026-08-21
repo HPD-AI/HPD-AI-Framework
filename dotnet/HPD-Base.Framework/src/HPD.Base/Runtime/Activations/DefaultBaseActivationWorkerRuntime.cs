@@ -114,16 +114,35 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
         bool retry,
         BaseMutationRequestIdentity identity,
         CancellationToken cancellationToken) =>
-        TransitionAsync(session, definition, new BaseActivationFailRequest
+        FailCoreAsync(session, definition, claim, failureCode, retry, identity, cancellationToken);
+
+    private ValueTask<OperationResult<BaseActivationTransitionResult>> FailCoreAsync(
+        BaseSession session,
+        BaseActivationDefinition definition,
+        BaseActivationClaimAuthority claim,
+        string failureCode,
+        bool retry,
+        BaseMutationRequestIdentity identity,
+        CancellationToken cancellationToken)
+    {
+        BaseAcceptedTimeReceipt now = acceptedTime.Capture(session.ApplicationId);
+        bool retryAllowed = retry && claim.AttemptNumber < definition.Retry.MaximumAttempts &&
+            definition.Retry.RetryableFailureCodes.Contains(failureCode, StringComparer.Ordinal);
+        long? retryDueAt = retryAllowed
+            ? checked(now.CapturedUtc + RetryDelay(definition.Retry, claim.ActivationId, claim.AttemptNumber))
+            : null;
+        return TransitionAsync(session, definition, new BaseActivationFailRequest
         {
             ActivationId = claim.ActivationId,
             Claim = claim,
             StableFailureCode = failureCode,
-            Disposition = retry ? BaseActivationFailureDisposition.Retry : BaseActivationFailureDisposition.Exhaust,
+            Disposition = retryAllowed ? BaseActivationFailureDisposition.Retry : BaseActivationFailureDisposition.Exhaust,
+            RetryDueAt = retryDueAt,
             Identity = identity,
-            AcceptedTime = acceptedTime.Capture(session.ApplicationId),
+            AcceptedTime = now,
             Limits = definition.Limits.Provider,
         }, cancellationToken);
+    }
 
     private async ValueTask<OperationResult<BaseActivationTransitionResult>> TransitionAsync(
         BaseSession session,
@@ -234,6 +253,22 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
         left.RestoreEpoch == right.RestoreEpoch && CryptographicOperations.FixedTimeEquals(left.FencingToken.AsSpan(), right.FencingToken.AsSpan());
 
     private static byte[] Hash(string value) => SHA256.HashData(Encoding.UTF8.GetBytes(value));
+
+    private static long RetryDelay(BaseActivationRetryProfile profile, string activationId, int attemptNumber)
+    {
+        long delay = profile.InitialDelayMilliseconds;
+        for (int index = 1; index < attemptNumber; index++)
+        {
+            long numerator = checked(delay * profile.MultiplierNumerator);
+            delay = checked((numerator + profile.MultiplierDenominator - 1) / profile.MultiplierDenominator);
+            delay = Math.Min(delay, profile.MaximumDelayMilliseconds);
+        }
+        long maximumJitter = checked((delay * profile.JitterBasisPoints + 9_999) / 10_000);
+        if (maximumJitter == 0) return delay;
+        byte[] digest = Hash($"base.activation.retry.jitter.v2\0{activationId}\n{attemptNumber}");
+        ulong sample = System.Buffers.Binary.BinaryPrimitives.ReadUInt64BigEndian(digest);
+        return checked(Math.Min(profile.MaximumDelayMilliseconds, delay + (long)(sample % checked((ulong)maximumJitter + 1))));
+    }
     private static OperationResult<T> Failure<T>(OperationStatus status, string code, ErrorCategory category) => new()
     { Status = status, Error = new BaseError { Code = code, Message = "The activation operation could not be completed.", Category = category } };
     private static OperationResult<T> CopyFailure<T, TSource>(OperationResult<TSource> source) => new()
