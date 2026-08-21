@@ -55,7 +55,7 @@ public static class BaseTextIndexContract
     private static void Validate(BaseTextIndexDefinition value)
     {
         Id(value.Id); Id(value.CollectionId);
-        if (value.Version <= 0 || value.Fields.Length is < 1 or > 8 || value.FilterFields.Length > 16) throw Invalid();
+        if (value.Version <= 0 || !Enum.IsDefined(value.Audience) || value.Fields.Length is < 1 or > 8 || value.FilterFields.Length > 16) throw Invalid();
         if (!string.Equals(value.AnalyzerContractId, BaseTextAnalyzers.UnicodeCaseFoldedV1, StringComparison.Ordinal)
             || !string.Equals(value.ScoringContractId, BaseTextScoring.ContractId, StringComparison.Ordinal)) throw Invalid();
         if (!value.AnalyzerReceipt.AsSpan().SequenceEqual(BaseTextContractReceipts.AnalyzerReceipt.AsSpan())
@@ -67,14 +67,16 @@ public static class BaseTextIndexContract
             Id(field.StableFieldId);
             if (!identities.Add(field.StableFieldId) || string.IsNullOrEmpty(field.ApplicationName) || string.IsNullOrEmpty(field.WireName)
                 || field.Weight is < 1 or > 16 || field.Confidentiality is BaseFieldConfidentiality.Confidential or BaseFieldConfidentiality.Secret
-                || field.StaticInfluenceAudiences.IsDefaultOrEmpty || field.StaticInfluenceAudiences.Distinct().Count() != field.StaticInfluenceAudiences.Length) throw Invalid();
+                || field.StaticInfluenceAudiences.IsDefaultOrEmpty || field.StaticInfluenceAudiences.Distinct().Count() != field.StaticInfluenceAudiences.Length
+                || !field.StaticInfluenceAudiences.Contains(value.Audience)
+                || !field.StaticInfluenceAudiences.SequenceEqual(field.StaticInfluenceAudiences.Order())) throw Invalid();
         }
         string? prior = null;
         foreach (BaseTextIndexFilterFieldDefinition field in value.FilterFields)
         {
             Id(field.StableFieldId);
             if (!identities.Add(field.StableFieldId) || string.IsNullOrEmpty(field.ApplicationName) || string.IsNullOrEmpty(field.WireName)
-                || (prior is not null && StringComparer.Ordinal.Compare(prior, field.StableFieldId) >= 0)) throw Invalid();
+                || !Enum.IsDefined(field.ValueKind) || (prior is not null && StringComparer.Ordinal.Compare(prior, field.StableFieldId) >= 0)) throw Invalid();
             prior = field.StableFieldId;
         }
         ValidateLimits(value.Limits);
@@ -88,9 +90,26 @@ public static class BaseTextIndexContract
             || value.MaximumQueryDepth is < 1 || value.MaximumQueryDepth > maximum.MaximumQueryDepth
             || value.MaximumPhraseTerms is < 2 || value.MaximumPhraseTerms > maximum.MaximumPhraseTerms
             || value.MaximumQueryBytes is < 1 || value.MaximumQueryBytes > maximum.MaximumQueryBytes
+            || value.MaximumFilterNodes is < 1 || value.MaximumFilterNodes > maximum.MaximumFilterNodes
+            || value.MaximumFilterDepth is < 1 || value.MaximumFilterDepth > maximum.MaximumFilterDepth
+            || value.MaximumFilterLiterals is < 1 || value.MaximumFilterLiterals > maximum.MaximumFilterLiterals
+            || value.MaximumInValues is < 1 || value.MaximumInValues > maximum.MaximumInValues
             || value.MaximumPrefixExpansions is < 1 || value.MaximumPrefixExpansions > maximum.MaximumPrefixExpansions
             || value.MaximumPrefixExpansionBytes is < 1 || value.MaximumPrefixExpansionBytes > maximum.MaximumPrefixExpansionBytes
+            || value.MaximumSecondaryOrderFields is < 1 || value.MaximumSecondaryOrderFields > maximum.MaximumSecondaryOrderFields
+            || value.MaximumOrderingBytes is < 1 || value.MaximumOrderingBytes > maximum.MaximumOrderingBytes
+            || value.MaximumCandidates is < 2 || value.MaximumCandidates > maximum.MaximumCandidates
+            || value.MaximumScoreProofBytes is < 1 || value.MaximumScoreProofBytes > maximum.MaximumScoreProofBytes
+            || value.MaximumTokensPerField is < 1 || value.MaximumTokensPerField > maximum.MaximumTokensPerField
+            || value.MaximumNormalizedBytesPerField is < 1 || value.MaximumNormalizedBytesPerField > maximum.MaximumNormalizedBytesPerField
+            || value.MaximumNormalizedBytesPerRecord is < 1 || value.MaximumNormalizedBytesPerRecord > maximum.MaximumNormalizedBytesPerRecord
             || value.MaximumResults is < 1 || value.MaximumResults > maximum.MaximumResults
+            || value.MaximumResultBytes is < 1 || value.MaximumResultBytes > maximum.MaximumResultBytes
+            || value.MaximumCursorBytes is < 1 || value.MaximumCursorBytes > maximum.MaximumCursorBytes
+            || value.MaximumStatementParameters is < 1 || value.MaximumStatementParameters > maximum.MaximumStatementParameters
+            || value.MaximumCandidates < checked(value.MaximumResults + 1)
+            || value.MaximumTokensPerField > BaseTextAnalyzers.MaximumTokensPerField
+            || value.MaximumNormalizedBytesPerField > BaseTextAnalyzers.MaximumNormalizedBytesPerField
             || value.MaximumTransientBytes is < 1 || value.MaximumTransientBytes > maximum.MaximumTransientBytes
             || value.QueryTimeout <= TimeSpan.Zero || value.QueryTimeout > maximum.QueryTimeout
             || value.ConsistencyWaitTimeout <= TimeSpan.Zero || value.ConsistencyWaitTimeout > maximum.ConsistencyWaitTimeout) throw Invalid();

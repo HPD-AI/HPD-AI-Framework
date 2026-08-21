@@ -318,6 +318,13 @@ public sealed class HPDBaseStoreInstallationContext
             roles.Add("vector.provider");
             roles.Add("vector.authority");
         }
+        if (collections.SelectMany(static collection => collection.TextIndexes ?? []).Any())
+        {
+            if (!capabilities.HasFlag(BaseStoreProviderCapabilities.CoLocatedTextSearch))
+                throw new InvalidOperationException("base.store.providerInvalid");
+            roles.Add("text.provider");
+            roles.Add("text.authority");
+        }
         return roles.ToArray();
     }
 

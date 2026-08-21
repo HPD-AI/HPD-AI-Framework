@@ -192,9 +192,16 @@ public static class BaseTextQueryContract
         if (depth > MaximumDepth || ++nodes > MaximumNodes) throw Invalid("The query exceeds its structural bounds.");
         switch (query)
         {
-            case BaseTextQuery.Term term when string.IsNullOrEmpty(term.Value): throw Invalid("A term is empty.");
-            case BaseTextQuery.Prefix prefix when Encoding.UTF8.GetByteCount(prefix.Value) is < 2 or > 64: throw Invalid("A prefix is outside its byte bounds.");
-            case BaseTextQuery.Phrase phrase when phrase.Terms.Length is < 2 or > 16: throw Invalid("A phrase is outside its term bounds.");
+            case BaseTextQuery.Term term:
+                ValidateNormalizedToken(term.Value, 1, 256, "A term is invalid.");
+                break;
+            case BaseTextQuery.Prefix prefix:
+                ValidateNormalizedToken(prefix.Value, 2, 64, "A prefix is outside its byte bounds.");
+                break;
+            case BaseTextQuery.Phrase phrase:
+                if (phrase.Terms.IsDefault || phrase.Terms.Length is < 2 or > 16) throw Invalid("A phrase is outside its term bounds.");
+                foreach (string term in phrase.Terms) ValidateNormalizedToken(term, 1, 256, "A phrase term is invalid.");
+                break;
             case BaseTextQuery.Field field:
                 ValidateId(field.StableFieldId); Visit(field.Child, depth + 1, false, ref nodes); break;
             case BaseTextQuery.And and:
@@ -208,9 +215,17 @@ public static class BaseTextQueryContract
             case BaseTextQuery.Not not:
                 if (!directAndChild || ContainsNot(not.Child)) throw Invalid("NOT is valid only as a direct child of an anchored AND.");
                 Visit(not.Child, depth + 1, false, ref nodes); break;
-            case BaseTextQuery.Term or BaseTextQuery.Prefix or BaseTextQuery.Phrase: break;
             default: throw Invalid("The query contains an unknown node.");
         }
+    }
+
+    private static void ValidateNormalizedToken(string value, int minimumBytes, int maximumBytes, string message)
+    {
+        int bytes = string.IsNullOrEmpty(value) ? 0 : Encoding.UTF8.GetByteCount(value);
+        if (bytes < minimumBytes || bytes > maximumBytes)
+            throw Invalid(message);
+        ImmutableArray<string> normalized = BaseTextAnalyzer.Analyze(value);
+        if (normalized.Length != 1 || !string.Equals(normalized[0], value, StringComparison.Ordinal)) throw Invalid(message);
     }
 
     private static bool ContainsNot(BaseTextQuery query) => query switch
