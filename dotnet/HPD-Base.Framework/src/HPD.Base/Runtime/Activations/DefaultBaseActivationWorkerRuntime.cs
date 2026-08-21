@@ -14,7 +14,8 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
         BaseActivationDefinition definition,
         CancellationToken cancellationToken)
     {
-        OperationResult<BaseActivationWorkerAuthority> authority = await AuthorizeAsync(session, definition, cancellationToken).ConfigureAwait(false);
+        OperationResult<BaseActivationWorkerAuthority> authority = await AuthorizeAsync(
+            session, definition, definition.Grants.Observe, BaseOperationKind.ActivationClaim, cancellationToken).ConfigureAwait(false);
         if (!authority.IsSuccess() || authority.Value is null)
             return CopyFailure<BaseActivationDueObservation, BaseActivationWorkerAuthority>(authority);
         IBaseActivationProvider? provider = ResolveProvider();
@@ -42,9 +43,13 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
     {
         ArgumentNullException.ThrowIfNull(observation);
         ArgumentNullException.ThrowIfNull(identity);
-        OperationResult<BaseActivationWorkerAuthority> authority = await AuthorizeAsync(session, definition, cancellationToken).ConfigureAwait(false);
+        OperationResult<BaseActivationWorkerAuthority> authority = await AuthorizeAsync(
+            session, definition, definition.Grants.Claim, BaseOperationKind.ActivationClaim, cancellationToken).ConfigureAwait(false);
         if (!authority.IsSuccess() || authority.Value is null)
             return CopyFailure<BaseActivationClaimResult, BaseActivationWorkerAuthority>(authority);
+        if (!await IsAuthorizedAsync(session, definition, definition.Grants.Execute,
+            BaseOperationKind.ActivationClaim, cancellationToken).ConfigureAwait(false))
+            return Failure<BaseActivationClaimResult>(OperationStatus.PolicyDenied, "base.activation.unauthorized", ErrorCategory.Authorization);
         IBaseActivationProvider? provider = ResolveProvider();
         if (provider is null)
             return Failure<BaseActivationClaimResult>(OperationStatus.Unsupported, "base.activation.capabilityUnavailable", ErrorCategory.Unsupported);
@@ -68,7 +73,8 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
         BaseMutationRequestIdentity identity,
         CancellationToken cancellationToken)
     {
-        if (!await IsAuthorizedAsync(session, definition, cancellationToken).ConfigureAwait(false))
+        if (!await IsAuthorizedAsync(session, definition, definition.Grants.Renew,
+            BaseOperationKind.ActivationTransition, cancellationToken).ConfigureAwait(false))
             return Failure<BaseActivationRenewResult>(OperationStatus.PolicyDenied, "base.activation.unauthorized", ErrorCategory.Authorization);
         IBaseActivationProvider? provider = ResolveProvider();
         if (provider is null)
@@ -104,7 +110,7 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
             Identity = identity,
             AcceptedTime = acceptedTime.Capture(session.ApplicationId),
             Limits = definition.Limits.Provider,
-        }, cancellationToken);
+        }, definition.Grants.Complete, cancellationToken);
 
     public ValueTask<OperationResult<BaseActivationTransitionResult>> FailAsync(
         BaseSession session,
@@ -141,16 +147,18 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
             Identity = identity,
             AcceptedTime = now,
             Limits = definition.Limits.Provider,
-        }, cancellationToken);
+        }, definition.Grants.Fail, cancellationToken);
     }
 
     private async ValueTask<OperationResult<BaseActivationTransitionResult>> TransitionAsync(
         BaseSession session,
         BaseActivationDefinition definition,
         BaseActivationTransitionRequest request,
+        string requiredGrant,
         CancellationToken cancellationToken)
     {
-        if (!await IsAuthorizedAsync(session, definition, cancellationToken).ConfigureAwait(false))
+        if (!await IsAuthorizedAsync(session, definition, requiredGrant,
+            BaseOperationKind.ActivationTransition, cancellationToken).ConfigureAwait(false))
             return Failure<BaseActivationTransitionResult>(OperationStatus.PolicyDenied, "base.activation.unauthorized", ErrorCategory.Authorization);
         IBaseActivationProvider? provider = ResolveProvider();
         return provider is null
@@ -161,9 +169,11 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
     private async ValueTask<OperationResult<BaseActivationWorkerAuthority>> AuthorizeAsync(
         BaseSession session,
         BaseActivationDefinition definition,
+        string requiredGrant,
+        BaseOperationKind operationKind,
         CancellationToken cancellationToken)
     {
-        if (!await IsAuthorizedAsync(session, definition, cancellationToken).ConfigureAwait(false))
+        if (!await IsAuthorizedAsync(session, definition, requiredGrant, operationKind, cancellationToken).ConfigureAwait(false))
             return Failure<BaseActivationWorkerAuthority>(OperationStatus.PolicyDenied, "base.activation.unauthorized", ErrorCategory.Authorization);
         BaseOwnedScopeSeekAuthority scope = Scope(session.ActivationScope);
         BaseActivationDefinitionKey key = new()
@@ -181,11 +191,16 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
         });
     }
 
-    private async ValueTask<bool> IsAuthorizedAsync(BaseSession session, BaseActivationDefinition definition, CancellationToken cancellationToken)
+    private async ValueTask<bool> IsAuthorizedAsync(
+        BaseSession session,
+        BaseActivationDefinition definition,
+        string requiredGrant,
+        BaseOperationKind operationKind,
+        CancellationToken cancellationToken)
     {
         if (!BaseSystemCollectionGate.Allows(session.Principal))
             return false;
-        OperationContext operation = session.Operation(BaseOperationKind.ActivationClaim, definition.Id);
+        OperationContext operation = session.Operation(operationKind, definition.Id);
         OperationResult<BasePolicyEvaluation> authorization = await policy.EvaluateWriteAsync(new BasePolicyRequest
         {
             Principal = session.Principal,
@@ -194,7 +209,7 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
             ResourceKind = PolicyResourceKind.ActivationDefinition,
         }, cancellationToken).ConfigureAwait(false);
         return BaseSystemCollectionGate.HasExactActivationGrant(
-            authorization, definition.ExecuteGrantId, definition.OwningModuleId, session.Principal, operation);
+            authorization, requiredGrant, definition.OwningModuleId, session.Principal, operation);
     }
 
     private IBaseActivationProvider? ResolveProvider()

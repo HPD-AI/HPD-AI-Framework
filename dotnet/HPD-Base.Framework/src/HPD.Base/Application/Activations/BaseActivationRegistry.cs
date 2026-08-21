@@ -69,6 +69,41 @@ public sealed record BaseActivationHandlerBinding
 }
 
 /// <summary>Defines one graph-installed durable activation.</summary>
+public sealed record BaseActivationGrantSet
+{
+    /// <summary>Gets the exact enqueue grant identity.</summary>
+    public required string Enqueue { get; init; }
+    /// <summary>Gets the exact due-observation grant identity.</summary>
+    public required string Observe { get; init; }
+    /// <summary>Gets the exact claim grant identity.</summary>
+    public required string Claim { get; init; }
+    /// <summary>Gets the exact handler-execution grant identity.</summary>
+    public required string Execute { get; init; }
+    /// <summary>Gets the exact lease-renewal grant identity.</summary>
+    public required string Renew { get; init; }
+    /// <summary>Gets the exact completion grant identity.</summary>
+    public required string Complete { get; init; }
+    /// <summary>Gets the exact failed-attempt grant identity.</summary>
+    public required string Fail { get; init; }
+    /// <summary>Gets the exact cancellation grant identity.</summary>
+    public required string Cancel { get; init; }
+    /// <summary>Gets the exact inspection grant identity.</summary>
+    public required string Inspect { get; init; }
+    /// <summary>Gets the exact receipt-replay grant identity.</summary>
+    public required string Replay { get; init; }
+    /// <summary>Gets the exact migration grant identity.</summary>
+    public required string Migrate { get; init; }
+    /// <summary>Gets the exact unknown-effect reconciliation grant identity.</summary>
+    public required string Reconcile { get; init; }
+    /// <summary>Gets the exact terminal-disposal grant identity.</summary>
+    public required string Dispose { get; init; }
+    /// <summary>Gets the exact definition-removal grant identity.</summary>
+    public required string Remove { get; init; }
+    /// <summary>Gets the exact repair grant identity.</summary>
+    public required string Repair { get; init; }
+}
+
+/// <summary>Defines one graph-installed durable activation.</summary>
 public sealed record BaseActivationDefinition
 {
     /// <summary>Gets the stable activation-definition identity.</summary>
@@ -83,10 +118,8 @@ public sealed record BaseActivationDefinition
     public required string InputTypeId { get; init; }
     /// <summary>Gets the L41 result graph-node identity.</summary>
     public required string ResultTypeId { get; init; }
-    /// <summary>Gets the exact enqueue grant identity.</summary>
-    public required string EnqueueGrantId { get; init; }
-    /// <summary>Gets the exact execution grant identity.</summary>
-    public required string ExecuteGrantId { get; init; }
+    /// <summary>Gets the complete closed operation-grant authority.</summary>
+    public required BaseActivationGrantSet Grants { get; init; }
     /// <summary>Gets exact declared source-grant identities.</summary>
     public required ImmutableArray<string> SourceGrantIds { get; init; }
     /// <summary>Gets deterministic retry policy.</summary>
@@ -276,8 +309,7 @@ internal static class BaseActivationContract
             OwningModuleId = new string(source.OwningModuleId.AsSpan()),
             InputTypeId = new string(source.InputTypeId.AsSpan()),
             ResultTypeId = new string(source.ResultTypeId.AsSpan()),
-            EnqueueGrantId = new string(source.EnqueueGrantId.AsSpan()),
-            ExecuteGrantId = new string(source.ExecuteGrantId.AsSpan()),
+            Grants = CloneGrants(source.Grants),
             SourceGrantIds = source.SourceGrantIds.Order(StringComparer.Ordinal).Select(static value => new string(value.AsSpan())).ToImmutableArray(),
             Retry = source.Retry with
             {
@@ -302,8 +334,7 @@ internal static class BaseActivationContract
     {
         BaseApplicationId.Validate(value.Id, nameof(value.Id));
         BaseApplicationId.Validate(value.OwningModuleId, nameof(value.OwningModuleId));
-        BaseApplicationId.Validate(value.EnqueueGrantId, nameof(value.EnqueueGrantId));
-        BaseApplicationId.Validate(value.ExecuteGrantId, nameof(value.ExecuteGrantId));
+        ValidateGrants(value.Grants);
         if (value.Version <= 0 || string.IsNullOrWhiteSpace(value.InputTypeId) || string.IsNullOrWhiteSpace(value.ResultTypeId))
             throw new InvalidOperationException("base.activation.definitionInvalid");
         if (value.ExecutionClass == BaseActivationExecutionClass.TransactionalOperation || value.Handler is null)
@@ -322,7 +353,11 @@ internal static class BaseActivationContract
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         Append(hash, "base.activation.definition.v2\0"); Append(hash, value.Id); Append(hash, value.Version);
         Append(hash, value.OwningModuleId); Append(hash, (int)value.ExecutionClass); Append(hash, value.InputTypeId); Append(hash, value.ResultTypeId);
-        Append(hash, value.EnqueueGrantId); Append(hash, value.ExecuteGrantId);
+        Append(hash, value.Grants.Enqueue); Append(hash, value.Grants.Observe); Append(hash, value.Grants.Claim);
+        Append(hash, value.Grants.Execute); Append(hash, value.Grants.Renew); Append(hash, value.Grants.Complete);
+        Append(hash, value.Grants.Fail); Append(hash, value.Grants.Cancel); Append(hash, value.Grants.Inspect);
+        Append(hash, value.Grants.Replay); Append(hash, value.Grants.Migrate); Append(hash, value.Grants.Reconcile);
+        Append(hash, value.Grants.Dispose); Append(hash, value.Grants.Remove); Append(hash, value.Grants.Repair);
         foreach (string grant in value.SourceGrantIds) Append(hash, grant);
         Append(hash, value.Retry.MaximumAttempts); Append(hash, value.Retry.InitialDelayMilliseconds); Append(hash, value.Retry.MaximumDelayMilliseconds);
         Append(hash, value.Retry.MultiplierNumerator); Append(hash, value.Retry.MultiplierDenominator); Append(hash, value.Retry.JitterBasisPoints);
@@ -341,4 +376,33 @@ internal static class BaseActivationContract
     { Span<byte> bytes = stackalloc byte[8]; System.Buffers.Binary.BinaryPrimitives.WriteInt64BigEndian(bytes, value); hash.AppendData(bytes); }
     private static void Append(IncrementalHash hash, ReadOnlySpan<byte> value)
     { Span<byte> length = stackalloc byte[4]; System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(length, checked((uint)value.Length)); hash.AppendData(length); hash.AppendData(value); }
+
+    private static BaseActivationGrantSet CloneGrants(BaseActivationGrantSet value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        return value with
+        {
+            Enqueue = new string(value.Enqueue.AsSpan()), Observe = new string(value.Observe.AsSpan()),
+            Claim = new string(value.Claim.AsSpan()), Execute = new string(value.Execute.AsSpan()),
+            Renew = new string(value.Renew.AsSpan()), Complete = new string(value.Complete.AsSpan()),
+            Fail = new string(value.Fail.AsSpan()), Cancel = new string(value.Cancel.AsSpan()),
+            Inspect = new string(value.Inspect.AsSpan()), Replay = new string(value.Replay.AsSpan()),
+            Migrate = new string(value.Migrate.AsSpan()), Reconcile = new string(value.Reconcile.AsSpan()),
+            Dispose = new string(value.Dispose.AsSpan()), Remove = new string(value.Remove.AsSpan()),
+            Repair = new string(value.Repair.AsSpan()),
+        };
+    }
+
+    private static void ValidateGrants(BaseActivationGrantSet value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        BaseApplicationId.Validate(value.Enqueue, nameof(value.Enqueue)); BaseApplicationId.Validate(value.Observe, nameof(value.Observe));
+        BaseApplicationId.Validate(value.Claim, nameof(value.Claim)); BaseApplicationId.Validate(value.Execute, nameof(value.Execute));
+        BaseApplicationId.Validate(value.Renew, nameof(value.Renew)); BaseApplicationId.Validate(value.Complete, nameof(value.Complete));
+        BaseApplicationId.Validate(value.Fail, nameof(value.Fail)); BaseApplicationId.Validate(value.Cancel, nameof(value.Cancel));
+        BaseApplicationId.Validate(value.Inspect, nameof(value.Inspect)); BaseApplicationId.Validate(value.Replay, nameof(value.Replay));
+        BaseApplicationId.Validate(value.Migrate, nameof(value.Migrate)); BaseApplicationId.Validate(value.Reconcile, nameof(value.Reconcile));
+        BaseApplicationId.Validate(value.Dispose, nameof(value.Dispose)); BaseApplicationId.Validate(value.Remove, nameof(value.Remove));
+        BaseApplicationId.Validate(value.Repair, nameof(value.Repair));
+    }
 }

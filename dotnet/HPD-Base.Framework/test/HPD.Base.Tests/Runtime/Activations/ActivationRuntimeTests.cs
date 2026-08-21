@@ -84,6 +84,40 @@ public sealed partial class ActivationRuntimeTests
             .Should().BeOfType<BaseActivationClaimTerminalResult>();
     }
 
+    [Theory]
+    [InlineData("test.activation.observe")]
+    [InlineData("test.activation.claim")]
+    [InlineData("test.activation.execute")]
+    public async Task Worker_operations_require_their_exact_installed_grants(string missingGrant)
+    {
+        var store = new InMemoryRecordStore();
+        var stores = new DefaultRecordStoreRegistry();
+        stores.Add(new RecordStoreRegistration { StoreId = "activation-store", Store = store });
+        DefaultBasePolicyOrchestrator policy = Policy(missingGrant);
+        var enqueue = new DefaultBaseActivationRuntime(stores, policy, TimeProvider.System);
+        var worker = new DefaultBaseActivationWorkerRuntime(
+            stores, policy, new BaseActivationAcceptedTimeAuthority(TimeProvider.System));
+        BaseActivationHandlerRegistration<Input, Result> registration = Registration();
+        BaseSession session = Session();
+        (await enqueue.EnqueueAsync(session, registration.Definition, registration.Identity,
+            new Input("work"), Identity("enqueue", missingGrant), null, default)).IsSuccess().Should().BeTrue();
+
+        OperationResult<BaseActivationDueObservation> observed = await worker.ObserveAsync(
+            session, registration.Definition, default);
+        if (missingGrant == registration.Definition.Grants.Observe)
+        {
+            observed.Status.Should().Be(OperationStatus.PolicyDenied);
+            return;
+        }
+
+        observed.IsSuccess().Should().BeTrue(observed.Error?.Code);
+        OperationResult<BaseActivationClaimResult> claimed = await worker.ClaimAsync(
+            session, registration.Definition, observed.Value!.Token,
+            Identity("claim", missingGrant), default);
+        claimed.Status.Should().Be(OperationStatus.PolicyDenied);
+        claimed.Error!.Code.Should().Be("base.activation.unauthorized");
+    }
+
     [Fact]
     public async Task Schedule_create_and_advance_materializes_one_due_activation()
     {
@@ -163,7 +197,7 @@ public sealed partial class ActivationRuntimeTests
             Id = "test.activation", Version = 1, OwningModuleId = "test.module",
             ExecutionClass = BaseActivationExecutionClass.AtLeastOnceWorker,
             InputTypeId = "test.input", ResultTypeId = "test.result",
-            EnqueueGrantId = "test.activation.enqueue", ExecuteGrantId = "test.activation.execute",
+            Grants = Grants(),
             SourceGrantIds = [],
             Retry = new BaseActivationRetryProfile
             {
@@ -197,7 +231,19 @@ public sealed partial class ActivationRuntimeTests
         new BaseSessionOptions { Audience = HPDBaseEndpointAudience.ControlPlane },
         applicationId: "activation-test");
 
-    private static DefaultBasePolicyOrchestrator Policy()
+    private static BaseActivationGrantSet Grants() => new()
+    {
+        Enqueue = "test.activation.enqueue", Observe = "test.activation.observe",
+        Claim = "test.activation.claim", Execute = "test.activation.execute",
+        Renew = "test.activation.renew", Complete = "test.activation.complete",
+        Fail = "test.activation.fail", Cancel = "test.activation.cancel",
+        Inspect = "test.activation.inspect", Replay = "test.activation.replay",
+        Migrate = "test.activation.migrate", Reconcile = "test.activation.reconcile",
+        Dispose = "test.activation.dispose", Remove = "test.activation.remove",
+        Repair = "test.activation.repair",
+    };
+
+    private static DefaultBasePolicyOrchestrator Policy(string? excludedGrant = null)
     {
         var builder = new BasePolicyAuthorityBuilder();
         builder.AddPolicy(new BasePolicyAuthorityDefinition
@@ -205,31 +251,22 @@ public sealed partial class ActivationRuntimeTests
             Id = "activation.policy", Version = 1, OwningModuleId = "test.module",
             EvaluatorContractId = "activation.policy.evaluator", EvaluatorContractVersion = 1, CompositionOrder = 0,
         }, new AllowPolicy());
-        builder.AddStaticGrant(new BaseGrantAuthorityDefinition
-        {
-            Id = "test.activation.enqueue", Version = 1, OwningModuleId = "test.module",
-            SourceContractId = "activation.grants", SourceContractVersion = 1,
-        }, new AccessGrant
-        {
-            Id = "test.activation.enqueue", ApplicationId = "activation-test", ModuleId = "test.module",
-            Audience = HPDBaseEndpointAudience.ControlPlane,
-            Subject = new AccessSubject { Kind = AccessSubjectKind.System, Id = "system" },
-            Action = "test.activation", Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime },
-        });
-        builder.AddStaticGrant(new BaseGrantAuthorityDefinition
-        {
-            Id = "test.activation.execute", Version = 1, OwningModuleId = "test.module",
-            SourceContractId = "activation.grants", SourceContractVersion = 1,
-        }, new AccessGrant
-        {
-            Id = "test.activation.execute", ApplicationId = "activation-test", ModuleId = "test.module",
-            Audience = HPDBaseEndpointAudience.ControlPlane,
-            Subject = new AccessSubject { Kind = AccessSubjectKind.System, Id = "system" },
-            Action = "test.activation", Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime },
-        });
+        foreach (string grant in ActivationGrantIds())
+            if (!string.Equals(grant, excludedGrant, StringComparison.Ordinal))
+                AddGrant(builder, grant, "test.activation");
         AddGrant(builder, "test.schedule.manage", "test.schedule");
         AddGrant(builder, "test.schedule.materialize", "test.schedule");
         return new DefaultBasePolicyOrchestrator(builder.Freeze("activation-test"));
+    }
+
+    private static IEnumerable<string> ActivationGrantIds()
+    {
+        BaseActivationGrantSet grants = Grants();
+        yield return grants.Enqueue; yield return grants.Observe; yield return grants.Claim;
+        yield return grants.Execute; yield return grants.Renew; yield return grants.Complete;
+        yield return grants.Fail; yield return grants.Cancel; yield return grants.Inspect;
+        yield return grants.Replay; yield return grants.Migrate; yield return grants.Reconcile;
+        yield return grants.Dispose; yield return grants.Remove; yield return grants.Repair;
     }
 
     private static void AddGrant(BasePolicyAuthorityBuilder builder, string id, string action) =>

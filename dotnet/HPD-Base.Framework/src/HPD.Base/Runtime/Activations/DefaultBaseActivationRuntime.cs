@@ -37,7 +37,7 @@ internal sealed class DefaultBaseActivationRuntime(
             ResourceKind = PolicyResourceKind.ActivationDefinition,
         }, cancellationToken).ConfigureAwait(false);
         if (!BaseSystemCollectionGate.HasExactActivationGrant(
-            authorized, definition.EnqueueGrantId, definition.OwningModuleId, session.Principal, operation))
+            authorized, definition.Grants.Enqueue, definition.OwningModuleId, session.Principal, operation))
             return Failure<BaseActivationEnqueueResult>(OperationStatus.PolicyDenied, "base.activation.unauthorized", ErrorCategory.Authorization);
 
         byte[] inputBytes;
