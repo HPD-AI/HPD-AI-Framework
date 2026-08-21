@@ -52,6 +52,8 @@ internal sealed class InMemoryStoreState
     public Dictionary<string, BaseScheduleAuthority> Schedules { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets immutable occurrence facts by occurrence identity.</summary>
     public Dictionary<string, BaseScheduleOccurrenceFact> ScheduleOccurrences { get; } = new(StringComparer.Ordinal);
+    /// <summary>Gets durable cancel-previous maintenance state by deterministic identity.</summary>
+    public Dictionary<string, InMemoryScheduleCancellationRow> ScheduleCancellations { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets the next positive executor generation.</summary>
     public long NextExecutorGeneration { get; set; }
     /// <summary>Gets or sets the generation invalidating finite due observations.</summary>
@@ -125,6 +127,8 @@ internal sealed class InMemoryStoreState
             clone.Schedules.Add(key, CloneSchedule(schedule));
         foreach ((string key, BaseScheduleOccurrenceFact occurrence) in ScheduleOccurrences)
             clone.ScheduleOccurrences.Add(key, CloneOccurrence(occurrence));
+        foreach ((string key, InMemoryScheduleCancellationRow cancellation) in ScheduleCancellations)
+            clone.ScheduleCancellations.Add(key, cancellation.DeepClone());
         foreach ((long position, BaseMutationJournalEntry entry) in MutationJournal)
             clone.MutationJournal.Add(position, CloneJournalEntry(entry));
 
@@ -183,6 +187,22 @@ internal sealed class InMemoryStoreState
     {
         Payload = snapshot.Payload is null ? null : RecordCloneHelpers.ClonePayload(snapshot.Payload),
         Metadata = snapshot.Metadata is null ? null : RecordCloneHelpers.CloneMetadata(snapshot.Metadata),
+    };
+}
+
+internal sealed record InMemoryScheduleCancellationRow(
+    string MaintenanceId,
+    string ReplacementActivationId,
+    byte[] OverlapKey,
+    BaseScheduleCancellationBoundary HighWater,
+    BaseScheduleCancellationBoundary? After,
+    bool Completed)
+{
+    internal InMemoryScheduleCancellationRow DeepClone() => this with
+    {
+        OverlapKey = OverlapKey.ToArray(),
+        HighWater = HighWater with { ActivationId = new string(HighWater.ActivationId.AsSpan()) },
+        After = After is null ? null : After with { ActivationId = new string(After.ActivationId.AsSpan()) },
     };
 }
 

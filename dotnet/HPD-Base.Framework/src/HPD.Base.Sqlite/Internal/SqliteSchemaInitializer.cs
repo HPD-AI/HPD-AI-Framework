@@ -314,6 +314,12 @@ CREATE TABLE IF NOT EXISTS {_names.ActivationOccurrences} (
   overlap_ordinal INTEGER NOT NULL, fact_json BLOB NOT NULL, fact_checksum BLOB NOT NULL CHECK(length(fact_checksum)=32)
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS {_names.Prefix}activation_occurrence_schedule_idx ON {_names.ActivationOccurrences}(schedule_id,schedule_version,schedule_epoch,nominal_at,overlap_ordinal);
+CREATE TABLE IF NOT EXISTS {_names.ActivationScheduleCancellations} (
+  maintenance_id TEXT NOT NULL PRIMARY KEY, replacement_activation_id TEXT NOT NULL,
+  overlap_key BLOB NOT NULL CHECK(length(overlap_key)=32), high_due_at INTEGER NOT NULL,
+  high_activation_id TEXT NOT NULL, after_due_at INTEGER NULL, after_activation_id TEXT NULL,
+  completed INTEGER NOT NULL CHECK(completed IN (0,1))
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.ModuleMutationDefinitions} (
   operation_id TEXT NOT NULL, operation_version INTEGER NOT NULL CHECK(operation_version > 0),
   owning_module_id TEXT NOT NULL, operation_checksum TEXT NOT NULL CHECK(length(operation_checksum)=64),
@@ -681,6 +687,12 @@ CREATE TABLE IF NOT EXISTS {_names.ActivationOccurrences} (
   overlap_ordinal INTEGER NOT NULL, fact_json BLOB NOT NULL, fact_checksum BLOB NOT NULL CHECK(length(fact_checksum)=32)
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS {_names.Prefix}activation_occurrence_schedule_idx ON {_names.ActivationOccurrences}(schedule_id,schedule_version,schedule_epoch,nominal_at,overlap_ordinal);
+CREATE TABLE IF NOT EXISTS {_names.ActivationScheduleCancellations} (
+  maintenance_id TEXT NOT NULL PRIMARY KEY, replacement_activation_id TEXT NOT NULL,
+  overlap_key BLOB NOT NULL CHECK(length(overlap_key)=32), high_due_at INTEGER NOT NULL,
+  high_activation_id TEXT NOT NULL, after_due_at INTEGER NULL, after_activation_id TEXT NULL,
+  completed INTEGER NOT NULL CHECK(completed IN (0,1))
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.ModuleMutationDefinitions} (
   operation_id TEXT NOT NULL, operation_version INTEGER NOT NULL CHECK(operation_version > 0),
   owning_module_id TEXT NOT NULL, operation_checksum TEXT NOT NULL CHECK(length(operation_checksum)=64),

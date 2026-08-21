@@ -170,6 +170,22 @@ public sealed partial class SqliteModuleMutationTests
             BaseScheduleMaintenancePage skipped = (await store.AdvanceSchedulesAsync(
                 SchedulePage((await store.ReadScheduleAsync(second.Id, second.Version)).Value!, second, 103, "advance-2"))).Value!;
             skipped.Occurrences[0].Disposition.Should().BeOfType<BaseOccurrenceSkippedOverlap>();
+
+            BaseScheduleDefinition third = Schedule(3, BaseScheduleOverlapPolicy.CancelPrevious, overlap);
+            (await store.MutateScheduleAsync(ScheduleMutation(third, 104, "create-3"))).IsSuccess().Should().BeTrue();
+            BaseScheduleMaintenancePage replacement = (await store.AdvanceSchedulesAsync(
+                SchedulePage((await store.ReadScheduleAsync(third.Id, third.Version)).Value!, third, 105, "advance-3"))).Value!;
+            BaseScheduleCancellationAuthority cancellation = replacement.Cancellations.Should().ContainSingle().Subject;
+            OperationResult<BaseScheduleCancellationMaintenancePage> cancelled = await store.AdvanceScheduleCancellationAsync(
+                new BaseScheduleCancellationMaintenanceRequest
+                {
+                    MaintenanceId = cancellation.MaintenanceId, ReplacementActivationId = cancellation.ReplacementActivationId,
+                    OverlapKey = cancellation.OverlapKey, HighWater = cancellation.HighWater, AcceptedTime = AcceptedTime(106),
+                    Identity = ActivationIdentity("cancel-page"), Limits = ActivationLimits(),
+                });
+            cancelled.IsSuccess().Should().BeTrue();
+            cancelled.Value!.Completed.Should().BeTrue();
+            cancelled.Value.CancelledCount.Should().Be(1);
         }
         finally
         {

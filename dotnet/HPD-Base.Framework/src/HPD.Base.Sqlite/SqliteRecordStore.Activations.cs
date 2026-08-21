@@ -499,6 +499,7 @@ public sealed partial class SqliteRecordStore
             return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.scheduleConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
         long previous = authority.LastConsideredNominal ?? -1;
         var committedFacts = ImmutableArray.CreateBuilder<BaseScheduleOccurrenceFact>(request.Occurrences.Length);
+        var cancellations = ImmutableArray.CreateBuilder<BaseScheduleCancellationAuthority>();
         foreach (BaseScheduleOccurrenceProposal proposal in request.Occurrences)
         {
             OperationResult<BaseScheduleOccurrenceProposal> overlap = await ResolveSqliteOverlapAsync(
@@ -527,6 +528,11 @@ public sealed partial class SqliteRecordStore
             if (effectiveProposal.Activation is { } activation)
             {
                 string activationId = ((BaseOccurrenceMaterialized)fact.Disposition).ActivationId;
+                List<(string Id, long Generation, long DueAt)> cancellationBlockers = activation.OverlapPolicy == BaseScheduleOverlapPolicy.CancelPrevious
+                    ? await ReadSqliteOverlapRowsAsync(connection, transaction, activation.OverlapKey, 1_000_001, cancellationToken).ConfigureAwait(false)
+                    : [];
+                if (cancellationBlockers.Count > 1_000_000)
+                    return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.budgetExceeded", OperationStatus.ValidationFailed, ErrorCategory.Validation);
                 byte[] fingerprint = SqliteScheduleActivationFingerprint(activation, fact.OccurrenceId);
                 await using SqliteCommand insert = connection.CreateCommand(); insert.Transaction = transaction;
                 insert.CommandText = $"INSERT INTO {_names.Activations}(activation_id,definition_id,definition_version,definition_checksum,canonical_input,input_checksum,scope_kind,scope_value,scope_digest,payload_checksum,fingerprint,state,generation,requested_due_at,effective_due_at,occurrence_id,priority,overlap_key,overlap_policy,eligible,control_checksum) VALUES($id,$definition,$version,$definition_checksum,$input,$input_checksum,$scope_kind,$scope_value,$scope_digest,$payload_checksum,$fingerprint,$state,1,$requested,$effective,$occurrence,$priority,$overlap_key,$overlap_policy,$eligible,$control);";
@@ -538,11 +544,30 @@ public sealed partial class SqliteRecordStore
                 insert.Parameters.AddWithValue("$occurrence", (object?)activation.OccurrenceId ?? DBNull.Value); insert.Parameters.AddWithValue("$priority", activation.Priority);
                 insert.Parameters.Add("$overlap_key", SqliteType.Blob).Value = activation.OverlapKey.IsDefaultOrEmpty ? DBNull.Value : activation.OverlapKey.ToArray();
                 insert.Parameters.AddWithValue("$overlap_policy", (int)activation.OverlapPolicy);
-                insert.Parameters.AddWithValue("$eligible", activation.OverlapPolicy == BaseScheduleOverlapPolicy.CancelPrevious || activation.InitiallyEligible ? 1 : 0);
+                insert.Parameters.AddWithValue("$eligible", cancellationBlockers.Count == 0 &&
+                    (activation.OverlapPolicy == BaseScheduleOverlapPolicy.CancelPrevious || activation.InitiallyEligible) ? 1 : 0);
                 insert.Parameters.Add("$control", SqliteType.Blob).Value = ActivationControlChecksum(activationId, 1, BaseActivationState.Pending);
                 try { await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false); }
                 catch (SqliteException exception) when (exception.SqliteErrorCode == 19)
                 { return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.fingerprintConflict", OperationStatus.Conflict, ErrorCategory.Conflict); }
+                if (cancellationBlockers.Count != 0)
+                {
+                    (string highId, _, long highDue) = cancellationBlockers[^1];
+                    string maintenanceId = Convert.ToHexStringLower(ActivationHash(
+                        $"base.activation.schedule.cancelPrevious.v2\0{fact.OccurrenceId}\n{activationId}"));
+                    await using SqliteCommand maintenance = connection.CreateCommand(); maintenance.Transaction = transaction;
+                    maintenance.CommandText = $"INSERT INTO {_names.ActivationScheduleCancellations}(maintenance_id,replacement_activation_id,overlap_key,high_due_at,high_activation_id,after_due_at,after_activation_id,completed) VALUES($id,$replacement,$key,$due,$high,NULL,NULL,0);";
+                    maintenance.Parameters.AddWithValue("$id", maintenanceId); maintenance.Parameters.AddWithValue("$replacement", activationId);
+                    maintenance.Parameters.Add("$key", SqliteType.Blob).Value = activation.OverlapKey.ToArray();
+                    maintenance.Parameters.AddWithValue("$due", highDue); maintenance.Parameters.AddWithValue("$high", highId);
+                    await maintenance.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                    cancellations.Add(new BaseScheduleCancellationAuthority
+                    {
+                        MaintenanceId = maintenanceId, ReplacementActivationId = activationId,
+                        OverlapKey = activation.OverlapKey.ToArray().ToImmutableArray(),
+                        HighWater = new BaseScheduleCancellationBoundary { EffectiveDueAt = highDue, ActivationId = highId },
+                    });
+                }
             }
         }
         if (previous != request.ResultingLastConsideredNominal)
@@ -553,7 +578,7 @@ public sealed partial class SqliteRecordStore
         await IncrementActivationGenerationAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return OperationResults.Ok(new BaseScheduleMaintenancePage { Authority = replacement,
-            Occurrences = committedFacts.MoveToImmutable(), Accounting = ActivationAccounting(request.Occurrences.Length, request.Occurrences.Length * 128L),
+            Occurrences = committedFacts.MoveToImmutable(), Cancellations = cancellations.ToImmutable(), Accounting = ActivationAccounting(request.Occurrences.Length, request.Occurrences.Length * 128L),
             Disposition = BaseMutationRequestDisposition.Committed });
     }
 
@@ -564,17 +589,8 @@ public sealed partial class SqliteRecordStore
         if (proposal.Activation is not { } activation || activation.OverlapKey.IsDefaultOrEmpty ||
             activation.OverlapPolicy is BaseScheduleOverlapPolicy.Allow or BaseScheduleOverlapPolicy.Queue)
             return OperationResults.Ok(proposal);
-        var blockers = new List<(string Id, long Generation)>();
-        await using (SqliteCommand read = connection.CreateCommand())
-        {
-            read.Transaction = transaction;
-            read.CommandText = $"SELECT activation_id,generation FROM {_names.Activations} WHERE overlap_key=$key AND state IN ($pending,$retry,$claimed,$effect) ORDER BY effective_due_at,activation_id LIMIT 257;";
-            read.Parameters.Add("$key", SqliteType.Blob).Value = activation.OverlapKey.ToArray();
-            read.Parameters.AddWithValue("$pending", (int)BaseActivationState.Pending); read.Parameters.AddWithValue("$retry", (int)BaseActivationState.RetryPending);
-            read.Parameters.AddWithValue("$claimed", (int)BaseActivationState.Claimed); read.Parameters.AddWithValue("$effect", (int)BaseActivationState.EffectStarted);
-            await using SqliteDataReader reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) blockers.Add((reader.GetString(0), reader.GetInt64(1)));
-        }
+        List<(string Id, long Generation, long DueAt)> blockers = await ReadSqliteOverlapRowsAsync(
+            connection, transaction, activation.OverlapKey, 1, cancellationToken).ConfigureAwait(false);
         if (activation.OverlapPolicy == BaseScheduleOverlapPolicy.SkipWhileActive && blockers.Count != 0)
         {
             BaseScheduleOccurrenceFact skipped = proposal.Fact with
@@ -582,23 +598,115 @@ public sealed partial class SqliteRecordStore
             skipped = skipped with { Checksum = SqliteOccurrenceChecksum(skipped).ToImmutableArray() };
             return OperationResults.Ok(new BaseScheduleOccurrenceProposal { Fact = skipped });
         }
-        if (activation.OverlapPolicy == BaseScheduleOverlapPolicy.CancelPrevious)
-        {
-            if (blockers.Count > 256)
-                return ActivationFailure<BaseScheduleOccurrenceProposal>("base.activation.budgetExceeded", OperationStatus.ValidationFailed, ErrorCategory.Validation);
-            foreach ((string id, long generation) in blockers)
-            {
-                long next = checked(generation + 1);
-                await using SqliteCommand cancel = connection.CreateCommand(); cancel.Transaction = transaction;
-                cancel.CommandText = $"UPDATE {_names.Activations} SET state=$cancelled,generation=$next,claim_fence=NULL,claim_worker=NULL,lease_revision=NULL,lease_expires_at=NULL,eligible=0,control_checksum=$checksum WHERE activation_id=$id AND generation=$generation;";
-                cancel.Parameters.AddWithValue("$cancelled", (int)BaseActivationState.Cancelled); cancel.Parameters.AddWithValue("$next", next);
-                cancel.Parameters.Add("$checksum", SqliteType.Blob).Value = ActivationControlChecksum(id, next, BaseActivationState.Cancelled);
-                cancel.Parameters.AddWithValue("$id", id); cancel.Parameters.AddWithValue("$generation", generation);
-                if (await cancel.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
-                    return ActivationFailure<BaseScheduleOccurrenceProposal>("base.activation.scheduleConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
-            }
-        }
         return OperationResults.Ok(proposal);
+    }
+
+    private async ValueTask<List<(string Id, long Generation, long DueAt)>> ReadSqliteOverlapRowsAsync(
+        SqliteConnection connection, SqliteTransaction transaction, ImmutableArray<byte> overlapKey, int limit,
+        CancellationToken cancellationToken)
+    {
+        var rows = new List<(string, long, long)>();
+        await using SqliteCommand read = connection.CreateCommand(); read.Transaction = transaction;
+        read.CommandText = $"SELECT activation_id,generation,effective_due_at FROM {_names.Activations} WHERE overlap_key=$key AND state IN ($pending,$retry,$claimed,$effect) ORDER BY effective_due_at,activation_id LIMIT $limit;";
+        read.Parameters.Add("$key", SqliteType.Blob).Value = overlapKey.ToArray(); read.Parameters.AddWithValue("$limit", limit);
+        read.Parameters.AddWithValue("$pending", (int)BaseActivationState.Pending); read.Parameters.AddWithValue("$retry", (int)BaseActivationState.RetryPending);
+        read.Parameters.AddWithValue("$claimed", (int)BaseActivationState.Claimed); read.Parameters.AddWithValue("$effect", (int)BaseActivationState.EffectStarted);
+        await using SqliteDataReader reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) rows.Add((reader.GetString(0), reader.GetInt64(1), reader.GetInt64(2)));
+        return rows;
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseScheduleCancellationMaintenancePage>> AdvanceScheduleCancellationAsync(
+        BaseScheduleCancellationMaintenanceRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!await AcceptActivationTimeAsync(request.AcceptedTime, cancellationToken).ConfigureAwait(false) ||
+            request.OverlapKey.Length != 32 || request.Limits.MaximumCandidates is < 1 or > 256)
+            return ActivationFailure<BaseScheduleCancellationMaintenancePage>("base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+        await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        string replacement; byte[] key; long highDue; string highId; long? afterDue; string? afterId; bool completed;
+        await using (SqliteCommand read = connection.CreateCommand())
+        {
+            read.Transaction = transaction;
+            read.CommandText = $"SELECT replacement_activation_id,overlap_key,high_due_at,high_activation_id,after_due_at,after_activation_id,completed FROM {_names.ActivationScheduleCancellations} WHERE maintenance_id=$id;";
+            read.Parameters.AddWithValue("$id", request.MaintenanceId);
+            await using SqliteDataReader reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                return ActivationFailure<BaseScheduleCancellationMaintenancePage>("base.activation.maintenanceConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+            replacement = reader.GetString(0); key = (byte[])reader[1]; highDue = reader.GetInt64(2); highId = reader.GetString(3);
+            afterDue = reader.IsDBNull(4) ? null : reader.GetInt64(4); afterId = reader.IsDBNull(5) ? null : reader.GetString(5); completed = reader.GetInt64(6) != 0;
+        }
+        if (completed || replacement != request.ReplacementActivationId || !CryptographicOperations.FixedTimeEquals(key, request.OverlapKey.AsSpan()) ||
+            highDue != request.HighWater.EffectiveDueAt || highId != request.HighWater.ActivationId ||
+            afterDue != request.After?.EffectiveDueAt || afterId != request.After?.ActivationId)
+            return ActivationFailure<BaseScheduleCancellationMaintenancePage>("base.activation.maintenanceConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+        var page = new List<(string Id, long Generation, long DueAt)>();
+        await using (SqliteCommand candidates = connection.CreateCommand())
+        {
+            candidates.Transaction = transaction;
+            candidates.CommandText = $"SELECT activation_id,generation,effective_due_at FROM {_names.Activations} WHERE overlap_key=$key AND activation_id<>$replacement AND state IN ($pending,$retry,$claimed,$effect) AND (($after_due IS NULL) OR effective_due_at>$after_due OR (effective_due_at=$after_due AND activation_id>$after_id)) AND (effective_due_at<$high_due OR (effective_due_at=$high_due AND activation_id<=$high_id)) ORDER BY effective_due_at,activation_id LIMIT $limit;";
+            candidates.Parameters.Add("$key", SqliteType.Blob).Value = key; candidates.Parameters.AddWithValue("$replacement", replacement);
+            candidates.Parameters.AddWithValue("$after_due", (object?)afterDue ?? DBNull.Value); candidates.Parameters.AddWithValue("$after_id", (object?)afterId ?? DBNull.Value);
+            candidates.Parameters.AddWithValue("$high_due", highDue); candidates.Parameters.AddWithValue("$high_id", highId);
+            candidates.Parameters.AddWithValue("$limit", Math.Min(256, request.Limits.MaximumCandidates));
+            candidates.Parameters.AddWithValue("$pending", (int)BaseActivationState.Pending); candidates.Parameters.AddWithValue("$retry", (int)BaseActivationState.RetryPending);
+            candidates.Parameters.AddWithValue("$claimed", (int)BaseActivationState.Claimed); candidates.Parameters.AddWithValue("$effect", (int)BaseActivationState.EffectStarted);
+            await using SqliteDataReader reader = await candidates.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) page.Add((reader.GetString(0), reader.GetInt64(1), reader.GetInt64(2)));
+        }
+        foreach ((string id, long generation, _) in page)
+        {
+            long next = checked(generation + 1);
+            await using SqliteCommand cancel = connection.CreateCommand(); cancel.Transaction = transaction;
+            cancel.CommandText = $"UPDATE {_names.Activations} SET state=$cancelled,generation=$next,claim_fence=NULL,claim_worker=NULL,lease_revision=NULL,lease_expires_at=NULL,eligible=0,control_checksum=$checksum WHERE activation_id=$id AND generation=$generation;";
+            cancel.Parameters.AddWithValue("$cancelled", (int)BaseActivationState.Cancelled); cancel.Parameters.AddWithValue("$next", next);
+            cancel.Parameters.Add("$checksum", SqliteType.Blob).Value = ActivationControlChecksum(id, next, BaseActivationState.Cancelled);
+            cancel.Parameters.AddWithValue("$id", id); cancel.Parameters.AddWithValue("$generation", generation);
+            if (await cancel.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                return ActivationFailure<BaseScheduleCancellationMaintenancePage>("base.activation.maintenanceConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+        }
+        long? nextDue = page.Count == 0 ? afterDue : page[^1].DueAt;
+        string? nextId = page.Count == 0 ? afterId : page[^1].Id;
+        bool hasMore;
+        await using (SqliteCommand more = connection.CreateCommand())
+        {
+            more.Transaction = transaction;
+            more.CommandText = $"SELECT 1 FROM {_names.Activations} WHERE overlap_key=$key AND activation_id<>$replacement AND state IN ($pending,$retry,$claimed,$effect) AND (($after_due IS NULL) OR effective_due_at>$after_due OR (effective_due_at=$after_due AND activation_id>$after_id)) AND (effective_due_at<$high_due OR (effective_due_at=$high_due AND activation_id<=$high_id)) LIMIT 1;";
+            more.Parameters.Add("$key", SqliteType.Blob).Value = key; more.Parameters.AddWithValue("$replacement", replacement);
+            more.Parameters.AddWithValue("$after_due", (object?)nextDue ?? DBNull.Value); more.Parameters.AddWithValue("$after_id", (object?)nextId ?? DBNull.Value);
+            more.Parameters.AddWithValue("$high_due", highDue); more.Parameters.AddWithValue("$high_id", highId);
+            more.Parameters.AddWithValue("$pending", (int)BaseActivationState.Pending); more.Parameters.AddWithValue("$retry", (int)BaseActivationState.RetryPending);
+            more.Parameters.AddWithValue("$claimed", (int)BaseActivationState.Claimed); more.Parameters.AddWithValue("$effect", (int)BaseActivationState.EffectStarted);
+            hasMore = await more.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is not null;
+        }
+        if (!hasMore)
+        {
+            await using SqliteCommand publish = connection.CreateCommand(); publish.Transaction = transaction;
+            publish.CommandText = $"UPDATE {_names.Activations} SET eligible=1 WHERE activation_id=$id AND state=$pending AND eligible=0;";
+            publish.Parameters.AddWithValue("$id", replacement); publish.Parameters.AddWithValue("$pending", (int)BaseActivationState.Pending);
+            if (await publish.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                return ActivationFailure<BaseScheduleCancellationMaintenancePage>("base.activation.maintenanceConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+        }
+        await using (SqliteCommand update = connection.CreateCommand())
+        {
+            update.Transaction = transaction;
+            update.CommandText = $"UPDATE {_names.ActivationScheduleCancellations} SET after_due_at=$due,after_activation_id=$after,completed=$completed WHERE maintenance_id=$id AND completed=0;";
+            update.Parameters.AddWithValue("$due", (object?)nextDue ?? DBNull.Value); update.Parameters.AddWithValue("$after", (object?)nextId ?? DBNull.Value);
+            update.Parameters.AddWithValue("$completed", hasMore ? 0 : 1); update.Parameters.AddWithValue("$id", request.MaintenanceId);
+            if (await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                return ActivationFailure<BaseScheduleCancellationMaintenancePage>("base.activation.maintenanceConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+        }
+        await IncrementActivationGenerationAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return OperationResults.Ok(new BaseScheduleCancellationMaintenancePage
+        {
+            MaintenanceId = request.MaintenanceId, CancelledCount = page.Count,
+            Next = hasMore ? new BaseScheduleCancellationBoundary { EffectiveDueAt = nextDue!.Value, ActivationId = nextId! } : null,
+            Completed = !hasMore, Accounting = ActivationAccounting(page.Count, page.Count * 96L),
+            Disposition = BaseMutationRequestDisposition.Committed,
+        });
     }
 
     private async ValueTask<SqliteExecutorRow?> ReadExecutorAsync(

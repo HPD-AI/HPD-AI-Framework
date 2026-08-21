@@ -348,6 +348,68 @@ public sealed record BaseScheduleMaintenancePage
     public required BaseScheduleAuthority Authority { get; init; }
     /// <summary>Gets committed facts in nominal order.</summary>
     public required ImmutableArray<BaseScheduleOccurrenceFact> Occurrences { get; init; }
+    /// <summary>Gets newly created cancel-previous maintenance authorities.</summary>
+    public ImmutableArray<BaseScheduleCancellationAuthority> Cancellations { get; init; } = [];
+    /// <summary>Gets provider accounting.</summary>
+    public required BaseActivationAccounting Accounting { get; init; }
+    /// <summary>Gets request disposition.</summary>
+    public required BaseMutationRequestDisposition Disposition { get; init; }
+}
+
+/// <summary>Contains immutable authority needed to resume cancel-previous maintenance.</summary>
+public sealed record BaseScheduleCancellationAuthority
+{
+    /// <summary>Gets deterministic maintenance identity.</summary>
+    public required string MaintenanceId { get; init; }
+    /// <summary>Gets blocked replacement activation identity.</summary>
+    public required string ReplacementActivationId { get; init; }
+    /// <summary>Gets exact overlap key.</summary>
+    public required ImmutableArray<byte> OverlapKey { get; init; }
+    /// <summary>Gets finite predecessor high-water.</summary>
+    public required BaseScheduleCancellationBoundary HighWater { get; init; }
+}
+
+/// <summary>Contains the canonical finite predecessor boundary for cancel-previous maintenance.</summary>
+public sealed record BaseScheduleCancellationBoundary
+{
+    /// <summary>Gets the greatest predecessor effective due instant captured by materialization.</summary>
+    public required long EffectiveDueAt { get; init; }
+    /// <summary>Gets the greatest predecessor activation identity at that instant.</summary>
+    public required string ActivationId { get; init; }
+}
+
+/// <summary>Requests one identified bounded page of durable cancel-previous maintenance.</summary>
+public sealed record BaseScheduleCancellationMaintenanceRequest
+{
+    /// <summary>Gets the deterministic maintenance identity.</summary>
+    public required string MaintenanceId { get; init; }
+    /// <summary>Gets the blocked replacement activation identity.</summary>
+    public required string ReplacementActivationId { get; init; }
+    /// <summary>Gets the exact overlap-key digest.</summary>
+    public required ImmutableArray<byte> OverlapKey { get; init; }
+    /// <summary>Gets the finite predecessor high-water captured with the replacement.</summary>
+    public required BaseScheduleCancellationBoundary HighWater { get; init; }
+    /// <summary>Gets the last completed predecessor boundary, or null for the first page.</summary>
+    public BaseScheduleCancellationBoundary? After { get; init; }
+    /// <summary>Gets trusted accepted time.</summary>
+    public required BaseAcceptedTimeReceipt AcceptedTime { get; init; }
+    /// <summary>Gets the identified page request.</summary>
+    public required BaseMutationRequestIdentity Identity { get; init; }
+    /// <summary>Gets effective limits.</summary>
+    public required BaseActivationExecutionLimits Limits { get; init; }
+}
+
+/// <summary>Contains one committed page of durable cancel-previous maintenance.</summary>
+public sealed record BaseScheduleCancellationMaintenancePage
+{
+    /// <summary>Gets the maintenance identity.</summary>
+    public required string MaintenanceId { get; init; }
+    /// <summary>Gets the number of predecessors fenced by this page.</summary>
+    public required int CancelledCount { get; init; }
+    /// <summary>Gets the committed continuation boundary, or null after completion.</summary>
+    public BaseScheduleCancellationBoundary? Next { get; init; }
+    /// <summary>Gets whether coverage is complete and the replacement is eligible.</summary>
+    public required bool Completed { get; init; }
     /// <summary>Gets provider accounting.</summary>
     public required BaseActivationAccounting Accounting { get; init; }
     /// <summary>Gets request disposition.</summary>

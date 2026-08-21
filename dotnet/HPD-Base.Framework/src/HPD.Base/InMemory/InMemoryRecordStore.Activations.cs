@@ -576,6 +576,7 @@ internal sealed partial class InMemoryRecordStore
                 return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.scheduleConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
             long previous = authority.LastConsideredNominal ?? -1;
             var committedFacts = ImmutableArray.CreateBuilder<BaseScheduleOccurrenceFact>(request.Occurrences.Length);
+            var cancellations = ImmutableArray.CreateBuilder<BaseScheduleCancellationAuthority>();
             foreach (BaseScheduleOccurrenceProposal proposal in request.Occurrences)
             {
                 BaseScheduleOccurrenceProposal effectiveProposal;
@@ -593,6 +594,9 @@ internal sealed partial class InMemoryRecordStore
                 if (effectiveProposal.Activation is { } activation)
                 {
                     string activationId = ((BaseOccurrenceMaterialized)fact.Disposition).ActivationId;
+                    InMemoryActivationRow[] cancellationBlockers = activation.OverlapPolicy == BaseScheduleOverlapPolicy.CancelPrevious
+                        ? ActiveOverlapRows(next, activation.OverlapKey).ToArray()
+                        : [];
                     byte[] fingerprint = ScheduleActivationFingerprint(activation, fact.OccurrenceId);
                     if (next.Activations.TryGetValue(activationId, out InMemoryActivationRow? existing) && !CryptographicOperations.FixedTimeEquals(existing.Fingerprint, fingerprint))
                         return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.fingerprintConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
@@ -606,8 +610,25 @@ internal sealed partial class InMemoryRecordStore
                             activation.RequestedDueAt, activation.EffectiveDueAt ?? activation.RequestedDueAt, fingerprint,
                             ControlChecksum(activationId, 1, BaseActivationState.Pending), activation.OccurrenceId,
                             activation.Priority, activation.OverlapKey.IsDefaultOrEmpty ? null : activation.OverlapKey.ToArray(),
-                            activation.OverlapPolicy, true));
+                            activation.OverlapPolicy, cancellationBlockers.Length == 0));
                         next.ActivationIndexGeneration = checked(next.ActivationIndexGeneration + 1);
+                    }
+                    if (cancellationBlockers.Length != 0)
+                    {
+                        InMemoryActivationRow high = cancellationBlockers[^1];
+                        string maintenanceId = Convert.ToHexStringLower(Hash(
+                            $"base.activation.schedule.cancelPrevious.v2\0{fact.OccurrenceId}\n{activationId}"));
+                        next.ScheduleCancellations[maintenanceId] = new InMemoryScheduleCancellationRow(
+                            maintenanceId, activationId, activation.OverlapKey.ToArray(),
+                            new BaseScheduleCancellationBoundary
+                            { EffectiveDueAt = high.EffectiveDueAt, ActivationId = high.Payload.ActivationId }, null, false);
+                        cancellations.Add(new BaseScheduleCancellationAuthority
+                        {
+                            MaintenanceId = maintenanceId, ReplacementActivationId = activationId,
+                            OverlapKey = activation.OverlapKey.ToArray().ToImmutableArray(),
+                            HighWater = new BaseScheduleCancellationBoundary
+                            { EffectiveDueAt = high.EffectiveDueAt, ActivationId = high.Payload.ActivationId },
+                        });
                     }
                 }
             }
@@ -618,7 +639,7 @@ internal sealed partial class InMemoryRecordStore
             next.Schedules[key] = replacement; Volatile.Write(ref _publishedState, next);
             return OperationResults.Ok(new BaseScheduleMaintenancePage
             {
-                Authority = replacement, Occurrences = committedFacts.MoveToImmutable(),
+                Authority = replacement, Occurrences = committedFacts.MoveToImmutable(), Cancellations = cancellations.ToImmutable(),
                 Accounting = EmptyActivationAccounting with { Candidates = request.Occurrences.Length, IndexOperations = request.Occurrences.Length * 2 },
                 Disposition = BaseMutationRequestDisposition.Committed,
             });
@@ -631,10 +652,7 @@ internal sealed partial class InMemoryRecordStore
         if (proposal.Activation is not { } activation || activation.OverlapKey.IsDefaultOrEmpty ||
             activation.OverlapPolicy is BaseScheduleOverlapPolicy.Allow or BaseScheduleOverlapPolicy.Queue)
             return proposal;
-        InMemoryActivationRow[] blockers = state.Activations.Values.Where(row => row.OverlapKey is not null &&
-            CryptographicOperations.FixedTimeEquals(row.OverlapKey, activation.OverlapKey.AsSpan()) &&
-            row.State is BaseActivationState.Pending or BaseActivationState.RetryPending or BaseActivationState.Claimed or BaseActivationState.EffectStarted)
-            .OrderBy(static row => row.EffectiveDueAt).ThenBy(static row => row.Payload.ActivationId, StringComparer.Ordinal).ToArray();
+        InMemoryActivationRow[] blockers = ActiveOverlapRows(state, activation.OverlapKey).ToArray();
         if (activation.OverlapPolicy == BaseScheduleOverlapPolicy.SkipWhileActive && blockers.Length != 0)
         {
             BaseScheduleOccurrenceFact skipped = proposal.Fact with
@@ -642,21 +660,79 @@ internal sealed partial class InMemoryRecordStore
             skipped = skipped with { Checksum = OccurrenceChecksum(skipped).ToImmutableArray() };
             return new BaseScheduleOccurrenceProposal { Fact = skipped };
         }
-        if (activation.OverlapPolicy == BaseScheduleOverlapPolicy.CancelPrevious)
-        {
-            if (blockers.Length > 256) throw new InvalidOperationException("base.activation.budgetExceeded");
-            foreach (InMemoryActivationRow blocker in blockers)
-            {
-                long generation = checked(blocker.Generation + 1);
-                state.Activations[blocker.Payload.ActivationId] = blocker with
-                {
-                    State = BaseActivationState.Cancelled, Generation = generation, Claim = null, Lease = null,
-                    Eligible = false, ControlChecksum = ControlChecksum(blocker.Payload.ActivationId, generation, BaseActivationState.Cancelled),
-                };
-            }
-        }
         return proposal;
     }
+
+    private static IOrderedEnumerable<InMemoryActivationRow> ActiveOverlapRows(
+        InMemoryStoreState state, ImmutableArray<byte> overlapKey) => state.Activations.Values.Where(row =>
+            row.OverlapKey is not null && CryptographicOperations.FixedTimeEquals(row.OverlapKey, overlapKey.AsSpan()) &&
+            row.State is BaseActivationState.Pending or BaseActivationState.RetryPending or BaseActivationState.Claimed or BaseActivationState.EffectStarted)
+        .OrderBy(static row => row.EffectiveDueAt).ThenBy(static row => row.Payload.ActivationId, StringComparer.Ordinal);
+
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseScheduleCancellationMaintenancePage>> AdvanceScheduleCancellationAsync(
+        BaseScheduleCancellationMaintenanceRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!AcceptActivationTime(request.AcceptedTime) || request.OverlapKey.Length != 32 ||
+            request.HighWater.ActivationId.Length == 0 || request.Limits.MaximumCandidates is < 1 or > 256)
+            return ActivationFailure<BaseScheduleCancellationMaintenancePage>("base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            InMemoryStoreState current = Volatile.Read(ref _publishedState);
+            if (!current.ScheduleCancellations.TryGetValue(request.MaintenanceId, out InMemoryScheduleCancellationRow? stored) ||
+                stored.ReplacementActivationId != request.ReplacementActivationId || stored.Completed ||
+                !CryptographicOperations.FixedTimeEquals(stored.OverlapKey, request.OverlapKey.AsSpan()) ||
+                !BoundaryEquals(stored.HighWater, request.HighWater) || !BoundaryEquals(stored.After, request.After))
+                return ActivationFailure<BaseScheduleCancellationMaintenancePage>("base.activation.maintenanceConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+            var next = current.Clone();
+            InMemoryActivationRow[] page = ActiveOverlapRows(next, request.OverlapKey)
+                .Where(row => row.Payload.ActivationId != request.ReplacementActivationId &&
+                    BoundaryAfter(row, request.After) && BoundaryAtOrBefore(row, request.HighWater))
+                .Take(Math.Min(256, request.Limits.MaximumCandidates)).ToArray();
+            foreach (InMemoryActivationRow blocker in page)
+            {
+                long generation = checked(blocker.Generation + 1);
+                next.Activations[blocker.Payload.ActivationId] = blocker with
+                {
+                    State = BaseActivationState.Cancelled, Generation = generation, Claim = null, Lease = null, Eligible = false,
+                    ControlChecksum = ControlChecksum(blocker.Payload.ActivationId, generation, BaseActivationState.Cancelled),
+                };
+            }
+            BaseScheduleCancellationBoundary? boundary = page.Length == 0 ? request.After : new()
+            { EffectiveDueAt = page[^1].EffectiveDueAt, ActivationId = page[^1].Payload.ActivationId };
+            bool completed = !ActiveOverlapRows(next, request.OverlapKey).Any(row =>
+                row.Payload.ActivationId != request.ReplacementActivationId && BoundaryAfter(row, boundary) && BoundaryAtOrBefore(row, request.HighWater));
+            if (completed)
+            {
+                if (!next.Activations.TryGetValue(request.ReplacementActivationId, out InMemoryActivationRow? replacement) || replacement.State != BaseActivationState.Pending)
+                    return ActivationFailure<BaseScheduleCancellationMaintenancePage>("base.activation.maintenanceConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+                next.Activations[request.ReplacementActivationId] = replacement with { Eligible = true };
+                next.ScheduleCancellations[request.MaintenanceId] = stored with { After = boundary, Completed = true };
+            }
+            else next.ScheduleCancellations[request.MaintenanceId] = stored with { After = boundary };
+            next.ActivationIndexGeneration = checked(next.ActivationIndexGeneration + 1);
+            Volatile.Write(ref _publishedState, next);
+            return OperationResults.Ok(new BaseScheduleCancellationMaintenancePage
+            {
+                MaintenanceId = request.MaintenanceId, CancelledCount = page.Length, Next = completed ? null : boundary,
+                Completed = completed, Accounting = EmptyActivationAccounting with
+                { Candidates = page.Length, Comparisons = page.Length, IndexOperations = page.Length + 1 },
+                Disposition = BaseMutationRequestDisposition.Committed,
+            });
+        }
+        finally { _stateGate.Release(); }
+    }
+
+    private static bool BoundaryEquals(BaseScheduleCancellationBoundary? left, BaseScheduleCancellationBoundary? right) =>
+        left is null ? right is null : right is not null && left.EffectiveDueAt == right.EffectiveDueAt && left.ActivationId == right.ActivationId;
+    private static bool BoundaryAfter(InMemoryActivationRow row, BaseScheduleCancellationBoundary? boundary) => boundary is null ||
+        row.EffectiveDueAt > boundary.EffectiveDueAt || row.EffectiveDueAt == boundary.EffectiveDueAt &&
+        string.CompareOrdinal(row.Payload.ActivationId, boundary.ActivationId) > 0;
+    private static bool BoundaryAtOrBefore(InMemoryActivationRow row, BaseScheduleCancellationBoundary boundary) =>
+        row.EffectiveDueAt < boundary.EffectiveDueAt || row.EffectiveDueAt == boundary.EffectiveDueAt &&
+        string.CompareOrdinal(row.Payload.ActivationId, boundary.ActivationId) <= 0;
 
     private static string ScheduleKey(string id, int version) => $"{id}\n{version}";
 

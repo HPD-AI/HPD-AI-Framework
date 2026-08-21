@@ -732,4 +732,9 @@ public interface IBaseActivationProvider
     ValueTask<OperationResult<BaseScheduleMaintenancePage>> AdvanceSchedulesAsync(
         BaseScheduleMaintenanceRequest request,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Advances one crash-recoverable cancel-previous maintenance page.</summary>
+    ValueTask<OperationResult<BaseScheduleCancellationMaintenancePage>> AdvanceScheduleCancellationAsync(
+        BaseScheduleCancellationMaintenanceRequest request,
+        CancellationToken cancellationToken = default);
 }

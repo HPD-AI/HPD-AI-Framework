@@ -99,7 +99,7 @@ internal sealed class DefaultBaseScheduleRuntime(
             proposals.Add(Proposal(session, definition, target, current.Value.ScheduleEpoch, nominal[index], materialize));
         }
 
-        return await provider.Value.AdvanceSchedulesAsync(new BaseScheduleMaintenanceRequest
+        OperationResult<BaseScheduleMaintenancePage> advanced = await provider.Value.AdvanceSchedulesAsync(new BaseScheduleMaintenanceRequest
         {
             ScheduleId = definition.Id,
             ScheduleVersion = definition.Version,
@@ -111,6 +111,35 @@ internal sealed class DefaultBaseScheduleRuntime(
             Identity = identity,
             Limits = target.Limits.Provider,
         }, cancellationToken).ConfigureAwait(false);
+        if (!advanced.IsSuccess() || advanced.Value is null) return advanced;
+        foreach (BaseScheduleCancellationAuthority cancellation in advanced.Value.Cancellations)
+        {
+            BaseScheduleCancellationBoundary? after = null;
+            for (int page = 0; ; page++)
+            {
+                byte[] fingerprint = SHA256.HashData(Encoding.UTF8.GetBytes(
+                    $"base.activation.schedule.cancelPrevious.page.v2\0{cancellation.MaintenanceId}\n{page}\n{after?.EffectiveDueAt}\n{after?.ActivationId}"));
+                OperationResult<BaseScheduleCancellationMaintenancePage> result = await provider.Value.AdvanceScheduleCancellationAsync(
+                    new BaseScheduleCancellationMaintenanceRequest
+                    {
+                        MaintenanceId = cancellation.MaintenanceId,
+                        ReplacementActivationId = cancellation.ReplacementActivationId,
+                        OverlapKey = cancellation.OverlapKey.ToArray().ToImmutableArray(),
+                        HighWater = cancellation.HighWater,
+                        After = after,
+                        AcceptedTime = acceptedTime.Capture(session.ApplicationId),
+                        Identity = BaseMutationRequestIdentity.Create(
+                            $"schedule:{definition.Id}:{advanced.Value.Authority.ScheduleEpoch}", "cancel-previous", $"{cancellation.MaintenanceId}:{page}",
+                            BaseMutationRequestFingerprint.Create(fingerprint)),
+                        Limits = target.Limits.Provider,
+                    }, cancellationToken).ConfigureAwait(false);
+                if (!result.IsSuccess() || result.Value is null)
+                    return CopyFailure<BaseScheduleMaintenancePage, BaseScheduleCancellationMaintenancePage>(result);
+                if (result.Value.Completed) break;
+                after = result.Value.Next ?? throw new InvalidOperationException("base.activation.providerContractInvalid");
+            }
+        }
+        return advanced;
     }
 
     private BaseActivationDefinition Target(BaseScheduleDefinition definition) =>
