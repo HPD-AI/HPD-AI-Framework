@@ -794,6 +794,7 @@ public sealed partial class SqliteRecordStore
         private Dictionary<int, SqliteModuleGenerationKey>? _capturedModuleGenerationKeys;
         private BaseModuleMutationCaptureExtension? _capturedModuleExtension;
         private BaseActivationCreationExtension? _capturedActivationExtension;
+        private BaseCapturedActivationGuardEvidence? _capturedActivationGuard;
         private sealed record SqliteModuleGenerationKey(
             string CellId,
             int CellVersion,
@@ -874,6 +875,13 @@ public sealed partial class SqliteRecordStore
             BaseAtomicMutationExecutionLimits limits = request.Limits;
             if (request.Kind == BaseAtomicMutationExecutionKind.ActivationCreation)
                 return await CaptureActivationAuthorityAsync(request, token).ConfigureAwait(false);
+            if (request.ActivationGuard is not null)
+            {
+                OperationResult<BaseCapturedActivationGuardEvidence> guarded = await CaptureActivationGuardAsync(request.ActivationGuard, token).ConfigureAwait(false);
+                if (!guarded.IsSuccess() || guarded.Value is null)
+                    return new OperationResult<BaseCapturedAtomicExecution> { Status = guarded.Status, Error = guarded.Error };
+                _capturedActivationGuard = guarded.Value;
+            }
             if (request.Kind == BaseAtomicMutationExecutionKind.SelectionMutation)
             {
                 if (request.Selection is null || request.Module is not null || !intent.Items.IsDefaultOrEmpty)
@@ -995,7 +1003,8 @@ public sealed partial class SqliteRecordStore
                     Isolation = BaseAtomicSelectionIsolationClass.WriteOwningSerializable,
                     TransactionEvidenceToken = BitConverter.GetBytes(_transactionStarted).ToImmutableArray(),
                 },
-                Items = ownedItems, ModuleRecords = [], ModuleRelationTargets = [], Generations = [], ReadIntervals = ownedIntervals,
+                Items = ownedItems, ModuleRecords = [], ModuleRelationTargets = [], Generations = [],
+                ActivationGuard = _capturedActivationGuard, ReadIntervals = ownedIntervals,
                 Accounting = new BaseAtomicCaptureAccounting
                 {
                     Records = checked(intent.Items.Length + intent.Items.Sum(static item => item.RelationTargets.Length)),
@@ -1007,6 +1016,43 @@ public sealed partial class SqliteRecordStore
             };
             return OperationResults.Ok(_capturedMutation);
         });
+
+        private async ValueTask<OperationResult<BaseCapturedActivationGuardEvidence>> CaptureActivationGuardAsync(
+            BaseActivationGuard guard,
+            CancellationToken cancellationToken)
+        {
+            BaseActivationClaimAuthority claim = guard.Claim;
+            (string storeId, long restoreEpoch, _) = await ReadAuthorityAsync(cancellationToken).ConfigureAwait(false);
+            if (guard.ChildOrdinal <= 0 || guard.ChildRequestFingerprint.Length != 32 ||
+                !string.Equals(storeId, claim.StoreInstanceId, StringComparison.Ordinal) || restoreEpoch != claim.RestoreEpoch)
+                return SubjectFailure<BaseCapturedActivationGuardEvidence>("base.activation.claimLost", OperationStatus.Conflict, ErrorCategory.Conflict);
+            await using SqliteCommand command = _connection.CreateCommand();
+            command.Transaction = _transaction;
+            command.CommandText = $"SELECT generation,definition_checksum,attempt_number,claim_epoch,claim_fence,claim_worker,lease_revision,lease_expires_at FROM {_owner._names.Activations} WHERE activation_id=$id AND state=$state;";
+            command.Parameters.AddWithValue("$id", claim.ActivationId);
+            command.Parameters.AddWithValue("$state", (int)BaseActivationState.Claimed);
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false) || reader.IsDBNull(4) || reader.IsDBNull(5) || reader.IsDBNull(6) || reader.IsDBNull(7) ||
+                reader.GetInt32(2) != claim.AttemptNumber || reader.GetInt64(3) != claim.ClaimEpoch ||
+                !string.Equals(reader.GetString(5), claim.WorkerIdentity, StringComparison.Ordinal) ||
+                reader.GetInt64(7) <= DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() ||
+                !CryptographicOperations.FixedTimeEquals((byte[])reader[4], claim.FencingToken.AsSpan()) ||
+                !CryptographicOperations.FixedTimeEquals((byte[])reader[1], claim.DefinitionChecksum.AsSpan()))
+                return SubjectFailure<BaseCapturedActivationGuardEvidence>("base.activation.claimLost", OperationStatus.Conflict, ErrorCategory.Conflict);
+            long generation = reader.GetInt64(0), leaseRevision = reader.GetInt64(6), leaseExpiresAt = reader.GetInt64(7);
+            byte[] checksum = SHA256.HashData(Encoding.UTF8.GetBytes(
+                $"base.activation.guard.v2\0{claim.ActivationId}\n{generation}\n{leaseRevision}\n{guard.StepId}\n{guard.ChildOrdinal}\n{Convert.ToHexString(guard.ChildRequestFingerprint.AsSpan())}"));
+            return OperationResults.Ok(new BaseCapturedActivationGuardEvidence
+            {
+                ActivationId = new string(claim.ActivationId.AsSpan()), Generation = generation,
+                LeaseRevision = leaseRevision, LeaseExpiresAt = leaseExpiresAt, Checksum = checksum.ToImmutableArray(),
+            });
+        }
+
+        private static bool ActivationGuardMatches(BaseActivationGuard? guard, BaseCapturedActivationGuardEvidence? evidence) =>
+            guard is null ? evidence is null : evidence is not null &&
+            string.Equals(guard.Claim.ActivationId, evidence.ActivationId, StringComparison.Ordinal) &&
+            guard.Claim.FencingToken.Length == 32 && guard.ChildRequestFingerprint.Length == 32;
 
         private async ValueTask<OperationResult<BaseCapturedAtomicExecution>> CaptureActivationAuthorityAsync(
             BaseAtomicExecutionRequest request,
@@ -1088,7 +1134,7 @@ public sealed partial class SqliteRecordStore
                     TransactionEvidenceToken = BitConverter.GetBytes(_transactionStarted).ToImmutableArray(),
                 },
                 Items = [], ModuleRecords = [], ModuleRelationTargets = [], Generations = [],
-                Activations = capturedActivations, ReadIntervals = ownedIntervals,
+                Activations = capturedActivations, ActivationGuard = null, ReadIntervals = ownedIntervals,
                 Accounting = new BaseAtomicCaptureAccounting
                 {
                     Records = 0, RelationTargetReads = 0, GenerationReads = 0,
@@ -1231,7 +1277,8 @@ public sealed partial class SqliteRecordStore
                     TransactionEvidenceToken = BitConverter.GetBytes(_transactionStarted).ToImmutableArray(),
                 },
                 Items = [], ModuleRecords = records.MoveToImmutable(), ModuleRelationTargets = relations.MoveToImmutable(),
-                Generations = generations.MoveToImmutable(), ReadIntervals = intervals.MoveToImmutable(),
+                Generations = generations.MoveToImmutable(), ActivationGuard = _capturedActivationGuard,
+                ReadIntervals = intervals.MoveToImmutable(),
                 Accounting = new BaseAtomicCaptureAccounting
                 {
                     Records = module.Records.Length, RelationTargetReads = module.RelationTargets.Length,
@@ -1353,6 +1400,8 @@ public sealed partial class SqliteRecordStore
                     && (plan.Activations is null || captured.Activations is null
                         || _capturedActivationExtension is null || !plan.Items.IsDefaultOrEmpty)))
                 return SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
+            if (!ActivationGuardMatches(plan.ActivationGuard, captured.ActivationGuard))
+                return SubjectFailure<BasePreparedAtomicExecution>("base.activation.claimLost", OperationStatus.Conflict, ErrorCategory.Conflict);
             var preparedGenerations = ImmutableArray.CreateBuilder<BasePreparedModuleGenerationEvidence>(captured.Generations.Length);
             BasePreparedActivationExtension? preparedActivations = null;
             if (plan.Kind == BaseAtomicMutationExecutionKind.ActivationCreation)
@@ -1595,6 +1644,7 @@ public sealed partial class SqliteRecordStore
                     : captured.Items.Select(static item => item.Disposition).ToImmutableArray(),
                 Generations = preparedGenerations.MoveToImmutable(),
                 Activations = preparedActivations,
+                ActivationGuard = captured.ActivationGuard,
                 SubjectOverlay = overlays.Values.OrderBy(static value => value.ContractId, StringComparer.Ordinal).ThenBy(static value => value.ContractVersion).ThenBy(static value => value.SubjectId.Value, StringComparer.Ordinal).ToImmutableArray(),
                 SubjectValidations = validationEvidence.MoveToImmutable(),
                 ReadIntervals = intervals.MoveToImmutable(),
@@ -1857,6 +1907,7 @@ public sealed partial class SqliteRecordStore
                 Facts = facts.MoveToImmutable(),
                 Generations = generations,
                 Activations = provisionalActivations,
+                ActivationGuard = prepared.ActivationGuard,
                 Accounting = new BaseProvisionalAtomicMutationAccounting
                 {
                     WrittenBytes = writtenBytes,
@@ -2402,6 +2453,7 @@ public sealed partial class SqliteRecordStore
                     RelationTargets = [],
                 }).ToImmutableArray(),
                 ModuleRecords = [], ModuleRelationTargets = [], Generations = [],
+                ActivationGuard = _capturedActivationGuard,
                 ReadIntervals = [interval],
                 Accounting = new BaseAtomicCaptureAccounting
                 {
