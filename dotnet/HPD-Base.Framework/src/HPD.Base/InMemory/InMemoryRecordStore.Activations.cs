@@ -388,6 +388,25 @@ internal sealed partial class InMemoryRecordStore
                     EffectMatches(row.Effect, recover.Effect) && row.Effect.HeartbeatExpiresAt <= request.AcceptedTime.CapturedUtc &&
                     !CurrentExecutorAllows(current, row.Effect.Executor, request.AcceptedTime.CapturedUtc):
                     resultingState = BaseActivationState.OutcomeUnknown;
+                    resultingEffect = row.Effect;
+                    break;
+                case BaseActivationReconcileEffectRequest reconcile when row.State == BaseActivationState.OutcomeUnknown && row.Effect is not null &&
+                    row.Generation == reconcile.ExpectedGeneration && EffectMatches(row.Effect, reconcile.Effect):
+                    if (reconcile.VerificationEvidence.IsDefaultOrEmpty || reconcile.VerificationChecksum.Length != 32 ||
+                        !Enum.IsDefined(reconcile.Disposition) ||
+                        !CryptographicOperations.FixedTimeEquals(
+                            SHA256.HashData(reconcile.VerificationEvidence.AsSpan()), reconcile.VerificationChecksum.AsSpan()))
+                        return ActivationFailure<BaseActivationTransitionResult>("base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+                    resultingState = reconcile.Disposition switch
+                    {
+                        BaseEffectReconciliationDisposition.Succeeded => BaseActivationState.Succeeded,
+                        BaseEffectReconciliationDisposition.Exhausted => BaseActivationState.Exhausted,
+                        BaseEffectReconciliationDisposition.Disposed => BaseActivationState.Disposed,
+                        _ => BaseActivationState.OutcomeUnknown,
+                    };
+                    result = reconcile.Disposition == BaseEffectReconciliationDisposition.Succeeded
+                        ? reconcile.VerificationEvidence.ToArray()
+                        : null;
                     break;
                 default:
                     return ActivationFailure<BaseActivationTransitionResult>("base.activation.claimLost", OperationStatus.Conflict, ErrorCategory.Conflict);
@@ -403,7 +422,9 @@ internal sealed partial class InMemoryRecordStore
                 Claim = null,
                 Lease = null,
                 CanonicalResult = result,
-                Effect = resultingState == BaseActivationState.EffectStarted ? resultingEffect : null,
+                Effect = resultingState is BaseActivationState.EffectStarted or BaseActivationState.OutcomeUnknown
+                    ? resultingEffect
+                    : null,
                 EffectiveDueAt = resultingState == BaseActivationState.RetryPending
                     ? ((BaseActivationFailRequest)request).RetryDueAt!.Value
                     : row.EffectiveDueAt,
@@ -854,6 +875,7 @@ internal sealed partial class InMemoryRecordStore
         BaseActivationEffectHeartbeatRequest => "effect-heartbeat",
         BaseActivationCompleteEffectRequest => "effect-completed",
         BaseActivationRecoverEffectRequest => "effect-outcome-unknown",
+        BaseActivationReconcileEffectRequest => "effect-reconciled",
         _ => throw new InvalidOperationException("base.activation.invalid"),
     };
 

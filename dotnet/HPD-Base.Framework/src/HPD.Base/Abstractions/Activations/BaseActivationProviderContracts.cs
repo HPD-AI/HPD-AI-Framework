@@ -417,6 +417,32 @@ public sealed record BaseActivationRecoverEffectRequest : BaseActivationTransiti
     public required BaseEffectExecutionAuthority Effect { get; init; }
 }
 
+/// <summary>Classifies an operator-verified resolution of an ambiguous external effect.</summary>
+public enum BaseEffectReconciliationDisposition
+{
+    /// <summary>The external effect is verified successful.</summary>
+    Succeeded = 0,
+    /// <summary>The external effect is verified failed and terminal.</summary>
+    Exhausted = 1,
+    /// <summary>The ambiguous activation is administratively disposed.</summary>
+    Disposed = 2,
+}
+
+/// <summary>Requests identified operator reconciliation of one outcome-unknown effect.</summary>
+public sealed record BaseActivationReconcileEffectRequest : BaseActivationTransitionRequest
+{
+    /// <summary>Gets the complete effect authority retained when ambiguity was published.</summary>
+    public required BaseEffectExecutionAuthority Effect { get; init; }
+    /// <summary>Gets the expected activation generation in the outcome-unknown state.</summary>
+    public required long ExpectedGeneration { get; init; }
+    /// <summary>Gets the selected terminal disposition.</summary>
+    public required BaseEffectReconciliationDisposition Disposition { get; init; }
+    /// <summary>Gets bounded canonical external verification evidence.</summary>
+    public required ImmutableArray<byte> VerificationEvidence { get; init; }
+    /// <summary>Gets the SHA-256 checksum of the verification evidence.</summary>
+    public required ImmutableArray<byte> VerificationChecksum { get; init; }
+}
+
 /// <summary>Contains one committed activation transition.</summary>
 public sealed record BaseActivationTransitionResult
 {

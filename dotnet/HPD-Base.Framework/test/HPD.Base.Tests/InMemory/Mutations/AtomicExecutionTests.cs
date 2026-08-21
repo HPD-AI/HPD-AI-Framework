@@ -60,7 +60,7 @@ public sealed class AtomicExecutionTests
         {
             Id = "test.activation", Version = 1, Checksum = new byte[32].ToImmutableArray(),
         };
-        BaseActivationDueObservation observed = (await store.ObserveDueAsync(new BaseActivationDueObservationRequest
+        OperationResult<BaseActivationDueObservation> observationResult = await store.ObserveDueAsync(new BaseActivationDueObservationRequest
         {
             ApplicationId = "activation-test",
             WorkerModuleId = "test",
@@ -69,7 +69,9 @@ public sealed class AtomicExecutionTests
             AcceptedTime = now,
             MaximumCandidates = 8,
             Limits = limits,
-        })).Value!;
+        });
+        observationResult.IsSuccess().Should().BeTrue(observationResult.Error?.Code);
+        BaseActivationDueObservation observed = observationResult.Value!;
         observed.Earliest!.ActivationId.Should().NotBeNullOrWhiteSpace();
 
         var worker = new BaseActivationWorkerAuthority
@@ -150,21 +152,25 @@ public sealed class AtomicExecutionTests
                 System.Text.Encoding.UTF8.GetBytes($"base.activation.scope.v2\0{(int)BaseSubjectScopeKind.Global}\n")).ToImmutableArray(),
         };
         BaseActivationDefinitionKey definition = new() { Id = "test.activation", Version = 1, Checksum = new byte[32].ToImmutableArray() };
-        BaseActivationDueObservation observed = (await store.ObserveDueAsync(new BaseActivationDueObservationRequest
+        OperationResult<BaseActivationDueObservation> effectObservationResult = await store.ObserveDueAsync(new BaseActivationDueObservationRequest
         {
             ApplicationId = "activation-test", WorkerModuleId = "test", Definitions = [definition], Scope = scope,
             AcceptedTime = AcceptedTime(10), MaximumCandidates = 8, Limits = limits,
-        })).Value!;
+        });
+        effectObservationResult.IsSuccess().Should().BeTrue(effectObservationResult.Error?.Code);
+        BaseActivationDueObservation observed = effectObservationResult.Value!;
         var worker = new BaseActivationWorkerAuthority
         {
             ApplicationId = "activation-test", ModuleId = "test", WorkerIdentity = "worker-1",
             Definitions = [definition], Scope = scope, Checksum = new byte[32].ToImmutableArray(),
         };
-        var claimed = (BaseActivationClaimedResult)(await store.TryClaimNextAsync(new BaseActivationClaimRequest
+        OperationResult<BaseActivationClaimResult> claimResult = await store.TryClaimNextAsync(new BaseActivationClaimRequest
         {
             Observation = observed.Token, Worker = worker, AcceptedTime = AcceptedTime(10), LeaseMilliseconds = 1_000,
             Identity = RequestIdentity("effect-claim"), Limits = limits,
-        })).Value!;
+        });
+        claimResult.IsSuccess().Should().BeTrue(claimResult.Error?.Code);
+        var claimed = claimResult.Value.Should().BeOfType<BaseActivationClaimedResult>().Subject;
         BaseExecutorRegistrationResult executor = (await store.RegisterExecutorAsync(new BaseExecutorRegistrationRequest
         {
             ApplicationId = "activation-test", HostId = "host", ProcessIncarnationId = "process",
@@ -193,6 +199,33 @@ public sealed class AtomicExecutionTests
             Identity = RequestIdentity("recover"), Limits = limits,
         })).Value!;
         unknown.State.Should().Be(BaseActivationState.OutcomeUnknown);
+
+        byte[] verification = "verified-complete"u8.ToArray();
+        var reconciliation = new BaseActivationReconcileEffectRequest
+        {
+            ActivationId = claimed.Claim.ActivationId,
+            Effect = started.Effect!,
+            ExpectedGeneration = unknown.Generation,
+            Disposition = BaseEffectReconciliationDisposition.Succeeded,
+            VerificationEvidence = verification.ToImmutableArray(),
+            VerificationChecksum = System.Security.Cryptography.SHA256.HashData(verification).ToImmutableArray(),
+            AcceptedTime = AcceptedTime(210),
+            Identity = RequestIdentity("reconcile"),
+            Limits = limits,
+        };
+        OperationResult<BaseActivationTransitionResult> reconciliationResult = await store.TransitionAsync(reconciliation);
+        reconciliationResult.IsSuccess().Should().BeTrue(reconciliationResult.Error?.Code);
+        BaseActivationTransitionResult reconciled = reconciliationResult.Value!;
+        OperationResult<BaseActivationTransitionResult> replayResult = await store.TransitionAsync(reconciliation with
+        {
+            AcceptedTime = AcceptedTime(220),
+        });
+        replayResult.IsSuccess().Should().BeTrue(replayResult.Error?.Code);
+        BaseActivationTransitionResult replayed = replayResult.Value!;
+        reconciled.State.Should().Be(BaseActivationState.Succeeded);
+        replayed.State.Should().Be(BaseActivationState.Succeeded);
+        replayed.Generation.Should().Be(reconciled.Generation);
+        replayed.Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
     }
 
     [Theory]
@@ -546,8 +579,41 @@ public sealed class AtomicExecutionTests
         ReceiptResolutionTimeout = TimeSpan.FromSeconds(5),
     };
 
-    private static BaseAcceptedTimeReceipt AcceptedTime(long milliseconds) => new(
-        "activation-test", 1, milliseconds, milliseconds, milliseconds + 1, 1_000, new byte[32]);
+    private static BaseAcceptedTimeReceipt AcceptedTime(long milliseconds)
+    {
+        const string applicationId = "activation-test";
+        const long generation = 1;
+        long monotonic = milliseconds;
+        long sequence = checked(milliseconds + 1);
+        const long maximumForwardSkew = 30_000;
+        using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(
+            System.Security.Cryptography.HashAlgorithmName.SHA256);
+        Append(hash, "base.activation.acceptedTime.v2\0");
+        Append(hash, applicationId);
+        Append(hash, generation);
+        Append(hash, milliseconds);
+        Append(hash, monotonic);
+        Append(hash, sequence);
+        Append(hash, maximumForwardSkew);
+        return new BaseAcceptedTimeReceipt(
+            applicationId, generation, milliseconds, monotonic, sequence, maximumForwardSkew, hash.GetHashAndReset());
+    }
+
+    private static void Append(System.Security.Cryptography.IncrementalHash hash, string value)
+    {
+        byte[] bytes = System.Text.Encoding.UTF8.GetBytes(value);
+        Span<byte> length = stackalloc byte[4];
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(length, checked((uint)bytes.Length));
+        hash.AppendData(length);
+        hash.AppendData(bytes);
+    }
+
+    private static void Append(System.Security.Cryptography.IncrementalHash hash, long value)
+    {
+        Span<byte> bytes = stackalloc byte[8];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt64BigEndian(bytes, value);
+        hash.AppendData(bytes);
+    }
 
     private static BaseMutationRequestIdentity RequestIdentity(string id) =>
         BaseMutationRequestIdentity.Create(

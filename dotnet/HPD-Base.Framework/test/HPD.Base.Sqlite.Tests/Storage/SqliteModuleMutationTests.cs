@@ -194,6 +194,80 @@ public sealed partial class SqliteModuleMutationTests
     }
 
     [Fact]
+    public async Task Outcome_unknown_effect_reconciliation_is_authority_bound_and_receipted()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-effect-reconcile-{Guid.NewGuid():N}.db");
+        try
+        {
+            BaseAtomicMutationExecutionLimits mutationLimits = ExecutionLimits();
+            BaseActivationExecutionLimits limits = ActivationLimits();
+            BaseOwnedScopeSeekAuthority scope = ActivationScope();
+            BaseActivationDefinitionKey definition = ActivationDefinition();
+            await using SqliteRecordStore store = Store(path);
+            BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync(
+                "activation.application", [], mutationLimits, default)).Value!;
+            (await store.ExecuteAtomicAsync(new ActivationCreationProbe(authority, mutationLimits), ExecutionRequest()))
+                .Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+            BaseActivationDueObservation observed = (await store.ObserveDueAsync(new BaseActivationDueObservationRequest
+            {
+                ApplicationId = "activation-test", WorkerModuleId = "test", Definitions = [definition], Scope = scope,
+                AcceptedTime = AcceptedTime(10), MaximumCandidates = 8, Limits = limits,
+            })).Value!;
+            var worker = new BaseActivationWorkerAuthority
+            {
+                ApplicationId = "activation-test", ModuleId = "test", WorkerIdentity = "worker-1",
+                Definitions = [definition], Scope = scope, Checksum = new byte[32].ToImmutableArray(),
+            };
+            var claimed = (BaseActivationClaimedResult)(await store.TryClaimNextAsync(new BaseActivationClaimRequest
+            {
+                Observation = observed.Token, Worker = worker, AcceptedTime = AcceptedTime(10), LeaseMilliseconds = 1_000,
+                Identity = ActivationIdentity("effect-claim"), Limits = limits,
+            })).Value!;
+            BaseExecutorRegistrationResult executor = (await store.RegisterExecutorAsync(new BaseExecutorRegistrationRequest
+            {
+                ApplicationId = "activation-test", HostId = "host", ProcessIncarnationId = "process",
+                WorkerDefinitionSetChecksum = new byte[32].ToImmutableArray(), RequestedHeartbeatMilliseconds = 100,
+                AcceptedTime = AcceptedTime(20), Identity = ActivationIdentity("effect-executor"), Limits = limits,
+            })).Value!;
+            BaseActivationTransitionResult started = (await store.TransitionAsync(new BaseActivationBeginEffectRequest
+            {
+                ActivationId = claimed.Claim.ActivationId, Claim = claimed.Claim, Executor = executor.Executor,
+                ExecutorHeartbeat = executor.Heartbeat, HeartbeatMilliseconds = 100, AcceptedTime = AcceptedTime(20),
+                Identity = ActivationIdentity("effect-start"), Limits = limits,
+            })).Value!;
+            BaseActivationTransitionResult unknown = (await store.TransitionAsync(new BaseActivationRecoverEffectRequest
+            {
+                ActivationId = claimed.Claim.ActivationId, Effect = started.Effect!, AcceptedTime = AcceptedTime(200),
+                Identity = ActivationIdentity("effect-recover"), Limits = limits,
+            })).Value!;
+            byte[] evidence = "externally-verified"u8.ToArray();
+            var request = new BaseActivationReconcileEffectRequest
+            {
+                ActivationId = claimed.Claim.ActivationId, Effect = started.Effect!, ExpectedGeneration = unknown.Generation,
+                Disposition = BaseEffectReconciliationDisposition.Exhausted,
+                VerificationEvidence = evidence.ToImmutableArray(),
+                VerificationChecksum = System.Security.Cryptography.SHA256.HashData(evidence).ToImmutableArray(),
+                AcceptedTime = AcceptedTime(210), Identity = ActivationIdentity("effect-reconcile"), Limits = limits,
+            };
+            BaseActivationTransitionResult reconciled = (await store.TransitionAsync(request)).Value!;
+            BaseActivationTransitionResult replayed = (await store.TransitionAsync(request with
+            {
+                AcceptedTime = AcceptedTime(220),
+            })).Value!;
+
+            reconciled.State.Should().Be(BaseActivationState.Exhausted);
+            replayed.State.Should().Be(BaseActivationState.Exhausted);
+            replayed.Generation.Should().Be(reconciled.Generation);
+            replayed.Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
+        }
+        finally
+        {
+            foreach (string suffix in new[] { "", "-wal", "-shm" })
+                if (File.Exists(path + suffix)) File.Delete(path + suffix);
+        }
+    }
+
+    [Fact]
     public async Task Activation_accepted_time_cannot_regress_after_restart()
     {
         string path = Path.Combine(Path.GetTempPath(), $"hpd-base-activation-time-{Guid.NewGuid():N}.db");

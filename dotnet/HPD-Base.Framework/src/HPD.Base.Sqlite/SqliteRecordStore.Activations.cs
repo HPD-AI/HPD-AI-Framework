@@ -404,6 +404,25 @@ public sealed partial class SqliteRecordStore
                 return ActivationFailure<BaseActivationTransitionResult>("base.activation.effectOwned", OperationStatus.Conflict, ErrorCategory.Conflict);
             state = BaseActivationState.OutcomeUnknown;
         }
+        else if (request is BaseActivationReconcileEffectRequest reconcile && row.State == BaseActivationState.OutcomeUnknown &&
+            storedEffect is not null && SqliteEffectMatches(storedEffect, reconcile.Effect) && row.Generation == reconcile.ExpectedGeneration)
+        {
+            if (reconcile.VerificationEvidence.IsDefaultOrEmpty || reconcile.VerificationChecksum.Length != 32 ||
+                !Enum.IsDefined(reconcile.Disposition) ||
+                !CryptographicOperations.FixedTimeEquals(
+                    SHA256.HashData(reconcile.VerificationEvidence.AsSpan()), reconcile.VerificationChecksum.AsSpan()))
+                return ActivationFailure<BaseActivationTransitionResult>("base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+            state = reconcile.Disposition switch
+            {
+                BaseEffectReconciliationDisposition.Succeeded => BaseActivationState.Succeeded,
+                BaseEffectReconciliationDisposition.Exhausted => BaseActivationState.Exhausted,
+                BaseEffectReconciliationDisposition.Disposed => BaseActivationState.Disposed,
+                _ => BaseActivationState.OutcomeUnknown,
+            };
+            result = reconcile.Disposition == BaseEffectReconciliationDisposition.Succeeded
+                ? reconcile.VerificationEvidence.ToArray()
+                : null;
+        }
         else
             return ActivationFailure<BaseActivationTransitionResult>("base.activation.claimLost", OperationStatus.Conflict, ErrorCategory.Conflict);
         if (claim is not null && !SqliteClaimMatches(row, claim))
@@ -1216,6 +1235,7 @@ public sealed partial class SqliteRecordStore
         BaseActivationEffectHeartbeatRequest => "effect-heartbeat",
         BaseActivationCompleteEffectRequest => "effect-completed",
         BaseActivationRecoverEffectRequest => "effect-outcome-unknown",
+        BaseActivationReconcileEffectRequest => "effect-reconciled",
         _ => throw new InvalidOperationException("base.activation.invalid"),
     };
     private static byte[] ActivationHash(string value) => SHA256.HashData(Encoding.UTF8.GetBytes(value));
