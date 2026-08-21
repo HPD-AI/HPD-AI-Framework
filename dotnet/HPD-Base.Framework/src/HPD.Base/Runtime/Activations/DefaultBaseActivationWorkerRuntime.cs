@@ -30,7 +30,7 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
         CancellationToken cancellationToken)
     {
         if (definition.ExecutionClass != BaseActivationExecutionClass.TransactionalOperation
-            || definition.TransactionalTarget is not BaseModuleMutationActivationTarget target)
+            || definition.TransactionalTarget is null)
             return Failure<BaseActivationDispatchResult>(OperationStatus.Unsupported, "base.activation.capabilityUnavailable", ErrorCategory.Unsupported);
         OperationResult<BaseActivationWorkerAuthority> authority = await AuthorizeAsync(
             session, definition, definition.Grants.Execute, BaseOperationKind.ActivationTransition, cancellationToken).ConfigureAwait(false);
@@ -60,23 +60,73 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
         BaseTransactionalActivationCandidate candidate = read.Value;
         if (!CandidateMatches(candidate, definition, now.CapturedUtc))
             return Failure<BaseActivationDispatchResult>(OperationStatus.StoreError, "base.activation.providerContractInvalid", ErrorCategory.Store);
-        IBaseModuleMutationRegistration? registration = moduleMutations.FindRegistration(target.OperationId, target.OperationVersion);
-        if (registration is null || !string.Equals(
-                Convert.ToHexStringLower(moduleMutations.Find(target.OperationId, target.OperationVersion)?.Checksum.ToArray() ?? []),
-                target.OperationChecksum, StringComparison.Ordinal))
-            return Failure<BaseActivationDispatchResult>(OperationStatus.Unsupported, "base.activation.handlerVersionUnavailable", ErrorCategory.Capability);
+        string targetKind;
+        string targetId;
+        int targetVersion;
+        string targetChecksum;
+        switch (definition.TransactionalTarget)
+        {
+            case BaseModuleMutationActivationTarget module:
+                targetKind = "moduleMutation";
+                targetId = module.OperationId;
+                targetVersion = module.OperationVersion;
+                targetChecksum = module.OperationChecksum;
+                break;
+            case BaseSelectionMutationActivationTarget selection:
+                targetKind = "selectionMutation";
+                targetId = selection.ProfileId;
+                targetVersion = selection.ProfileVersion;
+                targetChecksum = selection.ProfileChecksum;
+                break;
+            default:
+                return Failure<BaseActivationDispatchResult>(OperationStatus.Unsupported, "base.activation.handlerVersionUnavailable", ErrorCategory.Capability);
+        }
         byte[] fingerprint = SHA256.HashData(Encoding.UTF8.GetBytes(
-            $"base.activation.transactional.v1\0{candidate.Payload.ActivationId}\0{target.OperationId}\0{target.OperationVersion}\0{target.OperationChecksum}\0{Convert.ToHexString(candidate.Payload.InputChecksum.AsSpan())}"));
+            $"base.activation.transactional.v1\0{candidate.Payload.ActivationId}\0{targetKind}\0{targetId}\0{targetVersion}\0{targetChecksum}\0{Convert.ToHexString(candidate.Payload.InputChecksum.AsSpan())}"));
         BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create(
             $"activation:{definition.Id}:{definition.Version}",
             "transactional-target",
             candidate.Payload.ActivationId,
             BaseMutationRequestFingerprint.Create(fingerprint));
-        BaseResult<BaseUntypedModuleMutationExecutionResult> executed = await registration.ExecuteTransactionalAsync(
-            session, candidate.Payload.CanonicalInput.AsMemory(), identity, candidate, cancellationToken).ConfigureAwait(false);
-        if (executed is BaseFailure<BaseUntypedModuleMutationExecutionResult> failed)
-            return new OperationResult<BaseActivationDispatchResult>
-            { Status = failed.Status, Error = failed.Error, Warnings = failed.Warnings, Diagnostics = failed.Diagnostics };
+        if (definition.TransactionalTarget is BaseModuleMutationActivationTarget moduleTarget)
+        {
+            IBaseModuleMutationRegistration? registration = moduleMutations.FindRegistration(moduleTarget.OperationId, moduleTarget.OperationVersion);
+            if (registration is null || !string.Equals(
+                    Convert.ToHexStringLower(moduleMutations.Find(moduleTarget.OperationId, moduleTarget.OperationVersion)?.Checksum.ToArray() ?? []),
+                    moduleTarget.OperationChecksum, StringComparison.Ordinal))
+                return Failure<BaseActivationDispatchResult>(OperationStatus.Unsupported, "base.activation.handlerVersionUnavailable", ErrorCategory.Capability);
+            BaseResult<BaseUntypedModuleMutationExecutionResult> executed = await registration.ExecuteTransactionalAsync(
+                session, candidate.Payload.CanonicalInput.AsMemory(), identity, candidate, cancellationToken).ConfigureAwait(false);
+            if (executed is BaseFailure<BaseUntypedModuleMutationExecutionResult> failed)
+                return new OperationResult<BaseActivationDispatchResult>
+                { Status = failed.Status, Error = failed.Error, Warnings = failed.Warnings, Diagnostics = failed.Diagnostics };
+        }
+        else if (definition.TransactionalTarget is BaseSelectionMutationActivationTarget selectionTarget)
+        {
+            if (session.Services.GetService(typeof(BaseSelectionProfileRegistry)) is not BaseSelectionProfileRegistry profiles
+                || session.Services.GetService(typeof(BaseCollectionRegistry)) is not BaseCollectionRegistry collections
+                || session.Services.GetService(typeof(IBaseSelectionMutationRuntime)) is not DefaultBaseSelectionMutationRuntime selectionRuntime)
+                return Failure<BaseActivationDispatchResult>(OperationStatus.Unsupported, "base.activation.handlerVersionUnavailable", ErrorCategory.Capability);
+            BaseSelectionOperationProfile[] matches = profiles.All.Where(value => value.Id == selectionTarget.ProfileId
+                && value.Version == selectionTarget.ProfileVersion
+                && string.Equals(BaseSelectionProfileChecksum.Compute(value), selectionTarget.ProfileChecksum, StringComparison.Ordinal)).ToArray();
+            if (matches.Length != 1 || !collections.Collections.TryGetValue(matches[0].CollectionId, out CollectionDefinition? collection))
+                return Failure<BaseActivationDispatchResult>(OperationStatus.Unsupported, "base.activation.handlerVersionUnavailable", ErrorCategory.Capability);
+            BaseSelectionActivationRequest? request;
+            try
+            {
+                request = System.Text.Json.JsonSerializer.Deserialize(
+                    candidate.Payload.CanonicalInput.AsSpan(), HPDBaseJsonSerializerContext.Default.BaseSelectionActivationRequest);
+            }
+            catch { request = null; }
+            if (request is null)
+                return Failure<BaseActivationDispatchResult>(OperationStatus.ValidationFailed, "base.activation.invalid", ErrorCategory.Validation);
+            BaseResult<BaseSelectionMutationResult> executed = await selectionRuntime.ExecuteTransactionalAsync(
+                session, collection, matches[0], request, identity, candidate, cancellationToken).ConfigureAwait(false);
+            if (executed is BaseFailure<BaseSelectionMutationResult> failed)
+                return new OperationResult<BaseActivationDispatchResult>
+                { Status = failed.Status, Error = failed.Error, Warnings = failed.Warnings, Diagnostics = failed.Diagnostics };
+        }
         return OperationResults.Ok(new BaseActivationDispatchResult
         {
             Empty = false,

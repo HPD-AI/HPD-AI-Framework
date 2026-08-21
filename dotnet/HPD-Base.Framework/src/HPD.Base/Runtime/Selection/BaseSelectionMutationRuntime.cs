@@ -25,7 +25,7 @@ internal sealed class DefaultBaseSelectionMutationRuntime(
     BaseSubjectContractRegistry subjects,
     BaseSubjectLifecycleRegistry lifecycleConsumers) : IBaseSelectionMutationRuntime
 {
-    public async ValueTask<BaseResult<BaseSelectionMutationResult>> ExecuteAsync(
+    public ValueTask<BaseResult<BaseSelectionMutationResult>> ExecuteAsync(
         BaseSession session,
         CollectionDefinition collection,
         BaseSelectionOperationProfile profile,
@@ -34,6 +34,30 @@ internal sealed class DefaultBaseSelectionMutationRuntime(
         BasePreviousStateRequirement previousState,
         BaseMutationRequestIdentity? identity,
         BaseSelectionMutationExecutionOptions? options,
+        CancellationToken cancellationToken) => ExecuteCoreAsync(
+            session, collection, profile, query, patch, previousState, identity, options, null, cancellationToken);
+
+    internal ValueTask<BaseResult<BaseSelectionMutationResult>> ExecuteTransactionalAsync(
+        BaseSession session,
+        CollectionDefinition collection,
+        BaseSelectionOperationProfile profile,
+        BaseSelectionActivationRequest request,
+        BaseMutationRequestIdentity identity,
+        BaseTransactionalActivationCandidate activation,
+        CancellationToken cancellationToken) => ExecuteCoreAsync(
+            session, collection, profile, request.Query, request.Patch, request.PreviousState,
+            identity, null, activation, cancellationToken);
+
+    private async ValueTask<BaseResult<BaseSelectionMutationResult>> ExecuteCoreAsync(
+        BaseSession session,
+        CollectionDefinition collection,
+        BaseSelectionOperationProfile profile,
+        RecordQuery query,
+        RecordPatchRequest? patch,
+        BasePreviousStateRequirement previousState,
+        BaseMutationRequestIdentity? identity,
+        BaseSelectionMutationExecutionOptions? options,
+        BaseTransactionalActivationCandidate? transactionalActivation,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -95,7 +119,7 @@ internal sealed class DefaultBaseSelectionMutationRuntime(
         RecordQuery providerQuery = BaseQueryFieldResolver.ToStoredNames(collection, constrained);
         var processor = new BaseSelectionMutationProcessor(
             session.Principal, operation, collection, profile, providerQuery, patch, normalizedPreviousState, policy,
-            authorization.Value, resolved.Value, authority.Value, subjects, lifecycleConsumers);
+            authorization.Value, resolved.Value, authority.Value, subjects, lifecycleConsumers, transactionalActivation);
         var executionRequest = new RecordMutationExecutionRequest
         {
             AcquisitionTimeout = profile.Limits.AcquisitionTimeout,
@@ -443,7 +467,8 @@ internal sealed class BaseSelectionMutationProcessor(
     BaseResolvedMutationStore store,
     BaseAtomicMutationAuthorityRequirement authority,
     BaseSubjectContractRegistry subjects,
-    BaseSubjectLifecycleRegistry lifecycleConsumers) : IAtomicMutationProcessor
+    BaseSubjectLifecycleRegistry lifecycleConsumers,
+    BaseTransactionalActivationCandidate? transactionalActivation = null) : IAtomicMutationProcessor
 {
     internal BaseSelectionMutationResult? Result { get; private set; }
     internal IReadOnlyList<BaseMutationAttempt> Attempts => _attempts;
@@ -773,7 +798,23 @@ internal sealed class BaseSelectionMutationProcessor(
             MutatedCount = facts.Length,
             Outcome = BaseRecordBatchOutcome.Committed,
         };
-        var receipt = new BaseAtomicReceiptResult
+        ImmutableArray<byte> resultBytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
+            Result, HPDBaseJsonSerializerContext.Default.BaseSelectionMutationResult).ToImmutableArray();
+        BaseTransactionalActivationCommitEvidence? activationCommit = null;
+        if (transactionalActivation is not null)
+        {
+            OperationResult<BaseTransactionalActivationCommitEvidence> finalizedActivation = await session
+                .FinalizeActivationAsync(new BaseTransactionalActivationFinalization
+                {
+                    Candidate = transactionalActivation,
+                    CanonicalResult = resultBytes,
+                    ResultChecksum = System.Security.Cryptography.SHA256.HashData(resultBytes.AsSpan()).ToImmutableArray(),
+                }, cancellationToken).ConfigureAwait(false);
+            if (!finalizedActivation.IsSuccess() || finalizedActivation.Value is null)
+                return Failed(finalizedActivation.Error ?? Error("base.activation.providerContractInvalid", ErrorCategory.Store));
+            activationCommit = finalizedActivation.Value;
+        }
+        var receipt = activationCommit is null ? new BaseAtomicReceiptResult
             {
                 Kind = BaseAtomicReceiptResultKind.SelectionMutation,
                 Mutations = applied.Value.Facts,
@@ -788,11 +829,64 @@ internal sealed class BaseSelectionMutationProcessor(
                     MutatedCount = facts.Length,
                     Outcome = BaseRecordBatchOutcome.Committed,
                 },
+            } : new BaseAtomicReceiptResult
+            {
+                Kind = BaseAtomicReceiptResultKind.ActivationTransactionalOperation,
+                Mutations = applied.Value.Facts,
+                ActivationTransactionalOperation = new BaseActivationTransactionalReceiptResult
+                {
+                    ActivationId = activationCommit.ActivationId,
+                    ActivationGeneration = activationCommit.ActivationGeneration,
+                    TargetKind = "selectionMutation",
+                    TargetId = profile.Id,
+                    TargetVersion = profile.Version,
+                    TargetChecksum = BaseSelectionProfileChecksum.Compute(profile),
+                    Generations = [],
+                    CanonicalResultBytes = resultBytes,
+                    ActivationControlChecksum = activationCommit.ControlChecksum,
+                },
             };
         OperationResult<BaseSelectionMutationCommitAccounting> measured = await session.MeasureSelectionMutationAsync(receipt, Result, cancellationToken).ConfigureAwait(false);
         if (!measured.IsSuccess() || measured.Value is null || !WithinAccounting(measured.Value, profile.Limits, facts.Length))
             return Failed(BaseSelectionErrorCodes.LimitExceeded, ErrorCategory.Validation);
-        return new AtomicMutationProcessingResult(AtomicMutationProcessingOutcome.ReadyToCommit, receipt);
+        if (activationCommit is null)
+            return new AtomicMutationProcessingResult(AtomicMutationProcessingOutcome.ReadyToCommit, receipt);
+        long receiptBytes;
+        try
+        {
+            receiptBytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
+                BaseAtomicReceiptWire.From(receipt), HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire).LongLength;
+        }
+        catch { return Failed("base.activation.providerContractInvalid", ErrorCategory.Store); }
+        BaseProvisionalAtomicMutationAccounting prior = applied.Value.Accounting;
+        return new AtomicMutationProcessingResult(new BaseAtomicMutationCommitFinalization
+        {
+            PlanDigest = retainedPlan.PlanDigest,
+            Receipt = receipt,
+            CanonicalResultBytes = resultBytes,
+            Accounting = new BaseAtomicCommitAccounting
+            {
+                WrittenBytes = prior.WrittenBytes,
+                GenerationBytes = prior.GenerationBytes,
+                FactBytes = prior.FactBytes,
+                JournalBytes = prior.JournalBytes,
+                ReceiptBytes = receiptBytes,
+                ResultBytes = resultBytes.Length,
+                RelationChecks = prior.RelationChecks,
+                UniqueConstraintChecks = prior.UniqueConstraintChecks,
+                AuthorityReads = prior.AuthorityReads,
+                ReadIntervals = prior.ReadIntervals,
+                SelectedBytes = prior.SelectedBytes,
+                EvidenceBytes = prior.EvidenceBytes,
+                TransientBytes = checked(prior.TransientBytes + receiptBytes + resultBytes.Length),
+                RetirementBarrierReads = prior.RetirementBarrierReads,
+                RetirementAcknowledgementReads = prior.RetirementAcknowledgementReads,
+                RetirementProjections = prior.RetirementProjections,
+                RetirementPublications = prior.RetirementPublications,
+                RetirementEvidenceBytes = prior.RetirementEvidenceBytes,
+                RetirementPublicationBytes = prior.RetirementPublicationBytes,
+            },
+        });
     }
 
     private bool SelectionCaptureMatches(BaseValidatedSelection selection, BaseCapturedAtomicExecution captured)

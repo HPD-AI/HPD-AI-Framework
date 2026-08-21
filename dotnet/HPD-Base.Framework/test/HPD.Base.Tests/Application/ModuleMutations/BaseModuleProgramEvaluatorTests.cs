@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
+using System.Security.Cryptography;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -780,6 +782,84 @@ public sealed class BaseModuleProgramEvaluatorTests
     }
 
     [Fact]
+    public async Task Transactional_activation_commits_target_and_terminal_state_in_one_in_memory_transaction()
+    {
+        var store = new InMemoryRecordStore(new HPDBaseInMemoryStoreOptions { StoreId = "module-store", Collections = [] });
+        var stores = new DefaultRecordStoreRegistry();
+        stores.Add(new RecordStoreRegistration { StoreId = "module-store", Store = store });
+        BaseModuleGenerationCellDefinition cell = new()
+        {
+            Id = "module.generation", Version = 1, OwningModuleId = "module",
+            Scope = BaseModuleGenerationScope.Application, MaximumKeyUtf8Bytes = 32, MaximumCellsPerOperation = 1,
+        };
+        BaseRegisteredModuleMutationDefinition moduleDefinition = GenerationDefinition();
+        BaseGeneratedModuleMutationIdentity<GenerationRequest, GenerationResult> moduleIdentity = GenerationIdentity();
+        var moduleRegistration = new BaseModuleMutationRegistration<GenerationRequest, GenerationResult>(moduleDefinition, moduleIdentity);
+        var moduleRegistry = new BaseModuleMutationRegistry([moduleDefinition], [cell], [moduleRegistration]);
+        DefaultBasePolicyOrchestrator policy = TransactionalActivationPolicy();
+        var moduleRuntime = new DefaultBaseModuleMutationRuntime(
+            stores, new BaseCollectionRegistry(new Dictionary<string, CollectionDefinition>()), moduleRegistry,
+            null!, policy, null!, new BaseSubjectContractRegistry([]), TimeProvider.System);
+        BaseActivationGrantSet grants = TransactionalActivationGrants();
+        BaseTransactionalActivationRegistration<GenerationRequest, GenerationResult> activation =
+            BaseActivationDefinitionBuilder.CreateTransactional(new BaseActivationDefinition
+            {
+                Id = "module.transactional", Version = 1, OwningModuleId = "module",
+                ExecutionClass = BaseActivationExecutionClass.TransactionalOperation,
+                InputTypeId = "request", ResultTypeId = "result", Grants = grants, SourceGrantIds = [],
+                Retry = new BaseActivationRetryProfile
+                {
+                    MaximumAttempts = 1, InitialDelayMilliseconds = 1, MaximumDelayMilliseconds = 1,
+                    MultiplierNumerator = 1, MultiplierDenominator = 1, JitterBasisPoints = 0,
+                    RetryableFailureCodes = [],
+                },
+                Limits = new BaseActivationLimits
+                {
+                    MaximumInputBytes = 4096, MaximumResultBytes = 4096, MaximumAttempts = 1,
+                    MaximumRenewalsPerAttempt = 1, MaximumChildrenPerAttempt = 1, MaximumLineageDepth = 1,
+                    LeaseDuration = TimeSpan.FromMinutes(1), HandlerTimeout = TimeSpan.FromMinutes(1),
+                    Provider = ActivationProviderLimits(), AtomicCreation = DefaultBaseModuleMutationRuntime.ResolveExecutionLimits(BaseModuleMutationPlatform.MaximumLimits),
+                },
+                Handler = null,
+                TransactionalTarget = new BaseModuleMutationActivationTarget
+                {
+                    OperationId = moduleDefinition.Id, OperationVersion = moduleDefinition.Version,
+                    OperationChecksum = Convert.ToHexStringLower(moduleDefinition.Checksum.ToArray()),
+                },
+                Checksum = [],
+            }, EvaluatorJsonContext.Default.GenerationRequest, EvaluatorJsonContext.Default.GenerationResult);
+        ServiceProvider services = new ServiceCollection()
+            .AddSingleton<IBaseModuleMutationRuntime>(moduleRuntime)
+            .BuildServiceProvider();
+        BaseSession session = new(
+            null!, TimeProvider.System,
+            new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System, SubjectKind = AccessSubjectKind.System, SubjectId = "system" },
+            new BaseSessionOptions { Audience = HPDBaseEndpointAudience.ControlPlane }, services: services,
+            applicationId: "module.application");
+        var enqueue = new DefaultBaseActivationRuntime(stores, policy, TimeProvider.System);
+        OperationResult<BaseActivationEnqueueResult> created = await enqueue.EnqueueAsync(
+            session, activation.Definition, activation.Identity, new GenerationRequest(),
+            BaseMutationRequestIdentity.Create("activation", "enqueue", "one", BaseMutationRequestFingerprint.Create(new byte[32])), null, default);
+        created.IsSuccess().Should().BeTrue(created.Error?.Code);
+        var activationRegistry = new BaseActivationRegistry(
+            [new BaseInstalledTransactionalActivationRegistration<GenerationRequest, GenerationResult>(activation)]);
+        var worker = new DefaultBaseActivationWorkerRuntime(
+            stores, policy, new BaseActivationAcceptedTimeAuthority(TimeProvider.System), activationRegistry, moduleRegistry);
+        OperationResult<BaseActivationDueObservation> observation = await worker.ObserveAsync(session, activation.Definition, default);
+        OperationResult<BaseActivationDispatchResult> dispatched = await worker.ExecuteTransactionalAsync(
+            session, activation.Definition, observation.Value!.Token, default);
+        dispatched.IsSuccess().Should().BeTrue(dispatched.Error?.Code);
+        dispatched.Value!.State.Should().Be(BaseActivationState.Succeeded);
+        BaseResult<BaseModuleMutationExecutionResult<GenerationResult>> second = await moduleRuntime.ExecuteAsync(
+            session, moduleDefinition, moduleIdentity, new GenerationRequest(),
+            BaseMutationRequestIdentity.Create("module", "increment", "after-activation", BaseMutationRequestFingerprint.Create(new byte[32])),
+            null, default);
+        second.RequireValue().Result.Generation.Should().Be("2");
+        OperationResult<BaseActivationDueObservation> after = await worker.ObserveAsync(session, activation.Definition, default);
+        after.Value!.Earliest.Should().BeNull();
+    }
+
+    [Fact]
     public async Task Missing_exact_operation_grant_fails_before_execution()
     {
         var store = new InMemoryRecordStore(new HPDBaseInMemoryStoreOptions { StoreId = "module-store", Collections = [] });
@@ -944,6 +1024,55 @@ public sealed class BaseModuleProgramEvaluatorTests
                     : new ResourceScope { Kind = ResourceScopeKind.Runtime },
             });
         }
+        return new DefaultBasePolicyOrchestrator(builder.Freeze("module.application"));
+    }
+
+    private static BaseActivationGrantSet TransactionalActivationGrants() => new()
+    {
+        Enqueue = "module.transactional.enqueue", Observe = "module.transactional.observe",
+        Claim = "module.transactional.claim", Execute = "module.transactional.execute",
+        Renew = "module.transactional.renew", Complete = "module.transactional.complete",
+        Fail = "module.transactional.fail", Cancel = "module.transactional.cancel",
+        Inspect = "module.transactional.inspect", Replay = "module.transactional.replay",
+        Migrate = "module.transactional.migrate", Reconcile = "module.transactional.reconcile",
+        Retry = "module.transactional.retry", Dispose = "module.transactional.dispose",
+        Remove = "module.transactional.remove", Repair = "module.transactional.repair",
+    };
+
+    private static BaseActivationExecutionLimits ActivationProviderLimits() => new()
+    {
+        MaximumCandidates = 8, MaximumInputBytes = 4096, MaximumResultBytes = 4096,
+        MaximumEvidenceBytes = 8192, MaximumTransientBytes = 16384,
+        MaximumReadIntervals = 8, MaximumIndexOperations = 16,
+        AcquisitionTimeout = TimeSpan.FromSeconds(5), TransactionTimeout = TimeSpan.FromSeconds(5),
+        CommitObservationTimeout = TimeSpan.FromSeconds(5), ReceiptResolutionTimeout = TimeSpan.FromSeconds(5),
+    };
+
+    private static DefaultBasePolicyOrchestrator TransactionalActivationPolicy()
+    {
+        var builder = new BasePolicyAuthorityBuilder();
+        builder.AddPolicy(new BasePolicyAuthorityDefinition
+        {
+            Id = "module.policy", Version = 1, OwningModuleId = "module",
+            EvaluatorContractId = "module.policy.evaluator", EvaluatorContractVersion = 1, CompositionOrder = 0,
+        }, new AllowPolicyEvaluator());
+        void Add(string id, string action) => builder.AddStaticGrant(new BaseGrantAuthorityDefinition
+        {
+            Id = id, Version = 1, OwningModuleId = "module",
+            SourceContractId = "module.grants", SourceContractVersion = 1,
+        }, new AccessGrant
+        {
+            Id = id, ApplicationId = "module.application", ModuleId = "module",
+            Audience = HPDBaseEndpointAudience.ControlPlane,
+            Subject = new AccessSubject { Kind = AccessSubjectKind.System, Id = "system" },
+            Action = action, Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime },
+        });
+        BaseActivationGrantSet grants = TransactionalActivationGrants();
+        foreach (string id in new[] { grants.Enqueue, grants.Observe, grants.Claim, grants.Execute, grants.Renew,
+                     grants.Complete, grants.Fail, grants.Cancel, grants.Inspect, grants.Replay, grants.Migrate,
+                     grants.Reconcile, grants.Retry, grants.Dispose, grants.Remove, grants.Repair })
+            Add(id, "module.transactional");
+        Add("module.increment", "module.increment");
         return new DefaultBasePolicyOrchestrator(builder.Freeze("module.application"));
     }
 

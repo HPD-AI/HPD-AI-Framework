@@ -3,6 +3,17 @@ using System.Text.Json;
 
 namespace HPD.Base;
 
+/// <summary>Contains the complete closed input for a registered selection-mutation activation target.</summary>
+public sealed record BaseSelectionActivationRequest
+{
+    /// <summary>Gets the bounded typed selection query.</summary>
+    public required RecordQuery Query { get; init; }
+    /// <summary>Gets the merge patch only for merge-patch profiles.</summary>
+    public RecordPatchRequest? Patch { get; init; }
+    /// <summary>Gets exact prior-state requirements for every selected record.</summary>
+    public required BasePreviousStateRequirement PreviousState { get; init; }
+}
+
 /// <summary>Identifies the closed result stored in one atomic mutation receipt.</summary>
 public enum BaseAtomicReceiptResultKind
 {
