@@ -8,6 +8,7 @@ internal sealed record BaseTextRuntimeRequest
     public required BaseTextIndexDefinition Index { get; init; }
     public required BaseTextQuery Query { get; init; }
     public required BaseTextCandidateConstraint Constraint { get; init; }
+    public required ImmutableArray<BaseTextOrder> Order { get; init; }
     public required int Take { get; init; }
     public BaseTextCursor? After { get; init; }
     public required BaseTextConsistencyRequirement Consistency { get; init; }

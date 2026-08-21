@@ -47,14 +47,14 @@ public readonly struct BaseTextCursor : IEquatable<BaseTextCursor>
 public sealed class BaseTextSearch<T>
 {
     private readonly BaseCollectionSession<T> _session; private readonly BaseTextIndex<T> _index; private readonly BaseTextQuery _query;
-    private readonly BaseTextCandidateConstraint _constraint; private readonly int? _take; private readonly BaseTextCursor? _after; private readonly BaseTextConsistencyRequirement _consistency;
-    internal BaseTextSearch(BaseCollectionSession<T> session, BaseTextIndex<T> index, BaseTextQuery query, BaseTextCandidateConstraint? constraint = null, int? take = null, BaseTextCursor? after = null, BaseTextConsistencyRequirement? consistency = null)
-    { _session = session; _index = index; _query = query; _constraint = constraint ?? new BaseTextCandidateConstraint.True(); _take = take; _after = after; _consistency = consistency ?? new BaseTextConsistencyRequirement.Current(); }
+    private readonly BaseTextCandidateConstraint _constraint; private readonly ImmutableArray<BaseTextOrder> _order; private readonly int? _take; private readonly BaseTextCursor? _after; private readonly BaseTextConsistencyRequirement _consistency;
+    internal BaseTextSearch(BaseCollectionSession<T> session, BaseTextIndex<T> index, BaseTextQuery query, BaseTextCandidateConstraint? constraint = null, ImmutableArray<BaseTextOrder> order = default, int? take = null, BaseTextCursor? after = null, BaseTextConsistencyRequirement? consistency = null)
+    { _session = session; _index = index; _query = query; _constraint = constraint ?? new BaseTextCandidateConstraint.True(); _order = order.IsDefault ? [] : order; _take = take; _after = after; _consistency = consistency ?? new BaseTextConsistencyRequirement.Current(); }
     public BaseTextSearch<T> Where<TValue>(BaseField<T, TValue> field, TValue value)
     {
         ArgumentNullException.ThrowIfNull(field); BaseTextIndexFilterFieldDefinition declared = _index.Definition.FilterFields.SingleOrDefault(item => item.StableFieldId == field.Id) ?? throw new InvalidOperationException("The field is not a declared text filter.");
         BaseTextFilterValue converted = ConvertValue(value, declared.ValueKind); var leaf = new BaseTextCandidateConstraint.Equal(new BaseTextFilterField(field.Id, declared.ValueKind), converted);
-        return new(_session, _index, _query, _constraint is BaseTextCandidateConstraint.True ? leaf : new BaseTextCandidateConstraint.And([_constraint, leaf]), _take, _after, _consistency);
+        return new(_session, _index, _query, _constraint is BaseTextCandidateConstraint.True ? leaf : new BaseTextCandidateConstraint.And([_constraint, leaf]), _order, _take, _after, _consistency);
     }
     public BaseTextSearch<T> WhereAny<TValue>(BaseField<T, TValue> field, params TValue[] values)
     {
@@ -74,16 +74,22 @@ public sealed class BaseTextSearch<T>
         ArgumentNullException.ThrowIfNull(field); BaseTextIndexFilterFieldDefinition declared = _index.Definition.FilterFields.SingleOrDefault(item => item.StableFieldId == field.Id) ?? throw new InvalidOperationException("The field is not a declared text filter.");
         return Add(new BaseTextCandidateConstraint.IsMissing(new BaseTextFilterField(field.Id, declared.ValueKind)));
     }
-    public BaseTextSearch<T> Take(int count) => count > 0 ? new(_session, _index, _query, _constraint, count, _after, _consistency) : throw new ArgumentOutOfRangeException(nameof(count));
-    public BaseTextSearch<T> After(BaseTextCursor cursor) => new(_session, _index, _query, _constraint, _take, cursor, _consistency);
-    public BaseTextSearch<T> WithConsistency(BaseTextConsistencyRequirement requirement) => new(_session, _index, _query, _constraint, _take, _after, requirement ?? throw new ArgumentNullException(nameof(requirement)));
-    private BaseTextSearch<T> Add(BaseTextCandidateConstraint leaf) => new(_session, _index, _query, _constraint is BaseTextCandidateConstraint.True ? leaf : new BaseTextCandidateConstraint.And([_constraint, leaf]), _take, _after, _consistency);
+    public BaseTextSearch<T> ThenBy<TValue>(BaseField<T, TValue> field, QuerySortDirection direction = QuerySortDirection.Asc, QueryNullOrder nullOrder = QueryNullOrder.Unspecified)
+    {
+        ArgumentNullException.ThrowIfNull(field); BaseTextIndexFilterFieldDefinition declared = _index.Definition.FilterFields.SingleOrDefault(item => item.StableFieldId == field.Id) ?? throw new InvalidOperationException("The field is not a declared text ordering field.");
+        ImmutableArray<BaseTextOrder> order = [.. _order, new BaseTextOrder(declared.StableFieldId, direction, nullOrder)]; _ = BaseTextOrderingContract.Validate(order, _index.Definition);
+        return new(_session, _index, _query, _constraint, order, _take, _after, _consistency);
+    }
+    public BaseTextSearch<T> Take(int count) => count > 0 ? new(_session, _index, _query, _constraint, _order, count, _after, _consistency) : throw new ArgumentOutOfRangeException(nameof(count));
+    public BaseTextSearch<T> After(BaseTextCursor cursor) => new(_session, _index, _query, _constraint, _order, _take, cursor, _consistency);
+    public BaseTextSearch<T> WithConsistency(BaseTextConsistencyRequirement requirement) => new(_session, _index, _query, _constraint, _order, _take, _after, requirement ?? throw new ArgumentNullException(nameof(requirement)));
+    private BaseTextSearch<T> Add(BaseTextCandidateConstraint leaf) => new(_session, _index, _query, _constraint is BaseTextCandidateConstraint.True ? leaf : new BaseTextCandidateConstraint.And([_constraint, leaf]), _order, _take, _after, _consistency);
     public async ValueTask<BaseResult<BaseTextResult<T>>> ExecuteAsync(CancellationToken cancellationToken = default)
     {
         if (_take is null) throw new InvalidOperationException("Take(count) is required before execution.");
         OperationResult<BaseTextRuntimeResult> result = await _session.Session.Services.GetRequiredService<IBaseTextRuntime>().ExecuteAsync(new BaseTextRuntimeRequest
         {
-            Collection = _session.Contract.Definition, Index = _index.Definition, Query = _query, Constraint = _constraint, Take = _take.Value,
+            Collection = _session.Contract.Definition, Index = _index.Definition, Query = _query, Constraint = _constraint, Order = _order, Take = _take.Value,
             After = _after, Consistency = _consistency, Principal = _session.Session.Principal, Operation = _session.Session.Operation(BaseOperationKind.TextQuery, _session.Contract.Id),
         }, cancellationToken).ConfigureAwait(false);
         return BaseResultMapper.Map(result, value => new BaseTextResult<T>

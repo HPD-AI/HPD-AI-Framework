@@ -85,7 +85,8 @@ internal sealed class BaseInMemoryTextCertificationHost(ServiceProvider services
                 try
                 {
                     BaseTextQuery lexical = Query(value.Request.Query); BaseTextCandidateConstraint filter = value.Request.Filter is null ? new BaseTextCandidateConstraint.True() : Filter(value.Request.Filter);
-                    var search = new BaseTextSearch<BaseTextCertificationSchemaRecord>(_session.Collection(BaseTextCertificationSchemaRecord.Collection), BaseTextCertificationSchemaRecord.TextIndexes.Content, lexical, filter, value.Request.Take, value.Request.Cursor is null ? null : BaseTextCursor.Parse(value.Request.Cursor), new BaseTextConsistencyRequirement.Current());
+                    ImmutableArray<BaseTextOrder> order = value.Request.Order.Select(Order).ToImmutableArray();
+                    var search = new BaseTextSearch<BaseTextCertificationSchemaRecord>(_session.Collection(BaseTextCertificationSchemaRecord.Collection), BaseTextCertificationSchemaRecord.TextIndexes.Content, lexical, filter, order, value.Request.Take, value.Request.Cursor is null ? null : BaseTextCursor.Parse(value.Request.Cursor), new BaseTextConsistencyRequirement.Current());
                     BaseResult<BaseTextResult<BaseTextCertificationSchemaRecord>> result = await search.ExecuteAsync(cancellationToken).ConfigureAwait(false);
                     status = result.Status;
                     if (result is BaseSuccess<BaseTextResult<BaseTextCertificationSchemaRecord>> success)
@@ -167,6 +168,8 @@ internal sealed class BaseInMemoryTextCertificationHost(ServiceProvider services
         return value.Kind switch { "missing" => new BaseTextCandidateConstraint.IsMissing(field), "null" => new BaseTextCandidateConstraint.IsNull(field), "equal" => new BaseTextCandidateConstraint.Equal(field, Value(value.Value!, kind)), "in" => new BaseTextCandidateConstraint.In(field, value.Values!.Select(item => Value(item, kind)).ToImmutableArray()), _ => throw new ArgumentException() };
     }
     private static BaseTextFilterValue Value(BaseTextHttpFilterValue value, BaseTextFilterValueKind kind) => kind switch { BaseTextFilterValueKind.Boolean => BaseTextFilterValue.FromBoolean(value.Boolean!.Value), BaseTextFilterValueKind.Integer => BaseTextFilterValue.FromInteger(value.Integer!.Value), _ => BaseTextFilterValue.FromString(value.Text!) };
+    private static BaseTextOrder Order(BaseTextHttpOrder value)
+    { BaseTextIndexFilterFieldDefinition field = BaseTextCertificationSchemaRecord.TextIndexes.Content.Definition.FilterFields.Single(item => item.WireName == value.Field || item.ApplicationName == value.Field || item.StableFieldId == value.Field); return new(field.StableFieldId, value.Direction == "desc" ? QuerySortDirection.Desc : value.Direction == "asc" ? QuerySortDirection.Asc : throw new ArgumentException(), value.NullOrder == "last" ? QueryNullOrder.Last : value.NullOrder == "first" ? QueryNullOrder.First : value.NullOrder == "unspecified" ? QueryNullOrder.Unspecified : throw new ArgumentException()); }
 }
 
 internal sealed class BaseTextCertificationAllowPolicy : IPolicyEvaluator { public ValueTask<PolicyDecision> EvaluateAsync(PolicyEvaluationRequest request, CancellationToken cancellationToken = default) => ValueTask.FromResult(PolicyDecision.Allow()); }

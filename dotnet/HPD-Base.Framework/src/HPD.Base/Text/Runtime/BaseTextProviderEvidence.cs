@@ -9,7 +9,7 @@ namespace HPD.Base;
 public static class BaseTextProviderEvidence
 {
     /// <summary>Creates the exact lowering receipt for one session-owned preparation.</summary>
-    public static BaseTextLoweringReceipt CreateLoweringReceipt(BaseTextProviderDescriptor provider, BaseTextAuthoritySnapshot snapshot, BaseTextIndexDefinition index, ImmutableArray<byte> queryDigest, ImmutableArray<byte> constraintDigest, ImmutableArray<BaseTextFieldInfluenceConstraint> influences, BaseTextExecutionLimits limits)
+    public static BaseTextLoweringReceipt CreateLoweringReceipt(BaseTextProviderDescriptor provider, BaseTextAuthoritySnapshot snapshot, BaseTextIndexDefinition index, ImmutableArray<byte> queryDigest, ImmutableArray<byte> constraintDigest, ImmutableArray<BaseTextFieldInfluenceConstraint> influences, ImmutableArray<BaseTextOrder> order, BaseTextExecutionLimits limits)
     {
         ImmutableArray<byte> influenceDigest = Digest("base.text.influences.v1", stream => { Sequence(stream, influences.Length); foreach (BaseTextFieldInfluenceConstraint value in influences) { String(stream, value.StableFieldId); Bytes(stream, value.ConstraintDigest); } });
         ImmutableArray<byte> statement = Digest("base.text.statementShape.v1", stream => { String(stream, provider.Id); U64(stream, checked((ulong)provider.Version)); Bytes(stream, queryDigest); Bytes(stream, constraintDigest); });
@@ -17,7 +17,7 @@ public static class BaseTextProviderEvidence
         {
             ProviderId = provider.Id, ProviderVersion = provider.Version, ProviderClass = provider.ProviderClass,
             AuthoritySnapshotDigest = SnapshotDigest(snapshot), IndexChecksum = Copy(index.DefinitionChecksum), QueryDigest = Copy(queryDigest), ConstraintDigest = Copy(constraintDigest), InfluenceConstraintsDigest = influenceDigest,
-            StatementShapeDigest = statement, OrderingDigest = Digest("base.text.ordering.score-desc-id-asc.v1", static _ => { }), LimitsDigest = LimitsDigest(limits), CertificationReceiptDigest = DigestBytes("base.text.certificationReceipt.v1", provider.CertificationReceipt),
+            StatementShapeDigest = statement, OrderingDigest = Digest("base.text.ordering.v1", stream => { Sequence(stream, order.Length); foreach (BaseTextOrder value in order) { String(stream, value.StableFieldId); stream.WriteByte((byte)value.Direction); stream.WriteByte((byte)value.NullOrder); } }), LimitsDigest = LimitsDigest(limits), CertificationReceiptDigest = DigestBytes("base.text.certificationReceipt.v1", provider.CertificationReceipt),
         };
     }
 

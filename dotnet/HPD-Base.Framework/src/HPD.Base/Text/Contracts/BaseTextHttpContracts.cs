@@ -51,6 +51,8 @@ public sealed record BaseTextHttpQueryRequest
     public required BaseTextHttpQueryNode Query { get; init; }
     /// <summary>Gets the optional ordinary filter.</summary>
     public BaseTextHttpFilter? Filter { get; init; }
+    /// <summary>Gets the bounded secondary ordering.</summary>
+    public BaseTextHttpOrder[] Order { get; init; } = [];
     /// <summary>Gets the result bound.</summary>
     public required int Take { get; init; }
     /// <summary>Gets the optional opaque cursor.</summary>
@@ -61,6 +63,16 @@ public sealed record BaseTextHttpQueryRequest
     public string? ConsistencyToken { get; init; }
     /// <summary>Gets the bounded-staleness age.</summary>
     public long? MaximumAgeMilliseconds { get; init; }
+}
+/// <summary>Contains one graph-bound secondary ordering field.</summary>
+public sealed record BaseTextHttpOrder
+{
+    /// <summary>Gets the graph-owned field name.</summary>
+    public required string Field { get; init; }
+    /// <summary>Gets the closed ascending or descending direction.</summary>
+    public required string Direction { get; init; }
+    /// <summary>Gets the closed null placement.</summary>
+    public required string NullOrder { get; init; }
 }
 /// <summary>Contains one authoritative lexical match on the HTTP wire.</summary>
 public sealed record BaseTextHttpMatch

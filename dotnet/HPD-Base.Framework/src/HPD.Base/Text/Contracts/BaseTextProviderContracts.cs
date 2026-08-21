@@ -128,8 +128,17 @@ public sealed record BaseTextCandidate
     public required RevisionToken Revision { get; init; }
     public required BaseMutationJournalPosition IndexedPosition { get; init; }
     public required BaseTextScore Score { get; init; }
+    public required ImmutableArray<BaseTextOrderingValue> SecondaryOrdering { get; init; }
     public required ImmutableArray<byte> CanonicalOrderingBoundary { get; init; }
     public required BaseTextCandidateScoreProof ScoreProof { get; init; }
+}
+
+public sealed record BaseTextOrderingValue
+{
+    public required string StableFieldId { get; init; }
+    public required bool Missing { get; init; }
+    public required bool Null { get; init; }
+    public required ImmutableArray<byte> CanonicalJsonUtf8 { get; init; }
 }
 
 /// <summary>Represents a closed pre-ranking candidate constraint.</summary>
@@ -192,6 +201,7 @@ public sealed record BaseTextProviderPreparationRequest
     public required BaseTextQuery NormalizedQuery { get; init; }
     public required ImmutableArray<byte> QueryDigest { get; init; }
     public required BaseTextCandidateConstraint Constraint { get; init; }
+    public required ImmutableArray<BaseTextOrder> Order { get; init; }
     public required ImmutableArray<byte> ConstraintDigest { get; init; }
     public required ImmutableArray<BaseTextFieldInfluenceConstraint> InfluenceConstraints { get; init; }
     public required BaseTextExecutionLimits Limits { get; init; }

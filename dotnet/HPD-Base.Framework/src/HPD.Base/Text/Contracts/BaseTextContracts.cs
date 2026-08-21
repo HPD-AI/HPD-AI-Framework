@@ -76,6 +76,9 @@ public readonly record struct BaseTextScore : IComparable<BaseTextScore>
     public int CompareTo(BaseTextScore other) => Units.CompareTo(other.Units);
 }
 
+/// <summary>Declares one ordinary secondary relevance tie-breaker.</summary>
+public readonly record struct BaseTextOrder(string StableFieldId, QuerySortDirection Direction, QueryNullOrder NullOrder);
+
 /// <summary>Identifies a value usable by a pre-ranking text-index constraint.</summary>
 public enum BaseTextFilterValueKind
 {
