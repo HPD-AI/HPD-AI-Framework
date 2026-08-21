@@ -5,7 +5,7 @@ using System.Collections.Immutable;
 namespace HPD.Base;
 
 /// <summary>Classifies the durable authority relationship of a lexical provider.</summary>
-public enum BaseTextProviderClass { CoLocatedTransactional = 0, DerivedJournal = 1 }
+public enum BaseTextProviderClass { CoLocatedTransactional = 0 }
 
 /// <summary>Describes exact certified lexical-provider capabilities.</summary>
 public sealed record BaseTextProviderCapability

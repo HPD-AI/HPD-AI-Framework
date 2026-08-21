@@ -247,6 +247,7 @@ internal sealed class DefaultBaseMutationProcessor(
         if (!BaseAtomicPolicyAuthority.IsAdmissible(finalizedPlan.Value.PolicyEvaluations))
             return Failed(Error(BasePolicyAuthorityErrorCodes.Invalid, "The mutation policy authority is invalid.", ErrorCategory.Authorization));
         ImmutableArray<BaseAtomicMutationPlanItem> finalizedItems = finalizedPlan.Value.Items;
+        BaseFinalizedTextMutationExtension? textPlan = BaseTextAtomicMutationContract.Finalize(finalizedItems);
         BaseAtomicPolicyAuthorityDigest policyDigest = BaseAtomicPolicyAuthority.Compute(
             authority.ApplicationId, "base.l30.recordMutations", finalizedPlan.Value.PolicyEvaluations);
         BaseSubjectRetirementProjectionPlan? retirementPlan = BuildRetirementPlan(finalizedItems, retirement);
@@ -254,6 +255,8 @@ internal sealed class DefaultBaseMutationProcessor(
             ComputePlanDigest(intent.IntentDigest, capturedEvidence.CaptureDigest, finalizedItems, finalizedPlan.Value.SubjectValidations), policyDigest);
         if (retirementPlan is not null)
             planDigest = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"base.subjectRetirement.boundPlan.v1\0{planDigest}\0{retirementPlan.PlanChecksum}")));
+        if (textPlan is not null)
+            planDigest = Convert.ToHexStringLower(SHA256.HashData([.. Encoding.ASCII.GetBytes("base.text.boundPlan.v1\0"), .. Encoding.ASCII.GetBytes(planDigest), .. textPlan.ProjectionDigest]));
         var plan = new BaseAtomicMutationPlan
         {
             Kind = BaseAtomicMutationExecutionKind.RecordMutations,
@@ -264,6 +267,7 @@ internal sealed class DefaultBaseMutationProcessor(
             Items = finalizedItems,
             SubjectValidations = finalizedPlan.Value.SubjectValidations,
             SubjectRetirement = retirementPlan,
+            Text = textPlan,
             Limits = executionLimits with { },
             PlanDigest = planDigest,
         };
@@ -1124,7 +1128,8 @@ internal sealed class DefaultBaseMutationProcessor(
         && prepared.Accounting.ReadIntervals == prepared.ReadIntervals.Length
         && prepared.Accounting.SelectedBytes >= captured.Accounting.SelectedBytes
         && prepared.Accounting.EvidenceBytes == checked(BaseSubjectCanonicalRetainedWork.MeasureIntervals(prepared.ReadIntervals)
-            + BaseSubjectCanonicalRetainedWork.MeasureRetirementPreparedEvidence(prepared.SubjectRetirement))
+            + BaseSubjectCanonicalRetainedWork.MeasureRetirementPreparedEvidence(prepared.SubjectRetirement)
+            + (prepared.Text?.EvidenceBytes ?? 0))
         && prepared.Accounting.TransientBytes >= prepared.Accounting.SelectedBytes + prepared.Accounting.EvidenceBytes
         && prepared.Accounting.AuthorityReads <= plan.Limits.MaximumAuthorityReads
         && prepared.Accounting.ReadIntervals <= plan.Limits.MaximumReadIntervals
@@ -1141,6 +1146,7 @@ internal sealed class DefaultBaseMutationProcessor(
         && prepared.Accounting.RetirementProjections <= plan.Limits.MaximumRetirementProjections
         && prepared.Accounting.RetirementEvidenceBytes <= plan.Limits.MaximumRetirementEvidenceBytes
         && RetirementEvidenceMatches(plan.SubjectRetirement, prepared.SubjectRetirement)
+        && BaseTextAtomicMutationContract.PreparedMatches(plan.Text, prepared.Text)
         && ValidateSubjectAuthorityEvidence(plan, prepared)
         && prepared.SubjectValidations.Select((validation, index) =>
             validation.Ordinal == index
@@ -1303,6 +1309,7 @@ internal sealed class DefaultBaseMutationProcessor(
         bool strict = plan.SubjectValidations.Length != 0 || plan.Items.Any(static item => item.SubjectLifecycle is not null);
         if (!string.Equals(applied.PlanDigest, plan.PlanDigest, StringComparison.Ordinal)
             || !RetirementEvidenceMatches(plan.SubjectRetirement, applied.SubjectRetirement)
+            || !BaseTextAtomicMutationContract.AppliedMatches(plan.Text, prepared.Text, applied.Text, applied.Facts)
             || applied.Facts.Length != plan.Items.Length
             || applied.Accounting.RetirementBarrierReads != prepared.Accounting.RetirementBarrierReads
             || applied.Accounting.RetirementAcknowledgementReads != prepared.Accounting.RetirementAcknowledgementReads

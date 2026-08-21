@@ -222,8 +222,7 @@ internal sealed class DefaultBaseProviderBootstrap(
                 || descriptor.Id is not { Length: >= 1 and <= 128 }
                 || descriptor.Version <= 0
                 || descriptor.CertificationReceipt.Length != 32
-                || descriptor.ProviderClass == BaseTextProviderClass.CoLocatedTransactional && !capability.TransactionalMaintenanceSupported
-                || descriptor.ProviderClass == BaseTextProviderClass.DerivedJournal && capability.TransactionalMaintenanceSupported
+                || !capability.TransactionalMaintenanceSupported
                 || !capability.ExactRevisionHydrationSupported
                 || !capability.PolicyBeforeRankingSupported
                 || !capability.ExactFixedPointScoreSupported)

@@ -1637,6 +1637,21 @@ public sealed partial class SqliteRecordStore
             }
             long retirementEvidenceBytes=BaseSubjectCanonicalRetainedWork.MeasureRetirementPreparedEvidence(preparedRetirement);
             evidenceBytes=checked(evidenceBytes+retirementEvidenceBytes);transient=checked(transient+retirementEvidenceBytes);
+            var textGenerations = new Dictionary<(string CollectionId, string IndexId), long>();
+            if (plan.Text is not null)
+                foreach ((string collectionId, string indexId) in plan.Text.Facts.Select(static fact => (fact.CollectionId, fact.TextIndexId)).Distinct())
+                {
+                    await using SqliteCommand textGeneration = _connection.CreateCommand(); textGeneration.Transaction = _transaction;
+                    textGeneration.CommandText = $"SELECT generation FROM {SqliteTextModel.StateTable} WHERE collection_id=$collection AND index_id=$index;";
+                    textGeneration.Parameters.AddWithValue("$collection", collectionId); textGeneration.Parameters.AddWithValue("$index", indexId);
+                    object? observed = await textGeneration.ExecuteScalarAsync(token).ConfigureAwait(false);
+                    if (observed is not long generation || generation <= 0) return SubjectFailure<BasePreparedAtomicMutation>(BaseTextErrorCodes.IndexUnavailable, OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
+                    textGenerations.Add((collectionId, indexId), generation);
+                }
+            ImmutableArray<BasePreparedTextIndexEvidence> preparedTextIndexes = BaseTextAtomicMutationContract.Indexes(plan.Text, (collectionId, indexId) => textGenerations[(collectionId, indexId)]);
+            BasePreparedTextMutationEvidence? preparedText = BaseTextAtomicMutationContract.Prepare(plan.Text, preparedTextIndexes);
+            long textEvidenceBytes = preparedText?.EvidenceBytes ?? 0;
+            evidenceBytes = checked(evidenceBytes + textEvidenceBytes); transient = checked(transient + textEvidenceBytes);
             int retirementReads=preparedRetirement?.Items.Length??0;
             if(retirementReads>plan.Limits.MaximumRetirementBarrierReads||retirementReads>plan.Limits.MaximumRetirementProjections
                 ||retirementEvidenceBytes>plan.Limits.MaximumRetirementEvidenceBytes||evidenceBytes>plan.Limits.MaximumEvidenceBytes||transient>plan.Limits.MaximumTransientBytes)
@@ -1662,6 +1677,7 @@ public sealed partial class SqliteRecordStore
                 SubjectValidations = validationEvidence.MoveToImmutable(),
                 ReadIntervals = intervals.ToImmutable(),
                 SubjectRetirement = preparedRetirement,
+                Text = preparedText,
                 Accounting = new BasePreparedAtomicMutationAccounting
                 {
                     AuthorityReads = authorityReads, GenerationReads = captured.Generations.Length,
@@ -1929,6 +1945,7 @@ public sealed partial class SqliteRecordStore
                 Facts = facts.MoveToImmutable(),
                 Generations = generations,
                 SubjectRetirement = appliedRetirement,
+                Text = BaseTextAtomicMutationContract.Apply(plan.Text, materialized, prepared.Text?.Indexes ?? []),
                 Accounting = new BaseProvisionalAtomicMutationAccounting
                 {
                     WrittenBytes = writtenBytes,

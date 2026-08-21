@@ -191,9 +191,10 @@ public sealed class BaseTextSemanticTests
         await using ServiceProvider provider = services.BuildServiceProvider();
         Assert.True((await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess());
         BaseCollectionSession<TextSemanticDocument> collection = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.Admin, SubjectKind = AccessSubjectKind.User, SubjectId = "text-test" }).Collection(TextSemanticDocument.Collection);
-        await collection.CreateAsync(new RecordId("a"), new TextSemanticDocument { Title = "Distributed systems", Body = "portable search", State = "published" });
-        await collection.CreateAsync(new RecordId("b"), new TextSemanticDocument { Title = "Systems", Body = "distributed distributed", State = "draft" });
-        await collection.CreateAsync(new RecordId("c"), new TextSemanticDocument { Title = "Distributed", Body = "systems", State = "published" });
+        BaseResult<BaseRecord<TextSemanticDocument>> createdA = await collection.CreateAsync(new RecordId("a"), new TextSemanticDocument { Title = "Distributed systems", Body = "portable search", State = "published" });
+        Assert.True(createdA is BaseSuccess<BaseRecord<TextSemanticDocument>>, createdA is BaseFailure<BaseRecord<TextSemanticDocument>> failed ? failed.Error.Code + ":" + failed.Error.Message : createdA.Status.ToString());
+        (await collection.CreateAsync(new RecordId("b"), new TextSemanticDocument { Title = "Systems", Body = "distributed distributed", State = "draft" })).RequireValue();
+        (await collection.CreateAsync(new RecordId("c"), new TextSemanticDocument { Title = "Distributed", Body = "systems", State = "published" })).RequireValue();
 
         BaseTextResult<TextSemanticDocument> first = (await collection.Text(TextSemanticDocument.TextIndexes.Content, BaseTextQuery.Token("distributed"))
             .Where(TextSemanticDocument.Fields.State, "published").Take(1).ExecuteAsync()).RequireValue();

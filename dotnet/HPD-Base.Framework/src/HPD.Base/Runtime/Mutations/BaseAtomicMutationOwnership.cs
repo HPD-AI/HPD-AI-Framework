@@ -60,7 +60,27 @@ internal static class BaseAtomicMutationOwnership
                 RequiredConsumers=item.RequiredConsumers.Select(static consumer=>consumer with{ConsumerId=new string(consumer.ConsumerId.AsSpan()),OwningModuleId=new string(consumer.OwningModuleId.AsSpan()),LifecycleConsumerChecksum=new string(consumer.LifecycleConsumerChecksum.AsSpan()),RetirementProfileId=new string(consumer.RetirementProfileId.AsSpan()),RetirementProfileChecksum=new string(consumer.RetirementProfileChecksum.AsSpan()),AcknowledgementGrantId=new string(consumer.AcknowledgementGrantId.AsSpan()),RetirementConsumerChecksum=new string(consumer.RetirementConsumerChecksum.AsSpan()),Limits=consumer.Limits with{}}).ToImmutableArray(),
             }).ToImmutableArray(),
         },
+        Text = value.Text is null ? null : value.Text with
+        {
+            ProjectionDigest = ImmutableArray.Create(value.Text.ProjectionDigest.ToArray()),
+            Facts = value.Text.Facts.Select(FreezeTextFact).ToImmutableArray(),
+        },
         Limits = value.Limits with { },
+    };
+
+    private static BaseTextProjectionFact FreezeTextFact(BaseTextProjectionFact value) => value with
+    {
+        CollectionId = new(value.CollectionId.AsSpan()), TextIndexId = new(value.TextIndexId.AsSpan()),
+        TextIndexChecksum = ImmutableArray.Create(value.TextIndexChecksum.ToArray()), RecordId = new(new string(value.RecordId.Value.AsSpan())),
+        Before = FreezeTextState(value.Before), After = FreezeTextState(value.After), FactChecksum = ImmutableArray.Create(value.FactChecksum.ToArray()),
+    };
+
+    private static BaseTextProjectionRecordState? FreezeTextState(BaseTextProjectionRecordState? value) => value is null ? null : value with
+    {
+        Revision = value.Revision is null ? null : new RevisionToken(new string(value.Revision.Value.Value.AsSpan())),
+        TenantId = value.TenantId is null ? null : new(value.TenantId.AsSpan()), ProjectId = value.ProjectId is null ? null : new(value.ProjectId.AsSpan()),
+        StateChecksum = ImmutableArray.Create(value.StateChecksum.ToArray()),
+        Fields = value.Fields.Select(static field => field with { StableFieldId = new(field.StableFieldId.AsSpan()), CanonicalJsonUtf8 = ImmutableArray.Create(field.CanonicalJsonUtf8.ToArray()) }).ToImmutableArray(),
     };
 
     private static BaseAtomicMutationPlanItem FreezeItem(BaseAtomicMutationPlanItem value) => value with

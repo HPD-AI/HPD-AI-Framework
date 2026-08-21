@@ -317,7 +317,37 @@ internal struct BaseSubjectCanonicalRetainedWork
             counter.AddNullableString(validation.Scope.Value);
             counter.AddBytes(32);
         }
+        counter.Add(1);
+        if (plan.Text is not null)
+        {
+            counter.AddContainer();
+            counter.AddBytes(plan.Text.ProjectionDigest.Length);
+            counter.AddSequence(plan.Text.Facts.Length);
+            foreach (BaseTextProjectionFact fact in plan.Text.Facts)
+            {
+                counter.AddContainer(); counter.AddInteger(); counter.AddInteger(); counter.AddInteger();
+                counter.AddString(fact.CollectionId); counter.AddString(fact.TextIndexId);
+                counter.AddBytes(fact.TextIndexChecksum.Length); counter.AddString(fact.RecordId.Value);
+                AddTextState(ref counter, fact.Before); AddTextState(ref counter, fact.After);
+                counter.AddBytes(fact.FactChecksum.Length);
+            }
+        }
         return counter.Bytes;
+    }
+
+    private static void AddTextState(ref BaseSubjectCanonicalRetainedWork counter, BaseTextProjectionRecordState? state)
+    {
+        counter.Add(1);
+        if (state is null) return;
+        counter.AddContainer(); counter.AddNullableString(state.Revision?.Value);
+        counter.AddNullableString(state.TenantId); counter.AddNullableString(state.ProjectId);
+        counter.AddSequence(state.Fields.Length);
+        foreach (BaseTextProjectionFieldValue field in state.Fields)
+        {
+            counter.AddContainer(); counter.AddString(field.StableFieldId); counter.AddBoolean();
+            counter.AddBytes(field.CanonicalJsonUtf8.Length);
+        }
+        counter.AddBytes(state.StateChecksum.Length);
     }
 
     internal static long MeasureCapture(

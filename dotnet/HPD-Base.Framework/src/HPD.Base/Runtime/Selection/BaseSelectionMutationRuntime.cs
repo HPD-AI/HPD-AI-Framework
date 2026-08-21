@@ -699,6 +699,11 @@ internal sealed class BaseSelectionMutationProcessor(
             });
         BaseAtomicPolicyAuthorityDigest policyDigest = BaseAtomicPolicyAuthority.Compute(
             authority.ApplicationId, $"{profile.Id}:{profile.Version}", policies);
+        BaseFinalizedTextMutationExtension? textPlan = BaseTextAtomicMutationContract.Finalize(finalized);
+        string selectionPlanDigest = BaseAtomicPolicyAuthority.BindPlanDigest(
+            SelectionPlanDigest(captured, finalized, subjectPlan.Value.Validations), policyDigest);
+        if (textPlan is not null)
+            selectionPlanDigest = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData([.. System.Text.Encoding.ASCII.GetBytes("base.text.boundPlan.v1\0"), .. System.Text.Encoding.ASCII.GetBytes(selectionPlanDigest), .. textPlan.ProjectionDigest]));
         var mutationPlan = new BaseAtomicMutationPlan
         {
             Kind = BaseAtomicMutationExecutionKind.SelectionMutation,
@@ -715,9 +720,9 @@ internal sealed class BaseSelectionMutationProcessor(
             },
             Items = finalized,
             SubjectValidations = subjectPlan.Value.Validations,
+            Text = textPlan,
             Limits = limits,
-            PlanDigest = BaseAtomicPolicyAuthority.BindPlanDigest(
-                SelectionPlanDigest(captured, finalized, subjectPlan.Value.Validations), policyDigest),
+            PlanDigest = selectionPlanDigest,
         };
         BaseAtomicMutationPlan retainedPlan = BaseAtomicMutationOwnership.FreezePlan(mutationPlan);
         BaseAtomicMutationPlan providerPlan = BaseAtomicMutationOwnership.FreezePlan(retainedPlan);
@@ -1042,6 +1047,7 @@ internal sealed class BaseSelectionMutationProcessor(
         && prepared.Authority.RestoreEpoch == captured.Authority.RestoreEpoch
         && prepared.Authority.SchemaGeneration == captured.Authority.SchemaGeneration
         && prepared.Authority.Collections.SequenceEqual(captured.Authority.Collections)
+        && BaseTextAtomicMutationContract.PreparedMatches(plan.Text, prepared.Text)
         && (!HasSubjectWork(plan) || prepared.Authority.Isolation == captured.Authority.Isolation
             && prepared.Authority.TransactionEvidenceToken.AsSpan().SequenceEqual(captured.Authority.TransactionEvidenceToken.AsSpan())
             && captured.ReadIntervals.All(expected => prepared.ReadIntervals.Any(actual => IntervalEquals(expected, actual))))
@@ -1158,7 +1164,8 @@ internal sealed class BaseSelectionMutationProcessor(
         BaseProvisionalAppliedAtomicMutation applied)
     {
         bool strict = HasSubjectWork(plan);
-        if (!string.Equals(plan.PlanDigest, applied.PlanDigest, StringComparison.Ordinal) || applied.Facts.Length != plan.Items.Length)
+        if (!string.Equals(plan.PlanDigest, applied.PlanDigest, StringComparison.Ordinal) || applied.Facts.Length != plan.Items.Length
+            || !BaseTextAtomicMutationContract.AppliedMatches(plan.Text, prepared.Text, applied.Text, applied.Facts))
             return false;
         for (int index = 0; index < plan.Items.Length; index++)
         {

@@ -571,6 +571,8 @@ public sealed record BaseAtomicMutationPlan
     public BaseFinalizedModuleMutationExtension? Module { get; init; }
     /// <summary>Gets the Runtime-finalized retirement projection plan.</summary>
     public BaseSubjectRetirementProjectionPlan? SubjectRetirement { get; init; }
+    /// <summary>Gets Runtime-owned text projection intent.</summary>
+    public BaseFinalizedTextMutationExtension? Text { get; init; }
     /// <summary>Gets the complete immutable execution limits.</summary>
     public required BaseAtomicMutationExecutionLimits Limits { get; init; }
 }
@@ -908,6 +910,8 @@ public sealed record BasePreparedAtomicMutation
     public required BasePreparedAtomicMutationAccounting Accounting { get; init; }
     /// <summary>Gets provider-prepared retirement evidence.</summary>
     public BaseSubjectRetirementPreparedEvidence? SubjectRetirement { get; init; }
+    /// <summary>Gets provider preparation evidence for text projection intent.</summary>
+    public BasePreparedTextMutationEvidence? Text { get; init; }
 }
 
 /// <summary>Classifies one prepared generation transition.</summary>
@@ -994,6 +998,8 @@ public sealed record BaseProvisionalAppliedAtomicMutation
     public required BaseProvisionalAtomicMutationAccounting Accounting { get; init; }
     /// <summary>Gets applied retirement projection evidence.</summary>
     public BaseSubjectRetirementProvisionalEvidence? SubjectRetirement { get; init; }
+    /// <summary>Gets revision-bearing provisional text projection evidence.</summary>
+    public BaseAppliedTextMutationEvidence? Text { get; init; }
 }
 
 /// <summary>Contains Runtime-owned result and receipt authority produced before provider commit.</summary>

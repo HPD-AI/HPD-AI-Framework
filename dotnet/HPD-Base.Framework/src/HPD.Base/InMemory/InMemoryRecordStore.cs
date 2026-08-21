@@ -3707,6 +3707,11 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             }
             long retirementEvidenceBytes=BaseSubjectCanonicalRetainedWork.MeasureRetirementPreparedEvidence(preparedRetirement);
             evidenceBytes=checked(evidenceBytes+retirementEvidenceBytes);transient=checked(transient+retirementEvidenceBytes);
+            ImmutableArray<BasePreparedTextIndexEvidence> preparedTextIndexes = BaseTextAtomicMutationContract.Indexes(plan.Text, (collectionId, indexId) =>
+                _working.TextProjections.GetValueOrDefault(collectionId + "\n" + indexId)?.Generation ?? 1);
+            BasePreparedTextMutationEvidence? preparedText = BaseTextAtomicMutationContract.Prepare(plan.Text, preparedTextIndexes);
+            long textEvidenceBytes = preparedText?.EvidenceBytes ?? 0;
+            evidenceBytes = checked(evidenceBytes + textEvidenceBytes); transient = checked(transient + textEvidenceBytes);
             int retirementReads=preparedRetirement?.Items.Length??0;
             if(retirementReads>plan.Limits.MaximumRetirementBarrierReads||retirementReads>plan.Limits.MaximumRetirementProjections
                 ||retirementEvidenceBytes>plan.Limits.MaximumRetirementEvidenceBytes||evidenceBytes>plan.Limits.MaximumEvidenceBytes||transient>plan.Limits.MaximumTransientBytes)
@@ -3732,6 +3737,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 SubjectValidations = validationEvidence.MoveToImmutable(),
                 ReadIntervals = intervals.ToImmutable(),
                 SubjectRetirement=preparedRetirement,
+                Text = preparedText,
                 Accounting = new BasePreparedAtomicMutationAccounting
                 {
                     AuthorityReads = authorityReads,
@@ -4296,6 +4302,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 Facts = facts.MoveToImmutable(),
                 Generations = generations,
                 SubjectRetirement = appliedRetirement,
+                Text = BaseTextAtomicMutationContract.Apply(plan.Text, materialized, prepared.Text?.Indexes ?? []),
                 Accounting = new BaseProvisionalAtomicMutationAccounting
                 {
                     WrittenBytes = writtenBytes,
