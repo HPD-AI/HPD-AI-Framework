@@ -225,9 +225,29 @@ public sealed partial class SqliteRecordStore
         SqliteActivationRow? row = await ReadActivationAsync(connection, transaction, request.ActivationId, cancellationToken).ConfigureAwait(false);
         if (row is null)
             return ActivationFailure<BaseActivationTransitionResult>("base.activation.notFound", OperationStatus.NotFound, ErrorCategory.NotFound);
+        BaseEffectExecutionAuthority? storedEffect = await ReadEffectAsync(connection, transaction, row.ActivationId, cancellationToken).ConfigureAwait(false);
+        if (request is BaseActivationEffectHeartbeatRequest effectHeartbeat)
+        {
+            SqliteExecutorRow? executor = storedEffect is null ? null : await ReadExecutorAsync(connection, transaction,
+                storedEffect.Executor.ApplicationId, storedEffect.Executor.HostId, storedEffect.Executor.ProcessIncarnationId, cancellationToken).ConfigureAwait(false);
+            if (row.State != BaseActivationState.EffectStarted || storedEffect is null || !SqliteEffectMatches(storedEffect, effectHeartbeat.Effect) ||
+                storedEffect.HeartbeatRevision != effectHeartbeat.ExpectedHeartbeatRevision || effectHeartbeat.ExtensionMilliseconds <= 0 ||
+                executor is null || executor.Retired || !SqliteExecutorMatches(executor.Authority, storedEffect.Executor) || executor.Heartbeat.HeartbeatExpiresAt <= request.AcceptedTime.CapturedUtc)
+                return ActivationFailure<BaseActivationTransitionResult>("base.activation.effectLost", OperationStatus.Conflict, ErrorCategory.Conflict);
+            BaseEffectExecutionAuthority replacement = SqliteEffect(storedEffect.Claim, storedEffect.Executor, storedEffect.EffectStartGeneration,
+                checked(storedEffect.HeartbeatRevision + 1), checked(request.AcceptedTime.CapturedUtc + effectHeartbeat.ExtensionMilliseconds));
+            await WriteEffectAsync(connection, transaction, replacement, cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return OperationResults.Ok(new BaseActivationTransitionResult
+            {
+                State = row.State, Generation = row.Generation, ControlChecksum = row.ControlChecksum.ToImmutableArray(),
+                Accounting = ActivationAccounting(1, 128), Disposition = BaseMutationRequestDisposition.Committed, Effect = replacement,
+            });
+        }
         BaseActivationState state;
         byte[]? result = null;
         BaseActivationClaimAuthority? claim = null;
+        BaseEffectExecutionAuthority? resultingEffect = null;
         if (request is BaseActivationCompleteRequest complete)
         {
             claim = complete.Claim;
@@ -244,6 +264,35 @@ public sealed partial class SqliteRecordStore
         }
         else if (request is BaseActivationCancelRequest cancel && cancel.ExpectedGeneration == row.Generation)
             state = BaseActivationState.Cancelled;
+        else if (request is BaseActivationBeginEffectRequest begin)
+        {
+            SqliteExecutorRow? executor = await ReadExecutorAsync(connection, transaction, begin.Executor.ApplicationId,
+                begin.Executor.HostId, begin.Executor.ProcessIncarnationId, cancellationToken).ConfigureAwait(false);
+            if (!SqliteClaimMatches(row, begin.Claim) || begin.HeartbeatMilliseconds <= 0 || executor is null || executor.Retired ||
+                !SqliteExecutorMatches(executor.Authority, begin.Executor) || !SqliteHeartbeatsEqual(executor.Heartbeat, begin.ExecutorHeartbeat) ||
+                executor.Heartbeat.HeartbeatExpiresAt <= request.AcceptedTime.CapturedUtc)
+                return ActivationFailure<BaseActivationTransitionResult>("base.activation.executorLost", OperationStatus.Conflict, ErrorCategory.Conflict);
+            state = BaseActivationState.EffectStarted;
+            resultingEffect = SqliteEffect(begin.Claim, begin.Executor, checked(row.Generation + 1), 1,
+                checked(request.AcceptedTime.CapturedUtc + begin.HeartbeatMilliseconds));
+        }
+        else if (request is BaseActivationCompleteEffectRequest completeEffect && row.State == BaseActivationState.EffectStarted &&
+            storedEffect is not null && SqliteEffectMatches(storedEffect, completeEffect.Effect))
+        {
+            if (!CryptographicOperations.FixedTimeEquals(SHA256.HashData(completeEffect.CanonicalResult.AsSpan()), completeEffect.ResultChecksum.AsSpan()))
+                return ActivationFailure<BaseActivationTransitionResult>("base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+            state = BaseActivationState.Succeeded; result = completeEffect.CanonicalResult.ToArray();
+        }
+        else if (request is BaseActivationRecoverEffectRequest recover && row.State == BaseActivationState.EffectStarted &&
+            storedEffect is not null && SqliteEffectMatches(storedEffect, recover.Effect) && storedEffect.HeartbeatExpiresAt <= request.AcceptedTime.CapturedUtc)
+        {
+            SqliteExecutorRow? executor = await ReadExecutorAsync(connection, transaction, storedEffect.Executor.ApplicationId,
+                storedEffect.Executor.HostId, storedEffect.Executor.ProcessIncarnationId, cancellationToken).ConfigureAwait(false);
+            if (executor is not null && !executor.Retired && SqliteExecutorMatches(executor.Authority, storedEffect.Executor) &&
+                executor.Heartbeat.HeartbeatExpiresAt > request.AcceptedTime.CapturedUtc)
+                return ActivationFailure<BaseActivationTransitionResult>("base.activation.effectOwned", OperationStatus.Conflict, ErrorCategory.Conflict);
+            state = BaseActivationState.OutcomeUnknown;
+        }
         else
             return ActivationFailure<BaseActivationTransitionResult>("base.activation.claimLost", OperationStatus.Conflict, ErrorCategory.Conflict);
         if (claim is not null && !SqliteClaimMatches(row, claim))
@@ -260,12 +309,13 @@ public sealed partial class SqliteRecordStore
         command.Parameters.Add("$checksum", SqliteType.Blob).Value = control; command.Parameters.AddWithValue("$id", row.ActivationId); command.Parameters.AddWithValue("$expected", row.Generation);
         if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
             return ActivationFailure<BaseActivationTransitionResult>("base.activation.claimLost", OperationStatus.Conflict, ErrorCategory.Conflict);
+        if (resultingEffect is not null) await WriteEffectAsync(connection, transaction, resultingEffect, cancellationToken).ConfigureAwait(false);
         await IncrementActivationGenerationAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return OperationResults.Ok(new BaseActivationTransitionResult
         {
             State = state, Generation = generation, ControlChecksum = control.ToImmutableArray(),
-            Accounting = ActivationAccounting(1, 64), Disposition = BaseMutationRequestDisposition.Committed,
+            Accounting = ActivationAccounting(1, 64), Disposition = BaseMutationRequestDisposition.Committed, Effect = resultingEffect,
         });
     }
 
@@ -368,6 +418,63 @@ public sealed partial class SqliteRecordStore
         }, reader.GetInt64(8) != 0);
     }
 
+    private async ValueTask<BaseEffectExecutionAuthority?> ReadEffectAsync(
+        SqliteConnection connection, SqliteTransaction transaction, string activationId, CancellationToken cancellationToken)
+    {
+        await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction;
+        command.CommandText = $"SELECT claim_attempt,claim_epoch,claim_fence,claim_worker,cancellation_generation,claim_store_id,claim_restore_epoch,definition_checksum,executor_application,executor_host,executor_process,executor_generation,executor_store_id,executor_restore_epoch,worker_set_checksum,executor_checksum,effect_start_generation,heartbeat_revision,heartbeat_expires_at,effect_checksum FROM {_names.ActivationEffects} WHERE activation_id=$id;";
+        command.Parameters.AddWithValue("$id", activationId);
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) return null;
+        var claim = new BaseActivationClaimAuthority
+        {
+            ActivationId = activationId, AttemptNumber = reader.GetInt32(0), ClaimEpoch = reader.GetInt64(1), FencingToken = ((byte[])reader[2]).ToImmutableArray(),
+            WorkerIdentity = reader.GetString(3), CancellationGeneration = reader.GetInt64(4), StoreInstanceId = reader.GetString(5),
+            RestoreEpoch = reader.GetInt64(6), DefinitionChecksum = ((byte[])reader[7]).ToImmutableArray(),
+        };
+        var executor = new BaseExecutorIncarnationAuthority
+        {
+            ApplicationId = reader.GetString(8), HostId = reader.GetString(9), ProcessIncarnationId = reader.GetString(10),
+            ExecutorGeneration = reader.GetInt64(11), StoreInstanceId = reader.GetString(12), RestoreEpoch = reader.GetInt64(13),
+            WorkerDefinitionSetChecksum = ((byte[])reader[14]).ToImmutableArray(), Checksum = ((byte[])reader[15]).ToImmutableArray(),
+        };
+        return new BaseEffectExecutionAuthority
+        {
+            Claim = claim, Executor = executor, EffectStartGeneration = reader.GetInt64(16), HeartbeatRevision = reader.GetInt64(17),
+            HeartbeatExpiresAt = reader.GetInt64(18), Checksum = ((byte[])reader[19]).ToImmutableArray(),
+        };
+    }
+
+    private async ValueTask WriteEffectAsync(SqliteConnection connection, SqliteTransaction transaction,
+        BaseEffectExecutionAuthority effect, CancellationToken cancellationToken)
+    {
+        await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction;
+        command.CommandText = $"INSERT OR REPLACE INTO {_names.ActivationEffects}(activation_id,claim_attempt,claim_epoch,claim_fence,claim_worker,cancellation_generation,claim_store_id,claim_restore_epoch,definition_checksum,executor_application,executor_host,executor_process,executor_generation,executor_store_id,executor_restore_epoch,worker_set_checksum,executor_checksum,effect_start_generation,heartbeat_revision,heartbeat_expires_at,effect_checksum) VALUES($id,$attempt,$epoch,$fence,$worker,$cancel,$claim_store,$claim_restore,$definition,$application,$host,$process,$generation,$executor_store,$executor_restore,$worker_set,$executor_checksum,$start,$revision,$expires,$effect_checksum);";
+        command.Parameters.AddWithValue("$id", effect.Claim.ActivationId); command.Parameters.AddWithValue("$attempt", effect.Claim.AttemptNumber); command.Parameters.AddWithValue("$epoch", effect.Claim.ClaimEpoch);
+        command.Parameters.Add("$fence", SqliteType.Blob).Value = effect.Claim.FencingToken.ToArray(); command.Parameters.AddWithValue("$worker", effect.Claim.WorkerIdentity);
+        command.Parameters.AddWithValue("$cancel", effect.Claim.CancellationGeneration); command.Parameters.AddWithValue("$claim_store", effect.Claim.StoreInstanceId); command.Parameters.AddWithValue("$claim_restore", effect.Claim.RestoreEpoch);
+        command.Parameters.Add("$definition", SqliteType.Blob).Value = effect.Claim.DefinitionChecksum.ToArray(); command.Parameters.AddWithValue("$application", effect.Executor.ApplicationId);
+        command.Parameters.AddWithValue("$host", effect.Executor.HostId); command.Parameters.AddWithValue("$process", effect.Executor.ProcessIncarnationId); command.Parameters.AddWithValue("$generation", effect.Executor.ExecutorGeneration);
+        command.Parameters.AddWithValue("$executor_store", effect.Executor.StoreInstanceId); command.Parameters.AddWithValue("$executor_restore", effect.Executor.RestoreEpoch);
+        command.Parameters.Add("$worker_set", SqliteType.Blob).Value = effect.Executor.WorkerDefinitionSetChecksum.ToArray(); command.Parameters.Add("$executor_checksum", SqliteType.Blob).Value = effect.Executor.Checksum.ToArray();
+        command.Parameters.AddWithValue("$start", effect.EffectStartGeneration); command.Parameters.AddWithValue("$revision", effect.HeartbeatRevision); command.Parameters.AddWithValue("$expires", effect.HeartbeatExpiresAt);
+        command.Parameters.Add("$effect_checksum", SqliteType.Blob).Value = effect.Checksum.ToArray(); await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static BaseEffectExecutionAuthority SqliteEffect(BaseActivationClaimAuthority claim, BaseExecutorIncarnationAuthority executor,
+        long generation, long revision, long expiresAt)
+    {
+        byte[] checksum = ActivationHash($"base.activation.effect.v2\0{claim.ActivationId}\n{Convert.ToHexString(claim.FencingToken.AsSpan())}\n{Convert.ToHexString(executor.Checksum.AsSpan())}\n{generation}\n{revision}\n{expiresAt}");
+        return new BaseEffectExecutionAuthority { Claim = claim, Executor = executor, EffectStartGeneration = generation,
+            HeartbeatRevision = revision, HeartbeatExpiresAt = expiresAt, Checksum = checksum.ToImmutableArray() };
+    }
+
+    private static bool SqliteEffectMatches(BaseEffectExecutionAuthority left, BaseEffectExecutionAuthority right) =>
+        left.EffectStartGeneration == right.EffectStartGeneration && left.HeartbeatRevision == right.HeartbeatRevision && left.HeartbeatExpiresAt == right.HeartbeatExpiresAt &&
+        left.Claim.ActivationId == right.Claim.ActivationId && left.Claim.AttemptNumber == right.Claim.AttemptNumber && left.Claim.ClaimEpoch == right.Claim.ClaimEpoch &&
+        CryptographicOperations.FixedTimeEquals(left.Claim.FencingToken.AsSpan(), right.Claim.FencingToken.AsSpan()) &&
+        SqliteExecutorMatches(left.Executor, right.Executor) && CryptographicOperations.FixedTimeEquals(left.Checksum.AsSpan(), right.Checksum.AsSpan());
+
     private async ValueTask WriteExecutorAsync(SqliteConnection connection, SqliteTransaction transaction,
         BaseExecutorIncarnationAuthority authority, BaseExecutorHeartbeatObservation heartbeat, bool retired, CancellationToken cancellationToken)
     {
@@ -391,6 +498,11 @@ public sealed partial class SqliteRecordStore
         left.ApplicationId == right.ApplicationId && left.HostId == right.HostId && left.ProcessIncarnationId == right.ProcessIncarnationId &&
         left.ExecutorGeneration == right.ExecutorGeneration && left.StoreInstanceId == right.StoreInstanceId && left.RestoreEpoch == right.RestoreEpoch &&
         CryptographicOperations.FixedTimeEquals(left.WorkerDefinitionSetChecksum.AsSpan(), right.WorkerDefinitionSetChecksum.AsSpan()) &&
+        CryptographicOperations.FixedTimeEquals(left.Checksum.AsSpan(), right.Checksum.AsSpan());
+
+    private static bool SqliteHeartbeatsEqual(BaseExecutorHeartbeatObservation left, BaseExecutorHeartbeatObservation right) =>
+        left.HeartbeatRevision == right.HeartbeatRevision && left.HeartbeatExpiresAt == right.HeartbeatExpiresAt &&
+        CryptographicOperations.FixedTimeEquals(left.ExecutorAuthorityChecksum.AsSpan(), right.ExecutorAuthorityChecksum.AsSpan()) &&
         CryptographicOperations.FixedTimeEquals(left.Checksum.AsSpan(), right.Checksum.AsSpan());
 
     private sealed record SqliteExecutorRow(BaseExecutorIncarnationAuthority Authority, BaseExecutorHeartbeatObservation Heartbeat, bool Retired);

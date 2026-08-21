@@ -133,6 +133,68 @@ public sealed class AtomicExecutionTests
         terminalObservation.Earliest.Should().BeNull();
     }
 
+    [Fact]
+    public async Task At_most_once_effect_requires_live_executor_and_recovers_only_to_outcome_unknown()
+    {
+        var store = new InMemoryRecordStore();
+        BaseAtomicMutationExecutionLimits mutationLimits = ModuleLimits();
+        BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync(
+            "activation-test", [], mutationLimits)).Value!;
+        (await store.ExecuteAtomicAsync(new ActivationCreationProbe(authority, mutationLimits), ExecutionRequest))
+            .Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+        BaseActivationExecutionLimits limits = ActivationLimits();
+        var scope = new BaseOwnedScopeSeekAuthority
+        {
+            Kind = BaseSubjectScopeKind.Global,
+            ProtectedIndexDigest = System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes($"base.activation.scope.v2\0{(int)BaseSubjectScopeKind.Global}\n")).ToImmutableArray(),
+        };
+        BaseActivationDefinitionKey definition = new() { Id = "test.activation", Version = 1, Checksum = new byte[32].ToImmutableArray() };
+        BaseActivationDueObservation observed = (await store.ObserveDueAsync(new BaseActivationDueObservationRequest
+        {
+            ApplicationId = "activation-test", WorkerModuleId = "test", Definitions = [definition], Scope = scope,
+            AcceptedTime = AcceptedTime(10), MaximumCandidates = 8, Limits = limits,
+        })).Value!;
+        var worker = new BaseActivationWorkerAuthority
+        {
+            ApplicationId = "activation-test", ModuleId = "test", WorkerIdentity = "worker-1",
+            Definitions = [definition], Scope = scope, Checksum = new byte[32].ToImmutableArray(),
+        };
+        var claimed = (BaseActivationClaimedResult)(await store.TryClaimNextAsync(new BaseActivationClaimRequest
+        {
+            Observation = observed.Token, Worker = worker, AcceptedTime = AcceptedTime(10), LeaseMilliseconds = 1_000,
+            Identity = RequestIdentity("effect-claim"), Limits = limits,
+        })).Value!;
+        BaseExecutorRegistrationResult executor = (await store.RegisterExecutorAsync(new BaseExecutorRegistrationRequest
+        {
+            ApplicationId = "activation-test", HostId = "host", ProcessIncarnationId = "process",
+            WorkerDefinitionSetChecksum = new byte[32].ToImmutableArray(), RequestedHeartbeatMilliseconds = 100,
+            AcceptedTime = AcceptedTime(20), Identity = RequestIdentity("executor"), Limits = limits,
+        })).Value!;
+        BaseActivationTransitionResult started = (await store.TransitionAsync(new BaseActivationBeginEffectRequest
+        {
+            ActivationId = claimed.Claim.ActivationId, Claim = claimed.Claim, Executor = executor.Executor,
+            ExecutorHeartbeat = executor.Heartbeat, HeartbeatMilliseconds = 100, AcceptedTime = AcceptedTime(20),
+            Identity = RequestIdentity("effect-start"), Limits = limits,
+        })).Value!;
+        started.State.Should().Be(BaseActivationState.EffectStarted);
+        started.Effect.Should().NotBeNull();
+
+        OperationResult<BaseActivationTransitionResult> premature = await store.TransitionAsync(new BaseActivationRecoverEffectRequest
+        {
+            ActivationId = claimed.Claim.ActivationId, Effect = started.Effect!, AcceptedTime = AcceptedTime(50),
+            Identity = RequestIdentity("premature"), Limits = limits,
+        });
+        premature.Status.Should().Be(OperationStatus.Conflict);
+
+        BaseActivationTransitionResult unknown = (await store.TransitionAsync(new BaseActivationRecoverEffectRequest
+        {
+            ActivationId = claimed.Claim.ActivationId, Effect = started.Effect!, AcceptedTime = AcceptedTime(200),
+            Identity = RequestIdentity("recover"), Limits = limits,
+        })).Value!;
+        unknown.State.Should().Be(BaseActivationState.OutcomeUnknown);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

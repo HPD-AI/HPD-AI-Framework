@@ -268,8 +268,30 @@ internal sealed partial class InMemoryRecordStore
             if (!current.Activations.TryGetValue(request.ActivationId, out InMemoryActivationRow? row))
                 return ActivationFailure<BaseActivationTransitionResult>("base.activation.notFound", OperationStatus.NotFound, ErrorCategory.NotFound);
 
+            if (request is BaseActivationEffectHeartbeatRequest effectHeartbeat)
+            {
+                if (row.State != BaseActivationState.EffectStarted || row.Effect is null ||
+                    !EffectMatches(row.Effect, effectHeartbeat.Effect) ||
+                    row.Effect.HeartbeatRevision != effectHeartbeat.ExpectedHeartbeatRevision || effectHeartbeat.ExtensionMilliseconds <= 0 ||
+                    !CurrentExecutorAllows(current, row.Effect.Executor, request.AcceptedTime.CapturedUtc))
+                    return ActivationFailure<BaseActivationTransitionResult>("base.activation.effectLost", OperationStatus.Conflict, ErrorCategory.Conflict);
+                BaseEffectExecutionAuthority replacement = Effect(row.Effect.Claim, row.Effect.Executor,
+                    row.Effect.EffectStartGeneration, checked(row.Effect.HeartbeatRevision + 1),
+                    checked(request.AcceptedTime.CapturedUtc + effectHeartbeat.ExtensionMilliseconds));
+                var heartbeatState = current.Clone();
+                heartbeatState.Activations[row.Payload.ActivationId] = heartbeatState.Activations[row.Payload.ActivationId] with { Effect = replacement };
+                Volatile.Write(ref _publishedState, heartbeatState);
+                return OperationResults.Ok(new BaseActivationTransitionResult
+                {
+                    State = row.State, Generation = row.Generation, ControlChecksum = row.ControlChecksum.ToImmutableArray(),
+                    Accounting = EmptyActivationAccounting with { IndexOperations = 1 }, Disposition = BaseMutationRequestDisposition.Committed,
+                    Effect = replacement,
+                });
+            }
+
             BaseActivationState resultingState;
             byte[]? result = null;
+            BaseEffectExecutionAuthority? resultingEffect = null;
             switch (request)
             {
                 case BaseActivationCompleteRequest complete when ClaimMatches(row, complete.Claim):
@@ -290,6 +312,25 @@ internal sealed partial class InMemoryRecordStore
                 case BaseActivationCancelRequest cancel when row.Generation == cancel.ExpectedGeneration:
                     resultingState = BaseActivationState.Cancelled;
                     break;
+                case BaseActivationBeginEffectRequest begin when ClaimMatches(row, begin.Claim) && begin.HeartbeatMilliseconds > 0 &&
+                    CurrentExecutorAllows(current, begin.Executor, request.AcceptedTime.CapturedUtc) &&
+                    HeartbeatsEqual(current.Executors[ExecutorKey(begin.Executor.ApplicationId, begin.Executor.HostId, begin.Executor.ProcessIncarnationId)].Heartbeat, begin.ExecutorHeartbeat):
+                    resultingState = BaseActivationState.EffectStarted;
+                    resultingEffect = Effect(begin.Claim, begin.Executor, checked(row.Generation + 1), 1,
+                        checked(request.AcceptedTime.CapturedUtc + begin.HeartbeatMilliseconds));
+                    break;
+                case BaseActivationCompleteEffectRequest completeEffect when row.State == BaseActivationState.EffectStarted && row.Effect is not null &&
+                    EffectMatches(row.Effect, completeEffect.Effect):
+                    if (!CryptographicOperations.FixedTimeEquals(SHA256.HashData(completeEffect.CanonicalResult.AsSpan()), completeEffect.ResultChecksum.AsSpan()))
+                        return ActivationFailure<BaseActivationTransitionResult>("base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+                    resultingState = BaseActivationState.Succeeded;
+                    result = completeEffect.CanonicalResult.ToArray();
+                    break;
+                case BaseActivationRecoverEffectRequest recover when row.State == BaseActivationState.EffectStarted && row.Effect is not null &&
+                    EffectMatches(row.Effect, recover.Effect) && row.Effect.HeartbeatExpiresAt <= request.AcceptedTime.CapturedUtc &&
+                    !CurrentExecutorAllows(current, row.Effect.Executor, request.AcceptedTime.CapturedUtc):
+                    resultingState = BaseActivationState.OutcomeUnknown;
+                    break;
                 default:
                     return ActivationFailure<BaseActivationTransitionResult>("base.activation.claimLost", OperationStatus.Conflict, ErrorCategory.Conflict);
             }
@@ -304,6 +345,7 @@ internal sealed partial class InMemoryRecordStore
                 Claim = null,
                 Lease = null,
                 CanonicalResult = result,
+                Effect = resultingState == BaseActivationState.EffectStarted ? resultingEffect : null,
                 EffectiveDueAt = resultingState == BaseActivationState.RetryPending
                     ? ((BaseActivationFailRequest)request).RetryDueAt!.Value
                     : row.EffectiveDueAt,
@@ -318,6 +360,7 @@ internal sealed partial class InMemoryRecordStore
                 ControlChecksum = checksum.ToImmutableArray(),
                 Accounting = EmptyActivationAccounting with { ReadIntervals = 0, IndexOperations = 1 },
                 Disposition = BaseMutationRequestDisposition.Committed,
+                Effect = resultingEffect,
             });
         }
         finally
@@ -445,6 +488,38 @@ internal sealed partial class InMemoryRecordStore
         left.StoreInstanceId == right.StoreInstanceId && left.RestoreEpoch == right.RestoreEpoch &&
         CryptographicOperations.FixedTimeEquals(left.WorkerDefinitionSetChecksum.AsSpan(), right.WorkerDefinitionSetChecksum.AsSpan()) &&
         CryptographicOperations.FixedTimeEquals(left.Checksum.AsSpan(), right.Checksum.AsSpan());
+
+    private static bool HeartbeatsEqual(BaseExecutorHeartbeatObservation left, BaseExecutorHeartbeatObservation right) =>
+        left.HeartbeatRevision == right.HeartbeatRevision && left.HeartbeatExpiresAt == right.HeartbeatExpiresAt &&
+        CryptographicOperations.FixedTimeEquals(left.ExecutorAuthorityChecksum.AsSpan(), right.ExecutorAuthorityChecksum.AsSpan()) &&
+        CryptographicOperations.FixedTimeEquals(left.Checksum.AsSpan(), right.Checksum.AsSpan());
+
+    private static bool CurrentExecutorAllows(InMemoryStoreState state, BaseExecutorIncarnationAuthority authority, long now) =>
+        state.Executors.TryGetValue(ExecutorKey(authority.ApplicationId, authority.HostId, authority.ProcessIncarnationId), out InMemoryExecutorRow? row) &&
+        !row.Retired && ExecutorMatches(row.Authority, authority) && row.Heartbeat.HeartbeatExpiresAt > now;
+
+    private static BaseEffectExecutionAuthority Effect(
+        BaseActivationClaimAuthority claim, BaseExecutorIncarnationAuthority executor, long generation, long revision, long expiresAt)
+    {
+        byte[] checksum = Hash($"base.activation.effect.v2\0{claim.ActivationId}\n{Convert.ToHexString(claim.FencingToken.AsSpan())}\n{Convert.ToHexString(executor.Checksum.AsSpan())}\n{generation}\n{revision}\n{expiresAt}");
+        return new BaseEffectExecutionAuthority
+        {
+            Claim = claim, Executor = executor, EffectStartGeneration = generation, HeartbeatRevision = revision,
+            HeartbeatExpiresAt = expiresAt, Checksum = checksum.ToImmutableArray(),
+        };
+    }
+
+    private static bool EffectMatches(BaseEffectExecutionAuthority left, BaseEffectExecutionAuthority right) =>
+        left.EffectStartGeneration == right.EffectStartGeneration && left.HeartbeatRevision == right.HeartbeatRevision &&
+        left.HeartbeatExpiresAt == right.HeartbeatExpiresAt && ClaimAuthoritiesEqual(left.Claim, right.Claim) &&
+        ExecutorMatches(left.Executor, right.Executor) && CryptographicOperations.FixedTimeEquals(left.Checksum.AsSpan(), right.Checksum.AsSpan());
+
+    private static bool ClaimAuthoritiesEqual(BaseActivationClaimAuthority left, BaseActivationClaimAuthority right) =>
+        left.ActivationId == right.ActivationId && left.AttemptNumber == right.AttemptNumber && left.ClaimEpoch == right.ClaimEpoch &&
+        left.WorkerIdentity == right.WorkerIdentity && left.CancellationGeneration == right.CancellationGeneration &&
+        left.StoreInstanceId == right.StoreInstanceId && left.RestoreEpoch == right.RestoreEpoch &&
+        CryptographicOperations.FixedTimeEquals(left.FencingToken.AsSpan(), right.FencingToken.AsSpan()) &&
+        CryptographicOperations.FixedTimeEquals(left.DefinitionChecksum.AsSpan(), right.DefinitionChecksum.AsSpan());
 
     private static List<InMemoryActivationRow> EligibleRows(
         InMemoryStoreState state,

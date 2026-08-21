@@ -285,6 +285,17 @@ CREATE TABLE IF NOT EXISTS {_names.Executors} (
   retired INTEGER NOT NULL CHECK(retired IN (0,1)),
   PRIMARY KEY(application_id,host_id,process_incarnation_id)
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.ActivationEffects} (
+  activation_id TEXT NOT NULL PRIMARY KEY,
+  claim_attempt INTEGER NOT NULL, claim_epoch INTEGER NOT NULL, claim_fence BLOB NOT NULL CHECK(length(claim_fence)=32),
+  claim_worker TEXT NOT NULL, cancellation_generation INTEGER NOT NULL, claim_store_id TEXT NOT NULL,
+  claim_restore_epoch INTEGER NOT NULL, definition_checksum BLOB NOT NULL CHECK(length(definition_checksum)=32),
+  executor_application TEXT NOT NULL, executor_host TEXT NOT NULL, executor_process TEXT NOT NULL,
+  executor_generation INTEGER NOT NULL, executor_store_id TEXT NOT NULL, executor_restore_epoch INTEGER NOT NULL,
+  worker_set_checksum BLOB NOT NULL CHECK(length(worker_set_checksum)=32), executor_checksum BLOB NOT NULL CHECK(length(executor_checksum)=32),
+  effect_start_generation INTEGER NOT NULL, heartbeat_revision INTEGER NOT NULL, heartbeat_expires_at INTEGER NOT NULL,
+  effect_checksum BLOB NOT NULL CHECK(length(effect_checksum)=32)
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.ModuleMutationDefinitions} (
   operation_id TEXT NOT NULL, operation_version INTEGER NOT NULL CHECK(operation_version > 0),
   owning_module_id TEXT NOT NULL, operation_checksum TEXT NOT NULL CHECK(length(operation_checksum)=64),
@@ -622,6 +633,17 @@ CREATE TABLE IF NOT EXISTS {_names.Executors} (
   heartbeat_checksum BLOB NOT NULL CHECK(length(heartbeat_checksum) = 32),
   retired INTEGER NOT NULL CHECK(retired IN (0,1)),
   PRIMARY KEY(application_id,host_id,process_incarnation_id)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.ActivationEffects} (
+  activation_id TEXT NOT NULL PRIMARY KEY,
+  claim_attempt INTEGER NOT NULL, claim_epoch INTEGER NOT NULL, claim_fence BLOB NOT NULL CHECK(length(claim_fence)=32),
+  claim_worker TEXT NOT NULL, cancellation_generation INTEGER NOT NULL, claim_store_id TEXT NOT NULL,
+  claim_restore_epoch INTEGER NOT NULL, definition_checksum BLOB NOT NULL CHECK(length(definition_checksum)=32),
+  executor_application TEXT NOT NULL, executor_host TEXT NOT NULL, executor_process TEXT NOT NULL,
+  executor_generation INTEGER NOT NULL, executor_store_id TEXT NOT NULL, executor_restore_epoch INTEGER NOT NULL,
+  worker_set_checksum BLOB NOT NULL CHECK(length(worker_set_checksum)=32), executor_checksum BLOB NOT NULL CHECK(length(executor_checksum)=32),
+  effect_start_generation INTEGER NOT NULL, heartbeat_revision INTEGER NOT NULL, heartbeat_expires_at INTEGER NOT NULL,
+  effect_checksum BLOB NOT NULL CHECK(length(effect_checksum)=32)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.ModuleMutationDefinitions} (
   operation_id TEXT NOT NULL, operation_version INTEGER NOT NULL CHECK(operation_version > 0),

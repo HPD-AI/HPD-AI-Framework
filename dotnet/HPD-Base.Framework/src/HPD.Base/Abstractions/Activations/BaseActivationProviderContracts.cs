@@ -340,6 +340,48 @@ public sealed record BaseActivationCancelRequest : BaseActivationTransitionReque
     public required BaseCancellationPropagation Propagation { get; init; }
 }
 
+/// <summary>Requests durable effect-start before one external side effect.</summary>
+public sealed record BaseActivationBeginEffectRequest : BaseActivationTransitionRequest
+{
+    /// <summary>Gets the current activation claim.</summary>
+    public required BaseActivationClaimAuthority Claim { get; init; }
+    /// <summary>Gets the complete current executor incarnation.</summary>
+    public required BaseExecutorIncarnationAuthority Executor { get; init; }
+    /// <summary>Gets the current executor heartbeat observation.</summary>
+    public required BaseExecutorHeartbeatObservation ExecutorHeartbeat { get; init; }
+    /// <summary>Gets the requested effect-heartbeat lifetime.</summary>
+    public required long HeartbeatMilliseconds { get; init; }
+}
+
+/// <summary>Requests renewal of one started external-effect heartbeat.</summary>
+public sealed record BaseActivationEffectHeartbeatRequest : BaseActivationTransitionRequest
+{
+    /// <summary>Gets current effect authority.</summary>
+    public required BaseEffectExecutionAuthority Effect { get; init; }
+    /// <summary>Gets the expected effect-heartbeat revision.</summary>
+    public required long ExpectedHeartbeatRevision { get; init; }
+    /// <summary>Gets the requested heartbeat extension.</summary>
+    public required long ExtensionMilliseconds { get; init; }
+}
+
+/// <summary>Requests successful terminalization of one started external effect.</summary>
+public sealed record BaseActivationCompleteEffectRequest : BaseActivationTransitionRequest
+{
+    /// <summary>Gets current effect authority.</summary>
+    public required BaseEffectExecutionAuthority Effect { get; init; }
+    /// <summary>Gets canonical result bytes.</summary>
+    public required ImmutableArray<byte> CanonicalResult { get; init; }
+    /// <summary>Gets the canonical result checksum.</summary>
+    public required ImmutableArray<byte> ResultChecksum { get; init; }
+}
+
+/// <summary>Requests recovery of an expired effect whose external outcome is unknowable.</summary>
+public sealed record BaseActivationRecoverEffectRequest : BaseActivationTransitionRequest
+{
+    /// <summary>Gets the exact effect authority expected to be abandoned.</summary>
+    public required BaseEffectExecutionAuthority Effect { get; init; }
+}
+
 /// <summary>Contains one committed activation transition.</summary>
 public sealed record BaseActivationTransitionResult
 {
@@ -353,6 +395,8 @@ public sealed record BaseActivationTransitionResult
     public required BaseActivationAccounting Accounting { get; init; }
     /// <summary>Gets duplicate-resolution disposition.</summary>
     public required BaseMutationRequestDisposition Disposition { get; init; }
+    /// <summary>Gets current effect authority for effect-start and heartbeat transitions.</summary>
+    public BaseEffectExecutionAuthority? Effect { get; init; }
 }
 
 /// <summary>Requests registration of one durable worker-process incarnation.</summary>

@@ -188,7 +188,8 @@ internal sealed record InMemoryActivationRow(
     long ClaimEpoch = 0,
     BaseActivationClaimAuthority? Claim = null,
     BaseActivationLeaseObservation? Lease = null,
-    byte[]? CanonicalResult = null)
+    byte[]? CanonicalResult = null,
+    BaseEffectExecutionAuthority? Effect = null)
 {
     internal InMemoryActivationRow DeepClone() => new(
         Payload with
@@ -213,7 +214,21 @@ internal sealed record InMemoryActivationRow(
             DefinitionChecksum = Claim.DefinitionChecksum.ToArray().ToImmutableArray(),
         },
         Lease is null ? null : Lease with { Checksum = Lease.Checksum.ToArray().ToImmutableArray() },
-        CanonicalResult is null ? null : [.. CanonicalResult]);
+        CanonicalResult is null ? null : [.. CanonicalResult],
+        Effect is null ? null : Effect with
+        {
+            Claim = Effect.Claim with
+            {
+                FencingToken = Effect.Claim.FencingToken.ToArray().ToImmutableArray(),
+                DefinitionChecksum = Effect.Claim.DefinitionChecksum.ToArray().ToImmutableArray(),
+            },
+            Executor = Effect.Executor with
+            {
+                WorkerDefinitionSetChecksum = Effect.Executor.WorkerDefinitionSetChecksum.ToArray().ToImmutableArray(),
+                Checksum = Effect.Executor.Checksum.ToArray().ToImmutableArray(),
+            },
+            Checksum = Effect.Checksum.ToArray().ToImmutableArray(),
+        });
 }
 
 internal sealed record InMemorySubjectContractState(
