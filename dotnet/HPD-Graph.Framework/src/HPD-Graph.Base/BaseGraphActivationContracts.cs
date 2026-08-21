@@ -122,7 +122,7 @@ public sealed class BaseGraphActivationDefinition
         ArgumentException.ThrowIfNullOrWhiteSpace(manageGrantId);
         ArgumentException.ThrowIfNullOrWhiteSpace(materializeGrantId);
         byte[] seedBytes = schedule.DefaultInput is { } seed
-            ? JsonSerializer.SerializeToUtf8Bytes(seed)
+            ? Encoding.UTF8.GetBytes(seed.GetRawText())
             : "{}"u8.ToArray();
         byte[] canonicalSeed = BaseGraphActivationRegistration.CanonicalJson(seedBytes);
         BaseGraphActivationInput input = CreateInput($"schedule:{scheduleId}", canonicalSeed);
@@ -229,9 +229,30 @@ public static class BaseGraphActivationRegistration
             definition,
             BaseGraphActivationJsonContext.Default.BaseGraphActivationInput,
             BaseGraphActivationJsonContext.Default.BaseGraphActivationResult,
+            InputBindings(),
+            ResultBindings(),
             services => new BaseGraphActivationHandler(services, retained, graphChecksum));
         return new BaseGraphActivationDefinition(registration, graphChecksum, graph.GraphId, graph.GraphVersion);
     }
+
+    private static IReadOnlyList<BaseModuleDtoPropertyBinding> InputBindings() =>
+    [
+        BaseModuleDtoPropertyBinding.Create<BaseGraphActivationInput, string>("hpd.graph.activation.input.graphId", "graphId", BaseFieldConfidentiality.Internal),
+        BaseModuleDtoPropertyBinding.Create<BaseGraphActivationInput, string>("hpd.graph.activation.input.graphVersion", "graphVersion", BaseFieldConfidentiality.Internal),
+        BaseModuleDtoPropertyBinding.Create<BaseGraphActivationInput, ImmutableArray<byte>>("hpd.graph.activation.input.graphChecksum", "graphChecksum", BaseFieldConfidentiality.Internal),
+        BaseModuleDtoPropertyBinding.Create<BaseGraphActivationInput, string>("hpd.graph.activation.input.executionId", "executionId", BaseFieldConfidentiality.Internal),
+        BaseModuleDtoPropertyBinding.Create<BaseGraphActivationInput, ImmutableArray<byte>>("hpd.graph.activation.input.canonicalInput", "canonicalInput", BaseFieldConfidentiality.Confidential, BaseRecordDisclosure.Omit),
+        BaseModuleDtoPropertyBinding.Create<BaseGraphActivationInput, long?>("hpd.graph.activation.input.logicalIntervalStart", "logicalIntervalStart", BaseFieldConfidentiality.Internal, nullable: true),
+        BaseModuleDtoPropertyBinding.Create<BaseGraphActivationInput, long?>("hpd.graph.activation.input.logicalIntervalEnd", "logicalIntervalEnd", BaseFieldConfidentiality.Internal, nullable: true),
+        BaseModuleDtoPropertyBinding.Create<BaseGraphActivationInput, string?>("hpd.graph.activation.input.checkpointId", "checkpointId", BaseFieldConfidentiality.Internal, nullable: true),
+    ];
+
+    private static IReadOnlyList<BaseModuleDtoPropertyBinding> ResultBindings() =>
+    [
+        BaseModuleDtoPropertyBinding.Create<BaseGraphActivationResult, string>("hpd.graph.activation.result.executionId", "executionId", BaseFieldConfidentiality.Internal),
+        BaseModuleDtoPropertyBinding.Create<BaseGraphActivationResult, BaseGraphActivationOutcome>("hpd.graph.activation.result.outcome", "outcome", BaseFieldConfidentiality.Internal),
+        BaseModuleDtoPropertyBinding.Create<BaseGraphActivationResult, ImmutableArray<byte>>("hpd.graph.activation.result.completedNodesChecksum", "completedNodesChecksum", BaseFieldConfidentiality.Internal),
+    ];
 
     private static byte[] HandlerChecksum(string id, string version, byte[] graphChecksum)
     {
@@ -314,11 +335,14 @@ internal sealed class BaseGraphActivationHandler(
         var graphContext = new GraphContext(executionId, runtimeGraph, services, enableSharedData: true);
         SeedInput(graphContext, input.CanonicalInput.AsSpan());
         graphContext.SharedData?["base.activation.id"] = context.Claim.ActivationId;
-        graphContext.SharedData?["base.activation.occurrenceId"] = context.OccurrenceId;
+        if (context.OccurrenceId is not null)
+            graphContext.SharedData?["base.activation.occurrenceId"] = context.OccurrenceId;
         graphContext.SharedData?["base.activation.requestedDueAt"] = context.RequestedDueAt;
         graphContext.SharedData?["base.activation.effectiveDueAt"] = context.EffectiveDueAt;
-        graphContext.SharedData?["base.activation.logicalIntervalStart"] = input.LogicalIntervalStart;
-        graphContext.SharedData?["base.activation.logicalIntervalEnd"] = input.LogicalIntervalEnd;
+        if (input.LogicalIntervalStart is long intervalStart)
+            graphContext.SharedData?["base.activation.logicalIntervalStart"] = intervalStart;
+        if (input.LogicalIntervalEnd is long intervalEnd)
+            graphContext.SharedData?["base.activation.logicalIntervalEnd"] = intervalEnd;
         var orchestrator = new GraphOrchestrator<GraphContext>(
             services,
             artifactRegistry: services.GetService(typeof(IArtifactRegistry)) as IArtifactRegistry,

@@ -120,6 +120,10 @@ public sealed record BaseActivationDefinition
     public required string InputTypeId { get; init; }
     /// <summary>Gets the L41 result graph-node identity.</summary>
     public required string ResultTypeId { get; init; }
+    /// <summary>Gets the canonical L42 input-field graph checksum.</summary>
+    public ImmutableArray<byte> InputDisclosureChecksum { get; init; }
+    /// <summary>Gets the canonical L42 result-field graph checksum.</summary>
+    public ImmutableArray<byte> ResultDisclosureChecksum { get; init; }
     /// <summary>Gets the complete closed operation-grant authority.</summary>
     public required BaseActivationGrantSet Grants { get; init; }
     /// <summary>Gets exact declared source-grant identities.</summary>
@@ -341,13 +345,17 @@ public sealed class BaseActivationRegistrationIdentity<TInput, TResult> : IBaseS
         int version,
         ReadOnlyMemory<byte> checksum,
         JsonTypeInfo<TInput> input,
-        JsonTypeInfo<TResult> result)
+        JsonTypeInfo<TResult> result,
+        IReadOnlyList<BaseModuleDtoPropertyBinding> inputBindings,
+        IReadOnlyList<BaseModuleDtoPropertyBinding> resultBindings)
     {
         Id = new string(id.AsSpan());
         Version = version;
         Checksum = checksum.ToArray();
         Input = input;
         Result = result;
+        InputBindings = FreezeBindings(inputBindings, typeof(TInput));
+        ResultBindings = FreezeBindings(resultBindings, typeof(TResult));
     }
 
     /// <summary>Gets the definition identity.</summary>
@@ -360,6 +368,10 @@ public sealed class BaseActivationRegistrationIdentity<TInput, TResult> : IBaseS
     public JsonTypeInfo<TInput> Input { get; }
     /// <summary>Gets source-generated result metadata.</summary>
     public JsonTypeInfo<TResult> Result { get; }
+    /// <summary>Gets the exact graph-owned L42 input-property bindings.</summary>
+    public IReadOnlyList<BaseModuleDtoPropertyBinding> InputBindings { get; }
+    /// <summary>Gets the exact graph-owned L42 result-property bindings.</summary>
+    public IReadOnlyList<BaseModuleDtoPropertyBinding> ResultBindings { get; }
     IReadOnlyList<System.Text.Json.Serialization.Metadata.JsonTypeInfo> IBaseSerializerMetadataSource.Roots => [Input, Result];
     bool IBaseSerializerMetadataSource.Generated => false;
     BaseSerializerContextRegistration? IBaseSerializerMetadataSource.Registration => null;
@@ -367,6 +379,18 @@ public sealed class BaseActivationRegistrationIdentity<TInput, TResult> : IBaseS
     IReadOnlyList<BaseSerializerPropertyDeclaration>? IBaseSerializerMetadataSource.SerializerDeclarations => null;
     CollectionDefinition? IBaseSerializerMetadataSource.CollectionDefinition => null;
     void IBaseSerializerMetadataSource.Bind(BaseSerializerMetadataOwner owner) { }
+
+    private static IReadOnlyList<BaseModuleDtoPropertyBinding> FreezeBindings(
+        IReadOnlyList<BaseModuleDtoPropertyBinding> bindings,
+        Type root)
+    {
+        ArgumentNullException.ThrowIfNull(bindings);
+        BaseModuleDtoPropertyBinding[] values = bindings.ToArray();
+        if (values.Any(binding => binding.DeclaringType != root)
+            || values.Select(static binding => binding.StablePropertyId).Distinct(StringComparer.Ordinal).Count() != values.Length)
+            throw new InvalidOperationException("base.activation.definitionInvalid");
+        return Array.AsReadOnly(values);
+    }
 }
 
 /// <summary>Registers one graph-owned activation handler and its closed codecs.</summary>
@@ -397,18 +421,27 @@ public static class BaseActivationDefinitionBuilder
         BaseActivationDefinition definition,
         JsonTypeInfo<TInput> input,
         JsonTypeInfo<TResult> result,
+        IReadOnlyList<BaseModuleDtoPropertyBinding> inputBindings,
+        IReadOnlyList<BaseModuleDtoPropertyBinding> resultBindings,
         Func<IServiceProvider, IBaseActivationHandler<TInput, TResult>> factory)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(input);
         ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(inputBindings);
+        ArgumentNullException.ThrowIfNull(resultBindings);
         ArgumentNullException.ThrowIfNull(factory);
-        BaseActivationDefinition sealedDefinition = BaseActivationContract.Seal(definition);
+        BaseActivationDefinition sealedDefinition = BaseActivationContract.Seal(definition with
+        {
+            InputDisclosureChecksum = DisclosureChecksum(inputBindings),
+            ResultDisclosureChecksum = DisclosureChecksum(resultBindings),
+        });
         return new BaseActivationHandlerRegistration<TInput, TResult>
         {
             Definition = sealedDefinition,
             Identity = new BaseActivationRegistrationIdentity<TInput, TResult>(
-                sealedDefinition.Id, sealedDefinition.Version, sealedDefinition.Checksum.ToArray(), input, result),
+                sealedDefinition.Id, sealedDefinition.Version, sealedDefinition.Checksum.ToArray(), input, result,
+                inputBindings, resultBindings),
             Factory = factory,
         };
     }
@@ -417,18 +450,60 @@ public static class BaseActivationDefinitionBuilder
     public static BaseTransactionalActivationRegistration<TInput, TResult> CreateTransactional<TInput, TResult>(
         BaseActivationDefinition definition,
         JsonTypeInfo<TInput> input,
-        JsonTypeInfo<TResult> result)
+        JsonTypeInfo<TResult> result,
+        IReadOnlyList<BaseModuleDtoPropertyBinding> inputBindings,
+        IReadOnlyList<BaseModuleDtoPropertyBinding> resultBindings)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(input);
         ArgumentNullException.ThrowIfNull(result);
-        BaseActivationDefinition sealedDefinition = BaseActivationContract.Seal(definition);
+        ArgumentNullException.ThrowIfNull(inputBindings);
+        ArgumentNullException.ThrowIfNull(resultBindings);
+        BaseActivationDefinition sealedDefinition = BaseActivationContract.Seal(definition with
+        {
+            InputDisclosureChecksum = DisclosureChecksum(inputBindings),
+            ResultDisclosureChecksum = DisclosureChecksum(resultBindings),
+        });
         return new BaseTransactionalActivationRegistration<TInput, TResult>
         {
             Definition = sealedDefinition,
             Identity = new BaseActivationRegistrationIdentity<TInput, TResult>(
-                sealedDefinition.Id, sealedDefinition.Version, sealedDefinition.Checksum.ToArray(), input, result),
+                sealedDefinition.Id, sealedDefinition.Version, sealedDefinition.Checksum.ToArray(), input, result,
+                inputBindings, resultBindings),
         };
+    }
+
+    private static ImmutableArray<byte> DisclosureChecksum(IReadOnlyList<BaseModuleDtoPropertyBinding> bindings)
+    {
+        ArgumentNullException.ThrowIfNull(bindings);
+        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData("base.activation.disclosure.v1\0"u8);
+        foreach (BaseModuleDtoPropertyBinding binding in bindings.OrderBy(static value => value.PathKey, StringComparer.Ordinal))
+        {
+            Append(hash, binding.PathKey);
+            Append(hash, binding.ApplicationName);
+            Append(hash, binding.DeclaringType.AssemblyQualifiedName ?? binding.DeclaringType.FullName ?? binding.DeclaringType.Name);
+            Append(hash, binding.PropertyType?.AssemblyQualifiedName ?? string.Empty);
+            Append(hash, (int)binding.Confidentiality);
+            Append(hash, (int)binding.RecordDisclosure);
+            Append(hash, binding.Nullable ? 1 : 0);
+        }
+        return hash.GetHashAndReset().ToImmutableArray();
+    }
+
+    private static void Append(IncrementalHash hash, string value)
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes(value);
+        Span<byte> length = stackalloc byte[4];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(length, bytes.Length);
+        hash.AppendData(length); hash.AppendData(bytes);
+    }
+
+    private static void Append(IncrementalHash hash, int value)
+    {
+        Span<byte> bytes = stackalloc byte[4];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(bytes, value);
+        hash.AppendData(bytes);
     }
 }
 
@@ -518,6 +593,8 @@ internal static class BaseActivationContract
             OwningModuleId = new string(source.OwningModuleId.AsSpan()),
             InputTypeId = new string(source.InputTypeId.AsSpan()),
             ResultTypeId = new string(source.ResultTypeId.AsSpan()),
+            InputDisclosureChecksum = source.InputDisclosureChecksum.ToArray().ToImmutableArray(),
+            ResultDisclosureChecksum = source.ResultDisclosureChecksum.ToArray().ToImmutableArray(),
             Grants = CloneGrants(source.Grants),
             SourceGrantIds = source.SourceGrantIds.Order(StringComparer.Ordinal).Select(static value => new string(value.AsSpan())).ToImmutableArray(),
             Retry = source.Retry with
@@ -559,7 +636,9 @@ internal static class BaseActivationContract
         BaseApplicationId.Validate(value.Id, nameof(value.Id));
         BaseApplicationId.Validate(value.OwningModuleId, nameof(value.OwningModuleId));
         ValidateGrants(value.Grants);
-        if (value.Version <= 0 || string.IsNullOrWhiteSpace(value.InputTypeId) || string.IsNullOrWhiteSpace(value.ResultTypeId))
+        if (value.Version <= 0 || string.IsNullOrWhiteSpace(value.InputTypeId) || string.IsNullOrWhiteSpace(value.ResultTypeId)
+            || value.InputDisclosureChecksum.Length != SHA256.HashSizeInBytes
+            || value.ResultDisclosureChecksum.Length != SHA256.HashSizeInBytes)
             throw new InvalidOperationException("base.activation.definitionInvalid");
         if (value.ExecutionClass == BaseActivationExecutionClass.TransactionalOperation
             ? value.TransactionalTarget is null || value.Handler is not null
@@ -580,6 +659,7 @@ internal static class BaseActivationContract
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         Append(hash, "base.activation.definition.v2\0"); Append(hash, value.Id); Append(hash, value.Version);
         Append(hash, value.OwningModuleId); Append(hash, (int)value.ExecutionClass); Append(hash, value.InputTypeId); Append(hash, value.ResultTypeId);
+        Append(hash, value.InputDisclosureChecksum.AsSpan()); Append(hash, value.ResultDisclosureChecksum.AsSpan());
         Append(hash, value.Grants.Enqueue); Append(hash, value.Grants.Observe); Append(hash, value.Grants.Claim);
         Append(hash, value.Grants.Execute); Append(hash, value.Grants.Renew); Append(hash, value.Grants.Complete);
         Append(hash, value.Grants.Fail); Append(hash, value.Grants.Cancel); Append(hash, value.Grants.Inspect);

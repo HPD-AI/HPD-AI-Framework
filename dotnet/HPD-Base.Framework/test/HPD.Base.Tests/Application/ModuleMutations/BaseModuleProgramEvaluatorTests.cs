@@ -827,7 +827,9 @@ public sealed class BaseModuleProgramEvaluatorTests
                     OperationChecksum = Convert.ToHexStringLower(moduleDefinition.Checksum.ToArray()),
                 },
                 Checksum = [],
-            }, EvaluatorJsonContext.Default.GenerationRequest, EvaluatorJsonContext.Default.GenerationResult);
+            }, EvaluatorJsonContext.Default.GenerationRequest, EvaluatorJsonContext.Default.GenerationResult, [],
+            [BaseModuleDtoPropertyBinding.Create<GenerationResult, string>(
+                "result.generation", nameof(GenerationResult.Generation))]);
         ServiceProvider services = new ServiceCollection()
             .AddSingleton<IBaseModuleMutationRuntime>(moduleRuntime)
             .BuildServiceProvider();

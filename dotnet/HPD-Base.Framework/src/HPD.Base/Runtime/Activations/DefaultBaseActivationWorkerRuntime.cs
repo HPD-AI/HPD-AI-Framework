@@ -426,11 +426,11 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
     public async ValueTask<OperationResult<BaseActivationReceiptResolution>> ResolveReceiptAsync(
         BaseSession session,
         BaseActivationDefinition definition,
+        IReadOnlyList<BaseModuleDtoPropertyBinding> resultBindings,
         BaseMutationRequestIdentity identity,
         CancellationToken cancellationToken)
     {
-        if (!await IsAuthorizedAsync(session, definition, definition.Grants.Replay,
-            BaseOperationKind.ActivationTransition, cancellationToken).ConfigureAwait(false))
+        if (!await IsReplayAuthorizedAsync(session, definition, resultBindings, cancellationToken).ConfigureAwait(false))
             return Failure<BaseActivationReceiptResolution>(OperationStatus.PolicyDenied, "base.activation.unauthorized", ErrorCategory.Authorization);
         IBaseActivationProvider? provider = ResolveProvider();
         if (provider is null)
@@ -457,6 +457,40 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
         return valid
             ? resolved
             : Failure<BaseActivationReceiptResolution>(OperationStatus.StoreError, "base.activation.providerContractInvalid", ErrorCategory.Store);
+    }
+
+    private async ValueTask<bool> IsReplayAuthorizedAsync(
+        BaseSession session,
+        BaseActivationDefinition definition,
+        IReadOnlyList<BaseModuleDtoPropertyBinding> resultBindings,
+        CancellationToken cancellationToken)
+    {
+        if (!BaseSystemCollectionGate.Allows(session.Principal)
+            || resultBindings.Any(static binding => binding.RecordDisclosure != BaseRecordDisclosure.Include))
+            return false;
+        OperationContext operation = session.Operation(BaseOperationKind.ActivationTransition, definition.Id);
+        OperationResult<BasePolicyEvaluation> authorization = await policy.EvaluateReadAsync(new BasePolicyRequest
+        {
+            Principal = session.Principal,
+            Operation = operation,
+            Collection = PolicyResource(definition),
+            ResourceKind = PolicyResourceKind.ActivationDefinition,
+        }, cancellationToken).ConfigureAwait(false);
+        if (!BaseSystemCollectionGate.HasExactActivationGrant(
+                authorization, definition.Grants.Replay, definition.OwningModuleId, session.Principal, operation)
+            || authorization.Value is null)
+            return false;
+        string[] fields = resultBindings.Select(static binding => binding.StablePropertyId).ToArray();
+        return authorization.Value.EffectiveReadMask?.Mode switch
+        {
+            null or FieldMaskMode.Unspecified or FieldMaskMode.AllowAll => true,
+            FieldMaskMode.DenyAll => fields.Length == 0,
+            FieldMaskMode.IncludeOnly => fields.All(value =>
+                (authorization.Value.EffectiveReadMask.Include ?? []).Contains(value, StringComparer.Ordinal)),
+            FieldMaskMode.Exclude => fields.All(value =>
+                !(authorization.Value.EffectiveReadMask.Exclude ?? []).Contains(value, StringComparer.Ordinal)),
+            _ => false,
+        };
     }
 
     private ValueTask<OperationResult<BaseActivationTransitionResult>> FailCoreAsync(

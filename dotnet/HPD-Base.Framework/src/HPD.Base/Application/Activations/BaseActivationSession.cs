@@ -40,7 +40,9 @@ public sealed class BaseActivationSession
             throw new InvalidOperationException("base.activation.schemaChanged");
         IBaseActivationRuntime runtime = _session.Services.GetService(typeof(IBaseActivationRuntime)) as IBaseActivationRuntime
             ?? throw new InvalidOperationException("base.activation.notInstalled");
-        return new BaseInstalledActivationHandle<TInput, TResult>(runtime, _session, definition, identity);
+        if (registry.Registration(identity.Id, identity.Version)?.Identity is not BaseActivationRegistrationIdentity<TInput, TResult> installed)
+            throw new InvalidOperationException("base.activation.schemaChanged");
+        return new BaseInstalledActivationHandle<TInput, TResult>(runtime, _session, definition, installed);
     }
 
     /// <summary>Resolves an inert generated identity to a Service/System worker handle.</summary>
@@ -56,7 +58,9 @@ public sealed class BaseActivationSession
             throw new InvalidOperationException("base.activation.schemaChanged");
         IBaseActivationWorkerRuntime runtime = _session.Services.GetService(typeof(IBaseActivationWorkerRuntime)) as IBaseActivationWorkerRuntime
             ?? throw new InvalidOperationException("base.activation.notInstalled");
-        return new BaseInstalledActivationWorkerHandle<TInput, TResult>(runtime, _session, definition, identity);
+        if (registry.Registration(identity.Id, identity.Version)?.Identity is not BaseActivationRegistrationIdentity<TInput, TResult> installed)
+            throw new InvalidOperationException("base.activation.schemaChanged");
+        return new BaseInstalledActivationWorkerHandle<TInput, TResult>(runtime, _session, definition, installed);
     }
 
     /// <summary>Resolves an inert schedule identity to a principal-bound installed handle.</summary>
@@ -244,7 +248,7 @@ public sealed class BaseInstalledActivationWorkerHandle<TInput, TResult>
         CancellationToken cancellationToken = default)
     {
         OperationResult<BaseActivationReceiptResolution> resolved = await _runtime.ResolveReceiptAsync(
-            _session, _definition, identity, cancellationToken).ConfigureAwait(false);
+            _session, _definition, _identity.ResultBindings, identity, cancellationToken).ConfigureAwait(false);
         if (!resolved.IsSuccess() || resolved.Value is null)
             return CopyFailure<BaseActivationResultReceipt<TResult>, BaseActivationReceiptResolution>(resolved);
         if (resolved.Value.OperationKind is not ("activation-completed" or "effect-completed" or "effect-reconciled"))
@@ -344,7 +348,7 @@ public sealed class BaseInstalledActivationWorkerHandle<TInput, TResult>
                     Identity(
                         "renew",
                         delivery.Claim.FencingToken.AsSpan(),
-                        lease.Revision.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                        lease.LeaseRevision.ToString(System.Globalization.CultureInfo.InvariantCulture)),
                     renewCancellation),
                 token,
                 _definition.Limits.MaximumChildrenPerAttempt), delivery.Input, token).AsTask(),
@@ -481,7 +485,8 @@ internal interface IBaseActivationWorkerRuntime
         BaseSession session, BaseActivationDefinition definition, BaseActivationClaimAuthority claim,
         string failureCode, bool retry, BaseMutationRequestIdentity identity, CancellationToken cancellationToken);
     ValueTask<OperationResult<BaseActivationReceiptResolution>> ResolveReceiptAsync(
-        BaseSession session, BaseActivationDefinition definition, BaseMutationRequestIdentity identity,
+        BaseSession session, BaseActivationDefinition definition,
+        IReadOnlyList<BaseModuleDtoPropertyBinding> resultBindings, BaseMutationRequestIdentity identity,
         CancellationToken cancellationToken);
 }
 

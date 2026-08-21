@@ -35,8 +35,8 @@ public sealed partial class ActivationRuntimeTests
             DefinitionChecksum = new byte[32].ToImmutableArray(),
         };
         var initial = new BaseActivationLeaseObservation
-        { Revision = 1, ExpiresAt = 100, Checksum = new byte[32].ToImmutableArray() };
-        var replacement = initial with { Revision = 2, ExpiresAt = 200 };
+        { LeaseRevision = 1, LeaseExpiresAt = 100, Checksum = new byte[32].ToImmutableArray() };
+        var replacement = initial with { LeaseRevision = 2, LeaseExpiresAt = 200 };
         var context = new BaseActivationContext(
             new BaseActivationDefinitionKey { Id = "definition", Version = 1, Checksum = new byte[32].ToImmutableArray() },
             claim, initial, null, 0, 0, 1,
@@ -54,8 +54,8 @@ public sealed partial class ActivationRuntimeTests
         OperationResult<BaseActivationLeaseObservation> renewed = await context.RenewAsync();
         OperationResult<BaseActivationLeaseObservation> exceeded = await context.RenewAsync();
 
-        renewed.Value!.Revision.Should().Be(2);
-        context.Lease.Revision.Should().Be(2);
+        renewed.Value!.LeaseRevision.Should().Be(2);
+        context.Lease.LeaseRevision.Should().Be(2);
         exceeded.Error!.Code.Should().Be("base.activation.budgetExceeded");
     }
 
@@ -76,14 +76,14 @@ public sealed partial class ActivationRuntimeTests
                     OperationChecksum = new string('a', 64),
                 },
                 Checksum = [],
-            }, Json.Default.Input, Json.Default.Result);
+            }, Json.Default.Input, Json.Default.Result, InputBindings(), ResultBindings());
 
         registration.Definition.Handler.Should().BeNull();
         registration.Definition.TransactionalTarget.Should().BeOfType<BaseModuleMutationActivationTarget>();
         registration.Definition.Checksum.Should().HaveCount(32);
         Action invalid = () => BaseActivationDefinitionBuilder.CreateTransactional(
             worker with { ExecutionClass = BaseActivationExecutionClass.TransactionalOperation, TransactionalTarget = null, Handler = null, Checksum = [] },
-            Json.Default.Input, Json.Default.Result);
+            Json.Default.Input, Json.Default.Result, InputBindings(), ResultBindings());
         invalid.Should().Throw<InvalidOperationException>().WithMessage("base.activation.definitionInvalid");
     }
 
@@ -154,7 +154,12 @@ public sealed partial class ActivationRuntimeTests
             System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new Result("done"), Json.Default.Result).ToImmutableArray(),
             completionIdentity, default);
         OperationResult<BaseActivationReceiptResolution> resolved = await worker.ResolveReceiptAsync(
-            session, registration.Definition, completionIdentity, default);
+            session, registration.Definition, registration.Identity.ResultBindings, completionIdentity, default);
+        OperationResult<BaseActivationReceiptResolution> disclosureDenied = await worker.ResolveReceiptAsync(
+            session, registration.Definition,
+            [BaseModuleDtoPropertyBinding.Create<Result, string>(
+                "test.result.value", "value", BaseFieldConfidentiality.Confidential, BaseRecordDisclosure.Omit)],
+            completionIdentity, default);
         BaseActivationTransitionResult resolvedTransition = System.Text.Json.JsonSerializer.Deserialize(
             resolved.Value!.CanonicalResult.AsSpan(), HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult)!;
 
@@ -167,6 +172,7 @@ public sealed partial class ActivationRuntimeTests
         completedReplay.Value!.Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
         resolved.IsSuccess().Should().BeTrue(resolved.Error?.Code);
         resolved.Value!.OperationKind.Should().Be("activation-completed");
+        disclosureDenied.Status.Should().Be(OperationStatus.PolicyDenied);
         resolvedTransition.CanonicalResult.Should().Equal(
             System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new Result("done"), Json.Default.Result));
         (await worker.ClaimAsync(session, registration.Definition, observed.Value.Token, claimIdentity, default)).Value
@@ -186,7 +192,7 @@ public sealed partial class ActivationRuntimeTests
             {
                 ExecutionClass = BaseActivationExecutionClass.AtMostOnceEffect,
                 Checksum = [],
-            }, Json.Default.Input, Json.Default.Result, static _ => new Handler());
+            }, Json.Default.Input, Json.Default.Result, InputBindings(), ResultBindings(), static _ => new Handler());
         var registry = new BaseActivationRegistry([new BaseActivationRegistration<Input, Result>(registration)]);
         var enqueue = new DefaultBaseActivationRuntime(stores, policy, TimeProvider.System);
         var worker = new DefaultBaseActivationWorkerRuntime(
@@ -350,7 +356,13 @@ public sealed partial class ActivationRuntimeTests
                 Checksum = new byte[32].ToImmutableArray(),
             },
             Checksum = [],
-        }, Json.Default.Input, Json.Default.Result, static _ => new Handler());
+        }, Json.Default.Input, Json.Default.Result, InputBindings(), ResultBindings(), static _ => new Handler());
+
+    private static IReadOnlyList<BaseModuleDtoPropertyBinding> InputBindings() =>
+        [BaseModuleDtoPropertyBinding.Create<Input, string>("test.input.value", "value")];
+
+    private static IReadOnlyList<BaseModuleDtoPropertyBinding> ResultBindings() =>
+        [BaseModuleDtoPropertyBinding.Create<Result, string>("test.result.value", "value")];
 
     private static BaseSession Session() => new(null!, TimeProvider.System,
         new PrincipalContext
