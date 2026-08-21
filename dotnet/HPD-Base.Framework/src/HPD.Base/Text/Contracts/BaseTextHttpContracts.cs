@@ -52,7 +52,7 @@ public sealed record BaseTextHttpQueryRequest
     /// <summary>Gets the optional ordinary filter.</summary>
     public BaseTextHttpFilter? Filter { get; init; }
     /// <summary>Gets the bounded secondary ordering.</summary>
-    public BaseTextHttpOrder[] Order { get; init; } = [];
+    public required BaseTextHttpOrder[] Order { get; init; }
     /// <summary>Gets the result bound.</summary>
     public required int Take { get; init; }
     /// <summary>Gets the optional opaque cursor.</summary>

@@ -21,11 +21,11 @@ public sealed class TextEndpointTests
     public async Task Text_route_executes_closed_query_and_rejects_unknown_members()
     {
         await using WebApplication app = await CreateAsync(); HttpClient client = app.GetTestClient(); client.DefaultRequestHeaders.Add("X-Test-Subject", "text-user");
-        using var valid = new StringContent("""{"indexId":"http.text.content","query":{"kind":"term","value":"portable"},"take":4,"consistency":"current"}""", Encoding.UTF8, "application/json");
+        using var valid = new StringContent("""{"indexId":"http.text.content","query":{"kind":"term","value":"portable"},"order":[],"take":4,"consistency":"current"}""", Encoding.UTF8, "application/json");
         HttpResponseMessage response = await client.PostAsync("/base/text/http_text/http.text.content/query", valid); string responseBody = await response.Content.ReadAsStringAsync(); response.StatusCode.Should().Be(HttpStatusCode.OK, responseBody); using JsonDocument json = JsonDocument.Parse(responseBody); json.RootElement.GetProperty("matches").GetArrayLength().Should().Be(1);
-        using var invalid = new StringContent("""{"indexId":"http.text.content","query":{"kind":"term","value":"portable","nativeSyntax":"*"},"take":4,"consistency":"current"}""", Encoding.UTF8, "application/json");
+        using var invalid = new StringContent("""{"indexId":"http.text.content","query":{"kind":"term","value":"portable","nativeSyntax":"*"},"order":[],"take":4,"consistency":"current"}""", Encoding.UTF8, "application/json");
         (await client.PostAsync("/base/text/http_text/http.text.content/query", invalid)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        using var duplicate = new StringContent("""{"indexId":"http.text.content","query":{"kind":"term","value":"portable","value":"changed"},"take":4,"consistency":"current"}""", Encoding.UTF8, "application/json");
+        using var duplicate = new StringContent("""{"indexId":"http.text.content","query":{"kind":"term","value":"portable","value":"changed"},"order":[],"take":4,"consistency":"current"}""", Encoding.UTF8, "application/json");
         (await client.PostAsync("/base/text/http_text/http.text.content/query", duplicate)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
