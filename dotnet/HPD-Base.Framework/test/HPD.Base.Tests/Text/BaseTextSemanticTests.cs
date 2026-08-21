@@ -37,6 +37,75 @@ public sealed class BaseTextSemanticTests
     }
 
     [Fact]
+    public async Task Certification_noncooperative_gate_has_exact_release_identity()
+    {
+        var controller = new BaseTextCertificationFaultController([
+            new BaseTextCertificationFaultSchedule
+            {
+                Fault = BaseTextCertificationFault.QueryNonCooperative,
+                Occurrence = 1,
+                Delay = TimeSpan.Zero,
+                PartialSuccessCount = 0,
+            },
+        ]);
+        controller.Activate();
+        BaseTextCertificationFaultSchedule fault = Assert.IsType<BaseTextCertificationFaultSchedule>(controller.Next(BaseTextCertificationOperationKind.Query));
+        Task retained = controller.BeforeAsync(BaseTextCertificationOperationKind.Query, fault, CancellationToken.None).AsTask();
+        await WaitUntilAsync(() => controller.RetainedCount == 1, TimeSpan.FromSeconds(2));
+
+        BaseTextCertificationLateWorkResult wrong = controller.Release(BaseTextCertificationOperationKind.Rebuild, 1);
+        Assert.False(wrong.WasRetained);
+        Assert.False(retained.IsCompleted);
+
+        BaseTextCertificationLateWorkResult released = controller.Release(BaseTextCertificationOperationKind.Query, 1);
+        Assert.True(released.WasRetained);
+        Assert.True(released.Released);
+        await retained.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal(0, controller.RetainedCount);
+        Assert.Equal(BaseTextCertificationFault.QueryNonCooperative, Assert.Single(controller.Consumed));
+    }
+
+    [Fact]
+    public async Task Certification_fixture_retains_and_releases_noncooperative_query()
+    {
+        var fixture = new BaseInMemoryTextCertificationFixture();
+        await using IBaseTextCertificationHost host = await fixture.CreateAsync(new()
+        {
+            ProtocolVersion = BaseTextProviderCertification.ProtocolVersion,
+            ProviderClass = BaseTextProviderClass.CoLocatedTransactional,
+            Plan = BaseTextCertificationPlan.Local,
+            Limits = BaseTextPlatform.DefaultLimits,
+            TimeProvider = TimeProvider.System,
+            TokenKeys = [new BaseOpaqueTokenKey { Id = 1, Key = Enumerable.Repeat((byte)0x5a, 32).ToArray(), IssueNotBefore = DateTimeOffset.UnixEpoch }],
+            Faults = [new BaseTextCertificationFaultSchedule { Fault = BaseTextCertificationFault.QueryNonCooperative, Occurrence = 1, Delay = TimeSpan.Zero, PartialSuccessCount = 0 }],
+        }, CancellationToken.None);
+        await host.Authority.SeedAsync(new()
+        {
+            Records = [new BaseTextCertificationRecord { Id = "held", Tenant = "tenant", Active = true, Priority = 1, Optional = null, Title = "held query", Body = "certification" }],
+        }, CancellationToken.None);
+        Task<BaseTextCertificationOperationResult> query = host.ExecuteAsync(new BaseTextCertificationOperation.Query(new()
+        {
+            IndexId = "base.testing.text.content.v1",
+            Query = new BaseTextHttpQueryNode { Kind = "term", Value = "held" },
+            Order = [],
+            Take = 1,
+            Consistency = "current",
+        }), CancellationToken.None).AsTask();
+
+        await Assert.ThrowsAsync<TimeoutException>(() => query.WaitAsync(TimeSpan.FromMilliseconds(100)));
+        BaseTextCertificationFaultState state = await host.Provider.InspectFaultAsync(CancellationToken.None);
+        Assert.Equal(BaseTextCertificationFault.QueryNonCooperative, Assert.Single(state.Consumed));
+        BaseTextCertificationShutdownResult blocked = await host.ShutdownAsync(new() { MaximumWait = TimeSpan.FromMilliseconds(20) }, CancellationToken.None);
+        Assert.False(blocked.Completed);
+        Assert.Equal(1, blocked.RetainedOperationCount);
+
+        BaseTextCertificationLateWorkResult released = await host.Provider.ReleaseLateWorkAsync(BaseTextCertificationOperationKind.Query, 1, CancellationToken.None);
+        Assert.True(released.Released);
+        Assert.True((await query.WaitAsync(TimeSpan.FromSeconds(2))).Status.IsSuccess());
+        Assert.True((await host.ShutdownAsync(new() { MaximumWait = TimeSpan.FromSeconds(1) }, CancellationToken.None)).Completed);
+    }
+
+    [Fact]
     public async Task Inmemory_provider_passes_the_public_text_certification_corpus()
     {
         BaseTextCertificationReport report = await BaseTextProviderCertification.RunAsync(new BaseInMemoryTextCertificationFixture(), new()

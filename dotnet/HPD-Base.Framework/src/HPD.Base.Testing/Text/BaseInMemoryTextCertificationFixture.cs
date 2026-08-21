@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace HPD.Base;
 
@@ -29,7 +30,7 @@ public class BaseTextCertificationFixture : IBaseTextCertificationFixture
     /// <inheritdoc />
     public async ValueTask<IBaseTextCertificationHost> CreateAsync(BaseTextCertificationHostRequest request, CancellationToken cancellationToken)
     {
-        if (request.Faults.Length != 0) throw new ArgumentException("The built-in reference fixture does not accept injected provider faults.", nameof(request));
+        var faultController = new BaseTextCertificationFaultController(request.Faults);
         var services = new ServiceCollection().AddLogging(static builder => builder.SetMinimumLevel(LogLevel.None));
         services.AddHPDBase(builder =>
         {
@@ -45,6 +46,10 @@ public class BaseTextCertificationFixture : IBaseTextCertificationFixture
             });
             builder.AddCollection(BaseTextCertificationSchemaRecord.Collection);
         });
+        ServiceDescriptor providerDescriptor = services.Last(static value => value.ServiceType == typeof(IBaseTextProvider));
+        services.Remove(providerDescriptor);
+        services.AddSingleton(faultController);
+        services.AddSingleton<IBaseTextProvider>(provider => new BaseTextCertificationFaultProvider(CreateProvider(providerDescriptor, provider), faultController));
         ServiceProvider provider = services.BuildServiceProvider();
         if (!string.Equals(ProviderId, "inmemory.text", StringComparison.Ordinal))
         {
@@ -59,24 +64,34 @@ public class BaseTextCertificationFixture : IBaseTextCertificationFixture
         BaseTextProviderDescriptor installed = provider.GetRequiredService<IBaseTextProvider>().Descriptor;
         if (!string.Equals(installed.Id, ProviderId, StringComparison.Ordinal) || installed.Version != ProviderVersion || installed.ProviderClass != ProviderClass)
         { await provider.DisposeAsync().ConfigureAwait(false); throw new InvalidOperationException("base.testing.text.providerIdentityMismatch"); }
-        return new BaseInMemoryTextCertificationHost(provider, request);
+        return new BaseInMemoryTextCertificationHost(provider, request, _storeId);
+    }
+
+    private static IBaseTextProvider CreateProvider(ServiceDescriptor descriptor, IServiceProvider provider)
+    {
+        object instance = descriptor.ImplementationInstance
+            ?? descriptor.ImplementationFactory?.Invoke(provider)
+            ?? (descriptor.ImplementationType is { } implementationType ? ActivatorUtilities.CreateInstance(provider, implementationType) : throw new InvalidOperationException("base.testing.text.providerRegistrationInvalid"));
+        return (IBaseTextProvider)instance;
     }
 }
 
 /// <summary>Runs the public lexical certification protocol against the real built-in InMemory provider.</summary>
 public sealed class BaseInMemoryTextCertificationFixture() : BaseTextCertificationFixture("inmemory.text", 1, BaseTextProviderClass.CoLocatedTransactional);
 
-internal sealed class BaseInMemoryTextCertificationHost(ServiceProvider services, BaseTextCertificationHostRequest request) : IBaseTextCertificationHost, IBaseTextCertificationAuthorityControl, IBaseTextCertificationProviderControl
+internal sealed class BaseInMemoryTextCertificationHost(ServiceProvider services, BaseTextCertificationHostRequest request, string storeId) : IBaseTextCertificationHost, IBaseTextCertificationAuthorityControl, IBaseTextCertificationProviderControl
 {
     private readonly object _gate = new();
     private readonly List<BaseTextCertificationObservation> _observations = [Observation(1, BaseTextCertificationOperationKind.HostCreated, State(services), OperationStatus.Ok, request.ProviderClass)];
     private long _sequence = 1;
     private readonly BaseSession _session = services.GetRequiredService<IBaseSessionFactory>().For(new() { AuthenticationState = PrincipalAuthenticationState.Admin, SubjectKind = AccessSubjectKind.ServicePrincipal, SubjectId = "base-text-certification" });
+    private readonly BaseTextCertificationFaultController _faults = services.GetRequiredService<BaseTextCertificationFaultController>();
     public IBaseTextCertificationAuthorityControl Authority => this;
     public IBaseTextCertificationProviderControl Provider => this;
 
     public async ValueTask<BaseTextCertificationOperationResult> ExecuteAsync(BaseTextCertificationOperation operation, CancellationToken cancellationToken)
     {
+        _faults.Activate();
         BaseTextCertificationProviderState before = await InspectAsync(cancellationToken).ConfigureAwait(false);
         OperationStatus status; BaseError? error = null; BaseTextHttpResult<BaseTextCertificationRecord>? query = null;
         switch (operation)
@@ -115,7 +130,7 @@ internal sealed class BaseInMemoryTextCertificationHost(ServiceProvider services
             return ValueTask.FromResult(new BaseTextCertificationObservationPage { Entries = [.. entries], NextSequence = entries.Length == value.Take ? entries[^1].Sequence : null, RetainedLowSequence = 1, CapturedHighSequence = _sequence, Overtaken = after != 0 && after < 1 });
         }
     }
-    public ValueTask<BaseTextCertificationShutdownResult> ShutdownAsync(BaseTextCertificationShutdownRequest value, CancellationToken cancellationToken) { cancellationToken.ThrowIfCancellationRequested(); AddObservation(BaseTextCertificationOperationKind.Shutdown, State(services), OperationStatus.Ok); return ValueTask.FromResult(new BaseTextCertificationShutdownResult { Completed = true, RetainedOperationCount = 0, Elapsed = TimeSpan.Zero }); }
+    public async ValueTask<BaseTextCertificationShutdownResult> ShutdownAsync(BaseTextCertificationShutdownRequest value, CancellationToken cancellationToken) { cancellationToken.ThrowIfCancellationRequested(); DateTimeOffset started = request.TimeProvider.GetUtcNow(); DateTimeOffset deadline = checked(started + value.MaximumWait); while (_faults.RetainedCount != 0 && request.TimeProvider.GetUtcNow() < deadline) await Task.Delay(TimeSpan.FromMilliseconds(10), cancellationToken).ConfigureAwait(false); bool completed = _faults.RetainedCount == 0; AddObservation(BaseTextCertificationOperationKind.Shutdown, State(services), completed ? OperationStatus.Ok : OperationStatus.StoreError); return new BaseTextCertificationShutdownResult { Completed = completed, RetainedOperationCount = _faults.RetainedCount, Elapsed = request.TimeProvider.GetUtcNow() - started }; }
     public async ValueTask<BaseTextCertificationSeedResult> SeedAsync(BaseTextCertificationSeedRequest value, CancellationToken cancellationToken)
     {
         foreach (BaseTextCertificationRecord record in value.Records) (await Collection.CreateAsync(new(record.Id), FromContract(record), cancellationToken).ConfigureAwait(false)).RequireValue();
@@ -124,6 +139,8 @@ internal sealed class BaseInMemoryTextCertificationHost(ServiceProvider services
     }
     public async ValueTask<BaseTextCertificationCommitResult> CommitAsync(BaseTextCertificationCommitRequest value, CancellationToken cancellationToken)
     {
+        BaseTextCertificationFaultSchedule? fault = _faults.Next(BaseTextCertificationOperationKind.ProjectionWrite);
+        await _faults.BeforeAsync(BaseTextCertificationOperationKind.ProjectionWrite, fault, cancellationToken).ConfigureAwait(false);
         var revisions = ImmutableArray.CreateBuilder<RevisionToken>(); OperationStatus status = OperationStatus.Updated;
         foreach (BaseTextCertificationMutation mutation in value.Mutations)
         {
@@ -143,19 +160,42 @@ internal sealed class BaseInMemoryTextCertificationHost(ServiceProvider services
         return result is BaseSuccess<BaseRecord<BaseTextCertificationSchemaRecord>> success && success.Value.Revision == value.Revision ? new() { Found = true, Record = ToContract(value.RecordId, success.Value.Value) } : new() { Found = false };
     }
     public ValueTask PruneHistoryAsync(BaseMutationJournalPosition through, CancellationToken cancellationToken) { cancellationToken.ThrowIfCancellationRequested(); return ValueTask.CompletedTask; }
-    public ValueTask RestoreAsync(BaseTextCertificationRestoreRequest value, CancellationToken cancellationToken) => throw new NotSupportedException();
+    public async ValueTask RestoreAsync(BaseTextCertificationRestoreRequest value, CancellationToken cancellationToken)
+    {
+        if (value.Artifact.IsDefaultOrEmpty || value.ExpectedRestoreEpoch < 0) throw new ArgumentException("The certification restore request is invalid.", nameof(value));
+        IHPDBaseAdministration administration = services.GetRequiredService<IHPDBaseAdministration>();
+        PrincipalContext principal = _session.Principal;
+        await using var validationSource = new MemoryStream(value.Artifact.ToArray(), writable: false);
+        BaseBackupManifest manifest = (await administration.ValidateBackupAsync(validationSource, new()
+        {
+            StoreId = storeId,
+            Principal = principal,
+        }, cancellationToken).ConfigureAwait(false)).RequireValue();
+        await using var restoreSource = new MemoryStream(value.Artifact.ToArray(), writable: false);
+        BaseRestoreResult restored = (await administration.RestoreAsync(restoreSource, new()
+        {
+            StoreId = storeId,
+            Principal = principal,
+            ExpectedCurrentStoreIdentityDigest = manifest.StoreIdentityDigest,
+            ExpectedArtifactStoreIdentityDigest = manifest.StoreIdentityDigest,
+            IdentityMode = BaseRestoreIdentityMode.RequireCurrentStoreIdentity,
+            RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
+            ConfirmDestructiveReplacement = true,
+        }, cancellationToken).ConfigureAwait(false)).RequireValue();
+        if (restored.RestoreEpoch != value.ExpectedRestoreEpoch) throw new InvalidDataException("base.testing.text.restoreEpochMismatch");
+    }
     public ValueTask AdvanceAsync(BaseMutationJournalPosition through, CancellationToken cancellationToken) { cancellationToken.ThrowIfCancellationRequested(); return ValueTask.CompletedTask; }
     public ValueTask PublishVisibilityAsync(BaseMutationJournalPosition through, CancellationToken cancellationToken) { cancellationToken.ThrowIfCancellationRequested(); return ValueTask.CompletedTask; }
     public async ValueTask RebuildAsync(BaseTextCertificationRebuildRequest value, CancellationToken cancellationToken) { _ = await services.GetRequiredService<IBaseTextAdministration>().RebuildAsync(new() { CollectionId = BaseTextCertificationSchemaRecord.Collection.Id, TextIndexId = BaseTextCertificationSchemaRecord.TextIndexes.Content.Definition.Id, ExpectedGeneration = value.ExpectedGeneration, Identity = value.Identity }, cancellationToken).ConfigureAwait(false); }
     public async ValueTask<BaseTextCertificationProviderState> InspectAsync(CancellationToken cancellationToken) => State(services, (await services.GetRequiredService<IBaseTextAdministration>().GetAsync(BaseTextCertificationSchemaRecord.Collection.Id, BaseTextCertificationSchemaRecord.TextIndexes.Content.Definition.Id, cancellationToken).ConfigureAwait(false)).Value);
-    public ValueTask<BaseTextCertificationFaultState> InspectFaultAsync(CancellationToken cancellationToken) { cancellationToken.ThrowIfCancellationRequested(); return ValueTask.FromResult(new BaseTextCertificationFaultState { Configured = request.Faults, Consumed = [] }); }
-    public ValueTask<BaseTextCertificationLateWorkResult> ReleaseLateWorkAsync(BaseTextCertificationOperationKind operationKind, int occurrence, CancellationToken cancellationToken) { cancellationToken.ThrowIfCancellationRequested(); return ValueTask.FromResult(new BaseTextCertificationLateWorkResult { OperationKind = operationKind, Occurrence = occurrence, WasRetained = false, Released = false, QuarantineCountAfterRelease = 0 }); }
+    public ValueTask<BaseTextCertificationFaultState> InspectFaultAsync(CancellationToken cancellationToken) { cancellationToken.ThrowIfCancellationRequested(); return ValueTask.FromResult(new BaseTextCertificationFaultState { Configured = _faults.Configured, Consumed = _faults.Consumed }); }
+    public ValueTask<BaseTextCertificationLateWorkResult> ReleaseLateWorkAsync(BaseTextCertificationOperationKind operationKind, int occurrence, CancellationToken cancellationToken) { cancellationToken.ThrowIfCancellationRequested(); BaseTextCertificationLateWorkResult result = _faults.Release(operationKind, occurrence); AddObservation(BaseTextCertificationOperationKind.LateWorkRelease, State(services), result.Released ? OperationStatus.Updated : OperationStatus.Ok); return ValueTask.FromResult(result); }
     public async ValueTask DisposeAsync() => await services.DisposeAsync().ConfigureAwait(false);
 
     private BaseCollectionSession<BaseTextCertificationSchemaRecord> Collection => _session.Collection(BaseTextCertificationSchemaRecord.Collection);
     private long AddObservation(BaseTextCertificationOperationKind operation, BaseTextCertificationProviderState state, OperationStatus status) { lock (_gate) { long sequence = checked(++_sequence); _observations.Add(Observation(sequence, operation, state, status, request.ProviderClass)); return sequence; } }
     private static BaseTextCertificationObservation Observation(long sequence, BaseTextCertificationOperationKind operation, BaseTextCertificationProviderState state, OperationStatus status, BaseTextProviderClass providerClass) => new() { Sequence = sequence, Operation = operation, ProviderClass = providerClass, SnapshotDigest = ImmutableArray.Create(SHA256.HashData(Encoding.UTF8.GetBytes($"{state.Generation}:{state.AppliedThrough.Value}:{state.VisibleThrough.Value}"))), Status = status, State = state, Accounting = EmptyAccounting() };
-    private static BaseTextCertificationProviderState State(IServiceProvider services, BaseTextIndexStatus? value = null) { value ??= services.GetService<IBaseTextAdministration>()?.GetAsync(BaseTextCertificationSchemaRecord.Collection.Id, BaseTextCertificationSchemaRecord.TextIndexes.Content.Definition.Id).AsTask().GetAwaiter().GetResult().Value; return value is null ? new() { Generation = 1, AppliedThrough = new(0), VisibleThrough = new(0), State = BaseTextIndexState.Ready, CarrierCount = 0, QuarantineCount = 0 } : new() { Generation = value.Generation, AppliedThrough = value.AppliedThrough, VisibleThrough = value.SearchVisibleThrough, State = value.State, CarrierCount = value.CarrierCount, QuarantineCount = 0 }; }
+    private static BaseTextCertificationProviderState State(IServiceProvider services, BaseTextIndexStatus? value = null) { value ??= services.GetService<IBaseTextAdministration>()?.GetAsync(BaseTextCertificationSchemaRecord.Collection.Id, BaseTextCertificationSchemaRecord.TextIndexes.Content.Definition.Id).AsTask().GetAwaiter().GetResult().Value; int quarantine = services.GetService<BaseTextCertificationFaultController>()?.RetainedCount ?? 0; return value is null ? new() { Generation = 1, AppliedThrough = new(0), VisibleThrough = new(0), State = BaseTextIndexState.Ready, CarrierCount = 0, QuarantineCount = quarantine } : new() { Generation = value.Generation, AppliedThrough = value.AppliedThrough, VisibleThrough = value.SearchVisibleThrough, State = value.State, CarrierCount = value.CarrierCount, QuarantineCount = quarantine }; }
     private static BaseTextProviderAccounting EmptyAccounting() => new() { InputBytes = 0, QueryBytes = 0, ConstraintBytes = 0, StatementParameters = 0, AuthorizedRecordsExamined = 0, PostingsExamined = 0, PrefixExpansionCount = 0, PrefixExpansionBytes = 0, ScoreProofBytes = 0, CandidateCount = 0, OrderingBytes = 0, ExactHydrationBytes = 0, ResultBytes = 0, CursorBytes = 0, RetainedTransientBytes = 0, Elapsed = TimeSpan.Zero };
     private static BaseTextCertificationSchemaRecord FromContract(BaseTextCertificationRecord value) => new() { Tenant = value.Tenant, Active = value.Active, Priority = value.Priority, Optional = value.Optional, Title = value.Title, Body = value.Body };
     private static BaseTextCertificationRecord ToContract(string id, BaseTextCertificationSchemaRecord value) => new() { Id = id, Tenant = value.Tenant, Active = value.Active, Priority = value.Priority, Optional = value.Optional, Title = value.Title, Body = value.Body };
