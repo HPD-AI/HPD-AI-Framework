@@ -273,6 +273,18 @@ public sealed record BaseAtomicCaptureAccounting
     public required long EvidenceBytes { get; init; }
     /// <summary>Gets complete retained transient bytes.</summary>
     public required long TransientBytes { get; init; }
+    /// <summary>Gets retirement barrier reads performed.</summary>
+    public required int RetirementBarrierReads { get; init; }
+    /// <summary>Gets retirement acknowledgement reads performed.</summary>
+    public required int RetirementAcknowledgementReads { get; init; }
+    /// <summary>Gets retirement projections processed.</summary>
+    public required int RetirementProjections { get; init; }
+    /// <summary>Gets retirement publications processed.</summary>
+    public required int RetirementPublications { get; init; }
+    /// <summary>Gets retirement evidence bytes.</summary>
+    public required long RetirementEvidenceBytes { get; init; }
+    /// <summary>Gets retirement publication bytes.</summary>
+    public required long RetirementPublicationBytes { get; init; }
 }
 
 /// <summary>Contains immutable authority captured from one open provider transaction.</summary>
@@ -806,6 +818,18 @@ public sealed record BasePreparedAtomicMutationAccounting
     public required long EvidenceBytes { get; init; }
     /// <summary>Gets complete transient bytes retained.</summary>
     public required long TransientBytes { get; init; }
+    /// <summary>Gets retirement barrier reads performed.</summary>
+    public required int RetirementBarrierReads { get; init; }
+    /// <summary>Gets retirement acknowledgement reads performed.</summary>
+    public required int RetirementAcknowledgementReads { get; init; }
+    /// <summary>Gets retirement projections processed.</summary>
+    public required int RetirementProjections { get; init; }
+    /// <summary>Gets retirement publications processed.</summary>
+    public required int RetirementPublications { get; init; }
+    /// <summary>Gets retirement evidence bytes.</summary>
+    public required long RetirementEvidenceBytes { get; init; }
+    /// <summary>Gets retirement publication bytes.</summary>
+    public required long RetirementPublicationBytes { get; init; }
 }
 
 /// <summary>Contains current transaction-bound authority for one exported logical-subject contract.</summary>
@@ -915,6 +939,18 @@ public sealed record BaseProvisionalAtomicMutationAccounting
     public required long EvidenceBytes { get; init; }
     /// <summary>Gets complete retained transient bytes.</summary>
     public required long TransientBytes { get; init; }
+    /// <summary>Gets retirement barrier reads performed.</summary>
+    public required int RetirementBarrierReads { get; init; }
+    /// <summary>Gets retirement acknowledgement reads performed.</summary>
+    public required int RetirementAcknowledgementReads { get; init; }
+    /// <summary>Gets retirement projections processed.</summary>
+    public required int RetirementProjections { get; init; }
+    /// <summary>Gets retirement publications processed.</summary>
+    public required int RetirementPublications { get; init; }
+    /// <summary>Gets retirement evidence bytes.</summary>
+    public required long RetirementEvidenceBytes { get; init; }
+    /// <summary>Gets retirement publication bytes.</summary>
+    public required long RetirementPublicationBytes { get; init; }
 }
 
 /// <summary>Contains one applied but not yet externally confirmed atomic mutation.</summary>
@@ -984,4 +1020,16 @@ public sealed record BaseAtomicCommitAccounting
     public required long EvidenceBytes { get; init; }
     /// <summary>Gets the complete aggregate transient bytes.</summary>
     public required long TransientBytes { get; init; }
+    /// <summary>Gets retirement barrier reads performed.</summary>
+    public required int RetirementBarrierReads { get; init; }
+    /// <summary>Gets retirement acknowledgement reads performed.</summary>
+    public required int RetirementAcknowledgementReads { get; init; }
+    /// <summary>Gets retirement projections processed.</summary>
+    public required int RetirementProjections { get; init; }
+    /// <summary>Gets retirement publications processed.</summary>
+    public required int RetirementPublications { get; init; }
+    /// <summary>Gets retirement evidence bytes.</summary>
+    public required long RetirementEvidenceBytes { get; init; }
+    /// <summary>Gets retirement publication bytes.</summary>
+    public required long RetirementPublicationBytes { get; init; }
 }

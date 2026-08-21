@@ -22,7 +22,8 @@ internal sealed class DefaultBaseSelectionMutationRuntime(
     IBasePolicyOrchestrator policy,
     IBaseMutationPostCommitDispatcher postCommit,
     TimeProvider timeProvider,
-    BaseSubjectContractRegistry subjects) : IBaseSelectionMutationRuntime
+    BaseSubjectContractRegistry subjects,
+    BaseSubjectLifecycleRegistry lifecycleConsumers) : IBaseSelectionMutationRuntime
 {
     public async ValueTask<BaseResult<BaseSelectionMutationResult>> ExecuteAsync(
         BaseSession session,
@@ -94,7 +95,7 @@ internal sealed class DefaultBaseSelectionMutationRuntime(
         RecordQuery providerQuery = BaseQueryFieldResolver.ToStoredNames(collection, constrained);
         var processor = new BaseSelectionMutationProcessor(
             session.Principal, operation, collection, profile, providerQuery, patch, normalizedPreviousState, policy,
-            authorization.Value, resolved.Value, authority.Value, subjects);
+            authorization.Value, resolved.Value, authority.Value, subjects, lifecycleConsumers);
         var executionRequest = new RecordMutationExecutionRequest
         {
             AcquisitionTimeout = profile.Limits.AcquisitionTimeout,
@@ -178,6 +179,10 @@ internal sealed class DefaultBaseSelectionMutationRuntime(
         MaximumAuthorityReads = limits.MaximumReadIntervals,
         MaximumRelationChecks = limits.MaximumProducedMutations,
         MaximumUniqueConstraintChecks = limits.MaximumUniqueConstraintChecks,
+        MaximumRetirementProjections = limits.MaximumProducedMutations,
+        MaximumRetirementBarrierReads = limits.MaximumProducedMutations,
+        MaximumRetirementAcknowledgementReads = 1,
+        MaximumRetirementPublications = limits.MaximumProducedMutations,
         MaximumRequestBytes = limits.MaximumTransientBytes,
         MaximumGenerationBytes = 1,
         MaximumWrittenBytes = limits.MaximumTransientBytes,
@@ -185,6 +190,8 @@ internal sealed class DefaultBaseSelectionMutationRuntime(
         MaximumJournalBytes = limits.MaximumTransientBytes,
         MaximumReceiptBytes = limits.MaximumTransientBytes,
         MaximumResultBytes = limits.MaximumTransientBytes,
+        MaximumRetirementEvidenceBytes = limits.MaximumTransientBytes,
+        MaximumRetirementPublicationBytes = limits.MaximumTransientBytes,
         Deadlines = new BaseAtomicMutationDeadlines
         {
             AcquisitionTimeout = limits.AcquisitionTimeout,
@@ -435,7 +442,8 @@ internal sealed class BaseSelectionMutationProcessor(
     BasePolicyEvaluation operationPolicy,
     BaseResolvedMutationStore store,
     BaseAtomicMutationAuthorityRequirement authority,
-    BaseSubjectContractRegistry subjects) : IAtomicMutationProcessor
+    BaseSubjectContractRegistry subjects,
+    BaseSubjectLifecycleRegistry lifecycleConsumers) : IAtomicMutationProcessor
 {
     internal BaseSelectionMutationResult? Result { get; private set; }
     internal IReadOnlyList<BaseMutationAttempt> Attempts => _attempts;
@@ -661,6 +669,10 @@ internal sealed class BaseSelectionMutationProcessor(
             MaximumAuthorityReads = authorityReadLimit,
             MaximumRelationChecks = profile.Limits.MaximumProducedMutations,
             MaximumUniqueConstraintChecks = profile.Limits.MaximumUniqueConstraintChecks,
+            MaximumRetirementProjections = profile.Limits.MaximumProducedMutations,
+            MaximumRetirementBarrierReads = profile.Limits.MaximumProducedMutations,
+            MaximumRetirementAcknowledgementReads = 1,
+            MaximumRetirementPublications = profile.Limits.MaximumProducedMutations,
             MaximumRequestBytes = profile.Limits.MaximumTransientBytes,
             MaximumGenerationBytes = 1,
             MaximumWrittenBytes = profile.Limits.MaximumTransientBytes,
@@ -668,6 +680,8 @@ internal sealed class BaseSelectionMutationProcessor(
             MaximumJournalBytes = profile.Limits.MaximumTransientBytes,
             MaximumReceiptBytes = profile.Limits.MaximumTransientBytes,
             MaximumResultBytes = profile.Limits.MaximumTransientBytes,
+            MaximumRetirementEvidenceBytes = profile.Limits.MaximumTransientBytes,
+            MaximumRetirementPublicationBytes = profile.Limits.MaximumTransientBytes,
             Deadlines = new BaseAtomicMutationDeadlines
             {
                 AcquisitionTimeout = executionTimeout,
@@ -685,6 +699,11 @@ internal sealed class BaseSelectionMutationProcessor(
             });
         BaseAtomicPolicyAuthorityDigest policyDigest = BaseAtomicPolicyAuthority.Compute(
             authority.ApplicationId, $"{profile.Id}:{profile.Version}", policies);
+        BaseFinalizedTextMutationExtension? textPlan = BaseTextAtomicMutationContract.Finalize(finalized);
+        string selectionPlanDigest = BaseAtomicPolicyAuthority.BindPlanDigest(
+            SelectionPlanDigest(captured, finalized, subjectPlan.Value.Validations), policyDigest);
+        if (textPlan is not null)
+            selectionPlanDigest = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData([.. System.Text.Encoding.ASCII.GetBytes("base.text.boundPlan.v1\0"), .. System.Text.Encoding.ASCII.GetBytes(selectionPlanDigest), .. textPlan.ProjectionDigest]));
         var mutationPlan = new BaseFinalizedAtomicExecutionPlan
         {
             Kind = BaseAtomicMutationExecutionKind.SelectionMutation,
@@ -701,9 +720,9 @@ internal sealed class BaseSelectionMutationProcessor(
             },
             Items = finalized,
             SubjectValidations = subjectPlan.Value.Validations,
+            Text = textPlan,
             Limits = limits,
-            PlanDigest = BaseAtomicPolicyAuthority.BindPlanDigest(
-                SelectionPlanDigest(captured, finalized, subjectPlan.Value.Validations), policyDigest),
+            PlanDigest = selectionPlanDigest,
         };
         BaseFinalizedAtomicExecutionPlan retainedPlan = BaseAtomicMutationOwnership.FreezePlan(mutationPlan);
         BaseFinalizedAtomicExecutionPlan providerPlan = BaseAtomicMutationOwnership.FreezePlan(retainedPlan);
@@ -830,10 +849,32 @@ internal sealed class BaseSelectionMutationProcessor(
                     Kind = item.Kind == BaseCommittedRecordMutationKind.Delete
                         ? BaseSubjectLifecycleMutationKind.Retire
                         : BaseSubjectLifecycleMutationKind.Preserve,
+                    PreviousState = SubjectState(item.Current, item.Collection, subject.Definition),
+                    ResultingState = item.Kind == BaseCommittedRecordMutationKind.Delete
+                        ? BaseSubjectLifecycleState.Retired
+                        : SubjectState(item.ProposedPayload, item.Collection, subject.Definition) ?? BaseSubjectLifecycleState.Retired,
+                    PublishFact = false,
+                    Memberships = [],
                 };
-                if (item.Kind != BaseCommittedRecordMutationKind.Delete &&
+                if (!ValidTransition(lifecycle) || item.Kind != BaseCommittedRecordMutationKind.Delete &&
                     !HasValidSubjectLogicalState(item, subject.Definition))
                     return SubjectPlanFailure();
+                if (lifecycle.ResultingState == BaseSubjectLifecycleState.Tombstoned
+                    || item.Kind == BaseCommittedRecordMutationKind.Delete)
+                    return SubjectPlanFailure(BaseSubjectErrorCodes.LifecycleUnauthorized, ErrorCategory.Authorization);
+                bool publish = lifecycle.PreviousState != lifecycle.ResultingState;
+                lifecycle = lifecycle with
+                {
+                    PublishFact = publish,
+                    Memberships = publish ? [.. lifecycleConsumers.ForContract(lifecycle.ContractId, lifecycle.ContractVersion)
+                        .Where(value => value.Definition.ObservedStates.Contains(lifecycle.ResultingState))
+                        .Select(value => new BaseSubjectLifecycleMembershipPlanItem
+                        {
+                            ConsumerId = value.Definition.Id, ConsumerVersion = value.Definition.Version,
+                            ConsumerChecksum = value.Checksum, ProjectionGeneration = 1,
+                            MatchedObservedState = lifecycle.ResultingState,
+                        })] : [],
+                };
             }
             if (item.Kind == BaseCommittedRecordMutationKind.Patch && item.ProposedPayload?.Fields is { } fields)
             {
@@ -897,6 +938,33 @@ internal sealed class BaseSelectionMutationProcessor(
         }
         return true;
     }
+
+    private static BaseSubjectLifecycleState? SubjectState(RecordEnvelope? record, CollectionDefinition collection, BaseExportedSubjectDefinition definition) =>
+        record is null ? null : SubjectState(record.Payload, collection, definition);
+
+    private static BaseSubjectLifecycleState? SubjectState(RecordPayload? payload, CollectionDefinition collection, BaseExportedSubjectDefinition definition)
+    {
+        if (payload?.Fields is not { } fields) return null;
+        FieldDefinition? activeField = (collection.Fields ?? []).SingleOrDefault(field => field.Id == definition.ValidationPlan.Active.FieldId);
+        FieldDefinition? tombstoneField = (collection.Fields ?? []).SingleOrDefault(field => field.Id == definition.TombstoneFieldId);
+        if (activeField is null || tombstoneField is null || !fields.TryGetValue(activeField.WireName, out System.Text.Json.JsonElement active) ||
+            !fields.TryGetValue(tombstoneField.WireName, out System.Text.Json.JsonElement tombstone) ||
+            active.ValueKind is not (System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False) ||
+            tombstone.ValueKind is not (System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False)) return null;
+        bool isActive = active.GetBoolean() == definition.ValidationPlan.Active.ActiveValue;
+        bool isTombstoned = tombstone.GetBoolean();
+        if (isActive && isTombstoned) return null;
+        return isTombstoned ? BaseSubjectLifecycleState.Tombstoned : isActive ? BaseSubjectLifecycleState.Active : BaseSubjectLifecycleState.Inactive;
+    }
+
+    private static bool ValidTransition(BaseSubjectLifecyclePlanItem value) => (value.PreviousState, value.ResultingState) switch
+    {
+        (null, BaseSubjectLifecycleState.Active) => true,
+        (BaseSubjectLifecycleState.Active, BaseSubjectLifecycleState.Active or BaseSubjectLifecycleState.Inactive or BaseSubjectLifecycleState.Tombstoned) => true,
+        (BaseSubjectLifecycleState.Inactive, BaseSubjectLifecycleState.Inactive or BaseSubjectLifecycleState.Active or BaseSubjectLifecycleState.Tombstoned) => true,
+        (BaseSubjectLifecycleState.Tombstoned, BaseSubjectLifecycleState.Tombstoned or BaseSubjectLifecycleState.Retired) => true,
+        _ => false,
+    };
 
     private static OperationResult<(ImmutableArray<BaseAtomicMutationPlanItem>, ImmutableArray<BaseSubjectReferenceValidationPlanItem>)> SubjectPlanFailure(
         string code = BaseSubjectErrorCodes.ContractInvalid,
@@ -979,6 +1047,7 @@ internal sealed class BaseSelectionMutationProcessor(
         && prepared.Authority.RestoreEpoch == captured.Authority.RestoreEpoch
         && prepared.Authority.SchemaGeneration == captured.Authority.SchemaGeneration
         && prepared.Authority.Collections.SequenceEqual(captured.Authority.Collections)
+        && BaseTextAtomicMutationContract.PreparedMatches(plan.Text, prepared.Text)
         && (!HasSubjectWork(plan) || prepared.Authority.Isolation == captured.Authority.Isolation
             && prepared.Authority.TransactionEvidenceToken.AsSpan().SequenceEqual(captured.Authority.TransactionEvidenceToken.AsSpan())
             && captured.ReadIntervals.All(expected => prepared.ReadIntervals.Any(actual => IntervalEquals(expected, actual))))
@@ -1095,7 +1164,8 @@ internal sealed class BaseSelectionMutationProcessor(
         BaseProvisionalAtomicExecution applied)
     {
         bool strict = HasSubjectWork(plan);
-        if (!string.Equals(plan.PlanDigest, applied.PlanDigest, StringComparison.Ordinal) || applied.Facts.Length != plan.Items.Length)
+        if (!string.Equals(plan.PlanDigest, applied.PlanDigest, StringComparison.Ordinal) || applied.Facts.Length != plan.Items.Length
+            || !BaseTextAtomicMutationContract.AppliedMatches(plan.Text, prepared.Text, applied.Text, applied.Facts))
             return false;
         for (int index = 0; index < plan.Items.Length; index++)
         {
@@ -1108,7 +1178,7 @@ internal sealed class BaseSelectionMutationProcessor(
                     || fact.RequestedOperation != item.RequestedKind)
                 || fact.CommittedOperation != item.Kind
                 || (fact.After ?? fact.Before)?.Id != item.RecordId
-                || !ValidCommittedLifecycle(item.SubjectLifecycle, prepared.SubjectOverlay, fact.SubjectLifecycle)
+                || !ValidCommittedLifecycle(item.SubjectLifecycle, item.SubjectLifecycleTransition, prepared.SubjectAuthorities, prepared.SubjectOverlay, fact.SubjectLifecycle)
                 || strict && item.Current is not null && !RecordEquals(fact.Before, item.Current)
                 || strict && item.ProposedPayload is not null && !PayloadEquals(fact.After?.Payload, item.ProposedPayload)
                 || item.Kind == BaseCommittedRecordMutationKind.Delete && (fact.Before is null || fact.After is not null)
@@ -1121,6 +1191,8 @@ internal sealed class BaseSelectionMutationProcessor(
 
     private static bool ValidCommittedLifecycle(
         BaseSubjectLifecyclePlanItem? expected,
+        BaseSubjectLifecycleTransitionPrecondition? transition,
+        ImmutableArray<BaseSubjectTransactionAuthorityEvidence> authorities,
         ImmutableArray<BasePreparedSubjectOverlayEvidence> overlays,
         BaseSubjectLifecycleCommitEvidence? actual) => expected is null
         ? actual is null
@@ -1129,20 +1201,29 @@ internal sealed class BaseSelectionMutationProcessor(
             && actual.ContractVersion == expected.ContractVersion
             && string.Equals(actual.SubjectId, expected.SubjectId.Value, StringComparison.Ordinal)
             && actual.Kind == expected.Kind
+            && actual.PreviousState == expected.PreviousState
+            && actual.ResultingState == expected.ResultingState
+            && actual.SubjectSequence > 0
+            && actual.CommitPosition.Value > 0
+            && actual.DeliveryEpoch > 0
+            && authorities.SingleOrDefault(value => value.ContractId == expected.ContractId && value.ContractVersion == expected.ContractVersion) is { } authority
+            && actual.AuthorityEpoch.Equals(authority.AuthorityEpoch)
+            && actual.ContractStateGeneration == authority.StateGeneration
+            && (transition is null || transition.Subject.SubjectId.Equals(expected.SubjectId)
+                && transition.Subject.AuthorityEpoch.Equals(actual.AuthorityEpoch)
+                && transition.Subject.Incarnation.Equals(actual.Incarnation)
+                && transition.ResultingState == actual.ResultingState
+                && (transition.ExpectedSubjectSequence is null
+                    || transition.ExpectedSubjectSequence.Value < long.MaxValue
+                        && actual.SubjectSequence == transition.ExpectedSubjectSequence.Value + 1))
             && overlays.SingleOrDefault(value => value.ContractId == expected.ContractId
                 && value.ContractVersion == expected.ContractVersion
                 && value.SubjectId.Equals(expected.SubjectId)) is { } overlay
             && (expected.Kind == BaseSubjectLifecycleMutationKind.Retire
-                ? actual.Incarnation is null && !overlay.Exists && overlay.Incarnation is null
-                : actual.Incarnation is { Length: 22 } && IsCanonicalIncarnation(actual.Incarnation)
+                ? !overlay.Exists && overlay.Incarnation is null
+                : actual.Incarnation.LifetimeGeneration > 0
                     && overlay.Exists && overlay.Incarnation is { } incarnation
-                    && string.Equals(actual.Incarnation, incarnation.ToBase64Url(), StringComparison.Ordinal));
-
-    private static bool IsCanonicalIncarnation(string value)
-    {
-        try { return BaseSubjectIncarnation.Parse(value).ToBase64Url() == value; }
-        catch { return false; }
-    }
+                    && actual.Incarnation.Equals(incarnation));
 
     private static bool RecordEquals(RecordEnvelope? left, RecordEnvelope right)
     {
