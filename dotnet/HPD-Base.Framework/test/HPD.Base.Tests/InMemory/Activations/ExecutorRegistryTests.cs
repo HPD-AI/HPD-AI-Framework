@@ -10,30 +10,39 @@ public sealed class ExecutorRegistryTests
         var store = new InMemoryRecordStore();
         var clock = new BaseActivationAcceptedTimeAuthority(TimeProvider.System);
         BaseActivationExecutionLimits limits = Limits();
-        OperationResult<BaseExecutorRegistrationResult> registered = await store.RegisterExecutorAsync(new BaseExecutorRegistrationRequest
+        var registrationRequest = new BaseExecutorRegistrationRequest
         {
             ApplicationId = "executor-test", HostId = "host-one", ProcessIncarnationId = "process-one",
             WorkerDefinitionSetChecksum = new byte[32].ToImmutableArray(), RequestedHeartbeatMilliseconds = 60_000,
             AcceptedTime = clock.Capture("executor-test"), Identity = Identity("register"), Limits = limits,
-        });
+        };
+        OperationResult<BaseExecutorRegistrationResult> registered = await store.RegisterExecutorAsync(registrationRequest);
         registered.IsSuccess().Should().BeTrue(registered.Error?.Code);
+        (await store.RegisterExecutorAsync(registrationRequest with
+        { AcceptedTime = clock.Capture("executor-test") })).Value!.Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
 
-        OperationResult<BaseExecutorHeartbeatResult> heartbeat = await store.HeartbeatExecutorAsync(new BaseExecutorHeartbeatRequest
+        var heartbeatRequest = new BaseExecutorHeartbeatRequest
         {
             Executor = registered.Value!.Executor, ExpectedHeartbeatRevision = registered.Value.Heartbeat.HeartbeatRevision,
             ExtensionMilliseconds = 60_000, AcceptedTime = clock.Capture("executor-test"),
             Identity = Identity("heartbeat"), Limits = limits,
-        });
+        };
+        OperationResult<BaseExecutorHeartbeatResult> heartbeat = await store.HeartbeatExecutorAsync(heartbeatRequest);
         heartbeat.IsSuccess().Should().BeTrue(heartbeat.Error?.Code);
         heartbeat.Value!.Executor.Should().BeEquivalentTo(registered.Value.Executor);
         heartbeat.Value.Heartbeat.HeartbeatRevision.Should().Be(2);
+        (await store.HeartbeatExecutorAsync(heartbeatRequest with
+        { AcceptedTime = clock.Capture("executor-test") })).Value!.Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
 
-        OperationResult<BaseExecutorRetirementResult> retired = await store.RetireExecutorAsync(new BaseExecutorRetirementRequest
+        var retirementRequest = new BaseExecutorRetirementRequest
         {
             Executor = registered.Value.Executor, ExpectedHeartbeatRevision = heartbeat.Value.Heartbeat.HeartbeatRevision,
             AcceptedTime = clock.Capture("executor-test"), Identity = Identity("retire"), Limits = limits,
-        });
+        };
+        OperationResult<BaseExecutorRetirementResult> retired = await store.RetireExecutorAsync(retirementRequest);
         retired.IsSuccess().Should().BeTrue(retired.Error?.Code);
+        (await store.RetireExecutorAsync(retirementRequest with
+        { AcceptedTime = clock.Capture("executor-test") })).Value!.Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
         (await store.HeartbeatExecutorAsync(new BaseExecutorHeartbeatRequest
         {
             Executor = registered.Value.Executor, ExpectedHeartbeatRevision = heartbeat.Value.Heartbeat.HeartbeatRevision,

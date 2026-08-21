@@ -258,6 +258,10 @@ internal sealed partial class InMemoryRecordStore
         try
         {
             InMemoryStoreState current = Volatile.Read(ref _publishedState);
+            if (TryReadActivationReceipt(current, request.Identity, "activation-renewed",
+                HPDBaseJsonSerializerContext.Default.BaseActivationRenewResult,
+                static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, out OperationResult<BaseActivationRenewResult>? replay))
+                return replay;
             if (!current.Activations.TryGetValue(request.Claim.ActivationId, out InMemoryActivationRow? row) ||
                 !ClaimMatches(row, request.Claim) || row.Lease?.LeaseRevision != request.ExpectedLeaseRevision ||
                 row.Lease.LeaseExpiresAt <= request.AcceptedTime.CapturedUtc)
@@ -272,14 +276,16 @@ internal sealed partial class InMemoryRecordStore
             };
             var next = current.Clone();
             next.Activations[row.Payload.ActivationId] = next.Activations[row.Payload.ActivationId] with { Lease = lease };
-            Volatile.Write(ref _publishedState, next);
-            return OperationResults.Ok(new BaseActivationRenewResult
+            var result = new BaseActivationRenewResult
             {
                 Claim = request.Claim,
                 Lease = lease,
                 Accounting = EmptyActivationAccounting with { ReadIntervals = 0, IndexOperations = 1 },
                 Disposition = BaseMutationRequestDisposition.Committed,
-            });
+            };
+            WriteActivationReceipt(next, request.Identity, "activation-renewed", result, HPDBaseJsonSerializerContext.Default.BaseActivationRenewResult);
+            Volatile.Write(ref _publishedState, next);
+            return OperationResults.Ok(result);
         }
         finally
         {
@@ -299,6 +305,11 @@ internal sealed partial class InMemoryRecordStore
         try
         {
             InMemoryStoreState current = Volatile.Read(ref _publishedState);
+            string receiptKind = ActivationTransitionReceiptKind(request);
+            if (TryReadActivationReceipt(current, request.Identity, receiptKind,
+                HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult,
+                static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, out OperationResult<BaseActivationTransitionResult>? replay))
+                return replay;
             if (!current.Activations.TryGetValue(request.ActivationId, out InMemoryActivationRow? row))
                 return ActivationFailure<BaseActivationTransitionResult>("base.activation.notFound", OperationStatus.NotFound, ErrorCategory.NotFound);
 
@@ -314,13 +325,16 @@ internal sealed partial class InMemoryRecordStore
                     checked(request.AcceptedTime.CapturedUtc + effectHeartbeat.ExtensionMilliseconds));
                 var heartbeatState = current.Clone();
                 heartbeatState.Activations[row.Payload.ActivationId] = heartbeatState.Activations[row.Payload.ActivationId] with { Effect = replacement };
-                Volatile.Write(ref _publishedState, heartbeatState);
-                return OperationResults.Ok(new BaseActivationTransitionResult
+                var heartbeatResult = new BaseActivationTransitionResult
                 {
                     State = row.State, Generation = row.Generation, ControlChecksum = row.ControlChecksum.ToImmutableArray(),
                     Accounting = EmptyActivationAccounting with { IndexOperations = 1 }, Disposition = BaseMutationRequestDisposition.Committed,
                     Effect = replacement,
-                });
+                };
+                WriteActivationReceipt(heartbeatState, request.Identity, receiptKind, heartbeatResult,
+                    HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult);
+                Volatile.Write(ref _publishedState, heartbeatState);
+                return OperationResults.Ok(heartbeatResult);
             }
 
             BaseActivationState resultingState;
@@ -386,8 +400,7 @@ internal sealed partial class InMemoryRecordStore
                 ControlChecksum = checksum,
             };
             next.ActivationIndexGeneration = checked(next.ActivationIndexGeneration + 1);
-            Volatile.Write(ref _publishedState, next);
-            return OperationResults.Ok(new BaseActivationTransitionResult
+            var transitionResult = new BaseActivationTransitionResult
             {
                 State = resultingState,
                 Generation = generation,
@@ -395,7 +408,11 @@ internal sealed partial class InMemoryRecordStore
                 Accounting = EmptyActivationAccounting with { ReadIntervals = 0, IndexOperations = 1 },
                 Disposition = BaseMutationRequestDisposition.Committed,
                 Effect = resultingEffect,
-            });
+            };
+            WriteActivationReceipt(next, request.Identity, receiptKind, transitionResult,
+                HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult);
+            Volatile.Write(ref _publishedState, next);
+            return OperationResults.Ok(transitionResult);
         }
         finally
         {
@@ -419,6 +436,10 @@ internal sealed partial class InMemoryRecordStore
         try
         {
             InMemoryStoreState current = Volatile.Read(ref _publishedState);
+            if (TryReadActivationReceipt(current, request.Identity, "executor-registered",
+                HPDBaseJsonSerializerContext.Default.BaseExecutorRegistrationResult,
+                static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, out OperationResult<BaseExecutorRegistrationResult>? replay))
+                return replay;
             string key = ExecutorKey(request.ApplicationId, request.HostId, request.ProcessIncarnationId);
             if (current.Executors.TryGetValue(key, out InMemoryExecutorRow? existing) && !existing.Retired)
                 return ActivationFailure<BaseExecutorRegistrationResult>("base.activation.executorConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
@@ -436,12 +457,14 @@ internal sealed partial class InMemoryRecordStore
             };
             var heartbeat = Heartbeat(authority, 1, checked(request.AcceptedTime.CapturedUtc + request.RequestedHeartbeatMilliseconds));
             next.Executors[key] = new InMemoryExecutorRow(authority, heartbeat, false);
-            Volatile.Write(ref _publishedState, next);
-            return OperationResults.Ok(new BaseExecutorRegistrationResult
+            var result = new BaseExecutorRegistrationResult
             {
                 Executor = authority, Heartbeat = heartbeat, Accounting = EmptyActivationAccounting with { IndexOperations = 1 },
                 Disposition = BaseMutationRequestDisposition.Committed,
-            });
+            };
+            WriteActivationReceipt(next, request.Identity, "executor-registered", result, HPDBaseJsonSerializerContext.Default.BaseExecutorRegistrationResult);
+            Volatile.Write(ref _publishedState, next);
+            return OperationResults.Ok(result);
         }
         finally { _stateGate.Release(); }
     }
@@ -460,6 +483,10 @@ internal sealed partial class InMemoryRecordStore
         try
         {
             InMemoryStoreState current = Volatile.Read(ref _publishedState);
+            if (TryReadActivationReceipt(current, request.Identity, "executor-heartbeat",
+                HPDBaseJsonSerializerContext.Default.BaseExecutorHeartbeatResult,
+                static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, out OperationResult<BaseExecutorHeartbeatResult>? replay))
+                return replay;
             string key = ExecutorKey(request.Executor.ApplicationId, request.Executor.HostId, request.Executor.ProcessIncarnationId);
             if (!current.Executors.TryGetValue(key, out InMemoryExecutorRow? row) || row.Retired ||
                 !ExecutorMatches(row.Authority, request.Executor) || row.Heartbeat.HeartbeatRevision != request.ExpectedHeartbeatRevision ||
@@ -470,12 +497,14 @@ internal sealed partial class InMemoryRecordStore
             BaseExecutorHeartbeatObservation heartbeat = Heartbeat(row.Authority, revision,
                 checked(request.AcceptedTime.CapturedUtc + request.ExtensionMilliseconds));
             next.Executors[key] = next.Executors[key] with { Heartbeat = heartbeat };
-            Volatile.Write(ref _publishedState, next);
-            return OperationResults.Ok(new BaseExecutorHeartbeatResult
+            var result = new BaseExecutorHeartbeatResult
             {
                 Executor = row.Authority, Heartbeat = heartbeat, Accounting = EmptyActivationAccounting with { IndexOperations = 1 },
                 Disposition = BaseMutationRequestDisposition.Committed,
-            });
+            };
+            WriteActivationReceipt(next, request.Identity, "executor-heartbeat", result, HPDBaseJsonSerializerContext.Default.BaseExecutorHeartbeatResult);
+            Volatile.Write(ref _publishedState, next);
+            return OperationResults.Ok(result);
         }
         finally { _stateGate.Release(); }
     }
@@ -492,20 +521,26 @@ internal sealed partial class InMemoryRecordStore
         try
         {
             InMemoryStoreState current = Volatile.Read(ref _publishedState);
+            if (TryReadActivationReceipt(current, request.Identity, "executor-retired",
+                HPDBaseJsonSerializerContext.Default.BaseExecutorRetirementResult,
+                static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, out OperationResult<BaseExecutorRetirementResult>? replay))
+                return replay;
             string key = ExecutorKey(request.Executor.ApplicationId, request.Executor.HostId, request.Executor.ProcessIncarnationId);
             if (!current.Executors.TryGetValue(key, out InMemoryExecutorRow? row) || row.Retired ||
                 !ExecutorMatches(row.Authority, request.Executor) || row.Heartbeat.HeartbeatRevision != request.ExpectedHeartbeatRevision)
                 return ActivationFailure<BaseExecutorRetirementResult>("base.activation.executorLost", OperationStatus.Conflict, ErrorCategory.Conflict);
             var next = current.Clone();
             next.Executors[key] = next.Executors[key] with { Retired = true };
-            Volatile.Write(ref _publishedState, next);
             byte[] checksum = Hash($"base.activation.executor.retired.v2\0{Convert.ToHexString(row.Authority.Checksum.AsSpan())}\n{row.Heartbeat.HeartbeatRevision}");
-            return OperationResults.Ok(new BaseExecutorRetirementResult
+            var result = new BaseExecutorRetirementResult
             {
                 Executor = row.Authority, HeartbeatRevision = row.Heartbeat.HeartbeatRevision,
                 RetirementChecksum = checksum.ToImmutableArray(), Accounting = EmptyActivationAccounting with { IndexOperations = 1 },
                 Disposition = BaseMutationRequestDisposition.Committed,
-            });
+            };
+            WriteActivationReceipt(next, request.Identity, "executor-retired", result, HPDBaseJsonSerializerContext.Default.BaseExecutorRetirementResult);
+            Volatile.Write(ref _publishedState, next);
+            return OperationResults.Ok(result);
         }
         finally { _stateGate.Release(); }
     }
@@ -781,6 +816,19 @@ internal sealed partial class InMemoryRecordStore
 
     private static string ActivationReceiptKey(BaseMutationRequestIdentity identity) =>
         $"{identity.Scope}\n{identity.Operation}\n{identity.IdempotencyKey}";
+
+    private static string ActivationTransitionReceiptKind(BaseActivationTransitionRequest request) => request switch
+    {
+        BaseActivationCompleteRequest => "activation-completed",
+        BaseActivationFailRequest failed when failed.Disposition == BaseActivationFailureDisposition.Retry => "activation-retried",
+        BaseActivationFailRequest => "activation-failed-terminal",
+        BaseActivationCancelRequest => "activation-cancelled",
+        BaseActivationBeginEffectRequest => "effect-started",
+        BaseActivationEffectHeartbeatRequest => "effect-heartbeat",
+        BaseActivationCompleteEffectRequest => "effect-completed",
+        BaseActivationRecoverEffectRequest => "effect-outcome-unknown",
+        _ => throw new InvalidOperationException("base.activation.invalid"),
+    };
 
     private static string ScheduleKey(string id, int version) => $"{id}\n{version}";
 

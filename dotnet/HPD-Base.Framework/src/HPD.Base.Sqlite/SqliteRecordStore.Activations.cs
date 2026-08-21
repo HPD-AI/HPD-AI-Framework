@@ -220,6 +220,10 @@ public sealed partial class SqliteRecordStore
             return ActivationFailure<BaseActivationRenewResult>("base.activation.clockInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        (bool found, OperationResult<BaseActivationRenewResult> receipt) = await ReadActivationReceiptAsync(
+            connection, transaction, request.Identity, "activation-renewed", HPDBaseJsonSerializerContext.Default.BaseActivationRenewResult,
+            static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, cancellationToken).ConfigureAwait(false);
+        if (found) return receipt;
         (long _, long restoreEpoch) = await ReadActivationAuthorityAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
         if (restoreEpoch != request.Claim.RestoreEpoch)
             return ActivationFailure<BaseActivationRenewResult>("base.activation.claimLost", OperationStatus.Conflict, ErrorCategory.Conflict);
@@ -239,13 +243,16 @@ public sealed partial class SqliteRecordStore
             await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
             return ActivationFailure<BaseActivationRenewResult>("base.activation.claimLost", OperationStatus.Conflict, ErrorCategory.Conflict);
         }
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return OperationResults.Ok(new BaseActivationRenewResult
+        var result = new BaseActivationRenewResult
         {
             Claim = request.Claim,
             Lease = new BaseActivationLeaseObservation { LeaseRevision = revision, LeaseExpiresAt = expires, Checksum = checksum.ToImmutableArray() },
             Accounting = ActivationAccounting(1, 64), Disposition = BaseMutationRequestDisposition.Committed,
-        });
+        };
+        await WriteActivationReceiptAsync(connection, transaction, request.Identity, "activation-renewed", result,
+            HPDBaseJsonSerializerContext.Default.BaseActivationRenewResult, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return OperationResults.Ok(result);
     }
 
     /// <inheritdoc />
@@ -258,6 +265,11 @@ public sealed partial class SqliteRecordStore
             return ActivationFailure<BaseActivationTransitionResult>("base.activation.clockInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        string receiptKind = SqliteActivationTransitionReceiptKind(request);
+        (bool found, OperationResult<BaseActivationTransitionResult> receipt) = await ReadActivationReceiptAsync(
+            connection, transaction, request.Identity, receiptKind, HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult,
+            static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, cancellationToken).ConfigureAwait(false);
+        if (found) return receipt;
         SqliteActivationRow? row = await ReadActivationAsync(connection, transaction, request.ActivationId, cancellationToken).ConfigureAwait(false);
         if (row is null)
             return ActivationFailure<BaseActivationTransitionResult>("base.activation.notFound", OperationStatus.NotFound, ErrorCategory.NotFound);
@@ -273,12 +285,15 @@ public sealed partial class SqliteRecordStore
             BaseEffectExecutionAuthority replacement = SqliteEffect(storedEffect.Claim, storedEffect.Executor, storedEffect.EffectStartGeneration,
                 checked(storedEffect.HeartbeatRevision + 1), checked(request.AcceptedTime.CapturedUtc + effectHeartbeat.ExtensionMilliseconds));
             await WriteEffectAsync(connection, transaction, replacement, cancellationToken).ConfigureAwait(false);
-            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-            return OperationResults.Ok(new BaseActivationTransitionResult
+            var heartbeatResult = new BaseActivationTransitionResult
             {
                 State = row.State, Generation = row.Generation, ControlChecksum = row.ControlChecksum.ToImmutableArray(),
                 Accounting = ActivationAccounting(1, 128), Disposition = BaseMutationRequestDisposition.Committed, Effect = replacement,
-            });
+            };
+            await WriteActivationReceiptAsync(connection, transaction, request.Identity, receiptKind, heartbeatResult,
+                HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult, cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return OperationResults.Ok(heartbeatResult);
         }
         BaseActivationState state;
         byte[]? result = null;
@@ -347,12 +362,15 @@ public sealed partial class SqliteRecordStore
             return ActivationFailure<BaseActivationTransitionResult>("base.activation.claimLost", OperationStatus.Conflict, ErrorCategory.Conflict);
         if (resultingEffect is not null) await WriteEffectAsync(connection, transaction, resultingEffect, cancellationToken).ConfigureAwait(false);
         await IncrementActivationGenerationAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return OperationResults.Ok(new BaseActivationTransitionResult
+        var transitionResult = new BaseActivationTransitionResult
         {
             State = state, Generation = generation, ControlChecksum = control.ToImmutableArray(),
             Accounting = ActivationAccounting(1, 64), Disposition = BaseMutationRequestDisposition.Committed, Effect = resultingEffect,
-        });
+        };
+        await WriteActivationReceiptAsync(connection, transaction, request.Identity, receiptKind, transitionResult,
+            HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return OperationResults.Ok(transitionResult);
     }
 
     /// <inheritdoc />
@@ -369,6 +387,10 @@ public sealed partial class SqliteRecordStore
             return ActivationFailure<BaseExecutorRegistrationResult>("base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        (bool found, OperationResult<BaseExecutorRegistrationResult> receipt) = await ReadActivationReceiptAsync(
+            connection, transaction, request.Identity, "executor-registered", HPDBaseJsonSerializerContext.Default.BaseExecutorRegistrationResult,
+            static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, cancellationToken).ConfigureAwait(false);
+        if (found) return receipt;
         SqliteExecutorRow? existing = await ReadExecutorAsync(connection, transaction, request.ApplicationId, request.HostId, request.ProcessIncarnationId, cancellationToken).ConfigureAwait(false);
         if (existing is { Retired: false })
             return ActivationFailure<BaseExecutorRegistrationResult>("base.activation.executorConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
@@ -389,9 +411,12 @@ public sealed partial class SqliteRecordStore
         };
         BaseExecutorHeartbeatObservation heartbeat = ExecutorHeartbeat(authority, 1, checked(request.AcceptedTime.CapturedUtc + request.RequestedHeartbeatMilliseconds));
         await WriteExecutorAsync(connection, transaction, authority, heartbeat, false, cancellationToken).ConfigureAwait(false);
+        var result = new BaseExecutorRegistrationResult
+        { Executor = authority, Heartbeat = heartbeat, Accounting = ActivationAccounting(1, 128), Disposition = BaseMutationRequestDisposition.Committed };
+        await WriteActivationReceiptAsync(connection, transaction, request.Identity, "executor-registered", result,
+            HPDBaseJsonSerializerContext.Default.BaseExecutorRegistrationResult, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return OperationResults.Ok(new BaseExecutorRegistrationResult
-        { Executor = authority, Heartbeat = heartbeat, Accounting = ActivationAccounting(1, 128), Disposition = BaseMutationRequestDisposition.Committed });
+        return OperationResults.Ok(result);
     }
 
     /// <inheritdoc />
@@ -404,6 +429,10 @@ public sealed partial class SqliteRecordStore
             return ActivationFailure<BaseExecutorHeartbeatResult>("base.activation.clockInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        (bool found, OperationResult<BaseExecutorHeartbeatResult> receipt) = await ReadActivationReceiptAsync(
+            connection, transaction, request.Identity, "executor-heartbeat", HPDBaseJsonSerializerContext.Default.BaseExecutorHeartbeatResult,
+            static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, cancellationToken).ConfigureAwait(false);
+        if (found) return receipt;
         SqliteExecutorRow? row = await ReadExecutorAsync(connection, transaction, request.Executor.ApplicationId, request.Executor.HostId, request.Executor.ProcessIncarnationId, cancellationToken).ConfigureAwait(false);
         if (row is null || row.Retired || !SqliteExecutorMatches(row.Authority, request.Executor) ||
             row.Heartbeat.HeartbeatRevision != request.ExpectedHeartbeatRevision || row.Heartbeat.HeartbeatExpiresAt < request.AcceptedTime.CapturedUtc)
@@ -411,9 +440,12 @@ public sealed partial class SqliteRecordStore
         BaseExecutorHeartbeatObservation heartbeat = ExecutorHeartbeat(row.Authority, checked(row.Heartbeat.HeartbeatRevision + 1),
             checked(request.AcceptedTime.CapturedUtc + request.ExtensionMilliseconds));
         await WriteExecutorAsync(connection, transaction, row.Authority, heartbeat, false, cancellationToken).ConfigureAwait(false);
+        var result = new BaseExecutorHeartbeatResult
+        { Executor = row.Authority, Heartbeat = heartbeat, Accounting = ActivationAccounting(1, 128), Disposition = BaseMutationRequestDisposition.Committed };
+        await WriteActivationReceiptAsync(connection, transaction, request.Identity, "executor-heartbeat", result,
+            HPDBaseJsonSerializerContext.Default.BaseExecutorHeartbeatResult, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return OperationResults.Ok(new BaseExecutorHeartbeatResult
-        { Executor = row.Authority, Heartbeat = heartbeat, Accounting = ActivationAccounting(1, 128), Disposition = BaseMutationRequestDisposition.Committed });
+        return OperationResults.Ok(result);
     }
 
     /// <inheritdoc />
@@ -426,17 +458,24 @@ public sealed partial class SqliteRecordStore
             return ActivationFailure<BaseExecutorRetirementResult>("base.activation.clockInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        (bool found, OperationResult<BaseExecutorRetirementResult> receipt) = await ReadActivationReceiptAsync(
+            connection, transaction, request.Identity, "executor-retired", HPDBaseJsonSerializerContext.Default.BaseExecutorRetirementResult,
+            static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, cancellationToken).ConfigureAwait(false);
+        if (found) return receipt;
         SqliteExecutorRow? row = await ReadExecutorAsync(connection, transaction, request.Executor.ApplicationId, request.Executor.HostId, request.Executor.ProcessIncarnationId, cancellationToken).ConfigureAwait(false);
         if (row is null || row.Retired || !SqliteExecutorMatches(row.Authority, request.Executor) || row.Heartbeat.HeartbeatRevision != request.ExpectedHeartbeatRevision)
             return ActivationFailure<BaseExecutorRetirementResult>("base.activation.executorLost", OperationStatus.Conflict, ErrorCategory.Conflict);
         await WriteExecutorAsync(connection, transaction, row.Authority, row.Heartbeat, true, cancellationToken).ConfigureAwait(false);
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         byte[] checksum = ActivationHash($"base.activation.executor.retired.v2\0{Convert.ToHexString(row.Authority.Checksum.AsSpan())}\n{row.Heartbeat.HeartbeatRevision}");
-        return OperationResults.Ok(new BaseExecutorRetirementResult
+        var result = new BaseExecutorRetirementResult
         {
             Executor = row.Authority, HeartbeatRevision = row.Heartbeat.HeartbeatRevision, RetirementChecksum = checksum.ToImmutableArray(),
             Accounting = ActivationAccounting(1, 128), Disposition = BaseMutationRequestDisposition.Committed,
-        });
+        };
+        await WriteActivationReceiptAsync(connection, transaction, request.Identity, "executor-retired", result,
+            HPDBaseJsonSerializerContext.Default.BaseExecutorRetirementResult, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return OperationResults.Ok(result);
     }
 
     /// <inheritdoc />
@@ -1083,6 +1122,19 @@ public sealed partial class SqliteRecordStore
 
     private static string SqliteActivationReceiptKey(BaseMutationRequestIdentity identity) =>
         $"{identity.Scope}\n{identity.Operation}\n{identity.IdempotencyKey}";
+
+    private static string SqliteActivationTransitionReceiptKind(BaseActivationTransitionRequest request) => request switch
+    {
+        BaseActivationCompleteRequest => "activation-completed",
+        BaseActivationFailRequest failed when failed.Disposition == BaseActivationFailureDisposition.Retry => "activation-retried",
+        BaseActivationFailRequest => "activation-failed-terminal",
+        BaseActivationCancelRequest => "activation-cancelled",
+        BaseActivationBeginEffectRequest => "effect-started",
+        BaseActivationEffectHeartbeatRequest => "effect-heartbeat",
+        BaseActivationCompleteEffectRequest => "effect-completed",
+        BaseActivationRecoverEffectRequest => "effect-outcome-unknown",
+        _ => throw new InvalidOperationException("base.activation.invalid"),
+    };
     private static byte[] ActivationHash(string value) => SHA256.HashData(Encoding.UTF8.GetBytes(value));
     private static OperationResult<T> ActivationFailure<T>(string code, OperationStatus status, ErrorCategory category) => new()
     { Status = status, Error = new BaseError { Code = code, Message = "The activation operation could not be completed.", Category = category } };

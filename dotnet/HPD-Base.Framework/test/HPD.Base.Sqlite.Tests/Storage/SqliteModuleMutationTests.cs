@@ -88,21 +88,27 @@ public sealed partial class SqliteModuleMutationTests
                     Observation = observed.Token, Worker = worker, AcceptedTime = AcceptedTime(10), LeaseMilliseconds = 1_000,
                     Identity = ActivationIdentity("claim"), Limits = limits,
                 })).Value!;
-                BaseActivationRenewResult renewed = (await store.RenewAsync(new BaseActivationRenewRequest
+                var renewRequest = new BaseActivationRenewRequest
                 {
                     Claim = claimed.Claim, ExpectedLeaseRevision = 1, AcceptedTime = AcceptedTime(20), ExtensionMilliseconds = 2_000,
                     Identity = ActivationIdentity("renew"), Limits = limits,
-                })).Value!;
+                };
+                BaseActivationRenewResult renewed = (await store.RenewAsync(renewRequest)).Value!;
                 renewed.Claim.FencingToken.Should().Equal(claimed.Claim.FencingToken);
                 renewed.Lease.LeaseRevision.Should().Be(2);
+                (await store.RenewAsync(renewRequest with { AcceptedTime = AcceptedTime(21) })).Value!.Disposition
+                    .Should().Be(BaseMutationRequestDisposition.Duplicate);
                 byte[] result = "done"u8.ToArray();
-                BaseActivationTransitionResult completed = (await store.TransitionAsync(new BaseActivationCompleteRequest
+                var completeRequest = new BaseActivationCompleteRequest
                 {
                     ActivationId = claimed.Claim.ActivationId, Claim = claimed.Claim,
                     CanonicalResult = result.ToImmutableArray(), ResultChecksum = System.Security.Cryptography.SHA256.HashData(result).ToImmutableArray(),
                     AcceptedTime = AcceptedTime(30), Identity = ActivationIdentity("complete"), Limits = limits,
-                })).Value!;
+                };
+                BaseActivationTransitionResult completed = (await store.TransitionAsync(completeRequest)).Value!;
                 completed.State.Should().Be(BaseActivationState.Succeeded);
+                (await store.TransitionAsync(completeRequest with { AcceptedTime = AcceptedTime(31) })).Value!.Disposition
+                    .Should().Be(BaseMutationRequestDisposition.Duplicate);
             }
 
             await using (SqliteRecordStore reopened = Store(path))

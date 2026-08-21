@@ -53,16 +53,30 @@ public sealed partial class ActivationRuntimeTests
         OperationResult<BaseActivationClaimResult> claimed = await worker.ClaimAsync(
             session, registration.Definition, observed.Value!.Token, Identity("claim", "one"), default);
         var delivery = claimed.Value.Should().BeOfType<BaseActivationClaimedResult>().Subject;
+        BaseMutationRequestIdentity renewIdentity = Identity("renew", "one");
+        OperationResult<BaseActivationRenewResult> renewed = await worker.RenewAsync(
+            session, registration.Definition, delivery.Claim, delivery.Lease, renewIdentity, default);
+        OperationResult<BaseActivationRenewResult> renewedReplay = await worker.RenewAsync(
+            session, registration.Definition, delivery.Claim, delivery.Lease, renewIdentity, default);
+        renewed.IsSuccess().Should().BeTrue(renewed.Error?.Code);
+        renewedReplay.Value!.Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
+        BaseMutationRequestIdentity completionIdentity = Identity("complete", "one");
         OperationResult<BaseActivationTransitionResult> completed = await worker.CompleteAsync(
             session, registration.Definition, delivery.Claim,
             System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new Result("done"), Json.Default.Result).ToImmutableArray(),
-            Identity("complete", "one"), default);
+            completionIdentity, default);
+        OperationResult<BaseActivationTransitionResult> completedReplay = await worker.CompleteAsync(
+            session, registration.Definition, delivery.Claim,
+            System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new Result("done"), Json.Default.Result).ToImmutableArray(),
+            completionIdentity, default);
 
         created.IsSuccess().Should().BeTrue(created.Error?.Code);
         observed.IsSuccess().Should().BeTrue(observed.Error?.Code);
         claimed.IsSuccess().Should().BeTrue(claimed.Error?.Code);
         completed.IsSuccess().Should().BeTrue(completed.Error?.Code);
         completed.Value!.State.Should().Be(BaseActivationState.Succeeded);
+        completedReplay.IsSuccess().Should().BeTrue(completedReplay.Error?.Code);
+        completedReplay.Value!.Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
     }
 
     [Fact]
