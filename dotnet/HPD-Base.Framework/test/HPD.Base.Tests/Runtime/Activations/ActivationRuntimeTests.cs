@@ -31,6 +31,39 @@ public sealed partial class ActivationRuntimeTests
         duplicate.Value.Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
     }
 
+    [Fact]
+    public async Task Worker_observes_claims_and_completes_one_typed_activation()
+    {
+        var store = new InMemoryRecordStore();
+        var stores = new DefaultRecordStoreRegistry();
+        stores.Add(new RecordStoreRegistration { StoreId = "activation-store", Store = store });
+        DefaultBasePolicyOrchestrator policy = Policy();
+        var enqueue = new DefaultBaseActivationRuntime(stores, policy, TimeProvider.System);
+        var worker = new DefaultBaseActivationWorkerRuntime(
+            stores, policy, new BaseActivationAcceptedTimeAuthority(TimeProvider.System));
+        BaseActivationHandlerRegistration<Input, Result> registration = Registration();
+        BaseSession session = Session();
+
+        OperationResult<BaseActivationEnqueueResult> created = await enqueue.EnqueueAsync(
+            session, registration.Definition, registration.Identity, new Input("work"),
+            Identity("enqueue", "one"), null, default);
+        OperationResult<BaseActivationDueObservation> observed = await worker.ObserveAsync(
+            session, registration.Definition, default);
+        OperationResult<BaseActivationClaimResult> claimed = await worker.ClaimAsync(
+            session, registration.Definition, observed.Value!.Token, Identity("claim", "one"), default);
+        var delivery = claimed.Value.Should().BeOfType<BaseActivationClaimedResult>().Subject;
+        OperationResult<BaseActivationTransitionResult> completed = await worker.CompleteAsync(
+            session, registration.Definition, delivery.Claim,
+            System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new Result("done"), Json.Default.Result).ToImmutableArray(),
+            Identity("complete", "one"), default);
+
+        created.IsSuccess().Should().BeTrue(created.Error?.Code);
+        observed.IsSuccess().Should().BeTrue(observed.Error?.Code);
+        claimed.IsSuccess().Should().BeTrue(claimed.Error?.Code);
+        completed.IsSuccess().Should().BeTrue(completed.Error?.Code);
+        completed.Value!.State.Should().Be(BaseActivationState.Succeeded);
+    }
+
     private static BaseActivationHandlerRegistration<Input, Result> Registration() =>
         BaseActivationDefinitionBuilder.Create(new BaseActivationDefinition
         {
@@ -90,8 +123,22 @@ public sealed partial class ActivationRuntimeTests
             Subject = new AccessSubject { Kind = AccessSubjectKind.System, Id = "system" },
             Action = "test.activation", Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime },
         });
+        builder.AddStaticGrant(new BaseGrantAuthorityDefinition
+        {
+            Id = "test.activation.execute", Version = 1, OwningModuleId = "test.module",
+            SourceContractId = "activation.grants", SourceContractVersion = 1,
+        }, new AccessGrant
+        {
+            Id = "test.activation.execute", ApplicationId = "activation-test", ModuleId = "test.module",
+            Audience = HPDBaseEndpointAudience.ControlPlane,
+            Subject = new AccessSubject { Kind = AccessSubjectKind.System, Id = "system" },
+            Action = "test.activation", Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime },
+        });
         return new DefaultBasePolicyOrchestrator(builder.Freeze("activation-test"));
     }
+
+    private static BaseMutationRequestIdentity Identity(string operation, string key) =>
+        BaseMutationRequestIdentity.Create("activation-test", operation, key, BaseMutationRequestFingerprint.Create(new byte[32]));
 
     private static BaseActivationExecutionLimits ProviderLimits() => new()
     {
