@@ -193,7 +193,7 @@ internal static class BaseSystemCollectionGate
             return ReceiptMatches(authority, semantics)
                 && semantics.GrantId == requiredGrantId && grant.Id == requiredGrantId
                 && grant.Effect == GrantEffect.Allow && grant.ApplicationId == operation.ApplicationId
-                && grant.Audience == operation.Audience && grant.Action == BaseTextGrants.Query
+                && grant.Audience == operation.Audience && grant.Action == requiredGrantId
                 && grant.Subject.Kind == principal.SubjectKind && grant.Subject.Id == principal.SubjectId
                 && grant.Subject.TenantId == principal.CurrentTenantId
                 && grant.Scope.Kind == ResourceScopeKind.TextIndex && grant.Scope.CollectionId == collectionId

@@ -25,6 +25,8 @@ public sealed class TextEndpointTests
         HttpResponseMessage response = await client.PostAsync("/base/text/http_text/http.text.content/query", valid); string responseBody = await response.Content.ReadAsStringAsync(); response.StatusCode.Should().Be(HttpStatusCode.OK, responseBody); using JsonDocument json = JsonDocument.Parse(responseBody); json.RootElement.GetProperty("matches").GetArrayLength().Should().Be(1);
         using var invalid = new StringContent("""{"indexId":"http.text.content","query":{"kind":"term","value":"portable","nativeSyntax":"*"},"take":4,"consistency":"current"}""", Encoding.UTF8, "application/json");
         (await client.PostAsync("/base/text/http_text/http.text.content/query", invalid)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        using var duplicate = new StringContent("""{"indexId":"http.text.content","query":{"kind":"term","value":"portable","value":"changed"},"take":4,"consistency":"current"}""", Encoding.UTF8, "application/json");
+        (await client.PostAsync("/base/text/http_text/http.text.content/query", duplicate)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     [Fact]

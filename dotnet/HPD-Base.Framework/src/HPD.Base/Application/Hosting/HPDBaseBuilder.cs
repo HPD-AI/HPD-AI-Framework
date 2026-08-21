@@ -734,7 +734,10 @@ public sealed class HPDBaseBuilder
     {
         BaseTextIndexDefinition[] indexes = collections.SelectMany(static collection => collection.TextIndexes ?? []).ToArray();
         if (indexes.Length == 0) return;
-        if (provider.TextSearch is not { } capability || !capability.TransactionalMaintenanceSupported || !capability.ExactRevisionHydrationSupported || !capability.PolicyBeforeRankingSupported || !capability.ExactFixedPointScoreSupported)
+        if (provider.TextSearch is not { } capability
+            || capability.ProviderClass == BaseTextProviderClass.CoLocatedTransactional && !capability.TransactionalMaintenanceSupported
+            || capability.ProviderClass == BaseTextProviderClass.DerivedJournal && capability.TransactionalMaintenanceSupported
+            || !capability.ExactRevisionHydrationSupported || !capability.PolicyBeforeRankingSupported || !capability.ExactFixedPointScoreSupported)
             throw new InvalidOperationException(BaseTextErrorCodes.CapabilityUnavailable);
         if (collections.Any(collection => (collection.TextIndexes ?? []).Length > capability.MaximumIndexesPerCollection)
             || indexes.Any(index => index.Fields.Length > capability.MaximumFieldsPerIndex || index.FilterFields.Length > capability.MaximumFilterFields))

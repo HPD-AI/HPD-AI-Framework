@@ -11,7 +11,7 @@ internal sealed class InMemoryTextProvider(InMemoryRecordStore store, BaseCollec
     {
         Id = "inmemory.text", Version = 1, ProviderClass = BaseTextProviderClass.CoLocatedTransactional,
         Capability = BaseTextPlatform.ProviderCapability(BaseTextProviderClass.CoLocatedTransactional),
-        NativeDependencyReceipts = [], CertificationReceipt = ImmutableArray.Create(SHA256.HashData("HPDB-INMEMORY-TEXT-CERT-1"u8)),
+        NativeDependencyReceipts = [], CertificationReceipt = ImmutableArray.Create(Convert.FromHexString("7999e8c9d8c5fe57dca7ae3eb6dfaec705c62f4cb93a6e3a50caff35314d54af")),
     };
 
     public async ValueTask<OperationResult<IBaseTextHydrationSession>> OpenAsync(BaseTextAuthorityOpenRequest request, CancellationToken cancellationToken = default)
@@ -88,12 +88,13 @@ internal sealed class InMemoryTextProvider(InMemoryRecordStore store, BaseCollec
             BaseTextCandidate[] ordered = candidates.OrderByDescending(static value => value.Score.Units).ThenBy(static value => value.RecordId.Value, StringComparer.Ordinal)
                 .Where(value => request.AfterBoundary is null || value.CanonicalOrderingBoundary.AsSpan().SequenceCompareTo(request.AfterBoundary.Value.AsSpan()) > 0).Take(request.TakePlusOne).ToArray();
             bool more = ordered.Length == request.TakePlusOne;
+            long returnedProofBytes = ordered.Sum(static value => BaseTextSemanticEvaluator.ProofRetainedBytes(value.ScoreProof)), returnedOrderingBytes = ordered.Sum(static value => (long)value.CanonicalOrderingBoundary.Length), returnedPrefixCount = ordered.Sum(static value => (long)BaseTextSemanticEvaluator.PrefixExpansionCount(value.ScoreProof)), returnedPrefixBytes = ordered.Sum(static value => BaseTextSemanticEvaluator.PrefixExpansionBytes(value.ScoreProof));
             ImmutableArray<BaseTextCandidate> page = [.. ordered]; long queryBytes = BaseTextQueryContract.Encode(plan.Query).Length; long constraintBytes = BaseTextSemanticEvaluator.ConstraintEncoding(plan.Constraint).Length;
             return ValueTask.FromResult(OperationResults.Ok(new BaseTextProviderResult
             {
                 Snapshot = Snapshot, Candidates = page,
                 Completeness = BaseTextProviderEvidence.CreateCompleteness(_descriptor, Snapshot, plan.Lowering, page, request.TakePlusOne),
-                Accounting = new BaseTextProviderAccounting { InputBytes = checked(queryBytes + constraintBytes), QueryBytes = queryBytes, ConstraintBytes = constraintBytes, StatementParameters = BaseTextProviderEvidence.StatementParameterCount(plan.Query, plan.Constraint), AuthorizedRecordsExamined = examined, PostingsExamined = examined, PrefixExpansionCount = prefixCount, PrefixExpansionBytes = prefixBytes, ScoreProofBytes = proofBytes, CandidateCount = ordered.Length, OrderingBytes = orderingBytes, ExactHydrationBytes = 0, ResultBytes = 0, CursorBytes = 0, RetainedTransientBytes = checked(queryBytes + constraintBytes + proofBytes + orderingBytes + prefixBytes), Elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(started) },
+                Accounting = new BaseTextProviderAccounting { InputBytes = checked(queryBytes + constraintBytes), QueryBytes = queryBytes, ConstraintBytes = constraintBytes, StatementParameters = BaseTextProviderEvidence.StatementParameterCount(plan.Query, plan.Constraint), AuthorizedRecordsExamined = examined, PostingsExamined = examined, PrefixExpansionCount = returnedPrefixCount, PrefixExpansionBytes = returnedPrefixBytes, ScoreProofBytes = returnedProofBytes, CandidateCount = ordered.Length, OrderingBytes = returnedOrderingBytes, ExactHydrationBytes = 0, ResultBytes = 0, CursorBytes = 0, RetainedTransientBytes = checked(queryBytes + constraintBytes + proofBytes + orderingBytes + prefixBytes), Elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(started) },
             }));
         }
         public ValueTask<OperationResult<RecordEnvelope[]>> GetExactAsync(CollectionDefinition collection, BaseTextCandidateIdentity[] candidates, OperationContext context, CancellationToken cancellationToken = default)

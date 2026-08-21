@@ -154,6 +154,7 @@ internal sealed class DefaultBaseTextRuntime(
             || result.Accounting.ExactHydrationBytes != 0 || result.Accounting.ResultBytes != 0 || result.Accounting.CursorBytes != 0 || result.Accounting.CandidateCount != result.Candidates.Length
             || result.Accounting.AuthorizedRecordsExamined < result.Candidates.Length || result.Accounting.PostingsExamined < 0 || result.Accounting.PrefixExpansionCount < 0 || result.Accounting.PrefixExpansionCount > limits.MaximumPrefixExpansions || result.Accounting.PrefixExpansionBytes < 0 || result.Accounting.PrefixExpansionBytes > limits.MaximumPrefixExpansionBytes || result.Accounting.ScoreProofBytes < 0 || result.Accounting.ScoreProofBytes > limits.MaximumScoreProofBytes || result.Accounting.OrderingBytes < 0 || result.Accounting.OrderingBytes > limits.MaximumOrderingBytes || result.Accounting.RetainedTransientBytes < checked(result.Accounting.InputBytes + result.Accounting.ScoreProofBytes + result.Accounting.OrderingBytes + result.Accounting.PrefixExpansionBytes) || result.Accounting.RetainedTransientBytes > limits.MaximumTransientBytes || result.Candidates.Length > limits.MaximumCandidates || result.Accounting.Elapsed < TimeSpan.Zero || result.Accounting.Elapsed > limits.QueryTimeout) return false;
         var ids = new HashSet<RecordId>(); ImmutableArray<byte>? prior = after;
+        long exactProofBytes = 0, exactOrderingBytes = 0, exactPrefixCount = 0, exactPrefixBytes = 0;
         foreach (BaseTextCandidate candidate in result.Candidates)
         {
             ImmutableArray<byte> expected = BaseTextSemanticEvaluator.OrderingBoundary(candidate.Score, candidate.RecordId);
@@ -161,9 +162,20 @@ internal sealed class DefaultBaseTextRuntime(
                 || candidate.IndexedPosition.Value < 0 || candidate.IndexedPosition.Value > snapshot.SearchVisibleThrough.Value
                 || !expected.AsSpan().SequenceEqual(candidate.CanonicalOrderingBoundary.AsSpan()) || prior is { } boundary && boundary.AsSpan().SequenceCompareTo(expected.AsSpan()) >= 0
                 || candidate.ScoreProof.ProofDigest.Length != 32) return false;
+            try
+            {
+                exactProofBytes = checked(exactProofBytes + BaseTextSemanticEvaluator.ProofRetainedBytes(candidate.ScoreProof));
+                exactOrderingBytes = checked(exactOrderingBytes + candidate.CanonicalOrderingBoundary.Length);
+                exactPrefixCount = checked(exactPrefixCount + BaseTextSemanticEvaluator.PrefixExpansionCount(candidate.ScoreProof));
+                exactPrefixBytes = checked(exactPrefixBytes + BaseTextSemanticEvaluator.PrefixExpansionBytes(candidate.ScoreProof));
+            }
+            catch (OverflowException) { return false; }
             prior = expected;
         }
-        return true;
+        return result.Accounting.ScoreProofBytes == exactProofBytes
+            && result.Accounting.OrderingBytes == exactOrderingBytes
+            && result.Accounting.PrefixExpansionCount == exactPrefixCount
+            && result.Accounting.PrefixExpansionBytes == exactPrefixBytes;
     }
     private static (int Nodes, int Depth, int PhraseTerms) QueryShape(BaseTextQuery query)
     {

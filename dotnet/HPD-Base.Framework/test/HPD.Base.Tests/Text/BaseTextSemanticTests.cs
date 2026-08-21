@@ -10,6 +10,23 @@ namespace HPD.Base.Tests.Text;
 public sealed class BaseTextSemanticTests
 {
     [Fact]
+    public async Task Inmemory_provider_passes_the_public_text_certification_corpus()
+    {
+        BaseTextCertificationReport report = await BaseTextProviderCertification.RunAsync(new BaseInMemoryTextCertificationFixture(), new()
+        {
+            ProtocolVersion = BaseTextProviderCertification.ProtocolVersion,
+            ProviderClass = BaseTextProviderClass.CoLocatedTransactional,
+            Plan = BaseTextCertificationPlan.Local,
+            Limits = BaseTextPlatform.DefaultLimits,
+            TimeProvider = TimeProvider.System,
+            TokenKeys = [new BaseOpaqueTokenKey { Id = 1, Key = Enumerable.Repeat((byte)0x5a, 32).ToArray(), IssueNotBefore = DateTimeOffset.UnixEpoch }],
+            Faults = [],
+        });
+        Assert.True(report.Passed, string.Join(Environment.NewLine, report.Cases.Where(static value => !value.Passed).Select(static value => value.Id + ":" + value.ErrorCode)));
+        Assert.Equal("7999e8c9d8c5fe57dca7ae3eb6dfaec705c62f4cb93a6e3a50caff35314d54af", Convert.ToHexStringLower(report.ReportChecksum.AsSpan()));
+    }
+
+    [Fact]
     public void Analyzer_applies_compatibility_normalization_and_full_case_folding()
     {
         ImmutableArray<string> tokens = BaseTextAnalyzer.Analyze("Straße ＡＢＣ");

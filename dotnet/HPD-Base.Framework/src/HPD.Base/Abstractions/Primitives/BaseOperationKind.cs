@@ -47,6 +47,10 @@ RealtimeSubscribe,
     VectorQuery,
     /// <summary>Identifies policy-safe lexical search.</summary>
     TextQuery,
+    /// <summary>Identifies bounded text-index metadata reads.</summary>
+    TextIndexRead,
+    /// <summary>Identifies bounded text-index diagnostics reads.</summary>
+    TextDiagnosticsRead,
     /// <summary>Identifies text-index rebuild administration.</summary>
     TextRebuild,
     /// <summary>Identifies vector-index rebuild administration.</summary>

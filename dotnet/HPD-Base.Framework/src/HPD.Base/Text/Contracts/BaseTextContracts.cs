@@ -7,6 +7,12 @@ public static class BaseTextGrants
 {
     /// <summary>Executes one installed lexical index.</summary>
     public const string Query = "base.text.query";
+    /// <summary>Reads bounded installed index metadata.</summary>
+    public const string IndexRead = "base.text.index.read";
+    /// <summary>Reads bounded provider diagnostics for one index.</summary>
+    public const string DiagnosticsRead = "base.text.diagnostics.read";
+    /// <summary>Executes one identified generation-guarded rebuild.</summary>
+    public const string Rebuild = "base.text.rebuild";
 }
 
 /// <summary>Identifies the one portable lexical analyzer owned by BASE.</summary>
