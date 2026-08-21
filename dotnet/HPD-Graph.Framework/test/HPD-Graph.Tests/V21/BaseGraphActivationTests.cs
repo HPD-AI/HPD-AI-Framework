@@ -3,6 +3,7 @@ using FluentAssertions;
 using HPD.Base;
 using HPD.Graph.Abstractions.Config;
 using HPD.Graph.Base;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Graph.Tests.V21;
 
@@ -44,6 +45,25 @@ public sealed class BaseGraphActivationTests
             BaseGraphActivationRegistration.Create(right, 2, Grants(), Limits(), []);
 
         first.Registration.Definition.Checksum.Should().Equal(second.Registration.Definition.Checksum);
+    }
+
+    [Fact]
+    public void Installed_builder_owns_the_graph_activation_registration()
+    {
+        BaseGraphActivationDefinition definition = BaseGraphActivationRegistration.Create(
+            Graph("graph-installed", "3.0.0", "installed"), 3, Grants(), Limits(), []);
+        var services = new ServiceCollection();
+
+        services.AddHPDBase(builder => builder
+            .UseStore(HPDBaseStoreProvider.InMemory)
+            .AddGraphActivation(definition));
+
+        using ServiceProvider provider = services.BuildServiceProvider();
+        HPDBaseApplication application = provider.GetRequiredService<HPDBaseApplication>();
+        BaseInstalledActivationRegistration installed = application.Activations.Resolve(
+            definition.Registration.Definition.Id,
+            definition.Registration.Definition.Version);
+        installed.Definition.Checksum.Should().Equal(definition.Registration.Definition.Checksum);
     }
 
     private static GraphConfig Graph(string id, string version, string description) => new()
