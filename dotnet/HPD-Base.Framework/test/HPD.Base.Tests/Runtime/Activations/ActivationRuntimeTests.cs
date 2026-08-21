@@ -50,9 +50,12 @@ public sealed partial class ActivationRuntimeTests
             Identity("enqueue", "one"), null, default);
         OperationResult<BaseActivationDueObservation> observed = await worker.ObserveAsync(
             session, registration.Definition, default);
+        BaseMutationRequestIdentity claimIdentity = Identity("claim", "one");
         OperationResult<BaseActivationClaimResult> claimed = await worker.ClaimAsync(
-            session, registration.Definition, observed.Value!.Token, Identity("claim", "one"), default);
+            session, registration.Definition, observed.Value!.Token, claimIdentity, default);
         var delivery = claimed.Value.Should().BeOfType<BaseActivationClaimedResult>().Subject;
+        (await worker.ClaimAsync(session, registration.Definition, observed.Value.Token, claimIdentity, default)).Value
+            .Should().BeOfType<BaseActivationClaimedResult>();
         BaseMutationRequestIdentity renewIdentity = Identity("renew", "one");
         OperationResult<BaseActivationRenewResult> renewed = await worker.RenewAsync(
             session, registration.Definition, delivery.Claim, delivery.Lease, renewIdentity, default);
@@ -77,6 +80,8 @@ public sealed partial class ActivationRuntimeTests
         completed.Value!.State.Should().Be(BaseActivationState.Succeeded);
         completedReplay.IsSuccess().Should().BeTrue(completedReplay.Error?.Code);
         completedReplay.Value!.Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
+        (await worker.ClaimAsync(session, registration.Definition, observed.Value.Token, claimIdentity, default)).Value
+            .Should().BeOfType<BaseActivationClaimTerminalResult>();
     }
 
     [Fact]

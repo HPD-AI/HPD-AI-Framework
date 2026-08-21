@@ -128,6 +128,12 @@ public sealed partial class SqliteRecordStore
             return ActivationFailure<BaseActivationClaimResult>("base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        (bool claimReceiptFound, OperationResult<BaseActivationClaimResult> claimReceipt) = await ReadActivationReceiptAsync(
+            connection, transaction, request.Identity, "activation-claimed", HPDBaseJsonSerializerContext.Default.BaseActivationClaimResult,
+            static value => value, cancellationToken).ConfigureAwait(false);
+        if (claimReceiptFound)
+            return await ResolveSqliteClaimReplayAsync(connection, transaction, claimReceipt,
+                request.AcceptedTime.CapturedUtc, cancellationToken).ConfigureAwait(false);
         (long generation, long restoreEpoch) = await ReadActivationAuthorityAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
         (long expectedGeneration, long expectedRestore) = DecodeActivationTokenAuthority(request.Observation.Value.AsSpan());
         if (generation != expectedGeneration || restoreEpoch != expectedRestore)
@@ -185,7 +191,6 @@ public sealed partial class SqliteRecordStore
             }
         }
         await IncrementActivationGenerationAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         var claim = new BaseActivationClaimAuthority
         {
             ActivationId = row.ActivationId, AttemptNumber = attempt, ClaimEpoch = claimEpoch,
@@ -203,11 +208,15 @@ public sealed partial class SqliteRecordStore
             StartedAt = request.AcceptedTime.CapturedUtc,
             Checksum = ActivationHash($"base.activation.attempt.v2\0{row.ActivationId}\n{attempt}").ToImmutableArray(),
         };
-        return OperationResults.Ok<BaseActivationClaimResult>(new BaseActivationClaimedResult(
+        BaseActivationClaimResult claimedResult = new BaseActivationClaimedResult(
             row.Payload(), claim, lease, attemptEvidence,
             [ActivationDueInterval(request.Worker.Scope, request.AcceptedTime.CapturedUtc, null,
                 ActivationBoundary(row, request.AcceptedTime.CapturedUtc))],
-            ActivationAccounting(1, 128)));
+            ActivationAccounting(1, 128));
+        await WriteActivationReceiptAsync(connection, transaction, request.Identity, "activation-claimed", claimedResult,
+            HPDBaseJsonSerializerContext.Default.BaseActivationClaimResult, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return OperationResults.Ok(claimedResult);
     }
 
     /// <inheritdoc />
@@ -1122,6 +1131,29 @@ public sealed partial class SqliteRecordStore
 
     private static string SqliteActivationReceiptKey(BaseMutationRequestIdentity identity) =>
         $"{identity.Scope}\n{identity.Operation}\n{identity.IdempotencyKey}";
+
+    private async ValueTask<OperationResult<BaseActivationClaimResult>> ResolveSqliteClaimReplayAsync(
+        SqliteConnection connection, SqliteTransaction transaction, OperationResult<BaseActivationClaimResult> replay,
+        long acceptedNow, CancellationToken cancellationToken)
+    {
+        if (!replay.IsSuccess() || replay.Value is not BaseActivationClaimedResult claimed) return replay;
+        SqliteActivationRow? row = await ReadActivationAsync(connection, transaction, claimed.Claim.ActivationId, cancellationToken).ConfigureAwait(false);
+        if (row is null) return OperationResults.Ok<BaseActivationClaimResult>(new BaseActivationClaimSupersededResult(claimed.Claim.ActivationId));
+        if (row.State == BaseActivationState.Cancelled)
+            return OperationResults.Ok<BaseActivationClaimResult>(new BaseActivationClaimCancelledResult(row.ActivationId));
+        if (row.State is BaseActivationState.Succeeded or BaseActivationState.Exhausted or BaseActivationState.OutcomeUnknown or BaseActivationState.Disposed or BaseActivationState.Migrated)
+            return OperationResults.Ok<BaseActivationClaimResult>(new BaseActivationClaimTerminalResult(row.ActivationId, row.State));
+        if (!SqliteClaimMatches(row, claimed.Claim))
+            return OperationResults.Ok<BaseActivationClaimResult>(new BaseActivationClaimSupersededResult(row.ActivationId));
+        if (row.LeaseRevision is null || row.LeaseExpiresAt is null || row.LeaseExpiresAt <= acceptedNow)
+            return OperationResults.Ok<BaseActivationClaimResult>(new BaseActivationClaimExpiredResult(row.ActivationId));
+        byte[] checksum = ActivationHash($"base.activation.lease.v2\0{row.ActivationId}\n{row.LeaseRevision}\n{row.LeaseExpiresAt}");
+        return OperationResults.Ok<BaseActivationClaimResult>(claimed with
+        {
+            Lease = new BaseActivationLeaseObservation
+            { LeaseRevision = row.LeaseRevision.Value, LeaseExpiresAt = row.LeaseExpiresAt.Value, Checksum = checksum.ToImmutableArray() },
+        });
+    }
 
     private static string SqliteActivationTransitionReceiptKind(BaseActivationTransitionRequest request) => request switch
     {

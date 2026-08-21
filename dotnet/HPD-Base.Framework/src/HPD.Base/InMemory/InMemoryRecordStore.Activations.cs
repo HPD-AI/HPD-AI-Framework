@@ -156,6 +156,10 @@ internal sealed partial class InMemoryRecordStore
         try
         {
             InMemoryStoreState current = Volatile.Read(ref _publishedState);
+            if (TryReadActivationReceipt(current, request.Identity, "activation-claimed",
+                HPDBaseJsonSerializerContext.Default.BaseActivationClaimResult, static value => value,
+                out OperationResult<BaseActivationClaimResult>? replay))
+                return ResolveClaimReplay(current, replay, request.AcceptedTime.CapturedUtc);
             long tokenGeneration = DecodeDueGeneration(request.Observation.Value.AsSpan());
             if (tokenGeneration != current.ActivationIndexGeneration)
                 return OperationResults.Ok<BaseActivationClaimResult>(new BaseActivationObservationChangedResult(
@@ -224,7 +228,6 @@ internal sealed partial class InMemoryRecordStore
                 ControlChecksum = controlChecksum,
             };
             next.ActivationIndexGeneration = checked(next.ActivationIndexGeneration + 1);
-            Volatile.Write(ref _publishedState, next);
             var attempt = new BaseActivationAttemptEvidence
             {
                 AttemptId = $"{mutable.Payload.ActivationId}:{attemptNumber}",
@@ -232,13 +235,17 @@ internal sealed partial class InMemoryRecordStore
                 StartedAt = request.AcceptedTime.CapturedUtc,
                 Checksum = Hash($"base.activation.attempt.v2\0{mutable.Payload.ActivationId}\n{attemptNumber}").ToImmutableArray(),
             };
-            return OperationResults.Ok<BaseActivationClaimResult>(new BaseActivationClaimedResult(
+            BaseActivationClaimResult claimedResult = new BaseActivationClaimedResult(
                 mutable.Payload.DeepClone(),
                 claim,
                 lease,
                 attempt,
                 [DueInterval(request.Worker.Scope, request.AcceptedTime.CapturedUtc, null, Boundary(mutable, request.AcceptedTime.CapturedUtc))],
-                EmptyActivationAccounting with { Candidates = 1, Comparisons = 1 }));
+                EmptyActivationAccounting with { Candidates = 1, Comparisons = 1 });
+            WriteActivationReceipt(next, request.Identity, "activation-claimed", claimedResult,
+                HPDBaseJsonSerializerContext.Default.BaseActivationClaimResult);
+            Volatile.Write(ref _publishedState, next);
+            return OperationResults.Ok(claimedResult);
         }
         finally
         {
@@ -816,6 +823,23 @@ internal sealed partial class InMemoryRecordStore
 
     private static string ActivationReceiptKey(BaseMutationRequestIdentity identity) =>
         $"{identity.Scope}\n{identity.Operation}\n{identity.IdempotencyKey}";
+
+    private static OperationResult<BaseActivationClaimResult> ResolveClaimReplay(
+        InMemoryStoreState state, OperationResult<BaseActivationClaimResult> replay, long acceptedNow)
+    {
+        if (!replay.IsSuccess() || replay.Value is not BaseActivationClaimedResult claimed) return replay;
+        if (!state.Activations.TryGetValue(claimed.Claim.ActivationId, out InMemoryActivationRow? row))
+            return OperationResults.Ok<BaseActivationClaimResult>(new BaseActivationClaimSupersededResult(claimed.Claim.ActivationId));
+        if (row.State == BaseActivationState.Cancelled)
+            return OperationResults.Ok<BaseActivationClaimResult>(new BaseActivationClaimCancelledResult(row.Payload.ActivationId));
+        if (row.State is BaseActivationState.Succeeded or BaseActivationState.Exhausted or BaseActivationState.OutcomeUnknown or BaseActivationState.Disposed or BaseActivationState.Migrated)
+            return OperationResults.Ok<BaseActivationClaimResult>(new BaseActivationClaimTerminalResult(row.Payload.ActivationId, row.State));
+        if (!ClaimMatches(row, claimed.Claim))
+            return OperationResults.Ok<BaseActivationClaimResult>(new BaseActivationClaimSupersededResult(row.Payload.ActivationId));
+        if (row.Lease is null || row.Lease.LeaseExpiresAt <= acceptedNow)
+            return OperationResults.Ok<BaseActivationClaimResult>(new BaseActivationClaimExpiredResult(row.Payload.ActivationId));
+        return OperationResults.Ok<BaseActivationClaimResult>(claimed with { Lease = row.Lease });
+    }
 
     private static string ActivationTransitionReceiptKind(BaseActivationTransitionRequest request) => request switch
     {

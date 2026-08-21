@@ -236,6 +236,16 @@ public sealed record BaseActivationClaimRequest
 }
 
 /// <summary>Represents the closed result of an atomic claim operation.</summary>
+[System.Text.Json.Serialization.JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseActivationClaimedResult), "claimed")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseActivationClaimEmptyResult), "empty")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseActivationObservationChangedResult), "observationChanged")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseActivationClaimCapacityResult), "capacity")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseActivationRecoveredClaimResult), "recovered")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseActivationClaimExpiredResult), "expired")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseActivationClaimSupersededResult), "superseded")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseActivationClaimCancelledResult), "cancelled")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseActivationClaimTerminalResult), "terminal")]
 public abstract record BaseActivationClaimResult;
 
 /// <summary>Contains a newly committed activation claim.</summary>
@@ -258,6 +268,18 @@ public sealed record BaseActivationClaimCapacityResult(TimeSpan RetryAfter) : Ba
 
 /// <summary>Reports one recovered expired claim; callers must observe again.</summary>
 public sealed record BaseActivationRecoveredClaimResult(string ActivationId, long ResultingGeneration) : BaseActivationClaimResult;
+
+/// <summary>Reports that a historically committed claim is no longer leased.</summary>
+public sealed record BaseActivationClaimExpiredResult(string ActivationId) : BaseActivationClaimResult;
+
+/// <summary>Reports that a later claim epoch superseded the historical claim.</summary>
+public sealed record BaseActivationClaimSupersededResult(string ActivationId) : BaseActivationClaimResult;
+
+/// <summary>Reports that the activation was cancelled after the historical claim.</summary>
+public sealed record BaseActivationClaimCancelledResult(string ActivationId) : BaseActivationClaimResult;
+
+/// <summary>Reports that the activation is already terminal.</summary>
+public sealed record BaseActivationClaimTerminalResult(string ActivationId, BaseActivationState State) : BaseActivationClaimResult;
 
 /// <summary>Requests renewal of one current activation lease.</summary>
 public sealed record BaseActivationRenewRequest

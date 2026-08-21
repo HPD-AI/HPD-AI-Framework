@@ -83,11 +83,14 @@ public sealed partial class SqliteModuleMutationTests
                     ApplicationId = "activation-test", ModuleId = "test", WorkerIdentity = "worker-1",
                     Definitions = [definition], Scope = scope, Checksum = new byte[32].ToImmutableArray(),
                 };
-                var claimed = (BaseActivationClaimedResult)(await store.TryClaimNextAsync(new BaseActivationClaimRequest
+                var claimRequest = new BaseActivationClaimRequest
                 {
                     Observation = observed.Token, Worker = worker, AcceptedTime = AcceptedTime(10), LeaseMilliseconds = 1_000,
                     Identity = ActivationIdentity("claim"), Limits = limits,
-                })).Value!;
+                };
+                var claimed = (BaseActivationClaimedResult)(await store.TryClaimNextAsync(claimRequest)).Value!;
+                (await store.TryClaimNextAsync(claimRequest with { AcceptedTime = AcceptedTime(11) })).Value
+                    .Should().BeOfType<BaseActivationClaimedResult>();
                 var renewRequest = new BaseActivationRenewRequest
                 {
                     Claim = claimed.Claim, ExpectedLeaseRevision = 1, AcceptedTime = AcceptedTime(20), ExtensionMilliseconds = 2_000,
@@ -109,6 +112,8 @@ public sealed partial class SqliteModuleMutationTests
                 completed.State.Should().Be(BaseActivationState.Succeeded);
                 (await store.TransitionAsync(completeRequest with { AcceptedTime = AcceptedTime(31) })).Value!.Disposition
                     .Should().Be(BaseMutationRequestDisposition.Duplicate);
+                (await store.TryClaimNextAsync(claimRequest with { AcceptedTime = AcceptedTime(32) })).Value
+                    .Should().BeOfType<BaseActivationClaimTerminalResult>();
             }
 
             await using (SqliteRecordStore reopened = Store(path))
