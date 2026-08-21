@@ -374,7 +374,12 @@ public sealed partial class SqliteRecordStore
             state = failed.Disposition == BaseActivationFailureDisposition.Retry ? BaseActivationState.RetryPending : BaseActivationState.Exhausted;
         }
         else if (request is BaseActivationCancelRequest cancel && cancel.ExpectedGeneration == row.Generation)
-            state = BaseActivationState.Cancelled;
+        {
+            state = row.State == BaseActivationState.EffectStarted
+                ? BaseActivationState.EffectStarted
+                : BaseActivationState.Cancelled;
+            resultingEffect = row.State == BaseActivationState.EffectStarted ? storedEffect : null;
+        }
         else if (request is BaseActivationBeginEffectRequest begin)
         {
             SqliteExecutorRow? executor = await ReadExecutorAsync(connection, transaction, begin.Executor.ApplicationId,

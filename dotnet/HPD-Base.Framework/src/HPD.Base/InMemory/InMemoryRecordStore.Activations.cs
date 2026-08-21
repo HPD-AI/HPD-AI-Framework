@@ -368,7 +368,10 @@ internal sealed partial class InMemoryRecordStore
                         : BaseActivationState.Exhausted;
                     break;
                 case BaseActivationCancelRequest cancel when row.Generation == cancel.ExpectedGeneration:
-                    resultingState = BaseActivationState.Cancelled;
+                    resultingState = row.State == BaseActivationState.EffectStarted
+                        ? BaseActivationState.EffectStarted
+                        : BaseActivationState.Cancelled;
+                    resultingEffect = row.State == BaseActivationState.EffectStarted ? row.Effect : null;
                     break;
                 case BaseActivationBeginEffectRequest begin when ClaimMatches(row, begin.Claim) && begin.HeartbeatMilliseconds > 0 &&
                     CurrentExecutorAllows(current, begin.Executor, request.AcceptedTime.CapturedUtc) &&

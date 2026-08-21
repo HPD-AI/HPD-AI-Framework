@@ -235,6 +235,14 @@ public sealed partial class SqliteModuleMutationTests
                 ExecutorHeartbeat = executor.Heartbeat, HeartbeatMilliseconds = 100, AcceptedTime = AcceptedTime(20),
                 Identity = ActivationIdentity("effect-start"), Limits = limits,
             })).Value!;
+            BaseActivationTransitionResult cancellation = (await store.TransitionAsync(new BaseActivationCancelRequest
+            {
+                ActivationId = claimed.Claim.ActivationId, ExpectedGeneration = started.Generation,
+                Propagation = BaseCancellationPropagation.None, AcceptedTime = AcceptedTime(30),
+                Identity = ActivationIdentity("effect-cancel"), Limits = limits,
+            })).Value!;
+            cancellation.State.Should().Be(BaseActivationState.EffectStarted);
+            cancellation.Effect.Should().NotBeNull();
             BaseActivationTransitionResult unknown = (await store.TransitionAsync(new BaseActivationRecoverEffectRequest
             {
                 ActivationId = claimed.Claim.ActivationId, Effect = started.Effect!, AcceptedTime = AcceptedTime(200),

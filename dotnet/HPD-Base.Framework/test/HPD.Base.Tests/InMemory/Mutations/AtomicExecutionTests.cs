@@ -186,6 +186,19 @@ public sealed class AtomicExecutionTests
         started.State.Should().Be(BaseActivationState.EffectStarted);
         started.Effect.Should().NotBeNull();
 
+        BaseActivationTransitionResult cancellation = (await store.TransitionAsync(new BaseActivationCancelRequest
+        {
+            ActivationId = claimed.Claim.ActivationId,
+            ExpectedGeneration = started.Generation,
+            Propagation = BaseCancellationPropagation.None,
+            AcceptedTime = AcceptedTime(30),
+            Identity = RequestIdentity("effect-cancel"),
+            Limits = limits,
+        })).Value!;
+        cancellation.State.Should().Be(BaseActivationState.EffectStarted,
+            "cancellation cannot manufacture certainty about an external effect that may have run");
+        cancellation.Effect.Should().NotBeNull();
+
         OperationResult<BaseActivationTransitionResult> premature = await store.TransitionAsync(new BaseActivationRecoverEffectRequest
         {
             ActivationId = claimed.Claim.ActivationId, Effect = started.Effect!, AcceptedTime = AcceptedTime(50),
