@@ -10,6 +10,33 @@ namespace HPD.Base.Tests.Text;
 public sealed class BaseTextSemanticTests
 {
     [Fact]
+    public async Task Noncooperative_provider_work_is_bounded_quarantined_and_released()
+    {
+        await using var state = new BaseTextOperationalState();
+        var late = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await Assert.ThrowsAsync<TimeoutException>(async () =>
+            await state.InvokeAsync<int>(
+                _ => new ValueTask<int>(late.Task),
+                TimeSpan.FromMilliseconds(20),
+                CancellationToken.None));
+
+        Assert.Equal(0, state.Active);
+        Assert.Equal(1, state.Quarantined);
+
+        late.SetResult(42);
+        await WaitUntilAsync(() => state.Quarantined == 0, TimeSpan.FromSeconds(2));
+
+        int recovered = await state.InvokeAsync(
+            _ => ValueTask.FromResult(7),
+            TimeSpan.FromSeconds(1),
+            CancellationToken.None);
+        Assert.Equal(7, recovered);
+        Assert.Equal(0, state.Active);
+        Assert.Equal(0, state.Quarantined);
+    }
+
+    [Fact]
     public async Task Inmemory_provider_passes_the_public_text_certification_corpus()
     {
         BaseTextCertificationReport report = await BaseTextProviderCertification.RunAsync(new BaseInMemoryTextCertificationFixture(), new()
@@ -52,6 +79,16 @@ public sealed class BaseTextSemanticTests
             if (File.Exists(path)) File.Delete(path);
             if (File.Exists(path + "-wal")) File.Delete(path + "-wal");
             if (File.Exists(path + "-shm")) File.Delete(path + "-shm");
+        }
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
+    {
+        DateTimeOffset deadline = DateTimeOffset.UtcNow + timeout;
+        while (!condition())
+        {
+            if (DateTimeOffset.UtcNow >= deadline) throw new TimeoutException("The retained provider work did not leave quarantine.");
+            await Task.Delay(10);
         }
     }
 
