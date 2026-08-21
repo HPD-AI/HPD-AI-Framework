@@ -55,15 +55,16 @@ internal sealed class AgentInputHandlerAdapter<TInput> : IAgentInputHandler
     }
 }
 
-internal enum AgentInputDelivery
+internal enum AgentInputRoutingClass
 {
-    QueuedWork,
+    Work,
+    SessionControl,
     ActiveControl
 }
 
 internal sealed record AgentInputHandlerRegistration(
     Type InputType,
-    AgentInputDelivery Delivery,
+    AgentInputRoutingClass RoutingClass,
     IAgentInputHandler Handler);
 
 internal sealed class AgentInputHandlingContext
@@ -151,10 +152,10 @@ internal sealed class AgentInputDispatcher
         try
         {
             var effectiveRegistration = GetRegistration(effectiveInput.GetType());
-            if (effectiveRegistration.Delivery != admittedRegistration.Delivery)
+            if (effectiveRegistration.RoutingClass != admittedRegistration.RoutingClass)
                 throw new InvalidOperationException(
-                    $"Input middleware cannot replace '{input.GetType().Name}' ({admittedRegistration.Delivery}) " +
-                    $"with '{effectiveInput.GetType().Name}' ({effectiveRegistration.Delivery}).");
+                    $"Input middleware cannot replace '{input.GetType().Name}' ({admittedRegistration.RoutingClass}) " +
+                    $"with '{effectiveInput.GetType().Name}' ({effectiveRegistration.RoutingClass}).");
 
             result = await effectiveRegistration.Handler.HandleAsync(effectiveInput, context, cancellationToken).ConfigureAwait(false);
             return result;
@@ -181,21 +182,21 @@ internal sealed class AgentInputDispatcher
 
     private static IEnumerable<AgentInputHandlerRegistration> CreateBuiltInHandlers()
     {
-        yield return Register(AgentInputDelivery.QueuedWork, new UserMessagesInputHandler());
-        yield return Register(AgentInputDelivery.QueuedWork, new CompactThreadInputHandler());
-        yield return Register(AgentInputDelivery.QueuedWork, new AgentOperationNotificationInputHandler());
-        yield return Register(AgentInputDelivery.ActiveControl, new ClientToolOperationOutcomeInputHandler());
-        yield return Register(AgentInputDelivery.ActiveControl, new InterruptionInputHandler());
-        yield return Register(AgentInputDelivery.ActiveControl, new SteeringInputHandler());
+        yield return Register(AgentInputRoutingClass.Work, new UserMessagesInputHandler());
+        yield return Register(AgentInputRoutingClass.Work, new CompactThreadInputHandler());
+        yield return Register(AgentInputRoutingClass.Work, new AgentOperationNotificationInputHandler());
+        yield return Register(AgentInputRoutingClass.ActiveControl, new ClientToolOperationOutcomeInputHandler());
+        yield return Register(AgentInputRoutingClass.ActiveControl, new InterruptionInputHandler());
+        yield return Register(AgentInputRoutingClass.ActiveControl, new SteeringInputHandler());
     }
 
     private static AgentInputHandlerRegistration Register<TInput>(
-        AgentInputDelivery delivery,
+        AgentInputRoutingClass routingClass,
         IAgentInputHandler<TInput> handler)
         where TInput : AgentInputEvent
     {
         var adapter = new AgentInputHandlerAdapter<TInput>(handler);
-        return new AgentInputHandlerRegistration(typeof(TInput), delivery, adapter);
+        return new AgentInputHandlerRegistration(typeof(TInput), routingClass, adapter);
     }
 }
 

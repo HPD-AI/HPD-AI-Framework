@@ -223,6 +223,21 @@ public abstract record AgentInputEvent
     public string? ThreadExecutionId { get; init; }
 }
 
+/// <summary>
+/// Selects how one conversational input is delivered. This policy belongs only
+/// to <see cref="UserMessagesInputEvent"/>; fixed-routing semantic commands do
+/// not acquire conversation delivery semantics.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<AgentInputDelivery>))]
+public enum AgentInputDelivery
+{
+    /// <summary>Admit one distinct conversation turn.</summary>
+    Queue = 0,
+
+    /// <summary>Guide the matching active execution at its next safe model boundary.</summary>
+    Steer = 1
+}
+
 /// <summary>Adds user guidance to the matching active message execution.</summary>
 public sealed record SteeringInputEvent : AgentInputEvent
 {
@@ -393,6 +408,12 @@ public sealed record UserMessagesInputEvent : AgentInputEvent
 {
     /// <summary>Messages to add for this turn. Empty means resume the scoped thread.</summary>
     public IReadOnlyList<ChatMessage> Messages { get; init; } = Array.Empty<ChatMessage>();
+
+    /// <summary>
+    /// Gets the explicit conversation-delivery policy. Queue is the safe wire and
+    /// CLR default so older payloads never steer active work implicitly.
+    /// </summary>
+    public AgentInputDelivery Delivery { get; init; } = AgentInputDelivery.Queue;
 
     /// <summary>Process-local session scope for in-memory integrations.</summary>
     [JsonIgnore]

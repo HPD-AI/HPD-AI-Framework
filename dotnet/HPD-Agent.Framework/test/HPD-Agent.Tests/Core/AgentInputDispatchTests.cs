@@ -10,18 +10,26 @@ namespace HPD.Agent.Tests.Core;
 public class AgentInputDispatchTests
 {
     [Fact]
-    public void BuiltInRegistrations_DeclareRequiredDelivery()
+    public void BuiltInRegistrations_DeclareRequiredRoutingClass()
     {
-        AgentInputDispatcher.GetBuiltInRegistration(typeof(UserMessagesInputEvent)).Delivery
-            .Should().Be(AgentInputDelivery.QueuedWork);
-        AgentInputDispatcher.GetBuiltInRegistration(typeof(CompactThreadInputEvent)).Delivery
-            .Should().Be(AgentInputDelivery.QueuedWork);
-        AgentInputDispatcher.GetBuiltInRegistration(typeof(ClientToolOperationOutcomeEvent)).Delivery
-            .Should().Be(AgentInputDelivery.ActiveControl);
-        AgentInputDispatcher.GetBuiltInRegistration(typeof(InterruptionRequestEvent)).Delivery
-            .Should().Be(AgentInputDelivery.ActiveControl);
-        AgentInputDispatcher.GetBuiltInRegistration(typeof(SteeringInputEvent)).Delivery
-            .Should().Be(AgentInputDelivery.ActiveControl);
+        AgentInputDispatcher.GetBuiltInRegistration(typeof(UserMessagesInputEvent)).RoutingClass
+            .Should().Be(AgentInputRoutingClass.Work);
+        AgentInputDispatcher.GetBuiltInRegistration(typeof(CompactThreadInputEvent)).RoutingClass
+            .Should().Be(AgentInputRoutingClass.Work);
+        AgentInputDispatcher.GetBuiltInRegistration(typeof(ClientToolOperationOutcomeEvent)).RoutingClass
+            .Should().Be(AgentInputRoutingClass.ActiveControl);
+        AgentInputDispatcher.GetBuiltInRegistration(typeof(InterruptionRequestEvent)).RoutingClass
+            .Should().Be(AgentInputRoutingClass.ActiveControl);
+        AgentInputDispatcher.GetBuiltInRegistration(typeof(SteeringInputEvent)).RoutingClass
+            .Should().Be(AgentInputRoutingClass.ActiveControl);
+    }
+
+    [Fact]
+    public void UserMessagesInputEvent_DefaultsToQueueAndAllowsExplicitSteer()
+    {
+        new UserMessagesInputEvent().Delivery.Should().Be(AgentInputDelivery.Queue);
+        new UserMessagesInputEvent { Delivery = AgentInputDelivery.Steer }
+            .Delivery.Should().Be(AgentInputDelivery.Steer);
     }
 
     [Fact]

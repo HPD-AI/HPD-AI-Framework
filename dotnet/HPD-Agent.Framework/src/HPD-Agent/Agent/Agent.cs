@@ -2154,7 +2154,7 @@ public sealed partial class Agent : IAsyncDisposable
     {
         var registration = _inputDispatcher.GetRegistration(input.GetType());
 
-        if (registration.Delivery == AgentInputDelivery.QueuedWork)
+        if (registration.RoutingClass == AgentInputRoutingClass.Work)
         {
             ChannelWriter<AgentInputEvent>? runtimeWriter;
             bool runtimeTransitioning;
@@ -2213,7 +2213,7 @@ public sealed partial class Agent : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         var registration = _inputDispatcher.GetRegistration(input.GetType());
-        if (registration.Delivery != AgentInputDelivery.QueuedWork)
+        if (registration.RoutingClass != AgentInputRoutingClass.Work)
             throw new ArgumentException("Active-control inputs cannot be enqueued as runtime work.", nameof(input));
 
         ChannelWriter<AgentInputEvent>? runtimeWriter;

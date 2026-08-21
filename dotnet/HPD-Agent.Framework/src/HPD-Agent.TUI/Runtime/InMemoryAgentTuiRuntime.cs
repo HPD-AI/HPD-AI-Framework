@@ -767,7 +767,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         ArgumentNullException.ThrowIfNull(input);
 
         var registration = AgentInputDispatcher.GetBuiltInRegistration(input.GetType());
-        if (registration.Delivery == AgentInputDelivery.ActiveControl)
+        if (registration.RoutingClass == AgentInputRoutingClass.ActiveControl)
         {
             var scopedControl = input with
             {
