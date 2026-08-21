@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Security.Cryptography;
 using System.Text.Json.Serialization;
 
 namespace HPD.Base.Tests.Runtime.Activations;
@@ -62,6 +63,41 @@ public sealed partial class ActivationRuntimeTests
         claimed.IsSuccess().Should().BeTrue(claimed.Error?.Code);
         completed.IsSuccess().Should().BeTrue(completed.Error?.Code);
         completed.Value!.State.Should().Be(BaseActivationState.Succeeded);
+    }
+
+    [Fact]
+    public async Task Schedule_create_and_advance_materializes_one_due_activation()
+    {
+        var store = new InMemoryRecordStore();
+        var stores = new DefaultRecordStoreRegistry();
+        stores.Add(new RecordStoreRegistration { StoreId = "activation-store", Store = store });
+        BaseActivationHandlerRegistration<Input, Result> target = Registration();
+        BaseScheduleDefinition schedule = BaseScheduleDefinitionBuilder.Create(new BaseScheduleDefinition
+        {
+            Id = "test.schedule", Version = 1, OwningModuleId = "test.module",
+            ManageGrantId = "test.schedule.manage", MaterializeGrantId = "test.schedule.materialize",
+            Activation = new BaseActivationDefinitionKey { Id = target.Definition.Id, Version = target.Definition.Version, Checksum = target.Definition.Checksum },
+            CanonicalInput = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new Input("scheduled"), Json.Default.Input).ToImmutableArray(),
+            InputChecksum = [], Expression = new BaseOnceSchedule(DateTimeOffset.UtcNow.AddMinutes(-1).ToUnixTimeMilliseconds()),
+            GapPolicy = BaseTimeGapPolicy.Skip, TimeOverlapPolicy = BaseTimeOverlapPolicy.EarlierOffset,
+            MisfirePolicy = BaseScheduleMisfirePolicy.RunAll, ActivationOverlapPolicy = BaseScheduleOverlapPolicy.Allow,
+            OverlapKeyKind = BaseScheduleOverlapKeyKind.Schedule, Priority = 0, MaximumSplayMilliseconds = 0, Checksum = [],
+        } with
+        {
+            InputChecksum = SHA256.HashData(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new Input("scheduled"), Json.Default.Input)).ToImmutableArray(),
+        });
+        var runtime = new DefaultBaseScheduleRuntime(stores, Policy(),
+            new BaseActivationAcceptedTimeAuthority(TimeProvider.System), new BaseActivationRegistry([target]));
+
+        OperationResult<BaseScheduleMutationResult> created = await runtime.MutateAsync(
+            Session(), schedule, BaseScheduleMutationKind.Create, null, Identity("schedule-create", "one"), default);
+        OperationResult<BaseScheduleMaintenancePage> advanced = await runtime.AdvanceAsync(
+            Session(), schedule, Identity("schedule-advance", "one"), default);
+
+        created.IsSuccess().Should().BeTrue(created.Error?.Code);
+        advanced.IsSuccess().Should().BeTrue(advanced.Error?.Code);
+        advanced.Value!.Occurrences.Should().ContainSingle();
+        advanced.Value.Occurrences[0].Disposition.Should().BeOfType<BaseOccurrenceMaterialized>();
     }
 
     private static BaseActivationHandlerRegistration<Input, Result> Registration() =>
@@ -134,8 +170,23 @@ public sealed partial class ActivationRuntimeTests
             Subject = new AccessSubject { Kind = AccessSubjectKind.System, Id = "system" },
             Action = "test.activation", Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime },
         });
+        AddGrant(builder, "test.schedule.manage", "test.schedule");
+        AddGrant(builder, "test.schedule.materialize", "test.schedule");
         return new DefaultBasePolicyOrchestrator(builder.Freeze("activation-test"));
     }
+
+    private static void AddGrant(BasePolicyAuthorityBuilder builder, string id, string action) =>
+        builder.AddStaticGrant(new BaseGrantAuthorityDefinition
+        {
+            Id = id, Version = 1, OwningModuleId = "test.module",
+            SourceContractId = "activation.grants", SourceContractVersion = 1,
+        }, new AccessGrant
+        {
+            Id = id, ApplicationId = "activation-test", ModuleId = "test.module",
+            Audience = HPDBaseEndpointAudience.ControlPlane,
+            Subject = new AccessSubject { Kind = AccessSubjectKind.System, Id = "system" },
+            Action = action, Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime },
+        });
 
     private static BaseMutationRequestIdentity Identity(string operation, string key) =>
         BaseMutationRequestIdentity.Create("activation-test", operation, key, BaseMutationRequestFingerprint.Create(new byte[32]));
