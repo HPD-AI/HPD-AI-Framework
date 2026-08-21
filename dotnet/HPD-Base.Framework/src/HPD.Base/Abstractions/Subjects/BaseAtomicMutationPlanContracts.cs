@@ -264,10 +264,27 @@ public sealed record BaseCapturedAtomicExecution
     public required ImmutableArray<BaseCapturedModuleGeneration> Generations { get; init; }
     /// <summary>Gets captured activation authority when activation work was requested.</summary>
     public BaseCapturedActivationExtension? Activations { get; init; }
+    /// <summary>Gets transaction-captured activation-fence authority when a child operation is guarded.</summary>
+    public BaseCapturedActivationGuardEvidence? ActivationGuard { get; init; }
     /// <summary>Gets normalized transaction read intervals.</summary>
     public required ImmutableArray<BaseAtomicReadIntervalEvidence> ReadIntervals { get; init; }
     /// <summary>Gets exact capture accounting.</summary>
     public required BaseAtomicCaptureAccounting Accounting { get; init; }
+}
+
+/// <summary>Contains transaction-captured evidence for one same-store activation fence.</summary>
+public sealed record BaseCapturedActivationGuardEvidence
+{
+    /// <summary>Gets the guarded activation identity.</summary>
+    public required string ActivationId { get; init; }
+    /// <summary>Gets the exact current activation generation.</summary>
+    public required long Generation { get; init; }
+    /// <summary>Gets the exact current lease revision.</summary>
+    public required long LeaseRevision { get; init; }
+    /// <summary>Gets the current lease expiry as Unix milliseconds.</summary>
+    public required long LeaseExpiresAt { get; init; }
+    /// <summary>Gets the canonical evidence checksum.</summary>
+    public required ImmutableArray<byte> Checksum { get; init; }
 }
 
 /// <summary>Contains the bounded selected records owned by one L43 capture.</summary>
@@ -759,6 +776,8 @@ public sealed record BasePreparedAtomicExecution
     public required ImmutableArray<BasePreparedModuleGenerationEvidence> Generations { get; init; }
     /// <summary>Gets aggregate prepared activation evidence.</summary>
     public BasePreparedActivationExtension? Activations { get; init; }
+    /// <summary>Gets the prepared activation-fence evidence.</summary>
+    public BaseCapturedActivationGuardEvidence? ActivationGuard { get; init; }
     /// <summary>Gets canonical final subject overlays.</summary>
     public required ImmutableArray<BasePreparedSubjectOverlayEvidence> SubjectOverlay { get; init; }
     /// <summary>Gets ordered subject-validation results.</summary>
@@ -839,6 +858,8 @@ public sealed record BaseProvisionalAtomicExecution
     public required ImmutableArray<BaseModuleCommittedGeneration> Generations { get; init; }
     /// <summary>Gets aggregate provisional activation evidence.</summary>
     public BaseProvisionalActivationExtension? Activations { get; init; }
+    /// <summary>Gets activation-fence evidence validated in the committing transaction.</summary>
+    public BaseCapturedActivationGuardEvidence? ActivationGuard { get; init; }
     /// <summary>Gets exact provisional apply accounting.</summary>
     public required BaseProvisionalAtomicMutationAccounting Accounting { get; init; }
 }

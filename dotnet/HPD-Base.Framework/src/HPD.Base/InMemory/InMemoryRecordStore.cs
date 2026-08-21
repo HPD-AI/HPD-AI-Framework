@@ -2496,6 +2496,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         private Dictionary<int, string>? _capturedModuleGenerationKeys;
         private BaseModuleMutationCaptureExtension? _capturedModuleExtension;
         private BaseActivationCreationExtension? _capturedActivationExtension;
+        private BaseCapturedActivationGuardEvidence? _capturedActivationGuard;
         public ValueTask<OperationResult<BaseSelectionMutationCommitAccounting>> MeasureSelectionMutationAsync(
             BaseAtomicReceiptResult receipt, BaseSelectionMutationResult result, CancellationToken cancellationToken = default)
         {
@@ -2554,6 +2555,14 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             BaseAtomicMutationExecutionLimits limits = request.Limits;
             if (request.Kind == BaseAtomicMutationExecutionKind.ActivationCreation)
                 return ValueTask.FromResult(CaptureActivationAuthority(request, token));
+            if (request.ActivationGuard is not null)
+            {
+                OperationResult<BaseCapturedActivationGuardEvidence> guarded = CaptureActivationGuard(request.ActivationGuard);
+                if (!guarded.IsSuccess() || guarded.Value is null)
+                    return ValueTask.FromResult(new OperationResult<BaseCapturedAtomicExecution>
+                    { Status = guarded.Status, Error = guarded.Error });
+                _capturedActivationGuard = guarded.Value;
+            }
             if (request.Kind == BaseAtomicMutationExecutionKind.SelectionMutation)
                 return ValueTask.FromResult(CaptureSelectionAuthority(request, token));
             if (request.Kind == BaseAtomicMutationExecutionKind.ModuleMutation)
@@ -2670,6 +2679,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     TransactionEvidenceToken = BitConverter.GetBytes(_working.GlobalMutationPosition).ToImmutableArray(),
                 },
                 Items = ownedItems, ModuleRecords = [], ModuleRelationTargets = [], Generations = [], ReadIntervals = ownedIntervals,
+                ActivationGuard = _capturedActivationGuard,
                 Accounting = new BaseAtomicCaptureAccounting
                 {
                     Records = checked(intent.Items.Length + intent.Items.Sum(static item => item.RelationTargets.Length)),
@@ -2681,6 +2691,35 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             };
             return ValueTask.FromResult(OperationResults.Ok(_capturedMutation));
         });
+
+        private OperationResult<BaseCapturedActivationGuardEvidence> CaptureActivationGuard(BaseActivationGuard guard)
+        {
+            BaseActivationClaimAuthority claim = guard.Claim;
+            if (guard.ChildOrdinal <= 0 || guard.ChildRequestFingerprint.Length != 32 ||
+                !_working.Activations.TryGetValue(claim.ActivationId, out InMemoryActivationRow? row) ||
+                row.State != BaseActivationState.Claimed || row.Claim is null || row.Lease is null ||
+                row.Lease.LeaseExpiresAt <= _owner._timeProvider.GetUtcNow().ToUnixTimeMilliseconds() ||
+                row.Claim.AttemptNumber != claim.AttemptNumber || row.Claim.ClaimEpoch != claim.ClaimEpoch ||
+                row.Claim.CancellationGeneration != claim.CancellationGeneration ||
+                !string.Equals(row.Claim.WorkerIdentity, claim.WorkerIdentity, StringComparison.Ordinal) ||
+                !string.Equals(claim.StoreInstanceId, _owner._options.StoreId, StringComparison.Ordinal) || claim.RestoreEpoch != 0 ||
+                !CryptographicOperations.FixedTimeEquals(row.Claim.FencingToken.AsSpan(), claim.FencingToken.AsSpan()) ||
+                !CryptographicOperations.FixedTimeEquals(row.Payload.Definition.Checksum.AsSpan(), claim.DefinitionChecksum.AsSpan()))
+                return SubjectFailure<BaseCapturedActivationGuardEvidence>("base.activation.claimLost", OperationStatus.Conflict, ErrorCategory.Conflict);
+            byte[] checksum = SHA256.HashData(Encoding.UTF8.GetBytes(
+                $"base.activation.guard.v2\0{claim.ActivationId}\n{row.Generation}\n{row.Lease.LeaseRevision}\n{guard.StepId}\n{guard.ChildOrdinal}\n{Convert.ToHexString(guard.ChildRequestFingerprint.AsSpan())}"));
+            return OperationResults.Ok(new BaseCapturedActivationGuardEvidence
+            {
+                ActivationId = new string(claim.ActivationId.AsSpan()), Generation = row.Generation,
+                LeaseRevision = row.Lease.LeaseRevision, LeaseExpiresAt = row.Lease.LeaseExpiresAt,
+                Checksum = checksum.ToImmutableArray(),
+            });
+        }
+
+        private static bool ActivationGuardMatches(BaseActivationGuard? guard, BaseCapturedActivationGuardEvidence? evidence) =>
+            guard is null ? evidence is null : evidence is not null &&
+            string.Equals(guard.Claim.ActivationId, evidence.ActivationId, StringComparison.Ordinal) &&
+            guard.Claim.FencingToken.Length == 32 && guard.ChildRequestFingerprint.Length == 32;
 
         private OperationResult<BaseCapturedAtomicExecution> CaptureActivationAuthority(
             BaseAtomicExecutionRequest request,
@@ -2767,6 +2806,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 },
                 Items = [], ModuleRecords = [], ModuleRelationTargets = [], Generations = [],
                 Activations = capturedActivations,
+                ActivationGuard = null,
                 ReadIntervals = ownedIntervals,
                 Accounting = new BaseAtomicCaptureAccounting
                 {
@@ -2899,7 +2939,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     TransactionEvidenceToken = BitConverter.GetBytes(_working.GlobalMutationPosition).ToImmutableArray(),
                 },
                 Items = [], ModuleRecords = records.MoveToImmutable(), ModuleRelationTargets = relations.MoveToImmutable(),
-                Generations = generations.MoveToImmutable(), ReadIntervals = intervals.MoveToImmutable(),
+                Generations = generations.MoveToImmutable(), ActivationGuard = _capturedActivationGuard,
+                ReadIntervals = intervals.MoveToImmutable(),
                 Accounting = new BaseAtomicCaptureAccounting
                 {
                     Records = module.Records.Length, RelationTargetReads = module.RelationTargets.Length,
@@ -2930,6 +2971,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     && (plan.Activations is null || captured.Activations is null
                         || _capturedActivationExtension is null || !plan.Items.IsDefaultOrEmpty)))
                 return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
+            if (!ActivationGuardMatches(plan.ActivationGuard, captured.ActivationGuard))
+                return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>("base.activation.claimLost", OperationStatus.Conflict, ErrorCategory.Conflict));
             var preparedGenerations = ImmutableArray.CreateBuilder<BasePreparedModuleGenerationEvidence>(captured.Generations.Length);
             BasePreparedActivationExtension? preparedActivations = null;
             if (plan.Kind == BaseAtomicMutationExecutionKind.ActivationCreation)
@@ -3223,6 +3266,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     : captured.Items.Select(static item => item.Disposition).ToImmutableArray(),
                 Generations = preparedGenerations.MoveToImmutable(),
                 Activations = preparedActivations,
+                ActivationGuard = captured.ActivationGuard,
                 SubjectOverlay = overlays.Values.OrderBy(static value => value.ContractId, StringComparer.Ordinal).ThenBy(static value => value.ContractVersion).ThenBy(static value => value.SubjectId.Value, StringComparer.Ordinal).ToImmutableArray(),
                 SubjectValidations = validationEvidence.MoveToImmutable(),
                 ReadIntervals = intervals.MoveToImmutable(),
@@ -3728,6 +3772,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 Facts = facts.MoveToImmutable(),
                 Generations = generations,
                 Activations = provisionalActivations,
+                ActivationGuard = prepared.ActivationGuard,
                 Accounting = new BaseProvisionalAtomicMutationAccounting
                 {
                     WrittenBytes = writtenBytes,
@@ -3971,6 +4016,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     RelationTargets = [],
                 }).ToImmutableArray(),
                 ModuleRecords = [], ModuleRelationTargets = [], Generations = [],
+                ActivationGuard = _capturedActivationGuard,
                 ReadIntervals = [interval],
                 Accounting = new BaseAtomicCaptureAccounting
                 {
