@@ -35,7 +35,9 @@ AdminMetadata,
     /// <summary>Identifies one graph-installed exported-subject lifecycle consumer.</summary>
     SubjectLifecycle,
     /// <summary>Identifies one graph-installed registered module mutation.</summary>
-    ModuleMutation
+    ModuleMutation,
+    /// <summary>Identifies one graph-installed durable activation definition.</summary>
+    ActivationDefinition
 }
 
 /// <summary>Defines policy Effect.</summary>
@@ -186,5 +188,7 @@ Admin,
     /// <summary>Identifies one lexical index or a collection's lexical indexes.</summary>
     TextIndex,
     /// <summary>Identifies one exact exported logical-subject contract.</summary>
-    SubjectContract
+    SubjectContract,
+    /// <summary>Identifies one exact durable activation definition.</summary>
+    ActivationDefinition
 }

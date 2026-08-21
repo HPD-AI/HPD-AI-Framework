@@ -45,6 +45,8 @@ public sealed record BaseActivationLimits
     public required TimeSpan HandlerTimeout { get; init; }
     /// <summary>Gets provider-operation limits.</summary>
     public required BaseActivationExecutionLimits Provider { get; init; }
+    /// <summary>Gets the exact shared atomic-creation safety envelope.</summary>
+    public required BaseAtomicMutationExecutionLimits AtomicCreation { get; init; }
 }
 
 /// <summary>Binds an activation definition to one graph-owned handler factory.</summary>
@@ -282,7 +284,7 @@ internal static class BaseActivationContract
                 RetryableFailureCodes = source.Retry.RetryableFailureCodes.Order(StringComparer.Ordinal)
                     .Select(static value => new string(value.AsSpan())).ToImmutableArray(),
             },
-            Limits = source.Limits with { Provider = source.Limits.Provider with { } },
+            Limits = source.Limits with { Provider = source.Limits.Provider with { }, AtomicCreation = source.Limits.AtomicCreation with { Deadlines = source.Limits.AtomicCreation.Deadlines with { } } },
             Handler = source.Handler is null ? null : source.Handler with { Checksum = source.Handler.Checksum.ToArray().ToImmutableArray() },
             Checksum = ImmutableArray<byte>.Empty,
         };

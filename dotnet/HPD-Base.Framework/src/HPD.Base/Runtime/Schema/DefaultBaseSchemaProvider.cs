@@ -143,6 +143,14 @@ internal static class BaseSystemCollectionGate
         });
     }
 
+    internal static bool HasExactActivationGrant(
+        OperationResult<BasePolicyEvaluation> result,
+        string requiredGrantId,
+        string owningModuleId,
+        PrincipalContext principal,
+        OperationContext operation) =>
+        HasExactModuleGrant(result, requiredGrantId, owningModuleId, principal, operation);
+
     internal static bool HasExactModuleSourceGrant(
         OperationResult<BasePolicyEvaluation> result,
         string requiredGrantId,

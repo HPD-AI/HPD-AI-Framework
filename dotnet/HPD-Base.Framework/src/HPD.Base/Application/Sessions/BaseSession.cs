@@ -106,6 +106,9 @@ public sealed class BaseSession
     /// <summary>Gets mutually installed exported-subject retirement consumers.</summary>
     public BaseSubjectRetirementSession SubjectRetirements => new(this);
 
+    /// <summary>Gets durable activations bound to this session and installed graph.</summary>
+    public BaseActivationSession Activations => new(this);
+
     /// <summary>Resolves one generated exported-subject contract from this installed application graph.</summary>
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     public BaseExportedSubjectContract<TSubject> GetExportedSubjectContract<TSubject>(BaseGeneratedSubjectRegistration registration)
@@ -130,6 +133,12 @@ public sealed class BaseSession
             ? owner.Resolve(collection)
             : collection.JsonTypeInfo;
     internal string ApplicationId => _applicationId;
+    internal HPDBaseEndpointAudience Audience => _options.Audience;
+    internal BaseOwnedSubjectScopeEvidence ActivationScope => _options.ProjectId is not null
+        ? new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Project, Value = new string(_options.ProjectId.AsSpan()) }
+        : _options.TenantId is not null
+            ? new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Tenant, Value = new string(_options.TenantId.AsSpan()) }
+            : new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Global };
 
     internal FileOperationContext FileContext() => new()
     {

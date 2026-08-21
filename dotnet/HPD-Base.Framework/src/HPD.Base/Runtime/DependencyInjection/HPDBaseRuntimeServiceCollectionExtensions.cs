@@ -118,6 +118,7 @@ public static class HPDBaseRuntimeServiceCollectionExtensions
         services.TryAddSingleton<IBaseSubjectLifecycleRuntime, DefaultBaseSubjectLifecycleRuntime>();
         services.TryAddSingleton<IBaseSubjectRetirementRuntime, DefaultBaseSubjectRetirementRuntime>();
         services.TryAddSingleton<IBaseSubjectLifecycleExporterRuntime, DefaultBaseSubjectLifecycleExporterRuntime>();
+        services.TryAddSingleton<IBaseActivationRuntime, DefaultBaseActivationRuntime>();
         services.TryAddSingleton<IBaseRecordRuntime, DefaultBaseRecordRuntime>();
         services.TryAddSingleton(new BaseReadRegistry(new Dictionary<string, IBaseReadRegistration>(StringComparer.Ordinal)));
         services.TryAddSingleton(new BaseCollectionRegistry(new Dictionary<string, CollectionDefinition>(StringComparer.Ordinal)));

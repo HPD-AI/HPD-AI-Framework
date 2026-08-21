@@ -86,5 +86,11 @@ RealtimeSubscribe,
     /// <summary>Removes one explicitly drained subject-retirement consumer.</summary>
     SubjectRetirementConsumerRemoval,
     /// <summary>Identifies one graph-installed registered module mutation.</summary>
-    ModuleMutation
+    ModuleMutation,
+    /// <summary>Identifies authorized durable activation creation.</summary>
+    ActivationEnqueue,
+    /// <summary>Identifies authorized worker observation and claiming.</summary>
+    ActivationClaim,
+    /// <summary>Identifies one fenced activation transition.</summary>
+    ActivationTransition
 }

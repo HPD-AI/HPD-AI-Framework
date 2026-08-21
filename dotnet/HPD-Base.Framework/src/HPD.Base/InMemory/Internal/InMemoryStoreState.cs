@@ -323,6 +323,12 @@ internal sealed record InMemoryMutationReceipt(
             ConsumerRemoval = result.SubjectRetirement.ConsumerRemoval is null ? null : result.SubjectRetirement.ConsumerRemoval with { AcceptedConsumerSetChecksum = new string(result.SubjectRetirement.ConsumerRemoval.AcceptedConsumerSetChecksum.AsSpan()) },
             Maintenance = result.SubjectRetirement.Maintenance is null ? null : result.SubjectRetirement.Maintenance with { RollingChecksum = new string(result.SubjectRetirement.Maintenance.RollingChecksum.AsSpan()) },
         },
+        ActivationCreation = result.ActivationCreation is null ? null : new BaseActivationCreationReceiptResult
+        {
+            ActivationIds = result.ActivationCreation.ActivationIds
+                .Select(static value => new string(value.AsSpan()))
+                .ToImmutableArray(),
+        },
     };
 }
 
