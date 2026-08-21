@@ -23,7 +23,7 @@ public sealed class BaseTextSemanticTests
             Faults = [],
         });
         Assert.True(report.Passed, string.Join(Environment.NewLine, report.Cases.Where(static value => !value.Passed).Select(static value => value.Id + ":" + value.ErrorCode)));
-        Assert.Equal("7999e8c9d8c5fe57dca7ae3eb6dfaec705c62f4cb93a6e3a50caff35314d54af", Convert.ToHexStringLower(report.ReportChecksum.AsSpan()));
+        Assert.Equal("41c5500be3ea303c4e925398fa7a9221a5042b4c44dfa560d8f316473c604986", Convert.ToHexStringLower(report.ReportChecksum.AsSpan()));
     }
 
     [Fact]
@@ -45,7 +45,7 @@ public sealed class BaseTextSemanticTests
                 Faults = [],
             });
             Assert.True(report.Passed, string.Join(Environment.NewLine, report.Cases.Where(static value => !value.Passed).Select(static value => value.Id + ":" + value.ErrorCode)));
-            Assert.Equal("5d7ae5c0f421bde25eaba0b623e53163d44dffcfad8257ba67d4cef67f3d0726", Convert.ToHexStringLower(report.ReportChecksum.AsSpan()));
+            Assert.Equal("12bb816d9c66eaa9f7062a92635c464d015042e0637110ea3c2a9cffc2713461", Convert.ToHexStringLower(report.ReportChecksum.AsSpan()));
         }
         finally
         {

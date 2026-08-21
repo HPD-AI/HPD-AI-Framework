@@ -50,6 +50,8 @@ public static class BaseTextProviderCertification
             Record("b", "tenant-a", true, 2, "present", "Distributed storage", "prefix and phrase matching"),
             Record("c", "tenant-a", false, 3, null, "Unrelated title", "distributed systems are hidden by the active filter"),
             Record("d", "tenant-b", true, 4, "present", "Punctuation: distributed-systems", "combining marks and connectors"),
+            Record("e", "tenant-a", true, 5, null, "Ordering equality", "same lexical score"),
+            Record("f", "tenant-a", true, 6, null, "Ordering equality", "same lexical score"),
         ];
         BaseTextCertificationSeedResult seeded = await host.Authority.SeedAsync(new() { Records = [.. corpus] }, cancellationToken).ConfigureAwait(false);
         cases.Add(seeded.RecordCount == corpus.Length && seeded.Head.Value > 0 && seeded.StateChecksum.Length == 32 ? Success("corpus.seed") : Failure("corpus.seed", OperationStatus.StoreError, "base.testing.text.seedInvalid"));
@@ -63,6 +65,10 @@ public static class BaseTextProviderCertification
         BaseTextCertificationOperationResult filtered = await QueryAsync(host, Node("term", value: "distributed"), 8, cancellationToken,
             new BaseTextHttpFilter { Kind = "and", Children = [Equal("tenant", "string", text: "tenant-a"), Equal("active", "boolean", boolean: true)] }).ConfigureAwait(false);
         cases.Add(Matches(filtered, "a", "b") ? Success("query.policy-filter-before-ranking") : Failure("query.policy-filter-before-ranking", filtered.Status, filtered.Error?.Code ?? "base.testing.text.policyMismatch"));
+        BaseTextCertificationOperationResult ordered = await QueryAsync(host, Node("term", value: "ordering"), 8, cancellationToken,
+            order: [new BaseTextHttpOrder { Field = "priority", Direction = "desc", NullOrder = "last" }]).ConfigureAwait(false);
+        cases.Add(ordered.Status.IsSuccess() && ordered.Query is { } orderedQuery && orderedQuery.Matches.Select(static value => value.Record.Id).SequenceEqual(["f", "e"])
+            ? Success("query.secondary-order") : Failure("query.secondary-order", ordered.Status, ordered.Error?.Code ?? "base.testing.text.orderMismatch"));
 
         BaseTextCertificationOperationResult first = await QueryAsync(host, Node("term", value: "distributed"), 1, cancellationToken).ConfigureAwait(false);
         bool firstValid = first.Status.IsSuccess() && first.Query is { Matches.Length: 1, Next: not null };
@@ -86,8 +92,8 @@ public static class BaseTextProviderCertification
         cases.Add(ordered ? Success("observations.ordered") : Failure("observations.ordered", OperationStatus.StoreError, "base.testing.text.observationInvalid"));
     }
 
-    private static ValueTask<BaseTextCertificationOperationResult> QueryAsync(IBaseTextCertificationHost host, BaseTextHttpQueryNode query, int take, CancellationToken cancellationToken, BaseTextHttpFilter? filter = null, string? cursor = null) =>
-        host.ExecuteAsync(new BaseTextCertificationOperation.Query(new BaseTextHttpQueryRequest { IndexId = "base.testing.text.content.v1", Query = query, Filter = filter, Take = take, Cursor = cursor, Consistency = "current" }), cancellationToken);
+    private static ValueTask<BaseTextCertificationOperationResult> QueryAsync(IBaseTextCertificationHost host, BaseTextHttpQueryNode query, int take, CancellationToken cancellationToken, BaseTextHttpFilter? filter = null, string? cursor = null, BaseTextHttpOrder[]? order = null) =>
+        host.ExecuteAsync(new BaseTextCertificationOperation.Query(new BaseTextHttpQueryRequest { IndexId = "base.testing.text.content.v1", Query = query, Filter = filter, Order = order ?? [], Take = take, Cursor = cursor, Consistency = "current" }), cancellationToken);
     private static BaseTextHttpQueryNode Node(string kind, string? value = null, string[]? terms = null) => new() { Kind = kind, Value = value, Terms = terms };
     private static BaseTextHttpFilter Equal(string field, string kind, string? text = null, bool? boolean = null) => new() { Kind = "equal", Field = field, Value = new() { Kind = kind, Text = text, Boolean = boolean } };
     private static BaseTextCertificationRecord Record(string id, string tenant, bool active, long priority, string? optional, string title, string body) => new() { Id = id, Tenant = tenant, Active = active, Priority = priority, Optional = optional, Title = title, Body = body };
