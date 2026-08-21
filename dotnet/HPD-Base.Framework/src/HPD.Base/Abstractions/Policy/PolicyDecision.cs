@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 
 namespace HPD.Base;
 
@@ -94,6 +95,14 @@ public sealed record PolicyDecision
         };
     }
 
+    /// <summary>Adds one pre-matching lexical field-influence filter.</summary>
+    public PolicyDecision WithTextSearchInfluence(string stableFieldId, FilterExpression filter)
+    {
+        EnsureAllow(); ArgumentException.ThrowIfNullOrWhiteSpace(stableFieldId); ArgumentNullException.ThrowIfNull(filter);
+        ImmutableDictionary<string, FilterExpression> current = Constraints?.TextSearchInfluenceFilters ?? ImmutableDictionary<string, FilterExpression>.Empty.WithComparers(StringComparer.Ordinal);
+        return this with { Outcome = PolicyOutcome.AllowedWithConstraints, Constraints = (Constraints ?? new PolicyConstraints()) with { TextSearchInfluenceFilters = current.SetItem(stableFieldId, filter) } };
+    }
+
     private void EnsureAllow()
     {
         if (Effect != PolicyEffect.Allow)
@@ -117,6 +126,8 @@ public sealed record PolicyConstraints
     public FieldMask? WriteMask { get; init; }
     /// <summary>Gets or sets the tags.</summary>
     public Dictionary<string, string>? Tags { get; init; }
+    /// <summary>Gets pre-matching lexical influence filters keyed by stable field identity.</summary>
+    public ImmutableDictionary<string, FilterExpression>? TextSearchInfluenceFilters { get; init; }
 }
 
 /// <summary>Represents a field mask.</summary>

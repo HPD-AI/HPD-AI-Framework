@@ -862,6 +862,40 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
 
     internal InMemoryStoreState CaptureVectorRoot() => Volatile.Read(ref _publishedState);
 
+    internal async ValueTask<OperationResult<BaseTextRebuildResult>> RebuildTextAsync(CollectionDefinition collection, BaseTextIndexDefinition index, BaseTextRebuildRequest request, CancellationToken cancellationToken)
+    {
+        string receiptKey = request.Identity.Scope + "\n" + request.Identity.Operation + "\n" + request.Identity.IdempotencyKey;
+        byte[] fingerprint = TextRebuildFingerprint(request);
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            InMemoryStoreState captured = CaptureVectorRoot();
+            if (captured.TextRebuildReceipts.TryGetValue(receiptKey, out InMemoryTextRebuildReceipt? existing))
+                return CryptographicOperations.FixedTimeEquals(existing.Fingerprint, fingerprint)
+                    ? OperationResults.Ok(existing.Result with { PublicationChecksum = ImmutableArray.Create(existing.Result.PublicationChecksum.ToArray()) })
+                    : OperationResults.Conflict<BaseTextRebuildResult>(new BaseError { Code = BaseMutationRequestErrorCodes.FingerprintConflict, Message = "The text rebuild identity conflicts with stored evidence.", Category = ErrorCategory.Conflict });
+            string slot = collection.Id + "\n" + index.Id;
+            InMemoryTextProjectionState previous = captured.TextProjections.GetValueOrDefault(slot) ?? new InMemoryTextProjectionState { AppliedThrough = captured.GlobalMutationPosition, PurgeGeneration = captured.Collections.GetValueOrDefault(collection.Id)?.PurgeGeneration ?? 0 };
+            if (previous.Generation != request.ExpectedGeneration) return OperationResults.Conflict<BaseTextRebuildResult>(new BaseError { Code = BaseTextErrorCodes.RebuildRequired, Message = "The text rebuild conflicts with current index state.", Category = ErrorCategory.Conflict });
+            InMemoryStoreState working = captured.Clone(); var staged = new InMemoryTextProjectionState { Generation = checked(previous.Generation + 1), AppliedThrough = captured.GlobalMutationPosition, PurgeGeneration = previous.PurgeGeneration };
+            IEnumerable<StoredRecord> records = working.Collections.GetValueOrDefault(collection.Id)?.RecordsById.Values ?? Enumerable.Empty<StoredRecord>();
+            foreach (StoredRecord record in records.OrderBy(static value => value.Id.Value, StringComparer.Ordinal)) { cancellationToken.ThrowIfCancellationRequested(); BaseTextSemanticEvaluator.ValidateIndexedPayload(record.Payload, index); staged.Carriers.Add(record.Id.Value, new InMemoryTextCarrier(record.Id, record.Metadata.Revision!.Value, record.LatestMutationPosition)); }
+            working.TextProjections[slot] = staged;
+            byte[] checksum = SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(string.Join('\n', staged.Carriers.Keys.Order(StringComparer.Ordinal))));
+            var result = new BaseTextRebuildResult { PreviousGeneration = previous.Generation, PublishedGeneration = staged.Generation, VisibleThrough = new(staged.AppliedThrough), RecordCount = staged.Carriers.Count, PublicationChecksum = ImmutableArray.Create(checksum) };
+            working.TextRebuildReceipts[receiptKey] = new(fingerprint, result);
+            await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                if (!ReferenceEquals(_publishedState, captured)) continue;
+                Volatile.Write(ref _publishedState, working); _generation++; return OperationResults.Ok(result);
+            }
+            finally { _stateGate.Release(); }
+        }
+        return OperationResults.Conflict<BaseTextRebuildResult>(new BaseError { Code = BaseTextErrorCodes.InMemoryGenerationChanged, Message = "The text authority changed during rebuild.", Category = ErrorCategory.Conflict });
+    }
+    private static byte[] TextRebuildFingerprint(BaseTextRebuildRequest request) { using var stream = new MemoryStream(); using var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8); writer.Write("base.text.rebuild.v1"); writer.Write(request.Identity.Scope); writer.Write(request.Identity.Operation); writer.Write(request.Identity.IdempotencyKey); writer.Write(request.CollectionId); writer.Write(request.TextIndexId); writer.Write(request.ExpectedGeneration); writer.Write(request.Identity.Fingerprint.ToArray()); return SHA256.HashData(stream.ToArray()); }
+
     private readonly HPDBaseInMemoryStoreOptions _options;
     private readonly BaseQueryCursorCodec _queryCursors;
     private readonly BaseSubjectScopeProtector _subjectScopes;

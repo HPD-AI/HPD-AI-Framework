@@ -12,6 +12,23 @@ public sealed record BaseTextEvaluatedCandidate(BaseTextScore Score, BaseTextCan
 /// <summary>Provides the portable semantic oracle used for provider certification and Runtime verification.</summary>
 public static class BaseTextSemanticEvaluator
 {
+    internal static long ValidateIndexedPayload(RecordPayload payload, BaseTextIndexDefinition index)
+    {
+        long bytes = 0;
+        foreach (BaseTextIndexFieldDefinition field in index.Fields) if (TryField(payload, field, out JsonElement value) && value.ValueKind == JsonValueKind.String)
+        {
+            ImmutableArray<string> tokens = BaseTextAnalyzer.Analyze(value.GetString()!); long fieldBytes = tokens.Sum(static token => (long)Encoding.UTF8.GetByteCount(token));
+            if (tokens.Length > index.Limits.MaximumTokensPerField || fieldBytes > index.Limits.MaximumNormalizedBytesPerField) throw new ArgumentException(BaseTextErrorCodes.BudgetExceeded);
+            bytes = checked(bytes + fieldBytes);
+        }
+        if (bytes > index.Limits.MaximumNormalizedBytesPerRecord) throw new ArgumentException(BaseTextErrorCodes.BudgetExceeded);
+        return bytes;
+    }
+    internal static string NormalizedCarrierText(RecordPayload payload, BaseTextIndexDefinition index)
+    {
+        var tokens = new List<string>(); foreach (BaseTextIndexFieldDefinition field in index.Fields) if (TryField(payload, field, out JsonElement value) && value.ValueKind == JsonValueKind.String) tokens.AddRange(BaseTextAnalyzer.Analyze(value.GetString()!));
+        _ = ValidateIndexedPayload(payload, index); return string.Join(' ', tokens);
+    }
     /// <summary>Encodes the mandatory score-descending and record-ID-ascending continuation boundary.</summary>
     public static ImmutableArray<byte> OrderingBoundary(BaseTextScore score, RecordId id)
     {
@@ -20,12 +37,14 @@ public static class BaseTextSemanticEvaluator
         return ImmutableArray.Create(result);
     }
     /// <summary>Evaluates matching, feature evidence, and score over one canonical payload.</summary>
-    public static BaseTextEvaluatedCandidate? Evaluate(RecordPayload payload, BaseTextIndexDefinition index, BaseTextQuery query, ImmutableArray<byte> queryDigest)
+    public static BaseTextEvaluatedCandidate? Evaluate(RecordPayload payload, BaseTextIndexDefinition index, BaseTextQuery query, ImmutableArray<byte> queryDigest, ImmutableArray<BaseTextFieldInfluenceConstraint> influences = default)
     {
+        Dictionary<string, BaseTextCandidateConstraint> influenceByField = influences.IsDefaultOrEmpty ? new(StringComparer.Ordinal) : influences.ToDictionary(static value => value.StableFieldId, static value => value.Constraint, StringComparer.Ordinal);
         var fields = new Dictionary<string, ImmutableArray<string>>(StringComparer.Ordinal);
         foreach (BaseTextIndexFieldDefinition field in index.Fields)
         {
-            if (!TryField(payload, field, out JsonElement value) || value.ValueKind != JsonValueKind.String) fields[field.StableFieldId] = [];
+            if (influenceByField.TryGetValue(field.StableFieldId, out BaseTextCandidateConstraint? influence) && !ConstraintMatches(payload, index, influence)) fields[field.StableFieldId] = [];
+            else if (!TryField(payload, field, out JsonElement value) || value.ValueKind != JsonValueKind.String) fields[field.StableFieldId] = [];
             else fields[field.StableFieldId] = BaseTextAnalyzer.Analyze(value.GetString()!);
         }
         Eval result = Match(query, fields, null);
@@ -64,9 +83,10 @@ public static class BaseTextSemanticEvaluator
     /// <summary>Computes the canonical constraint digest.</summary>
     public static ImmutableArray<byte> ConstraintDigest(BaseTextCandidateConstraint value)
     {
-        using var stream = new MemoryStream(); stream.Write("HPDB-TEXT-CONSTRAINT-1\0"u8); WriteConstraint(stream, value);
-        return ImmutableArray.Create(SHA256.HashData(stream.ToArray()));
+        return ImmutableArray.Create(SHA256.HashData(ConstraintEncoding(value).AsSpan()));
     }
+    /// <summary>Returns the canonical provider-neutral candidate-constraint bytes.</summary>
+    public static ImmutableArray<byte> ConstraintEncoding(BaseTextCandidateConstraint value) { using var stream = new MemoryStream(); stream.Write("HPDB-TEXT-CONSTRAINT-1\0"u8); WriteConstraint(stream, value); return ImmutableArray.Create(stream.ToArray()); }
 
     private static Eval Match(BaseTextQuery query, Dictionary<string, ImmutableArray<string>> fields, string? selected) => query switch
     {
@@ -143,6 +163,9 @@ public static class BaseTextSemanticEvaluator
     { using var stream = new MemoryStream(); stream.WriteByte((byte)value.Kind); WriteString(stream, value.StableFieldId); foreach (ImmutableArray<byte> token in value.NormalizedTokens) { WriteCount(stream, token.Length); stream.Write(token.AsSpan()); } return stream.ToArray(); }
     private static byte[] ProofBytes(IEnumerable<BaseTextFieldStatistics> fields, IEnumerable<BaseTextFeatureEvidence> features)
     { using var stream = new MemoryStream(); foreach (BaseTextFieldStatistics field in fields) { WriteString(stream, field.StableFieldId); WriteLong(stream, field.CandidateTokenCount); } foreach (BaseTextFeatureEvidence feature in features) { byte[] key = FeatureKey(feature); WriteCount(stream, key.Length); stream.Write(key); WriteLong(stream, feature.CandidateTermFrequency); foreach (ImmutableArray<byte> expansion in feature.PrefixExpansions) { WriteCount(stream, expansion.Length); stream.Write(expansion.AsSpan()); } } return stream.ToArray(); }
+    internal static long ProofRetainedBytes(BaseTextCandidateScoreProof proof) => ProofBytes(proof.Fields, proof.Features).LongLength + proof.ProofDigest.Length;
+    internal static long PrefixExpansionCount(BaseTextCandidateScoreProof proof) => proof.Features.Sum(static feature => (long)feature.PrefixExpansions.Length);
+    internal static long PrefixExpansionBytes(BaseTextCandidateScoreProof proof) => proof.Features.Sum(static feature => feature.PrefixExpansions.Sum(static expansion => (long)expansion.Length));
     private static void WriteConstraint(Stream stream, BaseTextCandidateConstraint value)
     {
         switch (value)

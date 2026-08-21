@@ -98,6 +98,7 @@ public sealed partial class SqliteRecordStore :
     private readonly ISqliteTransactionResourceDisposer _transactionResourceDisposer;
     private readonly ISqliteSchemaCommandController _schemaCommands;
     private readonly ISqliteAdministrationOperationController _administrationOperations;
+    internal ValueTask BeforeTextAdministrationPhaseAsync(string phase, CancellationToken cancellationToken) => _administrationOperations.BeforePhaseAsync(phase, cancellationToken);
     private readonly ISqliteAtomicMutationProjection[] _mutationProjectionContributors;
     private readonly SemaphoreSlim _keepAliveGate = new(1, 1);
     private readonly SemaphoreSlim _mutationExecutionSlots;

@@ -75,7 +75,7 @@ public sealed class HPDBaseStoreProvider
         SubjectLifecycle = descriptor.SubjectLifecycle with { };
         SubjectRetirement = descriptor.SubjectRetirement with { };
         ModuleMutations = descriptor.ModuleMutations with { MaximumLimits = descriptor.ModuleMutations.MaximumLimits with { Deadlines = descriptor.ModuleMutations.MaximumLimits.Deadlines with { } } };
-        TextSearch = descriptor.TextSearch is null ? null : descriptor.TextSearch with { MaximumLimits = descriptor.TextSearch.MaximumLimits with { } };
+        TextSearch = descriptor.TextSearch is null ? null : descriptor.TextSearch with { };
         Installer = installer;
     }
 
@@ -151,15 +151,31 @@ public static class HPDBaseStoreProviderFactory
                 MaximumLimits = descriptor.ModuleMutations.MaximumLimits with
                 { Deadlines = descriptor.ModuleMutations.MaximumLimits.Deadlines with { } },
             },
-            TextSearch = descriptor.TextSearch is null ? null : descriptor.TextSearch with { MaximumLimits = descriptor.TextSearch.MaximumLimits with { } },
+            TextSearch = descriptor.TextSearch is null ? null : descriptor.TextSearch with { },
         }, installer);
     }
 
-    private static bool ValidTextCapability(BaseTextProviderCapability value) => value.TransactionalMaintenanceSupported && value.ExactRevisionHydrationSupported
-        && value.PhraseSupported && value.PrefixSupported && value.MaximumLimits is not null
-        && value.MaximumLimits.MaximumResults >= 1 && value.MaximumLimits.MaximumResults <= BaseTextPlatform.DefaultLimits.MaximumResults
-        && value.MaximumLimits.MaximumQueryNodes >= 1 && value.MaximumLimits.MaximumQueryNodes <= BaseTextPlatform.DefaultLimits.MaximumQueryNodes
-        && value.MaximumLimits.MaximumTransientBytes >= 1 && value.MaximumLimits.MaximumTransientBytes <= BaseTextPlatform.DefaultLimits.MaximumTransientBytes;
+    private static bool ValidTextCapability(BaseTextProviderCapability value) => Enum.IsDefined(value.ProviderClass)
+        && (value.ProviderClass != BaseTextProviderClass.CoLocatedTransactional || value.TransactionalMaintenanceSupported)
+        && value.ExactRevisionHydrationSupported && value.PolicyBeforeRankingSupported && value.ExactFixedPointScoreSupported
+        && value.MaximumIndexesPerCollection is >= 1 and <= 8 && value.MaximumFieldsPerIndex is >= 1 and <= 8 && value.MaximumFilterFields is >= 1 and <= 16
+        && value.MaximumIndexedRecords >= 1 && value.MaximumPostings >= 1 && value.MaximumStatisticsBytes >= 1
+        && value.MaximumRebuildStagingRows >= 1 && value.MaximumRebuildBytes >= 1
+        && value.MaximumWriteTime > TimeSpan.Zero && value.MaximumWriteTime <= TimeSpan.FromMinutes(2)
+        && value.MaximumInspectionTime > TimeSpan.Zero && value.MaximumInspectionTime <= TimeSpan.FromMinutes(2)
+        && value.MaximumRebuildTime > TimeSpan.Zero && value.MaximumRebuildTime <= TimeSpan.FromMinutes(30)
+        && value.MaximumQuarantinedOperations is >= 1 and <= 8
+        && value.MaximumResults is >= 1 and <= 256 && value.MaximumQueryNodes is >= 1 and <= 64
+        && value.MaximumQueryDepth is >= 1 and <= 12 && value.MaximumPhraseTerms is >= 2 and <= 16
+        && value.MaximumQueryBytes is >= 1 and <= 32 * 1024 && value.MaximumFilterNodes is >= 1 and <= 64
+        && value.MaximumFilterDepth is >= 1 and <= 12 && value.MaximumFilterLiterals is >= 1 and <= 256
+        && value.MaximumInValues is >= 1 and <= 64 && value.MaximumPrefixExpansions is >= 1 and <= 256
+        && value.MaximumPrefixExpansionBytes is >= 1 and <= 16 * 1024 && value.MaximumSecondaryOrderFields is >= 1 and <= 4
+        && value.MaximumOrderingBytes is >= 1 and <= 8 * 1024 && value.MaximumCandidates is >= 2 and <= 257
+        && value.MaximumScoreProofBytes is >= 1 and <= 1024 * 1024 && value.MaximumNormalizedBytesPerField is >= 1 and <= 256 * 1024
+        && value.MaximumNormalizedBytesPerRecord is >= 1 and <= 1024 * 1024 && value.MaximumResultBytes is >= 1 and <= 1024 * 1024
+        && value.MaximumCursorBytes is >= 1 and <= 2 * 1024 && value.MaximumStatementParameters is >= 1 and <= 1024
+        && value.MaximumTransientBytes is >= 1 and <= 32_000_000;
 
     private static bool ValidSubjectCapability(BaseSubjectReferenceCapability? value) => value is not null &&
         value.MaximumReferencesPerRecord is >= 1 and <= 32 && value.MaximumReferencesPerMutation is >= 1 and <= 1_024 &&

@@ -68,6 +68,8 @@ public sealed record BasePolicyEvaluation
     public FieldMask? EffectiveReadMask { get; init; }
     /// <summary>Gets or sets the effective write mask.</summary>
     public FieldMask? EffectiveWriteMask { get; init; }
+    /// <summary>Gets normalized pre-matching lexical influence filters in stable field order.</summary>
+    public required ImmutableDictionary<string, FilterExpression> EffectiveTextSearchInfluenceFilters { get; init; }
     /// <summary>Gets immutable installed-graph authority for an admitted mutation decision.</summary>
     public BasePolicyEvaluationAuthority? Authority { get; init; }
 }
@@ -134,6 +136,8 @@ public sealed record BasePolicyConstraintAuthority
     public FieldMask? EffectiveReadMask { get; init; }
     /// <summary>Gets the effective write mask.</summary>
     public FieldMask? EffectiveWriteMask { get; init; }
+    /// <summary>Gets normalized pre-matching lexical influence filters in stable field order.</summary>
+    public required ImmutableDictionary<string, FilterExpression> EffectiveTextSearchInfluenceFilters { get; init; }
 }
 
 /// <summary>Opaque immutable 32-byte policy-evaluation authority checksum.</summary>

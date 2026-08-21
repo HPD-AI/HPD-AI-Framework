@@ -734,26 +734,39 @@ public sealed class HPDBaseBuilder
     {
         BaseTextIndexDefinition[] indexes = collections.SelectMany(static collection => collection.TextIndexes ?? []).ToArray();
         if (indexes.Length == 0) return;
-        if (provider.TextSearch is not { } capability || !capability.TransactionalMaintenanceSupported || !capability.ExactRevisionHydrationSupported)
+        if (provider.TextSearch is not { } capability || !capability.TransactionalMaintenanceSupported || !capability.ExactRevisionHydrationSupported || !capability.PolicyBeforeRankingSupported || !capability.ExactFixedPointScoreSupported)
+            throw new InvalidOperationException(BaseTextErrorCodes.CapabilityUnavailable);
+        if (collections.Any(collection => (collection.TextIndexes ?? []).Length > capability.MaximumIndexesPerCollection)
+            || indexes.Any(index => index.Fields.Length > capability.MaximumFieldsPerIndex || index.FilterFields.Length > capability.MaximumFilterFields))
             throw new InvalidOperationException(BaseTextErrorCodes.CapabilityUnavailable);
         foreach (BaseTextIndexDefinition index in indexes)
         {
-            BaseTextExecutionLimits requested = index.Limits, maximum = capability.MaximumLimits;
+            BaseTextExecutionLimits requested = index.Limits, maximum = BaseTextPlatform.ExecutionLimits(capability);
             if (requested.MaximumQueryNodes > maximum.MaximumQueryNodes || requested.MaximumQueryDepth > maximum.MaximumQueryDepth
                 || requested.MaximumPhraseTerms > maximum.MaximumPhraseTerms || requested.MaximumQueryBytes > maximum.MaximumQueryBytes
+                || requested.MaximumFilterNodes > maximum.MaximumFilterNodes || requested.MaximumFilterDepth > maximum.MaximumFilterDepth
+                || requested.MaximumFilterLiterals > maximum.MaximumFilterLiterals || requested.MaximumInValues > maximum.MaximumInValues
                 || requested.MaximumPrefixExpansions > maximum.MaximumPrefixExpansions || requested.MaximumPrefixExpansionBytes > maximum.MaximumPrefixExpansionBytes
-                || requested.MaximumCandidates > maximum.MaximumCandidates || requested.MaximumResults > maximum.MaximumResults
-                || requested.MaximumResultBytes > maximum.MaximumResultBytes || requested.MaximumTransientBytes > maximum.MaximumTransientBytes
+                || requested.MaximumSecondaryOrderFields > maximum.MaximumSecondaryOrderFields || requested.MaximumOrderingBytes > maximum.MaximumOrderingBytes
+                || requested.MaximumCandidates > maximum.MaximumCandidates || requested.MaximumScoreProofBytes > maximum.MaximumScoreProofBytes
+                || requested.MaximumTokensPerField > maximum.MaximumTokensPerField || requested.MaximumNormalizedBytesPerField > maximum.MaximumNormalizedBytesPerField
+                || requested.MaximumNormalizedBytesPerRecord > maximum.MaximumNormalizedBytesPerRecord || requested.MaximumResults > maximum.MaximumResults
+                || requested.MaximumResultBytes > maximum.MaximumResultBytes || requested.MaximumCursorBytes > maximum.MaximumCursorBytes
+                || requested.MaximumStatementParameters > maximum.MaximumStatementParameters || requested.MaximumTransientBytes > maximum.MaximumTransientBytes
                 || requested.QueryTimeout > maximum.QueryTimeout || requested.ConsistencyWaitTimeout > maximum.ConsistencyWaitTimeout)
                 throw new InvalidOperationException(BaseTextErrorCodes.CapabilityUnavailable);
         }
-        if (!_services.Any(static descriptor => descriptor.ServiceType == typeof(IBaseTextAuthority)))
+        if (!_services.Any(static descriptor => descriptor.ServiceType == typeof(IBaseTextProvider)))
             throw new InvalidOperationException(BaseTextErrorCodes.CapabilityUnavailable);
         foreach (BaseTextIndexDefinition index in indexes) BaseTextIndexContract.Seal(index);
         _services.TryAddSingleton(TimeProvider.System);
         _services.AddSingleton<BaseTextCursorCodec>();
         _services.AddSingleton<BaseTextConsistencyTokenCodec>();
+        _services.AddSingleton<BaseTextOperationalState>();
         _services.AddSingleton<IBaseTextRuntime, DefaultBaseTextRuntime>();
+        _services.AddSingleton<IBaseTextAdministration, DefaultBaseTextAdministration>();
+        _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseHealthContributor, BaseTextHealthContributor>());
+        _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDiagnosticContributor, BaseTextHealthContributor>());
     }
 
     private void EnsureMutable()

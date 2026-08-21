@@ -48,7 +48,7 @@ public sealed class L42ConfidentialityTests
             Payload = Payload("{\"public\":\"shown\",\"confidential\":\"hidden\",\"secret\":\"never\"}"),
             Metadata = new RecordMetadata { Revision = new RevisionToken("r1") },
         };
-        var policy = new BasePolicyEvaluation { Decision = PolicyDecision.Allow() };
+        var policy = new BasePolicyEvaluation { Decision = PolicyDecision.Allow(), EffectiveTextSearchInfluenceFilters = System.Collections.Immutable.ImmutableDictionary<string, FilterExpression>.Empty };
 
         RecordEnvelope result = new DefaultBaseRecordRedactor().RedactRecord(record, collection, policy, VisibilityLevel.Authenticated);
         JsonElement json = result.Payload.Json;
@@ -152,6 +152,7 @@ public sealed class L42ConfidentialityTests
 
     private static BasePolicyEvaluation Evaluation(params string[] grantIds) => new()
     {
+        EffectiveTextSearchInfluenceFilters = System.Collections.Immutable.ImmutableDictionary<string, FilterExpression>.Empty,
         Decision = new PolicyDecision
         {
             Effect = PolicyEffect.Allow,
@@ -169,7 +170,7 @@ public sealed class L42ConfidentialityTests
                 GrantChecksum = [1],
             })],
             AppliedPolicies = [],
-            Constraints = new BasePolicyConstraintAuthority(),
+            Constraints = new BasePolicyConstraintAuthority { EffectiveTextSearchInfluenceFilters = System.Collections.Immutable.ImmutableDictionary<string, FilterExpression>.Empty },
             Checksum = BasePolicyEvaluationAuthorityChecksum.Create(new byte[32]),
         },
     };

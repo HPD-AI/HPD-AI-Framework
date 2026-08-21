@@ -4,12 +4,13 @@ using System.Security.Cryptography;
 
 namespace HPD.Base;
 
-internal sealed class InMemoryTextProvider(InMemoryRecordStore store, BaseCollectionRegistry collections) : IBaseTextAuthority
+internal sealed class InMemoryTextProvider(InMemoryRecordStore store, BaseCollectionRegistry collections) : IBaseTextProvider, IBaseTextAuthority
 {
+    public IBaseTextAuthority Authority => this;
     public BaseTextProviderDescriptor Descriptor { get; } = new()
     {
         Id = "inmemory.text", Version = 1, ProviderClass = BaseTextProviderClass.CoLocatedTransactional,
-        Capability = new BaseTextProviderCapability { TransactionalMaintenanceSupported = true, ExactRevisionHydrationSupported = true, PhraseSupported = true, PrefixSupported = true, MaximumLimits = BaseTextPlatform.DefaultLimits },
+        Capability = BaseTextPlatform.ProviderCapability(BaseTextProviderClass.CoLocatedTransactional),
         NativeDependencyReceipts = [], CertificationReceipt = ImmutableArray.Create(SHA256.HashData("HPDB-INMEMORY-TEXT-CERT-1"u8)),
     };
 
@@ -24,7 +25,15 @@ internal sealed class InMemoryTextProvider(InMemoryRecordStore store, BaseCollec
         return OperationResults.Ok<IBaseTextHydrationSession>(new Session(session, collection, index, Descriptor));
     }
 
-    private static OperationResult<IBaseTextHydrationSession> Missing() => OperationResults.NotFound<IBaseTextHydrationSession>(new BaseError { Code = BaseTextErrorCodes.IndexUnavailable, Message = "The text index is unavailable.", Category = ErrorCategory.NotFound });
+    private static OperationResult<IBaseTextHydrationSession> Missing() => OperationResults.NotFound<IBaseTextHydrationSession>(new BaseError { Code = BaseTextErrorCodes.IndexNotFound, Message = "The text search index was not found.", Category = ErrorCategory.NotFound });
+
+    public ValueTask<OperationResult<BaseTextIndexStatus[]>> ListAsync(CancellationToken cancellationToken = default)
+    { cancellationToken.ThrowIfCancellationRequested(); InMemoryStoreState root = store.CaptureVectorRoot(); return ValueTask.FromResult(OperationResults.Ok(collections.Collections.Values.SelectMany(collection => (collection.TextIndexes ?? []).Select(index => Status(root, collection, index))).ToArray())); }
+    public ValueTask<OperationResult<BaseTextIndexStatus>> GetAsync(string collectionId, string textIndexId, CancellationToken cancellationToken = default)
+    { cancellationToken.ThrowIfCancellationRequested(); if (!collections.Collections.TryGetValue(collectionId, out CollectionDefinition? collection) || (collection.TextIndexes ?? []).SingleOrDefault(value => value.Id == textIndexId) is not { } index) return ValueTask.FromResult(OperationResults.NotFound<BaseTextIndexStatus>(new BaseError { Code = BaseTextErrorCodes.IndexNotFound, Message = "The text search index was not found.", Category = ErrorCategory.NotFound })); return ValueTask.FromResult(OperationResults.Ok(Status(store.CaptureVectorRoot(), collection, index))); }
+    public ValueTask<OperationResult<BaseTextRebuildResult>> RebuildAsync(BaseTextRebuildRequest request, CancellationToken cancellationToken = default)
+    { if (!collections.Collections.TryGetValue(request.CollectionId, out CollectionDefinition? collection) || (collection.TextIndexes ?? []).SingleOrDefault(value => value.Id == request.TextIndexId) is not { } index) return ValueTask.FromResult(OperationResults.NotFound<BaseTextRebuildResult>(new BaseError { Code = BaseTextErrorCodes.IndexNotFound, Message = "The text search index was not found.", Category = ErrorCategory.NotFound })); return store.RebuildTextAsync(collection, index, request, cancellationToken); }
+    private BaseTextIndexStatus Status(InMemoryStoreState root, CollectionDefinition collection, BaseTextIndexDefinition index) { InMemoryTextProjectionState state = root.TextProjections.GetValueOrDefault(collection.Id + "\n" + index.Id) ?? new InMemoryTextProjectionState { AppliedThrough = root.GlobalMutationPosition, PurgeGeneration = root.Collections.GetValueOrDefault(collection.Id)?.PurgeGeneration ?? 0 }; return new() { CollectionId = collection.Id, TextIndexId = index.Id, Version = index.Version, ProviderId = Descriptor.Id, Generation = state.Generation, PurgeGeneration = state.PurgeGeneration, State = BaseTextIndexState.Ready, AppliedThrough = new(state.AppliedThrough), SearchVisibleThrough = new(state.AppliedThrough), CarrierCount = state.Carriers.Count }; }
 
     private sealed class Session : IBaseTextHydrationSession
     {
@@ -51,38 +60,40 @@ internal sealed class InMemoryTextProvider(InMemoryRecordStore store, BaseCollec
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (!ReferenceEquals(request.Snapshot, Snapshot) && request.Snapshot != Snapshot || !request.Index.DefinitionChecksum.AsSpan().SequenceEqual(_index.DefinitionChecksum.AsSpan())) return ValueTask.FromResult(Invalid<BaseTextConstraintPreparation>());
-            var plan = new Plan(request.NormalizedQuery, request.Constraint, request.QueryDigest, request.ConstraintDigest); _plans.Add(plan);
-            byte[] receipt = SHA256.HashData([.. request.QueryDigest, .. request.ConstraintDigest, .. _index.DefinitionChecksum]);
+            BaseTextLoweringReceipt receipt = BaseTextProviderEvidence.CreateLoweringReceipt(_descriptor, Snapshot, _index, request.QueryDigest, request.ConstraintDigest, request.InfluenceConstraints, request.Limits); var plan = new Plan(request.NormalizedQuery, request.Constraint, request.QueryDigest, request.ConstraintDigest, request.InfluenceConstraints, receipt); _plans.Add(plan);
             return ValueTask.FromResult(OperationResults.Ok(new BaseTextConstraintPreparation
             {
                 QueryDigest = request.QueryDigest, ConstraintDigest = request.ConstraintDigest, Enforcement = BaseTextConstraintEnforcement.CompleteBeforeMatchingAndRanking,
-                Receipt = new BaseTextLoweringReceipt { ProviderId = _descriptor.Id, ProviderVersion = _descriptor.Version, QueryDigest = request.QueryDigest, ConstraintDigest = request.ConstraintDigest, ReceiptDigest = ImmutableArray.Create(receipt) }, Plan = plan,
+                Receipt = receipt, Plan = plan,
             }));
         }
         public ValueTask<OperationResult<BaseTextProviderResult>> SearchAsync(BaseTextExecutionRequest request, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (request.Plan is not Plan plan || !_plans.Remove(plan) || Interlocked.Exchange(ref plan.Consumed, 1) != 0 || request.Snapshot != Snapshot) return ValueTask.FromResult(Invalid<BaseTextProviderResult>());
-            long started = System.Diagnostics.Stopwatch.GetTimestamp(); long examined = 0, proofBytes = 0, orderingBytes = 0;
+            long started = System.Diagnostics.Stopwatch.GetTimestamp(); long examined = 0, proofBytes = 0, orderingBytes = 0, prefixCount = 0, prefixBytes = 0;
             var candidates = new List<BaseTextCandidate>();
             IReadOnlyDictionary<string, StoredRecord> records = _source.RecordsFor(_collection.Id); InMemoryTextProjectionState projection = _source.TextProjectionFor(_collection.Id, _index.Id);
             foreach (InMemoryTextCarrier carrier in projection.Carriers.Values)
             {
                 cancellationToken.ThrowIfCancellationRequested(); examined++;
+                if (examined > _descriptor.Capability.MaximumIndexedRecords) return ValueTask.FromResult(Budget<BaseTextProviderResult>());
                 if (!records.TryGetValue(carrier.RecordId.Value, out StoredRecord? record) || record.Metadata.Revision != carrier.Revision) return ValueTask.FromResult(Invalid<BaseTextProviderResult>());
                 if (!BaseTextSemanticEvaluator.ConstraintMatches(record.Payload, _index, plan.Constraint)) continue;
-                BaseTextEvaluatedCandidate? evaluated = BaseTextSemanticEvaluator.Evaluate(record.Payload, _index, plan.Query, plan.QueryDigest); if (evaluated is null) continue;
-                ImmutableArray<byte> boundary = BaseTextSemanticEvaluator.OrderingBoundary(evaluated.Score, record.Id); proofBytes += evaluated.Proof.ProofDigest.Length; orderingBytes += boundary.Length;
+                BaseTextEvaluatedCandidate? evaluated = BaseTextSemanticEvaluator.Evaluate(record.Payload, _index, plan.Query, plan.QueryDigest, plan.Influences); if (evaluated is null) continue;
+                ImmutableArray<byte> boundary = BaseTextSemanticEvaluator.OrderingBoundary(evaluated.Score, record.Id); proofBytes = checked(proofBytes + BaseTextSemanticEvaluator.ProofRetainedBytes(evaluated.Proof)); orderingBytes = checked(orderingBytes + boundary.Length); prefixCount = checked(prefixCount + BaseTextSemanticEvaluator.PrefixExpansionCount(evaluated.Proof)); prefixBytes = checked(prefixBytes + BaseTextSemanticEvaluator.PrefixExpansionBytes(evaluated.Proof));
                 candidates.Add(new BaseTextCandidate { RecordId = record.Id, Revision = record.Metadata.Revision!.Value, IndexedPosition = Snapshot.SearchVisibleThrough, Score = evaluated.Score, CanonicalOrderingBoundary = boundary, ScoreProof = evaluated.Proof });
+                if (prefixCount > request.Limits.MaximumPrefixExpansions || prefixBytes > request.Limits.MaximumPrefixExpansionBytes || proofBytes > request.Limits.MaximumScoreProofBytes || orderingBytes > request.Limits.MaximumOrderingBytes || checked(proofBytes + orderingBytes + prefixBytes) > request.Limits.MaximumTransientBytes) return ValueTask.FromResult(Budget<BaseTextProviderResult>());
             }
             BaseTextCandidate[] ordered = candidates.OrderByDescending(static value => value.Score.Units).ThenBy(static value => value.RecordId.Value, StringComparer.Ordinal)
                 .Where(value => request.AfterBoundary is null || value.CanonicalOrderingBoundary.AsSpan().SequenceCompareTo(request.AfterBoundary.Value.AsSpan()) > 0).Take(request.TakePlusOne).ToArray();
             bool more = ordered.Length == request.TakePlusOne;
+            ImmutableArray<BaseTextCandidate> page = [.. ordered]; long queryBytes = BaseTextQueryContract.Encode(plan.Query).Length; long constraintBytes = BaseTextSemanticEvaluator.ConstraintEncoding(plan.Constraint).Length;
             return ValueTask.FromResult(OperationResults.Ok(new BaseTextProviderResult
             {
-                Snapshot = Snapshot, Candidates = [.. ordered],
-                Completeness = new BaseTextCompletenessEvidence { RequestedTakePlusOne = request.TakePlusOne, ReturnedCandidateCount = ordered.Length, HasMore = more, ReceiptDigest = ImmutableArray.Create(SHA256.HashData(plan.QueryDigest.AsSpan())) },
-                Accounting = new BaseTextProviderAccounting { AuthorizedRecordsExamined = examined, PostingsExamined = examined, PrefixExpansionCount = 0, PrefixExpansionBytes = 0, ScoreProofBytes = proofBytes, CandidateCount = ordered.Length, OrderingBytes = orderingBytes, RetainedTransientBytes = checked(proofBytes + orderingBytes), Elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(started) },
+                Snapshot = Snapshot, Candidates = page,
+                Completeness = BaseTextProviderEvidence.CreateCompleteness(_descriptor, Snapshot, plan.Lowering, page, request.TakePlusOne),
+                Accounting = new BaseTextProviderAccounting { InputBytes = checked(queryBytes + constraintBytes), QueryBytes = queryBytes, ConstraintBytes = constraintBytes, StatementParameters = BaseTextProviderEvidence.StatementParameterCount(plan.Query, plan.Constraint), AuthorizedRecordsExamined = examined, PostingsExamined = examined, PrefixExpansionCount = prefixCount, PrefixExpansionBytes = prefixBytes, ScoreProofBytes = proofBytes, CandidateCount = ordered.Length, OrderingBytes = orderingBytes, ExactHydrationBytes = 0, ResultBytes = 0, CursorBytes = 0, RetainedTransientBytes = checked(queryBytes + constraintBytes + proofBytes + orderingBytes + prefixBytes), Elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(started) },
             }));
         }
         public ValueTask<OperationResult<RecordEnvelope[]>> GetExactAsync(CollectionDefinition collection, BaseTextCandidateIdentity[] candidates, OperationContext context, CancellationToken cancellationToken = default)
@@ -90,13 +101,14 @@ internal sealed class InMemoryTextProvider(InMemoryRecordStore store, BaseCollec
             cancellationToken.ThrowIfCancellationRequested(); var result = new List<RecordEnvelope>(candidates.Length); IReadOnlyDictionary<string, StoredRecord> records = _source.RecordsFor(collection.Id);
             foreach (BaseTextCandidateIdentity candidate in candidates)
             {
-                if (!records.TryGetValue(candidate.RecordId.Value, out StoredRecord? record) || record.Metadata.Revision != candidate.IndexedRevision) return ValueTask.FromResult(OperationResults.Conflict<RecordEnvelope[]>(new BaseError { Code = BaseTextErrorCodes.HydrationSnapshotConflict, Message = "The text snapshot changed.", Category = ErrorCategory.Conflict }));
+                if (!records.TryGetValue(candidate.RecordId.Value, out StoredRecord? record) || record.Metadata.Revision != candidate.IndexedRevision) return ValueTask.FromResult(OperationResults.Conflict<RecordEnvelope[]>(new BaseError { Code = BaseTextErrorCodes.SnapshotChanged, Message = "The text snapshot changed.", Category = ErrorCategory.Conflict }));
                 result.Add(new RecordEnvelope { CollectionId = collection.Id, Id = record.Id, Payload = RecordCloneHelpers.ClonePayload(record.Payload), Metadata = RecordCloneHelpers.CloneMetadata(record.Metadata) });
             }
             return ValueTask.FromResult(OperationResults.Ok(result.ToArray()));
         }
         public ValueTask DisposeAsync() => _source.DisposeAsync();
         private static OperationResult<T> Invalid<T>() => new() { Status = OperationStatus.StoreError, Error = new BaseError { Code = BaseTextErrorCodes.ProviderContractInvalid, Message = "The text provider returned invalid evidence.", Category = ErrorCategory.Store } };
-        private sealed class Plan(BaseTextQuery query, BaseTextCandidateConstraint constraint, ImmutableArray<byte> queryDigest, ImmutableArray<byte> constraintDigest) : BaseTextProviderPlan { internal BaseTextQuery Query { get; } = query; internal BaseTextCandidateConstraint Constraint { get; } = constraint; internal ImmutableArray<byte> QueryDigest { get; } = queryDigest; internal ImmutableArray<byte> ConstraintDigest { get; } = constraintDigest; internal int Consumed; }
+        private static OperationResult<T> Budget<T>() => new() { Status = OperationStatus.ValidationFailed, Error = new BaseError { Code = BaseTextErrorCodes.BudgetExceeded, Message = "The text operation exceeded an installed bound.", Category = ErrorCategory.Validation } };
+        private sealed class Plan(BaseTextQuery query, BaseTextCandidateConstraint constraint, ImmutableArray<byte> queryDigest, ImmutableArray<byte> constraintDigest, ImmutableArray<BaseTextFieldInfluenceConstraint> influences, BaseTextLoweringReceipt lowering) : BaseTextProviderPlan { internal BaseTextQuery Query { get; } = query; internal BaseTextCandidateConstraint Constraint { get; } = constraint; internal ImmutableArray<byte> QueryDigest { get; } = queryDigest; internal ImmutableArray<byte> ConstraintDigest { get; } = constraintDigest; internal ImmutableArray<BaseTextFieldInfluenceConstraint> Influences { get; } = influences; internal BaseTextLoweringReceipt Lowering { get; } = lowering; internal int Consumed; }
     }
 }

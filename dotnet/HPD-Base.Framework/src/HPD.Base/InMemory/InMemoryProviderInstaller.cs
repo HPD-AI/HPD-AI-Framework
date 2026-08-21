@@ -24,7 +24,7 @@ internal sealed class InMemoryProviderInstaller(Action<HPDBaseInMemoryStoreOptio
                 GenerationCells = true, AtomicRecordAndGenerationCommit = true,
                 MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
             },
-            TextSearch = new BaseTextProviderCapability { TransactionalMaintenanceSupported = true, ExactRevisionHydrationSupported = true, PhraseSupported = true, PrefixSupported = true, MaximumLimits = BaseTextPlatform.DefaultLimits },
+            TextSearch = BaseTextPlatform.ProviderCapability(BaseTextProviderClass.CoLocatedTransactional),
         }, new InMemoryProviderInstaller(configure));
 
     public HPDBaseStoreRegistrationReceipt Configure(HPDBaseStoreInstallationContext context)
@@ -56,7 +56,7 @@ internal sealed class InMemoryProviderInstaller(Action<HPDBaseInMemoryStoreOptio
         if (hasText)
         {
             context.Services.AddSingleton<InMemoryTextProvider>();
-            context.Services.AddSingleton<IBaseTextAuthority>(static provider => provider.GetRequiredService<InMemoryTextProvider>());
+            context.Services.AddSingleton<IBaseTextProvider>(static provider => provider.GetRequiredService<InMemoryTextProvider>());
         }
         return context.CreateReceipt(storeId ?? throw new InvalidOperationException("base.store.providerInvalid"));
     }

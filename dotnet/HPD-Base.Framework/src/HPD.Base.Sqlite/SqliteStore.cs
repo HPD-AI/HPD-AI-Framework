@@ -34,7 +34,7 @@ public static class SqliteStore
                 GenerationCells = true, AtomicRecordAndGenerationCommit = true,
                 MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
             },
-            TextSearch = new BaseTextProviderCapability { TransactionalMaintenanceSupported = true, ExactRevisionHydrationSupported = true, PhraseSupported = true, PrefixSupported = true, MaximumLimits = BaseTextPlatform.DefaultLimits },
+            TextSearch = BaseTextPlatform.ProviderCapability(BaseTextProviderClass.CoLocatedTransactional),
         }, new Installer(configure));
 
     private sealed class Installer(Action<HPDBaseSqliteOptions>? configure) : IHPDBaseStoreInstaller
@@ -81,7 +81,7 @@ public static class SqliteStore
                 context.Services.AddSingleton(static provider => new SqliteTextMutationProjection(provider.GetRequiredService<SqliteTextModel>()));
                 context.Services.AddSingleton<ISqliteAtomicMutationProjection>(static provider => provider.GetRequiredService<SqliteTextMutationProjection>());
                 context.Services.AddSingleton<SqliteTextProvider>();
-                context.Services.AddSingleton<IBaseTextAuthority>(static provider => provider.GetRequiredService<SqliteTextProvider>());
+                context.Services.AddSingleton<IBaseTextProvider>(static provider => provider.GetRequiredService<SqliteTextProvider>());
             }
             return context.CreateReceipt(storeId ?? throw new InvalidOperationException("base.store.providerInvalid"));
         }
@@ -94,7 +94,16 @@ public static class SqliteStore
             SqliteRecordStore store = context.Services.GetRequiredService<SqliteRecordStore>();
             await using SqliteConnection connection = await store.VectorConnections.OpenAsync(cancellationToken).ConfigureAwait(false);
             if (_hasVectors) { EnsurePlatform(); SqliteVecNative.Load(connection); await using SqliteCommand version = connection.CreateCommand(); version.CommandText = "SELECT vec_version();"; version.CommandTimeout = store.VectorCommandTimeoutSeconds; string actual = Convert.ToString(await version.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture) ?? ""; if (actual != "v0.1.7-alpha.2.1") throw new InvalidOperationException("base.vector.providerUnavailable"); }
-            if (_hasText) { await using SqliteCommand probe = connection.CreateCommand(); probe.CommandText = "CREATE VIRTUAL TABLE temp.hpd_base_text_probe USING fts5(value); DROP TABLE temp.hpd_base_text_probe;"; probe.CommandTimeout = store.VectorCommandTimeoutSeconds; try { await probe.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false); } catch { throw new InvalidOperationException(BaseTextErrorCodes.CapabilityUnavailable); } }
+            if (_hasText) try { await ProbeTextAsync(connection, store.VectorCommandTimeoutSeconds, cancellationToken).ConfigureAwait(false); } catch { throw new InvalidOperationException(BaseTextErrorCodes.CapabilityUnavailable); }
+        }
+
+        private static async ValueTask ProbeTextAsync(SqliteConnection connection, int timeoutSeconds, CancellationToken cancellationToken)
+        {
+            await using (SqliteCommand create = connection.CreateCommand()) { create.CommandTimeout = timeoutSeconds; create.CommandText = "CREATE VIRTUAL TABLE temp.hpd_base_text_probe USING fts5(value, tokenize='unicode61 remove_diacritics 0'); INSERT INTO temp.hpd_base_text_probe(rowid,value) VALUES(1,'portable search'),(2,'transaction rollback');"; await create.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false); }
+            await using (SqliteCommand phrase = connection.CreateCommand()) { phrase.CommandTimeout = timeoutSeconds; phrase.CommandText = "SELECT COUNT(*) FROM temp.hpd_base_text_probe WHERE value MATCH '\"portable search\"';"; if (Convert.ToInt64(await phrase.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture) != 1) throw new InvalidOperationException(); }
+            await using (SqliteCommand prefix = connection.CreateCommand()) { prefix.CommandTimeout = timeoutSeconds; prefix.CommandText = "SELECT COUNT(*) FROM temp.hpd_base_text_probe WHERE value MATCH 'port*';"; if (Convert.ToInt64(await prefix.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture) != 1) throw new InvalidOperationException(); }
+            await using (SqliteTransaction transaction = connection.BeginTransaction()) { await using SqliteCommand delete = connection.CreateCommand(); delete.Transaction = transaction; delete.CommandTimeout = timeoutSeconds; delete.CommandText = "DELETE FROM temp.hpd_base_text_probe WHERE rowid=1;"; await delete.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false); await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false); }
+            await using (SqliteCommand verify = connection.CreateCommand()) { verify.CommandTimeout = timeoutSeconds; verify.CommandText = "SELECT COUNT(*) FROM temp.hpd_base_text_probe WHERE rowid=1; DROP TABLE temp.hpd_base_text_probe;"; if (Convert.ToInt64(await verify.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture) != 1) throw new InvalidOperationException(); }
         }
 
         private static void EnsurePlatform()

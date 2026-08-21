@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.CompilerServices;
 using Microsoft.Extensions.DependencyInjection;
 
 #pragma warning disable CS1591
@@ -90,6 +91,31 @@ public sealed class BaseTextSearch<T>
             Next = value.Next,
             Consistency = value.Consistency,
         });
+    }
+    /// <summary>Emits complete authoritative replacement pages whenever indexed collection authority changes.</summary>
+    public async IAsyncEnumerable<BaseLiveQueryTransition<BaseTextResult<T>>> LiveAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        if (_take is null) throw new InvalidOperationException("Take(count) is required before execution.");
+        IBaseLiveQueryCoordinator coordinator = _session.Session.Services.GetRequiredService<IBaseLiveQueryCoordinator>();
+        IBaseDependencyReferenceFactory dependencies = _session.Session.Services.GetRequiredService<IBaseDependencyReferenceFactory>();
+        string queryId = "base.text." + _session.Contract.Id + "." + _index.Definition.Id + "." + Convert.ToHexString(BaseTextQueryContract.Digest(_query).AsSpan());
+        await using IBaseLiveQuerySubscription<BaseTextResult<T>> subscription = await coordinator.SubscribeAsync(new BaseLiveQueryRequest<BaseTextResult<T>>
+        {
+            QueryId = queryId,
+            ExecuteAsync = async token =>
+            {
+                BaseResult<BaseTextResult<T>> result = await ExecuteAsync(token).ConfigureAwait(false);
+                if (result is not BaseSuccess<BaseTextResult<T>> success) throw new BaseLiveQueryException(((BaseFailure<BaseTextResult<T>>)result).Error.Code, "Text search execution failed.");
+                return new BaseLiveQueryEvaluation<BaseTextResult<T>>
+                {
+                    Value = success.Value,
+                    Dependencies = dependencies.CreateSet(dependencies.Create(BaseDependencyIds.Collection,
+                        new BaseDependencyParameter("tenant", _session.Session.Principal.CurrentTenantId),
+                        new BaseDependencyParameter("collection", _session.Contract.Id))),
+                };
+            },
+        }, cancellationToken).ConfigureAwait(false);
+        await foreach (BaseLiveQueryTransition<BaseTextResult<T>> transition in subscription.Transitions.WithCancellation(cancellationToken).ConfigureAwait(false)) yield return transition;
     }
     private static BaseTextFilterValue ConvertValue<TValue>(TValue value, BaseTextFilterValueKind kind) => kind switch
     {

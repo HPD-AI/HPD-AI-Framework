@@ -1339,7 +1339,7 @@ internal static class BaseCollectionGenerator
                 source.Append("                                Confidentiality = (global::HPD.Base.BaseFieldConfidentiality)").Append(field.Field.Confidentiality).AppendLine(",");
                 source.Append("                                StaticInfluenceAudiences = global::System.Collections.Immutable.ImmutableArray.Create((global::HPD.Base.HPDBaseEndpointAudience)")
                     .Append(index.Audience).AppendLine("),");
-                source.AppendLine("                                RequiresDynamicInfluenceConstraint = false,");
+                source.Append("                                RequiresDynamicInfluenceConstraint = ").Append(field.Field.Confidentiality == 1 ? "true" : "false").AppendLine(",");
                 source.AppendLine("                            },");
             }
             source.AppendLine("                        ],");

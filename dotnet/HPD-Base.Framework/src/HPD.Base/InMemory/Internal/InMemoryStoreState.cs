@@ -18,6 +18,7 @@ internal sealed class InMemoryStoreState
     /// <summary>Gets BASE-owned immutable vector projection slots by canonical collection/index key.</summary>
     public Dictionary<string, InMemoryVectorProjectionState> VectorProjections { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, InMemoryTextProjectionState> TextProjections { get; } = new(StringComparer.Ordinal);
+    public Dictionary<string, InMemoryTextRebuildReceipt> TextRebuildReceipts { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets current exported-subject contract authority by canonical contract key.</summary>
     public Dictionary<string, InMemorySubjectContractState> SubjectContracts { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets current exported-subject lifetimes by canonical subject key.</summary>
@@ -66,6 +67,8 @@ internal sealed class InMemoryStoreState
             clone.VectorProjections.Add(id, projection);
         foreach (var (id, projection) in TextProjections)
             clone.TextProjections.Add(id, projection.Clone());
+        foreach (var (id, receipt) in TextRebuildReceipts)
+            clone.TextRebuildReceipts.Add(id, receipt with { Fingerprint = [.. receipt.Fingerprint], Result = receipt.Result with { PublicationChecksum = ImmutableArray.Create(receipt.Result.PublicationChecksum.ToArray()) } });
         foreach (var (id, subject) in SubjectContracts)
             clone.SubjectContracts.Add(id, subject with { });
         foreach (var (id, lifetime) in SubjectLifetimes)
@@ -226,6 +229,7 @@ internal sealed class InMemoryTextProjectionState
     internal InMemoryTextProjectionState Clone() { var copy = new InMemoryTextProjectionState { AppliedThrough = AppliedThrough, Generation = Generation, PurgeGeneration = PurgeGeneration }; foreach ((string key, InMemoryTextCarrier value) in Carriers) copy.Carriers.Add(key, value with { }); return copy; }
 }
 internal sealed record InMemoryTextCarrier(RecordId RecordId, RevisionToken Revision, long Position);
+internal sealed record InMemoryTextRebuildReceipt(byte[] Fingerprint, BaseTextRebuildResult Result);
 
 internal sealed record InMemoryMutationReceipt(
     byte[] Fingerprint,

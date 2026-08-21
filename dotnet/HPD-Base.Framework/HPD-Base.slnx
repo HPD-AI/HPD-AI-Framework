@@ -28,11 +28,13 @@
     <Project Path="test/HPD.Base.Vector.Tests/HPD.Base.Vector.Tests.csproj" />
     <Project Path="test/HPD.Base.Sqlite.Vector.AotSmoke/HPD.Base.Sqlite.Vector.AotSmoke.csproj" />
     <Project Path="test/HPD.Base.InMemory.Vector.AotSmoke/HPD.Base.InMemory.Vector.AotSmoke.csproj" />
+    <Project Path="test/HPD.Base.InMemory.Text.AotSmoke/HPD.Base.InMemory.Text.AotSmoke.csproj" />
     <Project Path="test/HPD.Base.Vector.SqliteVec.Tests/HPD.Base.Vector.SqliteVec.Tests.csproj" />
     <Project Path="test/HPD.Base.Vector.AspNetCore.Tests/HPD.Base.Vector.AspNetCore.Tests.csproj" />
     <Project Path="test/HPD.Base.StoreConformance/HPD.Base.StoreConformance.csproj" />
     <Project Path="test/HPD.Base.Sqlite.Tests/HPD.Base.Sqlite.Tests.csproj" />
     <Project Path="test/HPD.Base.Sqlite.AotSmoke/HPD.Base.Sqlite.AotSmoke.csproj" />
+    <Project Path="test/HPD.Base.Sqlite.Text.AotSmoke/HPD.Base.Sqlite.Text.AotSmoke.csproj" />
     <Project Path="test/HPD.Base.AspNetCore.Tests/HPD.Base.AspNetCore.Tests.csproj" />
     <Project Path="test/HPD.Base.AspNetCore.AotSmoke/HPD.Base.AspNetCore.AotSmoke.csproj" />
     <Project Path="test/HPD.Base.Files.ProviderConformance/HPD.Base.Files.ProviderConformance.csproj" />

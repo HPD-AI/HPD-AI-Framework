@@ -10,7 +10,7 @@ public readonly struct BaseTextConsistencyToken : IEquatable<BaseTextConsistency
     private readonly ImmutableArray<byte> _bytes;
     private BaseTextConsistencyToken(ImmutableArray<byte> bytes) => _bytes = ImmutableArray.Create(bytes.ToArray());
     /// <summary>Parses bounded token syntax without granting authority.</summary>
-    public static BaseTextConsistencyToken Parse(string value) => TryParse(value, out BaseTextConsistencyToken result) ? result : throw new FormatException(BaseTextErrorCodes.ConsistencyInvalid);
+    public static BaseTextConsistencyToken Parse(string value) => TryParse(value, out BaseTextConsistencyToken result) ? result : throw new FormatException(BaseTextErrorCodes.QueryInvalid);
     /// <summary>Attempts to parse bounded token syntax without granting authority.</summary>
     public static bool TryParse(string? value, out BaseTextConsistencyToken result)
     {
@@ -20,7 +20,7 @@ public readonly struct BaseTextConsistencyToken : IEquatable<BaseTextConsistency
         return true;
     }
     /// <summary>Returns the protected transport representation.</summary>
-    public string Encode() => _bytes.IsDefaultOrEmpty ? throw new InvalidOperationException(BaseTextErrorCodes.ConsistencyInvalid) : Encoding.ASCII.GetString(_bytes.AsSpan());
+    public string Encode() => _bytes.IsDefaultOrEmpty ? throw new InvalidOperationException(BaseTextErrorCodes.QueryInvalid) : Encoding.ASCII.GetString(_bytes.AsSpan());
     internal static BaseTextConsistencyToken Create(string value) => Parse(value);
     /// <inheritdoc />
     public bool Equals(BaseTextConsistencyToken other) => !_bytes.IsDefault && !other._bytes.IsDefault && CryptographicOperations.FixedTimeEquals(_bytes.AsSpan(), other._bytes.AsSpan());

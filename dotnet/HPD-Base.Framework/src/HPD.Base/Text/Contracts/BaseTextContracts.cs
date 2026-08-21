@@ -145,15 +145,15 @@ public static class BaseTextPlatform
         MaximumQueryNodes = 64,
         MaximumQueryDepth = 12,
         MaximumPhraseTerms = 16,
-        MaximumQueryBytes = 64 * 1024,
+        MaximumQueryBytes = 32 * 1024,
         MaximumFilterNodes = 64,
         MaximumFilterDepth = 12,
         MaximumFilterLiterals = 256,
         MaximumInValues = 64,
         MaximumPrefixExpansions = 256,
         MaximumPrefixExpansionBytes = 16 * 1024,
-        MaximumSecondaryOrderFields = 8,
-        MaximumOrderingBytes = 16 * 1024,
+        MaximumSecondaryOrderFields = 4,
+        MaximumOrderingBytes = 8 * 1024,
         MaximumCandidates = 257,
         MaximumScoreProofBytes = 1024 * 1024,
         MaximumTokensPerField = BaseTextAnalyzers.MaximumTokensPerField,
@@ -161,11 +161,69 @@ public static class BaseTextPlatform
         MaximumNormalizedBytesPerRecord = 1024 * 1024,
         MaximumResults = 256,
         MaximumResultBytes = 1024 * 1024,
-        MaximumCursorBytes = 16 * 1024,
+        MaximumCursorBytes = 2 * 1024,
         MaximumStatementParameters = 1024,
         MaximumTransientBytes = 32_000_000,
         QueryTimeout = TimeSpan.FromSeconds(30),
         ConsistencyWaitTimeout = TimeSpan.FromSeconds(30),
+    };
+
+    /// <summary>Creates the complete built-in provider capability for the specified authority class.</summary>
+    public static BaseTextProviderCapability ProviderCapability(BaseTextProviderClass providerClass) => new()
+    {
+        ProviderClass = providerClass,
+        TransactionalMaintenanceSupported = providerClass == BaseTextProviderClass.CoLocatedTransactional,
+        ExactRevisionHydrationSupported = true,
+        PolicyBeforeRankingSupported = true,
+        ExactFixedPointScoreSupported = true,
+        MaximumIndexesPerCollection = 8,
+        MaximumFieldsPerIndex = 8,
+        MaximumFilterFields = 16,
+        MaximumQueryNodes = DefaultLimits.MaximumQueryNodes,
+        MaximumQueryDepth = DefaultLimits.MaximumQueryDepth,
+        MaximumPhraseTerms = DefaultLimits.MaximumPhraseTerms,
+        MaximumQueryBytes = DefaultLimits.MaximumQueryBytes,
+        MaximumFilterNodes = DefaultLimits.MaximumFilterNodes,
+        MaximumFilterDepth = DefaultLimits.MaximumFilterDepth,
+        MaximumFilterLiterals = DefaultLimits.MaximumFilterLiterals,
+        MaximumInValues = DefaultLimits.MaximumInValues,
+        MaximumPrefixExpansions = DefaultLimits.MaximumPrefixExpansions,
+        MaximumPrefixExpansionBytes = DefaultLimits.MaximumPrefixExpansionBytes,
+        MaximumSecondaryOrderFields = DefaultLimits.MaximumSecondaryOrderFields,
+        MaximumOrderingBytes = DefaultLimits.MaximumOrderingBytes,
+        MaximumCandidates = DefaultLimits.MaximumCandidates,
+        MaximumScoreProofBytes = DefaultLimits.MaximumScoreProofBytes,
+        MaximumTokensPerRecord = 8 * BaseTextAnalyzers.MaximumTokensPerField,
+        MaximumNormalizedBytesPerField = DefaultLimits.MaximumNormalizedBytesPerField,
+        MaximumNormalizedBytesPerRecord = DefaultLimits.MaximumNormalizedBytesPerRecord,
+        MaximumIndexedRecords = 1_000_000,
+        MaximumPostings = 50_000_000,
+        MaximumStatisticsBytes = 64 * 1024 * 1024,
+        MaximumResults = DefaultLimits.MaximumResults,
+        MaximumResultBytes = DefaultLimits.MaximumResultBytes,
+        MaximumCursorBytes = DefaultLimits.MaximumCursorBytes,
+        MaximumStatementParameters = DefaultLimits.MaximumStatementParameters,
+        MaximumRebuildStagingRows = 1_000_000,
+        MaximumRebuildBytes = 1_073_741_824,
+        MaximumTransientBytes = DefaultLimits.MaximumTransientBytes,
+        MaximumWriteTime = TimeSpan.FromSeconds(30),
+        MaximumQueryTime = DefaultLimits.QueryTimeout,
+        MaximumConsistencyWait = DefaultLimits.ConsistencyWaitTimeout,
+        MaximumInspectionTime = TimeSpan.FromSeconds(30),
+        MaximumRebuildTime = TimeSpan.FromMinutes(5),
+        MaximumQuarantinedOperations = 8,
+    };
+
+    internal static BaseTextExecutionLimits ExecutionLimits(BaseTextProviderCapability value) => new()
+    {
+        MaximumQueryNodes = value.MaximumQueryNodes, MaximumQueryDepth = value.MaximumQueryDepth, MaximumPhraseTerms = value.MaximumPhraseTerms, MaximumQueryBytes = value.MaximumQueryBytes,
+        MaximumFilterNodes = value.MaximumFilterNodes, MaximumFilterDepth = value.MaximumFilterDepth, MaximumFilterLiterals = value.MaximumFilterLiterals, MaximumInValues = value.MaximumInValues,
+        MaximumPrefixExpansions = value.MaximumPrefixExpansions, MaximumPrefixExpansionBytes = value.MaximumPrefixExpansionBytes, MaximumSecondaryOrderFields = value.MaximumSecondaryOrderFields,
+        MaximumOrderingBytes = value.MaximumOrderingBytes, MaximumCandidates = value.MaximumCandidates, MaximumScoreProofBytes = value.MaximumScoreProofBytes,
+        MaximumTokensPerField = Math.Min(value.MaximumTokensPerRecord, BaseTextAnalyzers.MaximumTokensPerField), MaximumNormalizedBytesPerField = value.MaximumNormalizedBytesPerField,
+        MaximumNormalizedBytesPerRecord = value.MaximumNormalizedBytesPerRecord, MaximumResults = value.MaximumResults, MaximumResultBytes = value.MaximumResultBytes,
+        MaximumCursorBytes = value.MaximumCursorBytes, MaximumStatementParameters = value.MaximumStatementParameters, MaximumTransientBytes = value.MaximumTransientBytes,
+        QueryTimeout = value.MaximumQueryTime, ConsistencyWaitTimeout = value.MaximumConsistencyWait,
     };
 }
 
@@ -273,14 +331,26 @@ public static class BaseTextErrorCodes
     public const string CapabilityUnavailable = "base.text.capabilityUnavailable";
     /// <summary>The index is unavailable under its current generation.</summary>
     public const string IndexUnavailable = "base.text.indexUnavailable";
+    /// <summary>The authorized index identity is not installed.</summary>
+    public const string IndexNotFound = "base.text.indexNotFound";
+    /// <summary>The index generation changed.</summary>
+    public const string GenerationChanged = "base.text.generationChanged";
+    /// <summary>The finite authoritative snapshot changed.</summary>
+    public const string SnapshotChanged = "base.text.snapshotChanged";
     /// <summary>The continuation token is invalid.</summary>
     public const string CursorInvalid = "base.text.cursorInvalid";
-    /// <summary>The consistency token is malformed or unauthenticated.</summary>
-    public const string ConsistencyInvalid = "base.text.consistencyInvalid";
+    /// <summary>The authenticated continuation expired.</summary>
+    public const string CursorExpired = "base.text.cursorExpired";
+    /// <summary>The authenticated continuation belongs to different request authority.</summary>
+    public const string CursorScopeMismatch = "base.text.cursorScopeMismatch";
     /// <summary>The requested consistency point is unavailable.</summary>
     public const string ConsistencyUnavailable = "base.text.consistencyUnavailable";
-    /// <summary>Exact authoritative hydration conflicted with the finite snapshot.</summary>
-    public const string HydrationSnapshotConflict = "base.text.hydrationSnapshotConflict";
+    /// <summary>The required retained history has been overtaken.</summary>
+    public const string HistoryOvertaken = "base.text.historyOvertaken";
+    /// <summary>A derived projection has an ordered journal gap.</summary>
+    public const string DerivedProjectionGap = "base.text.derivedProjectionGap";
+    /// <summary>A derived projection is corrupt.</summary>
+    public const string DerivedProjectionCorrupt = "base.text.derivedProjectionCorrupt";
     /// <summary>The operation exceeded an installed bound.</summary>
     public const string BudgetExceeded = "base.text.budgetExceeded";
     /// <summary>The provider returned invalid evidence.</summary>
@@ -293,4 +363,6 @@ public static class BaseTextErrorCodes
     public const string RebuildRequired = "base.text.rebuildRequired";
     /// <summary>The maintenance commit outcome is indeterminate.</summary>
     public const string CommitIndeterminate = "base.text.commitIndeterminate";
+    /// <summary>The InMemory authority changed during every bounded fresh-root rebuild attempt.</summary>
+    public const string InMemoryGenerationChanged = "base.text.inMemory.generationChanged";
 }

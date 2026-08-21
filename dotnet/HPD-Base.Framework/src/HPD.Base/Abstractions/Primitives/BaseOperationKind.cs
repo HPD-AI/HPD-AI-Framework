@@ -47,6 +47,8 @@ RealtimeSubscribe,
     VectorQuery,
     /// <summary>Identifies policy-safe lexical search.</summary>
     TextQuery,
+    /// <summary>Identifies text-index rebuild administration.</summary>
+    TextRebuild,
     /// <summary>Identifies vector-index rebuild administration.</summary>
     VectorRebuild,
     /// <summary>Identifies authorized acquisition of an exported logical-subject reference.</summary>

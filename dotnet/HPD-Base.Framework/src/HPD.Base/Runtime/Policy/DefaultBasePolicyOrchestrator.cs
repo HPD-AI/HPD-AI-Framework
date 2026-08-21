@@ -51,6 +51,7 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
 
     private static BasePolicyEvaluation Allowed() => new()
     {
+        EffectiveTextSearchInfluenceFilters = ImmutableDictionary<string, FilterExpression>.Empty.WithComparers(StringComparer.Ordinal),
         Decision = new PolicyDecision
         {
             Effect = PolicyEffect.Allow,
@@ -99,6 +100,7 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
         var applied = ImmutableArray.CreateBuilder<BaseAppliedPolicyAuthority>();
         var recordFilters = new List<FilterExpression>();
         var writeChecks = new List<FilterExpression>();
+        var textInfluences = new Dictionary<string, List<FilterExpression>>(StringComparer.Ordinal);
         FieldMask? readMask = null;
         FieldMask? writeMask = null;
         PolicyDecision? soleAppliedDecision = null;
@@ -137,7 +139,7 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
                 return new OperationResult<BasePolicyEvaluation>
                 {
                     Status = OperationStatus.Unsupported,
-                    Value = new BasePolicyEvaluation { Decision = decision },
+                    Value = new BasePolicyEvaluation { Decision = decision, EffectiveTextSearchInfluenceFilters = ImmutableDictionary<string, FilterExpression>.Empty.WithComparers(StringComparer.Ordinal) },
                     Error = new BaseError
                     {
                         Code = "base.runtime.policy.obligation.unsupported",
@@ -160,6 +162,13 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
             appliedDecisionCount++;
             if (decision.Constraints?.RecordFilter is { } filter) recordFilters.Add(filter);
             if (decision.Constraints?.WriteCheck is { } check) writeChecks.Add(check);
+            if (decision.Constraints?.TextSearchInfluenceFilters is { } influences)
+                foreach ((string fieldId, FilterExpression influenceFilter) in influences)
+                {
+                    if (string.IsNullOrWhiteSpace(fieldId) || influenceFilter is null) return InvalidAuthority();
+                    if (!textInfluences.TryGetValue(fieldId, out List<FilterExpression>? values)) textInfluences.Add(fieldId, values = []);
+                    values.Add(influenceFilter);
+                }
             readMask = IntersectMasks(request.Collection, readMask, decision.Constraints?.ReadMask);
             writeMask = IntersectMasks(request.Collection, writeMask, decision.Constraints?.WriteMask);
         }
@@ -170,6 +179,7 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
                 && request.Operation.Mode != OperationMode.System)
                 return OperationResults.Ok(new BasePolicyEvaluation
                 {
+                    EffectiveTextSearchInfluenceFilters = ImmutableDictionary<string, FilterExpression>.Empty.WithComparers(StringComparer.Ordinal),
                     Decision = new PolicyDecision
                     {
                         Effect = PolicyEffect.Abstain,
@@ -182,6 +192,7 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
                 Status = OperationStatus.PolicyDenied,
                 Value = new BasePolicyEvaluation
                 {
+                    EffectiveTextSearchInfluenceFilters = ImmutableDictionary<string, FilterExpression>.Empty.WithComparers(StringComparer.Ordinal),
                     Decision = new PolicyDecision
                     {
                         Effect = PolicyEffect.Abstain,
@@ -200,12 +211,14 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
 
         FilterExpression? effectiveFilter = Conjoin(recordFilters);
         FilterExpression? effectiveWriteCheck = Conjoin(writeChecks);
+        ImmutableDictionary<string, FilterExpression> effectiveInfluences = textInfluences.OrderBy(static pair => pair.Key, StringComparer.Ordinal).ToImmutableDictionary(static pair => pair.Key, static pair => Conjoin(pair.Value)!, StringComparer.Ordinal);
         var constraints = new BasePolicyConstraintAuthority
         {
             EffectiveRecordFilter = effectiveFilter,
             EffectiveWriteCheck = effectiveWriteCheck,
             EffectiveReadMask = readMask,
             EffectiveWriteMask = writeMask,
+            EffectiveTextSearchInfluenceFilters = effectiveInfluences,
         };
         byte[] checksum = BasePolicyAuthorityCanonicalizer.Hash(writer =>
         {
@@ -243,7 +256,8 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
         bool hasConstraints = effectiveFilter is not null
             || effectiveWriteCheck is not null
             || readMask is not null
-            || writeMask is not null;
+            || writeMask is not null
+            || effectiveInfluences.Count != 0;
         bool hasDecisionConstraints = hasConstraints
             || appliedDecisionCount == 1 && soleAppliedDecision?.Constraints?.Tags is { Count: > 0 };
         return OperationResults.Ok(new BasePolicyEvaluation
@@ -259,6 +273,7 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
                     ReadMask = readMask,
                     WriteMask = writeMask,
                     Tags = appliedDecisionCount == 1 ? soleAppliedDecision?.Constraints?.Tags : null,
+                    TextSearchInfluenceFilters = effectiveInfluences,
                 } : null,
                 Obligations = appliedDecisionCount == 1 ? soleAppliedDecision?.Obligations : null,
                 Audit = appliedDecisionCount == 1 ? soleAppliedDecision?.Audit : null,
@@ -269,6 +284,7 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
             EffectiveWriteCheck = effectiveWriteCheck,
             EffectiveReadMask = readMask,
             EffectiveWriteMask = writeMask,
+            EffectiveTextSearchInfluenceFilters = effectiveInfluences,
             Authority = authority,
         });
     }

@@ -10,11 +10,57 @@ public enum BaseTextProviderClass { CoLocatedTransactional = 0, DerivedJournal =
 /// <summary>Describes exact certified lexical-provider capabilities.</summary>
 public sealed record BaseTextProviderCapability
 {
+    public required BaseTextProviderClass ProviderClass { get; init; }
     public required bool TransactionalMaintenanceSupported { get; init; }
     public required bool ExactRevisionHydrationSupported { get; init; }
-    public required bool PhraseSupported { get; init; }
-    public required bool PrefixSupported { get; init; }
-    public required BaseTextExecutionLimits MaximumLimits { get; init; }
+    public required bool PolicyBeforeRankingSupported { get; init; }
+    public required bool ExactFixedPointScoreSupported { get; init; }
+    public required int MaximumIndexesPerCollection { get; init; }
+    public required int MaximumFieldsPerIndex { get; init; }
+    public required int MaximumFilterFields { get; init; }
+    public required int MaximumQueryNodes { get; init; }
+    public required int MaximumQueryDepth { get; init; }
+    public required int MaximumPhraseTerms { get; init; }
+    public required long MaximumQueryBytes { get; init; }
+    public required int MaximumFilterNodes { get; init; }
+    public required int MaximumFilterDepth { get; init; }
+    public required int MaximumFilterLiterals { get; init; }
+    public required int MaximumInValues { get; init; }
+    public required int MaximumPrefixExpansions { get; init; }
+    public required long MaximumPrefixExpansionBytes { get; init; }
+    public required int MaximumSecondaryOrderFields { get; init; }
+    public required long MaximumOrderingBytes { get; init; }
+    public required int MaximumCandidates { get; init; }
+    public required long MaximumScoreProofBytes { get; init; }
+    public required int MaximumTokensPerRecord { get; init; }
+    public required long MaximumNormalizedBytesPerField { get; init; }
+    public required long MaximumNormalizedBytesPerRecord { get; init; }
+    public required long MaximumIndexedRecords { get; init; }
+    public required long MaximumPostings { get; init; }
+    public required long MaximumStatisticsBytes { get; init; }
+    public required int MaximumResults { get; init; }
+    public required long MaximumResultBytes { get; init; }
+    public required int MaximumCursorBytes { get; init; }
+    public required int MaximumStatementParameters { get; init; }
+    public required long MaximumRebuildStagingRows { get; init; }
+    public required long MaximumRebuildBytes { get; init; }
+    public required long MaximumTransientBytes { get; init; }
+    public required TimeSpan MaximumWriteTime { get; init; }
+    public required TimeSpan MaximumQueryTime { get; init; }
+    public required TimeSpan MaximumConsistencyWait { get; init; }
+    public required TimeSpan MaximumInspectionTime { get; init; }
+    public required TimeSpan MaximumRebuildTime { get; init; }
+    public required int MaximumQuarantinedOperations { get; init; }
+}
+
+/// <summary>Owns one complete lexical provider authority and its administration surface.</summary>
+public interface IBaseTextProvider
+{
+    BaseTextProviderDescriptor Descriptor { get; }
+    IBaseTextAuthority Authority { get; }
+    ValueTask<OperationResult<BaseTextRebuildResult>> RebuildAsync(BaseTextRebuildRequest request, CancellationToken cancellationToken);
+    ValueTask<OperationResult<BaseTextIndexStatus[]>> ListAsync(CancellationToken cancellationToken);
+    ValueTask<OperationResult<BaseTextIndexStatus>> GetAsync(string collectionId, string textIndexId, CancellationToken cancellationToken);
 }
 
 /// <summary>Identifies one installed certified lexical provider.</summary>
@@ -127,9 +173,16 @@ public sealed record BaseTextLoweringReceipt
 {
     public required string ProviderId { get; init; }
     public required int ProviderVersion { get; init; }
+    public required BaseTextProviderClass ProviderClass { get; init; }
+    public required ImmutableArray<byte> AuthoritySnapshotDigest { get; init; }
+    public required ImmutableArray<byte> IndexChecksum { get; init; }
     public required ImmutableArray<byte> QueryDigest { get; init; }
     public required ImmutableArray<byte> ConstraintDigest { get; init; }
-    public required ImmutableArray<byte> ReceiptDigest { get; init; }
+    public required ImmutableArray<byte> InfluenceConstraintsDigest { get; init; }
+    public required ImmutableArray<byte> StatementShapeDigest { get; init; }
+    public required ImmutableArray<byte> OrderingDigest { get; init; }
+    public required ImmutableArray<byte> LimitsDigest { get; init; }
+    public required ImmutableArray<byte> CertificationReceiptDigest { get; init; }
 }
 
 public sealed record BaseTextProviderPreparationRequest
@@ -166,14 +219,24 @@ public sealed record BaseTextExecutionRequest
 
 public sealed record BaseTextCompletenessEvidence
 {
+    public required BaseTextProviderClass ProviderClass { get; init; }
+    public required ImmutableArray<byte> LoweringReceiptDigest { get; init; }
+    public required ImmutableArray<byte> CertificationReceiptDigest { get; init; }
     public required int RequestedTakePlusOne { get; init; }
     public required int ReturnedCandidateCount { get; init; }
     public required bool HasMore { get; init; }
-    public required ImmutableArray<byte> ReceiptDigest { get; init; }
+    public ImmutableArray<byte>? FirstBoundary { get; init; }
+    public ImmutableArray<byte>? LastBoundary { get; init; }
+    public required BaseMutationJournalPosition VisibleThrough { get; init; }
+    public required ImmutableArray<byte> ProviderExecutionDigest { get; init; }
 }
 
 public sealed record BaseTextProviderAccounting
 {
+    public required long InputBytes { get; init; }
+    public required long QueryBytes { get; init; }
+    public required long ConstraintBytes { get; init; }
+    public required long StatementParameters { get; init; }
     public required long AuthorizedRecordsExamined { get; init; }
     public required long PostingsExamined { get; init; }
     public required long PrefixExpansionCount { get; init; }
@@ -181,6 +244,9 @@ public sealed record BaseTextProviderAccounting
     public required long ScoreProofBytes { get; init; }
     public required long CandidateCount { get; init; }
     public required long OrderingBytes { get; init; }
+    public required long ExactHydrationBytes { get; init; }
+    public required long ResultBytes { get; init; }
+    public required long CursorBytes { get; init; }
     public required long RetainedTransientBytes { get; init; }
     public required TimeSpan Elapsed { get; init; }
 }

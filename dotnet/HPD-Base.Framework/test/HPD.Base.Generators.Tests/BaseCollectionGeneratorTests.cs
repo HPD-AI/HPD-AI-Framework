@@ -73,6 +73,30 @@ public sealed class BaseCollectionGeneratorTests
         result.GeneratedSource.Should().Contain("MaximumBytes = 16384");
         result.GeneratedSource.Should().Contain("BaseFieldConfidentiality)3");
     }
+
+    [Fact]
+    public void Internal_text_fields_require_dynamic_pre_matching_influence()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseCollection("documents", typeof(AppJsonContext))]
+            [BaseTextIndex("documents.search", Fields = [nameof(Document.Title)], Weights = [1])]
+            public sealed partial record Document
+            {
+                [BaseField("documents.title")]
+                [BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)]
+                public required string Title { get; init; }
+            }
+            [JsonSerializable(typeof(Document))]
+            public sealed partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        GeneratorResult result = Run(source);
+
+        result.Diagnostics.Should().BeEmpty();
+        result.GeneratedSource.Should().Contain("RequiresDynamicInfluenceConstraint = true");
+    }
     [Fact]
     public void GenerationIsDeterministic()
     {

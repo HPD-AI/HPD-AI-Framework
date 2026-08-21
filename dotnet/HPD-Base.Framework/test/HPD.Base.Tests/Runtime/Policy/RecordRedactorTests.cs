@@ -49,6 +49,7 @@ public sealed class RecordRedactorTests
 
     private static BasePolicyEvaluation Allow(FieldMask? mask = null) => new()
     {
+        EffectiveTextSearchInfluenceFilters = System.Collections.Immutable.ImmutableDictionary<string, FilterExpression>.Empty,
         Decision = new PolicyDecision
         {
             Effect = PolicyEffect.Allow,

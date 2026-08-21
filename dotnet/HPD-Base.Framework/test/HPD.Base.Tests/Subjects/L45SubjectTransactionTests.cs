@@ -1762,6 +1762,7 @@ public sealed class L45SubjectTransactionTests
             cancellationToken.ThrowIfCancellationRequested();
             return ValueTask.FromResult(OperationResults.Ok(new BasePolicyEvaluation
             {
+                EffectiveTextSearchInfluenceFilters = System.Collections.Immutable.ImmutableDictionary<string, FilterExpression>.Empty,
                 Decision = PolicyDecision.Allow() with { Audit = new PolicyAuditInfo { MatchedGrantIds = ["different.grant"] } },
             }));
         }

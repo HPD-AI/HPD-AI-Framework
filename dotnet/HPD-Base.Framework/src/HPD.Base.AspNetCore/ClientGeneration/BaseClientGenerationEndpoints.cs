@@ -67,7 +67,8 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
     BaseSubjectRetirementRegistry? retirementConsumers = null,
     IBaseSubjectRetirementRuntime? retirementRuntime = null,
     IBaseSessionFactory? sessions = null,
-    IBaseHttpPrincipalContextFactory? principalFactory = null)
+    IBaseHttpPrincipalContextFactory? principalFactory = null,
+    IBasePolicyOrchestrator? policy = null)
 {
     private const int MaximumSnapshotBytes = 4 * 1024 * 1024;
 
@@ -78,13 +79,27 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
         if (current is null || current.Operation != HPDBaseEndpointOperation.ClientGenerationRead)
             return Failure("base.clientGeneration.inventoryUnavailable");
 
+        PrincipalContext? generationPrincipal = principalFactory is null ? null : await principalFactory.CreateAsync(context, cancellationToken).ConfigureAwait(false);
+        var authorizedTextIndexes = new HashSet<string>(StringComparer.Ordinal);
+        if (generationPrincipal is not null && policy is not null)
+        {
+            foreach (CollectionDefinition collection in collections.Collections.Values)
+            foreach (BaseTextIndexDefinition index in collection.TextIndexes ?? [])
+            {
+                if (index.Audience != current.Audience) continue;
+                var operation = new OperationContext { ApplicationId = logicalSchema.ApplicationId, Audience = current.Audience, Operation = BaseOperationKind.TextQuery, CollectionId = collection.Id, TenantId = generationPrincipal.CurrentTenantId, ProjectId = context.Request.Query["projectId"].Count == 1 ? context.Request.Query["projectId"][0] : null, Now = timeProvider.GetUtcNow() };
+                OperationResult<BasePolicyEvaluation> admitted = await policy.EvaluateReadAsync(new BasePolicyRequest { Principal = generationPrincipal, Operation = operation, Collection = collection, ResourceKind = PolicyResourceKind.TextIndex, TextIndexId = index.Id }, cancellationToken).ConfigureAwait(false);
+                if (admitted.IsSuccess() && BaseSystemCollectionGate.HasExactTextGrant(admitted, BaseTextGrants.Query, generationPrincipal, operation, collection.Id, index.Id)) authorizedTextIndexes.Add(collection.Id + "\n" + index.Id);
+            }
+        }
+
         var authorizedLifecycle = new List<BaseInstalledSubjectLifecycleConsumer>();
         var authorizedLifecycleReconciliation = new HashSet<string>(StringComparer.Ordinal);
         var authorizedRetirement = new Dictionary<string, BaseInstalledSubjectRetirementConsumer>(StringComparer.Ordinal);
         string? lifecycleAudience = null;
         if (current.Audience == HPDBaseEndpointAudience.Application && lifecycleConsumers is not null && lifecycleRuntime is not null && sessions is not null && principalFactory is not null)
         {
-            PrincipalContext principal = await principalFactory.CreateAsync(context, cancellationToken).ConfigureAwait(false);
+            PrincipalContext principal = generationPrincipal!;
             lifecycleAudience = principal.AuthenticationState == PrincipalAuthenticationState.System ? "system"
                 : principal.AuthenticationState == PrincipalAuthenticationState.Service ? "service" : null;
             BaseSession session = sessions.For(principal, options => options.ProjectId = context.Request.Query["projectId"].Count == 1 ? context.Request.Query["projectId"][0] : null);
@@ -162,7 +177,7 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
             .Select(id => new BaseClientCapabilityDescriptor { Id = id, Available = true })
             .ToArray();
         BaseClientVectorIndexDescriptor[] vectors = BuildVectors(collections.Collections.Values);
-        BaseClientTextIndexDescriptor[] textIndexes = BuildTextIndexes(collections.Collections.Values);
+        BaseClientTextIndexDescriptor[] textIndexes = BuildTextIndexes(collections.Collections.Values, authorizedTextIndexes);
         BaseClientSelectionMutationDescriptor[] selectionMutations = (selectionProfiles?.All ?? [])
             .Where(profile => profile.HttpProjection is { GenerateL41Client: true } projection
                 && (projection.Audience == BaseSelectionEndpointAudience.Application ? "application" : "controlPlane") == audience)
@@ -451,8 +466,8 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
         };
     }
 
-    private static BaseClientTextIndexDescriptor[] BuildTextIndexes(IEnumerable<CollectionDefinition> collections) => collections
-        .SelectMany(collection => (collection.TextIndexes ?? []).Select(index => new BaseClientTextIndexDescriptor
+    private static BaseClientTextIndexDescriptor[] BuildTextIndexes(IEnumerable<CollectionDefinition> collections, IReadOnlySet<string> authorized) => collections
+        .SelectMany(collection => (collection.TextIndexes ?? []).Where(index => authorized.Contains(collection.Id + "\n" + index.Id)).Select(index => new BaseClientTextIndexDescriptor
         {
             CollectionId = collection.Id, Id = index.Id, Version = index.Version, GeneratedName = GeneratedName(index.Id),
             AnalyzerId = index.AnalyzerContractId, ScoringId = index.ScoringContractId, Audience = index.Audience.ToString(), MaximumResults = index.Limits.MaximumResults,

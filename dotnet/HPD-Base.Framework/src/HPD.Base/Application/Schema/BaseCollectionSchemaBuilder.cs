@@ -10,6 +10,7 @@ public sealed class BaseCollectionSchemaBuilder<T>
     private readonly JsonTypeInfo<T> _jsonTypeInfo;
     private readonly Dictionary<string, FieldEntry> _fields = new(StringComparer.Ordinal);
     private readonly Dictionary<string, IndexEntry> _indexes = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, BaseTextIndexSchemaBuilder<T>> _textIndexes = new(StringComparer.Ordinal);
     private SchemaMode _schemaMode = SchemaMode.Strict;
     private UnknownFieldPolicy _unknownFields = UnknownFieldPolicy.Reject;
     private BaseCollectionMutationMode _mutationMode = BaseCollectionMutationMode.Mutable;
@@ -187,6 +188,14 @@ public sealed class BaseCollectionSchemaBuilder<T>
         return new BaseSchemaIndexBuilder<T>(entry);
     }
 
+    /// <summary>Declares one provider-neutral lexical index using serializer-owned property handles.</summary>
+    public BaseCollectionSchemaBuilder<T> TextIndex(string id, int version, Action<BaseTextIndexSchemaBuilder<T>> configure)
+    {
+        BaseApplicationId.Validate(id, nameof(id)); ArgumentOutOfRangeException.ThrowIfLessThan(version, 1); ArgumentNullException.ThrowIfNull(configure);
+        if (_textIndexes.Count >= BaseTextPlatform.ProviderCapability(BaseTextProviderClass.CoLocatedTransactional).MaximumIndexesPerCollection || _textIndexes.ContainsKey(id)) throw new InvalidOperationException(BaseTextErrorCodes.ContractInvalid);
+        var builder = new BaseTextIndexSchemaBuilder<T>(_id, id, version, _jsonTypeInfo, ResolveField); configure(builder); builder.Seal(); _textIndexes.Add(id, builder); return this;
+    }
+
     /// <summary>Performs build.</summary>
     internal BaseCollection<T> Build()
     {
@@ -205,6 +214,7 @@ public sealed class BaseCollectionSchemaBuilder<T>
             UnknownFields = _unknownFields,
             Fields = fields,
             Indexes = indexes,
+            TextIndexes = _textIndexes.Count == 0 ? null : _textIndexes.Values.OrderBy(static value => value.Id, StringComparer.Ordinal).Select(static value => value.Build()).ToArray(),
             Source = new SchemaSourceDescriptor
             {
                 Id = "hpd.base.application.generated",
@@ -220,6 +230,8 @@ public sealed class BaseCollectionSchemaBuilder<T>
             }
         });
     }
+
+    private FieldDefinition ResolveField(string wireName) => _fields.Values.SingleOrDefault(value => string.Equals(value.WireName, wireName, StringComparison.Ordinal))?.Definition() ?? throw new InvalidOperationException(BaseTextErrorCodes.ContractInvalid);
 
     /// <summary>Performs field.</summary>
     private BaseSchemaFieldBuilder<T, TValue> Field<TValue>(string fieldId, string applicationName, BaseJsonProperty<T, TValue> property, string type, string? format = null)
@@ -263,11 +275,11 @@ internal abstract class FieldEntry
         }
 
         /// <summary>Gets id.</summary>
-        protected string Id { get; }
+        internal string Id { get; }
         internal string ApplicationName { get; }
         internal string WireName { get; }
         /// <summary>Gets type.</summary>
-        protected string Type { get; }
+        internal string Type { get; }
         /// <summary>Gets format.</summary>
         protected string? Format { get; }
         internal bool IsRequired { get; set; }
