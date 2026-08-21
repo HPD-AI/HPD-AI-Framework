@@ -9,7 +9,7 @@ test("generation validates its digest, emits the complete surface, and typecheck
   const output = new URL("../test-output", import.meta.url).pathname;
   await rm(output, { recursive: true, force: true });
   const base = {
-    protocol: { protocolMajor: 2, protocolMinor: 1, minimumClientMinor: 0, snapshotSchemaVersion: 5, applicationId: "test", schemaGeneration: "1", endpointInventoryDigest: `sha256:${"1".repeat(64)}`, errorTaxonomyVersion: 1, realtimeProtocolVersion: 2, liveQueryProtocolVersion: 1, serializationProfile: "base-json-v1", generatedAt: "" },
+    protocol: { protocolMajor: 2, protocolMinor: 1, minimumClientMinor: 0, snapshotSchemaVersion: 6, applicationId: "test", schemaGeneration: "1", endpointInventoryDigest: `sha256:${"1".repeat(64)}`, errorTaxonomyVersion: 1, realtimeProtocolVersion: 2, liveQueryProtocolVersion: 1, serializationProfile: "base-json-v1", generatedAt: "" },
     application: { audience: "application", applicationId: "test", basePath: "/base" },
     schema: {
       generation: "1",
@@ -60,7 +60,7 @@ test("generation validates its digest, emits the complete surface, and typecheck
 });
 
 test("type graph validation fails closed on malformed kinds, bounds, uniqueness, and union discriminators", () => {
-  const snapshot = types => { const base = { protocol: { protocolMajor: 2, protocolMinor: 1, minimumClientMinor: 0, snapshotSchemaVersion: 5, applicationId: "test", schemaGeneration: "1", endpointInventoryDigest: `sha256:${"1".repeat(64)}`, errorTaxonomyVersion: 1, realtimeProtocolVersion: 2, liveQueryProtocolVersion: 1, serializationProfile: "base-json-v1", generatedAt: "" }, application: { audience: "application", applicationId: "test", basePath: "/base" }, schema: { generation: "1", collections: [], types }, endpoints: [], capabilities: [], registeredReads: [], dependencyTemplates: [], vectorIndexes: [], textIndexes: [], selectionMutations: [], moduleMutations: [], subjectLifecycleConsumers: [], errors: [] }; return { ...base, digest: structuralDigest(base) }; };
+  const snapshot = types => { const base = { protocol: { protocolMajor: 2, protocolMinor: 1, minimumClientMinor: 0, snapshotSchemaVersion: 6, applicationId: "test", schemaGeneration: "1", endpointInventoryDigest: `sha256:${"1".repeat(64)}`, errorTaxonomyVersion: 1, realtimeProtocolVersion: 2, liveQueryProtocolVersion: 1, serializationProfile: "base-json-v1", generatedAt: "" }, application: { audience: "application", applicationId: "test", basePath: "/base" }, schema: { generation: "1", collections: [], types }, endpoints: [], capabilities: [], registeredReads: [], dependencyTemplates: [], vectorIndexes: [], textIndexes: [], selectionMutations: [], moduleMutations: [], subjectLifecycleConsumers: [], errors: [] }; return { ...base, digest: structuralDigest(base) }; };
   assert.throws(() => validate(snapshot([{ id: "x", node: { kind: "unknown" } }])), /typeInvalid/);
   assert.throws(() => validate(snapshot([{ id: "x", node: { kind: "string", format: "plain", minLength: 2, maxLength: 1 } }])), /typeInvalid/);
   assert.throws(() => validate(snapshot([{ id: "x", node: { kind: "enum", values: ["a", "a"] } }])), /typeInvalid/);
@@ -77,7 +77,7 @@ test("service generation emits lifecycle workers while application generation re
   const output = new URL("../test-output-lifecycle", import.meta.url).pathname;
   await rm(output, { recursive: true, force: true });
   const base = {
-    protocol: { protocolMajor: 2, protocolMinor: 1, minimumClientMinor: 0, snapshotSchemaVersion: 5, applicationId: "test", schemaGeneration: "1", endpointInventoryDigest: `sha256:${"2".repeat(64)}`, errorTaxonomyVersion: 1, realtimeProtocolVersion: 2, liveQueryProtocolVersion: 1, serializationProfile: "base-json-v1", generatedAt: "" },
+    protocol: { protocolMajor: 2, protocolMinor: 1, minimumClientMinor: 0, snapshotSchemaVersion: 6, applicationId: "test", schemaGeneration: "1", endpointInventoryDigest: `sha256:${"2".repeat(64)}`, errorTaxonomyVersion: 1, realtimeProtocolVersion: 2, liveQueryProtocolVersion: 1, serializationProfile: "base-json-v1", generatedAt: "" },
     application: { audience: "service", applicationId: "test", basePath: "/base" }, schema: { generation: "1", collections: [], types: [
       { id: "base.subjectLifecycle.authorityEpoch", node: { kind: "subject-lifecycle-authority-epoch" } },
       { id: "base.subjectLifecycle.incarnation", node: { kind: "subject-lifecycle-incarnation" } },

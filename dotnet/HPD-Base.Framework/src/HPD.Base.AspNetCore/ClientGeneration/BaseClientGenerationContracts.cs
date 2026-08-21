@@ -132,7 +132,7 @@ public sealed record BaseClientProtocolDescriptor
     /// <summary>Gets the minimum compatible client minor.</summary>
     public int MinimumClientMinor { get; init; }
     /// <summary>Gets the snapshot schema version.</summary>
-    public int SnapshotSchemaVersion { get; init; } = 5;
+    public int SnapshotSchemaVersion { get; init; } = 6;
     /// <summary>Gets the application identifier.</summary>
     public required string ApplicationId { get; init; }
     /// <summary>Gets the logical schema generation.</summary>
