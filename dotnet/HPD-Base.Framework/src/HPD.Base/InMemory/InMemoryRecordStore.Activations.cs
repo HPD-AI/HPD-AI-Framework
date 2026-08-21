@@ -188,9 +188,12 @@ internal sealed partial class InMemoryRecordStore
                     ControlChecksum = ControlChecksum(row.Payload.ActivationId, recoveredGeneration, BaseActivationState.RetryPending),
                 };
                 next.ActivationIndexGeneration = checked(next.ActivationIndexGeneration + 1);
+                BaseActivationClaimResult recoveredResult = new BaseActivationRecoveredClaimResult(
+                    row.Payload.ActivationId, recoveredGeneration);
+                WriteActivationReceipt(next, request.Identity, "activation-claimed", recoveredResult,
+                    HPDBaseJsonSerializerContext.Default.BaseActivationClaimResult);
                 Volatile.Write(ref _publishedState, next);
-                return OperationResults.Ok<BaseActivationClaimResult>(new BaseActivationRecoveredClaimResult(
-                    row.Payload.ActivationId, recoveredGeneration));
+                return OperationResults.Ok(recoveredResult);
             }
 
             int attemptNumber = checked(mutable.AttemptNumber + 1);

@@ -134,6 +134,66 @@ public sealed partial class SqliteModuleMutationTests
     }
 
     [Fact]
+    public async Task Expired_claim_recovery_is_receipted_and_exactly_replayed()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-claim-recovery-{Guid.NewGuid():N}.db");
+        try
+        {
+            BaseAtomicMutationExecutionLimits mutationLimits = ExecutionLimits();
+            BaseActivationExecutionLimits limits = ActivationLimits();
+            BaseOwnedScopeSeekAuthority scope = ActivationScope();
+            BaseActivationDefinitionKey definition = ActivationDefinition();
+            await using SqliteRecordStore store = Store(path);
+            BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync(
+                "activation.application", [], mutationLimits, default)).Value!;
+            (await store.ExecuteAtomicAsync(new ActivationCreationProbe(authority, mutationLimits), ExecutionRequest()))
+                .Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+
+            var worker = new BaseActivationWorkerAuthority
+            {
+                ApplicationId = "activation-test", ModuleId = "test", WorkerIdentity = "worker-1",
+                Definitions = [definition], Scope = scope, Checksum = new byte[32].ToImmutableArray(),
+            };
+            BaseActivationDueObservation firstObservation = (await store.ObserveDueAsync(new BaseActivationDueObservationRequest
+            {
+                ApplicationId = "activation-test", WorkerModuleId = "test", Definitions = [definition], Scope = scope,
+                AcceptedTime = AcceptedTime(10), MaximumCandidates = 8, Limits = limits,
+            })).Value!;
+            _ = (BaseActivationClaimedResult)(await store.TryClaimNextAsync(new BaseActivationClaimRequest
+            {
+                Observation = firstObservation.Token, Worker = worker, AcceptedTime = AcceptedTime(10), LeaseMilliseconds = 1,
+                Identity = ActivationIdentity("initial-claim"), Limits = limits,
+            })).Value!;
+
+            BaseActivationDueObservation expiredObservation = (await store.ObserveDueAsync(new BaseActivationDueObservationRequest
+            {
+                ApplicationId = "activation-test", WorkerModuleId = "test", Definitions = [definition], Scope = scope,
+                AcceptedTime = AcceptedTime(20), MaximumCandidates = 8, Limits = limits,
+            })).Value!;
+            var recovery = new BaseActivationClaimRequest
+            {
+                Observation = expiredObservation.Token, Worker = worker, AcceptedTime = AcceptedTime(20), LeaseMilliseconds = 1_000,
+                Identity = ActivationIdentity("recover-claim"), Limits = limits,
+            };
+            BaseActivationClaimResult first = (await store.TryClaimNextAsync(recovery)).Value!;
+            BaseActivationClaimResult replay = (await store.TryClaimNextAsync(recovery with
+            {
+                AcceptedTime = AcceptedTime(21),
+            })).Value!;
+
+            var recovered = first.Should().BeOfType<BaseActivationRecoveredClaimResult>().Subject;
+            var replayed = replay.Should().BeOfType<BaseActivationRecoveredClaimResult>().Subject;
+            replayed.ActivationId.Should().Be(recovered.ActivationId);
+            replayed.ResultingGeneration.Should().Be(recovered.ResultingGeneration);
+        }
+        finally
+        {
+            foreach (string suffix in new[] { "", "-wal", "-shm" })
+                if (File.Exists(path + suffix)) File.Delete(path + suffix);
+        }
+    }
+
+    [Fact]
     public async Task Activation_accepted_time_cannot_regress_after_restart()
     {
         string path = Path.Combine(Path.GetTempPath(), $"hpd-base-activation-time-{Guid.NewGuid():N}.db");

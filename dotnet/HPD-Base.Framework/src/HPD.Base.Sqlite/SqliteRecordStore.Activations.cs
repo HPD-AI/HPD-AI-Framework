@@ -205,8 +205,11 @@ public sealed partial class SqliteRecordStore
             await UpdateRecoveredAsync(connection, transaction, row.ActivationId, recovered,
                 request.AcceptedTime.CapturedUtc, cancellationToken).ConfigureAwait(false);
             await IncrementActivationGenerationAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+            BaseActivationClaimResult recoveredResult = new BaseActivationRecoveredClaimResult(row.ActivationId, recovered);
+            await WriteActivationReceiptAsync(connection, transaction, request.Identity, "activation-claimed", recoveredResult,
+                HPDBaseJsonSerializerContext.Default.BaseActivationClaimResult, cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-            return OperationResults.Ok<BaseActivationClaimResult>(new BaseActivationRecoveredClaimResult(row.ActivationId, recovered));
+            return OperationResults.Ok(recoveredResult);
         }
 
         int attempt = checked(row.AttemptNumber + 1);
