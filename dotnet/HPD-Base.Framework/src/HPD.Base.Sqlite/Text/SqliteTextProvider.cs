@@ -13,7 +13,7 @@ internal sealed class SqliteTextProvider(SqliteRecordStore store, BaseCollection
     {
         Id = "sqlite.fts5", Version = 1, ProviderClass = BaseTextProviderClass.CoLocatedTransactional,
         Capability = BaseTextPlatform.ProviderCapability(BaseTextProviderClass.CoLocatedTransactional),
-        NativeDependencyReceipts = ["sqlite-bundled"], CertificationReceipt = ImmutableArray.Create(Convert.FromHexString("5d7ae5c0f421bde25eaba0b623e53163d44dffcfad8257ba67d4cef67f3d0726")),
+        NativeDependencyReceipts = ["sqlite-bundled"], CertificationReceipt = ImmutableArray.Create(Convert.FromHexString("12bb816d9c66eaa9f7062a92635c464d015042e0637110ea3c2a9cffc2713461")),
     };
 
     public async ValueTask<OperationResult<IBaseTextHydrationSession>> OpenAsync(BaseTextAuthorityOpenRequest request, CancellationToken cancellationToken = default)
