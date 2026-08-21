@@ -105,6 +105,69 @@ public sealed class BaseGraphActivationDefinition
             CheckpointId = checkpointId is null ? null : new string(checkpointId.AsSpan()),
         };
     }
+
+    /// <summary>Creates one durable Base schedule targeting this exact graph activation.</summary>
+    public BaseScheduleDefinition CreateSchedule(
+        GraphScheduleConfig schedule,
+        string scheduleId,
+        int scheduleVersion,
+        string manageGrantId,
+        string materializeGrantId,
+        int priority = 0,
+        long maximumSplayMilliseconds = 0)
+    {
+        ArgumentNullException.ThrowIfNull(schedule);
+        ArgumentException.ThrowIfNullOrWhiteSpace(scheduleId);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(scheduleVersion);
+        ArgumentException.ThrowIfNullOrWhiteSpace(manageGrantId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(materializeGrantId);
+        byte[] seedBytes = schedule.DefaultInput is { } seed
+            ? JsonSerializer.SerializeToUtf8Bytes(seed)
+            : "{}"u8.ToArray();
+        byte[] canonicalSeed = BaseGraphActivationRegistration.CanonicalJson(seedBytes);
+        BaseGraphActivationInput input = CreateInput($"schedule:{scheduleId}", canonicalSeed);
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(input, BaseGraphActivationJsonContext.Default.BaseGraphActivationInput);
+        BaseScheduleMisfirePolicy misfire = schedule.MisfirePolicy switch
+        {
+            ScheduleMisfirePolicyConfig.Skip => BaseScheduleMisfirePolicy.Skip,
+            ScheduleMisfirePolicyConfig.RunOnce => BaseScheduleMisfirePolicy.RunLatest,
+            ScheduleMisfirePolicyConfig.RunAllMissed => BaseScheduleMisfirePolicy.RunAll,
+            _ => throw new InvalidOperationException("hpd.graph.activation.scheduleInvalid"),
+        };
+        BaseScheduleOverlapPolicy overlap = schedule.ConcurrencyPolicy switch
+        {
+            ScheduleConcurrencyPolicyConfig.AllowOverlap => BaseScheduleOverlapPolicy.Allow,
+            ScheduleConcurrencyPolicyConfig.SkipIfRunning => BaseScheduleOverlapPolicy.SkipWhileActive,
+            ScheduleConcurrencyPolicyConfig.Queue => BaseScheduleOverlapPolicy.Queue,
+            ScheduleConcurrencyPolicyConfig.CancelPrevious => BaseScheduleOverlapPolicy.CancelPrevious,
+            _ => throw new InvalidOperationException("hpd.graph.activation.scheduleInvalid"),
+        };
+        return BaseScheduleDefinitionBuilder.Create(new BaseScheduleDefinition
+        {
+            Id = scheduleId,
+            Version = scheduleVersion,
+            OwningModuleId = "hpd.graph",
+            ManageGrantId = manageGrantId,
+            MaterializeGrantId = materializeGrantId,
+            Activation = new BaseActivationDefinitionKey
+            {
+                Id = Registration.Definition.Id,
+                Version = Registration.Definition.Version,
+                Checksum = Registration.Definition.Checksum.ToArray().ToImmutableArray(),
+            },
+            CanonicalInput = bytes.ToImmutableArray(),
+            InputChecksum = SHA256.HashData(bytes).ToImmutableArray(),
+            Expression = new BaseCronSchedule(schedule.CronExpression, schedule.TimeZoneId),
+            GapPolicy = BaseTimeGapPolicy.NextValid,
+            TimeOverlapPolicy = BaseTimeOverlapPolicy.Both,
+            MisfirePolicy = misfire,
+            ActivationOverlapPolicy = overlap,
+            OverlapKeyKind = BaseScheduleOverlapKeyKind.Schedule,
+            Priority = priority,
+            MaximumSplayMilliseconds = maximumSplayMilliseconds,
+            Checksum = [],
+        });
+    }
 }
 
 /// <summary>Builds exact HPD-Graph activation registrations for HPD.Base.</summary>

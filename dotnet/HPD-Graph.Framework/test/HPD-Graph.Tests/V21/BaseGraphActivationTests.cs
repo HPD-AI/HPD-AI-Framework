@@ -66,6 +66,25 @@ public sealed class BaseGraphActivationTests
         installed.Definition.Checksum.Should().Equal(definition.Registration.Definition.Checksum);
     }
 
+    [Fact]
+    public void Graph_schedule_maps_to_one_sealed_base_schedule()
+    {
+        BaseGraphActivationDefinition definition = BaseGraphActivationRegistration.Create(
+            Graph("graph-scheduled", "4.0.0", "scheduled"), 4, Grants(), Limits(), []);
+        BaseScheduleDefinition schedule = definition.CreateSchedule(new GraphScheduleConfig
+        {
+            CronExpression = "0 */5 * * * *",
+            TimeZoneId = "UTC",
+            MisfirePolicy = ScheduleMisfirePolicyConfig.RunAllMissed,
+            ConcurrencyPolicy = ScheduleConcurrencyPolicyConfig.CancelPrevious,
+        }, "graph-scheduled.timer", 1, "graph.schedule.manage", "graph.schedule.materialize");
+
+        schedule.Activation.Id.Should().Be(definition.Registration.Definition.Id);
+        schedule.MisfirePolicy.Should().Be(BaseScheduleMisfirePolicy.RunAll);
+        schedule.ActivationOverlapPolicy.Should().Be(BaseScheduleOverlapPolicy.CancelPrevious);
+        schedule.Checksum.Should().HaveCount(32);
+    }
+
     private static GraphConfig Graph(string id, string version, string description) => new()
     {
         GraphId = id,
