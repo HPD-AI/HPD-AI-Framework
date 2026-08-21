@@ -12,7 +12,7 @@ namespace HPD.Base;
 /// <summary>
 /// Process-local, thread-safe, non-durable HPD.BASE record store implementation.
 /// </summary>
-internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreamingRecordStore, IRelationalReadStore, IConsistentRecordIncludeStore, IInMemoryProjectionAuthority, ITransactionalMutationJournalStore, IBaseSubjectAdministration, IBaseSubjectPublicationStore, IBaseSubjectValidationPlanReceiptStore, IBaseActivationProvider
+internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreamingRecordStore, IRelationalReadStore, IConsistentRecordIncludeStore, IInMemoryProjectionAuthority, ITransactionalMutationJournalStore, IBaseSubjectAdministration, IBaseSubjectPublicationStore, IBaseSubjectValidationPlanReceiptStore, IBaseSubjectLifecycleStore, IBaseSubjectRetirementStore, IBaseSubjectAuthorityMaintenanceStore, IBaseActivationProvider
 {
     /// <inheritdoc />
     public ValueTask<OperationResult<BaseSubjectValidationPlanReceipt[]>> ReadSubjectValidationPlanReceiptsAsync(
@@ -445,9 +445,14 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
 
     private readonly HPDBaseInMemoryStoreOptions _options;
     private readonly BaseQueryCursorCodec _queryCursors;
+    private readonly BaseSubjectScopeProtector _subjectScopes;
+    private readonly BaseOpaqueTokenProtector _subjectScopeTokens;
+    private string _subjectScopeProtectionKeyId;
+    private byte _subjectScopeProtectionKey;
+    private long _subjectScopeProtectionGeneration = 1;
     private readonly TimeProvider _timeProvider;
     private long _acceptedActivationUtc;
-    private readonly IInMemoryAtomicMutationProjection? _vectorProjection;
+    private readonly IInMemoryAtomicMutationProjection? _mutationProjection;
     private readonly SemaphoreSlim _stateGate = new(1, 1);
     private readonly Lock _vectorLeaseGate = new();
     private readonly Dictionary<InMemoryStoreState, int> _retainedVectorRoots = new(ReferenceEqualityComparer.Instance);
@@ -473,9 +478,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
     }
 
     internal ValueTask<OperationResult> InitializeVectorProjectionAsync(CancellationToken cancellationToken) =>
-        _vectorProjection is null
+        _mutationProjection is null
             ? ValueTask.FromResult(OperationResults.NoContent())
-            : _vectorProjection.InitializeAsync(new BaseInMemoryProjectionInitializationContext(_options), cancellationToken);
+            : _mutationProjection.InitializeAsync(new BaseInMemoryProjectionInitializationContext(_options), cancellationToken);
 
     /// <summary>
     /// Initializes a new store using configured options.
@@ -506,11 +511,18 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         _options = options ?? new HPDBaseInMemoryStoreOptions();
         _timeProvider = timeProvider;
         _queryCursors = new BaseQueryCursorCodec(tokenProtector, timeProvider);
-        if ((_options.Collections ?? []).Any(static collection => (collection.VectorIndexes ?? []).Length != 0))
-        {
-            _vectorProjection = new InMemoryVectorMutationProjection();
+        _subjectScopeTokens = tokenProtector;
+        _subjectScopes = new BaseSubjectScopeProtector(tokenProtector);
+        _subjectScopeProtectionKey = tokenProtector.ActiveKeyId;
+        _subjectScopeProtectionKeyId = _subjectScopeProtectionKey.ToString(CultureInfo.InvariantCulture);
+        IInMemoryAtomicMutationProjection[] projections =
+        [
+            .. (_options.Collections ?? []).Any(static collection => (collection.VectorIndexes ?? []).Length != 0) ? [new InMemoryVectorMutationProjection()] : Array.Empty<IInMemoryAtomicMutationProjection>(),
+            .. (_options.Collections ?? []).Any(static collection => (collection.TextIndexes ?? []).Length != 0) ? [new InMemoryTextMutationProjection()] : Array.Empty<IInMemoryAtomicMutationProjection>(),
+        ];
+        _mutationProjection = projections.Length switch { 0 => null, 1 => projections[0], _ => new InMemoryCompositeMutationProjection(projections) };
+        if ((_options.Collections ?? []).Any(static collection => (collection.VectorIndexes ?? []).Length != 0 || (collection.TextIndexes ?? []).Length != 0))
             _vectorIdentityDigest = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
-        }
         ValidateOptions(_options);
         foreach (BaseExportedSubjectDefinition subject in _options.ExportedSubjects)
         {
@@ -3759,7 +3771,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             }
 
             BaseRecordMutationFact[] materialized = facts.Select(static fact => fact.MaterializeOwned()).ToArray();
-            if (_owner._vectorProjection is { } projection)
+            if (_owner._mutationProjection is { } projection)
             {
                 OperationResult projected;
                 try
@@ -4253,7 +4265,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         {
             ArgumentNullException.ThrowIfNull(request);
             cancellationToken.ThrowIfCancellationRequested();
-            IInMemoryAtomicMutationProjection? projection = _owner._vectorProjection;
+            IInMemoryAtomicMutationProjection? projection = _owner._mutationProjection;
             if (projection is null) return OperationResults.NoContent();
             try
             {
@@ -4419,6 +4431,206 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 .Order(StringComparer.Ordinal)
                 .ToArray();
         }
+
+        public ValueTask<OperationResult<BaseSubjectLifecycleCheckpointResult>> AdvanceSubjectLifecycleCheckpointAsync(
+            BaseSubjectLifecycleProviderCheckpointRequest request,
+            CancellationToken cancellationToken = default) =>
+            ExecuteAsync(cancellationToken, _ =>
+            {
+                ArgumentNullException.ThrowIfNull(request);
+                if (request.DeadlineUtc <= _owner._timeProvider.GetUtcNow()
+                    || request.ExpectedCheckpointGeneration < 0
+                    || request.ProjectionGeneration < 1)
+                    return ValueTask.FromResult(OperationResults.ValidationFailed<BaseSubjectLifecycleCheckpointResult>(new BaseError
+                    {
+                        Code = BaseSubjectErrorCodes.ContractInvalid,
+                        Message = "The subject lifecycle checkpoint operation is invalid.",
+                        Category = ErrorCategory.Validation,
+                    }));
+
+                string consumerKey = $"{request.ConsumerId}\n{request.ConsumerVersion}";
+                if (!_working.SubjectLifecycleConsumers.TryGetValue(consumerKey, out InMemorySubjectLifecycleConsumerProjection? projection)
+                    || projection.ConsumerChecksum != request.ConsumerChecksum
+                    || projection.ProjectionGeneration != request.ProjectionGeneration
+                    || projection.ContractId != request.ContractId
+                    || projection.ContractVersion != request.ContractVersion)
+                    return ValueTask.FromResult(OperationResults.StoreError<BaseSubjectLifecycleCheckpointResult>(new BaseError
+                    {
+                        Code = BaseSubjectErrorCodes.ProviderContractInvalid,
+                        Message = "The subject lifecycle checkpoint authority is invalid.",
+                        Category = ErrorCategory.Store,
+                    }));
+
+                BaseProtectedSubjectScope protectedScope = _owner._subjectScopes.Protect(request.Scope, _owner._subjectScopeProtectionKey);
+                string checkpointKey = ProtectedScopeKey(request.ConsumerId, request.ConsumerVersion, protectedScope);
+                _working.SubjectLifecycleCheckpoints.TryGetValue(checkpointKey, out InMemorySubjectLifecycleCheckpointState? prior);
+                long actualGeneration = prior?.Generation ?? 0;
+                if (actualGeneration != request.ExpectedCheckpointGeneration || prior?.Overtaken == true
+                    || prior?.Through is not null && request.Through is not null && CompareBoundary(request.Through, prior.Through) < 0)
+                    return ValueTask.FromResult(OperationResults.Conflict<BaseSubjectLifecycleCheckpointResult>(new BaseError
+                    {
+                        Code = BaseSubjectErrorCodes.CursorOvertaken,
+                        Message = "The subject lifecycle checkpoint is no longer current.",
+                        Category = ErrorCategory.Conflict,
+                    }));
+
+                if (request.Through is not null && !_working.SubjectLifecycleMemberships.Any(membership =>
+                    membership.ConsumerId == request.ConsumerId && membership.ConsumerVersion == request.ConsumerVersion
+                    && membership.ConsumerChecksum == request.ConsumerChecksum && membership.ProjectionGeneration == request.ProjectionGeneration
+                    && ProtectedScopeEquals(membership.Scope, protectedScope)
+                    && ProtectedScopeEquals(_working.SubjectLifecycleFacts[membership.FactIndex].Scope, protectedScope)
+                    && CompareBoundary(_working.SubjectLifecycleFacts[membership.FactIndex].Boundary, request.Through) == 0))
+                    return ValueTask.FromResult(OperationResults.ValidationFailed<BaseSubjectLifecycleCheckpointResult>(new BaseError
+                    {
+                        Code = BaseSubjectErrorCodes.CursorInvalid,
+                        Message = "The subject lifecycle checkpoint is invalid.",
+                        Category = ErrorCategory.Validation,
+                    }));
+
+                long generation = checked(actualGeneration + 1);
+                DateTimeOffset now = _owner._timeProvider.GetUtcNow();
+                var result = new BaseSubjectLifecycleCheckpointResult
+                {
+                    Through = request.Through is null ? prior?.Through : request.Through with { },
+                    CheckpointGeneration = generation,
+                    ProjectionGeneration = request.ProjectionGeneration,
+                    AdvancedAtUtc = now,
+                    Duplicate = false,
+                };
+                _working.SubjectLifecycleCheckpoints[checkpointKey] = new(request.ConsumerId, request.ConsumerVersion,
+                    request.ConsumerChecksum, request.ContractId, request.ContractVersion, request.ProjectionGeneration,
+                    protectedScope, result.Through, generation, now, false);
+                return ValueTask.FromResult(OperationResults.Ok(result));
+            });
+
+        public ValueTask<OperationResult<BaseSubjectAcknowledgementResult>> ApplySubjectRetirementAcknowledgementAsync(
+            BaseSubjectRetirementProviderAcknowledgementRequest request,
+            CancellationToken cancellationToken = default) =>
+            ExecuteAsync(cancellationToken, _ =>
+            {
+                ArgumentNullException.ThrowIfNull(request);
+                BaseSubjectLifecycleAcknowledgement acknowledgement = request.Acknowledgement;
+                BaseSubjectRetirementConsumerDefinition? consumer = _owner._options.SubjectRetirementConsumers.SingleOrDefault(value =>
+                    value.ConsumerId == acknowledgement.ConsumerId && value.ConsumerVersion == acknowledgement.ConsumerVersion);
+                if (consumer is null || BaseSubjectRetirementRegistry.ConsumerChecksum(consumer) != request.RetirementConsumerChecksum
+                    || consumer.Participation != acknowledgement.Participation || consumer.LifecycleConsumerChecksum != acknowledgement.ConsumerChecksum
+                    || request.ObservedAtUtc.Offset != TimeSpan.Zero || request.DeadlineUtc.Offset != TimeSpan.Zero)
+                    return ValueTask.FromResult(RetirementFailure(BaseSubjectRetirementErrorCodes.ProviderContractInvalid, OperationStatus.CapabilityUnavailable, ErrorCategory.Capability));
+
+                BaseProtectedSubjectScope protectedScope = _owner._subjectScopes.Protect(request.Scope, _owner._subjectScopeProtectionKey);
+                if (acknowledgement.Participation == BaseSubjectRetirementParticipation.AdvisoryAcknowledgement)
+                {
+                    bool delivered = _working.SubjectLifecycleMemberships.Any(membership => membership.ConsumerId == acknowledgement.ConsumerId
+                        && membership.ConsumerVersion == acknowledgement.ConsumerVersion && ProtectedScopeEquals(membership.Scope, protectedScope)
+                        && _working.SubjectLifecycleFacts[membership.FactIndex].Fact.ContractId == acknowledgement.ContractId
+                        && _working.SubjectLifecycleFacts[membership.FactIndex].Fact.ContractVersion == acknowledgement.ContractVersion
+                        && _working.SubjectLifecycleFacts[membership.FactIndex].Fact.SubjectId.Equals(acknowledgement.SubjectId)
+                        && _working.SubjectLifecycleFacts[membership.FactIndex].Fact.AuthorityEpoch.Equals(acknowledgement.AuthorityEpoch)
+                        && _working.SubjectLifecycleFacts[membership.FactIndex].Fact.Incarnation.Equals(acknowledgement.Incarnation)
+                        && _working.SubjectLifecycleFacts[membership.FactIndex].Fact.SubjectSequence == acknowledgement.ThroughSubjectSequence);
+                    if (!delivered) return ValueTask.FromResult(RetirementFailure(BaseSubjectRetirementErrorCodes.ProviderContractInvalid, OperationStatus.ValidationFailed, ErrorCategory.Validation));
+                    long advisoryPosition = checked(++_working.SubjectRetirementPosition);
+                    AddRetirementPublication(new BaseSubjectRetirementPublicationRow
+                    {
+                        Scope = protectedScope,
+                        Fact = new BaseSubjectRetirementPublicationFact
+                        {
+                            Position = new(advisoryPosition), Kind = BaseSubjectRetirementPublicationKind.AdvisoryAcknowledgementAccepted,
+                            AdvisoryAcknowledgement = new BaseSubjectAdvisoryAcknowledgementPublication
+                            {
+                                ContractId = acknowledgement.ContractId, ContractVersion = acknowledgement.ContractVersion,
+                                SubjectId = acknowledgement.SubjectId, AuthorityEpoch = acknowledgement.AuthorityEpoch,
+                                Incarnation = acknowledgement.Incarnation, ThroughSubjectSequence = acknowledgement.ThroughSubjectSequence,
+                                ConsumerId = acknowledgement.ConsumerId, ConsumerVersion = acknowledgement.ConsumerVersion,
+                                Disposition = acknowledgement.Disposition,
+                            },
+                        },
+                    });
+                    return ValueTask.FromResult(OperationResults.Ok(new BaseSubjectAcknowledgementResult
+                    {
+                        Outcome = BaseSubjectRetirementMutationOutcome.Applied, ThroughSubjectSequence = acknowledgement.ThroughSubjectSequence,
+                    }));
+                }
+
+                if (acknowledgement.Participation != BaseSubjectRetirementParticipation.RequiredBeforePurge || acknowledgement.RequiredBarrier is null)
+                    return ValueTask.FromResult(RetirementFailure(BaseSubjectRetirementErrorCodes.ContractInvalid, OperationStatus.ValidationFailed, ErrorCategory.Validation));
+                string key = RetirementKey(protectedScope, acknowledgement.ContractId, acknowledgement.ContractVersion, acknowledgement.SubjectId, acknowledgement.AuthorityEpoch, acknowledgement.Incarnation);
+                if (!_working.SubjectRetirementBarriers.TryGetValue(key, out InMemorySubjectRetirementBarrierState? stored))
+                    return ValueTask.FromResult(RetirementFailure("base.subjectRetirement.acknowledgementConflict", OperationStatus.Conflict, ErrorCategory.Conflict));
+                BaseSubjectRetirementBarrier barrier = stored.Barrier;
+                if (barrier.BarrierChecksum != acknowledgement.RequiredBarrier.Checksum || barrier.Generation != acknowledgement.RequiredBarrier.Generation
+                    || barrier.TombstoneSequence != acknowledgement.ThroughSubjectSequence)
+                    return ValueTask.FromResult(RetirementFailure("base.subjectRetirement.acknowledgementConflict", OperationStatus.Conflict, ErrorCategory.Conflict));
+                if (request.ObservedAtUtc > barrier.DeadlineUtc || barrier.State != BaseSubjectRetirementBarrierState.Pending)
+                    return ValueTask.FromResult(RetirementFailure("base.subjectRetirement.barrierTimedOut", OperationStatus.Conflict, ErrorCategory.Conflict));
+                BaseSubjectRetirementPolicy? policy = _owner._options.SubjectRetirementPolicies.SingleOrDefault(value => value.ContractId == acknowledgement.ContractId && value.ContractVersion == acknowledgement.ContractVersion);
+                if (policy is null || policy.PolicyChecksum != request.RetirementPolicyChecksum
+                    || !policy.AcceptedConsumers.Any(value => value.ConsumerId == acknowledgement.ConsumerId && value.ConsumerVersion == acknowledgement.ConsumerVersion
+                        && value.RetirementConsumerChecksum == request.RetirementConsumerChecksum))
+                    return ValueTask.FromResult(RetirementFailure(BaseSubjectRetirementErrorCodes.ProviderContractInvalid, OperationStatus.CapabilityUnavailable, ErrorCategory.Capability));
+                string consumerKey = $"{acknowledgement.ConsumerId}\n{acknowledgement.ConsumerVersion}";
+                if (stored.Acknowledgements.ContainsKey(consumerKey))
+                    return ValueTask.FromResult(OperationResults.Ok(new BaseSubjectAcknowledgementResult
+                    {
+                        Outcome = BaseSubjectRetirementMutationOutcome.Obsolete, BarrierState = barrier.State,
+                        BarrierGeneration = barrier.Generation, BarrierChecksum = barrier.BarrierChecksum, ThroughSubjectSequence = acknowledgement.ThroughSubjectSequence,
+                    }));
+                long position = checked(++_working.SubjectRetirementPosition);
+                stored.Acknowledgements.Add(consumerKey, new(acknowledgement.ConsumerId, acknowledgement.ConsumerVersion, acknowledgement.ConsumerChecksum,
+                    acknowledgement.ThroughSubjectSequence, acknowledgement.Disposition, position));
+                bool satisfied = policy.AcceptedConsumers.All(value => stored.Acknowledgements.ContainsKey($"{value.ConsumerId}\n{value.ConsumerVersion}"));
+                BaseSubjectRetirementBarrier resulting = barrier with
+                {
+                    State = satisfied ? BaseSubjectRetirementBarrierState.Satisfied : BaseSubjectRetirementBarrierState.Pending,
+                    Generation = checked(barrier.Generation + 1), BarrierChecksum = string.Empty,
+                };
+                resulting = resulting with { BarrierChecksum = BaseSubjectRetirementRegistry.BarrierChecksum(resulting, stored.Acknowledgements.Values.Select(static value => BaseSubjectRetirementRegistry.AcknowledgementChecksumInput(value.ConsumerId, value.ConsumerVersion, value.ConsumerChecksum, value.ThroughSequence, value.Disposition, value.Position))) };
+                _working.SubjectRetirementBarriers[key] = stored with { Barrier = resulting };
+                AddRetirementBarrierPublication(protectedScope,
+                    satisfied ? BaseSubjectRetirementPublicationKind.BarrierSatisfied : BaseSubjectRetirementPublicationKind.RequiredAcknowledgementAccepted,
+                    resulting, barrier.Generation, acknowledgement.ConsumerId, position);
+                return ValueTask.FromResult(OperationResults.Ok(new BaseSubjectAcknowledgementResult
+                {
+                    Outcome = BaseSubjectRetirementMutationOutcome.Applied, BarrierState = resulting.State,
+                    BarrierGeneration = resulting.Generation, BarrierChecksum = resulting.BarrierChecksum,
+                    ThroughSubjectSequence = acknowledgement.ThroughSubjectSequence,
+                }));
+            });
+
+
+        private bool RetirementPolicyMatches(string contractId, int contractVersion, string checksum) =>
+            _owner._options.SubjectRetirementPolicies.SingleOrDefault(value => value.ContractId == contractId && value.ContractVersion == contractVersion)?.PolicyChecksum == checksum;
+        private void AddRetirementBarrierPublication(BaseProtectedSubjectScope scope, BaseSubjectRetirementPublicationKind kind,
+            BaseSubjectRetirementBarrier barrier, long previousGeneration, string? consumerId, long position) =>
+            AddRetirementPublication(new BaseSubjectRetirementPublicationRow
+            {
+                Scope = scope,
+                Fact = new BaseSubjectRetirementPublicationFact
+                {
+                    Position = new(position), Kind = kind,
+                    Barrier = new BaseSubjectBarrierPublication
+                    {
+                        ContractId = barrier.ContractId, ContractVersion = barrier.ContractVersion, SubjectId = barrier.SubjectId,
+                        AuthorityEpoch = barrier.AuthorityEpoch, Incarnation = barrier.Incarnation,
+                        TombstoneSequence = barrier.TombstoneSequence, PreviousGeneration = previousGeneration,
+                        PublishedGeneration = barrier.Generation, ConsumerId = consumerId,
+                    },
+                },
+            });
+        private void AddRetirementPublication(BaseSubjectRetirementPublicationRow row){row=row with{Fact=BaseSubjectRetirementRegistry.SealPublication(row.Fact,row.Scope)};BaseSubjectRetirementRegistry.ValidatePublication(row);_working.SubjectRetirementPublications.Add(row);}
+        private static BaseSubjectRetirementBarrier RecomputeBarrier(InMemorySubjectRetirementBarrierState stored, BaseSubjectRetirementBarrierState state)
+        {
+            BaseSubjectRetirementBarrier result = stored.Barrier with { State = state, Generation = checked(stored.Barrier.Generation + 1), BarrierChecksum = string.Empty };
+            return result with { BarrierChecksum = BaseSubjectRetirementRegistry.BarrierChecksum(result, stored.Acknowledgements.Values.Select(static value => BaseSubjectRetirementRegistry.AcknowledgementChecksumInput(value.ConsumerId, value.ConsumerVersion, value.ConsumerChecksum, value.ThroughSequence, value.Disposition, value.Position))) };
+        }
+
+        private static OperationResult<BaseSubjectAcknowledgementResult> RetirementFailure(string code, OperationStatus status, ErrorCategory category) => new()
+        {
+            Status = status, Error = new BaseError { Code = code, Message = "The subject retirement operation failed.", Category = category },
+        };
+        private static OperationResult<T> RetirementFailure<T>(string code, OperationStatus status, ErrorCategory category) => new()
+        { Status = status, Error = new BaseError { Code = code, Message = "The subject retirement operation failed.", Category = category } };
+
 
         private static OperationResult<T> SessionClosed<T>() =>
             InMemoryResultFactory.StoreError<T>(
