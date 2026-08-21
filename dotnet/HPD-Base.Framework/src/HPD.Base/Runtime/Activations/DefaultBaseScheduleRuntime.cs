@@ -96,7 +96,9 @@ internal sealed class DefaultBaseScheduleRuntime(
                 BaseScheduleMisfirePolicy.RunAll => true,
                 _ => false,
             };
-            proposals.Add(Proposal(session, definition, target, current.Value.ScheduleEpoch, nominal[index], materialize));
+            int overlapOrdinal = BaseScheduleDefinitionBuilder.OverlapOrdinal(definition.Expression, nominal[index], timeZones,
+                definition.GapPolicy, definition.TimeOverlapPolicy);
+            proposals.Add(Proposal(session, definition, target, current.Value.ScheduleEpoch, nominal[index], overlapOrdinal, materialize));
         }
 
         OperationResult<BaseScheduleMaintenancePage> advanced = await provider.Value.AdvanceSchedulesAsync(new BaseScheduleMaintenanceRequest
@@ -153,9 +155,9 @@ internal sealed class DefaultBaseScheduleRuntime(
 
     private static BaseScheduleOccurrenceProposal Proposal(
         BaseSession session, BaseScheduleDefinition schedule, BaseActivationDefinition target,
-        long epoch, long nominal, bool materialize)
+        long epoch, long nominal, int overlapOrdinal, bool materialize)
     {
-        string occurrenceId = Hex($"base.activation.schedule.occurrence.id.v2\0{schedule.Id}\n{epoch}\n{nominal}\n0");
+        string occurrenceId = Hex($"base.activation.schedule.occurrence.id.v2\0{schedule.Id}\n{schedule.Version}\n{Convert.ToHexString(schedule.Checksum.AsSpan())}\n{epoch}\n{nominal}\n{overlapOrdinal}");
         long splay = schedule.MaximumSplayMilliseconds == 0 ? 0 :
             (long)(System.Buffers.Binary.BinaryPrimitives.ReadUInt64BigEndian(SHA256.HashData(Encoding.UTF8.GetBytes(occurrenceId))) %
             checked((ulong)schedule.MaximumSplayMilliseconds + 1));
@@ -167,7 +169,7 @@ internal sealed class DefaultBaseScheduleRuntime(
         var fact = new BaseScheduleOccurrenceFact
         {
             OccurrenceId = occurrenceId, ScheduleId = schedule.Id, ScheduleEpoch = epoch,
-            NominalAt = nominal, EffectiveAt = effective, OverlapOrdinal = 0,
+            NominalAt = nominal, EffectiveAt = effective, OverlapOrdinal = overlapOrdinal,
             Disposition = disposition, Checksum = ImmutableArray<byte>.Empty,
         };
         fact = fact with { Checksum = OccurrenceChecksum(fact).ToImmutableArray() };

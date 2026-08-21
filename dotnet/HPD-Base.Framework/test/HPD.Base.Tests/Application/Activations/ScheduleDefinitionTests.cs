@@ -28,6 +28,19 @@ public sealed class ScheduleDefinitionTests
     }
 
     [Fact]
+    public void Subday_calendar_frequency_advances_in_its_declared_unit()
+    {
+        var secondly = new BaseCalendarSchedule(BaseCalendarFrequency.Secondly, 15,
+            new BaseLocalTime(0, 0, 0, 0), new BaseEveryCalendarPeriod(), "UTC");
+        BaseScheduleDefinitionBuilder.NextNominal(secondly, 0).Should().Be(15_000);
+        BaseScheduleDefinitionBuilder.NextNominal(secondly, 15_000).Should().Be(30_000);
+
+        var hourly = new BaseCalendarSchedule(BaseCalendarFrequency.Hourly, 2,
+            new BaseLocalTime(1, 0, 0, 0), new BaseEveryCalendarPeriod(), "UTC");
+        BaseScheduleDefinitionBuilder.NextNominal(hourly, 3_600_000).Should().Be(10_800_000);
+    }
+
+    [Fact]
     public void Installed_transition_authority_resolves_gap_and_both_overlap_instants()
     {
         BaseTimeZoneAuthority authority = BaseTimeZoneAuthorityBuilder.Create(new BaseTimeZoneAuthority
@@ -57,6 +70,10 @@ public sealed class ScheduleDefinitionTests
         long later = BaseScheduleDefinitionBuilder.NextNominal(expression, earlier, zones,
             BaseTimeGapPolicy.Skip, BaseTimeOverlapPolicy.Both)!.Value;
         later.Should().Be(checked(earlier + 3_600_000));
+        BaseScheduleDefinitionBuilder.OverlapOrdinal(expression, earlier, zones,
+            BaseTimeGapPolicy.Skip, BaseTimeOverlapPolicy.Both).Should().Be(0);
+        BaseScheduleDefinitionBuilder.OverlapOrdinal(expression, later, zones,
+            BaseTimeGapPolicy.Skip, BaseTimeOverlapPolicy.Both).Should().Be(1);
     }
 
     private static BaseTimeZoneSourceReceipt Source(string name)

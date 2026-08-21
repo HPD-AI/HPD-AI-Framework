@@ -60,6 +60,19 @@ public static class BaseScheduleDefinitionBuilder
         };
     }
 
+    /// <summary>Returns the canonical overlap ordinal for one resolved nominal UTC instant.</summary>
+    public static int OverlapOrdinal(BaseScheduleExpression expression, long nominal, BaseTimeZoneRegistry? timeZones = null,
+        BaseTimeGapPolicy gapPolicy = BaseTimeGapPolicy.Skip, BaseTimeOverlapPolicy overlapPolicy = BaseTimeOverlapPolicy.EarlierOffset)
+    {
+        if (overlapPolicy != BaseTimeOverlapPolicy.Both) return 0;
+        string? zoneId = expression switch { BaseCronSchedule cron => cron.TimeZoneId, BaseCalendarSchedule calendar => calendar.TimeZoneId, _ => null };
+        if (zoneId is null || string.Equals(zoneId, "UTC", StringComparison.Ordinal)) return 0;
+        DateTime local = (timeZones ?? throw new InvalidOperationException("base.activation.timeZoneUnavailable")).LocalAt(zoneId, nominal);
+        ImmutableArray<long> resolved = timeZones.ResolveLocal(zoneId, DateTime.SpecifyKind(local, DateTimeKind.Unspecified), gapPolicy, overlapPolicy);
+        for (int index = 0; index < resolved.Length; index++) if (resolved[index] == nominal) return index;
+        throw new InvalidOperationException("base.activation.scheduleInvalid");
+    }
+
     private static BaseScheduleExpression Normalize(BaseScheduleExpression expression) => expression switch
     {
         BaseOnceSchedule once when once.At >= 0 => once,
@@ -139,6 +152,8 @@ public static class BaseScheduleDefinitionBuilder
         BaseTimeGapPolicy gap, BaseTimeOverlapPolicy overlap)
     {
         DateTime cursor = LocalAt(value.TimeZoneId, Math.Max(0, after), zones);
+        if (value.Frequency is BaseCalendarFrequency.Secondly or BaseCalendarFrequency.Minutely or BaseCalendarFrequency.Hourly)
+            return NextSubdayCalendar(value, after, cursor, zones, gap, overlap);
         DateTimeOffset anchor = DateTimeOffset.UnixEpoch;
         for (DateTime date = cursor.Date; date.Year <= 9999; date = date.AddDays(1))
         {
@@ -150,6 +165,37 @@ public static class BaseScheduleDefinitionBuilder
             if (date == DateTime.MaxValue.Date) break;
         }
         return null;
+    }
+
+    private static long? NextSubdayCalendar(BaseCalendarSchedule value, long after, DateTime cursor,
+        BaseTimeZoneRegistry? zones, BaseTimeGapPolicy gap, BaseTimeOverlapPolicy overlap)
+    {
+        DateTime anchor = new(1970, 1, 1, value.LocalTime.Hour, value.LocalTime.Minute,
+            value.LocalTime.Second, value.LocalTime.Millisecond, DateTimeKind.Unspecified);
+        long unitTicks = value.Frequency switch
+        {
+            BaseCalendarFrequency.Secondly => TimeSpan.TicksPerSecond,
+            BaseCalendarFrequency.Minutely => TimeSpan.TicksPerMinute,
+            BaseCalendarFrequency.Hourly => TimeSpan.TicksPerHour,
+            _ => throw new InvalidOperationException("base.activation.scheduleInvalid"),
+        };
+        long stepTicks = checked(unitTicks * value.Interval);
+        long delta = cursor.Ticks <= anchor.Ticks ? 0 : cursor.Ticks - anchor.Ticks;
+        long ordinal = delta / stepTicks;
+        DateTime local;
+        try { local = anchor.AddTicks(checked(ordinal * stepTicks)); }
+        catch (ArgumentOutOfRangeException) { return null; }
+        for (long inspected = 0; inspected < 100_000_000; inspected++)
+        {
+            if (CalendarSelectorMatches(value.Selector, local))
+            {
+                foreach (long candidate in Resolve(value.TimeZoneId, local, zones, gap, overlap))
+                    if (candidate > after) return candidate;
+            }
+            try { local = local.AddTicks(stepTicks); }
+            catch (ArgumentOutOfRangeException) { return null; }
+        }
+        throw new InvalidOperationException("base.activation.scheduleHorizonExceeded");
     }
 
     private static DateTime LocalAt(string zoneId, long utc, BaseTimeZoneRegistry? zones) =>
@@ -167,7 +213,7 @@ public static class BaseScheduleDefinitionBuilder
     {
         long units = value.Frequency switch
         {
-            BaseCalendarFrequency.Secondly or BaseCalendarFrequency.Minutely or BaseCalendarFrequency.Hourly or BaseCalendarFrequency.Daily => (date - anchor.Date).Days,
+            BaseCalendarFrequency.Daily => (date - anchor.Date).Days,
             BaseCalendarFrequency.Weekly => (date - anchor.Date).Days / 7,
             BaseCalendarFrequency.Monthly => (date.Year - anchor.Year) * 12L + date.Month - anchor.Month,
             BaseCalendarFrequency.Yearly => date.Year - anchor.Year,
