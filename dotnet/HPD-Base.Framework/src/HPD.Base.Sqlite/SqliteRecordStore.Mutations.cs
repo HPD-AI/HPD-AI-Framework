@@ -193,7 +193,8 @@ public sealed partial class SqliteRecordStore
                 connection,
                 transaction,
                 transactionStarted,
-                request.TransactionTimeout);
+                request.TransactionTimeout,
+                request.AtomicRequest?.Identity.Fingerprint.ToArray());
             AtomicMutationProcessingResult processing;
             bool duplicate = false;
             try
@@ -849,6 +850,7 @@ public sealed partial class SqliteRecordStore
         private readonly SemaphoreSlim _operationGate = new(1, 1);
         private readonly long _transactionStarted;
         private readonly TimeSpan _transactionTimeout;
+        private readonly byte[]? _requestFingerprint;
         private int _lifetimeState;
 
         /// <summary>Initializes a new instance.</summary>
@@ -857,13 +859,15 @@ public sealed partial class SqliteRecordStore
             SqliteConnection connection,
             SqliteTransaction transaction,
             long transactionStarted,
-            TimeSpan transactionTimeout)
+            TimeSpan transactionTimeout,
+            byte[]? requestFingerprint)
         {
             _owner = owner;
             _connection = connection;
             _transaction = transaction;
             _transactionStarted = transactionStarted;
             _transactionTimeout = transactionTimeout;
+            _requestFingerprint = requestFingerprint is null ? null : [.. requestFingerprint];
         }
 
         public ValueTask<OperationResult<BaseCapturedAtomicExecution>> CaptureAtomicExecutionAsync(
@@ -1023,7 +1027,8 @@ public sealed partial class SqliteRecordStore
         {
             BaseActivationClaimAuthority claim = guard.Claim;
             (string storeId, long restoreEpoch, _) = await ReadAuthorityAsync(cancellationToken).ConfigureAwait(false);
-            if (guard.ChildOrdinal <= 0 || guard.ChildRequestFingerprint.Length != 32 ||
+            if (guard.ChildOrdinal <= 0 || guard.ChildRequestFingerprint.Length != 32 || _requestFingerprint is null ||
+                !CryptographicOperations.FixedTimeEquals(guard.ChildRequestFingerprint.AsSpan(), _requestFingerprint) ||
                 !string.Equals(storeId, claim.StoreInstanceId, StringComparison.Ordinal) || restoreEpoch != claim.RestoreEpoch)
                 return SubjectFailure<BaseCapturedActivationGuardEvidence>("base.activation.claimLost", OperationStatus.Conflict, ErrorCategory.Conflict);
             await using SqliteCommand command = _connection.CreateCommand();

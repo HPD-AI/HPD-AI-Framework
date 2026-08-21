@@ -270,7 +270,8 @@ public sealed class BaseInstalledActivationWorkerHandle<TInput, TResult>
                 new BaseActivationDefinitionKey { Id = _definition.Id, Version = _definition.Version, Checksum = _definition.Checksum },
                 delivery.Claim,
                 delivery.Lease,
-                token), delivery.Input, token).AsTask(),
+                token,
+                _definition.Limits.MaximumChildrenPerAttempt), delivery.Input, token).AsTask(),
             _definition.Limits.HandlerTimeout,
             cancellationToken).ConfigureAwait(false);
         if (effect is not null && execution.Outcome != BaseActivationHandlerExecutionOutcome.Completed)

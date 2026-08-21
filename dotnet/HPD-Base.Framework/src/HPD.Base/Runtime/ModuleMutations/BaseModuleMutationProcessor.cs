@@ -11,6 +11,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
     TRequest request,
     BaseAtomicMutationIntent intent,
     BaseModuleMutationCaptureExtension extension,
+    BaseActivationGuard? activationGuard,
     BaseAtomicMutationExecutionLimits limits,
     IReadOnlyDictionary<string, CollectionDefinition> collections,
     PrincipalContext principal,
@@ -32,6 +33,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             Kind = BaseAtomicMutationExecutionKind.ModuleMutation,
             Intent = intent,
             Module = extension,
+            ActivationGuard = activationGuard,
             Limits = limits,
         };
         OperationResult<BaseCapturedAtomicExecution> captured = await provider

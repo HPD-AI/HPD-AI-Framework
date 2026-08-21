@@ -395,7 +395,12 @@ public sealed record BaseModuleDecimalContext
 public sealed record BaseModuleResultProjection { public required BaseModuleObjectExpression Value { get; init; } }
 
 /// <summary>Caller-narrowable module-mutation execution options.</summary>
-public sealed record BaseModuleMutationExecutionOptions { public TimeSpan? MaximumWait { get; init; } }
+public sealed record BaseModuleMutationExecutionOptions
+{
+    /// <summary>Gets an optional caller-narrowed commit observation deadline.</summary>
+    public TimeSpan? MaximumWait { get; init; }
+    internal BaseActivationGuard? ActivationGuard { get; init; }
+}
 /// <summary>Public typed execution result.</summary>
 public sealed record BaseModuleMutationExecutionResult<TResult>
 {

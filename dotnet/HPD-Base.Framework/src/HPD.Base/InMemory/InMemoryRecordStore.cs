@@ -842,7 +842,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         using var processingLifetime =
             CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         processingLifetime.CancelAfter(request.TransactionTimeout);
-        var session = new AtomicSession(this, working);
+        var session = new AtomicSession(this, working, request.AtomicRequest?.Identity.Fingerprint.ToArray());
         AtomicMutationProcessingResult processing;
         try
         {
@@ -2536,14 +2536,16 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
 
         private readonly InMemoryRecordStore _owner;
         private readonly InMemoryStoreState _working;
+        private readonly byte[]? _requestFingerprint;
         private readonly SemaphoreSlim _operationGate = new(1, 1);
         private int _lifetimeState;
 
         /// <summary>Initializes a new instance.</summary>
-        public AtomicSession(InMemoryRecordStore owner, InMemoryStoreState working)
+        public AtomicSession(InMemoryRecordStore owner, InMemoryStoreState working, byte[]? requestFingerprint)
         {
             _owner = owner;
             _working = working;
+            _requestFingerprint = requestFingerprint is null ? null : [.. requestFingerprint];
             _uniqueChecks = 0;
         }
 
@@ -2696,7 +2698,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         private OperationResult<BaseCapturedActivationGuardEvidence> CaptureActivationGuard(BaseActivationGuard guard)
         {
             BaseActivationClaimAuthority claim = guard.Claim;
-            if (guard.ChildOrdinal <= 0 || guard.ChildRequestFingerprint.Length != 32 ||
+            if (guard.ChildOrdinal <= 0 || guard.ChildRequestFingerprint.Length != 32 || _requestFingerprint is null ||
+                !CryptographicOperations.FixedTimeEquals(guard.ChildRequestFingerprint.AsSpan(), _requestFingerprint) ||
                 !_working.Activations.TryGetValue(claim.ActivationId, out InMemoryActivationRow? row) ||
                 row.State != BaseActivationState.Claimed || row.Claim is null || row.Lease is null ||
                 row.Lease.LeaseExpiresAt <= _owner._timeProvider.GetUtcNow().ToUnixTimeMilliseconds() ||

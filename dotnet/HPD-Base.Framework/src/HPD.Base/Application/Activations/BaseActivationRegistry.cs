@@ -147,16 +147,21 @@ public interface IBaseActivationHandler<TInput, TResult>
 /// <summary>Exposes only fenced, installed capabilities to one activation handler.</summary>
 public sealed class BaseActivationContext
 {
+    private readonly int _maximumChildren;
+    private readonly HashSet<(string StepId, int Ordinal)> _children = [];
+
     internal BaseActivationContext(
         BaseActivationDefinitionKey definition,
         BaseActivationClaimAuthority claim,
         BaseActivationLeaseObservation lease,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int maximumChildren)
     {
         Definition = definition;
         Claim = claim;
         Lease = lease;
         CancellationToken = cancellationToken;
+        _maximumChildren = maximumChildren;
     }
 
     /// <summary>Gets the exact installed definition.</summary>
@@ -175,6 +180,37 @@ public sealed class BaseActivationContext
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(childOrdinal);
         return BaseMutationRequestIdentity.Create(
             $"activation:{Claim.ActivationId}", stepId, childOrdinal.ToString(System.Globalization.CultureInfo.InvariantCulture), fingerprint);
+    }
+
+    /// <summary>Creates L50 execution options fenced to this exact live claim.</summary>
+    public BaseModuleMutationExecutionOptions GuardModuleMutation(
+        string stepId,
+        int childOrdinal,
+        BaseMutationRequestFingerprint fingerprint,
+        BaseModuleMutationExecutionOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(fingerprint);
+        BaseApplicationId.Validate(stepId, nameof(stepId));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(childOrdinal);
+        lock (_children)
+        {
+            bool added = _children.Add((stepId, childOrdinal));
+            if (added && _children.Count > _maximumChildren)
+            {
+                _children.Remove((stepId, childOrdinal));
+                throw new InvalidOperationException("base.activation.childLimitExceeded");
+            }
+        }
+        return (options ?? new BaseModuleMutationExecutionOptions()) with
+        {
+            ActivationGuard = new BaseActivationGuard
+            {
+                Claim = Claim,
+                StepId = new string(stepId.AsSpan()),
+                ChildOrdinal = childOrdinal,
+                ChildRequestFingerprint = fingerprint.ToArray().ToImmutableArray(),
+            },
+        };
     }
 }
 

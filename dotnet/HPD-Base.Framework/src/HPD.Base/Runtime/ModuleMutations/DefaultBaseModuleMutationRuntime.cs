@@ -90,7 +90,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             Items = [],
         };
         var processor = new BaseModuleMutationProcessor<TRequest, TResult>(
-            definition, generatedIdentity, request, intent, extension, limits, installed,
+            definition, generatedIdentity, request, intent, extension, options?.ActivationGuard, limits, installed,
             session.Principal, moduleOperation, operationPolicy.Value,
             schemaValidator, policy, normalizer, subjects, lifecycleConsumers, retirement);
         var executionRequest = new RecordMutationExecutionRequest
