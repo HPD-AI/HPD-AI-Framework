@@ -239,6 +239,7 @@ public sealed partial class ActivationRuntimeTests
         Fail = "test.activation.fail", Cancel = "test.activation.cancel",
         Inspect = "test.activation.inspect", Replay = "test.activation.replay",
         Migrate = "test.activation.migrate", Reconcile = "test.activation.reconcile",
+        Retry = "test.activation.retry",
         Dispose = "test.activation.dispose", Remove = "test.activation.remove",
         Repair = "test.activation.repair",
     };
@@ -265,7 +266,7 @@ public sealed partial class ActivationRuntimeTests
         yield return grants.Enqueue; yield return grants.Observe; yield return grants.Claim;
         yield return grants.Execute; yield return grants.Renew; yield return grants.Complete;
         yield return grants.Fail; yield return grants.Cancel; yield return grants.Inspect;
-        yield return grants.Replay; yield return grants.Migrate; yield return grants.Reconcile;
+        yield return grants.Replay; yield return grants.Migrate; yield return grants.Reconcile; yield return grants.Retry;
         yield return grants.Dispose; yield return grants.Remove; yield return grants.Repair;
     }
 

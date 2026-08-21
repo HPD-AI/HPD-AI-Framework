@@ -95,6 +95,8 @@ public sealed record BaseActivationGrantSet
     public required string Migrate { get; init; }
     /// <summary>Gets the exact unknown-effect reconciliation grant identity.</summary>
     public required string Reconcile { get; init; }
+    /// <summary>Gets the exact exhausted-activation retry grant identity.</summary>
+    public required string Retry { get; init; }
     /// <summary>Gets the exact terminal-disposal grant identity.</summary>
     public required string Dispose { get; init; }
     /// <summary>Gets the exact definition-removal grant identity.</summary>
@@ -356,7 +358,7 @@ internal static class BaseActivationContract
         Append(hash, value.Grants.Enqueue); Append(hash, value.Grants.Observe); Append(hash, value.Grants.Claim);
         Append(hash, value.Grants.Execute); Append(hash, value.Grants.Renew); Append(hash, value.Grants.Complete);
         Append(hash, value.Grants.Fail); Append(hash, value.Grants.Cancel); Append(hash, value.Grants.Inspect);
-        Append(hash, value.Grants.Replay); Append(hash, value.Grants.Migrate); Append(hash, value.Grants.Reconcile);
+        Append(hash, value.Grants.Replay); Append(hash, value.Grants.Migrate); Append(hash, value.Grants.Reconcile); Append(hash, value.Grants.Retry);
         Append(hash, value.Grants.Dispose); Append(hash, value.Grants.Remove); Append(hash, value.Grants.Repair);
         foreach (string grant in value.SourceGrantIds) Append(hash, grant);
         Append(hash, value.Retry.MaximumAttempts); Append(hash, value.Retry.InitialDelayMilliseconds); Append(hash, value.Retry.MaximumDelayMilliseconds);
@@ -388,6 +390,7 @@ internal static class BaseActivationContract
             Fail = new string(value.Fail.AsSpan()), Cancel = new string(value.Cancel.AsSpan()),
             Inspect = new string(value.Inspect.AsSpan()), Replay = new string(value.Replay.AsSpan()),
             Migrate = new string(value.Migrate.AsSpan()), Reconcile = new string(value.Reconcile.AsSpan()),
+            Retry = new string(value.Retry.AsSpan()),
             Dispose = new string(value.Dispose.AsSpan()), Remove = new string(value.Remove.AsSpan()),
             Repair = new string(value.Repair.AsSpan()),
         };
@@ -402,6 +405,7 @@ internal static class BaseActivationContract
         BaseApplicationId.Validate(value.Fail, nameof(value.Fail)); BaseApplicationId.Validate(value.Cancel, nameof(value.Cancel));
         BaseApplicationId.Validate(value.Inspect, nameof(value.Inspect)); BaseApplicationId.Validate(value.Replay, nameof(value.Replay));
         BaseApplicationId.Validate(value.Migrate, nameof(value.Migrate)); BaseApplicationId.Validate(value.Reconcile, nameof(value.Reconcile));
+        BaseApplicationId.Validate(value.Retry, nameof(value.Retry));
         BaseApplicationId.Validate(value.Dispose, nameof(value.Dispose)); BaseApplicationId.Validate(value.Remove, nameof(value.Remove));
         BaseApplicationId.Validate(value.Repair, nameof(value.Repair));
     }

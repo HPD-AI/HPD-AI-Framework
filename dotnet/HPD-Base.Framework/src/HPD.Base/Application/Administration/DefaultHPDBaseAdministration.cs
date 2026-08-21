@@ -8,6 +8,8 @@ internal sealed class DefaultHPDBaseAdministration(
     IBasePolicyOrchestrator policy,
     BaseSubjectContractRegistry subjects,
     BaseSubjectLifecycleInspectionAuthorityRegistry lifecycleInspectionAuthorities,
+    BaseActivationRegistry activations,
+    BaseActivationAcceptedTimeAuthority activationTime,
     BaseSubjectControlOperationalState subjectControlState,
     HPDBaseInstalledFeatures features,
     TimeProvider timeProvider) : IHPDBaseAdministration
@@ -254,6 +256,119 @@ internal sealed class DefaultHPDBaseAdministration(
             },
         }, OperationStatus.Ok, null, null, null, null);
     }
+
+    public ValueTask<BaseResult<BaseActivationTransitionResult>> CancelActivationAsync(
+        BaseActivationAdministrationCancelRequest request,
+        CancellationToken cancellationToken = default) =>
+        RouteActivationAsync(request, static (definition, accepted, value) => new BaseActivationCancelRequest
+        {
+            ActivationId = value.ActivationId,
+            ExpectedGeneration = value.ExpectedGeneration,
+            Propagation = value.Propagation,
+            Identity = value.Identity,
+            AcceptedTime = accepted,
+            Limits = definition.Limits.Provider,
+        }, static definition => definition.Grants.Cancel, cancellationToken);
+
+    public ValueTask<BaseResult<BaseActivationTransitionResult>> RetryActivationAsync(
+        BaseActivationAdministrationRetryRequest request,
+        CancellationToken cancellationToken = default) =>
+        RouteActivationAsync(request, static (definition, accepted, value) => new BaseActivationOperatorRetryRequest
+        {
+            ActivationId = value.ActivationId,
+            ExpectedGeneration = value.ExpectedGeneration,
+            RetryDueAt = value.DueAt?.ToUnixTimeMilliseconds() ?? accepted.CapturedUtc,
+            Identity = value.Identity,
+            AcceptedTime = accepted,
+            Limits = definition.Limits.Provider,
+        }, static definition => definition.Grants.Retry, cancellationToken);
+
+    public ValueTask<BaseResult<BaseActivationTransitionResult>> ReconcileActivationAsync(
+        BaseActivationAdministrationReconcileRequest request,
+        CancellationToken cancellationToken = default) =>
+        RouteActivationAsync(request, static (definition, accepted, value) => new BaseActivationReconcileEffectRequest
+        {
+            ActivationId = value.ActivationId,
+            ExpectedGeneration = value.ExpectedGeneration,
+            ExpectedEffectStartGeneration = value.ExpectedEffectStartGeneration,
+            ExpectedEffectChecksum = value.ExpectedEffectChecksum,
+            Disposition = value.Disposition,
+            VerificationEvidence = value.VerificationEvidence,
+            VerificationChecksum = value.VerificationChecksum,
+            Identity = value.Identity,
+            AcceptedTime = accepted,
+            Limits = definition.Limits.Provider,
+        }, static definition => definition.Grants.Reconcile, cancellationToken);
+
+    public ValueTask<BaseResult<BaseActivationTransitionResult>> DisposeActivationAsync(
+        BaseActivationAdministrationDisposeRequest request,
+        CancellationToken cancellationToken = default) =>
+        RouteActivationAsync(request, static (definition, accepted, value) => new BaseActivationDisposeRequest
+        {
+            ActivationId = value.ActivationId,
+            ExpectedGeneration = value.ExpectedGeneration,
+            Identity = value.Identity,
+            AcceptedTime = accepted,
+            Limits = definition.Limits.Provider,
+        }, static definition => definition.Grants.Dispose, cancellationToken);
+
+    private async ValueTask<BaseResult<BaseActivationTransitionResult>> RouteActivationAsync<TRequest>(
+        TRequest request,
+        Func<BaseActivationDefinition, BaseAcceptedTimeReceipt, TRequest, BaseActivationTransitionRequest> create,
+        Func<BaseActivationDefinition, string> requiredGrant,
+        CancellationToken cancellationToken)
+        where TRequest : BaseActivationAdministrationRequest
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+        BaseActivationDefinition? definition = activations.Find(request.DefinitionId, request.DefinitionVersion);
+        if (definition is null || stores.GetRegistration(request.StoreId)?.Store is not IBaseActivationProvider provider)
+            return ActivationFailure(OperationStatus.PolicyDenied, "base.activation.unauthorized", ErrorCategory.Authorization);
+        var operation = new OperationContext
+        {
+            ApplicationId = features.LogicalSchema.ApplicationId,
+            Audience = HPDBaseEndpointAudience.ControlPlane,
+            Operation = BaseOperationKind.ActivationTransition,
+            CollectionId = definition.Id,
+            TenantId = request.Principal.CurrentTenantId,
+            Mode = OperationMode.System,
+            Now = timeProvider.GetUtcNow(),
+        };
+        OperationResult<BasePolicyEvaluation> authorized = await policy.EvaluateWriteAsync(new BasePolicyRequest
+        {
+            Principal = request.Principal,
+            Operation = operation,
+            Collection = new CollectionDefinition
+            {
+                Id = definition.Id, Name = definition.Id, Kind = BaseCollectionKinds.Custom,
+                SchemaMode = SchemaMode.Strict, UnknownFields = UnknownFieldPolicy.Reject,
+                System = true, SystemOwnerModuleId = definition.OwningModuleId,
+                Store = new StoreAnnotation { StoreId = request.StoreId },
+            },
+            ResourceKind = PolicyResourceKind.ActivationDefinition,
+        }, cancellationToken).ConfigureAwait(false);
+        if (!BaseSystemCollectionGate.HasExactActivationGrant(
+            authorized, requiredGrant(definition), definition.OwningModuleId, request.Principal, operation))
+            return ActivationFailure(OperationStatus.PolicyDenied, "base.activation.unauthorized", ErrorCategory.Authorization);
+        OperationResult<BaseActivationTransitionResult> result;
+        try
+        {
+            result = await provider.TransitionAsync(
+                create(definition, activationTime.Capture(features.LogicalSchema.ApplicationId), request), cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch { return ActivationFailure(OperationStatus.StoreError, "base.activation.storeError", ErrorCategory.Store); }
+        return BaseResultMapper.Map<BaseActivationTransitionResult, BaseActivationTransitionResult>(result, static value => value);
+    }
+
+    private static BaseFailure<BaseActivationTransitionResult> ActivationFailure(
+        OperationStatus status, string code, ErrorCategory category) => new(status, new BaseError
+        {
+            Code = code,
+            Message = "The activation administration request could not be completed.",
+            Category = category,
+        }, null, null);
 
     private async ValueTask<BaseResult<T>> RouteSubjectAsync<T>(
         string storeId,

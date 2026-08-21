@@ -54,6 +54,26 @@ public interface IHPDBaseAdministration
         PrincipalContext principal,
         BaseSubjectLifecycleInspectionRequest request,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Cancels one exact activation generation under current ControlPlane authority.</summary>
+    ValueTask<BaseResult<BaseActivationTransitionResult>> CancelActivationAsync(
+        BaseActivationAdministrationCancelRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Retries one exact exhausted activation under current ControlPlane authority.</summary>
+    ValueTask<BaseResult<BaseActivationTransitionResult>> RetryActivationAsync(
+        BaseActivationAdministrationRetryRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Reconciles one ambiguous external effect under current ControlPlane authority.</summary>
+    ValueTask<BaseResult<BaseActivationTransitionResult>> ReconcileActivationAsync(
+        BaseActivationAdministrationReconcileRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Disposes one exact retained terminal activation under current ControlPlane authority.</summary>
+    ValueTask<BaseResult<BaseActivationTransitionResult>> DisposeActivationAsync(
+        BaseActivationAdministrationDisposeRequest request,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>Requests sanitized lifecycle authority inspection after exact ControlPlane authorization.</summary>
