@@ -8,16 +8,24 @@ using Microsoft.Extensions.Logging;
 namespace HPD.Base;
 
 /// <summary>Runs the public lexical certification protocol against the real built-in InMemory provider.</summary>
-public sealed class BaseInMemoryTextCertificationFixture : IBaseTextCertificationFixture
+public class BaseTextCertificationFixture : IBaseTextCertificationFixture
 {
+    private readonly Action<HPDBaseBuilder>? _configureProvider;
+    private readonly string _storeId;
+    /// <summary>Creates a fixture over one provider selected by the supplied BASE builder configuration.</summary>
+    public BaseTextCertificationFixture(string providerId, int providerVersion, BaseTextProviderClass providerClass, Action<HPDBaseBuilder>? configureProvider = null, string? storeId = null)
+    {
+        if (string.IsNullOrWhiteSpace(providerId) || providerVersion <= 0 || !Enum.IsDefined(providerClass)) throw new ArgumentException("The text provider identity is invalid.");
+        ProviderId = providerId; ProviderVersion = providerVersion; ProviderClass = providerClass; _configureProvider = configureProvider; _storeId = storeId ?? providerId.Split('.')[0];
+    }
     /// <inheritdoc />
     public string ProtocolVersion => BaseTextProviderCertification.ProtocolVersion;
     /// <inheritdoc />
-    public BaseTextProviderClass ProviderClass => BaseTextProviderClass.CoLocatedTransactional;
+    public BaseTextProviderClass ProviderClass { get; }
     /// <inheritdoc />
-    public string ProviderId => "inmemory.text";
+    public string ProviderId { get; }
     /// <inheritdoc />
-    public int ProviderVersion => 1;
+    public int ProviderVersion { get; }
     /// <inheritdoc />
     public async ValueTask<IBaseTextCertificationHost> CreateAsync(BaseTextCertificationHostRequest request, CancellationToken cancellationToken)
     {
@@ -25,6 +33,8 @@ public sealed class BaseInMemoryTextCertificationFixture : IBaseTextCertificatio
         var services = new ServiceCollection().AddLogging(static builder => builder.SetMinimumLevel(LogLevel.None));
         services.AddHPDBase(builder =>
         {
+            builder.ConfigureSchema(options => options.PlanProtectionKey = request.TokenKeys[0].Key.ToArray());
+            _configureProvider?.Invoke(builder);
             builder.ConfigureTokenProtection(options => options.ActiveKey = request.TokenKeys[0]);
             builder.AddPolicyAuthority<BaseTextCertificationAllowPolicy>(new() { Id = "base.testing.text.policy.v1", Version = 1, OwningModuleId = "hpd.base.testing", EvaluatorContractId = "base.testing.text.policy", EvaluatorContractVersion = 1, CompositionOrder = 0 });
             builder.AddStaticGrantAuthority(new() { Id = BaseTextGrants.Query, Version = 1, OwningModuleId = "hpd.base.testing", SourceContractId = "base.testing.text.grants", SourceContractVersion = 1 }, new()
@@ -36,16 +46,30 @@ public sealed class BaseInMemoryTextCertificationFixture : IBaseTextCertificatio
             builder.AddCollection(BaseTextCertificationSchemaRecord.Collection);
         });
         ServiceProvider provider = services.BuildServiceProvider();
+        if (!string.Equals(ProviderId, "inmemory.text", StringComparison.Ordinal))
+        {
+            IBaseSchemaManager schemas = provider.GetRequiredService<IBaseSchemaManager>();
+            OperationResult<BaseSchemaPlan> planned = await schemas.PlanAsync(new BaseSchemaPlanRequest { StoreId = _storeId }, cancellationToken).ConfigureAwait(false);
+            if (!planned.IsSuccess() || planned.Value is null) throw new InvalidOperationException(planned.Error?.Code ?? "base.testing.text.schemaFailed");
+            OperationResult<BaseSchemaApplyResult> applied = await schemas.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = planned.Value.ProtectedArtifact }, cancellationToken).ConfigureAwait(false);
+            if (!applied.IsSuccess()) throw new InvalidOperationException(applied.Error?.Code ?? "base.testing.text.schemaFailed");
+        }
         OperationResult<BaseApplicationReadiness> readiness = await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync(cancellationToken).ConfigureAwait(false);
         if (!readiness.IsSuccess()) { await provider.DisposeAsync().ConfigureAwait(false); throw new InvalidOperationException(readiness.Error?.Code ?? BaseTextErrorCodes.IndexUnavailable); }
+        BaseTextProviderDescriptor installed = provider.GetRequiredService<IBaseTextProvider>().Descriptor;
+        if (!string.Equals(installed.Id, ProviderId, StringComparison.Ordinal) || installed.Version != ProviderVersion || installed.ProviderClass != ProviderClass)
+        { await provider.DisposeAsync().ConfigureAwait(false); throw new InvalidOperationException("base.testing.text.providerIdentityMismatch"); }
         return new BaseInMemoryTextCertificationHost(provider, request);
     }
 }
 
+/// <summary>Runs the public lexical certification protocol against the real built-in InMemory provider.</summary>
+public sealed class BaseInMemoryTextCertificationFixture() : BaseTextCertificationFixture("inmemory.text", 1, BaseTextProviderClass.CoLocatedTransactional);
+
 internal sealed class BaseInMemoryTextCertificationHost(ServiceProvider services, BaseTextCertificationHostRequest request) : IBaseTextCertificationHost, IBaseTextCertificationAuthorityControl, IBaseTextCertificationProviderControl
 {
     private readonly object _gate = new();
-    private readonly List<BaseTextCertificationObservation> _observations = [Observation(1, BaseTextCertificationOperationKind.HostCreated, State(services), OperationStatus.Ok)];
+    private readonly List<BaseTextCertificationObservation> _observations = [Observation(1, BaseTextCertificationOperationKind.HostCreated, State(services), OperationStatus.Ok, request.ProviderClass)];
     private long _sequence = 1;
     private readonly BaseSession _session = services.GetRequiredService<IBaseSessionFactory>().For(new() { AuthenticationState = PrincipalAuthenticationState.Admin, SubjectKind = AccessSubjectKind.ServicePrincipal, SubjectId = "base-text-certification" });
     public IBaseTextCertificationAuthorityControl Authority => this;
@@ -128,8 +152,8 @@ internal sealed class BaseInMemoryTextCertificationHost(ServiceProvider services
     public async ValueTask DisposeAsync() => await services.DisposeAsync().ConfigureAwait(false);
 
     private BaseCollectionSession<BaseTextCertificationSchemaRecord> Collection => _session.Collection(BaseTextCertificationSchemaRecord.Collection);
-    private long AddObservation(BaseTextCertificationOperationKind operation, BaseTextCertificationProviderState state, OperationStatus status) { lock (_gate) { long sequence = checked(++_sequence); _observations.Add(Observation(sequence, operation, state, status)); return sequence; } }
-    private static BaseTextCertificationObservation Observation(long sequence, BaseTextCertificationOperationKind operation, BaseTextCertificationProviderState state, OperationStatus status) => new() { Sequence = sequence, Operation = operation, ProviderClass = BaseTextProviderClass.CoLocatedTransactional, SnapshotDigest = ImmutableArray.Create(SHA256.HashData(Encoding.UTF8.GetBytes($"{state.Generation}:{state.AppliedThrough.Value}:{state.VisibleThrough.Value}"))), Status = status, State = state, Accounting = EmptyAccounting() };
+    private long AddObservation(BaseTextCertificationOperationKind operation, BaseTextCertificationProviderState state, OperationStatus status) { lock (_gate) { long sequence = checked(++_sequence); _observations.Add(Observation(sequence, operation, state, status, request.ProviderClass)); return sequence; } }
+    private static BaseTextCertificationObservation Observation(long sequence, BaseTextCertificationOperationKind operation, BaseTextCertificationProviderState state, OperationStatus status, BaseTextProviderClass providerClass) => new() { Sequence = sequence, Operation = operation, ProviderClass = providerClass, SnapshotDigest = ImmutableArray.Create(SHA256.HashData(Encoding.UTF8.GetBytes($"{state.Generation}:{state.AppliedThrough.Value}:{state.VisibleThrough.Value}"))), Status = status, State = state, Accounting = EmptyAccounting() };
     private static BaseTextCertificationProviderState State(IServiceProvider services, BaseTextIndexStatus? value = null) { value ??= services.GetService<IBaseTextAdministration>()?.GetAsync(BaseTextCertificationSchemaRecord.Collection.Id, BaseTextCertificationSchemaRecord.TextIndexes.Content.Definition.Id).AsTask().GetAwaiter().GetResult().Value; return value is null ? new() { Generation = 1, AppliedThrough = new(0), VisibleThrough = new(0), State = BaseTextIndexState.Ready, CarrierCount = 0, QuarantineCount = 0 } : new() { Generation = value.Generation, AppliedThrough = value.AppliedThrough, VisibleThrough = value.SearchVisibleThrough, State = value.State, CarrierCount = value.CarrierCount, QuarantineCount = 0 }; }
     private static BaseTextProviderAccounting EmptyAccounting() => new() { InputBytes = 0, QueryBytes = 0, ConstraintBytes = 0, StatementParameters = 0, AuthorizedRecordsExamined = 0, PostingsExamined = 0, PrefixExpansionCount = 0, PrefixExpansionBytes = 0, ScoreProofBytes = 0, CandidateCount = 0, OrderingBytes = 0, ExactHydrationBytes = 0, ResultBytes = 0, CursorBytes = 0, RetainedTransientBytes = 0, Elapsed = TimeSpan.Zero };
     private static BaseTextCertificationSchemaRecord FromContract(BaseTextCertificationRecord value) => new() { Tenant = value.Tenant, Active = value.Active, Priority = value.Priority, Optional = value.Optional, Title = value.Title, Body = value.Body };

@@ -364,6 +364,7 @@ internal sealed class DefaultBaseProviderBootstrap(
         object store = registration.Store;
         IBaseVectorProvider[] vectorProviders = services.GetServices<IBaseVectorProvider>().ToArray();
         IBaseVectorAuthority[] vectorAuthorities = services.GetServices<IBaseVectorAuthority>().ToArray();
+        IBaseTextProvider[] textProviders = services.GetServices<IBaseTextProvider>().ToArray();
         foreach (string role in features.StoreReceipt.RequiredRoles)
         {
             bool valid = role switch
@@ -377,6 +378,8 @@ internal sealed class DefaultBaseProviderBootstrap(
                 "administration" => store is IRecordStoreAdministration,
                 "vector.provider" => vectorProviders.Length == 1,
                 "vector.authority" => vectorAuthorities.Length == 1 && vectorProviders.Length == 1 && ReferenceEquals(vectorAuthorities[0], vectorProviders[0]),
+                "text.provider" => textProviders.Length == 1,
+                "text.authority" => textProviders.Length == 1 && ReferenceEquals(textProviders[0].Authority, textProviders[0]),
                 _ => false,
             };
             if (!valid)

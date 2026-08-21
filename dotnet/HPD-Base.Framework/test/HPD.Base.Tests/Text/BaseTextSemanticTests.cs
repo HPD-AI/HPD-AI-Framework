@@ -27,6 +27,35 @@ public sealed class BaseTextSemanticTests
     }
 
     [Fact]
+    public async Task Sqlite_provider_passes_the_same_public_text_certification_corpus()
+    {
+        string path = Path.Combine(Path.GetTempPath(), "hpd-base-text-cert-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            var fixture = new BaseTextCertificationFixture("sqlite.fts5", 1, BaseTextProviderClass.CoLocatedTransactional,
+                builder => builder.UseStore(SqliteStore.Configure(options => { options.DataSource = path; options.StoreId = "sqlite"; options.AdministrationEnabled = true; })), "sqlite");
+            BaseTextCertificationReport report = await BaseTextProviderCertification.RunAsync(fixture, new()
+            {
+                ProtocolVersion = BaseTextProviderCertification.ProtocolVersion,
+                ProviderClass = BaseTextProviderClass.CoLocatedTransactional,
+                Plan = BaseTextCertificationPlan.Local,
+                Limits = BaseTextPlatform.DefaultLimits,
+                TimeProvider = TimeProvider.System,
+                TokenKeys = [new BaseOpaqueTokenKey { Id = 1, Key = Enumerable.Repeat((byte)0x5a, 32).ToArray(), IssueNotBefore = DateTimeOffset.UnixEpoch }],
+                Faults = [],
+            });
+            Assert.True(report.Passed, string.Join(Environment.NewLine, report.Cases.Where(static value => !value.Passed).Select(static value => value.Id + ":" + value.ErrorCode)));
+            Assert.Equal("5d7ae5c0f421bde25eaba0b623e53163d44dffcfad8257ba67d4cef67f3d0726", Convert.ToHexStringLower(report.ReportChecksum.AsSpan()));
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+            if (File.Exists(path + "-wal")) File.Delete(path + "-wal");
+            if (File.Exists(path + "-shm")) File.Delete(path + "-shm");
+        }
+    }
+
+    [Fact]
     public void Analyzer_applies_compatibility_normalization_and_full_case_folding()
     {
         ImmutableArray<string> tokens = BaseTextAnalyzer.Analyze("Straße ＡＢＣ");
