@@ -8,7 +8,7 @@ namespace HPD.Base;
 public static class BaseTextProviderCertification
 {
     /// <summary>Gets the exact certification protocol version.</summary>
-    public const string ProtocolVersion = "hpd.base.text.certification.v1";
+    public const string ProtocolVersion = BaseTextCertificationReceiptContract.ProtocolVersion;
 
     /// <summary>Runs bounded protocol and adapter validation against one isolated host.</summary>
     public static async ValueTask<BaseTextCertificationReport> RunAsync(IBaseTextCertificationFixture fixture, BaseTextCertificationHostRequest request, CancellationToken cancellationToken = default)
@@ -120,12 +120,14 @@ public static class BaseTextProviderCertification
     private static bool IsNonCooperative(BaseTextCertificationFault value) => value is BaseTextCertificationFault.QueryNonCooperative or BaseTextCertificationFault.ProjectionWriteNonCooperative or BaseTextCertificationFault.InspectionNonCooperative or BaseTextCertificationFault.RebuildNonCooperative;
     private static BaseTextCertificationCaseResult Success(string id) => new() { Id = id, Passed = true, Status = OperationStatus.Ok };
     private static BaseTextCertificationCaseResult Failure(string id, OperationStatus status, string code) => new() { Id = id, Passed = false, Status = status, ErrorCode = code };
-    private static ImmutableArray<byte> ContractChecksum() => ImmutableArray.Create(SHA256.HashData(Encoding.ASCII.GetBytes("HPDB-TEXT-CERTIFICATION-CONTRACT-1\0" + ProtocolVersion)));
+    private static ImmutableArray<byte> ContractChecksum() => BaseTextCertificationReceiptContract.ContractChecksum;
     private static BaseTextCertificationReport Report(IBaseTextCertificationFixture fixture, ImmutableArray<byte> contract, ImmutableArray<BaseTextCertificationCaseResult> cases)
     {
-        using var stream = new MemoryStream(); stream.Write(Encoding.ASCII.GetBytes("HPDB-TEXT-CERTIFICATION-REPORT-1\0")); stream.Write(contract.AsSpan()); Write(stream, ProtocolVersion); Write(stream, fixture.ProviderId); WriteInt(stream, fixture.ProviderVersion); stream.WriteByte((byte)fixture.ProviderClass);
+        ImmutableArray<byte> capability = BaseTextCertificationReceiptContract.CapabilityChecksum(fixture.Capability); ImmutableArray<string> dependencies = fixture.NativeDependencyReceipts;
+        using var stream = new MemoryStream(); stream.Write(Encoding.ASCII.GetBytes("HPDB-TEXT-CERTIFICATION-REPORT-1\0")); stream.Write(contract.AsSpan()); Write(stream, ProtocolVersion); Write(stream, fixture.ProviderId); WriteInt(stream, fixture.ProviderVersion); stream.WriteByte((byte)fixture.ProviderClass); stream.Write(capability.AsSpan()); WriteInt(stream, dependencies.Length); foreach (string dependency in dependencies) Write(stream, dependency);
         WriteInt(stream, cases.Length); foreach (BaseTextCertificationCaseResult item in cases) { Write(stream, item.Id); stream.WriteByte(item.Passed ? (byte)1 : (byte)0); WriteInt(stream, (int)item.Status); Write(stream, item.ErrorCode ?? string.Empty); }
-        return new() { ProtocolVersion = ProtocolVersion, ProviderId = fixture.ProviderId, ProviderVersion = fixture.ProviderVersion, ProviderClass = fixture.ProviderClass, Passed = cases.Length != 0 && cases.All(static value => value.Passed), Cases = cases, ContractChecksum = contract, ReportChecksum = ImmutableArray.Create(SHA256.HashData(stream.ToArray())) };
+        ImmutableArray<byte> report = ImmutableArray.Create(SHA256.HashData(stream.ToArray()));
+        return new() { ProtocolVersion = ProtocolVersion, ProviderId = fixture.ProviderId, ProviderVersion = fixture.ProviderVersion, ProviderClass = fixture.ProviderClass, Passed = cases.Length != 0 && cases.All(static value => value.Passed), Cases = cases, CapabilityChecksum = capability, NativeDependencyReceipts = dependencies, ContractChecksum = contract, ReportChecksum = report, CertificationReceipt = BaseTextCertificationReceiptContract.Create(fixture.ProviderId, fixture.ProviderVersion, fixture.ProviderClass, fixture.Capability, dependencies, report) };
         static void Write(Stream target, string value) { byte[] bytes = Encoding.UTF8.GetBytes(value); WriteInt(target, bytes.Length); target.Write(bytes); }
         static void WriteInt(Stream target, int value) { Span<byte> bytes = stackalloc byte[4]; System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(bytes, value); target.Write(bytes); }
     }

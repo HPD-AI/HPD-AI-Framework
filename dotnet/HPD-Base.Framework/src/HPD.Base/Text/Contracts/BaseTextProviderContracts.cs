@@ -71,6 +71,8 @@ public sealed record BaseTextProviderDescriptor
     public required BaseTextProviderClass ProviderClass { get; init; }
     public required BaseTextProviderCapability Capability { get; init; }
     public required ImmutableArray<string> NativeDependencyReceipts { get; init; }
+    public required ImmutableArray<byte> CertificationContractChecksum { get; init; }
+    public required ImmutableArray<byte> CertificationReportChecksum { get; init; }
     public required ImmutableArray<byte> CertificationReceipt { get; init; }
 }
 
@@ -233,6 +235,7 @@ public sealed record BaseTextCompletenessEvidence
     public required ImmutableArray<byte> LoweringReceiptDigest { get; init; }
     public required ImmutableArray<byte> CertificationReceiptDigest { get; init; }
     public required int RequestedTakePlusOne { get; init; }
+    public ImmutableArray<byte>? RequestedAfterBoundary { get; init; }
     public required int ReturnedCandidateCount { get; init; }
     public required bool HasMore { get; init; }
     public ImmutableArray<byte>? FirstBoundary { get; init; }
@@ -254,9 +257,6 @@ public sealed record BaseTextProviderAccounting
     public required long ScoreProofBytes { get; init; }
     public required long CandidateCount { get; init; }
     public required long OrderingBytes { get; init; }
-    public required long ExactHydrationBytes { get; init; }
-    public required long ResultBytes { get; init; }
-    public required long CursorBytes { get; init; }
     public required long RetainedTransientBytes { get; init; }
     public required TimeSpan Elapsed { get; init; }
 }

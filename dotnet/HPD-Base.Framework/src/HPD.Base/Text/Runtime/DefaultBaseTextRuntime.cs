@@ -105,10 +105,12 @@ internal sealed class DefaultBaseTextRuntime(
         if (!hydrated.Status.IsSuccess()) return Copy(hydrated);
         if (hydrated.Value is null || hydrated.Value.Length != candidates.Length) return Fail(OperationStatus.Conflict, BaseTextErrorCodes.SnapshotChanged, ErrorCategory.Conflict);
         var matches = ImmutableArray.CreateBuilder<BaseTextRuntimeMatch>(Math.Min(request.Take, candidates.Length));
-        long resultBytes = 0;
+        long resultBytes = checked("HPDB-TEXT-RESULT-1\0"u8.Length + sizeof(uint)), hydrationBytes = 0;
         for (int index = 0; index < candidates.Length; index++)
         {
             RecordEnvelope record = hydrated.Value[index]; BaseTextCandidate candidate = candidates[index];
+            try { hydrationBytes = checked(hydrationBytes + JsonSerializer.SerializeToUtf8Bytes(record, HPDBaseJsonSerializerContext.Default.RecordEnvelope).LongLength); }
+            catch (OverflowException) { return Fail(OperationStatus.ValidationFailed, BaseTextErrorCodes.BudgetExceeded, ErrorCategory.Validation); }
             if (record.Id != candidate.RecordId || record.Metadata.Revision != candidate.Revision || !BaseRecordFilterMatcher.Matches(record, influence.Value.EffectiveRecordFilter) || !BaseTextSemanticEvaluator.ConstraintMatches(record.Payload, request.Index, callerConstraint)) return Fail(OperationStatus.StoreError, BaseTextErrorCodes.ProviderContractInvalid, ErrorCategory.Store);
             BaseTextEvaluatedCandidate? verified = BaseTextSemanticEvaluator.Evaluate(record.Payload, request.Index, request.Query, queryDigest, fieldInfluences);
             ImmutableArray<BaseTextOrderingValue> expectedOrdering = BaseTextOrderingContract.Values(record.Payload, request.Index, order);
@@ -119,13 +121,23 @@ internal sealed class DefaultBaseTextRuntime(
             if (index < request.Take)
             {
                 RecordEnvelope projected = redactor.RedactRecord(record, request.Collection, disclosure.Value, VisibilityLevel.Authenticated);
-                resultBytes = checked(resultBytes + JsonSerializer.SerializeToUtf8Bytes(projected.Payload, HPDBaseJsonSerializerContext.Default.RecordPayload).LongLength + candidate.CanonicalOrderingBoundary.Length + sizeof(ulong));
+                long recordBytes = JsonSerializer.SerializeToUtf8Bytes(projected, HPDBaseJsonSerializerContext.Default.RecordEnvelope).LongLength;
+                long revisionBytes = Encoding.UTF8.GetByteCount(candidate.Revision.Value);
+                resultBytes = checked(resultBytes + sizeof(uint) + recordBytes + sizeof(uint) + revisionBytes + sizeof(ulong));
                 if (resultBytes > request.Index.Limits.MaximumResultBytes) return Fail(OperationStatus.ValidationFailed, BaseTextErrorCodes.BudgetExceeded, ErrorCategory.Validation);
                 matches.Add(new BaseTextRuntimeMatch { Record = projected, Score = candidate.Score, Revision = candidate.Revision });
             }
         }
         BaseTextCursor? next = candidates.Length > request.Take ? cursors.Issue(session.Snapshot, queryDigest.AsSpan(), constraintDigest.AsSpan(), cursorAuthorityDigest.AsSpan(), candidates[request.Take - 1].CanonicalOrderingBoundary.AsSpan()) : null;
-        return OperationResults.Ok(new BaseTextRuntimeResult { Matches = matches.ToImmutable(), Next = next, Consistency = consistencyTokens.Issue(session.Snapshot) });
+        BaseTextConsistencyToken consistency = consistencyTokens.Issue(session.Snapshot);
+        long cursorBytes = next is null ? 0 : Encoding.ASCII.GetByteCount(next.Value.Encode());
+        if (cursorBytes > request.Index.Limits.MaximumCursorBytes) return Fail(OperationStatus.ValidationFailed, BaseTextErrorCodes.BudgetExceeded, ErrorCategory.Validation);
+        try { resultBytes = checked(resultBytes + sizeof(uint) + Encoding.ASCII.GetByteCount(consistency.Encode())); }
+        catch (OverflowException) { return Fail(OperationStatus.ValidationFailed, BaseTextErrorCodes.BudgetExceeded, ErrorCategory.Validation); }
+        if (resultBytes > request.Index.Limits.MaximumResultBytes) return Fail(OperationStatus.ValidationFailed, BaseTextErrorCodes.BudgetExceeded, ErrorCategory.Validation);
+        try { if (checked(searched.Value.Accounting.RetainedTransientBytes + hydrationBytes + resultBytes + cursorBytes) > request.Index.Limits.MaximumTransientBytes) return Fail(OperationStatus.ValidationFailed, BaseTextErrorCodes.BudgetExceeded, ErrorCategory.Validation); }
+        catch (OverflowException) { return Fail(OperationStatus.ValidationFailed, BaseTextErrorCodes.BudgetExceeded, ErrorCategory.Validation); }
+        return OperationResults.Ok(new BaseTextRuntimeResult { Matches = matches.ToImmutable(), Next = next, Consistency = consistency });
     }
 
     private static IEnumerable<string> QueryFields(BaseTextQuery query) => query switch { BaseTextQuery.Field value => [value.StableFieldId, .. QueryFields(value.Child)], BaseTextQuery.And value => value.Children.SelectMany(QueryFields), BaseTextQuery.Or value => value.Children.SelectMany(QueryFields), BaseTextQuery.Not value => QueryFields(value.Child), _ => [] };
@@ -140,7 +152,7 @@ internal sealed class DefaultBaseTextRuntime(
         foreach (BaseTextOrder item in order) { Write(stream, item.StableFieldId); stream.WriteByte((byte)item.Direction); stream.WriteByte((byte)item.NullOrder); }
         return ImmutableArray.Create(SHA256.HashData(stream.ToArray()));
     }
-    private static bool ValidProviderDescriptor(BaseTextProviderDescriptor value) => !string.IsNullOrWhiteSpace(value.Id) && value.Version > 0 && Enum.IsDefined(value.ProviderClass) && value.Capability.ProviderClass == value.ProviderClass && value.CertificationReceipt.Length == 32 && !value.NativeDependencyReceipts.IsDefault && value.NativeDependencyReceipts.All(static receipt => !string.IsNullOrWhiteSpace(receipt)) && value.NativeDependencyReceipts.SequenceEqual(value.NativeDependencyReceipts.Order(StringComparer.Ordinal), StringComparer.Ordinal) && value.NativeDependencyReceipts.Distinct(StringComparer.Ordinal).Count() == value.NativeDependencyReceipts.Length;
+    private static bool ValidProviderDescriptor(BaseTextProviderDescriptor value) => !string.IsNullOrWhiteSpace(value.Id) && value.Version > 0 && Enum.IsDefined(value.ProviderClass) && value.Capability.ProviderClass == value.ProviderClass && value.CertificationReportChecksum.Length == 32 && BaseTextCertificationReceiptContract.Validate(value) && !value.NativeDependencyReceipts.IsDefault && value.NativeDependencyReceipts.All(static receipt => !string.IsNullOrWhiteSpace(receipt)) && value.NativeDependencyReceipts.SequenceEqual(value.NativeDependencyReceipts.Order(StringComparer.Ordinal), StringComparer.Ordinal) && value.NativeDependencyReceipts.Distinct(StringComparer.Ordinal).Count() == value.NativeDependencyReceipts.Length;
     private static IEnumerable<string> InfluenceFields(BaseTextQuery query, BaseTextIndexDefinition index) => query switch
     {
         BaseTextQuery.Field value => [value.StableFieldId],
@@ -151,14 +163,14 @@ internal sealed class DefaultBaseTextRuntime(
     };
     private static bool ValidProviderResult(BaseTextProviderResult result, BaseTextProviderDescriptor provider, BaseTextLoweringReceipt lowering, BaseTextQuery query, BaseTextCandidateConstraint constraint, ImmutableArray<BaseTextOrder> order, BaseTextAuthoritySnapshot snapshot, int takePlusOne, ImmutableArray<byte>? after, BaseTextExecutionLimits limits)
     {
-        BaseTextCompletenessEvidence expectedCompleteness = BaseTextProviderEvidence.CreateCompleteness(provider, snapshot, lowering, result.Candidates, takePlusOne);
+        BaseTextCompletenessEvidence expectedCompleteness = BaseTextProviderEvidence.CreateCompleteness(provider, snapshot, lowering, result.Candidates, takePlusOne, after);
         long queryBytes = BaseTextQueryContract.Encode(query).Length;
         long constraintBytes = BaseTextSemanticEvaluator.ConstraintEncoding(constraint).Length;
         long parameters = BaseTextProviderEvidence.StatementParameterCount(query, constraint);
         if (result.Snapshot != snapshot || !snapshot.AnalyzerReceipt.AsSpan().SequenceEqual(BaseTextContractReceipts.AnalyzerReceipt.AsSpan()) || !snapshot.ScoringReceipt.AsSpan().SequenceEqual(BaseTextContractReceipts.ScoringReceipt.AsSpan())
             || result.Candidates.Length > takePlusOne || !BaseTextProviderEvidence.CompletenessEquals(result.Completeness, expectedCompleteness)
             || result.Accounting.InputBytes != checked(queryBytes + constraintBytes) || result.Accounting.QueryBytes != queryBytes || result.Accounting.ConstraintBytes != constraintBytes || result.Accounting.StatementParameters != parameters || parameters > limits.MaximumStatementParameters
-            || result.Accounting.ExactHydrationBytes != 0 || result.Accounting.ResultBytes != 0 || result.Accounting.CursorBytes != 0 || result.Accounting.CandidateCount != result.Candidates.Length
+            || result.Accounting.CandidateCount != result.Candidates.Length
             || result.Accounting.AuthorizedRecordsExamined < result.Candidates.Length || result.Accounting.PostingsExamined < 0 || result.Accounting.PrefixExpansionCount < 0 || result.Accounting.PrefixExpansionCount > limits.MaximumPrefixExpansions || result.Accounting.PrefixExpansionBytes < 0 || result.Accounting.PrefixExpansionBytes > limits.MaximumPrefixExpansionBytes || result.Accounting.ScoreProofBytes < 0 || result.Accounting.ScoreProofBytes > limits.MaximumScoreProofBytes || result.Accounting.OrderingBytes < 0 || result.Accounting.OrderingBytes > limits.MaximumOrderingBytes || result.Accounting.RetainedTransientBytes < checked(result.Accounting.InputBytes + result.Accounting.ScoreProofBytes + result.Accounting.OrderingBytes + result.Accounting.PrefixExpansionBytes) || result.Accounting.RetainedTransientBytes > limits.MaximumTransientBytes || result.Candidates.Length > limits.MaximumCandidates || result.Accounting.Elapsed < TimeSpan.Zero || result.Accounting.Elapsed > limits.QueryTimeout) return false;
         var ids = new HashSet<RecordId>(); BaseTextCandidate? prior = null;
         long exactProofBytes = 0, exactOrderingBytes = 0, exactPrefixCount = 0, exactPrefixBytes = 0;
@@ -167,7 +179,7 @@ internal sealed class DefaultBaseTextRuntime(
             ImmutableArray<byte> expected = BaseTextOrderingContract.Boundary(candidate.Score, candidate.SecondaryOrdering, candidate.RecordId);
             if (string.IsNullOrWhiteSpace(candidate.RecordId.Value) || string.IsNullOrWhiteSpace(candidate.Revision.Value) || !ids.Add(candidate.RecordId)
                 || candidate.IndexedPosition.Value < 0 || candidate.IndexedPosition.Value > snapshot.SearchVisibleThrough.Value
-                || !BaseTextOrderingContract.ValuesValid(candidate, order) || !expected.AsSpan().SequenceEqual(candidate.CanonicalOrderingBoundary.AsSpan()) || after is { } suppliedAfter && suppliedAfter.AsSpan().SequenceEqual(expected.AsSpan()) || prior is not null && BaseTextOrderingContract.Compare(prior, candidate, order) >= 0
+                || !BaseTextOrderingContract.ValuesValid(candidate, order) || !expected.AsSpan().SequenceEqual(candidate.CanonicalOrderingBoundary.AsSpan()) || after is { } suppliedAfter && !BaseTextOrderingContract.IsStrictlyAfter(candidate, suppliedAfter, order) || prior is not null && BaseTextOrderingContract.Compare(prior, candidate, order) >= 0
                 || candidate.ScoreProof.ProofDigest.Length != 32) return false;
             try
             {

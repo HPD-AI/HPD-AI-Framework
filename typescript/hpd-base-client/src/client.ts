@@ -43,7 +43,7 @@ interface BaseCollectionClientSurface<T extends BaseCollectionDefinition> {
   readonly vectorIndexes: T["vectorIndexes"];
   readonly textIndexes: T["textIndexes"];
   vector(index: import("./schema.js").BaseVectorIndexDefinition): BaseVectorIndexQuery<CollectionRecordOf<T>>;
-  text(index: import("./schema.js").BaseTextIndexDefinition): BaseTextIndexQuery<CollectionRecordOf<T>>;
+  text<const TIndex extends import("./schema.js").BaseTextIndexDefinition>(index: TIndex): BaseTextIndexQuery<CollectionRecordOf<T>, TIndex>;
 }
 
 interface BaseCollectionMutationSurface<T extends BaseCollectionDefinition> {
@@ -211,9 +211,9 @@ class BaseClientRuntime implements BaseQueryExecutor<unknown> {
     this.ensureOpen();
     return new BaseVectorIndexQuery<T>(this.#transport, collectionId, index, value => this.fromWireRecord(collectionId, value) as T);
   }
-  public textQuery<T>(collectionId: string, index: import("./schema.js").BaseTextIndexDefinition): BaseTextIndexQuery<T> {
+  public textQuery<T, const TIndex extends import("./schema.js").BaseTextIndexDefinition>(collectionId: string, index: TIndex): BaseTextIndexQuery<T, TIndex> {
     this.ensureOpen();
-    return new BaseTextIndexQuery<T>(this.#transport, collectionId, index, value => this.fromWireRecord(collectionId, value) as T);
+    return new BaseTextIndexQuery<T, TIndex>(this.#transport, collectionId, index, value => this.fromWireRecord(collectionId, value) as T);
   }
 
   public async executeRead<T>(id: string, parameters: unknown, parameterTypeId: string | undefined, rowTypeId: string | undefined, page: { readonly page?: number; readonly perPage?: number; readonly signal?: AbortSignal } = {}): Promise<BaseResult<BaseRecordPage<T>>> {
@@ -333,7 +333,7 @@ class CollectionClient<T extends BaseCollectionDefinition> implements BaseCollec
   public buildQuery(): BaseQueryBuilder<CollectionRecordOf<T>> { return new BaseQueryBuilder<CollectionRecordOf<T>>(this.owner, this.id); }
   public watch(input: BaseQueryInput, observer: (snapshot: BaseQuerySnapshot<CollectionRecordOf<T>>) => void): BaseSubscription { return this.query(input).watch(observer); }
   public vector(index: import("./schema.js").BaseVectorIndexDefinition): BaseVectorIndexQuery<CollectionRecordOf<T>> { return this.owner.vectorQuery(this.id, index); }
-  public text(index: import("./schema.js").BaseTextIndexDefinition): BaseTextIndexQuery<CollectionRecordOf<T>> { return this.owner.textQuery(this.id, index); }
+  public text<const TIndex extends import("./schema.js").BaseTextIndexDefinition>(index: TIndex): BaseTextIndexQuery<CollectionRecordOf<T>, TIndex> { return this.owner.textQuery(this.id, index); }
 }
 
 export function createBaseClient<TSchema extends BaseGeneratedSchema>(options: BaseClientOptions<TSchema>): BaseClient<TSchema> {

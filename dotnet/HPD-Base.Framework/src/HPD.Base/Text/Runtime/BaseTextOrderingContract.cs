@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Globalization;
@@ -52,6 +53,42 @@ internal static class BaseTextOrderingContract
         return string.Compare(left.RecordId.Value, right.RecordId.Value, StringComparison.Ordinal);
     }
 
+    internal static bool IsStrictlyAfter(BaseTextCandidate candidate, ImmutableArray<byte> encodedBoundary, ImmutableArray<BaseTextOrder> order)
+    {
+        if (!TryDecodeBoundary(encodedBoundary.AsSpan(), order, out BaseTextScore score, out ImmutableArray<BaseTextOrderingValue> values, out RecordId id)) return false;
+        int comparison = score.Units.CompareTo(candidate.Score.Units);
+        if (comparison == 0)
+        {
+            for (int index = 0; index < order.Length; index++)
+            {
+                comparison = CompareValue(values[index], candidate.SecondaryOrdering[index], order[index].NullOrder);
+                if (comparison != 0) { if (order[index].Direction == QuerySortDirection.Desc) comparison = -comparison; break; }
+            }
+        }
+        if (comparison == 0) comparison = string.Compare(candidate.RecordId.Value, id.Value, StringComparison.Ordinal);
+        return comparison > 0;
+    }
+
+    private static bool TryDecodeBoundary(ReadOnlySpan<byte> source, ImmutableArray<BaseTextOrder> order, out BaseTextScore score, out ImmutableArray<BaseTextOrderingValue> values, out RecordId id)
+    {
+        score = default; values = []; id = default;
+        ReadOnlySpan<byte> marker = "HPDB-TEXT-ORDER-1\0"u8;
+        if (!source.StartsWith(marker)) return false;
+        int offset = marker.Length;
+        if (!ReadU64(source, ref offset, out ulong inverse) || !ReadU32(source, ref offset, out uint count) || count != order.Length) return false;
+        var builder = ImmutableArray.CreateBuilder<BaseTextOrderingValue>(order.Length);
+        for (int index = 0; index < order.Length; index++)
+        {
+            if (!ReadString(source, ref offset, out string? field) || field != order[index].StableFieldId || offset + 2 > source.Length) return false;
+            bool missing = source[offset++] == 1, nil = source[offset++] == 1;
+            if (!ReadBytes(source, ref offset, out ImmutableArray<byte> json)) return false;
+            builder.Add(new() { StableFieldId = field, Missing = missing, Null = nil, CanonicalJsonUtf8 = json });
+        }
+        if (!ReadString(source, ref offset, out string? recordId) || offset != source.Length || string.IsNullOrWhiteSpace(recordId)) return false;
+        score = new BaseTextScore { Units = ulong.MaxValue - inverse }; values = builder.MoveToImmutable(); id = new RecordId(recordId);
+        return ValuesValid(new BaseTextCandidate { RecordId = id, Revision = new RevisionToken("boundary"), IndexedPosition = new BaseMutationJournalPosition(0), Score = score, SecondaryOrdering = values, CanonicalOrderingBoundary = [], ScoreProof = new BaseTextCandidateScoreProof { Features = [], Fields = [], ProofDigest = ImmutableArray.Create(new byte[32]) } }, order);
+    }
+
     internal static bool ValuesValid(BaseTextCandidate candidate, ImmutableArray<BaseTextOrder> order)
     {
         if (candidate.SecondaryOrdering.Length != order.Length) return false;
@@ -86,4 +123,8 @@ internal static class BaseTextOrderingContract
     private static void U32(Stream stream, int value) { Span<byte> bytes = stackalloc byte[4]; BinaryPrimitives.WriteUInt32BigEndian(bytes, checked((uint)value)); stream.Write(bytes); }
     private static void Bytes(Stream stream, ReadOnlySpan<byte> value) { U32(stream, value.Length); stream.Write(value); }
     private static void String(Stream stream, string value) => Bytes(stream, Encoding.UTF8.GetBytes(value));
+    private static bool ReadU64(ReadOnlySpan<byte> source, ref int offset, out ulong value) { value = 0; if (offset + 8 > source.Length) return false; value = BinaryPrimitives.ReadUInt64BigEndian(source[offset..]); offset += 8; return true; }
+    private static bool ReadU32(ReadOnlySpan<byte> source, ref int offset, out uint value) { value = 0; if (offset + 4 > source.Length) return false; value = BinaryPrimitives.ReadUInt32BigEndian(source[offset..]); offset += 4; return true; }
+    private static bool ReadBytes(ReadOnlySpan<byte> source, ref int offset, out ImmutableArray<byte> value) { value = []; if (!ReadU32(source, ref offset, out uint length) || length > int.MaxValue || offset + (int)length > source.Length) return false; value = ImmutableArray.Create(source.Slice(offset, (int)length).ToArray()); offset += (int)length; return true; }
+    private static bool ReadString(ReadOnlySpan<byte> source, ref int offset, out string? value) { value = null; if (!ReadBytes(source, ref offset, out ImmutableArray<byte> bytes)) return false; ReadOnlySpan<byte> remaining = bytes.AsSpan(); while (!remaining.IsEmpty) { if (Rune.DecodeFromUtf8(remaining, out _, out int consumed) != System.Buffers.OperationStatus.Done) return false; remaining = remaining[consumed..]; } value = Encoding.UTF8.GetString(bytes.AsSpan()); return value.IsNormalized(NormalizationForm.FormC); }
 }

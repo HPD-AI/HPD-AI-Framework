@@ -471,6 +471,9 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
         {
             CollectionId = collection.Id, Id = index.Id, Version = index.Version, GeneratedName = GeneratedName(index.Id),
             AnalyzerId = index.AnalyzerContractId, ScoringId = index.ScoringContractId, Audience = index.Audience.ToString(), MaximumResults = index.Limits.MaximumResults,
+            MaximumQueryNodes = index.Limits.MaximumQueryNodes, MaximumQueryDepth = index.Limits.MaximumQueryDepth, MaximumPhraseTerms = index.Limits.MaximumPhraseTerms, MaximumQueryBytes = index.Limits.MaximumQueryBytes,
+            MaximumFilterNodes = index.Limits.MaximumFilterNodes, MaximumFilterDepth = index.Limits.MaximumFilterDepth, MaximumFilterLiterals = index.Limits.MaximumFilterLiterals, MaximumInValues = index.Limits.MaximumInValues,
+            MaximumSecondaryOrderFields = index.Limits.MaximumSecondaryOrderFields, MaximumCursorBytes = index.Limits.MaximumCursorBytes,
             Fields = index.Fields.Select(static field => new BaseClientTextFieldDescriptor { Id = field.StableFieldId, GeneratedName = field.ApplicationName, WireName = field.WireName, Weight = field.Weight }).ToArray(),
             FilterFields = index.FilterFields.Select(static field => new BaseClientTextFilterFieldDescriptor { Id = field.StableFieldId, GeneratedName = field.ApplicationName, WireName = field.WireName, ValueKind = field.ValueKind.ToString() }).ToArray(),
         })).OrderBy(static value => value.CollectionId, StringComparer.Ordinal).ThenBy(static value => value.Id, StringComparer.Ordinal).ToArray();

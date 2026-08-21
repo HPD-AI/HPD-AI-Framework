@@ -23,6 +23,17 @@ export interface BaseTextIndexDefinition {
   readonly id: string;
   readonly version: number;
   readonly maximumResults: number;
+  readonly maximumQueryNodes: number;
+  readonly maximumQueryDepth: number;
+  readonly maximumPhraseTerms: number;
+  readonly maximumQueryBytes: number;
+  readonly maximumFilterNodes: number;
+  readonly maximumFilterDepth: number;
+  readonly maximumFilterLiterals: number;
+  readonly maximumInValues: number;
+  readonly maximumSecondaryOrderFields: number;
+  readonly maximumCursorBytes: number;
+  readonly fields: Readonly<Record<string, { readonly id: string; readonly wireName: string }>>;
   readonly filterFields: Readonly<Record<string, { readonly id: string; readonly wireName: string; readonly valueKind: "String" | "Boolean" | "Integer" | "Id" }>>;
 }
 

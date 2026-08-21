@@ -139,7 +139,7 @@ public sealed class BaseTextSemanticTests
             Faults = [],
         });
         Assert.True(report.Passed, string.Join(Environment.NewLine, report.Cases.Where(static value => !value.Passed).Select(static value => value.Id + ":" + value.ErrorCode)));
-        Assert.Equal("41c5500be3ea303c4e925398fa7a9221a5042b4c44dfa560d8f316473c604986", Convert.ToHexStringLower(report.ReportChecksum.AsSpan()));
+        Assert.Equal("2bf43e5121621ae4522185dbdf8b81d42e7bdcfa7822aeff3e9c7fbdc7e08cbc", Convert.ToHexStringLower(report.ReportChecksum.AsSpan()));
     }
 
     [Fact]
@@ -149,7 +149,7 @@ public sealed class BaseTextSemanticTests
         try
         {
             var fixture = new BaseTextCertificationFixture("sqlite.fts5", 1, BaseTextProviderClass.CoLocatedTransactional,
-                builder => builder.UseStore(SqliteStore.Configure(options => { options.DataSource = path; options.StoreId = "sqlite"; options.AdministrationEnabled = true; })), "sqlite");
+                builder => builder.UseStore(SqliteStore.Configure(options => { options.DataSource = path; options.StoreId = "sqlite"; options.AdministrationEnabled = true; })), "sqlite", ["sqlite-bundled"]);
             BaseTextCertificationReport report = await BaseTextProviderCertification.RunAsync(fixture, new()
             {
                 ProtocolVersion = BaseTextProviderCertification.ProtocolVersion,
@@ -161,7 +161,7 @@ public sealed class BaseTextSemanticTests
                 Faults = [],
             });
             Assert.True(report.Passed, string.Join(Environment.NewLine, report.Cases.Where(static value => !value.Passed).Select(static value => value.Id + ":" + value.ErrorCode)));
-            Assert.Equal("12bb816d9c66eaa9f7062a92635c464d015042e0637110ea3c2a9cffc2713461", Convert.ToHexStringLower(report.ReportChecksum.AsSpan()));
+            Assert.Equal("d78b2587f7a6355ca0fedaa03231ac2029be1736684950330c50449177f94804", Convert.ToHexStringLower(report.ReportChecksum.AsSpan()));
         }
         finally
         {
@@ -477,6 +477,51 @@ public sealed class BaseTextSemanticTests
     }
 
     [Fact]
+    public async Task Sqlite_rejects_dynamic_field_influence_it_cannot_lower_before_match()
+    {
+        string path = Path.Combine(Path.GetTempPath(), "hpd-base-text-influence-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            var services = new ServiceCollection().AddLogging();
+            services.AddHPDBase(builder =>
+            {
+                builder.ConfigureSchema(options => options.PlanProtectionKey = Enumerable.Repeat((byte)0x51, 32).ToArray()).ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey { Id = 51, Key = Enumerable.Repeat((byte)0x51, 32).ToArray(), IssueNotBefore = DateTimeOffset.UnixEpoch });
+                builder.UseStore(SqliteStore.Configure(options => { options.DataSource = path; options.StoreId = "sqlite"; options.AdministrationEnabled = true; }));
+                builder.AddPolicyAuthority<DynamicTextPolicy>(new() { Id = "text.dynamic.sqlite", Version = 1, OwningModuleId = "tests", EvaluatorContractId = "text.dynamic.sqlite.eval", EvaluatorContractVersion = 1, CompositionOrder = 0 });
+                (BaseGrantAuthorityDefinition definition, AccessGrant grant) = TextGrant("dynamic-sqlite", DynamicTextDocument.Collection.Id, DynamicTextDocument.TextIndexes.Content.Definition.Id); builder.AddStaticGrantAuthority(definition, grant); builder.AddCollection(DynamicTextDocument.Collection);
+            });
+            await using ServiceProvider provider = services.BuildServiceProvider(); IBaseSchemaManager schemas = provider.GetRequiredService<IBaseSchemaManager>(); BaseSchemaPlan plan = (await schemas.PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite" })).Value!; Assert.True((await schemas.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = plan.ProtectedArtifact })).IsSuccess()); var initialized = await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync(); Assert.True(initialized.IsSuccess(), initialized.Error?.Code + ":" + initialized.Error?.Message);
+            BaseCollectionSession<DynamicTextDocument> collection = provider.GetRequiredService<IBaseSessionFactory>().For(new() { AuthenticationState = PrincipalAuthenticationState.Admin, SubjectKind = AccessSubjectKind.User, SubjectId = "dynamic-sqlite" }).Collection(DynamicTextDocument.Collection);
+            await collection.CreateAsync(new("record"), new DynamicTextDocument { InternalTitle = "prohibited", State = "draft" });
+            BaseResult<BaseTextResult<DynamicTextDocument>> result = await collection.Text(DynamicTextDocument.TextIndexes.Content, BaseTextQuery.Token("prohibited")).Take(10).ExecuteAsync();
+            Assert.Equal(OperationStatus.Unsupported, result.Status); Assert.Equal(BaseTextErrorCodes.PolicyConstraintUnsupported, Assert.IsType<BaseFailure<BaseTextResult<DynamicTextDocument>>>(result).Error.Code);
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact]
+    public void Continuation_order_and_completeness_bind_the_requested_boundary()
+    {
+        var score = new BaseTextScore { Units = 10 }; ImmutableArray<BaseTextOrderingValue> values = [];
+        BaseTextCandidate at = Candidate("b", score, values); BaseTextCandidate before = Candidate("a", score, values); BaseTextCandidate after = Candidate("c", score, values);
+        Assert.False(BaseTextOrderingContract.IsStrictlyAfter(at, at.CanonicalOrderingBoundary, [])); Assert.False(BaseTextOrderingContract.IsStrictlyAfter(before, at.CanonicalOrderingBoundary, [])); Assert.True(BaseTextOrderingContract.IsStrictlyAfter(after, at.CanonicalOrderingBoundary, []));
+        BaseTextProviderCapability capability = BaseTextPlatform.ProviderCapability(BaseTextProviderClass.CoLocatedTransactional); ImmutableArray<byte> report = ImmutableArray.Create(new byte[32]); BaseTextProviderDescriptor descriptor = new() { Id = "tests.boundary", Version = 1, ProviderClass = BaseTextProviderClass.CoLocatedTransactional, Capability = capability, NativeDependencyReceipts = [], CertificationContractChecksum = BaseTextCertificationReceiptContract.ContractChecksum, CertificationReportChecksum = report, CertificationReceipt = BaseTextCertificationReceiptContract.Create("tests.boundary", 1, BaseTextProviderClass.CoLocatedTransactional, capability, [], report) };
+        BaseTextAuthoritySnapshot snapshot = new() { StoreIdentityDigest = "tests", RestoreEpoch = 1, SchemaGeneration = 1, CollectionId = "records", PurgeGeneration = 0, TextIndexId = "index", TextIndexVersion = 1, TextIndexGeneration = 1, AuthoritativeHead = new(1), AppliedThrough = new(1), SearchVisibleThrough = new(1), AnalyzerReceipt = BaseTextContractReceipts.AnalyzerReceipt, ScoringReceipt = BaseTextContractReceipts.ScoringReceipt };
+        BaseTextLoweringReceipt lowering = new() { ProviderId = descriptor.Id, ProviderVersion = 1, ProviderClass = descriptor.ProviderClass, AuthoritySnapshotDigest = ImmutableArray.Create(new byte[32]), IndexChecksum = ImmutableArray.Create(new byte[32]), QueryDigest = ImmutableArray.Create(new byte[32]), ConstraintDigest = ImmutableArray.Create(new byte[32]), InfluenceConstraintsDigest = ImmutableArray.Create(new byte[32]), StatementShapeDigest = ImmutableArray.Create(new byte[32]), OrderingDigest = ImmutableArray.Create(new byte[32]), LimitsDigest = ImmutableArray.Create(new byte[32]), CertificationReceiptDigest = ImmutableArray.Create(new byte[32]) };
+        BaseTextCompletenessEvidence expected = BaseTextProviderEvidence.CreateCompleteness(descriptor, snapshot, lowering, [after], 2, at.CanonicalOrderingBoundary); BaseTextCompletenessEvidence substituted = BaseTextProviderEvidence.CreateCompleteness(descriptor, snapshot, lowering, [after], 2, before.CanonicalOrderingBoundary);
+        Assert.False(BaseTextProviderEvidence.CompletenessEquals(expected, substituted));
+        static BaseTextCandidate Candidate(string id, BaseTextScore score, ImmutableArray<BaseTextOrderingValue> values) => new() { RecordId = new(id), Revision = new("test:1"), IndexedPosition = new(1), Score = score, SecondaryOrdering = values, CanonicalOrderingBoundary = BaseTextOrderingContract.Boundary(score, values, new(id)), ScoreProof = new() { Fields = [], Features = [], ProofDigest = ImmutableArray.Create(new byte[32]) } };
+    }
+
+    [Fact]
+    public void Certification_receipt_rejects_capability_and_native_dependency_substitution()
+    {
+        BaseTextProviderCapability capability = BaseTextPlatform.ProviderCapability(BaseTextProviderClass.CoLocatedTransactional); ImmutableArray<byte> report = ImmutableArray.Create(Enumerable.Repeat((byte)7, 32).ToArray()); ImmutableArray<string> dependencies = ["native-v1"];
+        BaseTextProviderDescriptor descriptor = new() { Id = "tests.certified", Version = 1, ProviderClass = BaseTextProviderClass.CoLocatedTransactional, Capability = capability, NativeDependencyReceipts = dependencies, CertificationContractChecksum = BaseTextCertificationReceiptContract.ContractChecksum, CertificationReportChecksum = report, CertificationReceipt = BaseTextCertificationReceiptContract.Create("tests.certified", 1, BaseTextProviderClass.CoLocatedTransactional, capability, dependencies, report) };
+        Assert.True(BaseTextCertificationReceiptContract.Validate(descriptor)); Assert.False(BaseTextCertificationReceiptContract.Validate(descriptor with { Capability = capability with { MaximumCandidates = capability.MaximumCandidates - 1 } })); Assert.False(BaseTextCertificationReceiptContract.Validate(descriptor with { NativeDependencyReceipts = ["native-v2"] }));
+    }
+
+    [Fact]
     public async Task Runtime_rejects_hostile_candidate_ordering_before_hydration()
     {
         var services = new ServiceCollection().AddLogging(); var hostile = new TrackingTextAuthority(malformed: true);
@@ -563,7 +608,8 @@ internal sealed class TrackingTextAuthority(bool malformed) : IBaseTextProvider,
 {
     internal int OpenCount; internal int HydrationCount;
     public IBaseTextAuthority Authority => this;
-    public BaseTextProviderDescriptor Descriptor { get; } = new() { Id = "tests.text", Version = 1, ProviderClass = BaseTextProviderClass.CoLocatedTransactional, Capability = BaseTextPlatform.ProviderCapability(BaseTextProviderClass.CoLocatedTransactional), NativeDependencyReceipts = [], CertificationReceipt = ImmutableArray.Create(new byte[32]) };
+    public BaseTextProviderDescriptor Descriptor { get; } = CreateDescriptor();
+    private static BaseTextProviderDescriptor CreateDescriptor() { BaseTextProviderCapability capability = BaseTextPlatform.ProviderCapability(BaseTextProviderClass.CoLocatedTransactional); ImmutableArray<byte> report = ImmutableArray.Create(new byte[32]); return new() { Id = "tests.text", Version = 1, ProviderClass = BaseTextProviderClass.CoLocatedTransactional, Capability = capability, NativeDependencyReceipts = [], CertificationContractChecksum = BaseTextCertificationReceiptContract.ContractChecksum, CertificationReportChecksum = report, CertificationReceipt = BaseTextCertificationReceiptContract.Create("tests.text", 1, BaseTextProviderClass.CoLocatedTransactional, capability, [], report) }; }
     public ValueTask<OperationResult<IBaseTextHydrationSession>> OpenAsync(BaseTextAuthorityOpenRequest request, CancellationToken cancellationToken = default) { OpenCount++; return ValueTask.FromResult(OperationResults.Ok<IBaseTextHydrationSession>(new Session(this, request, malformed))); }
     public ValueTask<OperationResult<BaseTextIndexStatus[]>> ListAsync(CancellationToken cancellationToken) => ValueTask.FromResult(OperationResults.Ok(Array.Empty<BaseTextIndexStatus>()));
     public ValueTask<OperationResult<BaseTextIndexStatus>> GetAsync(string collectionId, string textIndexId, CancellationToken cancellationToken) => ValueTask.FromResult(OperationResults.NotFound<BaseTextIndexStatus>(new BaseError { Code = BaseTextErrorCodes.IndexUnavailable, Message = "Unavailable.", Category = ErrorCategory.NotFound }));
@@ -594,8 +640,8 @@ internal sealed class TrackingTextAuthority(bool malformed) : IBaseTextProvider,
             {
                 Snapshot = Snapshot,
                 Candidates = [.. candidates],
-                Completeness = BaseTextProviderEvidence.CreateCompleteness(owner.Descriptor, Snapshot, plan.Lowering, [.. candidates], value.TakePlusOne),
-                Accounting = new() { InputBytes = queryBytes + constraintBytes, QueryBytes = queryBytes, ConstraintBytes = constraintBytes, StatementParameters = plan.StatementParameters, AuthorizedRecordsExamined = candidates.Length, PostingsExamined = candidates.Length, PrefixExpansionCount = 0, PrefixExpansionBytes = 0, ScoreProofBytes = candidates.Length * 32, CandidateCount = candidates.Length, OrderingBytes = orderingBytes, ExactHydrationBytes = 0, ResultBytes = 0, CursorBytes = 0, RetainedTransientBytes = queryBytes + constraintBytes + candidates.Length * 32 + orderingBytes, Elapsed = TimeSpan.Zero }
+                Completeness = BaseTextProviderEvidence.CreateCompleteness(owner.Descriptor, Snapshot, plan.Lowering, [.. candidates], value.TakePlusOne, value.AfterBoundary),
+                Accounting = new() { InputBytes = queryBytes + constraintBytes, QueryBytes = queryBytes, ConstraintBytes = constraintBytes, StatementParameters = plan.StatementParameters, AuthorizedRecordsExamined = candidates.Length, PostingsExamined = candidates.Length, PrefixExpansionCount = 0, PrefixExpansionBytes = 0, ScoreProofBytes = candidates.Length * 32, CandidateCount = candidates.Length, OrderingBytes = orderingBytes, RetainedTransientBytes = queryBytes + constraintBytes + candidates.Length * 32 + orderingBytes, Elapsed = TimeSpan.Zero }
             }));
         }
         public ValueTask<OperationResult<RecordEnvelope[]>> GetExactAsync(CollectionDefinition collection, BaseTextCandidateIdentity[] candidates, OperationContext context, CancellationToken cancellationToken = default) { owner.HydrationCount++; return ValueTask.FromResult(OperationResults.Ok(Array.Empty<RecordEnvelope>())); }

@@ -132,7 +132,7 @@ public sealed record BaseClientProtocolDescriptor
     /// <summary>Gets the minimum compatible client minor.</summary>
     public int MinimumClientMinor { get; init; }
     /// <summary>Gets the snapshot schema version.</summary>
-    public int SnapshotSchemaVersion { get; init; } = 6;
+    public int SnapshotSchemaVersion { get; init; } = 7;
     /// <summary>Gets the application identifier.</summary>
     public required string ApplicationId { get; init; }
     /// <summary>Gets the logical schema generation.</summary>
@@ -427,6 +427,16 @@ public sealed record BaseClientTextIndexDescriptor
     public required BaseClientTextFieldDescriptor[] Fields { get; init; }
     public required BaseClientTextFilterFieldDescriptor[] FilterFields { get; init; }
     public required int MaximumResults { get; init; }
+    public required int MaximumQueryNodes { get; init; }
+    public required int MaximumQueryDepth { get; init; }
+    public required int MaximumPhraseTerms { get; init; }
+    public required long MaximumQueryBytes { get; init; }
+    public required int MaximumFilterNodes { get; init; }
+    public required int MaximumFilterDepth { get; init; }
+    public required int MaximumFilterLiterals { get; init; }
+    public required int MaximumInValues { get; init; }
+    public required int MaximumSecondaryOrderFields { get; init; }
+    public required int MaximumCursorBytes { get; init; }
 }
 
 /// <summary>Describes one generated searchable field.</summary>

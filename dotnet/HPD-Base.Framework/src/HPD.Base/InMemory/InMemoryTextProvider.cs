@@ -7,12 +7,12 @@ namespace HPD.Base;
 internal sealed class InMemoryTextProvider(InMemoryRecordStore store, BaseCollectionRegistry collections) : IBaseTextProvider, IBaseTextAuthority
 {
     public IBaseTextAuthority Authority => this;
-    public BaseTextProviderDescriptor Descriptor { get; } = new()
+    public BaseTextProviderDescriptor Descriptor { get; } = CreateDescriptor();
+    private static BaseTextProviderDescriptor CreateDescriptor()
     {
-        Id = "inmemory.text", Version = 1, ProviderClass = BaseTextProviderClass.CoLocatedTransactional,
-        Capability = BaseTextPlatform.ProviderCapability(BaseTextProviderClass.CoLocatedTransactional),
-        NativeDependencyReceipts = [], CertificationReceipt = ImmutableArray.Create(Convert.FromHexString("41c5500be3ea303c4e925398fa7a9221a5042b4c44dfa560d8f316473c604986")),
-    };
+        BaseTextProviderCapability capability = BaseTextPlatform.ProviderCapability(BaseTextProviderClass.CoLocatedTransactional); ImmutableArray<string> dependencies = []; ImmutableArray<byte> report = ImmutableArray.Create(Convert.FromHexString("2bf43e5121621ae4522185dbdf8b81d42e7bdcfa7822aeff3e9c7fbdc7e08cbc"));
+        return new() { Id = "inmemory.text", Version = 1, ProviderClass = BaseTextProviderClass.CoLocatedTransactional, Capability = capability, NativeDependencyReceipts = dependencies, CertificationContractChecksum = BaseTextCertificationReceiptContract.ContractChecksum, CertificationReportChecksum = report, CertificationReceipt = BaseTextCertificationReceiptContract.Create("inmemory.text", 1, BaseTextProviderClass.CoLocatedTransactional, capability, dependencies, report) };
+    }
 
     public async ValueTask<OperationResult<IBaseTextHydrationSession>> OpenAsync(BaseTextAuthorityOpenRequest request, CancellationToken cancellationToken = default)
     {
@@ -94,8 +94,8 @@ internal sealed class InMemoryTextProvider(InMemoryRecordStore store, BaseCollec
             return ValueTask.FromResult(OperationResults.Ok(new BaseTextProviderResult
             {
                 Snapshot = Snapshot, Candidates = page,
-                Completeness = BaseTextProviderEvidence.CreateCompleteness(_descriptor, Snapshot, plan.Lowering, page, request.TakePlusOne),
-                Accounting = new BaseTextProviderAccounting { InputBytes = checked(queryBytes + constraintBytes), QueryBytes = queryBytes, ConstraintBytes = constraintBytes, StatementParameters = BaseTextProviderEvidence.StatementParameterCount(plan.Query, plan.Constraint), AuthorizedRecordsExamined = examined, PostingsExamined = examined, PrefixExpansionCount = returnedPrefixCount, PrefixExpansionBytes = returnedPrefixBytes, ScoreProofBytes = returnedProofBytes, CandidateCount = ordered.Length, OrderingBytes = returnedOrderingBytes, ExactHydrationBytes = 0, ResultBytes = 0, CursorBytes = 0, RetainedTransientBytes = checked(queryBytes + constraintBytes + proofBytes + orderingBytes + prefixBytes), Elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(started) },
+                Completeness = BaseTextProviderEvidence.CreateCompleteness(_descriptor, Snapshot, plan.Lowering, page, request.TakePlusOne, request.AfterBoundary),
+                Accounting = new BaseTextProviderAccounting { InputBytes = checked(queryBytes + constraintBytes), QueryBytes = queryBytes, ConstraintBytes = constraintBytes, StatementParameters = BaseTextProviderEvidence.StatementParameterCount(plan.Query, plan.Constraint), AuthorizedRecordsExamined = examined, PostingsExamined = examined, PrefixExpansionCount = returnedPrefixCount, PrefixExpansionBytes = returnedPrefixBytes, ScoreProofBytes = returnedProofBytes, CandidateCount = ordered.Length, OrderingBytes = returnedOrderingBytes, RetainedTransientBytes = checked(queryBytes + constraintBytes + proofBytes + orderingBytes + prefixBytes), Elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(started) },
             }));
         }
         public ValueTask<OperationResult<RecordEnvelope[]>> GetExactAsync(CollectionDefinition collection, BaseTextCandidateIdentity[] candidates, OperationContext context, CancellationToken cancellationToken = default)

@@ -13,11 +13,12 @@ public class BaseTextCertificationFixture : IBaseTextCertificationFixture
 {
     private readonly Action<HPDBaseBuilder>? _configureProvider;
     private readonly string _storeId;
+    private readonly ImmutableArray<string> _nativeDependencyReceipts;
     /// <summary>Creates a fixture over one provider selected by the supplied BASE builder configuration.</summary>
-    public BaseTextCertificationFixture(string providerId, int providerVersion, BaseTextProviderClass providerClass, Action<HPDBaseBuilder>? configureProvider = null, string? storeId = null)
+    public BaseTextCertificationFixture(string providerId, int providerVersion, BaseTextProviderClass providerClass, Action<HPDBaseBuilder>? configureProvider = null, string? storeId = null, ImmutableArray<string> nativeDependencyReceipts = default)
     {
         if (string.IsNullOrWhiteSpace(providerId) || providerVersion <= 0 || !Enum.IsDefined(providerClass)) throw new ArgumentException("The text provider identity is invalid.");
-        ProviderId = providerId; ProviderVersion = providerVersion; ProviderClass = providerClass; _configureProvider = configureProvider; _storeId = storeId ?? providerId.Split('.')[0];
+        ProviderId = providerId; ProviderVersion = providerVersion; ProviderClass = providerClass; _configureProvider = configureProvider; _storeId = storeId ?? providerId.Split('.')[0]; _nativeDependencyReceipts = nativeDependencyReceipts.IsDefault ? [] : nativeDependencyReceipts;
     }
     /// <inheritdoc />
     public string ProtocolVersion => BaseTextProviderCertification.ProtocolVersion;
@@ -27,6 +28,10 @@ public class BaseTextCertificationFixture : IBaseTextCertificationFixture
     public string ProviderId { get; }
     /// <inheritdoc />
     public int ProviderVersion { get; }
+    /// <inheritdoc />
+    public BaseTextProviderCapability Capability => BaseTextPlatform.ProviderCapability(ProviderClass);
+    /// <inheritdoc />
+    public ImmutableArray<string> NativeDependencyReceipts => _nativeDependencyReceipts;
     /// <inheritdoc />
     public async ValueTask<IBaseTextCertificationHost> CreateAsync(BaseTextCertificationHostRequest request, CancellationToken cancellationToken)
     {
@@ -196,7 +201,7 @@ internal sealed class BaseInMemoryTextCertificationHost(ServiceProvider services
     private long AddObservation(BaseTextCertificationOperationKind operation, BaseTextCertificationProviderState state, OperationStatus status) { lock (_gate) { long sequence = checked(++_sequence); _observations.Add(Observation(sequence, operation, state, status, request.ProviderClass)); return sequence; } }
     private static BaseTextCertificationObservation Observation(long sequence, BaseTextCertificationOperationKind operation, BaseTextCertificationProviderState state, OperationStatus status, BaseTextProviderClass providerClass) => new() { Sequence = sequence, Operation = operation, ProviderClass = providerClass, SnapshotDigest = ImmutableArray.Create(SHA256.HashData(Encoding.UTF8.GetBytes($"{state.Generation}:{state.AppliedThrough.Value}:{state.VisibleThrough.Value}"))), Status = status, State = state, Accounting = EmptyAccounting() };
     private static BaseTextCertificationProviderState State(IServiceProvider services, BaseTextIndexStatus? value = null) { value ??= services.GetService<IBaseTextAdministration>()?.GetAsync(BaseTextCertificationSchemaRecord.Collection.Id, BaseTextCertificationSchemaRecord.TextIndexes.Content.Definition.Id).AsTask().GetAwaiter().GetResult().Value; int quarantine = services.GetService<BaseTextCertificationFaultController>()?.RetainedCount ?? 0; return value is null ? new() { Generation = 1, AppliedThrough = new(0), VisibleThrough = new(0), State = BaseTextIndexState.Ready, CarrierCount = 0, QuarantineCount = quarantine } : new() { Generation = value.Generation, AppliedThrough = value.AppliedThrough, VisibleThrough = value.SearchVisibleThrough, State = value.State, CarrierCount = value.CarrierCount, QuarantineCount = quarantine }; }
-    private static BaseTextProviderAccounting EmptyAccounting() => new() { InputBytes = 0, QueryBytes = 0, ConstraintBytes = 0, StatementParameters = 0, AuthorizedRecordsExamined = 0, PostingsExamined = 0, PrefixExpansionCount = 0, PrefixExpansionBytes = 0, ScoreProofBytes = 0, CandidateCount = 0, OrderingBytes = 0, ExactHydrationBytes = 0, ResultBytes = 0, CursorBytes = 0, RetainedTransientBytes = 0, Elapsed = TimeSpan.Zero };
+    private static BaseTextProviderAccounting EmptyAccounting() => new() { InputBytes = 0, QueryBytes = 0, ConstraintBytes = 0, StatementParameters = 0, AuthorizedRecordsExamined = 0, PostingsExamined = 0, PrefixExpansionCount = 0, PrefixExpansionBytes = 0, ScoreProofBytes = 0, CandidateCount = 0, OrderingBytes = 0, RetainedTransientBytes = 0, Elapsed = TimeSpan.Zero };
     private static BaseTextCertificationSchemaRecord FromContract(BaseTextCertificationRecord value) => new() { Tenant = value.Tenant, Active = value.Active, Priority = value.Priority, Optional = value.Optional, Title = value.Title, Body = value.Body };
     private static BaseTextCertificationRecord ToContract(string id, BaseTextCertificationSchemaRecord value) => new() { Id = id, Tenant = value.Tenant, Active = value.Active, Priority = value.Priority, Optional = value.Optional, Title = value.Title, Body = value.Body };
     private static BaseTextQuery Query(BaseTextHttpQueryNode value) => value.Kind switch { "term" => BaseTextQuery.Token(value.Value!), "prefix" => BaseTextQuery.StartsWith(value.Value!), "phrase" => BaseTextQuery.ExactPhrase(value.Terms!), "field" => BaseTextQuery.InField(value.Field!, Query(value.Child!)), "and" => BaseTextQuery.All(value.Children!.Select(Query).ToArray()), "or" => BaseTextQuery.Any(value.Children!.Select(Query).ToArray()), "not" => BaseTextQuery.Exclude(Query(value.Child!)), _ => throw new ArgumentException() };

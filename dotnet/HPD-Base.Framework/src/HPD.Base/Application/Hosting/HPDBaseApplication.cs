@@ -221,7 +221,7 @@ internal sealed class DefaultBaseProviderBootstrap(
             if (descriptor.ProviderClass != capability.ProviderClass
                 || descriptor.Id is not { Length: >= 1 and <= 128 }
                 || descriptor.Version <= 0
-                || descriptor.CertificationReceipt.Length != 32
+                || !BaseTextCertificationReceiptContract.Validate(descriptor)
                 || !capability.TransactionalMaintenanceSupported
                 || !capability.ExactRevisionHydrationSupported
                 || !capability.PolicyBeforeRankingSupported

@@ -15,6 +15,8 @@ public interface IBaseTextCertificationFixture
     string ProviderId { get; }
     /// <summary>Gets the positive provider version.</summary>
     int ProviderVersion { get; }
+    BaseTextProviderCapability Capability { get; }
+    ImmutableArray<string> NativeDependencyReceipts { get; }
     /// <summary>Creates one isolated host owned by the certification runner.</summary>
     ValueTask<IBaseTextCertificationHost> CreateAsync(BaseTextCertificationHostRequest request, CancellationToken cancellationToken);
 }
@@ -83,4 +85,4 @@ public sealed record BaseTextCertificationObservation { public required long Seq
 public sealed record BaseTextCertificationFaultSchedule { public required BaseTextCertificationFault Fault { get; init; } public required int Occurrence { get; init; } public required TimeSpan Delay { get; init; } public required int PartialSuccessCount { get; init; } }
 public sealed record BaseTextCertificationFaultState { public required ImmutableArray<BaseTextCertificationFaultSchedule> Configured { get; init; } public required ImmutableArray<BaseTextCertificationFault> Consumed { get; init; } }
 public sealed record BaseTextCertificationCaseResult { public required string Id { get; init; } public required bool Passed { get; init; } public required OperationStatus Status { get; init; } public string? ErrorCode { get; init; } }
-public sealed record BaseTextCertificationReport { public required string ProtocolVersion { get; init; } public required string ProviderId { get; init; } public required int ProviderVersion { get; init; } public required BaseTextProviderClass ProviderClass { get; init; } public required bool Passed { get; init; } public required ImmutableArray<BaseTextCertificationCaseResult> Cases { get; init; } public required ImmutableArray<byte> ContractChecksum { get; init; } public required ImmutableArray<byte> ReportChecksum { get; init; } }
+public sealed record BaseTextCertificationReport { public required string ProtocolVersion { get; init; } public required string ProviderId { get; init; } public required int ProviderVersion { get; init; } public required BaseTextProviderClass ProviderClass { get; init; } public required bool Passed { get; init; } public required ImmutableArray<BaseTextCertificationCaseResult> Cases { get; init; } public required ImmutableArray<byte> CapabilityChecksum { get; init; } public required ImmutableArray<string> NativeDependencyReceipts { get; init; } public required ImmutableArray<byte> ContractChecksum { get; init; } public required ImmutableArray<byte> ReportChecksum { get; init; } public required ImmutableArray<byte> CertificationReceipt { get; init; } }

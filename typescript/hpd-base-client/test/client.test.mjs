@@ -229,7 +229,7 @@ test("vector search preserves binary32 inputs and validates disclosed dot-produc
 
 test("text search uses generated index authority and validates score strings", async () => {
   let wire;
-  const content = { id: "documents.content", version: 1, maximumResults: 32, filterFields: { title: { id: "stable-title", wireName: "stored_title", valueKind: "String" } } };
+  const content = { id: "documents.content", version: 1, maximumResults: 32, maximumQueryNodes: 64, maximumQueryDepth: 8, maximumPhraseTerms: 16, maximumQueryBytes: 8192, maximumFilterNodes: 64, maximumFilterDepth: 8, maximumFilterLiterals: 64, maximumInValues: 32, maximumSecondaryOrderFields: 8, maximumCursorBytes: 2048, fields: { title: { id: "stable-title", wireName: "stored_title" } }, filterFields: { title: { id: "stable-title", wireName: "stored_title", valueKind: "String" } } };
   const textSchema = { ...schema, collections: { documents: collection({ ...schema.collections.documents, operations: ["text"], textIndexes: { content } }) } };
   const base = createBaseClient({ schema: textSchema, url: "https://base.test/base/", fetch: async (_url, init) => { wire = JSON.parse(new TextDecoder().decode(init.body)); return Response.json({ matches: [{ record: { collectionId: "documents", id: "d1", payload: { kind: "json", json: { stored_title: "match" } }, metadata: {} }, revision: "test:1", scoreUnits: "123" }], next: null, consistencyToken: "opaque" }, { headers: { "X-Correlation-ID": "t" } }); } });
   const result = await base.documents.text(content).search({ query: { kind: "term", value: "portable" }, order: [{ field: "stored_title", direction: "desc", nullOrder: "last" }], take: 4 });
