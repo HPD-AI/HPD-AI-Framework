@@ -18,6 +18,15 @@ public enum BaseAtomicReceiptResultKind
     SubjectLifecycleMaintenance,
     /// <summary>An identified coordinated subject-retirement operation.</summary>
     SubjectRetirement,
+    /// <summary>One atomic durable-activation creation result.</summary>
+    ActivationCreation,
+}
+
+/// <summary>Stores the closed durable result of atomic activation creation.</summary>
+public sealed record BaseActivationCreationReceiptResult
+{
+    /// <summary>Gets created activation identities in request order.</summary>
+    public required ImmutableArray<string> ActivationIds { get; init; }
 }
 
 /// <summary>Stores one committed module generation without disclosing its scoped provider key.</summary>
@@ -156,6 +165,8 @@ public sealed record BaseAtomicReceiptWire
     public BaseSubjectLifecycleMaintenanceResult? SubjectLifecycleMaintenance { get; init; }
     /// <summary>Gets the coordinated-retirement result.</summary>
     public BaseSubjectRetirementReceiptResult? SubjectRetirement { get; init; }
+    /// <summary>Gets the optional activation-creation result.</summary>
+    public BaseActivationCreationReceiptResult? ActivationCreation { get; init; }
     internal static BaseAtomicReceiptWire From(BaseAtomicReceiptResult result)
     {
         ValidateShape(result);
@@ -191,6 +202,8 @@ public sealed record BaseAtomicReceiptWire
                 ? null
                 : CloneMaintenance(result.SubjectLifecycleMaintenance),
             SubjectRetirement = result.SubjectRetirement is null ? null : CloneRetirement(result.SubjectRetirement),
+            ActivationCreation = result.ActivationCreation is null ? null : new BaseActivationCreationReceiptResult
+            { ActivationIds = result.ActivationCreation.ActivationIds.Select(static value => new string(value.AsSpan())).ToImmutableArray() },
         };
     }
     internal BaseAtomicReceiptResult Materialize()
@@ -223,6 +236,8 @@ public sealed record BaseAtomicReceiptWire
                 ? null
                 : CloneMaintenance(SubjectLifecycleMaintenance),
             SubjectRetirement = SubjectRetirement is null ? null : CloneRetirement(SubjectRetirement),
+            ActivationCreation = ActivationCreation is null ? null : new BaseActivationCreationReceiptResult
+            { ActivationIds = ActivationCreation.ActivationIds.Select(static value => new string(value.AsSpan())).ToImmutableArray() },
         };
         ValidateShape(result);
         return result;
@@ -232,13 +247,14 @@ public sealed record BaseAtomicReceiptWire
     {
         bool valid = result.Kind switch
         {
-            BaseAtomicReceiptResultKind.RecordMutations => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null,
-            BaseAtomicReceiptResultKind.SelectionMutation => result.SelectionMutation is not null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null,
-            BaseAtomicReceiptResultKind.ModuleMutation => result.SelectionMutation is null && result.ModuleMutation is not null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null,
-            BaseAtomicReceiptResultKind.SubjectLifecycleCheckpoint => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is not null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null,
+            BaseAtomicReceiptResultKind.RecordMutations => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null && result.ActivationCreation is null,
+            BaseAtomicReceiptResultKind.SelectionMutation => result.SelectionMutation is not null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null && result.ActivationCreation is null,
+            BaseAtomicReceiptResultKind.ModuleMutation => result.SelectionMutation is null && result.ModuleMutation is not null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null && result.ActivationCreation is null,
+            BaseAtomicReceiptResultKind.SubjectLifecycleCheckpoint => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is not null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null && result.ActivationCreation is null,
             BaseAtomicReceiptResultKind.SubjectLifecycleMaintenance => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is not null
-                && (result.SubjectRetirement is null || result.SubjectRetirement.Operation == BaseSubjectRetirementReceiptOperation.Maintenance),
-            BaseAtomicReceiptResultKind.SubjectRetirement => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is not null,
+                && (result.SubjectRetirement is null || result.SubjectRetirement.Operation == BaseSubjectRetirementReceiptOperation.Maintenance) && result.ActivationCreation is null,
+            BaseAtomicReceiptResultKind.SubjectRetirement => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is not null && result.ActivationCreation is null,
+            BaseAtomicReceiptResultKind.ActivationCreation => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null && result.ActivationCreation is not null,
             _ => false,
         };
         if (valid && result.SubjectRetirement is { } retirement)
@@ -304,6 +320,8 @@ public sealed record BaseAtomicReceiptResult
     public BaseSubjectLifecycleMaintenanceResult? SubjectLifecycleMaintenance { get; init; }
     /// <summary>Gets the subject-retirement result when <see cref="Kind"/> is retirement.</summary>
     public BaseSubjectRetirementReceiptResult? SubjectRetirement { get; init; }
+    /// <summary>Gets the activation result when <see cref="Kind"/> is activation creation.</summary>
+    public BaseActivationCreationReceiptResult? ActivationCreation { get; init; }
 
     internal static BaseAtomicReceiptResult FromFacts(IEnumerable<BaseRecordMutationFact> facts) => new()
     {
@@ -314,6 +332,7 @@ public sealed record BaseAtomicReceiptResult
         SubjectLifecycleCheckpoint = null,
         SubjectLifecycleMaintenance = null,
         SubjectRetirement = null,
+        ActivationCreation = null,
     };
     internal BaseRecordMutationFact[] MaterializeFacts() => Mutations.Select(static fact => fact.MaterializeOwned()).ToArray();
 }
