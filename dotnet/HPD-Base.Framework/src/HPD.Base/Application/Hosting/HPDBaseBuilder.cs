@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Security.Cryptography;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -43,6 +44,7 @@ public sealed class HPDBaseBuilder
     private readonly Dictionary<string, BaseModuleGenerationCellDefinition> _moduleGenerationCells = new(StringComparer.Ordinal);
     private readonly Dictionary<(string Id, int Version), BaseRegisteredModuleMutationDefinition> _moduleMutations = [];
     private readonly Dictionary<(string Id, int Version), IBaseModuleMutationRegistration> _moduleMutationRegistrations = [];
+    private readonly Dictionary<(string Id, int Version), IBaseActivationRegistration> _activationRegistrations = [];
     private readonly List<BaseSubjectAcquisitionDefinition> _subjectAcquisitions = [];
     private readonly List<BaseSubjectLifecycleConsumerDefinition> _subjectLifecycleConsumers = [];
     private readonly List<BaseSubjectRetirementConsumerDefinition> _subjectRetirementConsumers = [];
@@ -349,6 +351,24 @@ public sealed class HPDBaseBuilder
         return this;
     }
 
+    /// <summary>Registers one graph-owned durable activation and its Native-AOT-safe handler factory.</summary>
+    public HPDBaseBuilder AddActivation<TInput, TResult>(
+        BaseActivationHandlerRegistration<TInput, TResult> registration)
+    {
+        EnsureMutable();
+        ArgumentNullException.ThrowIfNull(registration);
+        BaseActivationDefinition definition = BaseActivationContract.Seal(registration.Definition);
+        if (!string.Equals(definition.Id, registration.Identity.Id, StringComparison.Ordinal) ||
+            definition.Version != registration.Identity.Version ||
+            !CryptographicOperations.FixedTimeEquals(definition.Checksum.AsSpan(), registration.Identity.Checksum.Span))
+            throw new InvalidOperationException("base.activation.definitionInvalid");
+        if (!_activationRegistrations.TryAdd((definition.Id, definition.Version),
+            new BaseActivationRegistration<TInput, TResult>(registration with { Definition = definition })))
+            throw new InvalidOperationException("base.activation.definitionDuplicate");
+        _serializerMetadata.Add(registration.Identity);
+        return this;
+    }
+
     /// <summary>Configures the single immutable host safety envelope for selection mutations.</summary>
     public HPDBaseBuilder ConfigureSelectionMutations(HPDBaseSelectionMutationOptions options)
     {
@@ -497,6 +517,7 @@ public sealed class HPDBaseBuilder
                 throw new InvalidOperationException(BaseModuleMutationErrorCodes.CapabilityMissing);
         }
         var moduleMutationRegistry = new BaseModuleMutationRegistry(_moduleMutations.Values, _moduleGenerationCells.Values, _moduleMutationRegistrations.Values);
+        var activationRegistry = new BaseActivationRegistry(_activationRegistrations.Values);
         BaseSubjectContractRegistry subjectRegistry = FinalizeSubjectGraph(collections);
         var subjectLifecycleRegistry = new BaseSubjectLifecycleRegistry(_subjectLifecycleConsumers, subjectRegistry);
         var subjectRetirementRegistry = new BaseSubjectRetirementRegistry(_subjectRetirementConsumers, _subjectRetirementPolicies, subjectLifecycleRegistry);
@@ -544,6 +565,7 @@ public sealed class HPDBaseBuilder
         _services.AddSingleton(policyAuthorityOwner);
         _services.AddSingleton(lifecycleInspectionAuthorities);
         _services.AddSingleton(moduleMutationRegistry);
+        _services.AddSingleton(activationRegistry);
         foreach (BaseSelectionOperationProfile profile in _selectionProfiles)
         {
             if (_selectionOptions is null || !Fits(profile, _selectionOptions))
