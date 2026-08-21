@@ -13,17 +13,17 @@ public sealed class BaseGraphActivationTests
     {
         GraphConfig graph = Graph("graph-one", "1.0.0", "first");
 
-        BaseActivationHandlerRegistration<BaseGraphActivationInput, BaseGraphActivationResult> registration =
+        BaseGraphActivationDefinition registration =
             BaseGraphActivationRegistration.Create(graph, 1, Grants(), Limits(), []);
-        BaseActivationHandlerRegistration<BaseGraphActivationInput, BaseGraphActivationResult> changed =
+        BaseGraphActivationDefinition changed =
             BaseGraphActivationRegistration.Create(graph with { Description = "changed" }, 1, Grants(), Limits(), []);
 
-        registration.Definition.Id.Should().Be("hpd.graph.execute.graph-one");
-        registration.Definition.ExecutionClass.Should().Be(BaseActivationExecutionClass.AtLeastOnceWorker);
-        registration.Definition.Handler.Should().NotBeNull();
-        registration.Identity.Input.Type.Should().Be(typeof(BaseGraphActivationInput));
-        registration.Identity.Result.Type.Should().Be(typeof(BaseGraphActivationResult));
-        registration.Definition.Checksum.Should().NotEqual(changed.Definition.Checksum);
+        registration.Registration.Definition.Id.Should().Be("hpd.graph.execute.graph-one");
+        registration.Registration.Definition.ExecutionClass.Should().Be(BaseActivationExecutionClass.AtLeastOnceWorker);
+        registration.Registration.Definition.Handler.Should().NotBeNull();
+        registration.Registration.Identity.Input.Type.Should().Be(typeof(BaseGraphActivationInput));
+        registration.Registration.Identity.Result.Type.Should().Be(typeof(BaseGraphActivationResult));
+        registration.Registration.Definition.Checksum.Should().NotEqual(changed.Registration.Definition.Checksum);
     }
 
     [Fact]
@@ -38,12 +38,12 @@ public sealed class BaseGraphActivationTests
             Metadata = new Dictionary<string, string> { ["a"] = "1", ["b"] = "2" },
         };
 
-        BaseActivationHandlerRegistration<BaseGraphActivationInput, BaseGraphActivationResult> first =
+        BaseGraphActivationDefinition first =
             BaseGraphActivationRegistration.Create(left, 2, Grants(), Limits(), []);
-        BaseActivationHandlerRegistration<BaseGraphActivationInput, BaseGraphActivationResult> second =
+        BaseGraphActivationDefinition second =
             BaseGraphActivationRegistration.Create(right, 2, Grants(), Limits(), []);
 
-        first.Definition.Checksum.Should().Equal(second.Definition.Checksum);
+        first.Registration.Definition.Checksum.Should().Equal(second.Registration.Definition.Checksum);
     }
 
     private static GraphConfig Graph(string id, string version, string description) => new()

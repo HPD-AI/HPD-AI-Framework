@@ -53,11 +53,65 @@ public enum BaseGraphActivationOutcome
     Succeeded = 0,
 }
 
+/// <summary>Contains one sealed graph activation registration and its input authority.</summary>
+public sealed class BaseGraphActivationDefinition
+{
+    internal BaseGraphActivationDefinition(
+        BaseActivationHandlerRegistration<BaseGraphActivationInput, BaseGraphActivationResult> registration,
+        byte[] graphChecksum,
+        string graphId,
+        string graphVersion)
+    {
+        Registration = registration;
+        GraphChecksum = graphChecksum.ToArray();
+        GraphId = new string(graphId.AsSpan());
+        GraphVersion = new string(graphVersion.AsSpan());
+    }
+
+    /// <summary>Gets the graph-owned activation registration installed into HPD.Base.</summary>
+    public BaseActivationHandlerRegistration<BaseGraphActivationInput, BaseGraphActivationResult> Registration { get; }
+    /// <summary>Gets the exact installed graph checksum.</summary>
+    public ReadOnlyMemory<byte> GraphChecksum { get; }
+    /// <summary>Gets the exact graph identity.</summary>
+    public string GraphId { get; }
+    /// <summary>Gets the exact graph semantic version.</summary>
+    public string GraphVersion { get; }
+
+    /// <summary>Creates one graph-bound activation input from canonical UTF-8 JSON.</summary>
+    public BaseGraphActivationInput CreateInput(
+        string executionId,
+        ReadOnlyMemory<byte> canonicalInput,
+        long? logicalIntervalStart = null,
+        long? logicalIntervalEnd = null,
+        string? checkpointId = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(executionId);
+        byte[] normalized = BaseGraphActivationRegistration.CanonicalJson(canonicalInput.Span);
+        if (!normalized.AsSpan().SequenceEqual(canonicalInput.Span))
+            throw new InvalidOperationException("hpd.graph.activation.inputNotCanonical");
+        if (logicalIntervalStart is < 0 || logicalIntervalEnd is < 0
+            || logicalIntervalStart is not null && logicalIntervalEnd is not null
+                && logicalIntervalStart > logicalIntervalEnd)
+            throw new InvalidOperationException("hpd.graph.activation.intervalInvalid");
+        return new BaseGraphActivationInput
+        {
+            GraphId = GraphId,
+            GraphVersion = GraphVersion,
+            GraphChecksum = GraphChecksum.ToArray().ToImmutableArray(),
+            ExecutionId = new string(executionId.AsSpan()),
+            CanonicalInput = canonicalInput.ToArray().ToImmutableArray(),
+            LogicalIntervalStart = logicalIntervalStart,
+            LogicalIntervalEnd = logicalIntervalEnd,
+            CheckpointId = checkpointId is null ? null : new string(checkpointId.AsSpan()),
+        };
+    }
+}
+
 /// <summary>Builds exact HPD-Graph activation registrations for HPD.Base.</summary>
 public static class BaseGraphActivationRegistration
 {
     /// <summary>Creates one graph-version-bound activation and Native-AOT-safe handler factory.</summary>
-    public static BaseActivationHandlerRegistration<BaseGraphActivationInput, BaseGraphActivationResult> Create(
+    public static BaseGraphActivationDefinition Create(
         GraphConfig graph,
         int definitionVersion,
         BaseActivationGrantSet grants,
@@ -108,11 +162,12 @@ public static class BaseGraphActivationRegistration
         GraphConfig retained = JsonSerializer.Deserialize(
             graphBytes, HPD.Graph.Abstractions.Serialization.GraphConfigJsonSerializerContext.Default.GraphConfig)
             ?? throw new InvalidOperationException("hpd.graph.activation.definitionInvalid");
-        return BaseActivationDefinitionBuilder.Create(
+        BaseActivationHandlerRegistration<BaseGraphActivationInput, BaseGraphActivationResult> registration = BaseActivationDefinitionBuilder.Create(
             definition,
             BaseGraphActivationJsonContext.Default.BaseGraphActivationInput,
             BaseGraphActivationJsonContext.Default.BaseGraphActivationResult,
             services => new BaseGraphActivationHandler(services, retained, graphChecksum));
+        return new BaseGraphActivationDefinition(registration, graphChecksum, graph.GraphId, graph.GraphVersion);
     }
 
     private static byte[] HandlerChecksum(string id, string version, byte[] graphChecksum)
@@ -132,6 +187,14 @@ public static class BaseGraphActivationRegistration
         byte[] source = JsonSerializer.SerializeToUtf8Bytes(
             graph, HPD.Graph.Abstractions.Serialization.GraphConfigJsonSerializerContext.Default.GraphConfig);
         using JsonDocument document = JsonDocument.Parse(source);
+        using var stream = new MemoryStream(source.Length);
+        using (var writer = new Utf8JsonWriter(stream)) WriteCanonical(writer, document.RootElement);
+        return stream.ToArray();
+    }
+
+    internal static byte[] CanonicalJson(ReadOnlySpan<byte> source)
+    {
+        using JsonDocument document = JsonDocument.Parse(source.ToArray());
         using var stream = new MemoryStream(source.Length);
         using (var writer = new Utf8JsonWriter(stream)) WriteCanonical(writer, document.RootElement);
         return stream.ToArray();
