@@ -407,7 +407,7 @@ public sealed partial class SqliteModuleMutationTests
         bool applyTwice,
         BaseAtomicMutationExecutionLimits? suppliedLimits = null) : IAtomicMutationProcessor
     {
-        public BasePreparedAtomicMutation? Prepared { get; private set; }
+        public BasePreparedAtomicExecution? Prepared { get; private set; }
         public string? RejectedCode { get; private set; }
 
         public async ValueTask<AtomicMutationProcessingResult> ProcessAsync(
@@ -415,7 +415,7 @@ public sealed partial class SqliteModuleMutationTests
             CancellationToken cancellationToken = default)
         {
             BaseAtomicMutationExecutionLimits limits = suppliedLimits ?? ExecutionLimits();
-            var capture = new BaseAtomicMutationCaptureRequest
+            var capture = new BaseAtomicExecutionRequest
             {
                 Kind = BaseAtomicMutationExecutionKind.ModuleMutation,
                 Intent = new BaseAtomicMutationIntent { IntentDigest = "l50-probe-intent", Authority = authority, Items = [] },
@@ -433,14 +433,14 @@ public sealed partial class SqliteModuleMutationTests
                 },
                 Limits = limits,
             };
-            OperationResult<BaseCapturedAtomicMutationAuthority> captured =
-                await session.CaptureAtomicMutationAuthorityAsync(capture, cancellationToken);
+            OperationResult<BaseCapturedAtomicExecution> captured =
+                await session.CaptureAtomicExecutionAsync(capture, cancellationToken);
             if (!captured.IsSuccess() || captured.Value is null)
             {
                 RejectedCode = captured.Error?.Code;
                 return Failure(captured.Error);
             }
-            var plan = new BaseAtomicMutationPlan
+            var plan = new BaseFinalizedAtomicExecutionPlan
             {
                 Kind = BaseAtomicMutationExecutionKind.ModuleMutation, PlanDigest = "l50-probe-plan",
                 IntentDigest = capture.Intent.IntentDigest, CaptureDigest = captured.Value.CaptureDigest,
@@ -459,8 +459,8 @@ public sealed partial class SqliteModuleMutationTests
                     ResultProjectionDigest = "l50-probe-result",
                 },
             };
-            OperationResult<BasePreparedAtomicMutation> prepared =
-                await session.PrepareAtomicMutationAsync(captured.Value, plan, cancellationToken);
+            OperationResult<BasePreparedAtomicExecution> prepared =
+                await session.PrepareAtomicExecutionAsync(captured.Value, plan, cancellationToken);
             if (!prepared.IsSuccess() || prepared.Value is null)
             {
                 RejectedCode = prepared.Error?.Code;
@@ -468,25 +468,25 @@ public sealed partial class SqliteModuleMutationTests
             }
             Prepared = prepared.Value;
             if (!applyTwice) return Failure(null);
-            OperationResult<BaseProvisionalAppliedAtomicMutation> first =
-                await session.ApplyPreparedAtomicMutationAsync(prepared.Value, cancellationToken);
+            OperationResult<BaseProvisionalAtomicExecution> first =
+                await session.ApplyPreparedAtomicExecutionAsync(prepared.Value, cancellationToken);
             if (!first.IsSuccess()) return Failure(first.Error);
-            OperationResult<BaseProvisionalAppliedAtomicMutation> second =
-                await session.ApplyPreparedAtomicMutationAsync(prepared.Value, cancellationToken);
+            OperationResult<BaseProvisionalAtomicExecution> second =
+                await session.ApplyPreparedAtomicExecutionAsync(prepared.Value, cancellationToken);
             RejectedCode = second.Error?.Code;
             return Failure(second.Error);
         }
     }
 
-    private sealed class ForeignPreparedProbe(BasePreparedAtomicMutation prepared) : IAtomicMutationProcessor
+    private sealed class ForeignPreparedProbe(BasePreparedAtomicExecution prepared) : IAtomicMutationProcessor
     {
         public string? RejectedCode { get; private set; }
         public async ValueTask<AtomicMutationProcessingResult> ProcessAsync(
             IAtomicRecordSession session,
             CancellationToken cancellationToken = default)
         {
-            OperationResult<BaseProvisionalAppliedAtomicMutation> result =
-                await session.ApplyPreparedAtomicMutationAsync(prepared, cancellationToken);
+            OperationResult<BaseProvisionalAtomicExecution> result =
+                await session.ApplyPreparedAtomicExecutionAsync(prepared, cancellationToken);
             RejectedCode = result.Error?.Code;
             return Failure(result.Error);
         }

@@ -210,17 +210,17 @@ public sealed class BaseModuleProgramEvaluatorTests
             OperationId = "module.create", OperationVersion = 1, OperationChecksum = new string('a', 64),
             RequestDigest = new string('b', 64), Records = [], RelationTargets = [.. expected], Generations = [],
         };
-        BaseCapturedAtomicMutationAuthority valid = RelationEvidence(expected, requirement);
+        BaseCapturedAtomicExecution valid = RelationEvidence(expected, requirement);
         BaseModuleMutationProcessor<CreateRequest, CreateResult>.CapturedMatches(
             intent, extension, DefaultBaseModuleMutationRuntime.ResolveExecutionLimits(Limits()), valid).Should().BeTrue();
 
-        BaseCapturedAtomicMutationAuthority[] hostile =
+        BaseCapturedAtomicExecution[] hostile =
         [
             Reframe(valid, [valid.ModuleRelationTargets[0]]),
             Reframe(valid, [.. valid.ModuleRelationTargets, valid.ModuleRelationTargets[1] with { Ordinal = 2 }]),
             Reframe(valid, [valid.ModuleRelationTargets[1] with { Ordinal = 0 }, valid.ModuleRelationTargets[0] with { Ordinal = 1 }]),
         ];
-        foreach (BaseCapturedAtomicMutationAuthority evidence in hostile)
+        foreach (BaseCapturedAtomicExecution evidence in hostile)
             BaseModuleMutationProcessor<CreateRequest, CreateResult>.CapturedMatches(
                 intent, extension, DefaultBaseModuleMutationRuntime.ResolveExecutionLimits(Limits()), evidence).Should().BeFalse();
     }
@@ -231,7 +231,7 @@ public sealed class BaseModuleProgramEvaluatorTests
         SchemaGeneration = 1, Collections = [],
     };
 
-    private static BaseCapturedAtomicMutationAuthority RelationEvidence(
+    private static BaseCapturedAtomicExecution RelationEvidence(
         IReadOnlyList<BaseModuleRelationTargetCaptureRequest> expected,
         BaseAtomicMutationAuthorityRequirement requirement)
     {
@@ -244,7 +244,7 @@ public sealed class BaseModuleProgramEvaluatorTests
             UpperInclusive = true,
         })];
         long evidenceBytes = BaseSubjectCanonicalRetainedWork.MeasureIntervals(intervals);
-        return new BaseCapturedAtomicMutationAuthority
+        return new BaseCapturedAtomicExecution
         {
             Kind = BaseAtomicMutationExecutionKind.ModuleMutation, IntentDigest = "intent", CaptureDigest = new string('c', 64),
             Authority = new BaseAtomicMutationAuthorityEvidence
@@ -270,8 +270,8 @@ public sealed class BaseModuleProgramEvaluatorTests
         };
     }
 
-    private static BaseCapturedAtomicMutationAuthority Reframe(
-        BaseCapturedAtomicMutationAuthority value,
+    private static BaseCapturedAtomicExecution Reframe(
+        BaseCapturedAtomicExecution value,
         ImmutableArray<BaseCapturedModuleRelationTarget> relations) => value with
     {
         ModuleRelationTargets = relations,
@@ -813,7 +813,7 @@ public sealed class BaseModuleProgramEvaluatorTests
     {
         BaseGeneratedModuleMutationIdentity<EvaluatorRequest, EvaluatorResult> identity = Identity();
         BaseRegisteredModuleMutationDefinition definition = Definition();
-        BaseCapturedAtomicMutationAuthority captured = Captured();
+        BaseCapturedAtomicExecution captured = Captured();
         var evaluator = new BaseModuleProgramEvaluator<EvaluatorRequest, EvaluatorResult>(
             definition,
             identity,
@@ -1101,7 +1101,7 @@ public sealed class BaseModuleProgramEvaluatorTests
         Id = id, ResultTypeId = "json", CanonicalBaseJson = bytes.ToArray().ToImmutableArray(),
     };
 
-    private static BaseCapturedAtomicMutationAuthority Captured() => new()
+    private static BaseCapturedAtomicExecution Captured() => new()
     {
         Kind = BaseAtomicMutationExecutionKind.ModuleMutation,
         IntentDigest = "intent", CaptureDigest = "capture", Authority = null!,

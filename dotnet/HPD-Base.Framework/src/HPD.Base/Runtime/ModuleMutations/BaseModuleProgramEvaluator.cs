@@ -33,7 +33,7 @@ internal sealed class BaseModuleProgramEvaluator<TRequest, TResult>
         BaseRegisteredModuleMutationDefinition definition,
         BaseGeneratedModuleMutationIdentity<TRequest, TResult> identity,
         TRequest request,
-        BaseCapturedAtomicMutationAuthority? captured,
+        BaseCapturedAtomicExecution? captured,
         IReadOnlyDictionary<string, CollectionDefinition> collections)
     {
         _definition = definition;

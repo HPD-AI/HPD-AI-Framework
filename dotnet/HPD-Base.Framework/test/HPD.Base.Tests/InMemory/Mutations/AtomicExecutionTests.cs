@@ -367,14 +367,14 @@ public sealed class AtomicExecutionTests
         BaseAtomicMutationExecutionLimits limits,
         bool applyTwice) : IAtomicMutationProcessor
     {
-        public BasePreparedAtomicMutation? Prepared { get; private set; }
+        public BasePreparedAtomicExecution? Prepared { get; private set; }
         public string? RejectedCode { get; private set; }
 
         public async ValueTask<AtomicMutationProcessingResult> ProcessAsync(
             IAtomicRecordSession session,
             CancellationToken cancellationToken = default)
         {
-            var capture = new BaseAtomicMutationCaptureRequest
+            var capture = new BaseAtomicExecutionRequest
             {
                 Kind = BaseAtomicMutationExecutionKind.ModuleMutation,
                 Intent = new BaseAtomicMutationIntent
@@ -395,14 +395,14 @@ public sealed class AtomicExecutionTests
                 },
                 Limits = limits,
             };
-            OperationResult<BaseCapturedAtomicMutationAuthority> captured =
-                await session.CaptureAtomicMutationAuthorityAsync(capture, cancellationToken);
+            OperationResult<BaseCapturedAtomicExecution> captured =
+                await session.CaptureAtomicExecutionAsync(capture, cancellationToken);
             if (!captured.IsSuccess() || captured.Value is null)
             {
                 RejectedCode = captured.Error?.Code;
                 return ProbeFailure(captured.Error);
             }
-            var plan = new BaseAtomicMutationPlan
+            var plan = new BaseFinalizedAtomicExecutionPlan
             {
                 Kind = BaseAtomicMutationExecutionKind.ModuleMutation, PlanDigest = "in-memory-l50-probe-plan",
                 IntentDigest = capture.Intent.IntentDigest, CaptureDigest = captured.Value.CaptureDigest,
@@ -420,8 +420,8 @@ public sealed class AtomicExecutionTests
                     ResultProjectionDigest = "in-memory-l50-probe-result",
                 },
             };
-            OperationResult<BasePreparedAtomicMutation> prepared =
-                await session.PrepareAtomicMutationAsync(captured.Value, plan, cancellationToken);
+            OperationResult<BasePreparedAtomicExecution> prepared =
+                await session.PrepareAtomicExecutionAsync(captured.Value, plan, cancellationToken);
             if (!prepared.IsSuccess() || prepared.Value is null)
             {
                 RejectedCode = prepared.Error?.Code;
@@ -429,17 +429,17 @@ public sealed class AtomicExecutionTests
             }
             Prepared = prepared.Value;
             if (!applyTwice) return ProbeFailure(null);
-            OperationResult<BaseProvisionalAppliedAtomicMutation> first =
-                await session.ApplyPreparedAtomicMutationAsync(prepared.Value, cancellationToken);
+            OperationResult<BaseProvisionalAtomicExecution> first =
+                await session.ApplyPreparedAtomicExecutionAsync(prepared.Value, cancellationToken);
             if (!first.IsSuccess()) return ProbeFailure(first.Error);
-            OperationResult<BaseProvisionalAppliedAtomicMutation> second =
-                await session.ApplyPreparedAtomicMutationAsync(prepared.Value, cancellationToken);
+            OperationResult<BaseProvisionalAtomicExecution> second =
+                await session.ApplyPreparedAtomicExecutionAsync(prepared.Value, cancellationToken);
             RejectedCode = second.Error?.Code;
             return ProbeFailure(second.Error);
         }
     }
 
-    private sealed class ForeignPreparedModuleProbe(BasePreparedAtomicMutation prepared) : IAtomicMutationProcessor
+    private sealed class ForeignPreparedModuleProbe(BasePreparedAtomicExecution prepared) : IAtomicMutationProcessor
     {
         public string? RejectedCode { get; private set; }
 
@@ -447,8 +447,8 @@ public sealed class AtomicExecutionTests
             IAtomicRecordSession session,
             CancellationToken cancellationToken = default)
         {
-            OperationResult<BaseProvisionalAppliedAtomicMutation> result =
-                await session.ApplyPreparedAtomicMutationAsync(prepared, cancellationToken);
+            OperationResult<BaseProvisionalAtomicExecution> result =
+                await session.ApplyPreparedAtomicExecutionAsync(prepared, cancellationToken);
             RejectedCode = result.Error?.Code;
             return ProbeFailure(result.Error);
         }

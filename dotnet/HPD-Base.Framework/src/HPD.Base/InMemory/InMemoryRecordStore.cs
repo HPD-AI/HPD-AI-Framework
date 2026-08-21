@@ -12,414 +12,8 @@ namespace HPD.Base;
 /// <summary>
 /// Process-local, thread-safe, non-durable HPD.BASE record store implementation.
 /// </summary>
-internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreamingRecordStore, IRelationalReadStore, IConsistentRecordIncludeStore, IInMemoryProjectionAuthority, ITransactionalMutationJournalStore, IBaseSubjectAdministration, IBaseSubjectPublicationStore, IBaseSubjectValidationPlanReceiptStore, IBaseSubjectLifecycleStore, IBaseSubjectRetirementStore, IBaseSubjectAuthorityMaintenanceStore
+internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreamingRecordStore, IRelationalReadStore, IConsistentRecordIncludeStore, IInMemoryProjectionAuthority, ITransactionalMutationJournalStore, IBaseSubjectAdministration, IBaseSubjectPublicationStore, IBaseSubjectValidationPlanReceiptStore
 {
-    public ValueTask<RecordMutationExecutionResult> ExecuteAsync(IAtomicMutationProcessor processor, RecordMutationExecutionRequest request, CancellationToken cancellationToken = default) =>
-        ExecuteAtomicAsync(processor, request, cancellationToken);
-
-    public async ValueTask<OperationResult<BaseSubjectRetirementPublicationPage>> ReadPublicationsAsync(BaseSubjectRetirementPublicationReadRequest request, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(request);if(request.Take is<1 or>256)return RetirementReadFailure<BaseSubjectRetirementPublicationPage>(OperationStatus.ValidationFailed,BaseSubjectRetirementErrorCodes.ContractInvalid,ErrorCategory.Validation);
-        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);try{InMemoryStoreState state=Volatile.Read(ref _publishedState);long high=state.SubjectRetirementPosition;long after=request.After?.Value??0;ImmutableArray<BaseSubjectRetirementPublicationRow> rows=[..state.SubjectRetirementPublications.Where(value=>value.Fact.Position.Value>after&&value.Fact.Position.Value<=high).OrderBy(value=>value.Fact.Position.Value).Take(request.Take).Select(CloneRetirementPublication)];return OperationResults.Ok(new BaseSubjectRetirementPublicationPage{Rows=rows,HighWater=high==0?default:new(high)});}finally{_stateGate.Release();}
-    }
-
-    private static BaseSubjectRetirementPublicationRow CloneRetirementPublication(BaseSubjectRetirementPublicationRow row)=>new(){Scope=row.Scope is null?null:CloneRetirementScope(row.Scope),Fact=row.Fact with{Barrier=row.Fact.Barrier is null?null:row.Fact.Barrier with{},AdvisoryAcknowledgement=row.Fact.AdvisoryAcknowledgement is null?null:row.Fact.AdvisoryAcknowledgement with{},Purged=row.Fact.Purged is null?null:row.Fact.Purged with{},ConsumerSet=row.Fact.ConsumerSet is null?null:row.Fact.ConsumerSet with{},Restore=row.Fact.Restore is null?null:row.Fact.Restore with{}}};
-
-    public async ValueTask<OperationResult<BaseSubjectRetirementBarrierPage>> ReadBarriersAsync(BaseSubjectRetirementBarrierReadRequest request, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        if (request.DeadlineUtc <= _timeProvider.GetUtcNow() || request.Take is < 1 or > 256 || request.MaximumResultBytes is < 1 or > 1_048_576)
-            return RetirementReadFailure<BaseSubjectRetirementBarrierPage>(OperationStatus.ValidationFailed, BaseSubjectRetirementErrorCodes.ContractInvalid, ErrorCategory.Validation);
-        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            BaseExportedSubjectDefinition? installedContract=(_options.ExportedSubjects??[]).SingleOrDefault(value=>value.Id==request.ContractId&&value.Version==request.ContractVersion);
-            bool exactAuthority=request.ScopeAuthority.Mode==BaseSubjectScopeQueryMode.ExactScope&&installedContract is not null&&string.Equals(request.ScopeAuthority.InstalledAuthorityDigest,BaseSubjectContractGraph.Checksum(installedContract),StringComparison.Ordinal);bool allAuthority=request.ScopeAuthority.Mode==BaseSubjectScopeQueryMode.AllAuthorizedScopes&&request.ScopeAuthority.ExactScope is null&&_options.SubjectLifecycleInspectionAuthorities.Any(value=>value.ContractId==request.ContractId&&value.ContractVersion==request.ContractVersion&&value.Digest==request.ScopeAuthority.InstalledAuthorityDigest);
-            if(installedContract is null||!exactAuthority&&!allAuthority)
-                return RetirementReadFailure<BaseSubjectRetirementBarrierPage>(OperationStatus.CapabilityUnavailable,BaseSubjectRetirementErrorCodes.ProviderContractInvalid,ErrorCategory.Capability);
-            BaseProtectedSubjectScope? exact = request.ScopeAuthority.Mode == BaseSubjectScopeQueryMode.ExactScope && request.ScopeAuthority.ExactScope is { } scope
-                ? _subjectScopes.Protect(scope, _subjectScopeProtectionKey) : null;
-            if (request.ScopeAuthority.Mode == BaseSubjectScopeQueryMode.ExactScope && exact is null)
-                return RetirementReadFailure<BaseSubjectRetirementBarrierPage>(OperationStatus.ValidationFailed, BaseSubjectRetirementErrorCodes.ContractInvalid, ErrorCategory.Validation);
-            IEnumerable<InMemorySubjectRetirementBarrierState> source = Volatile.Read(ref _publishedState).SubjectRetirementBarriers.Values
-                .Where(value => value.Barrier.ContractId == request.ContractId && value.Barrier.ContractVersion == request.ContractVersion)
-                .Where(value => exact is null || ProtectedScopeEquals(value.Scope, exact))
-                .Where(value => request.State is null || value.Barrier.State == request.State)
-                .OrderBy(static value => (int)value.Scope.Kind).ThenBy(static value => Convert.ToHexString(value.Scope.IndexDigest), StringComparer.Ordinal)
-                .ThenBy(static value => value.Barrier.SubjectId.Value, StringComparer.Ordinal)
-                .ThenBy(static value => value.Barrier.AuthorityEpoch.ToBase64Url(), StringComparer.Ordinal)
-                .ThenBy(static value => value.Barrier.Incarnation.ToBase64Url(), StringComparer.Ordinal);
-            if (request.After is { } after) source = source.Where(value => CompareRetirementKey(Key(value), after) > 0);
-            InMemorySubjectRetirementBarrierState[] rows = source.Take(request.Take + 1).ToArray();
-            bool more = rows.Length > request.Take; if (more) rows = rows[..request.Take];
-            long resultBytes = rows.Sum(static row => RetirementBarrierBytes(row.Barrier));
-            if (resultBytes > request.MaximumResultBytes)
-                return RetirementReadFailure<BaseSubjectRetirementBarrierPage>(OperationStatus.ValidationFailed, BaseSubjectErrorCodes.BudgetExceeded, ErrorCategory.Validation);
-            ImmutableArray<BaseSubjectRetirementBarrierRow> barriers = [.. rows.Select(static row => new BaseSubjectRetirementBarrierRow { Scope = CloneRetirementScope(row.Scope), Barrier = row.Barrier with { }, AcknowledgementChecksumInputs=[..row.Acknowledgements.Values.Select(static value=>BaseSubjectRetirementRegistry.AcknowledgementChecksumInput(value.ConsumerId,value.ConsumerVersion,value.ConsumerChecksum,value.ThroughSequence,value.Disposition,value.Position)).Order(StringComparer.Ordinal)] })];
-            BaseSubjectRetirementBarrierKey? next = more && rows.Length != 0 ? Key(rows[^1]) : null;
-            ImmutableArray<BaseReadIntervalEvidence> intervals = BaseSubjectRetirementReadIntervals.Create(request.ContractId, request.ContractVersion, request.State, exact, request.After, rows.Length == 0 ? request.After : Key(rows[^1]));
-            BaseReadIntervalEvidence interval = intervals[0]; byte[] lower = interval.LowerInclusive; byte[] upper = interval.UpperInclusive;
-            int acknowledgementRows=barriers.Sum(static row=>row.AcknowledgementChecksumInputs.Length);long acknowledgementBytes=barriers.Sum(static row=>row.AcknowledgementChecksumInputs.Sum(static value=>(long)Encoding.UTF8.GetByteCount(value)));long evidenceBytes = checked(lower.LongLength + upper.LongLength+acknowledgementBytes);
-            return OperationResults.Ok(new BaseSubjectRetirementBarrierPage
-            {
-                Barriers = barriers, Next = next, CapturedBarrierGeneration = Volatile.Read(ref _publishedState).SubjectRetirementPosition,
-                Intervals = intervals, Accounting = new BaseSubjectRetirementReadAccounting { BarrierRows = rows.Length, AcknowledgementRows = acknowledgementRows, ResultBytes = resultBytes, EvidenceBytes = evidenceBytes, TransientBytes = checked(resultBytes + evidenceBytes) },
-            });
-        }
-        finally { _stateGate.Release(); }
-    }
-
-    async ValueTask<OperationResult<BaseSubjectRetirementInspection>> IBaseSubjectRetirementStore.InspectAsync(BaseSubjectRetirementInspectionRequest request, CancellationToken cancellationToken)
-    {
-        _options.SubjectRetirementInspectionStarted?.Invoke();
-        ArgumentNullException.ThrowIfNull(request);
-        if (request.DeadlineUtc <= _timeProvider.GetUtcNow() || request.MaximumResultBytes is < 1 or > 1_048_576 || request.ScopeAuthority.Mode != BaseSubjectScopeQueryMode.ExactScope || request.ScopeAuthority.ExactScope is null)
-            return RetirementReadFailure<BaseSubjectRetirementInspection>(OperationStatus.ValidationFailed, BaseSubjectRetirementErrorCodes.ContractInvalid, ErrorCategory.Validation);
-        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            BaseExportedSubjectDefinition? installedContract=(_options.ExportedSubjects??[]).SingleOrDefault(value=>value.Id==request.ContractId&&value.Version==request.ContractVersion);
-            if(installedContract is null||!string.Equals(request.ScopeAuthority.InstalledAuthorityDigest,BaseSubjectContractGraph.Checksum(installedContract),StringComparison.Ordinal))
-                return RetirementReadFailure<BaseSubjectRetirementInspection>(OperationStatus.CapabilityUnavailable,BaseSubjectRetirementErrorCodes.ProviderContractInvalid,ErrorCategory.Capability);
-            BaseProtectedSubjectScope scope = _subjectScopes.Protect(request.ScopeAuthority.ExactScope, _subjectScopeProtectionKey);
-            string key = RetirementKey(scope, request.ContractId, request.ContractVersion, request.SubjectId, request.AuthorityEpoch, request.Incarnation);
-            InMemoryStoreState state = Volatile.Read(ref _publishedState);
-            state.SubjectRetirementBarriers.TryGetValue(key, out InMemorySubjectRetirementBarrierState? current);
-            state.SubjectRetirementTerminals.TryGetValue(key, out InMemorySubjectRetirementTerminalState? terminal);
-            BaseSubjectRetirementTerminalSummary? summary = request.IncludeTerminalSummary && terminal is not null ? new BaseSubjectRetirementTerminalSummary
-            {
-                ContractId = terminal.Receipt.ContractId, ContractVersion = terminal.Receipt.ContractVersion, SubjectId = terminal.Receipt.SubjectId,
-                AuthorityEpoch = terminal.Receipt.AuthorityEpoch, Incarnation = terminal.Receipt.Incarnation, TombstoneSequence = terminal.Receipt.TombstoneSequence,
-                RetiredPosition = terminal.Receipt.RetiredPosition, PurgedAtUtc = terminal.Receipt.PurgedAtUtc,
-                TerminalReceiptChecksum = terminal.Receipt.ReceiptChecksum,
-            } : null;
-            if (current is not null && summary is not null)
-                return RetirementReadFailure<BaseSubjectRetirementInspection>(OperationStatus.StoreError, BaseSubjectRetirementErrorCodes.ProviderContractInvalid, ErrorCategory.Store);
-            long resultBytes = current is null ? summary is null ? 0 : 256 : RetirementBarrierBytes(current.Barrier);ImmutableArray<string> acknowledgementInputs=current is null?[]:[..current.Acknowledgements.Values.Select(static value=>BaseSubjectRetirementRegistry.AcknowledgementChecksumInput(value.ConsumerId,value.ConsumerVersion,value.ConsumerChecksum,value.ThroughSequence,value.Disposition,value.Position)).Order(StringComparer.Ordinal)];long evidenceBytes=acknowledgementInputs.Sum(static value=>(long)Encoding.UTF8.GetByteCount(value));
-            return OperationResults.Ok(new BaseSubjectRetirementInspection
-            {
-                Scope = CloneRetirementScope(scope), CurrentBarrier = current is null ? null : current.Barrier with { }, TerminalSummary = summary,
-                AcknowledgementChecksumInputs=acknowledgementInputs,
-                Accounting = new BaseSubjectRetirementReadAccounting { BarrierRows = current is null ? 0 : 1, AcknowledgementRows = acknowledgementInputs.Length, ResultBytes = resultBytes, EvidenceBytes = evidenceBytes, TransientBytes = checked(resultBytes+evidenceBytes) },
-            });
-        }
-        finally { _stateGate.Release(); }
-    }
-
-    private static OperationResult<T> RetirementReadFailure<T>(OperationStatus status, string code, ErrorCategory category) => new()
-    { Status = status, Error = new BaseError { Code = code, Message = "The subject retirement barrier is unavailable.", Category = category } };
-
-    private static BaseSubjectRetirementBarrierKey Key(InMemorySubjectRetirementBarrierState value) => new()
-    { ScopeKind = value.Scope.Kind, ScopeIndexDigest = value.Scope.IndexDigest.ToArray(), ContractId = value.Barrier.ContractId, ContractVersion = value.Barrier.ContractVersion, SubjectId = value.Barrier.SubjectId, AuthorityEpoch = value.Barrier.AuthorityEpoch, Incarnation = value.Barrier.Incarnation };
-    private static int CompareRetirementKey(BaseSubjectRetirementBarrierKey left, BaseSubjectRetirementBarrierKey right) =>
-        RetirementKeyBytes(left).AsSpan().SequenceCompareTo(RetirementKeyBytes(right));
-    private static byte[] RetirementKeyBytes(BaseSubjectRetirementBarrierKey key) => Encoding.UTF8.GetBytes($"{(int)key.ScopeKind:D2}\0{Convert.ToHexString(key.ScopeIndexDigest)}\0{key.ContractId}\0{key.ContractVersion:D10}\0{key.SubjectId.Value}\0{key.AuthorityEpoch.ToBase64Url()}\0{key.Incarnation.ToBase64Url()}");
-    private static long RetirementBarrierBytes(BaseSubjectRetirementBarrier barrier) => Encoding.UTF8.GetByteCount($"{barrier.ContractId}\0{barrier.ContractVersion}\0{barrier.SubjectId.Value}\0{barrier.AuthorityEpoch.ToBase64Url()}\0{barrier.Incarnation.ToBase64Url()}\0{barrier.TombstoneSequence}\0{barrier.RequiredConsumerSetChecksum}\0{barrier.CreatedAtUtc.UtcTicks}\0{barrier.DeadlineUtc.UtcTicks}\0{(int)barrier.State}\0{barrier.Generation}\0{barrier.BarrierChecksum}");
-    private static BaseProtectedSubjectScope CloneRetirementScope(BaseProtectedSubjectScope scope) => new() { Kind = scope.Kind, IndexDigest = scope.IndexDigest.ToArray(), ProtectedCanonicalValue = scope.ProtectedCanonicalValue.ToArray() };
-
-    /// <inheritdoc />
-    public ValueTask<RecordMutationExecutionResult> AdvanceCheckpointAsync(
-        IAtomicMutationProcessor processor,
-        RecordMutationExecutionRequest execution,
-        CancellationToken cancellationToken = default) =>
-        ExecuteAtomicAsync(processor, execution, cancellationToken);
-
-    /// <inheritdoc />
-    public async ValueTask<OperationResult<BaseSubjectLifecycleProviderPage>> ReadAsync(
-        BaseSubjectLifecycleProviderReadRequest request,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        if (_lifecycleMaintenance is not null) return LifecycleReadFailure(BaseSubjectErrorCodes.MaintenanceRequired, OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
-        if (request.Take is < 1 or > 256 || request.MaximumResultBytes is < 1 or > 1_048_576 || request.DeadlineUtc <= _timeProvider.GetUtcNow())
-            return LifecycleReadFailure(BaseSubjectErrorCodes.LifecycleContractInvalid, OperationStatus.ValidationFailed, ErrorCategory.Validation);
-        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            InMemoryStoreState state = Volatile.Read(ref _publishedState);
-            BaseExportedSubjectDefinition? contract = _options.ExportedSubjects.SingleOrDefault(value => value.Id == request.ContractId && value.Version == request.ContractVersion);
-            string consumerKey = $"{request.ConsumerId}\n{request.ConsumerVersion}";
-            InMemorySubjectLifecycleConsumerProjection? projection = state.SubjectLifecycleConsumers.GetValueOrDefault(consumerKey);
-            if (contract is null || BaseSubjectContractGraph.Checksum(contract) != request.ContractChecksum
-                || projection is null || projection.ContractId != request.ContractId || projection.ContractVersion != request.ContractVersion
-                || projection.ConsumerChecksum != request.ConsumerChecksum)
-                return LifecycleReadFailure(BaseSubjectErrorCodes.LifecycleProviderContractInvalid);
-            BaseProtectedSubjectScope protectedScope = _subjectScopes.Protect(request.Scope, _subjectScopeProtectionKey);
-            string scopeKey = ProtectedScopeKey(request.ConsumerId, request.ConsumerVersion, protectedScope);
-            InMemorySubjectLifecycleCheckpointState? durableCheckpoint = state.SubjectLifecycleCheckpoints.GetValueOrDefault(scopeKey);
-            if (durableCheckpoint?.Overtaken == true)
-                return LifecycleReadFailure(BaseSubjectErrorCodes.CursorOvertaken, OperationStatus.Conflict, ErrorCategory.Conflict);
-            if (projection.ProjectionGeneration != request.ProjectionGeneration)
-                return LifecycleReadFailure(BaseSubjectErrorCodes.LifecycleProviderContractInvalid);
-            BaseSubjectLifecycleOrderingBoundary? durableThrough = durableCheckpoint?.Through;
-            BaseSubjectLifecycleOrderingBoundary? effectiveAfter = request.After is null ? durableThrough
-                : durableThrough is null || CompareBoundary(request.After, durableThrough) >= 0 ? request.After : durableThrough;
-            IEnumerable<(InMemorySubjectLifecycleMembershipRow Membership, InMemorySubjectLifecycleFactRow Row)> retained =
-                state.SubjectLifecycleMembershipIndex.GetValueOrDefault(scopeKey, [])
-                    .Select(index => state.SubjectLifecycleMemberships[index])
-                    .Where(membership => membership.ConsumerChecksum == request.ConsumerChecksum && membership.ProjectionGeneration == request.ProjectionGeneration)
-                    .Select(membership => (Membership: membership, Row: state.SubjectLifecycleFacts[membership.FactIndex]))
-                    .Where(pair => pair.Row.Fact.ContractId == request.ContractId && pair.Row.Fact.ContractVersion == request.ContractVersion
-                        && ProtectedScopeEquals(pair.Membership.Scope, protectedScope) && ProtectedScopeEquals(pair.Row.Scope, protectedScope));
-            BaseSubjectLifecycleOrderingBoundary? earliest = retained.OrderBy(static pair => pair.Row.Boundary, BaseLifecycleBoundaryComparer.Instance).Select(static pair => pair.Row.Boundary).FirstOrDefault();
-            BaseSubjectLifecycleOrderingBoundary? high = retained.OrderByDescending(static pair => pair.Row.Boundary, BaseLifecycleBoundaryComparer.Instance).Select(static pair => pair.Row.Boundary).FirstOrDefault();
-            if (effectiveAfter is not null && earliest is not null && CompareBoundary(effectiveAfter, earliest) < 0)
-                return LifecycleReadFailure(BaseSubjectErrorCodes.CursorOvertaken, OperationStatus.Conflict, ErrorCategory.Conflict);
-            IEnumerable<(InMemorySubjectLifecycleMembershipRow Membership, InMemorySubjectLifecycleFactRow Row)> query = retained;
-            if (effectiveAfter is not null) query = query.Where(pair => CompareBoundary(pair.Row.Boundary, effectiveAfter) > 0);
-            var facts = ImmutableArray.CreateBuilder<BaseSubjectLifecycleProviderFact>();
-            long bytes = 8;
-            int rowsSought = 0;
-            foreach ((InMemorySubjectLifecycleMembershipRow membership, InMemorySubjectLifecycleFactRow row) in query
-                .OrderBy(static pair => pair.Row.Boundary, BaseLifecycleBoundaryComparer.Instance).Take(request.Take))
-            {
-                rowsSought++;
-                var providerFact = new BaseSubjectLifecycleProviderFact
-                {
-                    Boundary = row.Boundary with { }, Scope = protectedScope with { IndexDigest = (byte[])protectedScope.IndexDigest.Clone(), ProtectedCanonicalValue = (byte[])protectedScope.ProtectedCanonicalValue.Clone() },
-                    Fact = row.Fact with { }, ConsumerId = membership.ConsumerId, ConsumerVersion = membership.ConsumerVersion,
-                    ConsumerChecksum = membership.ConsumerChecksum, ProjectionGeneration = membership.ProjectionGeneration,
-                    MatchedObservedState = membership.MatchedState,
-                };
-                long size = checked(8L + BaseSubjectCanonicalRetainedWork.MeasureLifecycleProviderFact(providerFact));
-                if (checked(bytes + size) > request.MaximumResultBytes)
-                    return facts.Count == 0
-                        ? LifecycleReadFailure(BaseSubjectErrorCodes.LifecycleCapacityExceeded, OperationStatus.StoreError, ErrorCategory.Store)
-                        : OperationResults.Ok(Page());
-                bytes += size;
-                facts.Add(providerFact);
-            }
-            return OperationResults.Ok(Page());
-
-            BaseSubjectLifecycleProviderPage Page()
-            {
-                BaseSubjectLifecycleOrderingBoundary? through = facts.Count == 0 ? null : facts[^1].Boundary;
-                ImmutableArray<BaseReadIntervalEvidence> intervals = BaseSubjectLifecycleReadIntervals.Create(request, protectedScope, through);
-                return new BaseSubjectLifecycleProviderPage
-                {
-                    StoreInstanceId = _options.StoreId, RestoreEpoch = state.SubjectContracts[SubjectContractKey(request.ContractId, request.ContractVersion)].RestoreEpoch,
-                    DeliveryEpoch = state.SubjectLifecycleDeliveryEpoch, CheckpointGeneration = durableCheckpoint?.Generation ?? 0,
-                    Scope = protectedScope, Facts = facts.ToImmutable(), EarliestRetained = earliest, HighWater = high,
-                    Through = through, ProjectionGeneration = projection.ProjectionGeneration, Intervals = intervals,
-                    Accounting = new BaseSubjectLifecycleReadAccounting { RowsSought = rowsSought, RowsHydrated = facts.Count, ResultBytes = bytes, TransientBytes = checked(bytes + BaseSubjectCanonicalRetainedWork.MeasureLifecycleIntervals(intervals)) },
-                };
-            }
-        }
-        finally { _stateGate.Release(); }
-    }
-
-    private static bool ScopeEquals(BaseOwnedSubjectScopeEvidence left, BaseOwnedSubjectScopeEvidence right) => left.Kind == right.Kind && string.Equals(left.Value, right.Value, StringComparison.Ordinal);
-    private static bool ProtectedScopeEquals(BaseProtectedSubjectScope left, BaseProtectedSubjectScope right) =>
-        // ProtectedCanonicalValue is nonce-randomized authenticated ciphertext.
-        // Equality and seek authority are the keyed deterministic index digest;
-        // ciphertext remains retained only for authorized recovery/rotation.
-        left.Kind == right.Kind && CryptographicOperations.FixedTimeEquals(left.IndexDigest, right.IndexDigest);
-    private static string ProtectedScopeKey(string consumerId, int consumerVersion, BaseProtectedSubjectScope scope) =>
-        $"{consumerId}\n{consumerVersion}\n{(int)scope.Kind}\n{Convert.ToHexString(scope.IndexDigest)}";
-
-    private static string RetirementKey(BaseProtectedSubjectScope scope, string contractId, int contractVersion, BaseSubjectId subjectId, BaseSubjectAuthorityEpoch epoch, BaseSubjectIncarnation incarnation) =>
-        $"{(int)scope.Kind}\n{Convert.ToHexString(scope.IndexDigest)}\n{contractId}\n{contractVersion}\n{subjectId.Value}\n{Convert.ToHexString(epoch.ToArray())}\n{Convert.ToHexString(incarnation.ToArray())}";
-    private static int CompareBoundary(BaseSubjectLifecycleOrderingBoundary left, BaseSubjectLifecycleOrderingBoundary right) => BaseLifecycleBoundaryComparer.Instance.Compare(left, right);
-    private static OperationResult<BaseSubjectLifecycleProviderPage> LifecycleReadFailure(string code, OperationStatus status = OperationStatus.StoreError, ErrorCategory category = ErrorCategory.Store) => new()
-    { Status = status, Error = new BaseError { Code = code, Message = "The subject lifecycle provider operation failed.", Category = category } };
-
-    /// <inheritdoc />
-    public async ValueTask<OperationResult<BaseSubjectLifecycleProviderReconciliationPage>> ReconcileAsync(
-        BaseSubjectLifecycleProviderReconciliationRequest request,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        if (!BaseSubjectLifecycleProviderCapabilities.BuiltIn.ReconciliationSupported)
-            return LifecycleReconciliationFailure(BaseSubjectErrorCodes.LifecycleReconciliationUnavailable, OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
-        if (request.Take is < 1 or > 256 || request.MaximumResultBytes is < 1 or > 1_048_576 || request.DeadlineUtc <= _timeProvider.GetUtcNow())
-            return LifecycleReconciliationFailure(BaseSubjectErrorCodes.LifecycleContractInvalid, OperationStatus.ValidationFailed, ErrorCategory.Validation);
-        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            InMemoryStoreState state = Volatile.Read(ref _publishedState);
-            BaseExportedSubjectDefinition? contract = _options.ExportedSubjects.SingleOrDefault(value => value.Id == request.ContractId && value.Version == request.ContractVersion);
-            InMemorySubjectContractState? authority = state.SubjectContracts.GetValueOrDefault(SubjectContractKey(request.ContractId, request.ContractVersion));
-            if (contract is null || authority is null || BaseSubjectContractGraph.Checksum(contract) != request.ContractChecksum)
-                return LifecycleReconciliationFailure(BaseSubjectErrorCodes.LifecycleProviderContractInvalid);
-            BaseProtectedSubjectScope protectedScope = _subjectScopes.Protect(request.Scope, _subjectScopeProtectionKey);
-            IEnumerable<InMemorySubjectLifetimeState> query = state.SubjectLifetimes.Values.Where(value =>
-                value.ContractId == request.ContractId && value.ContractVersion == request.ContractVersion && ScopeEquals(value.Scope, request.Scope));
-            if (request.AfterSubjectId is not null)
-                query = query.Where(value => string.CompareOrdinal(value.SubjectId.Value, request.AfterSubjectId.Value.Value) > 0);
-            var subjects = ImmutableArray.CreateBuilder<BaseCurrentSubjectLifecycle>();
-            long bytes = 0;
-            foreach (InMemorySubjectLifetimeState lifetime in query.OrderBy(static value => value.SubjectId.Value, StringComparer.Ordinal).Take(request.Take))
-            {
-                long size = checked(96L + Encoding.UTF8.GetByteCount(lifetime.SubjectId.Value));
-                if (checked(bytes + size) > request.MaximumResultBytes) break;
-                bytes += size;
-                subjects.Add(new BaseCurrentSubjectLifecycle
-                {
-                    SubjectId = lifetime.SubjectId,
-                    AuthorityEpoch = authority.AuthorityEpoch,
-                    Incarnation = lifetime.Incarnation,
-                    State = lifetime.LifecycleState,
-                    SubjectSequence = lifetime.SubjectSequence,
-                });
-            }
-            BaseSubjectLifecycleOrderingBoundary? highWater = state.SubjectLifecycleFacts
-                .Where(value => value.Fact.ContractId == request.ContractId && value.Fact.ContractVersion == request.ContractVersion && _subjectScopes.Matches(value.Scope, request.Scope))
-                .OrderByDescending(static value => value.Boundary, BaseLifecycleBoundaryComparer.Instance)
-                .Select(static value => value.Boundary).FirstOrDefault();
-            return OperationResults.Ok(new BaseSubjectLifecycleProviderReconciliationPage
-            {
-                Scope = protectedScope,
-                Subjects = subjects.ToImmutable(),
-                NextSubjectId = subjects.Count == request.Take ? subjects[^1].SubjectId : null,
-                CapturedHighWater = highWater,
-                ProjectionGeneration = request.ProjectionGeneration,
-                Intervals = [],
-                Accounting = new BaseSubjectLifecycleReadAccounting { RowsSought = subjects.Count, RowsHydrated = subjects.Count, ResultBytes = bytes, TransientBytes = bytes },
-            });
-        }
-        finally { _stateGate.Release(); }
-    }
-
-    /// <inheritdoc />
-    public ValueTask<OperationResult<BaseSubjectLifecycleProviderInspection>> InspectAsync(
-        BaseSubjectLifecycleProviderInspectionRequest request,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        cancellationToken.ThrowIfCancellationRequested();
-        if (request.DeadlineUtc <= _timeProvider.GetUtcNow())
-            return ValueTask.FromResult(LifecycleInspectionFailure(BaseSubjectErrorCodes.LifecycleContractInvalid, OperationStatus.ValidationFailed, ErrorCategory.Validation));
-        if (request.ScopeAuthority.Mode == BaseSubjectScopeQueryMode.AllAuthorizedScopes
-            && (request.ScopeAuthority.ExactScope is not null || request.IncludeTerminalReceipt || request.SubjectId is not null
-                || !_options.SubjectLifecycleInspectionAuthorities.Any(value =>
-                    value.ContractId == request.ContractId && value.ContractVersion == request.ContractVersion
-                    && string.Equals(value.Digest, request.ScopeAuthority.InstalledAuthorityDigest, StringComparison.Ordinal))))
-            return ValueTask.FromResult(LifecycleInspectionFailure(BaseSubjectErrorCodes.LifecycleUnauthorized, OperationStatus.PolicyDenied, ErrorCategory.Authorization));
-        InMemoryStoreState state = Volatile.Read(ref _publishedState);
-        BaseOwnedSubjectScopeEvidence? scope = request.ScopeAuthority.Mode == BaseSubjectScopeQueryMode.ExactScope ? request.ScopeAuthority.ExactScope : null;
-        if (request.ScopeAuthority.Mode == BaseSubjectScopeQueryMode.ExactScope && scope is null)
-            return ValueTask.FromResult(LifecycleInspectionFailure(BaseSubjectErrorCodes.LifecycleContractInvalid, OperationStatus.ValidationFailed, ErrorCategory.Validation));
-        if (request.ScopeAuthority.Mode == BaseSubjectScopeQueryMode.ExactScope && !ExactInspectionAuthorityMatches(request))
-            return ValueTask.FromResult(LifecycleInspectionFailure(BaseSubjectErrorCodes.LifecycleUnauthorized, OperationStatus.PolicyDenied, ErrorCategory.Authorization));
-        var consumersBuilder = ImmutableArray.CreateBuilder<BaseSubjectLifecycleConsumerInspection>();
-        foreach (InMemorySubjectLifecycleConsumerProjection projection in state.SubjectLifecycleConsumers.Values.Where(value =>
-            value.ContractId == request.ContractId && value.ContractVersion == request.ContractVersion
-            && (request.ConsumerId is null || value.ConsumerId == request.ConsumerId)))
-        {
-            BaseProtectedSubjectScope? protectedInspectionScope = scope is null ? null : _subjectScopes.Protect(scope, _subjectScopeProtectionKey);
-            InMemorySubjectLifecycleCheckpointState? checkpoint = protectedInspectionScope is null ? null
-                : state.SubjectLifecycleCheckpoints.GetValueOrDefault(ProtectedScopeKey(projection.ConsumerId, projection.ConsumerVersion, protectedInspectionScope));
-            consumersBuilder.Add(new BaseSubjectLifecycleConsumerInspection
-            {
-                ConsumerId = projection.ConsumerId,
-                ConsumerVersion = projection.ConsumerVersion,
-                ProjectionGeneration = projection.ProjectionGeneration,
-                InstallationCutoff = projection.Cutoff,
-                PublishedGraphGeneration = projection.PublishedGraphGeneration,
-                Through = checkpoint?.Through,
-                CheckpointGeneration = checkpoint?.Generation ?? 0,
-                Overtaken = checkpoint?.Overtaken ?? false,
-            });
-        }
-        ImmutableArray<BaseSubjectLifecycleConsumerInspection> consumers = consumersBuilder.ToImmutable();
-        IEnumerable<InMemorySubjectLifecycleFactRow> facts = state.SubjectLifecycleFacts.Where(value =>
-            value.Fact.ContractId == request.ContractId && value.Fact.ContractVersion == request.ContractVersion && (scope is null || _subjectScopes.Matches(value.Scope, scope)));
-        BaseSubjectTerminalLifetimeReceipt? terminalReceipt = null;
-        if (request.IncludeTerminalReceipt && request.SubjectId is BaseSubjectId requestedSubjectId && scope is not null
-            && state.SubjectTerminals.TryGetValue(SubjectKey(scope, request.ContractId, request.ContractVersion, requestedSubjectId), out InMemorySubjectTerminalState? terminal))
-        {
-            BaseProtectedSubjectScope protectedScope = _subjectScopes.Protect(scope, _subjectScopeProtectionKey);
-            terminalReceipt = new BaseSubjectTerminalLifetimeReceipt
-            {
-                ContractId = terminal.ContractId, ContractVersion = terminal.ContractVersion, SubjectId = terminal.SubjectId,
-                Scope = protectedScope, RetiredAuthorityEpoch = terminal.AuthorityEpoch, RetiredIncarnation = terminal.Incarnation,
-                RetiredLifetimeGeneration = terminal.LifetimeGeneration, RetiredSubjectSequence = terminal.SubjectSequence,
-                RetiredPosition = new(terminal.RetiredPosition), ContractStateGeneration = terminal.ContractStateGeneration,
-                RestoreEpoch = terminal.RestoreEpoch, ReceiptChecksum = terminal.ReceiptChecksum,
-            };
-            if (!BaseSubjectTerminalIntegrity.Verify(terminalReceipt, scope))
-                return ValueTask.FromResult(LifecycleInspectionFailure(BaseSubjectErrorCodes.LifecycleProviderContractInvalid, OperationStatus.CapabilityUnavailable, ErrorCategory.Capability));
-        }
-        return ValueTask.FromResult(OperationResults.Ok(new BaseSubjectLifecycleProviderInspection
-        {
-            StoreInstanceId = _options.StoreId,
-            RestoreEpoch = 0,
-            DeliveryEpoch = state.SubjectLifecycleDeliveryEpoch,
-            ScopeProtectionGeneration = _subjectScopeProtectionGeneration,
-            ScopeProtectionKeyId = _subjectScopeProtectionKeyId,
-            RetirementControlGeneration = state.SubjectRetirementPosition,
-            EarliestRetained = facts.OrderBy(static value => value.Boundary, BaseLifecycleBoundaryComparer.Instance).Select(static value => value.Boundary).FirstOrDefault(),
-            HighWater = facts.OrderByDescending(static value => value.Boundary, BaseLifecycleBoundaryComparer.Instance).Select(static value => value.Boundary).FirstOrDefault(),
-            Consumers = consumers,
-            TerminalReceipt = terminalReceipt,
-            Accounting = new BaseSubjectLifecycleReadAccounting { RowsSought = consumers.Length, RowsHydrated = consumers.Length, ResultBytes = consumers.Length * 96L, TransientBytes = consumers.Length * 96L },
-        }));
-    }
-
-    private bool ExactInspectionAuthorityMatches(BaseSubjectLifecycleProviderInspectionRequest request)
-    {
-        BaseExportedSubjectDefinition? contract = _options.ExportedSubjects.SingleOrDefault(value => value.Id == request.ContractId && value.Version == request.ContractVersion);
-        if (contract is null) return false;
-        string expected = BaseSubjectContractGraph.Checksum(contract);
-        if (request.ConsumerId is not null)
-        {
-            BaseSubjectLifecycleConsumerDefinition? consumer = _options.SubjectLifecycleConsumers.SingleOrDefault(value => value.Id == request.ConsumerId && value.ContractId == request.ContractId && value.ContractVersion == request.ContractVersion);
-            if (consumer is null) return false;
-            expected = BaseSubjectLifecycleRegistry.Checksum(BaseSubjectLifecycleRegistry.Normalize(consumer), expected);
-        }
-        return string.Equals(expected, request.ScopeAuthority.InstalledAuthorityDigest, StringComparison.Ordinal);
-    }
-
-    /// <inheritdoc />
-    public ValueTask<RecordMutationExecutionResult> ExecuteMaintenanceAsync(
-        IBaseSubjectAuthorityMaintenanceProcessor processor,
-        BaseSubjectAuthorityMaintenanceExecutionRequest request,
-        CancellationToken cancellationToken = default) => processor.ExecuteAsync(new InMemorySubjectAuthorityMaintenanceSession(this, request), request, cancellationToken);
-
-    private sealed class InMemorySubjectAuthorityMaintenanceSession(
-        InMemoryRecordStore owner,
-        BaseSubjectAuthorityMaintenanceExecutionRequest execution) : IBaseSubjectAuthorityMaintenanceSession
-    {
-        public async ValueTask<OperationResult<BaseSubjectAuthorityMaintenancePageResult>> ExecutePageAsync(
-            BaseSubjectAuthorityMaintenancePageRequest request,
-            CancellationToken cancellationToken = default)
-        {
-            try
-            {
-                return await owner.ExecuteSubjectAuthorityMaintenancePageAsync(execution, request, cancellationToken).ConfigureAwait(false);
-            }
-            catch (InvalidDataException exception)
-            {
-                string code = exception.Message.StartsWith("base.subject", StringComparison.Ordinal)
-                    ? exception.Message : BaseSubjectErrorCodes.LifecycleProviderContractInvalid;
-                return new() { Status = OperationStatus.CapabilityUnavailable, Error = new BaseError { Code = code, Category = ErrorCategory.Capability, Message = "The subject authority maintenance operation failed." } };
-            }
-            catch(OperationCanceledException) when(!cancellationToken.IsCancellationRequested)
-            {
-                return new(){Status=OperationStatus.StoreError,Error=BaseSubjectFailureContract.Error(BaseSubjectErrorCodes.Timeout)};
-            }
-        }
-    }
-
-    private static OperationResult<BaseSubjectLifecycleProviderReconciliationPage> LifecycleReconciliationFailure(string code, OperationStatus status = OperationStatus.StoreError, ErrorCategory category = ErrorCategory.Store) => new()
-    { Status = status, Error = new BaseError { Code = code, Message = "The subject lifecycle reconciliation operation failed.", Category = category } };
-    private static OperationResult<BaseSubjectLifecycleProviderInspection> LifecycleInspectionFailure(string code, OperationStatus status = OperationStatus.StoreError, ErrorCategory category = ErrorCategory.Store) => new()
-    { Status = status, Error = new BaseError { Code = code, Message = "The subject lifecycle inspection operation failed.", Category = category } };
-
-    private sealed class BaseLifecycleBoundaryComparer : IComparer<BaseSubjectLifecycleOrderingBoundary>
-    {
-        internal static BaseLifecycleBoundaryComparer Instance { get; } = new();
-        public int Compare(BaseSubjectLifecycleOrderingBoundary? left, BaseSubjectLifecycleOrderingBoundary? right)
-        {
-            if (ReferenceEquals(left, right)) return 0; if (left is null) return -1; if (right is null) return 1;
-            int comparison = left.CommitPosition.Value.CompareTo(right.CommitPosition.Value);
-            if (comparison != 0) return comparison;
-            comparison = string.CompareOrdinal(left.SubjectId.Value, right.SubjectId.Value); if (comparison != 0) return comparison;
-            comparison = left.AuthorityEpoch.ToArray().AsSpan().SequenceCompareTo(right.AuthorityEpoch.ToArray()); if (comparison != 0) return comparison;
-            comparison = left.Incarnation.ToArray().AsSpan().SequenceCompareTo(right.Incarnation.ToArray()); if (comparison != 0) return comparison;
-            return left.SubjectSequence.CompareTo(right.SubjectSequence);
-        }
-    }
     /// <inheritdoc />
     public ValueTask<OperationResult<BaseSubjectValidationPlanReceipt[]>> ReadSubjectValidationPlanReceiptsAsync(
         CancellationToken cancellationToken = default)
@@ -561,8 +155,6 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_lifecycleMaintenance is not null)
-                return SubjectAdministrationFailure<BaseSubjectEpochRotationResult>(BaseSubjectErrorCodes.MaintenanceRequired, OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
             InMemoryStoreState current = Volatile.Read(ref _publishedState);
             string key = SubjectContractKey(request.ContractId, request.ContractVersion);
             if (!current.SubjectContracts.TryGetValue(key, out InMemorySubjectContractState? contract))
@@ -666,11 +258,6 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 Position = journalPosition,
                 SubjectAuthorityPublication = publication,
             });
-            // The protected membership seek is derived exclusively from committed
-            // membership rows. Rebuild it at the publication boundary so no
-            // session-local mutation path can publish memberships without their
-            // exact consumer/contract/scope index authority.
-            working.RebuildSubjectLifecycleMembershipIndex();
             Volatile.Write(ref _publishedState, working);
             checked { _generation++; }
             return OperationResults.Ok(new BaseSubjectEpochRotationResult
@@ -749,8 +336,6 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
     {
         cancellationToken.ThrowIfCancellationRequested();
         ArgumentNullException.ThrowIfNull(limits);
-        if (_lifecycleMaintenance is not null)
-            return ValueTask.FromResult(LifecycleMaintenanceRequired<BaseAtomicMutationAuthorityRequirement>());
         BaseCollectionGenerationRequirement[] generations = collections
             .OrderBy(static value => value.Id, StringComparer.Ordinal)
             .Select(value => new BaseCollectionGenerationRequirement
@@ -776,8 +361,6 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_lifecycleMaintenance is not null)
-                return LifecycleMaintenanceRequired<IInMemoryProjectionReadSession>();
             InMemoryVectorRootLease lease = RetainVectorRoot();
             return OperationResults.Ok<IInMemoryProjectionReadSession>(new InMemoryProjectionReadSession(
                 lease,
@@ -818,8 +401,6 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_lifecycleMaintenance is not null)
-                return OperationResults.Ok(BaseInMemoryProjectionReplacementOutcome.ProjectionGenerationChanged);
             if (_generation != expectedRootGeneration)
                 return OperationResults.Ok(BaseInMemoryProjectionReplacementOutcome.RootGenerationChanged);
             string key = handle.Collection.Id + "\n" + handle.Index.Id;
@@ -862,49 +443,10 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
 
     internal InMemoryStoreState CaptureVectorRoot() => Volatile.Read(ref _publishedState);
 
-    internal async ValueTask<OperationResult<BaseTextRebuildResult>> RebuildTextAsync(CollectionDefinition collection, BaseTextIndexDefinition index, BaseTextRebuildRequest request, CancellationToken cancellationToken)
-    {
-        string receiptKey = request.Identity.Scope + "\n" + request.Identity.Operation + "\n" + request.Identity.IdempotencyKey;
-        byte[] fingerprint = TextRebuildFingerprint(request);
-        for (int attempt = 0; attempt < 3; attempt++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            InMemoryStoreState captured = CaptureVectorRoot();
-            if (captured.TextRebuildReceipts.TryGetValue(receiptKey, out InMemoryTextRebuildReceipt? existing))
-                return CryptographicOperations.FixedTimeEquals(existing.Fingerprint, fingerprint)
-                    ? OperationResults.Ok(existing.Result with { PublicationChecksum = ImmutableArray.Create(existing.Result.PublicationChecksum.ToArray()) })
-                    : OperationResults.Conflict<BaseTextRebuildResult>(new BaseError { Code = BaseMutationRequestErrorCodes.FingerprintConflict, Message = "The text rebuild identity conflicts with stored evidence.", Category = ErrorCategory.Conflict });
-            string slot = collection.Id + "\n" + index.Id;
-            InMemoryTextProjectionState previous = captured.TextProjections.GetValueOrDefault(slot) ?? new InMemoryTextProjectionState { AppliedThrough = captured.GlobalMutationPosition, PurgeGeneration = captured.Collections.GetValueOrDefault(collection.Id)?.PurgeGeneration ?? 0 };
-            if (previous.Generation != request.ExpectedGeneration) return OperationResults.Conflict<BaseTextRebuildResult>(new BaseError { Code = BaseTextErrorCodes.RebuildRequired, Message = "The text rebuild conflicts with current index state.", Category = ErrorCategory.Conflict });
-            InMemoryStoreState working = captured.Clone(); var staged = new InMemoryTextProjectionState { Generation = checked(previous.Generation + 1), AppliedThrough = captured.GlobalMutationPosition, PurgeGeneration = previous.PurgeGeneration };
-            IEnumerable<StoredRecord> records = working.Collections.GetValueOrDefault(collection.Id)?.RecordsById.Values ?? Enumerable.Empty<StoredRecord>();
-            foreach (StoredRecord record in records.OrderBy(static value => value.Id.Value, StringComparer.Ordinal)) { cancellationToken.ThrowIfCancellationRequested(); BaseTextSemanticEvaluator.ValidateIndexedPayload(record.Payload, index); staged.Carriers.Add(record.Id.Value, new InMemoryTextCarrier(record.Id, record.Metadata.Revision!.Value, record.LatestMutationPosition)); }
-            working.TextProjections[slot] = staged;
-            byte[] checksum = SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(string.Join('\n', staged.Carriers.Keys.Order(StringComparer.Ordinal))));
-            var result = new BaseTextRebuildResult { PreviousGeneration = previous.Generation, PublishedGeneration = staged.Generation, VisibleThrough = new(staged.AppliedThrough), RecordCount = staged.Carriers.Count, PublicationChecksum = ImmutableArray.Create(checksum) };
-            working.TextRebuildReceipts[receiptKey] = new(fingerprint, result);
-            await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                if (!ReferenceEquals(_publishedState, captured)) continue;
-                Volatile.Write(ref _publishedState, working); _generation++; return OperationResults.Ok(result);
-            }
-            finally { _stateGate.Release(); }
-        }
-        return OperationResults.Conflict<BaseTextRebuildResult>(new BaseError { Code = BaseTextErrorCodes.InMemoryGenerationChanged, Message = "The text authority changed during rebuild.", Category = ErrorCategory.Conflict });
-    }
-    private static byte[] TextRebuildFingerprint(BaseTextRebuildRequest request) { using var stream = new MemoryStream(); using var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8); writer.Write("base.text.rebuild.v1"); writer.Write(request.Identity.Scope); writer.Write(request.Identity.Operation); writer.Write(request.Identity.IdempotencyKey); writer.Write(request.CollectionId); writer.Write(request.TextIndexId); writer.Write(request.ExpectedGeneration); writer.Write(request.Identity.Fingerprint.ToArray()); return SHA256.HashData(stream.ToArray()); }
-
     private readonly HPDBaseInMemoryStoreOptions _options;
     private readonly BaseQueryCursorCodec _queryCursors;
-    private readonly BaseSubjectScopeProtector _subjectScopes;
-    private readonly BaseOpaqueTokenProtector _subjectScopeTokens;
-    private string _subjectScopeProtectionKeyId;
-    private byte _subjectScopeProtectionKey;
-    private long _subjectScopeProtectionGeneration = 1;
     private readonly TimeProvider _timeProvider;
-    private readonly IInMemoryAtomicMutationProjection? _mutationProjection;
+    private readonly IInMemoryAtomicMutationProjection? _vectorProjection;
     private readonly SemaphoreSlim _stateGate = new(1, 1);
     private readonly Lock _vectorLeaseGate = new();
     private readonly Dictionary<InMemoryStoreState, int> _retainedVectorRoots = new(ReferenceEqualityComparer.Instance);
@@ -930,9 +472,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
     }
 
     internal ValueTask<OperationResult> InitializeVectorProjectionAsync(CancellationToken cancellationToken) =>
-        _mutationProjection is null
+        _vectorProjection is null
             ? ValueTask.FromResult(OperationResults.NoContent())
-            : _mutationProjection.InitializeAsync(new BaseInMemoryProjectionInitializationContext(_options), cancellationToken);
+            : _vectorProjection.InitializeAsync(new BaseInMemoryProjectionInitializationContext(_options), cancellationToken);
 
     /// <summary>
     /// Initializes a new store using configured options.
@@ -963,18 +505,11 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         _options = options ?? new HPDBaseInMemoryStoreOptions();
         _timeProvider = timeProvider;
         _queryCursors = new BaseQueryCursorCodec(tokenProtector, timeProvider);
-        _subjectScopeTokens = tokenProtector;
-        _subjectScopes = new BaseSubjectScopeProtector(tokenProtector);
-        _subjectScopeProtectionKey = tokenProtector.ActiveKeyId;
-        _subjectScopeProtectionKeyId = _subjectScopeProtectionKey.ToString(CultureInfo.InvariantCulture);
-        IInMemoryAtomicMutationProjection[] projections =
-        [
-            .. (_options.Collections ?? []).Any(static collection => (collection.VectorIndexes ?? []).Length != 0) ? [new InMemoryVectorMutationProjection()] : Array.Empty<IInMemoryAtomicMutationProjection>(),
-            .. (_options.Collections ?? []).Any(static collection => (collection.TextIndexes ?? []).Length != 0) ? [new InMemoryTextMutationProjection()] : Array.Empty<IInMemoryAtomicMutationProjection>(),
-        ];
-        _mutationProjection = projections.Length switch { 0 => null, 1 => projections[0], _ => new InMemoryCompositeMutationProjection(projections) };
-        if ((_options.Collections ?? []).Any(static collection => (collection.VectorIndexes ?? []).Length != 0 || (collection.TextIndexes ?? []).Length != 0))
+        if ((_options.Collections ?? []).Any(static collection => (collection.VectorIndexes ?? []).Length != 0))
+        {
+            _vectorProjection = new InMemoryVectorMutationProjection();
             _vectorIdentityDigest = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
+        }
         ValidateOptions(_options);
         foreach (BaseExportedSubjectDefinition subject in _options.ExportedSubjects)
         {
@@ -1021,18 +556,6 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 SubjectAuthorityPublication = publication,
             });
         }
-        BaseSubjectLifecycleOrderingBoundary? lifecycleCutoff = _publishedState.SubjectLifecycleFacts
-            .OrderBy(static row => row.Boundary, BaseLifecycleBoundaryComparer.Instance)
-            .Select(static row => row.Boundary).LastOrDefault();
-        foreach (BaseSubjectLifecycleConsumerDefinition consumer in _options.SubjectLifecycleConsumers)
-        {
-            BaseSubjectLifecycleConsumerDefinition normalized = BaseSubjectLifecycleRegistry.Normalize(consumer);
-            BaseExportedSubjectDefinition subject = _options.ExportedSubjects.Single(value => value.Id == normalized.ContractId && value.Version == normalized.ContractVersion);
-            string checksum = BaseSubjectLifecycleRegistry.Checksum(normalized, BaseSubjectContractGraph.Checksum(subject));
-            _publishedState.SubjectLifecycleConsumers.Add($"{normalized.Id}\n{normalized.Version}", new(
-                normalized.Id, normalized.Version, checksum, normalized.ContractId, normalized.ContractVersion, 1, lifecycleCutoff, 1,
-                _timeProvider.GetUtcNow(), normalized.Limits.MaximumCheckpointLag));
-        }
         Capabilities = CreateCapabilities(_options);
         Includes = new RecordIncludeExecutionCapability
         {
@@ -1045,12 +568,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
     }
 
     private static string SubjectContractKey(string contractId, int version) => $"{contractId}\n{version}";
-    private string SubjectKey(
-        BaseOwnedSubjectScopeEvidence scope,
-        string contractId,
-        int version,
-        BaseSubjectId subjectId) =>
-        $"{(int)scope.Kind}\n{Convert.ToHexString(_subjectScopes.Protect(scope, _subjectScopeProtectionKey).IndexDigest)}\n{contractId}\n{version}\n{subjectId.Value}";
+    private static string SubjectKey(string contractId, int version, BaseSubjectId subjectId) => $"{contractId}\n{version}\n{subjectId.Value}";
 
     private static BaseOpaqueTokenProtector CreateProcessLocalTokenProtector() =>
         new(Options.Create(new HPDBaseTokenProtectionOptions
@@ -1085,7 +603,6 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         OperationContext context,
         CancellationToken cancellationToken = default)
     {
-        if (_lifecycleMaintenance is not null) return ValueTask.FromResult(LifecycleMaintenanceRequired<RecordPage>());
         ArgumentNullException.ThrowIfNull(collection);
         ArgumentNullException.ThrowIfNull(query);
         cancellationToken.ThrowIfCancellationRequested();
@@ -1167,7 +684,6 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         OperationContext context,
         CancellationToken cancellationToken = default)
     {
-        if (_lifecycleMaintenance is not null) return ValueTask.FromResult(LifecycleMaintenanceRequired<RecordEnvelope>());
         var published = Volatile.Read(ref _publishedState);
         return GetFromStateAsync(published, collection, id, context, cancellationToken);
     }
@@ -1276,8 +792,6 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
 
         try
         {
-            if (_lifecycleMaintenance is not null)
-                return Rollback(BaseSubjectErrorCodes.MaintenanceRequired, "Subject lifecycle maintenance must complete before this operation.");
             capturedGeneration = _generation;
             working = Volatile.Read(ref _publishedState).Clone();
         }
@@ -1547,7 +1061,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge,
             BaseOperationKind.Patch or BaseOperationKind.Replace =>
                 collection.MutationMode == BaseCollectionMutationMode.Mutable,
-            BaseOperationKind.Delete or BaseOperationKind.SubjectLifecycleFinalizeRetirement or BaseOperationKind.SubjectRetirementPurge =>
+            BaseOperationKind.Delete =>
                 collection.MutationMode == BaseCollectionMutationMode.Mutable,
             BaseOperationKind.Purge =>
                 collection.MutationMode == BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge,
@@ -1560,7 +1074,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 ? BaseCollectionErrorCodes.ReadOnlyMutationForbidden
                 : operation is BaseOperationKind.Patch or BaseOperationKind.Replace
                     ? BaseCollectionErrorCodes.AppendOnlyUpdateForbidden
-                    : operation is BaseOperationKind.Delete or BaseOperationKind.SubjectLifecycleFinalizeRetirement or BaseOperationKind.SubjectRetirementPurge
+                    : operation == BaseOperationKind.Delete
                         ? BaseCollectionErrorCodes.AppendOnlyDeleteForbidden
                         : BaseCollectionErrorCodes.PurgeUnsupported;
         return InMemoryResultFactory.Unsupported<T>(code, "The collection mutation mode does not permit this operation.");
@@ -1716,8 +1230,6 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         OperationContext context,
         CancellationToken cancellationToken = default)
     {
-        if (_lifecycleMaintenance is not null)
-            return ValueTask.FromResult(LifecycleMaintenanceRequired<AsyncStream<RecordEnvelope>>());
         ArgumentNullException.ThrowIfNull(collection);
         ArgumentNullException.ThrowIfNull(query);
         cancellationToken.ThrowIfCancellationRequested();
@@ -2976,10 +2488,10 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         private int _relationChecks;
         private int _uniqueChecks;
         private long _selectionRetainedBytes;
-        private BaseCapturedAtomicMutationAuthority? _capturedMutation;
-        private BasePreparedAtomicMutation? _preparedMutation;
-        private BaseAtomicMutationPlan? _preparedPlan;
-        private BaseProvisionalAppliedAtomicMutation? _appliedProvisional;
+        private BaseCapturedAtomicExecution? _capturedMutation;
+        private BasePreparedAtomicExecution? _preparedMutation;
+        private BaseFinalizedAtomicExecutionPlan? _preparedPlan;
+        private BaseProvisionalAtomicExecution? _appliedProvisional;
         private Dictionary<int, BaseSubjectIncarnation>? _preparedLifecycleIncarnations;
         private Dictionary<int, string>? _capturedModuleGenerationKeys;
         private BaseModuleMutationCaptureExtension? _capturedModuleExtension;
@@ -3032,8 +2544,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             _uniqueChecks = 0;
         }
 
-        public ValueTask<OperationResult<BaseCapturedAtomicMutationAuthority>> CaptureAtomicMutationAuthorityAsync(
-            BaseAtomicMutationCaptureRequest request,
+        public ValueTask<OperationResult<BaseCapturedAtomicExecution>> CaptureAtomicExecutionAsync(
+            BaseAtomicExecutionRequest request,
             CancellationToken cancellationToken = default) => ExecuteAsync(cancellationToken, token =>
         {
             ArgumentNullException.ThrowIfNull(request);
@@ -3049,7 +2561,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 !string.Equals(intent.Authority.StoreInstanceId, _owner._options.StoreId, StringComparison.Ordinal) ||
                 intent.Authority.RestoreEpoch != 0 || intent.Authority.SchemaGeneration != 1
                 || !AuthorityCollectionsMatch(intent.Authority.Collections, intent.Items, _owner._generation))
-                return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.ProviderContractInvalid));
+                return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
             var items = ImmutableArray.CreateBuilder<BaseCapturedMutationItem>(intent.Items.Length);
             var intervals = ImmutableArray.CreateBuilder<BaseAtomicReadIntervalEvidence>(intent.Items.Length);
             long selectedBytes = 0;
@@ -3061,7 +2573,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             {
                 token.ThrowIfCancellationRequested();
                 BaseAtomicMutationIntentItem item = intent.Items[index];
-                if (item.Ordinal != index) return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.ProviderContractInvalid));
+                if (item.Ordinal != index) return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
                 string itemKey = CaptureRecordKey(item.Collection.Id, item.RecordId);
                 if (!transactionRecords.TryGetValue(itemKey, out RecordEnvelope? current))
                 {
@@ -3133,21 +2645,15 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 });
                 transactionRecords[itemKey] = SimulateIntentRecord(item, current);
             }
+            long evidenceBytes = BaseSubjectCanonicalRetainedWork.MeasureIntervals(intervals.ToImmutable());
             ImmutableArray<BaseCapturedMutationItem> ownedItems = items.ToImmutable();
-            OperationResult<ImmutableArray<BaseCapturedSubjectLifecycleConsumerProjection>> lifecycleProjectionResult =
-                CaptureLifecycleConsumerProjections(request.LifecycleConsumerProjections, digest, intervals);
-            if (!lifecycleProjectionResult.IsSuccess() || lifecycleProjectionResult.Value.IsDefault)
-                return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.ProviderContractInvalid));
-            OperationResult<ImmutableArray<BaseCapturedSubjectRetirementProjection>> retirementResult=CaptureRetirement(request.SubjectRetirement,intent,request.Module,digest,intervals);
-            if(!retirementResult.IsSuccess()||retirementResult.Value.IsDefault)return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid));
             ImmutableArray<BaseAtomicReadIntervalEvidence> ownedIntervals = intervals.ToImmutable();
-            long evidenceBytes = BaseSubjectCanonicalRetainedWork.MeasureIntervals(ownedIntervals);
-            retainedBytes = BaseSubjectCanonicalRetainedWork.MeasureCapture(intent, ownedItems, ownedIntervals, lifecycleProjectionResult.Value);
+            retainedBytes = BaseSubjectCanonicalRetainedWork.MeasureCapture(intent, ownedItems, ownedIntervals);
             long transient = retainedBytes;
             if (selectedBytes > limits.MaximumSelectedBytes || evidenceBytes > limits.MaximumEvidenceBytes ||
                 transient > limits.MaximumTransientBytes || intervals.Count > limits.MaximumReadIntervals)
-                return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.BudgetExceeded));
-            _capturedMutation = new BaseCapturedAtomicMutationAuthority
+                return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectErrorCodes.BudgetExceeded));
+            _capturedMutation = new BaseCapturedAtomicExecution
             {
                 Kind = request.Kind,
                 IntentDigest = new string(intent.IntentDigest.AsSpan()),
@@ -3160,10 +2666,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     Isolation = BaseAtomicSelectionIsolationClass.OptimisticRangeValidatedSerializable,
                     TransactionEvidenceToken = BitConverter.GetBytes(_working.GlobalMutationPosition).ToImmutableArray(),
                 },
-                Items = ownedItems, ModuleRecords = [], ModuleRelationTargets = [], Generations = [],
-                LifecycleConsumerProjections = lifecycleProjectionResult.Value,
-                SubjectRetirement=retirementResult.Value,
-                ReadIntervals = ownedIntervals,
+                Items = ownedItems, ModuleRecords = [], ModuleRelationTargets = [], Generations = [], ReadIntervals = ownedIntervals,
                 Accounting = new BaseAtomicCaptureAccounting
                 {
                     Records = checked(intent.Items.Length + intent.Items.Sum(static item => item.RelationTargets.Length)),
@@ -3171,73 +2674,13 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     SelectedBytes = selectedBytes, ReadIntervals = intervals.Count,
                     RelationTargetBytes = 0, GenerationBytes = 0,
                     EvidenceBytes = evidenceBytes, TransientBytes = transient,
-                    RetirementBarrierReads=0,RetirementAcknowledgementReads=0,RetirementProjections=request.SubjectRetirement?.Projections.Length??0,RetirementPublications=0,RetirementEvidenceBytes=0,RetirementPublicationBytes=0,
                 },
             };
             return ValueTask.FromResult(OperationResults.Ok(_capturedMutation));
         });
 
-        private OperationResult<ImmutableArray<BaseCapturedSubjectRetirementProjection>> CaptureRetirement(BaseSubjectRetirementCaptureExtension? extension,BaseAtomicMutationIntent intent,BaseModuleMutationCaptureExtension? module,IncrementalHash digest,ImmutableArray<BaseAtomicReadIntervalEvidence>.Builder intervals)
-        {
-            if(extension is null)return OperationResults.Ok(ImmutableArray<BaseCapturedSubjectRetirementProjection>.Empty);
-            var result=ImmutableArray.CreateBuilder<BaseCapturedSubjectRetirementProjection>(extension.Projections.Length);
-            foreach(BaseSubjectRetirementProjectionCaptureRequest request in extension.Projections)
-            {
-                BaseAtomicMutationIntentItem? item=intent.Items.SingleOrDefault(value=>value.Ordinal==request.SourceMutationOrdinal);BaseModuleRecordCaptureRequest? moduleRecord=module?.Records.SingleOrDefault(value=>value.Ordinal==request.SourceMutationOrdinal);CollectionDefinition? sourceCollection=item?.Collection??moduleRecord?.Collection;RecordId? sourceRecord=item?.RecordId??moduleRecord?.RecordId;InMemorySubjectContractState? contract=_working.SubjectContracts.GetValueOrDefault(SubjectContractKey(request.ContractId,request.ContractVersion));
-                InMemorySubjectLifetimeState? lifetime=sourceCollection is null||sourceRecord is null?null:_working.SubjectLifetimes.Values.SingleOrDefault(value=>value.ContractId==request.ContractId&&value.ContractVersion==request.ContractVersion&&value.PrivateCollectionId==sourceCollection.Id&&value.PrivateRecordId==sourceRecord.Value);
-                if(sourceCollection is null||sourceRecord is null||contract is null||lifetime is null||contract.ContractChecksum!=request.ContractChecksum)return SubjectFailure<ImmutableArray<BaseCapturedSubjectRetirementProjection>>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);
-                InMemorySubjectLifetimeState currentLifetime=lifetime!;InMemorySubjectContractState currentContract=contract!;BaseProtectedSubjectScope protectedScope=_owner._subjectScopes.Protect(currentLifetime.Scope,_owner._subjectScopeProtectionKey);string barrierKey=RetirementKey(protectedScope,request.ContractId,request.ContractVersion,currentLifetime.SubjectId,currentContract.AuthorityEpoch,currentLifetime.Incarnation);_working.SubjectRetirementBarriers.TryGetValue(barrierKey,out InMemorySubjectRetirementBarrierState? barrier);
-                result.Add(new(){SourceMutationOrdinal=request.SourceMutationOrdinal,ContractId=request.ContractId,ContractVersion=request.ContractVersion,ContractChecksum=request.ContractChecksum,RetirementPolicyChecksum=request.RetirementPolicyChecksum,AcceptedConsumerSetChecksum=request.AcceptedConsumerSetChecksum,SubjectId=currentLifetime.SubjectId,ProtectedScope=CloneRetirementScope(protectedScope),AuthorityEpoch=currentContract.AuthorityEpoch,Incarnation=currentLifetime.Incarnation,CurrentSubjectSequence=currentLifetime.SubjectSequence,CurrentState=currentLifetime.LifecycleState,CurrentBarrier=barrier is null?null:barrier.Barrier with{}});
-                byte[] key=Encoding.UTF8.GetBytes(barrierKey);digest.AppendData(key);intervals.Add(ExactInterval($"subjectRetirement:{request.ContractId}:barrier",key));
-            }
-            return OperationResults.Ok(result.MoveToImmutable());
-        }
-
-        private OperationResult<ImmutableArray<BaseCapturedSubjectLifecycleConsumerProjection>> CaptureLifecycleConsumerProjections(
-            ImmutableArray<BaseSubjectLifecycleConsumerProjectionCaptureRequest> requests,
-            IncrementalHash digest,
-            ImmutableArray<BaseAtomicReadIntervalEvidence>.Builder intervals)
-        {
-            var captured = ImmutableArray.CreateBuilder<BaseCapturedSubjectLifecycleConsumerProjection>(requests.Length);
-            for (int index = 0; index < requests.Length; index++)
-            {
-                BaseSubjectLifecycleConsumerProjectionCaptureRequest request = requests[index];
-                if (index > 0 && CompareLifecycleProjectionRequest(requests[index - 1], request) >= 0
-                    || !_working.SubjectLifecycleConsumers.TryGetValue($"{request.ConsumerId}\n{request.ConsumerVersion}", out InMemorySubjectLifecycleConsumerProjection? projection)
-                    || projection.ConsumerChecksum != request.ConsumerChecksum || projection.ContractId != request.ContractId
-                    || projection.ContractVersion != request.ContractVersion || projection.ProjectionGeneration < 1
-                    || projection.PublishedGraphGeneration < 1)
-                    return SubjectFailure<ImmutableArray<BaseCapturedSubjectLifecycleConsumerProjection>>(BaseSubjectErrorCodes.ProviderContractInvalid);
-                var value = new BaseCapturedSubjectLifecycleConsumerProjection
-                {
-                    ConsumerId = request.ConsumerId, ConsumerVersion = request.ConsumerVersion,
-                    ConsumerChecksum = request.ConsumerChecksum, ContractId = request.ContractId,
-                    ContractVersion = request.ContractVersion, ProjectionGeneration = projection.ProjectionGeneration,
-                    PublishedGraphGeneration = projection.PublishedGraphGeneration,
-                };
-                captured.Add(value);
-                digest.AppendData(System.Text.Encoding.UTF8.GetBytes($"\0lifecycle-consumer\0{value.ConsumerId}\0{value.ConsumerVersion}\0{value.ConsumerChecksum}\0{value.ContractId}\0{value.ContractVersion}\0{value.ProjectionGeneration}\0{value.PublishedGraphGeneration}\0"));
-                byte[] intervalKey = System.Text.Encoding.UTF8.GetBytes($"{value.ConsumerId}\0{value.ConsumerVersion}");
-                intervals.Add(new BaseAtomicReadIntervalEvidence
-                {
-                    LogicalAccessPathId = "subject-lifecycle:consumer-projection",
-                    CanonicalLowerBound = intervalKey.ToImmutableArray(), LowerInclusive = true,
-                    CanonicalUpperBound = intervalKey.ToImmutableArray(), UpperInclusive = true,
-                });
-            }
-            return OperationResults.Ok(captured.MoveToImmutable());
-        }
-
-        private static int CompareLifecycleProjectionRequest(
-            BaseSubjectLifecycleConsumerProjectionCaptureRequest left,
-            BaseSubjectLifecycleConsumerProjectionCaptureRequest right)
-        {
-            int byId = string.CompareOrdinal(left.ConsumerId, right.ConsumerId);
-            return byId != 0 ? byId : left.ConsumerVersion.CompareTo(right.ConsumerVersion);
-        }
-
-        private ValueTask<OperationResult<BaseCapturedAtomicMutationAuthority>> CaptureModuleAuthority(
-            BaseAtomicMutationCaptureRequest request,
+        private ValueTask<OperationResult<BaseCapturedAtomicExecution>> CaptureModuleAuthority(
+            BaseAtomicExecutionRequest request,
             CancellationToken cancellationToken)
         {
             BaseAtomicMutationIntent intent = request.Intent;
@@ -3250,7 +2693,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 || module.RelationTargets.Length > limits.MaximumRelationTargetCaptures
                 || module.Generations.Length > limits.MaximumGenerationReads
                 || !AuthorityCollectionsMatch(intent.Authority.Collections, module, _owner._generation))
-                return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.ProviderContractInvalid));
+                return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
             _capturedModuleExtension = module;
 
             var records = ImmutableArray.CreateBuilder<BaseCapturedModuleRecord>(module.Records.Length);
@@ -3269,11 +2712,11 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 BaseModuleRecordCaptureRequest capture = module.Records[index];
-                if (capture.Ordinal != index) return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.ProviderContractInvalid));
+                if (capture.Ordinal != index) return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
                 RecordEnvelope? current = SnapshotRecord(capture.Collection, capture.RecordId);
                 if ((capture.Presence == BaseModuleCapturePresence.RequirePresent && current is null)
                     || (capture.Presence == BaseModuleCapturePresence.RequireMissing && current is not null))
-                    return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.ProviderContractInvalid));
+                    return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
                 byte[] key = System.Text.Encoding.UTF8.GetBytes(capture.RecordId.Value);
                 intervals.Add(ExactInterval($"collection:{capture.Collection.Id}:record", key));
                 if (current is not null)
@@ -3293,7 +2736,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 BaseModuleRelationTargetCaptureRequest capture = module.RelationTargets[index];
-                if (capture.Ordinal != index) return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.ProviderContractInvalid));
+                if (capture.Ordinal != index) return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
                 RecordEnvelope? current = SnapshotRecord(capture.TargetCollection, capture.TargetRecordId);
                 byte[] key = System.Text.Encoding.UTF8.GetBytes(capture.TargetRecordId.Value);
                 intervals.Add(ExactInterval($"collection:{capture.TargetCollection.Id}:record", key));
@@ -3316,13 +2759,13 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 cancellationToken.ThrowIfCancellationRequested();
                 BaseModuleGenerationCaptureRequest capture = module.Generations[index];
                 if (capture.Ordinal != index || !ValidGenerationScope(capture))
-                    return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.ProviderContractInvalid));
+                    return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
                 string storageKey = ModuleGenerationStorageKey(capture);
                 generationKeys.Add(index, storageKey);
                 bool exists = _working.ModuleGenerations.TryGetValue(storageKey, out long value);
                 if ((capture.Absence == BaseModuleGenerationAbsenceBehavior.RequireExisting && !exists)
                     || (capture.Absence == BaseModuleGenerationAbsenceBehavior.RequireMissing && exists))
-                    return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.ProviderContractInvalid));
+                    return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
                 string keyDigest = Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(storageKey)));
                 byte[] key = System.Text.Encoding.UTF8.GetBytes(storageKey);
                 intervals.Add(ExactInterval("module-generation", key));
@@ -3342,9 +2785,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             if (selectedBytes > limits.MaximumSelectedBytes || generationBytes > limits.MaximumGenerationBytes
                 || evidenceBytes > limits.MaximumEvidenceBytes || transient > limits.MaximumTransientBytes
                 || intervals.Count > limits.MaximumReadIntervals)
-                return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.BudgetExceeded));
+                return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectErrorCodes.BudgetExceeded));
             int readIntervalCount = intervals.Count;
-            _capturedMutation = new BaseCapturedAtomicMutationAuthority
+            _capturedMutation = new BaseCapturedAtomicExecution
             {
                 Kind = request.Kind, IntentDigest = new string(intent.IntentDigest.AsSpan()),
                 CaptureDigest = Convert.ToHexStringLower(digest.GetHashAndReset()),
@@ -3364,16 +2807,15 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     GenerationReads = module.Generations.Length, ReadIntervals = readIntervalCount,
                     SelectedBytes = selectedBytes, RelationTargetBytes = relationBytes, GenerationBytes = generationBytes,
                     EvidenceBytes = evidenceBytes, TransientBytes = transient,
-                    RetirementBarrierReads=0,RetirementAcknowledgementReads=0,RetirementProjections=request.SubjectRetirement?.Projections.Length??0,RetirementPublications=0,RetirementEvidenceBytes=0,RetirementPublicationBytes=0,
                 },
             };
             _capturedModuleGenerationKeys = generationKeys;
             return ValueTask.FromResult(OperationResults.Ok(_capturedMutation));
         }
 
-        public ValueTask<OperationResult<BasePreparedAtomicMutation>> PrepareAtomicMutationAsync(
-            BaseCapturedAtomicMutationAuthority captured,
-            BaseAtomicMutationPlan plan,
+        public ValueTask<OperationResult<BasePreparedAtomicExecution>> PrepareAtomicExecutionAsync(
+            BaseCapturedAtomicExecution captured,
+            BaseFinalizedAtomicExecutionPlan plan,
             CancellationToken cancellationToken = default) => ExecuteAsync(cancellationToken, token =>
         {
             token.ThrowIfCancellationRequested();
@@ -3382,11 +2824,10 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 plan.Kind != captured.Kind ||
                 !string.Equals(plan.IntentDigest, captured.IntentDigest, StringComparison.Ordinal) ||
                 !string.Equals(plan.CaptureDigest, captured.CaptureDigest, StringComparison.Ordinal) ||
-                !LifecycleProjectionBindingsValid(plan, captured) ||
                 (plan.Kind == BaseAtomicMutationExecutionKind.ModuleMutation
                     ? plan.Module is null || captured.Items.Length != 0
                     : plan.Items.Length != captured.Items.Length))
-                return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid));
+                return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
             var preparedGenerations = ImmutableArray.CreateBuilder<BasePreparedModuleGenerationEvidence>(captured.Generations.Length);
             if (plan.Kind == BaseAtomicMutationExecutionKind.ModuleMutation)
             {
@@ -3394,12 +2835,12 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     || captured.Accounting.GenerationBytes > plan.Limits.MaximumGenerationBytes
                     || plan.Module!.Comparisons.Length > plan.Limits.MaximumGenerationComparisons
                     || plan.Module.Increments.Length > plan.Limits.MaximumGenerationIncrements)
-                    return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.BudgetExceeded, OperationStatus.ValidationFailed, ErrorCategory.Validation));
+                    return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.BudgetExceeded, OperationStatus.ValidationFailed, ErrorCategory.Validation));
                 if (_capturedModuleGenerationKeys is null
                     || !ModuleBindingsValid(plan, captured)
                     || plan.Module!.Comparisons.Select(static value => value.CaptureOrdinal).Distinct().Count() != plan.Module.Comparisons.Length
                     || plan.Module.Increments.Select(static value => value.CaptureOrdinal).Distinct().Count() != plan.Module.Increments.Length)
-                    return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid));
+                    return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
                 for (int ordinal = 0; ordinal < captured.Generations.Length; ordinal++)
                 {
                     BaseCapturedModuleGeneration capture = captured.Generations[ordinal];
@@ -3413,7 +2854,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                         _ => false,
                     };
                     if (!comparisonSatisfied || (increment is not null && !capture.Exists && !increment.CreateIfAbsent))
-                        return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>("base.moduleMutation.generationConflict", OperationStatus.Conflict, ErrorCategory.Conflict));
+                        return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>("base.moduleMutation.generationConflict", OperationStatus.Conflict, ErrorCategory.Conflict));
                     BaseModuleGeneration? resulting = increment is null
                         ? capture.Generation
                         : capture.Generation is null ? BaseModuleGeneration.Create(1) : capture.Generation.Increment();
@@ -3442,31 +2883,16 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 string contractKey = SubjectContractKey(lifecycle.ContractId, lifecycle.ContractVersion);
                 if (!_working.SubjectContracts.TryGetValue(contractKey, out InMemorySubjectContractState? contract)
                     || !string.Equals(contract.ContractChecksum, lifecycle.ContractChecksum, StringComparison.Ordinal))
-                    return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.SchemaGenerationChanged, OperationStatus.Conflict, ErrorCategory.Conflict));
+                    return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.SchemaGenerationChanged, OperationStatus.Conflict, ErrorCategory.Conflict));
                 authorityReads = checked(authorityReads + 1);
                 subjectAuthorities[contractKey] = SubjectAuthority(contract);
-                BaseExportedSubjectDefinition? definition = _owner._options.ExportedSubjects.FirstOrDefault(subject =>
-                    string.Equals(subject.Id, lifecycle.ContractId, StringComparison.Ordinal) && subject.Version == lifecycle.ContractVersion);
-                if (definition is null)
-                    return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid));
-                BaseOwnedSubjectScopeEvidence ownedScope = ScopeFor(item, lifecycle.ContractId, lifecycle.ContractVersion);
-                string subjectKey = _owner.SubjectKey(ownedScope, lifecycle.ContractId, lifecycle.ContractVersion, lifecycle.SubjectId);
+                string subjectKey = SubjectKey(lifecycle.ContractId, lifecycle.ContractVersion, lifecycle.SubjectId);
                 intervals.Add(ExactInterval($"subject:{lifecycle.ContractId}:contract", System.Text.Encoding.UTF8.GetBytes(contractKey)));
                 intervals.Add(ExactInterval($"subject:{lifecycle.ContractId}:lifetime", System.Text.Encoding.UTF8.GetBytes(subjectKey)));
                 intervals.Add(ExactInterval($"subject:{lifecycle.ContractId}:record", System.Text.Encoding.UTF8.GetBytes(lifecycle.SubjectId.Value)));
                 if (!lifetimes.TryGetValue(subjectKey, out InMemorySubjectLifetimeState? existingLifetime))
                 {
                     _working.SubjectLifetimes.TryGetValue(subjectKey, out existingLifetime);
-                    if (existingLifetime is null && lifecycle.Kind != BaseSubjectLifecycleMutationKind.Create)
-                    {
-                        BaseOwnedSubjectScopeEvidence originalScope = ScopeForCurrent(item, lifecycle.ContractId, lifecycle.ContractVersion);
-                        string originalKey = _owner.SubjectKey(originalScope, lifecycle.ContractId, lifecycle.ContractVersion, lifecycle.SubjectId);
-                        _working.SubjectLifetimes.TryGetValue(originalKey, out existingLifetime);
-                        existingLifetime ??= _working.SubjectLifetimes.Values.SingleOrDefault(value =>
-                            value.ContractId == lifecycle.ContractId && value.ContractVersion == lifecycle.ContractVersion &&
-                            value.SubjectId.Equals(lifecycle.SubjectId) && value.PrivateCollectionId == item.Collection.Id &&
-                            value.PrivateRecordId.Equals(item.RecordId));
-                    }
                     lifetimes[subjectKey] = existingLifetime;
                     authorityReads = checked(authorityReads + 1);
                 }
@@ -3474,51 +2900,31 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 {
                     case BaseSubjectLifecycleMutationKind.Create:
                         if (existingLifetime is not null)
-                            return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.TransactionConflict, OperationStatus.Conflict, ErrorCategory.Conflict));
-                        long generation;
-                        try
-                        {
-                            generation = _working.SubjectTerminals.TryGetValue(subjectKey, out InMemorySubjectTerminalState? terminal)
-                                ? checked(terminal.LifetimeGeneration + 1) : 1;
-                        }
-                        catch (OverflowException)
-                        {
-                            return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.LifetimeGenerationExhausted, OperationStatus.Conflict, ErrorCategory.Conflict));
-                        }
-                        BaseSubjectIncarnation createdIncarnation = BaseSubjectIncarnation.Create(generation);
+                            return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.TransactionConflict, OperationStatus.Conflict, ErrorCategory.Conflict));
+                        BaseSubjectIncarnation createdIncarnation = BaseSubjectIncarnation.Create();
                         lifetimes[subjectKey] = new InMemorySubjectLifetimeState(
                             lifecycle.ContractId, lifecycle.ContractVersion, lifecycle.SubjectId,
-                            createdIncarnation, generation, lifecycle.ResultingState, 1, ownedScope,
-                            item.Collection.Id, item.RecordId,
-                            checked(_working.GlobalMutationPosition + item.Ordinal + 1), checked(_working.GlobalMutationPosition + item.Ordinal + 1));
+                            createdIncarnation, item.Collection.Id, item.RecordId,
+                            checked(_working.GlobalMutationPosition + item.Ordinal + 1));
                         lifecycleIncarnations[item.Ordinal] = createdIncarnation;
                         break;
                     case BaseSubjectLifecycleMutationKind.Preserve:
                         if (existingLifetime is null)
-                            return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid));
-                        long subjectSequence;
-                        try { subjectSequence = lifecycle.PublishFact ? checked(existingLifetime.SubjectSequence + 1) : existingLifetime.SubjectSequence; }
-                        catch (OverflowException)
-                        {
-                            return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.SequenceExhausted, OperationStatus.Conflict, ErrorCategory.Conflict));
-                        }
+                            return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
                         lifecycleIncarnations[item.Ordinal] = existingLifetime.Incarnation;
-                        lifetimes[subjectKey] = existingLifetime with
-                        {
-                            LifecycleState = lifecycle.ResultingState,
-                            SubjectSequence = subjectSequence,
-                            LastLifecyclePosition = lifecycle.PublishFact ? checked(_working.GlobalMutationPosition + item.Ordinal + 1) : existingLifetime.LastLifecyclePosition,
-                            Scope = ownedScope,
-                        };
                         break;
                     case BaseSubjectLifecycleMutationKind.Retire:
                         if (existingLifetime is null)
-                            return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid));
+                            return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
                         lifetimes[subjectKey] = null;
                         break;
                     default:
-                        return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid));
+                        return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
                 }
+                BaseExportedSubjectDefinition? definition = _owner._options.ExportedSubjects.FirstOrDefault(subject =>
+                    string.Equals(subject.Id, lifecycle.ContractId, StringComparison.Ordinal) && subject.Version == lifecycle.ContractVersion);
+                if (definition is null)
+                    return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
                 lifetimes.TryGetValue(subjectKey, out InMemorySubjectLifetimeState? finalLifetime);
                 RecordEnvelope? finalPrivateRecord = lifecycle.Kind == BaseSubjectLifecycleMutationKind.Retire
                     ? null
@@ -3540,12 +2946,12 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 {
                     finalScope = scopeElement.GetString();
                     try { _ = BaseSubjectId.Create(finalScope!, BaseSubjectIdKind.OrdinalString, 256); }
-                    catch { return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid)); }
+                    catch { return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid)); }
                 }
                 if (finalPrivateRecord is not null
                     && (definition.ValidationPlan.Active.Kind == BaseSubjectActiveBindingKind.RequiredBooleanField && finalActive is null
                         || definition.ValidationPlan.Scope.Kind != BaseSubjectScopeBindingKind.Global && finalScope is null))
-                    return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid));
+                    return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
                 overlays[subjectKey] = new BasePreparedSubjectOverlayEvidence
                 {
                     ContractId = lifecycle.ContractId,
@@ -3554,31 +2960,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     Exists = finalLifetime is not null && finalPrivateRecord is not null,
                     Incarnation = finalLifetime?.Incarnation,
                     Active = finalActive,
-                    Scope = lifecycle.Kind == BaseSubjectLifecycleMutationKind.Retire ? ownedScope.Value : finalScope,
-                    ProtectedScope = _owner._subjectScopes.Protect(ownedScope, _owner._subjectScopeProtectionKey),
-                    LifecycleState = finalLifetime?.LifecycleState,
-                    SubjectSequence = finalLifetime?.SubjectSequence,
+                    Scope = finalScope,
                 };
-                if (lifecycle.Kind == BaseSubjectLifecycleMutationKind.Preserve)
-                {
-                    BaseOwnedSubjectScopeEvidence originalScope = ScopeForCurrent(item, lifecycle.ContractId, lifecycle.ContractVersion);
-                    string originalKey = _owner.SubjectKey(originalScope, lifecycle.ContractId, lifecycle.ContractVersion, lifecycle.SubjectId);
-                    if (!string.Equals(originalKey, subjectKey, StringComparison.Ordinal) && plan.SubjectValidations.Any(validation =>
-                        validation.ValidationPlanId == definition.ValidationPlan.Id && validation.ValidationPlanVersion == definition.ValidationPlan.Version &&
-                        validation.Reference.SubjectId.Equals(lifecycle.SubjectId) && validation.Scope.Kind == originalScope.Kind &&
-                        string.Equals(validation.Scope.Value, originalScope.Value, StringComparison.Ordinal)))
-                    {
-                        lifetimes[originalKey] = null;
-                        intervals.Add(ExactInterval($"subject:{lifecycle.ContractId}:lifetime", System.Text.Encoding.UTF8.GetBytes(originalKey)));
-                        overlays[originalKey] = new BasePreparedSubjectOverlayEvidence
-                        {
-                            ContractId = lifecycle.ContractId, ContractVersion = lifecycle.ContractVersion,
-                            SubjectId = lifecycle.SubjectId, Exists = false, Incarnation = null, Active = null,
-                            Scope = originalScope.Value, ProtectedScope = _owner._subjectScopes.Protect(originalScope, _owner._subjectScopeProtectionKey),
-                            LifecycleState = null, SubjectSequence = null,
-                        };
-                    }
-                }
             }
 
             var validationEvidence = ImmutableArray.CreateBuilder<BasePreparedSubjectValidationEvidence>(plan.SubjectValidations.Length);
@@ -3589,7 +2972,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     string.Equals(subject.ValidationPlan.Id, validation.ValidationPlanId, StringComparison.Ordinal)
                     && subject.ValidationPlan.Version == validation.ValidationPlanVersion);
                 bool valid = definition is not null;
-                string subjectKey = definition is null ? string.Empty : _owner.SubjectKey(validation.Scope, definition.Id, definition.Version, validation.Reference.SubjectId);
+                string subjectKey = definition is null ? string.Empty : SubjectKey(definition.Id, definition.Version, validation.Reference.SubjectId);
                 InMemorySubjectLifetimeState? lifetime = null;
                 InMemorySubjectContractState? contract = null;
                 RecordEnvelope? privateRecord = null;
@@ -3626,17 +3009,17 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 {
                     if (!TryField(privateRecord!, definition.ValidationPlan.PrivateCollectionId, definition.ValidationPlan.Active.FieldId!, out JsonElement activeValue)
                         || activeValue.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
-                        return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid));
+                        return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
                     active = activeValue.GetBoolean();
                 }
                 if (privateRecord is not null && definition!.ValidationPlan.Scope.Kind != BaseSubjectScopeBindingKind.Global)
                 {
                     if (!TryField(privateRecord!, definition.ValidationPlan.PrivateCollectionId, definition.ValidationPlan.Scope.FieldId!, out JsonElement scopeValue)
                         || scopeValue.ValueKind != JsonValueKind.String)
-                        return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid));
+                        return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
                     scope = scopeValue.GetString();
                     try { _ = BaseSubjectId.Create(scope!, BaseSubjectIdKind.OrdinalString, 256); }
-                    catch { return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid)); }
+                    catch { return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid)); }
                 }
                 if (valid)
                     valid = (validation.Requirement != BaseSubjectReferenceRequirement.Active
@@ -3666,10 +3049,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                         Exists = lifetime is not null && privateRecord is not null,
                         Incarnation = lifetime?.Incarnation,
                         Active = active,
-                        Scope = definition.Scope == BaseSubjectScopeKind.Global ? null : validation.Scope.Value,
-                        ProtectedScope = _owner._subjectScopes.Protect(validation.Scope, _owner._subjectScopeProtectionKey),
-                        LifecycleState = lifetime?.LifecycleState,
-                        SubjectSequence = lifetime?.SubjectSequence,
+                        Scope = scope,
                     };
                 }
             }
@@ -3686,39 +3066,15 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     value => value is null ? 1L : checked(1L + CanonicalLifetimeRetainedBytes(value)))
                 + BaseSubjectCanonicalRetainedWork.MeasureStringDictionary(overlays)
                 + BaseSubjectCanonicalRetainedWork.MeasureStringDictionary(subjectAuthorities)
-                + BaseSubjectCanonicalRetainedWork.MeasureIntegerDictionary(lifecycleIncarnations, static _ => 24L));
+                + BaseSubjectCanonicalRetainedWork.MeasureIntegerDictionary(lifecycleIncarnations, static _ => 16L));
             long transient = retainedBytes;
             int intervalCount = intervals.Count;
             if (authorityReads > plan.Limits.MaximumAuthorityReads || intervals.Count > plan.Limits.MaximumReadIntervals
                 || evidenceBytes > plan.Limits.MaximumEvidenceBytes || transient > plan.Limits.MaximumTransientBytes)
-                return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.BudgetExceeded, OperationStatus.ValidationFailed, ErrorCategory.Validation));
-            BaseSubjectRetirementPreparedEvidence? preparedRetirement=null;
-            if(plan.SubjectRetirement is { } retirementPlan)
-            {
-                var retirementItems=ImmutableArray.CreateBuilder<BaseSubjectRetirementPreparedEvidenceItem>(retirementPlan.Items.Length);
-                foreach(BaseSubjectRetirementProjectionPlanItem projection in retirementPlan.Items)
-                {
-                    BaseProtectedSubjectScope protectedScope=_owner._subjectScopes.Protect(projection.Scope,_owner._subjectScopeProtectionKey);string key=RetirementKey(protectedScope,projection.ContractId,projection.ContractVersion,projection.SubjectId,projection.AuthorityEpoch,projection.Incarnation);_working.SubjectRetirementBarriers.TryGetValue(key,out InMemorySubjectRetirementBarrierState? prior);
-                    if(prior is not null)return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid));
-                    var barrier=new BaseSubjectRetirementBarrier{ContractId=projection.ContractId,ContractVersion=projection.ContractVersion,SubjectId=projection.SubjectId,AuthorityEpoch=projection.AuthorityEpoch,Incarnation=projection.Incarnation,TombstoneSequence=projection.TombstoneSequence,RequiredConsumerSetChecksum=projection.AcceptedConsumerSetChecksum,CreatedAtUtc=projection.TombstonedAtUtc,DeadlineUtc=projection.DeadlineUtc,State=BaseSubjectRetirementBarrierState.Pending,Generation=1,BarrierChecksum=string.Empty};barrier=barrier with{BarrierChecksum=BaseSubjectRetirementRegistry.BarrierChecksum(barrier,[])};
-                    retirementItems.Add(new(){ProjectionOrdinal=projection.ProjectionOrdinal,Previous=null,Resulting=barrier,ProtectedScope=protectedScope,PublicationPosition=checked(_working.SubjectRetirementPosition+projection.ProjectionOrdinal+1)});
-                }
-                preparedRetirement=new(){Items=retirementItems.MoveToImmutable(),PlanChecksum=retirementPlan.PlanChecksum};
-            }
-            long retirementEvidenceBytes=BaseSubjectCanonicalRetainedWork.MeasureRetirementPreparedEvidence(preparedRetirement);
-            evidenceBytes=checked(evidenceBytes+retirementEvidenceBytes);transient=checked(transient+retirementEvidenceBytes);
-            ImmutableArray<BasePreparedTextIndexEvidence> preparedTextIndexes = BaseTextAtomicMutationContract.Indexes(plan.Text, (collectionId, indexId) =>
-                _working.TextProjections.GetValueOrDefault(collectionId + "\n" + indexId)?.Generation ?? 1);
-            BasePreparedTextMutationEvidence? preparedText = BaseTextAtomicMutationContract.Prepare(plan.Text, preparedTextIndexes);
-            long textEvidenceBytes = preparedText?.EvidenceBytes ?? 0;
-            evidenceBytes = checked(evidenceBytes + textEvidenceBytes); transient = checked(transient + textEvidenceBytes);
-            int retirementReads=preparedRetirement?.Items.Length??0;
-            if(retirementReads>plan.Limits.MaximumRetirementBarrierReads||retirementReads>plan.Limits.MaximumRetirementProjections
-                ||retirementEvidenceBytes>plan.Limits.MaximumRetirementEvidenceBytes||evidenceBytes>plan.Limits.MaximumEvidenceBytes||transient>plan.Limits.MaximumTransientBytes)
-                return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.BudgetExceeded,OperationStatus.ValidationFailed,ErrorCategory.Validation));
+                return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.BudgetExceeded, OperationStatus.ValidationFailed, ErrorCategory.Validation));
             _preparedPlan = plan;
             _preparedLifecycleIncarnations = lifecycleIncarnations;
-            _preparedMutation = new BasePreparedAtomicMutation
+            _preparedMutation = new BasePreparedAtomicExecution
             {
                 Kind = plan.Kind,
                 PlanDigest = new string(plan.PlanDigest.AsSpan()), Authority = captured.Authority with { },
@@ -3735,9 +3091,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 Generations = preparedGenerations.MoveToImmutable(),
                 SubjectOverlay = overlays.Values.OrderBy(static value => value.ContractId, StringComparer.Ordinal).ThenBy(static value => value.ContractVersion).ThenBy(static value => value.SubjectId.Value, StringComparer.Ordinal).ToImmutableArray(),
                 SubjectValidations = validationEvidence.MoveToImmutable(),
-                ReadIntervals = intervals.ToImmutable(),
-                SubjectRetirement=preparedRetirement,
-                Text = preparedText,
+                ReadIntervals = intervals.MoveToImmutable(),
                 Accounting = new BasePreparedAtomicMutationAccounting
                 {
                     AuthorityReads = authorityReads,
@@ -3747,26 +3101,10 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     ReadIntervals = intervalCount,
                     SelectedBytes = captured.Accounting.SelectedBytes, GenerationBytes = captured.Accounting.GenerationBytes, EvidenceBytes = evidenceBytes,
                     TransientBytes = transient,
-                    RetirementBarrierReads=retirementReads,RetirementAcknowledgementReads=0,RetirementProjections=plan.SubjectRetirement?.Items.Length??0,RetirementPublications=0,RetirementEvidenceBytes=retirementEvidenceBytes,RetirementPublicationBytes=0,
                 },
             };
             return ValueTask.FromResult(OperationResults.Ok(_preparedMutation));
         });
-
-        private static bool LifecycleProjectionBindingsValid(BaseAtomicMutationPlan plan, BaseCapturedAtomicMutationAuthority captured)
-        {
-            var expected = captured.LifecycleConsumerProjections.ToDictionary(
-                static value => (value.ConsumerId, value.ConsumerVersion));
-            foreach (BaseSubjectLifecycleMembershipPlanItem membership in plan.Items
-                .SelectMany(static item => item.SubjectLifecycle?.Memberships ?? []))
-            {
-                if (!expected.TryGetValue((membership.ConsumerId, membership.ConsumerVersion), out BaseCapturedSubjectLifecycleConsumerProjection? projection)
-                    || projection.ConsumerChecksum != membership.ConsumerChecksum
-                    || projection.ProjectionGeneration != membership.ProjectionGeneration)
-                    return false;
-            }
-            return true;
-        }
 
         private static long CanonicalLifetimeRetainedBytes(InMemorySubjectLifetimeState value)
         {
@@ -3783,7 +3121,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         private static long CanonicalAuthorityRetainedBytes(BaseSubjectTransactionAuthorityEvidence value) =>
             BaseSubjectCanonicalRetainedWork.MeasureAuthority(value);
 
-        private static long CanonicalPlanRetainedBytes(BaseAtomicMutationPlan plan) =>
+        private static long CanonicalPlanRetainedBytes(BaseFinalizedAtomicExecutionPlan plan) =>
             BaseSubjectCanonicalRetainedWork.MeasurePlan(plan);
 
         private BaseSubjectTransactionAuthorityEvidence SubjectAuthority(InMemorySubjectContractState contract) => new()
@@ -3854,7 +3192,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             };
         }
 
-        private static bool ModuleBindingsValid(BaseAtomicMutationPlan plan, BaseCapturedAtomicMutationAuthority captured)
+        private static bool ModuleBindingsValid(BaseFinalizedAtomicExecutionPlan plan, BaseCapturedAtomicExecution captured)
         {
             if (plan.Module is null || plan.Module.ItemBindings.Length != plan.Items.Length) return false;
             if (plan.Module.RelationTargets.Select(static value => value.CaptureOrdinal).Distinct().Count()
@@ -3967,15 +3305,15 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             return wireName is not null && record.Payload.Fields?.TryGetValue(wireName, out value) == true;
         }
 
-        public ValueTask<OperationResult<BaseProvisionalAppliedAtomicMutation>> ApplyPreparedAtomicMutationAsync(
-            BasePreparedAtomicMutation prepared,
+        public ValueTask<OperationResult<BaseProvisionalAtomicExecution>> ApplyPreparedAtomicExecutionAsync(
+            BasePreparedAtomicExecution prepared,
             CancellationToken cancellationToken = default) => ExecuteAsync(cancellationToken, async token =>
         {
             token.ThrowIfCancellationRequested();
             if (!ReferenceEquals(prepared, _preparedMutation) || _preparedPlan is null)
-                return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
 
-            BaseAtomicMutationPlan plan = _preparedPlan;
+            BaseFinalizedAtomicExecutionPlan plan = _preparedPlan;
             _preparedMutation = null;
             Dictionary<int, BaseSubjectIncarnation> lifecycleIncarnations = _preparedLifecycleIncarnations
                 ?? new Dictionary<int, BaseSubjectIncarnation>();
@@ -4037,54 +3375,11 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                         break;
                     }
                     default:
-                        return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                        return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
                 }
                 if (!mutation.IsSuccess() || mutation.Value is null)
-                    return new OperationResult<BaseProvisionalAppliedAtomicMutation> { Status = mutation.Status, Error = mutation.Error };
+                    return new OperationResult<BaseProvisionalAtomicExecution> { Status = mutation.Status, Error = mutation.Error };
                 long journalPosition = checked(++_working.GlobalMutationPosition);
-                BaseSubjectLifecycleCommitEvidence? committedLifecycle = null;
-                if (item.SubjectLifecycle is { } plannedLifecycle)
-                {
-                    BaseOwnedSubjectScopeEvidence plannedScope = ScopeFor(item, plannedLifecycle.ContractId, plannedLifecycle.ContractVersion);
-                    string lifetimeKey = _owner.SubjectKey(plannedScope, plannedLifecycle.ContractId, plannedLifecycle.ContractVersion, plannedLifecycle.SubjectId);
-                    _working.SubjectLifetimes.TryGetValue(lifetimeKey, out InMemorySubjectLifetimeState? previousLifetime);
-                    if (previousLifetime is null && plannedLifecycle.Kind != BaseSubjectLifecycleMutationKind.Create)
-                    {
-                        BaseOwnedSubjectScopeEvidence originalScope = ScopeForCurrent(item, plannedLifecycle.ContractId, plannedLifecycle.ContractVersion);
-                        _working.SubjectLifetimes.TryGetValue(_owner.SubjectKey(originalScope, plannedLifecycle.ContractId, plannedLifecycle.ContractVersion, plannedLifecycle.SubjectId), out previousLifetime);
-                        previousLifetime ??= _working.SubjectLifetimes.Values.SingleOrDefault(value =>
-                            value.ContractId == plannedLifecycle.ContractId && value.ContractVersion == plannedLifecycle.ContractVersion &&
-                            value.SubjectId.Equals(plannedLifecycle.SubjectId) && value.PrivateCollectionId == item.Collection.Id &&
-                            value.PrivateRecordId.Equals(item.RecordId));
-                    }
-                    InMemorySubjectContractState contract = _working.SubjectContracts[SubjectContractKey(plannedLifecycle.ContractId, plannedLifecycle.ContractVersion)];
-                    BaseSubjectIncarnation incarnation = plannedLifecycle.Kind == BaseSubjectLifecycleMutationKind.Create
-                        ? lifecycleIncarnations.GetValueOrDefault(item.Ordinal)
-                        : previousLifetime?.Incarnation ?? default;
-                    long sequence = plannedLifecycle.Kind == BaseSubjectLifecycleMutationKind.Create
-                        ? 1
-                        : plannedLifecycle.PublishFact
-                            ? checked((previousLifetime?.SubjectSequence ?? 0) + 1)
-                            : previousLifetime?.SubjectSequence ?? 0;
-                    if (incarnation.Equals(default(BaseSubjectIncarnation)) || sequence <= 0)
-                        return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
-                    committedLifecycle = new BaseSubjectLifecycleCommitEvidence
-                    {
-                        ContractId = plannedLifecycle.ContractId,
-                        ContractVersion = plannedLifecycle.ContractVersion,
-                        SubjectId = plannedLifecycle.SubjectId.Value,
-                        Kind = plannedLifecycle.Kind,
-                        AuthorityEpoch = contract.AuthorityEpoch,
-                        Incarnation = incarnation,
-                        SubjectSequence = sequence,
-                        ContractStateGeneration = contract.StateGeneration,
-                        DeliveryEpoch = _working.SubjectLifecycleDeliveryEpoch,
-                        Scope = ScopeFor(item, plannedLifecycle.ContractId, plannedLifecycle.ContractVersion),
-                        PreviousState = plannedLifecycle.PreviousState,
-                        ResultingState = plannedLifecycle.ResultingState,
-                        CommitPosition = new BaseMutationJournalPosition(journalPosition),
-                    };
-                }
                 BaseRecordMutationFact journaledFact = mutation.Value.Mutation with
                 {
                     Event = mutation.Value.Mutation.Event with
@@ -4094,7 +3389,16 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                         Guarantee = EventDeliveryGuarantee.Transactional,
                     },
                     JournalPosition = new BaseMutationJournalPosition(journalPosition),
-                    SubjectLifecycle = committedLifecycle,
+                    SubjectLifecycle = item.SubjectLifecycle is null ? null : new BaseSubjectLifecycleCommitEvidence
+                    {
+                        ContractId = item.SubjectLifecycle.ContractId,
+                        ContractVersion = item.SubjectLifecycle.ContractVersion,
+                        SubjectId = item.SubjectLifecycle.SubjectId.Value,
+                        Kind = item.SubjectLifecycle.Kind,
+                        Incarnation = item.SubjectLifecycle.Kind == BaseSubjectLifecycleMutationKind.Retire
+                            ? null
+                            : lifecycleIncarnations.GetValueOrDefault(item.Ordinal).ToBase64Url(),
+                    },
                 };
                 _working.MutationJournal.Add(journalPosition, CreateJournalEntry(journaledFact, item.Operation.TenantId));
                 BaseOwnedMutationFact owned = BaseOwnedMutationFact.Freeze(journaledFact, 1);
@@ -4108,28 +3412,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             foreach (BaseAtomicMutationPlanItem item in plan.Items)
             {
                 if (item.SubjectLifecycle is not { } lifecycle) continue;
-                BaseOwnedSubjectScopeEvidence itemScope = ScopeFor(item, lifecycle.ContractId, lifecycle.ContractVersion);
-                string key = _owner.SubjectKey(itemScope, lifecycle.ContractId, lifecycle.ContractVersion, lifecycle.SubjectId);
-                _working.SubjectLifetimes.TryGetValue(key, out InMemorySubjectLifetimeState? previousLifetime);
-                string previousKey = key;
-                if (previousLifetime is null && lifecycle.Kind != BaseSubjectLifecycleMutationKind.Create)
-                {
-                    BaseOwnedSubjectScopeEvidence originalScope = ScopeForCurrent(item, lifecycle.ContractId, lifecycle.ContractVersion);
-                    previousKey = _owner.SubjectKey(originalScope, lifecycle.ContractId, lifecycle.ContractVersion, lifecycle.SubjectId);
-                    _working.SubjectLifetimes.TryGetValue(previousKey, out previousLifetime);
-                    if (previousLifetime is null)
-                    {
-                        KeyValuePair<string, InMemorySubjectLifetimeState> located = _working.SubjectLifetimes.SingleOrDefault(pair =>
-                            pair.Value.ContractId == lifecycle.ContractId && pair.Value.ContractVersion == lifecycle.ContractVersion &&
-                            pair.Value.SubjectId.Equals(lifecycle.SubjectId) && pair.Value.PrivateCollectionId == item.Collection.Id &&
-                            pair.Value.PrivateRecordId.Equals(item.RecordId));
-                        if (located.Value is not null) { previousKey = located.Key; previousLifetime = located.Value; }
-                    }
-                }
-                BaseSubjectIncarnation committedIncarnation;
-                long committedGeneration;
-                long committedSequence;
-                BaseOwnedSubjectScopeEvidence committedScope;
+                string key = SubjectKey(lifecycle.ContractId, lifecycle.ContractVersion, lifecycle.SubjectId);
                 switch (lifecycle.Kind)
                 {
                     case BaseSubjectLifecycleMutationKind.Create:
@@ -4137,132 +3420,30 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                             || !_working.SubjectLifetimes.TryAdd(key,
                             new InMemorySubjectLifetimeState(
                                 lifecycle.ContractId, lifecycle.ContractVersion, lifecycle.SubjectId, incarnation,
-                                incarnation.LifetimeGeneration, lifecycle.ResultingState, 1,
-                                ScopeFor(item, lifecycle.ContractId, lifecycle.ContractVersion),
-                                item.Collection.Id, item.RecordId, facts[item.Ordinal].MaterializeOwned().JournalPosition.Value,
-                                facts[item.Ordinal].MaterializeOwned().JournalPosition.Value)))
-                            return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
-                        committedIncarnation = incarnation; committedGeneration = incarnation.LifetimeGeneration; committedSequence = 1;
-                        committedScope = ScopeFor(item, lifecycle.ContractId, lifecycle.ContractVersion);
+                                item.Collection.Id, item.RecordId, facts[item.Ordinal].MaterializeOwned().JournalPosition.Value)))
+                            return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
                         break;
                     case BaseSubjectLifecycleMutationKind.Preserve:
-                        if (previousLifetime is null)
-                            return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
-                        committedSequence = lifecycle.PublishFact ? checked(previousLifetime.SubjectSequence + 1) : previousLifetime.SubjectSequence;
-                        if (!string.Equals(previousKey, key, StringComparison.Ordinal)) _working.SubjectLifetimes.Remove(previousKey);
-                        _working.SubjectLifetimes[key] = previousLifetime with
-                        {
-                            LifecycleState = lifecycle.ResultingState,
-                            SubjectSequence = committedSequence,
-                            Scope = itemScope,
-                            LastLifecyclePosition = lifecycle.PublishFact ? facts[item.Ordinal].MaterializeOwned().JournalPosition.Value : previousLifetime.LastLifecyclePosition,
-                        };
-                        committedIncarnation = previousLifetime.Incarnation; committedGeneration = previousLifetime.LifetimeGeneration; committedScope = previousLifetime.Scope;
+                        if (!_working.SubjectLifetimes.ContainsKey(key))
+                            return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
                         break;
                     case BaseSubjectLifecycleMutationKind.Retire:
-                        if (previousLifetime is null || !_working.SubjectLifetimes.Remove(previousKey))
-                            return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
-                        committedIncarnation = previousLifetime.Incarnation; committedGeneration = previousLifetime.LifetimeGeneration;
-                        committedSequence = checked(previousLifetime.SubjectSequence + 1); committedScope = previousLifetime.Scope;
-                        InMemorySubjectContractState terminalContract = _working.SubjectContracts[SubjectContractKey(lifecycle.ContractId, lifecycle.ContractVersion)];
-                        long retiredPosition = facts[item.Ordinal].MaterializeOwned().JournalPosition.Value;
-                        string terminalChecksum = BaseSubjectTerminalIntegrity.Compute(
-                            lifecycle.ContractId, lifecycle.ContractVersion, lifecycle.SubjectId, committedScope,
-                            terminalContract.AuthorityEpoch, committedIncarnation, committedGeneration, committedSequence,
-                            new BaseMutationJournalPosition(retiredPosition), terminalContract.StateGeneration, terminalContract.RestoreEpoch);
-                        _working.SubjectTerminals[key] = new InMemorySubjectTerminalState(
-                            lifecycle.ContractId, lifecycle.ContractVersion, lifecycle.SubjectId, committedScope,
-                            terminalContract.AuthorityEpoch,
-                            committedIncarnation, committedGeneration, committedSequence,
-                            retiredPosition, terminalContract.StateGeneration, terminalContract.RestoreEpoch, terminalChecksum);
+                        if (!_working.SubjectLifetimes.Remove(key))
+                            return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
                         break;
                     default:
-                        return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                        return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
                 }
-                if (lifecycle.PublishFact)
-                {
-                    if (_working.SubjectLifecycleFacts.Count >= BaseSubjectLifecycleProviderCapabilities.BuiltIn.MaximumRetainedFacts)
-                        return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectErrorCodes.LifecycleCapacityExceeded);
-                    InMemorySubjectContractState contract = _working.SubjectContracts[SubjectContractKey(lifecycle.ContractId, lifecycle.ContractVersion)];
-                    var position = facts[item.Ordinal].MaterializeOwned().JournalPosition;
-                    var boundary = new BaseSubjectLifecycleOrderingBoundary
-                    {
-                        CommitPosition = position, SubjectId = lifecycle.SubjectId, AuthorityEpoch = contract.AuthorityEpoch,
-                        Incarnation = committedIncarnation, SubjectSequence = committedSequence,
-                    };
-                    var lifecycleFact = new BaseSubjectLifecycleFact
-                    {
-                        CommitPosition = position, ContractId = lifecycle.ContractId, ContractVersion = lifecycle.ContractVersion,
-                        SubjectId = lifecycle.SubjectId, AuthorityEpoch = contract.AuthorityEpoch, Incarnation = committedIncarnation,
-                        SubjectSequence = committedSequence, ContractStateGeneration = contract.StateGeneration,
-                        DeliveryEpoch = _working.SubjectLifecycleDeliveryEpoch,
-                        Kind = lifecycle.Kind == BaseSubjectLifecycleMutationKind.Create ? BaseSubjectLifecycleFactKind.Created
-                            : lifecycle.Kind == BaseSubjectLifecycleMutationKind.Retire ? BaseSubjectLifecycleFactKind.Retired
-                            : BaseSubjectLifecycleFactKind.Transitioned,
-                        Created = lifecycle.Kind == BaseSubjectLifecycleMutationKind.Create ? new() { CurrentState = BaseSubjectLifecycleState.Active } : null,
-                        Transitioned = lifecycle.Kind == BaseSubjectLifecycleMutationKind.Preserve ? new() { PreviousState = lifecycle.PreviousState!.Value, CurrentState = lifecycle.ResultingState } : null,
-                        Retired = lifecycle.Kind == BaseSubjectLifecycleMutationKind.Retire ? new() { PreviousState = BaseSubjectLifecycleState.Tombstoned } : null,
-                    };
-                    int factIndex = _working.SubjectLifecycleFacts.Count;
-                    BaseProtectedSubjectScope protectedCommittedScope = _owner._subjectScopes.Protect(committedScope, _owner._subjectScopeProtectionKey);
-                    _working.SubjectLifecycleFacts.Add(new InMemorySubjectLifecycleFactRow(protectedCommittedScope, boundary, lifecycleFact));
-                    foreach (BaseSubjectLifecycleMembershipPlanItem membership in lifecycle.Memberships)
-                    {
-                        int membershipIndex = _working.SubjectLifecycleMemberships.Count;
-                        _working.SubjectLifecycleMemberships.Add(new InMemorySubjectLifecycleMembershipRow(
-                            membership.ConsumerId, membership.ConsumerVersion, membership.ConsumerChecksum,
-                            membership.ProjectionGeneration, membership.MatchedObservedState, protectedCommittedScope, factIndex));
-                        string membershipKey = ProtectedScopeKey(membership.ConsumerId, membership.ConsumerVersion, protectedCommittedScope);
-                        if (!_working.SubjectLifecycleMembershipIndex.TryGetValue(membershipKey, out List<int>? indexes))
-                            _working.SubjectLifecycleMembershipIndex.Add(membershipKey, indexes = []);
-                        indexes.Add(membershipIndex);
-                    }
-                }
-            }
-
-            BaseSubjectRetirementProvisionalEvidence? appliedRetirement = null;
-            long retirementPublicationBytes = 0;
-            if (prepared.SubjectRetirement is { } retirement)
-            {
-                if (plan.SubjectRetirement is not { } retirementPlan
-                    || !string.Equals(retirement.PlanChecksum, retirementPlan.PlanChecksum, StringComparison.Ordinal)
-                    || retirement.Items.Length != retirementPlan.Items.Length)
-                    return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);
-                foreach (BaseSubjectRetirementPreparedEvidenceItem evidence in retirement.Items)
-                {
-                    BaseSubjectRetirementProjectionPlanItem? retirementProjection = retirementPlan.Items.SingleOrDefault(
-                        value => value.ProjectionOrdinal == evidence.ProjectionOrdinal);
-                    if (retirementProjection is null || evidence.Previous is not null
-                        || evidence.PublicationPosition != checked(_working.SubjectRetirementPosition + 1)
-                        || !RetirementProjectionMatches(retirementProjection, evidence))
-                        return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);
-                    string barrierKey = RetirementKey(evidence.ProtectedScope, retirementProjection.ContractId, retirementProjection.ContractVersion,
-                        retirementProjection.SubjectId, retirementProjection.AuthorityEpoch, retirementProjection.Incarnation);
-                    if (!_working.SubjectRetirementBarriers.TryAdd(barrierKey,
-                        new InMemorySubjectRetirementBarrierState(evidence.ProtectedScope, evidence.Resulting, new(StringComparer.Ordinal))))
-                        return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);
-                    _working.SubjectRetirementPosition = evidence.PublicationPosition;
-                    AddRetirementBarrierPublication(evidence.ProtectedScope, BaseSubjectRetirementPublicationKind.BarrierCreated,
-                        evidence.Resulting, previousGeneration: 0, consumerId: null, evidence.PublicationPosition);
-                    retirementPublicationBytes=checked(retirementPublicationBytes+BaseSubjectCanonicalRetainedWork.MeasureRetirementPublication(_working.SubjectRetirementPublications[^1].Fact));
-                }
-                appliedRetirement = new BaseSubjectRetirementProvisionalEvidence
-                {
-                    Items = retirement.Items,
-                    PlanChecksum = retirement.PlanChecksum,
-                };
-                if(retirement.Items.Length>plan.Limits.MaximumRetirementPublications||retirementPublicationBytes>plan.Limits.MaximumRetirementPublicationBytes)
-                    return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectErrorCodes.BudgetExceeded,OperationStatus.ValidationFailed,ErrorCategory.Validation);
             }
 
             if (plan.Kind == BaseAtomicMutationExecutionKind.ModuleMutation)
             {
                 if (_capturedModuleGenerationKeys is null || prepared.Generations.Length != _capturedModuleGenerationKeys.Count)
-                    return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                    return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
                 foreach (BasePreparedModuleGenerationEvidence generation in prepared.Generations)
                 {
                     if (!_capturedModuleGenerationKeys.TryGetValue(generation.CaptureOrdinal, out string? key))
-                        return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                        return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
                     if (generation.Resulting is null)
                         _working.ModuleGenerations.Remove(key);
                     else
@@ -4272,7 +3453,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             }
 
             BaseRecordMutationFact[] materialized = facts.Select(static fact => fact.MaterializeOwned()).ToArray();
-            if (_owner._mutationProjection is { } projection)
+            if (_owner._vectorProjection is { } projection)
             {
                 OperationResult projected;
                 try
@@ -4286,23 +3467,21 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                         token).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
-                catch { return SubjectFailure<BaseProvisionalAppliedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid); }
+                catch { return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid); }
                 if (!projected.IsSuccess())
-                    return new OperationResult<BaseProvisionalAppliedAtomicMutation> { Status = projected.Status, Error = projected.Error };
+                    return new OperationResult<BaseProvisionalAtomicExecution> { Status = projected.Status, Error = projected.Error };
             }
             long journalBytes = materialized.Sum(static fact =>
                 (long)JsonSerializer.SerializeToUtf8Bytes(fact, HPDBaseJsonSerializerContext.Default.BaseRecordMutationFact).LongLength);
             long transient = checked(prepared.Accounting.TransientBytes + writtenBytes + factBytes + journalBytes);
             ImmutableArray<BaseModuleCommittedGeneration> generations = CommittedGenerations(prepared);
-            var applied = new BaseProvisionalAppliedAtomicMutation
+            var applied = new BaseProvisionalAtomicExecution
             {
                 Kind = plan.Kind,
                 PlanDigest = new string(plan.PlanDigest.AsSpan()),
                 Authority = prepared.Authority with { },
                 Facts = facts.MoveToImmutable(),
                 Generations = generations,
-                SubjectRetirement = appliedRetirement,
-                Text = BaseTextAtomicMutationContract.Apply(plan.Text, materialized, prepared.Text?.Indexes ?? []),
                 Accounting = new BaseProvisionalAtomicMutationAccounting
                 {
                     WrittenBytes = writtenBytes,
@@ -4316,38 +3495,18 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     SelectedBytes = prepared.Accounting.SelectedBytes,
                     EvidenceBytes = prepared.Accounting.EvidenceBytes,
                     TransientBytes = transient,
-                    RetirementBarrierReads=prepared.Accounting.RetirementBarrierReads,RetirementAcknowledgementReads=prepared.Accounting.RetirementAcknowledgementReads,RetirementProjections=prepared.Accounting.RetirementProjections,RetirementPublications=prepared.SubjectRetirement?.Items.Length??0,RetirementEvidenceBytes=prepared.Accounting.RetirementEvidenceBytes,RetirementPublicationBytes=retirementPublicationBytes,
                 },
             };
             _appliedProvisional = applied;
             return OperationResults.Ok(applied);
         });
 
-        private static bool RetirementProjectionMatches(
-            BaseSubjectRetirementProjectionPlanItem projection,
-            BaseSubjectRetirementPreparedEvidenceItem evidence)
-        {
-            BaseSubjectRetirementBarrier barrier = evidence.Resulting;
-            return projection.ContractId == barrier.ContractId
-                && projection.ContractVersion == barrier.ContractVersion
-                && projection.SubjectId.Equals(barrier.SubjectId)
-                && projection.AuthorityEpoch.Equals(barrier.AuthorityEpoch)
-                && projection.Incarnation.Equals(barrier.Incarnation)
-                && projection.TombstoneSequence == barrier.TombstoneSequence
-                && projection.AcceptedConsumerSetChecksum == barrier.RequiredConsumerSetChecksum
-                && projection.TombstonedAtUtc == barrier.CreatedAtUtc
-                && projection.DeadlineUtc == barrier.DeadlineUtc
-                && barrier.State == BaseSubjectRetirementBarrierState.Pending
-                && barrier.Generation == 1
-                && barrier.BarrierChecksum == BaseSubjectRetirementRegistry.BarrierChecksum(barrier, []);
-        }
-
         internal bool ValidateCommitFinalization(AtomicMutationProcessingResult processing)
         {
             if (processing.Receipt.Kind != BaseAtomicReceiptResultKind.ModuleMutation)
                 return processing.Finalization is null;
             BaseAtomicMutationCommitFinalization? finalization = processing.Finalization;
-            BaseProvisionalAppliedAtomicMutation? applied = _appliedProvisional;
+            BaseProvisionalAtomicExecution? applied = _appliedProvisional;
             BaseModuleMutationReceiptResult? module = processing.Receipt.ModuleMutation;
             if (finalization is null || applied is null || module is null
                 || !ReferenceEquals(finalization.Receipt, processing.Receipt)
@@ -4389,7 +3548,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             public int GetHashCode(byte[] value) => 0;
         }
 
-        private ImmutableArray<BaseModuleCommittedGeneration> CommittedGenerations(BasePreparedAtomicMutation prepared)
+        private ImmutableArray<BaseModuleCommittedGeneration> CommittedGenerations(BasePreparedAtomicExecution prepared)
         {
             if (prepared.Kind != BaseAtomicMutationExecutionKind.ModuleMutation) return [];
             BaseModuleMutationCaptureExtension module = _capturedModuleExtension
@@ -4421,54 +3580,14 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             return new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = fields };
         }
 
-        private BaseOwnedSubjectScopeEvidence ScopeFor(BaseAtomicMutationPlanItem item, string contractId, int contractVersion)
-        {
-            BaseExportedSubjectDefinition definition = _owner._options.ExportedSubjects.Single(subject =>
-                subject.Id == contractId && subject.Version == contractVersion);
-            string? value = definition.Scope switch
-            {
-                BaseSubjectScopeKind.Global => null,
-                BaseSubjectScopeKind.Tenant or BaseSubjectScopeKind.Project => ReadScopeValue(item, definition),
-                _ => null,
-            };
-            return new BaseOwnedSubjectScopeEvidence { Kind = definition.Scope, Value = value };
-        }
-
-        private BaseOwnedSubjectScopeEvidence ScopeForCurrent(BaseAtomicMutationPlanItem item, string contractId, int contractVersion)
-        {
-            BaseExportedSubjectDefinition definition = _owner._options.ExportedSubjects.Single(subject =>
-                subject.Id == contractId && subject.Version == contractVersion);
-            string? value = null;
-            if (definition.Scope != BaseSubjectScopeKind.Global)
-            {
-                string fieldId = definition.ValidationPlan.Scope.FieldId
-                    ?? throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
-                string wireName = (item.Collection.Fields ?? []).Single(field => field.Id == fieldId).WireName;
-                if (item.Current?.Payload.Fields is { } fields && fields.TryGetValue(wireName, out JsonElement element) && element.ValueKind == JsonValueKind.String)
-                    value = element.GetString();
-            }
-            return new BaseOwnedSubjectScopeEvidence { Kind = definition.Scope, Value = value };
-        }
-
-        private static string? ReadScopeValue(BaseAtomicMutationPlanItem item, BaseExportedSubjectDefinition definition)
-        {
-            string fieldId = definition.ValidationPlan.Scope.FieldId
-                ?? throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
-            string wireName = (item.Collection.Fields ?? []).Single(field => field.Id == fieldId).WireName;
-            RecordPayload? payload = item.Kind == BaseCommittedRecordMutationKind.Delete ? item.Current?.Payload : item.ProposedPayload;
-            return payload?.Fields is { } fields && fields.TryGetValue(wireName, out JsonElement value) && value.ValueKind == JsonValueKind.String
-                ? value.GetString()
-                : null;
-        }
-
         private static OperationResult<T> SubjectFailure<T>(string code, OperationStatus status = OperationStatus.StoreError, ErrorCategory category = ErrorCategory.Store) => new()
         {
             Status = status,
             Error = new BaseError { Code = code, Message = "The subject mutation provider operation failed.", Category = category },
         };
 
-        private OperationResult<BaseCapturedAtomicMutationAuthority> CaptureSelectionAuthority(
-            BaseAtomicMutationCaptureRequest capture,
+        private OperationResult<BaseCapturedAtomicExecution> CaptureSelectionAuthority(
+            BaseAtomicExecutionRequest capture,
             CancellationToken cancellationToken)
         {
             BaseAtomicSelectionRequest? request = capture.Selection?.Selection;
@@ -4484,7 +3603,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 || intent.Authority.SchemaGeneration != 1
                 || collectionAuthority.CollectionGeneration != _owner._generation)
             {
-                return SelectionFailure<BaseCapturedAtomicMutationAuthority>(
+                return SelectionFailure<BaseCapturedAtomicExecution>(
                     OperationStatus.ValidationFailed,
                     "base.provider.selection.authorityInvalid",
                     ErrorCategory.Validation);
@@ -4496,7 +3615,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 || limits.MaximumTransientBytes < 1
                 || request.CanonicalRecordCodecVersion < 1)
             {
-                return SelectionFailure<BaseCapturedAtomicMutationAuthority>(
+                return SelectionFailure<BaseCapturedAtomicExecution>(
                     OperationStatus.ValidationFailed,
                     "base.provider.selection.limitExceeded",
                     ErrorCategory.Validation);
@@ -4511,11 +3630,11 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 .Where(record => BaseRecordFilterMatcher.Matches(
                     RecordCloneHelpers.CloneEnvelope(record), request.Query.Filter))
                 .ToList();
-            QueryResult<List<StoredRecord>, BaseCapturedAtomicMutationAuthority> sorted =
-                ApplySort<BaseCapturedAtomicMutationAuthority>(records, request.Query.Sort);
+            QueryResult<List<StoredRecord>, BaseCapturedAtomicExecution> sorted =
+                ApplySort<BaseCapturedAtomicExecution>(records, request.Query.Sort);
             if (sorted.Result is { } sortFailure)
             {
-                return SelectionFailure<BaseCapturedAtomicMutationAuthority>(
+                return SelectionFailure<BaseCapturedAtomicExecution>(
                     OperationStatus.Unsupported,
                     "base.provider.selection.queryUnsupported",
                     ErrorCategory.Unsupported);
@@ -4524,7 +3643,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             int requested = request.Query.Page?.Limit ?? limits.MaximumSelectedRecords;
             if (requested < 1 || requested > limits.MaximumSelectedRecords)
             {
-                return SelectionFailure<BaseCapturedAtomicMutationAuthority>(
+                return SelectionFailure<BaseCapturedAtomicExecution>(
                     OperationStatus.ValidationFailed,
                     "base.provider.selection.limitExceeded",
                     ErrorCategory.Validation);
@@ -4541,7 +3660,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 if (selectedBytes > limits.MaximumSelectedBytes
                     || selectedBytes > limits.MaximumTransientBytes)
                 {
-                    return SelectionFailure<BaseCapturedAtomicMutationAuthority>(
+                    return SelectionFailure<BaseCapturedAtomicExecution>(
                         OperationStatus.ValidationFailed,
                         "base.provider.selection.limitExceeded",
                         ErrorCategory.Validation);
@@ -4552,7 +3671,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             byte[] boundary = owned.Count == 0 ? [] : BaseSelectionOrderTuple.Encode(owned[^1].MaterializeOwned(), request.Query.Sort!);
             _selectionRetainedBytes = checked(selectedBytes + boundary.LongLength);
             if (_selectionRetainedBytes > limits.MaximumTransientBytes)
-                return SelectionFailure<BaseCapturedAtomicMutationAuthority>(OperationStatus.ValidationFailed,
+                return SelectionFailure<BaseCapturedAtomicExecution>(OperationStatus.ValidationFailed,
                     "base.provider.selection.limitExceeded", ErrorCategory.Validation);
             var interval = new BaseAtomicReadIntervalEvidence
             {
@@ -4567,7 +3686,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             ImmutableArray<byte> transactionEvidence = BitConverter.GetBytes(_working.GlobalMutationPosition).ToImmutableArray();
             string selectionCaptureDigest = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
                 selectedRecords.SelectMany(static record => record.CopyCanonicalBytes()).Concat(boundary).ToArray()));
-            _capturedMutation = new BaseCapturedAtomicMutationAuthority
+            _capturedMutation = new BaseCapturedAtomicExecution
             {
                 Kind = BaseAtomicMutationExecutionKind.SelectionMutation,
                 IntentDigest = new string(intent.IntentDigest.AsSpan()),
@@ -4616,7 +3735,6 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     ReadIntervals = 1,
                     EvidenceBytes = boundary.LongLength,
                     TransientBytes = _selectionRetainedBytes,
-                    RetirementBarrierReads=0,RetirementAcknowledgementReads=0,RetirementProjections=0,RetirementPublications=0,RetirementEvidenceBytes=0,RetirementPublicationBytes=0,
                 },
             };
             return OperationResults.Ok(_capturedMutation);
@@ -4819,278 +3937,6 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 return ValueTask.FromResult(OperationResults.Ok(++state.PurgeGeneration));
             });
 
-        public ValueTask<OperationResult<BaseSubjectLifecycleCheckpointResult>> AdvanceSubjectLifecycleCheckpointAsync(
-            BaseSubjectLifecycleProviderCheckpointRequest request,
-            CancellationToken cancellationToken = default) =>
-            ExecuteAsync(cancellationToken, _ =>
-            {
-                ArgumentNullException.ThrowIfNull(request);
-                if (request.DeadlineUtc <= _owner._timeProvider.GetUtcNow()
-                    || request.ExpectedCheckpointGeneration < 0
-                    || request.ProjectionGeneration < 1)
-                    return ValueTask.FromResult(OperationResults.ValidationFailed<BaseSubjectLifecycleCheckpointResult>(new BaseError
-                    {
-                        Code = BaseSubjectErrorCodes.ContractInvalid,
-                        Message = "The subject lifecycle checkpoint operation is invalid.",
-                        Category = ErrorCategory.Validation,
-                    }));
-
-                string consumerKey = $"{request.ConsumerId}\n{request.ConsumerVersion}";
-                if (!_working.SubjectLifecycleConsumers.TryGetValue(consumerKey, out InMemorySubjectLifecycleConsumerProjection? projection)
-                    || projection.ConsumerChecksum != request.ConsumerChecksum
-                    || projection.ProjectionGeneration != request.ProjectionGeneration
-                    || projection.ContractId != request.ContractId
-                    || projection.ContractVersion != request.ContractVersion)
-                    return ValueTask.FromResult(OperationResults.StoreError<BaseSubjectLifecycleCheckpointResult>(new BaseError
-                    {
-                        Code = BaseSubjectErrorCodes.ProviderContractInvalid,
-                        Message = "The subject lifecycle checkpoint authority is invalid.",
-                        Category = ErrorCategory.Store,
-                    }));
-
-                BaseProtectedSubjectScope protectedScope = _owner._subjectScopes.Protect(request.Scope, _owner._subjectScopeProtectionKey);
-                string checkpointKey = ProtectedScopeKey(request.ConsumerId, request.ConsumerVersion, protectedScope);
-                _working.SubjectLifecycleCheckpoints.TryGetValue(checkpointKey, out InMemorySubjectLifecycleCheckpointState? prior);
-                long actualGeneration = prior?.Generation ?? 0;
-                if (actualGeneration != request.ExpectedCheckpointGeneration || prior?.Overtaken == true
-                    || prior?.Through is not null && request.Through is not null && CompareBoundary(request.Through, prior.Through) < 0)
-                    return ValueTask.FromResult(OperationResults.Conflict<BaseSubjectLifecycleCheckpointResult>(new BaseError
-                    {
-                        Code = BaseSubjectErrorCodes.CursorOvertaken,
-                        Message = "The subject lifecycle checkpoint is no longer current.",
-                        Category = ErrorCategory.Conflict,
-                    }));
-
-                if (request.Through is not null && !_working.SubjectLifecycleMemberships.Any(membership =>
-                    membership.ConsumerId == request.ConsumerId && membership.ConsumerVersion == request.ConsumerVersion
-                    && membership.ConsumerChecksum == request.ConsumerChecksum && membership.ProjectionGeneration == request.ProjectionGeneration
-                    && ProtectedScopeEquals(membership.Scope, protectedScope)
-                    && ProtectedScopeEquals(_working.SubjectLifecycleFacts[membership.FactIndex].Scope, protectedScope)
-                    && CompareBoundary(_working.SubjectLifecycleFacts[membership.FactIndex].Boundary, request.Through) == 0))
-                    return ValueTask.FromResult(OperationResults.ValidationFailed<BaseSubjectLifecycleCheckpointResult>(new BaseError
-                    {
-                        Code = BaseSubjectErrorCodes.CursorInvalid,
-                        Message = "The subject lifecycle checkpoint is invalid.",
-                        Category = ErrorCategory.Validation,
-                    }));
-
-                long generation = checked(actualGeneration + 1);
-                DateTimeOffset now = _owner._timeProvider.GetUtcNow();
-                var result = new BaseSubjectLifecycleCheckpointResult
-                {
-                    Through = request.Through is null ? prior?.Through : request.Through with { },
-                    CheckpointGeneration = generation,
-                    ProjectionGeneration = request.ProjectionGeneration,
-                    AdvancedAtUtc = now,
-                    Duplicate = false,
-                };
-                _working.SubjectLifecycleCheckpoints[checkpointKey] = new(request.ConsumerId, request.ConsumerVersion,
-                    request.ConsumerChecksum, request.ContractId, request.ContractVersion, request.ProjectionGeneration,
-                    protectedScope, result.Through, generation, now, false);
-                return ValueTask.FromResult(OperationResults.Ok(result));
-            });
-
-        public ValueTask<OperationResult<BaseSubjectAcknowledgementResult>> ApplySubjectRetirementAcknowledgementAsync(
-            BaseSubjectRetirementProviderAcknowledgementRequest request,
-            CancellationToken cancellationToken = default) =>
-            ExecuteAsync(cancellationToken, _ =>
-            {
-                ArgumentNullException.ThrowIfNull(request);
-                BaseSubjectLifecycleAcknowledgement acknowledgement = request.Acknowledgement;
-                BaseSubjectRetirementConsumerDefinition? consumer = _owner._options.SubjectRetirementConsumers.SingleOrDefault(value =>
-                    value.ConsumerId == acknowledgement.ConsumerId && value.ConsumerVersion == acknowledgement.ConsumerVersion);
-                if (consumer is null || BaseSubjectRetirementRegistry.ConsumerChecksum(consumer) != request.RetirementConsumerChecksum
-                    || consumer.Participation != acknowledgement.Participation || consumer.LifecycleConsumerChecksum != acknowledgement.ConsumerChecksum
-                    || request.ObservedAtUtc.Offset != TimeSpan.Zero || request.DeadlineUtc.Offset != TimeSpan.Zero)
-                    return ValueTask.FromResult(RetirementFailure(BaseSubjectRetirementErrorCodes.ProviderContractInvalid, OperationStatus.CapabilityUnavailable, ErrorCategory.Capability));
-
-                BaseProtectedSubjectScope protectedScope = _owner._subjectScopes.Protect(request.Scope, _owner._subjectScopeProtectionKey);
-                if (acknowledgement.Participation == BaseSubjectRetirementParticipation.AdvisoryAcknowledgement)
-                {
-                    bool delivered = _working.SubjectLifecycleMemberships.Any(membership => membership.ConsumerId == acknowledgement.ConsumerId
-                        && membership.ConsumerVersion == acknowledgement.ConsumerVersion && ProtectedScopeEquals(membership.Scope, protectedScope)
-                        && _working.SubjectLifecycleFacts[membership.FactIndex].Fact.ContractId == acknowledgement.ContractId
-                        && _working.SubjectLifecycleFacts[membership.FactIndex].Fact.ContractVersion == acknowledgement.ContractVersion
-                        && _working.SubjectLifecycleFacts[membership.FactIndex].Fact.SubjectId.Equals(acknowledgement.SubjectId)
-                        && _working.SubjectLifecycleFacts[membership.FactIndex].Fact.AuthorityEpoch.Equals(acknowledgement.AuthorityEpoch)
-                        && _working.SubjectLifecycleFacts[membership.FactIndex].Fact.Incarnation.Equals(acknowledgement.Incarnation)
-                        && _working.SubjectLifecycleFacts[membership.FactIndex].Fact.SubjectSequence == acknowledgement.ThroughSubjectSequence);
-                    if (!delivered) return ValueTask.FromResult(RetirementFailure(BaseSubjectRetirementErrorCodes.ProviderContractInvalid, OperationStatus.ValidationFailed, ErrorCategory.Validation));
-                    long advisoryPosition = checked(++_working.SubjectRetirementPosition);
-                    AddRetirementPublication(new BaseSubjectRetirementPublicationRow
-                    {
-                        Scope = protectedScope,
-                        Fact = new BaseSubjectRetirementPublicationFact
-                        {
-                            Position = new(advisoryPosition), Kind = BaseSubjectRetirementPublicationKind.AdvisoryAcknowledgementAccepted,
-                            AdvisoryAcknowledgement = new BaseSubjectAdvisoryAcknowledgementPublication
-                            {
-                                ContractId = acknowledgement.ContractId, ContractVersion = acknowledgement.ContractVersion,
-                                SubjectId = acknowledgement.SubjectId, AuthorityEpoch = acknowledgement.AuthorityEpoch,
-                                Incarnation = acknowledgement.Incarnation, ThroughSubjectSequence = acknowledgement.ThroughSubjectSequence,
-                                ConsumerId = acknowledgement.ConsumerId, ConsumerVersion = acknowledgement.ConsumerVersion,
-                                Disposition = acknowledgement.Disposition,
-                            },
-                        },
-                    });
-                    return ValueTask.FromResult(OperationResults.Ok(new BaseSubjectAcknowledgementResult
-                    {
-                        Outcome = BaseSubjectRetirementMutationOutcome.Applied, ThroughSubjectSequence = acknowledgement.ThroughSubjectSequence,
-                    }));
-                }
-
-                if (acknowledgement.Participation != BaseSubjectRetirementParticipation.RequiredBeforePurge || acknowledgement.RequiredBarrier is null)
-                    return ValueTask.FromResult(RetirementFailure(BaseSubjectRetirementErrorCodes.ContractInvalid, OperationStatus.ValidationFailed, ErrorCategory.Validation));
-                string key = RetirementKey(protectedScope, acknowledgement.ContractId, acknowledgement.ContractVersion, acknowledgement.SubjectId, acknowledgement.AuthorityEpoch, acknowledgement.Incarnation);
-                if (!_working.SubjectRetirementBarriers.TryGetValue(key, out InMemorySubjectRetirementBarrierState? stored))
-                    return ValueTask.FromResult(RetirementFailure("base.subjectRetirement.acknowledgementConflict", OperationStatus.Conflict, ErrorCategory.Conflict));
-                BaseSubjectRetirementBarrier barrier = stored.Barrier;
-                if (barrier.BarrierChecksum != acknowledgement.RequiredBarrier.Checksum || barrier.Generation != acknowledgement.RequiredBarrier.Generation
-                    || barrier.TombstoneSequence != acknowledgement.ThroughSubjectSequence)
-                    return ValueTask.FromResult(RetirementFailure("base.subjectRetirement.acknowledgementConflict", OperationStatus.Conflict, ErrorCategory.Conflict));
-                if (request.ObservedAtUtc > barrier.DeadlineUtc || barrier.State != BaseSubjectRetirementBarrierState.Pending)
-                    return ValueTask.FromResult(RetirementFailure("base.subjectRetirement.barrierTimedOut", OperationStatus.Conflict, ErrorCategory.Conflict));
-                BaseSubjectRetirementPolicy? policy = _owner._options.SubjectRetirementPolicies.SingleOrDefault(value => value.ContractId == acknowledgement.ContractId && value.ContractVersion == acknowledgement.ContractVersion);
-                if (policy is null || policy.PolicyChecksum != request.RetirementPolicyChecksum
-                    || !policy.AcceptedConsumers.Any(value => value.ConsumerId == acknowledgement.ConsumerId && value.ConsumerVersion == acknowledgement.ConsumerVersion
-                        && value.RetirementConsumerChecksum == request.RetirementConsumerChecksum))
-                    return ValueTask.FromResult(RetirementFailure(BaseSubjectRetirementErrorCodes.ProviderContractInvalid, OperationStatus.CapabilityUnavailable, ErrorCategory.Capability));
-                string consumerKey = $"{acknowledgement.ConsumerId}\n{acknowledgement.ConsumerVersion}";
-                if (stored.Acknowledgements.ContainsKey(consumerKey))
-                    return ValueTask.FromResult(OperationResults.Ok(new BaseSubjectAcknowledgementResult
-                    {
-                        Outcome = BaseSubjectRetirementMutationOutcome.Obsolete, BarrierState = barrier.State,
-                        BarrierGeneration = barrier.Generation, BarrierChecksum = barrier.BarrierChecksum, ThroughSubjectSequence = acknowledgement.ThroughSubjectSequence,
-                    }));
-                long position = checked(++_working.SubjectRetirementPosition);
-                stored.Acknowledgements.Add(consumerKey, new(acknowledgement.ConsumerId, acknowledgement.ConsumerVersion, acknowledgement.ConsumerChecksum,
-                    acknowledgement.ThroughSubjectSequence, acknowledgement.Disposition, position));
-                bool satisfied = policy.AcceptedConsumers.All(value => stored.Acknowledgements.ContainsKey($"{value.ConsumerId}\n{value.ConsumerVersion}"));
-                BaseSubjectRetirementBarrier resulting = barrier with
-                {
-                    State = satisfied ? BaseSubjectRetirementBarrierState.Satisfied : BaseSubjectRetirementBarrierState.Pending,
-                    Generation = checked(barrier.Generation + 1), BarrierChecksum = string.Empty,
-                };
-                resulting = resulting with { BarrierChecksum = BaseSubjectRetirementRegistry.BarrierChecksum(resulting, stored.Acknowledgements.Values.Select(static value => BaseSubjectRetirementRegistry.AcknowledgementChecksumInput(value.ConsumerId, value.ConsumerVersion, value.ConsumerChecksum, value.ThroughSequence, value.Disposition, value.Position))) };
-                _working.SubjectRetirementBarriers[key] = stored with { Barrier = resulting };
-                AddRetirementBarrierPublication(protectedScope,
-                    satisfied ? BaseSubjectRetirementPublicationKind.BarrierSatisfied : BaseSubjectRetirementPublicationKind.RequiredAcknowledgementAccepted,
-                    resulting, barrier.Generation, acknowledgement.ConsumerId, position);
-                return ValueTask.FromResult(OperationResults.Ok(new BaseSubjectAcknowledgementResult
-                {
-                    Outcome = BaseSubjectRetirementMutationOutcome.Applied, BarrierState = resulting.State,
-                    BarrierGeneration = resulting.Generation, BarrierChecksum = resulting.BarrierChecksum,
-                    ThroughSubjectSequence = acknowledgement.ThroughSubjectSequence,
-                }));
-            });
-
-        public ValueTask<OperationResult<BaseSubjectRetirementTimeoutResult>> ApplySubjectRetirementTimeoutAsync(
-            BaseSubjectRetirementProviderTimeoutRequest request, CancellationToken cancellationToken = default) => ExecuteAsync(cancellationToken, _ =>
-        {
-            ArgumentNullException.ThrowIfNull(request); BaseSubjectRetirementTimeoutRequest command = request.Request;
-            if (!RetirementPolicyMatches(command.ContractId, command.ContractVersion, request.RetirementPolicyChecksum)
-                || request.ObservedAtUtc.Offset != TimeSpan.Zero)
-                return ValueTask.FromResult(RetirementFailure<BaseSubjectRetirementTimeoutResult>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid, OperationStatus.CapabilityUnavailable, ErrorCategory.Capability));
-            BaseProtectedSubjectScope scope = _owner._subjectScopes.Protect(request.Scope, _owner._subjectScopeProtectionKey);
-            string key = RetirementKey(scope, command.ContractId, command.ContractVersion, command.SubjectId, command.AuthorityEpoch, command.Incarnation);
-            if (!_working.SubjectRetirementBarriers.TryGetValue(key, out InMemorySubjectRetirementBarrierState? stored)
-                || stored.Barrier.Generation != command.ExpectedBarrierGeneration || stored.Barrier.BarrierChecksum != command.ExpectedBarrierChecksum)
-                return ValueTask.FromResult(RetirementFailure<BaseSubjectRetirementTimeoutResult>(BaseSubjectRetirementErrorCodes.SequenceInvalid, OperationStatus.Conflict, ErrorCategory.Conflict));
-            if (stored.Barrier.State != BaseSubjectRetirementBarrierState.Pending)
-                return ValueTask.FromResult(OperationResults.Ok(new BaseSubjectRetirementTimeoutResult { Outcome = BaseSubjectRetirementMutationOutcome.Obsolete, State = stored.Barrier.State, Generation = stored.Barrier.Generation, BarrierChecksum = stored.Barrier.BarrierChecksum }));
-            if (request.ObservedAtUtc <= stored.Barrier.DeadlineUtc)
-                return ValueTask.FromResult(RetirementFailure<BaseSubjectRetirementTimeoutResult>("base.subjectRetirement.barrierPending", OperationStatus.Conflict, ErrorCategory.Conflict));
-            BaseSubjectRetirementPolicy policy = _owner._options.SubjectRetirementPolicies.Single(value => value.ContractId == command.ContractId && value.ContractVersion == command.ContractVersion);
-            BaseSubjectRetirementBarrierState timeoutState = policy.TimeoutBehavior == BaseSubjectRetirementTimeoutBehavior.Quarantine
-                ? BaseSubjectRetirementBarrierState.Quarantined : BaseSubjectRetirementBarrierState.TimedOut;
-            BaseSubjectRetirementBarrier resulting = RecomputeBarrier(stored, timeoutState);
-            _working.SubjectRetirementBarriers[key] = stored with { Barrier = resulting }; long position = checked(++_working.SubjectRetirementPosition);
-            AddRetirementBarrierPublication(scope, timeoutState == BaseSubjectRetirementBarrierState.Quarantined
-                ? BaseSubjectRetirementPublicationKind.BarrierQuarantined : BaseSubjectRetirementPublicationKind.BarrierTimedOut,
-                resulting, stored.Barrier.Generation, null, position);
-            return ValueTask.FromResult(OperationResults.Ok(new BaseSubjectRetirementTimeoutResult { Outcome = BaseSubjectRetirementMutationOutcome.Applied, State = resulting.State, Generation = resulting.Generation, BarrierChecksum = resulting.BarrierChecksum }));
-        });
-
-        public ValueTask<OperationResult<BaseSubjectRetirementOverrideResult>> ApplySubjectRetirementOverrideAsync(
-            BaseSubjectRetirementProviderOverrideRequest request, CancellationToken cancellationToken = default) => ExecuteAsync(cancellationToken, _ =>
-        {
-            ArgumentNullException.ThrowIfNull(request); BaseSubjectRetirementOverrideRequest command = request.Request;
-            if (command.Intent != "override-subject-retirement-barrier" || command.ChangeReference.Length is < 1 or > 256
-                || !RetirementPolicyMatches(command.ContractId, command.ContractVersion, request.RetirementPolicyChecksum))
-                return ValueTask.FromResult(RetirementFailure<BaseSubjectRetirementOverrideResult>(BaseSubjectRetirementErrorCodes.ContractInvalid, OperationStatus.ValidationFailed, ErrorCategory.Validation));
-            BaseProtectedSubjectScope scope = _owner._subjectScopes.Protect(request.Scope, _owner._subjectScopeProtectionKey);
-            string key = RetirementKey(scope, command.ContractId, command.ContractVersion, command.SubjectId, command.AuthorityEpoch, command.Incarnation);
-            if (!_working.SubjectRetirementBarriers.TryGetValue(key, out InMemorySubjectRetirementBarrierState? stored)
-                || stored.Barrier.TombstoneSequence != command.ExpectedTombstoneSequence || stored.Barrier.Generation != command.ExpectedBarrierGeneration
-                || stored.Barrier.BarrierChecksum != command.ExpectedBarrierChecksum)
-                return ValueTask.FromResult(RetirementFailure<BaseSubjectRetirementOverrideResult>("base.subjectRetirement.overrideConflict", OperationStatus.Conflict, ErrorCategory.Conflict));
-            if (stored.Barrier.State == BaseSubjectRetirementBarrierState.Overridden)
-                return ValueTask.FromResult(OperationResults.Ok(new BaseSubjectRetirementOverrideResult { Outcome = BaseSubjectRetirementMutationOutcome.Obsolete, Generation = stored.Barrier.Generation, BarrierChecksum = stored.Barrier.BarrierChecksum }));
-            if (stored.Barrier.State is not (BaseSubjectRetirementBarrierState.TimedOut or BaseSubjectRetirementBarrierState.Quarantined))
-                return ValueTask.FromResult(RetirementFailure<BaseSubjectRetirementOverrideResult>("base.subjectRetirement.overrideConflict", OperationStatus.Conflict, ErrorCategory.Conflict));
-            BaseSubjectRetirementBarrier resulting = RecomputeBarrier(stored, BaseSubjectRetirementBarrierState.Overridden);
-            _working.SubjectRetirementBarriers[key] = stored with { Barrier = resulting }; long position = checked(++_working.SubjectRetirementPosition);
-            AddRetirementBarrierPublication(scope, BaseSubjectRetirementPublicationKind.BarrierOverridden, resulting, stored.Barrier.Generation, null, position);
-            return ValueTask.FromResult(OperationResults.Ok(new BaseSubjectRetirementOverrideResult { Outcome = BaseSubjectRetirementMutationOutcome.Applied, Generation = resulting.Generation, BarrierChecksum = resulting.BarrierChecksum }));
-        });
-
-        public ValueTask<OperationResult<BaseSubjectRetirementPurgeApplied>> ApplySubjectRetirementPurgeAsync(
-            BaseSubjectRetirementProviderPurgeRequest request, CancellationToken cancellationToken = default) => ExecuteAsync(cancellationToken, async token =>
-        {
-            ArgumentNullException.ThrowIfNull(request); BaseSubjectFinalPurgeRequest command=request.Request;
-            BaseSubjectRetirementPolicy? policy=_owner._options.SubjectRetirementPolicies.SingleOrDefault(value=>value.ContractId==command.ContractId&&value.ContractVersion==command.ContractVersion);
-            InMemorySubjectContractState? contract=_working.SubjectContracts.GetValueOrDefault(SubjectContractKey(command.ContractId,command.ContractVersion));
-            if(policy is null||policy.PolicyChecksum!=request.RetirementPolicyChecksum||contract is null||contract.ContractChecksum!=request.ContractChecksum||policy.PurgeRetention.MinimumTombstoneAge!=request.MinimumTombstoneAge)
-                return RetirementFailure<BaseSubjectRetirementPurgeApplied>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid,OperationStatus.CapabilityUnavailable,ErrorCategory.Capability);
-            BaseProtectedSubjectScope protectedScope=_owner._subjectScopes.Protect(request.Scope,_owner._subjectScopeProtectionKey);string barrierKey=RetirementKey(protectedScope,command.ContractId,command.ContractVersion,command.SubjectId,command.AuthorityEpoch,command.Incarnation);
-            if(!_working.SubjectRetirementBarriers.TryGetValue(barrierKey,out InMemorySubjectRetirementBarrierState? stored)||stored.Barrier.TombstoneSequence!=command.ExpectedTombstoneSequence||stored.Barrier.Generation!=command.ExpectedBarrierGeneration||stored.Barrier.BarrierChecksum!=command.ExpectedBarrierChecksum||stored.Barrier.State is not(BaseSubjectRetirementBarrierState.Satisfied or BaseSubjectRetirementBarrierState.Overridden)||stored.Barrier.RequiredConsumerSetChecksum!=BaseSubjectRetirementRegistry.AcceptedSetChecksum(policy.AcceptedConsumers)||request.ObservedAtUtc<checked(stored.Barrier.CreatedAtUtc+request.MinimumTombstoneAge))
-                return RetirementFailure<BaseSubjectRetirementPurgeApplied>("base.subjectRetirement.purgeConflict",OperationStatus.Conflict,ErrorCategory.Conflict);
-            KeyValuePair<string,InMemorySubjectLifetimeState> located=_working.SubjectLifetimes.SingleOrDefault(pair=>pair.Value.ContractId==command.ContractId&&pair.Value.ContractVersion==command.ContractVersion&&pair.Value.SubjectId.Equals(command.SubjectId)&&pair.Value.Incarnation.Equals(command.Incarnation)&&pair.Value.LifecycleState==BaseSubjectLifecycleState.Tombstoned&&ProtectedScopeEquals(_owner._subjectScopes.Protect(pair.Value.Scope,_owner._subjectScopeProtectionKey),protectedScope));
-            if(located.Value is null||!contract.AuthorityEpoch.Equals(command.AuthorityEpoch))return RetirementFailure<BaseSubjectRetirementPurgeApplied>("base.subjectRetirement.purgeConflict",OperationStatus.Conflict,ErrorCategory.Conflict);
-            InMemorySubjectLifetimeState lifetime=located.Value;CollectionDefinition? collection=(_owner._options.Collections??[]).SingleOrDefault(value=>value.Id==lifetime.PrivateCollectionId);if(collection is null)return RetirementFailure<BaseSubjectRetirementPurgeApplied>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid,OperationStatus.CapabilityUnavailable,ErrorCategory.Capability);RecordEnvelope? before=SnapshotRecord(collection,lifetime.PrivateRecordId);if(before is null||before.Metadata.Revision!=command.ExpectedPrivateRevision)return RetirementFailure<BaseSubjectRetirementPurgeApplied>("base.subjectRetirement.purgeConflict",OperationStatus.Conflict,ErrorCategory.Conflict);
-            OperationResult<DeleteResult> deleted=await _owner.DeleteCoreAsync(_working,collection,lifetime.PrivateRecordId,new(){ExpectedRevision=command.ExpectedPrivateRevision,ReturnPrevious=true},request.Operation,token,()=>_relationChecks=checked(_relationChecks+1)).ConfigureAwait(false);if(!deleted.IsSuccess()||deleted.Value is null)return new(){Status=deleted.Status,Error=deleted.Error};
-            long journalPosition=checked(++_working.GlobalMutationPosition);long retiredSequence=checked(lifetime.SubjectSequence+1);var lifecycle=new BaseSubjectLifecycleCommitEvidence{ContractId=command.ContractId,ContractVersion=command.ContractVersion,SubjectId=command.SubjectId.Value,Kind=BaseSubjectLifecycleMutationKind.Retire,AuthorityEpoch=command.AuthorityEpoch,Incarnation=command.Incarnation,SubjectSequence=retiredSequence,ContractStateGeneration=contract.StateGeneration,DeliveryEpoch=_working.SubjectLifecycleDeliveryEpoch,Scope=lifetime.Scope,PreviousState=BaseSubjectLifecycleState.Tombstoned,ResultingState=BaseSubjectLifecycleState.Retired,CommitPosition=new(journalPosition)};
-            var fact=new BaseRecordMutationFact{ItemId="subject-retirement-purge",RequestedOperation=BaseRecordMutationKind.Delete,CommittedOperation=BaseCommittedRecordMutationKind.Delete,Collection=collection,Event=EventReference(Guid.NewGuid().ToString("N"),BaseCommittedRecordMutationKind.Delete) with{PublishedAt=Now(request.Operation),Stream="base.mutations",Guarantee=EventDeliveryGuarantee.Transactional},JournalPosition=new(journalPosition),Before=before,After=null,Delete=deleted.Value,ChangedFields=null,SubjectLifecycle=lifecycle};_working.MutationJournal.Add(journalPosition,CreateJournalEntry(fact,request.Operation.TenantId));_working.SubjectLifetimes.Remove(located.Key);
-            string l47TerminalChecksum=BaseSubjectTerminalIntegrity.Compute(command.ContractId,command.ContractVersion,command.SubjectId,lifetime.Scope,command.AuthorityEpoch,command.Incarnation,lifetime.LifetimeGeneration,retiredSequence,new(journalPosition),contract.StateGeneration,contract.RestoreEpoch);_working.SubjectTerminals[_owner.SubjectKey(lifetime.Scope,command.ContractId,command.ContractVersion,command.SubjectId)]=new(command.ContractId,command.ContractVersion,command.SubjectId,lifetime.Scope,command.AuthorityEpoch,command.Incarnation,lifetime.LifetimeGeneration,retiredSequence,journalPosition,contract.StateGeneration,contract.RestoreEpoch,l47TerminalChecksum);
-            var boundary=new BaseSubjectLifecycleOrderingBoundary{CommitPosition=new(journalPosition),SubjectId=command.SubjectId,AuthorityEpoch=command.AuthorityEpoch,Incarnation=command.Incarnation,SubjectSequence=retiredSequence};var lifecycleFact=new BaseSubjectLifecycleFact{CommitPosition=new(journalPosition),ContractId=command.ContractId,ContractVersion=command.ContractVersion,SubjectId=command.SubjectId,AuthorityEpoch=command.AuthorityEpoch,Incarnation=command.Incarnation,SubjectSequence=retiredSequence,ContractStateGeneration=contract.StateGeneration,DeliveryEpoch=_working.SubjectLifecycleDeliveryEpoch,Kind=BaseSubjectLifecycleFactKind.Retired,Retired=new(){PreviousState=BaseSubjectLifecycleState.Tombstoned}};int factIndex=_working.SubjectLifecycleFacts.Count;_working.SubjectLifecycleFacts.Add(new(protectedScope,boundary,lifecycleFact));
-            foreach(BaseSubjectLifecycleConsumerDefinition consumer in _owner._options.SubjectLifecycleConsumers.Where(value=>value.ContractId==command.ContractId&&value.ContractVersion==command.ContractVersion&&value.ObservedStates.Contains(BaseSubjectLifecycleState.Retired))){InMemorySubjectLifecycleConsumerProjection? projection=_working.SubjectLifecycleConsumers.GetValueOrDefault($"{consumer.Id}\n{consumer.Version}");if(projection is null)continue;int membershipIndex=_working.SubjectLifecycleMemberships.Count;_working.SubjectLifecycleMemberships.Add(new(consumer.Id,consumer.Version,projection.ConsumerChecksum,projection.ProjectionGeneration,BaseSubjectLifecycleState.Retired,protectedScope,factIndex));string membershipKey=ProtectedScopeKey(consumer.Id,consumer.Version,protectedScope);if(!_working.SubjectLifecycleMembershipIndex.TryGetValue(membershipKey,out List<int>? indexes))_working.SubjectLifecycleMembershipIndex.Add(membershipKey,indexes=[]);indexes.Add(membershipIndex);}
-            ImmutableArray<BaseSubjectTerminalAcknowledgement> acknowledgements=[.. stored.Acknowledgements.Values.OrderBy(static value=>value.ConsumerId,StringComparer.Ordinal).ThenBy(static value=>value.ConsumerVersion).Select(static value=>new BaseSubjectTerminalAcknowledgement{ConsumerId=value.ConsumerId,ConsumerVersion=value.ConsumerVersion,ConsumerChecksum=value.ConsumerChecksum,ThroughSubjectSequence=value.ThroughSequence,Disposition=value.Disposition,AcknowledgedPosition=new(value.Position)})];var terminal=new BaseSubjectRetirementTerminalReceipt{ContractId=command.ContractId,ContractVersion=command.ContractVersion,SubjectId=command.SubjectId,Scope=protectedScope,AuthorityEpoch=command.AuthorityEpoch,Incarnation=command.Incarnation,TombstoneSequence=stored.Barrier.TombstoneSequence,AuthorizingState=stored.Barrier.State,FinalBarrierGeneration=stored.Barrier.Generation,FinalBarrierChecksum=stored.Barrier.BarrierChecksum,RequiredConsumerSetChecksum=stored.Barrier.RequiredConsumerSetChecksum,Acknowledgements=acknowledgements,RetiredPosition=new(journalPosition),PurgedAtUtc=request.ObservedAtUtc,ReceiptChecksum=string.Empty};terminal=terminal with{ReceiptChecksum=BaseSubjectRetirementRegistry.TerminalChecksum(terminal)};_working.SubjectRetirementBarriers.Remove(barrierKey);_working.SubjectRetirementTerminals[barrierKey]=new(terminal);long publicationPosition=checked(++_working.SubjectRetirementPosition);AddRetirementPublication(new(){Scope=protectedScope,Fact=new(){Position=new(publicationPosition),Kind=BaseSubjectRetirementPublicationKind.SubjectPurged,Purged=new(){ContractId=command.ContractId,ContractVersion=command.ContractVersion,SubjectId=command.SubjectId,AuthorityEpoch=command.AuthorityEpoch,Incarnation=command.Incarnation,TombstoneSequence=stored.Barrier.TombstoneSequence,FinalBarrierGeneration=stored.Barrier.Generation,FinalBarrierChecksum=stored.Barrier.BarrierChecksum,TerminalReceiptChecksum=terminal.ReceiptChecksum,RetiredLifecyclePosition=new(journalPosition)}}});
-            return OperationResults.Ok(new BaseSubjectRetirementPurgeApplied{Result=new(){Outcome=BaseSubjectRetirementMutationOutcome.Applied,RetiredSubjectSequence=retiredSequence,RetiredPosition=new(journalPosition),TerminalReceiptChecksum=terminal.ReceiptChecksum},Mutation=fact,Terminal=terminal});
-        });
-
-        private bool RetirementPolicyMatches(string contractId, int contractVersion, string checksum) =>
-            _owner._options.SubjectRetirementPolicies.SingleOrDefault(value => value.ContractId == contractId && value.ContractVersion == contractVersion)?.PolicyChecksum == checksum;
-        private void AddRetirementBarrierPublication(BaseProtectedSubjectScope scope, BaseSubjectRetirementPublicationKind kind,
-            BaseSubjectRetirementBarrier barrier, long previousGeneration, string? consumerId, long position) =>
-            AddRetirementPublication(new BaseSubjectRetirementPublicationRow
-            {
-                Scope = scope,
-                Fact = new BaseSubjectRetirementPublicationFact
-                {
-                    Position = new(position), Kind = kind,
-                    Barrier = new BaseSubjectBarrierPublication
-                    {
-                        ContractId = barrier.ContractId, ContractVersion = barrier.ContractVersion, SubjectId = barrier.SubjectId,
-                        AuthorityEpoch = barrier.AuthorityEpoch, Incarnation = barrier.Incarnation,
-                        TombstoneSequence = barrier.TombstoneSequence, PreviousGeneration = previousGeneration,
-                        PublishedGeneration = barrier.Generation, ConsumerId = consumerId,
-                    },
-                },
-            });
-        private void AddRetirementPublication(BaseSubjectRetirementPublicationRow row){row=row with{Fact=BaseSubjectRetirementRegistry.SealPublication(row.Fact,row.Scope)};BaseSubjectRetirementRegistry.ValidatePublication(row);_working.SubjectRetirementPublications.Add(row);}
-        private static BaseSubjectRetirementBarrier RecomputeBarrier(InMemorySubjectRetirementBarrierState stored, BaseSubjectRetirementBarrierState state)
-        {
-            BaseSubjectRetirementBarrier result = stored.Barrier with { State = state, Generation = checked(stored.Barrier.Generation + 1), BarrierChecksum = string.Empty };
-            return result with { BarrierChecksum = BaseSubjectRetirementRegistry.BarrierChecksum(result, stored.Acknowledgements.Values.Select(static value => BaseSubjectRetirementRegistry.AcknowledgementChecksumInput(value.ConsumerId, value.ConsumerVersion, value.ConsumerChecksum, value.ThroughSequence, value.Disposition, value.Position))) };
-        }
-
-        private static OperationResult<BaseSubjectAcknowledgementResult> RetirementFailure(string code, OperationStatus status, ErrorCategory category) => new()
-        {
-            Status = status, Error = new BaseError { Code = code, Message = "The subject retirement operation failed.", Category = category },
-        };
-        private static OperationResult<T> RetirementFailure<T>(string code, OperationStatus status, ErrorCategory category) => new()
-        { Status = status, Error = new BaseError { Code = code, Message = "The subject retirement operation failed.", Category = category } };
-
         /// <inheritdoc />
         public async ValueTask<OperationResult> ApplyMutationProjectionsAsync(
             BaseAtomicMutationProjectionRequest request,
@@ -5098,7 +3944,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         {
             ArgumentNullException.ThrowIfNull(request);
             cancellationToken.ThrowIfCancellationRequested();
-            IInMemoryAtomicMutationProjection? projection = _owner._mutationProjection;
+            IInMemoryAtomicMutationProjection? projection = _owner._vectorProjection;
             if (projection is null) return OperationResults.NoContent();
             try
             {

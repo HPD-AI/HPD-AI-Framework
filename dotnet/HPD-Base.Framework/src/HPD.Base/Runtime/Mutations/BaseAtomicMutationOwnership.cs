@@ -4,7 +4,7 @@ namespace HPD.Base;
 
 internal static class BaseAtomicMutationOwnership
 {
-    internal static BaseAtomicMutationPlan FreezePlan(BaseAtomicMutationPlan value) => value with
+    internal static BaseFinalizedAtomicExecutionPlan FreezePlan(BaseFinalizedAtomicExecutionPlan value) => value with
     {
         PlanDigest = new string(value.PlanDigest.AsSpan()),
         IntentDigest = new string(value.IntentDigest.AsSpan()),

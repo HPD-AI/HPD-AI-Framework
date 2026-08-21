@@ -161,3 +161,103 @@ public sealed record BaseActivationPayload
     /// <summary>Gets the immutable payload checksum.</summary>
     public required ImmutableArray<byte> Checksum { get; init; }
 }
+
+/// <summary>Contains one activation creation projected into a shared atomic execution.</summary>
+public sealed record BaseActivationCreateIntent
+{
+    /// <summary>Gets the dense zero-based activation ordinal.</summary>
+    public required int Ordinal { get; init; }
+    /// <summary>Gets the exact installed definition.</summary>
+    public required BaseActivationDefinitionKey Definition { get; init; }
+    /// <summary>Gets the canonical activation input.</summary>
+    public required ImmutableArray<byte> CanonicalInput { get; init; }
+    /// <summary>Gets the canonical input checksum.</summary>
+    public required ImmutableArray<byte> InputChecksum { get; init; }
+    /// <summary>Gets the protected semantic scope evidence.</summary>
+    public required BaseOwnedSubjectScopeEvidence Scope { get; init; }
+    /// <summary>Gets the caller-requested due instant as Unix milliseconds.</summary>
+    public required long RequestedDueAt { get; init; }
+    /// <summary>Gets the effective due instant after deterministic scheduling policy.</summary>
+    public long? EffectiveDueAt { get; init; }
+    /// <summary>Gets the identified request that owns duplicate resolution.</summary>
+    public required BaseMutationRequestIdentity Identity { get; init; }
+}
+
+/// <summary>Extends one shared atomic request with ordered activation creation.</summary>
+public sealed record BaseActivationCreationExtension
+{
+    /// <summary>Gets the dense ordered activation intents.</summary>
+    public required ImmutableArray<BaseActivationCreateIntent> Items { get; init; }
+    /// <summary>Gets the Runtime-owned structural digest.</summary>
+    public required ImmutableArray<byte> StructuralDigest { get; init; }
+}
+
+/// <summary>Contains one transaction-captured activation uniqueness result.</summary>
+public sealed record BaseCapturedActivationItem
+{
+    /// <summary>Gets the matching creation ordinal.</summary>
+    public required int Ordinal { get; init; }
+    /// <summary>Gets the deterministic activation identity.</summary>
+    public required string ActivationId { get; init; }
+    /// <summary>Gets whether the activation already exists.</summary>
+    public required bool Exists { get; init; }
+    /// <summary>Gets the existing canonical fingerprint when present.</summary>
+    public ImmutableArray<byte> ExistingFingerprint { get; init; }
+}
+
+/// <summary>Contains aggregate transaction-captured activation authority.</summary>
+public sealed record BaseCapturedActivationExtension
+{
+    /// <summary>Gets one item for every requested activation in request order.</summary>
+    public required ImmutableArray<BaseCapturedActivationItem> Items { get; init; }
+    /// <summary>Gets normalized uniqueness and schedule read intervals.</summary>
+    public required ImmutableArray<BaseAtomicReadIntervalEvidence> ReadIntervals { get; init; }
+    /// <summary>Gets the canonical aggregate evidence checksum.</summary>
+    public required ImmutableArray<byte> Checksum { get; init; }
+}
+
+/// <summary>Contains one prepared activation creation.</summary>
+public sealed record BasePreparedActivationItem
+{
+    /// <summary>Gets the matching request ordinal.</summary>
+    public required int Ordinal { get; init; }
+    /// <summary>Gets the activation identity.</summary>
+    public required string ActivationId { get; init; }
+    /// <summary>Gets the resulting activation generation.</summary>
+    public required long ResultingGeneration { get; init; }
+    /// <summary>Gets the immutable payload checksum.</summary>
+    public required ImmutableArray<byte> PayloadChecksum { get; init; }
+    /// <summary>Gets the hot-control checksum.</summary>
+    public required ImmutableArray<byte> ControlChecksum { get; init; }
+}
+
+/// <summary>Contains aggregate prepared activation evidence.</summary>
+public sealed record BasePreparedActivationExtension
+{
+    /// <summary>Gets prepared items in exact request order.</summary>
+    public required ImmutableArray<BasePreparedActivationItem> Items { get; init; }
+    /// <summary>Gets the aggregate preparation checksum.</summary>
+    public required ImmutableArray<byte> Checksum { get; init; }
+}
+
+/// <summary>Contains one provisionally applied activation creation.</summary>
+public sealed record BaseProvisionalActivationItem
+{
+    /// <summary>Gets the matching request ordinal.</summary>
+    public required int Ordinal { get; init; }
+    /// <summary>Gets the activation identity.</summary>
+    public required string ActivationId { get; init; }
+    /// <summary>Gets the provisional control generation.</summary>
+    public required long Generation { get; init; }
+    /// <summary>Gets the canonical committed-evidence checksum.</summary>
+    public required ImmutableArray<byte> Checksum { get; init; }
+}
+
+/// <summary>Contains aggregate provisional activation evidence.</summary>
+public sealed record BaseProvisionalActivationExtension
+{
+    /// <summary>Gets provisional items in exact request order.</summary>
+    public required ImmutableArray<BaseProvisionalActivationItem> Items { get; init; }
+    /// <summary>Gets the aggregate provisional checksum.</summary>
+    public required ImmutableArray<byte> Checksum { get; init; }
+}

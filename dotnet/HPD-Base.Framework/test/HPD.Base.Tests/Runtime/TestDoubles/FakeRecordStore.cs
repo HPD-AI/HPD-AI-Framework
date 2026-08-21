@@ -290,14 +290,14 @@ internal class FakeRecordStore : IAtomicRecordStore
     {
         private bool _active = true;
         private long _purgeGeneration;
-        private BaseCapturedAtomicMutationAuthority? _captured;
-        private BaseAtomicMutationPlan? _plan;
-        private BasePreparedAtomicMutation? _prepared;
+        private BaseCapturedAtomicExecution? _captured;
+        private BaseFinalizedAtomicExecutionPlan? _plan;
+        private BasePreparedAtomicExecution? _prepared;
 
         public void Close() => _active = false;
 
-        public ValueTask<OperationResult<BaseCapturedAtomicMutationAuthority>> CaptureAtomicMutationAuthorityAsync(
-            BaseAtomicMutationCaptureRequest request,
+        public ValueTask<OperationResult<BaseCapturedAtomicExecution>> CaptureAtomicExecutionAsync(
+            BaseAtomicExecutionRequest request,
             CancellationToken cancellationToken = default)
         {
             EnsureActive();
@@ -378,7 +378,7 @@ internal class FakeRecordStore : IAtomicRecordStore
             }
             ImmutableArray<BaseAtomicReadIntervalEvidence> intervals = intervalBuilder.ToImmutable();
             long evidence = BaseSubjectCanonicalRetainedWork.MeasureIntervals(intervals);
-            _captured = new BaseCapturedAtomicMutationAuthority
+            _captured = new BaseCapturedAtomicExecution
             {
                 Kind = request.Kind,
                 IntentDigest = intent.IntentDigest,
@@ -421,17 +421,17 @@ internal class FakeRecordStore : IAtomicRecordStore
             }
         }
 
-        public ValueTask<OperationResult<BasePreparedAtomicMutation>> PrepareAtomicMutationAsync(
-            BaseCapturedAtomicMutationAuthority captured,
-            BaseAtomicMutationPlan plan,
+        public ValueTask<OperationResult<BasePreparedAtomicExecution>> PrepareAtomicExecutionAsync(
+            BaseCapturedAtomicExecution captured,
+            BaseFinalizedAtomicExecutionPlan plan,
             CancellationToken cancellationToken = default)
         {
             EnsureActive();
             cancellationToken.ThrowIfCancellationRequested();
             if (!ReferenceEquals(captured, _captured) || _prepared is not null)
-                return ValueTask.FromResult(OperationResults.StoreError<BasePreparedAtomicMutation>(new BaseError { Code = BaseSubjectErrorCodes.ProviderContractInvalid, Message = "Invalid preparation.", Category = ErrorCategory.Store }));
+                return ValueTask.FromResult(OperationResults.StoreError<BasePreparedAtomicExecution>(new BaseError { Code = BaseSubjectErrorCodes.ProviderContractInvalid, Message = "Invalid preparation.", Category = ErrorCategory.Store }));
             _plan = plan;
-            _prepared = new BasePreparedAtomicMutation
+            _prepared = new BasePreparedAtomicExecution
             {
                 Kind = plan.Kind,
                 PlanDigest = plan.PlanDigest,
@@ -459,13 +459,13 @@ internal class FakeRecordStore : IAtomicRecordStore
             return ValueTask.FromResult(OperationResults.Ok(_prepared));
         }
 
-        public async ValueTask<OperationResult<BaseProvisionalAppliedAtomicMutation>> ApplyPreparedAtomicMutationAsync(
-            BasePreparedAtomicMutation prepared,
+        public async ValueTask<OperationResult<BaseProvisionalAtomicExecution>> ApplyPreparedAtomicExecutionAsync(
+            BasePreparedAtomicExecution prepared,
             CancellationToken cancellationToken = default)
         {
             EnsureActive();
             if (!ReferenceEquals(prepared, _prepared) || _plan is null)
-                return OperationResults.StoreError<BaseProvisionalAppliedAtomicMutation>(new BaseError { Code = BaseSubjectErrorCodes.ProviderContractInvalid, Message = "Invalid apply.", Category = ErrorCategory.Store });
+                return OperationResults.StoreError<BaseProvisionalAtomicExecution>(new BaseError { Code = BaseSubjectErrorCodes.ProviderContractInvalid, Message = "Invalid apply.", Category = ErrorCategory.Store });
             _prepared = null;
             var facts = ImmutableArray.CreateBuilder<BaseOwnedMutationFact>(_plan.Items.Length);
             foreach (BaseAtomicMutationPlanItem item in _plan.Items)
@@ -487,13 +487,13 @@ internal class FakeRecordStore : IAtomicRecordStore
                     _ => throw new InvalidOperationException(),
                 };
                 if (!result.IsSuccess() || result.Value is null)
-                    return new OperationResult<BaseProvisionalAppliedAtomicMutation> { Status = result.Status, Error = result.Error };
+                    return new OperationResult<BaseProvisionalAtomicExecution> { Status = result.Status, Error = result.Error };
                 facts.Add(BaseOwnedMutationFact.Freeze(result.Value.Mutation, 1));
             }
             BaseRecordMutationFact[] materialized = facts.Select(static fact => fact.MaterializeOwned()).ToArray();
             await ApplyMutationProjectionsAsync(BaseAtomicMutationProjectionFactory.Create(materialized), cancellationToken);
             long bytes = facts.Sum(static fact => (long)fact.EncodedLength);
-            return OperationResults.Ok(new BaseProvisionalAppliedAtomicMutation
+            return OperationResults.Ok(new BaseProvisionalAtomicExecution
             {
                 Kind = _plan.Kind,
                 PlanDigest = _plan.PlanDigest,

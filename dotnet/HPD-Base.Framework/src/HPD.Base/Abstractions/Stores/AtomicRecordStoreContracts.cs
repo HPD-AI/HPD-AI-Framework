@@ -336,19 +336,19 @@ public interface IAtomicRecordStore : IRecordMutationStore
 public interface IAtomicRecordSession
 {
     /// <summary>Captures immutable current-state authority for one canonical caller-semantic intent.</summary>
-    ValueTask<OperationResult<BaseCapturedAtomicMutationAuthority>> CaptureAtomicMutationAuthorityAsync(
-        BaseAtomicMutationCaptureRequest request,
+    ValueTask<OperationResult<BaseCapturedAtomicExecution>> CaptureAtomicExecutionAsync(
+        BaseAtomicExecutionRequest request,
         CancellationToken cancellationToken = default);
 
     /// <summary>Prepares final dispositions, constraints, lifecycle overlay, and subject validation without applying writes.</summary>
-    ValueTask<OperationResult<BasePreparedAtomicMutation>> PrepareAtomicMutationAsync(
-        BaseCapturedAtomicMutationAuthority captured,
-        BaseAtomicMutationPlan plan,
+    ValueTask<OperationResult<BasePreparedAtomicExecution>> PrepareAtomicExecutionAsync(
+        BaseCapturedAtomicExecution captured,
+        BaseFinalizedAtomicExecutionPlan plan,
         CancellationToken cancellationToken = default);
 
     /// <summary>Consumes one exact session-bound preparation and applies all canonical artifacts atomically.</summary>
-    ValueTask<OperationResult<BaseProvisionalAppliedAtomicMutation>> ApplyPreparedAtomicMutationAsync(
-        BasePreparedAtomicMutation prepared,
+    ValueTask<OperationResult<BaseProvisionalAtomicExecution>> ApplyPreparedAtomicExecutionAsync(
+        BasePreparedAtomicExecution prepared,
         CancellationToken cancellationToken = default);
 
     /// <summary>Measures exact canonical and durable artifacts produced by the current transaction.</summary>

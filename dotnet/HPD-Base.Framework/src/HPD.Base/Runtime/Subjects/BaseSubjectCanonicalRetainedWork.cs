@@ -280,7 +280,7 @@ internal struct BaseSubjectCanonicalRetainedWork
         return counter.Bytes;
     }
 
-    internal static long MeasurePlan(BaseAtomicMutationPlan plan)
+    internal static long MeasurePlan(BaseFinalizedAtomicExecutionPlan plan)
     {
         var counter = new BaseSubjectCanonicalRetainedWork();
         counter.AddContainer();

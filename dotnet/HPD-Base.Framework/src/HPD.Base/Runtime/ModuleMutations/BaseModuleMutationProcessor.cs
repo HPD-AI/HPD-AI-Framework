@@ -19,9 +19,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
     IBaseSchemaValidator schemaValidator,
     IBasePolicyOrchestrator policy,
     IBaseResultNormalizer normalizer,
-    BaseSubjectContractRegistry subjects,
-    BaseSubjectLifecycleRegistry lifecycleConsumers,
-    BaseSubjectRetirementRegistry retirement) : IAtomicMutationProcessor
+    BaseSubjectContractRegistry subjects) : IAtomicMutationProcessor
 {
     internal BaseModuleMutationExecutionResult<TResult>? Result { get; private set; }
 
@@ -29,19 +27,18 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         IAtomicRecordSession provider,
         CancellationToken cancellationToken = default)
     {
-        var captureRequest = new BaseAtomicMutationCaptureRequest
+        var captureRequest = new BaseAtomicExecutionRequest
         {
             Kind = BaseAtomicMutationExecutionKind.ModuleMutation,
             Intent = intent,
             Module = extension,
-            SubjectRetirement = CreateRetirementCapture(extension),
             Limits = limits,
         };
-        OperationResult<BaseCapturedAtomicMutationAuthority> captured = await provider
-            .CaptureAtomicMutationAuthorityAsync(captureRequest, cancellationToken).ConfigureAwait(false);
+        OperationResult<BaseCapturedAtomicExecution> captured = await provider
+            .CaptureAtomicExecutionAsync(captureRequest, cancellationToken).ConfigureAwait(false);
         if (!captured.IsSuccess() || captured.Value is null)
             return Failed(captured.Error ?? Error(BaseModuleMutationErrorCodes.StoreError, ErrorCategory.Store));
-        BaseCapturedAtomicMutationAuthority evidence = captured.Value;
+        BaseCapturedAtomicExecution evidence = captured.Value;
         if (!CapturedMatches(intent, extension, limits, evidence))
             return Failed(Error("base.moduleMutation.captureEvidenceInvalid", ErrorCategory.Store));
 
@@ -69,14 +66,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         if (!commandResult.IsSuccess() || commandResult.Value == default)
             return Failed(commandResult.Error ?? Error(BaseModuleMutationErrorCodes.Invalid, ErrorCategory.Validation));
         var recordPlanner = new DefaultBaseMutationProcessor(
-            commandResult.Value.Commands, principal, policy, normalizer, collections.Values.ToArray(), limits, intent.Authority, subjects, lifecycleConsumers, retirement);
-        ImmutableArray<BaseCapturedSubjectRetirementProjection> mappedRetirement = evidence.SubjectRetirement
-            .Select(captured => captured with
-            {
-                SourceMutationOrdinal = commandResult.Value.Bindings.Single(binding =>
-                    binding.RecordCaptureOrdinal == captured.SourceMutationOrdinal).MutationOrdinal,
-            }).ToImmutableArray();
-        recordPlanner.AdoptCapturedRetirement(mappedRetirement);
+            commandResult.Value.Commands, principal, policy, normalizer, collections.Values.ToArray(), limits, intent.Authority, subjects);
         IReadOnlyDictionary<int, BaseCapturedMutationItem> capturedItems = BuildCapturedItems(commandResult.Value.Commands, evidence);
         OperationResult<BaseFinalizedRecordMutationPlan> recordPlan = await recordPlanner
             .FinalizeCapturedCommandsAsync(capturedItems, cancellationToken).ConfigureAwait(false);
@@ -117,16 +107,12 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             .OrderBy(static value => value.CaptureOrdinal).ThenBy(static value => value.Kind).ToImmutableArray();
         string recordPlanDigest = BaseAtomicPolicyAuthority.BindPlanDigest(DefaultBaseMutationProcessor.ComputePlanDigest(
             intent.IntentDigest, evidence.CaptureDigest, recordPlan.Value.Items, recordPlan.Value.SubjectValidations), policyDigest);
-        BaseSubjectRetirementProjectionPlan? retirementPlan = recordPlanner.BuildRetirementPlan(recordPlan.Value.Items, retirement);
-        BaseFinalizedTextMutationExtension? textPlan = BaseTextAtomicMutationContract.Finalize(recordPlan.Value.Items);
         string planDigest = Digest(recordPlanDigest, extension.RequestDigest, evidence.CaptureDigest,
             string.Join(';', evaluator.Decisions.Select(static value => $"{value.EvaluationOrdinal}:{value.Kind}:{value.DecisionId}:{value.SelectedTrue}")),
             string.Join(';', orderedIncrements.Select(static value => $"{value.CaptureOrdinal}:{value.CreateIfAbsent}")),
             string.Join(';', authorizedRelations.Select(static value =>
-                $"{value.CaptureOrdinal}:{value.SourceStatementId}:{value.SourceFieldId}:{value.TargetCollectionId}:{value.TargetRecordId.Value}:{Convert.ToHexString(value.PolicyAuthorityDigest.ToArray())}")),
-            retirementPlan?.PlanChecksum ?? string.Empty,
-            textPlan is null ? string.Empty : Convert.ToHexString(textPlan.ProjectionDigest.AsSpan()));
-        var plan = new BaseAtomicMutationPlan
+                $"{value.CaptureOrdinal}:{value.SourceStatementId}:{value.SourceFieldId}:{value.TargetCollectionId}:{value.TargetRecordId.Value}:{Convert.ToHexString(value.PolicyAuthorityDigest.ToArray())}")));
+        var plan = new BaseFinalizedAtomicExecutionPlan
         {
             Kind = BaseAtomicMutationExecutionKind.ModuleMutation,
             IntentDigest = intent.IntentDigest,
@@ -135,8 +121,6 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             Authority = intent.Authority,
             Items = recordPlan.Value.Items,
             SubjectValidations = recordPlan.Value.SubjectValidations,
-            SubjectRetirement = retirementPlan,
-            Text = textPlan,
             Module = new BaseFinalizedModuleMutationExtension
             {
                 OperationId = definition.Id, OperationVersion = definition.Version,
@@ -148,15 +132,15 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             Limits = limits,
             PlanDigest = planDigest,
         };
-        BaseAtomicMutationPlan retainedPlan = BaseAtomicMutationOwnership.FreezePlan(plan);
-        BaseAtomicMutationPlan providerPlan = BaseAtomicMutationOwnership.FreezePlan(retainedPlan);
-        OperationResult<BasePreparedAtomicMutation> prepared = await provider
-            .PrepareAtomicMutationAsync(evidence, providerPlan, cancellationToken).ConfigureAwait(false);
+        BaseFinalizedAtomicExecutionPlan retainedPlan = BaseAtomicMutationOwnership.FreezePlan(plan);
+        BaseFinalizedAtomicExecutionPlan providerPlan = BaseAtomicMutationOwnership.FreezePlan(retainedPlan);
+        OperationResult<BasePreparedAtomicExecution> prepared = await provider
+            .PrepareAtomicExecutionAsync(evidence, providerPlan, cancellationToken).ConfigureAwait(false);
         if (!prepared.IsSuccess() || prepared.Value is null || !PreparedMatches(retainedPlan, evidence, prepared.Value))
             return Failed(prepared.Error ?? Error("base.moduleMutation.preparedEvidenceInvalid", ErrorCategory.Store));
-        OperationResult<BaseProvisionalAppliedAtomicMutation> applied = await provider
-            .ApplyPreparedAtomicMutationAsync(prepared.Value, cancellationToken).ConfigureAwait(false);
-        if (!applied.IsSuccess() || applied.Value is null || !AppliedMatches(retainedPlan, evidence, prepared.Value, applied.Value))
+        OperationResult<BaseProvisionalAtomicExecution> applied = await provider
+            .ApplyPreparedAtomicExecutionAsync(prepared.Value, cancellationToken).ConfigureAwait(false);
+        if (!applied.IsSuccess() || applied.Value is null || !AppliedMatches(retainedPlan, evidence, applied.Value))
             return Failed(applied.Error ?? Error("base.moduleMutation.appliedEvidenceInvalid", ErrorCategory.Store));
 
         IReadOnlyDictionary<string, BaseModuleCommittedGeneration> committedGenerations = applied.Value.Generations
@@ -197,7 +181,6 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
                 RelationChecks = prior.RelationChecks, UniqueConstraintChecks = prior.UniqueConstraintChecks,
                 AuthorityReads = prior.AuthorityReads, ReadIntervals = prior.ReadIntervals,
                 SelectedBytes = prior.SelectedBytes, EvidenceBytes = prior.EvidenceBytes, TransientBytes = transient,
-                RetirementBarrierReads=prior.RetirementBarrierReads,RetirementAcknowledgementReads=prior.RetirementAcknowledgementReads,RetirementProjections=prior.RetirementProjections,RetirementPublications=prior.RetirementPublications,RetirementEvidenceBytes=prior.RetirementEvidenceBytes,RetirementPublicationBytes=prior.RetirementPublicationBytes,
             },
         };
         Result = new BaseModuleMutationExecutionResult<TResult>
@@ -207,31 +190,6 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             Result = typed,
         };
         return new AtomicMutationProcessingResult(finalization);
-    }
-
-    private BaseSubjectRetirementCaptureExtension? CreateRetirementCapture(BaseModuleMutationCaptureExtension module)
-    {
-        ImmutableArray<BaseSubjectRetirementProjectionCaptureRequest> projections = [.. module.Records
-            .OrderBy(static value => value.Ordinal)
-            .Select(capture =>
-            {
-                BaseGeneratedSubjectRegistration? contract = subjects.All.SingleOrDefault(value =>
-                    value.Definition.ValidationPlan.PrivateCollectionId == capture.Collection.Id);
-                BaseInstalledSubjectRetirementPolicy? policy = contract is null
-                    ? null : retirement.FindPolicy(contract.Definition.Id, contract.Definition.Version);
-                return contract is null || policy is null ? null : new BaseSubjectRetirementProjectionCaptureRequest
-                {
-                    SourceMutationOrdinal = capture.Ordinal,
-                    ContractId = contract.Definition.Id,
-                    ContractVersion = contract.Definition.Version,
-                    ContractChecksum = contract.Checksum,
-                    RetirementPolicyChecksum = policy.Definition.PolicyChecksum,
-                    AcceptedConsumerSetChecksum = BaseSubjectRetirementRegistry.AcceptedSetChecksum(policy.Definition.AcceptedConsumers),
-                };
-            })
-            .Where(static value => value is not null)
-            .Select(static value => value!)];
-        return projections.IsEmpty ? null : new BaseSubjectRetirementCaptureExtension { Projections = projections };
     }
 
     public async ValueTask<AtomicMutationProcessingResult> ResolveReceiptAsync(
@@ -302,7 +260,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
     private async ValueTask<OperationResult<(BaseMutationCommand[] Commands, ImmutableArray<BaseModuleMutationItemCaptureBinding> Bindings)>> BuildCommandsAsync(
         ImmutableArray<BaseModuleStatement> statements,
         BaseModuleProgramEvaluator<TRequest, TResult> evaluator,
-        BaseCapturedAtomicMutationAuthority evidence,
+        BaseCapturedAtomicExecution evidence,
         CancellationToken cancellationToken)
     {
         BaseModuleStatement[] writes = statements.Where(static statement => statement is not BaseModuleIncrementGenerationStatement).ToArray();
@@ -422,7 +380,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
 
     private IReadOnlyDictionary<int, BaseCapturedMutationItem> BuildCapturedItems(
         BaseMutationCommand[] commands,
-        BaseCapturedAtomicMutationAuthority evidence)
+        BaseCapturedAtomicExecution evidence)
     {
         var result = new Dictionary<int, BaseCapturedMutationItem>();
         for (int ordinal = 0; ordinal < commands.Length; ordinal++)
@@ -477,7 +435,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         BaseAtomicMutationIntent intent,
         BaseModuleMutationCaptureExtension extension,
         BaseAtomicMutationExecutionLimits limits,
-        BaseCapturedAtomicMutationAuthority value)
+        BaseCapturedAtomicExecution value)
     {
         if (value.Kind != BaseAtomicMutationExecutionKind.ModuleMutation
             || !string.Equals(value.IntentDigest, intent.IntentDigest, StringComparison.Ordinal)
@@ -581,7 +539,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             && intervals[ordinal].CanonicalUpperBound.AsSpan().SequenceEqual(key);
     }
 
-    private static bool PreparedMatches(BaseAtomicMutationPlan plan, BaseCapturedAtomicMutationAuthority captured, BasePreparedAtomicMutation prepared)
+    private static bool PreparedMatches(BaseFinalizedAtomicExecutionPlan plan, BaseCapturedAtomicExecution captured, BasePreparedAtomicExecution prepared)
     {
         BaseFinalizedModuleMutationExtension? module = plan.Module;
         if (module is null || prepared.Kind != BaseAtomicMutationExecutionKind.ModuleMutation
@@ -592,9 +550,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             || prepared.Accounting.GenerationReads != captured.Generations.Length
             || prepared.Accounting.GenerationComparisons != module.Comparisons.Length
             || prepared.Accounting.GenerationIncrements != module.Increments.Length
-            || prepared.Accounting.ReadIntervals != prepared.ReadIntervals.Length
-            || !DefaultBaseMutationProcessor.RetirementEvidenceMatches(plan.SubjectRetirement, prepared.SubjectRetirement)
-            || !BaseTextAtomicMutationContract.PreparedMatches(plan.Text, prepared.Text))
+            || prepared.Accounting.ReadIntervals != prepared.ReadIntervals.Length)
             return false;
         HashSet<int> incremented = module.Increments.Select(static value => value.CaptureOrdinal).ToHashSet();
         for (int index = 0; index < captured.Generations.Length; index++)
@@ -637,18 +593,15 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         && left.TransactionEvidenceToken.AsSpan().SequenceEqual(right.TransactionEvidenceToken.AsSpan());
 
     private static bool AppliedMatches(
-        BaseAtomicMutationPlan plan,
-        BaseCapturedAtomicMutationAuthority captured,
-        BasePreparedAtomicMutation prepared,
-        BaseProvisionalAppliedAtomicMutation applied)
+        BaseFinalizedAtomicExecutionPlan plan,
+        BaseCapturedAtomicExecution captured,
+        BaseProvisionalAtomicExecution applied)
     {
         BaseFinalizedModuleMutationExtension? module = plan.Module;
         if (module is null || applied.Kind != BaseAtomicMutationExecutionKind.ModuleMutation
             || !string.Equals(applied.PlanDigest, plan.PlanDigest, StringComparison.Ordinal)
             || applied.Facts.Length != plan.Items.Length
-            || applied.Generations.Length != module.Increments.Length
-            || !DefaultBaseMutationProcessor.RetirementEvidenceMatches(plan.SubjectRetirement, applied.SubjectRetirement)
-            || !BaseTextAtomicMutationContract.AppliedMatches(plan.Text, prepared.Text, applied.Text, applied.Facts))
+            || applied.Generations.Length != module.Increments.Length)
             return false;
         for (int index = 0; index < applied.Generations.Length; index++)
         {

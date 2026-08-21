@@ -73,10 +73,12 @@ public enum BaseAtomicMutationExecutionKind
     SelectionMutation = 1,
     /// <summary>Executes one L50 registered module mutation.</summary>
     ModuleMutation = 2,
+    /// <summary>Creates durable activations without ordinary mutation items.</summary>
+    ActivationCreation = 3,
 }
 
 /// <summary>Requests one transaction-bound capture under one safety authority.</summary>
-public sealed record BaseAtomicMutationCaptureRequest
+public sealed record BaseAtomicExecutionRequest
 {
     /// <summary>Gets the closed execution shape.</summary>
     public required BaseAtomicMutationExecutionKind Kind { get; init; }
@@ -86,27 +88,12 @@ public sealed record BaseAtomicMutationCaptureRequest
     public BaseSelectionMutationCaptureExtension? Selection { get; init; }
     /// <summary>Gets the optional L50 capture extension.</summary>
     public BaseModuleMutationCaptureExtension? Module { get; init; }
-    /// <summary>Gets the graph-selected lifecycle consumer projections whose current generations must be captured.</summary>
-    public ImmutableArray<BaseSubjectLifecycleConsumerProjectionCaptureRequest> LifecycleConsumerProjections { get; init; } = [];
-    /// <summary>Gets the orthogonal retirement projection capture authority.</summary>
-    public BaseSubjectRetirementCaptureExtension? SubjectRetirement { get; init; }
+    /// <summary>Gets ordered durable activations created by this execution.</summary>
+    public BaseActivationCreationExtension? Activations { get; init; }
+    /// <summary>Gets the optional same-store activation fence.</summary>
+    public BaseActivationGuard? ActivationGuard { get; init; }
     /// <summary>Gets the sole complete safety envelope.</summary>
     public required BaseAtomicMutationExecutionLimits Limits { get; init; }
-}
-
-/// <summary>Requests transaction-bound authority for one graph-installed lifecycle consumer projection.</summary>
-public sealed record BaseSubjectLifecycleConsumerProjectionCaptureRequest
-{
-    /// <summary>Gets the stable consumer ID.</summary>
-    public required string ConsumerId { get; init; }
-    /// <summary>Gets the consumer version.</summary>
-    public required int ConsumerVersion { get; init; }
-    /// <summary>Gets the finalized consumer checksum.</summary>
-    public required string ConsumerChecksum { get; init; }
-    /// <summary>Gets the exported contract ID.</summary>
-    public required string ContractId { get; init; }
-    /// <summary>Gets the exported contract version.</summary>
-    public required int ContractVersion { get; init; }
 }
 
 /// <summary>Extends capture with one L43 selection.</summary>
@@ -252,22 +239,10 @@ public sealed record BaseAtomicCaptureAccounting
     public required long EvidenceBytes { get; init; }
     /// <summary>Gets complete retained transient bytes.</summary>
     public required long TransientBytes { get; init; }
-    /// <summary>Gets retirement barrier reads performed.</summary>
-    public required int RetirementBarrierReads { get; init; }
-    /// <summary>Gets retirement acknowledgement reads performed.</summary>
-    public required int RetirementAcknowledgementReads { get; init; }
-    /// <summary>Gets retirement projections prepared.</summary>
-    public required int RetirementProjections { get; init; }
-    /// <summary>Gets retirement publications prepared.</summary>
-    public required int RetirementPublications { get; init; }
-    /// <summary>Gets retirement evidence bytes.</summary>
-    public required long RetirementEvidenceBytes { get; init; }
-    /// <summary>Gets retirement publication bytes.</summary>
-    public required long RetirementPublicationBytes { get; init; }
 }
 
 /// <summary>Contains immutable authority captured from one open provider transaction.</summary>
-public sealed record BaseCapturedAtomicMutationAuthority
+public sealed record BaseCapturedAtomicExecution
 {
     /// <summary>Gets the closed execution shape.</summary>
     public required BaseAtomicMutationExecutionKind Kind { get; init; }
@@ -287,64 +262,12 @@ public sealed record BaseCapturedAtomicMutationAuthority
     public required ImmutableArray<BaseCapturedModuleRelationTarget> ModuleRelationTargets { get; init; }
     /// <summary>Gets dense module generation captures.</summary>
     public required ImmutableArray<BaseCapturedModuleGeneration> Generations { get; init; }
-    /// <summary>Gets current transaction-bound lifecycle consumer projection generations.</summary>
-    public ImmutableArray<BaseCapturedSubjectLifecycleConsumerProjection> LifecycleConsumerProjections { get; init; } = [];
-    /// <summary>Gets transaction-captured current retirement projection authority.</summary>
-    public ImmutableArray<BaseCapturedSubjectRetirementProjection> SubjectRetirement { get; init; } = [];
+    /// <summary>Gets captured activation authority when activation work was requested.</summary>
+    public BaseCapturedActivationExtension? Activations { get; init; }
     /// <summary>Gets normalized transaction read intervals.</summary>
     public required ImmutableArray<BaseAtomicReadIntervalEvidence> ReadIntervals { get; init; }
     /// <summary>Gets exact capture accounting.</summary>
     public required BaseAtomicCaptureAccounting Accounting { get; init; }
-}
-
-/// <summary>Contains authoritative current lifetime state for one requested retirement projection.</summary>
-public sealed record BaseCapturedSubjectRetirementProjection
-{
-    /// <summary>Gets the source mutation ordinal.</summary>
-    public required int SourceMutationOrdinal { get; init; }
-    /// <summary>Gets the contract ID.</summary>
-    public required string ContractId { get; init; }
-    /// <summary>Gets the contract version.</summary>
-    public required int ContractVersion { get; init; }
-    /// <summary>Gets the contract checksum.</summary>
-    public required string ContractChecksum { get; init; }
-    /// <summary>Gets the retirement-policy checksum.</summary>
-    public required string RetirementPolicyChecksum { get; init; }
-    /// <summary>Gets the accepted-consumer-set checksum.</summary>
-    public required string AcceptedConsumerSetChecksum { get; init; }
-    /// <summary>Gets the subject ID bound to the captured lifetime.</summary>
-    public required BaseSubjectId SubjectId { get; init; }
-    /// <summary>Gets the protected provider scope bound to the captured lifetime.</summary>
-    public required BaseProtectedSubjectScope ProtectedScope { get; init; }
-    /// <summary>Gets the current authority epoch.</summary>
-    public required BaseSubjectAuthorityEpoch AuthorityEpoch { get; init; }
-    /// <summary>Gets the current incarnation.</summary>
-    public required BaseSubjectIncarnation Incarnation { get; init; }
-    /// <summary>Gets the current subject-local sequence.</summary>
-    public required long CurrentSubjectSequence { get; init; }
-    /// <summary>Gets the current lifecycle state.</summary>
-    public required BaseSubjectLifecycleState CurrentState { get; init; }
-    /// <summary>Gets the current barrier when present.</summary>
-    public BaseSubjectRetirementBarrier? CurrentBarrier { get; init; }
-}
-
-/// <summary>Contains current authority for one graph-installed lifecycle consumer projection.</summary>
-public sealed record BaseCapturedSubjectLifecycleConsumerProjection
-{
-    /// <summary>Gets the stable consumer ID.</summary>
-    public required string ConsumerId { get; init; }
-    /// <summary>Gets the consumer version.</summary>
-    public required int ConsumerVersion { get; init; }
-    /// <summary>Gets the finalized consumer checksum.</summary>
-    public required string ConsumerChecksum { get; init; }
-    /// <summary>Gets the exported contract ID.</summary>
-    public required string ContractId { get; init; }
-    /// <summary>Gets the exported contract version.</summary>
-    public required int ContractVersion { get; init; }
-    /// <summary>Gets the current positive projection generation.</summary>
-    public required long ProjectionGeneration { get; init; }
-    /// <summary>Gets the graph generation that published this projection.</summary>
-    public required long PublishedGraphGeneration { get; init; }
 }
 
 /// <summary>Contains the bounded selected records owned by one L43 capture.</summary>
@@ -440,8 +363,6 @@ public sealed record BaseAtomicMutationPlanItem
     public required ImmutableArray<string> ChangedFields { get; init; }
     /// <summary>Gets Runtime-owned lifecycle projection, when this mutates an exported private source.</summary>
     public BaseSubjectLifecyclePlanItem? SubjectLifecycle { get; init; }
-    /// <summary>Gets the generated exporter lifecycle CAS precondition.</summary>
-    public BaseSubjectLifecycleTransitionPrecondition? SubjectLifecycleTransition { get; init; }
     /// <summary>Gets the normalized principal-bound operation context.</summary>
     public required OperationContext Operation { get; init; }
 }
@@ -459,40 +380,6 @@ public sealed record BaseSubjectLifecyclePlanItem
     public required BaseSubjectLifecycleMutationKind Kind { get; init; }
     /// <summary>Gets the canonical public subject ID.</summary>
     public required BaseSubjectId SubjectId { get; init; }
-    /// <summary>Gets the prior lifecycle state, or null for creation.</summary>
-    public BaseSubjectLifecycleState? PreviousState { get; init; }
-    /// <summary>Gets the resulting lifecycle state, or retired for deletion.</summary>
-    public required BaseSubjectLifecycleState ResultingState { get; init; }
-    /// <summary>Gets whether a canonical lifecycle fact must be published.</summary>
-    public required bool PublishFact { get; init; }
-    /// <summary>Gets the exact graph-selected consumer memberships.</summary>
-    public required ImmutableArray<BaseSubjectLifecycleMembershipPlanItem> Memberships { get; init; }
-}
-
-/// <summary>Binds a generated exporter lifecycle mutation to one exact current lifetime.</summary>
-public sealed record BaseSubjectLifecycleTransitionPrecondition
-{
-    /// <summary>Gets the expected subject reference.</summary>
-    public required BaseOwnedSubjectReference Subject { get; init; }
-    /// <summary>Gets the expected current sequence when final retirement is requested.</summary>
-    public long? ExpectedSubjectSequence { get; init; }
-    /// <summary>Gets the only permitted resulting lifecycle state.</summary>
-    public required BaseSubjectLifecycleState ResultingState { get; init; }
-}
-
-/// <summary>Binds one lifecycle transition to one graph-installed consumer projection.</summary>
-public sealed record BaseSubjectLifecycleMembershipPlanItem
-{
-    /// <summary>Gets the consumer ID.</summary>
-    public required string ConsumerId { get; init; }
-    /// <summary>Gets the consumer version.</summary>
-    public required int ConsumerVersion { get; init; }
-    /// <summary>Gets the consumer checksum.</summary>
-    public required string ConsumerChecksum { get; init; }
-    /// <summary>Gets the projection generation.</summary>
-    public required long ProjectionGeneration { get; init; }
-    /// <summary>Gets the matched observed state.</summary>
-    public required BaseSubjectLifecycleState MatchedObservedState { get; init; }
 }
 
 /// <summary>Classifies the lifecycle sidecar effect of one private canonical mutation.</summary>
@@ -549,7 +436,7 @@ public sealed record BaseOwnedSubjectScopeEvidence
 }
 
 /// <summary>Contains one finalized canonical atomic mutation plan.</summary>
-public sealed record BaseAtomicMutationPlan
+public sealed record BaseFinalizedAtomicExecutionPlan
 {
     /// <summary>Gets the closed execution shape.</summary>
     public required BaseAtomicMutationExecutionKind Kind { get; init; }
@@ -569,10 +456,10 @@ public sealed record BaseAtomicMutationPlan
     public required ImmutableArray<BaseSubjectReferenceValidationPlanItem> SubjectValidations { get; init; }
     /// <summary>Gets the L50 finalized extension only for a module mutation.</summary>
     public BaseFinalizedModuleMutationExtension? Module { get; init; }
-    /// <summary>Gets the Runtime-finalized retirement projection plan.</summary>
-    public BaseSubjectRetirementProjectionPlan? SubjectRetirement { get; init; }
-    /// <summary>Gets Runtime-owned text projection intent.</summary>
-    public BaseFinalizedTextMutationExtension? Text { get; init; }
+    /// <summary>Gets ordered activation creation finalized by Runtime.</summary>
+    public BaseActivationCreationExtension? Activations { get; init; }
+    /// <summary>Gets the activation fence finalized by Runtime.</summary>
+    public BaseActivationGuard? ActivationGuard { get; init; }
     /// <summary>Gets the complete immutable execution limits.</summary>
     public required BaseAtomicMutationExecutionLimits Limits { get; init; }
 }
@@ -752,14 +639,6 @@ public sealed record BaseAtomicMutationExecutionLimits
     public required int MaximumRelationChecks { get; init; }
     /// <summary>Gets the maximum unique-constraint-check count.</summary>
     public required int MaximumUniqueConstraintChecks { get; init; }
-    /// <summary>Gets the maximum retirement projections.</summary>
-    public required int MaximumRetirementProjections { get; init; }
-    /// <summary>Gets the maximum retirement barrier reads.</summary>
-    public required int MaximumRetirementBarrierReads { get; init; }
-    /// <summary>Gets the maximum retirement acknowledgement reads.</summary>
-    public required int MaximumRetirementAcknowledgementReads { get; init; }
-    /// <summary>Gets the maximum retirement publications.</summary>
-    public required int MaximumRetirementPublications { get; init; }
     /// <summary>Gets the maximum canonical request bytes.</summary>
     public required long MaximumRequestBytes { get; init; }
     /// <summary>Gets the maximum retained generation bytes.</summary>
@@ -774,10 +653,6 @@ public sealed record BaseAtomicMutationExecutionLimits
     public required long MaximumReceiptBytes { get; init; }
     /// <summary>Gets the maximum public result bytes.</summary>
     public required long MaximumResultBytes { get; init; }
-    /// <summary>Gets the maximum canonical retirement evidence bytes.</summary>
-    public required long MaximumRetirementEvidenceBytes { get; init; }
-    /// <summary>Gets the maximum canonical retirement publication bytes.</summary>
-    public required long MaximumRetirementPublicationBytes { get; init; }
     /// <summary>Gets the four independently owned execution deadlines.</summary>
     public required BaseAtomicMutationDeadlines Deadlines { get; init; }
 }
@@ -799,12 +674,6 @@ public sealed record BasePreparedSubjectOverlayEvidence
     public bool? Active { get; init; }
     /// <summary>Gets the final logical scope when declared.</summary>
     public string? Scope { get; init; }
-    /// <summary>Gets provider-owned protected scope authority for the final overlay key.</summary>
-    public required BaseProtectedSubjectScope ProtectedScope { get; init; }
-    /// <summary>Gets the final lifecycle state when the lifetime exists.</summary>
-    public BaseSubjectLifecycleState? LifecycleState { get; init; }
-    /// <summary>Gets the positive final subject-local sequence when the lifetime exists.</summary>
-    public long? SubjectSequence { get; init; }
 }
 
 /// <summary>Contains one provider-prepared subject-reference validation result.</summary>
@@ -850,18 +719,6 @@ public sealed record BasePreparedAtomicMutationAccounting
     public required long EvidenceBytes { get; init; }
     /// <summary>Gets complete transient bytes retained.</summary>
     public required long TransientBytes { get; init; }
-    /// <summary>Gets retirement barrier reads performed.</summary>
-    public required int RetirementBarrierReads { get; init; }
-    /// <summary>Gets retirement acknowledgement reads performed.</summary>
-    public required int RetirementAcknowledgementReads { get; init; }
-    /// <summary>Gets retirement projections prepared.</summary>
-    public required int RetirementProjections { get; init; }
-    /// <summary>Gets retirement publications prepared.</summary>
-    public required int RetirementPublications { get; init; }
-    /// <summary>Gets retirement evidence bytes.</summary>
-    public required long RetirementEvidenceBytes { get; init; }
-    /// <summary>Gets retirement publication bytes.</summary>
-    public required long RetirementPublicationBytes { get; init; }
 }
 
 /// <summary>Contains current transaction-bound authority for one exported logical-subject contract.</summary>
@@ -886,7 +743,7 @@ public sealed record BaseSubjectTransactionAuthorityEvidence
 }
 
 /// <summary>Contains one single-use mutation preparation bound to an open provider session.</summary>
-public sealed record BasePreparedAtomicMutation
+public sealed record BasePreparedAtomicExecution
 {
     /// <summary>Gets the closed execution shape.</summary>
     public required BaseAtomicMutationExecutionKind Kind { get; init; }
@@ -900,6 +757,8 @@ public sealed record BasePreparedAtomicMutation
     public required ImmutableArray<BaseCapturedMutationDisposition> Dispositions { get; init; }
     /// <summary>Gets prepared L50 generation evidence.</summary>
     public required ImmutableArray<BasePreparedModuleGenerationEvidence> Generations { get; init; }
+    /// <summary>Gets aggregate prepared activation evidence.</summary>
+    public BasePreparedActivationExtension? Activations { get; init; }
     /// <summary>Gets canonical final subject overlays.</summary>
     public required ImmutableArray<BasePreparedSubjectOverlayEvidence> SubjectOverlay { get; init; }
     /// <summary>Gets ordered subject-validation results.</summary>
@@ -908,10 +767,6 @@ public sealed record BasePreparedAtomicMutation
     public required ImmutableArray<BaseAtomicReadIntervalEvidence> ReadIntervals { get; init; }
     /// <summary>Gets exact provider preparation accounting.</summary>
     public required BasePreparedAtomicMutationAccounting Accounting { get; init; }
-    /// <summary>Gets provider-prepared retirement evidence.</summary>
-    public BaseSubjectRetirementPreparedEvidence? SubjectRetirement { get; init; }
-    /// <summary>Gets provider preparation evidence for text projection intent.</summary>
-    public BasePreparedTextMutationEvidence? Text { get; init; }
 }
 
 /// <summary>Classifies one prepared generation transition.</summary>
@@ -967,22 +822,10 @@ public sealed record BaseProvisionalAtomicMutationAccounting
     public required long EvidenceBytes { get; init; }
     /// <summary>Gets complete retained transient bytes.</summary>
     public required long TransientBytes { get; init; }
-    /// <summary>Gets retirement barrier reads performed.</summary>
-    public required int RetirementBarrierReads { get; init; }
-    /// <summary>Gets retirement acknowledgement reads performed.</summary>
-    public required int RetirementAcknowledgementReads { get; init; }
-    /// <summary>Gets retirement projections applied.</summary>
-    public required int RetirementProjections { get; init; }
-    /// <summary>Gets retirement publications applied.</summary>
-    public required int RetirementPublications { get; init; }
-    /// <summary>Gets retirement evidence bytes.</summary>
-    public required long RetirementEvidenceBytes { get; init; }
-    /// <summary>Gets retirement publication bytes.</summary>
-    public required long RetirementPublicationBytes { get; init; }
 }
 
 /// <summary>Contains one applied but not yet externally confirmed atomic mutation.</summary>
-public sealed record BaseProvisionalAppliedAtomicMutation
+public sealed record BaseProvisionalAtomicExecution
 {
     /// <summary>Gets the execution-kind discriminator.</summary>
     public required BaseAtomicMutationExecutionKind Kind { get; init; }
@@ -994,12 +837,10 @@ public sealed record BaseProvisionalAppliedAtomicMutation
     public required ImmutableArray<BaseOwnedMutationFact> Facts { get; init; }
     /// <summary>Gets committed-shape generation evidence without public result authority.</summary>
     public required ImmutableArray<BaseModuleCommittedGeneration> Generations { get; init; }
+    /// <summary>Gets aggregate provisional activation evidence.</summary>
+    public BaseProvisionalActivationExtension? Activations { get; init; }
     /// <summary>Gets exact provisional apply accounting.</summary>
     public required BaseProvisionalAtomicMutationAccounting Accounting { get; init; }
-    /// <summary>Gets applied retirement projection evidence.</summary>
-    public BaseSubjectRetirementProvisionalEvidence? SubjectRetirement { get; init; }
-    /// <summary>Gets revision-bearing provisional text projection evidence.</summary>
-    public BaseAppliedTextMutationEvidence? Text { get; init; }
 }
 
 /// <summary>Contains Runtime-owned result and receipt authority produced before provider commit.</summary>
@@ -1044,16 +885,4 @@ public sealed record BaseAtomicCommitAccounting
     public required long EvidenceBytes { get; init; }
     /// <summary>Gets the complete aggregate transient bytes.</summary>
     public required long TransientBytes { get; init; }
-    /// <summary>Gets retirement barrier reads performed.</summary>
-    public required int RetirementBarrierReads { get; init; }
-    /// <summary>Gets retirement acknowledgement reads performed.</summary>
-    public required int RetirementAcknowledgementReads { get; init; }
-    /// <summary>Gets retirement projections committed.</summary>
-    public required int RetirementProjections { get; init; }
-    /// <summary>Gets retirement publications committed.</summary>
-    public required int RetirementPublications { get; init; }
-    /// <summary>Gets canonical retirement evidence bytes.</summary>
-    public required long RetirementEvidenceBytes { get; init; }
-    /// <summary>Gets canonical retirement publication bytes.</summary>
-    public required long RetirementPublicationBytes { get; init; }
 }
