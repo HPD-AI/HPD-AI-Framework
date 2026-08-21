@@ -104,6 +104,17 @@ public sealed record BaseActivationDelivery<TInput>
     public required BaseActivationAttemptEvidence Attempt { get; init; }
 }
 
+/// <summary>Contains one bounded installed-worker dispatch outcome.</summary>
+public sealed record BaseActivationDispatchResult
+{
+    /// <summary>Gets whether no due activation was available.</summary>
+    public required bool Empty { get; init; }
+    /// <summary>Gets the claimed activation identity when work was dispatched.</summary>
+    public string? ActivationId { get; init; }
+    /// <summary>Gets the resulting durable state when work was dispatched.</summary>
+    public BaseActivationState? State { get; init; }
+}
+
 /// <summary>Executes worker operations for one installed definition and principal-bound session.</summary>
 public sealed class BaseInstalledActivationWorkerHandle<TInput, TResult>
 {
@@ -188,6 +199,120 @@ public sealed class BaseInstalledActivationWorkerHandle<TInput, TResult>
         BaseMutationRequestIdentity identity,
         CancellationToken cancellationToken = default) =>
         _runtime.FailAsync(_session, _definition, delivery.Claim, stableFailureCode, retry, identity, cancellationToken);
+
+    /// <summary>Observes, claims, executes, and durably resolves at most one due activation.</summary>
+    public async ValueTask<OperationResult<BaseActivationDispatchResult>> RunOneAsync(
+        CancellationToken cancellationToken = default)
+    {
+        OperationResult<BaseActivationDueObservation> observed = await ObserveDueAsync(cancellationToken).ConfigureAwait(false);
+        if (!observed.IsSuccess() || observed.Value is null)
+            return CopyFailure<BaseActivationDispatchResult, BaseActivationDueObservation>(observed);
+        if (observed.Value.Earliest is null)
+            return OperationResults.Ok(new BaseActivationDispatchResult { Empty = true });
+
+        BaseMutationRequestIdentity claimIdentity = Identity(
+            "claim", observed.Value.Token.Value.AsSpan(), observed.Value.Earliest.ActivationId);
+        OperationResult<BaseActivationDelivery<TInput>?> claimed = await TryClaimAsync(
+            observed.Value.Token, claimIdentity, cancellationToken).ConfigureAwait(false);
+        if (!claimed.IsSuccess())
+            return CopyFailure<BaseActivationDispatchResult, BaseActivationDelivery<TInput>?>(claimed);
+        if (claimed.Value is null)
+            return OperationResults.Ok(new BaseActivationDispatchResult { Empty = true });
+
+        IBaseActivationRegistration? registration = (_session.Services.GetService(typeof(BaseActivationRegistry)) as BaseActivationRegistry)
+            ?.Registration(_definition.Id, _definition.Version);
+        if (registration?.CreateHandler(_session.Services) is not IBaseActivationHandler<TInput, TResult> handler)
+            return Failure("base.activation.handlerUnavailable", ErrorCategory.Capability);
+
+        BaseActivationDelivery<TInput> delivery = claimed.Value;
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(_definition.Limits.HandlerTimeout);
+        var context = new BaseActivationContext(
+            new BaseActivationDefinitionKey { Id = _definition.Id, Version = _definition.Version, Checksum = _definition.Checksum },
+            delivery.Claim,
+            delivery.Lease,
+            deadline.Token);
+        BaseActivationHandlerResult<TResult> handlerResult;
+        Task<BaseActivationHandlerResult<TResult>> task = handler.ExecuteAsync(context, delivery.Input, deadline.Token).AsTask();
+        try
+        {
+            handlerResult = await task.WaitAsync(_definition.Limits.HandlerTimeout, cancellationToken).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            ObserveLate(task);
+            return await ResolveFailureAsync(delivery, "base.activation.handlerTimeout", cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            ObserveLate(task);
+            return Failure("base.activation.cancelled", ErrorCategory.Store);
+        }
+        catch
+        {
+            return await ResolveFailureAsync(delivery, "base.activation.handlerFailed", cancellationToken).ConfigureAwait(false);
+        }
+
+        OperationResult<BaseActivationTransitionResult> transition;
+        if (!string.IsNullOrWhiteSpace(handlerResult.FailureCode))
+        {
+            transition = await FailAsync(delivery, handlerResult.FailureCode, handlerResult.Retryable,
+                Identity("fail", delivery.Claim.FencingToken.AsSpan(), handlerResult.FailureCode), cancellationToken).ConfigureAwait(false);
+        }
+        else if (handlerResult.Result is not null)
+        {
+            byte[] resultBytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(handlerResult.Result, _identity.Result);
+            transition = await CompleteAsync(delivery, handlerResult.Result,
+                Identity("complete", delivery.Claim.FencingToken.AsSpan(), Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(resultBytes))), cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            transition = await FailAsync(delivery, "base.activation.handlerContractInvalid", false,
+                Identity("fail", delivery.Claim.FencingToken.AsSpan(), "contract"), cancellationToken).ConfigureAwait(false);
+        }
+        return transition.IsSuccess() && transition.Value is not null
+            ? OperationResults.Ok(new BaseActivationDispatchResult { Empty = false, ActivationId = delivery.ActivationId, State = transition.Value.State })
+            : CopyFailure<BaseActivationDispatchResult, BaseActivationTransitionResult>(transition);
+    }
+
+    private async ValueTask<OperationResult<BaseActivationDispatchResult>> ResolveFailureAsync(
+        BaseActivationDelivery<TInput> delivery,
+        string failureCode,
+        CancellationToken cancellationToken)
+    {
+        OperationResult<BaseActivationTransitionResult> transition = await FailAsync(
+            delivery, failureCode, true, Identity("fail", delivery.Claim.FencingToken.AsSpan(), failureCode), cancellationToken).ConfigureAwait(false);
+        return transition.IsSuccess() && transition.Value is not null
+            ? OperationResults.Ok(new BaseActivationDispatchResult { Empty = false, ActivationId = delivery.ActivationId, State = transition.Value.State })
+            : CopyFailure<BaseActivationDispatchResult, BaseActivationTransitionResult>(transition);
+    }
+
+    private BaseMutationRequestIdentity Identity(string operation, ReadOnlySpan<byte> authority, string discriminator)
+    {
+        using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+        hash.AppendData(authority);
+        hash.AppendData(System.Text.Encoding.UTF8.GetBytes(discriminator));
+        return BaseMutationRequestIdentity.Create(
+            $"activation:{_definition.Id}:{_definition.Version}",
+            operation,
+            Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(authority)),
+            BaseMutationRequestFingerprint.Create(hash.GetHashAndReset()));
+    }
+
+    private static void ObserveLate(Task task) => _ = task.ContinueWith(
+        static completed => _ = completed.Exception,
+        CancellationToken.None,
+        TaskContinuationOptions.ExecuteSynchronously | TaskContinuationOptions.OnlyOnFaulted,
+        TaskScheduler.Default);
+
+    private static OperationResult<BaseActivationDispatchResult> Failure(string code, ErrorCategory category) => new()
+    {
+        Status = OperationStatus.StoreError,
+        Error = new BaseError { Code = code, Message = "The activation worker could not complete the operation.", Category = category },
+    };
+
+    private static OperationResult<T> CopyFailure<T, TSource>(OperationResult<TSource> source) => new()
+    { Status = source.Status, Error = source.Error, Warnings = source.Warnings, Diagnostics = source.Diagnostics };
 
     private static OperationResult<BaseActivationDelivery<TInput>?> InvalidDelivery() => new()
     {
