@@ -1316,6 +1316,7 @@ public sealed partial class SqliteRecordStore
             Definition = new BaseActivationDefinitionKey { Id = DefinitionId, Version = DefinitionVersion, Checksum = DefinitionChecksum.ToImmutableArray() },
             CanonicalInput = CanonicalInput.ToImmutableArray(), InputChecksum = InputChecksum.ToImmutableArray(),
             Scope = new BaseOwnedSubjectScopeEvidence { Kind = ScopeKind, Value = ScopeValue.Length == 0 ? null : ScopeValue },
+            OccurrenceId = OccurrenceId, RequestedDueAt = RequestedDueAt, EffectiveDueAt = EffectiveDueAt,
             Checksum = PayloadChecksum.ToImmutableArray(),
         };
     }

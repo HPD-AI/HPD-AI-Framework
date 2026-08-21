@@ -761,6 +761,8 @@ internal sealed partial class InMemoryRecordStore
                         byte[] payloadChecksum = SHA256.HashData(activation.CanonicalInput.AsSpan());
                         var payload = new BaseActivationPayload { ActivationId = activationId, Definition = activation.Definition,
                             CanonicalInput = activation.CanonicalInput, InputChecksum = activation.InputChecksum, Scope = activation.Scope,
+                            OccurrenceId = activation.OccurrenceId, RequestedDueAt = activation.RequestedDueAt,
+                            EffectiveDueAt = activation.EffectiveDueAt ?? activation.RequestedDueAt,
                             Checksum = payloadChecksum.ToImmutableArray() };
                         next.Activations.Add(activationId, new InMemoryActivationRow(payload, BaseActivationState.Pending, 1,
                             activation.RequestedDueAt, activation.EffectiveDueAt ?? activation.RequestedDueAt, fingerprint,
@@ -1201,6 +1203,7 @@ internal static class BaseActivationPayloadCloneExtensions
         CanonicalInput = payload.CanonicalInput.ToArray().ToImmutableArray(),
         InputChecksum = payload.InputChecksum.ToArray().ToImmutableArray(),
         Scope = payload.Scope with { },
+        OccurrenceId = payload.OccurrenceId is null ? null : new string(payload.OccurrenceId.AsSpan()),
         Checksum = payload.Checksum.ToArray().ToImmutableArray(),
     };
 }

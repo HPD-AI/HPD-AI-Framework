@@ -246,9 +246,16 @@ internal sealed class BaseGraphActivationHandler(
             return new BaseActivationHandlerResult<BaseGraphActivationResult>
             { FailureCode = "hpd.graph.execution.contractInvalid", Retryable = false };
 
+        string executionId = context.OccurrenceId ?? input.ExecutionId;
         var runtimeGraph = new GraphConfigCompiler().Compile(graph);
-        var graphContext = new GraphContext(input.ExecutionId, runtimeGraph, services, enableSharedData: true);
+        var graphContext = new GraphContext(executionId, runtimeGraph, services, enableSharedData: true);
         SeedInput(graphContext, input.CanonicalInput.AsSpan());
+        graphContext.SharedData?["base.activation.id"] = context.Claim.ActivationId;
+        graphContext.SharedData?["base.activation.occurrenceId"] = context.OccurrenceId;
+        graphContext.SharedData?["base.activation.requestedDueAt"] = context.RequestedDueAt;
+        graphContext.SharedData?["base.activation.effectiveDueAt"] = context.EffectiveDueAt;
+        graphContext.SharedData?["base.activation.logicalIntervalStart"] = input.LogicalIntervalStart;
+        graphContext.SharedData?["base.activation.logicalIntervalEnd"] = input.LogicalIntervalEnd;
         var orchestrator = new GraphOrchestrator<GraphContext>(
             services,
             artifactRegistry: services.GetService(typeof(IArtifactRegistry)) as IArtifactRegistry,
@@ -270,7 +277,7 @@ internal sealed class BaseGraphActivationHandler(
         {
             Result = new BaseGraphActivationResult
             {
-                ExecutionId = input.ExecutionId,
+                ExecutionId = executionId,
                 Outcome = BaseGraphActivationOutcome.Succeeded,
                 CompletedNodesChecksum = completed.ToImmutableArray(),
             },

@@ -4100,6 +4100,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                             CanonicalInput = intentItem.CanonicalInput.ToArray().ToImmutableArray(),
                             InputChecksum = intentItem.InputChecksum.ToArray().ToImmutableArray(),
                             Scope = intentItem.Scope with { },
+                            OccurrenceId = intentItem.OccurrenceId,
+                            RequestedDueAt = intentItem.RequestedDueAt,
+                            EffectiveDueAt = intentItem.EffectiveDueAt ?? intentItem.RequestedDueAt,
                             Checksum = preparedItem.PayloadChecksum.ToArray().ToImmutableArray(),
                         };
                         _working.Activations.Add(preparedItem.ActivationId, new InMemoryActivationRow(

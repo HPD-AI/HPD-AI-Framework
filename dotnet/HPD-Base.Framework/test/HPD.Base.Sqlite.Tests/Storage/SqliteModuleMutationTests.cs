@@ -89,6 +89,9 @@ public sealed partial class SqliteModuleMutationTests
                     Identity = ActivationIdentity("claim"), Limits = limits,
                 };
                 var claimed = (BaseActivationClaimedResult)(await store.TryClaimNextAsync(claimRequest)).Value!;
+                claimed.Payload.RequestedDueAt.Should().Be(1);
+                claimed.Payload.EffectiveDueAt.Should().Be(1);
+                claimed.Payload.OccurrenceId.Should().BeNull();
                 (await store.TryClaimNextAsync(claimRequest with { AcceptedTime = AcceptedTime(11) })).Value
                     .Should().BeOfType<BaseActivationClaimedResult>();
                 var renewRequest = new BaseActivationRenewRequest

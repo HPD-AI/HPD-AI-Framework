@@ -160,6 +160,12 @@ public sealed record BaseActivationPayload
     public required ImmutableArray<byte> InputChecksum { get; init; }
     /// <summary>Gets the protected semantic scope captured at creation.</summary>
     public required BaseOwnedSubjectScopeEvidence Scope { get; init; }
+    /// <summary>Gets the immutable schedule occurrence identity, when this activation was scheduled.</summary>
+    public string? OccurrenceId { get; init; }
+    /// <summary>Gets the requested due instant as Unix milliseconds.</summary>
+    public required long RequestedDueAt { get; init; }
+    /// <summary>Gets the effective due instant after deterministic schedule policy.</summary>
+    public required long EffectiveDueAt { get; init; }
     /// <summary>Gets the immutable payload checksum.</summary>
     public required ImmutableArray<byte> Checksum { get; init; }
 }

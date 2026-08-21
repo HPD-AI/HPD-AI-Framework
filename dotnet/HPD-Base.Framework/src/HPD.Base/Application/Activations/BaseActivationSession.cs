@@ -118,6 +118,12 @@ public sealed record BaseActivationDelivery<TInput>
     public required BaseActivationLeaseObservation Lease { get; init; }
     /// <summary>Gets the exact attempt observation.</summary>
     public required BaseActivationAttemptEvidence Attempt { get; init; }
+    /// <summary>Gets the immutable schedule occurrence identity, when scheduled.</summary>
+    public string? OccurrenceId { get; init; }
+    /// <summary>Gets the requested due instant as Unix milliseconds.</summary>
+    public required long RequestedDueAt { get; init; }
+    /// <summary>Gets the effective due instant after deterministic scheduling policy.</summary>
+    public required long EffectiveDueAt { get; init; }
 }
 
 /// <summary>Contains one bounded installed-worker dispatch outcome.</summary>
@@ -183,6 +189,9 @@ public sealed class BaseInstalledActivationWorkerHandle<TInput, TResult>
             Claim = value.Claim,
             Lease = value.Lease,
             Attempt = value.Attempt,
+            OccurrenceId = value.Payload.OccurrenceId,
+            RequestedDueAt = value.Payload.RequestedDueAt,
+            EffectiveDueAt = value.Payload.EffectiveDueAt,
         });
     }
 
@@ -274,6 +283,9 @@ public sealed class BaseInstalledActivationWorkerHandle<TInput, TResult>
                 new BaseActivationDefinitionKey { Id = _definition.Id, Version = _definition.Version, Checksum = _definition.Checksum },
                 delivery.Claim,
                 delivery.Lease,
+                delivery.OccurrenceId,
+                delivery.RequestedDueAt,
+                delivery.EffectiveDueAt,
                 token,
                 _definition.Limits.MaximumChildrenPerAttempt), delivery.Input, token).AsTask(),
             _definition.Limits.HandlerTimeout,

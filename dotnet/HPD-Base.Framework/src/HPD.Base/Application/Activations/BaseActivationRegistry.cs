@@ -184,12 +184,18 @@ public sealed class BaseActivationContext
         BaseActivationDefinitionKey definition,
         BaseActivationClaimAuthority claim,
         BaseActivationLeaseObservation lease,
+        string? occurrenceId,
+        long requestedDueAt,
+        long effectiveDueAt,
         CancellationToken cancellationToken,
         int maximumChildren)
     {
         Definition = definition;
         Claim = claim;
         Lease = lease;
+        OccurrenceId = occurrenceId;
+        RequestedDueAt = requestedDueAt;
+        EffectiveDueAt = effectiveDueAt;
         CancellationToken = cancellationToken;
         _maximumChildren = maximumChildren;
     }
@@ -200,6 +206,12 @@ public sealed class BaseActivationContext
     public BaseActivationClaimAuthority Claim { get; }
     /// <summary>Gets the current immutable lease observation.</summary>
     public BaseActivationLeaseObservation Lease { get; internal set; }
+    /// <summary>Gets the immutable schedule occurrence identity, when scheduled.</summary>
+    public string? OccurrenceId { get; }
+    /// <summary>Gets the requested due instant as Unix milliseconds.</summary>
+    public long RequestedDueAt { get; }
+    /// <summary>Gets the effective due instant after deterministic schedule policy.</summary>
+    public long EffectiveDueAt { get; }
     /// <summary>Gets the cancellation signal for cooperative handler work.</summary>
     public CancellationToken CancellationToken { get; }
 
