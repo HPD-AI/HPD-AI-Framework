@@ -208,6 +208,30 @@ internal sealed class DefaultBaseProviderBootstrap(
             if (providers[0].Descriptor.Consistency == BaseVectorProviderConsistency.DerivedJournal && snapshot.DerivedProviderDefaultConsistency is null)
                 throw new InvalidOperationException("base.vector.consistencyInvalid: a derived provider requires an explicit consistency default.");
         }
+        BaseTextIndexDefinition[] textIndexes = features.CollectionDefinitions
+            .SelectMany(static collection => collection.TextIndexes ?? [])
+            .ToArray();
+        if (textIndexes.Length != 0)
+        {
+            IBaseTextProvider[] providers = services.GetServices<IBaseTextProvider>().ToArray();
+            if (providers.Length != 1 || providers[0].Authority is null)
+                throw new InvalidOperationException(BaseTextErrorCodes.CapabilityUnavailable);
+            BaseTextProviderDescriptor descriptor = providers[0].Descriptor;
+            BaseTextProviderCapability capability = descriptor.Capability;
+            if (descriptor.ProviderClass != capability.ProviderClass
+                || descriptor.Id is not { Length: >= 1 and <= 128 }
+                || descriptor.Version <= 0
+                || descriptor.CertificationReceipt.Length != 32
+                || descriptor.ProviderClass == BaseTextProviderClass.CoLocatedTransactional && !capability.TransactionalMaintenanceSupported
+                || descriptor.ProviderClass == BaseTextProviderClass.DerivedJournal && capability.TransactionalMaintenanceSupported
+                || !capability.ExactRevisionHydrationSupported
+                || !capability.PolicyBeforeRankingSupported
+                || !capability.ExactFixedPointScoreSupported)
+                throw new InvalidOperationException(BaseTextErrorCodes.CapabilityUnavailable);
+            BaseTextExecutionLimits maximum = BaseTextPlatform.ExecutionLimits(capability);
+            if (textIndexes.Any(index => !BaseTextIndexContract.Fits(index.Limits, maximum)))
+                throw new InvalidOperationException(BaseTextErrorCodes.CapabilityUnavailable);
+        }
     }
 
     /// <inheritdoc />

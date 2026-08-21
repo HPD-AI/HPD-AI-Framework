@@ -30,6 +30,32 @@ public static class BaseTextIndexContract
         return owned with { DefinitionChecksum = checksum };
     }
 
+    internal static bool Fits(BaseTextExecutionLimits value, BaseTextExecutionLimits maximum) =>
+        value.MaximumQueryNodes <= maximum.MaximumQueryNodes
+        && value.MaximumQueryDepth <= maximum.MaximumQueryDepth
+        && value.MaximumPhraseTerms <= maximum.MaximumPhraseTerms
+        && value.MaximumQueryBytes <= maximum.MaximumQueryBytes
+        && value.MaximumFilterNodes <= maximum.MaximumFilterNodes
+        && value.MaximumFilterDepth <= maximum.MaximumFilterDepth
+        && value.MaximumFilterLiterals <= maximum.MaximumFilterLiterals
+        && value.MaximumInValues <= maximum.MaximumInValues
+        && value.MaximumPrefixExpansions <= maximum.MaximumPrefixExpansions
+        && value.MaximumPrefixExpansionBytes <= maximum.MaximumPrefixExpansionBytes
+        && value.MaximumSecondaryOrderFields <= maximum.MaximumSecondaryOrderFields
+        && value.MaximumOrderingBytes <= maximum.MaximumOrderingBytes
+        && value.MaximumCandidates <= maximum.MaximumCandidates
+        && value.MaximumScoreProofBytes <= maximum.MaximumScoreProofBytes
+        && value.MaximumTokensPerField <= maximum.MaximumTokensPerField
+        && value.MaximumNormalizedBytesPerField <= maximum.MaximumNormalizedBytesPerField
+        && value.MaximumNormalizedBytesPerRecord <= maximum.MaximumNormalizedBytesPerRecord
+        && value.MaximumResults <= maximum.MaximumResults
+        && value.MaximumResultBytes <= maximum.MaximumResultBytes
+        && value.MaximumCursorBytes <= maximum.MaximumCursorBytes
+        && value.MaximumStatementParameters <= maximum.MaximumStatementParameters
+        && value.MaximumTransientBytes <= maximum.MaximumTransientBytes
+        && value.QueryTimeout <= maximum.QueryTimeout
+        && value.ConsistencyWaitTimeout <= maximum.ConsistencyWaitTimeout;
+
     /// <summary>Returns the canonical definition bytes excluding its resulting checksum.</summary>
     public static byte[] Encode(BaseTextIndexDefinition value)
     {

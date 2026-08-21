@@ -745,18 +745,7 @@ public sealed class HPDBaseBuilder
         foreach (BaseTextIndexDefinition index in indexes)
         {
             BaseTextExecutionLimits requested = index.Limits, maximum = BaseTextPlatform.ExecutionLimits(capability);
-            if (requested.MaximumQueryNodes > maximum.MaximumQueryNodes || requested.MaximumQueryDepth > maximum.MaximumQueryDepth
-                || requested.MaximumPhraseTerms > maximum.MaximumPhraseTerms || requested.MaximumQueryBytes > maximum.MaximumQueryBytes
-                || requested.MaximumFilterNodes > maximum.MaximumFilterNodes || requested.MaximumFilterDepth > maximum.MaximumFilterDepth
-                || requested.MaximumFilterLiterals > maximum.MaximumFilterLiterals || requested.MaximumInValues > maximum.MaximumInValues
-                || requested.MaximumPrefixExpansions > maximum.MaximumPrefixExpansions || requested.MaximumPrefixExpansionBytes > maximum.MaximumPrefixExpansionBytes
-                || requested.MaximumSecondaryOrderFields > maximum.MaximumSecondaryOrderFields || requested.MaximumOrderingBytes > maximum.MaximumOrderingBytes
-                || requested.MaximumCandidates > maximum.MaximumCandidates || requested.MaximumScoreProofBytes > maximum.MaximumScoreProofBytes
-                || requested.MaximumTokensPerField > maximum.MaximumTokensPerField || requested.MaximumNormalizedBytesPerField > maximum.MaximumNormalizedBytesPerField
-                || requested.MaximumNormalizedBytesPerRecord > maximum.MaximumNormalizedBytesPerRecord || requested.MaximumResults > maximum.MaximumResults
-                || requested.MaximumResultBytes > maximum.MaximumResultBytes || requested.MaximumCursorBytes > maximum.MaximumCursorBytes
-                || requested.MaximumStatementParameters > maximum.MaximumStatementParameters || requested.MaximumTransientBytes > maximum.MaximumTransientBytes
-                || requested.QueryTimeout > maximum.QueryTimeout || requested.ConsistencyWaitTimeout > maximum.ConsistencyWaitTimeout)
+            if (!BaseTextIndexContract.Fits(requested, maximum))
                 throw new InvalidOperationException(BaseTextErrorCodes.CapabilityUnavailable);
         }
         if (!_services.Any(static descriptor => descriptor.ServiceType == typeof(IBaseTextProvider)))
