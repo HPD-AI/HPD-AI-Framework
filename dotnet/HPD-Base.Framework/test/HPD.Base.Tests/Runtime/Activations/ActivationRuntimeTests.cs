@@ -7,6 +7,34 @@ namespace HPD.Base.Tests.Runtime.Activations;
 public sealed partial class ActivationRuntimeTests
 {
     [Fact]
+    public void Transactional_activation_is_handler_free_and_target_bound()
+    {
+        BaseActivationDefinition worker = Registration().Definition;
+        BaseTransactionalActivationRegistration<Input, Result> registration = BaseActivationDefinitionBuilder.CreateTransactional(
+            worker with
+            {
+                Id = "test.activation.transactional",
+                ExecutionClass = BaseActivationExecutionClass.TransactionalOperation,
+                Handler = null,
+                TransactionalTarget = new BaseModuleMutationActivationTarget
+                {
+                    OperationId = "test.module.operation",
+                    OperationVersion = 1,
+                    OperationChecksum = new string('a', 64),
+                },
+                Checksum = [],
+            }, Json.Default.Input, Json.Default.Result);
+
+        registration.Definition.Handler.Should().BeNull();
+        registration.Definition.TransactionalTarget.Should().BeOfType<BaseModuleMutationActivationTarget>();
+        registration.Definition.Checksum.Should().HaveCount(32);
+        Action invalid = () => BaseActivationDefinitionBuilder.CreateTransactional(
+            worker with { ExecutionClass = BaseActivationExecutionClass.TransactionalOperation, TransactionalTarget = null, Handler = null, Checksum = [] },
+            Json.Default.Input, Json.Default.Result);
+        invalid.Should().Throw<InvalidOperationException>().WithMessage("base.activation.definitionInvalid");
+    }
+
+    [Fact]
     public async Task Enqueue_is_principal_bound_durable_and_exactly_replayed()
     {
         var store = new InMemoryRecordStore();

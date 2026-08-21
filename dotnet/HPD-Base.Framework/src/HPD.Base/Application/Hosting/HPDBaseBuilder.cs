@@ -371,6 +371,24 @@ public sealed class HPDBaseBuilder
         return this;
     }
 
+    /// <summary>Registers one graph-owned handler-free transactional activation.</summary>
+    public HPDBaseBuilder AddActivation<TInput, TResult>(
+        BaseTransactionalActivationRegistration<TInput, TResult> registration)
+    {
+        EnsureMutable();
+        ArgumentNullException.ThrowIfNull(registration);
+        BaseActivationDefinition definition = BaseActivationContract.Seal(registration.Definition);
+        if (!string.Equals(definition.Id, registration.Identity.Id, StringComparison.Ordinal)
+            || definition.Version != registration.Identity.Version
+            || !CryptographicOperations.FixedTimeEquals(definition.Checksum.AsSpan(), registration.Identity.Checksum.Span))
+            throw new InvalidOperationException("base.activation.definitionInvalid");
+        if (!_activationRegistrations.TryAdd((definition.Id, definition.Version),
+            new BaseInstalledTransactionalActivationRegistration<TInput, TResult>(registration with { Definition = definition })))
+            throw new InvalidOperationException("base.activation.definitionDuplicate");
+        _serializerMetadata.Add(registration.Identity);
+        return this;
+    }
+
     /// <summary>Registers one graph-owned durable schedule.</summary>
     public HPDBaseBuilder AddSchedule(BaseScheduleDefinition definition)
     {

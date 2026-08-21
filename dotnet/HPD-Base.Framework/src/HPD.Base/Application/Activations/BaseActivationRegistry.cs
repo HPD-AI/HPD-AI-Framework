@@ -130,8 +130,38 @@ public sealed record BaseActivationDefinition
     public required BaseActivationLimits Limits { get; init; }
     /// <summary>Gets the worker handler binding, forbidden for transactional operations.</summary>
     public BaseActivationHandlerBinding? Handler { get; init; }
+    /// <summary>Gets the closed installed target for a transactional activation.</summary>
+    public BaseTransactionalActivationTarget? TransactionalTarget { get; init; }
     /// <summary>Gets the Runtime-owned canonical checksum.</summary>
     public required ImmutableArray<byte> Checksum { get; init; }
+}
+
+/// <summary>Identifies one closed BASE operation executable as a transactional activation.</summary>
+public abstract record BaseTransactionalActivationTarget
+{
+    private protected BaseTransactionalActivationTarget() { }
+}
+
+/// <summary>Targets one exact installed selection-mutation profile.</summary>
+public sealed record BaseSelectionMutationActivationTarget : BaseTransactionalActivationTarget
+{
+    /// <summary>Gets the stable profile identity.</summary>
+    public required string ProfileId { get; init; }
+    /// <summary>Gets the positive profile version.</summary>
+    public required int ProfileVersion { get; init; }
+    /// <summary>Gets the exact installed profile checksum.</summary>
+    public required string ProfileChecksum { get; init; }
+}
+
+/// <summary>Targets one exact installed registered module mutation.</summary>
+public sealed record BaseModuleMutationActivationTarget : BaseTransactionalActivationTarget
+{
+    /// <summary>Gets the stable operation identity.</summary>
+    public required string OperationId { get; init; }
+    /// <summary>Gets the positive operation version.</summary>
+    public required int OperationVersion { get; init; }
+    /// <summary>Gets the exact installed operation checksum.</summary>
+    public required string OperationChecksum { get; init; }
 }
 
 /// <summary>Executes one graph-owned activation handler.</summary>
@@ -273,6 +303,15 @@ public sealed record BaseActivationHandlerRegistration<TInput, TResult>
     public required Func<IServiceProvider, IBaseActivationHandler<TInput, TResult>> Factory { get; init; }
 }
 
+/// <summary>Registers one handler-free transactional activation and its closed codecs.</summary>
+public sealed record BaseTransactionalActivationRegistration<TInput, TResult>
+{
+    /// <summary>Gets the sealed activation definition.</summary>
+    public required BaseActivationDefinition Definition { get; init; }
+    /// <summary>Gets the inert generated identity.</summary>
+    public required BaseActivationRegistrationIdentity<TInput, TResult> Identity { get; init; }
+}
+
 /// <summary>Builds one sealed activation registration from closed graph-owned inputs.</summary>
 public static class BaseActivationDefinitionBuilder
 {
@@ -296,13 +335,39 @@ public static class BaseActivationDefinitionBuilder
             Factory = factory,
         };
     }
+
+    /// <summary>Computes canonical authority for one handler-free transactional activation.</summary>
+    public static BaseTransactionalActivationRegistration<TInput, TResult> CreateTransactional<TInput, TResult>(
+        BaseActivationDefinition definition,
+        JsonTypeInfo<TInput> input,
+        JsonTypeInfo<TResult> result)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(input);
+        ArgumentNullException.ThrowIfNull(result);
+        BaseActivationDefinition sealedDefinition = BaseActivationContract.Seal(definition);
+        return new BaseTransactionalActivationRegistration<TInput, TResult>
+        {
+            Definition = sealedDefinition,
+            Identity = new BaseActivationRegistrationIdentity<TInput, TResult>(
+                sealedDefinition.Id, sealedDefinition.Version, sealedDefinition.Checksum.ToArray(), input, result),
+        };
+    }
 }
 
 internal interface IBaseActivationRegistration
 {
     BaseActivationDefinition Definition { get; }
     object Identity { get; }
-    object CreateHandler(IServiceProvider services);
+    object? CreateHandler(IServiceProvider services);
+}
+
+internal sealed class BaseInstalledTransactionalActivationRegistration<TInput, TResult>(
+    BaseTransactionalActivationRegistration<TInput, TResult> registration) : IBaseActivationRegistration
+{
+    public BaseActivationDefinition Definition { get; } = BaseActivationContract.Seal(registration.Definition);
+    public object Identity { get; } = registration.Identity;
+    public object? CreateHandler(IServiceProvider services) => null;
 }
 
 internal sealed class BaseActivationRegistration<TInput, TResult>(
@@ -362,6 +427,21 @@ internal static class BaseActivationContract
             },
             Limits = source.Limits with { Provider = source.Limits.Provider with { }, AtomicCreation = source.Limits.AtomicCreation with { Deadlines = source.Limits.AtomicCreation.Deadlines with { } } },
             Handler = source.Handler is null ? null : source.Handler with { Checksum = source.Handler.Checksum.ToArray().ToImmutableArray() },
+            TransactionalTarget = source.TransactionalTarget switch
+            {
+                BaseSelectionMutationActivationTarget value => value with
+                {
+                    ProfileId = new string(value.ProfileId.AsSpan()),
+                    ProfileChecksum = new string(value.ProfileChecksum.AsSpan()),
+                },
+                BaseModuleMutationActivationTarget value => value with
+                {
+                    OperationId = new string(value.OperationId.AsSpan()),
+                    OperationChecksum = new string(value.OperationChecksum.AsSpan()),
+                },
+                null => null,
+                _ => throw new InvalidOperationException("base.activation.definitionInvalid"),
+            },
             Checksum = ImmutableArray<byte>.Empty,
         };
         return normalized with { Checksum = ComputeChecksum(normalized).ToImmutableArray() };
@@ -381,8 +461,11 @@ internal static class BaseActivationContract
         ValidateGrants(value.Grants);
         if (value.Version <= 0 || string.IsNullOrWhiteSpace(value.InputTypeId) || string.IsNullOrWhiteSpace(value.ResultTypeId))
             throw new InvalidOperationException("base.activation.definitionInvalid");
-        if (value.ExecutionClass == BaseActivationExecutionClass.TransactionalOperation || value.Handler is null)
+        if (value.ExecutionClass == BaseActivationExecutionClass.TransactionalOperation
+            ? value.TransactionalTarget is null || value.Handler is not null
+            : value.TransactionalTarget is not null || value.Handler is null)
             throw new InvalidOperationException("base.activation.definitionInvalid");
+        ValidateTarget(value.TransactionalTarget);
         if (value.Retry.MaximumAttempts is < 1 or > 1024 || value.Limits.MaximumAttempts != value.Retry.MaximumAttempts ||
             value.Limits.MaximumInputBytes is < 1 or > 4L * 1024 * 1024 || value.Limits.MaximumResultBytes is < 1 or > 4L * 1024 * 1024 ||
             value.Limits.MaximumRenewalsPerAttempt is < 1 or > 4096 || value.Limits.MaximumChildrenPerAttempt is < 1 or > 4096 ||
@@ -410,7 +493,28 @@ internal static class BaseActivationContract
         Append(hash, value.Limits.MaximumRenewalsPerAttempt); Append(hash, value.Limits.MaximumChildrenPerAttempt); Append(hash, value.Limits.MaximumLineageDepth);
         Append(hash, value.Limits.LeaseDuration.Ticks); Append(hash, value.Limits.HandlerTimeout.Ticks);
         if (value.Handler is not null) { Append(hash, value.Handler.Id); Append(hash, value.Handler.Version); Append(hash, value.Handler.FactoryId); Append(hash, value.Handler.Checksum.AsSpan()); }
+        switch (value.TransactionalTarget)
+        {
+            case BaseSelectionMutationActivationTarget selection:
+                Append(hash, 1); Append(hash, selection.ProfileId); Append(hash, selection.ProfileVersion); Append(hash, selection.ProfileChecksum); break;
+            case BaseModuleMutationActivationTarget module:
+                Append(hash, 2); Append(hash, module.OperationId); Append(hash, module.OperationVersion); Append(hash, module.OperationChecksum); break;
+            default: Append(hash, 0); break;
+        }
         return hash.GetHashAndReset();
+    }
+
+    private static void ValidateTarget(BaseTransactionalActivationTarget? target)
+    {
+        switch (target)
+        {
+            case null: return;
+            case BaseSelectionMutationActivationTarget value when value.ProfileVersion > 0 && !string.IsNullOrWhiteSpace(value.ProfileChecksum):
+                BaseApplicationId.Validate(value.ProfileId, nameof(value.ProfileId)); return;
+            case BaseModuleMutationActivationTarget value when value.OperationVersion > 0 && !string.IsNullOrWhiteSpace(value.OperationChecksum):
+                BaseApplicationId.Validate(value.OperationId, nameof(value.OperationId)); return;
+            default: throw new InvalidOperationException("base.activation.definitionInvalid");
+        }
     }
 
     private static void Append(IncrementalHash hash, string value)
