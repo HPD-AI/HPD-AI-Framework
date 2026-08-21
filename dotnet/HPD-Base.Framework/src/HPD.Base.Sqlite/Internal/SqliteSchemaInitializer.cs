@@ -247,6 +247,21 @@ CREATE TABLE IF NOT EXISTS {_names.ModuleGenerations} (
   generation INTEGER NOT NULL CHECK(generation > 0),
   PRIMARY KEY(cell_id,cell_version,scope_kind,tenant,project,key_bytes)
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.Activations} (
+  activation_id TEXT NOT NULL PRIMARY KEY,
+  definition_id TEXT NOT NULL,
+  definition_version INTEGER NOT NULL CHECK(definition_version > 0),
+  definition_checksum BLOB NOT NULL CHECK(length(definition_checksum) = 32),
+  canonical_input BLOB NOT NULL,
+  input_checksum BLOB NOT NULL CHECK(length(input_checksum) = 32),
+  payload_checksum BLOB NOT NULL CHECK(length(payload_checksum) = 32),
+  fingerprint BLOB NOT NULL CHECK(length(fingerprint) = 32),
+  state INTEGER NOT NULL,
+  generation INTEGER NOT NULL CHECK(generation > 0),
+  requested_due_at INTEGER NOT NULL CHECK(requested_due_at >= 0),
+  effective_due_at INTEGER NOT NULL CHECK(effective_due_at >= 0),
+  control_checksum BLOB NOT NULL CHECK(length(control_checksum) = 32)
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.ModuleMutationDefinitions} (
   operation_id TEXT NOT NULL, operation_version INTEGER NOT NULL CHECK(operation_version > 0),
   owning_module_id TEXT NOT NULL, operation_checksum TEXT NOT NULL CHECK(length(operation_checksum)=64),
@@ -546,6 +561,21 @@ CREATE TABLE IF NOT EXISTS {_names.ModuleGenerations} (
   generation INTEGER NOT NULL CHECK(generation > 0),
   PRIMARY KEY(cell_id,cell_version,scope_kind,tenant,project,key_bytes)
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.Activations} (
+  activation_id TEXT NOT NULL PRIMARY KEY,
+  definition_id TEXT NOT NULL,
+  definition_version INTEGER NOT NULL CHECK(definition_version > 0),
+  definition_checksum BLOB NOT NULL CHECK(length(definition_checksum) = 32),
+  canonical_input BLOB NOT NULL,
+  input_checksum BLOB NOT NULL CHECK(length(input_checksum) = 32),
+  payload_checksum BLOB NOT NULL CHECK(length(payload_checksum) = 32),
+  fingerprint BLOB NOT NULL CHECK(length(fingerprint) = 32),
+  state INTEGER NOT NULL,
+  generation INTEGER NOT NULL CHECK(generation > 0),
+  requested_due_at INTEGER NOT NULL CHECK(requested_due_at >= 0),
+  effective_due_at INTEGER NOT NULL CHECK(effective_due_at >= 0),
+  control_checksum BLOB NOT NULL CHECK(length(control_checksum) = 32)
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.ModuleMutationDefinitions} (
   operation_id TEXT NOT NULL, operation_version INTEGER NOT NULL CHECK(operation_version > 0),
   owning_module_id TEXT NOT NULL, operation_checksum TEXT NOT NULL CHECK(length(operation_checksum)=64),
@@ -743,7 +773,7 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
     public async ValueTask<string[]> GetMissingSchemaPartsAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         var missing = new List<string>();
-        foreach (var table in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.OperationReceipts, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease, _names.SubjectContracts, _names.SubjectLifetimes, _names.SubjectTerminalLifetimes, _names.SubjectLifecycleFacts, _names.SubjectLifecycleMemberships, _names.SubjectLifecycleConsumers, _names.SubjectLifecycleCheckpoints, _names.SubjectLifecycleMaintenance, _names.SubjectLifecycleScopeStage, _names.SubjectLifecycleMembershipStage, _names.SubjectRetirementBarriers, _names.SubjectRetirementAcknowledgements, _names.SubjectRetirementTerminals, _names.SubjectRetirementPublications, _names.SubjectMaintenance, _names.SubjectRewriteStage, _names.ModuleGenerations, _names.ModuleMutationDefinitions, _names.ModuleGenerationDefinitions }
+        foreach (var table in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.OperationReceipts, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease, _names.SubjectContracts, _names.SubjectLifetimes, _names.SubjectTerminalLifetimes, _names.SubjectLifecycleFacts, _names.SubjectLifecycleMemberships, _names.SubjectLifecycleConsumers, _names.SubjectLifecycleCheckpoints, _names.SubjectLifecycleMaintenance, _names.SubjectLifecycleScopeStage, _names.SubjectLifecycleMembershipStage, _names.SubjectRetirementBarriers, _names.SubjectRetirementAcknowledgements, _names.SubjectRetirementTerminals, _names.SubjectRetirementPublications, _names.SubjectMaintenance, _names.SubjectRewriteStage, _names.ModuleGenerations, _names.ModuleMutationDefinitions, _names.ModuleGenerationDefinitions, _names.Activations }
             .Concat(_physical.Collections.Select(static collection => collection.Table))
             .Concat(_physical.Relations.Select(static relation => relation.Table))
             .Concat(_projectionSchemaTables))

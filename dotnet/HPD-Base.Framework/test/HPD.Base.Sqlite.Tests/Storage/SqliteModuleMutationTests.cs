@@ -8,6 +8,55 @@ namespace HPD.Base.Sqlite.Tests.Storage;
 public sealed partial class SqliteModuleMutationTests
 {
     [Fact]
+    public async Task Activation_creation_commits_replays_conflicts_and_survives_restart()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-l51-activation-{Guid.NewGuid():N}.db");
+        try
+        {
+            BaseAtomicMutationExecutionLimits limits = ExecutionLimits();
+            await using (SqliteRecordStore store = Store(path))
+            {
+                BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync(
+                    "activation.application", [], limits, default)).Value!;
+                var first = new ActivationCreationProbe(authority, limits);
+                var duplicate = new ActivationCreationProbe(authority, limits);
+                var conflict = new ActivationCreationProbe(authority, limits, "changed-input");
+
+                RecordMutationExecutionResult committed = await store.ExecuteAtomicAsync(first, ExecutionRequest());
+                RecordMutationExecutionResult replayed = await store.ExecuteAtomicAsync(duplicate, ExecutionRequest());
+                RecordMutationExecutionResult rejected = await store.ExecuteAtomicAsync(conflict, ExecutionRequest());
+
+                committed.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+                replayed.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+                first.CapturedExisting.Should().BeFalse();
+                duplicate.CapturedExisting.Should().BeTrue();
+                first.ProvisionalCount.Should().Be(1);
+                duplicate.ProvisionalCount.Should().Be(1);
+                rejected.Outcome.Should().Be(RecordMutationExecutionOutcome.RollbackConfirmed);
+                conflict.RejectedCode.Should().Be("base.activation.fingerprintConflict");
+            }
+
+            await using (SqliteRecordStore reopened = Store(path))
+            {
+                BaseAtomicMutationAuthorityRequirement authority = (await reopened.CaptureAtomicMutationAuthorityRequirementAsync(
+                    "activation.application", [], limits, default)).Value!;
+                var duplicate = new ActivationCreationProbe(authority, limits);
+
+                RecordMutationExecutionResult replayed = await reopened.ExecuteAtomicAsync(duplicate, ExecutionRequest());
+
+                replayed.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+                duplicate.CapturedExisting.Should().BeTrue();
+                duplicate.ProvisionalCount.Should().Be(1);
+            }
+        }
+        finally
+        {
+            foreach (string suffix in new[] { "", "-wal", "-shm" })
+                if (File.Exists(path + suffix)) File.Delete(path + suffix);
+        }
+    }
+
+    [Fact]
     public async Task Generation_operation_commits_replays_and_survives_restart()
     {
         string path = Path.Combine(Path.GetTempPath(), $"hpd-base-l50-{Guid.NewGuid():N}.db");
@@ -489,6 +538,87 @@ public sealed partial class SqliteModuleMutationTests
                 await session.ApplyPreparedAtomicExecutionAsync(prepared, cancellationToken);
             RejectedCode = result.Error?.Code;
             return Failure(result.Error);
+        }
+    }
+
+    private sealed class ActivationCreationProbe(
+        BaseAtomicMutationAuthorityRequirement authority,
+        BaseAtomicMutationExecutionLimits limits,
+        string inputText = "activation-input") : IAtomicMutationProcessor
+    {
+        public bool CapturedExisting { get; private set; }
+        public int ProvisionalCount { get; private set; }
+        public string? RejectedCode { get; private set; }
+
+        public async ValueTask<AtomicMutationProcessingResult> ProcessAsync(
+            IAtomicRecordSession session,
+            CancellationToken cancellationToken = default)
+        {
+            byte[] input = System.Text.Encoding.UTF8.GetBytes(inputText);
+            var extension = new BaseActivationCreationExtension
+            {
+                StructuralDigest = new byte[32].ToImmutableArray(),
+                Items = [new BaseActivationCreateIntent
+                {
+                    Ordinal = 0,
+                    Definition = new BaseActivationDefinitionKey
+                    {
+                        Id = "test.activation", Version = 1, Checksum = new byte[32].ToImmutableArray(),
+                    },
+                    CanonicalInput = input.ToImmutableArray(),
+                    InputChecksum = System.Security.Cryptography.SHA256.HashData(input).ToImmutableArray(),
+                    Scope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Global },
+                    RequestedDueAt = 1,
+                    EffectiveDueAt = 1,
+                    Identity = BaseMutationRequestIdentity.Create(
+                        "activation-test", "enqueue", "activation-1",
+                        BaseMutationRequestFingerprint.Create(new byte[32])),
+                }],
+            };
+            var request = new BaseAtomicExecutionRequest
+            {
+                Kind = BaseAtomicMutationExecutionKind.ActivationCreation,
+                Intent = new BaseAtomicMutationIntent
+                {
+                    IntentDigest = "activation-intent", Authority = authority, Items = [],
+                },
+                Activations = extension,
+                Limits = limits,
+            };
+            OperationResult<BaseCapturedAtomicExecution> captured =
+                await session.CaptureAtomicExecutionAsync(request, cancellationToken);
+            if (!captured.IsSuccess() || captured.Value?.Activations is null)
+            {
+                RejectedCode = captured.Error?.Code;
+                return Failure(captured.Error);
+            }
+            CapturedExisting = captured.Value.Activations.Items[0].Exists;
+            var plan = new BaseFinalizedAtomicExecutionPlan
+            {
+                Kind = BaseAtomicMutationExecutionKind.ActivationCreation,
+                PlanDigest = "activation-plan",
+                IntentDigest = request.Intent.IntentDigest,
+                CaptureDigest = captured.Value.CaptureDigest,
+                PolicyAuthorityDigest = BaseAtomicPolicyAuthorityDigest.Create(new byte[32]),
+                Authority = authority,
+                Items = [], SubjectValidations = [], Activations = extension, Limits = limits,
+            };
+            OperationResult<BasePreparedAtomicExecution> prepared =
+                await session.PrepareAtomicExecutionAsync(captured.Value, plan, cancellationToken);
+            if (!prepared.IsSuccess() || prepared.Value?.Activations is null)
+            {
+                RejectedCode = prepared.Error?.Code;
+                return Failure(prepared.Error);
+            }
+            OperationResult<BaseProvisionalAtomicExecution> applied =
+                await session.ApplyPreparedAtomicExecutionAsync(prepared.Value, cancellationToken);
+            if (!applied.IsSuccess() || applied.Value?.Activations is null)
+            {
+                RejectedCode = applied.Error?.Code;
+                return Failure(applied.Error);
+            }
+            ProvisionalCount = applied.Value.Activations.Items.Length;
+            return new AtomicMutationProcessingResult(AtomicMutationProcessingOutcome.ReadyToCommit, []);
         }
     }
 

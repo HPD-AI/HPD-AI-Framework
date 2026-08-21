@@ -5,6 +5,7 @@ using HPD.Base;
 using HPD.Base.Sqlite;
 using Microsoft.Data.Sqlite;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace HPD.Base.Sqlite;
@@ -792,6 +793,7 @@ public sealed partial class SqliteRecordStore
         private Dictionary<int, BaseSubjectIncarnation>? _preparedLifecycleIncarnations;
         private Dictionary<int, SqliteModuleGenerationKey>? _capturedModuleGenerationKeys;
         private BaseModuleMutationCaptureExtension? _capturedModuleExtension;
+        private BaseActivationCreationExtension? _capturedActivationExtension;
         private sealed record SqliteModuleGenerationKey(
             string CellId,
             int CellVersion,
@@ -870,6 +872,8 @@ public sealed partial class SqliteRecordStore
             ArgumentNullException.ThrowIfNull(request);
             BaseAtomicMutationIntent intent = request.Intent;
             BaseAtomicMutationExecutionLimits limits = request.Limits;
+            if (request.Kind == BaseAtomicMutationExecutionKind.ActivationCreation)
+                return await CaptureActivationAuthorityAsync(request, token).ConfigureAwait(false);
             if (request.Kind == BaseAtomicMutationExecutionKind.SelectionMutation)
             {
                 if (request.Selection is null || request.Module is not null || !intent.Items.IsDefaultOrEmpty)
@@ -1003,6 +1007,97 @@ public sealed partial class SqliteRecordStore
             };
             return OperationResults.Ok(_capturedMutation);
         });
+
+        private async ValueTask<OperationResult<BaseCapturedAtomicExecution>> CaptureActivationAuthorityAsync(
+            BaseAtomicExecutionRequest request,
+            CancellationToken cancellationToken)
+        {
+            BaseAtomicMutationIntent intent = request.Intent;
+            BaseActivationCreationExtension? extension = request.Activations;
+            if (_capturedMutation is not null || extension is null || request.Selection is not null
+                || request.Module is not null || request.ActivationGuard is not null
+                || !intent.Items.IsDefaultOrEmpty || extension.Items.IsDefaultOrEmpty
+                || extension.Items.Length > request.Limits.MaximumItems || extension.StructuralDigest.Length != 32
+                || !intent.Authority.Collections.IsDefaultOrEmpty)
+                return SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
+
+            (string storeId, long restoreEpoch, long schemaGeneration) = await ReadAuthorityAsync(cancellationToken).ConfigureAwait(false);
+            if (!string.Equals(storeId, intent.Authority.StoreInstanceId, StringComparison.Ordinal)
+                || restoreEpoch != intent.Authority.RestoreEpoch || schemaGeneration != intent.Authority.SchemaGeneration)
+                return SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectErrorCodes.SchemaGenerationChanged, OperationStatus.Conflict, ErrorCategory.Conflict);
+
+            var items = ImmutableArray.CreateBuilder<BaseCapturedActivationItem>(extension.Items.Length);
+            var intervals = ImmutableArray.CreateBuilder<BaseAtomicReadIntervalEvidence>(extension.Items.Length);
+            using var aggregate = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            aggregate.AppendData(extension.StructuralDigest.AsSpan());
+            long selectedBytes = 0;
+            for (int ordinal = 0; ordinal < extension.Items.Length; ordinal++)
+            {
+                BaseActivationCreateIntent item = extension.Items[ordinal];
+                if (item.Ordinal != ordinal || item.Definition.Version < 1 || item.Definition.Checksum.Length != 32
+                    || item.InputChecksum.Length != 32 || item.CanonicalInput.IsDefault
+                    || item.RequestedDueAt < 0 || item.EffectiveDueAt is < 0)
+                    return SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                byte[] idBytes = SHA256.HashData(extension.StructuralDigest
+                    .Concat(BitConverter.GetBytes(ordinal).Reverse()).ToArray());
+                string activationId = Convert.ToHexStringLower(idBytes);
+                byte[] fingerprint = ActivationFingerprint(item);
+                byte[]? existingFingerprint;
+                await using (SqliteCommand command = _connection.CreateCommand())
+                {
+                    command.Transaction = _transaction;
+                    command.CommandText = $"SELECT fingerprint FROM {_owner._names.Activations} WHERE activation_id=$id;";
+                    command.Parameters.AddWithValue("$id", activationId);
+                    object? value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+                    existingFingerprint = value is byte[] bytes ? bytes : null;
+                }
+                if (existingFingerprint is not null
+                    && !CryptographicOperations.FixedTimeEquals(existingFingerprint, fingerprint))
+                    return SubjectFailure<BaseCapturedAtomicExecution>("base.activation.fingerprintConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+                byte[] key = Encoding.UTF8.GetBytes(activationId);
+                intervals.Add(ExactInterval("base.activation.byId", key));
+                aggregate.AppendData(key); aggregate.AppendData(fingerprint);
+                selectedBytes = checked(selectedBytes + item.CanonicalInput.Length + fingerprint.Length);
+                items.Add(new BaseCapturedActivationItem
+                {
+                    Ordinal = ordinal, ActivationId = activationId, Exists = existingFingerprint is not null,
+                    ExistingFingerprint = existingFingerprint?.ToImmutableArray() ?? [],
+                });
+            }
+            ImmutableArray<BaseAtomicReadIntervalEvidence> ownedIntervals = intervals.MoveToImmutable();
+            long evidenceBytes = BaseSubjectCanonicalRetainedWork.MeasureIntervals(ownedIntervals);
+            long transient = checked(selectedBytes + evidenceBytes);
+            if (selectedBytes > request.Limits.MaximumSelectedBytes || evidenceBytes > request.Limits.MaximumEvidenceBytes
+                || transient > request.Limits.MaximumTransientBytes || ownedIntervals.Length > request.Limits.MaximumReadIntervals)
+                return SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectErrorCodes.BudgetExceeded, OperationStatus.ValidationFailed, ErrorCategory.Validation);
+            BaseCapturedActivationExtension capturedActivations = new()
+            {
+                Items = items.MoveToImmutable(), ReadIntervals = ownedIntervals,
+                Checksum = aggregate.GetHashAndReset().ToImmutableArray(),
+            };
+            _capturedActivationExtension = FreezeActivationExtension(extension);
+            _capturedMutation = new BaseCapturedAtomicExecution
+            {
+                Kind = request.Kind, IntentDigest = new string(intent.IntentDigest.AsSpan()),
+                CaptureDigest = Convert.ToHexStringLower(capturedActivations.Checksum.AsSpan()),
+                Authority = new BaseAtomicMutationAuthorityEvidence
+                {
+                    ApplicationId = intent.Authority.ApplicationId, StoreInstanceId = storeId,
+                    RestoreEpoch = restoreEpoch, SchemaGeneration = schemaGeneration, Collections = [],
+                    Isolation = BaseAtomicSelectionIsolationClass.WriteOwningSerializable,
+                    TransactionEvidenceToken = BitConverter.GetBytes(_transactionStarted).ToImmutableArray(),
+                },
+                Items = [], ModuleRecords = [], ModuleRelationTargets = [], Generations = [],
+                Activations = capturedActivations, ReadIntervals = ownedIntervals,
+                Accounting = new BaseAtomicCaptureAccounting
+                {
+                    Records = 0, RelationTargetReads = 0, GenerationReads = 0,
+                    SelectedBytes = selectedBytes, RelationTargetBytes = 0, GenerationBytes = 0,
+                    ReadIntervals = ownedIntervals.Length, EvidenceBytes = evidenceBytes, TransientBytes = transient,
+                },
+            };
+            return OperationResults.Ok(_capturedMutation);
+        }
 
         private async ValueTask<OperationResult<BaseCapturedAtomicExecution>> CaptureModuleAuthorityAsync(
             BaseAtomicExecutionRequest request,
@@ -1253,9 +1348,39 @@ public sealed partial class SqliteRecordStore
                 !string.Equals(plan.CaptureDigest, captured.CaptureDigest, StringComparison.Ordinal) ||
                 (plan.Kind == BaseAtomicMutationExecutionKind.ModuleMutation
                     ? plan.Module is null || captured.Items.Length != 0
-                    : plan.Items.Length != captured.Items.Length))
+                    : plan.Items.Length != captured.Items.Length)
+                || (plan.Kind == BaseAtomicMutationExecutionKind.ActivationCreation
+                    && (plan.Activations is null || captured.Activations is null
+                        || _capturedActivationExtension is null || !plan.Items.IsDefaultOrEmpty)))
                 return SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
             var preparedGenerations = ImmutableArray.CreateBuilder<BasePreparedModuleGenerationEvidence>(captured.Generations.Length);
+            BasePreparedActivationExtension? preparedActivations = null;
+            if (plan.Kind == BaseAtomicMutationExecutionKind.ActivationCreation)
+            {
+                if (!ActivationExtensionsMatch(plan.Activations!, _capturedActivationExtension!, captured.Activations!))
+                    return SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                var activationItems = ImmutableArray.CreateBuilder<BasePreparedActivationItem>(captured.Activations!.Items.Length);
+                using var activationDigest = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+                for (int ordinal = 0; ordinal < captured.Activations.Items.Length; ordinal++)
+                {
+                    BaseCapturedActivationItem capturedItem = captured.Activations.Items[ordinal];
+                    BaseActivationCreateIntent intentItem = plan.Activations!.Items[ordinal];
+                    byte[] payloadChecksum = SHA256.HashData(intentItem.CanonicalInput.AsSpan());
+                    byte[] controlChecksum = SHA256.HashData(Encoding.UTF8.GetBytes(
+                        $"{capturedItem.ActivationId}\n1\n{intentItem.EffectiveDueAt ?? intentItem.RequestedDueAt}"));
+                    activationDigest.AppendData(payloadChecksum); activationDigest.AppendData(controlChecksum);
+                    activationItems.Add(new BasePreparedActivationItem
+                    {
+                        Ordinal = ordinal, ActivationId = capturedItem.ActivationId, ResultingGeneration = 1,
+                        PayloadChecksum = payloadChecksum.ToImmutableArray(), ControlChecksum = controlChecksum.ToImmutableArray(),
+                    });
+                }
+                preparedActivations = new BasePreparedActivationExtension
+                {
+                    Items = activationItems.MoveToImmutable(),
+                    Checksum = activationDigest.GetHashAndReset().ToImmutableArray(),
+                };
+            }
             if (plan.Kind == BaseAtomicMutationExecutionKind.ModuleMutation)
             {
                 if (captured.Accounting.GenerationReads > plan.Limits.MaximumGenerationReads
@@ -1469,6 +1594,7 @@ public sealed partial class SqliteRecordStore
                     }).ToImmutableArray()
                     : captured.Items.Select(static item => item.Disposition).ToImmutableArray(),
                 Generations = preparedGenerations.MoveToImmutable(),
+                Activations = preparedActivations,
                 SubjectOverlay = overlays.Values.OrderBy(static value => value.ContractId, StringComparer.Ordinal).ThenBy(static value => value.ContractVersion).ThenBy(static value => value.SubjectId.Value, StringComparer.Ordinal).ToImmutableArray(),
                 SubjectValidations = validationEvidence.MoveToImmutable(),
                 ReadIntervals = intervals.MoveToImmutable(),
@@ -1648,6 +1774,57 @@ public sealed partial class SqliteRecordStore
                 }
                 _capturedModuleGenerationKeys = null;
             }
+            BaseProvisionalActivationExtension? provisionalActivations = null;
+            if (plan.Kind == BaseAtomicMutationExecutionKind.ActivationCreation)
+            {
+                if (prepared.Activations is null || plan.Activations is null || _capturedMutation?.Activations is null
+                    || prepared.Activations.Items.Length != plan.Activations.Items.Length)
+                    return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                var appliedActivations = ImmutableArray.CreateBuilder<BaseProvisionalActivationItem>(prepared.Activations.Items.Length);
+                using var aggregate = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+                for (int ordinal = 0; ordinal < prepared.Activations.Items.Length; ordinal++)
+                {
+                    BasePreparedActivationItem preparedItem = prepared.Activations.Items[ordinal];
+                    BaseActivationCreateIntent intentItem = plan.Activations.Items[ordinal];
+                    BaseCapturedActivationItem capturedItem = _capturedMutation.Activations.Items[ordinal];
+                    byte[] fingerprint = ActivationFingerprint(intentItem);
+                    if (!capturedItem.Exists)
+                    {
+                        await using SqliteCommand command = _connection.CreateCommand();
+                        command.Transaction = _transaction;
+                        command.CommandText = $"INSERT INTO {_owner._names.Activations}(activation_id,definition_id,definition_version,definition_checksum,canonical_input,input_checksum,payload_checksum,fingerprint,state,generation,requested_due_at,effective_due_at,control_checksum) VALUES($id,$definition,$version,$definition_checksum,$input,$input_checksum,$payload_checksum,$fingerprint,$state,1,$requested,$effective,$control_checksum);";
+                        command.Parameters.AddWithValue("$id", preparedItem.ActivationId);
+                        command.Parameters.AddWithValue("$definition", intentItem.Definition.Id);
+                        command.Parameters.AddWithValue("$version", intentItem.Definition.Version);
+                        command.Parameters.Add("$definition_checksum", SqliteType.Blob).Value = intentItem.Definition.Checksum.ToArray();
+                        command.Parameters.Add("$input", SqliteType.Blob).Value = intentItem.CanonicalInput.ToArray();
+                        command.Parameters.Add("$input_checksum", SqliteType.Blob).Value = intentItem.InputChecksum.ToArray();
+                        command.Parameters.Add("$payload_checksum", SqliteType.Blob).Value = preparedItem.PayloadChecksum.ToArray();
+                        command.Parameters.Add("$fingerprint", SqliteType.Blob).Value = fingerprint;
+                        command.Parameters.AddWithValue("$state", (int)BaseActivationState.Pending);
+                        command.Parameters.AddWithValue("$requested", intentItem.RequestedDueAt);
+                        command.Parameters.AddWithValue("$effective", intentItem.EffectiveDueAt ?? intentItem.RequestedDueAt);
+                        command.Parameters.Add("$control_checksum", SqliteType.Blob).Value = preparedItem.ControlChecksum.ToArray();
+                        if (await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) != 1)
+                            return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                        writtenBytes = checked(writtenBytes + intentItem.CanonicalInput.Length + 192L);
+                    }
+                    byte[] itemChecksum = SHA256.HashData(Encoding.UTF8.GetBytes(
+                        $"{preparedItem.ActivationId}\n{preparedItem.ResultingGeneration}"));
+                    aggregate.AppendData(itemChecksum);
+                    appliedActivations.Add(new BaseProvisionalActivationItem
+                    {
+                        Ordinal = ordinal, ActivationId = preparedItem.ActivationId,
+                        Generation = preparedItem.ResultingGeneration, Checksum = itemChecksum.ToImmutableArray(),
+                    });
+                }
+                provisionalActivations = new BaseProvisionalActivationExtension
+                {
+                    Items = appliedActivations.MoveToImmutable(),
+                    Checksum = aggregate.GetHashAndReset().ToImmutableArray(),
+                };
+                _capturedActivationExtension = null;
+            }
             BaseRecordMutationFact[] materialized = facts.Select(static fact => fact.MaterializeOwned()).ToArray();
             foreach (ISqliteAtomicMutationProjection contributor in _owner._mutationProjectionContributors)
             {
@@ -1670,6 +1847,7 @@ public sealed partial class SqliteRecordStore
                 Authority = prepared.Authority with { },
                 Facts = facts.MoveToImmutable(),
                 Generations = generations,
+                Activations = provisionalActivations,
                 Accounting = new BaseProvisionalAtomicMutationAccounting
                 {
                     WrittenBytes = writtenBytes,
@@ -1875,6 +2053,52 @@ public sealed partial class SqliteRecordStore
 
         private static string CaptureRecordKey(string collectionId, RecordId recordId) =>
             collectionId + "\n" + recordId.Value;
+
+        private static byte[] ActivationFingerprint(BaseActivationCreateIntent item)
+        {
+            using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            hash.AppendData(Encoding.UTF8.GetBytes("base.activation.create.v1\0"));
+            hash.AppendData(Encoding.UTF8.GetBytes(item.Definition.Id));
+            hash.AppendData(BitConverter.GetBytes(item.Definition.Version).Reverse().ToArray());
+            hash.AppendData(item.Definition.Checksum.AsSpan());
+            hash.AppendData(item.InputChecksum.AsSpan());
+            hash.AppendData(BitConverter.GetBytes(item.RequestedDueAt).Reverse().ToArray());
+            hash.AppendData(BitConverter.GetBytes(item.EffectiveDueAt ?? item.RequestedDueAt).Reverse().ToArray());
+            hash.AppendData(Encoding.UTF8.GetBytes(item.Identity.IdempotencyKey));
+            return hash.GetHashAndReset();
+        }
+
+        private static BaseActivationCreationExtension FreezeActivationExtension(BaseActivationCreationExtension source) => new()
+        {
+            StructuralDigest = source.StructuralDigest.ToArray().ToImmutableArray(),
+            Items = source.Items.Select(static item => item with
+            {
+                Definition = item.Definition with { Checksum = item.Definition.Checksum.ToArray().ToImmutableArray() },
+                CanonicalInput = item.CanonicalInput.ToArray().ToImmutableArray(),
+                InputChecksum = item.InputChecksum.ToArray().ToImmutableArray(),
+                Scope = item.Scope with { },
+            }).ToImmutableArray(),
+        };
+
+        private static bool ActivationExtensionsMatch(
+            BaseActivationCreationExtension plan,
+            BaseActivationCreationExtension capturedRequest,
+            BaseCapturedActivationExtension captured) =>
+            plan.StructuralDigest.AsSpan().SequenceEqual(capturedRequest.StructuralDigest.AsSpan())
+            && plan.Items.Length == capturedRequest.Items.Length && plan.Items.Length == captured.Items.Length
+            && plan.Items.Select((item, ordinal) => (item, ordinal)).All(pair =>
+            {
+                BaseActivationCreateIntent right = capturedRequest.Items[pair.ordinal];
+                return pair.item.Ordinal == pair.ordinal && right.Ordinal == pair.ordinal
+                    && string.Equals(pair.item.Definition.Id, right.Definition.Id, StringComparison.Ordinal)
+                    && pair.item.Definition.Version == right.Definition.Version
+                    && pair.item.Definition.Checksum.AsSpan().SequenceEqual(right.Definition.Checksum.AsSpan())
+                    && pair.item.CanonicalInput.AsSpan().SequenceEqual(right.CanonicalInput.AsSpan())
+                    && pair.item.InputChecksum.AsSpan().SequenceEqual(right.InputChecksum.AsSpan())
+                    && pair.item.RequestedDueAt == right.RequestedDueAt && pair.item.EffectiveDueAt == right.EffectiveDueAt
+                    && Equals(pair.item.Scope, right.Scope) && Equals(pair.item.Identity, right.Identity)
+                    && captured.Items[pair.ordinal].Ordinal == pair.ordinal;
+            });
 
         private static RecordEnvelope? SimulateIntentRecord(
             BaseAtomicMutationIntentItem item,
