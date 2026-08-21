@@ -384,6 +384,10 @@ internal interface IBaseActivationRegistration
     Type InputType { get; }
     Type ResultType { get; }
     object? CreateHandler(IServiceProvider services);
+    ValueTask<OperationResult<BaseActivationDispatchResult>> RunOneAsync(
+        IBaseActivationWorkerRuntime runtime,
+        BaseSession session,
+        CancellationToken cancellationToken);
 }
 
 internal sealed class BaseInstalledTransactionalActivationRegistration<TInput, TResult>(
@@ -394,6 +398,10 @@ internal sealed class BaseInstalledTransactionalActivationRegistration<TInput, T
     public Type InputType => typeof(TInput);
     public Type ResultType => typeof(TResult);
     public object? CreateHandler(IServiceProvider services) => null;
+    public ValueTask<OperationResult<BaseActivationDispatchResult>> RunOneAsync(
+        IBaseActivationWorkerRuntime runtime, BaseSession session, CancellationToken cancellationToken) =>
+        new BaseInstalledActivationWorkerHandle<TInput, TResult>(runtime, session, Definition, registration.Identity)
+            .RunOneAsync(cancellationToken);
 }
 
 internal sealed class BaseActivationRegistration<TInput, TResult>(
@@ -404,6 +412,10 @@ internal sealed class BaseActivationRegistration<TInput, TResult>(
     public Type InputType => typeof(TInput);
     public Type ResultType => typeof(TResult);
     public object CreateHandler(IServiceProvider services) => registration.Factory(services);
+    public ValueTask<OperationResult<BaseActivationDispatchResult>> RunOneAsync(
+        IBaseActivationWorkerRuntime runtime, BaseSession session, CancellationToken cancellationToken) =>
+        new BaseInstalledActivationWorkerHandle<TInput, TResult>(runtime, session, Definition, registration.Identity)
+            .RunOneAsync(cancellationToken);
 }
 
 /// <summary>Provides immutable lookup over one finalized activation-definition owner.</summary>
@@ -431,6 +443,11 @@ public sealed class BaseActivationRegistry
         .Select(static registration => registration.Definition)
         .OrderBy(static definition => definition.Id, StringComparer.Ordinal)
         .ThenBy(static definition => definition.Version)
+        .ToArray();
+
+    internal IReadOnlyList<IBaseActivationRegistration> Registrations => _registrations.Values
+        .OrderBy(static registration => registration.Definition.Id, StringComparer.Ordinal)
+        .ThenBy(static registration => registration.Definition.Version)
         .ToArray();
 }
 

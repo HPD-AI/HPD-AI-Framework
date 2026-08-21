@@ -1,11 +1,29 @@
 using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace HPD.Base.Tests.Runtime.Activations;
 
 public sealed partial class ActivationRuntimeTests
 {
+    [Fact]
+    public void Hosted_dispatch_is_explicit_and_provider_backed()
+    {
+        var services = new ServiceCollection();
+
+        services.AddHPDBaseActivationWorkers(options =>
+        {
+            options.WorkerSubjectId = "test.activation.worker";
+            options.EmptyPollInterval = TimeSpan.FromMilliseconds(25);
+        });
+
+        services.Should().ContainSingle(descriptor =>
+            descriptor.ServiceType == typeof(IHostedService)
+            && descriptor.ImplementationType == typeof(BaseActivationHostedDispatcher));
+    }
+
     [Fact]
     public void Transactional_activation_is_handler_free_and_target_bound()
     {
