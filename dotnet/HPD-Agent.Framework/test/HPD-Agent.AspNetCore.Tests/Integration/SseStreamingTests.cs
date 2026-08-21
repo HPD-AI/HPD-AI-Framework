@@ -131,30 +131,6 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task InterruptionInput_ReturnsStructuredNoActiveExecution()
-    {
-        var sessionId = await CreateTestSession();
-
-        var interruption = new InterruptionRequestEvent(null, "stop from test", InterruptionSource.User)
-        {
-            AgentId = "test-agent",
-            SessionId = sessionId,
-            ThreadId = "main"
-        };
-        using var content = new StringContent(
-            AgentEventSerializer.ToJson(interruption),
-            System.Text.Encoding.UTF8,
-            "application/json");
-        var response = await _client.PostAsync(
-            $"/agents/test-agent/sessions/{sessionId}/threads/main/inputs",
-            content);
-
-        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
-        var result = await response.Content.ReadFromJsonAsync<InputSubmissionDto>();
-        result.Should().BeEquivalentTo(new InputSubmissionDto("no_active_execution"));
-    }
-
-    [Fact]
     public async Task ThreadState_ReturnsControlStateWithoutHistoryPayload()
     {
         var sessionId = await CreateTestSession();

@@ -78,26 +78,6 @@ public enum InterruptionSource
 }
 
 /// <summary>
-/// Requests interruption of active streams or operations.
-/// </summary>
-public record InterruptionRequestEvent : AgentInputEvent
-{
-    public InterruptionRequestEvent(
-        string? eventFlowId,
-        string Reason,
-        InterruptionSource Source)
-    {
-        EventFlowId = eventFlowId;
-        this.Reason = Reason;
-        this.Source = Source;
-    }
-
-    public string Reason { get; init; }
-    public InterruptionSource Source { get; init; }
-    public string? EventFlowId { get; init; }
-}
-
-/// <summary>
 /// Emitted after an interruption request has been applied to active streams or turns.
 /// </summary>
 public sealed record InterruptionHandledEvent : AgentEvent

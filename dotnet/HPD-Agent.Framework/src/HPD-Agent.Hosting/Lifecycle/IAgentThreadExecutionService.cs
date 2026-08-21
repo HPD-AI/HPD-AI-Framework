@@ -16,4 +16,17 @@ public interface IAgentThreadExecutionService
         string threadId,
         string threadExecutionId,
         CancellationToken cancellationToken = default);
+
+    Task<AgentServiceResult<ThreadExecutionCancellationDto>> CancelExecutionAsync(
+        string agentId,
+        string sessionId,
+        string threadId,
+        string threadExecutionId,
+        CancellationToken cancellationToken = default);
+
+    Task<AgentServiceResult<ThreadExecutionDto>> StartQueuedWorkAsync(
+        string agentId,
+        string sessionId,
+        string threadId,
+        CancellationToken cancellationToken = default);
 }

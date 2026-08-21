@@ -83,7 +83,6 @@ internal sealed class AgentInputHandlingContext
 
     public ActiveRuntimeInput? ActiveInput { get; init; }
     public required Func<UserMessagesInputEvent, ActiveRuntimeInput?, IEventCoordinator, CancellationToken, Task<AgentTurnResult>> RunMessagesAsync { get; init; }
-    public required Func<InterruptionRequestEvent, CancellationToken, Task<AgentInputResult>> InterruptAsync { get; init; }
     public required Func<ClientToolOperationOutcomeEvent, bool> TryResolveClientToolOperation { get; init; }
     public Func<AgentOperationNotificationInputEvent, IEventCoordinator, CancellationToken, ValueTask>? PublishAgentOperationNotificationDelivered { get; init; }
 }
@@ -185,7 +184,6 @@ internal sealed class AgentInputDispatcher
         yield return Register(AgentInputRoutingClass.Work, new CompactThreadInputHandler());
         yield return Register(AgentInputRoutingClass.Work, new AgentOperationNotificationInputHandler());
         yield return Register(AgentInputRoutingClass.ActiveControl, new ClientToolOperationOutcomeInputHandler());
-        yield return Register(AgentInputRoutingClass.ActiveControl, new InterruptionInputHandler());
     }
 
     private static AgentInputHandlerRegistration Register<TInput>(
@@ -327,17 +325,6 @@ internal sealed class ClientToolOperationOutcomeInputHandler :
 
         return ValueTask.FromResult<AgentInputResult>(
             new AgentInputResult.Control(AgentInputDisposition.Accepted, input.ThreadExecutionId));
-    }
-}
-
-internal sealed class InterruptionInputHandler : IAgentInputHandler<InterruptionRequestEvent>
-{
-    public async ValueTask<AgentInputResult> HandleAsync(
-        InterruptionRequestEvent input,
-        AgentInputHandlingContext context,
-        CancellationToken cancellationToken)
-    {
-        return await context.InterruptAsync(input, cancellationToken).ConfigureAwait(false);
     }
 }
 

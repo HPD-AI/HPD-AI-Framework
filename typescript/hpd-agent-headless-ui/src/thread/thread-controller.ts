@@ -215,8 +215,9 @@ class ThreadControllerImpl implements ThreadController {
       return { disposition: 'no_active_execution', activeExecution: null };
     }
     return this.client.submitInput(stampInputScope({
-      type: EventTypes.STEERING_INPUT,
+      type: EventTypes.USER_MESSAGES_INPUT,
       threadExecutionId: state.activeExecution.threadExecutionId,
+      delivery: 'Steer',
       messages: [{ role: 'user', contents: [{ $type: 'text', text }] }],
     }, this.scope), { signal: options.signal });
   }
@@ -232,20 +233,17 @@ class ThreadControllerImpl implements ThreadController {
       return { disposition: 'no_active_execution', activeExecution: null };
     }
 
-    const result = await this.client.submitInput({
-      type: EventTypes.INTERRUPTION_REQUEST,
-      agentId: this.scope.agentId,
-      sessionId: this.scope.sessionId,
-      threadId: this.scope.threadId,
-      threadExecutionId: state.activeExecution.threadExecutionId,
-      reason: options.reason ?? 'Interrupted by client.',
-      source: 'User',
-      eventFlowId: options.eventFlowId ?? undefined,
-    }, { signal: options.signal });
-    if (!('disposition' in result)) {
-      throw new Error('Backend returned a non-interruption result for cancellation.');
-    }
-    return result;
+    const result = await this.client.cancelThreadExecution(
+      this.scope.agentId,
+      this.scope.sessionId,
+      this.scope.threadId,
+      state.activeExecution.threadExecutionId,
+    );
+    return {
+      disposition: result.cancellationApplied ? 'accepted' : 'no_active_execution',
+      threadExecutionId: result.threadExecutionId,
+      activeExecution: null,
+    };
   }
 
   async approve(permissionId: string, choice: PermissionChoice = 'ask'): Promise<RespondResult> {

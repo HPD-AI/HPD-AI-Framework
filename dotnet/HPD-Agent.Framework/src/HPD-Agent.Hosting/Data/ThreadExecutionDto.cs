@@ -11,6 +11,12 @@ public sealed record ThreadExecutionDto(
     ThreadExecutionErrorDto? Error,
     IReadOnlyList<ThreadExecutionOperationDto> Operations);
 
+public sealed record ThreadExecutionCancellationDto(
+    string ThreadExecutionId,
+    string Status,
+    bool CancellationApplied,
+    string QueuePromotion);
+
 public sealed record ThreadExecutionErrorDto(
     string? Type,
     string? Message);

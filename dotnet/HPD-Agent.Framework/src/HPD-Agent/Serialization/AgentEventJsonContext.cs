@@ -307,7 +307,6 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(InterruptionSource))]
 
 // Channel Routing Events
-[JsonSerializable(typeof(InterruptionRequestEvent))]
 [JsonSerializable(typeof(InterruptionHandledEvent))]
 
 // Common types for IDictionary<string, object?> serialization (e.g., PermissionRequestEvent.Arguments)

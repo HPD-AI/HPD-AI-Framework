@@ -802,6 +802,36 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         return new AgentTuiSubmitResult(disposition, threadExecutionId, activeExecution);
     }
 
+    public async Task<AgentTuiSubmitResult> CancelExecutionAsync(
+        AgentTuiRuntimeScope scope,
+        string threadExecutionId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadExecutionId);
+        using var response = await PostJsonEnvelopeAsync(
+                $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/threads/{Escape(scope.ThreadId)}/executions/{Escape(threadExecutionId)}/cancel",
+                "{}",
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            await ThrowForUnexpectedResponseAsync(response, "cancel execution", cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        using var document = await JsonDocument.ParseAsync(
+                await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false),
+                cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        var applied = document.RootElement.TryGetProperty("cancellationApplied", out var appliedElement) &&
+            appliedElement.ValueKind == JsonValueKind.True;
+        return new AgentTuiSubmitResult(
+            applied ? AgentInputDisposition.Accepted : AgentInputDisposition.NoActiveExecution,
+            threadExecutionId,
+            ActiveExecution: null);
+    }
+
     private static AgentInputDisposition ParseInputDisposition(string value) => value switch
     {
         "completed" => AgentInputDisposition.Completed,

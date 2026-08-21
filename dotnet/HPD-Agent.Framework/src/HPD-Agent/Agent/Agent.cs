@@ -81,9 +81,6 @@ public sealed partial class Agent : IAsyncDisposable
     private bool _runtimeStarting;
     private bool _runtimeStopping;
     private ActiveRuntimeInput? _activeRuntimeInput;
-    // Number of queued inputs the runtime loop should drain as cancelled. Set when an interrupt
-    // arrives with no active execution but queued work is waiting, so the interrupt is not lost.
-    private int _runtimeCancelDrainRemaining;
     private readonly Dictionary<AgentInputEvent, TaskCompletionSource<AgentRuntimeInputOutcome>> _runtimeInputCompletions =
         new(ReferenceEqualityComparer.Instance);
     private readonly HashSet<AgentInputEvent> _cancelledRuntimeInputs =
@@ -1333,73 +1330,29 @@ public sealed partial class Agent : IAsyncDisposable
         }
     }
 
-    private async Task<AgentInputResult> HandleInterruptionAsync(
-        InterruptionRequestEvent interruption,
-        CancellationToken cancellationToken)
+    internal AgentInputResult.Control CancelRuntimeExecution(string threadExecutionId)
     {
-        var eventCoordinator = GetActiveEventCoordinator();
-
-        // A targeted interruption owns only the named event flow. It remains useful
-        // even when no model input is active and must never cancel an unrelated input.
-        if (!string.IsNullOrWhiteSpace(interruption.EventFlowId))
-        {
-            eventCoordinator.EventFlows.InterruptFlow(interruption.EventFlowId);
-            await PublishScopedRuntimeEventAsync(new InterruptionHandledEvent(
-                interruption.EventFlowId,
-                interruption.Reason,
-                interruption.Source)
-            {
-                SessionId = interruption.SessionId,
-                ThreadId = interruption.ThreadId
-            }, eventCoordinator, cancellationToken).ConfigureAwait(false);
-
-            lock (_runtimeLock)
-                return ControlResult(AgentInputDisposition.Accepted, _activeRuntimeInput?.ThreadExecutionId);
-        }
-
-        ActiveRuntimeInput? activeInput;
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadExecutionId);
+        CancellationTokenSource? executionCancellation = null;
+        AgentInputResult.Control result;
         lock (_runtimeLock)
         {
-            activeInput = _activeRuntimeInput;
+            var activeInput = _activeRuntimeInput;
             if (activeInput is null)
+                result = new AgentInputResult.Control(AgentInputDisposition.NoActiveExecution, threadExecutionId);
+            else if (!string.Equals(activeInput.ThreadExecutionId, threadExecutionId, StringComparison.Ordinal))
+                result = new AgentInputResult.Control(
+                    AgentInputDisposition.ActiveExecutionMismatch,
+                    activeInput.ThreadExecutionId);
+            else
             {
-                // No active execution. If queued work is waiting, cancel that backlog rather than
-                // silently dropping the interrupt; the single-reader runtime loop drains it as
-                // cancelled. Otherwise there is genuinely nothing to cancel.
-                if (!(_runtimeInbox is not null &&
-                      !_runtimeStopping &&
-                      _runtimeLoopTask is { IsCompleted: false } &&
-                      _runtimeInbox.Reader.Count > 0))
-                {
-                    return ControlResult(AgentInputDisposition.NoActiveExecution, interruption.ThreadExecutionId);
-                }
-
-                _runtimeCancelDrainRemaining = _runtimeInbox.Reader.Count;
+                executionCancellation = activeInput.Cancellation;
+                result = new AgentInputResult.Control(AgentInputDisposition.Accepted, activeInput.ThreadExecutionId);
             }
-            else if (!string.Equals(activeInput.ThreadExecutionId, interruption.ThreadExecutionId, StringComparison.Ordinal))
-            {
-                return ControlResult(AgentInputDisposition.ActiveExecutionMismatch, activeInput.ThreadExecutionId);
-            }
-            // An interrupt is accepted regardless of state: unlike steering it does not need
-            // to attach to a live accepting turn. Rejecting while Finishing created a false
-            // "cannot cancel" window right as a turn was wrapping up. Cancelling a Finishing
-            // input is safe - the runtime loop unwinds cooperatively.
         }
 
-        eventCoordinator.EventFlows.InterruptAll();
-
-        activeInput?.Cancellation.Cancel();
-
-        await PublishScopedRuntimeEventAsync(new InterruptionHandledEvent(
-            interruption.EventFlowId,
-            interruption.Reason,
-            interruption.Source)
-        {
-            SessionId = interruption.SessionId,
-            ThreadId = interruption.ThreadId
-        }, eventCoordinator, cancellationToken).ConfigureAwait(false);
-
-        return ControlResult(AgentInputDisposition.Accepted, activeInput?.ThreadExecutionId);
+        executionCancellation?.Cancel();
+        return result;
     }
 
     private async ValueTask<AgentInputResult> TrySteerAsync(
@@ -1609,7 +1562,6 @@ public sealed partial class Agent : IAsyncDisposable
             DefaultChatClient = _defaultChatClientHandle,
             ActiveInput = activeInput,
             RunMessagesAsync = RunMessagesInputAsync,
-            InterruptAsync = HandleInterruptionAsync,
             TryResolveClientToolOperation = ResolveClientToolOperation,
             PublishAgentOperationNotificationDelivered = PublishAgentOperationNotificationDeliveredAsync
         };
@@ -1634,12 +1586,6 @@ public sealed partial class Agent : IAsyncDisposable
                     if (_cancelledRuntimeInputs.Remove(input))
                         continue;
                 }
-
-                // An interrupt that arrived with no active execution may have asked the loop to
-                // drain the queued backlog as cancelled. Skip (and complete) those inputs without
-                // running a model turn so the interrupt is not silently lost.
-                if (TryDrainCancelledInput(input))
-                    continue;
 
                 using var activeInputCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 var activeInput = new ActiveRuntimeInput(input, activeInputCts);
@@ -1724,31 +1670,6 @@ public sealed partial class Agent : IAsyncDisposable
         var outcome = new AgentRuntimeInputOutcome(AgentTurnResult.Empty, Cancelled: true, Error: null);
         foreach (var completion in abandoned)
             completion.TrySetResult(outcome);
-    }
-
-    /// <summary>
-    /// Drains one queued input as cancelled when an interrupt requested backlog cancellation.
-    /// Returns true when the input should be skipped (already completed as cancelled) by the
-    /// runtime loop instead of being run.
-    /// </summary>
-    private bool TryDrainCancelledInput(AgentInputEvent input)
-    {
-        lock (_runtimeLock)
-        {
-            if (_runtimeCancelDrainRemaining <= 0)
-                return false;
-
-            _runtimeCancelDrainRemaining--;
-            if (_runtimeInputCompletions.Remove(input, out var completion))
-            {
-                completion.TrySetResult(new AgentRuntimeInputOutcome(
-                    AgentTurnResult.Empty,
-                    Cancelled: true,
-                    Error: null));
-            }
-
-            return true;
-        }
     }
 
     private async ValueTask PublishAgentOperationNotificationDeliveredAsync(

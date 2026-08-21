@@ -761,15 +761,9 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 ActivityState.Running,
                 ActivitySeverity.Warning);
             RequestRender();
-            var result = await _runtime.SubmitInputAsync(
+            var result = await _runtime.CancelExecutionAsync(
                     scope,
-                    new InterruptionRequestEvent(null, "Cancelled from TUI.", InterruptionSource.User)
-                    {
-                        AgentId = scope.AgentId,
-                        SessionId = scope.SessionId,
-                        ThreadId = scope.ThreadId,
-                        ThreadExecutionId = activeExecution.ThreadExecutionId
-                    },
+                    activeExecution.ThreadExecutionId,
                     CancellationToken.None)
                 .ConfigureAwait(false);
             if (result.Disposition is AgentInputDisposition.NoActiveExecution or AgentInputDisposition.ExecutionFinishing)
@@ -1223,18 +1217,9 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                     case AgentTuiInteractionResultKind.InterruptTurn:
                         if (_activeThreadExecutionId is { } interactionExecutionId)
                         {
-                            await _runtime.SubmitInputAsync(
+                            await _runtime.CancelExecutionAsync(
                                     _scope,
-                                    new InterruptionRequestEvent(
-                                        null,
-                                        result.Reason ?? "Interrupted by TUI interaction.",
-                                        InterruptionSource.User)
-                                    {
-                                        AgentId = _scope.AgentId,
-                                        SessionId = _scope.SessionId,
-                                        ThreadId = _scope.ThreadId,
-                                        ThreadExecutionId = interactionExecutionId
-                                    },
+                                    interactionExecutionId,
                                     interactionCancellation.Token)
                                 .ConfigureAwait(false);
                         }

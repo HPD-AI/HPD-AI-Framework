@@ -1220,6 +1220,10 @@ public sealed class ExecuteCommandTuiLifecycleTests
                 AgentRespondStatus.Accepted,
                 response.EventId));
 
+        public Task<AgentTuiSubmitResult> CancelExecutionAsync(
+            AgentTuiRuntimeScope scope, string threadExecutionId, CancellationToken cancellationToken = default)
+            => Task.FromResult(new AgentTuiSubmitResult(AgentInputDisposition.Accepted, threadExecutionId, null));
+
         public Task<AgentTuiThreadState> GetThreadStateAsync(
             AgentTuiRuntimeScope scope,
             CancellationToken cancellationToken = default)

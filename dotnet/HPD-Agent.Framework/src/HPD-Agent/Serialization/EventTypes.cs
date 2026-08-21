@@ -248,7 +248,6 @@ public static partial class EventTypes
     /// </summary>
     public static class Streaming
     {
-        public const string INTERRUPTION_REQUEST = "INTERRUPTION_REQUEST";
         public const string INTERRUPTION_HANDLED = "INTERRUPTION_HANDLED";
     }
 

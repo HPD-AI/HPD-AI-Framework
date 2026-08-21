@@ -47,13 +47,6 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
         AgentInputEvent input,
         CancellationToken cancellationToken = default)
     {
-        if (input is InterruptionRequestEvent)
-        {
-            var interruptedExecutionId = _activeExecution?.ThreadExecutionId ?? input.ThreadExecutionId;
-            _activeExecution = null;
-            return Task.FromResult(new AgentTuiSubmitResult(AgentInputDisposition.Accepted, interruptedExecutionId));
-        }
-
         var executionId = Guid.NewGuid().ToString("N");
         var startedAt = DateTimeOffset.UtcNow;
         _activeExecution = new AgentTuiThreadExecution(executionId, scope.AgentId, scope.SessionId, scope.ThreadId, "active", startedAt);
@@ -64,6 +57,15 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
             AgentInputDisposition.Queued,
             executionId,
             _activeExecution));
+    }
+
+    public Task<AgentTuiSubmitResult> CancelExecutionAsync(
+        AgentTuiRuntimeScope scope,
+        string threadExecutionId,
+        CancellationToken cancellationToken = default)
+    {
+        _activeExecution = null;
+        return Task.FromResult(new AgentTuiSubmitResult(AgentInputDisposition.Accepted, threadExecutionId));
     }
 
     public Task<AgentRespondResult> AnswerRequestAsync(

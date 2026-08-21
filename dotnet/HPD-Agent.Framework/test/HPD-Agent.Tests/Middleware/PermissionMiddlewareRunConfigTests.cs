@@ -95,7 +95,12 @@ public class PermissionMiddlewareRunConfigTests
         var middleware = new PermissionMiddleware();
         var function = CreateFunction("SensitiveTool", requiresPermission: true);
         var coordinator = new EventCoordinator();
-        var interruptions = new List<InterruptionRequestEvent>();
+        var interruptions = new List<InterruptionHandledEvent>();
+        using var interruptionSubscription = coordinator.Subscribe<InterruptionHandledEvent>(handled =>
+        {
+            interruptions.Add(handled);
+            return ValueTask.CompletedTask;
+        });
         using var subscription = coordinator.Subscribe<PermissionRequestEvent>(request =>
         {
             coordinator.Respond(new PermissionResponseEvent(
@@ -107,7 +112,7 @@ public class PermissionMiddlewareRunConfigTests
                 DeniedBehavior: PermissionDeniedBehavior.ReturnToModel));
             return ValueTask.CompletedTask;
         });
-        var agentContext = CreateAgentContext(coordinator, interruptions);
+        var agentContext = CreateAgentContext(coordinator);
         var context = agentContext.AsBeforeFunction(
             function,
             "call-1",
@@ -201,9 +206,7 @@ public class PermissionMiddlewareRunConfigTests
             runConfig);
     }
 
-    private static AgentContext CreateAgentContext(
-        EventCoordinator coordinator,
-        List<InterruptionRequestEvent> interruptions)
+    private static AgentContext CreateAgentContext(EventCoordinator coordinator)
     {
         var state = AgentLoopState.InitialSafe(
             new List<ChatMessage>(),
@@ -218,12 +221,6 @@ public class PermissionMiddlewareRunConfigTests
             coordinator,
             new HPD.Agent.Session("test-session"),
             new HPD.Agent.Thread("test-session", "test-agent") { Id = "test-thread" },
-            CancellationToken.None,
-            inputHandler: (interruption, _) =>
-            {
-                if (interruption is InterruptionRequestEvent request)
-                    interruptions.Add(request);
-                return ValueTask.CompletedTask;
-            });
+            CancellationToken.None);
     }
 }

@@ -229,6 +229,8 @@ public class EndpointComposabilityTests
     {
         public Task<AgentServiceResult<IReadOnlyList<ThreadExecutionDto>>> ListExecutionsAsync(string agentId, string sessionId, string threadId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AgentServiceResult<ThreadExecutionDto>> GetExecutionAsync(string agentId, string sessionId, string threadId, string threadExecutionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult<ThreadExecutionCancellationDto>> CancelExecutionAsync(string agentId, string sessionId, string threadId, string threadExecutionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult<ThreadExecutionDto>> StartQueuedWorkAsync(string agentId, string sessionId, string threadId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class UnsupportedContentService : IAgentContentService

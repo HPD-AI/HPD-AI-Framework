@@ -418,6 +418,10 @@ public sealed class RunConfigComposerTests
             CancellationToken cancellationToken = default)
             => Task.FromResult(new AgentRespondResult(AgentRespondStatus.Accepted, ((IAgentResponseEvent)response).RequestId));
 
+        public Task<AgentTuiSubmitResult> CancelExecutionAsync(
+            AgentTuiRuntimeScope scope, string threadExecutionId, CancellationToken cancellationToken = default)
+            => Task.FromResult(new AgentTuiSubmitResult(AgentInputDisposition.Accepted, threadExecutionId, null));
+
         public Task<AgentTuiThreadState> GetThreadStateAsync(
             AgentTuiRuntimeScope scope,
             CancellationToken cancellationToken = default)

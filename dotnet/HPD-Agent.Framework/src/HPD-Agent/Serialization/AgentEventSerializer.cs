@@ -168,7 +168,6 @@ public static partial class AgentEventSerializer
         [typeof(ContentReferenceResolutionFailedEvent)] = EventTypes.Observability.CONTENT_REFERENCE_RESOLUTION_FAILED,
 
         // Priority Streaming Events
-        [typeof(InterruptionRequestEvent)] = EventTypes.Streaming.INTERRUPTION_REQUEST,
         [typeof(InterruptionHandledEvent)] = EventTypes.Streaming.INTERRUPTION_HANDLED,
     };
 

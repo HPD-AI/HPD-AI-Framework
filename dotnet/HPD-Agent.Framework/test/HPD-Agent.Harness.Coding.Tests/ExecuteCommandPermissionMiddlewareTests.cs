@@ -1340,8 +1340,8 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
         var middleware = new ExecuteCommandPermissionMiddleware();
         var coordinator = new EventCoordinator();
         using var subscription = RespondToPermissionRequests(coordinator, [], _ => "deny");
-        var interruptions = new List<InterruptionRequestEvent>();
-        var agentContext = CreateAgentContext(coordinator, interruptions: interruptions);
+        var flow = coordinator.EventFlows.Create("call-1");
+        var agentContext = CreateAgentContext(coordinator);
         var context = CreateBeforeFunctionContext(agentContext, "git status -sb");
 
         await middleware.BeforeFunctionAsync(context, CancellationToken.None);
@@ -1349,11 +1349,7 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
         context.BlockExecution.Should().BeTrue();
         context.OverrideResult.Should().BeOfType<string>()
             .Which.Should().Contain("<execute_command_permission_denied");
-        interruptions.Should().ContainSingle()
-            .Which.Should().Match<InterruptionRequestEvent>(evt =>
-                evt.EventFlowId == "call-1" &&
-                evt.Source == InterruptionSource.Middleware &&
-                evt.Reason == "User denied ExecuteCommand.");
+        flow.IsInterrupted.Should().BeTrue();
     }
 
     [Fact]
@@ -1366,8 +1362,8 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
             [],
             _ => "feedback",
             "Use git status instead.");
-        var interruptions = new List<InterruptionRequestEvent>();
-        var agentContext = CreateAgentContext(coordinator, interruptions: interruptions);
+        var flow = coordinator.EventFlows.Create("call-1");
+        var agentContext = CreateAgentContext(coordinator);
         var context = CreateBeforeFunctionContext(agentContext, "custom-tool inspect workspace");
 
         await middleware.BeforeFunctionAsync(context, CancellationToken.None);
@@ -1375,7 +1371,7 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
         context.BlockExecution.Should().BeTrue();
         context.OverrideResult.Should().BeOfType<string>()
             .Which.Should().Contain("Use git status instead.");
-        interruptions.Should().BeEmpty();
+        flow.IsInterrupted.Should().BeFalse();
     }
 
     [Fact]
@@ -1502,18 +1498,8 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
 
     private static AgentContext CreateAgentContext(
         EventCoordinator coordinator,
-        AgentLoopState? state = null,
-        List<InterruptionRequestEvent>? interruptions = null)
+        AgentLoopState? state = null)
     {
-        Func<AgentInputEvent, CancellationToken, ValueTask>? inputHandler = interruptions is null
-            ? null
-            : (input, _) =>
-            {
-                if (input is InterruptionRequestEvent interruption)
-                    interruptions.Add(interruption);
-                return ValueTask.CompletedTask;
-            };
-
         return new(
             "TestAgent",
             "test-conversation",
@@ -1521,8 +1507,7 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
             coordinator,
             new Session("test-session"),
             new Thread("test-session", "test-agent") { Id = "test-thread" },
-            CancellationToken.None,
-            inputHandler: inputHandler);
+            CancellationToken.None);
     }
 
     private BeforeFunctionContext CreateBeforeFunctionContext(

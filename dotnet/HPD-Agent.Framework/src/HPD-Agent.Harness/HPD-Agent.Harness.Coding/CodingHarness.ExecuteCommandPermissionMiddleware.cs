@@ -290,20 +290,14 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
         string reason,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            await context.RunAsync(
-                    new InterruptionRequestEvent(
-                        context.FunctionCallId,
-                        reason,
-                        InterruptionSource.Middleware),
-                    cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch (InvalidOperationException)
-        {
-            // Runtime may already be stopping; the blocked tool result still reports the denial.
-        }
+        context.EventFlows?.InterruptFlow(context.FunctionCallId);
+        await context.PublishAsync(
+                new InterruptionHandledEvent(
+                    context.FunctionCallId,
+                    reason,
+                    InterruptionSource.Middleware),
+                cancellationToken)
+            .ConfigureAwait(false);
     }
 
     private static string SecurityElementEscape(string value)

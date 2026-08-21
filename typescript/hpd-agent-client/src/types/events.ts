@@ -162,9 +162,6 @@ export const EventTypes = {
   AGENT_OPERATION_TOMBSTONED: 'AGENT_OPERATION_TOMBSTONED',
   AGENT_OPERATION_TOMBSTONE_EVICTED: 'AGENT_OPERATION_TOMBSTONE_EVICTED',
 
-  // Control
-  INTERRUPTION_REQUEST: 'INTERRUPTION_REQUEST',
-  STEERING_INPUT: 'STEERING_INPUT',
 } as const;
 
 export type EventType = (typeof EventTypes)[keyof typeof EventTypes];
@@ -1025,18 +1022,7 @@ export interface ClientToolBackgroundOperationOutcomeEvent extends AgentInputEve
 // Control Events
 // ============================================
 
-export type InterruptionSource = 'User' | 'System' | 'Parent' | 'Middleware';
 
-export interface InterruptionRequestEvent extends AgentInputEvent {
-  type: typeof EventTypes.INTERRUPTION_REQUEST;
-  reason: string;
-  source: InterruptionSource;
-}
-
-export interface SteeringInputEvent extends AgentInputEvent {
-  type: typeof EventTypes.STEERING_INPUT;
-  messages: UserMessageInput[];
-}
 
 // ============================================
 // Union Type (Core Events)
@@ -1115,9 +1101,7 @@ export type KnownAgentEvent =
   | ClientToolInvokeRequestEvent
   | ClientToolInvokeOutcomeEvent
   | ClientToolBackgroundOperationOutcomeEvent
-  // Control Events
-  | InterruptionRequestEvent
-  | SteeringInputEvent;
+  ;
 
 export type AgentEvent = KnownAgentEvent | UnknownAgentEvent;
 
@@ -1125,8 +1109,7 @@ export type AgentRunInputEvent =
   | UserMessagesInputEvent
   | CompactThreadInputEvent
   | ClientToolBackgroundOperationOutcomeEvent
-  | InterruptionRequestEvent
-  | SteeringInputEvent;
+  ;
 
 /** Response event accepted by the hosted Agent response route. */
 export type AgentResponseInput =

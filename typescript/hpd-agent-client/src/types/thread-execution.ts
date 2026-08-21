@@ -39,6 +39,13 @@ export interface ThreadExecution {
   operations: ThreadExecutionOperation[];
 }
 
+export interface ThreadExecutionCancellation {
+  threadExecutionId: string;
+  status: ThreadExecutionStatus;
+  cancellationApplied: boolean;
+  queuePromotion: 'pausedAfterCancellation' | 'running';
+}
+
 export interface PendingAgentRequest {
   request: import('./events.js').AgentEvent;
   createdAt: string;

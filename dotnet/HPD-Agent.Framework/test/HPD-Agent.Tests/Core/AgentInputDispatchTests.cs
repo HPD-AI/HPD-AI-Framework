@@ -18,8 +18,6 @@ public class AgentInputDispatchTests
             .Should().Be(AgentInputRoutingClass.Work);
         AgentInputDispatcher.GetBuiltInRegistration(typeof(ClientToolOperationOutcomeEvent)).RoutingClass
             .Should().Be(AgentInputRoutingClass.ActiveControl);
-        AgentInputDispatcher.GetBuiltInRegistration(typeof(InterruptionRequestEvent)).RoutingClass
-            .Should().Be(AgentInputRoutingClass.ActiveControl);
     }
 
     [Fact]
@@ -103,8 +101,10 @@ public class AgentInputDispatchTests
     public async Task DispatchAsync_BeforeInput_CannotChangeRoutingClass()
     {
         var middleware = new ReplacingInputMiddleware(
-            new InterruptionRequestEvent(null, "test", InterruptionSource.User)
+            new ClientToolBackgroundOperationOutcomeEvent
             {
+                ClientOperationId = "operation",
+                State = ClientToolBackgroundOperationOutcomeState.Completed,
                 ThreadExecutionId = "execution"
             });
         var dispatcher = new AgentInputDispatcher(new AgentMiddlewarePipeline([middleware]));
@@ -168,8 +168,6 @@ public class AgentInputDispatchTests
             EventCoordinator = new EventCoordinator(),
             RunMessagesAsync = (input, _, _, _) => runMessages?.Invoke(input)
                 ?? Task.FromResult(AgentTurnResult.Empty),
-            InterruptAsync = (input, _) => Task.FromResult<AgentInputResult>(
-                new AgentInputResult.Control(AgentInputDisposition.Accepted, input.ThreadExecutionId)),
             TryResolveClientToolOperation = _ => false
         };
 

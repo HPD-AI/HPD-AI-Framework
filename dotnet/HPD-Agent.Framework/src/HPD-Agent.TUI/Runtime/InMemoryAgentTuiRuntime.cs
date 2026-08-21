@@ -855,6 +855,22 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         }
     }
 
+    public Task<AgentTuiSubmitResult> CancelExecutionAsync(
+        AgentTuiRuntimeScope scope,
+        string threadExecutionId,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var control = _agent.CancelRuntimeExecution(threadExecutionId);
+        AgentTuiThreadExecution? active;
+        lock (_gate)
+            active = _activeExecution;
+        return Task.FromResult(new AgentTuiSubmitResult(
+            control.Disposition,
+            control.ThreadExecutionId,
+            active));
+    }
+
     private async Task CompleteSubmittedInputAsync(
         AgentTuiRuntimeScope scope,
         RuntimeInputReceipt submission,

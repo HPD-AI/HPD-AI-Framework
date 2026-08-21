@@ -284,18 +284,6 @@ public class ChannelRoutingTests
     }
 
     [Fact]
-    public void InterruptionRequestEvent_SerializesAsInputEnvelope()
-    {
-        var evt = new InterruptionRequestEvent("stream-abc", "User cancelled", InterruptionSource.User);
-
-        var json = AgentEventSerializer.ToJson(evt);
-
-        Assert.Contains("\"type\":\"INTERRUPTION_REQUEST\"", json);
-        Assert.Contains("\"version\":\"1.0\"", json);
-        Assert.Contains("\"reason\":\"User cancelled\"", json);
-    }
-
-    [Fact]
     public void InterruptionHandledEvent_SerializesWithType()
     {
         var evt = new InterruptionHandledEvent("stream-abc", "User cancelled", InterruptionSource.User);
@@ -327,12 +315,6 @@ public class ChannelRoutingTests
 
         Assert.Contains("\"type\":\"MESSAGE_TURN_STARTED\"", json);
         Assert.Contains("channel", json, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void AgentEventSerializer_GetEventTypeName_ReturnsCorrectType()
-    {
-        Assert.Equal("INTERRUPTION_REQUEST", AgentEventSerializer.GetEventTypeName(typeof(InterruptionRequestEvent)));
     }
 
     private static async Task<Event> ReadFirstAsync(System.Threading.Channels.ChannelReader<Event> reader, CancellationToken ct)

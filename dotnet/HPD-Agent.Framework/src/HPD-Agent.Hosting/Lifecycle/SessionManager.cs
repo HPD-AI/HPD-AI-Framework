@@ -24,6 +24,7 @@ public abstract class SessionManager : IDisposable
     private readonly ISessionStore _store;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _threadOperationLocks = new();
     private readonly ConcurrentDictionary<string, ThreadExecutionState> _threadExecutions = new();
+    private readonly ConcurrentDictionary<string, string> _pausedThreadPromotions = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _sessionLocks = new();
     private readonly ConcurrentDictionary<string, ThreadExecutionProjectionCache> _threadExecutionProjections = new();
     private bool _disposed;
@@ -132,6 +133,15 @@ public abstract class SessionManager : IDisposable
             ? execution
             : null;
     }
+
+    public void PauseThreadPromotion(string sessionId, string threadId, string threadExecutionId)
+        => _pausedThreadPromotions[ThreadExecutionKey(sessionId, threadId)] = threadExecutionId;
+
+    public bool TryResumeThreadPromotion(string sessionId, string threadId)
+        => _pausedThreadPromotions.TryRemove(ThreadExecutionKey(sessionId, threadId), out _);
+
+    public bool IsThreadPromotionPaused(string sessionId, string threadId)
+        => _pausedThreadPromotions.ContainsKey(ThreadExecutionKey(sessionId, threadId));
 
     public bool ActivateThreadExecution(string sessionId, string threadId, string threadExecutionId)
     {
