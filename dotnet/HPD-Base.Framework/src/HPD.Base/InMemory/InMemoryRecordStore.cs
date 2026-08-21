@@ -12,7 +12,7 @@ namespace HPD.Base;
 /// <summary>
 /// Process-local, thread-safe, non-durable HPD.BASE record store implementation.
 /// </summary>
-internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreamingRecordStore, IRelationalReadStore, IConsistentRecordIncludeStore, IInMemoryProjectionAuthority, ITransactionalMutationJournalStore, IBaseSubjectAdministration, IBaseSubjectPublicationStore, IBaseSubjectValidationPlanReceiptStore
+internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreamingRecordStore, IRelationalReadStore, IConsistentRecordIncludeStore, IInMemoryProjectionAuthority, ITransactionalMutationJournalStore, IBaseSubjectAdministration, IBaseSubjectPublicationStore, IBaseSubjectValidationPlanReceiptStore, IBaseActivationProvider
 {
     /// <inheritdoc />
     public ValueTask<OperationResult<BaseSubjectValidationPlanReceipt[]>> ReadSubjectValidationPlanReceiptsAsync(
@@ -3665,6 +3665,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                             Definition = intentItem.Definition with { Checksum = intentItem.Definition.Checksum.ToArray().ToImmutableArray() },
                             CanonicalInput = intentItem.CanonicalInput.ToArray().ToImmutableArray(),
                             InputChecksum = intentItem.InputChecksum.ToArray().ToImmutableArray(),
+                            Scope = intentItem.Scope with { },
                             Checksum = preparedItem.PayloadChecksum.ToArray().ToImmutableArray(),
                         };
                         _working.Activations.Add(preparedItem.ActivationId, new InMemoryActivationRow(
@@ -3675,6 +3676,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                             intentItem.EffectiveDueAt ?? intentItem.RequestedDueAt,
                             fingerprint,
                             preparedItem.ControlChecksum.ToArray()));
+                        _working.ActivationIndexGeneration = checked(_working.ActivationIndexGeneration + 1);
                     }
                     byte[] itemChecksum = SHA256.HashData(Encoding.UTF8.GetBytes(
                         $"{preparedItem.ActivationId}\n{preparedItem.ResultingGeneration}"));

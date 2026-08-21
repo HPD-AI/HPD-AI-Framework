@@ -37,6 +37,102 @@ public sealed class AtomicExecutionTests
         conflict.RejectedCode.Should().Be("base.activation.fingerprintConflict");
     }
 
+    [Fact]
+    public async Task Activation_due_claim_renew_complete_is_fenced_and_terminal()
+    {
+        var store = new InMemoryRecordStore();
+        BaseAtomicMutationExecutionLimits mutationLimits = ModuleLimits();
+        BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync(
+            "activation-test", [], mutationLimits)).Value!;
+        var creation = new ActivationCreationProbe(authority, mutationLimits);
+        (await store.ExecuteAtomicAsync(creation, ExecutionRequest)).Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+
+        BaseActivationExecutionLimits limits = ActivationLimits();
+        BaseAcceptedTimeReceipt now = AcceptedTime(10);
+        var scope = new BaseOwnedScopeSeekAuthority
+        {
+            Kind = BaseSubjectScopeKind.Global,
+            ProtectedIndexDigest = System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes($"base.activation.scope.v2\0{(int)BaseSubjectScopeKind.Global}\n"))
+                .ToImmutableArray(),
+        };
+        BaseActivationDefinitionKey definition = new()
+        {
+            Id = "test.activation", Version = 1, Checksum = new byte[32].ToImmutableArray(),
+        };
+        BaseActivationDueObservation observed = (await store.ObserveDueAsync(new BaseActivationDueObservationRequest
+        {
+            ApplicationId = "activation-test",
+            WorkerModuleId = "test",
+            Definitions = [definition],
+            Scope = scope,
+            AcceptedTime = now,
+            MaximumCandidates = 8,
+            Limits = limits,
+        })).Value!;
+        observed.Earliest!.ActivationId.Should().NotBeNullOrWhiteSpace();
+
+        var worker = new BaseActivationWorkerAuthority
+        {
+            ApplicationId = "activation-test", ModuleId = "test", WorkerIdentity = "worker-1",
+            Definitions = [definition], Scope = scope, Checksum = new byte[32].ToImmutableArray(),
+        };
+        var claimRequest = new BaseActivationClaimRequest
+        {
+            Observation = observed.Token,
+            Worker = worker,
+            AcceptedTime = now,
+            LeaseMilliseconds = 1_000,
+            Identity = RequestIdentity("claim"),
+            Limits = limits,
+        };
+        var claimed = (BaseActivationClaimedResult)(await store.TryClaimNextAsync(claimRequest)).Value!;
+        BaseActivationRenewResult renewed = (await store.RenewAsync(new BaseActivationRenewRequest
+        {
+            Claim = claimed.Claim,
+            ExpectedLeaseRevision = claimed.Lease.LeaseRevision,
+            AcceptedTime = AcceptedTime(20),
+            ExtensionMilliseconds = 2_000,
+            Identity = RequestIdentity("renew"),
+            Limits = limits,
+        })).Value!;
+        renewed.Claim.FencingToken.Should().Equal(claimed.Claim.FencingToken);
+        renewed.Lease.LeaseRevision.Should().Be(2);
+
+        byte[] result = "done"u8.ToArray();
+        BaseActivationTransitionResult completed = (await store.TransitionAsync(new BaseActivationCompleteRequest
+        {
+            ActivationId = claimed.Claim.ActivationId,
+            Claim = claimed.Claim,
+            CanonicalResult = result.ToImmutableArray(),
+            ResultChecksum = System.Security.Cryptography.SHA256.HashData(result).ToImmutableArray(),
+            AcceptedTime = AcceptedTime(30),
+            Identity = RequestIdentity("complete"),
+            Limits = limits,
+        })).Value!;
+        completed.State.Should().Be(BaseActivationState.Succeeded);
+
+        OperationResult<BaseActivationTransitionResult> late = await store.TransitionAsync(new BaseActivationCompleteRequest
+        {
+            ActivationId = claimed.Claim.ActivationId,
+            Claim = claimed.Claim,
+            CanonicalResult = result.ToImmutableArray(),
+            ResultChecksum = System.Security.Cryptography.SHA256.HashData(result).ToImmutableArray(),
+            AcceptedTime = AcceptedTime(40),
+            Identity = RequestIdentity("late"),
+            Limits = limits,
+        });
+        late.Status.Should().Be(OperationStatus.Conflict);
+        late.Error!.Code.Should().Be("base.activation.claimLost");
+
+        BaseActivationDueObservation terminalObservation = (await store.ObserveDueAsync(new BaseActivationDueObservationRequest
+        {
+            ApplicationId = "activation-test", WorkerModuleId = "test", Definitions = [definition], Scope = scope,
+            AcceptedTime = AcceptedTime(50), MaximumCandidates = 8, Limits = limits,
+        })).Value!;
+        terminalObservation.Earliest.Should().BeNull();
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -372,6 +468,28 @@ public sealed class AtomicExecutionTests
 
     private static BaseAtomicMutationExecutionLimits ModuleLimits() =>
         DefaultBaseModuleMutationRuntime.ResolveExecutionLimits(BaseModuleMutationPlatform.MaximumLimits);
+
+    private static BaseActivationExecutionLimits ActivationLimits() => new()
+    {
+        MaximumCandidates = 8,
+        MaximumInputBytes = 4096,
+        MaximumResultBytes = 4096,
+        MaximumEvidenceBytes = 4096,
+        MaximumTransientBytes = 16384,
+        MaximumReadIntervals = 8,
+        MaximumIndexOperations = 16,
+        AcquisitionTimeout = TimeSpan.FromSeconds(5),
+        TransactionTimeout = TimeSpan.FromSeconds(5),
+        CommitObservationTimeout = TimeSpan.FromSeconds(5),
+        ReceiptResolutionTimeout = TimeSpan.FromSeconds(5),
+    };
+
+    private static BaseAcceptedTimeReceipt AcceptedTime(long milliseconds) => new(
+        "activation-test", 1, milliseconds, milliseconds, milliseconds + 1, 1_000, new byte[32]);
+
+    private static BaseMutationRequestIdentity RequestIdentity(string id) =>
+        BaseMutationRequestIdentity.Create(
+            "activation-test", "activation", id, BaseMutationRequestFingerprint.Create(new byte[32]));
 
     private static BaseModuleGenerationCellDefinition ModuleCell() => new()
     {

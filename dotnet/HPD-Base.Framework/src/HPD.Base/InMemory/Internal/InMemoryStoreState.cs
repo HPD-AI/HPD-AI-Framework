@@ -46,6 +46,8 @@ internal sealed class InMemoryStoreState
     public Dictionary<string, long> ModuleGenerations { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets durable activation rows by deterministic activation identity.</summary>
     public Dictionary<string, InMemoryActivationRow> Activations { get; } = new(StringComparer.Ordinal);
+    /// <summary>Gets or sets the generation invalidating finite due observations.</summary>
+    public long ActivationIndexGeneration { get; set; }
     /// <summary>Gets the shared record/control mutation journal by append position.</summary>
     public SortedDictionary<long, BaseMutationJournalEntry> MutationJournal { get; } = [];
 
@@ -59,6 +61,7 @@ internal sealed class InMemoryStoreState
             GlobalMutationPosition = GlobalMutationPosition,
             SubjectLifecycleDeliveryEpoch = SubjectLifecycleDeliveryEpoch,
             SubjectRetirementPosition = SubjectRetirementPosition,
+            ActivationIndexGeneration = ActivationIndexGeneration,
         };
 
         foreach (var (id, collection) in Collections)
@@ -154,7 +157,12 @@ internal sealed record InMemoryActivationRow(
     long RequestedDueAt,
     long EffectiveDueAt,
     byte[] Fingerprint,
-    byte[] ControlChecksum)
+    byte[] ControlChecksum,
+    int AttemptNumber = 0,
+    long ClaimEpoch = 0,
+    BaseActivationClaimAuthority? Claim = null,
+    BaseActivationLeaseObservation? Lease = null,
+    byte[]? CanonicalResult = null)
 {
     internal InMemoryActivationRow DeepClone() => new(
         Payload with
@@ -162,6 +170,7 @@ internal sealed record InMemoryActivationRow(
             Definition = Payload.Definition with { Checksum = Payload.Definition.Checksum.ToArray().ToImmutableArray() },
             CanonicalInput = Payload.CanonicalInput.ToArray().ToImmutableArray(),
             InputChecksum = Payload.InputChecksum.ToArray().ToImmutableArray(),
+            Scope = Payload.Scope with { },
             Checksum = Payload.Checksum.ToArray().ToImmutableArray(),
         },
         State,
@@ -169,7 +178,16 @@ internal sealed record InMemoryActivationRow(
         RequestedDueAt,
         EffectiveDueAt,
         [.. Fingerprint],
-        [.. ControlChecksum]);
+        [.. ControlChecksum],
+        AttemptNumber,
+        ClaimEpoch,
+        Claim is null ? null : Claim with
+        {
+            FencingToken = Claim.FencingToken.ToArray().ToImmutableArray(),
+            DefinitionChecksum = Claim.DefinitionChecksum.ToArray().ToImmutableArray(),
+        },
+        Lease is null ? null : Lease with { Checksum = Lease.Checksum.ToArray().ToImmutableArray() },
+        CanonicalResult is null ? null : [.. CanonicalResult]);
 }
 
 internal sealed record InMemorySubjectContractState(
