@@ -31,12 +31,12 @@ public sealed class ScheduleDefinitionTests
     public void Subday_calendar_frequency_advances_in_its_declared_unit()
     {
         var secondly = new BaseCalendarSchedule(BaseCalendarFrequency.Secondly, 15,
-            new BaseLocalTime(0, 0, 0, 0), new BaseEveryCalendarPeriod(), "UTC");
+            new BaseLocalTime { Hour = 0, Minute = 0, Second = 0, Millisecond = 0 }, new BaseEveryCalendarPeriod(), "UTC");
         BaseScheduleDefinitionBuilder.NextNominal(secondly, 0).Should().Be(15_000);
         BaseScheduleDefinitionBuilder.NextNominal(secondly, 15_000).Should().Be(30_000);
 
         var hourly = new BaseCalendarSchedule(BaseCalendarFrequency.Hourly, 2,
-            new BaseLocalTime(1, 0, 0, 0), new BaseEveryCalendarPeriod(), "UTC");
+            new BaseLocalTime { Hour = 1, Minute = 0, Second = 0, Millisecond = 0 }, new BaseEveryCalendarPeriod(), "UTC");
         BaseScheduleDefinitionBuilder.NextNominal(hourly, 3_600_000).Should().Be(10_800_000);
     }
 

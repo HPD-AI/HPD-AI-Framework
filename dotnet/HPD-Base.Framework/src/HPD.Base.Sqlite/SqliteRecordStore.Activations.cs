@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using HPD.Base;
 using Microsoft.Data.Sqlite;
 
@@ -461,6 +462,10 @@ public sealed partial class SqliteRecordStore
         catch { return ActivationFailure<BaseScheduleMutationResult>("base.activation.scheduleInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation); }
         await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        (bool found, OperationResult<BaseScheduleMutationResult> receipt) = await ReadActivationReceiptAsync(
+            connection, transaction, request.Identity, "schedule-mutated", HPDBaseJsonSerializerContext.Default.BaseScheduleMutationResult,
+            static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, cancellationToken).ConfigureAwait(false);
+        if (found) return receipt;
         BaseScheduleAuthority? existing = await ReadScheduleCoreAsync(connection, transaction, definition.Id, definition.Version, cancellationToken).ConfigureAwait(false);
         if (request.Kind == BaseScheduleMutationKind.Create && existing is not null ||
             request.Kind != BaseScheduleMutationKind.Create && (existing is null || existing.DefinitionGeneration != request.ExpectedDefinitionGeneration))
@@ -470,8 +475,12 @@ public sealed partial class SqliteRecordStore
             await using SqliteCommand remove = connection.CreateCommand(); remove.Transaction = transaction;
             remove.CommandText = $"DELETE FROM {_names.ActivationSchedules} WHERE schedule_id=$id AND schedule_version=$version;";
             remove.Parameters.AddWithValue("$id", definition.Id); remove.Parameters.AddWithValue("$version", definition.Version);
-            await remove.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false); await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-            return OperationResults.Ok(new BaseScheduleMutationResult { Authority = null, Accounting = ActivationAccounting(1, 64), Disposition = BaseMutationRequestDisposition.Committed });
+            await remove.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            var removed = new BaseScheduleMutationResult { Authority = null, Accounting = ActivationAccounting(1, 64), Disposition = BaseMutationRequestDisposition.Committed };
+            await WriteActivationReceiptAsync(connection, transaction, request.Identity, "schedule-mutated", removed,
+                HPDBaseJsonSerializerContext.Default.BaseScheduleMutationResult, cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return OperationResults.Ok(removed);
         }
         long generation = existing is null ? 1 : checked(existing.DefinitionGeneration + 1);
         long epoch = existing is null ? 1 : request.Kind == BaseScheduleMutationKind.Update ? checked(existing.ScheduleEpoch + 1) : existing.ScheduleEpoch;
@@ -479,8 +488,12 @@ public sealed partial class SqliteRecordStore
         long? last = request.Kind == BaseScheduleMutationKind.Update ? null : existing?.LastConsideredNominal;
         long? following = request.Kind == BaseScheduleMutationKind.Update || existing is null ? request.InitialNextNominal : existing.NextNominal;
         BaseScheduleAuthority authority = SqliteScheduleAuthority(definition, generation, enabled, epoch, last, following);
-        await WriteScheduleAsync(connection, transaction, authority, cancellationToken).ConfigureAwait(false); await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return OperationResults.Ok(new BaseScheduleMutationResult { Authority = authority, Accounting = ActivationAccounting(1, 128), Disposition = BaseMutationRequestDisposition.Committed });
+        await WriteScheduleAsync(connection, transaction, authority, cancellationToken).ConfigureAwait(false);
+        var result = new BaseScheduleMutationResult { Authority = authority, Accounting = ActivationAccounting(1, 128), Disposition = BaseMutationRequestDisposition.Committed };
+        await WriteActivationReceiptAsync(connection, transaction, request.Identity, "schedule-mutated", result,
+            HPDBaseJsonSerializerContext.Default.BaseScheduleMutationResult, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return OperationResults.Ok(result);
     }
 
     /// <inheritdoc />
@@ -494,6 +507,10 @@ public sealed partial class SqliteRecordStore
             return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.budgetExceeded", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        (bool found, OperationResult<BaseScheduleMaintenancePage> receipt) = await ReadActivationReceiptAsync(
+            connection, transaction, request.Identity, "occurrence-page", HPDBaseJsonSerializerContext.Default.BaseScheduleMaintenancePage,
+            static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, cancellationToken).ConfigureAwait(false);
+        if (found) return receipt;
         BaseScheduleAuthority? authority = await ReadScheduleCoreAsync(connection, transaction, request.ScheduleId, request.ScheduleVersion, cancellationToken).ConfigureAwait(false);
         if (authority is null || !authority.Enabled || !CryptographicOperations.FixedTimeEquals(authority.Checksum.AsSpan(), request.ExpectedAuthorityChecksum.AsSpan()))
             return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.scheduleConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
@@ -576,10 +593,13 @@ public sealed partial class SqliteRecordStore
             request.ResultingLastConsideredNominal, request.ResultingNextNominal);
         await WriteScheduleAsync(connection, transaction, replacement, cancellationToken).ConfigureAwait(false);
         await IncrementActivationGenerationAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return OperationResults.Ok(new BaseScheduleMaintenancePage { Authority = replacement,
+        var result = new BaseScheduleMaintenancePage { Authority = replacement,
             Occurrences = committedFacts.MoveToImmutable(), Cancellations = cancellations.ToImmutable(), Accounting = ActivationAccounting(request.Occurrences.Length, request.Occurrences.Length * 128L),
-            Disposition = BaseMutationRequestDisposition.Committed });
+            Disposition = BaseMutationRequestDisposition.Committed };
+        await WriteActivationReceiptAsync(connection, transaction, request.Identity, "occurrence-page", result,
+            HPDBaseJsonSerializerContext.Default.BaseScheduleMaintenancePage, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return OperationResults.Ok(result);
     }
 
     private async ValueTask<OperationResult<BaseScheduleOccurrenceProposal>> ResolveSqliteOverlapAsync(
@@ -626,6 +646,10 @@ public sealed partial class SqliteRecordStore
             return ActivationFailure<BaseScheduleCancellationMaintenancePage>("base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        (bool found, OperationResult<BaseScheduleCancellationMaintenancePage> receipt) = await ReadActivationReceiptAsync(
+            connection, transaction, request.Identity, "cancellation-maintenance", HPDBaseJsonSerializerContext.Default.BaseScheduleCancellationMaintenancePage,
+            static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, cancellationToken).ConfigureAwait(false);
+        if (found) return receipt;
         string replacement; byte[] key; long highDue; string highId; long? afterDue; string? afterId; bool completed;
         await using (SqliteCommand read = connection.CreateCommand())
         {
@@ -699,14 +723,17 @@ public sealed partial class SqliteRecordStore
                 return ActivationFailure<BaseScheduleCancellationMaintenancePage>("base.activation.maintenanceConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
         }
         await IncrementActivationGenerationAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return OperationResults.Ok(new BaseScheduleCancellationMaintenancePage
+        var result = new BaseScheduleCancellationMaintenancePage
         {
             MaintenanceId = request.MaintenanceId, CancelledCount = page.Count,
             Next = hasMore ? new BaseScheduleCancellationBoundary { EffectiveDueAt = nextDue!.Value, ActivationId = nextId! } : null,
             Completed = !hasMore, Accounting = ActivationAccounting(page.Count, page.Count * 96L),
             Disposition = BaseMutationRequestDisposition.Committed,
-        });
+        };
+        await WriteActivationReceiptAsync(connection, transaction, request.Identity, "cancellation-maintenance", result,
+            HPDBaseJsonSerializerContext.Default.BaseScheduleCancellationMaintenancePage, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return OperationResults.Ok(result);
     }
 
     private async ValueTask<SqliteExecutorRow?> ReadExecutorAsync(
@@ -1021,6 +1048,41 @@ public sealed partial class SqliteRecordStore
         limits.MaximumReadIntervals > 0 && limits.MaximumIndexOperations > 0;
 
     private static byte[] ActivationControlChecksum(string id, long generation, BaseActivationState state) => ActivationHash($"base.activation.control.v2\0{id}\n{generation}\n{(int)state}");
+
+    private async ValueTask<(bool Found, OperationResult<T> Result)> ReadActivationReceiptAsync<T>(
+        SqliteConnection connection, SqliteTransaction transaction, BaseMutationRequestIdentity identity,
+        string kind, JsonTypeInfo<T> typeInfo, Func<T, T> duplicate, CancellationToken cancellationToken)
+    {
+        await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction;
+        command.CommandText = $"SELECT operation_kind,fingerprint,result_json,result_checksum FROM {_names.ActivationReceipts} WHERE receipt_key=$key;";
+        command.Parameters.AddWithValue("$key", SqliteActivationReceiptKey(identity));
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) return (false, default!);
+        string storedKind = reader.GetString(0); byte[] fingerprint = (byte[])reader[1]; byte[] bytes = (byte[])reader[2]; byte[] checksum = (byte[])reader[3];
+        if (storedKind != kind || !CryptographicOperations.FixedTimeEquals(fingerprint, identity.Fingerprint.ToArray()))
+            return (true, ActivationFailure<T>("base.activation.fingerprintConflict", OperationStatus.Conflict, ErrorCategory.Conflict));
+        if (!CryptographicOperations.FixedTimeEquals(SHA256.HashData(bytes), checksum))
+            return (true, ActivationFailure<T>("base.activation.receiptCorrupt", OperationStatus.StoreError, ErrorCategory.Store));
+        T? value = JsonSerializer.Deserialize(bytes, typeInfo);
+        return value is null
+            ? (true, ActivationFailure<T>("base.activation.receiptCorrupt", OperationStatus.StoreError, ErrorCategory.Store))
+            : (true, OperationResults.Ok(duplicate(value)));
+    }
+
+    private async ValueTask WriteActivationReceiptAsync<T>(SqliteConnection connection, SqliteTransaction transaction,
+        BaseMutationRequestIdentity identity, string kind, T result, JsonTypeInfo<T> typeInfo, CancellationToken cancellationToken)
+    {
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(result, typeInfo);
+        await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction;
+        command.CommandText = $"INSERT INTO {_names.ActivationReceipts}(receipt_key,operation_kind,fingerprint,result_json,result_checksum) VALUES($key,$kind,$fingerprint,$result,$checksum);";
+        command.Parameters.AddWithValue("$key", SqliteActivationReceiptKey(identity)); command.Parameters.AddWithValue("$kind", kind);
+        command.Parameters.Add("$fingerprint", SqliteType.Blob).Value = identity.Fingerprint.ToArray(); command.Parameters.Add("$result", SqliteType.Blob).Value = bytes;
+        command.Parameters.Add("$checksum", SqliteType.Blob).Value = SHA256.HashData(bytes);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static string SqliteActivationReceiptKey(BaseMutationRequestIdentity identity) =>
+        $"{identity.Scope}\n{identity.Operation}\n{identity.IdempotencyKey}";
     private static byte[] ActivationHash(string value) => SHA256.HashData(Encoding.UTF8.GetBytes(value));
     private static OperationResult<T> ActivationFailure<T>(string code, OperationStatus status, ErrorCategory category) => new()
     { Status = status, Error = new BaseError { Code = code, Message = "The activation operation could not be completed.", Category = category } };

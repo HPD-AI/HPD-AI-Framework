@@ -54,6 +54,8 @@ internal sealed class InMemoryStoreState
     public Dictionary<string, BaseScheduleOccurrenceFact> ScheduleOccurrences { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets durable cancel-previous maintenance state by deterministic identity.</summary>
     public Dictionary<string, InMemoryScheduleCancellationRow> ScheduleCancellations { get; } = new(StringComparer.Ordinal);
+    /// <summary>Gets durable activation-operation receipts by identified-request key.</summary>
+    public Dictionary<string, InMemoryActivationReceiptRow> ActivationReceipts { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets the next positive executor generation.</summary>
     public long NextExecutorGeneration { get; set; }
     /// <summary>Gets or sets the generation invalidating finite due observations.</summary>
@@ -129,6 +131,8 @@ internal sealed class InMemoryStoreState
             clone.ScheduleOccurrences.Add(key, CloneOccurrence(occurrence));
         foreach ((string key, InMemoryScheduleCancellationRow cancellation) in ScheduleCancellations)
             clone.ScheduleCancellations.Add(key, cancellation.DeepClone());
+        foreach ((string key, InMemoryActivationReceiptRow receipt) in ActivationReceipts)
+            clone.ActivationReceipts.Add(key, receipt.DeepClone());
         foreach ((long position, BaseMutationJournalEntry entry) in MutationJournal)
             clone.MutationJournal.Add(position, CloneJournalEntry(entry));
 
@@ -204,6 +208,12 @@ internal sealed record InMemoryScheduleCancellationRow(
         HighWater = HighWater with { ActivationId = new string(HighWater.ActivationId.AsSpan()) },
         After = After is null ? null : After with { ActivationId = new string(After.ActivationId.AsSpan()) },
     };
+}
+
+internal sealed record InMemoryActivationReceiptRow(string Kind, byte[] Fingerprint, byte[] Result)
+{
+    internal InMemoryActivationReceiptRow DeepClone() => this with
+    { Fingerprint = Fingerprint.ToArray(), Result = Result.ToArray() };
 }
 
 internal sealed record InMemoryExecutorRow(

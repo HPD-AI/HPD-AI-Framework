@@ -95,10 +95,20 @@ public sealed partial class ActivationRuntimeTests
 
         OperationResult<BaseScheduleMutationResult> created = await runtime.MutateAsync(
             Session(), schedule, BaseScheduleMutationKind.Create, null, Identity("schedule-create", "one"), default);
+        OperationResult<BaseScheduleMutationResult> createReplay = await runtime.MutateAsync(
+            Session(), schedule, BaseScheduleMutationKind.Create, null, Identity("schedule-create", "one"), default);
         OperationResult<BaseScheduleMaintenancePage> advanced = await runtime.AdvanceAsync(
             Session(), schedule, Identity("schedule-advance", "one"), default);
 
         created.IsSuccess().Should().BeTrue(created.Error?.Code);
+        createReplay.IsSuccess().Should().BeTrue(createReplay.Error?.Code);
+        createReplay.Value!.Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
+        OperationResult<BaseScheduleMutationResult> createCollision = await runtime.MutateAsync(
+            Session(), schedule, BaseScheduleMutationKind.Create, null,
+            Identity("schedule-create", "one") with
+            { Fingerprint = BaseMutationRequestFingerprint.Create(Enumerable.Repeat((byte)9, 32).ToArray()) }, default);
+        createCollision.IsSuccess().Should().BeFalse();
+        createCollision.Error!.Code.Should().Be("base.activation.fingerprintConflict");
         advanced.IsSuccess().Should().BeTrue(advanced.Error?.Code);
         advanced.Value!.Occurrences.Should().ContainSingle();
         advanced.Value.Occurrences[0].Disposition.Should().BeOfType<BaseOccurrenceMaterialized>();

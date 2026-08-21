@@ -2,6 +2,8 @@ using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 
 namespace HPD.Base;
 
@@ -533,6 +535,10 @@ internal sealed partial class InMemoryRecordStore
         try
         {
             InMemoryStoreState current = Volatile.Read(ref _publishedState); var next = current.Clone();
+            if (TryReadActivationReceipt(current, request.Identity, "schedule-mutated",
+                HPDBaseJsonSerializerContext.Default.BaseScheduleMutationResult,
+                static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, out OperationResult<BaseScheduleMutationResult>? replay))
+                return replay;
             string key = ScheduleKey(definition.Id, definition.Version);
             current.Schedules.TryGetValue(key, out BaseScheduleAuthority? existing);
             if (request.Kind == BaseScheduleMutationKind.Create && existing is not null ||
@@ -540,8 +546,11 @@ internal sealed partial class InMemoryRecordStore
                 return ActivationFailure<BaseScheduleMutationResult>("base.activation.scheduleConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
             if (request.Kind == BaseScheduleMutationKind.Remove)
             {
-                next.Schedules.Remove(key); Volatile.Write(ref _publishedState, next);
-                return OperationResults.Ok(new BaseScheduleMutationResult { Authority = null, Accounting = EmptyActivationAccounting with { IndexOperations = 1 }, Disposition = BaseMutationRequestDisposition.Committed });
+                next.Schedules.Remove(key);
+                var removed = new BaseScheduleMutationResult { Authority = null, Accounting = EmptyActivationAccounting with { IndexOperations = 1 }, Disposition = BaseMutationRequestDisposition.Committed };
+                WriteActivationReceipt(next, request.Identity, "schedule-mutated", removed, HPDBaseJsonSerializerContext.Default.BaseScheduleMutationResult);
+                Volatile.Write(ref _publishedState, next);
+                return OperationResults.Ok(removed);
             }
             long generation = existing is null ? 1 : checked(existing.DefinitionGeneration + 1);
             long epoch = existing is null ? 1 : request.Kind == BaseScheduleMutationKind.Update ? checked(existing.ScheduleEpoch + 1) : existing.ScheduleEpoch;
@@ -551,8 +560,11 @@ internal sealed partial class InMemoryRecordStore
                 ? request.InitialNextNominal
                 : existing.NextNominal;
             BaseScheduleAuthority authority = ScheduleAuthority(definition, generation, enabled, epoch, last, following);
-            next.Schedules[key] = authority; Volatile.Write(ref _publishedState, next);
-            return OperationResults.Ok(new BaseScheduleMutationResult { Authority = authority, Accounting = EmptyActivationAccounting with { IndexOperations = 1 }, Disposition = BaseMutationRequestDisposition.Committed });
+            next.Schedules[key] = authority;
+            var result = new BaseScheduleMutationResult { Authority = authority, Accounting = EmptyActivationAccounting with { IndexOperations = 1 }, Disposition = BaseMutationRequestDisposition.Committed };
+            WriteActivationReceipt(next, request.Identity, "schedule-mutated", result, HPDBaseJsonSerializerContext.Default.BaseScheduleMutationResult);
+            Volatile.Write(ref _publishedState, next);
+            return OperationResults.Ok(result);
         }
         finally { _stateGate.Release(); }
     }
@@ -570,6 +582,10 @@ internal sealed partial class InMemoryRecordStore
         try
         {
             InMemoryStoreState current = Volatile.Read(ref _publishedState); var next = current.Clone();
+            if (TryReadActivationReceipt(current, request.Identity, "occurrence-page",
+                HPDBaseJsonSerializerContext.Default.BaseScheduleMaintenancePage,
+                static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, out OperationResult<BaseScheduleMaintenancePage>? replay))
+                return replay;
             string key = ScheduleKey(request.ScheduleId, request.ScheduleVersion);
             if (!current.Schedules.TryGetValue(key, out BaseScheduleAuthority? authority) || !authority.Enabled ||
                 !CryptographicOperations.FixedTimeEquals(authority.Checksum.AsSpan(), request.ExpectedAuthorityChecksum.AsSpan()))
@@ -636,13 +652,16 @@ internal sealed partial class InMemoryRecordStore
                 return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.occurrenceInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
             BaseScheduleAuthority replacement = ScheduleAuthority(authority.Definition, authority.DefinitionGeneration, authority.Enabled,
                 authority.ScheduleEpoch, request.ResultingLastConsideredNominal, request.ResultingNextNominal);
-            next.Schedules[key] = replacement; Volatile.Write(ref _publishedState, next);
-            return OperationResults.Ok(new BaseScheduleMaintenancePage
+            next.Schedules[key] = replacement;
+            var result = new BaseScheduleMaintenancePage
             {
                 Authority = replacement, Occurrences = committedFacts.MoveToImmutable(), Cancellations = cancellations.ToImmutable(),
                 Accounting = EmptyActivationAccounting with { Candidates = request.Occurrences.Length, IndexOperations = request.Occurrences.Length * 2 },
                 Disposition = BaseMutationRequestDisposition.Committed,
-            });
+            };
+            WriteActivationReceipt(next, request.Identity, "occurrence-page", result, HPDBaseJsonSerializerContext.Default.BaseScheduleMaintenancePage);
+            Volatile.Write(ref _publishedState, next);
+            return OperationResults.Ok(result);
         }
         finally { _stateGate.Release(); }
     }
@@ -681,6 +700,10 @@ internal sealed partial class InMemoryRecordStore
         try
         {
             InMemoryStoreState current = Volatile.Read(ref _publishedState);
+            if (TryReadActivationReceipt(current, request.Identity, "cancellation-maintenance",
+                HPDBaseJsonSerializerContext.Default.BaseScheduleCancellationMaintenancePage,
+                static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, out OperationResult<BaseScheduleCancellationMaintenancePage>? replay))
+                return replay;
             if (!current.ScheduleCancellations.TryGetValue(request.MaintenanceId, out InMemoryScheduleCancellationRow? stored) ||
                 stored.ReplacementActivationId != request.ReplacementActivationId || stored.Completed ||
                 !CryptographicOperations.FixedTimeEquals(stored.OverlapKey, request.OverlapKey.AsSpan()) ||
@@ -713,14 +736,17 @@ internal sealed partial class InMemoryRecordStore
             }
             else next.ScheduleCancellations[request.MaintenanceId] = stored with { After = boundary };
             next.ActivationIndexGeneration = checked(next.ActivationIndexGeneration + 1);
-            Volatile.Write(ref _publishedState, next);
-            return OperationResults.Ok(new BaseScheduleCancellationMaintenancePage
+            var result = new BaseScheduleCancellationMaintenancePage
             {
                 MaintenanceId = request.MaintenanceId, CancelledCount = page.Length, Next = completed ? null : boundary,
                 Completed = completed, Accounting = EmptyActivationAccounting with
                 { Candidates = page.Length, Comparisons = page.Length, IndexOperations = page.Length + 1 },
                 Disposition = BaseMutationRequestDisposition.Committed,
-            });
+            };
+            WriteActivationReceipt(next, request.Identity, "cancellation-maintenance", result,
+                HPDBaseJsonSerializerContext.Default.BaseScheduleCancellationMaintenancePage);
+            Volatile.Write(ref _publishedState, next);
+            return OperationResults.Ok(result);
         }
         finally { _stateGate.Release(); }
     }
@@ -733,6 +759,28 @@ internal sealed partial class InMemoryRecordStore
     private static bool BoundaryAtOrBefore(InMemoryActivationRow row, BaseScheduleCancellationBoundary boundary) =>
         row.EffectiveDueAt < boundary.EffectiveDueAt || row.EffectiveDueAt == boundary.EffectiveDueAt &&
         string.CompareOrdinal(row.Payload.ActivationId, boundary.ActivationId) <= 0;
+
+    private static bool TryReadActivationReceipt<T>(InMemoryStoreState state, BaseMutationRequestIdentity identity,
+        string kind, JsonTypeInfo<T> typeInfo, Func<T, T> duplicate, out OperationResult<T> result)
+    {
+        string key = ActivationReceiptKey(identity);
+        if (!state.ActivationReceipts.TryGetValue(key, out InMemoryActivationReceiptRow? receipt))
+        { result = default!; return false; }
+        if (receipt.Kind != kind || !CryptographicOperations.FixedTimeEquals(receipt.Fingerprint, identity.Fingerprint.ToArray()))
+        {
+            result = ActivationFailure<T>("base.activation.fingerprintConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+            return true;
+        }
+        T value = JsonSerializer.Deserialize(receipt.Result, typeInfo) ?? throw new InvalidOperationException("base.activation.receiptCorrupt");
+        result = OperationResults.Ok(duplicate(value)); return true;
+    }
+
+    private static void WriteActivationReceipt<T>(InMemoryStoreState state, BaseMutationRequestIdentity identity,
+        string kind, T result, JsonTypeInfo<T> typeInfo) => state.ActivationReceipts.Add(
+            ActivationReceiptKey(identity), new InMemoryActivationReceiptRow(kind, identity.Fingerprint.ToArray(), JsonSerializer.SerializeToUtf8Bytes(result, typeInfo)));
+
+    private static string ActivationReceiptKey(BaseMutationRequestIdentity identity) =>
+        $"{identity.Scope}\n{identity.Operation}\n{identity.IdempotencyKey}";
 
     private static string ScheduleKey(string id, int version) => $"{id}\n{version}";
 

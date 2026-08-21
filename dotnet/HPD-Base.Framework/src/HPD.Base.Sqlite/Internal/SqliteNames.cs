@@ -42,6 +42,7 @@ internal sealed class SqliteNames
         ActivationSchedules = Prefix + "activation_schedules";
         ActivationOccurrences = Prefix + "activation_occurrences";
         ActivationScheduleCancellations = Prefix + "activation_schedule_cancellations";
+        ActivationReceipts = Prefix + "activation_receipts";
         MutationJournalScopeIndex = "ix_" + Prefix + "mutation_journal_scope_position";
     }
 
@@ -103,6 +104,8 @@ internal sealed class SqliteNames
     public string ActivationOccurrences { get; }
     /// <summary>Gets durable cancel-previous maintenance table name.</summary>
     public string ActivationScheduleCancellations { get; }
+    /// <summary>Gets durable activation-operation receipt table name.</summary>
+    public string ActivationReceipts { get; }
     /// <summary>Gets the mutation journal scope index.</summary>
     public string MutationJournalScopeIndex { get; }
 }

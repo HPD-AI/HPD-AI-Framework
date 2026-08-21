@@ -161,7 +161,18 @@ public sealed partial class SqliteModuleMutationTests
             byte[] overlap = System.Security.Cryptography.SHA256.HashData("overlap"u8);
             BaseScheduleDefinition first = Schedule(1, BaseScheduleOverlapPolicy.Allow, overlap);
             BaseScheduleDefinition second = Schedule(2, BaseScheduleOverlapPolicy.SkipWhileActive, overlap);
-            (await store.MutateScheduleAsync(ScheduleMutation(first, 100, "create-1"))).IsSuccess().Should().BeTrue();
+            BaseScheduleMutationRequest createFirst = ScheduleMutation(first, 100, "create-1");
+            (await store.MutateScheduleAsync(createFirst)).IsSuccess().Should().BeTrue();
+            BaseScheduleMutationResult replayedCreate = (await store.MutateScheduleAsync(createFirst with
+            { AcceptedTime = AcceptedTime(101) })).Value!;
+            replayedCreate.Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
+            OperationResult<BaseScheduleMutationResult> collision = await store.MutateScheduleAsync(createFirst with
+            {
+                AcceptedTime = AcceptedTime(102),
+                Identity = createFirst.Identity with { Fingerprint = BaseMutationRequestFingerprint.Create(Enumerable.Repeat((byte)7, 32).ToArray()) },
+            });
+            collision.IsSuccess().Should().BeFalse();
+            collision.Error!.Code.Should().Be("base.activation.fingerprintConflict");
             BaseScheduleMaintenancePage materialized = (await store.AdvanceSchedulesAsync(
                 SchedulePage((await store.ReadScheduleAsync(first.Id, first.Version)).Value!, first, 101, "advance-1"))).Value!;
             materialized.Occurrences[0].Disposition.Should().BeOfType<BaseOccurrenceMaterialized>();

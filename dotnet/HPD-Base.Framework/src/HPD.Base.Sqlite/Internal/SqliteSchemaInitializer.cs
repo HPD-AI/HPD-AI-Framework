@@ -320,6 +320,11 @@ CREATE TABLE IF NOT EXISTS {_names.ActivationScheduleCancellations} (
   high_activation_id TEXT NOT NULL, after_due_at INTEGER NULL, after_activation_id TEXT NULL,
   completed INTEGER NOT NULL CHECK(completed IN (0,1))
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.ActivationReceipts} (
+  receipt_key TEXT NOT NULL PRIMARY KEY, operation_kind TEXT NOT NULL,
+  fingerprint BLOB NOT NULL CHECK(length(fingerprint)=32), result_json BLOB NOT NULL,
+  result_checksum BLOB NOT NULL CHECK(length(result_checksum)=32)
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.ModuleMutationDefinitions} (
   operation_id TEXT NOT NULL, operation_version INTEGER NOT NULL CHECK(operation_version > 0),
   owning_module_id TEXT NOT NULL, operation_checksum TEXT NOT NULL CHECK(length(operation_checksum)=64),
@@ -692,6 +697,11 @@ CREATE TABLE IF NOT EXISTS {_names.ActivationScheduleCancellations} (
   overlap_key BLOB NOT NULL CHECK(length(overlap_key)=32), high_due_at INTEGER NOT NULL,
   high_activation_id TEXT NOT NULL, after_due_at INTEGER NULL, after_activation_id TEXT NULL,
   completed INTEGER NOT NULL CHECK(completed IN (0,1))
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.ActivationReceipts} (
+  receipt_key TEXT NOT NULL PRIMARY KEY, operation_kind TEXT NOT NULL,
+  fingerprint BLOB NOT NULL CHECK(length(fingerprint)=32), result_json BLOB NOT NULL,
+  result_checksum BLOB NOT NULL CHECK(length(result_checksum)=32)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.ModuleMutationDefinitions} (
   operation_id TEXT NOT NULL, operation_version INTEGER NOT NULL CHECK(operation_version > 0),
