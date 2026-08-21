@@ -4118,6 +4118,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                             intentItem.OverlapKey.IsDefaultOrEmpty ? null : intentItem.OverlapKey.ToArray(),
                             intentItem.OverlapPolicy,
                             intentItem.InitiallyEligible));
+                        IndexActivation(_working, payload);
                         _working.ActivationIndexGeneration = checked(_working.ActivationIndexGeneration + 1);
                     }
                     byte[] itemChecksum = SHA256.HashData(Encoding.UTF8.GetBytes(

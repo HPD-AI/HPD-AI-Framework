@@ -113,6 +113,28 @@ public sealed partial class SqliteModuleMutationTests
                 };
                 BaseActivationTransitionResult completed = (await store.TransitionAsync(completeRequest)).Value!;
                 completed.State.Should().Be(BaseActivationState.Succeeded);
+                BaseActivationAdministrationPage administration = (await store.ReadAdministrationAsync(
+                    new BaseActivationAdministrationQueryRequest
+                    {
+                        ApplicationId = "activation-test", Scope = scope, Definition = definition,
+                        States = BaseActivationStateSelector.Terminal, Take = 8,
+                        AcceptedTime = AcceptedTime(30), Limits = limits,
+                    })).Value!;
+                administration.Items.Should().ContainSingle(item =>
+                    item.ActivationId == claimed.Claim.ActivationId && item.State == BaseActivationState.Succeeded);
+                administration.Intervals.Should().ContainSingle(interval =>
+                    interval.LogicalAccessPathId == "base.activation.administration.byScopeDefinitionStateDue.v1");
+                BaseOwnedScopeSeekAuthority foreignScope = scope with
+                {
+                    ProtectedIndexDigest = System.Security.Cryptography.SHA256.HashData(
+                        "base.activation.scope.v2\0\u0002\nforeign"u8).ToImmutableArray(),
+                };
+                (await store.ReadAdministrationAsync(new BaseActivationAdministrationQueryRequest
+                {
+                    ApplicationId = "activation-test", Scope = foreignScope, Definition = definition,
+                    States = BaseActivationStateSelector.All, Take = 8,
+                    AcceptedTime = AcceptedTime(30), Limits = limits,
+                })).Value!.Items.Should().BeEmpty();
                 BaseActivationReceiptResolution resolvedClaim = (await store.ResolveReceiptAsync(
                     new BaseActivationReceiptResolutionRequest
                     {

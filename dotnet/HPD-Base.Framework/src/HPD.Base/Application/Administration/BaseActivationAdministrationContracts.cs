@@ -52,3 +52,24 @@ public sealed record BaseActivationAdministrationReconcileRequest : BaseActivati
 
 /// <summary>Requests ControlPlane disposal of retained terminal activation authority.</summary>
 public sealed record BaseActivationAdministrationDisposeRequest : BaseActivationAdministrationRequest;
+
+/// <summary>Requests one exact-scope bounded ControlPlane activation page.</summary>
+public sealed record BaseActivationAdministrationReadRequest
+{
+    /// <summary>Gets the configured store identity.</summary>
+    public required string StoreId { get; init; }
+    /// <summary>Gets the current ControlPlane principal.</summary>
+    public required PrincipalContext Principal { get; init; }
+    /// <summary>Gets exact semantic scope authority.</summary>
+    public required BaseOwnedSubjectScopeEvidence Scope { get; init; }
+    /// <summary>Gets an optional installed definition identity.</summary>
+    public required string DefinitionId { get; init; }
+    /// <summary>Gets the optional installed definition version.</summary>
+    public required int DefinitionVersion { get; init; }
+    /// <summary>Gets the closed state selector.</summary>
+    public required BaseActivationStateSelector States { get; init; }
+    /// <summary>Gets the exclusive continuation boundary.</summary>
+    public BaseActivationAdministrationBoundary? After { get; init; }
+    /// <summary>Gets the bounded requested page size.</summary>
+    public required int Take { get; init; }
+}

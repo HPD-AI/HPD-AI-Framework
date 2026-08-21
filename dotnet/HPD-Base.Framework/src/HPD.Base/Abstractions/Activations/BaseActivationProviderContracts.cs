@@ -837,6 +837,11 @@ public interface IBaseActivationProvider
         BaseScheduleCancellationMaintenanceRequest request,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Reads one bounded protected activation-administration page.</summary>
+    ValueTask<OperationResult<BaseActivationAdministrationPage>> ReadAdministrationAsync(
+        BaseActivationAdministrationQueryRequest request,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Resolves one durable receipt without re-executing its operation.</summary>
     ValueTask<OperationResult<BaseActivationReceiptResolution>> ResolveReceiptAsync(
         BaseActivationReceiptResolutionRequest request,

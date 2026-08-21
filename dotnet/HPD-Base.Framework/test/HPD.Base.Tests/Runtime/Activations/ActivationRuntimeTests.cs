@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -162,6 +163,26 @@ public sealed partial class ActivationRuntimeTests
             completionIdentity, default);
         BaseActivationTransitionResult resolvedTransition = System.Text.Json.JsonSerializer.Deserialize(
             resolved.Value!.CanonicalResult.AsSpan(), HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult)!;
+        BaseActivationAdministrationPage administration = (await store.ReadAdministrationAsync(
+            new BaseActivationAdministrationQueryRequest
+            {
+                ApplicationId = "activation-test",
+                Scope = new BaseOwnedScopeSeekAuthority
+                {
+                    Kind = BaseSubjectScopeKind.Global,
+                    ProtectedIndexDigest = SHA256.HashData(Encoding.UTF8.GetBytes(
+                        $"base.activation.scope.v2\0{(int)BaseSubjectScopeKind.Global}\n")).ToImmutableArray(),
+                },
+                Definition = new BaseActivationDefinitionKey
+                {
+                    Id = registration.Definition.Id, Version = registration.Definition.Version,
+                    Checksum = registration.Definition.Checksum,
+                },
+                States = BaseActivationStateSelector.Terminal,
+                Take = 8,
+                AcceptedTime = new BaseActivationAcceptedTimeAuthority(TimeProvider.System).Capture("activation-test"),
+                Limits = registration.Definition.Limits.Provider,
+            })).Value!;
 
         created.IsSuccess().Should().BeTrue(created.Error?.Code);
         observed.IsSuccess().Should().BeTrue(observed.Error?.Code);
@@ -175,6 +196,8 @@ public sealed partial class ActivationRuntimeTests
         disclosureDenied.Status.Should().Be(OperationStatus.PolicyDenied);
         resolvedTransition.CanonicalResult.Should().Equal(
             System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new Result("done"), Json.Default.Result));
+        administration.Items.Should().ContainSingle(item =>
+            item.ActivationId == created.Value!.ActivationId && item.ResultRetained);
         (await worker.ClaimAsync(session, registration.Definition, observed.Value.Token, claimIdentity, default)).Value
             .Should().BeOfType<BaseActivationClaimTerminalResult>();
     }

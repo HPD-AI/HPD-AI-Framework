@@ -1,3 +1,6 @@
+using System.Collections.Immutable;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Base;
@@ -311,6 +314,112 @@ internal sealed class DefaultHPDBaseAdministration(
             AcceptedTime = accepted,
             Limits = definition.Limits.Provider,
         }, static definition => definition.Grants.Dispose, cancellationToken);
+
+    public async ValueTask<BaseResult<BaseActivationAdministrationPage>> ReadActivationsAsync(
+        BaseActivationAdministrationReadRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+        BaseActivationDefinition? definition = activations.Find(request.DefinitionId, request.DefinitionVersion);
+        if (definition is null || stores.GetRegistration(request.StoreId)?.Store is not IBaseActivationProvider provider
+            || request.Take is < 1 or > 256 || !Enum.IsDefined(request.States))
+            return ActivationReadFailure(OperationStatus.PolicyDenied, "base.activation.unauthorized", ErrorCategory.Authorization);
+        var operation = new OperationContext
+        {
+            ApplicationId = features.LogicalSchema.ApplicationId,
+            Audience = HPDBaseEndpointAudience.ControlPlane,
+            Operation = BaseOperationKind.AdminInspect,
+            CollectionId = definition.Id,
+            TenantId = request.Principal.CurrentTenantId,
+            Mode = OperationMode.System,
+            Now = timeProvider.GetUtcNow(),
+        };
+        OperationResult<BasePolicyEvaluation> authorized = await policy.EvaluateReadAsync(new BasePolicyRequest
+        {
+            Principal = request.Principal, Operation = operation,
+            Collection = new CollectionDefinition
+            {
+                Id = definition.Id, Name = definition.Id, Kind = BaseCollectionKinds.Custom,
+                SchemaMode = SchemaMode.Strict, UnknownFields = UnknownFieldPolicy.Reject,
+                System = true, SystemOwnerModuleId = definition.OwningModuleId,
+                Store = new StoreAnnotation { StoreId = request.StoreId },
+            },
+            ResourceKind = PolicyResourceKind.ActivationDefinition,
+        }, cancellationToken).ConfigureAwait(false);
+        if (!BaseSystemCollectionGate.HasExactActivationGrant(
+            authorized, definition.Grants.Inspect, definition.OwningModuleId, request.Principal, operation))
+            return ActivationReadFailure(OperationStatus.PolicyDenied, "base.activation.unauthorized", ErrorCategory.Authorization);
+        BaseOwnedScopeSeekAuthority scope = new()
+        {
+            Kind = request.Scope.Kind,
+            ProtectedIndexDigest = SHA256.HashData(Encoding.UTF8.GetBytes(
+                $"base.activation.scope.v2\0{(int)request.Scope.Kind}\n{request.Scope.Value ?? string.Empty}")).ToImmutableArray(),
+        };
+        BaseActivationAdministrationQueryRequest providerRequest = new()
+        {
+            ApplicationId = features.LogicalSchema.ApplicationId,
+            Scope = scope,
+            Definition = new BaseActivationDefinitionKey
+            {
+                Id = definition.Id, Version = definition.Version,
+                Checksum = definition.Checksum.ToArray().ToImmutableArray(),
+            },
+            States = request.States, After = request.After, Take = request.Take,
+            AcceptedTime = activationTime.Capture(features.LogicalSchema.ApplicationId),
+            Limits = definition.Limits.Provider,
+        };
+        OperationResult<BaseActivationAdministrationPage> result;
+        try { result = await provider.ReadAdministrationAsync(providerRequest, cancellationToken).ConfigureAwait(false); }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch { return ActivationReadFailure(OperationStatus.StoreError, "base.activation.storeError", ErrorCategory.Store); }
+        if (!result.IsSuccess() || result.Value is null)
+            return BaseResultMapper.Map<BaseActivationAdministrationPage, BaseActivationAdministrationPage>(result, static value => value);
+        BaseActivationAdministrationPage page = result.Value;
+        bool valid = page.Items.Length <= request.Take
+            && page.Items.Length <= definition.Limits.Provider.MaximumCandidates
+            && page.Intervals.Length is 1
+            && page.Intervals[0].LogicalAccessPathId == "base.activation.administration.byScopeDefinitionStateDue.v1"
+            && page.Accounting.Candidates == page.Items.Length
+            && page.Accounting.ReadIntervals == 1
+            && page.Accounting.EvidenceBytes <= definition.Limits.Provider.MaximumEvidenceBytes
+            && page.Accounting.TransientBytes <= definition.Limits.Provider.MaximumTransientBytes
+            && page.Items.All(item => item.Definition.Id == definition.Id
+                && item.Definition.Version == definition.Version
+                && CryptographicOperations.FixedTimeEquals(item.Definition.Checksum.AsSpan(), definition.Checksum.AsSpan()))
+            && CanonicallyOrdered(page.Items)
+            && (page.Next is null || page.Items.Length != 0 && BoundaryEquals(page.Next, page.Items[^1]));
+        if (!valid)
+            return ActivationReadFailure(OperationStatus.StoreError, "base.activation.providerContractInvalid", ErrorCategory.Store);
+        return new BaseSuccess<BaseActivationAdministrationPage>(page, OperationStatus.Ok, null, null, null, null);
+    }
+
+    private static bool CanonicallyOrdered(ImmutableArray<BaseActivationAdministrationItem> items)
+    {
+        for (int index = 1; index < items.Length; index++)
+        {
+            BaseActivationAdministrationItem left = items[index - 1];
+            BaseActivationAdministrationItem right = items[index];
+            int comparison = string.CompareOrdinal(left.Definition.Id, right.Definition.Id);
+            if (comparison > 0 || comparison == 0 && (left.Definition.Version > right.Definition.Version
+                || left.Definition.Version == right.Definition.Version && (left.EffectiveDueAt > right.EffectiveDueAt
+                || left.EffectiveDueAt == right.EffectiveDueAt
+                && string.CompareOrdinal(left.ActivationId, right.ActivationId) >= 0))) return false;
+        }
+        return true;
+    }
+
+    private static bool BoundaryEquals(
+        BaseActivationAdministrationBoundary boundary,
+        BaseActivationAdministrationItem item) =>
+        boundary.DefinitionId == item.Definition.Id && boundary.DefinitionVersion == item.Definition.Version
+        && boundary.EffectiveDueAt == item.EffectiveDueAt && boundary.ActivationId == item.ActivationId;
+
+    private static BaseFailure<BaseActivationAdministrationPage> ActivationReadFailure(
+        OperationStatus status, string code, ErrorCategory category) => new(status, new BaseError
+        {
+            Code = code, Message = "The activation administration request could not be completed.", Category = category,
+        }, null, null);
 
     private async ValueTask<BaseResult<BaseActivationTransitionResult>> RouteActivationAsync<TRequest>(
         TRequest request,

@@ -770,6 +770,7 @@ internal sealed partial class InMemoryRecordStore
                             ControlChecksum(activationId, 1, BaseActivationState.Pending), activation.OccurrenceId,
                             activation.Priority, activation.OverlapKey.IsDefaultOrEmpty ? null : activation.OverlapKey.ToArray(),
                             activation.OverlapPolicy, cancellationBlockers.Length == 0));
+                        IndexActivation(next, payload);
                         next.ActivationIndexGeneration = checked(next.ActivationIndexGeneration + 1);
                     }
                     if (cancellationBlockers.Length != 0)
@@ -902,6 +903,124 @@ internal sealed partial class InMemoryRecordStore
     private static bool BoundaryAtOrBefore(InMemoryActivationRow row, BaseScheduleCancellationBoundary boundary) =>
         row.EffectiveDueAt < boundary.EffectiveDueAt || row.EffectiveDueAt == boundary.EffectiveDueAt &&
         string.CompareOrdinal(row.Payload.ActivationId, boundary.ActivationId) <= 0;
+
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseActivationAdministrationPage>> ReadAdministrationAsync(
+        BaseActivationAdministrationQueryRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!AcceptActivationTime(request.AcceptedTime) || !ValidateLimits(request.Limits)
+            || request.Take is < 1 or > 256 || !Enum.IsDefined(request.States)
+            || request.Scope.ProtectedIndexDigest.Length != SHA256.HashSizeInBytes)
+            return ActivationFailure<BaseActivationAdministrationPage>(
+                "base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            InMemoryStoreState state = Volatile.Read(ref _publishedState);
+            string scopeKey = Convert.ToHexString(request.Scope.ProtectedIndexDigest.AsSpan());
+            IEnumerable<InMemoryActivationRow> rows = state.ActivationsByProtectedScope.TryGetValue(
+                    scopeKey, out SortedSet<string>? activationIds)
+                ? activationIds.Select(id => state.Activations[id])
+                : [];
+            rows = rows.Where(row => ScopeMatches(row.Payload.Scope, request.Scope))
+                .Where(row => request.Definition is null ||
+                    row.Payload.Definition.Id == request.Definition.Id &&
+                    row.Payload.Definition.Version == request.Definition.Version &&
+                    CryptographicOperations.FixedTimeEquals(
+                        row.Payload.Definition.Checksum.AsSpan(), request.Definition.Checksum.AsSpan()))
+                .Where(row => StateSelected(row.State, request.States))
+                .OrderBy(static row => row.Payload.Definition.Id, StringComparer.Ordinal)
+                .ThenBy(static row => row.Payload.Definition.Version)
+                .ThenBy(static row => row.EffectiveDueAt)
+                .ThenBy(static row => row.Payload.ActivationId, StringComparer.Ordinal)
+                .Where(row => request.After is null || AdministrationAfter(row, request.After));
+            InMemoryActivationRow[] selected = rows.Take(request.Take + 1).ToArray();
+            bool hasMore = selected.Length > request.Take;
+            if (hasMore) selected = selected[..request.Take];
+            BaseActivationAdministrationItem[] items = selected.Select(static row => new BaseActivationAdministrationItem
+            {
+                ActivationId = row.Payload.ActivationId,
+                Definition = row.Payload.Definition with { Checksum = row.Payload.Definition.Checksum.ToArray().ToImmutableArray() },
+                State = row.State,
+                Generation = row.Generation,
+                EffectiveDueAt = row.EffectiveDueAt,
+                OccurrenceId = row.OccurrenceId,
+                AttemptNumber = row.AttemptNumber,
+                ResultRetained = row.CanonicalResult is not null,
+                EffectAuthorityRetained = row.Effect is not null,
+                ControlChecksum = row.ControlChecksum.ToImmutableArray(),
+            }).ToArray();
+            BaseActivationAdministrationBoundary? next = hasMore && selected.Length != 0
+                ? AdministrationBoundary(selected[^1]) : null;
+            BaseAtomicReadIntervalEvidence interval = AdministrationInterval(request, next);
+            long evidenceBytes = checked(IntervalBytes(interval) + items.Sum(static item =>
+                Encoding.UTF8.GetByteCount(item.ActivationId) + Encoding.UTF8.GetByteCount(item.Definition.Id)
+                + item.Definition.Checksum.Length + item.ControlChecksum.Length + 48L));
+            if (items.Length > request.Limits.MaximumCandidates
+                || evidenceBytes > request.Limits.MaximumEvidenceBytes
+                || evidenceBytes > request.Limits.MaximumTransientBytes)
+                return ActivationFailure<BaseActivationAdministrationPage>(
+                    "base.activation.budgetExceeded", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+            return OperationResults.Ok(new BaseActivationAdministrationPage
+            {
+                Items = items.ToImmutableArray(), Next = next,
+                CapturedIndexGeneration = state.ActivationIndexGeneration,
+                Intervals = [interval],
+                Accounting = EmptyActivationAccounting with
+                {
+                    Candidates = items.Length,
+                    Comparisons = items.Length,
+                    ReadIntervals = 1,
+                    EvidenceBytes = evidenceBytes,
+                    TransientBytes = evidenceBytes,
+                },
+            });
+        }
+        finally { _stateGate.Release(); }
+    }
+
+    private static bool StateSelected(BaseActivationState state, BaseActivationStateSelector selector) => selector switch
+    {
+        BaseActivationStateSelector.All => true,
+        BaseActivationStateSelector.Runnable => state is BaseActivationState.Pending or BaseActivationState.RetryPending,
+        BaseActivationStateSelector.Active => state is BaseActivationState.Claimed or BaseActivationState.EffectStarted,
+        BaseActivationStateSelector.Terminal => state is BaseActivationState.Succeeded or BaseActivationState.Exhausted
+            or BaseActivationState.Cancelled or BaseActivationState.Disposed or BaseActivationState.Migrated,
+        BaseActivationStateSelector.OutcomeUnknown => state == BaseActivationState.OutcomeUnknown,
+        _ => false,
+    };
+
+    private static bool AdministrationAfter(InMemoryActivationRow row, BaseActivationAdministrationBoundary after) =>
+        string.CompareOrdinal(row.Payload.Definition.Id, after.DefinitionId) is > 0
+        || row.Payload.Definition.Id == after.DefinitionId &&
+        (row.Payload.Definition.Version > after.DefinitionVersion
+        || row.Payload.Definition.Version == after.DefinitionVersion &&
+        (row.EffectiveDueAt > after.EffectiveDueAt
+        || row.EffectiveDueAt == after.EffectiveDueAt &&
+        string.CompareOrdinal(row.Payload.ActivationId, after.ActivationId) > 0));
+
+    private static BaseActivationAdministrationBoundary AdministrationBoundary(InMemoryActivationRow row) => new()
+    {
+        DefinitionId = row.Payload.Definition.Id,
+        DefinitionVersion = row.Payload.Definition.Version,
+        EffectiveDueAt = row.EffectiveDueAt,
+        ActivationId = row.Payload.ActivationId,
+    };
+
+    private static BaseAtomicReadIntervalEvidence AdministrationInterval(
+        BaseActivationAdministrationQueryRequest request,
+        BaseActivationAdministrationBoundary? next) => new()
+    {
+        LogicalAccessPathId = "base.activation.administration.byScopeDefinitionStateDue.v1",
+        CanonicalLowerBound = Encoding.UTF8.GetBytes(
+            $"{Convert.ToHexString(request.Scope.ProtectedIndexDigest.AsSpan())}\n{request.After?.DefinitionId ?? string.Empty}\n{request.After?.DefinitionVersion ?? 0}\n{request.After?.EffectiveDueAt ?? -1}\n{request.After?.ActivationId ?? string.Empty}").ToImmutableArray(),
+        LowerInclusive = false,
+        CanonicalUpperBound = Encoding.UTF8.GetBytes(
+            $"{Convert.ToHexString(request.Scope.ProtectedIndexDigest.AsSpan())}\n{request.Definition?.Id ?? string.Empty}\n{request.Definition?.Version ?? 0}\n{(int)request.States}\n{next?.ActivationId ?? string.Empty}").ToImmutableArray(),
+        UpperInclusive = true,
+    };
 
     /// <inheritdoc />
     public async ValueTask<OperationResult<BaseActivationReceiptResolution>> ResolveReceiptAsync(
@@ -1154,6 +1273,17 @@ internal sealed partial class InMemoryRecordStore
 
     private static byte[] ScopeDigest(BaseOwnedSubjectScopeEvidence scope) =>
         Hash($"base.activation.scope.v2\0{(int)scope.Kind}\n{scope.Value ?? string.Empty}");
+
+    private static void IndexActivation(InMemoryStoreState state, BaseActivationPayload payload)
+    {
+        string key = Convert.ToHexString(ScopeDigest(payload.Scope));
+        if (!state.ActivationsByProtectedScope.TryGetValue(key, out SortedSet<string>? values))
+        {
+            values = new SortedSet<string>(StringComparer.Ordinal);
+            state.ActivationsByProtectedScope.Add(key, values);
+        }
+        values.Add(payload.ActivationId);
+    }
 
     private static BaseActivationDueBoundary Boundary(InMemoryActivationRow row, long acceptedNow) => new()
     {

@@ -46,6 +46,7 @@ internal sealed class InMemoryStoreState
     public Dictionary<string, long> ModuleGenerations { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets durable activation rows by deterministic activation identity.</summary>
     public Dictionary<string, InMemoryActivationRow> Activations { get; } = new(StringComparer.Ordinal);
+    public Dictionary<string, SortedSet<string>> ActivationsByProtectedScope { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets durable executor incarnations by application/host/process key.</summary>
     public Dictionary<string, InMemoryExecutorRow> Executors { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets current durable schedule authority by ID/version.</summary>
@@ -123,6 +124,8 @@ internal sealed class InMemoryStoreState
             clone.ModuleGenerations.Add(key, generation);
         foreach ((string key, InMemoryActivationRow activation) in Activations)
             clone.Activations.Add(key, activation.DeepClone());
+        foreach ((string key, SortedSet<string> activationIds) in ActivationsByProtectedScope)
+            clone.ActivationsByProtectedScope.Add(key, new SortedSet<string>(activationIds, StringComparer.Ordinal));
         foreach ((string key, InMemoryExecutorRow executor) in Executors)
             clone.Executors.Add(key, executor.DeepClone());
         foreach ((string key, BaseScheduleAuthority schedule) in Schedules)

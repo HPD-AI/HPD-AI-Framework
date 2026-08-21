@@ -74,6 +74,11 @@ public interface IHPDBaseAdministration
     ValueTask<BaseResult<BaseActivationTransitionResult>> DisposeActivationAsync(
         BaseActivationAdministrationDisposeRequest request,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Reads one exact-scope bounded activation administration page.</summary>
+    ValueTask<BaseResult<BaseActivationAdministrationPage>> ReadActivationsAsync(
+        BaseActivationAdministrationReadRequest request,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>Requests sanitized lifecycle authority inspection after exact ControlPlane authorization.</summary>

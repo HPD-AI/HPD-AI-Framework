@@ -914,6 +914,105 @@ public sealed partial class SqliteRecordStore
         return OperationResults.Ok(result);
     }
 
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseActivationAdministrationPage>> ReadAdministrationAsync(
+        BaseActivationAdministrationQueryRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!await AcceptActivationTimeAsync(request.AcceptedTime, cancellationToken).ConfigureAwait(false)
+            || !ActivationLimitsValid(request.Limits)
+            || request.Take is < 1 or > 256 || !Enum.IsDefined(request.States)
+            || request.Scope.ProtectedIndexDigest.Length != SHA256.HashSizeInBytes)
+            return ActivationFailure<BaseActivationAdministrationPage>(
+                "base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+        await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
+        (long generation, _) = await ReadActivationAuthorityAsync(connection, null, cancellationToken).ConfigureAwait(false);
+        await using SqliteCommand command = connection.CreateCommand();
+        string statePredicate = request.States switch
+        {
+            BaseActivationStateSelector.All => "1=1",
+            BaseActivationStateSelector.Runnable => $"a.state IN ({(int)BaseActivationState.Pending},{(int)BaseActivationState.RetryPending})",
+            BaseActivationStateSelector.Active => $"a.state IN ({(int)BaseActivationState.Claimed},{(int)BaseActivationState.EffectStarted})",
+            BaseActivationStateSelector.Terminal => $"a.state IN ({(int)BaseActivationState.Succeeded},{(int)BaseActivationState.Exhausted},{(int)BaseActivationState.Cancelled},{(int)BaseActivationState.Disposed},{(int)BaseActivationState.Migrated})",
+            BaseActivationStateSelector.OutcomeUnknown => $"a.state={(int)BaseActivationState.OutcomeUnknown}",
+            _ => "0=1",
+        };
+        command.CommandText = $"SELECT a.activation_id,a.definition_id,a.definition_version,a.definition_checksum,a.state,a.generation,a.effective_due_at,a.occurrence_id,a.attempt_number,a.canonical_result IS NOT NULL,EXISTS(SELECT 1 FROM {_names.ActivationEffects} e WHERE e.activation_id=a.activation_id),a.control_checksum FROM {_names.Activations} a INDEXED BY {_names.Prefix}activation_due_idx WHERE a.scope_kind=$scope_kind AND a.scope_digest=$scope_digest AND ($definition IS NULL OR (a.definition_id=$definition AND a.definition_version=$version AND a.definition_checksum=$checksum)) AND ({statePredicate}) AND ($after_definition IS NULL OR a.definition_id>$after_definition OR (a.definition_id=$after_definition AND (a.definition_version>$after_version OR (a.definition_version=$after_version AND (a.effective_due_at>$after_due OR (a.effective_due_at=$after_due AND a.activation_id>$after_id)))))) ORDER BY a.definition_id,a.definition_version,a.effective_due_at,a.activation_id LIMIT $take;";
+        command.Parameters.AddWithValue("$scope_kind", (int)request.Scope.Kind);
+        command.Parameters.Add("$scope_digest", SqliteType.Blob).Value = request.Scope.ProtectedIndexDigest.ToArray();
+        command.Parameters.AddWithValue("$definition", (object?)request.Definition?.Id ?? DBNull.Value);
+        command.Parameters.AddWithValue("$version", (object?)request.Definition?.Version ?? DBNull.Value);
+        command.Parameters.Add("$checksum", SqliteType.Blob).Value = (object?)request.Definition?.Checksum.ToArray() ?? DBNull.Value;
+        command.Parameters.AddWithValue("$after_definition", (object?)request.After?.DefinitionId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$after_version", (object?)request.After?.DefinitionVersion ?? DBNull.Value);
+        command.Parameters.AddWithValue("$after_due", (object?)request.After?.EffectiveDueAt ?? DBNull.Value);
+        command.Parameters.AddWithValue("$after_id", (object?)request.After?.ActivationId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$take", request.Take + 1);
+        var items = new List<BaseActivationAdministrationItem>(request.Take + 1);
+        await using (SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                items.Add(new BaseActivationAdministrationItem
+                {
+                    ActivationId = reader.GetString(0),
+                    Definition = new BaseActivationDefinitionKey
+                    {
+                        Id = reader.GetString(1), Version = reader.GetInt32(2),
+                        Checksum = ((byte[])reader[3]).ToImmutableArray(),
+                    },
+                    State = (BaseActivationState)reader.GetInt32(4),
+                    Generation = reader.GetInt64(5), EffectiveDueAt = reader.GetInt64(6),
+                    OccurrenceId = reader.IsDBNull(7) ? null : reader.GetString(7),
+                    AttemptNumber = reader.GetInt32(8), ResultRetained = reader.GetBoolean(9),
+                    EffectAuthorityRetained = reader.GetBoolean(10),
+                    ControlChecksum = ((byte[])reader[11]).ToImmutableArray(),
+                });
+            }
+        }
+        bool hasMore = items.Count > request.Take;
+        if (hasMore) items.RemoveAt(items.Count - 1);
+        BaseActivationAdministrationBoundary? next = hasMore && items.Count != 0
+            ? new BaseActivationAdministrationBoundary
+            {
+                DefinitionId = items[^1].Definition.Id,
+                DefinitionVersion = items[^1].Definition.Version,
+                EffectiveDueAt = items[^1].EffectiveDueAt,
+                ActivationId = items[^1].ActivationId,
+            } : null;
+        BaseAtomicReadIntervalEvidence interval = ActivationAdministrationInterval(request, next);
+        long evidenceBytes = checked(ActivationIntervalBytes(interval) + items.Sum(static item =>
+            Encoding.UTF8.GetByteCount(item.ActivationId) + Encoding.UTF8.GetByteCount(item.Definition.Id)
+            + item.Definition.Checksum.Length + item.ControlChecksum.Length + 48L));
+        if (items.Count > request.Limits.MaximumCandidates || evidenceBytes > request.Limits.MaximumEvidenceBytes
+            || evidenceBytes > request.Limits.MaximumTransientBytes)
+            return ActivationFailure<BaseActivationAdministrationPage>(
+                "base.activation.budgetExceeded", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+        return OperationResults.Ok(new BaseActivationAdministrationPage
+        {
+            Items = items.ToImmutableArray(), Next = next, CapturedIndexGeneration = generation,
+            Intervals = [interval], Accounting = new BaseActivationAccounting
+            {
+                Candidates = items.Count, Comparisons = items.Count, IndexOperations = 0,
+                ReadIntervals = 1, EvidenceBytes = evidenceBytes, TransientBytes = evidenceBytes,
+            },
+        });
+    }
+
+    private static BaseAtomicReadIntervalEvidence ActivationAdministrationInterval(
+        BaseActivationAdministrationQueryRequest request,
+        BaseActivationAdministrationBoundary? next) => new()
+    {
+        LogicalAccessPathId = "base.activation.administration.byScopeDefinitionStateDue.v1",
+        CanonicalLowerBound = Encoding.UTF8.GetBytes(
+            $"{Convert.ToHexString(request.Scope.ProtectedIndexDigest.AsSpan())}\n{request.After?.DefinitionId ?? string.Empty}\n{request.After?.DefinitionVersion ?? 0}\n{request.After?.EffectiveDueAt ?? -1}\n{request.After?.ActivationId ?? string.Empty}").ToImmutableArray(),
+        LowerInclusive = false,
+        CanonicalUpperBound = Encoding.UTF8.GetBytes(
+            $"{Convert.ToHexString(request.Scope.ProtectedIndexDigest.AsSpan())}\n{request.Definition?.Id ?? string.Empty}\n{request.Definition?.Version ?? 0}\n{(int)request.States}\n{next?.ActivationId ?? string.Empty}").ToImmutableArray(),
+        UpperInclusive = true,
+    };
+
     private async ValueTask<SqliteExecutorRow?> ReadExecutorAsync(
         SqliteConnection connection, SqliteTransaction transaction, string applicationId, string hostId, string processId, CancellationToken cancellationToken)
     {
