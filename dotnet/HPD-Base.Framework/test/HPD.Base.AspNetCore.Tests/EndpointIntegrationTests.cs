@@ -219,6 +219,16 @@ public sealed class EndpointIntegrationTests
 
         noncanonical.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         extra.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        string retryJson = """
+            {"storeId":"primary","definitionId":"graph.execute","definitionVersion":1,"activationId":"activation-1","expectedGeneration":7,"identity":{"scope":"activation-test","operation":"operator-retry","idempotencyKey":"retry-1","fingerprint":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}}
+            """;
+        HttpResponseMessage retry = await client.PostAsync(
+            "/base/control/activations/retry",
+            new StringContent(retryJson, System.Text.Encoding.UTF8, "application/json"));
+        retry.StatusCode.Should().Be(HttpStatusCode.OK);
+        administration.ActivationRetry.Should().NotBeNull();
+        administration.ActivationRetry!.ExpectedGeneration.Should().Be(7);
     }
 
     private static async Task<T?> ReadJson<T>(WebApplication app, HttpContent content)
@@ -230,6 +240,7 @@ public sealed class EndpointIntegrationTests
     private sealed class SubjectAdministrationStub : IHPDBaseAdministration
     {
         public BaseSubjectEpochRotationRequest? Request { get; private set; }
+        public BaseActivationAdministrationRetryRequest? ActivationRetry { get; private set; }
         public BaseAdministrationCapability Capability { get; } = new()
         {
             Backup = false,
@@ -275,6 +286,27 @@ public sealed class EndpointIntegrationTests
         public ValueTask<BaseResult<BaseVectorRebuildResult>> RebuildVectorIndexAsync(BaseVectorRebuildRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseSubjectLifecycleMaintenanceResult>> ExecuteSubjectAuthorityMaintenanceAsync(string storeId, PrincipalContext principal, BaseSubjectAuthorityMaintenanceExecutionRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseSubjectLifecycleInspectionResult>> InspectSubjectLifecycleAsync(string storeId, PrincipalContext principal, BaseSubjectLifecycleInspectionRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<BaseResult<BaseActivationTransitionResult>> CancelActivationAsync(BaseActivationAdministrationCancelRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<BaseResult<BaseActivationTransitionResult>> RetryActivationAsync(BaseActivationAdministrationRetryRequest request, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ActivationRetry = request;
+            return ValueTask.FromResult<BaseResult<BaseActivationTransitionResult>>(
+                new BaseSuccess<BaseActivationTransitionResult>(new BaseActivationTransitionResult
+                {
+                    State = BaseActivationState.RetryPending,
+                    Generation = checked(request.ExpectedGeneration + 1),
+                    ControlChecksum = System.Collections.Immutable.ImmutableArray.CreateRange(new byte[32]),
+                    Accounting = new BaseActivationAccounting
+                    {
+                        Candidates = 0, Comparisons = 1, IndexOperations = 1,
+                        EvidenceBytes = 32, TransientBytes = 32, ReadIntervals = 0,
+                    },
+                    Disposition = BaseMutationRequestDisposition.Committed,
+                }, OperationStatus.Ok, null, null, null, null));
+        }
+        public ValueTask<BaseResult<BaseActivationTransitionResult>> ReconcileActivationAsync(BaseActivationAdministrationReconcileRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<BaseResult<BaseActivationTransitionResult>> DisposeActivationAsync(BaseActivationAdministrationDisposeRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }
 

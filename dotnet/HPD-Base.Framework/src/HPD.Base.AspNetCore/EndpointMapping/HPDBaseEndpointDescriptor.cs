@@ -77,6 +77,13 @@ public enum HPDBaseEndpointOperation
     SelectionMutation,
     /// <summary>Rotates one exported-subject authority epoch.</summary>
     SubjectEpochRotate
+    ,
+    /// <summary>Retries one exhausted durable activation.</summary>
+    ActivationRetry,
+    /// <summary>Reconciles one outcome-unknown external effect.</summary>
+    ActivationReconcile,
+    /// <summary>Disposes one retained terminal activation.</summary>
+    ActivationDispose
 }
 
 /// <summary>Describes one exact BASE HTTP endpoint.</summary>
@@ -169,4 +176,10 @@ public static class HPDBaseCapabilities
     public const string AdministrationBackupRestore = "base.admin.backup.restore";
     /// <summary>Rotates one exported-subject authority epoch.</summary>
     public const string AdministrationSubjectEpochRotate = "base.admin.subject.epoch.rotate";
+    /// <summary>Retries exhausted durable activations.</summary>
+    public const string ActivationRetry = "base.activation.retry";
+    /// <summary>Reconciles outcome-unknown external effects.</summary>
+    public const string ActivationReconcile = "base.activation.reconcile";
+    /// <summary>Disposes retained terminal activations.</summary>
+    public const string ActivationDispose = "base.activation.dispose";
 }

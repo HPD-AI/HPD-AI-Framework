@@ -51,6 +51,16 @@ public sealed class EndpointAudienceMappingTests
         application.Audience.Should().Be(HPDBaseEndpointAudience.Application);
         application.Capability.Should().Be(HPDBaseCapabilities.RecordsRead);
         records.Metadata.GetOrderedMetadata<IAuthorizeData>().Should().Contain(data => data.Policy == "test-application");
+
+        RouteEndpoint reconciliation = app.RouteEndpoints().Single(endpoint =>
+            endpoint.RoutePattern.RawText == "/base/control/activations/reconcile");
+        HPDBaseEndpointDescriptor control = reconciliation.Metadata.GetRequiredMetadata<HPDBaseEndpointDescriptor>();
+        control.EndpointId.Should().Be("base.activation.reconcile");
+        control.Audience.Should().Be(HPDBaseEndpointAudience.ControlPlane);
+        control.Operation.Should().Be(HPDBaseEndpointOperation.ActivationReconcile);
+        control.Capability.Should().Be(HPDBaseCapabilities.ActivationReconcile);
+        reconciliation.Metadata.GetOrderedMetadata<IAuthorizeData>()
+            .Should().Contain(data => data.Policy == "test-control-plane");
     }
 
     [Fact]
