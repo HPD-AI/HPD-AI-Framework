@@ -1082,7 +1082,10 @@ public sealed partial class SqliteRecordStore
                 BaseActivationCreateIntent item = extension.Items[ordinal];
                 if (item.Ordinal != ordinal || item.Definition.Version < 1 || item.Definition.Checksum.Length != 32
                     || item.InputChecksum.Length != 32 || item.CanonicalInput.IsDefault
-                    || item.RequestedDueAt < 0 || item.EffectiveDueAt is < 0)
+                    || item.RequestedDueAt < 0 || item.EffectiveDueAt is < 0 || item.Priority is < -32 or > 32
+                    || !Enum.IsDefined(item.OverlapPolicy)
+                    || !item.OverlapKey.IsDefaultOrEmpty && item.OverlapKey.Length != 32
+                    || item.OccurrenceId is { Length: > 256 })
                     return SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
                 byte[] idBytes = SHA256.HashData(extension.StructuralDigest
                     .Concat(BitConverter.GetBytes(ordinal).Reverse()).ToArray());
@@ -1842,7 +1845,7 @@ public sealed partial class SqliteRecordStore
                     {
                         await using SqliteCommand command = _connection.CreateCommand();
                         command.Transaction = _transaction;
-                        command.CommandText = $"INSERT INTO {_owner._names.Activations}(activation_id,definition_id,definition_version,definition_checksum,canonical_input,input_checksum,scope_kind,scope_value,scope_digest,payload_checksum,fingerprint,state,generation,requested_due_at,effective_due_at,control_checksum) VALUES($id,$definition,$version,$definition_checksum,$input,$input_checksum,$scope_kind,$scope_value,$scope_digest,$payload_checksum,$fingerprint,$state,1,$requested,$effective,$control_checksum);";
+                        command.CommandText = $"INSERT INTO {_owner._names.Activations}(activation_id,definition_id,definition_version,definition_checksum,canonical_input,input_checksum,scope_kind,scope_value,scope_digest,payload_checksum,fingerprint,state,generation,requested_due_at,effective_due_at,occurrence_id,priority,overlap_key,overlap_policy,eligible,control_checksum) VALUES($id,$definition,$version,$definition_checksum,$input,$input_checksum,$scope_kind,$scope_value,$scope_digest,$payload_checksum,$fingerprint,$state,1,$requested,$effective,$occurrence,$priority,$overlap_key,$overlap_policy,$eligible,$control_checksum);";
                         command.Parameters.AddWithValue("$id", preparedItem.ActivationId);
                         command.Parameters.AddWithValue("$definition", intentItem.Definition.Id);
                         command.Parameters.AddWithValue("$version", intentItem.Definition.Version);
@@ -1858,6 +1861,11 @@ public sealed partial class SqliteRecordStore
                         command.Parameters.AddWithValue("$state", (int)BaseActivationState.Pending);
                         command.Parameters.AddWithValue("$requested", intentItem.RequestedDueAt);
                         command.Parameters.AddWithValue("$effective", intentItem.EffectiveDueAt ?? intentItem.RequestedDueAt);
+                        command.Parameters.AddWithValue("$occurrence", (object?)intentItem.OccurrenceId ?? DBNull.Value);
+                        command.Parameters.AddWithValue("$priority", intentItem.Priority);
+                        command.Parameters.Add("$overlap_key", SqliteType.Blob).Value = intentItem.OverlapKey.IsDefaultOrEmpty ? DBNull.Value : intentItem.OverlapKey.ToArray();
+                        command.Parameters.AddWithValue("$overlap_policy", (int)intentItem.OverlapPolicy);
+                        command.Parameters.AddWithValue("$eligible", intentItem.InitiallyEligible ? 1 : 0);
                         command.Parameters.Add("$control_checksum", SqliteType.Blob).Value = preparedItem.ControlChecksum.ToArray();
                         if (await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) != 1)
                             return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
@@ -2124,6 +2132,10 @@ public sealed partial class SqliteRecordStore
             hash.AppendData(item.InputChecksum.AsSpan());
             hash.AppendData(BitConverter.GetBytes(item.RequestedDueAt).Reverse().ToArray());
             hash.AppendData(BitConverter.GetBytes(item.EffectiveDueAt ?? item.RequestedDueAt).Reverse().ToArray());
+            hash.AppendData(Encoding.UTF8.GetBytes(item.OccurrenceId ?? string.Empty));
+            hash.AppendData(BitConverter.GetBytes(item.Priority).Reverse().ToArray());
+            hash.AppendData(item.OverlapKey.IsDefaultOrEmpty ? [] : item.OverlapKey.AsSpan());
+            hash.AppendData([(byte)item.OverlapPolicy, item.InitiallyEligible ? (byte)1 : (byte)0]);
             hash.AppendData(Encoding.UTF8.GetBytes(item.Identity.IdempotencyKey));
             return hash.GetHashAndReset();
         }
@@ -2136,6 +2148,7 @@ public sealed partial class SqliteRecordStore
                 Definition = item.Definition with { Checksum = item.Definition.Checksum.ToArray().ToImmutableArray() },
                 CanonicalInput = item.CanonicalInput.ToArray().ToImmutableArray(),
                 InputChecksum = item.InputChecksum.ToArray().ToImmutableArray(),
+                OverlapKey = item.OverlapKey.IsDefault ? [] : item.OverlapKey.ToArray().ToImmutableArray(),
                 Scope = item.Scope with { },
             }).ToImmutableArray(),
         };

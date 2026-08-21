@@ -83,7 +83,7 @@ internal sealed partial class InMemoryRecordStore
                 state, request.Definitions, request.Scope, request.AcceptedTime.CapturedUtc, request.After);
             int inspected = Math.Min(eligible.Count, request.MaximumCandidates);
             InMemoryActivationRow? first = eligible.FirstOrDefault();
-            BaseActivationDueBoundary? boundary = first is null ? null : Boundary(first);
+            BaseActivationDueBoundary? boundary = first is null ? null : Boundary(first, request.AcceptedTime.CapturedUtc);
             byte[] token = DueToken(
                 state.ActivationIndexGeneration,
                 request.AcceptedTime.CapturedUtc,
@@ -235,7 +235,7 @@ internal sealed partial class InMemoryRecordStore
                 claim,
                 lease,
                 attempt,
-                [DueInterval(request.Worker.Scope, request.AcceptedTime.CapturedUtc, null, Boundary(mutable))],
+                [DueInterval(request.Worker.Scope, request.AcceptedTime.CapturedUtc, null, Boundary(mutable, request.AcceptedTime.CapturedUtc))],
                 EmptyActivationAccounting with { Candidates = 1, Comparisons = 1 }));
         }
         finally
@@ -598,7 +598,9 @@ internal sealed partial class InMemoryRecordStore
                             Checksum = payloadChecksum.ToImmutableArray() };
                         next.Activations.Add(activationId, new InMemoryActivationRow(payload, BaseActivationState.Pending, 1,
                             activation.RequestedDueAt, activation.EffectiveDueAt ?? activation.RequestedDueAt, fingerprint,
-                            ControlChecksum(activationId, 1, BaseActivationState.Pending)));
+                            ControlChecksum(activationId, 1, BaseActivationState.Pending), activation.OccurrenceId,
+                            activation.Priority, activation.OverlapKey.IsDefaultOrEmpty ? null : activation.OverlapKey.ToArray(),
+                            activation.OverlapPolicy, activation.InitiallyEligible));
                         next.ActivationIndexGeneration = checked(next.ActivationIndexGeneration + 1);
                     }
                 }
@@ -731,13 +733,24 @@ internal sealed partial class InMemoryRecordStore
             .Where(row => keys.TryGetValue($"{row.Payload.Definition.Id}\n{row.Payload.Definition.Version}", out BaseActivationDefinitionKey? key) &&
                 CryptographicOperations.FixedTimeEquals(key.Checksum.AsSpan(), row.Payload.Definition.Checksum.AsSpan()))
             .Where(row => ScopeMatches(row.Payload.Scope, scope))
+            .Where(static row => row.Eligible)
+            .Where(row => row.OverlapPolicy != BaseScheduleOverlapPolicy.Queue || !HasEarlierActiveOverlap(state, row))
             .Where(row => (row.State is BaseActivationState.Pending or BaseActivationState.RetryPending) ||
                 (row.State == BaseActivationState.Claimed && row.Lease is not null && row.Lease.LeaseExpiresAt <= acceptedNow))
             .Where(row => row.EffectiveDueAt <= acceptedNow)
-            .OrderBy(row => row.EffectiveDueAt)
-            .ThenBy(row => row.Payload.ActivationId, StringComparer.Ordinal)
-            .Where(row => after is null || Compare(Boundary(row), after) > 0)
+            .OrderBy(row => Boundary(row, acceptedNow), Comparer<BaseActivationDueBoundary>.Create(Compare))
+            .Where(row => after is null || Compare(Boundary(row, acceptedNow), after) > 0)
             .ToList();
+    }
+
+    private static bool HasEarlierActiveOverlap(InMemoryStoreState state, InMemoryActivationRow row)
+    {
+        if (row.OverlapKey is null) return false;
+        return state.Activations.Values.Any(other => !ReferenceEquals(other, row) && other.OverlapKey is not null &&
+            CryptographicOperations.FixedTimeEquals(other.OverlapKey, row.OverlapKey) &&
+            (other.State is BaseActivationState.Pending or BaseActivationState.RetryPending or BaseActivationState.Claimed) &&
+            (other.EffectiveDueAt < row.EffectiveDueAt || other.EffectiveDueAt == row.EffectiveDueAt &&
+                string.Compare(other.Payload.ActivationId, row.Payload.ActivationId, StringComparison.Ordinal) < 0));
     }
 
     private static bool ScopeMatches(BaseOwnedSubjectScopeEvidence scope, BaseOwnedScopeSeekAuthority authority) =>
@@ -746,10 +759,12 @@ internal sealed partial class InMemoryRecordStore
     private static byte[] ScopeDigest(BaseOwnedSubjectScopeEvidence scope) =>
         Hash($"base.activation.scope.v2\0{(int)scope.Kind}\n{scope.Value ?? string.Empty}");
 
-    private static BaseActivationDueBoundary Boundary(InMemoryActivationRow row) => new()
+    private static BaseActivationDueBoundary Boundary(InMemoryActivationRow row, long acceptedNow) => new()
     {
-        EffectiveAgedPriority = 0,
+        EffectiveAgedPriority = Math.Min(32, row.Priority + checked((int)Math.Min(int.MaxValue,
+            Math.Max(0, acceptedNow - row.EffectiveDueAt) / 60_000))),
         EffectiveDueAt = row.EffectiveDueAt,
+        OccurrenceId = row.OccurrenceId,
         ActivationId = row.Payload.ActivationId,
     };
 
@@ -768,7 +783,8 @@ internal sealed partial class InMemoryRecordStore
         InMemoryActivationRow? first = EligibleRows(
             state, request.Worker.Definitions, request.Worker.Scope, request.AcceptedTime.CapturedUtc, null).FirstOrDefault();
         return DueToken(state.ActivationIndexGeneration, request.AcceptedTime.CapturedUtc,
-            request.Worker.Scope.ProtectedIndexDigest.AsSpan(), request.Worker.Definitions, first is null ? null : Boundary(first));
+            request.Worker.Scope.ProtectedIndexDigest.AsSpan(), request.Worker.Definitions,
+            first is null ? null : Boundary(first, request.AcceptedTime.CapturedUtc));
     }
 
     private static byte[] DueToken(

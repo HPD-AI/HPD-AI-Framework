@@ -145,6 +145,14 @@ internal sealed class DefaultBaseScheduleRuntime(
         BaseActivationCreateIntent? activation = null;
         if (materialize)
         {
+            byte[] overlapKey = schedule.OverlapKeyKind switch
+            {
+                BaseScheduleOverlapKeyKind.Schedule => SHA256.HashData(Encoding.UTF8.GetBytes($"schedule\0{schedule.Id}\n{epoch}")),
+                BaseScheduleOverlapKeyKind.DefinitionScope => SHA256.HashData(Encoding.UTF8.GetBytes(
+                    $"definition-scope\0{target.Id}\n{target.Version}\n{(int)session.ActivationScope.Kind}\n{session.ActivationScope.Value ?? string.Empty}")),
+                BaseScheduleOverlapKeyKind.CanonicalConcurrencyKey => SHA256.HashData(schedule.ConcurrencyKey.AsSpan()),
+                _ => throw new InvalidOperationException("base.activation.scheduleInvalid"),
+            };
             byte[] fingerprint = SHA256.HashData(Encoding.UTF8.GetBytes(
                 $"base.activation.schedule.request.v2\0{occurrenceId}\n{target.Id}\n{target.Version}\n{effective}"));
             activation = new BaseActivationCreateIntent
@@ -156,6 +164,11 @@ internal sealed class DefaultBaseScheduleRuntime(
                 Scope = session.ActivationScope,
                 RequestedDueAt = nominal,
                 EffectiveDueAt = effective,
+                OccurrenceId = occurrenceId,
+                Priority = schedule.Priority,
+                OverlapKey = overlapKey.ToImmutableArray(),
+                OverlapPolicy = schedule.ActivationOverlapPolicy,
+                InitiallyEligible = schedule.ActivationOverlapPolicy != BaseScheduleOverlapPolicy.CancelPrevious,
                 Identity = BaseMutationRequestIdentity.Create(
                     $"schedule:{schedule.Id}:{epoch}", "materialize", occurrenceId,
                     BaseMutationRequestFingerprint.Create(fingerprint)),

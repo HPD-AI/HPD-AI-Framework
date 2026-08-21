@@ -73,7 +73,7 @@ public sealed partial class SqliteRecordStore
         List<SqliteActivationRow> rows = await ReadDueRowsAsync(connection, null, request.Definitions, request.Scope,
             request.AcceptedTime.CapturedUtc, request.After, request.MaximumCandidates, cancellationToken).ConfigureAwait(false);
         SqliteActivationRow? first = rows.FirstOrDefault();
-        BaseActivationDueBoundary? boundary = first is null ? null : ActivationBoundary(first);
+        BaseActivationDueBoundary? boundary = first is null ? null : ActivationBoundary(first, request.AcceptedTime.CapturedUtc);
         byte[] token = ActivationDueToken(generation, restoreEpoch, request.AcceptedTime.CapturedUtc,
             request.Scope.ProtectedIndexDigest.AsSpan(), request.Definitions, boundary);
         BaseAtomicReadIntervalEvidence interval = ActivationDueInterval(request.Scope, request.AcceptedTime.CapturedUtc, request.After, boundary);
@@ -204,7 +204,8 @@ public sealed partial class SqliteRecordStore
         };
         return OperationResults.Ok<BaseActivationClaimResult>(new BaseActivationClaimedResult(
             row.Payload(), claim, lease, attemptEvidence,
-            [ActivationDueInterval(request.Worker.Scope, request.AcceptedTime.CapturedUtc, null, ActivationBoundary(row))],
+            [ActivationDueInterval(request.Worker.Scope, request.AcceptedTime.CapturedUtc, null,
+                ActivationBoundary(row, request.AcceptedTime.CapturedUtc))],
             ActivationAccounting(1, 128)));
     }
 
@@ -521,12 +522,16 @@ public sealed partial class SqliteRecordStore
                 string activationId = ((BaseOccurrenceMaterialized)fact.Disposition).ActivationId;
                 byte[] fingerprint = SqliteScheduleActivationFingerprint(activation, fact.OccurrenceId);
                 await using SqliteCommand insert = connection.CreateCommand(); insert.Transaction = transaction;
-                insert.CommandText = $"INSERT INTO {_names.Activations}(activation_id,definition_id,definition_version,definition_checksum,canonical_input,input_checksum,scope_kind,scope_value,scope_digest,payload_checksum,fingerprint,state,generation,requested_due_at,effective_due_at,control_checksum) VALUES($id,$definition,$version,$definition_checksum,$input,$input_checksum,$scope_kind,$scope_value,$scope_digest,$payload_checksum,$fingerprint,$state,1,$requested,$effective,$control);";
+                insert.CommandText = $"INSERT INTO {_names.Activations}(activation_id,definition_id,definition_version,definition_checksum,canonical_input,input_checksum,scope_kind,scope_value,scope_digest,payload_checksum,fingerprint,state,generation,requested_due_at,effective_due_at,occurrence_id,priority,overlap_key,overlap_policy,eligible,control_checksum) VALUES($id,$definition,$version,$definition_checksum,$input,$input_checksum,$scope_kind,$scope_value,$scope_digest,$payload_checksum,$fingerprint,$state,1,$requested,$effective,$occurrence,$priority,$overlap_key,$overlap_policy,$eligible,$control);";
                 insert.Parameters.AddWithValue("$id", activationId); insert.Parameters.AddWithValue("$definition", activation.Definition.Id); insert.Parameters.AddWithValue("$version", activation.Definition.Version);
                 insert.Parameters.Add("$definition_checksum", SqliteType.Blob).Value = activation.Definition.Checksum.ToArray(); insert.Parameters.Add("$input", SqliteType.Blob).Value = activation.CanonicalInput.ToArray(); insert.Parameters.Add("$input_checksum", SqliteType.Blob).Value = activation.InputChecksum.ToArray();
                 insert.Parameters.AddWithValue("$scope_kind", (int)activation.Scope.Kind); insert.Parameters.AddWithValue("$scope_value", activation.Scope.Value ?? string.Empty); insert.Parameters.Add("$scope_digest", SqliteType.Blob).Value = ActivationHash($"base.activation.scope.v2\0{(int)activation.Scope.Kind}\n{activation.Scope.Value ?? string.Empty}");
                 insert.Parameters.Add("$payload_checksum", SqliteType.Blob).Value = SHA256.HashData(activation.CanonicalInput.AsSpan()); insert.Parameters.Add("$fingerprint", SqliteType.Blob).Value = fingerprint; insert.Parameters.AddWithValue("$state", (int)BaseActivationState.Pending);
-                insert.Parameters.AddWithValue("$requested", activation.RequestedDueAt); insert.Parameters.AddWithValue("$effective", activation.EffectiveDueAt ?? activation.RequestedDueAt); insert.Parameters.Add("$control", SqliteType.Blob).Value = ActivationControlChecksum(activationId, 1, BaseActivationState.Pending);
+                insert.Parameters.AddWithValue("$requested", activation.RequestedDueAt); insert.Parameters.AddWithValue("$effective", activation.EffectiveDueAt ?? activation.RequestedDueAt);
+                insert.Parameters.AddWithValue("$occurrence", (object?)activation.OccurrenceId ?? DBNull.Value); insert.Parameters.AddWithValue("$priority", activation.Priority);
+                insert.Parameters.Add("$overlap_key", SqliteType.Blob).Value = activation.OverlapKey.IsDefaultOrEmpty ? DBNull.Value : activation.OverlapKey.ToArray();
+                insert.Parameters.AddWithValue("$overlap_policy", (int)activation.OverlapPolicy); insert.Parameters.AddWithValue("$eligible", activation.InitiallyEligible ? 1 : 0);
+                insert.Parameters.Add("$control", SqliteType.Blob).Value = ActivationControlChecksum(activationId, 1, BaseActivationState.Pending);
                 try { await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false); }
                 catch (SqliteException exception) when (exception.SqliteErrorCode == 19)
                 { return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.fingerprintConflict", OperationStatus.Conflict, ErrorCategory.Conflict); }
@@ -755,11 +760,14 @@ public sealed partial class SqliteRecordStore
             command.Parameters.AddWithValue($"$version{i}", definitions[i].Version);
             command.Parameters.Add($"$checksum{i}", SqliteType.Blob).Value = definitions[i].Checksum.ToArray();
         }
-        command.CommandText = $"SELECT activation_id,definition_id,definition_version,definition_checksum,canonical_input,input_checksum,scope_kind,scope_value,payload_checksum,state,generation,requested_due_at,effective_due_at,control_checksum,attempt_number,claim_epoch,claim_fence,claim_worker,lease_revision,lease_expires_at FROM {_names.Activations} INDEXED BY {_names.Prefix}activation_due_idx WHERE scope_kind=$scope_kind AND scope_digest=$scope_digest AND ((state IN ($pending,$retry) AND effective_due_at<=$now) OR (state=$claimed AND lease_expires_at<=$now)) AND ({predicate}) AND ($after_due IS NULL OR effective_due_at>$after_due OR (effective_due_at=$after_due AND activation_id>$after_id)) ORDER BY effective_due_at,activation_id LIMIT $take;";
+        command.CommandText = $"SELECT activation_id,definition_id,definition_version,definition_checksum,canonical_input,input_checksum,scope_kind,scope_value,payload_checksum,state,generation,requested_due_at,effective_due_at,control_checksum,attempt_number,claim_epoch,claim_fence,claim_worker,lease_revision,lease_expires_at,occurrence_id,priority,overlap_key,overlap_policy,eligible FROM {_names.Activations} INDEXED BY {_names.Prefix}activation_due_idx WHERE scope_kind=$scope_kind AND scope_digest=$scope_digest AND eligible=1 AND ((state IN ($pending,$retry) AND effective_due_at<=$now) OR (state=$claimed AND lease_expires_at<=$now)) AND (overlap_policy<>$queue OR overlap_key IS NULL OR NOT EXISTS(SELECT 1 FROM {_names.Activations} b WHERE b.overlap_key={_names.Activations}.overlap_key AND b.activation_id<>{_names.Activations}.activation_id AND b.state IN ($pending,$retry,$claimed) AND (b.effective_due_at<{_names.Activations}.effective_due_at OR (b.effective_due_at={_names.Activations}.effective_due_at AND b.activation_id<{_names.Activations}.activation_id)))) AND ({predicate}) AND ($after_priority IS NULL OR MIN(32,priority+CAST(MAX(0,$now-effective_due_at)/60000 AS INTEGER))<$after_priority OR (MIN(32,priority+CAST(MAX(0,$now-effective_due_at)/60000 AS INTEGER))=$after_priority AND (effective_due_at>$after_due OR (effective_due_at=$after_due AND (COALESCE(occurrence_id,'')>$after_occurrence OR (COALESCE(occurrence_id,'')=$after_occurrence AND activation_id>$after_id)))))) ORDER BY MIN(32,priority+CAST(MAX(0,$now-effective_due_at)/60000 AS INTEGER)) DESC,effective_due_at,COALESCE(occurrence_id,''),activation_id LIMIT $take;";
         command.Parameters.AddWithValue("$scope_kind", (int)scope.Kind); command.Parameters.Add("$scope_digest", SqliteType.Blob).Value = scope.ProtectedIndexDigest.ToArray();
         command.Parameters.AddWithValue("$pending", (int)BaseActivationState.Pending); command.Parameters.AddWithValue("$retry", (int)BaseActivationState.RetryPending);
         command.Parameters.AddWithValue("$claimed", (int)BaseActivationState.Claimed); command.Parameters.AddWithValue("$now", now);
-        command.Parameters.AddWithValue("$after_due", (object?)after?.EffectiveDueAt ?? DBNull.Value); command.Parameters.AddWithValue("$after_id", after?.ActivationId ?? string.Empty);
+        command.Parameters.AddWithValue("$queue", (int)BaseScheduleOverlapPolicy.Queue);
+        command.Parameters.AddWithValue("$after_priority", (object?)after?.EffectiveAgedPriority ?? DBNull.Value);
+        command.Parameters.AddWithValue("$after_due", (object?)after?.EffectiveDueAt ?? DBNull.Value);
+        command.Parameters.AddWithValue("$after_occurrence", after?.OccurrenceId ?? string.Empty); command.Parameters.AddWithValue("$after_id", after?.ActivationId ?? string.Empty);
         command.Parameters.AddWithValue("$take", take);
         var result = new List<SqliteActivationRow>();
         await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -770,7 +778,7 @@ public sealed partial class SqliteRecordStore
     private async ValueTask<SqliteActivationRow?> ReadActivationAsync(SqliteConnection connection, SqliteTransaction transaction, string id, CancellationToken cancellationToken)
     {
         await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction;
-        command.CommandText = $"SELECT activation_id,definition_id,definition_version,definition_checksum,canonical_input,input_checksum,scope_kind,scope_value,payload_checksum,state,generation,requested_due_at,effective_due_at,control_checksum,attempt_number,claim_epoch,claim_fence,claim_worker,lease_revision,lease_expires_at FROM {_names.Activations} WHERE activation_id=$id;";
+        command.CommandText = $"SELECT activation_id,definition_id,definition_version,definition_checksum,canonical_input,input_checksum,scope_kind,scope_value,payload_checksum,state,generation,requested_due_at,effective_due_at,control_checksum,attempt_number,claim_epoch,claim_fence,claim_worker,lease_revision,lease_expires_at,occurrence_id,priority,overlap_key,overlap_policy,eligible FROM {_names.Activations} WHERE activation_id=$id;";
         command.Parameters.AddWithValue("$id", id);
         await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? ReadActivationRow(reader) : null;
@@ -781,7 +789,9 @@ public sealed partial class SqliteRecordStore
         (BaseSubjectScopeKind)reader.GetInt32(6), reader.GetString(7), (byte[])reader[8], (BaseActivationState)reader.GetInt32(9),
         reader.GetInt64(10), reader.GetInt64(11), reader.GetInt64(12), (byte[])reader[13], reader.GetInt32(14), reader.GetInt64(15),
         reader.IsDBNull(16) ? null : (byte[])reader[16], reader.IsDBNull(17) ? null : reader.GetString(17),
-        reader.IsDBNull(18) ? null : reader.GetInt64(18), reader.IsDBNull(19) ? null : reader.GetInt64(19));
+        reader.IsDBNull(18) ? null : reader.GetInt64(18), reader.IsDBNull(19) ? null : reader.GetInt64(19),
+        reader.IsDBNull(20) ? null : reader.GetString(20), reader.GetInt32(21), reader.IsDBNull(22) ? null : (byte[])reader[22],
+        (BaseScheduleOverlapPolicy)reader.GetInt32(23), reader.GetInt32(24) == 1);
 
     private async ValueTask<(long Generation, long RestoreEpoch)> ReadActivationAuthorityAsync(SqliteConnection connection, SqliteTransaction? transaction, CancellationToken cancellationToken)
     {
@@ -814,8 +824,11 @@ public sealed partial class SqliteRecordStore
         row.ClaimFence is not null && row.ClaimWorker == claim.WorkerIdentity &&
         CryptographicOperations.FixedTimeEquals(row.ClaimFence, claim.FencingToken.AsSpan());
 
-    private static BaseActivationDueBoundary ActivationBoundary(SqliteActivationRow row) => new()
-    { EffectiveAgedPriority = 0, EffectiveDueAt = row.EffectiveDueAt, ActivationId = row.ActivationId };
+    private static BaseActivationDueBoundary ActivationBoundary(SqliteActivationRow row, long now) => new()
+    {
+        EffectiveAgedPriority = Math.Min(32, row.Priority + checked((int)Math.Min(int.MaxValue, Math.Max(0, now - row.EffectiveDueAt) / 60_000))),
+        EffectiveDueAt = row.EffectiveDueAt, OccurrenceId = row.OccurrenceId, ActivationId = row.ActivationId,
+    };
 
     private static byte[] ActivationDueToken(long generation, long restoreEpoch, long now, ReadOnlySpan<byte> scope,
         ImmutableArray<BaseActivationDefinitionKey> definitions, BaseActivationDueBoundary? first)
@@ -856,7 +869,8 @@ public sealed partial class SqliteRecordStore
         string ActivationId, string DefinitionId, int DefinitionVersion, byte[] DefinitionChecksum, byte[] CanonicalInput,
         byte[] InputChecksum, BaseSubjectScopeKind ScopeKind, string ScopeValue, byte[] PayloadChecksum,
         BaseActivationState State, long Generation, long RequestedDueAt, long EffectiveDueAt, byte[] ControlChecksum,
-        int AttemptNumber, long ClaimEpoch, byte[]? ClaimFence, string? ClaimWorker, long? LeaseRevision, long? LeaseExpiresAt)
+        int AttemptNumber, long ClaimEpoch, byte[]? ClaimFence, string? ClaimWorker, long? LeaseRevision, long? LeaseExpiresAt,
+        string? OccurrenceId, int Priority, byte[]? OverlapKey, BaseScheduleOverlapPolicy OverlapPolicy, bool Eligible)
     {
         internal BaseActivationPayload Payload() => new()
         {

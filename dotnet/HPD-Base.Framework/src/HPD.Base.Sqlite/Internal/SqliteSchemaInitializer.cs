@@ -264,6 +264,11 @@ CREATE TABLE IF NOT EXISTS {_names.Activations} (
   generation INTEGER NOT NULL CHECK(generation > 0),
   requested_due_at INTEGER NOT NULL CHECK(requested_due_at >= 0),
   effective_due_at INTEGER NOT NULL CHECK(effective_due_at >= 0),
+  occurrence_id TEXT NULL,
+  priority INTEGER NOT NULL CHECK(priority BETWEEN -32 AND 32),
+  overlap_key BLOB NULL CHECK(overlap_key IS NULL OR length(overlap_key)=32),
+  overlap_policy INTEGER NOT NULL,
+  eligible INTEGER NOT NULL CHECK(eligible IN (0,1)),
   control_checksum BLOB NOT NULL CHECK(length(control_checksum) = 32),
   attempt_number INTEGER NOT NULL DEFAULT 0 CHECK(attempt_number >= 0),
   claim_epoch INTEGER NOT NULL DEFAULT 0 CHECK(claim_epoch >= 0),
@@ -273,7 +278,7 @@ CREATE TABLE IF NOT EXISTS {_names.Activations} (
   lease_expires_at INTEGER NULL,
   canonical_result BLOB NULL
 ) WITHOUT ROWID;
-CREATE INDEX IF NOT EXISTS {_names.Prefix}activation_due_idx ON {_names.Activations}(scope_kind,scope_digest,state,effective_due_at,activation_id);
+CREATE INDEX IF NOT EXISTS {_names.Prefix}activation_due_idx ON {_names.Activations}(scope_kind,scope_digest,eligible,state,priority,effective_due_at,occurrence_id,activation_id);
 CREATE TABLE IF NOT EXISTS {_names.Executors} (
   application_id TEXT NOT NULL, host_id TEXT NOT NULL, process_incarnation_id TEXT NOT NULL,
   executor_generation INTEGER NOT NULL CHECK(executor_generation > 0),
@@ -626,6 +631,11 @@ CREATE TABLE IF NOT EXISTS {_names.Activations} (
   generation INTEGER NOT NULL CHECK(generation > 0),
   requested_due_at INTEGER NOT NULL CHECK(requested_due_at >= 0),
   effective_due_at INTEGER NOT NULL CHECK(effective_due_at >= 0),
+  occurrence_id TEXT NULL,
+  priority INTEGER NOT NULL CHECK(priority BETWEEN -32 AND 32),
+  overlap_key BLOB NULL CHECK(overlap_key IS NULL OR length(overlap_key)=32),
+  overlap_policy INTEGER NOT NULL,
+  eligible INTEGER NOT NULL CHECK(eligible IN (0,1)),
   control_checksum BLOB NOT NULL CHECK(length(control_checksum) = 32),
   attempt_number INTEGER NOT NULL DEFAULT 0 CHECK(attempt_number >= 0),
   claim_epoch INTEGER NOT NULL DEFAULT 0 CHECK(claim_epoch >= 0),
@@ -635,7 +645,7 @@ CREATE TABLE IF NOT EXISTS {_names.Activations} (
   lease_expires_at INTEGER NULL,
   canonical_result BLOB NULL
 ) WITHOUT ROWID;
-CREATE INDEX IF NOT EXISTS {_names.Prefix}activation_due_idx ON {_names.Activations}(scope_kind,scope_digest,state,effective_due_at,activation_id);
+CREATE INDEX IF NOT EXISTS {_names.Prefix}activation_due_idx ON {_names.Activations}(scope_kind,scope_digest,eligible,state,priority,effective_due_at,occurrence_id,activation_id);
 CREATE TABLE IF NOT EXISTS {_names.Executors} (
   application_id TEXT NOT NULL, host_id TEXT NOT NULL, process_incarnation_id TEXT NOT NULL,
   executor_generation INTEGER NOT NULL CHECK(executor_generation > 0),

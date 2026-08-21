@@ -2749,7 +2749,10 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 BaseActivationCreateIntent item = extension.Items[ordinal];
                 if (item.Ordinal != ordinal || item.Definition.Version < 1 || item.Definition.Checksum.Length != 32
                     || item.InputChecksum.Length != 32 || item.CanonicalInput.IsDefault
-                    || item.EffectiveDueAt is < 0 || item.RequestedDueAt < 0)
+                    || item.EffectiveDueAt is < 0 || item.RequestedDueAt < 0 || item.Priority is < -32 or > 32
+                    || !Enum.IsDefined(item.OverlapPolicy)
+                    || !item.OverlapKey.IsDefaultOrEmpty && item.OverlapKey.Length != 32
+                    || item.OccurrenceId is { Length: > 256 })
                     return SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
 
                 byte[] idBytes = SHA256.HashData(extension.StructuralDigest
@@ -3335,6 +3338,10 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             hash.AppendData(item.InputChecksum.AsSpan());
             hash.AppendData(BitConverter.GetBytes(item.RequestedDueAt).Reverse().ToArray());
             hash.AppendData(BitConverter.GetBytes(item.EffectiveDueAt ?? item.RequestedDueAt).Reverse().ToArray());
+            hash.AppendData(Encoding.UTF8.GetBytes(item.OccurrenceId ?? string.Empty));
+            hash.AppendData(BitConverter.GetBytes(item.Priority).Reverse().ToArray());
+            hash.AppendData(item.OverlapKey.IsDefaultOrEmpty ? [] : item.OverlapKey.AsSpan());
+            hash.AppendData([(byte)item.OverlapPolicy, item.InitiallyEligible ? (byte)1 : (byte)0]);
             hash.AppendData(Encoding.UTF8.GetBytes(item.Identity.IdempotencyKey));
             return hash.GetHashAndReset();
         }
@@ -3347,6 +3354,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 Definition = item.Definition with { Checksum = item.Definition.Checksum.ToArray().ToImmutableArray() },
                 CanonicalInput = item.CanonicalInput.ToArray().ToImmutableArray(),
                 InputChecksum = item.InputChecksum.ToArray().ToImmutableArray(),
+                OverlapKey = item.OverlapKey.IsDefault ? [] : item.OverlapKey.ToArray().ToImmutableArray(),
                 Scope = item.Scope with { },
             }).ToImmutableArray(),
         };
@@ -3720,7 +3728,12 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                             intentItem.RequestedDueAt,
                             intentItem.EffectiveDueAt ?? intentItem.RequestedDueAt,
                             fingerprint,
-                            preparedItem.ControlChecksum.ToArray()));
+                            preparedItem.ControlChecksum.ToArray(),
+                            intentItem.OccurrenceId,
+                            intentItem.Priority,
+                            intentItem.OverlapKey.IsDefaultOrEmpty ? null : intentItem.OverlapKey.ToArray(),
+                            intentItem.OverlapPolicy,
+                            intentItem.InitiallyEligible));
                         _working.ActivationIndexGeneration = checked(_working.ActivationIndexGeneration + 1);
                     }
                     byte[] itemChecksum = SHA256.HashData(Encoding.UTF8.GetBytes(

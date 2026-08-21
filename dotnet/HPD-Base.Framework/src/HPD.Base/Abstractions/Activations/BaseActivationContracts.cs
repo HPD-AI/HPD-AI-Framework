@@ -181,6 +181,16 @@ public sealed record BaseActivationCreateIntent
     public required long RequestedDueAt { get; init; }
     /// <summary>Gets the effective due instant after deterministic scheduling policy.</summary>
     public long? EffectiveDueAt { get; init; }
+    /// <summary>Gets the immutable schedule occurrence identity when scheduled.</summary>
+    public string? OccurrenceId { get; init; }
+    /// <summary>Gets declared priority in the closed -32..32 range.</summary>
+    public int Priority { get; init; }
+    /// <summary>Gets the canonical overlap-key digest; empty means no overlap group.</summary>
+    public ImmutableArray<byte> OverlapKey { get; init; }
+    /// <summary>Gets the schedule overlap policy.</summary>
+    public BaseScheduleOverlapPolicy OverlapPolicy { get; init; } = BaseScheduleOverlapPolicy.Allow;
+    /// <summary>Gets whether the activation may enter the due index immediately.</summary>
+    public bool InitiallyEligible { get; init; } = true;
     /// <summary>Gets the identified request that owns duplicate resolution.</summary>
     public required BaseMutationRequestIdentity Identity { get; init; }
 }
