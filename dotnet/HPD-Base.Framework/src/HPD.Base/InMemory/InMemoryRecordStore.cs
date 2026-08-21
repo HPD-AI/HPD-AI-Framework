@@ -2495,6 +2495,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         private Dictionary<int, BaseSubjectIncarnation>? _preparedLifecycleIncarnations;
         private Dictionary<int, string>? _capturedModuleGenerationKeys;
         private BaseModuleMutationCaptureExtension? _capturedModuleExtension;
+        private BaseActivationCreationExtension? _capturedActivationExtension;
         public ValueTask<OperationResult<BaseSelectionMutationCommitAccounting>> MeasureSelectionMutationAsync(
             BaseAtomicReceiptResult receipt, BaseSelectionMutationResult result, CancellationToken cancellationToken = default)
         {
@@ -2551,6 +2552,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             ArgumentNullException.ThrowIfNull(request);
             BaseAtomicMutationIntent intent = request.Intent;
             BaseAtomicMutationExecutionLimits limits = request.Limits;
+            if (request.Kind == BaseAtomicMutationExecutionKind.ActivationCreation)
+                return ValueTask.FromResult(CaptureActivationAuthority(request, token));
             if (request.Kind == BaseAtomicMutationExecutionKind.SelectionMutation)
                 return ValueTask.FromResult(CaptureSelectionAuthority(request, token));
             if (request.Kind == BaseAtomicMutationExecutionKind.ModuleMutation)
@@ -2678,6 +2681,102 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             };
             return ValueTask.FromResult(OperationResults.Ok(_capturedMutation));
         });
+
+        private OperationResult<BaseCapturedAtomicExecution> CaptureActivationAuthority(
+            BaseAtomicExecutionRequest request,
+            CancellationToken cancellationToken)
+        {
+            BaseAtomicMutationIntent intent = request.Intent;
+            BaseActivationCreationExtension? extension = request.Activations;
+            if (_capturedMutation is not null || extension is null || request.Selection is not null
+                || request.Module is not null || request.ActivationGuard is not null
+                || !intent.Items.IsDefaultOrEmpty || extension.Items.IsDefaultOrEmpty
+                || extension.Items.Length > request.Limits.MaximumItems
+                || extension.StructuralDigest.Length != 32
+                || !string.Equals(intent.Authority.StoreInstanceId, _owner._options.StoreId, StringComparison.Ordinal)
+                || intent.Authority.RestoreEpoch != 0 || intent.Authority.SchemaGeneration != 1
+                || !intent.Authority.Collections.IsDefaultOrEmpty)
+                return SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
+
+            var items = ImmutableArray.CreateBuilder<BaseCapturedActivationItem>(extension.Items.Length);
+            var intervals = ImmutableArray.CreateBuilder<BaseAtomicReadIntervalEvidence>(extension.Items.Length);
+            using var aggregate = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            aggregate.AppendData(extension.StructuralDigest.AsSpan());
+            long selectedBytes = 0;
+            for (int ordinal = 0; ordinal < extension.Items.Length; ordinal++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                BaseActivationCreateIntent item = extension.Items[ordinal];
+                if (item.Ordinal != ordinal || item.Definition.Version < 1 || item.Definition.Checksum.Length != 32
+                    || item.InputChecksum.Length != 32 || item.CanonicalInput.IsDefault
+                    || item.EffectiveDueAt is < 0 || item.RequestedDueAt < 0)
+                    return SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
+
+                byte[] idBytes = SHA256.HashData(extension.StructuralDigest
+                    .Concat(BitConverter.GetBytes(ordinal).Reverse()).ToArray());
+                string activationId = Convert.ToHexStringLower(idBytes);
+                byte[] fingerprint = ActivationFingerprint(item);
+                _working.Activations.TryGetValue(activationId, out InMemoryActivationRow? existing);
+                if (existing is not null && !CryptographicOperations.FixedTimeEquals(existing.Fingerprint, fingerprint))
+                    return SubjectFailure<BaseCapturedAtomicExecution>("base.activation.fingerprintConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+
+                byte[] key = Encoding.UTF8.GetBytes(activationId);
+                intervals.Add(ExactInterval("base.activation.byId", key));
+                aggregate.AppendData(key);
+                aggregate.AppendData(fingerprint);
+                selectedBytes = checked(selectedBytes + item.CanonicalInput.Length + fingerprint.Length);
+                items.Add(new BaseCapturedActivationItem
+                {
+                    Ordinal = ordinal,
+                    ActivationId = activationId,
+                    Exists = existing is not null,
+                    ExistingFingerprint = existing is null ? [] : existing.Fingerprint.ToImmutableArray(),
+                });
+            }
+
+            ImmutableArray<BaseAtomicReadIntervalEvidence> ownedIntervals = intervals.MoveToImmutable();
+            long evidenceBytes = BaseSubjectCanonicalRetainedWork.MeasureIntervals(ownedIntervals);
+            long transientBytes = checked(selectedBytes + evidenceBytes);
+            if (selectedBytes > request.Limits.MaximumSelectedBytes
+                || evidenceBytes > request.Limits.MaximumEvidenceBytes
+                || transientBytes > request.Limits.MaximumTransientBytes
+                || ownedIntervals.Length > request.Limits.MaximumReadIntervals)
+                return SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectErrorCodes.BudgetExceeded, OperationStatus.ValidationFailed, ErrorCategory.Validation);
+
+            BaseCapturedActivationExtension capturedActivations = new()
+            {
+                Items = items.MoveToImmutable(),
+                ReadIntervals = ownedIntervals,
+                Checksum = aggregate.GetHashAndReset().ToImmutableArray(),
+            };
+            _capturedActivationExtension = FreezeActivationExtension(extension);
+            _capturedMutation = new BaseCapturedAtomicExecution
+            {
+                Kind = request.Kind,
+                IntentDigest = new string(intent.IntentDigest.AsSpan()),
+                CaptureDigest = Convert.ToHexStringLower(capturedActivations.Checksum.AsSpan()),
+                Authority = new BaseAtomicMutationAuthorityEvidence
+                {
+                    ApplicationId = intent.Authority.ApplicationId,
+                    StoreInstanceId = _owner._options.StoreId,
+                    RestoreEpoch = 0,
+                    SchemaGeneration = 1,
+                    Collections = [],
+                    Isolation = BaseAtomicSelectionIsolationClass.OptimisticRangeValidatedSerializable,
+                    TransactionEvidenceToken = BitConverter.GetBytes(_working.GlobalMutationPosition).ToImmutableArray(),
+                },
+                Items = [], ModuleRecords = [], ModuleRelationTargets = [], Generations = [],
+                Activations = capturedActivations,
+                ReadIntervals = ownedIntervals,
+                Accounting = new BaseAtomicCaptureAccounting
+                {
+                    Records = 0, RelationTargetReads = 0, GenerationReads = 0,
+                    SelectedBytes = selectedBytes, RelationTargetBytes = 0, GenerationBytes = 0,
+                    ReadIntervals = ownedIntervals.Length, EvidenceBytes = evidenceBytes, TransientBytes = transientBytes,
+                },
+            };
+            return OperationResults.Ok(_capturedMutation);
+        }
 
         private ValueTask<OperationResult<BaseCapturedAtomicExecution>> CaptureModuleAuthority(
             BaseAtomicExecutionRequest request,
@@ -2826,9 +2925,43 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 !string.Equals(plan.CaptureDigest, captured.CaptureDigest, StringComparison.Ordinal) ||
                 (plan.Kind == BaseAtomicMutationExecutionKind.ModuleMutation
                     ? plan.Module is null || captured.Items.Length != 0
-                    : plan.Items.Length != captured.Items.Length))
+                    : plan.Items.Length != captured.Items.Length)
+                || (plan.Kind == BaseAtomicMutationExecutionKind.ActivationCreation
+                    && (plan.Activations is null || captured.Activations is null
+                        || _capturedActivationExtension is null || !plan.Items.IsDefaultOrEmpty)))
                 return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
             var preparedGenerations = ImmutableArray.CreateBuilder<BasePreparedModuleGenerationEvidence>(captured.Generations.Length);
+            BasePreparedActivationExtension? preparedActivations = null;
+            if (plan.Kind == BaseAtomicMutationExecutionKind.ActivationCreation)
+            {
+                if (!ActivationExtensionsMatch(plan.Activations!, _capturedActivationExtension!, captured.Activations!))
+                    return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
+                var activationItems = ImmutableArray.CreateBuilder<BasePreparedActivationItem>(captured.Activations!.Items.Length);
+                using var activationDigest = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+                for (int ordinal = 0; ordinal < captured.Activations.Items.Length; ordinal++)
+                {
+                    BaseCapturedActivationItem capturedItem = captured.Activations.Items[ordinal];
+                    BaseActivationCreateIntent intentItem = plan.Activations!.Items[ordinal];
+                    byte[] payloadChecksum = SHA256.HashData(intentItem.CanonicalInput.AsSpan());
+                    byte[] controlChecksum = SHA256.HashData(Encoding.UTF8.GetBytes(
+                        $"{capturedItem.ActivationId}\n1\n{intentItem.EffectiveDueAt ?? intentItem.RequestedDueAt}"));
+                    activationDigest.AppendData(payloadChecksum);
+                    activationDigest.AppendData(controlChecksum);
+                    activationItems.Add(new BasePreparedActivationItem
+                    {
+                        Ordinal = ordinal,
+                        ActivationId = capturedItem.ActivationId,
+                        ResultingGeneration = 1,
+                        PayloadChecksum = payloadChecksum.ToImmutableArray(),
+                        ControlChecksum = controlChecksum.ToImmutableArray(),
+                    });
+                }
+                preparedActivations = new BasePreparedActivationExtension
+                {
+                    Items = activationItems.MoveToImmutable(),
+                    Checksum = activationDigest.GetHashAndReset().ToImmutableArray(),
+                };
+            }
             if (plan.Kind == BaseAtomicMutationExecutionKind.ModuleMutation)
             {
                 if (captured.Accounting.GenerationReads > plan.Limits.MaximumGenerationReads
@@ -3089,6 +3222,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     }).ToImmutableArray()
                     : captured.Items.Select(static item => item.Disposition).ToImmutableArray(),
                 Generations = preparedGenerations.MoveToImmutable(),
+                Activations = preparedActivations,
                 SubjectOverlay = overlays.Values.OrderBy(static value => value.ContractId, StringComparer.Ordinal).ThenBy(static value => value.ContractVersion).ThenBy(static value => value.SubjectId.Value, StringComparer.Ordinal).ToImmutableArray(),
                 SubjectValidations = validationEvidence.MoveToImmutable(),
                 ReadIntervals = intervals.MoveToImmutable(),
@@ -3145,6 +3279,59 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
 
         private static string CaptureRecordKey(string collectionId, RecordId recordId) =>
             collectionId + "\n" + recordId.Value;
+
+        private static byte[] ActivationFingerprint(BaseActivationCreateIntent item)
+        {
+            using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            hash.AppendData(Encoding.UTF8.GetBytes("base.activation.create.v1\0"));
+            hash.AppendData(Encoding.UTF8.GetBytes(item.Definition.Id));
+            hash.AppendData(BitConverter.GetBytes(item.Definition.Version).Reverse().ToArray());
+            hash.AppendData(item.Definition.Checksum.AsSpan());
+            hash.AppendData(item.InputChecksum.AsSpan());
+            hash.AppendData(BitConverter.GetBytes(item.RequestedDueAt).Reverse().ToArray());
+            hash.AppendData(BitConverter.GetBytes(item.EffectiveDueAt ?? item.RequestedDueAt).Reverse().ToArray());
+            hash.AppendData(Encoding.UTF8.GetBytes(item.Identity.IdempotencyKey));
+            return hash.GetHashAndReset();
+        }
+
+        private static BaseActivationCreationExtension FreezeActivationExtension(BaseActivationCreationExtension source) => new()
+        {
+            StructuralDigest = source.StructuralDigest.ToArray().ToImmutableArray(),
+            Items = source.Items.Select(static item => item with
+            {
+                Definition = item.Definition with { Checksum = item.Definition.Checksum.ToArray().ToImmutableArray() },
+                CanonicalInput = item.CanonicalInput.ToArray().ToImmutableArray(),
+                InputChecksum = item.InputChecksum.ToArray().ToImmutableArray(),
+                Scope = item.Scope with { },
+            }).ToImmutableArray(),
+        };
+
+        private static bool ActivationExtensionsMatch(
+            BaseActivationCreationExtension plan,
+            BaseActivationCreationExtension capturedRequest,
+            BaseCapturedActivationExtension captured)
+        {
+            if (!plan.StructuralDigest.AsSpan().SequenceEqual(capturedRequest.StructuralDigest.AsSpan())
+                || plan.Items.Length != capturedRequest.Items.Length
+                || plan.Items.Length != captured.Items.Length)
+                return false;
+            for (int ordinal = 0; ordinal < plan.Items.Length; ordinal++)
+            {
+                BaseActivationCreateIntent left = plan.Items[ordinal];
+                BaseActivationCreateIntent right = capturedRequest.Items[ordinal];
+                if (left.Ordinal != ordinal || right.Ordinal != ordinal
+                    || !string.Equals(left.Definition.Id, right.Definition.Id, StringComparison.Ordinal)
+                    || left.Definition.Version != right.Definition.Version
+                    || !left.Definition.Checksum.AsSpan().SequenceEqual(right.Definition.Checksum.AsSpan())
+                    || !left.CanonicalInput.AsSpan().SequenceEqual(right.CanonicalInput.AsSpan())
+                    || !left.InputChecksum.AsSpan().SequenceEqual(right.InputChecksum.AsSpan())
+                    || left.RequestedDueAt != right.RequestedDueAt || left.EffectiveDueAt != right.EffectiveDueAt
+                    || !Equals(left.Scope, right.Scope) || !Equals(left.Identity, right.Identity)
+                    || captured.Items[ordinal].Ordinal != ordinal)
+                    return false;
+            }
+            return true;
+        }
 
         private static bool AuthorityCollectionsMatch(
             ImmutableArray<BaseCollectionGenerationRequirement> requirements,
@@ -3452,6 +3639,62 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 _capturedModuleGenerationKeys = null;
             }
 
+            BaseProvisionalActivationExtension? provisionalActivations = null;
+            if (plan.Kind == BaseAtomicMutationExecutionKind.ActivationCreation)
+            {
+                if (prepared.Activations is null || plan.Activations is null || _capturedActivationExtension is null
+                    || prepared.Activations.Items.Length != plan.Activations.Items.Length)
+                    return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                var appliedActivations = ImmutableArray.CreateBuilder<BaseProvisionalActivationItem>(prepared.Activations.Items.Length);
+                using var aggregate = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+                for (int ordinal = 0; ordinal < prepared.Activations.Items.Length; ordinal++)
+                {
+                    BasePreparedActivationItem preparedItem = prepared.Activations.Items[ordinal];
+                    BaseActivationCreateIntent intentItem = plan.Activations.Items[ordinal];
+                    byte[] fingerprint = ActivationFingerprint(intentItem);
+                    if (_working.Activations.TryGetValue(preparedItem.ActivationId, out InMemoryActivationRow? existing))
+                    {
+                        if (!CryptographicOperations.FixedTimeEquals(existing.Fingerprint, fingerprint))
+                            return SubjectFailure<BaseProvisionalAtomicExecution>("base.activation.fingerprintConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+                    }
+                    else
+                    {
+                        var payload = new BaseActivationPayload
+                        {
+                            ActivationId = preparedItem.ActivationId,
+                            Definition = intentItem.Definition with { Checksum = intentItem.Definition.Checksum.ToArray().ToImmutableArray() },
+                            CanonicalInput = intentItem.CanonicalInput.ToArray().ToImmutableArray(),
+                            InputChecksum = intentItem.InputChecksum.ToArray().ToImmutableArray(),
+                            Checksum = preparedItem.PayloadChecksum.ToArray().ToImmutableArray(),
+                        };
+                        _working.Activations.Add(preparedItem.ActivationId, new InMemoryActivationRow(
+                            payload,
+                            BaseActivationState.Pending,
+                            1,
+                            intentItem.RequestedDueAt,
+                            intentItem.EffectiveDueAt ?? intentItem.RequestedDueAt,
+                            fingerprint,
+                            preparedItem.ControlChecksum.ToArray()));
+                    }
+                    byte[] itemChecksum = SHA256.HashData(Encoding.UTF8.GetBytes(
+                        $"{preparedItem.ActivationId}\n{preparedItem.ResultingGeneration}"));
+                    aggregate.AppendData(itemChecksum);
+                    appliedActivations.Add(new BaseProvisionalActivationItem
+                    {
+                        Ordinal = ordinal,
+                        ActivationId = preparedItem.ActivationId,
+                        Generation = preparedItem.ResultingGeneration,
+                        Checksum = itemChecksum.ToImmutableArray(),
+                    });
+                }
+                provisionalActivations = new BaseProvisionalActivationExtension
+                {
+                    Items = appliedActivations.MoveToImmutable(),
+                    Checksum = aggregate.GetHashAndReset().ToImmutableArray(),
+                };
+                _capturedActivationExtension = null;
+            }
+
             BaseRecordMutationFact[] materialized = facts.Select(static fact => fact.MaterializeOwned()).ToArray();
             if (_owner._vectorProjection is { } projection)
             {
@@ -3482,6 +3725,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 Authority = prepared.Authority with { },
                 Facts = facts.MoveToImmutable(),
                 Generations = generations,
+                Activations = provisionalActivations,
                 Accounting = new BaseProvisionalAtomicMutationAccounting
                 {
                     WrittenBytes = writtenBytes,

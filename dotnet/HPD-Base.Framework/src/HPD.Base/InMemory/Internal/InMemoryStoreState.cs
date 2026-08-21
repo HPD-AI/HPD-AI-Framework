@@ -44,6 +44,8 @@ internal sealed class InMemoryStoreState
     public List<BaseSubjectRetirementPublicationRow> SubjectRetirementPublications { get; } = [];
     /// <summary>Gets module-owned generation cells by canonical scoped key.</summary>
     public Dictionary<string, long> ModuleGenerations { get; } = new(StringComparer.Ordinal);
+    /// <summary>Gets durable activation rows by deterministic activation identity.</summary>
+    public Dictionary<string, InMemoryActivationRow> Activations { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets the shared record/control mutation journal by append position.</summary>
     public SortedDictionary<long, BaseMutationJournalEntry> MutationJournal { get; } = [];
 
@@ -103,6 +105,8 @@ internal sealed class InMemoryStoreState
         }));
         foreach ((string key, long generation) in ModuleGenerations)
             clone.ModuleGenerations.Add(key, generation);
+        foreach ((string key, InMemoryActivationRow activation) in Activations)
+            clone.Activations.Add(key, activation.DeepClone());
         foreach ((long position, BaseMutationJournalEntry entry) in MutationJournal)
             clone.MutationJournal.Add(position, CloneJournalEntry(entry));
 
@@ -141,6 +145,31 @@ internal sealed class InMemoryStoreState
         Payload = snapshot.Payload is null ? null : RecordCloneHelpers.ClonePayload(snapshot.Payload),
         Metadata = snapshot.Metadata is null ? null : RecordCloneHelpers.CloneMetadata(snapshot.Metadata),
     };
+}
+
+internal sealed record InMemoryActivationRow(
+    BaseActivationPayload Payload,
+    BaseActivationState State,
+    long Generation,
+    long RequestedDueAt,
+    long EffectiveDueAt,
+    byte[] Fingerprint,
+    byte[] ControlChecksum)
+{
+    internal InMemoryActivationRow DeepClone() => new(
+        Payload with
+        {
+            Definition = Payload.Definition with { Checksum = Payload.Definition.Checksum.ToArray().ToImmutableArray() },
+            CanonicalInput = Payload.CanonicalInput.ToArray().ToImmutableArray(),
+            InputChecksum = Payload.InputChecksum.ToArray().ToImmutableArray(),
+            Checksum = Payload.Checksum.ToArray().ToImmutableArray(),
+        },
+        State,
+        Generation,
+        RequestedDueAt,
+        EffectiveDueAt,
+        [.. Fingerprint],
+        [.. ControlChecksum]);
 }
 
 internal sealed record InMemorySubjectContractState(
