@@ -10,7 +10,8 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
     IBasePolicyOrchestrator policy,
     BaseActivationAcceptedTimeAuthority acceptedTime,
     BaseActivationRegistry definitions,
-    BaseModuleMutationRegistry moduleMutations) : IBaseActivationWorkerRuntime
+    BaseModuleMutationRegistry moduleMutations,
+    BaseActivationProviderExecutionGate providerGate) : IBaseActivationWorkerRuntime
 {
     private readonly SemaphoreSlim _executorGate = new(1, 1);
     private readonly string _hostId = Environment.MachineName.Normalize(NormalizationForm.FormC);
@@ -21,7 +22,15 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
         IRecordStoreRegistry stores,
         IBasePolicyOrchestrator policy,
         BaseActivationAcceptedTimeAuthority acceptedTime)
-        : this(stores, policy, acceptedTime, new BaseActivationRegistry([]), new BaseModuleMutationRegistry([], [])) { }
+        : this(stores, policy, acceptedTime, new BaseActivationRegistry([]), new BaseModuleMutationRegistry([], []), new BaseActivationProviderExecutionGate()) { }
+
+    internal DefaultBaseActivationWorkerRuntime(
+        IRecordStoreRegistry stores,
+        IBasePolicyOrchestrator policy,
+        BaseActivationAcceptedTimeAuthority acceptedTime,
+        BaseActivationRegistry definitions,
+        BaseModuleMutationRegistry moduleMutations)
+        : this(stores, policy, acceptedTime, definitions, moduleMutations, new BaseActivationProviderExecutionGate()) { }
 
     public async ValueTask<OperationResult<BaseActivationDispatchResult>> ExecuteTransactionalAsync(
         BaseSession session,
@@ -40,7 +49,8 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
         if (provider is null)
             return Failure<BaseActivationDispatchResult>(OperationStatus.Unsupported, "base.activation.capabilityUnavailable", ErrorCategory.Unsupported);
         BaseAcceptedTimeReceipt now = acceptedTime.Capture(session.ApplicationId);
-        OperationResult<BaseTransactionalActivationCandidate> read = await provider.ReadTransactionalCandidateAsync(
+        OperationResult<BaseTransactionalActivationCandidate> read = await CallAsync(
+            token => provider.ReadTransactionalCandidateAsync(
             new BaseTransactionalActivationCandidateRequest
             {
                 ApplicationId = session.ApplicationId,
@@ -54,7 +64,7 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
                 Scope = authority.Value.Scope,
                 AcceptedTime = now,
                 Limits = definition.Limits.Provider,
-            }, cancellationToken).ConfigureAwait(false);
+            }, token), definition.Limits.Provider, cancellationToken).ConfigureAwait(false);
         if (!read.IsSuccess() || read.Value is null)
             return CopyFailure<BaseActivationDispatchResult, BaseTransactionalActivationCandidate>(read);
         BaseTransactionalActivationCandidate candidate = read.Value;
@@ -178,7 +188,7 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
         long heartbeat = checked((long)Math.Max(
             definition.Limits.LeaseDuration.TotalMilliseconds,
             definition.Limits.HandlerTimeout.TotalMilliseconds + 10_000d));
-        return await provider.TransitionAsync(new BaseActivationBeginEffectRequest
+        return await CallAsync(token => provider.TransitionAsync(new BaseActivationBeginEffectRequest
         {
             ActivationId = claim.ActivationId,
             Claim = claim,
@@ -188,7 +198,7 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
             Identity = identity,
             AcceptedTime = acceptedTime.Capture(session.ApplicationId),
             Limits = definition.Limits.Provider,
-        }, cancellationToken).ConfigureAwait(false);
+        }, token), definition.Limits.Provider, cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask<OperationResult<BaseActivationTransitionResult>> CompleteEffectAsync(
@@ -205,7 +215,7 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
         IBaseActivationProvider? provider = ResolveProvider();
         return provider is null
             ? Failure<BaseActivationTransitionResult>(OperationStatus.Unsupported, "base.activation.capabilityUnavailable", ErrorCategory.Unsupported)
-            : await provider.TransitionAsync(new BaseActivationCompleteEffectRequest
+            : await CallAsync(token => provider.TransitionAsync(new BaseActivationCompleteEffectRequest
             {
                 ActivationId = effect.Claim.ActivationId,
                 Effect = effect,
@@ -214,7 +224,7 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
                 Identity = identity,
                 AcceptedTime = acceptedTime.Capture(session.ApplicationId),
                 Limits = definition.Limits.Provider,
-            }, cancellationToken).ConfigureAwait(false);
+            }, token), definition.Limits.Provider, cancellationToken).ConfigureAwait(false);
     }
 
     private async ValueTask<OperationResult<BaseExecutorRegistrationResult>> EnsureExecutorAsync(
@@ -233,7 +243,7 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
             {
                 BaseMutationRequestIdentity heartbeatIdentity = ExecutorIdentity(
                     "executor-heartbeat", _executor.Executor.Checksum.AsSpan(), _executor.Heartbeat.HeartbeatRevision + 1);
-                OperationResult<BaseExecutorHeartbeatResult> heartbeat = await provider.HeartbeatExecutorAsync(new BaseExecutorHeartbeatRequest
+                OperationResult<BaseExecutorHeartbeatResult> heartbeat = await CallAsync(token => provider.HeartbeatExecutorAsync(new BaseExecutorHeartbeatRequest
                 {
                     Executor = _executor.Executor,
                     ExpectedHeartbeatRevision = _executor.Heartbeat.HeartbeatRevision,
@@ -241,7 +251,7 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
                     AcceptedTime = acceptedTime.Capture(applicationId),
                     Identity = heartbeatIdentity,
                     Limits = definition.Limits.Provider,
-                }, cancellationToken).ConfigureAwait(false);
+                }, token), definition.Limits.Provider, cancellationToken).ConfigureAwait(false);
                 if (heartbeat.IsSuccess() && heartbeat.Value is not null)
                 {
                     _executor = new BaseExecutorRegistrationResult
@@ -256,7 +266,7 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
                 return CopyFailure<BaseExecutorRegistrationResult, BaseExecutorHeartbeatResult>(heartbeat);
             }
             ImmutableArray<byte> workerSetChecksum = WorkerSetChecksum();
-            OperationResult<BaseExecutorRegistrationResult> registered = await provider.RegisterExecutorAsync(new BaseExecutorRegistrationRequest
+            OperationResult<BaseExecutorRegistrationResult> registered = await CallAsync(token => provider.RegisterExecutorAsync(new BaseExecutorRegistrationRequest
             {
                 ApplicationId = applicationId,
                 HostId = _hostId,
@@ -266,7 +276,7 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
                 AcceptedTime = acceptedTime.Capture(applicationId),
                 Identity = ExecutorIdentity("executor-register", workerSetChecksum.AsSpan(), 1),
                 Limits = definition.Limits.Provider,
-            }, cancellationToken).ConfigureAwait(false);
+            }, token), definition.Limits.Provider, cancellationToken).ConfigureAwait(false);
             if (registered.IsSuccess() && registered.Value is not null) _executor = registered.Value;
             return registered;
         }
@@ -312,7 +322,7 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
         IBaseActivationProvider? provider = ResolveProvider();
         if (provider is null)
             return Failure<BaseActivationDueObservation>(OperationStatus.Unsupported, "base.activation.capabilityUnavailable", ErrorCategory.Unsupported);
-        OperationResult<BaseActivationDueObservation> result = await provider.ObserveDueAsync(new BaseActivationDueObservationRequest
+        OperationResult<BaseActivationDueObservation> result = await CallAsync(token => provider.ObserveDueAsync(new BaseActivationDueObservationRequest
         {
             ApplicationId = session.ApplicationId,
             WorkerModuleId = definition.OwningModuleId,
@@ -321,7 +331,7 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
             AcceptedTime = acceptedTime.Capture(session.ApplicationId),
             MaximumCandidates = Math.Min(1, definition.Limits.Provider.MaximumCandidates),
             Limits = definition.Limits.Provider,
-        }, cancellationToken).ConfigureAwait(false);
+        }, token), definition.Limits.Provider, cancellationToken).ConfigureAwait(false);
         return ValidateObservation(result, definition.Limits.Provider);
     }
 
@@ -344,7 +354,7 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
         IBaseActivationProvider? provider = ResolveProvider();
         if (provider is null)
             return Failure<BaseActivationClaimResult>(OperationStatus.Unsupported, "base.activation.capabilityUnavailable", ErrorCategory.Unsupported);
-        OperationResult<BaseActivationClaimResult> result = await provider.TryClaimNextAsync(new BaseActivationClaimRequest
+        OperationResult<BaseActivationClaimResult> result = await CallAsync(token => provider.TryClaimNextAsync(new BaseActivationClaimRequest
         {
             Observation = observation,
             Worker = authority.Value,
@@ -352,7 +362,7 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
             LeaseMilliseconds = checked((long)definition.Limits.LeaseDuration.TotalMilliseconds),
             Identity = identity,
             Limits = definition.Limits.Provider,
-        }, cancellationToken).ConfigureAwait(false);
+        }, token), definition.Limits.Provider, cancellationToken).ConfigureAwait(false);
         return ValidateClaim(result, definition, authority.Value);
     }
 
@@ -370,7 +380,7 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
         IBaseActivationProvider? provider = ResolveProvider();
         if (provider is null)
             return Failure<BaseActivationRenewResult>(OperationStatus.Unsupported, "base.activation.capabilityUnavailable", ErrorCategory.Unsupported);
-        OperationResult<BaseActivationRenewResult> result = await provider.RenewAsync(new BaseActivationRenewRequest
+        OperationResult<BaseActivationRenewResult> result = await CallAsync(token => provider.RenewAsync(new BaseActivationRenewRequest
         {
             Claim = claim,
             ExpectedLeaseRevision = lease.LeaseRevision,
@@ -378,7 +388,7 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
             ExtensionMilliseconds = checked((long)definition.Limits.LeaseDuration.TotalMilliseconds),
             Identity = identity,
             Limits = definition.Limits.Provider,
-        }, cancellationToken).ConfigureAwait(false);
+        }, token), definition.Limits.Provider, cancellationToken).ConfigureAwait(false);
         if (!result.IsSuccess() || result.Value is null) return result;
         return ClaimsEqual(result.Value.Claim, claim) && result.Value.Lease.LeaseRevision == checked(lease.LeaseRevision + 1)
             ? result
@@ -454,7 +464,24 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
         IBaseActivationProvider? provider = ResolveProvider();
         return provider is null
             ? Failure<BaseActivationTransitionResult>(OperationStatus.Unsupported, "base.activation.capabilityUnavailable", ErrorCategory.Unsupported)
-            : await provider.TransitionAsync(request, cancellationToken).ConfigureAwait(false);
+            : await CallAsync(token => provider.TransitionAsync(request, token), definition.Limits.Provider, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask<OperationResult<T>> CallAsync<T>(
+        Func<CancellationToken, ValueTask<OperationResult<T>>> call,
+        BaseActivationExecutionLimits limits,
+        CancellationToken cancellationToken)
+    {
+        BaseActivationProviderCallResult<OperationResult<T>> result = await providerGate.ExecuteAsync(
+            call, limits.AcquisitionTimeout, limits.TransactionTimeout, cancellationToken).ConfigureAwait(false);
+        return result.Outcome switch
+        {
+            BaseActivationProviderCallOutcome.Completed when result.Value is not null => result.Value,
+            BaseActivationProviderCallOutcome.Cancelled => Failure<T>(OperationStatus.Cancelled, "base.activation.cancelled", ErrorCategory.Store),
+            BaseActivationProviderCallOutcome.TimedOut => Failure<T>(OperationStatus.StoreError, "base.activation.timeout", ErrorCategory.Store),
+            BaseActivationProviderCallOutcome.Capacity => Failure<T>(OperationStatus.StoreError, "base.activation.quarantined", ErrorCategory.Store),
+            _ => Failure<T>(OperationStatus.StoreError, "base.activation.storeError", ErrorCategory.Store),
+        };
     }
 
     private async ValueTask<OperationResult<BaseActivationWorkerAuthority>> AuthorizeAsync(

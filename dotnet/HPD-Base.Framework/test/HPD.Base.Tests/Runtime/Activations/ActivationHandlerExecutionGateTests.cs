@@ -19,4 +19,23 @@ public sealed class ActivationHandlerExecutionGateTests
         await Task.Delay(10);
         gate.RetainedCount.Should().Be(0);
     }
+
+    [Fact]
+    public async Task Noncooperative_provider_retains_capacity_until_late_completion()
+    {
+        await using var gate = new BaseActivationProviderExecutionGate();
+        var completion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        BaseActivationProviderCallResult<string> result = await gate.ExecuteAsync(
+            _ => new ValueTask<string>(completion.Task),
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromMilliseconds(10),
+            default);
+
+        result.Outcome.Should().Be(BaseActivationProviderCallOutcome.TimedOut);
+        gate.RetainedCount.Should().Be(1);
+        completion.SetResult("late");
+        await Task.Delay(10);
+        gate.RetainedCount.Should().Be(0);
+    }
 }

@@ -9,8 +9,15 @@ internal sealed class DefaultBaseScheduleRuntime(
     IBasePolicyOrchestrator policy,
     BaseActivationAcceptedTimeAuthority acceptedTime,
     BaseActivationRegistry activations,
-    BaseTimeZoneRegistry timeZones) : IBaseScheduleRuntime
+    BaseTimeZoneRegistry timeZones,
+    BaseActivationProviderExecutionGate providerGate) : IBaseScheduleRuntime
 {
+    internal DefaultBaseScheduleRuntime(
+        IRecordStoreRegistry stores, IBasePolicyOrchestrator policy,
+        BaseActivationAcceptedTimeAuthority acceptedTime, BaseActivationRegistry activations,
+        BaseTimeZoneRegistry timeZones)
+        : this(stores, policy, acceptedTime, activations, timeZones, new BaseActivationProviderExecutionGate()) { }
+
     public async ValueTask<OperationResult<BaseScheduleAuthority>> ReadAsync(
         BaseSession session, BaseScheduleDefinition definition, CancellationToken cancellationToken)
     {
@@ -18,7 +25,8 @@ internal sealed class DefaultBaseScheduleRuntime(
             session, definition, definition.ManageGrantId, BaseOperationKind.ScheduleMutation, cancellationToken).ConfigureAwait(false);
         if (!provider.IsSuccess() || provider.Value is null)
             return CopyFailure<BaseScheduleAuthority, IBaseActivationProvider>(provider);
-        return await provider.Value.ReadScheduleAsync(definition.Id, definition.Version, cancellationToken).ConfigureAwait(false);
+        return await CallAsync(token => provider.Value.ReadScheduleAsync(
+            definition.Id, definition.Version, token), Target(definition).Limits.Provider, cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask<OperationResult<BaseScheduleMutationResult>> MutateAsync(
@@ -31,7 +39,7 @@ internal sealed class DefaultBaseScheduleRuntime(
         if (!provider.IsSuccess() || provider.Value is null)
             return CopyFailure<BaseScheduleMutationResult, IBaseActivationProvider>(provider);
         BaseActivationDefinition target = Target(definition);
-        return await provider.Value.MutateScheduleAsync(new BaseScheduleMutationRequest
+        return await CallAsync(token => provider.Value.MutateScheduleAsync(new BaseScheduleMutationRequest
         {
             Kind = kind,
             Definition = BaseScheduleDefinitionBuilder.Create(definition),
@@ -42,7 +50,7 @@ internal sealed class DefaultBaseScheduleRuntime(
             AcceptedTime = acceptedTime.Capture(session.ApplicationId),
             Identity = identity,
             Limits = target.Limits.Provider,
-        }, cancellationToken).ConfigureAwait(false);
+        }, token), target.Limits.Provider, cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask<OperationResult<BaseScheduleMaintenancePage>> AdvanceAsync(
@@ -54,14 +62,14 @@ internal sealed class DefaultBaseScheduleRuntime(
             session, definition, definition.MaterializeGrantId, BaseOperationKind.ScheduleMaterialization, cancellationToken).ConfigureAwait(false);
         if (!provider.IsSuccess() || provider.Value is null)
             return CopyFailure<BaseScheduleMaintenancePage, IBaseActivationProvider>(provider);
-        OperationResult<BaseScheduleAuthority> current = await provider.Value
-            .ReadScheduleAsync(definition.Id, definition.Version, cancellationToken).ConfigureAwait(false);
+        BaseActivationDefinition target = Target(definition);
+        OperationResult<BaseScheduleAuthority> current = await CallAsync(token => provider.Value
+            .ReadScheduleAsync(definition.Id, definition.Version, token), target.Limits.Provider, cancellationToken).ConfigureAwait(false);
         if (!current.IsSuccess() || current.Value is null)
             return CopyFailure<BaseScheduleMaintenancePage, BaseScheduleAuthority>(current);
         if (!CryptographicOperations.FixedTimeEquals(current.Value.Definition.Checksum.AsSpan(), definition.Checksum.AsSpan()))
             return Failure<BaseScheduleMaintenancePage>(OperationStatus.Conflict, "base.activation.scheduleChanged", ErrorCategory.Conflict);
 
-        BaseActivationDefinition target = Target(definition);
         BaseAcceptedTimeReceipt time = acceptedTime.Capture(session.ApplicationId);
         if (!current.Value.Enabled || current.Value.NextNominal is null || current.Value.NextNominal > time.CapturedUtc)
             return OperationResults.Ok(new BaseScheduleMaintenancePage
@@ -101,7 +109,7 @@ internal sealed class DefaultBaseScheduleRuntime(
             proposals.Add(Proposal(session, definition, target, current.Value.ScheduleEpoch, nominal[index], overlapOrdinal, materialize));
         }
 
-        OperationResult<BaseScheduleMaintenancePage> advanced = await provider.Value.AdvanceSchedulesAsync(new BaseScheduleMaintenanceRequest
+        OperationResult<BaseScheduleMaintenancePage> advanced = await CallAsync(token => provider.Value.AdvanceSchedulesAsync(new BaseScheduleMaintenanceRequest
         {
             ScheduleId = definition.Id,
             ScheduleVersion = definition.Version,
@@ -112,7 +120,7 @@ internal sealed class DefaultBaseScheduleRuntime(
             AcceptedTime = time,
             Identity = identity,
             Limits = target.Limits.Provider,
-        }, cancellationToken).ConfigureAwait(false);
+        }, token), target.Limits.Provider, cancellationToken).ConfigureAwait(false);
         if (!advanced.IsSuccess() || advanced.Value is null) return advanced;
         foreach (BaseScheduleCancellationAuthority cancellation in advanced.Value.Cancellations)
         {
@@ -121,7 +129,7 @@ internal sealed class DefaultBaseScheduleRuntime(
             {
                 byte[] fingerprint = SHA256.HashData(Encoding.UTF8.GetBytes(
                     $"base.activation.schedule.cancelPrevious.page.v2\0{cancellation.MaintenanceId}\n{page}\n{after?.EffectiveDueAt}\n{after?.ActivationId}"));
-                OperationResult<BaseScheduleCancellationMaintenancePage> result = await provider.Value.AdvanceScheduleCancellationAsync(
+                OperationResult<BaseScheduleCancellationMaintenancePage> result = await CallAsync(token => provider.Value.AdvanceScheduleCancellationAsync(
                     new BaseScheduleCancellationMaintenanceRequest
                     {
                         MaintenanceId = cancellation.MaintenanceId,
@@ -134,7 +142,7 @@ internal sealed class DefaultBaseScheduleRuntime(
                             $"schedule:{definition.Id}:{advanced.Value.Authority.ScheduleEpoch}", "cancel-previous", $"{cancellation.MaintenanceId}:{page}",
                             BaseMutationRequestFingerprint.Create(fingerprint)),
                         Limits = target.Limits.Provider,
-                    }, cancellationToken).ConfigureAwait(false);
+                    }, token), target.Limits.Provider, cancellationToken).ConfigureAwait(false);
                 if (!result.IsSuccess() || result.Value is null)
                     return CopyFailure<BaseScheduleMaintenancePage, BaseScheduleCancellationMaintenancePage>(result);
                 if (result.Value.Completed) break;
@@ -142,6 +150,23 @@ internal sealed class DefaultBaseScheduleRuntime(
             }
         }
         return advanced;
+    }
+
+    private async ValueTask<OperationResult<T>> CallAsync<T>(
+        Func<CancellationToken, ValueTask<OperationResult<T>>> call,
+        BaseActivationExecutionLimits limits,
+        CancellationToken cancellationToken)
+    {
+        BaseActivationProviderCallResult<OperationResult<T>> result = await providerGate.ExecuteAsync(
+            call, limits.AcquisitionTimeout, limits.TransactionTimeout, cancellationToken).ConfigureAwait(false);
+        return result.Outcome switch
+        {
+            BaseActivationProviderCallOutcome.Completed when result.Value is not null => result.Value,
+            BaseActivationProviderCallOutcome.Cancelled => Failure<T>(OperationStatus.Cancelled, "base.activation.cancelled", ErrorCategory.Store),
+            BaseActivationProviderCallOutcome.TimedOut => Failure<T>(OperationStatus.StoreError, "base.activation.timeout", ErrorCategory.Store),
+            BaseActivationProviderCallOutcome.Capacity => Failure<T>(OperationStatus.StoreError, "base.activation.quarantined", ErrorCategory.Store),
+            _ => Failure<T>(OperationStatus.StoreError, "base.activation.storeError", ErrorCategory.Store),
+        };
     }
 
     private BaseActivationDefinition Target(BaseScheduleDefinition definition) =>
