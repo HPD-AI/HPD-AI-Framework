@@ -257,6 +257,59 @@ internal sealed partial class InMemoryRecordStore
     }
 
     /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseTransactionalActivationCandidate>> ReadTransactionalCandidateAsync(
+        BaseTransactionalActivationCandidateRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!AcceptActivationTime(request.AcceptedTime) || !ValidateLimits(request.Limits))
+            return ActivationFailure<BaseTransactionalActivationCandidate>(
+                "base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+
+        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            InMemoryStoreState state = Volatile.Read(ref _publishedState);
+            if (DecodeDueGeneration(request.Observation.Value.AsSpan()) != state.ActivationIndexGeneration)
+                return ActivationFailure<BaseTransactionalActivationCandidate>(
+                    "base.activation.claimUnavailable", OperationStatus.Conflict, ErrorCategory.Conflict);
+            ImmutableArray<BaseActivationDefinitionKey> definitions = [request.Definition];
+            InMemoryActivationRow? row = EligibleRows(
+                state, definitions, request.Scope, request.AcceptedTime.CapturedUtc, null).FirstOrDefault();
+            if (row is null)
+                return ActivationFailure<BaseTransactionalActivationCandidate>(
+                    "base.activation.notDue", OperationStatus.Conflict, ErrorCategory.Conflict);
+            BaseActivationDueBoundary boundary = Boundary(row, request.AcceptedTime.CapturedUtc);
+            BaseAtomicReadIntervalEvidence interval = DueInterval(request.Scope, request.AcceptedTime.CapturedUtc, null, boundary);
+            long evidenceBytes = checked(row.Payload.CanonicalInput.Length + row.ControlChecksum.Length + IntervalBytes(interval));
+            if (evidenceBytes > request.Limits.MaximumEvidenceBytes || row.Payload.CanonicalInput.Length > request.Limits.MaximumInputBytes)
+                return ActivationFailure<BaseTransactionalActivationCandidate>(
+                    "base.activation.budgetExceeded", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+            return OperationResults.Ok(new BaseTransactionalActivationCandidate
+            {
+                Payload = row.Payload.DeepClone(),
+                ActivationGeneration = row.Generation,
+                AcceptedAt = request.AcceptedTime.CapturedUtc,
+                ControlChecksum = row.ControlChecksum.ToImmutableArray(),
+                ReadIntervals = [interval],
+                Accounting = new BaseActivationAccounting
+                {
+                    Candidates = 1,
+                    Comparisons = 1,
+                    IndexOperations = 1,
+                    ReadIntervals = 1,
+                    EvidenceBytes = evidenceBytes,
+                    TransientBytes = evidenceBytes,
+                },
+            });
+        }
+        finally
+        {
+            _stateGate.Release();
+        }
+    }
+
+    /// <inheritdoc />
     public async ValueTask<OperationResult<BaseActivationRenewResult>> RenewAsync(
         BaseActivationRenewRequest request,
         CancellationToken cancellationToken = default)

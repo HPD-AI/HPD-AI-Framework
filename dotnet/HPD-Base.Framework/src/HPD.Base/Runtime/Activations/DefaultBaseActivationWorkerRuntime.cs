@@ -9,7 +9,8 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
     IRecordStoreRegistry stores,
     IBasePolicyOrchestrator policy,
     BaseActivationAcceptedTimeAuthority acceptedTime,
-    BaseActivationRegistry definitions) : IBaseActivationWorkerRuntime
+    BaseActivationRegistry definitions,
+    BaseModuleMutationRegistry moduleMutations) : IBaseActivationWorkerRuntime
 {
     private readonly SemaphoreSlim _executorGate = new(1, 1);
     private readonly string _hostId = Environment.MachineName.Normalize(NormalizationForm.FormC);
@@ -20,7 +21,69 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
         IRecordStoreRegistry stores,
         IBasePolicyOrchestrator policy,
         BaseActivationAcceptedTimeAuthority acceptedTime)
-        : this(stores, policy, acceptedTime, new BaseActivationRegistry([])) { }
+        : this(stores, policy, acceptedTime, new BaseActivationRegistry([]), new BaseModuleMutationRegistry([], [])) { }
+
+    public async ValueTask<OperationResult<BaseActivationDispatchResult>> ExecuteTransactionalAsync(
+        BaseSession session,
+        BaseActivationDefinition definition,
+        BaseDueObservationToken observation,
+        CancellationToken cancellationToken)
+    {
+        if (definition.ExecutionClass != BaseActivationExecutionClass.TransactionalOperation
+            || definition.TransactionalTarget is not BaseModuleMutationActivationTarget target)
+            return Failure<BaseActivationDispatchResult>(OperationStatus.Unsupported, "base.activation.capabilityUnavailable", ErrorCategory.Unsupported);
+        OperationResult<BaseActivationWorkerAuthority> authority = await AuthorizeAsync(
+            session, definition, definition.Grants.Execute, BaseOperationKind.ActivationTransition, cancellationToken).ConfigureAwait(false);
+        if (!authority.IsSuccess() || authority.Value is null)
+            return CopyFailure<BaseActivationDispatchResult, BaseActivationWorkerAuthority>(authority);
+        IBaseActivationProvider? provider = ResolveProvider();
+        if (provider is null)
+            return Failure<BaseActivationDispatchResult>(OperationStatus.Unsupported, "base.activation.capabilityUnavailable", ErrorCategory.Unsupported);
+        BaseAcceptedTimeReceipt now = acceptedTime.Capture(session.ApplicationId);
+        OperationResult<BaseTransactionalActivationCandidate> read = await provider.ReadTransactionalCandidateAsync(
+            new BaseTransactionalActivationCandidateRequest
+            {
+                ApplicationId = session.ApplicationId,
+                Definition = new BaseActivationDefinitionKey
+                {
+                    Id = definition.Id,
+                    Version = definition.Version,
+                    Checksum = definition.Checksum.ToArray().ToImmutableArray(),
+                },
+                Observation = observation,
+                Scope = authority.Value.Scope,
+                AcceptedTime = now,
+                Limits = definition.Limits.Provider,
+            }, cancellationToken).ConfigureAwait(false);
+        if (!read.IsSuccess() || read.Value is null)
+            return CopyFailure<BaseActivationDispatchResult, BaseTransactionalActivationCandidate>(read);
+        BaseTransactionalActivationCandidate candidate = read.Value;
+        if (!CandidateMatches(candidate, definition, now.CapturedUtc))
+            return Failure<BaseActivationDispatchResult>(OperationStatus.StoreError, "base.activation.providerContractInvalid", ErrorCategory.Store);
+        IBaseModuleMutationRegistration? registration = moduleMutations.FindRegistration(target.OperationId, target.OperationVersion);
+        if (registration is null || !string.Equals(
+                Convert.ToHexStringLower(moduleMutations.Find(target.OperationId, target.OperationVersion)?.Checksum.ToArray() ?? []),
+                target.OperationChecksum, StringComparison.Ordinal))
+            return Failure<BaseActivationDispatchResult>(OperationStatus.Unsupported, "base.activation.handlerVersionUnavailable", ErrorCategory.Capability);
+        byte[] fingerprint = SHA256.HashData(Encoding.UTF8.GetBytes(
+            $"base.activation.transactional.v1\0{candidate.Payload.ActivationId}\0{target.OperationId}\0{target.OperationVersion}\0{target.OperationChecksum}\0{Convert.ToHexString(candidate.Payload.InputChecksum.AsSpan())}"));
+        BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create(
+            $"activation:{definition.Id}:{definition.Version}",
+            "transactional-target",
+            candidate.Payload.ActivationId,
+            BaseMutationRequestFingerprint.Create(fingerprint));
+        BaseResult<BaseUntypedModuleMutationExecutionResult> executed = await registration.ExecuteTransactionalAsync(
+            session, candidate.Payload.CanonicalInput.AsMemory(), identity, candidate, cancellationToken).ConfigureAwait(false);
+        if (executed is BaseFailure<BaseUntypedModuleMutationExecutionResult> failed)
+            return new OperationResult<BaseActivationDispatchResult>
+            { Status = failed.Status, Error = failed.Error, Warnings = failed.Warnings, Diagnostics = failed.Diagnostics };
+        return OperationResults.Ok(new BaseActivationDispatchResult
+        {
+            Empty = false,
+            ActivationId = candidate.Payload.ActivationId,
+            State = BaseActivationState.Succeeded,
+        });
+    }
 
     public async ValueTask<OperationResult> AuthorizeExecutionAsync(
         BaseSession session,
@@ -425,6 +488,25 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
             worker.Definitions.Length == 1;
         return valid ? result : Failure<BaseActivationClaimResult>(OperationStatus.StoreError, "base.activation.providerContractInvalid", ErrorCategory.Store);
     }
+
+    private static bool CandidateMatches(
+        BaseTransactionalActivationCandidate candidate,
+        BaseActivationDefinition definition,
+        long acceptedAt) =>
+        candidate.ActivationGeneration > 0 && candidate.AcceptedAt == acceptedAt
+        && candidate.Payload.Definition.Id == definition.Id
+        && candidate.Payload.Definition.Version == definition.Version
+        && CryptographicOperations.FixedTimeEquals(
+            candidate.Payload.Definition.Checksum.AsSpan(), definition.Checksum.AsSpan())
+        && candidate.Payload.InputChecksum.Length == SHA256.HashSizeInBytes
+        && CryptographicOperations.FixedTimeEquals(
+            SHA256.HashData(candidate.Payload.CanonicalInput.AsSpan()), candidate.Payload.InputChecksum.AsSpan())
+        && candidate.ControlChecksum.Length == SHA256.HashSizeInBytes
+        && candidate.ReadIntervals.Length is > 0
+        && candidate.ReadIntervals.Length <= definition.Limits.Provider.MaximumReadIntervals
+        && candidate.Accounting.Candidates == 1
+        && candidate.Accounting.EvidenceBytes <= definition.Limits.Provider.MaximumEvidenceBytes
+        && candidate.Accounting.TransientBytes <= definition.Limits.Provider.MaximumTransientBytes;
 
     private static BaseOwnedScopeSeekAuthority Scope(BaseOwnedSubjectScopeEvidence scope) => new()
     {

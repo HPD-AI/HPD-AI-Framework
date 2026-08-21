@@ -20,6 +20,8 @@ public enum BaseAtomicReceiptResultKind
     SubjectRetirement,
     /// <summary>One atomic durable-activation creation result.</summary>
     ActivationCreation,
+    /// <summary>One handler-free activation target and terminal transition committed together.</summary>
+    ActivationTransactionalOperation,
 }
 
 /// <summary>Stores the closed durable result of atomic activation creation.</summary>
@@ -27,6 +29,29 @@ public sealed record BaseActivationCreationReceiptResult
 {
     /// <summary>Gets created activation identities in request order.</summary>
     public required ImmutableArray<string> ActivationIds { get; init; }
+}
+
+/// <summary>Stores one handler-free target result under the outer activation receipt authority.</summary>
+public sealed record BaseActivationTransactionalReceiptResult
+{
+    /// <summary>Gets the terminal activation identity.</summary>
+    public required string ActivationId { get; init; }
+    /// <summary>Gets the resulting activation generation.</summary>
+    public required long ActivationGeneration { get; init; }
+    /// <summary>Gets the installed target kind.</summary>
+    public required string TargetKind { get; init; }
+    /// <summary>Gets the installed target identity.</summary>
+    public required string TargetId { get; init; }
+    /// <summary>Gets the installed target version.</summary>
+    public required int TargetVersion { get; init; }
+    /// <summary>Gets the installed target checksum.</summary>
+    public required string TargetChecksum { get; init; }
+    /// <summary>Gets target-owned generation evidence without a separately resolvable receipt.</summary>
+    public required ImmutableArray<BaseModuleCommittedGeneration> Generations { get; init; }
+    /// <summary>Gets the exact graph-owned canonical target result bytes.</summary>
+    public required ImmutableArray<byte> CanonicalResultBytes { get; init; }
+    /// <summary>Gets the terminal control checksum.</summary>
+    public required ImmutableArray<byte> ActivationControlChecksum { get; init; }
 }
 
 /// <summary>Stores one committed module generation without disclosing its scoped provider key.</summary>
@@ -167,6 +192,8 @@ public sealed record BaseAtomicReceiptWire
     public BaseSubjectRetirementReceiptResult? SubjectRetirement { get; init; }
     /// <summary>Gets the optional activation-creation result.</summary>
     public BaseActivationCreationReceiptResult? ActivationCreation { get; init; }
+    /// <summary>Gets the optional handler-free activation result.</summary>
+    public BaseActivationTransactionalReceiptResult? ActivationTransactionalOperation { get; init; }
     internal static BaseAtomicReceiptWire From(BaseAtomicReceiptResult result)
     {
         ValidateShape(result);
@@ -204,6 +231,7 @@ public sealed record BaseAtomicReceiptWire
             SubjectRetirement = result.SubjectRetirement is null ? null : CloneRetirement(result.SubjectRetirement),
             ActivationCreation = result.ActivationCreation is null ? null : new BaseActivationCreationReceiptResult
             { ActivationIds = result.ActivationCreation.ActivationIds.Select(static value => new string(value.AsSpan())).ToImmutableArray() },
+            ActivationTransactionalOperation = CloneTransactional(result.ActivationTransactionalOperation),
         };
     }
     internal BaseAtomicReceiptResult Materialize()
@@ -238,6 +266,7 @@ public sealed record BaseAtomicReceiptWire
             SubjectRetirement = SubjectRetirement is null ? null : CloneRetirement(SubjectRetirement),
             ActivationCreation = ActivationCreation is null ? null : new BaseActivationCreationReceiptResult
             { ActivationIds = ActivationCreation.ActivationIds.Select(static value => new string(value.AsSpan())).ToImmutableArray() },
+            ActivationTransactionalOperation = CloneTransactional(ActivationTransactionalOperation),
         };
         ValidateShape(result);
         return result;
@@ -247,14 +276,15 @@ public sealed record BaseAtomicReceiptWire
     {
         bool valid = result.Kind switch
         {
-            BaseAtomicReceiptResultKind.RecordMutations => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null && result.ActivationCreation is null,
-            BaseAtomicReceiptResultKind.SelectionMutation => result.SelectionMutation is not null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null && result.ActivationCreation is null,
-            BaseAtomicReceiptResultKind.ModuleMutation => result.SelectionMutation is null && result.ModuleMutation is not null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null && result.ActivationCreation is null,
-            BaseAtomicReceiptResultKind.SubjectLifecycleCheckpoint => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is not null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null && result.ActivationCreation is null,
+            BaseAtomicReceiptResultKind.RecordMutations => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null && result.ActivationCreation is null && result.ActivationTransactionalOperation is null,
+            BaseAtomicReceiptResultKind.SelectionMutation => result.SelectionMutation is not null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null && result.ActivationCreation is null && result.ActivationTransactionalOperation is null,
+            BaseAtomicReceiptResultKind.ModuleMutation => result.SelectionMutation is null && result.ModuleMutation is not null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null && result.ActivationCreation is null && result.ActivationTransactionalOperation is null,
+            BaseAtomicReceiptResultKind.SubjectLifecycleCheckpoint => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is not null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null && result.ActivationCreation is null && result.ActivationTransactionalOperation is null,
             BaseAtomicReceiptResultKind.SubjectLifecycleMaintenance => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is not null
-                && (result.SubjectRetirement is null || result.SubjectRetirement.Operation == BaseSubjectRetirementReceiptOperation.Maintenance) && result.ActivationCreation is null,
-            BaseAtomicReceiptResultKind.SubjectRetirement => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is not null && result.ActivationCreation is null,
-            BaseAtomicReceiptResultKind.ActivationCreation => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null && result.ActivationCreation is not null,
+                && (result.SubjectRetirement is null || result.SubjectRetirement.Operation == BaseSubjectRetirementReceiptOperation.Maintenance) && result.ActivationCreation is null && result.ActivationTransactionalOperation is null,
+            BaseAtomicReceiptResultKind.SubjectRetirement => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is not null && result.ActivationCreation is null && result.ActivationTransactionalOperation is null,
+            BaseAtomicReceiptResultKind.ActivationCreation => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null && result.ActivationCreation is not null && result.ActivationTransactionalOperation is null,
+            BaseAtomicReceiptResultKind.ActivationTransactionalOperation => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null && result.ActivationCreation is null && result.ActivationTransactionalOperation is not null,
             _ => false,
         };
         if (valid && result.SubjectRetirement is { } retirement)
@@ -280,6 +310,13 @@ public sealed record BaseAtomicReceiptWire
     {
         RollingChecksum = new string(value.RollingChecksum.AsSpan()),
     };
+    private static BaseActivationTransactionalReceiptResult? CloneTransactional(BaseActivationTransactionalReceiptResult? value) =>
+        value is null ? null : value with
+        {
+            Generations = value.Generations.Select(static generation => generation with { }).ToImmutableArray(),
+            CanonicalResultBytes = value.CanonicalResultBytes.ToArray().ToImmutableArray(),
+            ActivationControlChecksum = value.ActivationControlChecksum.ToArray().ToImmutableArray(),
+        };
     private static BaseSubjectRetirementReceiptResult CloneRetirement(BaseSubjectRetirementReceiptResult value) => value with
     {
         Acknowledgement = value.Acknowledgement is null ? null : value.Acknowledgement with
@@ -322,6 +359,8 @@ public sealed record BaseAtomicReceiptResult
     public BaseSubjectRetirementReceiptResult? SubjectRetirement { get; init; }
     /// <summary>Gets the activation result when <see cref="Kind"/> is activation creation.</summary>
     public BaseActivationCreationReceiptResult? ActivationCreation { get; init; }
+    /// <summary>Gets the handler-free activation result when <see cref="Kind"/> is transactional activation.</summary>
+    public BaseActivationTransactionalReceiptResult? ActivationTransactionalOperation { get; init; }
 
     internal static BaseAtomicReceiptResult FromFacts(IEnumerable<BaseRecordMutationFact> facts) => new()
     {
@@ -333,6 +372,7 @@ public sealed record BaseAtomicReceiptResult
         SubjectLifecycleMaintenance = null,
         SubjectRetirement = null,
         ActivationCreation = null,
+        ActivationTransactionalOperation = null,
     };
     internal BaseRecordMutationFact[] MaterializeFacts() => Mutations.Select(static fact => fact.MaterializeOwned()).ToArray();
 }

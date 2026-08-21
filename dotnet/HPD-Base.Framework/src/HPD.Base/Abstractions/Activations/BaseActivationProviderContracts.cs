@@ -760,6 +760,11 @@ public interface IBaseActivationProvider
         BaseActivationClaimRequest request,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Reads the exact handler-free activation selected for transactional execution.</summary>
+    ValueTask<OperationResult<BaseTransactionalActivationCandidate>> ReadTransactionalCandidateAsync(
+        BaseTransactionalActivationCandidateRequest request,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Renews one current stable claim.</summary>
     ValueTask<OperationResult<BaseActivationRenewResult>> RenewAsync(
         BaseActivationRenewRequest request,

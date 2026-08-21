@@ -44,6 +44,9 @@ internal interface IBaseModuleMutationRegistration
     ValueTask<BaseResult<BaseUntypedModuleMutationExecutionResult>> ExecuteAsync(
         BaseSession session, ReadOnlyMemory<byte> requestJson, BaseMutationRequestIdentity identity,
         BaseModuleMutationExecutionOptions? options, CancellationToken cancellationToken);
+    ValueTask<BaseResult<BaseUntypedModuleMutationExecutionResult>> ExecuteTransactionalAsync(
+        BaseSession session, ReadOnlyMemory<byte> requestJson, BaseMutationRequestIdentity identity,
+        BaseTransactionalActivationCandidate activation, CancellationToken cancellationToken);
 }
 
 internal sealed record BaseUntypedModuleMutationExecutionResult
@@ -97,6 +100,33 @@ internal sealed class BaseModuleMutationRegistration<TRequest, TResult>(
         if (request is null) return Failure(OperationStatus.ValidationFailed, BaseModuleMutationErrorCodes.Invalid, ErrorCategory.Validation);
         BaseResult<BaseModuleMutationExecutionResult<TResult>> result = await session.ModuleMutations.Get(identity)
             .ExecuteAsync(request, requestIdentity, options, cancellationToken).ConfigureAwait(false);
+        if (result is BaseFailure<BaseModuleMutationExecutionResult<TResult>> failure)
+            return new BaseFailure<BaseUntypedModuleMutationExecutionResult>(failure.Status, failure.Error, failure.Warnings, failure.Diagnostics);
+        var success = (BaseSuccess<BaseModuleMutationExecutionResult<TResult>>)result;
+        byte[] json = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(success.Value.Result, identity.ResultTypeInfo);
+        return new BaseSuccess<BaseUntypedModuleMutationExecutionResult>(new BaseUntypedModuleMutationExecutionResult
+        {
+            Disposition = success.Value.Disposition,
+            Outcome = success.Value.Outcome,
+            CanonicalResultJson = json,
+        }, success.Status, success.Warnings, success.Revision, success.Events, success.Diagnostics);
+    }
+
+    public async ValueTask<BaseResult<BaseUntypedModuleMutationExecutionResult>> ExecuteTransactionalAsync(
+        BaseSession session,
+        ReadOnlyMemory<byte> requestJson,
+        BaseMutationRequestIdentity requestIdentity,
+        BaseTransactionalActivationCandidate activation,
+        CancellationToken cancellationToken)
+    {
+        TRequest? request;
+        try { request = System.Text.Json.JsonSerializer.Deserialize(requestJson.Span, identity.RequestTypeInfo); }
+        catch { return Failure(OperationStatus.ValidationFailed, BaseModuleMutationErrorCodes.Invalid, ErrorCategory.Validation); }
+        if (request is null) return Failure(OperationStatus.ValidationFailed, BaseModuleMutationErrorCodes.Invalid, ErrorCategory.Validation);
+        if (session.Services.GetService(typeof(IBaseModuleMutationRuntime)) is not DefaultBaseModuleMutationRuntime runtime)
+            return Failure(OperationStatus.Unsupported, BaseModuleMutationErrorCodes.CapabilityMissing, ErrorCategory.Unsupported);
+        BaseResult<BaseModuleMutationExecutionResult<TResult>> result = await runtime.ExecuteTransactionalAsync(
+            session, definition, identity, request, requestIdentity, activation, cancellationToken).ConfigureAwait(false);
         if (result is BaseFailure<BaseModuleMutationExecutionResult<TResult>> failure)
             return new BaseFailure<BaseUntypedModuleMutationExecutionResult>(failure.Status, failure.Error, failure.Warnings, failure.Diagnostics);
         var success = (BaseSuccess<BaseModuleMutationExecutionResult<TResult>>)result;

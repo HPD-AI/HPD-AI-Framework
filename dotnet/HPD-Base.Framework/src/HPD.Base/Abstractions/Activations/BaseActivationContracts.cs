@@ -204,6 +204,64 @@ public sealed record BaseActivationCreationExtension
     public required ImmutableArray<byte> StructuralDigest { get; init; }
 }
 
+/// <summary>Requests the exact due handler-free activation selected by a finite observation.</summary>
+public sealed record BaseTransactionalActivationCandidateRequest
+{
+    /// <summary>Gets the installed application identity.</summary>
+    public required string ApplicationId { get; init; }
+    /// <summary>Gets the exact installed definition authority.</summary>
+    public required BaseActivationDefinitionKey Definition { get; init; }
+    /// <summary>Gets the finite due observation token.</summary>
+    public required BaseDueObservationToken Observation { get; init; }
+    /// <summary>Gets the protected worker scope.</summary>
+    public required BaseOwnedScopeSeekAuthority Scope { get; init; }
+    /// <summary>Gets provider-accepted time authority.</summary>
+    public required BaseAcceptedTimeReceipt AcceptedTime { get; init; }
+    /// <summary>Gets the effective provider limits.</summary>
+    public required BaseActivationExecutionLimits Limits { get; init; }
+}
+
+/// <summary>Contains immutable authority for one due handler-free activation.</summary>
+public sealed record BaseTransactionalActivationCandidate
+{
+    /// <summary>Gets the authoritative activation payload.</summary>
+    public required BaseActivationPayload Payload { get; init; }
+    /// <summary>Gets the exact current activation generation.</summary>
+    public required long ActivationGeneration { get; init; }
+    /// <summary>Gets provider-accepted discovery time as Unix milliseconds.</summary>
+    public required long AcceptedAt { get; init; }
+    /// <summary>Gets the current control checksum.</summary>
+    public required ImmutableArray<byte> ControlChecksum { get; init; }
+    /// <summary>Gets the finite due-index interval evidence.</summary>
+    public required ImmutableArray<BaseAtomicReadIntervalEvidence> ReadIntervals { get; init; }
+    /// <summary>Gets provider accounting for candidate discovery.</summary>
+    public required BaseActivationAccounting Accounting { get; init; }
+}
+
+/// <summary>Requests transaction-local terminalization of one handler-free activation.</summary>
+public sealed record BaseTransactionalActivationFinalization
+{
+    /// <summary>Gets the captured candidate authority.</summary>
+    public required BaseTransactionalActivationCandidate Candidate { get; init; }
+    /// <summary>Gets canonical target result bytes projected by Runtime.</summary>
+    public required ImmutableArray<byte> CanonicalResult { get; init; }
+    /// <summary>Gets the SHA-256 checksum of the canonical result.</summary>
+    public required ImmutableArray<byte> ResultChecksum { get; init; }
+}
+
+/// <summary>Contains provisional terminal evidence committed with the target operation.</summary>
+public sealed record BaseTransactionalActivationCommitEvidence
+{
+    /// <summary>Gets the terminal activation identity.</summary>
+    public required string ActivationId { get; init; }
+    /// <summary>Gets the resulting positive activation generation.</summary>
+    public required long ActivationGeneration { get; init; }
+    /// <summary>Gets the resulting terminal state.</summary>
+    public required BaseActivationState State { get; init; }
+    /// <summary>Gets the resulting control checksum.</summary>
+    public required ImmutableArray<byte> ControlChecksum { get; init; }
+}
+
 /// <summary>Contains one transaction-captured activation uniqueness result.</summary>
 public sealed record BaseCapturedActivationItem
 {

@@ -296,6 +296,16 @@ internal class FakeRecordStore : IAtomicRecordStore
 
         public void Close() => _active = false;
 
+        public ValueTask<OperationResult<BaseTransactionalActivationCommitEvidence>> FinalizeActivationAsync(
+            BaseTransactionalActivationFinalization finalization,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(OperationResults.Unsupported<BaseTransactionalActivationCommitEvidence>(new BaseError
+            {
+                Code = "base.activation.capabilityUnavailable",
+                Message = "The fake record provider does not support activation terminalization.",
+                Category = ErrorCategory.Unsupported,
+            }));
+
         public ValueTask<OperationResult<BaseCapturedAtomicExecution>> CaptureAtomicExecutionAsync(
             BaseAtomicExecutionRequest request,
             CancellationToken cancellationToken = default)

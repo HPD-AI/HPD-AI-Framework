@@ -439,6 +439,12 @@ internal sealed record InMemoryMutationReceipt(
                 .Select(static value => new string(value.AsSpan()))
                 .ToImmutableArray(),
         },
+        ActivationTransactionalOperation = result.ActivationTransactionalOperation is null ? null : result.ActivationTransactionalOperation with
+        {
+            Generations = result.ActivationTransactionalOperation.Generations.Select(static value => value with { }).ToImmutableArray(),
+            CanonicalResultBytes = result.ActivationTransactionalOperation.CanonicalResultBytes.ToArray().ToImmutableArray(),
+            ActivationControlChecksum = result.ActivationTransactionalOperation.ActivationControlChecksum.ToArray().ToImmutableArray(),
+        },
     };
 }
 

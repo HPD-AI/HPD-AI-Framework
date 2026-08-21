@@ -22,7 +22,8 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
     IBaseResultNormalizer normalizer,
     BaseSubjectContractRegistry subjects,
     BaseSubjectLifecycleRegistry lifecycleConsumers,
-    BaseSubjectRetirementRegistry retirement) : IAtomicMutationProcessor
+    BaseSubjectRetirementRegistry retirement,
+    BaseTransactionalActivationCandidate? transactionalActivation = null) : IAtomicMutationProcessor
 {
     internal BaseModuleMutationExecutionResult<TResult>? Result { get; private set; }
 
@@ -170,6 +171,20 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         ImmutableArray<byte> resultBytes;
         try { typed = evaluator.ProjectResult(definition.Template.Result, committedStatements, committedGenerations, out resultBytes); }
         catch { return Failed(Error("base.moduleMutation.resultInvalid", ErrorCategory.Validation)); }
+        BaseTransactionalActivationCommitEvidence? activationCommit = null;
+        if (transactionalActivation is not null)
+        {
+            OperationResult<BaseTransactionalActivationCommitEvidence> finalizedActivation = await provider
+                .FinalizeActivationAsync(new BaseTransactionalActivationFinalization
+                {
+                    Candidate = transactionalActivation,
+                    CanonicalResult = resultBytes,
+                    ResultChecksum = SHA256.HashData(resultBytes.AsSpan()).ToImmutableArray(),
+                }, cancellationToken).ConfigureAwait(false);
+            if (!finalizedActivation.IsSuccess() || finalizedActivation.Value is null)
+                return Failed(finalizedActivation.Error ?? Error("base.activation.providerContractInvalid", ErrorCategory.Store));
+            activationCommit = finalizedActivation.Value;
+        }
         var moduleReceipt = new BaseModuleMutationReceiptResult
         {
             OperationId = definition.Id, OperationVersion = definition.Version,
@@ -177,12 +192,30 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             Generations = applied.Value.Generations.Select(static value => value with { }).ToImmutableArray(),
             CanonicalResultBytes = resultBytes.ToArray().ToImmutableArray(),
         };
-        var receipt = new BaseAtomicReceiptResult
-        {
-            Kind = BaseAtomicReceiptResultKind.ModuleMutation,
-            Mutations = applied.Value.Facts.Select(static value => BaseOwnedMutationFact.FromCanonicalBytes(value.CopyCanonicalBytes(), value.CodecVersion)).ToImmutableArray(),
-            ModuleMutation = moduleReceipt,
-        };
+        var receipt = activationCommit is null
+            ? new BaseAtomicReceiptResult
+            {
+                Kind = BaseAtomicReceiptResultKind.ModuleMutation,
+                Mutations = applied.Value.Facts.Select(static value => BaseOwnedMutationFact.FromCanonicalBytes(value.CopyCanonicalBytes(), value.CodecVersion)).ToImmutableArray(),
+                ModuleMutation = moduleReceipt,
+            }
+            : new BaseAtomicReceiptResult
+            {
+                Kind = BaseAtomicReceiptResultKind.ActivationTransactionalOperation,
+                Mutations = applied.Value.Facts.Select(static value => BaseOwnedMutationFact.FromCanonicalBytes(value.CopyCanonicalBytes(), value.CodecVersion)).ToImmutableArray(),
+                ActivationTransactionalOperation = new BaseActivationTransactionalReceiptResult
+                {
+                    ActivationId = activationCommit.ActivationId,
+                    ActivationGeneration = activationCommit.ActivationGeneration,
+                    TargetKind = "moduleMutation",
+                    TargetId = definition.Id,
+                    TargetVersion = definition.Version,
+                    TargetChecksum = Convert.ToHexStringLower(definition.Checksum.ToArray()),
+                    Generations = moduleReceipt.Generations,
+                    CanonicalResultBytes = resultBytes,
+                    ActivationControlChecksum = activationCommit.ControlChecksum,
+                },
+            };
         long receiptBytes = JsonSerializer.SerializeToUtf8Bytes(
             BaseAtomicReceiptWire.From(receipt), HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire).LongLength;
         BaseProvisionalAtomicMutationAccounting prior = applied.Value.Accounting;

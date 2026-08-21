@@ -129,7 +129,8 @@ public sealed partial class ActivationRuntimeTests
         var registry = new BaseActivationRegistry([new BaseActivationRegistration<Input, Result>(registration)]);
         var enqueue = new DefaultBaseActivationRuntime(stores, policy, TimeProvider.System);
         var worker = new DefaultBaseActivationWorkerRuntime(
-            stores, policy, new BaseActivationAcceptedTimeAuthority(TimeProvider.System), registry);
+            stores, policy, new BaseActivationAcceptedTimeAuthority(TimeProvider.System), registry,
+            new BaseModuleMutationRegistry([], []));
         BaseSession session = Session();
 
         OperationResult<BaseActivationEnqueueResult> enqueued = await enqueue.EnqueueAsync(

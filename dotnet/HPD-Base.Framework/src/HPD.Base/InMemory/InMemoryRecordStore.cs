@@ -4185,6 +4185,51 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             return OperationResults.Ok(applied);
         });
 
+        public ValueTask<OperationResult<BaseTransactionalActivationCommitEvidence>> FinalizeActivationAsync(
+            BaseTransactionalActivationFinalization finalization,
+            CancellationToken cancellationToken = default) => ExecuteAsync(cancellationToken, token =>
+        {
+            token.ThrowIfCancellationRequested();
+            ArgumentNullException.ThrowIfNull(finalization);
+            BaseTransactionalActivationCandidate candidate = finalization.Candidate;
+            if (_appliedProvisional is null || candidate.ActivationGeneration < 1
+                || finalization.ResultChecksum.Length != SHA256.HashSizeInBytes
+                || !CryptographicOperations.FixedTimeEquals(
+                    SHA256.HashData(finalization.CanonicalResult.AsSpan()), finalization.ResultChecksum.AsSpan())
+                || !_working.Activations.TryGetValue(candidate.Payload.ActivationId, out InMemoryActivationRow? row)
+                || row.Generation != candidate.ActivationGeneration
+                || row.State is not (BaseActivationState.Pending or BaseActivationState.RetryPending)
+                || !row.Eligible || row.EffectiveDueAt > candidate.AcceptedAt
+                || !string.Equals(row.Payload.Definition.Id, candidate.Payload.Definition.Id, StringComparison.Ordinal)
+                || row.Payload.Definition.Version != candidate.Payload.Definition.Version
+                || !CryptographicOperations.FixedTimeEquals(row.Payload.Definition.Checksum.AsSpan(), candidate.Payload.Definition.Checksum.AsSpan())
+                || !CryptographicOperations.FixedTimeEquals(row.Payload.InputChecksum.AsSpan(), candidate.Payload.InputChecksum.AsSpan())
+                || !CryptographicOperations.FixedTimeEquals(row.ControlChecksum, candidate.ControlChecksum.AsSpan()))
+                return ValueTask.FromResult(SubjectFailure<BaseTransactionalActivationCommitEvidence>(
+                    "base.activation.claimUnavailable", OperationStatus.Conflict, ErrorCategory.Conflict));
+
+            long generation = checked(row.Generation + 1);
+            byte[] controlChecksum = ControlChecksum(row.Payload.ActivationId, generation, BaseActivationState.Succeeded);
+            _working.Activations[row.Payload.ActivationId] = row with
+            {
+                State = BaseActivationState.Succeeded,
+                Generation = generation,
+                Eligible = false,
+                Claim = null,
+                Lease = null,
+                CanonicalResult = finalization.CanonicalResult.ToArray(),
+                ControlChecksum = controlChecksum,
+            };
+            _working.ActivationIndexGeneration = checked(_working.ActivationIndexGeneration + 1);
+            return ValueTask.FromResult(OperationResults.Ok(new BaseTransactionalActivationCommitEvidence
+            {
+                ActivationId = row.Payload.ActivationId,
+                ActivationGeneration = generation,
+                State = BaseActivationState.Succeeded,
+                ControlChecksum = controlChecksum.ToImmutableArray(),
+            }));
+        });
+
         private static bool RetirementProjectionMatches(
             BaseSubjectRetirementProjectionPlanItem projection,
             BaseSubjectRetirementPreparedEvidenceItem evidence)
@@ -4206,15 +4251,18 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
 
         internal bool ValidateCommitFinalization(AtomicMutationProcessingResult processing)
         {
-            if (processing.Receipt.Kind != BaseAtomicReceiptResultKind.ModuleMutation)
+            if (processing.Receipt.Kind is not (BaseAtomicReceiptResultKind.ModuleMutation
+                or BaseAtomicReceiptResultKind.ActivationTransactionalOperation))
                 return processing.Finalization is null;
             BaseAtomicMutationCommitFinalization? finalization = processing.Finalization;
             BaseProvisionalAtomicExecution? applied = _appliedProvisional;
-            BaseModuleMutationReceiptResult? module = processing.Receipt.ModuleMutation;
-            if (finalization is null || applied is null || module is null
+            ImmutableArray<byte> storedResult = processing.Receipt.Kind == BaseAtomicReceiptResultKind.ModuleMutation
+                ? processing.Receipt.ModuleMutation?.CanonicalResultBytes ?? default
+                : processing.Receipt.ActivationTransactionalOperation?.CanonicalResultBytes ?? default;
+            if (finalization is null || applied is null || storedResult.IsDefault
                 || !ReferenceEquals(finalization.Receipt, processing.Receipt)
                 || !string.Equals(finalization.PlanDigest, applied.PlanDigest, StringComparison.Ordinal)
-                || !finalization.CanonicalResultBytes.AsSpan().SequenceEqual(module.CanonicalResultBytes.AsSpan())
+                || !finalization.CanonicalResultBytes.AsSpan().SequenceEqual(storedResult.AsSpan())
                 || !applied.Facts.Select(static value => value.CopyCanonicalBytes()).SequenceEqual(
                     processing.Receipt.Mutations.Select(static value => value.CopyCanonicalBytes()), ByteArrayComparer.Instance))
                 return false;

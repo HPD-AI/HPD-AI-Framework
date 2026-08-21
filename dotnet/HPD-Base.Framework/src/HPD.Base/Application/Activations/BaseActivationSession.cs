@@ -226,6 +226,10 @@ public sealed class BaseInstalledActivationWorkerHandle<TInput, TResult>
         if (observed.Value.Earliest is null)
             return OperationResults.Ok(new BaseActivationDispatchResult { Empty = true });
 
+        if (_definition.ExecutionClass == BaseActivationExecutionClass.TransactionalOperation)
+            return await _runtime.ExecuteTransactionalAsync(
+                _session, _definition, observed.Value.Token, cancellationToken).ConfigureAwait(false);
+
         BaseMutationRequestIdentity claimIdentity = Identity(
             "claim", observed.Value.Token.Value.AsSpan(), observed.Value.Earliest.ActivationId);
         OperationResult<BaseActivationDelivery<TInput>?> claimed = await TryClaimAsync(
@@ -372,6 +376,9 @@ internal interface IBaseActivationRuntime
 
 internal interface IBaseActivationWorkerRuntime
 {
+    ValueTask<OperationResult<BaseActivationDispatchResult>> ExecuteTransactionalAsync(
+        BaseSession session, BaseActivationDefinition definition, BaseDueObservationToken observation,
+        CancellationToken cancellationToken);
     ValueTask<OperationResult> AuthorizeExecutionAsync(
         BaseSession session, BaseActivationDefinition definition, CancellationToken cancellationToken);
     ValueTask<OperationResult<BaseActivationTransitionResult>> BeginEffectAsync(

@@ -351,6 +351,14 @@ public interface IAtomicRecordSession
         BasePreparedAtomicExecution prepared,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Terminalizes one exact handler-free activation after Runtime has projected its target result,
+    /// while the target transaction remains uncommitted.
+    /// </summary>
+    ValueTask<OperationResult<BaseTransactionalActivationCommitEvidence>> FinalizeActivationAsync(
+        BaseTransactionalActivationFinalization finalization,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Measures exact canonical and durable artifacts produced by the current transaction.</summary>
     ValueTask<OperationResult<BaseSelectionMutationCommitAccounting>> MeasureSelectionMutationAsync(
         BaseAtomicReceiptResult receipt,

@@ -19,13 +19,34 @@ internal sealed class DefaultBaseModuleMutationRuntime(
 {
     private readonly BaseSubjectLifecycleRegistry lifecycleConsumers = lifecycleRegistry ?? new([], subjects);
     private readonly BaseSubjectRetirementRegistry retirement = retirementRegistry ?? new([], [], lifecycleRegistry ?? new([], subjects));
-    public async ValueTask<BaseResult<BaseModuleMutationExecutionResult<TResult>>> ExecuteAsync<TRequest, TResult>(
+    public ValueTask<BaseResult<BaseModuleMutationExecutionResult<TResult>>> ExecuteAsync<TRequest, TResult>(
         BaseSession session,
         BaseRegisteredModuleMutationDefinition definition,
         BaseGeneratedModuleMutationIdentity<TRequest, TResult> generatedIdentity,
         TRequest request,
         BaseMutationRequestIdentity identity,
         BaseModuleMutationExecutionOptions? options,
+        CancellationToken cancellationToken) =>
+        ExecuteCoreAsync(session, definition, generatedIdentity, request, identity, options, null, cancellationToken);
+
+    internal ValueTask<BaseResult<BaseModuleMutationExecutionResult<TResult>>> ExecuteTransactionalAsync<TRequest, TResult>(
+        BaseSession session,
+        BaseRegisteredModuleMutationDefinition definition,
+        BaseGeneratedModuleMutationIdentity<TRequest, TResult> generatedIdentity,
+        TRequest request,
+        BaseMutationRequestIdentity identity,
+        BaseTransactionalActivationCandidate activation,
+        CancellationToken cancellationToken) =>
+        ExecuteCoreAsync(session, definition, generatedIdentity, request, identity, null, activation, cancellationToken);
+
+    private async ValueTask<BaseResult<BaseModuleMutationExecutionResult<TResult>>> ExecuteCoreAsync<TRequest, TResult>(
+        BaseSession session,
+        BaseRegisteredModuleMutationDefinition definition,
+        BaseGeneratedModuleMutationIdentity<TRequest, TResult> generatedIdentity,
+        TRequest request,
+        BaseMutationRequestIdentity identity,
+        BaseModuleMutationExecutionOptions? options,
+        BaseTransactionalActivationCandidate? transactionalActivation,
         CancellationToken cancellationToken)
     {
         if (!AudienceAllowed(session, definition)
@@ -92,7 +113,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         var processor = new BaseModuleMutationProcessor<TRequest, TResult>(
             definition, generatedIdentity, request, intent, extension, options?.ActivationGuard, limits, installed,
             session.Principal, moduleOperation, operationPolicy.Value,
-            schemaValidator, policy, normalizer, subjects, lifecycleConsumers, retirement);
+            schemaValidator, policy, normalizer, subjects, lifecycleConsumers, retirement, transactionalActivation);
         var executionRequest = new RecordMutationExecutionRequest
         {
             AcquisitionTimeout = definition.Limits.Deadlines.AcquisitionTimeout,

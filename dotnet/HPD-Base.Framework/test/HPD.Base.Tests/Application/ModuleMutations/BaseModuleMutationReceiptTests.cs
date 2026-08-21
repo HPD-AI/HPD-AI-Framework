@@ -6,6 +6,39 @@ namespace HPD.Base.Tests.Application.ModuleMutations;
 public sealed class BaseModuleMutationReceiptTests
 {
     [Fact]
+    public void Transactional_activation_receipt_has_one_outer_replay_authority()
+    {
+        BaseAtomicReceiptResult receipt = new()
+        {
+            Kind = BaseAtomicReceiptResultKind.ActivationTransactionalOperation,
+            Mutations = [],
+            ActivationTransactionalOperation = new BaseActivationTransactionalReceiptResult
+            {
+                ActivationId = "activation-1",
+                ActivationGeneration = 2,
+                TargetKind = "moduleMutation",
+                TargetId = "payments.apply",
+                TargetVersion = 1,
+                TargetChecksum = new string('a', 64),
+                Generations = [],
+                CanonicalResultBytes = "{\"applied\":true}"u8.ToArray().ToImmutableArray(),
+                ActivationControlChecksum = Enumerable.Repeat((byte)7, 32).ToImmutableArray(),
+            },
+        };
+
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(
+            BaseAtomicReceiptWire.From(receipt), HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire);
+        BaseAtomicReceiptResult restored = JsonSerializer.Deserialize(
+            bytes, HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire)!.Materialize();
+
+        restored.Kind.Should().Be(BaseAtomicReceiptResultKind.ActivationTransactionalOperation);
+        restored.ModuleMutation.Should().BeNull();
+        restored.ActivationTransactionalOperation!.ActivationId.Should().Be("activation-1");
+        restored.ActivationTransactionalOperation.CanonicalResultBytes.Should()
+            .Equal(receipt.ActivationTransactionalOperation.CanonicalResultBytes);
+    }
+
+    [Fact]
     public void Module_receipt_round_trips_exact_result_and_generation_evidence()
     {
         BaseAtomicReceiptResult receipt = new()

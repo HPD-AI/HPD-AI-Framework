@@ -569,7 +569,7 @@ public sealed class HPDBaseBuilder
                     break;
                 case BaseModuleMutationActivationTarget target:
                     if (!_moduleMutations.TryGetValue((target.OperationId, target.OperationVersion), out BaseRegisteredModuleMutationDefinition? operation)
-                        || !string.Equals(Convert.ToHexStringLower(operation.Checksum.AsSpan()), target.OperationChecksum, StringComparison.Ordinal))
+                        || !string.Equals(Convert.ToHexStringLower(operation.Checksum.ToArray()), target.OperationChecksum, StringComparison.Ordinal))
                         throw new InvalidOperationException("base.activation.definitionInvalid");
                     break;
             }

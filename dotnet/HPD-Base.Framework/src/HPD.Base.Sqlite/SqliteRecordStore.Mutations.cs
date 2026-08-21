@@ -2229,6 +2229,57 @@ public sealed partial class SqliteRecordStore
             return OperationResults.Ok(applied);
         });
 
+        public ValueTask<OperationResult<BaseTransactionalActivationCommitEvidence>> FinalizeActivationAsync(
+            BaseTransactionalActivationFinalization finalization,
+            CancellationToken cancellationToken = default) => ExecuteAsync(BaseOperationKind.ActivationTransition, cancellationToken, async token =>
+        {
+            token.ThrowIfCancellationRequested();
+            ArgumentNullException.ThrowIfNull(finalization);
+            BaseTransactionalActivationCandidate candidate = finalization.Candidate;
+            if (_appliedProvisional is null || candidate.ActivationGeneration < 1
+                || finalization.ResultChecksum.Length != SHA256.HashSizeInBytes
+                || !CryptographicOperations.FixedTimeEquals(
+                    SHA256.HashData(finalization.CanonicalResult.AsSpan()), finalization.ResultChecksum.AsSpan()))
+                return SubjectFailure<BaseTransactionalActivationCommitEvidence>(BaseSubjectErrorCodes.ProviderContractInvalid);
+            long generation = checked(candidate.ActivationGeneration + 1);
+            byte[] controlChecksum = ActivationControlChecksum(
+                candidate.Payload.ActivationId, generation, BaseActivationState.Succeeded);
+            await using SqliteCommand command = _connection.CreateCommand();
+            command.Transaction = _transaction;
+            command.CommandTimeout = CommandTimeoutSeconds();
+            command.CommandText = $"UPDATE {_owner._names.Activations} SET state=$succeeded,generation=$resulting,eligible=0,claim_fence=NULL,claim_worker=NULL,lease_revision=NULL,lease_expires_at=NULL,canonical_result=$result,control_checksum=$result_checksum WHERE activation_id=$id AND definition_id=$definition AND definition_version=$version AND definition_checksum=$definition_checksum AND input_checksum=$input_checksum AND generation=$expected AND control_checksum=$expected_checksum AND state IN ($pending,$retry) AND eligible=1 AND effective_due_at<=$accepted;";
+            command.Parameters.AddWithValue("$succeeded", (int)BaseActivationState.Succeeded);
+            command.Parameters.AddWithValue("$resulting", generation);
+            command.Parameters.Add("$result", SqliteType.Blob).Value = finalization.CanonicalResult.ToArray();
+            command.Parameters.Add("$result_checksum", SqliteType.Blob).Value = controlChecksum;
+            command.Parameters.AddWithValue("$id", candidate.Payload.ActivationId);
+            command.Parameters.AddWithValue("$definition", candidate.Payload.Definition.Id);
+            command.Parameters.AddWithValue("$version", candidate.Payload.Definition.Version);
+            command.Parameters.Add("$definition_checksum", SqliteType.Blob).Value = candidate.Payload.Definition.Checksum.ToArray();
+            command.Parameters.Add("$input_checksum", SqliteType.Blob).Value = candidate.Payload.InputChecksum.ToArray();
+            command.Parameters.AddWithValue("$expected", candidate.ActivationGeneration);
+            command.Parameters.Add("$expected_checksum", SqliteType.Blob).Value = candidate.ControlChecksum.ToArray();
+            command.Parameters.AddWithValue("$pending", (int)BaseActivationState.Pending);
+            command.Parameters.AddWithValue("$retry", (int)BaseActivationState.RetryPending);
+            command.Parameters.AddWithValue("$accepted", candidate.AcceptedAt);
+            if (await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) != 1)
+                return SubjectFailure<BaseTransactionalActivationCommitEvidence>(
+                    "base.activation.claimUnavailable", OperationStatus.Conflict, ErrorCategory.Conflict);
+            await using SqliteCommand advance = _connection.CreateCommand();
+            advance.Transaction = _transaction;
+            advance.CommandTimeout = CommandTimeoutSeconds();
+            advance.CommandText = $"UPDATE {_owner._names.ProviderState} SET value=CAST(CAST(value AS INTEGER)+1 AS TEXT) WHERE key='activation_generation';";
+            if (await advance.ExecuteNonQueryAsync(token).ConfigureAwait(false) != 1)
+                return SubjectFailure<BaseTransactionalActivationCommitEvidence>(BaseSubjectErrorCodes.ProviderContractInvalid);
+            return OperationResults.Ok(new BaseTransactionalActivationCommitEvidence
+            {
+                ActivationId = candidate.Payload.ActivationId,
+                ActivationGeneration = generation,
+                State = BaseActivationState.Succeeded,
+                ControlChecksum = controlChecksum.ToImmutableArray(),
+            });
+        });
+
         private static bool RetirementProjectionMatches(
             BaseSubjectRetirementProjectionPlanItem projection,
             BaseSubjectRetirementPreparedEvidenceItem evidence)
@@ -2249,15 +2300,18 @@ public sealed partial class SqliteRecordStore
         }
         internal bool ValidateCommitFinalization(AtomicMutationProcessingResult processing)
         {
-            if (processing.Receipt.Kind != BaseAtomicReceiptResultKind.ModuleMutation)
+            if (processing.Receipt.Kind is not (BaseAtomicReceiptResultKind.ModuleMutation
+                or BaseAtomicReceiptResultKind.ActivationTransactionalOperation))
                 return processing.Finalization is null;
             BaseAtomicMutationCommitFinalization? finalization = processing.Finalization;
             BaseProvisionalAtomicExecution? applied = _appliedProvisional;
-            BaseModuleMutationReceiptResult? module = processing.Receipt.ModuleMutation;
-            if (finalization is null || applied is null || module is null
+            ImmutableArray<byte> storedResult = processing.Receipt.Kind == BaseAtomicReceiptResultKind.ModuleMutation
+                ? processing.Receipt.ModuleMutation?.CanonicalResultBytes ?? default
+                : processing.Receipt.ActivationTransactionalOperation?.CanonicalResultBytes ?? default;
+            if (finalization is null || applied is null || storedResult.IsDefault
                 || !ReferenceEquals(finalization.Receipt, processing.Receipt)
                 || !string.Equals(finalization.PlanDigest, applied.PlanDigest, StringComparison.Ordinal)
-                || !finalization.CanonicalResultBytes.AsSpan().SequenceEqual(module.CanonicalResultBytes.AsSpan())
+                || !finalization.CanonicalResultBytes.AsSpan().SequenceEqual(storedResult.AsSpan())
                 || !applied.Facts.Select(static value => value.CopyCanonicalBytes()).SequenceEqual(
                     processing.Receipt.Mutations.Select(static value => value.CopyCanonicalBytes()), ByteArrayComparer.Instance))
                 return false;
