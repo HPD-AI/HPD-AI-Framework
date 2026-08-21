@@ -120,6 +120,7 @@ public static class HPDBaseRuntimeServiceCollectionExtensions
         services.TryAddSingleton<IBaseSubjectLifecycleExporterRuntime, DefaultBaseSubjectLifecycleExporterRuntime>();
         services.TryAddSingleton<IBaseActivationRuntime, DefaultBaseActivationRuntime>();
         services.TryAddSingleton<IBaseActivationWorkerRuntime, DefaultBaseActivationWorkerRuntime>();
+        services.TryAddSingleton<IBaseScheduleRuntime, DefaultBaseScheduleRuntime>();
         services.TryAddSingleton<BaseActivationAcceptedTimeAuthority>();
         services.TryAddSingleton<BaseActivationHandlerExecutionGate>();
         services.TryAddSingleton<IBaseRecordRuntime, DefaultBaseRecordRuntime>();

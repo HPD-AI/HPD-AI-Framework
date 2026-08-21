@@ -526,6 +526,8 @@ using AtomicMutationProcessingOutcomeConverter = LowerCamelJsonStringEnumConvert
 [JsonSerializable(typeof(BaseVectorAuthoritySnapshot))]
 [JsonSerializable(typeof(BaseVectorRebuildRequest))]
 [JsonSerializable(typeof(BaseVectorRebuildResult))]
+[JsonSerializable(typeof(BaseScheduleDefinition))]
+[JsonSerializable(typeof(BaseScheduleOccurrenceFact))]
 public partial class HPDBaseJsonSerializerContext : JsonSerializerContext
 {
     /// <summary>Performs create Options.</summary>

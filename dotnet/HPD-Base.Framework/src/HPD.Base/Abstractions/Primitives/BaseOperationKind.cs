@@ -92,5 +92,9 @@ RealtimeSubscribe,
     /// <summary>Identifies authorized worker observation and claiming.</summary>
     ActivationClaim,
     /// <summary>Identifies one fenced activation transition.</summary>
-    ActivationTransition
+    ActivationTransition,
+    /// <summary>Identifies an authorized durable schedule mutation.</summary>
+    ScheduleMutation,
+    /// <summary>Identifies authorized occurrence materialization for a durable schedule.</summary>
+    ScheduleMaterialization
 }

@@ -48,6 +48,10 @@ internal sealed class InMemoryStoreState
     public Dictionary<string, InMemoryActivationRow> Activations { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets durable executor incarnations by application/host/process key.</summary>
     public Dictionary<string, InMemoryExecutorRow> Executors { get; } = new(StringComparer.Ordinal);
+    /// <summary>Gets current durable schedule authority by ID/version.</summary>
+    public Dictionary<string, BaseScheduleAuthority> Schedules { get; } = new(StringComparer.Ordinal);
+    /// <summary>Gets immutable occurrence facts by occurrence identity.</summary>
+    public Dictionary<string, BaseScheduleOccurrenceFact> ScheduleOccurrences { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets the next positive executor generation.</summary>
     public long NextExecutorGeneration { get; set; }
     /// <summary>Gets or sets the generation invalidating finite due observations.</summary>
@@ -117,6 +121,10 @@ internal sealed class InMemoryStoreState
             clone.Activations.Add(key, activation.DeepClone());
         foreach ((string key, InMemoryExecutorRow executor) in Executors)
             clone.Executors.Add(key, executor.DeepClone());
+        foreach ((string key, BaseScheduleAuthority schedule) in Schedules)
+            clone.Schedules.Add(key, CloneSchedule(schedule));
+        foreach ((string key, BaseScheduleOccurrenceFact occurrence) in ScheduleOccurrences)
+            clone.ScheduleOccurrences.Add(key, CloneOccurrence(occurrence));
         foreach ((long position, BaseMutationJournalEntry entry) in MutationJournal)
             clone.MutationJournal.Add(position, CloneJournalEntry(entry));
 
@@ -148,6 +156,27 @@ internal sealed class InMemoryStoreState
         SubjectAuthorityPublication = entry.SubjectAuthorityPublication is null
             ? null
             : entry.SubjectAuthorityPublication with { },
+    };
+
+    private static BaseScheduleAuthority CloneSchedule(BaseScheduleAuthority value) => value with
+    {
+        Definition = BaseScheduleDefinitionBuilder.Create(value.Definition),
+        Checksum = value.Checksum.ToArray().ToImmutableArray(),
+    };
+
+    private static BaseScheduleOccurrenceFact CloneOccurrence(BaseScheduleOccurrenceFact value) => value with
+    {
+        Checksum = value.Checksum.ToArray().ToImmutableArray(),
+        Disposition = value.Disposition switch
+        {
+            BaseOccurrenceMaterialized materialized => materialized with { },
+            BaseOccurrenceSkippedMisfire skipped => skipped with { },
+            BaseOccurrenceSkippedOverlap skipped => skipped with { },
+            BaseOccurrenceCancelled cancelled => cancelled with { },
+            BaseOccurrenceSuppressedByReplacement replacement => replacement with { },
+            BaseOccurrenceSuppressedByRestoreFloor floor => floor with { FloorChecksum = floor.FloorChecksum.ToArray().ToImmutableArray() },
+            _ => throw new InvalidOperationException("base.activation.occurrenceInvalid"),
+        },
     };
 
     private static RecordSnapshot? CloneSnapshot(RecordSnapshot? snapshot) => snapshot is null ? null : snapshot with

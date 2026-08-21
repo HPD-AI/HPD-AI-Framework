@@ -296,6 +296,18 @@ CREATE TABLE IF NOT EXISTS {_names.ActivationEffects} (
   effect_start_generation INTEGER NOT NULL, heartbeat_revision INTEGER NOT NULL, heartbeat_expires_at INTEGER NOT NULL,
   effect_checksum BLOB NOT NULL CHECK(length(effect_checksum)=32)
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.ActivationSchedules} (
+  schedule_id TEXT NOT NULL, schedule_version INTEGER NOT NULL, definition_json BLOB NOT NULL,
+  definition_generation INTEGER NOT NULL, enabled INTEGER NOT NULL, schedule_epoch INTEGER NOT NULL,
+  last_nominal INTEGER NULL, next_nominal INTEGER NULL, authority_checksum BLOB NOT NULL CHECK(length(authority_checksum)=32),
+  PRIMARY KEY(schedule_id,schedule_version)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.ActivationOccurrences} (
+  occurrence_id TEXT NOT NULL PRIMARY KEY, schedule_id TEXT NOT NULL, schedule_version INTEGER NOT NULL,
+  schedule_epoch INTEGER NOT NULL, nominal_at INTEGER NOT NULL, effective_at INTEGER NOT NULL,
+  overlap_ordinal INTEGER NOT NULL, fact_json BLOB NOT NULL, fact_checksum BLOB NOT NULL CHECK(length(fact_checksum)=32)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS {_names.Prefix}activation_occurrence_schedule_idx ON {_names.ActivationOccurrences}(schedule_id,schedule_version,schedule_epoch,nominal_at,overlap_ordinal);
 CREATE TABLE IF NOT EXISTS {_names.ModuleMutationDefinitions} (
   operation_id TEXT NOT NULL, operation_version INTEGER NOT NULL CHECK(operation_version > 0),
   owning_module_id TEXT NOT NULL, operation_checksum TEXT NOT NULL CHECK(length(operation_checksum)=64),
@@ -645,6 +657,18 @@ CREATE TABLE IF NOT EXISTS {_names.ActivationEffects} (
   effect_start_generation INTEGER NOT NULL, heartbeat_revision INTEGER NOT NULL, heartbeat_expires_at INTEGER NOT NULL,
   effect_checksum BLOB NOT NULL CHECK(length(effect_checksum)=32)
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.ActivationSchedules} (
+  schedule_id TEXT NOT NULL, schedule_version INTEGER NOT NULL, definition_json BLOB NOT NULL,
+  definition_generation INTEGER NOT NULL, enabled INTEGER NOT NULL, schedule_epoch INTEGER NOT NULL,
+  last_nominal INTEGER NULL, next_nominal INTEGER NULL, authority_checksum BLOB NOT NULL CHECK(length(authority_checksum)=32),
+  PRIMARY KEY(schedule_id,schedule_version)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.ActivationOccurrences} (
+  occurrence_id TEXT NOT NULL PRIMARY KEY, schedule_id TEXT NOT NULL, schedule_version INTEGER NOT NULL,
+  schedule_epoch INTEGER NOT NULL, nominal_at INTEGER NOT NULL, effective_at INTEGER NOT NULL,
+  overlap_ordinal INTEGER NOT NULL, fact_json BLOB NOT NULL, fact_checksum BLOB NOT NULL CHECK(length(fact_checksum)=32)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS {_names.Prefix}activation_occurrence_schedule_idx ON {_names.ActivationOccurrences}(schedule_id,schedule_version,schedule_epoch,nominal_at,overlap_ordinal);
 CREATE TABLE IF NOT EXISTS {_names.ModuleMutationDefinitions} (
   operation_id TEXT NOT NULL, operation_version INTEGER NOT NULL CHECK(operation_version > 0),
   owning_module_id TEXT NOT NULL, operation_checksum TEXT NOT NULL CHECK(length(operation_checksum)=64),

@@ -39,6 +39,8 @@ internal sealed class SqliteNames
         Activations = Prefix + "activations";
         Executors = Prefix + "activation_executors";
         ActivationEffects = Prefix + "activation_effects";
+        ActivationSchedules = Prefix + "activation_schedules";
+        ActivationOccurrences = Prefix + "activation_occurrences";
         MutationJournalScopeIndex = "ix_" + Prefix + "mutation_journal_scope_position";
     }
 
@@ -94,6 +96,10 @@ internal sealed class SqliteNames
     public string Executors { get; }
     /// <summary>Gets provider-owned durable external-effect authority.</summary>
     public string ActivationEffects { get; }
+    /// <summary>Gets provider-owned current schedule authority.</summary>
+    public string ActivationSchedules { get; }
+    /// <summary>Gets provider-owned immutable occurrence facts.</summary>
+    public string ActivationOccurrences { get; }
     /// <summary>Gets the mutation journal scope index.</summary>
     public string MutationJournalScopeIndex { get; }
 }

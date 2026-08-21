@@ -37,7 +37,9 @@ AdminMetadata,
     /// <summary>Identifies one graph-installed registered module mutation.</summary>
     ModuleMutation,
     /// <summary>Identifies one graph-installed durable activation definition.</summary>
-    ActivationDefinition
+    ActivationDefinition,
+    /// <summary>Identifies one graph-installed durable schedule definition.</summary>
+    ScheduleDefinition
 }
 
 /// <summary>Defines policy Effect.</summary>
@@ -190,5 +192,7 @@ Admin,
     /// <summary>Identifies one exact exported logical-subject contract.</summary>
     SubjectContract,
     /// <summary>Identifies one exact durable activation definition.</summary>
-    ActivationDefinition
+    ActivationDefinition,
+    /// <summary>Identifies one exact durable schedule definition.</summary>
+    ScheduleDefinition
 }

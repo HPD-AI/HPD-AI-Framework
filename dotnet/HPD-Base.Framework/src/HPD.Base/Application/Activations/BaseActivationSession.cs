@@ -58,6 +58,22 @@ public sealed class BaseActivationSession
             ?? throw new InvalidOperationException("base.activation.notInstalled");
         return new BaseInstalledActivationWorkerHandle<TInput, TResult>(runtime, _session, definition, identity);
     }
+
+    /// <summary>Resolves an inert schedule identity to a principal-bound installed handle.</summary>
+    public BaseInstalledScheduleHandle GetSchedule(BaseScheduleRegistrationIdentity identity)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        BaseScheduleRegistry registry = _session.Services.GetService(typeof(BaseScheduleRegistry)) as BaseScheduleRegistry
+            ?? throw new InvalidOperationException("base.activation.scheduleNotInstalled");
+        BaseScheduleDefinition definition = registry.Find(identity.Id, identity.Version)
+            ?? throw new InvalidOperationException("base.activation.scheduleNotInstalled");
+        if (!System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+            definition.Checksum.AsSpan(), identity.Checksum.Span))
+            throw new InvalidOperationException("base.activation.scheduleChanged");
+        IBaseScheduleRuntime runtime = _session.Services.GetService(typeof(IBaseScheduleRuntime)) as IBaseScheduleRuntime
+            ?? throw new InvalidOperationException("base.activation.scheduleNotInstalled");
+        return new BaseInstalledScheduleHandle(runtime, _session, definition);
+    }
 }
 
 /// <summary>Executes one exact graph-installed activation through its owning session.</summary>
@@ -333,6 +349,63 @@ internal interface IBaseActivationWorkerRuntime
     ValueTask<OperationResult<BaseActivationTransitionResult>> FailAsync(
         BaseSession session, BaseActivationDefinition definition, BaseActivationClaimAuthority claim,
         string failureCode, bool retry, BaseMutationRequestIdentity identity, CancellationToken cancellationToken);
+}
+
+internal interface IBaseScheduleRuntime
+{
+    ValueTask<OperationResult<BaseScheduleAuthority>> ReadAsync(
+        BaseSession session, BaseScheduleDefinition definition, CancellationToken cancellationToken);
+    ValueTask<OperationResult<BaseScheduleMutationResult>> MutateAsync(
+        BaseSession session, BaseScheduleDefinition definition, BaseScheduleMutationKind kind,
+        long? expectedGeneration, BaseMutationRequestIdentity identity, CancellationToken cancellationToken);
+    ValueTask<OperationResult<BaseScheduleMaintenancePage>> AdvanceAsync(
+        BaseSession session, BaseScheduleDefinition definition, BaseMutationRequestIdentity identity,
+        CancellationToken cancellationToken);
+}
+
+/// <summary>Operates one graph-installed durable schedule through a principal-bound session.</summary>
+public sealed class BaseInstalledScheduleHandle
+{
+    private readonly IBaseScheduleRuntime _runtime;
+    private readonly BaseSession _session;
+    private readonly BaseScheduleDefinition _definition;
+
+    internal BaseInstalledScheduleHandle(IBaseScheduleRuntime runtime, BaseSession session, BaseScheduleDefinition definition)
+        => (_runtime, _session, _definition) = (runtime, session, definition);
+
+    /// <summary>Reads current durable schedule authority.</summary>
+    public ValueTask<OperationResult<BaseScheduleAuthority>> ReadAsync(CancellationToken cancellationToken = default) =>
+        _runtime.ReadAsync(_session, _definition, cancellationToken);
+
+    /// <summary>Creates current schedule authority.</summary>
+    public ValueTask<OperationResult<BaseScheduleMutationResult>> CreateAsync(
+        BaseMutationRequestIdentity identity, CancellationToken cancellationToken = default) =>
+        _runtime.MutateAsync(_session, _definition, BaseScheduleMutationKind.Create, null, identity, cancellationToken);
+
+    /// <summary>Replaces current schedule semantics under an exact generation.</summary>
+    public ValueTask<OperationResult<BaseScheduleMutationResult>> UpdateAsync(
+        long expectedGeneration, BaseMutationRequestIdentity identity, CancellationToken cancellationToken = default) =>
+        _runtime.MutateAsync(_session, _definition, BaseScheduleMutationKind.Update, expectedGeneration, identity, cancellationToken);
+
+    /// <summary>Enables future occurrence materialization.</summary>
+    public ValueTask<OperationResult<BaseScheduleMutationResult>> EnableAsync(
+        long expectedGeneration, BaseMutationRequestIdentity identity, CancellationToken cancellationToken = default) =>
+        _runtime.MutateAsync(_session, _definition, BaseScheduleMutationKind.Enable, expectedGeneration, identity, cancellationToken);
+
+    /// <summary>Disables future occurrence materialization.</summary>
+    public ValueTask<OperationResult<BaseScheduleMutationResult>> DisableAsync(
+        long expectedGeneration, BaseMutationRequestIdentity identity, CancellationToken cancellationToken = default) =>
+        _runtime.MutateAsync(_session, _definition, BaseScheduleMutationKind.Disable, expectedGeneration, identity, cancellationToken);
+
+    /// <summary>Removes current authority while retaining immutable occurrence history.</summary>
+    public ValueTask<OperationResult<BaseScheduleMutationResult>> RemoveAsync(
+        long expectedGeneration, BaseMutationRequestIdentity identity, CancellationToken cancellationToken = default) =>
+        _runtime.MutateAsync(_session, _definition, BaseScheduleMutationKind.Remove, expectedGeneration, identity, cancellationToken);
+
+    /// <summary>Materializes one bounded deterministic page through trusted current time.</summary>
+    public ValueTask<OperationResult<BaseScheduleMaintenancePage>> AdvanceAsync(
+        BaseMutationRequestIdentity identity, CancellationToken cancellationToken = default) =>
+        _runtime.AdvanceAsync(_session, _definition, identity, cancellationToken);
 }
 
 internal sealed record BaseActivationCreationProcessingResult(

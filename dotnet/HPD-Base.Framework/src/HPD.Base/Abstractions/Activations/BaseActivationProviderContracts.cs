@@ -579,4 +579,20 @@ public interface IBaseActivationProvider
     ValueTask<OperationResult<BaseActivationTransitionResult>> TransitionAsync(
         BaseActivationTransitionRequest request,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Reads one exact current durable schedule authority.</summary>
+    ValueTask<OperationResult<BaseScheduleAuthority>> ReadScheduleAsync(
+        string scheduleId,
+        int scheduleVersion,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Applies one identified schedule create/update/state mutation.</summary>
+    ValueTask<OperationResult<BaseScheduleMutationResult>> MutateScheduleAsync(
+        BaseScheduleMutationRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Atomically applies one Runtime-computed occurrence page.</summary>
+    ValueTask<OperationResult<BaseScheduleMaintenancePage>> AdvanceSchedulesAsync(
+        BaseScheduleMaintenanceRequest request,
+        CancellationToken cancellationToken = default);
 }

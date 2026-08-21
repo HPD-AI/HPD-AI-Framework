@@ -45,6 +45,7 @@ public sealed class HPDBaseBuilder
     private readonly Dictionary<(string Id, int Version), BaseRegisteredModuleMutationDefinition> _moduleMutations = [];
     private readonly Dictionary<(string Id, int Version), IBaseModuleMutationRegistration> _moduleMutationRegistrations = [];
     private readonly Dictionary<(string Id, int Version), IBaseActivationRegistration> _activationRegistrations = [];
+    private readonly Dictionary<(string Id, int Version), BaseScheduleDefinition> _activationSchedules = [];
     private readonly List<BaseSubjectAcquisitionDefinition> _subjectAcquisitions = [];
     private readonly List<BaseSubjectLifecycleConsumerDefinition> _subjectLifecycleConsumers = [];
     private readonly List<BaseSubjectRetirementConsumerDefinition> _subjectRetirementConsumers = [];
@@ -369,6 +370,16 @@ public sealed class HPDBaseBuilder
         return this;
     }
 
+    /// <summary>Registers one graph-owned durable schedule.</summary>
+    public HPDBaseBuilder AddSchedule(BaseScheduleDefinition definition)
+    {
+        EnsureMutable();
+        BaseScheduleDefinition sealedDefinition = BaseScheduleDefinitionBuilder.Create(definition);
+        if (!_activationSchedules.TryAdd((sealedDefinition.Id, sealedDefinition.Version), sealedDefinition))
+            throw new InvalidOperationException("base.activation.scheduleDuplicate");
+        return this;
+    }
+
     /// <summary>Configures the single immutable host safety envelope for selection mutations.</summary>
     public HPDBaseBuilder ConfigureSelectionMutations(HPDBaseSelectionMutationOptions options)
     {
@@ -518,6 +529,14 @@ public sealed class HPDBaseBuilder
         }
         var moduleMutationRegistry = new BaseModuleMutationRegistry(_moduleMutations.Values, _moduleGenerationCells.Values, _moduleMutationRegistrations.Values);
         var activationRegistry = new BaseActivationRegistry(_activationRegistrations.Values);
+        foreach (BaseScheduleDefinition schedule in _activationSchedules.Values)
+        {
+            BaseActivationDefinition? activation = activationRegistry.Find(schedule.Activation.Id, schedule.Activation.Version);
+            if (activation is null || !CryptographicOperations.FixedTimeEquals(
+                activation.Checksum.AsSpan(), schedule.Activation.Checksum.AsSpan()))
+                throw new InvalidOperationException("base.activation.scheduleInvalid");
+        }
+        var scheduleRegistry = new BaseScheduleRegistry(_activationSchedules.Values);
         BaseSubjectContractRegistry subjectRegistry = FinalizeSubjectGraph(collections);
         var subjectLifecycleRegistry = new BaseSubjectLifecycleRegistry(_subjectLifecycleConsumers, subjectRegistry);
         var subjectRetirementRegistry = new BaseSubjectRetirementRegistry(_subjectRetirementConsumers, _subjectRetirementPolicies, subjectLifecycleRegistry);
@@ -566,6 +585,7 @@ public sealed class HPDBaseBuilder
         _services.AddSingleton(lifecycleInspectionAuthorities);
         _services.AddSingleton(moduleMutationRegistry);
         _services.AddSingleton(activationRegistry);
+        _services.AddSingleton(scheduleRegistry);
         foreach (BaseSelectionOperationProfile profile in _selectionProfiles)
         {
             if (_selectionOptions is null || !Fits(profile, _selectionOptions))

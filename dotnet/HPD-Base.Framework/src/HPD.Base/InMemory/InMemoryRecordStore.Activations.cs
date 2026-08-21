@@ -470,6 +470,150 @@ internal sealed partial class InMemoryRecordStore
         finally { _stateGate.Release(); }
     }
 
+    /// <inheritdoc />
+    public ValueTask<OperationResult<BaseScheduleAuthority>> ReadScheduleAsync(
+        string scheduleId, int scheduleVersion, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        InMemoryStoreState state = Volatile.Read(ref _publishedState);
+        return ValueTask.FromResult(state.Schedules.TryGetValue(ScheduleKey(scheduleId, scheduleVersion), out BaseScheduleAuthority? value)
+            ? OperationResults.Ok(value with { Definition = BaseScheduleDefinitionBuilder.Create(value.Definition), Checksum = value.Checksum.ToArray().ToImmutableArray() })
+            : ActivationFailure<BaseScheduleAuthority>("base.activation.scheduleNotFound", OperationStatus.NotFound, ErrorCategory.NotFound));
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseScheduleMutationResult>> MutateScheduleAsync(
+        BaseScheduleMutationRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        BaseScheduleDefinition definition;
+        try { definition = BaseScheduleDefinitionBuilder.Create(request.Definition); }
+        catch { return ActivationFailure<BaseScheduleMutationResult>("base.activation.scheduleInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation); }
+        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            InMemoryStoreState current = Volatile.Read(ref _publishedState); var next = current.Clone();
+            string key = ScheduleKey(definition.Id, definition.Version);
+            current.Schedules.TryGetValue(key, out BaseScheduleAuthority? existing);
+            if (request.Kind == BaseScheduleMutationKind.Create && existing is not null ||
+                request.Kind != BaseScheduleMutationKind.Create && (existing is null || existing.DefinitionGeneration != request.ExpectedDefinitionGeneration))
+                return ActivationFailure<BaseScheduleMutationResult>("base.activation.scheduleConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+            if (request.Kind == BaseScheduleMutationKind.Remove)
+            {
+                next.Schedules.Remove(key); Volatile.Write(ref _publishedState, next);
+                return OperationResults.Ok(new BaseScheduleMutationResult { Authority = null, Accounting = EmptyActivationAccounting with { IndexOperations = 1 }, Disposition = BaseMutationRequestDisposition.Committed });
+            }
+            long generation = existing is null ? 1 : checked(existing.DefinitionGeneration + 1);
+            long epoch = existing is null ? 1 : request.Kind == BaseScheduleMutationKind.Update ? checked(existing.ScheduleEpoch + 1) : existing.ScheduleEpoch;
+            bool enabled = request.Kind switch { BaseScheduleMutationKind.Disable => false, BaseScheduleMutationKind.Enable => true, _ => existing?.Enabled ?? true };
+            long? last = request.Kind == BaseScheduleMutationKind.Update ? null : existing?.LastConsideredNominal;
+            long? following = request.Kind == BaseScheduleMutationKind.Update || existing is null
+                ? BaseScheduleDefinitionBuilder.NextNominal(definition.Expression, null)
+                : existing.NextNominal;
+            BaseScheduleAuthority authority = ScheduleAuthority(definition, generation, enabled, epoch, last, following);
+            next.Schedules[key] = authority; Volatile.Write(ref _publishedState, next);
+            return OperationResults.Ok(new BaseScheduleMutationResult { Authority = authority, Accounting = EmptyActivationAccounting with { IndexOperations = 1 }, Disposition = BaseMutationRequestDisposition.Committed });
+        }
+        finally { _stateGate.Release(); }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseScheduleMaintenancePage>> AdvanceSchedulesAsync(
+        BaseScheduleMaintenanceRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Occurrences.Length is < 1 or > 256)
+            return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.budgetExceeded", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            InMemoryStoreState current = Volatile.Read(ref _publishedState); var next = current.Clone();
+            string key = ScheduleKey(request.ScheduleId, request.ScheduleVersion);
+            if (!current.Schedules.TryGetValue(key, out BaseScheduleAuthority? authority) || !authority.Enabled ||
+                !CryptographicOperations.FixedTimeEquals(authority.Checksum.AsSpan(), request.ExpectedAuthorityChecksum.AsSpan()))
+                return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.scheduleConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+            long previous = authority.LastConsideredNominal ?? -1;
+            foreach (BaseScheduleOccurrenceProposal proposal in request.Occurrences)
+            {
+                BaseScheduleOccurrenceFact fact = proposal.Fact;
+                if (fact.ScheduleId != authority.Definition.Id || fact.ScheduleEpoch != authority.ScheduleEpoch || fact.NominalAt <= previous ||
+                    next.ScheduleOccurrences.ContainsKey(fact.OccurrenceId) || !OccurrenceShapeValid(proposal) ||
+                    !CryptographicOperations.FixedTimeEquals(fact.Checksum.AsSpan(), OccurrenceChecksum(fact)))
+                    return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.occurrenceInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+                previous = fact.NominalAt;
+                next.ScheduleOccurrences.Add(fact.OccurrenceId, fact);
+                if (proposal.Activation is { } activation)
+                {
+                    string activationId = ((BaseOccurrenceMaterialized)fact.Disposition).ActivationId;
+                    byte[] fingerprint = ScheduleActivationFingerprint(activation, fact.OccurrenceId);
+                    if (next.Activations.TryGetValue(activationId, out InMemoryActivationRow? existing) && !CryptographicOperations.FixedTimeEquals(existing.Fingerprint, fingerprint))
+                        return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.fingerprintConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+                    if (existing is null)
+                    {
+                        byte[] payloadChecksum = SHA256.HashData(activation.CanonicalInput.AsSpan());
+                        var payload = new BaseActivationPayload { ActivationId = activationId, Definition = activation.Definition,
+                            CanonicalInput = activation.CanonicalInput, InputChecksum = activation.InputChecksum, Scope = activation.Scope,
+                            Checksum = payloadChecksum.ToImmutableArray() };
+                        next.Activations.Add(activationId, new InMemoryActivationRow(payload, BaseActivationState.Pending, 1,
+                            activation.RequestedDueAt, activation.EffectiveDueAt ?? activation.RequestedDueAt, fingerprint,
+                            ControlChecksum(activationId, 1, BaseActivationState.Pending)));
+                        next.ActivationIndexGeneration = checked(next.ActivationIndexGeneration + 1);
+                    }
+                }
+            }
+            if (previous != request.ResultingLastConsideredNominal)
+                return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.occurrenceInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+            BaseScheduleAuthority replacement = ScheduleAuthority(authority.Definition, authority.DefinitionGeneration, authority.Enabled,
+                authority.ScheduleEpoch, request.ResultingLastConsideredNominal, request.ResultingNextNominal);
+            next.Schedules[key] = replacement; Volatile.Write(ref _publishedState, next);
+            return OperationResults.Ok(new BaseScheduleMaintenancePage
+            {
+                Authority = replacement, Occurrences = request.Occurrences.Select(static value => value.Fact).ToImmutableArray(),
+                Accounting = EmptyActivationAccounting with { Candidates = request.Occurrences.Length, IndexOperations = request.Occurrences.Length * 2 },
+                Disposition = BaseMutationRequestDisposition.Committed,
+            });
+        }
+        finally { _stateGate.Release(); }
+    }
+
+    private static string ScheduleKey(string id, int version) => $"{id}\n{version}";
+
+    private static BaseScheduleAuthority ScheduleAuthority(BaseScheduleDefinition definition, long generation, bool enabled,
+        long epoch, long? last, long? next)
+    {
+        byte[] checksum = Hash($"base.activation.schedule.authority.v2\0{definition.Id}\n{definition.Version}\n{Convert.ToHexString(definition.Checksum.AsSpan())}\n{generation}\n{enabled}\n{epoch}\n{last?.ToString() ?? "none"}\n{next?.ToString() ?? "none"}");
+        return new BaseScheduleAuthority { Definition = BaseScheduleDefinitionBuilder.Create(definition), DefinitionGeneration = generation,
+            Enabled = enabled, ScheduleEpoch = epoch, LastConsideredNominal = last, NextNominal = next, Checksum = checksum.ToImmutableArray() };
+    }
+
+    private static bool OccurrenceShapeValid(BaseScheduleOccurrenceProposal proposal) => proposal.Fact.Disposition switch
+    {
+        BaseOccurrenceMaterialized materialized => proposal.Activation is not null && materialized.ActivationId.Length > 0,
+        BaseOccurrenceSkippedMisfire => proposal.Activation is null,
+        BaseOccurrenceSkippedOverlap skipped => proposal.Activation is null && skipped.BlockingActivationId.Length > 0,
+        BaseOccurrenceCancelled cancelled => proposal.Activation is null && cancelled.CancellationReceiptId.Length > 0,
+        BaseOccurrenceSuppressedByReplacement replacement => proposal.Activation is null && replacement.ReplacementGeneration > 0,
+        BaseOccurrenceSuppressedByRestoreFloor floor => proposal.Activation is null && floor.FloorChecksum.Length == 32,
+        _ => false,
+    };
+
+    private static byte[] ScheduleActivationFingerprint(BaseActivationCreateIntent activation, string occurrenceId) =>
+        Hash($"base.activation.schedule.create.v2\0{occurrenceId}\n{activation.Definition.Id}\n{activation.Definition.Version}\n{Convert.ToHexString(activation.InputChecksum.AsSpan())}\n{activation.RequestedDueAt}\n{activation.EffectiveDueAt ?? activation.RequestedDueAt}");
+
+    internal static byte[] OccurrenceChecksum(BaseScheduleOccurrenceFact fact) => Hash(
+        $"base.activation.schedule.occurrence.v2\0{fact.OccurrenceId}\n{fact.ScheduleId}\n{fact.ScheduleEpoch}\n{fact.NominalAt}\n{fact.EffectiveAt}\n{fact.OverlapOrdinal}\n{DispositionText(fact.Disposition)}");
+
+    private static string DispositionText(BaseScheduleOccurrenceDisposition disposition) => disposition switch
+    {
+        BaseOccurrenceMaterialized value => $"materialized:{value.ActivationId}",
+        BaseOccurrenceSkippedMisfire => "skipped-misfire",
+        BaseOccurrenceSkippedOverlap value => $"skipped-overlap:{value.BlockingActivationId}",
+        BaseOccurrenceCancelled value => $"cancelled:{value.CancellationReceiptId}",
+        BaseOccurrenceSuppressedByReplacement value => $"replacement:{value.ReplacementGeneration}",
+        BaseOccurrenceSuppressedByRestoreFloor value => $"restore:{Convert.ToHexString(value.FloorChecksum.AsSpan())}",
+        _ => throw new InvalidOperationException("base.activation.occurrenceInvalid"),
+    };
+
     private static string ExecutorKey(string applicationId, string hostId, string processId) => $"{applicationId}\n{hostId}\n{processId}";
 
     private static BaseExecutorHeartbeatObservation Heartbeat(BaseExecutorIncarnationAuthority authority, long revision, long expiresAt)

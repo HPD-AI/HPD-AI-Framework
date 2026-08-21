@@ -3,6 +3,11 @@ using System.Collections.Immutable;
 namespace HPD.Base;
 
 /// <summary>Defines one closed durable schedule expression.</summary>
+[System.Text.Json.Serialization.JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseOnceSchedule), "once")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseIntervalSchedule), "interval")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseCronSchedule), "cron")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseCalendarSchedule), "calendar")]
 public abstract record BaseScheduleExpression
 {
     private protected BaseScheduleExpression() { }
@@ -50,6 +55,12 @@ public sealed record BaseLocalTime
 }
 
 /// <summary>Defines one closed calendar selector.</summary>
+[System.Text.Json.Serialization.JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseEveryCalendarPeriod), "every")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseWeekdayCalendarSelector), "weekdays")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseMonthDayCalendarSelector), "monthDay")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseYearDayCalendarSelector), "yearDay")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseOrdinalWeekdayCalendarSelector), "ordinalWeekday")]
 public abstract record BaseCalendarSelector
 {
     private protected BaseCalendarSelector() { }
@@ -136,6 +147,10 @@ public sealed record BaseScheduleDefinition
     public required int Version { get; init; }
     /// <summary>Gets owning module identity.</summary>
     public required string OwningModuleId { get; init; }
+    /// <summary>Gets exact schedule-administration grant identity.</summary>
+    public required string ManageGrantId { get; init; }
+    /// <summary>Gets exact occurrence-materialization grant identity.</summary>
+    public required string MaterializeGrantId { get; init; }
     /// <summary>Gets target activation definition.</summary>
     public required BaseActivationDefinitionKey Activation { get; init; }
     /// <summary>Gets canonical activation input bytes.</summary>
@@ -164,6 +179,25 @@ public sealed record BaseScheduleDefinition
     public required ImmutableArray<byte> Checksum { get; init; }
 }
 
+/// <summary>Contains an inert graph-installed durable schedule identity.</summary>
+public sealed class BaseScheduleRegistrationIdentity
+{
+    /// <summary>Initializes one inert schedule identity.</summary>
+    public BaseScheduleRegistrationIdentity(string id, int version, ReadOnlyMemory<byte> checksum)
+    {
+        Id = new string(id.AsSpan());
+        Version = version;
+        Checksum = checksum.ToArray();
+    }
+
+    /// <summary>Gets stable schedule identity.</summary>
+    public string Id { get; }
+    /// <summary>Gets positive schedule version.</summary>
+    public int Version { get; }
+    /// <summary>Gets canonical installed checksum.</summary>
+    public ReadOnlyMemory<byte> Checksum { get; }
+}
+
 /// <summary>Contains current durable schedule authority.</summary>
 public sealed record BaseScheduleAuthority
 {
@@ -184,6 +218,13 @@ public sealed record BaseScheduleAuthority
 }
 
 /// <summary>Defines immutable occurrence disposition authority.</summary>
+[System.Text.Json.Serialization.JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseOccurrenceMaterialized), "materialized")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseOccurrenceSkippedMisfire), "skippedMisfire")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseOccurrenceSkippedOverlap), "skippedOverlap")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseOccurrenceCancelled), "cancelled")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseOccurrenceSuppressedByReplacement), "replacement")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseOccurrenceSuppressedByRestoreFloor), "restoreFloor")]
 public abstract record BaseScheduleOccurrenceDisposition
 {
     private protected BaseScheduleOccurrenceDisposition() { }
@@ -221,4 +262,92 @@ public sealed record BaseScheduleOccurrenceFact
     public required BaseScheduleOccurrenceDisposition Disposition { get; init; }
     /// <summary>Gets canonical fact checksum.</summary>
     public required ImmutableArray<byte> Checksum { get; init; }
+}
+
+/// <summary>Classifies an identified durable schedule mutation.</summary>
+public enum BaseScheduleMutationKind
+{
+    /// <summary>Creates new schedule authority.</summary>
+    Create,
+    /// <summary>Replaces schedule semantics and advances its epoch.</summary>
+    Update,
+    /// <summary>Enables future materialization.</summary>
+    Enable,
+    /// <summary>Disables future materialization.</summary>
+    Disable,
+    /// <summary>Removes current authority while retaining occurrence history.</summary>
+    Remove,
+}
+
+/// <summary>Requests one identified schedule mutation.</summary>
+public sealed record BaseScheduleMutationRequest
+{
+    /// <summary>Gets mutation kind.</summary>
+    public required BaseScheduleMutationKind Kind { get; init; }
+    /// <summary>Gets exact installed definition.</summary>
+    public required BaseScheduleDefinition Definition { get; init; }
+    /// <summary>Gets expected definition generation when replacing current authority.</summary>
+    public long? ExpectedDefinitionGeneration { get; init; }
+    /// <summary>Gets trusted accepted time.</summary>
+    public required BaseAcceptedTimeReceipt AcceptedTime { get; init; }
+    /// <summary>Gets identified operation identity.</summary>
+    public required BaseMutationRequestIdentity Identity { get; init; }
+    /// <summary>Gets effective limits.</summary>
+    public required BaseActivationExecutionLimits Limits { get; init; }
+}
+
+/// <summary>Contains one committed schedule mutation.</summary>
+public sealed record BaseScheduleMutationResult
+{
+    /// <summary>Gets current authority, or null after removal.</summary>
+    public BaseScheduleAuthority? Authority { get; init; }
+    /// <summary>Gets provider accounting.</summary>
+    public required BaseActivationAccounting Accounting { get; init; }
+    /// <summary>Gets request disposition.</summary>
+    public required BaseMutationRequestDisposition Disposition { get; init; }
+}
+
+/// <summary>Contains one Runtime-computed occurrence proposal.</summary>
+public sealed record BaseScheduleOccurrenceProposal
+{
+    /// <summary>Gets immutable occurrence fact.</summary>
+    public required BaseScheduleOccurrenceFact Fact { get; init; }
+    /// <summary>Gets activation creation authority only for materialized disposition.</summary>
+    public BaseActivationCreateIntent? Activation { get; init; }
+}
+
+/// <summary>Requests atomic CAS application of one bounded occurrence page.</summary>
+public sealed record BaseScheduleMaintenanceRequest
+{
+    /// <summary>Gets exact schedule identity.</summary>
+    public required string ScheduleId { get; init; }
+    /// <summary>Gets positive schedule version.</summary>
+    public required int ScheduleVersion { get; init; }
+    /// <summary>Gets expected current-authority checksum.</summary>
+    public required ImmutableArray<byte> ExpectedAuthorityChecksum { get; init; }
+    /// <summary>Gets ordered immutable occurrence proposals.</summary>
+    public required ImmutableArray<BaseScheduleOccurrenceProposal> Occurrences { get; init; }
+    /// <summary>Gets resulting last considered nominal instant.</summary>
+    public required long ResultingLastConsideredNominal { get; init; }
+    /// <summary>Gets following nominal instant, or null when exhausted.</summary>
+    public long? ResultingNextNominal { get; init; }
+    /// <summary>Gets trusted accepted time.</summary>
+    public required BaseAcceptedTimeReceipt AcceptedTime { get; init; }
+    /// <summary>Gets identified operation identity.</summary>
+    public required BaseMutationRequestIdentity Identity { get; init; }
+    /// <summary>Gets effective limits.</summary>
+    public required BaseActivationExecutionLimits Limits { get; init; }
+}
+
+/// <summary>Contains one committed occurrence-maintenance page.</summary>
+public sealed record BaseScheduleMaintenancePage
+{
+    /// <summary>Gets replacement schedule authority.</summary>
+    public required BaseScheduleAuthority Authority { get; init; }
+    /// <summary>Gets committed facts in nominal order.</summary>
+    public required ImmutableArray<BaseScheduleOccurrenceFact> Occurrences { get; init; }
+    /// <summary>Gets provider accounting.</summary>
+    public required BaseActivationAccounting Accounting { get; init; }
+    /// <summary>Gets request disposition.</summary>
+    public required BaseMutationRequestDisposition Disposition { get; init; }
 }

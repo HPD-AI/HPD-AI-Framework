@@ -15,6 +15,8 @@ public static class BaseScheduleDefinitionBuilder
         ArgumentNullException.ThrowIfNull(definition);
         BaseApplicationId.Validate(definition.Id, nameof(definition.Id));
         BaseApplicationId.Validate(definition.OwningModuleId, nameof(definition.OwningModuleId));
+        BaseApplicationId.Validate(definition.ManageGrantId, nameof(definition.ManageGrantId));
+        BaseApplicationId.Validate(definition.MaterializeGrantId, nameof(definition.MaterializeGrantId));
         if (definition.Version <= 0 || definition.Activation.Version <= 0 || definition.Activation.Checksum.Length != 32 ||
             definition.InputChecksum.Length != 32 || !CryptographicOperations.FixedTimeEquals(
                 SHA256.HashData(definition.CanonicalInput.AsSpan()), definition.InputChecksum.AsSpan()) ||
@@ -28,6 +30,8 @@ public static class BaseScheduleDefinitionBuilder
         {
             Id = new string(definition.Id.AsSpan()),
             OwningModuleId = new string(definition.OwningModuleId.AsSpan()),
+            ManageGrantId = new string(definition.ManageGrantId.AsSpan()),
+            MaterializeGrantId = new string(definition.MaterializeGrantId.AsSpan()),
             Activation = definition.Activation with { Checksum = definition.Activation.Checksum.ToArray().ToImmutableArray() },
             CanonicalInput = definition.CanonicalInput.ToArray().ToImmutableArray(),
             InputChecksum = definition.InputChecksum.ToArray().ToImmutableArray(),
@@ -171,6 +175,7 @@ public static class BaseScheduleDefinitionBuilder
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         Add(hash, "base.activation.schedule.definition.v2\0"); Add(hash, value.Id); Add(hash, value.Version); Add(hash, value.OwningModuleId);
+        Add(hash, value.ManageGrantId); Add(hash, value.MaterializeGrantId);
         Add(hash, value.Activation.Id); Add(hash, value.Activation.Version); Add(hash, value.Activation.Checksum.AsSpan());
         Add(hash, value.InputChecksum.AsSpan()); Add(hash, ExpressionText(value.Expression));
         Add(hash, (int)value.GapPolicy); Add(hash, (int)value.TimeOverlapPolicy); Add(hash, (int)value.MisfirePolicy);

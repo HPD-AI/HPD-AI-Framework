@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using HPD.Base;
 using Microsoft.Data.Sqlite;
 
@@ -397,6 +398,109 @@ public sealed partial class SqliteRecordStore
         });
     }
 
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseScheduleAuthority>> ReadScheduleAsync(
+        string scheduleId, int scheduleVersion, CancellationToken cancellationToken = default)
+    {
+        await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
+        BaseScheduleAuthority? authority = await ReadScheduleCoreAsync(connection, null, scheduleId, scheduleVersion, cancellationToken).ConfigureAwait(false);
+        return authority is null
+            ? ActivationFailure<BaseScheduleAuthority>("base.activation.scheduleNotFound", OperationStatus.NotFound, ErrorCategory.NotFound)
+            : OperationResults.Ok(authority);
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseScheduleMutationResult>> MutateScheduleAsync(
+        BaseScheduleMutationRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        BaseScheduleDefinition definition;
+        try { definition = BaseScheduleDefinitionBuilder.Create(request.Definition); }
+        catch { return ActivationFailure<BaseScheduleMutationResult>("base.activation.scheduleInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation); }
+        await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        BaseScheduleAuthority? existing = await ReadScheduleCoreAsync(connection, transaction, definition.Id, definition.Version, cancellationToken).ConfigureAwait(false);
+        if (request.Kind == BaseScheduleMutationKind.Create && existing is not null ||
+            request.Kind != BaseScheduleMutationKind.Create && (existing is null || existing.DefinitionGeneration != request.ExpectedDefinitionGeneration))
+            return ActivationFailure<BaseScheduleMutationResult>("base.activation.scheduleConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+        if (request.Kind == BaseScheduleMutationKind.Remove)
+        {
+            await using SqliteCommand remove = connection.CreateCommand(); remove.Transaction = transaction;
+            remove.CommandText = $"DELETE FROM {_names.ActivationSchedules} WHERE schedule_id=$id AND schedule_version=$version;";
+            remove.Parameters.AddWithValue("$id", definition.Id); remove.Parameters.AddWithValue("$version", definition.Version);
+            await remove.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false); await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return OperationResults.Ok(new BaseScheduleMutationResult { Authority = null, Accounting = ActivationAccounting(1, 64), Disposition = BaseMutationRequestDisposition.Committed });
+        }
+        long generation = existing is null ? 1 : checked(existing.DefinitionGeneration + 1);
+        long epoch = existing is null ? 1 : request.Kind == BaseScheduleMutationKind.Update ? checked(existing.ScheduleEpoch + 1) : existing.ScheduleEpoch;
+        bool enabled = request.Kind switch { BaseScheduleMutationKind.Disable => false, BaseScheduleMutationKind.Enable => true, _ => existing?.Enabled ?? true };
+        long? last = request.Kind == BaseScheduleMutationKind.Update ? null : existing?.LastConsideredNominal;
+        long? following = request.Kind == BaseScheduleMutationKind.Update || existing is null ? BaseScheduleDefinitionBuilder.NextNominal(definition.Expression, null) : existing.NextNominal;
+        BaseScheduleAuthority authority = SqliteScheduleAuthority(definition, generation, enabled, epoch, last, following);
+        await WriteScheduleAsync(connection, transaction, authority, cancellationToken).ConfigureAwait(false); await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return OperationResults.Ok(new BaseScheduleMutationResult { Authority = authority, Accounting = ActivationAccounting(1, 128), Disposition = BaseMutationRequestDisposition.Committed });
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseScheduleMaintenancePage>> AdvanceSchedulesAsync(
+        BaseScheduleMaintenanceRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Occurrences.Length is < 1 or > 256)
+            return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.budgetExceeded", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+        await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        BaseScheduleAuthority? authority = await ReadScheduleCoreAsync(connection, transaction, request.ScheduleId, request.ScheduleVersion, cancellationToken).ConfigureAwait(false);
+        if (authority is null || !authority.Enabled || !CryptographicOperations.FixedTimeEquals(authority.Checksum.AsSpan(), request.ExpectedAuthorityChecksum.AsSpan()))
+            return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.scheduleConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+        long previous = authority.LastConsideredNominal ?? -1;
+        foreach (BaseScheduleOccurrenceProposal proposal in request.Occurrences)
+        {
+            BaseScheduleOccurrenceFact fact = proposal.Fact;
+            if (fact.ScheduleId != authority.Definition.Id || fact.ScheduleEpoch != authority.ScheduleEpoch || fact.NominalAt <= previous ||
+                !SqliteOccurrenceShapeValid(proposal) || !CryptographicOperations.FixedTimeEquals(fact.Checksum.AsSpan(), SqliteOccurrenceChecksum(fact)))
+                return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.occurrenceInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+            previous = fact.NominalAt;
+            await using (SqliteCommand occurrence = connection.CreateCommand())
+            {
+                occurrence.Transaction = transaction;
+                occurrence.CommandText = $"INSERT INTO {_names.ActivationOccurrences}(occurrence_id,schedule_id,schedule_version,schedule_epoch,nominal_at,effective_at,overlap_ordinal,fact_json,fact_checksum) VALUES($occurrence,$schedule,$version,$epoch,$nominal,$effective,$ordinal,$json,$checksum);";
+                occurrence.Parameters.AddWithValue("$occurrence", fact.OccurrenceId); occurrence.Parameters.AddWithValue("$schedule", fact.ScheduleId); occurrence.Parameters.AddWithValue("$version", request.ScheduleVersion);
+                occurrence.Parameters.AddWithValue("$epoch", fact.ScheduleEpoch); occurrence.Parameters.AddWithValue("$nominal", fact.NominalAt); occurrence.Parameters.AddWithValue("$effective", fact.EffectiveAt); occurrence.Parameters.AddWithValue("$ordinal", fact.OverlapOrdinal);
+                occurrence.Parameters.Add("$json", SqliteType.Blob).Value = JsonSerializer.SerializeToUtf8Bytes(fact, HPDBaseJsonSerializerContext.Default.BaseScheduleOccurrenceFact);
+                occurrence.Parameters.Add("$checksum", SqliteType.Blob).Value = fact.Checksum.ToArray();
+                try { await occurrence.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false); }
+                catch (SqliteException exception) when (exception.SqliteErrorCode == 19)
+                { return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.occurrenceConflict", OperationStatus.Conflict, ErrorCategory.Conflict); }
+            }
+            if (proposal.Activation is { } activation)
+            {
+                string activationId = ((BaseOccurrenceMaterialized)fact.Disposition).ActivationId;
+                byte[] fingerprint = SqliteScheduleActivationFingerprint(activation, fact.OccurrenceId);
+                await using SqliteCommand insert = connection.CreateCommand(); insert.Transaction = transaction;
+                insert.CommandText = $"INSERT INTO {_names.Activations}(activation_id,definition_id,definition_version,definition_checksum,canonical_input,input_checksum,scope_kind,scope_value,scope_digest,payload_checksum,fingerprint,state,generation,requested_due_at,effective_due_at,control_checksum) VALUES($id,$definition,$version,$definition_checksum,$input,$input_checksum,$scope_kind,$scope_value,$scope_digest,$payload_checksum,$fingerprint,$state,1,$requested,$effective,$control);";
+                insert.Parameters.AddWithValue("$id", activationId); insert.Parameters.AddWithValue("$definition", activation.Definition.Id); insert.Parameters.AddWithValue("$version", activation.Definition.Version);
+                insert.Parameters.Add("$definition_checksum", SqliteType.Blob).Value = activation.Definition.Checksum.ToArray(); insert.Parameters.Add("$input", SqliteType.Blob).Value = activation.CanonicalInput.ToArray(); insert.Parameters.Add("$input_checksum", SqliteType.Blob).Value = activation.InputChecksum.ToArray();
+                insert.Parameters.AddWithValue("$scope_kind", (int)activation.Scope.Kind); insert.Parameters.AddWithValue("$scope_value", activation.Scope.Value ?? string.Empty); insert.Parameters.Add("$scope_digest", SqliteType.Blob).Value = ActivationHash($"base.activation.scope.v2\0{(int)activation.Scope.Kind}\n{activation.Scope.Value ?? string.Empty}");
+                insert.Parameters.Add("$payload_checksum", SqliteType.Blob).Value = SHA256.HashData(activation.CanonicalInput.AsSpan()); insert.Parameters.Add("$fingerprint", SqliteType.Blob).Value = fingerprint; insert.Parameters.AddWithValue("$state", (int)BaseActivationState.Pending);
+                insert.Parameters.AddWithValue("$requested", activation.RequestedDueAt); insert.Parameters.AddWithValue("$effective", activation.EffectiveDueAt ?? activation.RequestedDueAt); insert.Parameters.Add("$control", SqliteType.Blob).Value = ActivationControlChecksum(activationId, 1, BaseActivationState.Pending);
+                try { await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false); }
+                catch (SqliteException exception) when (exception.SqliteErrorCode == 19)
+                { return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.fingerprintConflict", OperationStatus.Conflict, ErrorCategory.Conflict); }
+            }
+        }
+        if (previous != request.ResultingLastConsideredNominal)
+            return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.occurrenceInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+        BaseScheduleAuthority replacement = SqliteScheduleAuthority(authority.Definition, authority.DefinitionGeneration, true, authority.ScheduleEpoch,
+            request.ResultingLastConsideredNominal, request.ResultingNextNominal);
+        await WriteScheduleAsync(connection, transaction, replacement, cancellationToken).ConfigureAwait(false);
+        await IncrementActivationGenerationAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return OperationResults.Ok(new BaseScheduleMaintenancePage { Authority = replacement,
+            Occurrences = request.Occurrences.Select(static value => value.Fact).ToImmutableArray(), Accounting = ActivationAccounting(request.Occurrences.Length, request.Occurrences.Length * 128L),
+            Disposition = BaseMutationRequestDisposition.Committed });
+    }
+
     private async ValueTask<SqliteExecutorRow?> ReadExecutorAsync(
         SqliteConnection connection, SqliteTransaction transaction, string applicationId, string hostId, string processId, CancellationToken cancellationToken)
     {
@@ -417,6 +521,66 @@ public sealed partial class SqliteRecordStore
             ExecutorAuthorityChecksum = authority.Checksum, Checksum = ((byte[])reader[7]).ToImmutableArray(),
         }, reader.GetInt64(8) != 0);
     }
+
+    private async ValueTask<BaseScheduleAuthority?> ReadScheduleCoreAsync(SqliteConnection connection, SqliteTransaction? transaction,
+        string id, int version, CancellationToken cancellationToken)
+    {
+        await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction;
+        command.CommandText = $"SELECT definition_json,definition_generation,enabled,schedule_epoch,last_nominal,next_nominal,authority_checksum FROM {_names.ActivationSchedules} WHERE schedule_id=$id AND schedule_version=$version;";
+        command.Parameters.AddWithValue("$id", id); command.Parameters.AddWithValue("$version", version);
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) return null;
+        BaseScheduleDefinition definition = JsonSerializer.Deserialize((byte[])reader[0], HPDBaseJsonSerializerContext.Default.BaseScheduleDefinition)
+            ?? throw new InvalidOperationException("base.activation.scheduleInvalid");
+        definition = BaseScheduleDefinitionBuilder.Create(definition);
+        var authority = new BaseScheduleAuthority { Definition = definition, DefinitionGeneration = reader.GetInt64(1), Enabled = reader.GetInt64(2) != 0,
+            ScheduleEpoch = reader.GetInt64(3), LastConsideredNominal = reader.IsDBNull(4) ? null : reader.GetInt64(4), NextNominal = reader.IsDBNull(5) ? null : reader.GetInt64(5),
+            Checksum = ((byte[])reader[6]).ToImmutableArray() };
+        BaseScheduleAuthority expected = SqliteScheduleAuthority(definition, authority.DefinitionGeneration, authority.Enabled, authority.ScheduleEpoch, authority.LastConsideredNominal, authority.NextNominal);
+        if (!CryptographicOperations.FixedTimeEquals(authority.Checksum.AsSpan(), expected.Checksum.AsSpan())) throw new InvalidOperationException("base.activation.scheduleInvalid");
+        return authority;
+    }
+
+    private async ValueTask WriteScheduleAsync(SqliteConnection connection, SqliteTransaction transaction, BaseScheduleAuthority authority, CancellationToken cancellationToken)
+    {
+        await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction;
+        command.CommandText = $"INSERT OR REPLACE INTO {_names.ActivationSchedules}(schedule_id,schedule_version,definition_json,definition_generation,enabled,schedule_epoch,last_nominal,next_nominal,authority_checksum) VALUES($id,$version,$definition,$generation,$enabled,$epoch,$last,$next,$checksum);";
+        command.Parameters.AddWithValue("$id", authority.Definition.Id); command.Parameters.AddWithValue("$version", authority.Definition.Version);
+        command.Parameters.Add("$definition", SqliteType.Blob).Value = JsonSerializer.SerializeToUtf8Bytes(authority.Definition, HPDBaseJsonSerializerContext.Default.BaseScheduleDefinition);
+        command.Parameters.AddWithValue("$generation", authority.DefinitionGeneration); command.Parameters.AddWithValue("$enabled", authority.Enabled ? 1 : 0); command.Parameters.AddWithValue("$epoch", authority.ScheduleEpoch);
+        command.Parameters.AddWithValue("$last", (object?)authority.LastConsideredNominal ?? DBNull.Value); command.Parameters.AddWithValue("$next", (object?)authority.NextNominal ?? DBNull.Value);
+        command.Parameters.Add("$checksum", SqliteType.Blob).Value = authority.Checksum.ToArray(); await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static BaseScheduleAuthority SqliteScheduleAuthority(BaseScheduleDefinition definition, long generation, bool enabled, long epoch, long? last, long? next)
+    {
+        byte[] checksum = ActivationHash($"base.activation.schedule.authority.v2\0{definition.Id}\n{definition.Version}\n{Convert.ToHexString(definition.Checksum.AsSpan())}\n{generation}\n{enabled}\n{epoch}\n{last?.ToString() ?? "none"}\n{next?.ToString() ?? "none"}");
+        return new BaseScheduleAuthority { Definition = BaseScheduleDefinitionBuilder.Create(definition), DefinitionGeneration = generation, Enabled = enabled,
+            ScheduleEpoch = epoch, LastConsideredNominal = last, NextNominal = next, Checksum = checksum.ToImmutableArray() };
+    }
+
+    private static bool SqliteOccurrenceShapeValid(BaseScheduleOccurrenceProposal proposal) => proposal.Fact.Disposition switch
+    {
+        BaseOccurrenceMaterialized value => proposal.Activation is not null && value.ActivationId.Length > 0,
+        BaseOccurrenceSkippedMisfire => proposal.Activation is null,
+        BaseOccurrenceSkippedOverlap value => proposal.Activation is null && value.BlockingActivationId.Length > 0,
+        BaseOccurrenceCancelled value => proposal.Activation is null && value.CancellationReceiptId.Length > 0,
+        BaseOccurrenceSuppressedByReplacement value => proposal.Activation is null && value.ReplacementGeneration > 0,
+        BaseOccurrenceSuppressedByRestoreFloor value => proposal.Activation is null && value.FloorChecksum.Length == 32,
+        _ => false,
+    };
+
+    private static byte[] SqliteOccurrenceChecksum(BaseScheduleOccurrenceFact fact) => ActivationHash(
+        $"base.activation.schedule.occurrence.v2\0{fact.OccurrenceId}\n{fact.ScheduleId}\n{fact.ScheduleEpoch}\n{fact.NominalAt}\n{fact.EffectiveAt}\n{fact.OverlapOrdinal}\n{SqliteDispositionText(fact.Disposition)}");
+    private static string SqliteDispositionText(BaseScheduleOccurrenceDisposition disposition) => disposition switch
+    {
+        BaseOccurrenceMaterialized value => $"materialized:{value.ActivationId}", BaseOccurrenceSkippedMisfire => "skipped-misfire",
+        BaseOccurrenceSkippedOverlap value => $"skipped-overlap:{value.BlockingActivationId}", BaseOccurrenceCancelled value => $"cancelled:{value.CancellationReceiptId}",
+        BaseOccurrenceSuppressedByReplacement value => $"replacement:{value.ReplacementGeneration}", BaseOccurrenceSuppressedByRestoreFloor value => $"restore:{Convert.ToHexString(value.FloorChecksum.AsSpan())}",
+        _ => throw new InvalidOperationException("base.activation.occurrenceInvalid"),
+    };
+    private static byte[] SqliteScheduleActivationFingerprint(BaseActivationCreateIntent activation, string occurrenceId) =>
+        ActivationHash($"base.activation.schedule.create.v2\0{occurrenceId}\n{activation.Definition.Id}\n{activation.Definition.Version}\n{Convert.ToHexString(activation.InputChecksum.AsSpan())}\n{activation.RequestedDueAt}\n{activation.EffectiveDueAt ?? activation.RequestedDueAt}");
 
     private async ValueTask<BaseEffectExecutionAuthority?> ReadEffectAsync(
         SqliteConnection connection, SqliteTransaction transaction, string activationId, CancellationToken cancellationToken)

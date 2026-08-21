@@ -33,6 +33,7 @@ public sealed class ScheduleDefinitionTests
         return new BaseScheduleDefinition
         {
             Id = "test.schedule", Version = 1, OwningModuleId = "test.module",
+            ManageGrantId = "test.schedule.manage", MaterializeGrantId = "test.schedule.materialize",
             Activation = new BaseActivationDefinitionKey { Id = "test.activation", Version = 1, Checksum = new byte[32].ToImmutableArray() },
             CanonicalInput = input.ToImmutableArray(), InputChecksum = SHA256.HashData(input).ToImmutableArray(),
             Expression = expression, GapPolicy = BaseTimeGapPolicy.Skip, TimeOverlapPolicy = BaseTimeOverlapPolicy.EarlierOffset,
