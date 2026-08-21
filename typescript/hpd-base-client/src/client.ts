@@ -5,6 +5,7 @@ import { BaseHttpTransport, type BaseTransportOptions } from "./transport.js";
 import { BaseRealtimeManager, type BaseConnectivityState, type BaseRecordFeedDelivery, type BaseRecordFeedFilter, type BaseWebSocketFactory } from "./realtime.js";
 import { BaseFilesClient } from "./files.js";
 import { BaseVectorIndexQuery } from "./vector.js";
+import { BaseTextIndexQuery } from "./text.js";
 import { createControlPlaneClient, type BaseControlPlaneClient } from "./control.js";
 import { decodeBaseValue, decodeBaseWireValue, encodeBaseJson, materializeBaseJsonValue } from "./codec.js";
 import { executeSelectionMutation, type BaseSelectionMutationDefinition, type BaseSelectionMutationOptions, type BaseSelectionMutationResult } from "./selection.js";
@@ -40,7 +41,9 @@ interface BaseCollectionClientSurface<T extends BaseCollectionDefinition> {
   watch(input: BaseQueryInput, observer: (snapshot: BaseQuerySnapshot<CollectionRecordOf<T>>) => void): BaseSubscription;
   readonly events: BaseRecordFeedClient;
   readonly vectorIndexes: T["vectorIndexes"];
+  readonly textIndexes: T["textIndexes"];
   vector(index: import("./schema.js").BaseVectorIndexDefinition): BaseVectorIndexQuery<CollectionRecordOf<T>>;
+  text(index: import("./schema.js").BaseTextIndexDefinition): BaseTextIndexQuery<CollectionRecordOf<T>>;
 }
 
 interface BaseCollectionMutationSurface<T extends BaseCollectionDefinition> {
@@ -64,6 +67,7 @@ type OperationMethodMap = {
   readonly watch: "watch";
   readonly realtime: "events";
   readonly vector: "vector";
+  readonly text: "text";
 };
 
 export interface BaseRecordFeedClient {
@@ -75,7 +79,7 @@ type EnabledMethod<T extends BaseCollectionDefinition> = {
   [K in keyof OperationMethodMap]: K extends OperationsOf<T> ? OperationMethodMap[K] : never
 }[keyof OperationMethodMap];
 export type BaseCollectionClient<T extends BaseCollectionDefinition> =
-  Pick<BaseCollectionClientSurface<T>, "id" | "fields" | "mutations" | "vectorIndexes" | EnabledMethod<T>>;
+  Pick<BaseCollectionClientSurface<T>, "id" | "fields" | "mutations" | "vectorIndexes" | "textIndexes" | EnabledMethod<T>>;
 
 export interface BaseDynamicClient {
   collection<T extends BaseCollectionDefinition>(definition: T): BaseCollectionClient<T>;
@@ -207,6 +211,10 @@ class BaseClientRuntime implements BaseQueryExecutor<unknown> {
     this.ensureOpen();
     return new BaseVectorIndexQuery<T>(this.#transport, collectionId, index, value => this.fromWireRecord(collectionId, value) as T);
   }
+  public textQuery<T>(collectionId: string, index: import("./schema.js").BaseTextIndexDefinition): BaseTextIndexQuery<T> {
+    this.ensureOpen();
+    return new BaseTextIndexQuery<T>(this.#transport, collectionId, index, value => this.fromWireRecord(collectionId, value) as T);
+  }
 
   public async executeRead<T>(id: string, parameters: unknown, parameterTypeId: string | undefined, rowTypeId: string | undefined, page: { readonly page?: number; readonly perPage?: number; readonly signal?: AbortSignal } = {}): Promise<BaseResult<BaseRecordPage<T>>> {
     if (parameterTypeId === undefined || rowTypeId === undefined || this.#schema.typeGraph === undefined) throw new TypeError("base.client.configurationInvalid");
@@ -293,6 +301,7 @@ class CollectionClient<T extends BaseCollectionDefinition> implements BaseCollec
   public readonly fields: FieldHandles<T>;
   public readonly mutations: BaseCollectionMutations<T>;
   public readonly vectorIndexes: T["vectorIndexes"];
+  public readonly textIndexes: T["textIndexes"];
   public readonly events: BaseRecordFeedClient;
   public constructor(private readonly owner: BaseClientRuntime, private readonly definition: T) {
     this.id = definition.id;
@@ -307,6 +316,7 @@ class CollectionClient<T extends BaseCollectionDefinition> implements BaseCollec
     if (definition.operations.includes("delete")) mutationMethods["delete"] = this.delete.bind(this);
     this.mutations = Object.freeze(mutationMethods) as BaseCollectionMutations<T>;
     this.vectorIndexes = definition.vectorIndexes;
+    this.textIndexes = definition.textIndexes;
     this.events = Object.freeze({
       live: (filter: BaseRecordFeedFilter, observer: (delivery: BaseRecordFeedDelivery) => void | Promise<void>) => this.owner.watchEvents(this.id, { kind: "live", filter }, observer),
       durable: (filter: BaseRecordFeedFilter, observer: (delivery: BaseRecordFeedDelivery) => void | Promise<void>) => this.owner.watchEvents(this.id, { kind: "durable", filter }, observer),
@@ -323,6 +333,7 @@ class CollectionClient<T extends BaseCollectionDefinition> implements BaseCollec
   public buildQuery(): BaseQueryBuilder<CollectionRecordOf<T>> { return new BaseQueryBuilder<CollectionRecordOf<T>>(this.owner, this.id); }
   public watch(input: BaseQueryInput, observer: (snapshot: BaseQuerySnapshot<CollectionRecordOf<T>>) => void): BaseSubscription { return this.query(input).watch(observer); }
   public vector(index: import("./schema.js").BaseVectorIndexDefinition): BaseVectorIndexQuery<CollectionRecordOf<T>> { return this.owner.vectorQuery(this.id, index); }
+  public text(index: import("./schema.js").BaseTextIndexDefinition): BaseTextIndexQuery<CollectionRecordOf<T>> { return this.owner.textQuery(this.id, index); }
 }
 
 export function createBaseClient<TSchema extends BaseGeneratedSchema>(options: BaseClientOptions<TSchema>): BaseClient<TSchema> {

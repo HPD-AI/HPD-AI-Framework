@@ -19,13 +19,21 @@ export interface BaseVectorIndexDefinition {
   readonly direction: "higherIsNearer" | "lowerIsNearer";
 }
 
+export interface BaseTextIndexDefinition {
+  readonly id: string;
+  readonly version: number;
+  readonly maximumResults: number;
+  readonly filterFields: Readonly<Record<string, { readonly id: string; readonly wireName: string; readonly valueKind: "String" | "Boolean" | "Integer" | "Id" }>>;
+}
+
 export interface BaseCollectionDefinition<
   TRecord = unknown,
   TCreate = unknown,
   TReplace = unknown,
   TPatch = unknown,
   TFields extends Readonly<Record<string, BaseFieldDefinition>> = Readonly<Record<string, BaseFieldDefinition>>,
-  TOperations extends readonly BaseCollectionOperation[] = readonly BaseCollectionOperation[]
+  TOperations extends readonly BaseCollectionOperation[] = readonly BaseCollectionOperation[],
+  TTextIndexes extends Readonly<Record<string, BaseTextIndexDefinition>> = Readonly<Record<string, BaseTextIndexDefinition>>
 > {
   readonly id: string;
   readonly fields: TFields;
@@ -33,6 +41,7 @@ export interface BaseCollectionDefinition<
   readonly pagination: "none" | "seek" | "stableHistory";
   readonly maxPageSize: number;
   readonly vectorIndexes: Readonly<Record<string, BaseVectorIndexDefinition>>;
+  readonly textIndexes: TTextIndexes;
   readonly recordTypeId?: string;
   readonly createTypeId?: string;
   readonly replaceTypeId?: string;
@@ -43,7 +52,7 @@ export interface BaseCollectionDefinition<
   readonly __patch?: TPatch;
 }
 
-export type BaseCollectionOperation = "list" | "query" | "get" | "create" | "patch" | "replace" | "delete" | "upsert" | "batch" | "watch" | "realtime" | "vector";
+export type BaseCollectionOperation = "list" | "query" | "get" | "create" | "patch" | "replace" | "delete" | "upsert" | "batch" | "watch" | "realtime" | "vector" | "text";
 
 export interface BaseGeneratedSchema<
   TCollections extends Readonly<Record<string, BaseCollectionDefinition>> = Readonly<Record<string, BaseCollectionDefinition>>,
@@ -75,9 +84,9 @@ export interface BaseReadDefinition<TParameters = unknown, TRow = unknown, TWatc
 
 export function read<TParameters, TRow, const TWatchable extends boolean>(definition: BaseReadDefinition<TParameters, TRow, TWatchable>): BaseReadDefinition<TParameters, TRow, TWatchable> { return deepFreeze(definition); }
 
-export function collection<TRecord, TCreate, TReplace, TPatch, TFields extends Readonly<Record<string, BaseFieldDefinition>>, const TOperations extends readonly BaseCollectionOperation[]>(
-  definition: BaseCollectionDefinition<TRecord, TCreate, TReplace, TPatch, TFields, TOperations>
-): BaseCollectionDefinition<TRecord, TCreate, TReplace, TPatch, TFields, TOperations> {
+export function collection<TRecord, TCreate, TReplace, TPatch, TFields extends Readonly<Record<string, BaseFieldDefinition>>, const TOperations extends readonly BaseCollectionOperation[], const TTextIndexes extends Readonly<Record<string, BaseTextIndexDefinition>> = Readonly<Record<string, BaseTextIndexDefinition>>>(
+  definition: BaseCollectionDefinition<TRecord, TCreate, TReplace, TPatch, TFields, TOperations, TTextIndexes>
+): BaseCollectionDefinition<TRecord, TCreate, TReplace, TPatch, TFields, TOperations, TTextIndexes> {
   return deepFreeze(definition);
 }
 

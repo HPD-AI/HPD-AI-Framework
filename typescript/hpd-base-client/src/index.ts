@@ -7,6 +7,7 @@ export * from "./transport.js";
 export * from "./codec.js";
 export * from "./files.js";
 export * from "./vector.js";
+export * from "./text.js";
 export * from "./selection.js";
 export * from "./module-mutations.js";
 export * from "./subject-lifecycle.js";

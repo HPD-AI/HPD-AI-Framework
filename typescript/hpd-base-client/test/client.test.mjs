@@ -10,7 +10,7 @@ const basicGraph = Object.freeze({
   replace: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "stored_title", typeId: "title", required: true, nullable: false, disclosureShape: "none" }] },
   patch: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "stored_title", typeId: "title", required: false, nullable: false, disclosureShape: "none" }] }
 });
-const schema = Object.freeze({ protocolMajor: 2, schemaGeneration: "1", digest: `sha256:${"0".repeat(64)}`, audience: "application", features: { files: false, realtime: true, batch: true, controlOperations: [] }, typeGraph: basicGraph, reads: {}, collections: { documents: collection({ id: "documents", recordTypeId: "record", createTypeId: "create", replaceTypeId: "replace", patchTypeId: "patch", fields: { title: field("stable-title", "stored_title", ["equal", "notEqual"], "title") }, operations: ["get", "query", "create", "patch", "replace", "batch", "watch", "realtime"], pagination: "seek", maxPageSize: 100, vectorIndexes: {} }) } });
+const schema = Object.freeze({ protocolMajor: 2, schemaGeneration: "1", digest: `sha256:${"0".repeat(64)}`, audience: "application", features: { files: false, realtime: true, batch: true, controlOperations: [] }, typeGraph: basicGraph, reads: {}, collections: { documents: collection({ id: "documents", recordTypeId: "record", createTypeId: "create", replaceTypeId: "replace", patchTypeId: "patch", fields: { title: field("stable-title", "stored_title", ["equal", "notEqual"], "title") }, operations: ["get", "query", "create", "patch", "replace", "batch", "watch", "realtime"], pagination: "seek", maxPageSize: 100, vectorIndexes: {}, textIndexes: {} }) } });
 
 test("query uses the canonical RecordQuery wire shape", async () => {
   let wire;
@@ -225,6 +225,16 @@ test("vector search preserves binary32 inputs and validates disclosed dot-produc
   const result = await base.documents.vector(base.documents.vectorIndexes.semantic).nearest([0.1, -0]).measures("include").execute();
   assert.equal(result.ok, true); assert.equal(result.value.matches[0].record.payload.json.title, "match");
   assert.deepEqual(wire.vector, [0.1, 0]); assert.equal(wire.measureDisclosure, "include"); assert.equal(wire.consistency, "current");
+});
+
+test("text search uses generated index authority and validates score strings", async () => {
+  let wire;
+  const content = { id: "documents.content", version: 1, maximumResults: 32, filterFields: { title: { id: "stable-title", wireName: "stored_title", valueKind: "String" } } };
+  const textSchema = { ...schema, collections: { documents: collection({ ...schema.collections.documents, operations: ["text"], textIndexes: { content } }) } };
+  const base = createBaseClient({ schema: textSchema, url: "https://base.test/base/", fetch: async (_url, init) => { wire = JSON.parse(new TextDecoder().decode(init.body)); return Response.json({ matches: [{ record: { collectionId: "documents", id: "d1", payload: { kind: "json", json: { stored_title: "match" } }, metadata: {} }, revision: "test:1", scoreUnits: "123" }], next: null, consistencyToken: "opaque" }, { headers: { "X-Correlation-ID": "t" } }); } });
+  const result = await base.documents.text(content).search({ query: { kind: "term", value: "portable" }, order: [{ field: "stored_title", direction: "desc", nullOrder: "last" }], take: 4 });
+  assert.equal(result.ok, true); assert.equal(result.value.matches[0].record.payload.json.title, "match");
+  assert.equal(wire.indexId, "documents.content"); assert.equal(wire.consistency, "current"); assert.deepEqual(wire.order, [{ field: "stored_title", direction: "desc", nullOrder: "last" }]);
 });
 
 test("the bounded JSON codec rejects duplicate and lossy numeric tokens before materialization", () => {
