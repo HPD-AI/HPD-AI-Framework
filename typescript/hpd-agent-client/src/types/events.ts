@@ -294,9 +294,12 @@ export interface UserMessageInput {
   additionalProperties?: Record<string, unknown>;
 }
 
+export type AgentInputDelivery = 'Queue' | 'Steer';
+
 export interface UserMessagesInputEvent extends AgentInputEvent {
   type: typeof EventTypes.USER_MESSAGES_INPUT;
   messages?: UserMessageInput[] | null;
+  delivery?: AgentInputDelivery;
 }
 
 export interface CompactThreadInputEvent extends AgentInputEvent {
@@ -1100,16 +1103,14 @@ export type KnownAgentEvent =
   // Client Tool Events
   | ClientToolInvokeRequestEvent
   | ClientToolInvokeOutcomeEvent
-  | ClientToolBackgroundOperationOutcomeEvent
-  ;
+  | ClientToolBackgroundOperationOutcomeEvent;
 
 export type AgentEvent = KnownAgentEvent | UnknownAgentEvent;
 
 export type AgentRunInputEvent =
   | UserMessagesInputEvent
   | CompactThreadInputEvent
-  | ClientToolBackgroundOperationOutcomeEvent
-  ;
+  | ClientToolBackgroundOperationOutcomeEvent;
 
 /** Response event accepted by the hosted Agent response route. */
 export type AgentResponseInput =
