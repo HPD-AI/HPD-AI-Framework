@@ -129,7 +129,7 @@ internal static class SubjectLifecycleEndpoints
         }
         catch (Exception exception) when (exception is ArgumentException or FormatException)
         { await Problem(context, OperationStatus.ValidationFailed, BaseSubjectErrorCodes.LifecycleContractInvalid).ConfigureAwait(false); return; }
-        BaseResult<BaseSubjectLifecycleCheckpointResult> result = await state.Runtime.AdvanceUntypedAsync(state.Session(request.ProjectId), installed, checkpoint, identity, context.RequestAborted).ConfigureAwait(false);
+        BaseResult<BaseSubjectLifecycleCheckpointResult> result = await state.Runtime.AdvanceUntypedAsync(state.Session(request.ProjectId), installed, checkpoint, identity, null, context.RequestAborted).ConfigureAwait(false);
         if (result is BaseFailure<BaseSubjectLifecycleCheckpointResult> failure) { await Problem(context, failure.Status, failure.Error.Code).ConfigureAwait(false); return; }
         BaseSubjectLifecycleCheckpointResult value = ((BaseSuccess<BaseSubjectLifecycleCheckpointResult>)result).Value;
         context.Response.StatusCode = StatusCodes.Status200OK; context.Response.ContentType = "application/json; charset=utf-8";

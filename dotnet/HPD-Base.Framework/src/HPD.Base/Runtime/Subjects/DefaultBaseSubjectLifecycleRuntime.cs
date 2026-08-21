@@ -117,10 +117,10 @@ internal sealed class DefaultBaseSubjectLifecycleRuntime(
         return new BaseSuccess<BaseSubjectLifecycleCheckpoint>(checkpoint, OperationStatus.Ok, null, null, null, null);
     }
 
-    public async ValueTask<BaseResult<BaseSubjectLifecycleCheckpointResult>> AdvanceAsync<TSubject>(BaseSession session, BaseGeneratedSubjectLifecycleConsumerIdentity<TSubject> identity, BaseInstalledSubjectLifecycleConsumer installed, BaseSubjectLifecycleCheckpoint checkpoint, BaseMutationRequestIdentity requestIdentity, CancellationToken cancellationToken)
-        => await AdvanceUntypedAsync(session, installed, checkpoint, requestIdentity, cancellationToken).ConfigureAwait(false);
+    public async ValueTask<BaseResult<BaseSubjectLifecycleCheckpointResult>> AdvanceAsync<TSubject>(BaseSession session, BaseGeneratedSubjectLifecycleConsumerIdentity<TSubject> identity, BaseInstalledSubjectLifecycleConsumer installed, BaseSubjectLifecycleCheckpoint checkpoint, BaseMutationRequestIdentity requestIdentity, BaseActivationGuard? activationGuard, CancellationToken cancellationToken)
+        => await AdvanceUntypedAsync(session, installed, checkpoint, requestIdentity, activationGuard, cancellationToken).ConfigureAwait(false);
 
-    public async ValueTask<BaseResult<BaseSubjectLifecycleCheckpointResult>> AdvanceUntypedAsync(BaseSession session, BaseInstalledSubjectLifecycleConsumer installed, BaseSubjectLifecycleCheckpoint checkpoint, BaseMutationRequestIdentity requestIdentity, CancellationToken cancellationToken)
+    public async ValueTask<BaseResult<BaseSubjectLifecycleCheckpointResult>> AdvanceUntypedAsync(BaseSession session, BaseInstalledSubjectLifecycleConsumer installed, BaseSubjectLifecycleCheckpoint checkpoint, BaseMutationRequestIdentity requestIdentity, BaseActivationGuard? activationGuard, CancellationToken cancellationToken)
     {
         BaseSubjectLifecycleConsumerDefinition consumer = installed.Definition; BaseGeneratedSubjectRegistration? contract = contracts.Find(consumer.ContractId, consumer.ContractVersion);
         if (contract is null || !AudienceAllows(consumer.Audience, session.Principal.AuthenticationState)) return CheckpointFailure(OperationStatus.PolicyDenied, BaseSubjectErrorCodes.LifecycleUnauthorized, ErrorCategory.Authorization);
@@ -145,7 +145,7 @@ internal sealed class DefaultBaseSubjectLifecycleRuntime(
         if (token.Boundary is null || !ExactAdvanceIdentity(requestIdentity, consumer, installed.Checksum, token.Boundary))
             return CheckpointFailure(OperationStatus.ValidationFailed, BaseSubjectErrorCodes.LifecycleContractInvalid, ErrorCategory.Validation);
         if (stores.GetStoreForCollection(contract.Definition.ValidationPlan.PrivateCollectionId) is not IBaseSubjectLifecycleStore store) return CheckpointFailure(OperationStatus.CapabilityUnavailable, BaseSubjectErrorCodes.LifecycleProviderContractInvalid, ErrorCategory.Capability);
-        var checkpointRequest = new BaseSubjectLifecycleProviderCheckpointRequest { ApplicationId = session.ApplicationId, ContractId = consumer.ContractId, ContractVersion = consumer.ContractVersion, ConsumerId = consumer.Id, ConsumerVersion = consumer.Version, ConsumerChecksum = installed.Checksum, ProjectionGeneration = token.ProjectionGeneration, Scope = scope, Through = token.Boundary, ExpectedCheckpointGeneration = token.CheckpointGeneration, Identity = requestIdentity, DeadlineUtc = timeProvider.GetUtcNow().Add(consumer.Limits.ReadTimeout) };
+        var checkpointRequest = new BaseSubjectLifecycleProviderCheckpointRequest { ApplicationId = session.ApplicationId, ContractId = consumer.ContractId, ContractVersion = consumer.ContractVersion, ConsumerId = consumer.Id, ConsumerVersion = consumer.Version, ConsumerChecksum = installed.Checksum, ProjectionGeneration = token.ProjectionGeneration, Scope = scope, Through = token.Boundary, ExpectedCheckpointGeneration = token.CheckpointGeneration, Identity = requestIdentity, ActivationGuard = activationGuard, DeadlineUtc = timeProvider.GetUtcNow().Add(consumer.Limits.ReadTimeout) };
         var processor = new BaseSubjectLifecycleCheckpointProcessor(checkpointRequest);
         RecordMutationExecutionResult execution = await store.AdvanceCheckpointAsync(processor, new RecordMutationExecutionRequest
         {

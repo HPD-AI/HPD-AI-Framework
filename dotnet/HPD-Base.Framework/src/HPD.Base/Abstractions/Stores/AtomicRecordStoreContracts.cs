@@ -335,6 +335,10 @@ public interface IAtomicRecordStore : IRecordMutationStore
 /// </summary>
 public interface IAtomicRecordSession
 {
+    /// <summary>Validates one activation child fence against transaction-local authority.</summary>
+    ValueTask<OperationResult<BaseCapturedActivationGuardEvidence>> ValidateActivationGuardAsync(
+        BaseActivationGuard guard,
+        CancellationToken cancellationToken = default);
     /// <summary>Captures immutable current-state authority for one canonical caller-semantic intent.</summary>
     ValueTask<OperationResult<BaseCapturedAtomicExecution>> CaptureAtomicExecutionAsync(
         BaseAtomicExecutionRequest request,

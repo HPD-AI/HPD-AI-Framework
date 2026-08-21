@@ -212,12 +212,11 @@ public sealed class BaseActivationContext
             $"activation:{Claim.ActivationId}", stepId, childOrdinal.ToString(System.Globalization.CultureInfo.InvariantCulture), fingerprint);
     }
 
-    /// <summary>Creates L50 execution options fenced to this exact live claim.</summary>
-    public BaseModuleMutationExecutionOptions GuardModuleMutation(
+    /// <summary>Creates one same-store fence for a receipt-safe child operation.</summary>
+    public BaseActivationGuard GuardChild(
         string stepId,
         int childOrdinal,
-        BaseMutationRequestFingerprint fingerprint,
-        BaseModuleMutationExecutionOptions? options = null)
+        BaseMutationRequestFingerprint fingerprint)
     {
         ArgumentNullException.ThrowIfNull(fingerprint);
         BaseApplicationId.Validate(stepId, nameof(stepId));
@@ -231,15 +230,26 @@ public sealed class BaseActivationContext
                 throw new InvalidOperationException("base.activation.childLimitExceeded");
             }
         }
+        return new BaseActivationGuard
+        {
+            Claim = Claim,
+            StepId = new string(stepId.AsSpan()),
+            ChildOrdinal = childOrdinal,
+            ChildRequestFingerprint = fingerprint.ToArray().ToImmutableArray(),
+        };
+    }
+
+    /// <summary>Creates L50 execution options fenced to this exact live claim.</summary>
+    public BaseModuleMutationExecutionOptions GuardModuleMutation(
+        string stepId,
+        int childOrdinal,
+        BaseMutationRequestFingerprint fingerprint,
+        BaseModuleMutationExecutionOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(fingerprint);
         return (options ?? new BaseModuleMutationExecutionOptions()) with
         {
-            ActivationGuard = new BaseActivationGuard
-            {
-                Claim = Claim,
-                StepId = new string(stepId.AsSpan()),
-                ChildOrdinal = childOrdinal,
-                ChildRequestFingerprint = fingerprint.ToArray().ToImmutableArray(),
-            },
+            ActivationGuard = GuardChild(stepId, childOrdinal, fingerprint),
         };
     }
 }

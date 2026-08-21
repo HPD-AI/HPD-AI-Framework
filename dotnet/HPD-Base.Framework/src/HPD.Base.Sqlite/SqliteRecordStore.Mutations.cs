@@ -1129,6 +1129,13 @@ public sealed partial class SqliteRecordStore
             });
         }
 
+        public ValueTask<OperationResult<BaseCapturedActivationGuardEvidence>> ValidateActivationGuardAsync(
+            BaseActivationGuard guard,
+            CancellationToken cancellationToken = default) => ExecuteAsync(
+                BaseOperationKind.ActivationTransition,
+                cancellationToken,
+                token => CaptureActivationGuardAsync(guard, token));
+
         private static bool ActivationGuardMatches(BaseActivationGuard? guard, BaseCapturedActivationGuardEvidence? evidence) =>
             guard is null ? evidence is null : evidence is not null &&
             string.Equals(guard.Claim.ActivationId, evidence.ActivationId, StringComparison.Ordinal) &&

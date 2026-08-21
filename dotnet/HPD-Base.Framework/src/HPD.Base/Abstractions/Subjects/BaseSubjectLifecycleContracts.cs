@@ -319,6 +319,8 @@ public sealed record BaseSubjectLifecycleCheckpointAdvanceRequest
     public required long ExpectedCheckpointGeneration { get; init; }
     /// <summary>Gets the identified mutation identity.</summary>
     public required BaseMutationRequestIdentity Identity { get; init; }
+    /// <summary>Gets the optional same-store activation fence for activation-owned cleanup.</summary>
+    public BaseActivationGuard? ActivationGuard { get; init; }
 }
 
 /// <summary>Returns durable checkpoint state.</summary>
@@ -646,6 +648,8 @@ public sealed record BaseSubjectLifecycleProviderCheckpointRequest
     public required long ExpectedCheckpointGeneration { get; init; }
     /// <summary>Gets the identified request authority.</summary>
     public required BaseMutationRequestIdentity Identity { get; init; }
+    /// <summary>Gets the optional same-store activation fence.</summary>
+    public BaseActivationGuard? ActivationGuard { get; init; }
     /// <summary>Gets the absolute operation deadline.</summary>
     public required DateTimeOffset DeadlineUtc { get; init; }
 }

@@ -407,6 +407,8 @@ public sealed record BaseSubjectRetirementProviderAcknowledgementRequest
     public required DateTimeOffset ObservedAtUtc { get; init; }
 /// <summary>Defines DeadlineUtc for coordinated subject retirement.</summary>
     public required DateTimeOffset DeadlineUtc { get; init; }
+    /// <summary>Gets the optional same-store activation fence.</summary>
+    public BaseActivationGuard? ActivationGuard { get; init; }
 }
 
 /// <summary>Contains one Runtime-authorized timeout transition for provider application.</summary>

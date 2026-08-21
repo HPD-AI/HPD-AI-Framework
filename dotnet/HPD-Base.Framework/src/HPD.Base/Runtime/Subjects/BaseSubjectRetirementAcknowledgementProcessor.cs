@@ -7,6 +7,13 @@ internal sealed class BaseSubjectRetirementAcknowledgementProcessor(
 
     public async ValueTask<AtomicMutationProcessingResult> ProcessAsync(IAtomicRecordSession session, CancellationToken cancellationToken = default)
     {
+        if (request.ActivationGuard is not null)
+        {
+            OperationResult<BaseCapturedActivationGuardEvidence> guarded = await session
+                .ValidateActivationGuardAsync(request.ActivationGuard, cancellationToken).ConfigureAwait(false);
+            if (!guarded.IsSuccess() || guarded.Value is null)
+                return Failed(guarded.Error ?? Error("base.activation.claimLost", ErrorCategory.Conflict));
+        }
         OperationResult<BaseSubjectAcknowledgementResult> applied = await session
             .ApplySubjectRetirementAcknowledgementAsync(request, cancellationToken).ConfigureAwait(false);
         if (!applied.IsSuccess() || applied.Value is null)

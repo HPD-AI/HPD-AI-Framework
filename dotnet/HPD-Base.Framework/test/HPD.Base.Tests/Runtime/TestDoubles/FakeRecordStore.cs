@@ -288,6 +288,15 @@ internal class FakeRecordStore : IAtomicRecordStore
         FakeRecordStore owner,
         Dictionary<string, RecordEnvelope> records) : IAtomicRecordSession
     {
+        public ValueTask<OperationResult<BaseCapturedActivationGuardEvidence>> ValidateActivationGuardAsync(
+            BaseActivationGuard guard,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(OperationResults.Unsupported<BaseCapturedActivationGuardEvidence>(new BaseError
+            {
+                Code = "base.activation.capabilityUnavailable",
+                Message = "Activation guards are not supported by this test store.",
+                Category = ErrorCategory.Unsupported,
+            }));
         private bool _active = true;
         private long _purgeGeneration;
         private BaseCapturedAtomicExecution? _captured;

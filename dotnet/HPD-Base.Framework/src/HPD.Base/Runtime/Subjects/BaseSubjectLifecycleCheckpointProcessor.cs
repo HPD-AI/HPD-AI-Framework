@@ -10,6 +10,13 @@ internal sealed class BaseSubjectLifecycleCheckpointProcessor(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(session);
+        if (request.ActivationGuard is not null)
+        {
+            OperationResult<BaseCapturedActivationGuardEvidence> guarded = await session
+                .ValidateActivationGuardAsync(request.ActivationGuard, cancellationToken).ConfigureAwait(false);
+            if (!guarded.IsSuccess() || guarded.Value is null)
+                return Failed(guarded.Error ?? Error("base.activation.claimLost", ErrorCategory.Conflict));
+        }
         OperationResult<BaseSubjectLifecycleCheckpointResult> advanced =
             await session.AdvanceSubjectLifecycleCheckpointAsync(request, cancellationToken).ConfigureAwait(false);
         if (!advanced.IsSuccess() || advanced.Value is null)

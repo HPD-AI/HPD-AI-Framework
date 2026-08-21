@@ -78,8 +78,8 @@ public sealed class BaseInstalledSubjectLifecycleConsumer<TSubject>
         }
     }
     /// <summary>Advances the provider-owned checkpoint through exact issued evidence.</summary>
-    public ValueTask<BaseResult<BaseSubjectLifecycleCheckpointResult>> AdvanceAsync(BaseSubjectLifecycleCheckpoint checkpoint, BaseMutationRequestIdentity identity, CancellationToken cancellationToken = default)
-    { ArgumentNullException.ThrowIfNull(checkpoint); ArgumentNullException.ThrowIfNull(identity); return _runtime.AdvanceAsync(_session, _identity, _installed, checkpoint, identity, cancellationToken); }
+    public ValueTask<BaseResult<BaseSubjectLifecycleCheckpointResult>> AdvanceAsync(BaseSubjectLifecycleCheckpoint checkpoint, BaseMutationRequestIdentity identity, BaseActivationGuard? activationGuard = null, CancellationToken cancellationToken = default)
+    { ArgumentNullException.ThrowIfNull(checkpoint); ArgumentNullException.ThrowIfNull(identity); return _runtime.AdvanceAsync(_session, _identity, _installed, checkpoint, identity, activationGuard, cancellationToken); }
     /// <summary>Reads one separately authorized bounded current-state reconciliation page.</summary>
     public ValueTask<BaseResult<BaseSubjectLifecycleReconciliationPage<TSubject>>> ReconcileAsync(BaseSubjectId? afterSubjectId = null, int? take = null, CancellationToken cancellationToken = default) =>
         _runtime.ReconcileAsync(_session, _identity, _installed, afterSubjectId, take, cancellationToken);
@@ -98,9 +98,9 @@ internal interface IBaseSubjectLifecycleRuntime
     ValueTask<bool> AuthorizeReconciliationGenerationAsync(BaseSession session, BaseInstalledSubjectLifecycleConsumer installed, CancellationToken cancellationToken);
     ValueTask<BaseResult<BaseSubjectLifecycleCheckpoint>> CreateHintCheckpointAsync(BaseSession session, BaseInstalledSubjectLifecycleConsumer installed, BaseSubjectLifecycleCommitEvidence evidence, CancellationToken cancellationToken);
     ValueTask<BaseResult<BaseUntypedSubjectLifecyclePage>> ReadUntypedAsync(BaseSession session, BaseInstalledSubjectLifecycleConsumer installed, BaseSubjectLifecycleCursor? after, int? take, CancellationToken cancellationToken);
-    ValueTask<BaseResult<BaseSubjectLifecycleCheckpointResult>> AdvanceUntypedAsync(BaseSession session, BaseInstalledSubjectLifecycleConsumer installed, BaseSubjectLifecycleCheckpoint checkpoint, BaseMutationRequestIdentity requestIdentity, CancellationToken cancellationToken);
+    ValueTask<BaseResult<BaseSubjectLifecycleCheckpointResult>> AdvanceUntypedAsync(BaseSession session, BaseInstalledSubjectLifecycleConsumer installed, BaseSubjectLifecycleCheckpoint checkpoint, BaseMutationRequestIdentity requestIdentity, BaseActivationGuard? activationGuard, CancellationToken cancellationToken);
     ValueTask<BaseResult<BaseSubjectLifecyclePage<TSubject>>> ReadAsync<TSubject>(BaseSession session, BaseGeneratedSubjectLifecycleConsumerIdentity<TSubject> identity, BaseInstalledSubjectLifecycleConsumer installed, BaseSubjectLifecycleCursor? after, int? take, CancellationToken cancellationToken);
-    ValueTask<BaseResult<BaseSubjectLifecycleCheckpointResult>> AdvanceAsync<TSubject>(BaseSession session, BaseGeneratedSubjectLifecycleConsumerIdentity<TSubject> identity, BaseInstalledSubjectLifecycleConsumer installed, BaseSubjectLifecycleCheckpoint checkpoint, BaseMutationRequestIdentity requestIdentity, CancellationToken cancellationToken);
+    ValueTask<BaseResult<BaseSubjectLifecycleCheckpointResult>> AdvanceAsync<TSubject>(BaseSession session, BaseGeneratedSubjectLifecycleConsumerIdentity<TSubject> identity, BaseInstalledSubjectLifecycleConsumer installed, BaseSubjectLifecycleCheckpoint checkpoint, BaseMutationRequestIdentity requestIdentity, BaseActivationGuard? activationGuard, CancellationToken cancellationToken);
     ValueTask<BaseResult<BaseSubjectLifecycleReconciliationPage<TSubject>>> ReconcileAsync<TSubject>(BaseSession session, BaseGeneratedSubjectLifecycleConsumerIdentity<TSubject> identity, BaseInstalledSubjectLifecycleConsumer installed, BaseSubjectId? afterSubjectId, int? take, CancellationToken cancellationToken);
     ValueTask<BaseResult<BaseSubjectLifecycleProviderReconciliationPage>> ReconcileUntypedAsync(BaseSession session, BaseInstalledSubjectLifecycleConsumer installed, BaseSubjectId? afterSubjectId, int? take, CancellationToken cancellationToken);
 }
