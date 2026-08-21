@@ -152,6 +152,81 @@ public sealed partial class SqliteModuleMutationTests
     }
 
     [Fact]
+    public async Task Schedule_overlap_is_decided_inside_the_sqlite_transaction()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-schedule-overlap-{Guid.NewGuid():N}.db");
+        try
+        {
+            await using SqliteRecordStore store = Store(path);
+            byte[] overlap = System.Security.Cryptography.SHA256.HashData("overlap"u8);
+            BaseScheduleDefinition first = Schedule(1, BaseScheduleOverlapPolicy.Allow, overlap);
+            BaseScheduleDefinition second = Schedule(2, BaseScheduleOverlapPolicy.SkipWhileActive, overlap);
+            (await store.MutateScheduleAsync(ScheduleMutation(first, 100, "create-1"))).IsSuccess().Should().BeTrue();
+            BaseScheduleMaintenancePage materialized = (await store.AdvanceSchedulesAsync(
+                SchedulePage((await store.ReadScheduleAsync(first.Id, first.Version)).Value!, first, 101, "advance-1"))).Value!;
+            materialized.Occurrences[0].Disposition.Should().BeOfType<BaseOccurrenceMaterialized>();
+
+            (await store.MutateScheduleAsync(ScheduleMutation(second, 102, "create-2"))).IsSuccess().Should().BeTrue();
+            BaseScheduleMaintenancePage skipped = (await store.AdvanceSchedulesAsync(
+                SchedulePage((await store.ReadScheduleAsync(second.Id, second.Version)).Value!, second, 103, "advance-2"))).Value!;
+            skipped.Occurrences[0].Disposition.Should().BeOfType<BaseOccurrenceSkippedOverlap>();
+        }
+        finally
+        {
+            foreach (string suffix in new[] { "", "-wal", "-shm" }) if (File.Exists(path + suffix)) File.Delete(path + suffix);
+        }
+    }
+
+    private static BaseScheduleDefinition Schedule(int version, BaseScheduleOverlapPolicy policy, byte[] overlap)
+    {
+        byte[] input = "scheduled"u8.ToArray();
+        return BaseScheduleDefinitionBuilder.Create(new BaseScheduleDefinition
+        {
+            Id = "test.schedule", Version = version, OwningModuleId = "test", ManageGrantId = "schedule.manage",
+            MaterializeGrantId = "schedule.materialize", Activation = ActivationDefinition(), CanonicalInput = input.ToImmutableArray(),
+            InputChecksum = System.Security.Cryptography.SHA256.HashData(input).ToImmutableArray(), Expression = new BaseOnceSchedule(version),
+            GapPolicy = BaseTimeGapPolicy.Skip, TimeOverlapPolicy = BaseTimeOverlapPolicy.EarlierOffset,
+            MisfirePolicy = BaseScheduleMisfirePolicy.RunAll, ActivationOverlapPolicy = policy,
+            OverlapKeyKind = BaseScheduleOverlapKeyKind.CanonicalConcurrencyKey, ConcurrencyKey = overlap.ToImmutableArray(),
+            Priority = 0, MaximumSplayMilliseconds = 0, Checksum = [],
+        });
+    }
+
+    private static BaseScheduleMutationRequest ScheduleMutation(BaseScheduleDefinition definition, long now, string key) => new()
+    {
+        Kind = BaseScheduleMutationKind.Create, Definition = definition, InitialNextNominal = definition.Version,
+        AcceptedTime = AcceptedTime(now), Identity = ActivationIdentity(key), Limits = ActivationLimits(),
+    };
+
+    private static BaseScheduleMaintenanceRequest SchedulePage(BaseScheduleAuthority authority, BaseScheduleDefinition definition, long now, string key)
+    {
+        string activationId = $"activation-{definition.Version}"; string occurrenceId = $"occurrence-{definition.Version}";
+        var activation = new BaseActivationCreateIntent
+        {
+            Ordinal = 0, Definition = definition.Activation, CanonicalInput = definition.CanonicalInput,
+            InputChecksum = definition.InputChecksum, Scope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Global },
+            RequestedDueAt = definition.Version, EffectiveDueAt = definition.Version, OccurrenceId = occurrenceId,
+            OverlapKey = System.Security.Cryptography.SHA256.HashData(definition.ConcurrencyKey.AsSpan()).ToImmutableArray(),
+            OverlapPolicy = definition.ActivationOverlapPolicy, InitiallyEligible = definition.ActivationOverlapPolicy != BaseScheduleOverlapPolicy.CancelPrevious,
+            Identity = ActivationIdentity(key + "-activation"),
+        };
+        var fact = new BaseScheduleOccurrenceFact
+        {
+            OccurrenceId = occurrenceId, ScheduleId = definition.Id, ScheduleEpoch = authority.ScheduleEpoch,
+            NominalAt = definition.Version, EffectiveAt = definition.Version, OverlapOrdinal = 0,
+            Disposition = new BaseOccurrenceMaterialized(activationId), Checksum = [],
+        };
+        fact = fact with { Checksum = InMemoryRecordStore.OccurrenceChecksum(fact).ToImmutableArray() };
+        return new BaseScheduleMaintenanceRequest
+        {
+            ScheduleId = definition.Id, ScheduleVersion = definition.Version, ExpectedAuthorityChecksum = authority.Checksum,
+            Occurrences = [new BaseScheduleOccurrenceProposal { Fact = fact, Activation = activation }],
+            ResultingLastConsideredNominal = definition.Version, ResultingNextNominal = null,
+            AcceptedTime = AcceptedTime(now), Identity = ActivationIdentity(key), Limits = ActivationLimits(),
+        };
+    }
+
+    [Fact]
     public async Task Generation_operation_commits_replays_and_survives_restart()
     {
         string path = Path.Combine(Path.GetTempPath(), $"hpd-base-l50-{Guid.NewGuid():N}.db");

@@ -72,16 +72,19 @@ public sealed partial class ActivationRuntimeTests
         var stores = new DefaultRecordStoreRegistry();
         stores.Add(new RecordStoreRegistration { StoreId = "activation-store", Store = store });
         BaseActivationHandlerRegistration<Input, Result> target = Registration();
+        long due = DateTimeOffset.UtcNow.AddMinutes(-1).ToUnixTimeMilliseconds();
+        byte[] concurrencyKey = SHA256.HashData("test-overlap"u8);
         BaseScheduleDefinition schedule = BaseScheduleDefinitionBuilder.Create(new BaseScheduleDefinition
         {
             Id = "test.schedule", Version = 1, OwningModuleId = "test.module",
             ManageGrantId = "test.schedule.manage", MaterializeGrantId = "test.schedule.materialize",
             Activation = new BaseActivationDefinitionKey { Id = target.Definition.Id, Version = target.Definition.Version, Checksum = target.Definition.Checksum },
             CanonicalInput = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new Input("scheduled"), Json.Default.Input).ToImmutableArray(),
-            InputChecksum = [], Expression = new BaseOnceSchedule(DateTimeOffset.UtcNow.AddMinutes(-1).ToUnixTimeMilliseconds()),
+            InputChecksum = [], Expression = new BaseOnceSchedule(due),
             GapPolicy = BaseTimeGapPolicy.Skip, TimeOverlapPolicy = BaseTimeOverlapPolicy.EarlierOffset,
             MisfirePolicy = BaseScheduleMisfirePolicy.RunAll, ActivationOverlapPolicy = BaseScheduleOverlapPolicy.Allow,
-            OverlapKeyKind = BaseScheduleOverlapKeyKind.Schedule, Priority = 0, MaximumSplayMilliseconds = 0, Checksum = [],
+            OverlapKeyKind = BaseScheduleOverlapKeyKind.CanonicalConcurrencyKey, ConcurrencyKey = concurrencyKey.ToImmutableArray(),
+            Priority = 0, MaximumSplayMilliseconds = 0, Checksum = [],
         } with
         {
             InputChecksum = SHA256.HashData(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new Input("scheduled"), Json.Default.Input)).ToImmutableArray(),
@@ -99,6 +102,30 @@ public sealed partial class ActivationRuntimeTests
         advanced.IsSuccess().Should().BeTrue(advanced.Error?.Code);
         advanced.Value!.Occurrences.Should().ContainSingle();
         advanced.Value.Occurrences[0].Disposition.Should().BeOfType<BaseOccurrenceMaterialized>();
+
+        BaseScheduleDefinition skippedSchedule = BaseScheduleDefinitionBuilder.Create(schedule with
+        {
+            Version = 2, Expression = new BaseOnceSchedule(due + 1),
+            ActivationOverlapPolicy = BaseScheduleOverlapPolicy.SkipWhileActive, Checksum = [],
+        });
+        (await runtime.MutateAsync(Session(), skippedSchedule, BaseScheduleMutationKind.Create, null,
+            Identity("schedule-create", "two"), default)).IsSuccess().Should().BeTrue();
+        OperationResult<BaseScheduleMaintenancePage> skipped = await runtime.AdvanceAsync(
+            Session(), skippedSchedule, Identity("schedule-advance", "two"), default);
+        skipped.IsSuccess().Should().BeTrue(skipped.Error?.Code);
+        skipped.Value!.Occurrences[0].Disposition.Should().BeOfType<BaseOccurrenceSkippedOverlap>();
+
+        BaseScheduleDefinition replacementSchedule = BaseScheduleDefinitionBuilder.Create(schedule with
+        {
+            Version = 3, Expression = new BaseOnceSchedule(due + 2),
+            ActivationOverlapPolicy = BaseScheduleOverlapPolicy.CancelPrevious, Checksum = [],
+        });
+        (await runtime.MutateAsync(Session(), replacementSchedule, BaseScheduleMutationKind.Create, null,
+            Identity("schedule-create", "three"), default)).IsSuccess().Should().BeTrue();
+        OperationResult<BaseScheduleMaintenancePage> replacement = await runtime.AdvanceAsync(
+            Session(), replacementSchedule, Identity("schedule-advance", "three"), default);
+        replacement.IsSuccess().Should().BeTrue(replacement.Error?.Code);
+        replacement.Value!.Occurrences[0].Disposition.Should().BeOfType<BaseOccurrenceMaterialized>();
     }
 
     private static BaseActivationHandlerRegistration<Input, Result> Registration() =>

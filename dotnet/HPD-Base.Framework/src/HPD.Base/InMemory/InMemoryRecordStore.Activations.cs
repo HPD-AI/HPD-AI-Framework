@@ -575,16 +575,22 @@ internal sealed partial class InMemoryRecordStore
                 !CryptographicOperations.FixedTimeEquals(authority.Checksum.AsSpan(), request.ExpectedAuthorityChecksum.AsSpan()))
                 return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.scheduleConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
             long previous = authority.LastConsideredNominal ?? -1;
+            var committedFacts = ImmutableArray.CreateBuilder<BaseScheduleOccurrenceFact>(request.Occurrences.Length);
             foreach (BaseScheduleOccurrenceProposal proposal in request.Occurrences)
             {
-                BaseScheduleOccurrenceFact fact = proposal.Fact;
+                BaseScheduleOccurrenceProposal effectiveProposal;
+                try { effectiveProposal = ResolveOverlap(next, proposal); }
+                catch (InvalidOperationException)
+                { return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.budgetExceeded", OperationStatus.ValidationFailed, ErrorCategory.Validation); }
+                BaseScheduleOccurrenceFact fact = effectiveProposal.Fact;
                 if (fact.ScheduleId != authority.Definition.Id || fact.ScheduleEpoch != authority.ScheduleEpoch || fact.NominalAt <= previous ||
-                    next.ScheduleOccurrences.ContainsKey(fact.OccurrenceId) || !OccurrenceShapeValid(proposal) ||
+                    next.ScheduleOccurrences.ContainsKey(fact.OccurrenceId) || !OccurrenceShapeValid(effectiveProposal) ||
                     !CryptographicOperations.FixedTimeEquals(fact.Checksum.AsSpan(), OccurrenceChecksum(fact)))
                     return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.occurrenceInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
                 previous = fact.NominalAt;
                 next.ScheduleOccurrences.Add(fact.OccurrenceId, fact);
-                if (proposal.Activation is { } activation)
+                committedFacts.Add(fact);
+                if (effectiveProposal.Activation is { } activation)
                 {
                     string activationId = ((BaseOccurrenceMaterialized)fact.Disposition).ActivationId;
                     byte[] fingerprint = ScheduleActivationFingerprint(activation, fact.OccurrenceId);
@@ -600,7 +606,7 @@ internal sealed partial class InMemoryRecordStore
                             activation.RequestedDueAt, activation.EffectiveDueAt ?? activation.RequestedDueAt, fingerprint,
                             ControlChecksum(activationId, 1, BaseActivationState.Pending), activation.OccurrenceId,
                             activation.Priority, activation.OverlapKey.IsDefaultOrEmpty ? null : activation.OverlapKey.ToArray(),
-                            activation.OverlapPolicy, activation.InitiallyEligible));
+                            activation.OverlapPolicy, true));
                         next.ActivationIndexGeneration = checked(next.ActivationIndexGeneration + 1);
                     }
                 }
@@ -612,12 +618,44 @@ internal sealed partial class InMemoryRecordStore
             next.Schedules[key] = replacement; Volatile.Write(ref _publishedState, next);
             return OperationResults.Ok(new BaseScheduleMaintenancePage
             {
-                Authority = replacement, Occurrences = request.Occurrences.Select(static value => value.Fact).ToImmutableArray(),
+                Authority = replacement, Occurrences = committedFacts.MoveToImmutable(),
                 Accounting = EmptyActivationAccounting with { Candidates = request.Occurrences.Length, IndexOperations = request.Occurrences.Length * 2 },
                 Disposition = BaseMutationRequestDisposition.Committed,
             });
         }
         finally { _stateGate.Release(); }
+    }
+
+    private static BaseScheduleOccurrenceProposal ResolveOverlap(InMemoryStoreState state, BaseScheduleOccurrenceProposal proposal)
+    {
+        if (proposal.Activation is not { } activation || activation.OverlapKey.IsDefaultOrEmpty ||
+            activation.OverlapPolicy is BaseScheduleOverlapPolicy.Allow or BaseScheduleOverlapPolicy.Queue)
+            return proposal;
+        InMemoryActivationRow[] blockers = state.Activations.Values.Where(row => row.OverlapKey is not null &&
+            CryptographicOperations.FixedTimeEquals(row.OverlapKey, activation.OverlapKey.AsSpan()) &&
+            row.State is BaseActivationState.Pending or BaseActivationState.RetryPending or BaseActivationState.Claimed or BaseActivationState.EffectStarted)
+            .OrderBy(static row => row.EffectiveDueAt).ThenBy(static row => row.Payload.ActivationId, StringComparer.Ordinal).ToArray();
+        if (activation.OverlapPolicy == BaseScheduleOverlapPolicy.SkipWhileActive && blockers.Length != 0)
+        {
+            BaseScheduleOccurrenceFact skipped = proposal.Fact with
+            { Disposition = new BaseOccurrenceSkippedOverlap(blockers[0].Payload.ActivationId), Checksum = [] };
+            skipped = skipped with { Checksum = OccurrenceChecksum(skipped).ToImmutableArray() };
+            return new BaseScheduleOccurrenceProposal { Fact = skipped };
+        }
+        if (activation.OverlapPolicy == BaseScheduleOverlapPolicy.CancelPrevious)
+        {
+            if (blockers.Length > 256) throw new InvalidOperationException("base.activation.budgetExceeded");
+            foreach (InMemoryActivationRow blocker in blockers)
+            {
+                long generation = checked(blocker.Generation + 1);
+                state.Activations[blocker.Payload.ActivationId] = blocker with
+                {
+                    State = BaseActivationState.Cancelled, Generation = generation, Claim = null, Lease = null,
+                    Eligible = false, ControlChecksum = ControlChecksum(blocker.Payload.ActivationId, generation, BaseActivationState.Cancelled),
+                };
+            }
+        }
+        return proposal;
     }
 
     private static string ScheduleKey(string id, int version) => $"{id}\n{version}";
