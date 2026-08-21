@@ -326,6 +326,126 @@ internal sealed partial class InMemoryRecordStore
         }
     }
 
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseExecutorRegistrationResult>> RegisterExecutorAsync(
+        BaseExecutorRegistrationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (string.IsNullOrWhiteSpace(request.ApplicationId) || string.IsNullOrWhiteSpace(request.HostId) ||
+            string.IsNullOrWhiteSpace(request.ProcessIncarnationId) || request.WorkerDefinitionSetChecksum.Length != 32 ||
+            request.RequestedHeartbeatMilliseconds <= 0 || request.AcceptedTime.ApplicationId != request.ApplicationId)
+            return ActivationFailure<BaseExecutorRegistrationResult>("base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            InMemoryStoreState current = Volatile.Read(ref _publishedState);
+            string key = ExecutorKey(request.ApplicationId, request.HostId, request.ProcessIncarnationId);
+            if (current.Executors.TryGetValue(key, out InMemoryExecutorRow? existing) && !existing.Retired)
+                return ActivationFailure<BaseExecutorRegistrationResult>("base.activation.executorConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+            var next = current.Clone();
+            long generation = checked(next.NextExecutorGeneration + 1);
+            next.NextExecutorGeneration = generation;
+            byte[] authorityChecksum = Hash($"base.activation.executor.v2\0{request.ApplicationId}\n{request.HostId}\n{request.ProcessIncarnationId}\n{generation}\n{_options.StoreId}\n0\n{Convert.ToHexString(request.WorkerDefinitionSetChecksum.AsSpan())}");
+            var authority = new BaseExecutorIncarnationAuthority
+            {
+                ApplicationId = new string(request.ApplicationId.AsSpan()), HostId = new string(request.HostId.AsSpan()),
+                ProcessIncarnationId = new string(request.ProcessIncarnationId.AsSpan()), ExecutorGeneration = generation,
+                StoreInstanceId = _options.StoreId, RestoreEpoch = 0,
+                WorkerDefinitionSetChecksum = request.WorkerDefinitionSetChecksum.ToArray().ToImmutableArray(),
+                Checksum = authorityChecksum.ToImmutableArray(),
+            };
+            var heartbeat = Heartbeat(authority, 1, checked(request.AcceptedTime.CapturedUtc + request.RequestedHeartbeatMilliseconds));
+            next.Executors[key] = new InMemoryExecutorRow(authority, heartbeat, false);
+            Volatile.Write(ref _publishedState, next);
+            return OperationResults.Ok(new BaseExecutorRegistrationResult
+            {
+                Executor = authority, Heartbeat = heartbeat, Accounting = EmptyActivationAccounting with { IndexOperations = 1 },
+                Disposition = BaseMutationRequestDisposition.Committed,
+            });
+        }
+        finally { _stateGate.Release(); }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseExecutorHeartbeatResult>> HeartbeatExecutorAsync(
+        BaseExecutorHeartbeatRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.ExpectedHeartbeatRevision <= 0 || request.ExtensionMilliseconds <= 0)
+            return ActivationFailure<BaseExecutorHeartbeatResult>("base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            InMemoryStoreState current = Volatile.Read(ref _publishedState);
+            string key = ExecutorKey(request.Executor.ApplicationId, request.Executor.HostId, request.Executor.ProcessIncarnationId);
+            if (!current.Executors.TryGetValue(key, out InMemoryExecutorRow? row) || row.Retired ||
+                !ExecutorMatches(row.Authority, request.Executor) || row.Heartbeat.HeartbeatRevision != request.ExpectedHeartbeatRevision ||
+                row.Heartbeat.HeartbeatExpiresAt < request.AcceptedTime.CapturedUtc)
+                return ActivationFailure<BaseExecutorHeartbeatResult>("base.activation.executorLost", OperationStatus.Conflict, ErrorCategory.Conflict);
+            var next = current.Clone();
+            long revision = checked(row.Heartbeat.HeartbeatRevision + 1);
+            BaseExecutorHeartbeatObservation heartbeat = Heartbeat(row.Authority, revision,
+                checked(request.AcceptedTime.CapturedUtc + request.ExtensionMilliseconds));
+            next.Executors[key] = next.Executors[key] with { Heartbeat = heartbeat };
+            Volatile.Write(ref _publishedState, next);
+            return OperationResults.Ok(new BaseExecutorHeartbeatResult
+            {
+                Executor = row.Authority, Heartbeat = heartbeat, Accounting = EmptyActivationAccounting with { IndexOperations = 1 },
+                Disposition = BaseMutationRequestDisposition.Committed,
+            });
+        }
+        finally { _stateGate.Release(); }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseExecutorRetirementResult>> RetireExecutorAsync(
+        BaseExecutorRetirementRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            InMemoryStoreState current = Volatile.Read(ref _publishedState);
+            string key = ExecutorKey(request.Executor.ApplicationId, request.Executor.HostId, request.Executor.ProcessIncarnationId);
+            if (!current.Executors.TryGetValue(key, out InMemoryExecutorRow? row) || row.Retired ||
+                !ExecutorMatches(row.Authority, request.Executor) || row.Heartbeat.HeartbeatRevision != request.ExpectedHeartbeatRevision)
+                return ActivationFailure<BaseExecutorRetirementResult>("base.activation.executorLost", OperationStatus.Conflict, ErrorCategory.Conflict);
+            var next = current.Clone();
+            next.Executors[key] = next.Executors[key] with { Retired = true };
+            Volatile.Write(ref _publishedState, next);
+            byte[] checksum = Hash($"base.activation.executor.retired.v2\0{Convert.ToHexString(row.Authority.Checksum.AsSpan())}\n{row.Heartbeat.HeartbeatRevision}");
+            return OperationResults.Ok(new BaseExecutorRetirementResult
+            {
+                Executor = row.Authority, HeartbeatRevision = row.Heartbeat.HeartbeatRevision,
+                RetirementChecksum = checksum.ToImmutableArray(), Accounting = EmptyActivationAccounting with { IndexOperations = 1 },
+                Disposition = BaseMutationRequestDisposition.Committed,
+            });
+        }
+        finally { _stateGate.Release(); }
+    }
+
+    private static string ExecutorKey(string applicationId, string hostId, string processId) => $"{applicationId}\n{hostId}\n{processId}";
+
+    private static BaseExecutorHeartbeatObservation Heartbeat(BaseExecutorIncarnationAuthority authority, long revision, long expiresAt)
+    {
+        byte[] checksum = Hash($"base.activation.executor.heartbeat.v2\0{Convert.ToHexString(authority.Checksum.AsSpan())}\n{revision}\n{expiresAt}");
+        return new BaseExecutorHeartbeatObservation
+        {
+            HeartbeatRevision = revision, HeartbeatExpiresAt = expiresAt,
+            ExecutorAuthorityChecksum = authority.Checksum.ToArray().ToImmutableArray(), Checksum = checksum.ToImmutableArray(),
+        };
+    }
+
+    private static bool ExecutorMatches(BaseExecutorIncarnationAuthority left, BaseExecutorIncarnationAuthority right) =>
+        left.ApplicationId == right.ApplicationId && left.HostId == right.HostId &&
+        left.ProcessIncarnationId == right.ProcessIncarnationId && left.ExecutorGeneration == right.ExecutorGeneration &&
+        left.StoreInstanceId == right.StoreInstanceId && left.RestoreEpoch == right.RestoreEpoch &&
+        CryptographicOperations.FixedTimeEquals(left.WorkerDefinitionSetChecksum.AsSpan(), right.WorkerDefinitionSetChecksum.AsSpan()) &&
+        CryptographicOperations.FixedTimeEquals(left.Checksum.AsSpan(), right.Checksum.AsSpan());
+
     private static List<InMemoryActivationRow> EligibleRows(
         InMemoryStoreState state,
         ImmutableArray<BaseActivationDefinitionKey> definitions,

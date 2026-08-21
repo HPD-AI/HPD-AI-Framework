@@ -37,6 +37,7 @@ internal sealed class SqliteNames
         ModuleMutationDefinitions = Prefix + "module_mutation_definitions";
         ModuleGenerationDefinitions = Prefix + "module_generation_definitions";
         Activations = Prefix + "activations";
+        Executors = Prefix + "activation_executors";
         MutationJournalScopeIndex = "ix_" + Prefix + "mutation_journal_scope_position";
     }
 
@@ -88,6 +89,8 @@ internal sealed class SqliteNames
     public string ModuleGenerationDefinitions { get; }
     /// <summary>Gets provider-owned durable activation payload and control rows.</summary>
     public string Activations { get; }
+    /// <summary>Gets provider-owned durable executor-incarnation authority.</summary>
+    public string Executors { get; }
     /// <summary>Gets the mutation journal scope index.</summary>
     public string MutationJournalScopeIndex { get; }
 }

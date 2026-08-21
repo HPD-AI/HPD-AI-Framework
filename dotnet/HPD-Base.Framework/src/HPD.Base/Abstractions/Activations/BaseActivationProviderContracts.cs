@@ -355,6 +355,100 @@ public sealed record BaseActivationTransitionResult
     public required BaseMutationRequestDisposition Disposition { get; init; }
 }
 
+/// <summary>Requests registration of one durable worker-process incarnation.</summary>
+public sealed record BaseExecutorRegistrationRequest
+{
+    /// <summary>Gets the application identity.</summary>
+    public required string ApplicationId { get; init; }
+    /// <summary>Gets the stable host identity.</summary>
+    public required string HostId { get; init; }
+    /// <summary>Gets the unique process-incarnation identity.</summary>
+    public required string ProcessIncarnationId { get; init; }
+    /// <summary>Gets the installed worker-definition-set checksum.</summary>
+    public required ImmutableArray<byte> WorkerDefinitionSetChecksum { get; init; }
+    /// <summary>Gets requested heartbeat lifetime in milliseconds.</summary>
+    public required long RequestedHeartbeatMilliseconds { get; init; }
+    /// <summary>Gets trusted accepted-time authority.</summary>
+    public required BaseAcceptedTimeReceipt AcceptedTime { get; init; }
+    /// <summary>Gets the identified operation identity.</summary>
+    public required BaseMutationRequestIdentity Identity { get; init; }
+    /// <summary>Gets effective limits.</summary>
+    public required BaseActivationExecutionLimits Limits { get; init; }
+}
+
+/// <summary>Requests renewal of one exact executor heartbeat.</summary>
+public sealed record BaseExecutorHeartbeatRequest
+{
+    /// <summary>Gets stable executor authority.</summary>
+    public required BaseExecutorIncarnationAuthority Executor { get; init; }
+    /// <summary>Gets expected heartbeat revision.</summary>
+    public required long ExpectedHeartbeatRevision { get; init; }
+    /// <summary>Gets requested extension in milliseconds.</summary>
+    public required long ExtensionMilliseconds { get; init; }
+    /// <summary>Gets trusted accepted-time authority.</summary>
+    public required BaseAcceptedTimeReceipt AcceptedTime { get; init; }
+    /// <summary>Gets identified operation identity.</summary>
+    public required BaseMutationRequestIdentity Identity { get; init; }
+    /// <summary>Gets effective limits.</summary>
+    public required BaseActivationExecutionLimits Limits { get; init; }
+}
+
+/// <summary>Requests retirement of one exact executor incarnation.</summary>
+public sealed record BaseExecutorRetirementRequest
+{
+    /// <summary>Gets stable executor authority.</summary>
+    public required BaseExecutorIncarnationAuthority Executor { get; init; }
+    /// <summary>Gets expected heartbeat revision.</summary>
+    public required long ExpectedHeartbeatRevision { get; init; }
+    /// <summary>Gets trusted accepted-time authority.</summary>
+    public required BaseAcceptedTimeReceipt AcceptedTime { get; init; }
+    /// <summary>Gets identified operation identity.</summary>
+    public required BaseMutationRequestIdentity Identity { get; init; }
+    /// <summary>Gets effective limits.</summary>
+    public required BaseActivationExecutionLimits Limits { get; init; }
+}
+
+/// <summary>Contains a newly registered executor incarnation.</summary>
+public sealed record BaseExecutorRegistrationResult
+{
+    /// <summary>Gets stable incarnation authority.</summary>
+    public required BaseExecutorIncarnationAuthority Executor { get; init; }
+    /// <summary>Gets initial heartbeat observation.</summary>
+    public required BaseExecutorHeartbeatObservation Heartbeat { get; init; }
+    /// <summary>Gets provider accounting.</summary>
+    public required BaseActivationAccounting Accounting { get; init; }
+    /// <summary>Gets request disposition.</summary>
+    public required BaseMutationRequestDisposition Disposition { get; init; }
+}
+
+/// <summary>Contains a committed executor heartbeat replacement.</summary>
+public sealed record BaseExecutorHeartbeatResult
+{
+    /// <summary>Gets byte-identical stable incarnation authority.</summary>
+    public required BaseExecutorIncarnationAuthority Executor { get; init; }
+    /// <summary>Gets replacement heartbeat observation.</summary>
+    public required BaseExecutorHeartbeatObservation Heartbeat { get; init; }
+    /// <summary>Gets provider accounting.</summary>
+    public required BaseActivationAccounting Accounting { get; init; }
+    /// <summary>Gets request disposition.</summary>
+    public required BaseMutationRequestDisposition Disposition { get; init; }
+}
+
+/// <summary>Contains committed terminal executor-registry evidence.</summary>
+public sealed record BaseExecutorRetirementResult
+{
+    /// <summary>Gets stable retired incarnation authority.</summary>
+    public required BaseExecutorIncarnationAuthority Executor { get; init; }
+    /// <summary>Gets the terminal heartbeat revision.</summary>
+    public required long HeartbeatRevision { get; init; }
+    /// <summary>Gets terminal evidence checksum.</summary>
+    public required ImmutableArray<byte> RetirementChecksum { get; init; }
+    /// <summary>Gets provider accounting.</summary>
+    public required BaseActivationAccounting Accounting { get; init; }
+    /// <summary>Gets request disposition.</summary>
+    public required BaseMutationRequestDisposition Disposition { get; init; }
+}
+
 /// <summary>Describes one installed activation provider.</summary>
 public sealed record BaseActivationProviderDescriptor
 {
@@ -420,6 +514,21 @@ public interface IBaseActivationProvider
     /// <summary>Renews one current stable claim.</summary>
     ValueTask<OperationResult<BaseActivationRenewResult>> RenewAsync(
         BaseActivationRenewRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Registers one durable executor incarnation.</summary>
+    ValueTask<OperationResult<BaseExecutorRegistrationResult>> RegisterExecutorAsync(
+        BaseExecutorRegistrationRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Renews one current executor heartbeat.</summary>
+    ValueTask<OperationResult<BaseExecutorHeartbeatResult>> HeartbeatExecutorAsync(
+        BaseExecutorHeartbeatRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Retires one exact executor incarnation.</summary>
+    ValueTask<OperationResult<BaseExecutorRetirementResult>> RetireExecutorAsync(
+        BaseExecutorRetirementRequest request,
         CancellationToken cancellationToken = default);
 
     /// <summary>Applies one closed activation state transition.</summary>

@@ -269,6 +269,132 @@ public sealed partial class SqliteRecordStore
         });
     }
 
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseExecutorRegistrationResult>> RegisterExecutorAsync(
+        BaseExecutorRegistrationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (string.IsNullOrWhiteSpace(request.ApplicationId) || string.IsNullOrWhiteSpace(request.HostId) ||
+            string.IsNullOrWhiteSpace(request.ProcessIncarnationId) || request.WorkerDefinitionSetChecksum.Length != 32 ||
+            request.RequestedHeartbeatMilliseconds <= 0 || request.AcceptedTime.ApplicationId != request.ApplicationId)
+            return ActivationFailure<BaseExecutorRegistrationResult>("base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+        await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        SqliteExecutorRow? existing = await ReadExecutorAsync(connection, transaction, request.ApplicationId, request.HostId, request.ProcessIncarnationId, cancellationToken).ConfigureAwait(false);
+        if (existing is { Retired: false })
+            return ActivationFailure<BaseExecutorRegistrationResult>("base.activation.executorConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+        long generation;
+        await using (SqliteCommand maximum = connection.CreateCommand())
+        {
+            maximum.Transaction = transaction;
+            maximum.CommandText = $"SELECT COALESCE(MAX(executor_generation),0)+1 FROM {_names.Executors};";
+            generation = Convert.ToInt64(await maximum.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture);
+        }
+        (_, long restoreEpoch) = await ReadActivationAuthorityAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+        byte[] authorityChecksum = ActivationHash($"base.activation.executor.v2\0{request.ApplicationId}\n{request.HostId}\n{request.ProcessIncarnationId}\n{generation}\n{_options.StoreId}\n{restoreEpoch}\n{Convert.ToHexString(request.WorkerDefinitionSetChecksum.AsSpan())}");
+        var authority = new BaseExecutorIncarnationAuthority
+        {
+            ApplicationId = request.ApplicationId, HostId = request.HostId, ProcessIncarnationId = request.ProcessIncarnationId,
+            ExecutorGeneration = generation, StoreInstanceId = _options.StoreId, RestoreEpoch = restoreEpoch,
+            WorkerDefinitionSetChecksum = request.WorkerDefinitionSetChecksum.ToArray().ToImmutableArray(), Checksum = authorityChecksum.ToImmutableArray(),
+        };
+        BaseExecutorHeartbeatObservation heartbeat = ExecutorHeartbeat(authority, 1, checked(request.AcceptedTime.CapturedUtc + request.RequestedHeartbeatMilliseconds));
+        await WriteExecutorAsync(connection, transaction, authority, heartbeat, false, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return OperationResults.Ok(new BaseExecutorRegistrationResult
+        { Executor = authority, Heartbeat = heartbeat, Accounting = ActivationAccounting(1, 128), Disposition = BaseMutationRequestDisposition.Committed });
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseExecutorHeartbeatResult>> HeartbeatExecutorAsync(
+        BaseExecutorHeartbeatRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        SqliteExecutorRow? row = await ReadExecutorAsync(connection, transaction, request.Executor.ApplicationId, request.Executor.HostId, request.Executor.ProcessIncarnationId, cancellationToken).ConfigureAwait(false);
+        if (row is null || row.Retired || !SqliteExecutorMatches(row.Authority, request.Executor) ||
+            row.Heartbeat.HeartbeatRevision != request.ExpectedHeartbeatRevision || row.Heartbeat.HeartbeatExpiresAt < request.AcceptedTime.CapturedUtc)
+            return ActivationFailure<BaseExecutorHeartbeatResult>("base.activation.executorLost", OperationStatus.Conflict, ErrorCategory.Conflict);
+        BaseExecutorHeartbeatObservation heartbeat = ExecutorHeartbeat(row.Authority, checked(row.Heartbeat.HeartbeatRevision + 1),
+            checked(request.AcceptedTime.CapturedUtc + request.ExtensionMilliseconds));
+        await WriteExecutorAsync(connection, transaction, row.Authority, heartbeat, false, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return OperationResults.Ok(new BaseExecutorHeartbeatResult
+        { Executor = row.Authority, Heartbeat = heartbeat, Accounting = ActivationAccounting(1, 128), Disposition = BaseMutationRequestDisposition.Committed });
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseExecutorRetirementResult>> RetireExecutorAsync(
+        BaseExecutorRetirementRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        SqliteExecutorRow? row = await ReadExecutorAsync(connection, transaction, request.Executor.ApplicationId, request.Executor.HostId, request.Executor.ProcessIncarnationId, cancellationToken).ConfigureAwait(false);
+        if (row is null || row.Retired || !SqliteExecutorMatches(row.Authority, request.Executor) || row.Heartbeat.HeartbeatRevision != request.ExpectedHeartbeatRevision)
+            return ActivationFailure<BaseExecutorRetirementResult>("base.activation.executorLost", OperationStatus.Conflict, ErrorCategory.Conflict);
+        await WriteExecutorAsync(connection, transaction, row.Authority, row.Heartbeat, true, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        byte[] checksum = ActivationHash($"base.activation.executor.retired.v2\0{Convert.ToHexString(row.Authority.Checksum.AsSpan())}\n{row.Heartbeat.HeartbeatRevision}");
+        return OperationResults.Ok(new BaseExecutorRetirementResult
+        {
+            Executor = row.Authority, HeartbeatRevision = row.Heartbeat.HeartbeatRevision, RetirementChecksum = checksum.ToImmutableArray(),
+            Accounting = ActivationAccounting(1, 128), Disposition = BaseMutationRequestDisposition.Committed,
+        });
+    }
+
+    private async ValueTask<SqliteExecutorRow?> ReadExecutorAsync(
+        SqliteConnection connection, SqliteTransaction transaction, string applicationId, string hostId, string processId, CancellationToken cancellationToken)
+    {
+        await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction;
+        command.CommandText = $"SELECT executor_generation,store_instance_id,restore_epoch,worker_set_checksum,authority_checksum,heartbeat_revision,heartbeat_expires_at,heartbeat_checksum,retired FROM {_names.Executors} WHERE application_id=$application AND host_id=$host AND process_incarnation_id=$process;";
+        command.Parameters.AddWithValue("$application", applicationId); command.Parameters.AddWithValue("$host", hostId); command.Parameters.AddWithValue("$process", processId);
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) return null;
+        var authority = new BaseExecutorIncarnationAuthority
+        {
+            ApplicationId = applicationId, HostId = hostId, ProcessIncarnationId = processId, ExecutorGeneration = reader.GetInt64(0),
+            StoreInstanceId = reader.GetString(1), RestoreEpoch = reader.GetInt64(2), WorkerDefinitionSetChecksum = ((byte[])reader[3]).ToImmutableArray(),
+            Checksum = ((byte[])reader[4]).ToImmutableArray(),
+        };
+        return new SqliteExecutorRow(authority, new BaseExecutorHeartbeatObservation
+        {
+            HeartbeatRevision = reader.GetInt64(5), HeartbeatExpiresAt = reader.GetInt64(6),
+            ExecutorAuthorityChecksum = authority.Checksum, Checksum = ((byte[])reader[7]).ToImmutableArray(),
+        }, reader.GetInt64(8) != 0);
+    }
+
+    private async ValueTask WriteExecutorAsync(SqliteConnection connection, SqliteTransaction transaction,
+        BaseExecutorIncarnationAuthority authority, BaseExecutorHeartbeatObservation heartbeat, bool retired, CancellationToken cancellationToken)
+    {
+        await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction;
+        command.CommandText = $"INSERT OR REPLACE INTO {_names.Executors}(application_id,host_id,process_incarnation_id,executor_generation,store_instance_id,restore_epoch,worker_set_checksum,authority_checksum,heartbeat_revision,heartbeat_expires_at,heartbeat_checksum,retired) VALUES($application,$host,$process,$generation,$store,$restore,$workers,$authority,$revision,$expires,$heartbeat,$retired);";
+        command.Parameters.AddWithValue("$application", authority.ApplicationId); command.Parameters.AddWithValue("$host", authority.HostId); command.Parameters.AddWithValue("$process", authority.ProcessIncarnationId);
+        command.Parameters.AddWithValue("$generation", authority.ExecutorGeneration); command.Parameters.AddWithValue("$store", authority.StoreInstanceId); command.Parameters.AddWithValue("$restore", authority.RestoreEpoch);
+        command.Parameters.Add("$workers", SqliteType.Blob).Value = authority.WorkerDefinitionSetChecksum.ToArray(); command.Parameters.Add("$authority", SqliteType.Blob).Value = authority.Checksum.ToArray();
+        command.Parameters.AddWithValue("$revision", heartbeat.HeartbeatRevision); command.Parameters.AddWithValue("$expires", heartbeat.HeartbeatExpiresAt); command.Parameters.Add("$heartbeat", SqliteType.Blob).Value = heartbeat.Checksum.ToArray();
+        command.Parameters.AddWithValue("$retired", retired ? 1 : 0); await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static BaseExecutorHeartbeatObservation ExecutorHeartbeat(BaseExecutorIncarnationAuthority authority, long revision, long expiresAt)
+    {
+        byte[] checksum = ActivationHash($"base.activation.executor.heartbeat.v2\0{Convert.ToHexString(authority.Checksum.AsSpan())}\n{revision}\n{expiresAt}");
+        return new BaseExecutorHeartbeatObservation { HeartbeatRevision = revision, HeartbeatExpiresAt = expiresAt,
+            ExecutorAuthorityChecksum = authority.Checksum.ToArray().ToImmutableArray(), Checksum = checksum.ToImmutableArray() };
+    }
+
+    private static bool SqliteExecutorMatches(BaseExecutorIncarnationAuthority left, BaseExecutorIncarnationAuthority right) =>
+        left.ApplicationId == right.ApplicationId && left.HostId == right.HostId && left.ProcessIncarnationId == right.ProcessIncarnationId &&
+        left.ExecutorGeneration == right.ExecutorGeneration && left.StoreInstanceId == right.StoreInstanceId && left.RestoreEpoch == right.RestoreEpoch &&
+        CryptographicOperations.FixedTimeEquals(left.WorkerDefinitionSetChecksum.AsSpan(), right.WorkerDefinitionSetChecksum.AsSpan()) &&
+        CryptographicOperations.FixedTimeEquals(left.Checksum.AsSpan(), right.Checksum.AsSpan());
+
+    private sealed record SqliteExecutorRow(BaseExecutorIncarnationAuthority Authority, BaseExecutorHeartbeatObservation Heartbeat, bool Retired);
+
     private async ValueTask<List<SqliteActivationRow>> ReadDueRowsAsync(
         SqliteConnection connection, SqliteTransaction? transaction, ImmutableArray<BaseActivationDefinitionKey> definitions,
         BaseOwnedScopeSeekAuthority scope, long now, BaseActivationDueBoundary? after, int take, CancellationToken cancellationToken)

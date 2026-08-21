@@ -46,6 +46,10 @@ internal sealed class InMemoryStoreState
     public Dictionary<string, long> ModuleGenerations { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets durable activation rows by deterministic activation identity.</summary>
     public Dictionary<string, InMemoryActivationRow> Activations { get; } = new(StringComparer.Ordinal);
+    /// <summary>Gets durable executor incarnations by application/host/process key.</summary>
+    public Dictionary<string, InMemoryExecutorRow> Executors { get; } = new(StringComparer.Ordinal);
+    /// <summary>Gets the next positive executor generation.</summary>
+    public long NextExecutorGeneration { get; set; }
     /// <summary>Gets or sets the generation invalidating finite due observations.</summary>
     public long ActivationIndexGeneration { get; set; }
     /// <summary>Gets the shared record/control mutation journal by append position.</summary>
@@ -62,6 +66,7 @@ internal sealed class InMemoryStoreState
             SubjectLifecycleDeliveryEpoch = SubjectLifecycleDeliveryEpoch,
             SubjectRetirementPosition = SubjectRetirementPosition,
             ActivationIndexGeneration = ActivationIndexGeneration,
+            NextExecutorGeneration = NextExecutorGeneration,
         };
 
         foreach (var (id, collection) in Collections)
@@ -110,6 +115,8 @@ internal sealed class InMemoryStoreState
             clone.ModuleGenerations.Add(key, generation);
         foreach ((string key, InMemoryActivationRow activation) in Activations)
             clone.Activations.Add(key, activation.DeepClone());
+        foreach ((string key, InMemoryExecutorRow executor) in Executors)
+            clone.Executors.Add(key, executor.DeepClone());
         foreach ((long position, BaseMutationJournalEntry entry) in MutationJournal)
             clone.MutationJournal.Add(position, CloneJournalEntry(entry));
 
@@ -148,6 +155,25 @@ internal sealed class InMemoryStoreState
         Payload = snapshot.Payload is null ? null : RecordCloneHelpers.ClonePayload(snapshot.Payload),
         Metadata = snapshot.Metadata is null ? null : RecordCloneHelpers.CloneMetadata(snapshot.Metadata),
     };
+}
+
+internal sealed record InMemoryExecutorRow(
+    BaseExecutorIncarnationAuthority Authority,
+    BaseExecutorHeartbeatObservation Heartbeat,
+    bool Retired)
+{
+    internal InMemoryExecutorRow DeepClone() => new(
+        Authority with
+        {
+            WorkerDefinitionSetChecksum = Authority.WorkerDefinitionSetChecksum.ToArray().ToImmutableArray(),
+            Checksum = Authority.Checksum.ToArray().ToImmutableArray(),
+        },
+        Heartbeat with
+        {
+            ExecutorAuthorityChecksum = Heartbeat.ExecutorAuthorityChecksum.ToArray().ToImmutableArray(),
+            Checksum = Heartbeat.Checksum.ToArray().ToImmutableArray(),
+        },
+        Retired);
 }
 
 internal sealed record InMemoryActivationRow(

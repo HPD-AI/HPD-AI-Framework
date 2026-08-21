@@ -273,6 +273,18 @@ CREATE TABLE IF NOT EXISTS {_names.Activations} (
   canonical_result BLOB NULL
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS {_names.Prefix}activation_due_idx ON {_names.Activations}(scope_kind,scope_digest,state,effective_due_at,activation_id);
+CREATE TABLE IF NOT EXISTS {_names.Executors} (
+  application_id TEXT NOT NULL, host_id TEXT NOT NULL, process_incarnation_id TEXT NOT NULL,
+  executor_generation INTEGER NOT NULL CHECK(executor_generation > 0),
+  store_instance_id TEXT NOT NULL, restore_epoch INTEGER NOT NULL CHECK(restore_epoch >= 0),
+  worker_set_checksum BLOB NOT NULL CHECK(length(worker_set_checksum) = 32),
+  authority_checksum BLOB NOT NULL CHECK(length(authority_checksum) = 32),
+  heartbeat_revision INTEGER NOT NULL CHECK(heartbeat_revision > 0),
+  heartbeat_expires_at INTEGER NOT NULL CHECK(heartbeat_expires_at >= 0),
+  heartbeat_checksum BLOB NOT NULL CHECK(length(heartbeat_checksum) = 32),
+  retired INTEGER NOT NULL CHECK(retired IN (0,1)),
+  PRIMARY KEY(application_id,host_id,process_incarnation_id)
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.ModuleMutationDefinitions} (
   operation_id TEXT NOT NULL, operation_version INTEGER NOT NULL CHECK(operation_version > 0),
   owning_module_id TEXT NOT NULL, operation_checksum TEXT NOT NULL CHECK(length(operation_checksum)=64),
@@ -599,6 +611,18 @@ CREATE TABLE IF NOT EXISTS {_names.Activations} (
   canonical_result BLOB NULL
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS {_names.Prefix}activation_due_idx ON {_names.Activations}(scope_kind,scope_digest,state,effective_due_at,activation_id);
+CREATE TABLE IF NOT EXISTS {_names.Executors} (
+  application_id TEXT NOT NULL, host_id TEXT NOT NULL, process_incarnation_id TEXT NOT NULL,
+  executor_generation INTEGER NOT NULL CHECK(executor_generation > 0),
+  store_instance_id TEXT NOT NULL, restore_epoch INTEGER NOT NULL CHECK(restore_epoch >= 0),
+  worker_set_checksum BLOB NOT NULL CHECK(length(worker_set_checksum) = 32),
+  authority_checksum BLOB NOT NULL CHECK(length(authority_checksum) = 32),
+  heartbeat_revision INTEGER NOT NULL CHECK(heartbeat_revision > 0),
+  heartbeat_expires_at INTEGER NOT NULL CHECK(heartbeat_expires_at >= 0),
+  heartbeat_checksum BLOB NOT NULL CHECK(length(heartbeat_checksum) = 32),
+  retired INTEGER NOT NULL CHECK(retired IN (0,1)),
+  PRIMARY KEY(application_id,host_id,process_incarnation_id)
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.ModuleMutationDefinitions} (
   operation_id TEXT NOT NULL, operation_version INTEGER NOT NULL CHECK(operation_version > 0),
   owning_module_id TEXT NOT NULL, operation_checksum TEXT NOT NULL CHECK(length(operation_checksum)=64),
