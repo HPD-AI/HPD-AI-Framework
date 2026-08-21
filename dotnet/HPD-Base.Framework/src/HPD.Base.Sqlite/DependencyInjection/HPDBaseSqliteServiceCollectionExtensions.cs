@@ -33,6 +33,7 @@ public static class HPDBaseSqliteServiceCollectionExtensions
                 provider.GetRequiredService<IOptions<HPDBaseSqliteOptions>>().Value,
                 provider.GetRequiredService<ILoggerFactory>(),
                 provider.GetService<TimeProvider>() ?? TimeProvider.System,
+                administrationOperations: provider.GetService<ISqliteAdministrationOperationController>(),
                 tokenProtector: tokenRegistration?.ExplicitlyConfigured == true
                     ? provider.GetRequiredService<BaseOpaqueTokenProtector>()
                     : null,

@@ -548,7 +548,7 @@ public sealed class BaseTextSemanticTests
         string temporary = Path.GetTempPath(); if (temporary.StartsWith("/var/", StringComparison.Ordinal)) temporary = "/private" + temporary; string path = Path.Combine(temporary, "hpd-base-text-" + Guid.NewGuid().ToString("N") + ".db");
         try
         {
-            var services = new ServiceCollection().AddLogging();
+            var services = new ServiceCollection().AddLogging(); var rebuildPhases = new TextRebuildPhaseController(); services.AddSingleton<ISqliteAdministrationOperationController>(rebuildPhases);
             services.AddHPDBase(builder =>
             {
                 builder.ConfigureSchema(options => options.PlanProtectionKey = Enumerable.Repeat((byte)0x49, 32).ToArray())
@@ -572,7 +572,10 @@ public sealed class BaseTextSemanticTests
             Assert.True(orderedResult is BaseSuccess<BaseTextResult<TextSemanticDocument>>, orderedResult is BaseFailure<BaseTextResult<TextSemanticDocument>> failure ? failure.Error.Code : orderedResult.Status.ToString());
             BaseTextResult<TextSemanticDocument> ordered = orderedResult.RequireValue();
             Assert.Equal(["sql-order-z", "sql-order-a"], ordered.Matches.Select(static match => match.Record.Id.Value));
-            IBaseTextAdministration administration = provider.GetRequiredService<IBaseTextAdministration>(); BaseTextIndexStatus before = (await administration.GetAsync(TextSemanticDocument.Collection.Id, TextSemanticDocument.TextIndexes.Content.Definition.Id)).Value!; BaseTextRebuildRequest rebuild = Rebuild(before.Generation, "sqlite"); BaseTextRebuildResult rebuilt = (await administration.RebuildAsync(rebuild)).Value!; Assert.Equal(2, rebuilt.PublishedGeneration); Assert.Equal(4, rebuilt.RecordCount);
+            IBaseTextAdministration administration = provider.GetRequiredService<IBaseTextAdministration>(); BaseTextIndexStatus before = (await administration.GetAsync(TextSemanticDocument.Collection.Id, TextSemanticDocument.TextIndexes.Content.Definition.Id)).Value!; BaseTextRebuildRequest rebuild = Rebuild(before.Generation, "sqlite");
+            rebuildPhases.Arm("textRebuildPageCommitted", async () => { (await collection.ReplaceAsync(new("sql-order-a"), new TextSemanticDocument { Title = "Concurrent coverage token", Body = "equal", State = "alpha" })).RequireValue(); await ValueTask.CompletedTask; });
+            BaseTextRebuildResult rebuilt = (await administration.RebuildAsync(rebuild)).Value!; Assert.Equal(2, rebuilt.PublishedGeneration); Assert.Equal(4, rebuilt.RecordCount);
+            BaseTextResult<TextSemanticDocument> concurrent = (await collection.Text(TextSemanticDocument.TextIndexes.Content, BaseTextQuery.Token("coverage")).Take(10).ExecuteAsync()).RequireValue(); Assert.Single(concurrent.Matches); Assert.Equal("sql-order-a", concurrent.Matches[0].Record.Id.Value);
             BaseTextRebuildResult duplicate = (await administration.RebuildAsync(rebuild)).Value!; Assert.Equal(rebuilt.PublishedGeneration, duplicate.PublishedGeneration); Assert.True(rebuilt.PublicationChecksum.AsSpan().SequenceEqual(duplicate.PublicationChecksum.AsSpan()));
             Assert.Equal(OperationStatus.Conflict, (await administration.RebuildAsync(Rebuild(before.Generation, "sqlite", "changed"))).Status);
             IHPDBaseApplication application = provider.GetRequiredService<IHPDBaseApplication>(); Assert.True(provider.GetRequiredService<SqliteRecordStore>().AdministrationCapability.Backup); var artifact = new MemoryStream(); var administrator = new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System }; BaseBackupManifest manifest = (await application.Administration.CreateBackupAsync(artifact, new() { StoreId = "sqlite", Principal = administrator })).RequireValue();
@@ -581,6 +584,19 @@ public sealed class BaseTextSemanticTests
             (await application.Administration.RestoreAsync(artifact, new() { StoreId = "sqlite", Principal = administrator, ExpectedCurrentStoreIdentityDigest = manifest.StoreIdentityDigest, ExpectedArtifactStoreIdentityDigest = manifest.StoreIdentityDigest, IdentityMode = BaseRestoreIdentityMode.RequireCurrentStoreIdentity, RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore, ConfirmDestructiveReplacement = true })).RequireValue();
             BaseTextResult<TextSemanticDocument> restored = (await collection.Text(TextSemanticDocument.TextIndexes.Content, BaseTextQuery.ExactPhrase("lexical", "search")).Where(TextSemanticDocument.Fields.State, "published").Take(10).ExecuteAsync()).RequireValue(); Assert.Single(restored.Matches);
             Assert.Equal(rebuilt.PublishedGeneration, (await administration.RebuildAsync(rebuild)).Value!.PublishedGeneration);
+
+            rebuildPhases.Arm("textRebuildPageCommitted", async () =>
+            {
+                (await collection.ReplaceAsync(new("sql-order-z"), new TextSemanticDocument { Title = "Coverage gap mutation", Body = "equal", State = "zeta" })).RequireValue();
+                using var connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=" + path); connection.Open(); using Microsoft.Data.Sqlite.SqliteCommand command = connection.CreateCommand(); command.CommandText = $"DELETE FROM {SqliteTextModel.RebuildAppliedTable} WHERE scope='tests' AND operation='text.rebuild' AND idempotency_key='sqlite-coverage-gap';"; command.ExecuteNonQuery(); await ValueTask.CompletedTask;
+            });
+            OperationResult<BaseTextRebuildResult> missingCoverage = await administration.RebuildAsync(Rebuild(2, "sqlite-coverage-gap")); Assert.Equal(OperationStatus.StoreError, missingCoverage.Status); Assert.Equal(2, (await administration.GetAsync(TextSemanticDocument.Collection.Id, TextSemanticDocument.TextIndexes.Content.Definition.Id)).Value!.Generation);
+
+            string ftsTable = new SqliteTextModel([TextSemanticDocument.Collection.Definition]).Get(TextSemanticDocument.Collection.Id, TextSemanticDocument.TextIndexes.Content.Definition.Id).FtsTable;
+            rebuildPhases.Arm("textRebuildBeforeLiveProbe", () => { using var connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=" + path); connection.Open(); using Microsoft.Data.Sqlite.SqliteCommand command = connection.CreateCommand(); command.CommandText = $"DELETE FROM {ftsTable} WHERE CAST(generation AS INTEGER)=3;"; command.ExecuteNonQuery(); return ValueTask.CompletedTask; });
+            OperationResult<BaseTextRebuildResult> failedProbe = await administration.RebuildAsync(Rebuild(2, "sqlite-probe-failure")); Assert.Equal(OperationStatus.StoreError, failedProbe.Status);
+            Assert.Equal(BaseTextIndexState.RebuildRequired, (await administration.GetAsync(TextSemanticDocument.Collection.Id, TextSemanticDocument.TextIndexes.Content.Definition.Id)).Value!.State);
+            using (var connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=" + path)) { connection.Open(); using Microsoft.Data.Sqlite.SqliteCommand command = connection.CreateCommand(); command.CommandText = $"SELECT COUNT(*) FROM {new SqliteTextModel([TextSemanticDocument.Collection.Definition]).Get(TextSemanticDocument.Collection.Id, TextSemanticDocument.TextIndexes.Content.Definition.Id).Table} WHERE generation=2;"; Assert.True(Convert.ToInt64(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) > 0); }
         }
         finally { if (File.Exists(path)) File.Delete(path); }
     }
@@ -595,6 +611,14 @@ public sealed class BaseTextSemanticTests
         });
     private static BaseTextRebuildRequest Rebuild(long generation, string key, string? fingerprintSalt = null) => new() { CollectionId = TextSemanticDocument.Collection.Id, TextIndexId = TextSemanticDocument.TextIndexes.Content.Definition.Id, ExpectedGeneration = generation, Identity = BaseMutationRequestIdentity.Create("tests", "text.rebuild", key, BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(fingerprintSalt ?? key)))) };
     private static BaseTextAuthoritySnapshot TextSnapshot() => new() { StoreIdentityDigest = "store", RestoreEpoch = 1, SchemaGeneration = 2, CollectionId = "text-semantic-documents", PurgeGeneration = 3, TextIndexId = "text.semantic.content.v1", TextIndexVersion = 1, TextIndexGeneration = 4, AuthoritativeHead = new(5), AppliedThrough = new(5), SearchVisibleThrough = new(5), AnalyzerReceipt = BaseTextContractReceipts.AnalyzerReceipt, ScoringReceipt = BaseTextContractReceipts.ScoringReceipt };
+}
+
+file sealed class TextRebuildPhaseController : ISqliteAdministrationOperationController
+{
+    private readonly object _gate = new(); private string? _phase; private Func<ValueTask>? _callback;
+    internal void Arm(string phase, Func<ValueTask> callback) { lock (_gate) { _phase = phase; _callback = callback; } }
+    public ValueTask BeforePhaseAsync(string phase, CancellationToken cancellationToken) { cancellationToken.ThrowIfCancellationRequested(); Func<ValueTask>? callback = null; lock (_gate) { if (_phase == phase) { callback = _callback; _phase = null; _callback = null; } } return callback?.Invoke() ?? ValueTask.CompletedTask; }
+    public void DeleteFile(string path) => File.Delete(path);
 }
 
 file sealed class MutableTextClock(DateTimeOffset now) : TimeProvider

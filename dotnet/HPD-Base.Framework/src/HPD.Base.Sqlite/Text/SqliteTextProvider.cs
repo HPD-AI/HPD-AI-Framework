@@ -131,8 +131,9 @@ internal sealed class SqliteTextProvider(SqliteRecordStore store, BaseCollection
         {
             RebuildProgress progress = await ReadProgressAsync(connection, transaction, request, fingerprint, cancellationToken).ConfigureAwait(false) ?? throw new InvalidDataException(BaseTextErrorCodes.ProviderContractInvalid); if (!progress.ScanComplete) throw new InvalidDataException(BaseTextErrorCodes.ProviderContractInvalid);
             (long generation, long head) = await CurrentRebuildAuthorityAsync(connection, transaction, request, cancellationToken).ConfigureAwait(false); if (generation != progress.ExpectedGeneration) { await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false); return OperationResults.Conflict<BaseTextRebuildResult>(new BaseError { Code = BaseTextErrorCodes.RebuildRequired, Message = "The text rebuild conflicts with current index state.", Category = ErrorCategory.Conflict }); }
+            AppliedMutationEvidence applied = await ValidateAppliedMutationCoverageAsync(connection, transaction, request, progress.SourceHead, head, cancellationToken).ConfigureAwait(false);
             StageEvidence evidence = await ComputeStageEvidenceAsync(connection, transaction, request, cancellationToken).ConfigureAwait(false); if (evidence.RecordCount > Descriptor.Capability.MaximumRebuildStagingRows || evidence.CanonicalBytes > Descriptor.Capability.MaximumRebuildBytes) throw new TextRebuildBudgetException();
-            await using (SqliteCommand catchup = connection.CreateCommand()) { catchup.Transaction = transaction; catchup.CommandText = $"UPDATE {SqliteTextModel.RebuildProgressTable} SET publication_head=$head,phase='catchup',record_count=$count,canonical_bytes=$bytes,rolling_checksum=$checksum WHERE scope=$scope AND operation=$operation AND idempotency_key=$key AND phase='scan' AND scan_complete=1;"; Identity(catchup, request); catchup.Parameters.AddWithValue("$head", head); catchup.Parameters.AddWithValue("$count", evidence.RecordCount); catchup.Parameters.AddWithValue("$bytes", evidence.CanonicalBytes); catchup.Parameters.AddWithValue("$checksum", evidence.Checksum); if (await catchup.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1) throw new InvalidDataException(BaseTextErrorCodes.ProviderContractInvalid); }
+            await using (SqliteCommand catchup = connection.CreateCommand()) { catchup.Transaction = transaction; catchup.CommandText = $"UPDATE {SqliteTextModel.RebuildProgressTable} SET publication_head=$head,applied_through=$head,applied_mutation_count=$appliedCount,applied_mutation_checksum=$appliedChecksum,phase='catchup',record_count=$count,canonical_bytes=$bytes,rolling_checksum=$checksum WHERE scope=$scope AND operation=$operation AND idempotency_key=$key AND phase='scan' AND scan_complete=1;"; Identity(catchup, request); catchup.Parameters.AddWithValue("$head", head); catchup.Parameters.AddWithValue("$appliedCount", applied.Count); catchup.Parameters.AddWithValue("$appliedChecksum", applied.Checksum); catchup.Parameters.AddWithValue("$count", evidence.RecordCount); catchup.Parameters.AddWithValue("$bytes", evidence.CanonicalBytes); catchup.Parameters.AddWithValue("$checksum", evidence.Checksum); if (await catchup.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1) throw new InvalidDataException(BaseTextErrorCodes.ProviderContractInvalid); }
             await using (SqliteCommand carriers = connection.CreateCommand()) { carriers.Transaction = transaction; carriers.CommandText = $"INSERT INTO {index.Table}(generation,record_id,revision,journal_position) SELECT $generation,record_id,revision,journal_position FROM {SqliteTextModel.RebuildStageTable} WHERE scope=$scope AND operation=$operation AND idempotency_key=$key AND deleted=0 ORDER BY record_id COLLATE BINARY;"; Identity(carriers, request); carriers.Parameters.AddWithValue("$generation", progress.StagingGeneration); await carriers.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false); }
             await using (SqliteCommand fts = connection.CreateCommand()) { fts.Transaction = transaction; fts.CommandText = $"INSERT INTO {index.FtsTable}(generation,record_id,content) SELECT $generation,record_id,content FROM {SqliteTextModel.RebuildStageTable} WHERE scope=$scope AND operation=$operation AND idempotency_key=$key AND deleted=0 ORDER BY record_id COLLATE BINARY;"; Identity(fts, request); fts.Parameters.AddWithValue("$generation", progress.StagingGeneration); await fts.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false); }
             await using (SqliteCommand publish = connection.CreateCommand()) { publish.Transaction = transaction; publish.CommandText = $"UPDATE {SqliteTextModel.StateTable} SET generation=$published,applied_position=$head,state='ready' WHERE collection_id=$collection AND index_id=$index AND generation=$expected; UPDATE {SqliteTextModel.RebuildProgressTable} SET phase='published' WHERE scope=$scope AND operation=$operation AND idempotency_key=$key AND phase='catchup';"; publish.Parameters.AddWithValue("$published", progress.StagingGeneration); publish.Parameters.AddWithValue("$head", head); publish.Parameters.AddWithValue("$collection", request.CollectionId); publish.Parameters.AddWithValue("$index", request.TextIndexId); publish.Parameters.AddWithValue("$expected", progress.ExpectedGeneration); Identity(publish, request); if (await publish.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 2) throw new InvalidDataException(BaseTextErrorCodes.ProviderContractInvalid); }
@@ -144,12 +145,86 @@ internal sealed class SqliteTextProvider(SqliteRecordStore store, BaseCollection
         catch { try { await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false); } catch { } throw; }
     }
 
-    private static async ValueTask CleanupPublishedAsync(SqliteConnection connection, SqliteTextModel.IndexModel index, BaseTextRebuildRequest request, BaseTextRebuildResult result, CancellationToken cancellationToken)
+    private async ValueTask CleanupPublishedAsync(SqliteConnection connection, SqliteTextModel.IndexModel index, BaseTextRebuildRequest request, BaseTextRebuildResult result, CancellationToken cancellationToken)
     {
+        await using (SqliteCommand pending = connection.CreateCommand()) { pending.CommandText = $"SELECT COUNT(*) FROM {SqliteTextModel.RebuildProgressTable} WHERE scope=$scope AND operation=$operation AND idempotency_key=$key AND phase='published';"; Identity(pending, request); if (Convert.ToInt64(await pending.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture) == 0) return; }
+        await store.BeforeTextAdministrationPhaseAsync("textRebuildBeforeLiveProbe", cancellationToken).ConfigureAwait(false);
         await using SqliteTransaction transaction = connection.BeginTransaction();
-        await using (SqliteCommand probe = connection.CreateCommand()) { probe.Transaction = transaction; probe.CommandText = $"SELECT COUNT(*) FROM {index.Table} WHERE generation=$generation;"; probe.Parameters.AddWithValue("$generation", result.PublishedGeneration); if (Convert.ToInt64(await probe.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture) != result.RecordCount) throw new InvalidDataException(BaseTextErrorCodes.ProviderContractInvalid); }
-        await using (SqliteCommand cleanup = connection.CreateCommand()) { cleanup.Transaction = transaction; cleanup.CommandText = $"DELETE FROM {index.Table} WHERE generation<>$generation; DELETE FROM {index.FtsTable} WHERE generation<>$generation;"; cleanup.Parameters.AddWithValue("$generation", result.PublishedGeneration); await cleanup.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false); }
-        await DeleteStagingAsync(connection, transaction, request, cancellationToken).ConfigureAwait(false); await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await ValidatePublishedGenerationAsync(connection, transaction, index, request, result, cancellationToken).ConfigureAwait(false);
+            await using (SqliteCommand cleanup = connection.CreateCommand()) { cleanup.Transaction = transaction; cleanup.CommandText = $"UPDATE {SqliteTextModel.StateTable} SET state='ready' WHERE collection_id=$collection AND index_id=$index AND generation=$generation; DELETE FROM {index.Table} WHERE generation<>$generation; DELETE FROM {index.FtsTable} WHERE generation<>$generation;"; cleanup.Parameters.AddWithValue("$collection", request.CollectionId); cleanup.Parameters.AddWithValue("$index", request.TextIndexId); cleanup.Parameters.AddWithValue("$generation", result.PublishedGeneration); await cleanup.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false); }
+            await DeleteStagingAsync(connection, transaction, request, cancellationToken).ConfigureAwait(false); await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            try { await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false); } catch { }
+            await using SqliteTransaction failed = connection.BeginTransaction(); await using SqliteCommand close = connection.CreateCommand(); close.Transaction = failed; close.CommandText = $"UPDATE {SqliteTextModel.StateTable} SET state='rebuildRequired' WHERE collection_id=$collection AND index_id=$index AND generation=$generation;"; close.Parameters.AddWithValue("$collection", request.CollectionId); close.Parameters.AddWithValue("$index", request.TextIndexId); close.Parameters.AddWithValue("$generation", result.PublishedGeneration); await close.ExecuteNonQueryAsync(CancellationToken.None).ConfigureAwait(false); await failed.CommitAsync(CancellationToken.None).ConfigureAwait(false); throw;
+        }
+    }
+
+    private async ValueTask<AppliedMutationEvidence> ValidateAppliedMutationCoverageAsync(SqliteConnection connection, SqliteTransaction transaction, BaseTextRebuildRequest request, long sourceHead, long publicationHead, CancellationToken cancellationToken)
+    {
+        await using (SqliteCommand retained = connection.CreateCommand())
+        {
+            retained.Transaction = transaction;
+            retained.CommandText = $"SELECT COALESCE(MIN(position),$empty) FROM {store.VectorNames.MutationJournal};";
+            retained.Parameters.AddWithValue("$empty", checked(publicationHead + 1));
+            long earliest = Convert.ToInt64(await retained.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture);
+            if (earliest > checked(sourceHead + 1) && publicationHead > sourceHead) throw new InvalidDataException(BaseTextErrorCodes.HistoryOvertaken);
+        }
+
+        using var expectedBytes = new MemoryStream(); expectedBytes.Write("HPDB-TEXT-REBUILD-APPLIED-1\0"u8);
+        using var actualBytes = new MemoryStream(); actualBytes.Write("HPDB-TEXT-REBUILD-APPLIED-1\0"u8);
+        long expectedCount = 0, actualCount = 0;
+        await using (SqliteCommand expected = connection.CreateCommand())
+        {
+            expected.Transaction = transaction;
+            expected.CommandText = $"SELECT position,record_id FROM {store.VectorNames.MutationJournal} WHERE entry_kind=0 AND collection_id=$collection AND position>$after AND position<=$through ORDER BY position,record_id COLLATE BINARY;";
+            expected.Parameters.AddWithValue("$collection", request.CollectionId); expected.Parameters.AddWithValue("$after", sourceHead); expected.Parameters.AddWithValue("$through", publicationHead);
+            await using SqliteDataReader reader = await expected.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) { expectedCount++; WriteApplied(expectedBytes, reader.GetInt64(0), reader.GetString(1)); }
+        }
+        await using (SqliteCommand actual = connection.CreateCommand())
+        {
+            actual.Transaction = transaction;
+            actual.CommandText = $"SELECT journal_position,record_id FROM {SqliteTextModel.RebuildAppliedTable} WHERE scope=$scope AND operation=$operation AND idempotency_key=$key AND journal_position>$after AND journal_position<=$through ORDER BY journal_position,record_id COLLATE BINARY;";
+            Identity(actual, request); actual.Parameters.AddWithValue("$after", sourceHead); actual.Parameters.AddWithValue("$through", publicationHead);
+            await using SqliteDataReader reader = await actual.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) { actualCount++; WriteApplied(actualBytes, reader.GetInt64(0), reader.GetString(1)); }
+        }
+        byte[] expectedDigest = SHA256.HashData(expectedBytes.ToArray()); byte[] actualDigest = SHA256.HashData(actualBytes.ToArray());
+        if (expectedCount != actualCount || !CryptographicOperations.FixedTimeEquals(expectedDigest, actualDigest)) throw new InvalidDataException(BaseTextErrorCodes.ProviderContractInvalid);
+        return new AppliedMutationEvidence(expectedCount, expectedDigest);
+    }
+
+    private static async ValueTask ValidatePublishedGenerationAsync(SqliteConnection connection, SqliteTransaction transaction, SqliteTextModel.IndexModel index, BaseTextRebuildRequest request, BaseTextRebuildResult result, CancellationToken cancellationToken)
+    {
+        await using (SqliteCommand counts = connection.CreateCommand())
+        {
+            counts.Transaction = transaction;
+            counts.CommandText = $"SELECT (SELECT COUNT(*) FROM {index.Table} WHERE generation=$generation),(SELECT COUNT(*) FROM {index.FtsTable} WHERE CAST(generation AS INTEGER)=$generation),(SELECT COUNT(*) FROM {index.Table} c JOIN {index.FtsTable} f ON f.record_id=c.record_id AND CAST(f.generation AS INTEGER)=c.generation WHERE c.generation=$generation);";
+            counts.Parameters.AddWithValue("$generation", result.PublishedGeneration);
+            await using SqliteDataReader reader = await counts.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false); if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false) || reader.GetInt64(0) != result.RecordCount || reader.GetInt64(1) != result.RecordCount || reader.GetInt64(2) != result.RecordCount) throw new InvalidDataException(BaseTextErrorCodes.ProviderContractInvalid);
+        }
+        string? recordId = null, revision = null, token = null;
+        await using (SqliteCommand sample = connection.CreateCommand())
+        {
+            sample.Transaction = transaction; sample.CommandText = $"SELECT record_id,revision,content FROM {SqliteTextModel.RebuildStageTable} WHERE scope=$scope AND operation=$operation AND idempotency_key=$key AND deleted=0 AND length(content)>0 ORDER BY record_id COLLATE BINARY LIMIT 1;"; Identity(sample, request);
+            await using SqliteDataReader reader = await sample.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false); if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) { recordId = reader.GetString(0); revision = reader.GetString(1); token = reader.GetString(2).Split(' ', StringSplitOptions.RemoveEmptyEntries)[0]; }
+        }
+        await using SqliteCommand lexical = connection.CreateCommand(); lexical.Transaction = transaction;
+        if (token is not null)
+        {
+            lexical.CommandText = $"SELECT c.record_id,c.revision FROM {index.FtsTable} f JOIN {index.Table} c ON c.record_id=f.record_id AND c.generation=CAST(f.generation AS INTEGER) WHERE c.generation=$generation AND {index.FtsTable} MATCH $query AND c.record_id=$record LIMIT 1;";
+            lexical.Parameters.AddWithValue("$generation", result.PublishedGeneration); lexical.Parameters.AddWithValue("$query", "\"" + token.Replace("\"", "\"\"", StringComparison.Ordinal) + "\""); lexical.Parameters.AddWithValue("$record", recordId!);
+            await using SqliteDataReader reader = await lexical.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false); if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false) || reader.GetString(0) != recordId || reader.GetString(1) != revision) throw new InvalidDataException(BaseTextErrorCodes.ProviderContractInvalid);
+        }
+        else
+        {
+            lexical.CommandText = $"SELECT COUNT(*) FROM {index.FtsTable} WHERE CAST(generation AS INTEGER)=$generation AND {index.FtsTable} MATCH $query;"; lexical.Parameters.AddWithValue("$generation", result.PublishedGeneration); lexical.Parameters.AddWithValue("$query", "\"hpd_base_live_probe_never\"");
+            if (Convert.ToInt64(await lexical.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture) != 0) throw new InvalidDataException(BaseTextErrorCodes.ProviderContractInvalid);
+        }
     }
 
     private async ValueTask<(long Generation, long Head)> CurrentRebuildAuthorityAsync(SqliteConnection connection, SqliteTransaction transaction, BaseTextRebuildRequest request, CancellationToken cancellationToken)
@@ -159,9 +234,9 @@ internal sealed class SqliteTextProvider(SqliteRecordStore store, BaseCollection
 
     private static async ValueTask<RebuildProgress?> ReadProgressAsync(SqliteConnection connection, SqliteTransaction? transaction, BaseTextRebuildRequest request, byte[] fingerprint, CancellationToken cancellationToken)
     {
-        await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction; command.CommandText = $"SELECT fingerprint,collection_id,index_id,expected_generation,staging_generation,source_head,publication_head,phase,last_record_id,record_count,canonical_bytes,rolling_checksum,scan_complete FROM {SqliteTextModel.RebuildProgressTable} WHERE scope=$scope AND operation=$operation AND idempotency_key=$key;"; Identity(command, request); await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false); if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) return null;
-        byte[] stored = reader.GetFieldValue<byte[]>(0); byte[] checksum = reader.GetFieldValue<byte[]>(11); string phase = reader.GetString(7); if (!CryptographicOperations.FixedTimeEquals(stored, fingerprint) || reader.GetString(1) != request.CollectionId || reader.GetString(2) != request.TextIndexId || reader.GetInt64(3) != request.ExpectedGeneration || reader.GetInt64(4) != checked(request.ExpectedGeneration + 1) || checksum.Length != 32 || phase is not ("scan" or "catchup" or "published")) throw new InvalidDataException(BaseTextErrorCodes.ProviderContractInvalid);
-        return new RebuildProgress(reader.GetInt64(3), reader.GetInt64(4), reader.GetInt64(5), reader.IsDBNull(6) ? null : reader.GetInt64(6), phase, reader.IsDBNull(8) ? null : reader.GetString(8), reader.GetInt64(9), reader.GetInt64(10), checksum, reader.GetInt64(12) == 1);
+        await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction; command.CommandText = $"SELECT fingerprint,collection_id,index_id,expected_generation,staging_generation,source_head,publication_head,applied_through,applied_mutation_count,applied_mutation_checksum,phase,last_record_id,record_count,canonical_bytes,rolling_checksum,scan_complete FROM {SqliteTextModel.RebuildProgressTable} WHERE scope=$scope AND operation=$operation AND idempotency_key=$key;"; Identity(command, request); await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false); if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) return null;
+        byte[] stored = reader.GetFieldValue<byte[]>(0); byte[] checksum = reader.GetFieldValue<byte[]>(14); string phase = reader.GetString(10); byte[]? appliedChecksum = reader.IsDBNull(9) ? null : reader.GetFieldValue<byte[]>(9); if (!CryptographicOperations.FixedTimeEquals(stored, fingerprint) || reader.GetString(1) != request.CollectionId || reader.GetString(2) != request.TextIndexId || reader.GetInt64(3) != request.ExpectedGeneration || reader.GetInt64(4) != checked(request.ExpectedGeneration + 1) || checksum.Length != 32 || (appliedChecksum is not null && appliedChecksum.Length != 32) || phase is not ("scan" or "catchup" or "published")) throw new InvalidDataException(BaseTextErrorCodes.ProviderContractInvalid);
+        return new RebuildProgress(reader.GetInt64(3), reader.GetInt64(4), reader.GetInt64(5), reader.IsDBNull(6) ? null : reader.GetInt64(6), reader.IsDBNull(7) ? null : reader.GetInt64(7), reader.GetInt64(8), appliedChecksum, phase, reader.IsDBNull(11) ? null : reader.GetString(11), reader.GetInt64(12), reader.GetInt64(13), checksum, reader.GetInt64(15) == 1);
     }
 
     private static async ValueTask<StageEvidence> ComputeStageEvidenceAsync(SqliteConnection connection, SqliteTransaction transaction, BaseTextRebuildRequest request, CancellationToken cancellationToken)
@@ -172,13 +247,15 @@ internal sealed class SqliteTextProvider(SqliteRecordStore store, BaseCollection
 
     private static async ValueTask DeleteStagingAsync(SqliteConnection connection, SqliteTransaction transaction, BaseTextRebuildRequest request, CancellationToken cancellationToken)
     {
-        await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction; command.CommandText = $"DELETE FROM {SqliteTextModel.RebuildStageTable} WHERE scope=$scope AND operation=$operation AND idempotency_key=$key; DELETE FROM {SqliteTextModel.RebuildProgressTable} WHERE scope=$scope AND operation=$operation AND idempotency_key=$key;"; Identity(command, request); await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction; command.CommandText = $"DELETE FROM {SqliteTextModel.RebuildStageTable} WHERE scope=$scope AND operation=$operation AND idempotency_key=$key; DELETE FROM {SqliteTextModel.RebuildAppliedTable} WHERE scope=$scope AND operation=$operation AND idempotency_key=$key; DELETE FROM {SqliteTextModel.RebuildProgressTable} WHERE scope=$scope AND operation=$operation AND idempotency_key=$key;"; Identity(command, request); await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
     private static void Identity(SqliteCommand command, BaseTextRebuildRequest request) { command.Parameters.AddWithValue("$scope", request.Identity.Scope); command.Parameters.AddWithValue("$operation", request.Identity.Operation); command.Parameters.AddWithValue("$key", request.Identity.IdempotencyKey); }
     private static void WriteCanonical(Stream stream, string value) { byte[] bytes = Encoding.UTF8.GetBytes(value); Span<byte> count = stackalloc byte[4]; BinaryPrimitives.WriteUInt32BigEndian(count, checked((uint)bytes.Length)); stream.Write(count); stream.Write(bytes); }
-    private static bool ProgressEquals(RebuildProgress left, RebuildProgress right) => left.ExpectedGeneration == right.ExpectedGeneration && left.StagingGeneration == right.StagingGeneration && left.SourceHead == right.SourceHead && left.PublicationHead == right.PublicationHead && left.Phase == right.Phase && left.LastRecordId == right.LastRecordId && left.RecordCount == right.RecordCount && left.CanonicalBytes == right.CanonicalBytes && left.ScanComplete == right.ScanComplete && CryptographicOperations.FixedTimeEquals(left.RollingChecksum, right.RollingChecksum);
-    private sealed record RebuildProgress(long ExpectedGeneration, long StagingGeneration, long SourceHead, long? PublicationHead, string Phase, string? LastRecordId, long RecordCount, long CanonicalBytes, byte[] RollingChecksum, bool ScanComplete);
+    private static void WriteApplied(Stream stream, long position, string recordId) { Span<byte> number = stackalloc byte[8]; BinaryPrimitives.WriteInt64BigEndian(number, position); stream.Write(number); WriteCanonical(stream, recordId); }
+    private static bool ProgressEquals(RebuildProgress left, RebuildProgress right) => left.ExpectedGeneration == right.ExpectedGeneration && left.StagingGeneration == right.StagingGeneration && left.SourceHead == right.SourceHead && left.PublicationHead == right.PublicationHead && left.AppliedThrough == right.AppliedThrough && left.AppliedMutationCount == right.AppliedMutationCount && ((left.AppliedMutationChecksum is null && right.AppliedMutationChecksum is null) || (left.AppliedMutationChecksum is not null && right.AppliedMutationChecksum is not null && CryptographicOperations.FixedTimeEquals(left.AppliedMutationChecksum, right.AppliedMutationChecksum))) && left.Phase == right.Phase && left.LastRecordId == right.LastRecordId && left.RecordCount == right.RecordCount && left.CanonicalBytes == right.CanonicalBytes && left.ScanComplete == right.ScanComplete && CryptographicOperations.FixedTimeEquals(left.RollingChecksum, right.RollingChecksum);
+    private sealed record RebuildProgress(long ExpectedGeneration, long StagingGeneration, long SourceHead, long? PublicationHead, long? AppliedThrough, long AppliedMutationCount, byte[]? AppliedMutationChecksum, string Phase, string? LastRecordId, long RecordCount, long CanonicalBytes, byte[] RollingChecksum, bool ScanComplete);
     private sealed record StageEvidence(long RecordCount, long CanonicalBytes, byte[] Checksum) { internal static StageEvidence Empty { get; } = EmptyEvidence(); private static StageEvidence EmptyEvidence() { byte[] marker = "HPDB-TEXT-REBUILD-STAGE-1\0"u8.ToArray(); return new(0, marker.Length, SHA256.HashData(marker)); } }
+    private sealed record AppliedMutationEvidence(long Count, byte[] Checksum);
     private sealed class TextRebuildBudgetException : Exception;
     private static async ValueTask Execute(SqliteConnection connection, SqliteTransaction transaction, string sql, CancellationToken token) { await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction; command.CommandText = sql; await command.ExecuteNonQueryAsync(token).ConfigureAwait(false); }
     private static byte[] TextRebuildFingerprint(BaseTextRebuildRequest request)
