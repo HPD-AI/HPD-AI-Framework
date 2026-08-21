@@ -288,6 +288,8 @@ public sealed record BaseScheduleMutationRequest
     public required BaseScheduleDefinition Definition { get; init; }
     /// <summary>Gets expected definition generation when replacing current authority.</summary>
     public long? ExpectedDefinitionGeneration { get; init; }
+    /// <summary>Gets the Runtime-computed first nominal instant for create or update.</summary>
+    public long? InitialNextNominal { get; init; }
     /// <summary>Gets trusted accepted time.</summary>
     public required BaseAcceptedTimeReceipt AcceptedTime { get; init; }
     /// <summary>Gets identified operation identity.</summary>

@@ -35,6 +35,9 @@ internal sealed class DefaultBaseScheduleRuntime(
             Kind = kind,
             Definition = BaseScheduleDefinitionBuilder.Create(definition),
             ExpectedDefinitionGeneration = expectedGeneration,
+            InitialNextNominal = kind is BaseScheduleMutationKind.Create or BaseScheduleMutationKind.Update
+                ? BaseScheduleDefinitionBuilder.NextNominal(definition.Expression, null)
+                : null,
             AcceptedTime = acceptedTime.Capture(session.ApplicationId),
             Identity = identity,
             Limits = target.Limits.Provider,

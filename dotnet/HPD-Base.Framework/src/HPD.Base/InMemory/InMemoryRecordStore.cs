@@ -446,6 +446,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
     private readonly HPDBaseInMemoryStoreOptions _options;
     private readonly BaseQueryCursorCodec _queryCursors;
     private readonly TimeProvider _timeProvider;
+    private long _acceptedActivationUtc;
     private readonly IInMemoryAtomicMutationProjection? _vectorProjection;
     private readonly SemaphoreSlim _stateGate = new(1, 1);
     private readonly Lock _vectorLeaseGate = new();

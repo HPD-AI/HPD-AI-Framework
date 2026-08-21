@@ -69,6 +69,8 @@ internal sealed partial class InMemoryRecordStore
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (!AcceptActivationTime(request.AcceptedTime))
+            return ActivationFailure<BaseActivationDueObservation>("base.activation.clockInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         if (!ValidateLimits(request.Limits) || request.MaximumCandidates < 1 ||
             request.MaximumCandidates > Math.Min(256, request.Limits.MaximumCandidates))
             return ActivationFailure<BaseActivationDueObservation>("base.activation.budgetExceeded", OperationStatus.ValidationFailed, ErrorCategory.Validation);
@@ -143,6 +145,8 @@ internal sealed partial class InMemoryRecordStore
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (!AcceptActivationTime(request.AcceptedTime))
+            return ActivationFailure<BaseActivationClaimResult>("base.activation.clockInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         if (!ValidateLimits(request.Limits) || request.LeaseMilliseconds <= 0)
             return ActivationFailure<BaseActivationClaimResult>("base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
 
@@ -246,6 +250,8 @@ internal sealed partial class InMemoryRecordStore
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (!AcceptActivationTime(request.AcceptedTime))
+            return ActivationFailure<BaseActivationRenewResult>("base.activation.clockInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -285,6 +291,8 @@ internal sealed partial class InMemoryRecordStore
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (!AcceptActivationTime(request.AcceptedTime))
+            return ActivationFailure<BaseActivationTransitionResult>("base.activation.clockInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -399,6 +407,8 @@ internal sealed partial class InMemoryRecordStore
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (!AcceptActivationTime(request.AcceptedTime))
+            return ActivationFailure<BaseExecutorRegistrationResult>("base.activation.clockInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         if (string.IsNullOrWhiteSpace(request.ApplicationId) || string.IsNullOrWhiteSpace(request.HostId) ||
             string.IsNullOrWhiteSpace(request.ProcessIncarnationId) || request.WorkerDefinitionSetChecksum.Length != 32 ||
             request.RequestedHeartbeatMilliseconds <= 0 || request.AcceptedTime.ApplicationId != request.ApplicationId)
@@ -440,6 +450,8 @@ internal sealed partial class InMemoryRecordStore
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (!AcceptActivationTime(request.AcceptedTime))
+            return ActivationFailure<BaseExecutorHeartbeatResult>("base.activation.clockInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         if (request.ExpectedHeartbeatRevision <= 0 || request.ExtensionMilliseconds <= 0)
             return ActivationFailure<BaseExecutorHeartbeatResult>("base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -472,6 +484,8 @@ internal sealed partial class InMemoryRecordStore
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (!AcceptActivationTime(request.AcceptedTime))
+            return ActivationFailure<BaseExecutorRetirementResult>("base.activation.clockInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -510,6 +524,8 @@ internal sealed partial class InMemoryRecordStore
         BaseScheduleMutationRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (!AcceptActivationTime(request.AcceptedTime))
+            return ActivationFailure<BaseScheduleMutationResult>("base.activation.clockInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         BaseScheduleDefinition definition;
         try { definition = BaseScheduleDefinitionBuilder.Create(request.Definition); }
         catch { return ActivationFailure<BaseScheduleMutationResult>("base.activation.scheduleInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation); }
@@ -532,7 +548,7 @@ internal sealed partial class InMemoryRecordStore
             bool enabled = request.Kind switch { BaseScheduleMutationKind.Disable => false, BaseScheduleMutationKind.Enable => true, _ => existing?.Enabled ?? true };
             long? last = request.Kind == BaseScheduleMutationKind.Update ? null : existing?.LastConsideredNominal;
             long? following = request.Kind == BaseScheduleMutationKind.Update || existing is null
-                ? BaseScheduleDefinitionBuilder.NextNominal(definition.Expression, null)
+                ? request.InitialNextNominal
                 : existing.NextNominal;
             BaseScheduleAuthority authority = ScheduleAuthority(definition, generation, enabled, epoch, last, following);
             next.Schedules[key] = authority; Volatile.Write(ref _publishedState, next);
@@ -546,6 +562,8 @@ internal sealed partial class InMemoryRecordStore
         BaseScheduleMaintenanceRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (!AcceptActivationTime(request.AcceptedTime))
+            return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.clockInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         if (request.Occurrences.Length is < 1 or > 256)
             return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.budgetExceeded", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -623,6 +641,18 @@ internal sealed partial class InMemoryRecordStore
 
     private static byte[] ScheduleActivationFingerprint(BaseActivationCreateIntent activation, string occurrenceId) =>
         Hash($"base.activation.schedule.create.v2\0{occurrenceId}\n{activation.Definition.Id}\n{activation.Definition.Version}\n{Convert.ToHexString(activation.InputChecksum.AsSpan())}\n{activation.RequestedDueAt}\n{activation.EffectiveDueAt ?? activation.RequestedDueAt}");
+
+    private bool AcceptActivationTime(BaseAcceptedTimeReceipt receipt)
+    {
+        long native = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
+        if (!BaseActivationAcceptedTimeAuthority.Verify(receipt, native)) return false;
+        while (true)
+        {
+            long observed = Volatile.Read(ref _acceptedActivationUtc);
+            if (receipt.CapturedUtc < observed) return true;
+            if (Interlocked.CompareExchange(ref _acceptedActivationUtc, receipt.CapturedUtc, observed) == observed) return true;
+        }
+    }
 
     internal static byte[] OccurrenceChecksum(BaseScheduleOccurrenceFact fact) => Hash(
         $"base.activation.schedule.occurrence.v2\0{fact.OccurrenceId}\n{fact.ScheduleId}\n{fact.ScheduleEpoch}\n{fact.NominalAt}\n{fact.EffectiveAt}\n{fact.OverlapOrdinal}\n{DispositionText(fact.Disposition)}");

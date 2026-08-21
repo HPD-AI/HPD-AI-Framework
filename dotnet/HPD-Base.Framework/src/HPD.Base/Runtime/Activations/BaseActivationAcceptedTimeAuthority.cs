@@ -33,6 +33,19 @@ internal sealed class BaseActivationAcceptedTimeAuthority(TimeProvider timeProvi
             hash.GetHashAndReset());
     }
 
+    internal static bool Verify(BaseAcceptedTimeReceipt receipt, long nativeUtc)
+    {
+        if (receipt.ClockGeneration != 1 || receipt.CaptureSequence <= 0 || receipt.CapturedUtc < 0 ||
+            receipt.MaximumForwardSkewMilliseconds != 30_000 || string.IsNullOrWhiteSpace(receipt.ApplicationId) ||
+            receipt.CapturedUtc > checked(nativeUtc + receipt.MaximumForwardSkewMilliseconds))
+            return false;
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        Append(hash, "base.activation.acceptedTime.v2\0"); Append(hash, receipt.ApplicationId);
+        Append(hash, receipt.ClockGeneration); Append(hash, receipt.CapturedUtc); Append(hash, receipt.MonotonicTimestamp);
+        Append(hash, receipt.CaptureSequence); Append(hash, receipt.MaximumForwardSkewMilliseconds);
+        return CryptographicOperations.FixedTimeEquals(hash.GetHashAndReset(), receipt.Checksum.Span);
+    }
+
     private static void Append(IncrementalHash hash, string value)
     {
         byte[] bytes = Encoding.UTF8.GetBytes(value);

@@ -63,6 +63,8 @@ public sealed partial class SqliteRecordStore
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (!AcceptActivationTime(request.AcceptedTime))
+            return ActivationFailure<BaseActivationDueObservation>("base.activation.clockInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         if (!ActivationLimitsValid(request.Limits) || request.MaximumCandidates is < 1 or > 256)
             return ActivationFailure<BaseActivationDueObservation>("base.activation.budgetExceeded", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -118,6 +120,8 @@ public sealed partial class SqliteRecordStore
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (!AcceptActivationTime(request.AcceptedTime))
+            return ActivationFailure<BaseActivationClaimResult>("base.activation.clockInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         if (!ActivationLimitsValid(request.Limits) || request.LeaseMilliseconds <= 0)
             return ActivationFailure<BaseActivationClaimResult>("base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -209,6 +213,8 @@ public sealed partial class SqliteRecordStore
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (!AcceptActivationTime(request.AcceptedTime))
+            return ActivationFailure<BaseActivationRenewResult>("base.activation.clockInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         (long _, long restoreEpoch) = await ReadActivationAuthorityAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
@@ -245,6 +251,8 @@ public sealed partial class SqliteRecordStore
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (!AcceptActivationTime(request.AcceptedTime))
+            return ActivationFailure<BaseActivationTransitionResult>("base.activation.clockInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         SqliteActivationRow? row = await ReadActivationAsync(connection, transaction, request.ActivationId, cancellationToken).ConfigureAwait(false);
@@ -350,6 +358,8 @@ public sealed partial class SqliteRecordStore
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (!AcceptActivationTime(request.AcceptedTime))
+            return ActivationFailure<BaseExecutorRegistrationResult>("base.activation.clockInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         if (string.IsNullOrWhiteSpace(request.ApplicationId) || string.IsNullOrWhiteSpace(request.HostId) ||
             string.IsNullOrWhiteSpace(request.ProcessIncarnationId) || request.WorkerDefinitionSetChecksum.Length != 32 ||
             request.RequestedHeartbeatMilliseconds <= 0 || request.AcceptedTime.ApplicationId != request.ApplicationId)
@@ -387,6 +397,8 @@ public sealed partial class SqliteRecordStore
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (!AcceptActivationTime(request.AcceptedTime))
+            return ActivationFailure<BaseExecutorHeartbeatResult>("base.activation.clockInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         SqliteExecutorRow? row = await ReadExecutorAsync(connection, transaction, request.Executor.ApplicationId, request.Executor.HostId, request.Executor.ProcessIncarnationId, cancellationToken).ConfigureAwait(false);
@@ -407,6 +419,8 @@ public sealed partial class SqliteRecordStore
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (!AcceptActivationTime(request.AcceptedTime))
+            return ActivationFailure<BaseExecutorRetirementResult>("base.activation.clockInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         SqliteExecutorRow? row = await ReadExecutorAsync(connection, transaction, request.Executor.ApplicationId, request.Executor.HostId, request.Executor.ProcessIncarnationId, cancellationToken).ConfigureAwait(false);
@@ -438,6 +452,8 @@ public sealed partial class SqliteRecordStore
         BaseScheduleMutationRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (!AcceptActivationTime(request.AcceptedTime))
+            return ActivationFailure<BaseScheduleMutationResult>("base.activation.clockInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         BaseScheduleDefinition definition;
         try { definition = BaseScheduleDefinitionBuilder.Create(request.Definition); }
         catch { return ActivationFailure<BaseScheduleMutationResult>("base.activation.scheduleInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation); }
@@ -459,7 +475,7 @@ public sealed partial class SqliteRecordStore
         long epoch = existing is null ? 1 : request.Kind == BaseScheduleMutationKind.Update ? checked(existing.ScheduleEpoch + 1) : existing.ScheduleEpoch;
         bool enabled = request.Kind switch { BaseScheduleMutationKind.Disable => false, BaseScheduleMutationKind.Enable => true, _ => existing?.Enabled ?? true };
         long? last = request.Kind == BaseScheduleMutationKind.Update ? null : existing?.LastConsideredNominal;
-        long? following = request.Kind == BaseScheduleMutationKind.Update || existing is null ? BaseScheduleDefinitionBuilder.NextNominal(definition.Expression, null) : existing.NextNominal;
+        long? following = request.Kind == BaseScheduleMutationKind.Update || existing is null ? request.InitialNextNominal : existing.NextNominal;
         BaseScheduleAuthority authority = SqliteScheduleAuthority(definition, generation, enabled, epoch, last, following);
         await WriteScheduleAsync(connection, transaction, authority, cancellationToken).ConfigureAwait(false); await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return OperationResults.Ok(new BaseScheduleMutationResult { Authority = authority, Accounting = ActivationAccounting(1, 128), Disposition = BaseMutationRequestDisposition.Committed });
@@ -470,6 +486,8 @@ public sealed partial class SqliteRecordStore
         BaseScheduleMaintenanceRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (!AcceptActivationTime(request.AcceptedTime))
+            return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.clockInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         if (request.Occurrences.Length is < 1 or > 256)
             return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.budgetExceeded", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -605,6 +623,18 @@ public sealed partial class SqliteRecordStore
     };
     private static byte[] SqliteScheduleActivationFingerprint(BaseActivationCreateIntent activation, string occurrenceId) =>
         ActivationHash($"base.activation.schedule.create.v2\0{occurrenceId}\n{activation.Definition.Id}\n{activation.Definition.Version}\n{Convert.ToHexString(activation.InputChecksum.AsSpan())}\n{activation.RequestedDueAt}\n{activation.EffectiveDueAt ?? activation.RequestedDueAt}");
+
+    private bool AcceptActivationTime(BaseAcceptedTimeReceipt receipt)
+    {
+        long native = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
+        if (!BaseActivationAcceptedTimeAuthority.Verify(receipt, native)) return false;
+        while (true)
+        {
+            long observed = Volatile.Read(ref _acceptedActivationUtc);
+            if (receipt.CapturedUtc < observed) return true;
+            if (Interlocked.CompareExchange(ref _acceptedActivationUtc, receipt.CapturedUtc, observed) == observed) return true;
+        }
+    }
 
     private async ValueTask<BaseEffectExecutionAuthority?> ReadEffectAsync(
         SqliteConnection connection, SqliteTransaction transaction, string activationId, CancellationToken cancellationToken)
