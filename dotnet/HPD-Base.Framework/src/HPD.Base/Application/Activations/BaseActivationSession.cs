@@ -225,33 +225,23 @@ public sealed class BaseInstalledActivationWorkerHandle<TInput, TResult>
             return Failure("base.activation.handlerUnavailable", ErrorCategory.Capability);
 
         BaseActivationDelivery<TInput> delivery = claimed.Value;
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(_definition.Limits.HandlerTimeout);
-        var context = new BaseActivationContext(
-            new BaseActivationDefinitionKey { Id = _definition.Id, Version = _definition.Version, Checksum = _definition.Checksum },
-            delivery.Claim,
-            delivery.Lease,
-            deadline.Token);
-        BaseActivationHandlerResult<TResult> handlerResult;
-        Task<BaseActivationHandlerResult<TResult>> task = handler.ExecuteAsync(context, delivery.Input, deadline.Token).AsTask();
-        try
-        {
-            handlerResult = await task.WaitAsync(_definition.Limits.HandlerTimeout, cancellationToken).ConfigureAwait(false);
-        }
-        catch (TimeoutException)
-        {
-            ObserveLate(task);
+        BaseActivationHandlerExecutionGate? gate = _session.Services.GetService(typeof(BaseActivationHandlerExecutionGate)) as BaseActivationHandlerExecutionGate;
+        if (gate is null) return Failure("base.activation.handlerUnavailable", ErrorCategory.Capability);
+        BaseActivationHandlerExecutionResult<BaseActivationHandlerResult<TResult>> execution = await gate.ExecuteAsync(
+            token => handler.ExecuteAsync(new BaseActivationContext(
+                new BaseActivationDefinitionKey { Id = _definition.Id, Version = _definition.Version, Checksum = _definition.Checksum },
+                delivery.Claim,
+                delivery.Lease,
+                token), delivery.Input, token).AsTask(),
+            _definition.Limits.HandlerTimeout,
+            cancellationToken).ConfigureAwait(false);
+        if (execution.Outcome == BaseActivationHandlerExecutionOutcome.TimedOut)
             return await ResolveFailureAsync(delivery, "base.activation.handlerTimeout", cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            ObserveLate(task);
+        if (execution.Outcome == BaseActivationHandlerExecutionOutcome.Cancelled)
             return Failure("base.activation.cancelled", ErrorCategory.Store);
-        }
-        catch
-        {
+        if (execution.Outcome is BaseActivationHandlerExecutionOutcome.Failed or BaseActivationHandlerExecutionOutcome.Capacity || execution.Value is null)
             return await ResolveFailureAsync(delivery, "base.activation.handlerFailed", cancellationToken).ConfigureAwait(false);
-        }
+        BaseActivationHandlerResult<TResult> handlerResult = execution.Value;
 
         OperationResult<BaseActivationTransitionResult> transition;
         if (!string.IsNullOrWhiteSpace(handlerResult.FailureCode))
@@ -298,12 +288,6 @@ public sealed class BaseInstalledActivationWorkerHandle<TInput, TResult>
             Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(authority)),
             BaseMutationRequestFingerprint.Create(hash.GetHashAndReset()));
     }
-
-    private static void ObserveLate(Task task) => _ = task.ContinueWith(
-        static completed => _ = completed.Exception,
-        CancellationToken.None,
-        TaskContinuationOptions.ExecuteSynchronously | TaskContinuationOptions.OnlyOnFaulted,
-        TaskScheduler.Default);
 
     private static OperationResult<BaseActivationDispatchResult> Failure(string code, ErrorCategory category) => new()
     {

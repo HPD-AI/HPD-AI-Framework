@@ -121,6 +121,7 @@ public static class HPDBaseRuntimeServiceCollectionExtensions
         services.TryAddSingleton<IBaseActivationRuntime, DefaultBaseActivationRuntime>();
         services.TryAddSingleton<IBaseActivationWorkerRuntime, DefaultBaseActivationWorkerRuntime>();
         services.TryAddSingleton<BaseActivationAcceptedTimeAuthority>();
+        services.TryAddSingleton<BaseActivationHandlerExecutionGate>();
         services.TryAddSingleton<IBaseRecordRuntime, DefaultBaseRecordRuntime>();
         services.TryAddSingleton(new BaseReadRegistry(new Dictionary<string, IBaseReadRegistration>(StringComparer.Ordinal)));
         services.TryAddSingleton(new BaseCollectionRegistry(new Dictionary<string, CollectionDefinition>(StringComparer.Ordinal)));
