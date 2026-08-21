@@ -41,6 +41,24 @@ public sealed class L45SubjectTransactionTests
         await fixture.Services.GetRequiredService<BaseSubjectRetirementControlDispatcher>().InitializeAsync(CancellationToken.None);
         Assert.Collection(observer.Notices,created=>Assert.Equal(BaseSubjectRetirementPublicationKind.BarrierCreated,created.Publication.Kind));
         await using IAsyncEnumerator<BaseSubjectRequiredLifecycleDelivery<UserSubject>> deliveries=consumer.ReadRequiredAsync().GetAsyncEnumerator();Assert.True(await deliveries.MoveNextAsync());BaseSubjectRequiredLifecycleDelivery<UserSubject> delivery=deliveries.Current;
+        BaseFailure<BaseSubjectAcknowledgementResult> staleGuard = Assert.IsType<BaseFailure<BaseSubjectAcknowledgementResult>>(
+            await consumer.AcknowledgeAsync(
+                delivery.Acknowledgement,
+                BaseSubjectAcknowledgementDisposition.Completed,
+                delivery.AcknowledgementIdentity,
+                new BaseActivationGuard
+                {
+                    Claim = new BaseActivationClaimAuthority
+                    {
+                        ActivationId = "missing-activation", AttemptNumber = 1, ClaimEpoch = 1,
+                        FencingToken = new byte[32].ToImmutableArray(), WorkerIdentity = "worker",
+                        CancellationGeneration = 0, StoreInstanceId = "missing-store", RestoreEpoch = 0,
+                        DefinitionChecksum = new byte[32].ToImmutableArray(),
+                    },
+                    StepId = "acknowledgement", ChildOrdinal = 1,
+                    ChildRequestFingerprint = System.Security.Cryptography.SHA256.HashData("ignored-by-runtime"u8).ToImmutableArray(),
+                }));
+        Assert.Equal("base.activation.claimLost", staleGuard.Error.Code);
         BaseResult<BaseSubjectAcknowledgementResult> accepted=await consumer.AcknowledgeAsync(delivery.Acknowledgement,BaseSubjectAcknowledgementDisposition.Completed,delivery.AcknowledgementIdentity);Assert.True(accepted is BaseSuccess<BaseSubjectAcknowledgementResult>,accepted is BaseFailure<BaseSubjectAcknowledgementResult> failed?failed.Error.Code:null);BaseSubjectAcknowledgementResult applied=accepted.RequireValue();Assert.Equal(BaseSubjectRetirementMutationOutcome.Applied,applied.Outcome);Assert.Equal(BaseSubjectRetirementBarrierState.Satisfied,applied.BarrierState);Assert.Equal(2,applied.BarrierGeneration);
         BaseResult<BaseSubjectAcknowledgementResult> duplicate=await consumer.AcknowledgeAsync(delivery.Acknowledgement,BaseSubjectAcknowledgementDisposition.Completed,delivery.AcknowledgementIdentity);Assert.Equal(BaseSubjectRetirementMutationOutcome.Duplicate,duplicate.RequireValue().Outcome);
         BaseFailure<BaseSubjectAcknowledgementResult> changed=Assert.IsType<BaseFailure<BaseSubjectAcknowledgementResult>>(await consumer.AcknowledgeAsync(delivery.Acknowledgement,BaseSubjectAcknowledgementDisposition.RetainedByPolicy,delivery.AcknowledgementIdentity));Assert.Equal(BaseSubjectRetirementErrorCodes.AcknowledgementConflict,changed.Error.Code);
