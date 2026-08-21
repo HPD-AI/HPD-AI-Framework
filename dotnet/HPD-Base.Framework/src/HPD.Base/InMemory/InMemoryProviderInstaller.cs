@@ -25,6 +25,7 @@ internal sealed class InMemoryProviderInstaller(Action<HPDBaseInMemoryStoreOptio
                 MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
             },
             TextSearch = BaseTextPlatform.ProviderCapability(BaseTextProviderClass.CoLocatedTransactional),
+            Activations = BaseActivationCapabilityContract.BuiltIn("hpd.base.inMemory.activations.v2"),
         }, new InMemoryProviderInstaller(configure));
 
     public HPDBaseStoreRegistrationReceipt Configure(HPDBaseStoreInstallationContext context)

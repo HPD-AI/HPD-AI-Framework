@@ -536,6 +536,10 @@ public sealed class HPDBaseBuilder
                 activation.Checksum.AsSpan(), schedule.Activation.Checksum.AsSpan()))
                 throw new InvalidOperationException("base.activation.scheduleInvalid");
         }
+        foreach (IBaseActivationRegistration registration in _activationRegistrations.Values)
+            BaseActivationCapabilityContract.Require(provider.Activations, registration.Definition);
+        foreach (BaseScheduleDefinition schedule in _activationSchedules.Values)
+            BaseActivationCapabilityContract.Require(provider.Activations, schedule);
         var scheduleRegistry = new BaseScheduleRegistry(_activationSchedules.Values);
         BaseSubjectContractRegistry subjectRegistry = FinalizeSubjectGraph(collections);
         var subjectLifecycleRegistry = new BaseSubjectLifecycleRegistry(_subjectLifecycleConsumers, subjectRegistry);

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using System.Collections.ObjectModel;
+using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -56,6 +57,8 @@ public sealed class BaseStoreProviderDescriptor
     public required BaseModuleMutationCapability ModuleMutations { get; init; }
     /// <summary>Gets the certified lexical-search envelope when co-located text search is advertised.</summary>
     public BaseTextProviderCapability? TextSearch { get; init; }
+    /// <summary>Gets the provider's certified durable-activation envelope.</summary>
+    public required BaseActivationProviderCapability Activations { get; init; }
 }
 
 /// <summary>Represents one validated immutable authoritative store selection.</summary>
@@ -76,6 +79,12 @@ public sealed class HPDBaseStoreProvider
         SubjectRetirement = descriptor.SubjectRetirement with { };
         ModuleMutations = descriptor.ModuleMutations with { MaximumLimits = descriptor.ModuleMutations.MaximumLimits with { Deadlines = descriptor.ModuleMutations.MaximumLimits.Deadlines with { } } };
         TextSearch = descriptor.TextSearch is null ? null : descriptor.TextSearch with { };
+        Activations = descriptor.Activations with
+        {
+            ScheduleKinds = descriptor.Activations.ScheduleKinds.ToArray().ToImmutableArray(),
+            ExecutionClasses = descriptor.Activations.ExecutionClasses.ToArray().ToImmutableArray(),
+            CanonicalChecksum = descriptor.Activations.CanonicalChecksum.ToArray().ToImmutableArray(),
+        };
         Installer = installer;
     }
 
@@ -99,6 +108,8 @@ public sealed class HPDBaseStoreProvider
     public BaseModuleMutationCapability ModuleMutations { get; }
     /// <summary>Gets the certified lexical-search envelope.</summary>
     public BaseTextProviderCapability? TextSearch { get; }
+    /// <summary>Gets the provider's certified durable-activation envelope.</summary>
+    public BaseActivationProviderCapability Activations { get; }
     internal IHPDBaseStoreInstaller Installer { get; }
 }
 
@@ -119,7 +130,8 @@ public static class HPDBaseStoreProviderFactory
             || !ValidRetirementCapability(descriptor.SubjectRetirement)
             || !BaseModuleMutationCapabilityContract.IsValid(descriptor.ModuleMutations)
             || descriptor.Capabilities.HasFlag(BaseStoreProviderCapabilities.CoLocatedTextSearch) != (descriptor.TextSearch is not null)
-            || descriptor.TextSearch is not null && !ValidTextCapability(descriptor.TextSearch))
+            || descriptor.TextSearch is not null && !ValidTextCapability(descriptor.TextSearch)
+            || !BaseActivationCapabilityContract.IsValid(descriptor.Activations))
             throw new InvalidOperationException("base.store.providerInvalid");
         const BaseStoreProviderCapabilities known = BaseStoreProviderCapabilities.Records | BaseStoreProviderCapabilities.AtomicMutations |
             BaseStoreProviderCapabilities.RequiredIndexes | BaseStoreProviderCapabilities.RelationalExecution |
@@ -152,6 +164,12 @@ public static class HPDBaseStoreProviderFactory
                 { Deadlines = descriptor.ModuleMutations.MaximumLimits.Deadlines with { } },
             },
             TextSearch = descriptor.TextSearch is null ? null : descriptor.TextSearch with { },
+            Activations = descriptor.Activations with
+            {
+                ScheduleKinds = descriptor.Activations.ScheduleKinds.ToArray().ToImmutableArray(),
+                ExecutionClasses = descriptor.Activations.ExecutionClasses.ToArray().ToImmutableArray(),
+                CanonicalChecksum = descriptor.Activations.CanonicalChecksum.ToArray().ToImmutableArray(),
+            },
         }, installer);
     }
 

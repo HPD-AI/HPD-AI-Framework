@@ -35,6 +35,7 @@ public static class SqliteStore
                 MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
             },
             TextSearch = BaseTextPlatform.ProviderCapability(BaseTextProviderClass.CoLocatedTransactional),
+            Activations = BaseActivationCapabilityContract.BuiltIn("hpd.base.sqlite.activations.v2"),
         }, new Installer(configure));
 
     private sealed class Installer(Action<HPDBaseSqliteOptions>? configure) : IHPDBaseStoreInstaller

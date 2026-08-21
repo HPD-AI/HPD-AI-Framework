@@ -11,6 +11,19 @@ public enum BaseDueInvalidationClass
     BoundedPolling = 1,
 }
 
+/// <summary>Classifies one provider-supported durable schedule expression.</summary>
+public enum BaseScheduleKind
+{
+    /// <summary>One exact instant.</summary>
+    Once,
+    /// <summary>One fixed UTC interval.</summary>
+    Interval,
+    /// <summary>One six-field calendar cron expression.</summary>
+    Cron,
+    /// <summary>One closed calendar recurrence.</summary>
+    Calendar,
+}
+
 /// <summary>Classifies the result of waiting on one finite due observation.</summary>
 public enum BaseDueWaitOutcome
 {
@@ -511,12 +524,20 @@ public sealed record BaseActivationProviderCapability
 {
     /// <summary>Gets whether atomic activation creation is supported.</summary>
     public required bool AtomicCreationSupported { get; init; }
+    /// <summary>Gets whether transaction-bound selection targets are supported.</summary>
+    public required bool SelectionTargetSupported { get; init; }
+    /// <summary>Gets whether registered module-mutation targets are supported.</summary>
+    public required bool ModuleTargetSupported { get; init; }
     /// <summary>Gets whether activation-guarded children are supported.</summary>
     public required bool GuardedChildrenSupported { get; init; }
     /// <summary>Gets whether restore fencing is supported.</summary>
     public required bool RestoreFencingSupported { get; init; }
     /// <summary>Gets due invalidation behavior.</summary>
     public required BaseDueInvalidationClass DueInvalidation { get; init; }
+    /// <summary>Gets the closed supported schedule kinds.</summary>
+    public required ImmutableArray<BaseScheduleKind> ScheduleKinds { get; init; }
+    /// <summary>Gets the closed supported execution classes.</summary>
+    public required ImmutableArray<BaseActivationExecutionClass> ExecutionClasses { get; init; }
     /// <summary>Gets maximum activations created in one transaction.</summary>
     public required int MaximumActivationsPerTransaction { get; init; }
     /// <summary>Gets maximum due candidates per seek.</summary>
@@ -529,8 +550,124 @@ public sealed record BaseActivationProviderCapability
     public required long MaximumEvidenceBytes { get; init; }
     /// <summary>Gets maximum transient bytes.</summary>
     public required long MaximumTransientBytes { get; init; }
+    /// <summary>Gets maximum receipt bytes.</summary>
+    public required long MaximumReceiptBytes { get; init; }
+    /// <summary>Gets maximum pending rows.</summary>
+    public required int MaximumPendingRows { get; init; }
+    /// <summary>Gets maximum claimed rows.</summary>
+    public required int MaximumClaimedRows { get; init; }
+    /// <summary>Gets maximum terminal rows.</summary>
+    public required int MaximumTerminalRows { get; init; }
+    /// <summary>Gets maximum attempts.</summary>
+    public required int MaximumAttempts { get; init; }
+    /// <summary>Gets maximum renewals per attempt.</summary>
+    public required int MaximumRenewalsPerAttempt { get; init; }
+    /// <summary>Gets maximum guarded children per attempt.</summary>
+    public required int MaximumChildrenPerAttempt { get; init; }
+    /// <summary>Gets maximum lineage depth.</summary>
+    public required int MaximumLineageDepth { get; init; }
+    /// <summary>Gets maximum occurrence page size.</summary>
+    public required int MaximumOccurrencePage { get; init; }
+    /// <summary>Gets maximum installed time-zone authority bytes.</summary>
+    public required long MaximumTimeZoneBytes { get; init; }
+    /// <summary>Gets maximum acquisition deadline.</summary>
+    public required TimeSpan AcquisitionDeadline { get; init; }
+    /// <summary>Gets maximum transaction deadline.</summary>
+    public required TimeSpan TransactionDeadline { get; init; }
+    /// <summary>Gets maximum observation wait deadline.</summary>
+    public required TimeSpan ObservationWaitDeadline { get; init; }
+    /// <summary>Gets maximum renewal deadline.</summary>
+    public required TimeSpan RenewalDeadline { get; init; }
+    /// <summary>Gets maximum commit-observation deadline.</summary>
+    public required TimeSpan CommitObservationDeadline { get; init; }
+    /// <summary>Gets maximum receipt-resolution deadline.</summary>
+    public required TimeSpan ReceiptResolutionDeadline { get; init; }
+    /// <summary>Gets maximum maintenance deadline.</summary>
+    public required TimeSpan MaintenanceDeadline { get; init; }
+    /// <summary>Gets maximum shutdown-drain deadline.</summary>
+    public required TimeSpan ShutdownDrainDeadline { get; init; }
+    /// <summary>Gets retained non-cooperative provider capacity.</summary>
+    public required int ProviderQuarantineSlots { get; init; }
+    /// <summary>Gets retained non-cooperative handler capacity.</summary>
+    public required int HandlerQuarantineSlots { get; init; }
     /// <summary>Gets the canonical capability checksum.</summary>
     public required ImmutableArray<byte> CanonicalChecksum { get; init; }
+}
+
+/// <summary>Validates and supplies the built-in durable-activation capability contract.</summary>
+public static class BaseActivationCapabilityContract
+{
+    /// <summary>Creates the certified built-in semantic envelope.</summary>
+    public static BaseActivationProviderCapability BuiltIn(string checksumPurpose) => new()
+    {
+        AtomicCreationSupported = true, SelectionTargetSupported = true, ModuleTargetSupported = true,
+        GuardedChildrenSupported = true, RestoreFencingSupported = true,
+        DueInvalidation = BaseDueInvalidationClass.BoundedPolling,
+        ScheduleKinds = [BaseScheduleKind.Once, BaseScheduleKind.Interval, BaseScheduleKind.Cron, BaseScheduleKind.Calendar],
+        ExecutionClasses = [BaseActivationExecutionClass.TransactionalOperation, BaseActivationExecutionClass.AtLeastOnceWorker, BaseActivationExecutionClass.AtMostOnceEffect],
+        MaximumActivationsPerTransaction = 256, MaximumDueCandidates = 256,
+        MaximumInputBytes = 4L * 1024 * 1024, MaximumResultBytes = 4L * 1024 * 1024,
+        MaximumEvidenceBytes = 16L * 1024 * 1024, MaximumTransientBytes = 16L * 1024 * 1024,
+        MaximumReceiptBytes = 16L * 1024 * 1024, MaximumPendingRows = 1_000_000,
+        MaximumClaimedRows = 1_000_000, MaximumTerminalRows = 1_000_000,
+        MaximumAttempts = 1024, MaximumRenewalsPerAttempt = 4096, MaximumChildrenPerAttempt = 4096,
+        MaximumLineageDepth = 256, MaximumOccurrencePage = 256, MaximumTimeZoneBytes = 64L * 1024 * 1024,
+        AcquisitionDeadline = TimeSpan.FromSeconds(5), TransactionDeadline = TimeSpan.FromSeconds(30),
+        ObservationWaitDeadline = TimeSpan.FromMinutes(5), RenewalDeadline = TimeSpan.FromSeconds(5),
+        CommitObservationDeadline = TimeSpan.FromSeconds(30), ReceiptResolutionDeadline = TimeSpan.FromSeconds(30),
+        MaintenanceDeadline = TimeSpan.FromMinutes(5), ShutdownDrainDeadline = TimeSpan.FromSeconds(60),
+        ProviderQuarantineSlots = 32, HandlerQuarantineSlots = 32,
+        CanonicalChecksum = ImmutableArray.CreateRange(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(checksumPurpose))),
+    };
+
+    /// <summary>Returns whether the capability is a closed valid safety envelope.</summary>
+    public static bool IsValid(BaseActivationProviderCapability? value) => value is not null
+        && value.AtomicCreationSupported && value.GuardedChildrenSupported && value.RestoreFencingSupported
+        && Enum.IsDefined(value.DueInvalidation)
+        && !value.ScheduleKinds.IsDefaultOrEmpty && value.ScheduleKinds.Distinct().Count() == value.ScheduleKinds.Length
+        && !value.ExecutionClasses.IsDefaultOrEmpty && value.ExecutionClasses.Distinct().Count() == value.ExecutionClasses.Length
+        && value.MaximumActivationsPerTransaction is >= 1 and <= 256
+        && value.MaximumDueCandidates is >= 1 and <= 256
+        && value.MaximumInputBytes is >= 1 and <= 4L * 1024 * 1024
+        && value.MaximumResultBytes is >= 1 and <= 4L * 1024 * 1024
+        && value.MaximumReceiptBytes is >= 1 and <= 16L * 1024 * 1024
+        && value.MaximumEvidenceBytes is >= 1 and <= 16L * 1024 * 1024
+        && value.MaximumTransientBytes is >= 1 and <= 16L * 1024 * 1024
+        && value.MaximumAttempts is >= 1 and <= 1024
+        && value.MaximumRenewalsPerAttempt is >= 1 and <= 4096
+        && value.MaximumChildrenPerAttempt is >= 1 and <= 4096
+        && value.MaximumLineageDepth is >= 1 and <= 256
+        && value.MaximumOccurrencePage is >= 1 and <= 256
+        && value.AcquisitionDeadline > TimeSpan.Zero && value.AcquisitionDeadline <= TimeSpan.FromSeconds(5)
+        && value.TransactionDeadline > TimeSpan.Zero && value.TransactionDeadline <= TimeSpan.FromSeconds(30)
+        && value.ShutdownDrainDeadline > TimeSpan.Zero && value.ShutdownDrainDeadline <= TimeSpan.FromSeconds(60)
+        && value.ProviderQuarantineSlots > 0 && value.HandlerQuarantineSlots > 0
+        && value.CanonicalChecksum.Length == 32;
+
+    internal static void Require(BaseActivationProviderCapability capability, BaseActivationDefinition definition)
+    {
+        if (!IsValid(capability) || !capability.ExecutionClasses.Contains(definition.ExecutionClass)
+            || definition.Limits.MaximumInputBytes > capability.MaximumInputBytes
+            || definition.Limits.MaximumResultBytes > capability.MaximumResultBytes
+            || definition.Limits.MaximumAttempts > capability.MaximumAttempts
+            || definition.Limits.MaximumRenewalsPerAttempt > capability.MaximumRenewalsPerAttempt
+            || definition.Limits.MaximumChildrenPerAttempt > capability.MaximumChildrenPerAttempt
+            || definition.Limits.MaximumLineageDepth > capability.MaximumLineageDepth)
+            throw new InvalidOperationException("base.activation.capabilityUnavailable");
+    }
+
+    internal static void Require(BaseActivationProviderCapability capability, BaseScheduleDefinition definition)
+    {
+        BaseScheduleKind kind = definition.Expression switch
+        {
+            BaseOnceSchedule => BaseScheduleKind.Once, BaseIntervalSchedule => BaseScheduleKind.Interval,
+            BaseCronSchedule => BaseScheduleKind.Cron, BaseCalendarSchedule => BaseScheduleKind.Calendar,
+            _ => throw new InvalidOperationException("base.activation.scheduleInvalid"),
+        };
+        if (!IsValid(capability) || !capability.ScheduleKinds.Contains(kind))
+            throw new InvalidOperationException("base.activation.capabilityUnavailable");
+    }
 }
 
 /// <summary>Defines provider-neutral durable activation operations.</summary>

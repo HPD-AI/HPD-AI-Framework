@@ -26,6 +26,7 @@ internal static class TestStoreProvider
                 GenerationCells = true, AtomicRecordAndGenerationCommit = true,
                 MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
             },
+            Activations = BaseActivationCapabilityContract.BuiltIn("hpd.base.test.activations.v2"),
         }, new Installer(store, schema));
 
     private sealed class Installer(FakeRecordStore store, bool schema) : IHPDBaseStoreInstaller
