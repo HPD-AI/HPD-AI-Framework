@@ -8,6 +8,14 @@ namespace HPD.Base.Tests.Subjects;
 public sealed class L48SubjectRetirementTests
 {
     [Fact]
+    public void Required_evidence_expiry_intersects_checkpoint_lag_deadline_and_absolute_ceiling()
+    {
+        DateTimeOffset issued = DateTimeOffset.Parse("2026-01-01T00:00:00Z");
+        Assert.Equal(issued.AddDays(1), DefaultBaseSubjectRetirementRuntime.RequiredEvidenceExpiry(issued, TimeSpan.FromDays(1), issued.AddDays(7)));
+        Assert.Equal(issued.AddHours(12), DefaultBaseSubjectRetirementRuntime.RequiredEvidenceExpiry(issued, TimeSpan.FromDays(1), issued.AddHours(12)));
+        Assert.Equal(issued.AddDays(30), DefaultBaseSubjectRetirementRuntime.RequiredEvidenceExpiry(issued, TimeSpan.FromDays(60), issued.AddDays(45)));
+    }
+    [Fact]
     public void Required_participation_requires_exact_bilateral_graph_agreement()
     {
         (BaseSubjectLifecycleRegistry lifecycle, BaseSubjectRetirementConsumerDefinition consumer, BaseSubjectRetirementPolicy policy) = Graph();
@@ -41,7 +49,7 @@ public sealed class L48SubjectRetirementTests
     [Fact]
     public void Publication_union_rejects_missing_additional_and_subject_bearing_restore_payloads()
     {
-        BaseSubjectRetirementPublicationFact restore = new()
+        BaseSubjectRetirementPublicationFact restore = BaseSubjectRetirementRegistry.SealPublication(new()
         {
             Position = new BaseSubjectRetirementPosition(1), Kind = BaseSubjectRetirementPublicationKind.RestoreTransformed,
             Restore = new BaseSubjectRetirementRestorePublication
@@ -51,7 +59,7 @@ public sealed class L48SubjectRetirementTests
                 TransformedBarrierCount = 1, TransformedAcknowledgementCount = 1,
                 TransformationChecksum = Hex('b'),
             },
-        };
+        });
         BaseSubjectRetirementRegistry.ValidatePublication(new BaseSubjectRetirementPublicationRow { Scope = null, Fact = restore });
         Assert.Throws<InvalidDataException>(() => BaseSubjectRetirementRegistry.ValidatePublication(new BaseSubjectRetirementPublicationRow
         {
@@ -61,6 +69,14 @@ public sealed class L48SubjectRetirementTests
         Assert.Throws<InvalidDataException>(() => BaseSubjectRetirementRegistry.ValidatePublication(new BaseSubjectRetirementPublicationRow
         {
             Scope = null, Fact = restore with { Purged = Purged() },
+        }));
+        Assert.Throws<InvalidDataException>(() => BaseSubjectRetirementRegistry.ValidatePublication(new BaseSubjectRetirementPublicationRow
+        {
+            Scope = null, Fact = restore with { AuditAction = "base.subjectRetirement.subject.purged" },
+        }));
+        Assert.Throws<InvalidDataException>(() => BaseSubjectRetirementRegistry.ValidatePublication(new BaseSubjectRetirementPublicationRow
+        {
+            Scope = null, Fact = restore with { InvalidationEventId = "subject-retirement:2" },
         }));
     }
 
@@ -104,7 +120,7 @@ public sealed class L48SubjectRetirementTests
     [Fact]
     public void Hostile_barrier_page_scope_checksum_order_and_accounting_fail_closed()
     {
-        BaseGeneratedSubjectRegistration contract=Subject();using var tokens=new BaseOpaqueTokenProtector(Microsoft.Extensions.Options.Options.Create(new HPDBaseTokenProtectionOptions{ActiveKey=new(){Id=7,Key=Enumerable.Repeat((byte)4,32).ToArray(),IssueNotBefore=DateTimeOffset.UnixEpoch}}));var scopes=new BaseSubjectScopeProtector(tokens);var owned=new BaseOwnedSubjectScopeEvidence{Kind=BaseSubjectScopeKind.Tenant,Value="tenant-a"};BaseProtectedSubjectScope scope=scopes.Protect(owned,7);BaseSubjectRetirementBarrier barrier=Barrier();barrier=barrier with{ContractId=contract.Definition.Id,ContractVersion=contract.Definition.Version,BarrierChecksum=BaseSubjectRetirementRegistry.BarrierChecksum(barrier with{ContractId=contract.Definition.Id,ContractVersion=contract.Definition.Version},[])};long bytes=System.Text.Encoding.UTF8.GetByteCount($"{barrier.ContractId}\0{barrier.ContractVersion}\0{barrier.SubjectId.Value}\0{barrier.AuthorityEpoch.ToBase64Url()}\0{barrier.Incarnation.ToBase64Url()}\0{barrier.TombstoneSequence}\0{barrier.RequiredConsumerSetChecksum}\0{barrier.CreatedAtUtc.UtcTicks}\0{barrier.DeadlineUtc.UtcTicks}\0{(int)barrier.State}\0{barrier.Generation}\0{barrier.BarrierChecksum}");var row=new BaseSubjectRetirementBarrierRow{Scope=scope,Barrier=barrier,AcknowledgementChecksumInputs=[]};var page=new BaseSubjectRetirementBarrierPage{Barriers=[row],Next=null,CapturedBarrierGeneration=1,Intervals=[new(){LogicalAccessPathId="subjectRetirement:barriers",LowerInclusive=[],UpperInclusive=[]}],Accounting=new(){BarrierRows=1,AcknowledgementRows=0,ResultBytes=bytes,EvidenceBytes=0,TransientBytes=bytes}};Assert.True(DefaultBaseSubjectRetirementRuntime.ValidateBarrierPage(scopes,page,contract,null,null,4,owned));Assert.False(DefaultBaseSubjectRetirementRuntime.ValidateBarrierPage(scopes,page with{Barriers=[row with{Scope=scope with{IndexDigest=SHA256.HashData("foreign"u8)}}]},contract,null,null,4,owned));Assert.False(DefaultBaseSubjectRetirementRuntime.ValidateBarrierPage(scopes,page with{Barriers=[row with{Barrier=barrier with{BarrierChecksum=Hex('e')}}]},contract,null,null,4,owned));Assert.False(DefaultBaseSubjectRetirementRuntime.ValidateBarrierPage(scopes,page with{Accounting=page.Accounting with{EvidenceBytes=1,TransientBytes=checked(bytes+1)}},contract,null,null,4,owned));Assert.False(DefaultBaseSubjectRetirementRuntime.ValidateBarrierPage(scopes,page with{Next=new(){ScopeKind=scope.Kind,ScopeIndexDigest=scope.IndexDigest,ContractId=barrier.ContractId,ContractVersion=barrier.ContractVersion,SubjectId=BaseSubjectId.Create("other",BaseSubjectIdKind.OrdinalString),AuthorityEpoch=barrier.AuthorityEpoch,Incarnation=barrier.Incarnation}},contract,null,null,4,owned));
+        BaseGeneratedSubjectRegistration contract=Subject();using var tokens=new BaseOpaqueTokenProtector(Microsoft.Extensions.Options.Options.Create(new HPDBaseTokenProtectionOptions{ActiveKey=new(){Id=7,Key=Enumerable.Repeat((byte)4,32).ToArray(),IssueNotBefore=DateTimeOffset.UnixEpoch}}));var scopes=new BaseSubjectScopeProtector(tokens);var owned=new BaseOwnedSubjectScopeEvidence{Kind=BaseSubjectScopeKind.Tenant,Value="tenant-a"};BaseProtectedSubjectScope scope=scopes.Protect(owned,7);BaseSubjectRetirementBarrier barrier=Barrier();barrier=barrier with{ContractId=contract.Definition.Id,ContractVersion=contract.Definition.Version,BarrierChecksum=BaseSubjectRetirementRegistry.BarrierChecksum(barrier with{ContractId=contract.Definition.Id,ContractVersion=contract.Definition.Version},[])};long bytes=System.Text.Encoding.UTF8.GetByteCount($"{barrier.ContractId}\0{barrier.ContractVersion}\0{barrier.SubjectId.Value}\0{barrier.AuthorityEpoch.ToBase64Url()}\0{barrier.Incarnation.ToBase64Url()}\0{barrier.TombstoneSequence}\0{barrier.RequiredConsumerSetChecksum}\0{barrier.CreatedAtUtc.UtcTicks}\0{barrier.DeadlineUtc.UtcTicks}\0{(int)barrier.State}\0{barrier.Generation}\0{barrier.BarrierChecksum}");var row=new BaseSubjectRetirementBarrierRow{Scope=scope,Barrier=barrier,AcknowledgementChecksumInputs=[]};var key=new BaseSubjectRetirementBarrierKey{ScopeKind=scope.Kind,ScopeIndexDigest=scope.IndexDigest,ContractId=barrier.ContractId,ContractVersion=barrier.ContractVersion,SubjectId=barrier.SubjectId,AuthorityEpoch=barrier.AuthorityEpoch,Incarnation=barrier.Incarnation};var intervals=BaseSubjectRetirementReadIntervals.Create(contract.Definition.Id,contract.Definition.Version,null,scope,null,key);long intervalBytes=intervals.Sum(i=>(long)i.LowerInclusive.Length+i.UpperInclusive.Length);var page=new BaseSubjectRetirementBarrierPage{Barriers=[row],Next=null,CapturedBarrierGeneration=1,Intervals=intervals,Accounting=new(){BarrierRows=1,AcknowledgementRows=0,ResultBytes=bytes,EvidenceBytes=intervalBytes,TransientBytes=checked(bytes+intervalBytes)}};Assert.True(DefaultBaseSubjectRetirementRuntime.ValidateBarrierPage(scopes,page,contract,null,null,4,owned));Assert.False(DefaultBaseSubjectRetirementRuntime.ValidateBarrierPage(scopes,page with{Intervals=[intervals[0] with{LogicalAccessPathId="foreign"}]},contract,null,null,4,owned));Assert.False(DefaultBaseSubjectRetirementRuntime.ValidateBarrierPage(scopes,page with{Intervals=[intervals[0] with{UpperInclusive=[1]}]},contract,null,null,4,owned));Assert.False(DefaultBaseSubjectRetirementRuntime.ValidateBarrierPage(scopes,page with{Barriers=[row with{Scope=scope with{IndexDigest=SHA256.HashData("foreign"u8)}}]},contract,null,null,4,owned));Assert.False(DefaultBaseSubjectRetirementRuntime.ValidateBarrierPage(scopes,page with{Barriers=[row with{Barrier=barrier with{BarrierChecksum=Hex('e')}}]},contract,null,null,4,owned));Assert.False(DefaultBaseSubjectRetirementRuntime.ValidateBarrierPage(scopes,page with{Accounting=page.Accounting with{EvidenceBytes=checked(intervalBytes+1),TransientBytes=checked(bytes+intervalBytes+1)}},contract,null,null,4,owned));Assert.False(DefaultBaseSubjectRetirementRuntime.ValidateBarrierPage(scopes,page with{Next=new(){ScopeKind=scope.Kind,ScopeIndexDigest=scope.IndexDigest,ContractId=barrier.ContractId,ContractVersion=barrier.ContractVersion,SubjectId=BaseSubjectId.Create("other",BaseSubjectIdKind.OrdinalString),AuthorityEpoch=barrier.AuthorityEpoch,Incarnation=barrier.Incarnation}},contract,null,null,4,owned));
     }
 
     [Fact]

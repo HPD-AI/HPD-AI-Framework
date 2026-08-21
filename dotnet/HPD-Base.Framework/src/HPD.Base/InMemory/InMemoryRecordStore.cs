@@ -57,8 +57,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 return RetirementReadFailure<BaseSubjectRetirementBarrierPage>(OperationStatus.ValidationFailed, BaseSubjectErrorCodes.BudgetExceeded, ErrorCategory.Validation);
             ImmutableArray<BaseSubjectRetirementBarrierRow> barriers = [.. rows.Select(static row => new BaseSubjectRetirementBarrierRow { Scope = CloneRetirementScope(row.Scope), Barrier = row.Barrier with { }, AcknowledgementChecksumInputs=[..row.Acknowledgements.Values.Select(static value=>BaseSubjectRetirementRegistry.AcknowledgementChecksumInput(value.ConsumerId,value.ConsumerVersion,value.ConsumerChecksum,value.ThroughSequence,value.Disposition,value.Position)).Order(StringComparer.Ordinal)] })];
             BaseSubjectRetirementBarrierKey? next = more && rows.Length != 0 ? Key(rows[^1]) : null;
-            byte[] lower = request.After is null ? [] : RetirementKeyBytes(request.After); byte[] upper = next is null ? lower.ToArray() : RetirementKeyBytes(next);
-            ImmutableArray<BaseReadIntervalEvidence> intervals = [new BaseReadIntervalEvidence { LogicalAccessPathId = "subjectRetirement:barriers", LowerInclusive = lower, UpperInclusive = upper }];
+            ImmutableArray<BaseReadIntervalEvidence> intervals = BaseSubjectRetirementReadIntervals.Create(request.ContractId, request.ContractVersion, request.State, exact, request.After, rows.Length == 0 ? request.After : Key(rows[^1]));
+            BaseReadIntervalEvidence interval = intervals[0]; byte[] lower = interval.LowerInclusive; byte[] upper = interval.UpperInclusive;
             int acknowledgementRows=barriers.Sum(static row=>row.AcknowledgementChecksumInputs.Length);long acknowledgementBytes=barriers.Sum(static row=>row.AcknowledgementChecksumInputs.Sum(static value=>(long)Encoding.UTF8.GetByteCount(value)));long evidenceBytes = checked(lower.LongLength + upper.LongLength+acknowledgementBytes);
             return OperationResults.Ok(new BaseSubjectRetirementBarrierPage
             {
@@ -5033,7 +5033,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     },
                 },
             });
-        private void AddRetirementPublication(BaseSubjectRetirementPublicationRow row){BaseSubjectRetirementRegistry.ValidatePublication(row);_working.SubjectRetirementPublications.Add(row);}
+        private void AddRetirementPublication(BaseSubjectRetirementPublicationRow row){row=row with{Fact=BaseSubjectRetirementRegistry.SealPublication(row.Fact,row.Scope)};BaseSubjectRetirementRegistry.ValidatePublication(row);_working.SubjectRetirementPublications.Add(row);}
         private static BaseSubjectRetirementBarrier RecomputeBarrier(InMemorySubjectRetirementBarrierState stored, BaseSubjectRetirementBarrierState state)
         {
             BaseSubjectRetirementBarrier result = stored.Barrier with { State = state, Generation = checked(stored.Barrier.Generation + 1), BarrierChecksum = string.Empty };

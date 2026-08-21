@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 
 namespace HPD.Base;
 
@@ -171,7 +172,14 @@ internal sealed class BaseSubjectRetirementRegistry
         bool barrierKind = fact.Kind is BaseSubjectRetirementPublicationKind.BarrierCreated or BaseSubjectRetirementPublicationKind.RequiredAcknowledgementAccepted
             or BaseSubjectRetirementPublicationKind.BarrierSatisfied or BaseSubjectRetirementPublicationKind.BarrierTimedOut
             or BaseSubjectRetirementPublicationKind.BarrierQuarantined or BaseSubjectRetirementPublicationKind.BarrierOverridden;
+        (string contractId, int contractVersion) = PublicationIdentity(fact);
+        string expectedAction = PublicationAuditAction(fact.Kind);
+        string expectedEvent = $"subject-retirement:{fact.Position.Value}";
+        string expectedControl = PublicationControlChecksum(fact, row.Scope, expectedAction, expectedEvent, contractId, contractVersion);
         bool valid = payloads == 1 && Enum.IsDefined(fact.Kind)
+            && fact.AuditAction == expectedAction && fact.InvalidationEventId == expectedEvent
+            && fact.InvalidationContractId == contractId && fact.InvalidationContractVersion == contractVersion
+            && fact.ControlChecksum == expectedControl
             && (barrierKind) == (fact.Barrier is not null)
             && (fact.Kind == BaseSubjectRetirementPublicationKind.AdvisoryAcknowledgementAccepted) == (fact.AdvisoryAcknowledgement is not null)
             && (fact.Kind == BaseSubjectRetirementPublicationKind.SubjectPurged) == (fact.Purged is not null)
@@ -185,6 +193,47 @@ internal sealed class BaseSubjectRetirementRegistry
                 && barrier.PreviousGeneration >= 0 && barrier.PublishedGeneration > 0 && barrier.PublishedGeneration == checked(barrier.PreviousGeneration + 1);
         }
         if (!valid) throw new InvalidDataException(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);
+    }
+
+    internal static BaseSubjectRetirementPublicationFact SealPublication(BaseSubjectRetirementPublicationFact fact, BaseProtectedSubjectScope? scope = null)
+    {
+        (string contractId, int contractVersion) = PublicationIdentity(fact);
+        string action = PublicationAuditAction(fact.Kind);
+        string eventId = $"subject-retirement:{fact.Position.Value}";
+        return fact with
+        {
+            AuditAction = action,
+            InvalidationEventId = eventId,
+            InvalidationContractId = contractId,
+            InvalidationContractVersion = contractVersion,
+            ControlChecksum = PublicationControlChecksum(fact, scope, action, eventId, contractId, contractVersion),
+        };
+    }
+
+    private static (string ContractId, int ContractVersion) PublicationIdentity(BaseSubjectRetirementPublicationFact fact) =>
+        fact.Barrier is { } b ? (b.ContractId, b.ContractVersion) : fact.AdvisoryAcknowledgement is { } a ? (a.ContractId, a.ContractVersion) : fact.Purged is { } p ? (p.ContractId, p.ContractVersion) : fact.ConsumerSet is { } c ? (c.ContractId, c.ContractVersion) : fact.Restore is { } r ? (r.ContractId, r.ContractVersion) : throw new InvalidDataException(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);
+
+    private static string PublicationAuditAction(BaseSubjectRetirementPublicationKind kind) => kind switch
+    {
+        BaseSubjectRetirementPublicationKind.BarrierCreated => "base.subjectRetirement.barrier.created",
+        BaseSubjectRetirementPublicationKind.RequiredAcknowledgementAccepted or BaseSubjectRetirementPublicationKind.AdvisoryAcknowledgementAccepted => "base.subjectRetirement.acknowledgement.accepted",
+        BaseSubjectRetirementPublicationKind.BarrierSatisfied => "base.subjectRetirement.barrier.satisfied",
+        BaseSubjectRetirementPublicationKind.BarrierTimedOut => "base.subjectRetirement.barrier.timedOut",
+        BaseSubjectRetirementPublicationKind.BarrierQuarantined => "base.subjectRetirement.barrier.quarantined",
+        BaseSubjectRetirementPublicationKind.BarrierOverridden => "base.subjectRetirement.barrier.overridden",
+        BaseSubjectRetirementPublicationKind.SubjectPurged => "base.subjectRetirement.subject.purged",
+        BaseSubjectRetirementPublicationKind.ConsumerSetChanged => "base.subjectRetirement.consumerRemoval.completed",
+        BaseSubjectRetirementPublicationKind.RestoreTransformed => "base.subjectRetirement.restore.transformed",
+        _ => throw new InvalidDataException(BaseSubjectRetirementErrorCodes.ProviderContractInvalid),
+    };
+
+    private static string PublicationControlChecksum(BaseSubjectRetirementPublicationFact fact, BaseProtectedSubjectScope? scope, string action, string eventId, string contractId, int contractVersion)
+    {
+        BaseSubjectRetirementPublicationFact payload = fact with { AuditAction = null, InvalidationEventId = null, InvalidationContractId = null, InvalidationContractVersion = 0, ControlChecksum = null };
+        byte[] payloadBytes = JsonSerializer.SerializeToUtf8Bytes(payload, HPDBaseJsonSerializerContext.Default.BaseSubjectRetirementPublicationFact);
+        byte[] header = Encoding.UTF8.GetBytes($"base.subjectRetirement.control.v1\0{fact.Position.Value}\0{(int)fact.Kind}\0{action}\0{eventId}\0{contractId}\0{contractVersion}\0{(scope is null ? -1 : (int)scope.Kind)}\0{Convert.ToHexString(scope?.IndexDigest ?? [])}\0{Convert.ToHexString(scope?.ProtectedCanonicalValue ?? [])}\0");
+        byte[] authority = new byte[checked(header.Length + payloadBytes.Length)]; header.CopyTo(authority, 0); payloadBytes.CopyTo(authority, header.Length);
+        return Convert.ToHexStringLower(SHA256.HashData(authority));
     }
 
     private static bool AcceptedMatches(BaseAcceptedRetirementConsumer a, BaseInstalledSubjectRetirementConsumer b) =>

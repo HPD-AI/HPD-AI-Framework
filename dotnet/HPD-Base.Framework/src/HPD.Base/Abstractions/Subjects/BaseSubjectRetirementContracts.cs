@@ -632,6 +632,41 @@ public interface IBaseSubjectRetirementStore
     ValueTask<OperationResult<BaseSubjectRetirementPublicationPage>> ReadPublicationsAsync(BaseSubjectRetirementPublicationReadRequest request, CancellationToken cancellationToken = default);
 }
 
+internal static class BaseSubjectRetirementReadIntervals
+{
+    internal static ImmutableArray<BaseReadIntervalEvidence> Create(
+        string contractId, int contractVersion, BaseSubjectRetirementBarrierState? state,
+        BaseProtectedSubjectScope? exactScope, BaseSubjectRetirementBarrierKey? after,
+        BaseSubjectRetirementBarrierKey? through)
+    {
+        byte[] lower = after is null ? [] : EncodeKey(after);
+        byte[] upper = through is null ? lower.ToArray() : EncodeKey(through);
+        string scope = exactScope is null ? "all" : $"{(int)exactScope.Kind}:{Convert.ToHexString(exactScope.IndexDigest)}";
+        return [new BaseReadIntervalEvidence
+        {
+            LogicalAccessPathId = $"subjectRetirement:barriers:{contractId}:{contractVersion}:{(state is null ? "all" : ((int)state).ToString(System.Globalization.CultureInfo.InvariantCulture))}:{scope}",
+            LowerInclusive = lower,
+            UpperInclusive = upper,
+        }];
+    }
+
+    internal static bool Matches(
+        ImmutableArray<BaseReadIntervalEvidence> intervals, string contractId, int contractVersion,
+        BaseSubjectRetirementBarrierState? state, BaseProtectedSubjectScope? exactScope,
+        BaseSubjectRetirementBarrierKey? after, BaseSubjectRetirementBarrierKey? through)
+    {
+        if (intervals.IsDefault || intervals.Length != 1) return false;
+        BaseReadIntervalEvidence expected = Create(contractId, contractVersion, state, exactScope, after, through)[0];
+        BaseReadIntervalEvidence actual = intervals[0];
+        return actual.LogicalAccessPathId == expected.LogicalAccessPathId
+            && actual.LowerInclusive.AsSpan().SequenceEqual(expected.LowerInclusive)
+            && actual.UpperInclusive.AsSpan().SequenceEqual(expected.UpperInclusive);
+    }
+
+    private static byte[] EncodeKey(BaseSubjectRetirementBarrierKey key) =>
+        System.Text.Encoding.UTF8.GetBytes($"{(int)key.ScopeKind:D2}\0{Convert.ToHexString(key.ScopeIndexDigest)}\0{key.ContractId}\0{key.ContractVersion:D10}\0{key.SubjectId.Value}\0{key.AuthorityEpoch.ToBase64Url()}\0{key.Incarnation.ToBase64Url()}");
+}
+
 /// <summary>Identifies the one payload present in a retirement receipt.</summary>
 public enum BaseSubjectRetirementReceiptOperation
 {
@@ -1037,6 +1072,16 @@ public sealed record BaseSubjectRetirementPublicationFact
     public required BaseSubjectRetirementPosition Position { get; init; }
 /// <summary>Defines Kind for coordinated subject retirement.</summary>
     public required BaseSubjectRetirementPublicationKind Kind { get; init; }
+    /// <summary>Gets the fixed, transactionally persisted audit action.</summary>
+    public string? AuditAction { get; init; }
+    /// <summary>Gets the deterministic transactionally persisted invalidation identity.</summary>
+    public string? InvalidationEventId { get; init; }
+    /// <summary>Gets the contract identity bound to the invalidation.</summary>
+    public string? InvalidationContractId { get; init; }
+    /// <summary>Gets the contract version bound to the invalidation.</summary>
+    public int InvalidationContractVersion { get; init; }
+    /// <summary>Gets the checksum of the complete durable audit/invalidation authority.</summary>
+    public string? ControlChecksum { get; init; }
 /// <summary>Defines Barrier for coordinated subject retirement.</summary>
     public BaseSubjectBarrierPublication? Barrier { get; init; }
 /// <summary>Defines AdvisoryAcknowledgement for coordinated subject retirement.</summary>
@@ -1194,6 +1239,10 @@ public sealed record BaseSubjectRetirementControlNotice
     public required BaseSubjectRetirementPublicationFact Publication { get; init; }
     /// <summary>Gets the fixed audit action.</summary>
     public required string AuditAction { get; init; }
+    /// <summary>Gets the persisted invalidation event identity.</summary>
+    public required string InvalidationEventId { get; init; }
+    /// <summary>Gets the checksum of the durable control authority.</summary>
+    public required string ControlChecksum { get; init; }
 }
 
 /// <summary>Observes validated post-commit retirement controls without participating in their transaction.</summary>
