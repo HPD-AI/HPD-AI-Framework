@@ -35,6 +35,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             Kind = BaseAtomicMutationExecutionKind.ModuleMutation,
             Intent = intent,
             Module = extension,
+            ActivationGuard = activationGuard,
             SubjectRetirement = CreateRetirementCapture(extension),
             Limits = limits,
         };
