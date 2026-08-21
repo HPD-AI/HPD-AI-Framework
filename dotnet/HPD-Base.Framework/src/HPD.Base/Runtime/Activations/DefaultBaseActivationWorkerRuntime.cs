@@ -423,6 +423,42 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
         CancellationToken cancellationToken) =>
         FailCoreAsync(session, definition, claim, failureCode, retry, identity, cancellationToken);
 
+    public async ValueTask<OperationResult<BaseActivationReceiptResolution>> ResolveReceiptAsync(
+        BaseSession session,
+        BaseActivationDefinition definition,
+        BaseMutationRequestIdentity identity,
+        CancellationToken cancellationToken)
+    {
+        if (!await IsAuthorizedAsync(session, definition, definition.Grants.Replay,
+            BaseOperationKind.ActivationTransition, cancellationToken).ConfigureAwait(false))
+            return Failure<BaseActivationReceiptResolution>(OperationStatus.PolicyDenied, "base.activation.unauthorized", ErrorCategory.Authorization);
+        IBaseActivationProvider? provider = ResolveProvider();
+        if (provider is null)
+            return Failure<BaseActivationReceiptResolution>(OperationStatus.Unsupported, "base.activation.capabilityUnavailable", ErrorCategory.Unsupported);
+        OperationResult<BaseActivationReceiptResolution> resolved = await CallAsync(
+            token => provider.ResolveReceiptAsync(new BaseActivationReceiptResolutionRequest
+            {
+                Identity = identity,
+                AcceptedTime = acceptedTime.Capture(session.ApplicationId),
+                Limits = definition.Limits.Provider,
+            }, token), definition.Limits.Provider, cancellationToken).ConfigureAwait(false);
+        if (!resolved.IsSuccess() || resolved.Value is null)
+            return resolved;
+        BaseActivationReceiptResolution value = resolved.Value;
+        bool valid = value.OperationKind.Length is > 0 and <= 128
+            && value.Fingerprint.Length == BaseMutationRequestFingerprint.Length
+            && CryptographicOperations.FixedTimeEquals(value.Fingerprint.AsSpan(), identity.Fingerprint.ToArray())
+            && value.CanonicalResult.Length <= definition.Limits.Provider.MaximumResultBytes
+            && value.Accounting.Candidates == 1
+            && value.Accounting.Comparisons >= 1
+            && value.Accounting.EvidenceBytes == value.CanonicalResult.Length
+            && value.Accounting.TransientBytes >= value.Accounting.EvidenceBytes
+            && value.Accounting.TransientBytes <= definition.Limits.Provider.MaximumTransientBytes;
+        return valid
+            ? resolved
+            : Failure<BaseActivationReceiptResolution>(OperationStatus.StoreError, "base.activation.providerContractInvalid", ErrorCategory.Store);
+    }
+
     private ValueTask<OperationResult<BaseActivationTransitionResult>> FailCoreAsync(
         BaseSession session,
         BaseActivationDefinition definition,

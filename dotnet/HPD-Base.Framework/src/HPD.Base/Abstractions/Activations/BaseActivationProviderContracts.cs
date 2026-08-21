@@ -500,6 +500,8 @@ public sealed record BaseActivationTransitionResult
     public required BaseMutationRequestDisposition Disposition { get; init; }
     /// <summary>Gets current effect authority for effect-start and heartbeat transitions.</summary>
     public BaseEffectExecutionAuthority? Effect { get; init; }
+    /// <summary>Gets canonical graph-owned result bytes when this transition commits a result.</summary>
+    public ImmutableArray<byte> CanonicalResult { get; init; }
 }
 
 /// <summary>Requests registration of one durable worker-process incarnation.</summary>

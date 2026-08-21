@@ -504,6 +504,7 @@ public sealed partial class SqliteRecordStore
         {
             State = state, Generation = generation, ControlChecksum = control.ToImmutableArray(),
             Accounting = ActivationAccounting(1, 64), Disposition = BaseMutationRequestDisposition.Committed, Effect = resultingEffect,
+            CanonicalResult = result?.ToImmutableArray() ?? ImmutableArray<byte>.Empty,
         };
         await WriteActivationReceiptAsync(connection, transaction, request.Identity, receiptKind, transitionResult,
             HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult, cancellationToken).ConfigureAwait(false);

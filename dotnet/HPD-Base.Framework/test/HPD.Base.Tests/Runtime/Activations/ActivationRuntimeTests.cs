@@ -153,6 +153,10 @@ public sealed partial class ActivationRuntimeTests
             session, registration.Definition, delivery.Claim,
             System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new Result("done"), Json.Default.Result).ToImmutableArray(),
             completionIdentity, default);
+        OperationResult<BaseActivationReceiptResolution> resolved = await worker.ResolveReceiptAsync(
+            session, registration.Definition, completionIdentity, default);
+        BaseActivationTransitionResult resolvedTransition = System.Text.Json.JsonSerializer.Deserialize(
+            resolved.Value!.CanonicalResult.AsSpan(), HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult)!;
 
         created.IsSuccess().Should().BeTrue(created.Error?.Code);
         observed.IsSuccess().Should().BeTrue(observed.Error?.Code);
@@ -161,6 +165,10 @@ public sealed partial class ActivationRuntimeTests
         completed.Value!.State.Should().Be(BaseActivationState.Succeeded);
         completedReplay.IsSuccess().Should().BeTrue(completedReplay.Error?.Code);
         completedReplay.Value!.Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
+        resolved.IsSuccess().Should().BeTrue(resolved.Error?.Code);
+        resolved.Value!.OperationKind.Should().Be("activation-completed");
+        resolvedTransition.CanonicalResult.Should().Equal(
+            System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new Result("done"), Json.Default.Result));
         (await worker.ClaimAsync(session, registration.Definition, observed.Value.Token, claimIdentity, default)).Value
             .Should().BeOfType<BaseActivationClaimTerminalResult>();
     }

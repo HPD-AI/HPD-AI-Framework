@@ -137,6 +137,19 @@ public sealed record BaseActivationDispatchResult
     public BaseActivationState? State { get; init; }
 }
 
+/// <summary>Contains one currently authorized historical activation result.</summary>
+public sealed record BaseActivationResultReceipt<TResult>
+{
+    /// <summary>Gets the closed durable operation kind that committed the result.</summary>
+    public required string OperationKind { get; init; }
+    /// <summary>Gets the historical terminal activation state.</summary>
+    public required BaseActivationState State { get; init; }
+    /// <summary>Gets the historical terminal activation generation.</summary>
+    public required long Generation { get; init; }
+    /// <summary>Gets the graph-decoded historical result.</summary>
+    public required TResult Result { get; init; }
+}
+
 /// <summary>Executes worker operations for one installed definition and principal-bound session.</summary>
 public sealed class BaseInstalledActivationWorkerHandle<TInput, TResult>
 {
@@ -224,6 +237,42 @@ public sealed class BaseInstalledActivationWorkerHandle<TInput, TResult>
         BaseMutationRequestIdentity identity,
         CancellationToken cancellationToken = default) =>
         _runtime.FailAsync(_session, _definition, delivery.Claim, stableFailureCode, retry, identity, cancellationToken);
+
+    /// <summary>Resolves one successful historical result under current replay authority.</summary>
+    public async ValueTask<OperationResult<BaseActivationResultReceipt<TResult>>> ResolveResultAsync(
+        BaseMutationRequestIdentity identity,
+        CancellationToken cancellationToken = default)
+    {
+        OperationResult<BaseActivationReceiptResolution> resolved = await _runtime.ResolveReceiptAsync(
+            _session, _definition, identity, cancellationToken).ConfigureAwait(false);
+        if (!resolved.IsSuccess() || resolved.Value is null)
+            return CopyFailure<BaseActivationResultReceipt<TResult>, BaseActivationReceiptResolution>(resolved);
+        if (resolved.Value.OperationKind is not ("activation-completed" or "effect-completed" or "effect-reconciled"))
+            return ReceiptFailure("base.activation.receiptKindInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+        BaseActivationTransitionResult? transition;
+        TResult? result;
+        try
+        {
+            transition = System.Text.Json.JsonSerializer.Deserialize(
+                resolved.Value.CanonicalResult.AsSpan(), HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult);
+            if (transition is null || transition.State != BaseActivationState.Succeeded || transition.CanonicalResult.IsDefaultOrEmpty)
+                return ReceiptFailure("base.activation.receiptCorrupt", OperationStatus.StoreError, ErrorCategory.Store);
+            result = System.Text.Json.JsonSerializer.Deserialize(transition.CanonicalResult.AsSpan(), _identity.Result);
+        }
+        catch
+        {
+            return ReceiptFailure("base.activation.receiptCorrupt", OperationStatus.StoreError, ErrorCategory.Store);
+        }
+        if (result is null)
+            return ReceiptFailure("base.activation.receiptCorrupt", OperationStatus.StoreError, ErrorCategory.Store);
+        return OperationResults.Ok(new BaseActivationResultReceipt<TResult>
+        {
+            OperationKind = resolved.Value.OperationKind,
+            State = transition.State,
+            Generation = transition.Generation,
+            Result = result,
+        });
+    }
 
     /// <summary>Observes, claims, executes, and durably resolves at most one due activation.</summary>
     public async ValueTask<OperationResult<BaseActivationDispatchResult>> RunOneAsync(
@@ -383,6 +432,13 @@ public sealed class BaseInstalledActivationWorkerHandle<TInput, TResult>
         Status = OperationStatus.StoreError,
         Error = new BaseError { Code = "base.activation.providerContractInvalid", Message = "The activation payload is invalid.", Category = ErrorCategory.Store },
     };
+
+    private static OperationResult<BaseActivationResultReceipt<TResult>> ReceiptFailure(
+        string code, OperationStatus status, ErrorCategory category) => new()
+    {
+        Status = status,
+        Error = new BaseError { Code = code, Message = "The activation receipt could not be resolved.", Category = category },
+    };
 }
 
 internal interface IBaseActivationRuntime
@@ -424,6 +480,9 @@ internal interface IBaseActivationWorkerRuntime
     ValueTask<OperationResult<BaseActivationTransitionResult>> FailAsync(
         BaseSession session, BaseActivationDefinition definition, BaseActivationClaimAuthority claim,
         string failureCode, bool retry, BaseMutationRequestIdentity identity, CancellationToken cancellationToken);
+    ValueTask<OperationResult<BaseActivationReceiptResolution>> ResolveReceiptAsync(
+        BaseSession session, BaseActivationDefinition definition, BaseMutationRequestIdentity identity,
+        CancellationToken cancellationToken);
 }
 
 internal interface IBaseScheduleRuntime

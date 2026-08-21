@@ -513,6 +513,7 @@ internal sealed partial class InMemoryRecordStore
                 Accounting = EmptyActivationAccounting with { ReadIntervals = 0, IndexOperations = 1 },
                 Disposition = BaseMutationRequestDisposition.Committed,
                 Effect = resultingEffect,
+                CanonicalResult = result?.ToImmutableArray() ?? ImmutableArray<byte>.Empty,
             };
             WriteActivationReceipt(next, request.Identity, receiptKind, transitionResult,
                 HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult);
