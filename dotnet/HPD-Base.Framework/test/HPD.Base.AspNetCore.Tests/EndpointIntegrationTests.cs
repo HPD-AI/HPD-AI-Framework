@@ -229,6 +229,16 @@ public sealed class EndpointIntegrationTests
         retry.StatusCode.Should().Be(HttpStatusCode.OK);
         administration.ActivationRetry.Should().NotBeNull();
         administration.ActivationRetry!.ExpectedGeneration.Should().Be(7);
+
+        string queryJson = """
+            {"storeId":"primary","scopeKind":"global","scopeValue":null,"definitionId":"graph.execute","definitionVersion":1,"states":"terminal","after":null,"take":8}
+            """;
+        HttpResponseMessage query = await client.PostAsync(
+            "/base/control/activations/query",
+            new StringContent(queryJson, System.Text.Encoding.UTF8, "application/json"));
+        query.StatusCode.Should().Be(HttpStatusCode.OK);
+        administration.ActivationRead.Should().NotBeNull();
+        administration.ActivationRead!.Take.Should().Be(8);
     }
 
     private static async Task<T?> ReadJson<T>(WebApplication app, HttpContent content)
@@ -241,6 +251,7 @@ public sealed class EndpointIntegrationTests
     {
         public BaseSubjectEpochRotationRequest? Request { get; private set; }
         public BaseActivationAdministrationRetryRequest? ActivationRetry { get; private set; }
+        public BaseActivationAdministrationReadRequest? ActivationRead { get; private set; }
         public BaseAdministrationCapability Capability { get; } = new()
         {
             Backup = false,
@@ -307,6 +318,20 @@ public sealed class EndpointIntegrationTests
         }
         public ValueTask<BaseResult<BaseActivationTransitionResult>> ReconcileActivationAsync(BaseActivationAdministrationReconcileRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseActivationTransitionResult>> DisposeActivationAsync(BaseActivationAdministrationDisposeRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<BaseResult<BaseActivationAdministrationPage>> ReadActivationsAsync(BaseActivationAdministrationReadRequest request, CancellationToken cancellationToken = default)
+        {
+            ActivationRead = request;
+            return ValueTask.FromResult<BaseResult<BaseActivationAdministrationPage>>(
+                new BaseSuccess<BaseActivationAdministrationPage>(new BaseActivationAdministrationPage
+                {
+                    Items = [], Next = null, CapturedIndexGeneration = 1, Intervals = [],
+                    Accounting = new BaseActivationAccounting
+                    {
+                        Candidates = 0, Comparisons = 0, IndexOperations = 0,
+                        ReadIntervals = 0, EvidenceBytes = 0, TransientBytes = 0,
+                    },
+                }, OperationStatus.Ok, null, null, null, null));
+        }
     }
 }
 
