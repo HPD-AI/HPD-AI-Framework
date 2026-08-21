@@ -94,7 +94,6 @@ public sealed partial class SqliteRecordStore :
     private byte? _subjectScopeProtectionKey;
     private readonly ILogger<SqliteRecordStore> _logger;
     private readonly TimeProvider _timeProvider;
-    private long _acceptedActivationUtc;
     private readonly ISqliteTransactionController _transactions;
     private readonly ISqliteSessionOperationController _sessionOperations;
     private readonly ISqliteTransactionResourceDisposer _transactionResourceDisposer;

@@ -123,6 +123,35 @@ public sealed partial class SqliteModuleMutationTests
     }
 
     [Fact]
+    public async Task Activation_accepted_time_cannot_regress_after_restart()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-activation-time-{Guid.NewGuid():N}.db");
+        try
+        {
+            var request = new BaseActivationDueObservationRequest
+            {
+                ApplicationId = "activation-test", WorkerModuleId = "test",
+                Definitions = [ActivationDefinition()], Scope = ActivationScope(), AcceptedTime = AcceptedTime(100),
+                MaximumCandidates = 8, Limits = ActivationLimits(),
+            };
+            await using (SqliteRecordStore store = Store(path))
+                (await store.ObserveDueAsync(request)).IsSuccess().Should().BeTrue();
+            await using (SqliteRecordStore reopened = Store(path))
+            {
+                OperationResult<BaseActivationDueObservation> stale = await reopened.ObserveDueAsync(
+                    request with { AcceptedTime = AcceptedTime(99) });
+                stale.IsSuccess().Should().BeFalse();
+                stale.Error!.Code.Should().Be("base.activation.clockInvalid");
+            }
+        }
+        finally
+        {
+            foreach (string suffix in new[] { "", "-wal", "-shm" })
+                if (File.Exists(path + suffix)) File.Delete(path + suffix);
+        }
+    }
+
+    [Fact]
     public async Task Generation_operation_commits_replays_and_survives_restart()
     {
         string path = Path.Combine(Path.GetTempPath(), $"hpd-base-l50-{Guid.NewGuid():N}.db");
@@ -526,8 +555,24 @@ public sealed partial class SqliteModuleMutationTests
         CommitObservationTimeout = TimeSpan.FromSeconds(5), ReceiptResolutionTimeout = TimeSpan.FromSeconds(5),
     };
 
-    private static BaseAcceptedTimeReceipt AcceptedTime(long milliseconds) => new(
-        "activation-test", 1, milliseconds, milliseconds, milliseconds + 1, 1_000, new byte[32]);
+    private static BaseAcceptedTimeReceipt AcceptedTime(long milliseconds)
+    {
+        using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+        Append(hash, "base.activation.acceptedTime.v2\0"); Append(hash, "activation-test"); Append(hash, 1);
+        Append(hash, milliseconds); Append(hash, milliseconds); Append(hash, milliseconds + 1); Append(hash, 30_000);
+        return new BaseAcceptedTimeReceipt("activation-test", 1, milliseconds, milliseconds, milliseconds + 1, 30_000, hash.GetHashAndReset());
+    }
+
+    private static void Append(System.Security.Cryptography.IncrementalHash hash, string value)
+    {
+        byte[] bytes = System.Text.Encoding.UTF8.GetBytes(value); Span<byte> length = stackalloc byte[4];
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(length, checked((uint)bytes.Length)); hash.AppendData(length); hash.AppendData(bytes);
+    }
+
+    private static void Append(System.Security.Cryptography.IncrementalHash hash, long value)
+    {
+        Span<byte> bytes = stackalloc byte[8]; System.Buffers.Binary.BinaryPrimitives.WriteInt64BigEndian(bytes, value); hash.AppendData(bytes);
+    }
 
     private static BaseActivationDefinitionKey ActivationDefinition() => new()
     { Id = "test.activation", Version = 1, Checksum = new byte[32].ToImmutableArray() };
