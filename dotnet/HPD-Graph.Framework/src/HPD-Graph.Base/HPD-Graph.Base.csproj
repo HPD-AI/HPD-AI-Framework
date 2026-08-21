@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0</TargetFrameworks>
+    <RootNamespace>HPD.Graph.Base</RootNamespace>
+    <AssemblyName>HPD.Graph.Base</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Graph.Base</PackageId>
+    <Description>Durable HPD.Base activation integration for HPD-Graph.</Description>
+    <PackageTags>graph;workflow;base;durable;activation</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\HPD-Graph.Abstractions\HPD-Graph.Abstractions.csproj" />
+    <ProjectReference Include="..\HPD-Graph.Core\HPD-Graph.Core.csproj" />
+    <ProjectReference Include="..\..\..\HPD-Base.Framework\src\HPD.Base\HPD.Base.csproj" />
+  </ItemGroup>
+</Project>
