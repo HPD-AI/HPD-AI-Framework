@@ -162,7 +162,8 @@ internal sealed class BaseInMemoryTextCertificationHost(ServiceProvider services
     private static BaseTextCandidateConstraint Filter(BaseTextHttpFilter value)
     {
         if (value.Kind is "and" or "or") { BaseTextCandidateConstraint[] children = value.Children!.Select(Filter).ToArray(); return value.Kind == "and" ? new BaseTextCandidateConstraint.And([.. children]) : new BaseTextCandidateConstraint.Or([.. children]); }
-        BaseTextFilterValueKind kind = value.Field switch { "active" => BaseTextFilterValueKind.Boolean, "priority" => BaseTextFilterValueKind.Integer, _ => BaseTextFilterValueKind.String }; var field = new BaseTextFilterField(value.Field!, kind);
+        BaseTextIndexFilterFieldDefinition declared = BaseTextCertificationSchemaRecord.TextIndexes.Content.Definition.FilterFields.Single(item => item.WireName == value.Field || item.ApplicationName == value.Field || item.StableFieldId == value.Field);
+        BaseTextFilterValueKind kind = declared.ValueKind; var field = new BaseTextFilterField(declared.StableFieldId, kind);
         return value.Kind switch { "missing" => new BaseTextCandidateConstraint.IsMissing(field), "null" => new BaseTextCandidateConstraint.IsNull(field), "equal" => new BaseTextCandidateConstraint.Equal(field, Value(value.Value!, kind)), "in" => new BaseTextCandidateConstraint.In(field, value.Values!.Select(item => Value(item, kind)).ToImmutableArray()), _ => throw new ArgumentException() };
     }
     private static BaseTextFilterValue Value(BaseTextHttpFilterValue value, BaseTextFilterValueKind kind) => kind switch { BaseTextFilterValueKind.Boolean => BaseTextFilterValue.FromBoolean(value.Boolean!.Value), BaseTextFilterValueKind.Integer => BaseTextFilterValue.FromInteger(value.Integer!.Value), _ => BaseTextFilterValue.FromString(value.Text!) };

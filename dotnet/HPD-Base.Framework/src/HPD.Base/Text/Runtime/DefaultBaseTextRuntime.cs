@@ -25,8 +25,11 @@ internal sealed class DefaultBaseTextRuntime(
         if (!sealedIndex.DefinitionChecksum.AsSpan().SequenceEqual(installedIndex.DefinitionChecksum.AsSpan())) return Fail(OperationStatus.ValidationFailed, BaseTextErrorCodes.ContractInvalid, ErrorCategory.Validation);
         if (request.Take is < 1 || request.Take > request.Index.Limits.MaximumResults) return Fail(OperationStatus.ValidationFailed, BaseTextErrorCodes.BudgetExceeded, ErrorCategory.Validation);
         if (request.Index.Audience != request.Operation.Audience || request.Index.Fields.Any(field => !field.StaticInfluenceAudiences.Contains(request.Operation.Audience))) return Fail(OperationStatus.PolicyDenied, BaseTextErrorCodes.Unauthorized, ErrorCategory.Authorization);
-        BaseTextQueryContract.Validate(request.Query);
-        ImmutableArray<byte> queryBytes = BaseTextQueryContract.Encode(request.Query); (int queryNodes, int queryDepth, int phraseTerms) = QueryShape(request.Query);
+        BaseTextCandidateConstraint callerConstraint;
+        ImmutableArray<byte> queryBytes;
+        try { BaseTextQueryContract.Validate(request.Query); queryBytes = BaseTextQueryContract.Encode(request.Query); callerConstraint = BaseTextConstraintContract.Normalize(request.Constraint, request.Index); }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or OverflowException) { return Fail(OperationStatus.ValidationFailed, BaseTextErrorCodes.QueryInvalid, ErrorCategory.Validation); }
+        (int queryNodes, int queryDepth, int phraseTerms) = QueryShape(request.Query);
         if (queryNodes > request.Index.Limits.MaximumQueryNodes || queryDepth > request.Index.Limits.MaximumQueryDepth || phraseTerms > request.Index.Limits.MaximumPhraseTerms || queryBytes.Length > request.Index.Limits.MaximumQueryBytes) return Fail(OperationStatus.ValidationFailed, BaseTextErrorCodes.BudgetExceeded, ErrorCategory.Validation);
         if (!QueryFields(request.Query).All(id => request.Index.Fields.Any(field => field.StableFieldId == id))) return Fail(OperationStatus.ValidationFailed, BaseTextErrorCodes.QueryInvalid, ErrorCategory.Validation);
         OperationResult<BasePolicyEvaluation> influence = await policy.EvaluateReadAsync(new BasePolicyRequest { Principal = request.Principal, Operation = request.Operation, Collection = request.Collection, ResourceKind = PolicyResourceKind.TextIndex, TextIndexId = request.Index.Id }, cancellationToken).ConfigureAwait(false);
@@ -35,7 +38,7 @@ internal sealed class DefaultBaseTextRuntime(
         ImmutableArray<BaseTextFieldInfluenceConstraint> fieldInfluences;
         try
         {
-            effective = Combine(request.Constraint, LowerPolicy(influence.Value.EffectiveRecordFilter, request.Index));
+            effective = BaseTextConstraintContract.Normalize(Combine(callerConstraint, LowerPolicy(influence.Value.EffectiveRecordFilter, request.Index)), request.Index);
             fieldInfluences = InfluenceFields(request.Query, request.Index).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).Select(fieldId =>
             {
                 BaseTextIndexFieldDefinition field = request.Index.Fields.Single(value => value.StableFieldId == fieldId);
@@ -105,7 +108,7 @@ internal sealed class DefaultBaseTextRuntime(
         for (int index = 0; index < candidates.Length; index++)
         {
             RecordEnvelope record = hydrated.Value[index]; BaseTextCandidate candidate = candidates[index];
-            if (record.Id != candidate.RecordId || record.Metadata.Revision != candidate.Revision || !BaseRecordFilterMatcher.Matches(record, influence.Value.EffectiveRecordFilter) || !BaseTextSemanticEvaluator.ConstraintMatches(record.Payload, request.Index, request.Constraint)) return Fail(OperationStatus.StoreError, BaseTextErrorCodes.ProviderContractInvalid, ErrorCategory.Store);
+            if (record.Id != candidate.RecordId || record.Metadata.Revision != candidate.Revision || !BaseRecordFilterMatcher.Matches(record, influence.Value.EffectiveRecordFilter) || !BaseTextSemanticEvaluator.ConstraintMatches(record.Payload, request.Index, callerConstraint)) return Fail(OperationStatus.StoreError, BaseTextErrorCodes.ProviderContractInvalid, ErrorCategory.Store);
             BaseTextEvaluatedCandidate? verified = BaseTextSemanticEvaluator.Evaluate(record.Payload, request.Index, request.Query, queryDigest, fieldInfluences);
             if (verified is null || verified.Score != candidate.Score || !verified.Proof.ProofDigest.AsSpan().SequenceEqual(candidate.ScoreProof.ProofDigest.AsSpan())) return Fail(OperationStatus.StoreError, BaseTextErrorCodes.ProviderContractInvalid, ErrorCategory.Store);
             OperationResult<BasePolicyEvaluation> disclosure = await policy.EvaluateReadAsync(new BasePolicyRequest { Principal = request.Principal, Operation = request.Operation, Collection = request.Collection, ResourceKind = PolicyResourceKind.Record, ExistingRecord = record, RecordId = record.Id }, cancellationToken).ConfigureAwait(false);

@@ -60,7 +60,8 @@ public sealed class BaseTextSearch<T>
     {
         ArgumentNullException.ThrowIfNull(field); ArgumentNullException.ThrowIfNull(values); if (values.Length is < 1 or > 64) throw new ArgumentOutOfRangeException(nameof(values));
         BaseTextIndexFilterFieldDefinition declared = _index.Definition.FilterFields.SingleOrDefault(item => item.StableFieldId == field.Id) ?? throw new InvalidOperationException("The field is not a declared text filter.");
-        var leaf = new BaseTextCandidateConstraint.In(new BaseTextFilterField(field.Id, declared.ValueKind), values.Select(value => ConvertValue(value, declared.ValueKind)).ToImmutableArray());
+        BaseTextFilterField handle = new(field.Id, declared.ValueKind);
+        BaseTextCandidateConstraint leaf = BaseTextConstraintContract.In(handle, values.Select(value => ConvertValue(value, declared.ValueKind)));
         return Add(leaf);
     }
     public BaseTextSearch<T> WhereNull<TValue>(BaseField<T, TValue> field)

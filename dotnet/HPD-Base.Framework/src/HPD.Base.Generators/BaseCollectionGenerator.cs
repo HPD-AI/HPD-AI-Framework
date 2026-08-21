@@ -1372,9 +1372,9 @@ internal static class BaseCollectionGenerator
     {
         string value = typeName.EndsWith("?", StringComparison.Ordinal) ? typeName.Substring(0, typeName.Length - 1) : typeName;
         if (value is "string" or "global::System.String") return 0;
-        if (value is "bool" or "global::System.Boolean") return 2;
-        if (value is "sbyte" or "global::System.SByte" or "short" or "global::System.Int16" or "int" or "global::System.Int32" or "long" or "global::System.Int64") return 3;
-        if (value.StartsWith("global::HPD.Base.BaseRecordId<", StringComparison.Ordinal) || value is "global::HPD.Base.BaseRecordId") return 1;
+        if (value is "bool" or "global::System.Boolean") return 1;
+        if (value is "sbyte" or "global::System.SByte" or "short" or "global::System.Int16" or "int" or "global::System.Int32" or "long" or "global::System.Int64") return 2;
+        if (value.StartsWith("global::HPD.Base.BaseRecordId<", StringComparison.Ordinal) || value is "global::HPD.Base.BaseRecordId") return 3;
         return -1;
     }
 

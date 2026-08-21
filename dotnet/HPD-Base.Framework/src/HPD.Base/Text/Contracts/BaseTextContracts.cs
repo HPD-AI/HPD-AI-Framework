@@ -81,12 +81,12 @@ public enum BaseTextFilterValueKind
 {
     /// <summary>A UTF-8 string value.</summary>
     String = 0,
-    /// <summary>A stable identifier value.</summary>
-    Id = 1,
     /// <summary>A Boolean value.</summary>
-    Boolean = 2,
+    Boolean = 1,
     /// <summary>A signed 64-bit integer value.</summary>
-    Integer = 3,
+    Integer = 2,
+    /// <summary>A stable identifier value.</summary>
+    Id = 3,
 }
 
 /// <summary>Contains exact safety bounds for one text index and query.</summary>

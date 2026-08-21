@@ -249,6 +249,53 @@ public sealed class BaseTextSemanticTests
     }
 
     [Fact]
+    public async Task Runtime_rejects_a_malformed_candidate_constraint_before_provider_influence()
+    {
+        var services = new ServiceCollection().AddLogging(); var tracking = new TrackingTextAuthority(malformed: false);
+        services.AddHPDBase(builder =>
+        {
+            builder.AddPolicyAuthority<AllowTextPolicy>(new() { Id = "text.invalid-filter", Version = 1, OwningModuleId = "tests", EvaluatorContractId = "text.invalid-filter.eval", EvaluatorContractVersion = 1, CompositionOrder = 0 });
+            (BaseGrantAuthorityDefinition definition, AccessGrant grant) = TextGrant("invalid-filter"); builder.AddStaticGrantAuthority(definition, grant);
+            builder.AddCollection(TextSemanticDocument.Collection);
+        });
+        services.RemoveAll<IBaseTextProvider>(); services.AddSingleton<IBaseTextProvider>(tracking);
+        await using ServiceProvider provider = services.BuildServiceProvider(); Assert.True((await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess());
+        BaseTextIndexDefinition index = TextSemanticDocument.TextIndexes.Content.Definition;
+        var malformed = new BaseTextCandidateConstraint.Equal(
+            new BaseTextFilterField(TextSemanticDocument.Fields.State.Id, BaseTextFilterValueKind.String),
+            new BaseTextFilterValue { Kind = BaseTextFilterValueKind.String, StringValue = "published", BooleanValue = true });
+        OperationResult<BaseTextRuntimeResult> result = await provider.GetRequiredService<IBaseTextRuntime>().ExecuteAsync(new()
+        {
+            Collection = TextSemanticDocument.Collection.Definition, Index = index, Query = BaseTextQuery.Token("anything"), Constraint = malformed,
+            Take = 1, Consistency = new BaseTextConsistencyRequirement.Current(), Principal = new() { AuthenticationState = PrincipalAuthenticationState.Admin, SubjectKind = AccessSubjectKind.User, SubjectId = "invalid-filter" },
+            Operation = new() { ApplicationId = "hpd.base.application", Audience = HPDBaseEndpointAudience.Application, Operation = BaseOperationKind.TextQuery, CollectionId = TextSemanticDocument.Collection.Id },
+        }, default);
+        Assert.Equal(OperationStatus.ValidationFailed, result.Status); Assert.Equal(BaseTextErrorCodes.QueryInvalid, result.Error?.Code); Assert.Equal(0, tracking.OpenCount);
+    }
+
+    [Fact]
+    public void Candidate_in_values_have_one_canonical_order_and_no_duplicates()
+    {
+        BaseTextFilterField field = new(TextSemanticDocument.Fields.State.Id, BaseTextFilterValueKind.String);
+        BaseTextCandidateConstraint first = BaseTextConstraintContract.In(field, [BaseTextFilterValue.FromString("published"), BaseTextFilterValue.FromString("draft"), BaseTextFilterValue.FromString("published")]);
+        BaseTextCandidateConstraint second = BaseTextConstraintContract.In(field, [BaseTextFilterValue.FromString("draft"), BaseTextFilterValue.FromString("published")]);
+        Assert.True(BaseTextSemanticEvaluator.ConstraintEncoding(first).AsSpan().SequenceEqual(BaseTextSemanticEvaluator.ConstraintEncoding(second).AsSpan()));
+        Assert.Equal(2, Assert.IsType<BaseTextCandidateConstraint.In>(first).Values.Length);
+    }
+
+    [Fact]
+    public void Candidate_constraint_encoding_uses_the_locked_tags()
+    {
+        Assert.Equal([.. "HPDB-TEXT-CONSTRAINT-1\0"u8.ToArray(), (byte)1], BaseTextSemanticEvaluator.ConstraintEncoding(new BaseTextCandidateConstraint.True()).ToArray());
+        BaseTextFilterField field = new(TextSemanticDocument.Fields.State.Id, BaseTextFilterValueKind.String);
+        BaseTextCandidateConstraint equal = new BaseTextCandidateConstraint.Equal(field, BaseTextFilterValue.FromString("x"));
+        byte[] encoded = BaseTextSemanticEvaluator.ConstraintNodeEncoding(equal).ToArray();
+        Assert.Equal(7, encoded[0]);
+        Assert.Equal(1, encoded[1 + 4 + System.Text.Encoding.UTF8.GetByteCount(field.StableFieldId)]);
+        Assert.Equal(1, encoded[2 + 4 + System.Text.Encoding.UTF8.GetByteCount(field.StableFieldId)]);
+    }
+
+    [Fact]
     public async Task Dynamic_field_influence_is_required_and_rechecked_before_matching()
     {
         var services = new ServiceCollection().AddLogging();

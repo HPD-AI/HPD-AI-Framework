@@ -87,6 +87,8 @@ public static class BaseTextSemanticEvaluator
     }
     /// <summary>Returns the canonical provider-neutral candidate-constraint bytes.</summary>
     public static ImmutableArray<byte> ConstraintEncoding(BaseTextCandidateConstraint value) { using var stream = new MemoryStream(); stream.Write("HPDB-TEXT-CONSTRAINT-1\0"u8); WriteConstraint(stream, value); return ImmutableArray.Create(stream.ToArray()); }
+    internal static ImmutableArray<byte> ConstraintNodeEncoding(BaseTextCandidateConstraint value) { using var stream = new MemoryStream(); WriteConstraint(stream, value); return ImmutableArray.Create(stream.ToArray()); }
+    internal static ImmutableArray<byte> FilterValueEncoding(BaseTextFilterValue value) { using var stream = new MemoryStream(); WriteValue(stream, value); return ImmutableArray.Create(stream.ToArray()); }
 
     private static Eval Match(BaseTextQuery query, Dictionary<string, ImmutableArray<string>> fields, string? selected) => query switch
     {
@@ -170,18 +172,18 @@ public static class BaseTextSemanticEvaluator
     {
         switch (value)
         {
-            case BaseTextCandidateConstraint.True: stream.WriteByte(0); break; case BaseTextCandidateConstraint.False: stream.WriteByte(1); break;
-            case BaseTextCandidateConstraint.And and: stream.WriteByte(2); WriteCount(stream, and.Children.Length); foreach (var child in and.Children) WriteConstraint(stream, child); break;
-            case BaseTextCandidateConstraint.Or or: stream.WriteByte(3); WriteCount(stream, or.Children.Length); foreach (var child in or.Children) WriteConstraint(stream, child); break;
-            case BaseTextCandidateConstraint.IsMissing missing: stream.WriteByte(4); WriteField(stream, missing.Field); break;
-            case BaseTextCandidateConstraint.IsNull nil: stream.WriteByte(5); WriteField(stream, nil.Field); break;
-            case BaseTextCandidateConstraint.Equal equal: stream.WriteByte(6); WriteField(stream, equal.Field); WriteValue(stream, equal.Value); break;
-            case BaseTextCandidateConstraint.In inside: stream.WriteByte(7); WriteField(stream, inside.Field); WriteCount(stream, inside.Values.Length); foreach (var item in inside.Values) WriteValue(stream, item); break;
+            case BaseTextCandidateConstraint.True: stream.WriteByte(1); break; case BaseTextCandidateConstraint.False: stream.WriteByte(2); break;
+            case BaseTextCandidateConstraint.And and: stream.WriteByte(3); WriteCount(stream, and.Children.Length); foreach (var child in and.Children) WriteConstraint(stream, child); break;
+            case BaseTextCandidateConstraint.Or or: stream.WriteByte(4); WriteCount(stream, or.Children.Length); foreach (var child in or.Children) WriteConstraint(stream, child); break;
+            case BaseTextCandidateConstraint.IsMissing missing: stream.WriteByte(5); WriteField(stream, missing.Field); break;
+            case BaseTextCandidateConstraint.IsNull nil: stream.WriteByte(6); WriteField(stream, nil.Field); break;
+            case BaseTextCandidateConstraint.Equal equal: stream.WriteByte(7); WriteField(stream, equal.Field); WriteValue(stream, equal.Value); break;
+            case BaseTextCandidateConstraint.In inside: stream.WriteByte(8); WriteField(stream, inside.Field); WriteCount(stream, inside.Values.Length); foreach (var item in inside.Values) WriteValue(stream, item); break;
             default: throw new InvalidOperationException(BaseTextErrorCodes.QueryInvalid);
         }
     }
-    private static void WriteField(Stream stream, BaseTextFilterField field) { WriteString(stream, field.StableFieldId); stream.WriteByte((byte)field.ValueKind); }
-    private static void WriteValue(Stream stream, BaseTextFilterValue value) { stream.WriteByte((byte)value.Kind); switch (value.Kind) { case BaseTextFilterValueKind.String: case BaseTextFilterValueKind.Id: WriteString(stream, value.StringValue!); break; case BaseTextFilterValueKind.Boolean: stream.WriteByte(value.BooleanValue == true ? (byte)1 : (byte)0); break; case BaseTextFilterValueKind.Integer: WriteLong(stream, value.IntegerValue!.Value); break; } }
+    private static void WriteField(Stream stream, BaseTextFilterField field) { WriteString(stream, field.StableFieldId); stream.WriteByte(checked((byte)((int)field.ValueKind + 1))); }
+    private static void WriteValue(Stream stream, BaseTextFilterValue value) { stream.WriteByte(checked((byte)((int)value.Kind + 1))); switch (value.Kind) { case BaseTextFilterValueKind.String: case BaseTextFilterValueKind.Id: WriteString(stream, value.StringValue!); break; case BaseTextFilterValueKind.Boolean: stream.WriteByte(value.BooleanValue == true ? (byte)1 : (byte)0); break; case BaseTextFilterValueKind.Integer: WriteLong(stream, value.IntegerValue!.Value); break; } }
     private static void WriteString(Stream stream, string value) { byte[] bytes = Encoding.UTF8.GetBytes(value); WriteCount(stream, bytes.Length); stream.Write(bytes); }
     private static void WriteCount(Stream stream, int value) { Span<byte> bytes = stackalloc byte[4]; BinaryPrimitives.WriteUInt32BigEndian(bytes, checked((uint)value)); stream.Write(bytes); }
     private static void WriteLong(Stream stream, long value) { Span<byte> bytes = stackalloc byte[8]; BinaryPrimitives.WriteInt64BigEndian(bytes, value); stream.Write(bytes); }
