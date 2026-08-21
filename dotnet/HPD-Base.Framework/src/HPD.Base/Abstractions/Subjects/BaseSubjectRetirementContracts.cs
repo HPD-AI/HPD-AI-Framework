@@ -179,6 +179,8 @@ public sealed record BaseSubjectRetirementBarrierRow
     public required BaseProtectedSubjectScope Scope { get; init; }
 /// <summary>Defines Barrier for coordinated subject retirement.</summary>
     public required BaseSubjectRetirementBarrier Barrier { get; init; }
+    /// <summary>Gets canonical sorted acknowledgement checksum inputs for hostile-result validation.</summary>
+    public required ImmutableArray<string> AcknowledgementChecksumInputs { get; init; }
 }
 
 /// <summary>Requests capture authority for every retirement projection affected by one mutation.</summary>
@@ -613,6 +615,8 @@ public sealed record BaseSubjectRetirementInspection
     public BaseSubjectRetirementTerminalSummary? TerminalSummary { get; init; }
 /// <summary>Defines Accounting for coordinated subject retirement.</summary>
     public required BaseSubjectRetirementReadAccounting Accounting { get; init; }
+    /// <summary>Gets canonical sorted acknowledgement checksum inputs for the current barrier.</summary>
+    public required ImmutableArray<string> AcknowledgementChecksumInputs { get; init; }
 }
 
 /// <summary>Provides the executable coordinated-retirement provider boundary.</summary>
@@ -624,6 +628,8 @@ public interface IBaseSubjectRetirementStore
     ValueTask<OperationResult<BaseSubjectRetirementBarrierPage>> ReadBarriersAsync(BaseSubjectRetirementBarrierReadRequest request, CancellationToken cancellationToken = default);
     /// <summary>Inspects one exact subject lifetime and its terminal evidence.</summary>
     ValueTask<OperationResult<BaseSubjectRetirementInspection>> InspectAsync(BaseSubjectRetirementInspectionRequest request, CancellationToken cancellationToken = default);
+    /// <summary>Reads committed controls without using the ordinary mutation journal.</summary>
+    ValueTask<OperationResult<BaseSubjectRetirementPublicationPage>> ReadPublicationsAsync(BaseSubjectRetirementPublicationReadRequest request, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Identifies the one payload present in a retirement receipt.</summary>
@@ -1161,6 +1167,40 @@ public sealed record BaseSubjectRetirementPublicationRow
     public BaseProtectedSubjectScope? Scope { get; init; }
 /// <summary>Defines Fact for coordinated subject retirement.</summary>
     public required BaseSubjectRetirementPublicationFact Fact { get; init; }
+}
+
+/// <summary>Requests a bounded page from the dedicated retirement control authority.</summary>
+public sealed record BaseSubjectRetirementPublicationReadRequest
+{
+    /// <summary>Gets the exclusive positive position boundary.</summary>
+    public BaseSubjectRetirementPosition? After { get; init; }
+    /// <summary>Gets the maximum rows.</summary>
+    public required int Take { get; init; }
+}
+
+/// <summary>Contains one page from the dedicated retirement control authority.</summary>
+public sealed record BaseSubjectRetirementPublicationPage
+{
+    /// <summary>Gets ordered deeply-owned publication rows.</summary>
+    public required ImmutableArray<BaseSubjectRetirementPublicationRow> Rows { get; init; }
+    /// <summary>Gets the finite high-water captured by this read.</summary>
+    public required BaseSubjectRetirementPosition HighWater { get; init; }
+}
+
+/// <summary>Contains one sanitized post-commit retirement control and its fixed audit action.</summary>
+public sealed record BaseSubjectRetirementControlNotice
+{
+    /// <summary>Gets the durable publication.</summary>
+    public required BaseSubjectRetirementPublicationFact Publication { get; init; }
+    /// <summary>Gets the fixed audit action.</summary>
+    public required string AuditAction { get; init; }
+}
+
+/// <summary>Observes validated post-commit retirement controls without participating in their transaction.</summary>
+public interface IBaseSubjectRetirementControlObserver
+{
+    /// <summary>Observes one validated, non-replayed control.</summary>
+    ValueTask ObserveAsync(BaseSubjectRetirementControlNotice notice,CancellationToken cancellationToken=default);
 }
 
 /// <summary>Stores one consumer acknowledgement in terminal purge evidence.</summary>

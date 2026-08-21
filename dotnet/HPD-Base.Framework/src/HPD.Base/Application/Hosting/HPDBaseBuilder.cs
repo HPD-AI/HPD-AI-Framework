@@ -500,6 +500,8 @@ public sealed class HPDBaseBuilder
         BaseSubjectContractRegistry subjectRegistry = FinalizeSubjectGraph(collections);
         var subjectLifecycleRegistry = new BaseSubjectLifecycleRegistry(_subjectLifecycleConsumers, subjectRegistry);
         var subjectRetirementRegistry = new BaseSubjectRetirementRegistry(_subjectRetirementConsumers, _subjectRetirementPolicies, subjectLifecycleRegistry);
+        if (!BaseSubjectRetirementCapabilityContract.Supports(subjectRetirementRegistry, provider.SubjectRetirement))
+            throw new InvalidOperationException(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);
         foreach (BaseGeneratedSubjectRegistration subject in subjectRegistry.All)
             if (!Fits(subject.Definition, provider.SubjectReferences))
                 throw new InvalidOperationException(BaseSubjectErrorCodes.GuaranteeUnavailable);
@@ -511,20 +513,6 @@ public sealed class HPDBaseBuilder
                     value.Definition.Limits.ReadTimeout > provider.SubjectLifecycle.MaximumReadTimeout ||
                     value.Definition.ReconciliationGrantId is not null && !provider.SubjectLifecycle.ReconciliationSupported))
                 throw new InvalidOperationException(BaseSubjectErrorCodes.GuaranteeUnavailable);
-        }
-        foreach (BaseInstalledSubjectRetirementPolicy policy in subjectRetirementRegistry.Policies)
-        {
-            if (policy.RequiredConsumers.Length > provider.SubjectRetirement.MaximumRequiredConsumersPerContract
-                || policy.Definition.CoordinationWindow > provider.SubjectRetirement.MaximumCoordinationWindow)
-                throw new InvalidOperationException(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);
-        }
-        foreach (BaseInstalledSubjectRetirementConsumer consumer in subjectRetirementRegistry.Consumers)
-        {
-            if (consumer.Definition.Limits.MaximumAcknowledgementsPerCommit > provider.SubjectRetirement.MaximumAcknowledgementsPerCommit
-                || consumer.Definition.Limits.MaximumReceiptBytes > provider.SubjectRetirement.MaximumResultBytes
-                || consumer.Definition.Limits.AcknowledgementTimeout > provider.SubjectRetirement.MaximumTransactionTimeout
-                || consumer.Definition.Limits.ReceiptResolutionTimeout > provider.SubjectRetirement.MaximumReceiptResolutionTimeout)
-                throw new InvalidOperationException(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);
         }
         var relationalOptions = new HPDBaseRelationalOptions();
         _relational?.Invoke(relationalOptions);
@@ -663,6 +651,11 @@ public sealed class HPDBaseBuilder
         {
             _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseHealthContributor, BaseSubjectLifecycleHealthContributor>());
             _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDiagnosticContributor, BaseSubjectLifecycleHealthContributor>());
+        }
+        if (subjectRetirementRegistry.Consumers.Count != 0 || subjectRetirementRegistry.Policies.Count != 0)
+        {
+            _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseHealthContributor, BaseSubjectRetirementHealthContributor>());
+            _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDiagnosticContributor, BaseSubjectRetirementHealthContributor>());
         }
     }
 

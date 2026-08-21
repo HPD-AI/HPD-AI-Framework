@@ -83,9 +83,13 @@ internal sealed class BaseSubjectRetirementRegistry
             throw new InvalidOperationException(BaseSubjectRetirementErrorCodes.ContractInvalid);
         return value with
         {
-            ConsumerId = Copy(value.ConsumerId), OwningModuleId = Copy(value.OwningModuleId), LifecycleConsumerChecksum = Copy(value.LifecycleConsumerChecksum),
-            RetirementProfileId = Copy(value.RetirementProfileId), RetirementProfileChecksum = Copy(value.RetirementProfileChecksum),
-            AcknowledgementGrantId = Copy(value.AcknowledgementGrantId), Limits = limits with { },
+            ConsumerId = Copy(value.ConsumerId),
+            OwningModuleId = Copy(value.OwningModuleId),
+            LifecycleConsumerChecksum = Copy(value.LifecycleConsumerChecksum),
+            RetirementProfileId = Copy(value.RetirementProfileId),
+            RetirementProfileChecksum = Copy(value.RetirementProfileChecksum),
+            AcknowledgementGrantId = Copy(value.AcknowledgementGrantId),
+            Limits = limits with { },
         };
     }
 
@@ -151,8 +155,8 @@ internal sealed class BaseSubjectRetirementRegistry
         Write(writer, value.AuthorityEpoch.ToBase64Url()); Write(writer, value.Incarnation.ToBase64Url()); Write(writer, value.TombstoneSequence);
         Write(writer, (int)value.AuthorizingState); Write(writer, value.FinalBarrierGeneration); Write(writer, value.FinalBarrierChecksum);
         Write(writer, value.RequiredConsumerSetChecksum); Write(writer, value.RetiredPosition.Value); Write(writer, value.PurgedAtUtc.UtcTicks);
-        BaseSubjectTerminalAcknowledgement[] acknowledgements=[.. value.Acknowledgements.OrderBy(static item=>item.ConsumerId,StringComparer.Ordinal).ThenBy(static item=>item.ConsumerVersion)];
-        Write(writer,acknowledgements.Length);foreach(BaseSubjectTerminalAcknowledgement item in acknowledgements){Write(writer,item.ConsumerId);Write(writer,item.ConsumerVersion);Write(writer,item.ConsumerChecksum);Write(writer,item.ThroughSubjectSequence);Write(writer,(int)item.Disposition);Write(writer,item.AcknowledgedPosition.Value);}
+        BaseSubjectTerminalAcknowledgement[] acknowledgements = [.. value.Acknowledgements.OrderBy(static item => item.ConsumerId, StringComparer.Ordinal).ThenBy(static item => item.ConsumerVersion)];
+        Write(writer, acknowledgements.Length); foreach (BaseSubjectTerminalAcknowledgement item in acknowledgements) { Write(writer, item.ConsumerId); Write(writer, item.ConsumerVersion); Write(writer, item.ConsumerChecksum); Write(writer, item.ThroughSubjectSequence); Write(writer, (int)item.Disposition); Write(writer, item.AcknowledgedPosition.Value); }
         return Convert.ToHexStringLower(SHA256.HashData(writer.WrittenSpan));
     }
 
@@ -162,25 +166,25 @@ internal sealed class BaseSubjectRetirementRegistry
     internal static void ValidatePublication(BaseSubjectRetirementPublicationRow row)
     {
         ArgumentNullException.ThrowIfNull(row); ArgumentNullException.ThrowIfNull(row.Fact);
-        BaseSubjectRetirementPublicationFact fact=row.Fact;
-        int payloads=(fact.Barrier is null?0:1)+(fact.AdvisoryAcknowledgement is null?0:1)+(fact.Purged is null?0:1)+(fact.ConsumerSet is null?0:1)+(fact.Restore is null?0:1);
-        bool barrierKind=fact.Kind is BaseSubjectRetirementPublicationKind.BarrierCreated or BaseSubjectRetirementPublicationKind.RequiredAcknowledgementAccepted
+        BaseSubjectRetirementPublicationFact fact = row.Fact;
+        int payloads = (fact.Barrier is null ? 0 : 1) + (fact.AdvisoryAcknowledgement is null ? 0 : 1) + (fact.Purged is null ? 0 : 1) + (fact.ConsumerSet is null ? 0 : 1) + (fact.Restore is null ? 0 : 1);
+        bool barrierKind = fact.Kind is BaseSubjectRetirementPublicationKind.BarrierCreated or BaseSubjectRetirementPublicationKind.RequiredAcknowledgementAccepted
             or BaseSubjectRetirementPublicationKind.BarrierSatisfied or BaseSubjectRetirementPublicationKind.BarrierTimedOut
             or BaseSubjectRetirementPublicationKind.BarrierQuarantined or BaseSubjectRetirementPublicationKind.BarrierOverridden;
-        bool valid=payloads==1&&Enum.IsDefined(fact.Kind)
-            &&(barrierKind)==(fact.Barrier is not null)
-            &&(fact.Kind==BaseSubjectRetirementPublicationKind.AdvisoryAcknowledgementAccepted)==(fact.AdvisoryAcknowledgement is not null)
-            &&(fact.Kind==BaseSubjectRetirementPublicationKind.SubjectPurged)==(fact.Purged is not null)
-            &&(fact.Kind==BaseSubjectRetirementPublicationKind.ConsumerSetChanged)==(fact.ConsumerSet is not null)
-            &&(fact.Kind==BaseSubjectRetirementPublicationKind.RestoreTransformed)==(fact.Restore is not null)
-            &&(barrierKind||fact.AdvisoryAcknowledgement is not null||fact.Purged is not null)==(row.Scope is not null);
-        if(fact.Barrier is { } barrier)
+        bool valid = payloads == 1 && Enum.IsDefined(fact.Kind)
+            && (barrierKind) == (fact.Barrier is not null)
+            && (fact.Kind == BaseSubjectRetirementPublicationKind.AdvisoryAcknowledgementAccepted) == (fact.AdvisoryAcknowledgement is not null)
+            && (fact.Kind == BaseSubjectRetirementPublicationKind.SubjectPurged) == (fact.Purged is not null)
+            && (fact.Kind == BaseSubjectRetirementPublicationKind.ConsumerSetChanged) == (fact.ConsumerSet is not null)
+            && (fact.Kind == BaseSubjectRetirementPublicationKind.RestoreTransformed) == (fact.Restore is not null)
+            && (barrierKind || fact.AdvisoryAcknowledgement is not null || fact.Purged is not null) == (row.Scope is not null);
+        if (fact.Barrier is { } barrier)
         {
-            bool consumerRequired=fact.Kind is BaseSubjectRetirementPublicationKind.RequiredAcknowledgementAccepted or BaseSubjectRetirementPublicationKind.BarrierSatisfied;
-            valid&=(barrier.ConsumerId is not null)==consumerRequired&&barrier.ContractVersion>0&&barrier.TombstoneSequence>0
-                &&barrier.PreviousGeneration>=0&&barrier.PublishedGeneration>0&&barrier.PublishedGeneration==checked(barrier.PreviousGeneration+1);
+            bool consumerRequired = fact.Kind is BaseSubjectRetirementPublicationKind.RequiredAcknowledgementAccepted or BaseSubjectRetirementPublicationKind.BarrierSatisfied;
+            valid &= (barrier.ConsumerId is not null) == consumerRequired && barrier.ContractVersion > 0 && barrier.TombstoneSequence > 0
+                && barrier.PreviousGeneration >= 0 && barrier.PublishedGeneration > 0 && barrier.PublishedGeneration == checked(barrier.PreviousGeneration + 1);
         }
-        if(!valid)throw new InvalidDataException(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);
+        if (!valid) throw new InvalidDataException(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);
     }
 
     private static bool AcceptedMatches(BaseAcceptedRetirementConsumer a, BaseInstalledSubjectRetirementConsumer b) =>
@@ -193,16 +197,43 @@ internal sealed class BaseSubjectRetirementRegistry
     {
         ValidateId(value.ConsumerId); ValidateId(value.OwningModuleId); ValidateId(value.RetirementProfileId); ValidateId(value.AcknowledgementGrantId);
         ValidateChecksum(value.LifecycleConsumerChecksum); ValidateChecksum(value.RetirementProfileChecksum); ValidateChecksum(value.RetirementConsumerChecksum);
-        return value with { ConsumerId=Copy(value.ConsumerId), OwningModuleId=Copy(value.OwningModuleId), LifecycleConsumerChecksum=Copy(value.LifecycleConsumerChecksum), RetirementProfileId=Copy(value.RetirementProfileId), RetirementProfileChecksum=Copy(value.RetirementProfileChecksum), AcknowledgementGrantId=Copy(value.AcknowledgementGrantId), RetirementConsumerChecksum=Copy(value.RetirementConsumerChecksum), Limits=value.Limits with { } };
+        return value with { ConsumerId = Copy(value.ConsumerId), OwningModuleId = Copy(value.OwningModuleId), LifecycleConsumerChecksum = Copy(value.LifecycleConsumerChecksum), RetirementProfileId = Copy(value.RetirementProfileId), RetirementProfileChecksum = Copy(value.RetirementProfileChecksum), AcknowledgementGrantId = Copy(value.AcknowledgementGrantId), RetirementConsumerChecksum = Copy(value.RetirementConsumerChecksum), Limits = value.Limits with { } };
     }
 
     private static bool ChecksumEquals(string left, string right) => left.Length == right.Length && CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(left), Encoding.ASCII.GetBytes(right));
     private static string Copy(string value) => new(value.AsSpan());
     private static void ValidateId(string value) { try { BaseApplicationId.Validate(value, nameof(value)); } catch (Exception e) when (e is ArgumentException or InvalidOperationException) { throw new InvalidOperationException(BaseSubjectRetirementErrorCodes.ContractInvalid, e); } }
     private static void ValidateChecksum(string value) { if (value is not { Length: 64 } || value.Any(static c => c is not (>= '0' and <= '9') and not (>= 'a' and <= 'f'))) throw new InvalidOperationException(BaseSubjectRetirementErrorCodes.ContractInvalid); }
-    private static void Write(ArrayBufferWriter<byte> writer, string value) { int count=Encoding.UTF8.GetByteCount(value); BinaryPrimitives.WriteInt32BigEndian(writer.GetSpan(4),count);writer.Advance(4);Encoding.UTF8.GetBytes(value,writer.GetSpan(count));writer.Advance(count); }
-    private static void Write(ArrayBufferWriter<byte> writer, int value) { BinaryPrimitives.WriteInt32BigEndian(writer.GetSpan(4),value);writer.Advance(4); }
-    private static void Write(ArrayBufferWriter<byte> writer, long value) { BinaryPrimitives.WriteInt64BigEndian(writer.GetSpan(8),value);writer.Advance(8); }
+    private static void Write(ArrayBufferWriter<byte> writer, string value) { int count = Encoding.UTF8.GetByteCount(value); BinaryPrimitives.WriteInt32BigEndian(writer.GetSpan(4), count); writer.Advance(4); Encoding.UTF8.GetBytes(value, writer.GetSpan(count)); writer.Advance(count); }
+    private static void Write(ArrayBufferWriter<byte> writer, int value) { BinaryPrimitives.WriteInt32BigEndian(writer.GetSpan(4), value); writer.Advance(4); }
+    private static void Write(ArrayBufferWriter<byte> writer, long value) { BinaryPrimitives.WriteInt64BigEndian(writer.GetSpan(8), value); writer.Advance(8); }
+}
+
+internal static class BaseSubjectRetirementCapabilityContract
+{
+    internal static bool Supports(BaseSubjectRetirementRegistry registry, BaseSubjectRetirementCapability capability)
+    {
+        if (registry.Consumers.Count == 0 && registry.Policies.Count == 0) return true;
+        if (!capability.TransactionalBarrierSupported || !capability.TransactionalFinalPurgeSupported
+            || capability.MaximumPendingBarriers < 1 || capability.MaximumAdministrationPageSize < 256
+            || capability.MaximumResultBytes < 1_048_576 || capability.MaximumRetirementProjectionsPerCommit < 256
+            || capability.MaximumBarrierReadsPerCommit < 256 || capability.MaximumAcknowledgementReadsPerCommit < 256
+            || capability.MaximumPublicationsPerCommit < 256 || capability.MaximumEvidenceBytes < 1_048_576
+            || capability.MaximumPublicationBytes < 1_048_576 || capability.MaximumTransientBytes < 32_000_000
+            || capability.MaximumAcquisitionTimeout < TimeSpan.FromSeconds(5) || capability.MaximumTransactionTimeout < TimeSpan.FromSeconds(30)
+            || capability.MaximumCommitCompletionTimeout < TimeSpan.FromSeconds(30) || capability.MaximumReceiptResolutionTimeout < TimeSpan.FromSeconds(30)) return false;
+        foreach (BaseInstalledSubjectRetirementPolicy policy in registry.Policies)
+            if (policy.RequiredConsumers.Length > capability.MaximumRequiredConsumersPerContract
+                || policy.RequiredConsumers.Length > capability.MaximumAcknowledgementReadsPerCommit
+                || policy.Definition.CoordinationWindow > capability.MaximumCoordinationWindow) return false;
+        foreach (BaseInstalledSubjectRetirementConsumer consumer in registry.Consumers)
+            if (consumer.Definition.Limits.MaximumAcknowledgementsPerCommit > capability.MaximumAcknowledgementsPerCommit
+                || consumer.Definition.Limits.MaximumAcknowledgementRequestBytes > capability.MaximumEvidenceBytes
+                || consumer.Definition.Limits.MaximumReceiptBytes > capability.MaximumResultBytes
+                || consumer.Definition.Limits.AcknowledgementTimeout > capability.MaximumTransactionTimeout
+                || consumer.Definition.Limits.ReceiptResolutionTimeout > capability.MaximumReceiptResolutionTimeout) return false;
+        return true;
+    }
 }
 
 internal static class BaseSubjectRetirementErrorCodes
@@ -211,6 +242,20 @@ internal static class BaseSubjectRetirementErrorCodes
     internal const string ContractInvalid = "base.subjectRetirement.contractInvalid";
     internal const string RegistrationConflict = "base.subjectRetirement.registrationConflict";
     internal const string Unauthorized = "base.subjectRetirement.unauthorized";
+    internal const string ScopeAuthorityInvalid = "base.subjectRetirement.scopeAuthorityInvalid";
     internal const string ProviderContractInvalid = "base.subjectRetirement.providerContractInvalid";
     internal const string BarrierPending = "base.subjectRetirement.barrierPending";
+    internal const string AcknowledgementConflict = "base.subjectRetirement.acknowledgementConflict";
+    internal const string SequenceInvalid = "base.subjectRetirement.sequenceInvalid";
+    internal const string BarrierSatisfied = "base.subjectRetirement.barrierSatisfied";
+    internal const string BarrierTimedOut = "base.subjectRetirement.barrierTimedOut";
+    internal const string BarrierQuarantined = "base.subjectRetirement.barrierQuarantined";
+    internal const string OverrideConflict = "base.subjectRetirement.overrideConflict";
+    internal const string PurgeConflict = "base.subjectRetirement.purgeConflict";
+    internal const string RetentionPending = "base.subjectRetirement.retentionPending";
+    internal const string ConsumerRemovalPending = "base.subjectRetirement.consumerRemovalPending";
+    internal const string CapacityExceeded = "base.subjectRetirement.capacityExceeded";
+    internal const string Timeout = "base.subjectRetirement.timeout";
+    internal const string CommitIndeterminate = "base.subjectRetirement.commitIndeterminate";
+    internal const string MaintenanceRequired = "base.subjectRetirement.maintenanceRequired";
 }

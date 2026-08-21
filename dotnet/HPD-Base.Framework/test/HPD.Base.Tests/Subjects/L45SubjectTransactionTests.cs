@@ -33,14 +33,23 @@ public sealed class L45SubjectTransactionTests
     [Fact]
     public async Task L48_required_delivery_acknowledges_once_and_satisfies_the_barrier()
     {
-        await using SubjectFixture fixture=Build(retirement:true);PrincipalContext principal=Principal();IBaseRecordRuntime records=fixture.Services.GetRequiredService<IBaseRecordRuntime>();
+        var observer=new RetirementObserver();await using SubjectFixture fixture=Build(retirement:true,retirementObserver:observer);PrincipalContext principal=Principal();IBaseRecordRuntime records=fixture.Services.GetRequiredService<IBaseRecordRuntime>();
         Assert.True((await records.CreateAsync(Private.Id,Create("ack-user",("active",true),("tenant","tenant-a")),principal,Operation(BaseOperationKind.Create,Private.Id))).IsSuccess());
         JsonElement encoded=await fixture.AcquireAsync("ack-user");var reference=new BaseSubjectReference<UserSubject>(BaseSubjectId.Create(encoded.GetProperty("subjectId").GetString()!,BaseSubjectIdKind.OrdinalString),BaseSubjectAuthorityEpoch.Parse(encoded.GetProperty("authorityEpoch").GetString()!),BaseSubjectIncarnation.Parse(encoded.GetProperty("incarnation").GetString()!));RecordEnvelope current=(await records.GetAsync(Private.Id,new("ack-user"),principal,Operation(BaseOperationKind.Get,Private.Id))).Value!;
         BaseSession session=fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);BaseExportedSubjectContract<UserSubject> exporter=session.GetExportedSubjectContract<UserSubject>(fixture.Registration);BaseResult<BaseSubjectLifecycleFact<UserSubject>> tombstone=await exporter.TombstoneAsync(new(){Subject=reference,ExpectedPrivateRevision=current.Metadata.Revision!.Value,Identity=Identity("ack-tombstone")});Assert.IsType<BaseSuccess<BaseSubjectLifecycleFact<UserSubject>>>(tombstone);
         BaseSubjectLifecycleConsumerDefinition lifecycle=LifecycleConsumer();var lifecycleIdentity=BaseGeneratedSubjectLifecycleConsumers.Register<UserSubject>(lifecycle,fixture.Registration);BaseSubjectRetirementConsumerDefinition retirement=RetirementConsumer(BaseSubjectLifecycleRegistry.Checksum(BaseSubjectLifecycleRegistry.Normalize(lifecycle),fixture.Registration.Checksum));var retirementIdentity=BaseGeneratedSubjectRetirementConsumers.Register(lifecycleIdentity,retirement);BaseInstalledSubjectRetirementConsumer<UserSubject> consumer=session.SubjectRetirements.Get(retirementIdentity);
+        await fixture.Services.GetRequiredService<BaseSubjectRetirementControlDispatcher>().InitializeAsync(CancellationToken.None);
         await using IAsyncEnumerator<BaseSubjectRequiredLifecycleDelivery<UserSubject>> deliveries=consumer.ReadRequiredAsync().GetAsyncEnumerator();Assert.True(await deliveries.MoveNextAsync());BaseSubjectRequiredLifecycleDelivery<UserSubject> delivery=deliveries.Current;
         BaseResult<BaseSubjectAcknowledgementResult> accepted=await consumer.AcknowledgeAsync(delivery.Acknowledgement,BaseSubjectAcknowledgementDisposition.Completed,delivery.AcknowledgementIdentity);Assert.True(accepted is BaseSuccess<BaseSubjectAcknowledgementResult>,accepted is BaseFailure<BaseSubjectAcknowledgementResult> failed?failed.Error.Code:null);BaseSubjectAcknowledgementResult applied=accepted.RequireValue();Assert.Equal(BaseSubjectRetirementMutationOutcome.Applied,applied.Outcome);Assert.Equal(BaseSubjectRetirementBarrierState.Satisfied,applied.BarrierState);Assert.Equal(2,applied.BarrierGeneration);
         BaseResult<BaseSubjectAcknowledgementResult> duplicate=await consumer.AcknowledgeAsync(delivery.Acknowledgement,BaseSubjectAcknowledgementDisposition.Completed,delivery.AcknowledgementIdentity);Assert.Equal(BaseSubjectRetirementMutationOutcome.Duplicate,duplicate.RequireValue().Outcome);
+        BaseFailure<BaseSubjectAcknowledgementResult> changed=Assert.IsType<BaseFailure<BaseSubjectAcknowledgementResult>>(await consumer.AcknowledgeAsync(delivery.Acknowledgement,BaseSubjectAcknowledgementDisposition.RetainedByPolicy,delivery.AcknowledgementIdentity));Assert.Equal(BaseSubjectRetirementErrorCodes.AcknowledgementConflict,changed.Error.Code);
+        BaseSubjectRetirementControlNotice notice=Assert.Single(observer.Notices);Assert.Equal(BaseSubjectRetirementPublicationKind.BarrierSatisfied,notice.Publication.Kind);Assert.Equal("base.subjectRetirement.barrier.satisfied",notice.AuditAction);
+    }
+
+    [Fact]
+    public async Task L48_required_evidence_denial_precedes_retirement_provider_influence()
+    {
+        int inspections=0;await using SubjectFixture fixture=Build(retirement:true,retirementAcknowledgementAuthority:false,retirementInspectionStarted:()=>Interlocked.Increment(ref inspections));PrincipalContext principal=Principal();IBaseRecordRuntime records=fixture.Services.GetRequiredService<IBaseRecordRuntime>();Assert.True((await records.CreateAsync(Private.Id,Create("denied-ack",("active",true),("tenant","tenant-a")),principal,Operation(BaseOperationKind.Create,Private.Id))).IsSuccess());JsonElement encoded=await fixture.AcquireAsync("denied-ack");var reference=new BaseSubjectReference<UserSubject>(BaseSubjectId.Create(encoded.GetProperty("subjectId").GetString()!,BaseSubjectIdKind.OrdinalString),BaseSubjectAuthorityEpoch.Parse(encoded.GetProperty("authorityEpoch").GetString()!),BaseSubjectIncarnation.Parse(encoded.GetProperty("incarnation").GetString()!));RecordEnvelope current=(await records.GetAsync(Private.Id,new("denied-ack"),principal,Operation(BaseOperationKind.Get,Private.Id))).Value!;BaseSession session=fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);BaseExportedSubjectContract<UserSubject> exporter=session.GetExportedSubjectContract<UserSubject>(fixture.Registration);Assert.IsType<BaseSuccess<BaseSubjectLifecycleFact<UserSubject>>>(await exporter.TombstoneAsync(new(){Subject=reference,ExpectedPrivateRevision=current.Metadata.Revision!.Value,Identity=Identity("denied-tombstone")}));BaseSubjectLifecycleConsumerDefinition lifecycle=LifecycleConsumer();var lifecycleIdentity=BaseGeneratedSubjectLifecycleConsumers.Register<UserSubject>(lifecycle,fixture.Registration);BaseSubjectRetirementConsumerDefinition retirement=RetirementConsumer(BaseSubjectLifecycleRegistry.Checksum(BaseSubjectLifecycleRegistry.Normalize(lifecycle),fixture.Registration.Checksum));var retirementIdentity=BaseGeneratedSubjectRetirementConsumers.Register(lifecycleIdentity,retirement);BaseInstalledSubjectRetirementConsumer<UserSubject> consumer=session.SubjectRetirements.Get(retirementIdentity);await using IAsyncEnumerator<BaseSubjectRequiredLifecycleDelivery<UserSubject>> deliveries=consumer.ReadRequiredAsync().GetAsyncEnumerator();BaseOperationException denied=await Assert.ThrowsAsync<BaseOperationException>(async()=>await deliveries.MoveNextAsync().AsTask());Assert.Equal(BaseSubjectRetirementErrorCodes.Unauthorized,denied.Error.Code);Assert.Equal(0,Volatile.Read(ref inspections));
     }
 
     [Fact]
@@ -1349,7 +1358,7 @@ public sealed class L45SubjectTransactionTests
         await transaction.CommitAsync();
     }
 
-    private static SubjectFixture Build(bool lifecycleConsumer = false, string? allScopeInspectionDigest = null, Func<int, CancellationToken, ValueTask>? lifecycleMaintenancePageCompleted = null, bool scopeRotationKeys = false, TimeSpan? lifecycleReadTimeout = null, BaseSubjectLifecycleConsumerDefinition[]? lifecycleConsumers = null, TimeProvider? timeProvider = null, bool retirement = false)
+    private static SubjectFixture Build(bool lifecycleConsumer = false, string? allScopeInspectionDigest = null, Func<int, CancellationToken, ValueTask>? lifecycleMaintenancePageCompleted = null, bool scopeRotationKeys = false, TimeSpan? lifecycleReadTimeout = null, BaseSubjectLifecycleConsumerDefinition[]? lifecycleConsumers = null, TimeProvider? timeProvider = null, bool retirement = false, bool retirementAcknowledgementAuthority=true, Action? retirementInspectionStarted=null,IBaseSubjectRetirementControlObserver? retirementObserver=null)
     {
         timeProvider ??= TimeProvider.System;
         BaseGeneratedSubjectRegistration registration = BaseGeneratedSubjects.Register<UserSubject>(SubjectDefinition(retirement));
@@ -1380,6 +1389,7 @@ public sealed class L45SubjectTransactionTests
         services.AddLogging();
         services.AddSingleton(timeProvider);
         services.AddSingleton(lifecycleTokens);
+        if(retirementObserver is not null)services.AddSingleton<IBaseSubjectRetirementControlObserver>(retirementObserver);
         services.AddSingleton<IBaseDescriptorContributor>(new CollectionsContributor(collections));
         services.AddSingleton(new BaseCollectionRegistry(collections.ToDictionary(static value => value.Id, StringComparer.Ordinal)));
         services.AddTestSubjectLifecyclePolicyAuthority(new GrantingPolicy(),
@@ -1393,8 +1403,8 @@ public sealed class L45SubjectTransactionTests
             TestPolicyAuthorityExtensions.TestSubjectLifecycleGrant("base.subjectLifecycle.feed.checkpoint", "hpd.base.application", "example.profiles", "base.subjectLifecycle.feed.checkpoint", "example.user", 1),
             TestPolicyAuthorityExtensions.TestSubjectLifecycleGrant("example.profile.lifecycle.reconcile", "hpd.base.application", "example.profiles", "example.profile.lifecycle", "example.user", 1),
             TestPolicyAuthorityExtensions.TestSubjectLifecycleGrant("base.subjectLifecycle.reconcile.read", "hpd.base.application", "example.profiles", "base.subjectLifecycle.reconcile.read", "example.user", 1),
-            TestPolicyAuthorityExtensions.TestSubjectLifecycleGrant("example.profile.retirement.ack", "hpd.base.application", "example.profiles", "example.profile.lifecycle", "example.user", 1),
-            TestPolicyAuthorityExtensions.TestSubjectLifecycleGrant("base.subjectRetirement.acknowledge", "hpd.base.application", "example.profiles", "base.subjectRetirement.acknowledge", "example.user", 1));
+            TestPolicyAuthorityExtensions.TestSubjectLifecycleGrant(retirementAcknowledgementAuthority?"example.profile.retirement.ack":"example.profile.retirement.denied", "hpd.base.application", "example.profiles", "example.profile.lifecycle", "example.user", 1),
+            TestPolicyAuthorityExtensions.TestSubjectLifecycleGrant(retirementAcknowledgementAuthority?"base.subjectRetirement.acknowledge":"base.subjectRetirement.denied", "hpd.base.application", "example.profiles", "base.subjectRetirement.acknowledge", "example.user", 1));
         services.AddSingleton(new BaseSubjectContractRegistry([registration]));
         if (installedLifecycleConsumers.Length != 0)
         {
@@ -1414,6 +1424,7 @@ public sealed class L45SubjectTransactionTests
             SubjectLifecycleConsumers = installedLifecycleConsumers,
             SubjectRetirementConsumers=retirementConsumers,SubjectRetirementPolicies=retirementPolicies,
             SubjectLifecycleMaintenancePageCompleted = lifecycleMaintenancePageCompleted,
+            SubjectRetirementInspectionStarted=retirementInspectionStarted,
             SubjectLifecycleInspectionAuthorities = allScopeInspectionDigest is null ? [] : [new BaseSubjectLifecycleInspectionAuthority
             {
                 ContractId = subject.Id, ContractVersion = subject.Version, OwningModuleId = subject.OwningModuleId,
@@ -1758,6 +1769,7 @@ public sealed class L45SubjectTransactionTests
         public override DateTimeOffset GetUtcNow() => now;
         internal void Advance(TimeSpan elapsed) => now = checked(now + elapsed);
     }
+    private sealed class RetirementObserver:IBaseSubjectRetirementControlObserver{internal List<BaseSubjectRetirementControlNotice> Notices{get;}=[];public ValueTask ObserveAsync(BaseSubjectRetirementControlNotice notice,CancellationToken cancellationToken=default){Notices.Add(notice);return ValueTask.CompletedTask;}}
 
     private sealed class SubjectFixture(ServiceProvider services, InMemoryRecordStore store, BaseExportedSubjectDefinition subject, BaseGeneratedSubjectRegistration registration) : IAsyncDisposable
     {

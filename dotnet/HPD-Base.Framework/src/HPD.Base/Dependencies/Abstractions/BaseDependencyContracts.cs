@@ -81,6 +81,8 @@ public static class BaseDependencyIds
     public const string Record = "base.record";
     /// <summary>Provides the protected exported-subject contract-generation dependency.</summary>
     public const string SubjectContract = "base.subject.contract";
+    /// <summary>Provides the protected coordinated-retirement dependency.</summary>
+    public const string SubjectRetirement = "base.subject.retirement";
 }
 
 /// <summary>Stable bounded invalidation reasons.</summary>
@@ -90,4 +92,6 @@ public static class BaseDependencyInvalidationReasons
     public const string RecordMutation = "recordMutation";
     /// <summary>Provides the exported-subject authority publication value.</summary>
     public const string SubjectAuthorityChanged = "subjectAuthorityChanged";
+    /// <summary>Provides the coordinated-retirement control change value.</summary>
+    public const string SubjectRetirementChanged = "subjectRetirementChanged";
 }

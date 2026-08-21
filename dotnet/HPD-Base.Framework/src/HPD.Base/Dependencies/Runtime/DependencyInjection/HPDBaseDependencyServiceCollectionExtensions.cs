@@ -39,6 +39,14 @@ public static class HPDBaseDependencyServiceCollectionExtensions
         });
         services.AddSingleton(new BaseDependencyTemplate
         {
+            Id = BaseDependencyIds.SubjectRetirement,
+            Kind = BaseDependencyKind.Named,
+            ParameterNames = ["contract", "version"],
+            Visibility = BaseDependencyVisibility.Internal,
+            Description = "A coordinated subject-retirement authority."
+        });
+        services.AddSingleton(new BaseDependencyTemplate
+        {
             Id = BaseDependencyIds.Record,
             Kind = BaseDependencyKind.Record,
             ParameterNames = ["tenant", "collection", "record"],

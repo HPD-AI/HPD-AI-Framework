@@ -14,6 +14,7 @@ internal sealed class BaseOpaqueTokenProtector : IDisposable
     private readonly byte _activeId;
     private readonly Dictionary<byte, KeyState> _keys;
     private readonly TimeProvider _timeProvider;
+    internal bool HasEncodedKeyId(string tokenText,byte expected){try{byte[] token=Decode(tokenText);return token.Length>=2&&token[0]==expected;}catch(FormatException){return false;}}
 
     public BaseOpaqueTokenProtector(
         IOptions<HPDBaseTokenProtectionOptions> options,

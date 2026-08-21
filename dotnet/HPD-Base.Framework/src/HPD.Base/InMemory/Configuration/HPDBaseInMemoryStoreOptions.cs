@@ -20,6 +20,7 @@ public sealed class HPDBaseInMemoryStoreOptions
     internal BaseSubjectRetirementConsumerDefinition[] SubjectRetirementConsumers { get; set; } = [];
     internal BaseSubjectRetirementPolicy[] SubjectRetirementPolicies { get; set; } = [];
     internal Func<int, CancellationToken, ValueTask>? SubjectLifecycleMaintenancePageCompleted { get; set; }
+    internal Action? SubjectRetirementInspectionStarted { get; set; }
     /// <summary>Gets or sets the default page size used when a query omits page size.</summary>
     public int DefaultPageSize { get; set; } = 100;
     /// <summary>Gets or sets the maximum page size advertised and accepted by the store.</summary>

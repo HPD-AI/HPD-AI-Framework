@@ -217,6 +217,10 @@ internal sealed class DefaultBaseProviderBootstrap(
         await ValidateSubjectPlanReceiptsAsync(requireDynamicAuthority: true, cancellationToken).ConfigureAwait(false);
         await services.GetRequiredService<BaseSubjectControlDispatcher>()
             .InitializeAsync(cancellationToken).ConfigureAwait(false);
+        BaseSubjectRetirementRegistry retirement=services.GetRequiredService<BaseSubjectRetirementRegistry>();
+        if(retirement.Consumers.Count!=0||retirement.Policies.Count!=0)
+            await services.GetRequiredService<BaseSubjectRetirementControlDispatcher>()
+                .InitializeAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private async ValueTask ValidateSubjectPlanReceiptsAsync(

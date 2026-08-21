@@ -17,6 +17,14 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
     public ValueTask<RecordMutationExecutionResult> ExecuteAsync(IAtomicMutationProcessor processor, RecordMutationExecutionRequest request, CancellationToken cancellationToken = default) =>
         ExecuteAtomicAsync(processor, request, cancellationToken);
 
+    public async ValueTask<OperationResult<BaseSubjectRetirementPublicationPage>> ReadPublicationsAsync(BaseSubjectRetirementPublicationReadRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);if(request.Take is<1 or>256)return RetirementReadFailure<BaseSubjectRetirementPublicationPage>(OperationStatus.ValidationFailed,BaseSubjectRetirementErrorCodes.ContractInvalid,ErrorCategory.Validation);
+        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);try{InMemoryStoreState state=Volatile.Read(ref _publishedState);long high=state.SubjectRetirementPosition;long after=request.After?.Value??0;ImmutableArray<BaseSubjectRetirementPublicationRow> rows=[..state.SubjectRetirementPublications.Where(value=>value.Fact.Position.Value>after&&value.Fact.Position.Value<=high).OrderBy(value=>value.Fact.Position.Value).Take(request.Take).Select(CloneRetirementPublication)];return OperationResults.Ok(new BaseSubjectRetirementPublicationPage{Rows=rows,HighWater=high==0?default:new(high)});}finally{_stateGate.Release();}
+    }
+
+    private static BaseSubjectRetirementPublicationRow CloneRetirementPublication(BaseSubjectRetirementPublicationRow row)=>new(){Scope=row.Scope is null?null:CloneRetirementScope(row.Scope),Fact=row.Fact with{Barrier=row.Fact.Barrier is null?null:row.Fact.Barrier with{},AdvisoryAcknowledgement=row.Fact.AdvisoryAcknowledgement is null?null:row.Fact.AdvisoryAcknowledgement with{},Purged=row.Fact.Purged is null?null:row.Fact.Purged with{},ConsumerSet=row.Fact.ConsumerSet is null?null:row.Fact.ConsumerSet with{},Restore=row.Fact.Restore is null?null:row.Fact.Restore with{}}};
+
     public async ValueTask<OperationResult<BaseSubjectRetirementBarrierPage>> ReadBarriersAsync(BaseSubjectRetirementBarrierReadRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -47,15 +55,15 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             long resultBytes = rows.Sum(static row => RetirementBarrierBytes(row.Barrier));
             if (resultBytes > request.MaximumResultBytes)
                 return RetirementReadFailure<BaseSubjectRetirementBarrierPage>(OperationStatus.ValidationFailed, BaseSubjectErrorCodes.BudgetExceeded, ErrorCategory.Validation);
-            ImmutableArray<BaseSubjectRetirementBarrierRow> barriers = [.. rows.Select(static row => new BaseSubjectRetirementBarrierRow { Scope = CloneRetirementScope(row.Scope), Barrier = row.Barrier with { } })];
+            ImmutableArray<BaseSubjectRetirementBarrierRow> barriers = [.. rows.Select(static row => new BaseSubjectRetirementBarrierRow { Scope = CloneRetirementScope(row.Scope), Barrier = row.Barrier with { }, AcknowledgementChecksumInputs=[..row.Acknowledgements.Values.Select(static value=>BaseSubjectRetirementRegistry.AcknowledgementChecksumInput(value.ConsumerId,value.ConsumerVersion,value.ConsumerChecksum,value.ThroughSequence,value.Disposition,value.Position)).Order(StringComparer.Ordinal)] })];
             BaseSubjectRetirementBarrierKey? next = more && rows.Length != 0 ? Key(rows[^1]) : null;
             byte[] lower = request.After is null ? [] : RetirementKeyBytes(request.After); byte[] upper = next is null ? lower.ToArray() : RetirementKeyBytes(next);
             ImmutableArray<BaseReadIntervalEvidence> intervals = [new BaseReadIntervalEvidence { LogicalAccessPathId = "subjectRetirement:barriers", LowerInclusive = lower, UpperInclusive = upper }];
-            long evidenceBytes = lower.LongLength + upper.LongLength;
+            int acknowledgementRows=barriers.Sum(static row=>row.AcknowledgementChecksumInputs.Length);long acknowledgementBytes=barriers.Sum(static row=>row.AcknowledgementChecksumInputs.Sum(static value=>(long)Encoding.UTF8.GetByteCount(value)));long evidenceBytes = checked(lower.LongLength + upper.LongLength+acknowledgementBytes);
             return OperationResults.Ok(new BaseSubjectRetirementBarrierPage
             {
                 Barriers = barriers, Next = next, CapturedBarrierGeneration = Volatile.Read(ref _publishedState).SubjectRetirementPosition,
-                Intervals = intervals, Accounting = new BaseSubjectRetirementReadAccounting { BarrierRows = rows.Length, AcknowledgementRows = 0, ResultBytes = resultBytes, EvidenceBytes = evidenceBytes, TransientBytes = checked(resultBytes + evidenceBytes) },
+                Intervals = intervals, Accounting = new BaseSubjectRetirementReadAccounting { BarrierRows = rows.Length, AcknowledgementRows = acknowledgementRows, ResultBytes = resultBytes, EvidenceBytes = evidenceBytes, TransientBytes = checked(resultBytes + evidenceBytes) },
             });
         }
         finally { _stateGate.Release(); }
@@ -63,6 +71,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
 
     async ValueTask<OperationResult<BaseSubjectRetirementInspection>> IBaseSubjectRetirementStore.InspectAsync(BaseSubjectRetirementInspectionRequest request, CancellationToken cancellationToken)
     {
+        _options.SubjectRetirementInspectionStarted?.Invoke();
         ArgumentNullException.ThrowIfNull(request);
         if (request.DeadlineUtc <= _timeProvider.GetUtcNow() || request.MaximumResultBytes is < 1 or > 1_048_576 || request.ScopeAuthority.Mode != BaseSubjectScopeQueryMode.ExactScope || request.ScopeAuthority.ExactScope is null)
             return RetirementReadFailure<BaseSubjectRetirementInspection>(OperationStatus.ValidationFailed, BaseSubjectRetirementErrorCodes.ContractInvalid, ErrorCategory.Validation);
@@ -86,11 +95,12 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             } : null;
             if (current is not null && summary is not null)
                 return RetirementReadFailure<BaseSubjectRetirementInspection>(OperationStatus.StoreError, BaseSubjectRetirementErrorCodes.ProviderContractInvalid, ErrorCategory.Store);
-            long resultBytes = current is null ? summary is null ? 0 : 256 : RetirementBarrierBytes(current.Barrier);
+            long resultBytes = current is null ? summary is null ? 0 : 256 : RetirementBarrierBytes(current.Barrier);ImmutableArray<string> acknowledgementInputs=current is null?[]:[..current.Acknowledgements.Values.Select(static value=>BaseSubjectRetirementRegistry.AcknowledgementChecksumInput(value.ConsumerId,value.ConsumerVersion,value.ConsumerChecksum,value.ThroughSequence,value.Disposition,value.Position)).Order(StringComparer.Ordinal)];long evidenceBytes=acknowledgementInputs.Sum(static value=>(long)Encoding.UTF8.GetByteCount(value));
             return OperationResults.Ok(new BaseSubjectRetirementInspection
             {
                 Scope = CloneRetirementScope(scope), CurrentBarrier = current is null ? null : current.Barrier with { }, TerminalSummary = summary,
-                Accounting = new BaseSubjectRetirementReadAccounting { BarrierRows = current is null ? 0 : 1, AcknowledgementRows = current?.Acknowledgements.Count ?? 0, ResultBytes = resultBytes, EvidenceBytes = 0, TransientBytes = resultBytes },
+                AcknowledgementChecksumInputs=acknowledgementInputs,
+                Accounting = new BaseSubjectRetirementReadAccounting { BarrierRows = current is null ? 0 : 1, AcknowledgementRows = acknowledgementInputs.Length, ResultBytes = resultBytes, EvidenceBytes = evidenceBytes, TransientBytes = checked(resultBytes+evidenceBytes) },
             });
         }
         finally { _stateGate.Release(); }
@@ -4941,7 +4951,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             string key = RetirementKey(scope, command.ContractId, command.ContractVersion, command.SubjectId, command.AuthorityEpoch, command.Incarnation);
             if (!_working.SubjectRetirementBarriers.TryGetValue(key, out InMemorySubjectRetirementBarrierState? stored)
                 || stored.Barrier.Generation != command.ExpectedBarrierGeneration || stored.Barrier.BarrierChecksum != command.ExpectedBarrierChecksum)
-                return ValueTask.FromResult(RetirementFailure<BaseSubjectRetirementTimeoutResult>("base.subjectRetirement.timeoutConflict", OperationStatus.Conflict, ErrorCategory.Conflict));
+                return ValueTask.FromResult(RetirementFailure<BaseSubjectRetirementTimeoutResult>(BaseSubjectRetirementErrorCodes.SequenceInvalid, OperationStatus.Conflict, ErrorCategory.Conflict));
             if (stored.Barrier.State != BaseSubjectRetirementBarrierState.Pending)
                 return ValueTask.FromResult(OperationResults.Ok(new BaseSubjectRetirementTimeoutResult { Outcome = BaseSubjectRetirementMutationOutcome.Obsolete, State = stored.Barrier.State, Generation = stored.Barrier.Generation, BarrierChecksum = stored.Barrier.BarrierChecksum }));
             if (request.ObservedAtUtc <= stored.Barrier.DeadlineUtc)

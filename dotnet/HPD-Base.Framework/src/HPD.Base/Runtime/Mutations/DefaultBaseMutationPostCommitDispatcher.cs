@@ -17,7 +17,8 @@ internal sealed class DefaultBaseMutationPostCommitDispatcher(
     IBaseRecordRedactor redactor,
     IBaseEventFactory eventFactory,
     IBaseEventDispatcher eventDispatcher,
-    BaseSubjectLifecycleHintHub lifecycleHints) : IBaseMutationPostCommitDispatcher
+    BaseSubjectLifecycleHintHub lifecycleHints,
+    BaseSubjectRetirementControlDispatcher retirementControls) : IBaseMutationPostCommitDispatcher
 {
     /// <summary>Executes the dispatch async operation.</summary>
     public async ValueTask<BaseRecordBatchItemResult> DispatchAsync(
@@ -74,7 +75,11 @@ internal sealed class DefaultBaseMutationPostCommitDispatcher(
             warnings = dispatched.Warnings;
             if (mutation.SubjectLifecycle is { } lifecycle
                 && lifecycle.PreviousState != lifecycle.ResultingState)
+            {
                 lifecycleHints.Publish(lifecycle);
+                try { await retirementControls.ReconcileAsync(CancellationToken.None).ConfigureAwait(false); }
+                catch (Exception exception) when (exception is not OutOfMemoryException and not StackOverflowException) { }
+            }
         }
         else
         {
