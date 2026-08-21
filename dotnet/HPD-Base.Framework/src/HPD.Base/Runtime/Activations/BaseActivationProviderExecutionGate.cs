@@ -17,10 +17,14 @@ internal sealed record BaseActivationProviderCallResult<T>(
 
 internal sealed class BaseActivationProviderExecutionGate : IAsyncDisposable
 {
+    private readonly BaseActivationOperationalState _state;
     private readonly SemaphoreSlim _capacity = new(32, 32);
     private readonly ConcurrentDictionary<long, Task> _retained = new();
     private long _sequence;
     private int _stopping;
+
+    internal BaseActivationProviderExecutionGate(BaseActivationOperationalState? state = null) =>
+        _state = state ?? new BaseActivationOperationalState();
 
     internal int RetainedCount => _retained.Count;
 
@@ -44,12 +48,14 @@ internal sealed class BaseActivationProviderExecutionGate : IAsyncDisposable
         }
 
         var lifetime = CancellationTokenSource.CreateLinkedTokenSource(caller);
+        _state.Enter();
         Task<T> task;
         try { task = execute(lifetime.Token).AsTask(); }
         catch
         {
             lifetime.Dispose();
             _capacity.Release();
+            _state.Complete();
             return new(BaseActivationProviderCallOutcome.Failed, default);
         }
         try
@@ -57,25 +63,28 @@ internal sealed class BaseActivationProviderExecutionGate : IAsyncDisposable
             T value = await task.WaitAsync(operationTimeout, caller).ConfigureAwait(false);
             lifetime.Dispose();
             _capacity.Release();
+            _state.Complete();
             return new(BaseActivationProviderCallOutcome.Completed, value);
         }
         catch (TimeoutException)
         {
             lifetime.Cancel();
+            _state.Quarantine();
             Retain(task, lifetime);
             return new(BaseActivationProviderCallOutcome.TimedOut, default);
         }
         catch (OperationCanceledException) when (caller.IsCancellationRequested)
         {
             lifetime.Cancel();
-            if (task.IsCompleted) { lifetime.Dispose(); _capacity.Release(); }
-            else Retain(task, lifetime);
+            if (task.IsCompleted) { lifetime.Dispose(); _capacity.Release(); _state.Complete(); }
+            else { _state.Quarantine(); Retain(task, lifetime); }
             return new(BaseActivationProviderCallOutcome.Cancelled, default);
         }
         catch
         {
             lifetime.Dispose();
             _capacity.Release();
+            _state.Complete();
             return new(BaseActivationProviderCallOutcome.Failed, default);
         }
     }
@@ -90,6 +99,7 @@ internal sealed class BaseActivationProviderExecutionGate : IAsyncDisposable
             _retained.TryRemove(id, out _);
             lifetime.Dispose();
             _capacity.Release();
+            _state.ReleaseQuarantine();
         }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
     }
 

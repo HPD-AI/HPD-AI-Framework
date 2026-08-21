@@ -765,6 +765,11 @@ public sealed class HPDBaseBuilder
             _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseHealthContributor, BaseSubjectRetirementHealthContributor>());
             _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDiagnosticContributor, BaseSubjectRetirementHealthContributor>());
         }
+        if (_activationRegistrations.Count != 0)
+        {
+            _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseHealthContributor, BaseActivationHealthContributor>());
+            _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDiagnosticContributor, BaseActivationHealthContributor>());
+        }
     }
 
     private static HPDBaseTokenProtectionOptions CreateTokenOptions() => new()

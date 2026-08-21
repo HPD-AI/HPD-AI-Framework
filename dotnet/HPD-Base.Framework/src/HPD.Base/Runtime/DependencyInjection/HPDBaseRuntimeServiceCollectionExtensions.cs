@@ -111,6 +111,7 @@ public static class HPDBaseRuntimeServiceCollectionExtensions
         services.TryAddSingleton(BaseSubjectLifecycleRuntimeLimits.Default);
         services.TryAddSingleton<BaseSubjectLifecycleOperationalState>();
         services.TryAddSingleton<BaseSubjectRetirementOperationalState>();
+        services.TryAddSingleton<BaseActivationOperationalState>();
         services.TryAddSingleton<BaseSubjectRetirementControlDispatcher>();
         services.TryAddSingleton<IBaseMutationCoordinator, DefaultBaseMutationCoordinator>();
         services.TryAddSingleton<IBaseSelectionMutationRuntime, DefaultBaseSelectionMutationRuntime>();
