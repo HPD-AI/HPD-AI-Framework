@@ -367,6 +367,31 @@ internal sealed partial class InMemoryRecordStore
         IBaseSubjectAuthorityMaintenanceProcessor processor,
         BaseSubjectAuthorityMaintenanceExecutionRequest request,
         CancellationToken cancellationToken = default) => processor.ExecuteAsync(new InMemorySubjectAuthorityMaintenanceSession(this, request), request, cancellationToken);
+
+    private sealed class InMemorySubjectAuthorityMaintenanceSession(
+        InMemoryRecordStore owner,
+        BaseSubjectAuthorityMaintenanceExecutionRequest execution) : IBaseSubjectAuthorityMaintenanceSession
+    {
+        public async ValueTask<OperationResult<BaseSubjectAuthorityMaintenancePageResult>> ExecutePageAsync(
+            BaseSubjectAuthorityMaintenancePageRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                return await owner.ExecuteSubjectAuthorityMaintenancePageAsync(execution, request, cancellationToken).ConfigureAwait(false);
+            }
+            catch (InvalidDataException exception)
+            {
+                string code = exception.Message.StartsWith("base.subject", StringComparison.Ordinal)
+                    ? exception.Message : BaseSubjectErrorCodes.LifecycleProviderContractInvalid;
+                return new() { Status = OperationStatus.CapabilityUnavailable, Error = new BaseError { Code = code, Category = ErrorCategory.Capability, Message = "The subject authority maintenance operation failed." } };
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                return new() { Status = OperationStatus.StoreError, Error = BaseSubjectFailureContract.Error(BaseSubjectErrorCodes.Timeout) };
+            }
+        }
+    }
     internal async ValueTask<OperationResult<BaseTextRebuildResult>> RebuildTextAsync(CollectionDefinition collection, BaseTextIndexDefinition index, BaseTextRebuildRequest request, CancellationToken cancellationToken)
     {
         string receiptKey = request.Identity.Scope + "\n" + request.Identity.Operation + "\n" + request.Identity.IdempotencyKey;

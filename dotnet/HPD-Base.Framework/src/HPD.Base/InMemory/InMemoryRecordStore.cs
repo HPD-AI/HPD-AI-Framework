@@ -581,7 +581,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
     }
 
     private static string SubjectContractKey(string contractId, int version) => $"{contractId}\n{version}";
-    private static string SubjectKey(string contractId, int version, BaseSubjectId subjectId) => $"{contractId}\n{version}\n{subjectId.Value}";
+    private string SubjectKey(BaseOwnedSubjectScopeEvidence scope, string contractId, int version, BaseSubjectId subjectId) =>
+        $"{(int)scope.Kind}\n{Convert.ToHexString(_subjectScopes.Protect(scope, _subjectScopeProtectionKey).IndexDigest)}\n{contractId}\n{version}\n{subjectId.Value}";
 
     private static BaseOpaqueTokenProtector CreateProcessLocalTokenProtector() =>
         new(Options.Create(new HPDBaseTokenProtectionOptions
