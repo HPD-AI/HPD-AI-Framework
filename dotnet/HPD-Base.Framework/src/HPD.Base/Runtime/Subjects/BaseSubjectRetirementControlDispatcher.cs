@@ -11,6 +11,9 @@ internal sealed class BaseSubjectRetirementControlDispatcher(
     TimeProvider? timeProvider = null,
     BaseSubjectRetirementOperationalState? operationalState = null) : IAsyncDisposable, IDisposable
 {
+    private readonly IBaseSubjectRetirementControlObserver[] _observers = observers.ToArray();
+    private readonly Dictionary<IBaseSubjectRetirementControlObserver, ObserverDeliveryState> _observerDeliveries = new(ReferenceEqualityComparer.Instance);
+    private const int MaximumRetainedObserverIdentities = 4096;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly SemaphoreSlim _providerSlot = new(1, 1);
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
@@ -21,6 +24,7 @@ internal sealed class BaseSubjectRetirementControlDispatcher(
     internal async ValueTask InitializeAsync(CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false); try { _processed = default; _initialized = true; } finally { _gate.Release(); }
+        await ReconcileAsync(cancellationToken).ConfigureAwait(false);
     }
 
     internal async ValueTask ReconcileAsync(CancellationToken cancellationToken)
@@ -31,7 +35,14 @@ internal sealed class BaseSubjectRetirementControlDispatcher(
     private async ValueTask DispatchAsync(BaseSubjectRetirementPublicationFact fact, CancellationToken cancellationToken)
     {
         string contract = fact.InvalidationContractId ?? throw new InvalidOperationException(BaseSubjectRetirementErrorCodes.ProviderContractInvalid); int version = fact.InvalidationContractVersion; string eventId = fact.InvalidationEventId ?? throw new InvalidOperationException(BaseSubjectRetirementErrorCodes.ProviderContractInvalid); if (dependencies is not null && liveQueries is not null) { BaseDependencyReference reference = dependencies.Create(BaseDependencyIds.SubjectRetirement, new BaseDependencyParameter("contract", contract), new BaseDependencyParameter("version", version.ToString(CultureInfo.InvariantCulture))); await liveQueries.InvalidateAsync(new() { EventId = eventId, OccurredAt = _timeProvider.GetUtcNow(), Reason = BaseDependencyInvalidationReasons.SubjectRetirementChanged, References = [reference] }, cancellationToken).ConfigureAwait(false); }
-        var notice = new BaseSubjectRetirementControlNotice { Publication = fact with { }, AuditAction = fact.AuditAction ?? throw new InvalidOperationException(BaseSubjectRetirementErrorCodes.ProviderContractInvalid), InvalidationEventId = eventId, ControlChecksum = fact.ControlChecksum ?? throw new InvalidOperationException(BaseSubjectRetirementErrorCodes.ProviderContractInvalid) }; foreach (IBaseSubjectRetirementControlObserver observer in observers) await observer.ObserveAsync(notice, cancellationToken).ConfigureAwait(false);
+        var notice = new BaseSubjectRetirementControlNotice { Publication = fact with { }, AuditAction = fact.AuditAction ?? throw new InvalidOperationException(BaseSubjectRetirementErrorCodes.ProviderContractInvalid), InvalidationEventId = eventId, ControlChecksum = fact.ControlChecksum ?? throw new InvalidOperationException(BaseSubjectRetirementErrorCodes.ProviderContractInvalid) };
+        foreach (IBaseSubjectRetirementControlObserver observer in _observers)
+        {
+            if (!_observerDeliveries.TryGetValue(observer, out ObserverDeliveryState? delivered)) _observerDeliveries.Add(observer, delivered = new());
+            if (delivered.Contains(eventId)) continue;
+            await observer.ObserveAsync(notice, cancellationToken).ConfigureAwait(false);
+            delivered.Add(eventId);
+        }
     }
 
     private ValueTask<OperationResult<BaseSubjectRetirementPublicationPage>> ReadAsync(IBaseSubjectRetirementStore store, BaseSubjectRetirementPublicationReadRequest request, CancellationToken cancellationToken) => DefaultBaseSubjectRetirementRuntime.InvokeProviderAsync(token => store.ReadPublicationsAsync(request, token), TimeSpan.FromSeconds(30), cancellationToken, _providerSlot, _operationalState);
@@ -39,4 +50,17 @@ internal sealed class BaseSubjectRetirementControlDispatcher(
     public void Dispose() { if (_operationalState.Active + _operationalState.Quarantined == 0) { _providerSlot.Dispose(); _gate.Dispose(); } }
 
     private IBaseSubjectRetirementStore Store() { RecordStoreRegistration[] registrations = stores.GetRegistrations(); if (registrations.Length != 1 || registrations[0].Store is not IBaseSubjectRetirementStore store) throw new InvalidOperationException(BaseSubjectRetirementErrorCodes.ProviderContractInvalid); return store; }
+
+    private sealed class ObserverDeliveryState
+    {
+        private readonly HashSet<string> _ids = new(StringComparer.Ordinal);
+        private readonly Queue<string> _order = new();
+        internal bool Contains(string eventId) => _ids.Contains(eventId);
+        internal void Add(string eventId)
+        {
+            if (!_ids.Add(eventId)) return;
+            _order.Enqueue(eventId);
+            while (_order.Count > MaximumRetainedObserverIdentities) _ids.Remove(_order.Dequeue());
+        }
+    }
 }

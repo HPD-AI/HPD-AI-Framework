@@ -25,6 +25,10 @@ internal sealed class DefaultBaseLiveQueryCoordinator : IBaseLiveQueryCoordinato
         new(StringComparer.Ordinal);
     private int _reservedSubscriptions;
     private long _invalidationGeneration;
+    private readonly object _invalidationIdentitySync = new();
+    private readonly HashSet<string> _deliveredInvalidationIds = new(StringComparer.Ordinal);
+    private readonly Queue<string> _deliveredInvalidationOrder = new();
+    private const int MaximumRetainedInvalidationIdentities = 4096;
 
     /// <summary>Initializes a new instance.</summary>
     public DefaultBaseLiveQueryCoordinator(
@@ -100,10 +104,25 @@ internal sealed class DefaultBaseLiveQueryCoordinator : IBaseLiveQueryCoordinato
                 || reference.TemplateId.Length > 128
                 || reference.Value.Length > 128))
             throw Failure(BaseLiveQueryErrorCodes.InvalidationFailed, "The live-query invalidation is invalid.");
+        if (!AdmitInvalidationIdentity(invalidation.EventId)) return ValueTask.CompletedTask;
         Interlocked.Increment(ref _invalidationGeneration);
         foreach (var state in _subscriptions.Values)
             state.Invalidate(invalidation);
         return ValueTask.CompletedTask;
+    }
+
+    private bool AdmitInvalidationIdentity(string eventId)
+    {
+        if (string.IsNullOrWhiteSpace(eventId) || eventId.Length > 256)
+            throw Failure(BaseLiveQueryErrorCodes.InvalidationFailed, "The live-query invalidation is invalid.");
+        lock (_invalidationIdentitySync)
+        {
+            if (!_deliveredInvalidationIds.Add(eventId)) return false;
+            _deliveredInvalidationOrder.Enqueue(eventId);
+            while (_deliveredInvalidationOrder.Count > MaximumRetainedInvalidationIdentities)
+                _deliveredInvalidationIds.Remove(_deliveredInvalidationOrder.Dequeue());
+            return true;
+        }
     }
 
     /// <inheritdoc />

@@ -109,6 +109,25 @@ public sealed class LiveQueryCoordinatorTests
     }
 
     [Fact]
+    public async Task Duplicate_event_identity_is_delivered_once()
+    {
+        var executions = 0;
+        var coordinator = Coordinator();
+        await using var subscription = await coordinator.SubscribeAsync(new BaseLiveQueryRequest<int>
+        {
+            QueryId = "idempotent-invalidation",
+            ExecuteAsync = _ => ValueTask.FromResult(Evaluation(++executions, Reference("a"))),
+        });
+        _ = await NextAsync(subscription);
+        BaseDependencyInvalidation invalidation = Invalidation(Reference("a"));
+        await coordinator.InvalidateAsync(invalidation);
+        _ = await NextAsync(subscription);
+        await coordinator.InvalidateAsync(invalidation);
+        await Task.Delay(50);
+        executions.Should().Be(2);
+    }
+
+    [Fact]
     public async Task DependencyIntroducedByRunningEvaluationCannotMissItsInvalidation()
     {
         var executions = 0;

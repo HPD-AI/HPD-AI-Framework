@@ -1245,7 +1245,7 @@ public sealed record BaseSubjectRetirementControlNotice
     public required string ControlChecksum { get; init; }
 }
 
-/// <summary>Observes validated post-commit retirement controls without participating in their transaction.</summary>
+/// <summary>Observes validated post-commit retirement controls without participating in their transaction. Implementations must consume <see cref="BaseSubjectRetirementControlNotice.InvalidationEventId"/> idempotently across restart.</summary>
 public interface IBaseSubjectRetirementControlObserver
 {
     /// <summary>Observes one validated, non-replayed control.</summary>
