@@ -9,6 +9,27 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
     IBasePolicyOrchestrator policy,
     BaseActivationAcceptedTimeAuthority acceptedTime) : IBaseActivationWorkerRuntime
 {
+    public async ValueTask<OperationResult> AuthorizeExecutionAsync(
+        BaseSession session,
+        BaseActivationDefinition definition,
+        CancellationToken cancellationToken)
+    {
+        bool authorized = await IsAuthorizedAsync(session, definition, definition.Grants.Execute,
+            BaseOperationKind.ActivationTransition, cancellationToken).ConfigureAwait(false);
+        return authorized
+            ? new OperationResult { Status = OperationStatus.Ok }
+            : new OperationResult
+            {
+                Status = OperationStatus.PolicyDenied,
+                Error = new BaseError
+                {
+                    Code = "base.activation.unauthorized",
+                    Message = "The activation operation is not authorized.",
+                    Category = ErrorCategory.Authorization,
+                },
+            };
+    }
+
     public async ValueTask<OperationResult<BaseActivationDueObservation>> ObserveAsync(
         BaseSession session,
         BaseActivationDefinition definition,

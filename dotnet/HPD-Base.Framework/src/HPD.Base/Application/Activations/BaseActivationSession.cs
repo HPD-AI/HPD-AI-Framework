@@ -235,6 +235,17 @@ public sealed class BaseInstalledActivationWorkerHandle<TInput, TResult>
         if (claimed.Value is null)
             return OperationResults.Ok(new BaseActivationDispatchResult { Empty = true });
 
+        OperationResult executionAuthority = await _runtime.AuthorizeExecutionAsync(
+            _session, _definition, cancellationToken).ConfigureAwait(false);
+        if (!executionAuthority.IsSuccess())
+            return new OperationResult<BaseActivationDispatchResult>
+            {
+                Status = executionAuthority.Status,
+                Error = executionAuthority.Error,
+                Warnings = executionAuthority.Warnings,
+                Diagnostics = executionAuthority.Diagnostics,
+            };
+
         IBaseActivationRegistration? registration = (_session.Services.GetService(typeof(BaseActivationRegistry)) as BaseActivationRegistry)
             ?.Registration(_definition.Id, _definition.Version);
         if (registration?.CreateHandler(_session.Services) is not IBaseActivationHandler<TInput, TResult> handler)
@@ -335,6 +346,8 @@ internal interface IBaseActivationRuntime
 
 internal interface IBaseActivationWorkerRuntime
 {
+    ValueTask<OperationResult> AuthorizeExecutionAsync(
+        BaseSession session, BaseActivationDefinition definition, CancellationToken cancellationToken);
     ValueTask<OperationResult<BaseActivationDueObservation>> ObserveAsync(
         BaseSession session, BaseActivationDefinition definition, CancellationToken cancellationToken);
     ValueTask<OperationResult<BaseActivationClaimResult>> ClaimAsync(
