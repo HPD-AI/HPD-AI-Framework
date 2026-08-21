@@ -39,6 +39,8 @@ public sealed record CollectionDefinition
     public IndexDefinition[]? Indexes { get; init; }
     /// <summary>Gets the first-class logical vector indexes.</summary>
     public VectorIndexDefinition[]? VectorIndexes { get; init; }
+    /// <summary>Gets the first-class policy-safe lexical indexes.</summary>
+    public BaseTextIndexDefinition[]? TextIndexes { get; init; }
     /// <summary>Gets or sets the policy refs.</summary>
     public string[]? PolicyRefs { get; init; }
     /// <summary>Gets or sets the store.</summary>

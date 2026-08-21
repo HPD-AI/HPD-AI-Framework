@@ -228,6 +228,23 @@ public sealed record BaseLogicalVectorIndex
     public required string[] FilterFieldIds { get; init; }
 }
 
+/// <summary>Contains one canonical logical lexical-index asset.</summary>
+public sealed record BaseLogicalTextIndex
+{
+    /// <summary>Gets the owning collection identity.</summary>
+    public required string CollectionId { get; init; }
+    /// <summary>Gets the stable index identity.</summary>
+    public required string Id { get; init; }
+    /// <summary>Gets the positive definition version.</summary>
+    public required int Version { get; init; }
+    /// <summary>Gets the analyzer contract identity.</summary>
+    public required string AnalyzerContractId { get; init; }
+    /// <summary>Gets the scoring contract identity.</summary>
+    public required string ScoringContractId { get; init; }
+    /// <summary>Gets the canonical index-definition checksum.</summary>
+    public required byte[] DefinitionChecksum { get; init; }
+}
+
 /// <summary>Represents base Logical Read.</summary>
 public sealed record BaseLogicalRead
 {
@@ -281,6 +298,8 @@ public sealed record BaseLogicalSchema
     public required BaseLogicalIndex[] Indexes { get; init; }
     /// <summary>Gets the canonical vector-index assets.</summary>
     public required BaseLogicalVectorIndex[] VectorIndexes { get; init; }
+    /// <summary>Gets the canonical lexical-index assets.</summary>
+    public required BaseLogicalTextIndex[] TextIndexes { get; init; }
     /// <summary>Gets or sets read Definitions.</summary>
     public required BaseLogicalRead[] ReadDefinitions { get; init; }
     /// <summary>Gets the installed exported logical-subject identities.</summary>

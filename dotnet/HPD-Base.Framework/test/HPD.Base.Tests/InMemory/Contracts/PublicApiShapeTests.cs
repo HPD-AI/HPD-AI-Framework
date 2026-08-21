@@ -122,7 +122,7 @@ public sealed class PublicApiShapeTests
 
         provider.GetServices<IBaseVectorProvider>().Should().BeEmpty();
         provider.GetServices<IBaseVectorAuthority>().Should().BeEmpty();
-        typeof(InMemoryRecordStore).GetField("_vectorProjection", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(store).Should().BeNull();
+        typeof(InMemoryRecordStore).GetField("_mutationProjection", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(store).Should().BeNull();
         typeof(InMemoryRecordStore).GetField("_vectorIdentityDigest", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(store).Should().BeNull();
     }
 }

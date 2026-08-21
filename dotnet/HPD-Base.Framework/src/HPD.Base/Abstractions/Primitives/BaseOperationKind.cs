@@ -45,6 +45,8 @@ RealtimeSubscribe,
     AdminRestore,
     /// <summary>Identifies policy-safe vector ranking.</summary>
     VectorQuery,
+    /// <summary>Identifies policy-safe lexical search.</summary>
+    TextQuery,
     /// <summary>Identifies vector-index rebuild administration.</summary>
     VectorRebuild,
     /// <summary>Identifies authorized acquisition of an exported logical-subject reference.</summary>

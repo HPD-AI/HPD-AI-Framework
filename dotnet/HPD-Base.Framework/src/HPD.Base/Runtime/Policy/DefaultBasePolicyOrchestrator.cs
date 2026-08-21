@@ -282,7 +282,7 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
         {
             Kind = request.ResourceKind, Query = request.Query, ExistingRecord = request.ExistingRecord,
             ProposedPayload = request.ProposedPayload, ProposedRecord = request.ProposedRecord,
-            RecordId = request.RecordId?.Value, VectorIndexId = request.VectorIndexId,
+            RecordId = request.RecordId?.Value, VectorIndexId = request.VectorIndexId, TextIndexId = request.TextIndexId,
             VectorSpaceId = request.VectorSpaceId, SubjectContractId = request.SubjectContractId,
             SubjectContractVersion = request.SubjectContractVersion,
         },

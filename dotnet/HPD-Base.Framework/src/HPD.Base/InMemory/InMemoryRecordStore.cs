@@ -870,7 +870,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
     private byte _subjectScopeProtectionKey;
     private long _subjectScopeProtectionGeneration = 1;
     private readonly TimeProvider _timeProvider;
-    private readonly IInMemoryAtomicMutationProjection? _vectorProjection;
+    private readonly IInMemoryAtomicMutationProjection? _mutationProjection;
     private readonly SemaphoreSlim _stateGate = new(1, 1);
     private readonly Lock _vectorLeaseGate = new();
     private readonly Dictionary<InMemoryStoreState, int> _retainedVectorRoots = new(ReferenceEqualityComparer.Instance);
@@ -896,9 +896,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
     }
 
     internal ValueTask<OperationResult> InitializeVectorProjectionAsync(CancellationToken cancellationToken) =>
-        _vectorProjection is null
+        _mutationProjection is null
             ? ValueTask.FromResult(OperationResults.NoContent())
-            : _vectorProjection.InitializeAsync(new BaseInMemoryProjectionInitializationContext(_options), cancellationToken);
+            : _mutationProjection.InitializeAsync(new BaseInMemoryProjectionInitializationContext(_options), cancellationToken);
 
     /// <summary>
     /// Initializes a new store using configured options.
@@ -933,11 +933,14 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         _subjectScopes = new BaseSubjectScopeProtector(tokenProtector);
         _subjectScopeProtectionKey = tokenProtector.ActiveKeyId;
         _subjectScopeProtectionKeyId = _subjectScopeProtectionKey.ToString(CultureInfo.InvariantCulture);
-        if ((_options.Collections ?? []).Any(static collection => (collection.VectorIndexes ?? []).Length != 0))
-        {
-            _vectorProjection = new InMemoryVectorMutationProjection();
+        IInMemoryAtomicMutationProjection[] projections =
+        [
+            .. (_options.Collections ?? []).Any(static collection => (collection.VectorIndexes ?? []).Length != 0) ? [new InMemoryVectorMutationProjection()] : Array.Empty<IInMemoryAtomicMutationProjection>(),
+            .. (_options.Collections ?? []).Any(static collection => (collection.TextIndexes ?? []).Length != 0) ? [new InMemoryTextMutationProjection()] : Array.Empty<IInMemoryAtomicMutationProjection>(),
+        ];
+        _mutationProjection = projections.Length switch { 0 => null, 1 => projections[0], _ => new InMemoryCompositeMutationProjection(projections) };
+        if ((_options.Collections ?? []).Any(static collection => (collection.VectorIndexes ?? []).Length != 0 || (collection.TextIndexes ?? []).Length != 0))
             _vectorIdentityDigest = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
-        }
         ValidateOptions(_options);
         foreach (BaseExportedSubjectDefinition subject in _options.ExportedSubjects)
         {
@@ -4229,7 +4232,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             }
 
             BaseRecordMutationFact[] materialized = facts.Select(static fact => fact.MaterializeOwned()).ToArray();
-            if (_owner._vectorProjection is { } projection)
+            if (_owner._mutationProjection is { } projection)
             {
                 OperationResult projected;
                 try
@@ -5054,7 +5057,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         {
             ArgumentNullException.ThrowIfNull(request);
             cancellationToken.ThrowIfCancellationRequested();
-            IInMemoryAtomicMutationProjection? projection = _owner._vectorProjection;
+            IInMemoryAtomicMutationProjection? projection = _owner._mutationProjection;
             if (projection is null) return OperationResults.NoContent();
             try
             {

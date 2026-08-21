@@ -28,6 +28,8 @@ Schema,
 AdminMetadata,
     /// <summary>Identifies one vector index and its influence boundary.</summary>
     VectorIndex,
+    /// <summary>Identifies one lexical index and its disclosure-influence boundary.</summary>
+    TextIndex,
     /// <summary>Identifies one installed exported logical-subject contract.</summary>
     SubjectContract,
     /// <summary>Identifies one graph-installed exported-subject lifecycle consumer.</summary>
@@ -181,6 +183,8 @@ Schema,
 Admin,
     /// <summary>Identifies one vector index or a collection's vector indexes.</summary>
     VectorIndex,
+    /// <summary>Identifies one lexical index or a collection's lexical indexes.</summary>
+    TextIndex,
     /// <summary>Identifies one exact exported logical-subject contract.</summary>
     SubjectContract
 }

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Collections.Immutable;
 
 namespace HPD.Base;
 
@@ -7,6 +8,63 @@ internal interface IInMemoryAtomicMutationProjection
     string Id { get; }
     ValueTask<OperationResult> InitializeAsync(BaseInMemoryProjectionInitializationContext context, CancellationToken cancellationToken);
     ValueTask<OperationResult> ApplyAsync(BaseInMemoryProjectionMutationContext context, CancellationToken cancellationToken);
+}
+
+internal sealed class InMemoryCompositeMutationProjection(params IInMemoryAtomicMutationProjection[] projections) : IInMemoryAtomicMutationProjection
+{
+    public string Id => "hpd.base.inmemory.projections.v1";
+    public async ValueTask<OperationResult> InitializeAsync(BaseInMemoryProjectionInitializationContext context, CancellationToken cancellationToken)
+    { foreach (IInMemoryAtomicMutationProjection projection in projections) { OperationResult result = await projection.InitializeAsync(context, cancellationToken).ConfigureAwait(false); if (!result.IsSuccess()) return result; } return OperationResults.NoContent(); }
+    public async ValueTask<OperationResult> ApplyAsync(BaseInMemoryProjectionMutationContext context, CancellationToken cancellationToken)
+    { foreach (IInMemoryAtomicMutationProjection projection in projections) { OperationResult result = await projection.ApplyAsync(context, cancellationToken).ConfigureAwait(false); if (!result.IsSuccess()) return result; } return OperationResults.NoContent(); }
+}
+
+internal sealed class InMemoryTextMutationProjection : IInMemoryAtomicMutationProjection
+{
+    public string Id => "hpd.base.inmemory.text.v1";
+    public ValueTask<OperationResult> InitializeAsync(BaseInMemoryProjectionInitializationContext context, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if ((context.Options.Collections ?? []).Sum(static collection => (collection.TextIndexes ?? []).Length) > 256) throw new InvalidOperationException(BaseTextErrorCodes.ContractInvalid);
+        return ValueTask.FromResult(OperationResults.NoContent());
+    }
+    public ValueTask<OperationResult> ApplyAsync(BaseInMemoryProjectionMutationContext context, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        foreach (BaseAtomicMutationProjectionFact fact in context.Request.Mutations)
+        {
+            CollectionDefinition? collection = (context.Options.Collections ?? []).SingleOrDefault(value => value.Id == fact.CollectionId);
+            foreach (BaseTextIndexDefinition index in collection?.TextIndexes ?? [])
+            {
+                string slot = fact.CollectionId + "\n" + index.Id; InMemoryTextProjectionState state = context.ReadTextState(slot, 0);
+                if (fact.After is null) { state.Carriers.Remove(fact.Before!.Id.Value); state.AppliedThrough = Math.Max(state.AppliedThrough, fact.JournalPosition.Value); context.WriteTextState(slot, state); continue; }
+                long total = 0;
+                foreach (BaseTextIndexFieldDefinition declared in index.Fields)
+                {
+                    BaseAtomicProjectionField? field = fact.After.Fields.Cast<BaseAtomicProjectionField?>().SingleOrDefault(value => value!.Value.StableFieldId == declared.StableFieldId);
+                    if (field is null || field.Value.Value.Kind == BaseAtomicProjectionValueKind.Null) continue;
+                    try
+                    {
+                        using JsonDocument document = JsonDocument.Parse(field.Value.Value.CanonicalJsonUtf8.ToArray());
+                        string? source = document.RootElement.GetString(); ImmutableArray<string> tokens = BaseTextAnalyzer.Analyze(source);
+                        total = checked(total + tokens.Sum(static token => (long)System.Text.Encoding.UTF8.GetByteCount(token)));
+                    }
+                    catch (Exception exception) when (exception is JsonException or InvalidOperationException or ArgumentException or OverflowException)
+                    { return ValueTask.FromResult(Failure()); }
+                }
+                if (total > index.Limits.MaximumNormalizedBytesPerRecord) return ValueTask.FromResult(Failure());
+                state.Carriers[fact.After.Id.Value] = new InMemoryTextCarrier(fact.After.Id, fact.After.Revision, fact.JournalPosition.Value);
+                state.AppliedThrough = Math.Max(state.AppliedThrough, fact.JournalPosition.Value); context.WriteTextState(slot, state);
+            }
+        }
+        if (context.Request.Purge is { } purge)
+        {
+            CollectionDefinition? collection = (context.Options.Collections ?? []).SingleOrDefault(value => value.Id == purge.CollectionId);
+            foreach (BaseTextIndexDefinition index in collection?.TextIndexes ?? []) { string slot = purge.CollectionId + "\n" + index.Id; InMemoryTextProjectionState state = context.ReadTextState(slot, purge.PreviousGeneration); state.PurgeGeneration = purge.PublishedGeneration; context.WriteTextState(slot, state); }
+        }
+        return ValueTask.FromResult(OperationResults.NoContent());
+    }
+    private static OperationResult Failure() => new() { Status = OperationStatus.ValidationFailed, Error = new BaseError { Code = BaseTextErrorCodes.BudgetExceeded, Message = "The indexed text exceeds its installed limit.", Category = ErrorCategory.Validation } };
 }
 
 internal sealed class BaseInMemoryProjectionInitializationContext
@@ -55,6 +113,8 @@ internal sealed class BaseInMemoryProjectionMutationContext
 
     internal void WriteVectorState(string slot, InMemoryVectorProjectionState state) =>
         _working.VectorProjections[slot] = state.Clone();
+    internal InMemoryTextProjectionState ReadTextState(string slot, long purge) => _working.TextProjections.TryGetValue(slot, out InMemoryTextProjectionState? state) ? state.Clone() : new InMemoryTextProjectionState { AppliedThrough = CurrentPosition, PurgeGeneration = purge };
+    internal void WriteTextState(string slot, InMemoryTextProjectionState state) => _working.TextProjections[slot] = state.Clone();
 }
 
 internal sealed class InMemoryVectorMutationProjection : IInMemoryAtomicMutationProjection

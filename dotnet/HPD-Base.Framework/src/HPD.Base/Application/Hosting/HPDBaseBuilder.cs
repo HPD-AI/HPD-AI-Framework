@@ -633,6 +633,7 @@ public sealed class HPDBaseBuilder
             !receipt.ContributorIds.SequenceEqual(provider.RegistrationIds, StringComparer.Ordinal))
             throw new InvalidOperationException("base.store.providerInvalid");
         ConfigureVectorRuntime(collections);
+        ConfigureTextRuntime(collections, provider);
         _services.AddSingleton(new HPDBaseInstalledFeatures { Provider = provider.Kind, StoreProvider = provider, StoreReceipt = receipt, CollectionIds = collections.Select(static item => item.Id).ToArray(), CollectionDefinitions = collections, ReadIds = _reads.Keys.ToArray(), Files = _files is not null, Dependencies = _dependencies is not null, Realtime = _realtime is not null, LiveQueries = _liveQueries is not null, ExtensionIds = installedExtensions.Select(static item => item.Id).ToArray(), Extensions = installedExtensions, LogicalSchema = logicalSchema });
         _services.TryAddSingleton<IHPDBaseApplication, DefaultHPDBaseApplication>();
         _services.TryAddSingleton<IHPDBaseAdministration, DefaultHPDBaseAdministration>();
@@ -727,6 +728,32 @@ public sealed class HPDBaseBuilder
         _services.AddSingleton<IBaseDescriptorContributor, BaseVectorDescriptorContributor>();
         _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseHealthContributor, BaseVectorHealthContributor>());
         _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDiagnosticContributor, BaseVectorHealthContributor>());
+    }
+
+    private void ConfigureTextRuntime(CollectionDefinition[] collections, HPDBaseStoreProvider provider)
+    {
+        BaseTextIndexDefinition[] indexes = collections.SelectMany(static collection => collection.TextIndexes ?? []).ToArray();
+        if (indexes.Length == 0) return;
+        if (provider.TextSearch is not { } capability || !capability.TransactionalMaintenanceSupported || !capability.ExactRevisionHydrationSupported)
+            throw new InvalidOperationException(BaseTextErrorCodes.CapabilityUnavailable);
+        foreach (BaseTextIndexDefinition index in indexes)
+        {
+            BaseTextExecutionLimits requested = index.Limits, maximum = capability.MaximumLimits;
+            if (requested.MaximumQueryNodes > maximum.MaximumQueryNodes || requested.MaximumQueryDepth > maximum.MaximumQueryDepth
+                || requested.MaximumPhraseTerms > maximum.MaximumPhraseTerms || requested.MaximumQueryBytes > maximum.MaximumQueryBytes
+                || requested.MaximumPrefixExpansions > maximum.MaximumPrefixExpansions || requested.MaximumPrefixExpansionBytes > maximum.MaximumPrefixExpansionBytes
+                || requested.MaximumCandidates > maximum.MaximumCandidates || requested.MaximumResults > maximum.MaximumResults
+                || requested.MaximumResultBytes > maximum.MaximumResultBytes || requested.MaximumTransientBytes > maximum.MaximumTransientBytes
+                || requested.QueryTimeout > maximum.QueryTimeout || requested.ConsistencyWaitTimeout > maximum.ConsistencyWaitTimeout)
+                throw new InvalidOperationException(BaseTextErrorCodes.CapabilityUnavailable);
+        }
+        if (!_services.Any(static descriptor => descriptor.ServiceType == typeof(IBaseTextAuthority)))
+            throw new InvalidOperationException(BaseTextErrorCodes.CapabilityUnavailable);
+        foreach (BaseTextIndexDefinition index in indexes) BaseTextIndexContract.Seal(index);
+        _services.TryAddSingleton(TimeProvider.System);
+        _services.AddSingleton<BaseTextCursorCodec>();
+        _services.AddSingleton<BaseTextConsistencyTokenCodec>();
+        _services.AddSingleton<IBaseTextRuntime, DefaultBaseTextRuntime>();
     }
 
     private void EnsureMutable()

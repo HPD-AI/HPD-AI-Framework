@@ -12,7 +12,8 @@ internal sealed class InMemoryProviderInstaller(Action<HPDBaseInMemoryStoreOptio
             Capabilities = BaseStoreProviderCapabilities.Records |
                 BaseStoreProviderCapabilities.AtomicMutations |
                 BaseStoreProviderCapabilities.RelationalExecution |
-                BaseStoreProviderCapabilities.CoLocatedVectors,
+                BaseStoreProviderCapabilities.CoLocatedVectors |
+                BaseStoreProviderCapabilities.CoLocatedTextSearch,
             RegistrationIds = ["inmemory.records"],
             SubjectReferences = BaseSubjectProviderCapabilities.BuiltIn,
             SubjectLifecycle = BaseSubjectLifecycleProviderCapabilities.BuiltIn,
@@ -23,11 +24,13 @@ internal sealed class InMemoryProviderInstaller(Action<HPDBaseInMemoryStoreOptio
                 GenerationCells = true, AtomicRecordAndGenerationCommit = true,
                 MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
             },
+            TextSearch = new BaseTextProviderCapability { TransactionalMaintenanceSupported = true, ExactRevisionHydrationSupported = true, PhraseSupported = true, PrefixSupported = true, MaximumLimits = BaseTextPlatform.DefaultLimits },
         }, new InMemoryProviderInstaller(configure));
 
     public HPDBaseStoreRegistrationReceipt Configure(HPDBaseStoreInstallationContext context)
     {
         bool hasVectors = context.Collections.SelectMany(static item => item.VectorIndexes ?? []).Any();
+        bool hasText = context.Collections.SelectMany(static item => item.TextIndexes ?? []).Any();
         string? storeId = null;
         context.Services.AddHPDBaseInMemoryStore(options =>
         {
@@ -49,6 +52,11 @@ internal sealed class InMemoryProviderInstaller(Action<HPDBaseInMemoryStoreOptio
             context.Services.AddSingleton<IBaseVectorProvider>(static provider => provider.GetRequiredService<InMemoryVectorProvider>());
             context.Services.AddSingleton<IBaseVectorAuthority>(static provider => provider.GetRequiredService<InMemoryVectorProvider>());
             context.Services.AddSingleton<IBaseVectorAdministrationProvider>(static provider => provider.GetRequiredService<InMemoryVectorProvider>());
+        }
+        if (hasText)
+        {
+            context.Services.AddSingleton<InMemoryTextProvider>();
+            context.Services.AddSingleton<IBaseTextAuthority>(static provider => provider.GetRequiredService<InMemoryTextProvider>());
         }
         return context.CreateReceipt(storeId ?? throw new InvalidOperationException("base.store.providerInvalid"));
     }

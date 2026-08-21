@@ -62,6 +62,19 @@ internal static class BaseLogicalSchemaFactory
             })
             .OrderBy(static value => value.Id, StringComparer.Ordinal)
             .ToArray();
+        BaseLogicalTextIndex[] textIndexes = sourceCollections
+            .SelectMany(static collection => collection.TextIndexes ?? [])
+            .Select(static index => new BaseLogicalTextIndex
+            {
+                CollectionId = index.CollectionId,
+                Id = index.Id,
+                Version = index.Version,
+                AnalyzerContractId = index.AnalyzerContractId,
+                ScoringContractId = index.ScoringContractId,
+                DefinitionChecksum = index.DefinitionChecksum.ToArray(),
+            })
+            .OrderBy(static value => value.Id, StringComparer.Ordinal)
+            .ToArray();
         BaseLogicalRead[] reads = sourceReads.Select(static read => new BaseLogicalRead
         {
             Id = read.Id,
@@ -79,7 +92,7 @@ internal static class BaseLogicalSchemaFactory
                 Audiences = value.Definition.Audiences.ToArray(),
             }).ToArray();
 
-        string checksum = Checksum(options.ApplicationId, options.ContractVersion, collections, fields, relations, indexes, vectorIndexes, reads, subjects, storageProtection.Requirements);
+        string checksum = Checksum(options.ApplicationId, options.ContractVersion, collections, fields, relations, indexes, vectorIndexes, textIndexes, reads, subjects, storageProtection.Requirements);
         return new BaseLogicalSchema
         {
             ApplicationId = options.ApplicationId,
@@ -89,6 +102,7 @@ internal static class BaseLogicalSchemaFactory
             Relations = relations,
             Indexes = indexes,
             VectorIndexes = vectorIndexes,
+            TextIndexes = textIndexes,
             ReadDefinitions = reads,
             ExportedSubjects = subjects,
             CanonicalChecksum = checksum,
@@ -99,6 +113,7 @@ internal static class BaseLogicalSchemaFactory
         string applicationId, string contractVersion, BaseLogicalCollection[] collections,
         BaseLogicalField[] fields, RelationDefinition[] relations, BaseLogicalIndex[] indexes,
         BaseLogicalVectorIndex[] vectorIndexes,
+        BaseLogicalTextIndex[] textIndexes,
         BaseLogicalRead[] reads,
         BaseLogicalExportedSubject[] subjects,
         BaseStorageProtectionRequirement[] storageRequirements)
@@ -134,6 +149,11 @@ internal static class BaseLogicalSchemaFactory
             Write(writer, "vector-index"); Write(writer, value.CollectionId); Write(writer, value.Id);
             Write(writer, value.VectorFieldId); Write(writer, value.VectorSpaceId); Write(writer, value.Dimensions);
             Write(writer, (int)value.Function); foreach (string field in value.FilterFieldIds) Write(writer, field);
+        }
+        foreach (BaseLogicalTextIndex value in textIndexes)
+        {
+            Write(writer, "text-index"); Write(writer, value.CollectionId); Write(writer, value.Id); Write(writer, value.Version);
+            Write(writer, value.AnalyzerContractId); Write(writer, value.ScoringContractId); Write(writer, Convert.ToHexStringLower(value.DefinitionChecksum));
         }
         foreach (BaseLogicalRead value in reads) { Write(writer, "read"); Write(writer, value.Id); Write(writer, value.ParameterSerializerContractChecksum); Write(writer, value.RowSerializerContractChecksum); foreach (string source in value.SourceIds) Write(writer, source); foreach (string field in value.ProjectionFieldIds) Write(writer, field); }
         foreach (BaseLogicalExportedSubject value in subjects)

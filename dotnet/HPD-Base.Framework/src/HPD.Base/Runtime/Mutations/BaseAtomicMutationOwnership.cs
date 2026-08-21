@@ -139,6 +139,7 @@ internal static class BaseAtomicMutationOwnership
         {
             FilterFieldIds = index.FilterFieldIds.Select(static field => new string(field.AsSpan())).ToArray(),
         }).ToArray(),
+        TextIndexes = value.TextIndexes?.Select(BaseTextIndexContract.Seal).ToArray(),
         PolicyRefs = value.PolicyRefs?.Select(static item => new string(item.AsSpan())).ToArray(),
         RequiredCapabilities = value.RequiredCapabilities?.Select(static item => new string(item.AsSpan())).ToArray(),
         Extensions = value.Extensions?.ToDictionary(

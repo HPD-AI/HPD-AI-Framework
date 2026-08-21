@@ -162,6 +162,7 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
             .Select(id => new BaseClientCapabilityDescriptor { Id = id, Available = true })
             .ToArray();
         BaseClientVectorIndexDescriptor[] vectors = BuildVectors(collections.Collections.Values);
+        BaseClientTextIndexDescriptor[] textIndexes = BuildTextIndexes(collections.Collections.Values);
         BaseClientSelectionMutationDescriptor[] selectionMutations = (selectionProfiles?.All ?? [])
             .Where(profile => profile.HttpProjection is { GenerateL41Client: true } projection
                 && (projection.Audience == BaseSelectionEndpointAudience.Application ? "application" : "controlPlane") == audience)
@@ -198,7 +199,7 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
             AcknowledgementRoute=retirement is null?null:basePath+"/subject-retirement/acknowledgements",RetirementChecksum=retirement?.Checksum,
             MaximumFactsPerPage=value.Definition.Limits.MaximumFactsPerPage,MaximumResultBytes=value.Definition.Limits.MaximumResultBytes,
         };})];
-        if (capabilities.Length > 256 || installedReads.Length > 256 || templates.Length > 512 || vectors.Length > 256 || selectionMutations.Length > 256 || generatedModules.Length > 256)
+        if (capabilities.Length > 256 || installedReads.Length > 256 || templates.Length > 512 || vectors.Length > 256 || textIndexes.Length > 256 || selectionMutations.Length > 256 || generatedModules.Length > 256)
             return Failure("base.clientGeneration.snapshotTooLarge");
         var generatedNames = new HashSet<string>(["reads", "files", "close", "collection", "connectivity", "$control", "$dynamic"], StringComparer.Ordinal);
         if (generatedCollections.Any(collection => !generatedNames.Add(collection.GeneratedName))
@@ -237,6 +238,7 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
                 ParameterTypeIds = template.ParameterNames.Select(_ => "base.dependency.parameter").ToArray()
             }).ToArray(),
             VectorIndexes = vectors,
+            TextIndexes = textIndexes,
             SelectionMutations = selectionMutations,
             ModuleMutations = generatedModules,
             SubjectLifecycleConsumers = generatedLifecycle,
@@ -349,6 +351,10 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
                 "hpd.base.vector.metadata.list" => new RouteDescriptor { OperationId = descriptor.EndpointId, Method = HttpMethodKind.Get, Path = endpoint.RoutePattern.RawText ?? "", ResponseDtoId = "base.vector.indexStatus.array" },
                 "hpd.base.vector.diagnostics.read" => new RouteDescriptor { OperationId = descriptor.EndpointId, Method = HttpMethodKind.Get, Path = endpoint.RoutePattern.RawText ?? "", ResponseDtoId = "base.vector.indexStatus" },
                 "hpd.base.vector.rebuild" => new RouteDescriptor { OperationId = descriptor.EndpointId, Method = HttpMethodKind.Post, Path = endpoint.RoutePattern.RawText ?? "", RequestDtoId = "base.vector.rebuild.request", ResponseDtoId = "base.vector.rebuild.result" },
+                "hpd.base.text.query" => new RouteDescriptor { OperationId = descriptor.EndpointId, Method = HttpMethodKind.Post, Path = endpoint.RoutePattern.RawText ?? "", RequestDtoId = "base.text.query.request", ResponseDtoId = "base.text.query.result" },
+                "hpd.base.text.metadata.list" => new RouteDescriptor { OperationId = descriptor.EndpointId, Method = HttpMethodKind.Get, Path = endpoint.RoutePattern.RawText ?? "", ResponseDtoId = "base.text.indexStatus.array" },
+                "hpd.base.text.diagnostics.read" => new RouteDescriptor { OperationId = descriptor.EndpointId, Method = HttpMethodKind.Get, Path = endpoint.RoutePattern.RawText ?? "", ResponseDtoId = "base.text.indexStatus" },
+                "hpd.base.text.rebuild" => new RouteDescriptor { OperationId = descriptor.EndpointId, Method = HttpMethodKind.Post, Path = endpoint.RoutePattern.RawText ?? "", RequestDtoId = "base.text.rebuild.request", ResponseDtoId = "base.text.rebuild.result" },
                 "base.subjectLifecycle.feed.read" => new RouteDescriptor { OperationId = descriptor.EndpointId, Method = HttpMethodKind.Post, Path = endpoint.RoutePattern.RawText ?? "", RequestDtoId = "base.subjectLifecycle.feed.read.request", ResponseDtoId = "base.subjectLifecycle.page" },
                 "base.subjectLifecycle.feed.checkpoint" => new RouteDescriptor { OperationId = descriptor.EndpointId, Method = HttpMethodKind.Post, Path = endpoint.RoutePattern.RawText ?? "", RequestDtoId = "base.subjectLifecycle.feed.checkpoint.request", ResponseDtoId = "base.subjectLifecycle.checkpoint" },
                 "base.subjectLifecycle.reconciliation.read" => new RouteDescriptor { OperationId = descriptor.EndpointId, Method = HttpMethodKind.Post, Path = endpoint.RoutePattern.RawText ?? "", RequestDtoId = "base.subjectLifecycle.reconciliation.read.request", ResponseDtoId = "base.subjectLifecycle.reconciliation.page" },
@@ -419,6 +425,7 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
         if (realtime) operations.Add("realtime");
         if (realtime && installedFeatures.LiveQueries && installedFeatures.Dependencies && collection.Operations.List && store?.Read.List == true) operations.Add("watch");
         if ((collection.VectorIndexes?.Length ?? 0) != 0 && endpoints.Any(endpoint => endpoint.Operation == nameof(HPDBaseEndpointOperation.VectorQuery))) operations.Add("vector");
+        if ((collection.TextIndexes?.Length ?? 0) != 0 && endpoints.Any(endpoint => endpoint.Operation == nameof(HPDBaseEndpointOperation.TextQuery))) operations.Add("text");
         return new BaseClientCollectionDescriptor
         {
             Id = collection.Id,
@@ -443,6 +450,15 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
             MaxPageSize = Math.Min(store?.Read.MaxPageSize ?? 500, 500)
         };
     }
+
+    private static BaseClientTextIndexDescriptor[] BuildTextIndexes(IEnumerable<CollectionDefinition> collections) => collections
+        .SelectMany(collection => (collection.TextIndexes ?? []).Select(index => new BaseClientTextIndexDescriptor
+        {
+            CollectionId = collection.Id, Id = index.Id, Version = index.Version, GeneratedName = GeneratedName(index.Id),
+            AnalyzerId = index.AnalyzerContractId, ScoringId = index.ScoringContractId, Audience = index.Audience.ToString(), MaximumResults = index.Limits.MaximumResults,
+            Fields = index.Fields.Select(static field => new BaseClientTextFieldDescriptor { Id = field.StableFieldId, GeneratedName = field.ApplicationName, WireName = field.WireName, Weight = field.Weight }).ToArray(),
+            FilterFields = index.FilterFields.Select(static field => new BaseClientTextFilterFieldDescriptor { Id = field.StableFieldId, GeneratedName = field.ApplicationName, WireName = field.WireName, ValueKind = field.ValueKind.ToString() }).ToArray(),
+        })).OrderBy(static value => value.CollectionId, StringComparer.Ordinal).ThenBy(static value => value.Id, StringComparer.Ordinal).ToArray();
 
     private static BaseClientNamedTypeDescriptor[] BuildTypes(IEnumerable<CollectionDefinition> definitions, IEnumerable<IBaseReadRegistration> reads, bool includeDependencyParameter, IEnumerable<BaseSelectionOperationProfile> selections, BaseLogicalExportedSubject[] subjects) => definitions
         .Where(collection => collection.Enabled && collection.Exposed)

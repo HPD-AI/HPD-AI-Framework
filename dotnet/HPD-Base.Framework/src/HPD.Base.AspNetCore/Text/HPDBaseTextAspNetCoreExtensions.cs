@@ -1,0 +1,80 @@
+using System.Collections.Immutable;
+using System.Text.Json;
+using HPD.Base.AspNetCore;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Metadata;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace HPD.Base;
+
+/// <summary>Maps bounded policy-safe lexical query endpoints.</summary>
+public static class HPDBaseTextAspNetCoreExtensions
+{
+    /// <summary>Maps lexical query into an already secured Application group.</summary>
+    public static RouteGroupBuilder MapHPDBaseTextApplicationApi(this RouteGroupBuilder group) { MapQuery(group, HPDBaseEndpointAudience.Application); return group; }
+    private static void MapQuery(RouteGroupBuilder group, HPDBaseEndpointAudience audience)
+    {
+        group.MapPost("/text/{collectionId}/{textIndexId}/query", (RequestDelegate)Query)
+            .WithHPDBaseEndpoint("hpd.base.text.query", audience, HPDBaseEndpointOperation.TextQuery, HPDBaseCapabilities.TextQuery)
+            .WithHPDBaseOpenApi("hpd.base.text.query").WithName("hpd.base.text.query")
+            .Add(endpoint => { endpoint.Metadata.Add(new AcceptsMetadata(["application/json"], typeof(BaseTextHttpQueryRequest), false)); endpoint.Metadata.Add(new ProducesResponseTypeMetadata(200, typeof(BaseTextHttpResult), ["application/json"])); });
+    }
+
+    private static async Task Query(HttpContext context)
+    {
+        BaseTextHttpQueryRequest? body;
+        try { body = await JsonSerializer.DeserializeAsync(context.Request.Body, BaseTextHttpJsonContext.Default.BaseTextHttpQueryRequest, context.RequestAborted).ConfigureAwait(false); }
+        catch (JsonException) { await Error(context, 400, BaseTextErrorCodes.QueryInvalid); return; }
+        string collectionId = Convert.ToString(context.Request.RouteValues["collectionId"], System.Globalization.CultureInfo.InvariantCulture) ?? "";
+        string indexId = Convert.ToString(context.Request.RouteValues["textIndexId"], System.Globalization.CultureInfo.InvariantCulture) ?? "";
+        BaseCollectionRegistry registry = context.RequestServices.GetRequiredService<BaseCollectionRegistry>();
+        if (body is null || body.IndexId != indexId || !registry.Collections.TryGetValue(collectionId, out CollectionDefinition? collection) || (collection.TextIndexes ?? []).SingleOrDefault(value => value.Id == indexId) is not { } index) { await Error(context, 404, BaseTextErrorCodes.IndexUnavailable); return; }
+        try
+        {
+            BaseTextQuery query = QueryNode(body.Query); BaseTextCandidateConstraint filter = body.Filter is null ? new BaseTextCandidateConstraint.True() : Filter(body.Filter, index);
+            BaseTextConsistencyRequirement consistency = body.Consistency switch
+            {
+                "current" when body.ConsistencyToken is null && body.MaximumAgeMilliseconds is null => new BaseTextConsistencyRequirement.Current(),
+                "available" when body.ConsistencyToken is null && body.MaximumAgeMilliseconds is null => new BaseTextConsistencyRequirement.Available(),
+                "atLeast" when body.ConsistencyToken is not null && body.MaximumAgeMilliseconds is null => new BaseTextConsistencyRequirement.AtLeast(BaseTextConsistencyToken.Parse(body.ConsistencyToken)),
+                "boundedStaleness" when body.ConsistencyToken is null && body.MaximumAgeMilliseconds is >= 1 and <= 2_592_000_000 => new BaseTextConsistencyRequirement.BoundedStaleness(TimeSpan.FromMilliseconds(body.MaximumAgeMilliseconds.Value)),
+                _ => throw new FormatException(),
+            };
+            BaseTextCursor? cursor = body.Cursor is null ? null : BaseTextCursor.Parse(body.Cursor);
+            PrincipalContext principal = await context.RequestServices.GetRequiredService<IBaseHttpPrincipalContextFactory>().CreateAsync(context, context.RequestAborted).ConfigureAwait(false);
+            OperationContext operation = context.RequestServices.GetRequiredService<IBaseHttpOperationContextFactory>().Create(context, principal, BaseOperationKind.TextQuery, collectionId);
+            OperationResult<BaseTextRuntimeResult> result = await context.RequestServices.GetRequiredService<IBaseTextRuntime>().ExecuteAsync(new() { Collection = collection, Index = index, Query = query, Constraint = filter, Take = body.Take, After = cursor, Consistency = consistency, Principal = principal, Operation = operation }, context.RequestAborted).ConfigureAwait(false);
+            if (!result.Status.IsSuccess() || result.Value is null) { await Error(context, Status(result), result.Error?.Code ?? BaseTextErrorCodes.ProviderContractInvalid); return; }
+            BaseTextRuntimeResult value = result.Value;
+            var response = new BaseTextHttpResult { Matches = value.Matches.Select(static match => new BaseTextHttpMatch { Record = match.Record, Revision = match.Revision.Value, ScoreUnits = match.Score.Units.ToString(System.Globalization.CultureInfo.InvariantCulture) }).ToArray(), Next = value.Next?.Encode(), ConsistencyToken = value.Consistency.Encode() };
+            context.Response.ContentType = "application/json; charset=utf-8"; await JsonSerializer.SerializeAsync(context.Response.Body, response, BaseTextHttpJsonContext.Default.BaseTextHttpResult, context.RequestAborted).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or FormatException or OverflowException) { await Error(context, 400, BaseTextErrorCodes.QueryInvalid); }
+    }
+
+    private static BaseTextQuery QueryNode(BaseTextHttpQueryNode value) => value.Kind switch
+    {
+        "term" when Only(value, value: true) => BaseTextQuery.Token(value.Value!),
+        "prefix" when Only(value, value: true) => BaseTextQuery.StartsWith(value.Value!),
+        "phrase" when Only(value, terms: true) => BaseTextQuery.ExactPhrase(value.Terms!),
+        "field" when Only(value, field: true, child: true) => BaseTextQuery.InField(value.Field!, QueryNode(value.Child!)),
+        "and" when Only(value, children: true) => BaseTextQuery.All(value.Children!.Select(QueryNode).ToArray()),
+        "or" when Only(value, children: true) => BaseTextQuery.Any(value.Children!.Select(QueryNode).ToArray()),
+        "not" when Only(value, child: true) => BaseTextQuery.Exclude(QueryNode(value.Child!)),
+        _ => throw new ArgumentException(),
+    };
+    private static bool Only(BaseTextHttpQueryNode node, bool value = false, bool terms = false, bool field = false, bool child = false, bool children = false) =>
+        (value == (node.Value is not null)) && (terms == (node.Terms is not null)) && (field == (node.Field is not null)) && (child == (node.Child is not null)) && (children == (node.Children is not null));
+    private static BaseTextCandidateConstraint Filter(BaseTextHttpFilter value, BaseTextIndexDefinition index)
+    {
+        if (value.Kind is "and" or "or" && value.Children is { Length: > 0 } children && value.Field is null && value.Value is null && value.Values is null)
+        { BaseTextCandidateConstraint[] lowered = children.Select(child => Filter(child, index)).ToArray(); return value.Kind == "and" ? new BaseTextCandidateConstraint.And([.. lowered]) : new BaseTextCandidateConstraint.Or([.. lowered]); }
+        BaseTextIndexFilterFieldDefinition field = index.FilterFields.Single(item => item.StableFieldId == value.Field); var handle = new BaseTextFilterField(field.StableFieldId, field.ValueKind);
+        return value.Kind switch { "missing" when value.Value is null && value.Values is null && value.Children is null => new BaseTextCandidateConstraint.IsMissing(handle), "null" when value.Value is null && value.Values is null && value.Children is null => new BaseTextCandidateConstraint.IsNull(handle), "equal" when value.Value is not null && value.Values is null && value.Children is null => new BaseTextCandidateConstraint.Equal(handle, FilterValue(value.Value, field.ValueKind)), "in" when value.Value is null && value.Values is { Length: > 0 } values && value.Children is null => new BaseTextCandidateConstraint.In(handle, values.Select(item => FilterValue(item, field.ValueKind)).ToImmutableArray()), _ => throw new ArgumentException() };
+    }
+    private static BaseTextFilterValue FilterValue(BaseTextHttpFilterValue value, BaseTextFilterValueKind expected) => (value.Kind, expected) switch { ("string", BaseTextFilterValueKind.String) when value.Text is not null && value.Boolean is null && value.Integer is null => BaseTextFilterValue.FromString(value.Text), ("id", BaseTextFilterValueKind.Id) when value.Text is not null && value.Boolean is null && value.Integer is null => BaseTextFilterValue.FromId(value.Text), ("boolean", BaseTextFilterValueKind.Boolean) when value.Text is null && value.Boolean is not null && value.Integer is null => BaseTextFilterValue.FromBoolean(value.Boolean.Value), ("integer", BaseTextFilterValueKind.Integer) when value.Text is null && value.Boolean is null && value.Integer is not null => BaseTextFilterValue.FromInteger(value.Integer.Value), _ => throw new ArgumentException() };
+    private static int Status(OperationResult<BaseTextRuntimeResult> value) => value.Status switch { OperationStatus.PolicyDenied => 403, OperationStatus.NotFound => 404, OperationStatus.Conflict => 409, OperationStatus.Unsupported => 422, OperationStatus.CapabilityUnavailable => 424, OperationStatus.StoreError when value.Error?.Code == BaseTextErrorCodes.Timeout => 504, OperationStatus.StoreError => 502, _ => 400 };
+    private static async Task Error(HttpContext context, int status, string code) { context.Response.StatusCode = status; context.Response.ContentType = "application/json; charset=utf-8"; await JsonSerializer.SerializeAsync(context.Response.Body, new BaseTextHttpError { Code = code, Message = "The text search could not be completed." }, BaseTextHttpJsonContext.Default.BaseTextHttpError, context.RequestAborted).ConfigureAwait(false); }
+}

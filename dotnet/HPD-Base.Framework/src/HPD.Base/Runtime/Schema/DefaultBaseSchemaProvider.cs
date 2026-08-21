@@ -134,7 +134,7 @@ internal static class BaseSystemCollectionGate
                 && string.Equals(grant.Subject.TenantId, principal.CurrentTenantId, StringComparison.Ordinal)
                 && grant.Scope.Kind == ResourceScopeKind.Runtime
                 && grant.Scope.CollectionId is null && grant.Scope.RecordId is null
-                && grant.Scope.FieldPath is null && grant.Scope.VectorIndexId is null
+                && grant.Scope.FieldPath is null && grant.Scope.VectorIndexId is null && grant.Scope.TextIndexId is null
                 && grant.Scope.SubjectContractId is null && grant.Scope.SubjectContractVersion is null
                 && string.Equals(grant.Scope.TenantId, operation.TenantId, StringComparison.Ordinal)
                 && string.Equals(grant.Scope.ProjectId, operation.ProjectId, StringComparison.Ordinal)
@@ -169,12 +169,38 @@ internal static class BaseSystemCollectionGate
                 && string.Equals(grant.Subject.TenantId, principal.CurrentTenantId, StringComparison.Ordinal)
                 && grant.Scope.Kind == ResourceScopeKind.Collection
                 && string.Equals(grant.Scope.CollectionId, collectionId, StringComparison.Ordinal)
-                && grant.Scope.RecordId is null && grant.Scope.FieldPath is null && grant.Scope.VectorIndexId is null
+                && grant.Scope.RecordId is null && grant.Scope.FieldPath is null && grant.Scope.VectorIndexId is null && grant.Scope.TextIndexId is null
                 && grant.Scope.SubjectContractId is null && grant.Scope.SubjectContractVersion is null
                 && string.Equals(grant.Scope.TenantId, operation.TenantId, StringComparison.Ordinal)
                 && string.Equals(grant.Scope.ProjectId, operation.ProjectId, StringComparison.Ordinal)
                 && grant.Condition is null && grant.WriteCondition is null
                 && (grant.ExpiresAt is null || grant.ExpiresAt > operation.Now);
+        });
+    }
+
+    internal static bool HasExactTextGrant(
+        OperationResult<BasePolicyEvaluation> result,
+        string requiredGrantId,
+        PrincipalContext principal,
+        OperationContext operation,
+        string collectionId,
+        string textIndexId)
+    {
+        if (!result.IsSuccess() || result.Value?.Authority is not { } authority) return false;
+        return authority.GrantSemantics.Any(semantics =>
+        {
+            AccessGrant grant = semantics.Grant;
+            return ReceiptMatches(authority, semantics)
+                && semantics.GrantId == requiredGrantId && grant.Id == requiredGrantId
+                && grant.Effect == GrantEffect.Allow && grant.ApplicationId == operation.ApplicationId
+                && grant.Audience == operation.Audience && grant.Action == BaseTextGrants.Query
+                && grant.Subject.Kind == principal.SubjectKind && grant.Subject.Id == principal.SubjectId
+                && grant.Subject.TenantId == principal.CurrentTenantId
+                && grant.Scope.Kind == ResourceScopeKind.TextIndex && grant.Scope.CollectionId == collectionId
+                && grant.Scope.TextIndexId == textIndexId && grant.Scope.RecordId is null && grant.Scope.FieldPath is null
+                && grant.Scope.VectorIndexId is null && grant.Scope.SubjectContractId is null && grant.Scope.SubjectContractVersion is null
+                && grant.Scope.TenantId == operation.TenantId && grant.Scope.ProjectId == operation.ProjectId
+                && grant.Condition is null && grant.WriteCondition is null && (grant.ExpiresAt is null || grant.ExpiresAt > operation.Now);
         });
     }
 
@@ -208,7 +234,7 @@ internal static class BaseSystemCollectionGate
                 && string.Equals(grant.Scope.SubjectContractId, contractId, StringComparison.Ordinal)
                 && grant.Scope.SubjectContractVersion == contractVersion
                 && grant.Scope.CollectionId is null && grant.Scope.RecordId is null
-                && grant.Scope.FieldPath is null && grant.Scope.VectorIndexId is null
+                && grant.Scope.FieldPath is null && grant.Scope.VectorIndexId is null && grant.Scope.TextIndexId is null
                 && string.Equals(grant.Scope.TenantId, operation.TenantId, StringComparison.Ordinal)
                 && string.Equals(grant.Scope.ProjectId, operation.ProjectId, StringComparison.Ordinal)
                 && grant.Condition is null && grant.WriteCondition is null

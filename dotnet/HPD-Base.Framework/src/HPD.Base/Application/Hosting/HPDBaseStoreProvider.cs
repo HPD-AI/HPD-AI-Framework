@@ -27,6 +27,8 @@ public enum BaseStoreProviderCapabilities
     Administration = 64,
     /// <summary>Provides vector execution in the authoritative transaction boundary.</summary>
     CoLocatedVectors = 128,
+    /// <summary>Provides policy-safe lexical execution in the authoritative transaction boundary.</summary>
+    CoLocatedTextSearch = 256,
 }
 
 /// <summary>Supplies immutable identity and admission facts for a store provider.</summary>
@@ -52,6 +54,8 @@ public sealed class BaseStoreProviderDescriptor
     public required BaseSubjectRetirementCapability SubjectRetirement { get; init; }
     /// <summary>Gets the provider's certified registered module-mutation envelope.</summary>
     public required BaseModuleMutationCapability ModuleMutations { get; init; }
+    /// <summary>Gets the certified lexical-search envelope when co-located text search is advertised.</summary>
+    public BaseTextProviderCapability? TextSearch { get; init; }
 }
 
 /// <summary>Represents one validated immutable authoritative store selection.</summary>
@@ -71,6 +75,7 @@ public sealed class HPDBaseStoreProvider
         SubjectLifecycle = descriptor.SubjectLifecycle with { };
         SubjectRetirement = descriptor.SubjectRetirement with { };
         ModuleMutations = descriptor.ModuleMutations with { MaximumLimits = descriptor.ModuleMutations.MaximumLimits with { Deadlines = descriptor.ModuleMutations.MaximumLimits.Deadlines with { } } };
+        TextSearch = descriptor.TextSearch is null ? null : descriptor.TextSearch with { MaximumLimits = descriptor.TextSearch.MaximumLimits with { } };
         Installer = installer;
     }
 
@@ -92,6 +97,8 @@ public sealed class HPDBaseStoreProvider
     public BaseSubjectRetirementCapability SubjectRetirement { get; }
     /// <summary>Gets the provider's certified registered module-mutation envelope.</summary>
     public BaseModuleMutationCapability ModuleMutations { get; }
+    /// <summary>Gets the certified lexical-search envelope.</summary>
+    public BaseTextProviderCapability? TextSearch { get; }
     internal IHPDBaseStoreInstaller Installer { get; }
 }
 
@@ -110,12 +117,15 @@ public static class HPDBaseStoreProviderFactory
             !ValidSubjectCapability(descriptor.SubjectReferences)
             || !ValidLifecycleCapability(descriptor.SubjectLifecycle)
             || !ValidRetirementCapability(descriptor.SubjectRetirement)
-            || !BaseModuleMutationCapabilityContract.IsValid(descriptor.ModuleMutations))
+            || !BaseModuleMutationCapabilityContract.IsValid(descriptor.ModuleMutations)
+            || descriptor.Capabilities.HasFlag(BaseStoreProviderCapabilities.CoLocatedTextSearch) != (descriptor.TextSearch is not null)
+            || descriptor.TextSearch is not null && !ValidTextCapability(descriptor.TextSearch))
             throw new InvalidOperationException("base.store.providerInvalid");
         const BaseStoreProviderCapabilities known = BaseStoreProviderCapabilities.Records | BaseStoreProviderCapabilities.AtomicMutations |
             BaseStoreProviderCapabilities.RequiredIndexes | BaseStoreProviderCapabilities.RelationalExecution |
             BaseStoreProviderCapabilities.TransactionalJournal | BaseStoreProviderCapabilities.HistoricalReads |
-            BaseStoreProviderCapabilities.Administration | BaseStoreProviderCapabilities.CoLocatedVectors;
+            BaseStoreProviderCapabilities.Administration | BaseStoreProviderCapabilities.CoLocatedVectors |
+            BaseStoreProviderCapabilities.CoLocatedTextSearch;
         if ((descriptor.Capabilities & ~known) != 0 ||
             (descriptor.Capabilities & (BaseStoreProviderCapabilities.Records | BaseStoreProviderCapabilities.AtomicMutations)) !=
             (BaseStoreProviderCapabilities.Records | BaseStoreProviderCapabilities.AtomicMutations) ||
@@ -141,8 +151,15 @@ public static class HPDBaseStoreProviderFactory
                 MaximumLimits = descriptor.ModuleMutations.MaximumLimits with
                 { Deadlines = descriptor.ModuleMutations.MaximumLimits.Deadlines with { } },
             },
+            TextSearch = descriptor.TextSearch is null ? null : descriptor.TextSearch with { MaximumLimits = descriptor.TextSearch.MaximumLimits with { } },
         }, installer);
     }
+
+    private static bool ValidTextCapability(BaseTextProviderCapability value) => value.TransactionalMaintenanceSupported && value.ExactRevisionHydrationSupported
+        && value.PhraseSupported && value.PrefixSupported && value.MaximumLimits is not null
+        && value.MaximumLimits.MaximumResults >= 1 && value.MaximumLimits.MaximumResults <= BaseTextPlatform.DefaultLimits.MaximumResults
+        && value.MaximumLimits.MaximumQueryNodes >= 1 && value.MaximumLimits.MaximumQueryNodes <= BaseTextPlatform.DefaultLimits.MaximumQueryNodes
+        && value.MaximumLimits.MaximumTransientBytes >= 1 && value.MaximumLimits.MaximumTransientBytes <= BaseTextPlatform.DefaultLimits.MaximumTransientBytes;
 
     private static bool ValidSubjectCapability(BaseSubjectReferenceCapability? value) => value is not null &&
         value.MaximumReferencesPerRecord is >= 1 and <= 32 && value.MaximumReferencesPerMutation is >= 1 and <= 1_024 &&
@@ -308,6 +325,9 @@ public sealed class HPDBaseStoreInstallationContext
                 canonical.Append("i:").Append(index.Id).Append('\n');
             foreach (VectorIndexDefinition index in (collection.VectorIndexes ?? []).OrderBy(static value => value.Id, StringComparer.Ordinal))
                 canonical.Append("v:").Append(index.Id).Append(':').Append(index.Dimensions).Append(':').Append((int)index.Function).Append('\n');
+            foreach (BaseTextIndexDefinition index in (collection.TextIndexes ?? []).OrderBy(static value => value.Id, StringComparer.Ordinal).ThenBy(static value => value.Version))
+                canonical.Append("t:").Append(index.Id).Append(':').Append(index.Version).Append(':')
+                    .Append(Convert.ToHexStringLower(BaseTextIndexContract.Seal(index).DefinitionChecksum.AsSpan())).Append('\n');
         }
         foreach (BaseExportedSubjectDefinition subject in (subjects ?? []).OrderBy(static value => value.Id, StringComparer.Ordinal).ThenBy(static value => value.Version))
             canonical.Append("s:").Append(subject.Id).Append(':').Append(subject.Version).Append(':')
@@ -359,6 +379,7 @@ public sealed class HPDBaseStoreInstallationContext
             Extensions = CloneExtensions(index.Extensions),
         }).ToArray(),
         VectorIndexes = value.VectorIndexes?.Select(static index => index with { FilterFieldIds = index.FilterFieldIds.ToArray() }).ToArray(),
+        TextIndexes = value.TextIndexes?.Select(BaseTextIndexContract.Seal).ToArray(),
         PolicyRefs = value.PolicyRefs?.ToArray(),
         RequiredCapabilities = value.RequiredCapabilities?.ToArray(),
         Diagnostics = value.Diagnostics?.ToArray(),

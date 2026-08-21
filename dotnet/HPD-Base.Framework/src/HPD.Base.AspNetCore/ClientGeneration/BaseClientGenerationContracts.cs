@@ -1,5 +1,7 @@
 namespace HPD.Base.AspNetCore;
 
+#pragma warning disable CS1591
+
 /// <summary>Contains the complete immutable version 2 client-generation snapshot.</summary>
 public sealed record BaseClientGenerationSnapshotV2
 {
@@ -19,6 +21,8 @@ public sealed record BaseClientGenerationSnapshotV2
     public required BaseClientDependencyTemplateDescriptor[] DependencyTemplates { get; init; }
     /// <summary>Gets installed vector indexes.</summary>
     public required BaseClientVectorIndexDescriptor[] VectorIndexes { get; init; }
+    /// <summary>Gets installed policy-safe lexical indexes.</summary>
+    public required BaseClientTextIndexDescriptor[] TextIndexes { get; init; }
     /// <summary>Gets projected transaction-bound selection mutations.</summary>
     public required BaseClientSelectionMutationDescriptor[] SelectionMutations { get; init; }
     /// <summary>Gets generated Service/System registered module mutations.</summary>
@@ -409,6 +413,26 @@ public sealed record BaseClientVectorIndexDescriptor
     /// <summary>Gets policy-filterable field IDs.</summary>
     public required string[] FilterFieldIds { get; init; }
 }
+
+/// <summary>Describes one policy-safe lexical index.</summary>
+public sealed record BaseClientTextIndexDescriptor
+{
+    public required string CollectionId { get; init; }
+    public required string Id { get; init; }
+    public required int Version { get; init; }
+    public required string GeneratedName { get; init; }
+    public required string AnalyzerId { get; init; }
+    public required string ScoringId { get; init; }
+    public required string Audience { get; init; }
+    public required BaseClientTextFieldDescriptor[] Fields { get; init; }
+    public required BaseClientTextFilterFieldDescriptor[] FilterFields { get; init; }
+    public required int MaximumResults { get; init; }
+}
+
+/// <summary>Describes one generated searchable field.</summary>
+public sealed record BaseClientTextFieldDescriptor { public required string Id { get; init; } public required string GeneratedName { get; init; } public required string WireName { get; init; } public required int Weight { get; init; } }
+/// <summary>Describes one generated lexical filter field.</summary>
+public sealed record BaseClientTextFilterFieldDescriptor { public required string Id { get; init; } public required string GeneratedName { get; init; } public required string WireName { get; init; } public required string ValueKind { get; init; } }
 
 /// <summary>Describes one stable server error.</summary>
 public sealed record BaseClientErrorDescriptor

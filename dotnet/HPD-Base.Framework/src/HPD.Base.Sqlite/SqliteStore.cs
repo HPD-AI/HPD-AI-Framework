@@ -22,7 +22,8 @@ public static class SqliteStore
                 BaseStoreProviderCapabilities.TransactionalJournal |
                 BaseStoreProviderCapabilities.HistoricalReads |
                 BaseStoreProviderCapabilities.Administration |
-                BaseStoreProviderCapabilities.CoLocatedVectors,
+                BaseStoreProviderCapabilities.CoLocatedVectors |
+                BaseStoreProviderCapabilities.CoLocatedTextSearch,
             RegistrationIds = ["sqlite.records", "sqlite.vector"],
             SubjectReferences = BaseSubjectProviderCapabilities.BuiltIn,
             SubjectLifecycle = BaseSubjectLifecycleProviderCapabilities.BuiltIn,
@@ -33,11 +34,13 @@ public static class SqliteStore
                 GenerationCells = true, AtomicRecordAndGenerationCommit = true,
                 MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
             },
+            TextSearch = new BaseTextProviderCapability { TransactionalMaintenanceSupported = true, ExactRevisionHydrationSupported = true, PhraseSupported = true, PrefixSupported = true, MaximumLimits = BaseTextPlatform.DefaultLimits },
         }, new Installer(configure));
 
     private sealed class Installer(Action<HPDBaseSqliteOptions>? configure) : IHPDBaseStoreInstaller
     {
         private bool _hasVectors;
+        private bool _hasText;
 
         public HPDBaseStoreRegistrationReceipt Configure(HPDBaseStoreInstallationContext context)
         {
@@ -57,6 +60,7 @@ public static class SqliteStore
                 storeId = options.StoreId;
             });
             _hasVectors = collections.SelectMany(static item => item.VectorIndexes ?? []).Any();
+            _hasText = collections.SelectMany(static item => item.TextIndexes ?? []).Any();
             if (_hasVectors)
             {
                 if (collections.SelectMany(static item => item.VectorIndexes ?? []).Any(static index => index.Function == BaseVectorFunction.DotProductSimilarity))
@@ -70,6 +74,15 @@ public static class SqliteStore
                 context.Services.AddSingleton<IBaseVectorAuthority>(static provider => provider.GetRequiredService<SqliteVecProvider>());
                 context.Services.AddSingleton<IBaseVectorAdministrationProvider>(static provider => provider.GetRequiredService<SqliteVecProvider>());
             }
+            if (_hasText)
+            {
+                var model = new SqliteTextModel(collections);
+                context.Services.AddSingleton(model);
+                context.Services.AddSingleton(static provider => new SqliteTextMutationProjection(provider.GetRequiredService<SqliteTextModel>()));
+                context.Services.AddSingleton<ISqliteAtomicMutationProjection>(static provider => provider.GetRequiredService<SqliteTextMutationProjection>());
+                context.Services.AddSingleton<SqliteTextProvider>();
+                context.Services.AddSingleton<IBaseTextAuthority>(static provider => provider.GetRequiredService<SqliteTextProvider>());
+            }
             return context.CreateReceipt(storeId ?? throw new InvalidOperationException("base.store.providerInvalid"));
         }
 
@@ -77,16 +90,11 @@ public static class SqliteStore
         {
             cancellationToken.ThrowIfCancellationRequested();
             context.Services.GetRequiredService<IRecordStoreRegistry>().AddHPDBaseSqliteStore(context.Services);
-            if (!_hasVectors) return;
-            EnsurePlatform();
+            if (!_hasVectors && !_hasText) return;
             SqliteRecordStore store = context.Services.GetRequiredService<SqliteRecordStore>();
             await using SqliteConnection connection = await store.VectorConnections.OpenAsync(cancellationToken).ConfigureAwait(false);
-            SqliteVecNative.Load(connection);
-            await using SqliteCommand version = connection.CreateCommand();
-            version.CommandText = "SELECT vec_version();";
-            version.CommandTimeout = store.VectorCommandTimeoutSeconds;
-            string actual = Convert.ToString(await version.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture) ?? "";
-            if (actual != "v0.1.7-alpha.2.1") throw new InvalidOperationException("base.vector.providerUnavailable");
+            if (_hasVectors) { EnsurePlatform(); SqliteVecNative.Load(connection); await using SqliteCommand version = connection.CreateCommand(); version.CommandText = "SELECT vec_version();"; version.CommandTimeout = store.VectorCommandTimeoutSeconds; string actual = Convert.ToString(await version.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture) ?? ""; if (actual != "v0.1.7-alpha.2.1") throw new InvalidOperationException("base.vector.providerUnavailable"); }
+            if (_hasText) { await using SqliteCommand probe = connection.CreateCommand(); probe.CommandText = "CREATE VIRTUAL TABLE temp.hpd_base_text_probe USING fts5(value); DROP TABLE temp.hpd_base_text_probe;"; probe.CommandTimeout = store.VectorCommandTimeoutSeconds; try { await probe.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false); } catch { throw new InvalidOperationException(BaseTextErrorCodes.CapabilityUnavailable); } }
         }
 
         private static void EnsurePlatform()

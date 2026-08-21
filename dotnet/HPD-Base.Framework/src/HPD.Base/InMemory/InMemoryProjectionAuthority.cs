@@ -271,6 +271,9 @@ internal sealed class InMemoryProjectionReadSession : IInMemoryProjectionReadSes
     internal InMemoryStoreState Root => _lease.Root;
     internal IReadOnlyDictionary<string, StoredRecord> Records => Root.Collections.GetValueOrDefault(Snapshot.CollectionId)?.RecordsById
         ?? new Dictionary<string, StoredRecord>(StringComparer.Ordinal);
+    internal IReadOnlyDictionary<string, StoredRecord> RecordsFor(string collectionId) => Root.Collections.GetValueOrDefault(collectionId)?.RecordsById
+        ?? new Dictionary<string, StoredRecord>(StringComparer.Ordinal);
+    internal InMemoryTextProjectionState TextProjectionFor(string collectionId, string indexId) => Root.TextProjections.GetValueOrDefault(collectionId + "\n" + indexId)?.Clone() ?? new InMemoryTextProjectionState { AppliedThrough = ProjectionSnapshot.GlobalMutationHighWater, PurgeGeneration = ProjectionSnapshot.PurgeGenerations.GetValueOrDefault(collectionId) };
     public BaseVectorAuthoritySnapshot Snapshot { get; private set; }
     public BaseInMemoryProjectionSnapshot ProjectionSnapshot { get; }
     public BaseInMemoryProjectionStateReader State { get; }

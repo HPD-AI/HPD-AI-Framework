@@ -49,7 +49,8 @@ public sealed class BaseCollection<T> : IBaseSerializerMetadataSource
     {
         if (Registration is null) return;
         JsonTypeInfo<T> metadata = owner.Resolve(this);
-        _definition = _definition with { SerializerContractChecksum = SerializerChecksum(_definition, metadata, _fields, _serializerDeclarations) };
+        string serializerChecksum = SerializerChecksum(_definition, metadata, _fields, _serializerDeclarations);
+        _definition = BindTextIndexes(_definition with { SerializerContractChecksum = serializerChecksum }, serializerChecksum);
     }
     CollectionDefinition? IBaseSerializerMetadataSource.CollectionDefinition => Definition;
 
@@ -85,10 +86,8 @@ public sealed class BaseCollection<T> : IBaseSerializerMetadataSource
         fields.Seal();
         jsonTypeInfo.Options.MakeReadOnly();
         jsonTypeInfo.MakeReadOnly();
-        CollectionDefinition installed = definition with
-        {
-            SerializerContractChecksum = SerializerChecksum(definition, jsonTypeInfo, fields.Items, serializerDeclarations)
-        };
+        string serializerChecksum = SerializerChecksum(definition, jsonTypeInfo, fields.Items, serializerDeclarations);
+        CollectionDefinition installed = BindTextIndexes(definition with { SerializerContractChecksum = serializerChecksum }, serializerChecksum);
         return new BaseCollection<T>(installed, jsonTypeInfo, fields.Items, null);
     }
 
@@ -117,6 +116,20 @@ public sealed class BaseCollection<T> : IBaseSerializerMetadataSource
         return BaseSerializerContract.Checksum(metadata, bindings, declarations);
     }
 
+    private static CollectionDefinition BindTextIndexes(CollectionDefinition definition, string serializerChecksum)
+    {
+        if (definition.TextIndexes is not { Length: > 0 }) return definition;
+        byte[] checksum = Convert.FromHexString(serializerChecksum);
+        return definition with
+        {
+            TextIndexes = definition.TextIndexes.Select(index => BaseTextIndexContract.Seal(index with
+            {
+                SerializerGraphChecksum = System.Collections.Immutable.ImmutableArray.Create(checksum.ToArray()),
+                DefinitionChecksum = [],
+            })).ToArray(),
+        };
+    }
+
     internal BaseCollection<T> WithDefinition(CollectionDefinition definition) =>
         new(definition, _jsonTypeInfo, _fields, Registration, _serializerDeclarations);
 
@@ -126,6 +139,7 @@ public sealed class BaseCollection<T> : IBaseSerializerMetadataSource
         Fields = definition.Fields?.Select(static field => field with { Disclosure = field.Disclosure is null ? null : BaseConfidentialityPolicy.Clone(field.Disclosure), RequiredCapabilities = field.RequiredCapabilities?.ToArray(), Extensions = field.Extensions is null ? null : new Dictionary<string, System.Text.Json.JsonElement>(field.Extensions, StringComparer.Ordinal), }).ToArray(),
         Indexes = definition.Indexes?.Select(static index => index with { Parts = index.Parts?.Select(static part => part with { Extensions = part.Extensions is null ? null : new Dictionary<string, System.Text.Json.JsonElement>(part.Extensions, StringComparer.Ordinal), }).ToArray(), Extensions = index.Extensions is null ? null : new Dictionary<string, System.Text.Json.JsonElement>(index.Extensions, StringComparer.Ordinal), }).ToArray(),
         VectorIndexes = definition.VectorIndexes?.Select(static index => index with { FilterFieldIds = index.FilterFieldIds.ToArray() }).ToArray(),
+        TextIndexes = definition.TextIndexes?.Select(BaseTextIndexContract.Seal).ToArray(),
         PolicyRefs = definition.PolicyRefs?.ToArray(),
         RequiredCapabilities = definition.RequiredCapabilities?.ToArray(),
         Diagnostics = definition.Diagnostics?.ToArray(),

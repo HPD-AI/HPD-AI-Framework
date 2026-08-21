@@ -31,6 +31,8 @@ internal static class BaseCollectionGenerator
         "HPD.Base.BaseExportedSubjectAttribute";
     private const string VectorIndexAttribute =
         "HPD.Base.BaseVectorIndexAttribute";
+    private const string TextIndexAttribute =
+        "HPD.Base.BaseTextIndexAttribute";
     private const string JsonPropertyNameAttribute =
         "System.Text.Json.Serialization.JsonPropertyNameAttribute";
     private const string JsonOptionsAttribute =
@@ -643,6 +645,7 @@ internal static class BaseCollectionGenerator
 
         var indexes = new List<IndexModel>();
         var vectorIndexes = new List<VectorIndexModel>();
+        var textIndexes = new List<TextIndexModel>();
         var indexIds = new HashSet<string>(StringComparer.Ordinal);
         var vectorHandleNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (AttributeData indexAttribute in symbol.GetAttributes()
@@ -812,6 +815,61 @@ internal static class BaseCollectionGenerator
             });
         }
 
+        foreach (AttributeData textAttribute in symbol.GetAttributes()
+            .Where(attribute => attribute.AttributeClass?.ToDisplayString() == TextIndexAttribute))
+        {
+            string textIndexId = GetConstructorString(textAttribute, 0);
+            Location location = GetLocation(textAttribute, symbol);
+            int version = (int)GetNamedInt64(textAttribute, "Version", 1);
+            int audience = (int)GetNamedInt64(textAttribute, "Audience", 1);
+            if (!IsValidId(textIndexId) || !indexIds.Add(textIndexId) || version <= 0 || audience is < 0 or > 2)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(InvalidIndex, location, collectionId, textIndexId ?? string.Empty, "the text-index identity, version, or audience is invalid"));
+                return null;
+            }
+            ImmutableArray<TypedConstant> fieldValues = GetNamedArray(textAttribute, "Fields");
+            ImmutableArray<TypedConstant> weightValues = GetNamedArray(textAttribute, "Weights");
+            if (fieldValues.Length is < 1 or > 8 || weightValues.Length != fieldValues.Length)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(InvalidIndex, location, collectionId, textIndexId, "text indexes require one through eight fields and one matching weight per field"));
+                return null;
+            }
+            var searchFields = new List<TextIndexFieldModel>();
+            var used = new HashSet<string>(StringComparer.Ordinal);
+            for (int index = 0; index < fieldValues.Length; index++)
+            {
+                string name = fieldValues[index].Value as string;
+                int weight = weightValues[index].Value is int parsed ? parsed : 0;
+                if (name is null || !propertyFields.TryGetValue(name, out FieldModel field)
+                    || field.TypeName is not ("string" or "global::System.String" or "string?" or "global::System.String?")
+                    || field.Confidentiality is 2 or 3 || weight is < 1 or > 16 || !used.Add(name))
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(InvalidIndex, location, collectionId, textIndexId, "search fields must be unique serializer-bound public/internal strings with weights from one through sixteen"));
+                    return null;
+                }
+                searchFields.Add(new TextIndexFieldModel { Field = field, Weight = weight });
+            }
+            var filterFields = new List<FieldModel>();
+            foreach (TypedConstant value in GetNamedArray(textAttribute, "FilterFields"))
+            {
+                string name = value.Value as string;
+                if (name is null || !propertyFields.TryGetValue(name, out FieldModel field) || !used.Add(name)
+                    || (field.Operators & 1) == 0 || TextFilterKind(field.TypeName) < 0)
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(InvalidIndex, location, collectionId, textIndexId, "filter fields must be unique equality-capable string, ID, Boolean, or signed integer fields"));
+                    return null;
+                }
+                filterFields.Add(field);
+            }
+            if (filterFields.Count > 16)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(InvalidIndex, location, collectionId, textIndexId, "at most sixteen text filter fields are permitted"));
+                return null;
+            }
+            filterFields.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Id, right.Id));
+            textIndexes.Add(new TextIndexModel { Id = textIndexId, Version = version, Audience = audience, Fields = searchFields, FilterFields = filterFields });
+        }
+
         string fullTypeName =
             symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         string metadataName = symbol.ToDisplayString(
@@ -822,6 +880,7 @@ internal static class BaseCollectionGenerator
         fields.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Id, right.Id));
         indexes.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Id, right.Id));
         vectorIndexes.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Id, right.Id));
+        textIndexes.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Id, right.Id));
 
         var storageRequirements = new List<string>();
         foreach (AttributeData requirementAttribute in symbol.GetAttributes().Where(static attribute => attribute.AttributeClass?.ToDisplayString() == StorageProtectionAttribute))
@@ -871,6 +930,7 @@ internal static class BaseCollectionGenerator
             Fields = fields,
             Indexes = indexes,
             VectorIndexes = vectorIndexes,
+            TextIndexes = textIndexes,
             StorageRequirements = storageRequirements,
             JsonNamingPolicy = jsonNamingPolicy,
             SerializerProperties = serializerProperties,
@@ -983,6 +1043,25 @@ internal static class BaseCollectionGenerator
             source.AppendLine("    }");
             source.AppendLine();
         }
+        if (model.TextIndexes.Count != 0)
+        {
+            source.AppendLine("    /// <summary>Provides typed handles for the collection's declared lexical indexes.</summary>");
+            source.AppendLine("    public static class TextIndexes");
+            source.AppendLine("    {");
+            foreach (TextIndexModel index in model.TextIndexes)
+            {
+                source.Append("        /// <summary>Gets lexical index <c>").Append(index.Id).AppendLine("</c>.</summary>");
+                source.Append("        public static global::HPD.Base.BaseTextIndex<").Append(model.FullTypeName).Append("> ")
+                    .Append(index.PropertyName).AppendLine(" => new()");
+                source.AppendLine("        {");
+                source.Append("            Definition = global::System.Linq.Enumerable.Single(")
+                    .Append(model.FullTypeName).Append(".Collection.Definition.TextIndexes!, static value => value.Id == ")
+                    .Append(Literal(index.Id)).AppendLine("),");
+                source.AppendLine("        };");
+            }
+            source.AppendLine("    }");
+            source.AppendLine();
+        }
         source.Append("    private static global::HPD.Base.BaseCollection<")
             .Append(model.FullTypeName).AppendLine("> CreateHPDBaseCollection()");
         source.AppendLine("    {");
@@ -1024,6 +1103,7 @@ internal static class BaseCollectionGenerator
         RenderFieldDefinitions(source, model);
         RenderIndexes(source, model);
         RenderVectorIndexes(source, model);
+        RenderTextIndexes(source, model);
         if (model.StorageRequirements.Count != 0)
         {
             source.Append("                StorageProtectionRequirements = new global::HPD.Base.BaseStorageProtectionRequirement[] { ")
@@ -1227,6 +1307,85 @@ internal static class BaseCollectionGenerator
             source.AppendLine("                    },");
         }
         source.AppendLine("                ],");
+    }
+
+    private static void RenderTextIndexes(StringBuilder source, CollectionModel model)
+    {
+        if (model.TextIndexes.Count == 0)
+        {
+            source.AppendLine("                TextIndexes = null,");
+            return;
+        }
+        source.AppendLine("                TextIndexes =");
+        source.AppendLine("                [");
+        foreach (TextIndexModel index in model.TextIndexes)
+        {
+            source.AppendLine("                    new global::HPD.Base.BaseTextIndexDefinition");
+            source.AppendLine("                    {");
+            source.Append("                        Id = ").Append(Literal(index.Id)).AppendLine(",");
+            source.Append("                        Version = ").Append(index.Version).AppendLine(",");
+            source.Append("                        CollectionId = ").Append(Literal(model.CollectionId)).AppendLine(",");
+            source.Append("                        Audience = (global::HPD.Base.HPDBaseEndpointAudience)").Append(index.Audience).AppendLine(",");
+            source.AppendLine("                        Fields =");
+            source.AppendLine("                        [");
+            foreach (TextIndexFieldModel field in index.Fields)
+            {
+                source.AppendLine("                            new global::HPD.Base.BaseTextIndexFieldDefinition");
+                source.AppendLine("                            {");
+                source.Append("                                StableFieldId = ").Append(Literal(field.Field.Id)).AppendLine(",");
+                source.Append("                                ApplicationName = ").Append(Literal(field.Field.ApplicationName)).AppendLine(",");
+                source.Append("                                WireName = __wire_").Append(EscapeIdentifier(field.Field.PropertyName)).AppendLine(",");
+                source.Append("                                Weight = ").Append(field.Weight).AppendLine(",");
+                source.Append("                                Confidentiality = (global::HPD.Base.BaseFieldConfidentiality)").Append(field.Field.Confidentiality).AppendLine(",");
+                source.Append("                                StaticInfluenceAudiences = global::System.Collections.Immutable.ImmutableArray.Create((global::HPD.Base.HPDBaseEndpointAudience)")
+                    .Append(index.Audience).AppendLine("),");
+                source.AppendLine("                                RequiresDynamicInfluenceConstraint = false,");
+                source.AppendLine("                            },");
+            }
+            source.AppendLine("                        ],");
+            source.AppendLine("                        FilterFields =");
+            source.AppendLine("                        [");
+            foreach (FieldModel field in index.FilterFields)
+            {
+                source.AppendLine("                            new global::HPD.Base.BaseTextIndexFilterFieldDefinition");
+                source.AppendLine("                            {");
+                source.Append("                                StableFieldId = ").Append(Literal(field.Id)).AppendLine(",");
+                source.Append("                                ApplicationName = ").Append(Literal(field.ApplicationName)).AppendLine(",");
+                source.Append("                                WireName = __wire_").Append(EscapeIdentifier(field.PropertyName)).AppendLine(",");
+                source.Append("                                ValueKind = (global::HPD.Base.BaseTextFilterValueKind)").Append(TextFilterKind(field.TypeName)).AppendLine(",");
+                source.AppendLine("                            },");
+            }
+            source.AppendLine("                        ],");
+            source.AppendLine("                        AnalyzerContractId = global::HPD.Base.BaseTextAnalyzers.UnicodeCaseFoldedV1,");
+            source.AppendLine("                        AnalyzerReceipt = global::HPD.Base.BaseTextContractReceipts.AnalyzerReceipt,");
+            source.AppendLine("                        ScoringContractId = global::HPD.Base.BaseTextScoring.ContractId,");
+            source.AppendLine("                        ScoringReceipt = global::HPD.Base.BaseTextContractReceipts.ScoringReceipt,");
+            source.AppendLine("                        Limits = global::HPD.Base.BaseTextPlatform.DefaultLimits,");
+            source.AppendLine("                        SerializerGraphChecksum = global::System.Collections.Immutable.ImmutableArray.Create(new byte[32]),");
+            source.AppendLine("                        DefinitionChecksum = global::System.Collections.Immutable.ImmutableArray<byte>.Empty,");
+            source.AppendLine("                    },");
+        }
+        source.AppendLine("                ],");
+    }
+
+    private static int TextFilterKind(string typeName)
+    {
+        string value = typeName.EndsWith("?", StringComparison.Ordinal) ? typeName.Substring(0, typeName.Length - 1) : typeName;
+        if (value is "string" or "global::System.String") return 0;
+        if (value is "bool" or "global::System.Boolean") return 2;
+        if (value is "sbyte" or "global::System.SByte" or "short" or "global::System.Int16" or "int" or "global::System.Int32" or "long" or "global::System.Int64") return 3;
+        if (value.StartsWith("global::HPD.Base.BaseRecordId<", StringComparison.Ordinal) || value is "global::HPD.Base.BaseRecordId") return 1;
+        return -1;
+    }
+
+    private static string TextHandleName(string id)
+    {
+        string[] parts = id.Split('.');
+        string last = parts[parts.Length - 1];
+        string tail = parts.Length > 1 && last.Length > 1 && last[0] is 'v' or 'V' && last.Skip(1).All(char.IsDigit)
+            ? parts[parts.Length - 2]
+            : last;
+        return VectorHandleName(tail);
     }
 
     private static bool IsSupported(INamedTypeSymbol symbol) =>
@@ -1718,6 +1877,8 @@ internal static class BaseCollectionGenerator
         public List<IndexModel> Indexes;
         /// <summary>Provides the vector indexes value.</summary>
         public List<VectorIndexModel> VectorIndexes;
+        /// <summary>Provides the text indexes value.</summary>
+        public List<TextIndexModel> TextIndexes;
         /// <summary>Provides the closed generated storage requirement references.</summary>
         public List<string> StorageRequirements;
         /// <summary>Provides the context type name value.</summary>
@@ -1850,5 +2011,21 @@ internal static class BaseCollectionGenerator
         public int Dimensions;
         public int Function;
         public List<FieldModel> FilterFields;
+    }
+
+    private sealed class TextIndexModel
+    {
+        public string Id;
+        public int Version;
+        public int Audience;
+        public List<TextIndexFieldModel> Fields;
+        public List<FieldModel> FilterFields;
+        public string PropertyName => TextHandleName(Id);
+    }
+
+    private sealed class TextIndexFieldModel
+    {
+        public FieldModel Field;
+        public int Weight;
     }
 }

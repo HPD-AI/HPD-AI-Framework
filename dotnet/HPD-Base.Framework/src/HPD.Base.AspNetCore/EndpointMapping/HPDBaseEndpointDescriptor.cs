@@ -51,6 +51,12 @@ public enum HPDBaseEndpointOperation
     PolicyExplain,
     /// <summary>Executes policy-safe vector ranking.</summary>
     VectorQuery,
+    /// <summary>Executes policy-safe lexical search.</summary>
+    TextQuery,
+    /// <summary>Reads text-index metadata.</summary>
+    TextMetadataRead,
+    /// <summary>Rebuilds one text index.</summary>
+    TextRebuild,
     /// <summary>Reads vector-index metadata.</summary>
     VectorMetadataRead,
     /// <summary>Rebuilds one vector index.</summary>
@@ -141,6 +147,14 @@ public static class HPDBaseCapabilities
     public const string VectorDiagnosticsRead = "base.vector.diagnostics.read";
     /// <summary>Rebuilds one vector index.</summary>
     public const string VectorRebuild = "base.vector.rebuild";
+    /// <summary>Executes policy-safe lexical search.</summary>
+    public const string TextQuery = "base.text.query";
+    /// <summary>Reads safe text-index metadata.</summary>
+    public const string TextIndexRead = "base.text.index.read";
+    /// <summary>Reads safe text-index diagnostics.</summary>
+    public const string TextDiagnosticsRead = "base.text.diagnostics.read";
+    /// <summary>Rebuilds one text index.</summary>
+    public const string TextRebuild = "base.text.rebuild";
     /// <summary>Generates an Application client contract.</summary>
     public const string ClientGenerate = "base.client.generate";
     /// <summary>Generates a ControlPlane client contract.</summary>

@@ -52,6 +52,8 @@ public sealed record ResourceScope
     public string? FieldPath { get; init; }
     /// <summary>Gets the optional stable vector-index identifier.</summary>
     public string? VectorIndexId { get; init; }
+    /// <summary>Gets the optional stable lexical-index identifier.</summary>
+    public string? TextIndexId { get; init; }
     /// <summary>Gets the exact exported logical-subject contract identifier.</summary>
     public string? SubjectContractId { get; init; }
     /// <summary>Gets the exact exported logical-subject contract version.</summary>

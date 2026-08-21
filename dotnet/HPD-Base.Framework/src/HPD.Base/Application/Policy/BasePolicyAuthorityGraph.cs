@@ -250,7 +250,7 @@ internal static class BasePolicyAuthorityCanonicalizer
         Scope = value.Scope with
         {
             CollectionId = CopyNullable(value.Scope.CollectionId), RecordId = CopyNullable(value.Scope.RecordId),
-            FieldPath = CopyNullable(value.Scope.FieldPath), VectorIndexId = CopyNullable(value.Scope.VectorIndexId),
+            FieldPath = CopyNullable(value.Scope.FieldPath), VectorIndexId = CopyNullable(value.Scope.VectorIndexId), TextIndexId = CopyNullable(value.Scope.TextIndexId),
             SubjectContractId = CopyNullable(value.Scope.SubjectContractId), TenantId = CopyNullable(value.Scope.TenantId),
             ProjectId = CopyNullable(value.Scope.ProjectId),
         },
@@ -309,7 +309,7 @@ internal static class BasePolicyAuthorityCanonicalizer
         Write(writer, grant.ApplicationId); Write(writer, grant.ModuleId); Write(writer, (long?)grant.Audience);
         Write(writer, grant.Id); Write(writer, grant.Subject.ToString()); Write(writer, grant.Action);
         Write(writer, (long)grant.Scope.Kind); Write(writer, grant.Scope.CollectionId); Write(writer, grant.Scope.RecordId);
-        Write(writer, grant.Scope.FieldPath); Write(writer, grant.Scope.VectorIndexId); Write(writer, grant.Scope.SubjectContractId);
+        Write(writer, grant.Scope.FieldPath); Write(writer, grant.Scope.VectorIndexId); Write(writer, grant.Scope.TextIndexId); Write(writer, grant.Scope.SubjectContractId);
         Write(writer, grant.Scope.SubjectContractVersion); Write(writer, grant.Scope.TenantId); Write(writer, grant.Scope.ProjectId);
         Write(writer, (long)grant.Effect); Write(writer, grant.Condition?.ToString()); Write(writer, grant.WriteCondition?.ToString());
         Write(writer, grant.ExpiresAt?.ToUniversalTime().Ticks);
