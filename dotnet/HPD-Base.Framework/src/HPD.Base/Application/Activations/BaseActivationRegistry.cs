@@ -509,13 +509,16 @@ internal static class BaseActivationContract
         switch (target)
         {
             case null: return;
-            case BaseSelectionMutationActivationTarget value when value.ProfileVersion > 0 && !string.IsNullOrWhiteSpace(value.ProfileChecksum):
+            case BaseSelectionMutationActivationTarget value when value.ProfileVersion > 0 && ValidSha256(value.ProfileChecksum):
                 BaseApplicationId.Validate(value.ProfileId, nameof(value.ProfileId)); return;
-            case BaseModuleMutationActivationTarget value when value.OperationVersion > 0 && !string.IsNullOrWhiteSpace(value.OperationChecksum):
+            case BaseModuleMutationActivationTarget value when value.OperationVersion > 0 && ValidSha256(value.OperationChecksum):
                 BaseApplicationId.Validate(value.OperationId, nameof(value.OperationId)); return;
             default: throw new InvalidOperationException("base.activation.definitionInvalid");
         }
     }
+
+    private static bool ValidSha256(string value) => value.Length == 64 && value.All(static character =>
+        character is >= '0' and <= '9' or >= 'a' and <= 'f');
 
     private static void Append(IncrementalHash hash, string value)
     { byte[] bytes = Encoding.UTF8.GetBytes(value); Span<byte> length = stackalloc byte[4]; System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(length, checked((uint)bytes.Length)); hash.AppendData(length); hash.AppendData(bytes); }

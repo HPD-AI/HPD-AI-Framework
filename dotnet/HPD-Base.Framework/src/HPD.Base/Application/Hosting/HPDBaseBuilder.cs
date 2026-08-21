@@ -557,6 +557,23 @@ public sealed class HPDBaseBuilder
         }
         var moduleMutationRegistry = new BaseModuleMutationRegistry(_moduleMutations.Values, _moduleGenerationCells.Values, _moduleMutationRegistrations.Values);
         var activationRegistry = new BaseActivationRegistry(_activationRegistrations.Values);
+        foreach (BaseActivationDefinition activation in activationRegistry.Definitions)
+        {
+            switch (activation.TransactionalTarget)
+            {
+                case BaseSelectionMutationActivationTarget target:
+                    BaseSelectionOperationProfile[] matches = _selectionProfiles.Where(profile =>
+                        profile.Id == target.ProfileId && profile.Version == target.ProfileVersion
+                        && string.Equals(BaseSelectionProfileChecksum.Compute(profile), target.ProfileChecksum, StringComparison.Ordinal)).ToArray();
+                    if (matches.Length != 1) throw new InvalidOperationException("base.activation.definitionInvalid");
+                    break;
+                case BaseModuleMutationActivationTarget target:
+                    if (!_moduleMutations.TryGetValue((target.OperationId, target.OperationVersion), out BaseRegisteredModuleMutationDefinition? operation)
+                        || !string.Equals(Convert.ToHexStringLower(operation.Checksum.AsSpan()), target.OperationChecksum, StringComparison.Ordinal))
+                        throw new InvalidOperationException("base.activation.definitionInvalid");
+                    break;
+            }
+        }
         foreach (BaseScheduleDefinition schedule in _activationSchedules.Values)
         {
             BaseActivationDefinition? activation = activationRegistry.Find(schedule.Activation.Id, schedule.Activation.Version);
