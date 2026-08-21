@@ -3555,7 +3555,7 @@ public sealed partial class SqliteRecordStore
                     BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge,
                 BaseOperationKind.Patch or BaseOperationKind.Replace =>
                     collection.MutationMode == BaseCollectionMutationMode.Mutable,
-                BaseOperationKind.Delete =>
+                BaseOperationKind.Delete or BaseOperationKind.SubjectLifecycleFinalizeRetirement or BaseOperationKind.SubjectRetirementPurge =>
                     collection.MutationMode == BaseCollectionMutationMode.Mutable,
                 BaseOperationKind.Purge =>
                     collection.MutationMode == BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge,
@@ -3568,7 +3568,7 @@ public sealed partial class SqliteRecordStore
                     ? BaseCollectionErrorCodes.ReadOnlyMutationForbidden
                     : operation is BaseOperationKind.Patch or BaseOperationKind.Replace
                         ? BaseCollectionErrorCodes.AppendOnlyUpdateForbidden
-                        : operation == BaseOperationKind.Delete
+                        : operation is BaseOperationKind.Delete or BaseOperationKind.SubjectLifecycleFinalizeRetirement or BaseOperationKind.SubjectRetirementPurge
                             ? BaseCollectionErrorCodes.AppendOnlyDeleteForbidden
                             : BaseCollectionErrorCodes.PurgeUnsupported;
             return SqliteResultFactory.Unsupported<RecordMutationSessionResult>(

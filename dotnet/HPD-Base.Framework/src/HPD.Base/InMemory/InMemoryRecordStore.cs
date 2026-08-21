@@ -569,6 +569,28 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 SubjectAuthorityPublication = publication,
             });
         }
+        BaseSubjectLifecycleOrderingBoundary? lifecycleCutoff = _publishedState.SubjectLifecycleFacts
+            .OrderBy(static row => row.Boundary, BaseLifecycleBoundaryComparer.Instance)
+            .Select(static row => row.Boundary)
+            .LastOrDefault();
+        foreach (BaseSubjectLifecycleConsumerDefinition consumer in _options.SubjectLifecycleConsumers)
+        {
+            BaseSubjectLifecycleConsumerDefinition normalized = BaseSubjectLifecycleRegistry.Normalize(consumer);
+            BaseExportedSubjectDefinition subject = _options.ExportedSubjects.Single(value =>
+                value.Id == normalized.ContractId && value.Version == normalized.ContractVersion);
+            string checksum = BaseSubjectLifecycleRegistry.Checksum(normalized, BaseSubjectContractGraph.Checksum(subject));
+            _publishedState.SubjectLifecycleConsumers.Add($"{normalized.Id}\n{normalized.Version}", new(
+                normalized.Id,
+                normalized.Version,
+                checksum,
+                normalized.ContractId,
+                normalized.ContractVersion,
+                1,
+                lifecycleCutoff,
+                1,
+                _timeProvider.GetUtcNow(),
+                normalized.Limits.MaximumCheckpointLag));
+        }
         Capabilities = CreateCapabilities(_options);
         Includes = new RecordIncludeExecutionCapability
         {
@@ -617,6 +639,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         OperationContext context,
         CancellationToken cancellationToken = default)
     {
+        if (_lifecycleMaintenance is not null)
+            return ValueTask.FromResult(LifecycleMaintenanceRequired<RecordPage>());
         ArgumentNullException.ThrowIfNull(collection);
         ArgumentNullException.ThrowIfNull(query);
         cancellationToken.ThrowIfCancellationRequested();
@@ -698,6 +722,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         OperationContext context,
         CancellationToken cancellationToken = default)
     {
+        if (_lifecycleMaintenance is not null)
+            return ValueTask.FromResult(LifecycleMaintenanceRequired<RecordEnvelope>());
         var published = Volatile.Read(ref _publishedState);
         return GetFromStateAsync(published, collection, id, context, cancellationToken);
     }
@@ -806,6 +832,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
 
         try
         {
+            if (_lifecycleMaintenance is not null)
+                return Rollback(BaseSubjectErrorCodes.MaintenanceRequired, "Subject lifecycle maintenance must complete before this operation.");
             capturedGeneration = _generation;
             working = Volatile.Read(ref _publishedState).Clone();
         }
@@ -1075,7 +1103,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge,
             BaseOperationKind.Patch or BaseOperationKind.Replace =>
                 collection.MutationMode == BaseCollectionMutationMode.Mutable,
-            BaseOperationKind.Delete =>
+            BaseOperationKind.Delete or BaseOperationKind.SubjectLifecycleFinalizeRetirement or BaseOperationKind.SubjectRetirementPurge =>
                 collection.MutationMode == BaseCollectionMutationMode.Mutable,
             BaseOperationKind.Purge =>
                 collection.MutationMode == BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge,
@@ -1088,7 +1116,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 ? BaseCollectionErrorCodes.ReadOnlyMutationForbidden
                 : operation is BaseOperationKind.Patch or BaseOperationKind.Replace
                     ? BaseCollectionErrorCodes.AppendOnlyUpdateForbidden
-                    : operation == BaseOperationKind.Delete
+                    : operation is BaseOperationKind.Delete or BaseOperationKind.SubjectLifecycleFinalizeRetirement or BaseOperationKind.SubjectRetirementPurge
                         ? BaseCollectionErrorCodes.AppendOnlyDeleteForbidden
                         : BaseCollectionErrorCodes.PurgeUnsupported;
         return InMemoryResultFactory.Unsupported<T>(code, "The collection mutation mode does not permit this operation.");
@@ -1244,6 +1272,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         OperationContext context,
         CancellationToken cancellationToken = default)
     {
+        if (_lifecycleMaintenance is not null)
+            return ValueTask.FromResult(LifecycleMaintenanceRequired<AsyncStream<RecordEnvelope>>());
         ArgumentNullException.ThrowIfNull(collection);
         ArgumentNullException.ThrowIfNull(query);
         cancellationToken.ThrowIfCancellationRequested();
@@ -4991,6 +5021,127 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     ThroughSubjectSequence = acknowledgement.ThroughSubjectSequence,
                 }));
             });
+
+        public ValueTask<OperationResult<BaseSubjectRetirementTimeoutResult>> ApplySubjectRetirementTimeoutAsync(
+            BaseSubjectRetirementProviderTimeoutRequest request, CancellationToken cancellationToken = default) => ExecuteAsync(cancellationToken, _ =>
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            BaseSubjectRetirementTimeoutRequest command = request.Request;
+            if (!RetirementPolicyMatches(command.ContractId, command.ContractVersion, request.RetirementPolicyChecksum)
+                || request.ObservedAtUtc.Offset != TimeSpan.Zero)
+                return ValueTask.FromResult(RetirementFailure<BaseSubjectRetirementTimeoutResult>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid, OperationStatus.CapabilityUnavailable, ErrorCategory.Capability));
+            BaseProtectedSubjectScope scope = _owner._subjectScopes.Protect(request.Scope, _owner._subjectScopeProtectionKey);
+            string key = RetirementKey(scope, command.ContractId, command.ContractVersion, command.SubjectId, command.AuthorityEpoch, command.Incarnation);
+            if (!_working.SubjectRetirementBarriers.TryGetValue(key, out InMemorySubjectRetirementBarrierState? stored)
+                || stored.Barrier.Generation != command.ExpectedBarrierGeneration || stored.Barrier.BarrierChecksum != command.ExpectedBarrierChecksum)
+                return ValueTask.FromResult(RetirementFailure<BaseSubjectRetirementTimeoutResult>(BaseSubjectRetirementErrorCodes.SequenceInvalid, OperationStatus.Conflict, ErrorCategory.Conflict));
+            if (stored.Barrier.State != BaseSubjectRetirementBarrierState.Pending)
+                return ValueTask.FromResult(OperationResults.Ok(new BaseSubjectRetirementTimeoutResult { Outcome = BaseSubjectRetirementMutationOutcome.Obsolete, State = stored.Barrier.State, Generation = stored.Barrier.Generation, BarrierChecksum = stored.Barrier.BarrierChecksum }));
+            if (request.ObservedAtUtc <= stored.Barrier.DeadlineUtc)
+                return ValueTask.FromResult(RetirementFailure<BaseSubjectRetirementTimeoutResult>("base.subjectRetirement.barrierPending", OperationStatus.Conflict, ErrorCategory.Conflict));
+            BaseSubjectRetirementPolicy policy = _owner._options.SubjectRetirementPolicies.Single(value => value.ContractId == command.ContractId && value.ContractVersion == command.ContractVersion);
+            BaseSubjectRetirementBarrierState timeoutState = policy.TimeoutBehavior == BaseSubjectRetirementTimeoutBehavior.Quarantine
+                ? BaseSubjectRetirementBarrierState.Quarantined : BaseSubjectRetirementBarrierState.TimedOut;
+            BaseSubjectRetirementBarrier resulting = RecomputeBarrier(stored, timeoutState);
+            _working.SubjectRetirementBarriers[key] = stored with { Barrier = resulting };
+            long position = checked(++_working.SubjectRetirementPosition);
+            AddRetirementBarrierPublication(scope, timeoutState == BaseSubjectRetirementBarrierState.Quarantined
+                ? BaseSubjectRetirementPublicationKind.BarrierQuarantined : BaseSubjectRetirementPublicationKind.BarrierTimedOut,
+                resulting, stored.Barrier.Generation, null, position);
+            return ValueTask.FromResult(OperationResults.Ok(new BaseSubjectRetirementTimeoutResult { Outcome = BaseSubjectRetirementMutationOutcome.Applied, State = resulting.State, Generation = resulting.Generation, BarrierChecksum = resulting.BarrierChecksum }));
+        });
+
+        public ValueTask<OperationResult<BaseSubjectRetirementOverrideResult>> ApplySubjectRetirementOverrideAsync(
+            BaseSubjectRetirementProviderOverrideRequest request, CancellationToken cancellationToken = default) => ExecuteAsync(cancellationToken, _ =>
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            BaseSubjectRetirementOverrideRequest command = request.Request;
+            if (command.Intent != "override-subject-retirement-barrier" || command.ChangeReference.Length is < 1 or > 256
+                || !RetirementPolicyMatches(command.ContractId, command.ContractVersion, request.RetirementPolicyChecksum))
+                return ValueTask.FromResult(RetirementFailure<BaseSubjectRetirementOverrideResult>(BaseSubjectRetirementErrorCodes.ContractInvalid, OperationStatus.ValidationFailed, ErrorCategory.Validation));
+            BaseProtectedSubjectScope scope = _owner._subjectScopes.Protect(request.Scope, _owner._subjectScopeProtectionKey);
+            string key = RetirementKey(scope, command.ContractId, command.ContractVersion, command.SubjectId, command.AuthorityEpoch, command.Incarnation);
+            if (!_working.SubjectRetirementBarriers.TryGetValue(key, out InMemorySubjectRetirementBarrierState? stored)
+                || stored.Barrier.TombstoneSequence != command.ExpectedTombstoneSequence || stored.Barrier.Generation != command.ExpectedBarrierGeneration
+                || stored.Barrier.BarrierChecksum != command.ExpectedBarrierChecksum)
+                return ValueTask.FromResult(RetirementFailure<BaseSubjectRetirementOverrideResult>("base.subjectRetirement.overrideConflict", OperationStatus.Conflict, ErrorCategory.Conflict));
+            if (stored.Barrier.State == BaseSubjectRetirementBarrierState.Overridden)
+                return ValueTask.FromResult(OperationResults.Ok(new BaseSubjectRetirementOverrideResult { Outcome = BaseSubjectRetirementMutationOutcome.Obsolete, Generation = stored.Barrier.Generation, BarrierChecksum = stored.Barrier.BarrierChecksum }));
+            if (stored.Barrier.State is not (BaseSubjectRetirementBarrierState.TimedOut or BaseSubjectRetirementBarrierState.Quarantined))
+                return ValueTask.FromResult(RetirementFailure<BaseSubjectRetirementOverrideResult>("base.subjectRetirement.overrideConflict", OperationStatus.Conflict, ErrorCategory.Conflict));
+            BaseSubjectRetirementBarrier resulting = RecomputeBarrier(stored, BaseSubjectRetirementBarrierState.Overridden);
+            _working.SubjectRetirementBarriers[key] = stored with { Barrier = resulting };
+            long position = checked(++_working.SubjectRetirementPosition);
+            AddRetirementBarrierPublication(scope, BaseSubjectRetirementPublicationKind.BarrierOverridden, resulting, stored.Barrier.Generation, null, position);
+            return ValueTask.FromResult(OperationResults.Ok(new BaseSubjectRetirementOverrideResult { Outcome = BaseSubjectRetirementMutationOutcome.Applied, Generation = resulting.Generation, BarrierChecksum = resulting.BarrierChecksum }));
+        });
+
+        public ValueTask<OperationResult<BaseSubjectRetirementPurgeApplied>> ApplySubjectRetirementPurgeAsync(
+            BaseSubjectRetirementProviderPurgeRequest request, CancellationToken cancellationToken = default) => ExecuteAsync(cancellationToken, async token =>
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            BaseSubjectFinalPurgeRequest command = request.Request;
+            BaseSubjectRetirementPolicy? policy = _owner._options.SubjectRetirementPolicies.SingleOrDefault(value => value.ContractId == command.ContractId && value.ContractVersion == command.ContractVersion);
+            InMemorySubjectContractState? contract = _working.SubjectContracts.GetValueOrDefault(SubjectContractKey(command.ContractId, command.ContractVersion));
+            if (policy is null || policy.PolicyChecksum != request.RetirementPolicyChecksum || contract is null
+                || contract.ContractChecksum != request.ContractChecksum || policy.PurgeRetention.MinimumTombstoneAge != request.MinimumTombstoneAge)
+                return RetirementFailure<BaseSubjectRetirementPurgeApplied>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid, OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
+            BaseProtectedSubjectScope protectedScope = _owner._subjectScopes.Protect(request.Scope, _owner._subjectScopeProtectionKey);
+            string barrierKey = RetirementKey(protectedScope, command.ContractId, command.ContractVersion, command.SubjectId, command.AuthorityEpoch, command.Incarnation);
+            if (!_working.SubjectRetirementBarriers.TryGetValue(barrierKey, out InMemorySubjectRetirementBarrierState? stored)
+                || stored.Barrier.TombstoneSequence != command.ExpectedTombstoneSequence || stored.Barrier.Generation != command.ExpectedBarrierGeneration
+                || stored.Barrier.BarrierChecksum != command.ExpectedBarrierChecksum
+                || stored.Barrier.State is not (BaseSubjectRetirementBarrierState.Satisfied or BaseSubjectRetirementBarrierState.Overridden)
+                || stored.Barrier.RequiredConsumerSetChecksum != BaseSubjectRetirementRegistry.AcceptedSetChecksum(policy.AcceptedConsumers)
+                || request.ObservedAtUtc < checked(stored.Barrier.CreatedAtUtc + request.MinimumTombstoneAge))
+                return RetirementFailure<BaseSubjectRetirementPurgeApplied>("base.subjectRetirement.purgeConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+            KeyValuePair<string, InMemorySubjectLifetimeState> located = _working.SubjectLifetimes.SingleOrDefault(pair =>
+                pair.Value.ContractId == command.ContractId && pair.Value.ContractVersion == command.ContractVersion
+                && pair.Value.SubjectId.Equals(command.SubjectId) && pair.Value.Incarnation.Equals(command.Incarnation)
+                && pair.Value.LifecycleState == BaseSubjectLifecycleState.Tombstoned
+                && ProtectedScopeEquals(_owner._subjectScopes.Protect(pair.Value.Scope, _owner._subjectScopeProtectionKey), protectedScope));
+            if (located.Value is null || !contract.AuthorityEpoch.Equals(command.AuthorityEpoch))
+                return RetirementFailure<BaseSubjectRetirementPurgeApplied>("base.subjectRetirement.purgeConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+            InMemorySubjectLifetimeState lifetime = located.Value;
+            CollectionDefinition? collection = (_owner._options.Collections ?? []).SingleOrDefault(value => value.Id == lifetime.PrivateCollectionId);
+            RecordEnvelope? before = collection is null ? null : SnapshotRecord(collection, lifetime.PrivateRecordId);
+            if (collection is null || before is null || before.Metadata.Revision != command.ExpectedPrivateRevision)
+                return RetirementFailure<BaseSubjectRetirementPurgeApplied>("base.subjectRetirement.purgeConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+            OperationResult<DeleteResult> deleted = await _owner.DeleteCoreAsync(_working, collection, lifetime.PrivateRecordId,
+                new() { ExpectedRevision = command.ExpectedPrivateRevision, ReturnPrevious = true }, request.Operation, token,
+                () => _relationChecks = checked(_relationChecks + 1)).ConfigureAwait(false);
+            if (!deleted.IsSuccess() || deleted.Value is null) return new() { Status = deleted.Status, Error = deleted.Error };
+            long journalPosition = checked(++_working.GlobalMutationPosition);
+            long retiredSequence = checked(lifetime.SubjectSequence + 1);
+            var lifecycle = new BaseSubjectLifecycleCommitEvidence { ContractId = command.ContractId, ContractVersion = command.ContractVersion, SubjectId = command.SubjectId.Value, Kind = BaseSubjectLifecycleMutationKind.Retire, AuthorityEpoch = command.AuthorityEpoch, Incarnation = command.Incarnation, SubjectSequence = retiredSequence, ContractStateGeneration = contract.StateGeneration, DeliveryEpoch = _working.SubjectLifecycleDeliveryEpoch, Scope = lifetime.Scope, PreviousState = BaseSubjectLifecycleState.Tombstoned, ResultingState = BaseSubjectLifecycleState.Retired, CommitPosition = new(journalPosition) };
+            var fact = new BaseRecordMutationFact { ItemId = "subject-retirement-purge", RequestedOperation = BaseRecordMutationKind.Delete, CommittedOperation = BaseCommittedRecordMutationKind.Delete, Collection = collection, Event = EventReference(Guid.NewGuid().ToString("N"), BaseCommittedRecordMutationKind.Delete) with { PublishedAt = Now(request.Operation), Stream = "base.mutations", Guarantee = EventDeliveryGuarantee.Transactional }, JournalPosition = new(journalPosition), Before = before, After = null, Delete = deleted.Value, ChangedFields = null, SubjectLifecycle = lifecycle };
+            _working.MutationJournal.Add(journalPosition, CreateJournalEntry(fact, request.Operation.TenantId));
+            _working.SubjectLifetimes.Remove(located.Key);
+            string l47Checksum = BaseSubjectTerminalIntegrity.Compute(command.ContractId, command.ContractVersion, command.SubjectId, lifetime.Scope, command.AuthorityEpoch, command.Incarnation, lifetime.LifetimeGeneration, retiredSequence, new(journalPosition), contract.StateGeneration, contract.RestoreEpoch);
+            _working.SubjectTerminals[_owner.SubjectKey(lifetime.Scope, command.ContractId, command.ContractVersion, command.SubjectId)] = new(command.ContractId, command.ContractVersion, command.SubjectId, lifetime.Scope, command.AuthorityEpoch, command.Incarnation, lifetime.LifetimeGeneration, retiredSequence, journalPosition, contract.StateGeneration, contract.RestoreEpoch, l47Checksum);
+            var boundary = new BaseSubjectLifecycleOrderingBoundary { CommitPosition = new(journalPosition), SubjectId = command.SubjectId, AuthorityEpoch = command.AuthorityEpoch, Incarnation = command.Incarnation, SubjectSequence = retiredSequence };
+            var lifecycleFact = new BaseSubjectLifecycleFact { CommitPosition = new(journalPosition), ContractId = command.ContractId, ContractVersion = command.ContractVersion, SubjectId = command.SubjectId, AuthorityEpoch = command.AuthorityEpoch, Incarnation = command.Incarnation, SubjectSequence = retiredSequence, ContractStateGeneration = contract.StateGeneration, DeliveryEpoch = _working.SubjectLifecycleDeliveryEpoch, Kind = BaseSubjectLifecycleFactKind.Retired, Retired = new() { PreviousState = BaseSubjectLifecycleState.Tombstoned } };
+            int factIndex = _working.SubjectLifecycleFacts.Count;
+            _working.SubjectLifecycleFacts.Add(new(protectedScope, boundary, lifecycleFact));
+            foreach (BaseSubjectLifecycleConsumerDefinition consumer in _owner._options.SubjectLifecycleConsumers.Where(value => value.ContractId == command.ContractId && value.ContractVersion == command.ContractVersion && value.ObservedStates.Contains(BaseSubjectLifecycleState.Retired)))
+            {
+                InMemorySubjectLifecycleConsumerProjection? projection = _working.SubjectLifecycleConsumers.GetValueOrDefault($"{consumer.Id}\n{consumer.Version}");
+                if (projection is null) continue;
+                int membershipIndex = _working.SubjectLifecycleMemberships.Count;
+                _working.SubjectLifecycleMemberships.Add(new(consumer.Id, consumer.Version, projection.ConsumerChecksum, projection.ProjectionGeneration, BaseSubjectLifecycleState.Retired, protectedScope, factIndex));
+                string membershipKey = ProtectedScopeKey(consumer.Id, consumer.Version, protectedScope);
+                if (!_working.SubjectLifecycleMembershipIndex.TryGetValue(membershipKey, out List<int>? indexes)) _working.SubjectLifecycleMembershipIndex.Add(membershipKey, indexes = []);
+                indexes.Add(membershipIndex);
+            }
+            ImmutableArray<BaseSubjectTerminalAcknowledgement> acknowledgements = [.. stored.Acknowledgements.Values.OrderBy(static value => value.ConsumerId, StringComparer.Ordinal).ThenBy(static value => value.ConsumerVersion).Select(static value => new BaseSubjectTerminalAcknowledgement { ConsumerId = value.ConsumerId, ConsumerVersion = value.ConsumerVersion, ConsumerChecksum = value.ConsumerChecksum, ThroughSubjectSequence = value.ThroughSequence, Disposition = value.Disposition, AcknowledgedPosition = new(value.Position) })];
+            var terminal = new BaseSubjectRetirementTerminalReceipt { ContractId = command.ContractId, ContractVersion = command.ContractVersion, SubjectId = command.SubjectId, Scope = protectedScope, AuthorityEpoch = command.AuthorityEpoch, Incarnation = command.Incarnation, TombstoneSequence = stored.Barrier.TombstoneSequence, AuthorizingState = stored.Barrier.State, FinalBarrierGeneration = stored.Barrier.Generation, FinalBarrierChecksum = stored.Barrier.BarrierChecksum, RequiredConsumerSetChecksum = stored.Barrier.RequiredConsumerSetChecksum, Acknowledgements = acknowledgements, RetiredPosition = new(journalPosition), PurgedAtUtc = request.ObservedAtUtc, ReceiptChecksum = string.Empty };
+            terminal = terminal with { ReceiptChecksum = BaseSubjectRetirementRegistry.TerminalChecksum(terminal) };
+            _working.SubjectRetirementBarriers.Remove(barrierKey);
+            _working.SubjectRetirementTerminals[barrierKey] = new(terminal);
+            long publicationPosition = checked(++_working.SubjectRetirementPosition);
+            AddRetirementPublication(new() { Scope = protectedScope, Fact = new() { Position = new(publicationPosition), Kind = BaseSubjectRetirementPublicationKind.SubjectPurged, Purged = new() { ContractId = command.ContractId, ContractVersion = command.ContractVersion, SubjectId = command.SubjectId, AuthorityEpoch = command.AuthorityEpoch, Incarnation = command.Incarnation, TombstoneSequence = stored.Barrier.TombstoneSequence, FinalBarrierGeneration = stored.Barrier.Generation, FinalBarrierChecksum = stored.Barrier.BarrierChecksum, TerminalReceiptChecksum = terminal.ReceiptChecksum, RetiredLifecyclePosition = new(journalPosition) } } });
+            return OperationResults.Ok(new BaseSubjectRetirementPurgeApplied { Result = new() { Outcome = BaseSubjectRetirementMutationOutcome.Applied, RetiredSubjectSequence = retiredSequence, RetiredPosition = new(journalPosition), TerminalReceiptChecksum = terminal.ReceiptChecksum }, Mutation = fact, Terminal = terminal });
+        });
 
 
         private bool RetirementPolicyMatches(string contractId, int contractVersion, string checksum) =>
