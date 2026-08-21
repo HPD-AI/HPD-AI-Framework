@@ -3011,6 +3011,10 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 });
             }
 
+            OperationResult<ImmutableArray<BaseCapturedSubjectRetirementProjection>> retirementResult =
+                CaptureRetirement(request.SubjectRetirement, intent, module, digest, intervals);
+            if (!retirementResult.IsSuccess() || retirementResult.Value.IsDefault)
+                return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid));
             long evidenceBytes = BaseSubjectCanonicalRetainedWork.MeasureIntervals(intervals);
             long transient = checked(selectedBytes + relationBytes + generationBytes + evidenceBytes);
             if (selectedBytes > limits.MaximumSelectedBytes || generationBytes > limits.MaximumGenerationBytes
@@ -3032,6 +3036,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 },
                 Items = [], ModuleRecords = records.MoveToImmutable(), ModuleRelationTargets = relations.MoveToImmutable(),
                 Generations = generations.MoveToImmutable(), ActivationGuard = _capturedActivationGuard,
+                SubjectRetirement = retirementResult.Value,
                 ReadIntervals = intervals.MoveToImmutable(),
                 Accounting = new BaseAtomicCaptureAccounting
                 {
@@ -3039,7 +3044,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     GenerationReads = module.Generations.Length, ReadIntervals = readIntervalCount,
                     SelectedBytes = selectedBytes, RelationTargetBytes = relationBytes, GenerationBytes = generationBytes,
                     EvidenceBytes = evidenceBytes, TransientBytes = transient,
-                    RetirementBarrierReads = 0, RetirementAcknowledgementReads = 0, RetirementProjections = 0,
+                    RetirementBarrierReads = 0, RetirementAcknowledgementReads = 0,
+                    RetirementProjections = request.SubjectRetirement?.Projections.Length ?? 0,
                     RetirementPublications = 0, RetirementEvidenceBytes = 0, RetirementPublicationBytes = 0,
                 },
             };
