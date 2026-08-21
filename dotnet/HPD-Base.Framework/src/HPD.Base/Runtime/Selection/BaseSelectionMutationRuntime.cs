@@ -877,8 +877,9 @@ internal sealed class BaseSelectionMutationProcessor(
                 AuthorityReads = prior.AuthorityReads,
                 ReadIntervals = prior.ReadIntervals,
                 SelectedBytes = prior.SelectedBytes,
-                EvidenceBytes = prior.EvidenceBytes,
-                TransientBytes = checked(prior.TransientBytes + receiptBytes + resultBytes.Length),
+                EvidenceBytes = checked(prior.EvidenceBytes + activationCommit.Accounting.EvidenceBytes),
+                TransientBytes = checked(prior.TransientBytes + receiptBytes + resultBytes.Length
+                    + activationCommit.Accounting.TransientBytes),
                 RetirementBarrierReads = prior.RetirementBarrierReads,
                 RetirementAcknowledgementReads = prior.RetirementAcknowledgementReads,
                 RetirementProjections = prior.RetirementProjections,

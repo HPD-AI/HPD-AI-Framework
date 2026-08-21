@@ -219,7 +219,9 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         long receiptBytes = JsonSerializer.SerializeToUtf8Bytes(
             BaseAtomicReceiptWire.From(receipt), HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire).LongLength;
         BaseProvisionalAtomicMutationAccounting prior = applied.Value.Accounting;
-        long transient = checked(prior.TransientBytes + receiptBytes + resultBytes.Length);
+        long activationEvidenceBytes = activationCommit?.Accounting.EvidenceBytes ?? 0;
+        long activationTransientBytes = activationCommit?.Accounting.TransientBytes ?? 0;
+        long transient = checked(prior.TransientBytes + receiptBytes + resultBytes.Length + activationTransientBytes);
         if (receiptBytes > limits.MaximumReceiptBytes || resultBytes.Length > limits.MaximumResultBytes || transient > limits.MaximumTransientBytes)
             return Failed(Error(BaseModuleMutationErrorCodes.LimitExceeded, ErrorCategory.Validation));
         var finalization = new BaseAtomicMutationCommitFinalization
@@ -231,7 +233,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
                 JournalBytes = prior.JournalBytes, ReceiptBytes = receiptBytes, ResultBytes = resultBytes.Length,
                 RelationChecks = prior.RelationChecks, UniqueConstraintChecks = prior.UniqueConstraintChecks,
                 AuthorityReads = prior.AuthorityReads, ReadIntervals = prior.ReadIntervals,
-                SelectedBytes = prior.SelectedBytes, EvidenceBytes = prior.EvidenceBytes, TransientBytes = transient,
+                SelectedBytes = prior.SelectedBytes, EvidenceBytes = checked(prior.EvidenceBytes + activationEvidenceBytes), TransientBytes = transient,
                 RetirementBarrierReads=prior.RetirementBarrierReads,RetirementAcknowledgementReads=prior.RetirementAcknowledgementReads,RetirementProjections=prior.RetirementProjections,RetirementPublications=prior.RetirementPublications,RetirementEvidenceBytes=prior.RetirementEvidenceBytes,RetirementPublicationBytes=prior.RetirementPublicationBytes,
             },
         };

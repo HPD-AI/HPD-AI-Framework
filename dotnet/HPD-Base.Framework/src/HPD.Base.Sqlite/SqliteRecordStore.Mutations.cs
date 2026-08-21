@@ -791,6 +791,7 @@ public sealed partial class SqliteRecordStore
         private BasePreparedAtomicExecution? _preparedMutation;
         private BaseFinalizedAtomicExecutionPlan? _preparedPlan;
         private BaseProvisionalAtomicExecution? _appliedProvisional;
+        private BaseActivationAccounting? _activationCommitAccounting;
         private Dictionary<int, BaseSubjectIncarnation>? _preparedLifecycleIncarnations;
         private Dictionary<int, SqliteModuleGenerationKey>? _capturedModuleGenerationKeys;
         private BaseModuleMutationCaptureExtension? _capturedModuleExtension;
@@ -2244,6 +2245,14 @@ public sealed partial class SqliteRecordStore
             long generation = checked(candidate.ActivationGeneration + 1);
             byte[] controlChecksum = ActivationControlChecksum(
                 candidate.Payload.ActivationId, generation, BaseActivationState.Succeeded);
+            long evidenceBytes = checked(System.Text.Encoding.UTF8.GetByteCount(candidate.Payload.ActivationId) + sizeof(long) + sizeof(int) + controlChecksum.Length);
+            long transientBytes = evidenceBytes;
+            if (candidate.Limits.MaximumIndexOperations < 2
+                || evidenceBytes > candidate.Limits.MaximumEvidenceBytes
+                || finalization.CanonicalResult.Length > candidate.Limits.MaximumResultBytes
+                || transientBytes > candidate.Limits.MaximumTransientBytes)
+                return SubjectFailure<BaseTransactionalActivationCommitEvidence>(
+                    "base.activation.budgetExceeded", OperationStatus.ValidationFailed, ErrorCategory.Validation);
             await using SqliteCommand command = _connection.CreateCommand();
             command.Transaction = _transaction;
             command.CommandTimeout = CommandTimeoutSeconds();
@@ -2271,12 +2280,23 @@ public sealed partial class SqliteRecordStore
             advance.CommandText = $"UPDATE {_owner._names.ProviderState} SET value=CAST(CAST(value AS INTEGER)+1 AS TEXT) WHERE key='activation_generation';";
             if (await advance.ExecuteNonQueryAsync(token).ConfigureAwait(false) != 1)
                 return SubjectFailure<BaseTransactionalActivationCommitEvidence>(BaseSubjectErrorCodes.ProviderContractInvalid);
+            var accounting = new BaseActivationAccounting
+            {
+                Candidates = 1,
+                Comparisons = 1,
+                IndexOperations = 2,
+                ReadIntervals = 0,
+                EvidenceBytes = evidenceBytes,
+                TransientBytes = transientBytes,
+            };
+            _activationCommitAccounting = accounting;
             return OperationResults.Ok(new BaseTransactionalActivationCommitEvidence
             {
                 ActivationId = candidate.Payload.ActivationId,
                 ActivationGeneration = generation,
                 State = BaseActivationState.Succeeded,
                 ControlChecksum = controlChecksum.ToImmutableArray(),
+                Accounting = accounting,
             });
         });
 
@@ -2325,6 +2345,7 @@ public sealed partial class SqliteRecordStore
             catch { return false; }
             BaseAtomicCommitAccounting actual = finalization.Accounting;
             BaseProvisionalAtomicMutationAccounting prior = applied.Accounting;
+            BaseActivationAccounting? activation = _activationCommitAccounting;
             long resultBytes = finalization.CanonicalResultBytes.Length;
             return actual.WrittenBytes == prior.WrittenBytes
                 && actual.GenerationBytes == prior.GenerationBytes
@@ -2337,8 +2358,9 @@ public sealed partial class SqliteRecordStore
                 && actual.AuthorityReads == prior.AuthorityReads
                 && actual.ReadIntervals == prior.ReadIntervals
                 && actual.SelectedBytes == prior.SelectedBytes
-                && actual.EvidenceBytes == prior.EvidenceBytes
-                && actual.TransientBytes == checked(prior.TransientBytes + receiptBytes + resultBytes);
+                && actual.EvidenceBytes == checked(prior.EvidenceBytes + (activation?.EvidenceBytes ?? 0))
+                && actual.TransientBytes == checked(prior.TransientBytes + receiptBytes + resultBytes
+                    + (activation?.TransientBytes ?? 0));
         }
 
         private sealed class ByteArrayComparer : IEqualityComparer<byte[]>

@@ -2536,6 +2536,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         private BasePreparedAtomicExecution? _preparedMutation;
         private BaseFinalizedAtomicExecutionPlan? _preparedPlan;
         private BaseProvisionalAtomicExecution? _appliedProvisional;
+        private BaseActivationAccounting? _activationCommitAccounting;
         private Dictionary<int, BaseSubjectIncarnation>? _preparedLifecycleIncarnations;
         private Dictionary<int, string>? _capturedModuleGenerationKeys;
         private BaseModuleMutationCaptureExtension? _capturedModuleExtension;
@@ -4210,6 +4211,14 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
 
             long generation = checked(row.Generation + 1);
             byte[] controlChecksum = ControlChecksum(row.Payload.ActivationId, generation, BaseActivationState.Succeeded);
+            long evidenceBytes = checked(System.Text.Encoding.UTF8.GetByteCount(row.Payload.ActivationId) + sizeof(long) + sizeof(int) + controlChecksum.Length);
+            long transientBytes = evidenceBytes;
+            if (candidate.Limits.MaximumIndexOperations < 2
+                || evidenceBytes > candidate.Limits.MaximumEvidenceBytes
+                || finalization.CanonicalResult.Length > candidate.Limits.MaximumResultBytes
+                || transientBytes > candidate.Limits.MaximumTransientBytes)
+                return ValueTask.FromResult(SubjectFailure<BaseTransactionalActivationCommitEvidence>(
+                    "base.activation.budgetExceeded", OperationStatus.ValidationFailed, ErrorCategory.Validation));
             _working.Activations[row.Payload.ActivationId] = row with
             {
                 State = BaseActivationState.Succeeded,
@@ -4221,12 +4230,23 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 ControlChecksum = controlChecksum,
             };
             _working.ActivationIndexGeneration = checked(_working.ActivationIndexGeneration + 1);
+            var accounting = new BaseActivationAccounting
+            {
+                Candidates = 1,
+                Comparisons = 1,
+                IndexOperations = 2,
+                ReadIntervals = 0,
+                EvidenceBytes = evidenceBytes,
+                TransientBytes = transientBytes,
+            };
+            _activationCommitAccounting = accounting;
             return ValueTask.FromResult(OperationResults.Ok(new BaseTransactionalActivationCommitEvidence
             {
                 ActivationId = row.Payload.ActivationId,
                 ActivationGeneration = generation,
                 State = BaseActivationState.Succeeded,
                 ControlChecksum = controlChecksum.ToImmutableArray(),
+                Accounting = accounting,
             }));
         });
 
@@ -4276,6 +4296,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             catch { return false; }
             BaseAtomicCommitAccounting actual = finalization.Accounting;
             BaseProvisionalAtomicMutationAccounting prior = applied.Accounting;
+            BaseActivationAccounting? activation = _activationCommitAccounting;
             long resultBytes = finalization.CanonicalResultBytes.Length;
             return actual.WrittenBytes == prior.WrittenBytes
                 && actual.GenerationBytes == prior.GenerationBytes
@@ -4288,8 +4309,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 && actual.AuthorityReads == prior.AuthorityReads
                 && actual.ReadIntervals == prior.ReadIntervals
                 && actual.SelectedBytes == prior.SelectedBytes
-                && actual.EvidenceBytes == prior.EvidenceBytes
-                && actual.TransientBytes == checked(prior.TransientBytes + receiptBytes + resultBytes);
+                && actual.EvidenceBytes == checked(prior.EvidenceBytes + (activation?.EvidenceBytes ?? 0))
+                && actual.TransientBytes == checked(prior.TransientBytes + receiptBytes + resultBytes
+                    + (activation?.TransientBytes ?? 0));
         }
 
         private sealed class ByteArrayComparer : IEqualityComparer<byte[]>

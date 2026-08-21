@@ -301,6 +301,7 @@ internal sealed partial class InMemoryRecordStore
                     EvidenceBytes = evidenceBytes,
                     TransientBytes = evidenceBytes,
                 },
+                Limits = request.Limits with { },
             });
         }
         finally

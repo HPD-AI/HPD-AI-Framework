@@ -306,6 +306,7 @@ public sealed partial class SqliteRecordStore
             ControlChecksum = row.ControlChecksum.ToImmutableArray(),
             ReadIntervals = [interval],
             Accounting = ActivationAccounting(1, evidenceBytes),
+            Limits = request.Limits with { },
         });
     }
 

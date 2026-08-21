@@ -236,6 +236,8 @@ public sealed record BaseTransactionalActivationCandidate
     public required ImmutableArray<BaseAtomicReadIntervalEvidence> ReadIntervals { get; init; }
     /// <summary>Gets provider accounting for candidate discovery.</summary>
     public required BaseActivationAccounting Accounting { get; init; }
+    /// <summary>Gets the effective limits retained through transaction-local terminalization.</summary>
+    public required BaseActivationExecutionLimits Limits { get; init; }
 }
 
 /// <summary>Requests transaction-local terminalization of one handler-free activation.</summary>
@@ -260,6 +262,8 @@ public sealed record BaseTransactionalActivationCommitEvidence
     public required BaseActivationState State { get; init; }
     /// <summary>Gets the resulting control checksum.</summary>
     public required ImmutableArray<byte> ControlChecksum { get; init; }
+    /// <summary>Gets the provider-owned work charged for transaction-local terminalization.</summary>
+    public required BaseActivationAccounting Accounting { get; init; }
 }
 
 /// <summary>Contains one transaction-captured activation uniqueness result.</summary>
