@@ -427,6 +427,31 @@ public sealed class L45SubjectTransactionTests
         var duplicateProcessor = new BaseSubjectLifecycleCheckpointProcessor(checkpointRequest);
         RecordMutationExecutionResult duplicate = await fixture.Store.AdvanceCheckpointAsync(duplicateProcessor, LifecycleCheckpointExecution(checkpointRequest));
         Assert.True(duplicate.Outcome == RecordMutationExecutionOutcome.Committed, duplicate.Error?.Code ?? duplicate.Processing?.Error?.Code); Assert.True(duplicateProcessor.Result!.Duplicate); Assert.Equal(1, duplicateProcessor.Result.CheckpointGeneration);
+        byte[] guardedFingerprint = System.Security.Cryptography.SHA256.HashData("guarded-checkpoint"u8);
+        BaseMutationRequestIdentity guardedIdentity = BaseMutationRequestIdentity.Create(
+            "l47-tests", "advance", "guarded", BaseMutationRequestFingerprint.Create(guardedFingerprint));
+        var guardedRequest = checkpointRequest with
+        {
+            ExpectedCheckpointGeneration = 1,
+            Identity = guardedIdentity,
+            ActivationGuard = new BaseActivationGuard
+            {
+                Claim = new BaseActivationClaimAuthority
+                {
+                    ActivationId = "missing-activation", AttemptNumber = 1, ClaimEpoch = 1,
+                    FencingToken = new byte[32].ToImmutableArray(), WorkerIdentity = "worker",
+                    CancellationGeneration = 0, StoreInstanceId = "missing-store",
+                    RestoreEpoch = 0, DefinitionChecksum = new byte[32].ToImmutableArray(),
+                },
+                StepId = "checkpoint", ChildOrdinal = 1,
+                ChildRequestFingerprint = guardedFingerprint.ToImmutableArray(),
+            },
+        };
+        var guardedProcessor = new BaseSubjectLifecycleCheckpointProcessor(guardedRequest);
+        RecordMutationExecutionResult guarded = await fixture.Store.AdvanceCheckpointAsync(
+            guardedProcessor, LifecycleCheckpointExecution(guardedRequest));
+        Assert.NotEqual(RecordMutationExecutionOutcome.Committed, guarded.Outcome);
+        Assert.Equal("base.activation.claimLost", guarded.Processing?.Error?.Code ?? guarded.Error?.Code);
 
         BaseSubjectLifecycleOrderingBoundary retained = page.Value.Facts[^1].Boundary;
         BaseMutationRequestIdentity pruneIdentity = BaseMutationRequestIdentity.Create(
