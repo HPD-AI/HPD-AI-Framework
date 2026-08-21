@@ -251,7 +251,10 @@ public sealed partial class SqliteModuleMutationTests
             byte[] evidence = "externally-verified"u8.ToArray();
             var request = new BaseActivationReconcileEffectRequest
             {
-                ActivationId = claimed.Claim.ActivationId, Effect = started.Effect!, ExpectedGeneration = unknown.Generation,
+                ActivationId = claimed.Claim.ActivationId,
+                ExpectedEffectStartGeneration = started.Effect!.EffectStartGeneration,
+                ExpectedEffectChecksum = started.Effect.Checksum,
+                ExpectedGeneration = unknown.Generation,
                 Disposition = BaseEffectReconciliationDisposition.Exhausted,
                 VerificationEvidence = evidence.ToImmutableArray(),
                 VerificationChecksum = System.Security.Cryptography.SHA256.HashData(evidence).ToImmutableArray(),

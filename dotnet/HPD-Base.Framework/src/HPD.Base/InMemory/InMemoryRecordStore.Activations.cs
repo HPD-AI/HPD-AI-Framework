@@ -394,7 +394,10 @@ internal sealed partial class InMemoryRecordStore
                     resultingEffect = row.Effect;
                     break;
                 case BaseActivationReconcileEffectRequest reconcile when row.State == BaseActivationState.OutcomeUnknown && row.Effect is not null &&
-                    row.Generation == reconcile.ExpectedGeneration && EffectMatches(row.Effect, reconcile.Effect):
+                    row.Generation == reconcile.ExpectedGeneration &&
+                    row.Effect.EffectStartGeneration == reconcile.ExpectedEffectStartGeneration &&
+                    reconcile.ExpectedEffectChecksum.Length == 32 &&
+                    CryptographicOperations.FixedTimeEquals(row.Effect.Checksum.AsSpan(), reconcile.ExpectedEffectChecksum.AsSpan()):
                     if (reconcile.VerificationEvidence.IsDefaultOrEmpty || reconcile.VerificationChecksum.Length != 32 ||
                         !Enum.IsDefined(reconcile.Disposition) ||
                         !CryptographicOperations.FixedTimeEquals(

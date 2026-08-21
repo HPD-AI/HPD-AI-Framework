@@ -234,7 +234,8 @@ public sealed class AtomicExecutionTests
         var reconciliation = new BaseActivationReconcileEffectRequest
         {
             ActivationId = claimed.Claim.ActivationId,
-            Effect = started.Effect!,
+            ExpectedEffectStartGeneration = started.Effect!.EffectStartGeneration,
+            ExpectedEffectChecksum = started.Effect.Checksum,
             ExpectedGeneration = unknown.Generation,
             Disposition = BaseEffectReconciliationDisposition.Succeeded,
             VerificationEvidence = verification.ToImmutableArray(),

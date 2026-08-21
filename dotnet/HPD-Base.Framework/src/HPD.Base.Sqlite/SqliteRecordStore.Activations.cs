@@ -410,7 +410,10 @@ public sealed partial class SqliteRecordStore
             state = BaseActivationState.OutcomeUnknown;
         }
         else if (request is BaseActivationReconcileEffectRequest reconcile && row.State == BaseActivationState.OutcomeUnknown &&
-            storedEffect is not null && SqliteEffectMatches(storedEffect, reconcile.Effect) && row.Generation == reconcile.ExpectedGeneration)
+            storedEffect is not null && row.Generation == reconcile.ExpectedGeneration &&
+            storedEffect.EffectStartGeneration == reconcile.ExpectedEffectStartGeneration &&
+            reconcile.ExpectedEffectChecksum.Length == 32 &&
+            CryptographicOperations.FixedTimeEquals(storedEffect.Checksum.AsSpan(), reconcile.ExpectedEffectChecksum.AsSpan()))
         {
             if (reconcile.VerificationEvidence.IsDefaultOrEmpty || reconcile.VerificationChecksum.Length != 32 ||
                 !Enum.IsDefined(reconcile.Disposition) ||

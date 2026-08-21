@@ -431,8 +431,10 @@ public enum BaseEffectReconciliationDisposition
 /// <summary>Requests identified operator reconciliation of one outcome-unknown effect.</summary>
 public sealed record BaseActivationReconcileEffectRequest : BaseActivationTransitionRequest
 {
-    /// <summary>Gets the complete effect authority retained when ambiguity was published.</summary>
-    public required BaseEffectExecutionAuthority Effect { get; init; }
+    /// <summary>Gets the expected effect-start generation retained with ambiguity.</summary>
+    public required long ExpectedEffectStartGeneration { get; init; }
+    /// <summary>Gets the expected retained effect-authority checksum.</summary>
+    public required ImmutableArray<byte> ExpectedEffectChecksum { get; init; }
     /// <summary>Gets the expected activation generation in the outcome-unknown state.</summary>
     public required long ExpectedGeneration { get; init; }
     /// <summary>Gets the selected terminal disposition.</summary>
