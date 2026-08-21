@@ -113,6 +113,18 @@ public sealed partial class SqliteModuleMutationTests
                 };
                 BaseActivationTransitionResult completed = (await store.TransitionAsync(completeRequest)).Value!;
                 completed.State.Should().Be(BaseActivationState.Succeeded);
+                BaseActivationReceiptResolution resolvedClaim = (await store.ResolveReceiptAsync(
+                    new BaseActivationReceiptResolutionRequest
+                    {
+                        Identity = claimRequest.Identity,
+                        AcceptedTime = AcceptedTime(30),
+                        Limits = limits,
+                    })).Value!;
+                resolvedClaim.OperationKind.Should().Be("activation-claimed");
+                System.Text.Json.JsonSerializer.Deserialize(
+                        resolvedClaim.CanonicalResult.AsSpan(),
+                        HPDBaseJsonSerializerContext.Default.BaseActivationClaimResult)
+                    .Should().BeOfType<BaseActivationClaimTerminalResult>();
                 (await store.TransitionAsync(completeRequest with { AcceptedTime = AcceptedTime(31) })).Value!.Disposition
                     .Should().Be(BaseMutationRequestDisposition.Duplicate);
                 (await store.TryClaimNextAsync(claimRequest with { AcceptedTime = AcceptedTime(32) })).Value

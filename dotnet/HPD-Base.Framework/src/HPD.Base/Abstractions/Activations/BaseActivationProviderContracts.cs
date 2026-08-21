@@ -127,6 +127,30 @@ public sealed record BaseActivationAccounting
     public required long TransientBytes { get; init; }
 }
 
+/// <summary>Requests resolution of one identified durable activation receipt.</summary>
+public sealed record BaseActivationReceiptResolutionRequest
+{
+    /// <summary>Gets the exact historical request identity.</summary>
+    public required BaseMutationRequestIdentity Identity { get; init; }
+    /// <summary>Gets current trusted time used for claim-authority replay.</summary>
+    public required BaseAcceptedTimeReceipt AcceptedTime { get; init; }
+    /// <summary>Gets the exact effective provider limits.</summary>
+    public required BaseActivationExecutionLimits Limits { get; init; }
+}
+
+/// <summary>Contains one checksum-validated, provider-neutral receipt resolution.</summary>
+public sealed record BaseActivationReceiptResolution
+{
+    /// <summary>Gets the closed provider operation kind.</summary>
+    public required string OperationKind { get; init; }
+    /// <summary>Gets the exact stored request fingerprint.</summary>
+    public required ImmutableArray<byte> Fingerprint { get; init; }
+    /// <summary>Gets canonical source-generated result bytes after current claim resolution.</summary>
+    public required ImmutableArray<byte> CanonicalResult { get; init; }
+    /// <summary>Gets provider accounting.</summary>
+    public required BaseActivationAccounting Accounting { get; init; }
+}
+
 /// <summary>Contains the canonical total-order boundary for a due activation.</summary>
 public sealed record BaseActivationDueBoundary
 {
@@ -809,5 +833,10 @@ public interface IBaseActivationProvider
     /// <summary>Advances one crash-recoverable cancel-previous maintenance page.</summary>
     ValueTask<OperationResult<BaseScheduleCancellationMaintenancePage>> AdvanceScheduleCancellationAsync(
         BaseScheduleCancellationMaintenanceRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Resolves one durable receipt without re-executing its operation.</summary>
+    ValueTask<OperationResult<BaseActivationReceiptResolution>> ResolveReceiptAsync(
+        BaseActivationReceiptResolutionRequest request,
         CancellationToken cancellationToken = default);
 }

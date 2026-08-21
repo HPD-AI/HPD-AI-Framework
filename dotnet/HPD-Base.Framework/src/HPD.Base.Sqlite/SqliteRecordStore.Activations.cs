@@ -1226,6 +1226,72 @@ public sealed partial class SqliteRecordStore
 
     private static byte[] ActivationControlChecksum(string id, long generation, BaseActivationState state) => ActivationHash($"base.activation.control.v2\0{id}\n{generation}\n{(int)state}");
 
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseActivationReceiptResolution>> ResolveReceiptAsync(
+        BaseActivationReceiptResolutionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!ActivationLimitsValid(request.Limits)
+            || !await AcceptActivationTimeAsync(request.AcceptedTime, cancellationToken).ConfigureAwait(false))
+            return ActivationFailure<BaseActivationReceiptResolution>(
+                "base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+        await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteCommand command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = $"SELECT operation_kind,fingerprint,result_json,result_checksum FROM {_names.ActivationReceipts} WHERE receipt_key=$key;";
+        command.Parameters.AddWithValue("$key", SqliteActivationReceiptKey(request.Identity));
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            return ActivationFailure<BaseActivationReceiptResolution>(
+                "base.activation.receiptNotFound", OperationStatus.NotFound, ErrorCategory.NotFound);
+        string kind = reader.GetString(0);
+        byte[] fingerprint = (byte[])reader[1];
+        byte[] bytes = (byte[])reader[2];
+        byte[] checksum = (byte[])reader[3];
+        await reader.DisposeAsync().ConfigureAwait(false);
+        if (!CryptographicOperations.FixedTimeEquals(fingerprint, request.Identity.Fingerprint.ToArray()))
+            return ActivationFailure<BaseActivationReceiptResolution>(
+                "base.activation.fingerprintConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+        if (!CryptographicOperations.FixedTimeEquals(SHA256.HashData(bytes), checksum))
+            return ActivationFailure<BaseActivationReceiptResolution>(
+                "base.activation.receiptCorrupt", OperationStatus.StoreError, ErrorCategory.Store);
+        if (kind == "activation-claimed")
+        {
+            BaseActivationClaimResult? stored = JsonSerializer.Deserialize(
+                bytes, HPDBaseJsonSerializerContext.Default.BaseActivationClaimResult);
+            if (stored is null)
+                return ActivationFailure<BaseActivationReceiptResolution>(
+                    "base.activation.receiptCorrupt", OperationStatus.StoreError, ErrorCategory.Store);
+            OperationResult<BaseActivationClaimResult> resolved = await ResolveSqliteClaimReplayAsync(
+                connection, transaction, OperationResults.Ok(stored), request.AcceptedTime.CapturedUtc,
+                cancellationToken).ConfigureAwait(false);
+            if (!resolved.IsSuccess() || resolved.Value is null)
+                return ActivationFailure<BaseActivationReceiptResolution>(
+                    resolved.Error?.Code ?? "base.activation.receiptCorrupt", resolved.Status,
+                    resolved.Error?.Category ?? ErrorCategory.Store);
+            bytes = JsonSerializer.SerializeToUtf8Bytes(
+                resolved.Value, HPDBaseJsonSerializerContext.Default.BaseActivationClaimResult);
+        }
+        if (bytes.LongLength > request.Limits.MaximumResultBytes
+            || bytes.LongLength > request.Limits.MaximumEvidenceBytes
+            || bytes.LongLength > request.Limits.MaximumTransientBytes)
+            return ActivationFailure<BaseActivationReceiptResolution>(
+                "base.activation.budgetExceeded", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+        return OperationResults.Ok(new BaseActivationReceiptResolution
+        {
+            OperationKind = kind,
+            Fingerprint = fingerprint.ToImmutableArray(),
+            CanonicalResult = bytes.ToImmutableArray(),
+            Accounting = new BaseActivationAccounting
+            {
+                Candidates = 1, Comparisons = 1, IndexOperations = 1, ReadIntervals = 0,
+                EvidenceBytes = bytes.LongLength, TransientBytes = bytes.LongLength,
+            },
+        });
+    }
+
     private async ValueTask<(bool Found, OperationResult<T> Result)> ReadActivationReceiptAsync<T>(
         SqliteConnection connection, SqliteTransaction transaction, BaseMutationRequestIdentity identity,
         string kind, JsonTypeInfo<T> typeInfo, Func<T, T> duplicate, CancellationToken cancellationToken)

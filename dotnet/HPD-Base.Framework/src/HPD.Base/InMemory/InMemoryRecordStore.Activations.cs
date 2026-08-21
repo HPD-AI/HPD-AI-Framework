@@ -902,6 +902,64 @@ internal sealed partial class InMemoryRecordStore
         row.EffectiveDueAt < boundary.EffectiveDueAt || row.EffectiveDueAt == boundary.EffectiveDueAt &&
         string.CompareOrdinal(row.Payload.ActivationId, boundary.ActivationId) <= 0;
 
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseActivationReceiptResolution>> ResolveReceiptAsync(
+        BaseActivationReceiptResolutionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!AcceptActivationTime(request.AcceptedTime) || !ValidateLimits(request.Limits))
+            return ActivationFailure<BaseActivationReceiptResolution>(
+                "base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            InMemoryStoreState state = Volatile.Read(ref _publishedState);
+            if (!state.ActivationReceipts.TryGetValue(
+                    ActivationReceiptKey(request.Identity), out InMemoryActivationReceiptRow? receipt))
+                return ActivationFailure<BaseActivationReceiptResolution>(
+                    "base.activation.receiptNotFound", OperationStatus.NotFound, ErrorCategory.NotFound);
+            if (!CryptographicOperations.FixedTimeEquals(
+                    receipt.Fingerprint, request.Identity.Fingerprint.ToArray()))
+                return ActivationFailure<BaseActivationReceiptResolution>(
+                    "base.activation.fingerprintConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+            byte[] bytes = receipt.Result.ToArray();
+            if (receipt.Kind == "activation-claimed")
+            {
+                BaseActivationClaimResult? stored = JsonSerializer.Deserialize(
+                    bytes, HPDBaseJsonSerializerContext.Default.BaseActivationClaimResult);
+                if (stored is null)
+                    return ActivationFailure<BaseActivationReceiptResolution>(
+                        "base.activation.receiptCorrupt", OperationStatus.StoreError, ErrorCategory.Store);
+                OperationResult<BaseActivationClaimResult> resolved = ResolveClaimReplay(
+                    state, OperationResults.Ok(stored), request.AcceptedTime.CapturedUtc);
+                if (!resolved.IsSuccess() || resolved.Value is null)
+                    return ActivationFailure<BaseActivationReceiptResolution>(
+                        resolved.Error?.Code ?? "base.activation.receiptCorrupt", resolved.Status,
+                        resolved.Error?.Category ?? ErrorCategory.Store);
+                bytes = JsonSerializer.SerializeToUtf8Bytes(
+                    resolved.Value, HPDBaseJsonSerializerContext.Default.BaseActivationClaimResult);
+            }
+            if (bytes.LongLength > request.Limits.MaximumResultBytes
+                || bytes.LongLength > request.Limits.MaximumEvidenceBytes
+                || bytes.LongLength > request.Limits.MaximumTransientBytes)
+                return ActivationFailure<BaseActivationReceiptResolution>(
+                    "base.activation.budgetExceeded", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+            return OperationResults.Ok(new BaseActivationReceiptResolution
+            {
+                OperationKind = new string(receipt.Kind.AsSpan()),
+                Fingerprint = receipt.Fingerprint.ToArray().ToImmutableArray(),
+                CanonicalResult = bytes.ToImmutableArray(),
+                Accounting = EmptyActivationAccounting with
+                {
+                    Candidates = 1, Comparisons = 1,
+                    EvidenceBytes = bytes.LongLength, TransientBytes = bytes.LongLength,
+                },
+            });
+        }
+        finally { _stateGate.Release(); }
+    }
+
     private static bool TryReadActivationReceipt<T>(InMemoryStoreState state, BaseMutationRequestIdentity identity,
         string kind, JsonTypeInfo<T> typeInfo, Func<T, T> duplicate, out OperationResult<T> result)
     {

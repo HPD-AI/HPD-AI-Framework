@@ -477,7 +477,7 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
         return result.Outcome switch
         {
             BaseActivationProviderCallOutcome.Completed when result.Value is not null => result.Value,
-            BaseActivationProviderCallOutcome.Cancelled => Failure<T>(OperationStatus.Cancelled, "base.activation.cancelled", ErrorCategory.Store),
+            BaseActivationProviderCallOutcome.Cancelled => Failure<T>(OperationStatus.StoreError, "base.activation.cancelled", ErrorCategory.Store),
             BaseActivationProviderCallOutcome.TimedOut => Failure<T>(OperationStatus.StoreError, "base.activation.timeout", ErrorCategory.Store),
             BaseActivationProviderCallOutcome.Capacity => Failure<T>(OperationStatus.StoreError, "base.activation.quarantined", ErrorCategory.Store),
             _ => Failure<T>(OperationStatus.StoreError, "base.activation.storeError", ErrorCategory.Store),
