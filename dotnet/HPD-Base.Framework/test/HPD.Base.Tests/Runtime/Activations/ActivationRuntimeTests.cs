@@ -25,6 +25,41 @@ public sealed partial class ActivationRuntimeTests
     }
 
     [Fact]
+    public async Task Handler_context_publishes_replacement_lease_and_bounds_renewal()
+    {
+        var claim = new BaseActivationClaimAuthority
+        {
+            ActivationId = "activation", AttemptNumber = 1, ClaimEpoch = 1,
+            FencingToken = new byte[32].ToImmutableArray(), WorkerIdentity = "worker",
+            CancellationGeneration = 0, StoreInstanceId = "store", RestoreEpoch = 1,
+            DefinitionChecksum = new byte[32].ToImmutableArray(),
+        };
+        var initial = new BaseActivationLeaseObservation
+        { Revision = 1, ExpiresAt = 100, Checksum = new byte[32].ToImmutableArray() };
+        var replacement = initial with { Revision = 2, ExpiresAt = 200 };
+        var context = new BaseActivationContext(
+            new BaseActivationDefinitionKey { Id = "definition", Version = 1, Checksum = new byte[32].ToImmutableArray() },
+            claim, initial, null, 0, 0, 1,
+            (_, _) => ValueTask.FromResult(OperationResults.Ok(new BaseActivationRenewResult
+            {
+                Claim = claim, Lease = replacement, Accounting = new BaseActivationAccounting
+                {
+                    Candidates = 1, Comparisons = 1, IndexOperations = 1, ReadIntervals = 0,
+                    EvidenceBytes = 1, TransientBytes = 1,
+                },
+                Disposition = BaseMutationRequestDisposition.Committed,
+            })),
+            CancellationToken.None, 1);
+
+        OperationResult<BaseActivationLeaseObservation> renewed = await context.RenewAsync();
+        OperationResult<BaseActivationLeaseObservation> exceeded = await context.RenewAsync();
+
+        renewed.Value!.Revision.Should().Be(2);
+        context.Lease.Revision.Should().Be(2);
+        exceeded.Error!.Code.Should().Be("base.activation.budgetExceeded");
+    }
+
+    [Fact]
     public void Transactional_activation_is_handler_free_and_target_bound()
     {
         BaseActivationDefinition worker = Registration().Definition;

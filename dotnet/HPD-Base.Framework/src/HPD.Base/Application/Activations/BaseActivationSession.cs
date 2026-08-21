@@ -286,6 +286,17 @@ public sealed class BaseInstalledActivationWorkerHandle<TInput, TResult>
                 delivery.OccurrenceId,
                 delivery.RequestedDueAt,
                 delivery.EffectiveDueAt,
+                _definition.Limits.MaximumRenewalsPerAttempt,
+                (lease, renewCancellation) => _runtime.RenewAsync(
+                    _session,
+                    _definition,
+                    delivery.Claim,
+                    lease,
+                    Identity(
+                        "renew",
+                        delivery.Claim.FencingToken.AsSpan(),
+                        lease.Revision.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                    renewCancellation),
                 token,
                 _definition.Limits.MaximumChildrenPerAttempt), delivery.Input, token).AsTask(),
             _definition.Limits.HandlerTimeout,

@@ -178,7 +178,11 @@ public interface IBaseActivationHandler<TInput, TResult>
 public sealed class BaseActivationContext
 {
     private readonly int _maximumChildren;
+    private readonly int _maximumRenewals;
+    private readonly Func<BaseActivationLeaseObservation, CancellationToken, ValueTask<OperationResult<BaseActivationRenewResult>>> _renew;
+    private readonly SemaphoreSlim _renewalLock = new(1, 1);
     private readonly HashSet<(string StepId, int Ordinal)> _children = [];
+    private int _renewals;
 
     internal BaseActivationContext(
         BaseActivationDefinitionKey definition,
@@ -187,6 +191,8 @@ public sealed class BaseActivationContext
         string? occurrenceId,
         long requestedDueAt,
         long effectiveDueAt,
+        int maximumRenewals,
+        Func<BaseActivationLeaseObservation, CancellationToken, ValueTask<OperationResult<BaseActivationRenewResult>>> renew,
         CancellationToken cancellationToken,
         int maximumChildren)
     {
@@ -196,6 +202,8 @@ public sealed class BaseActivationContext
         OccurrenceId = occurrenceId;
         RequestedDueAt = requestedDueAt;
         EffectiveDueAt = effectiveDueAt;
+        _maximumRenewals = maximumRenewals;
+        _renew = renew;
         CancellationToken = cancellationToken;
         _maximumChildren = maximumChildren;
     }
@@ -214,6 +222,53 @@ public sealed class BaseActivationContext
     public long EffectiveDueAt { get; }
     /// <summary>Gets the cancellation signal for cooperative handler work.</summary>
     public CancellationToken CancellationToken { get; }
+
+    /// <summary>Renews the current lease and atomically publishes its replacement observation.</summary>
+    public async ValueTask<OperationResult<BaseActivationLeaseObservation>> RenewAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await _renewalLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_renewals >= _maximumRenewals)
+                return new OperationResult<BaseActivationLeaseObservation>
+                {
+                    Status = OperationStatus.ValidationFailed,
+                    Error = new BaseError
+                    {
+                        Code = "base.activation.budgetExceeded",
+                        Message = "The activation renewal limit was exceeded.",
+                        Category = ErrorCategory.Validation,
+                    },
+                };
+            OperationResult<BaseActivationRenewResult> renewed = await _renew(Lease, cancellationToken).ConfigureAwait(false);
+            if (!renewed.IsSuccess() || renewed.Value is null)
+                return new OperationResult<BaseActivationLeaseObservation>
+                {
+                    Status = renewed.Status, Error = renewed.Error,
+                    Warnings = renewed.Warnings, Diagnostics = renewed.Diagnostics,
+                };
+            if (!ReferenceEquals(renewed.Value.Claim, Claim)
+                && (renewed.Value.Claim.ActivationId != Claim.ActivationId
+                    || renewed.Value.Claim.ClaimEpoch != Claim.ClaimEpoch
+                    || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                        renewed.Value.Claim.FencingToken.AsSpan(), Claim.FencingToken.AsSpan())))
+                return new OperationResult<BaseActivationLeaseObservation>
+                {
+                    Status = OperationStatus.StoreError,
+                    Error = new BaseError
+                    {
+                        Code = "base.activation.providerContractInvalid",
+                        Message = "The provider returned invalid renewal authority.",
+                        Category = ErrorCategory.Store,
+                    },
+                };
+            Lease = renewed.Value.Lease;
+            _renewals = checked(_renewals + 1);
+            return OperationResults.Ok(Lease);
+        }
+        finally { _renewalLock.Release(); }
+    }
 
     /// <summary>Derives one deterministic child request identity without minting a fence.</summary>
     public BaseMutationRequestIdentity DeriveChildIdentity(string stepId, int childOrdinal, BaseMutationRequestFingerprint fingerprint)
