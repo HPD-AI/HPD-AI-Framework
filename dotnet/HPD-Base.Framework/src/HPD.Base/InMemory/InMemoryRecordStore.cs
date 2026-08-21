@@ -4128,6 +4128,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 Generations = generations,
                 Activations = provisionalActivations,
                 ActivationGuard = prepared.ActivationGuard,
+                SubjectRetirement = appliedRetirement,
+                Text = BaseTextAtomicMutationContract.Apply(plan.Text, materialized, prepared.Text?.Indexes ?? []),
                 Accounting = new BaseProvisionalAtomicMutationAccounting
                 {
                     WrittenBytes = writtenBytes,
@@ -4140,12 +4142,12 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     ReadIntervals = prepared.ReadIntervals.Length,
                     SelectedBytes = prepared.Accounting.SelectedBytes,
                     EvidenceBytes = prepared.Accounting.EvidenceBytes,
-                    RetirementBarrierReads = 0,
-                    RetirementAcknowledgementReads = 0,
-                    RetirementProjections = 0,
-                    RetirementEvidenceBytes = 0,
-                    RetirementPublications = 0,
-                    RetirementPublicationBytes = 0,
+                    RetirementBarrierReads = prepared.Accounting.RetirementBarrierReads,
+                    RetirementAcknowledgementReads = prepared.Accounting.RetirementAcknowledgementReads,
+                    RetirementProjections = prepared.Accounting.RetirementProjections,
+                    RetirementEvidenceBytes = prepared.Accounting.RetirementEvidenceBytes,
+                    RetirementPublications = prepared.SubjectRetirement?.Items.Length ?? 0,
+                    RetirementPublicationBytes = retirementPublicationBytes,
                     TransientBytes = transient,
                 },
             };
