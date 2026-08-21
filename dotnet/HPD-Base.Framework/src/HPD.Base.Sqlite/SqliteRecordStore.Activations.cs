@@ -12,6 +12,54 @@ namespace HPD.Base.Sqlite;
 
 public sealed partial class SqliteRecordStore
 {
+    private async ValueTask TransformRestoredActivationAuthoritiesAsync(
+        SqliteConnection connection, long restoreEpoch, CancellationToken cancellationToken)
+    {
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        long acceptedNow;
+        await using (SqliteCommand time = connection.CreateCommand())
+        {
+            time.Transaction = transaction;
+            time.CommandText = $"SELECT COALESCE(CAST(value AS INTEGER),0) FROM {_names.ProviderState} WHERE key='activation_accepted_utc';";
+            acceptedNow = Convert.ToInt64(await time.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
+        }
+        var claimed = new List<(string Id, long Generation)>();
+        await using (SqliteCommand read = connection.CreateCommand())
+        {
+            read.Transaction = transaction;
+            read.CommandText = $"SELECT activation_id,generation FROM {_names.Activations} WHERE state=$claimed ORDER BY activation_id;";
+            read.Parameters.AddWithValue("$claimed", (int)BaseActivationState.Claimed);
+            await using SqliteDataReader reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) claimed.Add((reader.GetString(0), reader.GetInt64(1)));
+        }
+        foreach ((string id, long prior) in claimed)
+        {
+            long generation = checked(prior + 1);
+            await using SqliteCommand recover = connection.CreateCommand(); recover.Transaction = transaction;
+            recover.CommandText = $"UPDATE {_names.Activations} SET state=$retry,generation=$generation,claim_fence=NULL,claim_worker=NULL,lease_revision=NULL,lease_expires_at=NULL,effective_due_at=$now,eligible=1,control_checksum=$checksum WHERE activation_id=$id AND generation=$prior AND state=$claimed;";
+            recover.Parameters.AddWithValue("$retry", (int)BaseActivationState.RetryPending); recover.Parameters.AddWithValue("$generation", generation);
+            recover.Parameters.AddWithValue("$now", acceptedNow); recover.Parameters.Add("$checksum", SqliteType.Blob).Value = ActivationControlChecksum(id, generation, BaseActivationState.RetryPending);
+            recover.Parameters.AddWithValue("$id", id); recover.Parameters.AddWithValue("$prior", prior); recover.Parameters.AddWithValue("$claimed", (int)BaseActivationState.Claimed);
+            if (await recover.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1) throw new InvalidDataException("base.activation.restoreConflict");
+        }
+        await using (SqliteCommand executors = connection.CreateCommand())
+        {
+            executors.Transaction = transaction;
+            executors.CommandText = $"UPDATE {_names.Executors} SET retired=1,heartbeat_expires_at=MIN(heartbeat_expires_at,$now) WHERE retired=0;";
+            executors.Parameters.AddWithValue("$now", acceptedNow);
+            await executors.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        await using (SqliteCommand effects = connection.CreateCommand())
+        {
+            effects.Transaction = transaction;
+            effects.CommandText = $"UPDATE {_names.ActivationEffects} SET heartbeat_expires_at=MIN(heartbeat_expires_at,$now);";
+            effects.Parameters.AddWithValue("$now", acceptedNow);
+            await effects.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        if (claimed.Count != 0) await IncrementActivationGenerationAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     private static readonly BaseActivationProviderDescriptor ActivationDescriptor = new()
     {
         ProviderId = "hpd.base.sqlite.activations",

@@ -14,6 +14,44 @@ namespace HPD.Base.Sqlite.Tests.Storage;
 public sealed class SqliteAdministrationTests
 {
     [Fact]
+    public async Task Restore_fences_claims_and_recovers_them_to_retry_authority()
+    {
+        string path = Path.Combine(AdministrationTempDirectory(), $"hpd-base-admin-activation-restore-{Guid.NewGuid():N}.db");
+        using BaseOpaqueTokenProtector protector = Protector(6, Enumerable.Repeat((byte)0x36, 32).ToArray());
+        try
+        {
+            await using SqliteRecordStore store = Store(path, protector);
+            string zeros = new('0', 64);
+            ExecuteSql(path, $"""
+                INSERT INTO hpd_base_activations(
+                  activation_id,definition_id,definition_version,definition_checksum,canonical_input,input_checksum,
+                  scope_kind,scope_value,scope_digest,payload_checksum,fingerprint,state,generation,requested_due_at,
+                  effective_due_at,priority,overlap_policy,eligible,control_checksum,attempt_number,claim_epoch,
+                  claim_fence,claim_worker,lease_revision,lease_expires_at)
+                VALUES('restore-claim','definition',1,X'{zeros}',X'',X'{zeros}',0,'',X'{zeros}',X'{zeros}',X'{zeros}',
+                  {(int)BaseActivationState.Claimed},2,1,1,0,0,1,X'{zeros}',1,1,X'{zeros}','worker',1,9999999999999);
+                """);
+            var destination = new MemoryStream();
+            BaseBackupManifest manifest = (await store.CreateBackupAsync(destination, BackupRequest())).Value!;
+            OperationResult<BaseRestoreResult> restored = await store.RestoreAsync(
+                new MemoryStream(destination.ToArray()), RestoreRequest(manifest));
+            restored.IsSuccess().Should().BeTrue(restored.Error?.Code);
+
+            using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path};Pooling=False");
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT state,generation,claim_fence,claim_worker,lease_revision,lease_expires_at FROM hpd_base_activations WHERE activation_id='restore-claim';";
+            using Microsoft.Data.Sqlite.SqliteDataReader reader = command.ExecuteReader();
+            reader.Read().Should().BeTrue();
+            reader.GetInt32(0).Should().Be((int)BaseActivationState.RetryPending);
+            reader.GetInt64(1).Should().Be(3);
+            reader.IsDBNull(2).Should().BeTrue(); reader.IsDBNull(3).Should().BeTrue();
+            reader.IsDBNull(4).Should().BeTrue(); reader.IsDBNull(5).Should().BeTrue();
+        }
+        finally { Cleanup(path); }
+    }
+
+    [Fact]
     public async Task ArtifactValidationDistinguishesRetainedUnknownOversizedAndTruncatedInputs()
     {
         string path = Path.Combine(AdministrationTempDirectory(), $"hpd-base-admin-{Guid.NewGuid():N}.db");
