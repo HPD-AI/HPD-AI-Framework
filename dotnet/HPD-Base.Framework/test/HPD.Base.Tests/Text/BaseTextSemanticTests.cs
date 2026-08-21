@@ -9,6 +9,26 @@ namespace HPD.Base.Tests.Text;
 
 public sealed class BaseTextSemanticTests
 {
+    public static TheoryData<string> TextLimitNames => new()
+    {
+        nameof(BaseTextExecutionLimits.MaximumQueryNodes), nameof(BaseTextExecutionLimits.MaximumQueryDepth), nameof(BaseTextExecutionLimits.MaximumPhraseTerms), nameof(BaseTextExecutionLimits.MaximumQueryBytes),
+        nameof(BaseTextExecutionLimits.MaximumFilterNodes), nameof(BaseTextExecutionLimits.MaximumFilterDepth), nameof(BaseTextExecutionLimits.MaximumFilterLiterals), nameof(BaseTextExecutionLimits.MaximumInValues),
+        nameof(BaseTextExecutionLimits.MaximumPrefixExpansions), nameof(BaseTextExecutionLimits.MaximumPrefixExpansionBytes), nameof(BaseTextExecutionLimits.MaximumSecondaryOrderFields), nameof(BaseTextExecutionLimits.MaximumOrderingBytes),
+        nameof(BaseTextExecutionLimits.MaximumCandidates), nameof(BaseTextExecutionLimits.MaximumScoreProofBytes), nameof(BaseTextExecutionLimits.MaximumTokensPerField), nameof(BaseTextExecutionLimits.MaximumNormalizedBytesPerField),
+        nameof(BaseTextExecutionLimits.MaximumNormalizedBytesPerRecord), nameof(BaseTextExecutionLimits.MaximumResults), nameof(BaseTextExecutionLimits.MaximumResultBytes), nameof(BaseTextExecutionLimits.MaximumCursorBytes),
+        nameof(BaseTextExecutionLimits.MaximumStatementParameters), nameof(BaseTextExecutionLimits.MaximumTransientBytes), nameof(BaseTextExecutionLimits.QueryTimeout), nameof(BaseTextExecutionLimits.ConsistencyWaitTimeout),
+    };
+
+    [Theory]
+    [MemberData(nameof(TextLimitNames))]
+    public void Every_text_platform_limit_accepts_the_exact_ceiling_and_rejects_plus_one(string member)
+    {
+        BaseTextIndexDefinition definition = BaseTextCertificationSchemaRecord.TextIndexes.Content.Definition;
+        BaseTextExecutionLimits exact = BaseTextPlatform.DefaultLimits;
+        Assert.NotEmpty(BaseTextIndexContract.Seal(definition with { Limits = SetLimit(exact, member, false), DefinitionChecksum = [] }).DefinitionChecksum);
+        Assert.Throws<InvalidOperationException>(() => BaseTextIndexContract.Seal(definition with { Limits = SetLimit(exact, member, true), DefinitionChecksum = [] }));
+    }
+
     [Fact]
     public async Task Noncooperative_provider_work_is_bounded_quarantined_and_released()
     {
@@ -160,6 +180,35 @@ public sealed class BaseTextSemanticTests
             await Task.Delay(10);
         }
     }
+
+    private static BaseTextExecutionLimits SetLimit(BaseTextExecutionLimits value, string member, bool plusOne) => member switch
+    {
+        nameof(value.MaximumQueryNodes) => value with { MaximumQueryNodes = value.MaximumQueryNodes + (plusOne ? 1 : 0) },
+        nameof(value.MaximumQueryDepth) => value with { MaximumQueryDepth = value.MaximumQueryDepth + (plusOne ? 1 : 0) },
+        nameof(value.MaximumPhraseTerms) => value with { MaximumPhraseTerms = value.MaximumPhraseTerms + (plusOne ? 1 : 0) },
+        nameof(value.MaximumQueryBytes) => value with { MaximumQueryBytes = value.MaximumQueryBytes + (plusOne ? 1 : 0) },
+        nameof(value.MaximumFilterNodes) => value with { MaximumFilterNodes = value.MaximumFilterNodes + (plusOne ? 1 : 0) },
+        nameof(value.MaximumFilterDepth) => value with { MaximumFilterDepth = value.MaximumFilterDepth + (plusOne ? 1 : 0) },
+        nameof(value.MaximumFilterLiterals) => value with { MaximumFilterLiterals = value.MaximumFilterLiterals + (plusOne ? 1 : 0) },
+        nameof(value.MaximumInValues) => value with { MaximumInValues = value.MaximumInValues + (plusOne ? 1 : 0) },
+        nameof(value.MaximumPrefixExpansions) => value with { MaximumPrefixExpansions = value.MaximumPrefixExpansions + (plusOne ? 1 : 0) },
+        nameof(value.MaximumPrefixExpansionBytes) => value with { MaximumPrefixExpansionBytes = value.MaximumPrefixExpansionBytes + (plusOne ? 1 : 0) },
+        nameof(value.MaximumSecondaryOrderFields) => value with { MaximumSecondaryOrderFields = value.MaximumSecondaryOrderFields + (plusOne ? 1 : 0) },
+        nameof(value.MaximumOrderingBytes) => value with { MaximumOrderingBytes = value.MaximumOrderingBytes + (plusOne ? 1 : 0) },
+        nameof(value.MaximumCandidates) => value with { MaximumCandidates = value.MaximumCandidates + (plusOne ? 1 : 0) },
+        nameof(value.MaximumScoreProofBytes) => value with { MaximumScoreProofBytes = value.MaximumScoreProofBytes + (plusOne ? 1 : 0) },
+        nameof(value.MaximumTokensPerField) => value with { MaximumTokensPerField = value.MaximumTokensPerField + (plusOne ? 1 : 0) },
+        nameof(value.MaximumNormalizedBytesPerField) => value with { MaximumNormalizedBytesPerField = value.MaximumNormalizedBytesPerField + (plusOne ? 1 : 0) },
+        nameof(value.MaximumNormalizedBytesPerRecord) => value with { MaximumNormalizedBytesPerRecord = value.MaximumNormalizedBytesPerRecord + (plusOne ? 1 : 0) },
+        nameof(value.MaximumResults) => value with { MaximumResults = value.MaximumResults + (plusOne ? 1 : 0), MaximumCandidates = value.MaximumCandidates + (plusOne ? 1 : 0) },
+        nameof(value.MaximumResultBytes) => value with { MaximumResultBytes = value.MaximumResultBytes + (plusOne ? 1 : 0) },
+        nameof(value.MaximumCursorBytes) => value with { MaximumCursorBytes = value.MaximumCursorBytes + (plusOne ? 1 : 0) },
+        nameof(value.MaximumStatementParameters) => value with { MaximumStatementParameters = value.MaximumStatementParameters + (plusOne ? 1 : 0) },
+        nameof(value.MaximumTransientBytes) => value with { MaximumTransientBytes = value.MaximumTransientBytes + (plusOne ? 1 : 0) },
+        nameof(value.QueryTimeout) => value with { QueryTimeout = value.QueryTimeout + (plusOne ? TimeSpan.FromTicks(1) : TimeSpan.Zero) },
+        nameof(value.ConsistencyWaitTimeout) => value with { ConsistencyWaitTimeout = value.ConsistencyWaitTimeout + (plusOne ? TimeSpan.FromTicks(1) : TimeSpan.Zero) },
+        _ => throw new ArgumentOutOfRangeException(nameof(member)),
+    };
 
     [Fact]
     public void Analyzer_applies_compatibility_normalization_and_full_case_folding()
