@@ -57,6 +57,72 @@ public sealed partial class SqliteModuleMutationTests
     }
 
     [Fact]
+    public async Task Activation_due_claim_renew_and_completion_are_transactional_and_persistent()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-l51-claim-{Guid.NewGuid():N}.db");
+        try
+        {
+            BaseAtomicMutationExecutionLimits mutationLimits = ExecutionLimits();
+            BaseActivationExecutionLimits limits = ActivationLimits();
+            BaseOwnedScopeSeekAuthority scope = ActivationScope();
+            BaseActivationDefinitionKey definition = ActivationDefinition();
+            await using (SqliteRecordStore store = Store(path))
+            {
+                BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync(
+                    "activation.application", [], mutationLimits, default)).Value!;
+                var creation = new ActivationCreationProbe(authority, mutationLimits);
+                (await store.ExecuteAtomicAsync(creation, ExecutionRequest())).Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+
+                BaseActivationDueObservation observed = (await store.ObserveDueAsync(new BaseActivationDueObservationRequest
+                {
+                    ApplicationId = "activation-test", WorkerModuleId = "test", Definitions = [definition], Scope = scope,
+                    AcceptedTime = AcceptedTime(10), MaximumCandidates = 8, Limits = limits,
+                })).Value!;
+                var worker = new BaseActivationWorkerAuthority
+                {
+                    ApplicationId = "activation-test", ModuleId = "test", WorkerIdentity = "worker-1",
+                    Definitions = [definition], Scope = scope, Checksum = new byte[32].ToImmutableArray(),
+                };
+                var claimed = (BaseActivationClaimedResult)(await store.TryClaimNextAsync(new BaseActivationClaimRequest
+                {
+                    Observation = observed.Token, Worker = worker, AcceptedTime = AcceptedTime(10), LeaseMilliseconds = 1_000,
+                    Identity = ActivationIdentity("claim"), Limits = limits,
+                })).Value!;
+                BaseActivationRenewResult renewed = (await store.RenewAsync(new BaseActivationRenewRequest
+                {
+                    Claim = claimed.Claim, ExpectedLeaseRevision = 1, AcceptedTime = AcceptedTime(20), ExtensionMilliseconds = 2_000,
+                    Identity = ActivationIdentity("renew"), Limits = limits,
+                })).Value!;
+                renewed.Claim.FencingToken.Should().Equal(claimed.Claim.FencingToken);
+                renewed.Lease.LeaseRevision.Should().Be(2);
+                byte[] result = "done"u8.ToArray();
+                BaseActivationTransitionResult completed = (await store.TransitionAsync(new BaseActivationCompleteRequest
+                {
+                    ActivationId = claimed.Claim.ActivationId, Claim = claimed.Claim,
+                    CanonicalResult = result.ToImmutableArray(), ResultChecksum = System.Security.Cryptography.SHA256.HashData(result).ToImmutableArray(),
+                    AcceptedTime = AcceptedTime(30), Identity = ActivationIdentity("complete"), Limits = limits,
+                })).Value!;
+                completed.State.Should().Be(BaseActivationState.Succeeded);
+            }
+
+            await using (SqliteRecordStore reopened = Store(path))
+            {
+                BaseActivationDueObservation terminal = (await reopened.ObserveDueAsync(new BaseActivationDueObservationRequest
+                {
+                    ApplicationId = "activation-test", WorkerModuleId = "test", Definitions = [definition], Scope = scope,
+                    AcceptedTime = AcceptedTime(40), MaximumCandidates = 8, Limits = limits,
+                })).Value!;
+                terminal.Earliest.Should().BeNull();
+            }
+        }
+        finally
+        {
+            foreach (string suffix in new[] { "", "-wal", "-shm" })
+                if (File.Exists(path + suffix)) File.Delete(path + suffix);
+        }
+    }
+
+    [Fact]
     public async Task Generation_operation_commits_replays_and_survives_restart()
     {
         string path = Path.Combine(Path.GetTempPath(), $"hpd-base-l50-{Guid.NewGuid():N}.db");
@@ -450,6 +516,32 @@ public sealed partial class SqliteModuleMutationTests
         AcquisitionTimeout = TimeSpan.FromSeconds(5), TransactionTimeout = TimeSpan.FromSeconds(5),
         CommitCompletionTimeout = TimeSpan.FromSeconds(5),
     };
+
+    private static BaseActivationExecutionLimits ActivationLimits() => new()
+    {
+        MaximumCandidates = 8, MaximumInputBytes = 4096, MaximumResultBytes = 4096,
+        MaximumEvidenceBytes = 4096, MaximumTransientBytes = 16384,
+        MaximumReadIntervals = 8, MaximumIndexOperations = 16,
+        AcquisitionTimeout = TimeSpan.FromSeconds(5), TransactionTimeout = TimeSpan.FromSeconds(5),
+        CommitObservationTimeout = TimeSpan.FromSeconds(5), ReceiptResolutionTimeout = TimeSpan.FromSeconds(5),
+    };
+
+    private static BaseAcceptedTimeReceipt AcceptedTime(long milliseconds) => new(
+        "activation-test", 1, milliseconds, milliseconds, milliseconds + 1, 1_000, new byte[32]);
+
+    private static BaseActivationDefinitionKey ActivationDefinition() => new()
+    { Id = "test.activation", Version = 1, Checksum = new byte[32].ToImmutableArray() };
+
+    private static BaseOwnedScopeSeekAuthority ActivationScope() => new()
+    {
+        Kind = BaseSubjectScopeKind.Global,
+        ProtectedIndexDigest = System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes($"base.activation.scope.v2\0{(int)BaseSubjectScopeKind.Global}\n")).ToImmutableArray(),
+    };
+
+    private static BaseMutationRequestIdentity ActivationIdentity(string id) =>
+        BaseMutationRequestIdentity.Create(
+            "activation-test", "activation", id, BaseMutationRequestFingerprint.Create(new byte[32]));
 
     private sealed class PreparedPlanProbe(
         BaseAtomicMutationAuthorityRequirement authority,

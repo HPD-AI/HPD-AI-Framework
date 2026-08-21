@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS {_names.ProviderState} (
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('restore_epoch', '0');
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('subject_lifecycle_delivery_epoch', '1');
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('subject_retirement_position', '0');
-INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('subject_retirement_position', '0');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_generation', '0');
 CREATE TABLE IF NOT EXISTS {_names.SchemaIdentity} (
   singleton INTEGER NOT NULL PRIMARY KEY CHECK (singleton = 1),
   store_instance_id TEXT NOT NULL
@@ -254,14 +254,25 @@ CREATE TABLE IF NOT EXISTS {_names.Activations} (
   definition_checksum BLOB NOT NULL CHECK(length(definition_checksum) = 32),
   canonical_input BLOB NOT NULL,
   input_checksum BLOB NOT NULL CHECK(length(input_checksum) = 32),
+  scope_kind INTEGER NOT NULL,
+  scope_value TEXT NOT NULL,
+  scope_digest BLOB NOT NULL CHECK(length(scope_digest) = 32),
   payload_checksum BLOB NOT NULL CHECK(length(payload_checksum) = 32),
   fingerprint BLOB NOT NULL CHECK(length(fingerprint) = 32),
   state INTEGER NOT NULL,
   generation INTEGER NOT NULL CHECK(generation > 0),
   requested_due_at INTEGER NOT NULL CHECK(requested_due_at >= 0),
   effective_due_at INTEGER NOT NULL CHECK(effective_due_at >= 0),
-  control_checksum BLOB NOT NULL CHECK(length(control_checksum) = 32)
+  control_checksum BLOB NOT NULL CHECK(length(control_checksum) = 32),
+  attempt_number INTEGER NOT NULL DEFAULT 0 CHECK(attempt_number >= 0),
+  claim_epoch INTEGER NOT NULL DEFAULT 0 CHECK(claim_epoch >= 0),
+  claim_fence BLOB NULL,
+  claim_worker TEXT NULL,
+  lease_revision INTEGER NULL,
+  lease_expires_at INTEGER NULL,
+  canonical_result BLOB NULL
 ) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS {_names.Prefix}activation_due_idx ON {_names.Activations}(scope_kind,scope_digest,state,effective_due_at,activation_id);
 CREATE TABLE IF NOT EXISTS {_names.ModuleMutationDefinitions} (
   operation_id TEXT NOT NULL, operation_version INTEGER NOT NULL CHECK(operation_version > 0),
   owning_module_id TEXT NOT NULL, operation_checksum TEXT NOT NULL CHECK(length(operation_checksum)=64),
@@ -360,6 +371,7 @@ CREATE TABLE IF NOT EXISTS {_names.ProviderState} (
 );
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('restore_epoch', '0');
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('subject_lifecycle_delivery_epoch', '1');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_generation', '0');
 """, cancellationToken).ConfigureAwait(false);
 
         await ExecuteAsync(connection, $"""
@@ -568,14 +580,25 @@ CREATE TABLE IF NOT EXISTS {_names.Activations} (
   definition_checksum BLOB NOT NULL CHECK(length(definition_checksum) = 32),
   canonical_input BLOB NOT NULL,
   input_checksum BLOB NOT NULL CHECK(length(input_checksum) = 32),
+  scope_kind INTEGER NOT NULL,
+  scope_value TEXT NOT NULL,
+  scope_digest BLOB NOT NULL CHECK(length(scope_digest) = 32),
   payload_checksum BLOB NOT NULL CHECK(length(payload_checksum) = 32),
   fingerprint BLOB NOT NULL CHECK(length(fingerprint) = 32),
   state INTEGER NOT NULL,
   generation INTEGER NOT NULL CHECK(generation > 0),
   requested_due_at INTEGER NOT NULL CHECK(requested_due_at >= 0),
   effective_due_at INTEGER NOT NULL CHECK(effective_due_at >= 0),
-  control_checksum BLOB NOT NULL CHECK(length(control_checksum) = 32)
+  control_checksum BLOB NOT NULL CHECK(length(control_checksum) = 32),
+  attempt_number INTEGER NOT NULL DEFAULT 0 CHECK(attempt_number >= 0),
+  claim_epoch INTEGER NOT NULL DEFAULT 0 CHECK(claim_epoch >= 0),
+  claim_fence BLOB NULL,
+  claim_worker TEXT NULL,
+  lease_revision INTEGER NULL,
+  lease_expires_at INTEGER NULL,
+  canonical_result BLOB NULL
 ) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS {_names.Prefix}activation_due_idx ON {_names.Activations}(scope_kind,scope_digest,state,effective_due_at,activation_id);
 CREATE TABLE IF NOT EXISTS {_names.ModuleMutationDefinitions} (
   operation_id TEXT NOT NULL, operation_version INTEGER NOT NULL CHECK(operation_version > 0),
   owning_module_id TEXT NOT NULL, operation_checksum TEXT NOT NULL CHECK(length(operation_checksum)=64),

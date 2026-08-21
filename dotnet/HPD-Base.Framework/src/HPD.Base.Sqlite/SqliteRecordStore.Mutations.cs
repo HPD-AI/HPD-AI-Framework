@@ -1792,13 +1792,17 @@ public sealed partial class SqliteRecordStore
                     {
                         await using SqliteCommand command = _connection.CreateCommand();
                         command.Transaction = _transaction;
-                        command.CommandText = $"INSERT INTO {_owner._names.Activations}(activation_id,definition_id,definition_version,definition_checksum,canonical_input,input_checksum,payload_checksum,fingerprint,state,generation,requested_due_at,effective_due_at,control_checksum) VALUES($id,$definition,$version,$definition_checksum,$input,$input_checksum,$payload_checksum,$fingerprint,$state,1,$requested,$effective,$control_checksum);";
+                        command.CommandText = $"INSERT INTO {_owner._names.Activations}(activation_id,definition_id,definition_version,definition_checksum,canonical_input,input_checksum,scope_kind,scope_value,scope_digest,payload_checksum,fingerprint,state,generation,requested_due_at,effective_due_at,control_checksum) VALUES($id,$definition,$version,$definition_checksum,$input,$input_checksum,$scope_kind,$scope_value,$scope_digest,$payload_checksum,$fingerprint,$state,1,$requested,$effective,$control_checksum);";
                         command.Parameters.AddWithValue("$id", preparedItem.ActivationId);
                         command.Parameters.AddWithValue("$definition", intentItem.Definition.Id);
                         command.Parameters.AddWithValue("$version", intentItem.Definition.Version);
                         command.Parameters.Add("$definition_checksum", SqliteType.Blob).Value = intentItem.Definition.Checksum.ToArray();
                         command.Parameters.Add("$input", SqliteType.Blob).Value = intentItem.CanonicalInput.ToArray();
                         command.Parameters.Add("$input_checksum", SqliteType.Blob).Value = intentItem.InputChecksum.ToArray();
+                        command.Parameters.AddWithValue("$scope_kind", (int)intentItem.Scope.Kind);
+                        command.Parameters.AddWithValue("$scope_value", intentItem.Scope.Value ?? string.Empty);
+                        command.Parameters.Add("$scope_digest", SqliteType.Blob).Value = SHA256.HashData(Encoding.UTF8.GetBytes(
+                            $"base.activation.scope.v2\0{(int)intentItem.Scope.Kind}\n{intentItem.Scope.Value ?? string.Empty}"));
                         command.Parameters.Add("$payload_checksum", SqliteType.Blob).Value = preparedItem.PayloadChecksum.ToArray();
                         command.Parameters.Add("$fingerprint", SqliteType.Blob).Value = fingerprint;
                         command.Parameters.AddWithValue("$state", (int)BaseActivationState.Pending);
@@ -1806,6 +1810,11 @@ public sealed partial class SqliteRecordStore
                         command.Parameters.AddWithValue("$effective", intentItem.EffectiveDueAt ?? intentItem.RequestedDueAt);
                         command.Parameters.Add("$control_checksum", SqliteType.Blob).Value = preparedItem.ControlChecksum.ToArray();
                         if (await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) != 1)
+                            return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                        await using SqliteCommand generation = _connection.CreateCommand();
+                        generation.Transaction = _transaction;
+                        generation.CommandText = $"UPDATE {_owner._names.ProviderState} SET value=CAST(CAST(value AS INTEGER)+1 AS TEXT) WHERE key='activation_generation';";
+                        if (await generation.ExecuteNonQueryAsync(token).ConfigureAwait(false) != 1)
                             return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
                         writtenBytes = checked(writtenBytes + intentItem.CanonicalInput.Length + 192L);
                     }
