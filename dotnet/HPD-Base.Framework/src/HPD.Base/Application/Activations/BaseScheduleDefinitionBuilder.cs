@@ -45,7 +45,8 @@ public static class BaseScheduleDefinitionBuilder
     }
 
     /// <summary>Returns the next nominal UTC instant strictly after the supplied boundary.</summary>
-    public static long? NextNominal(BaseScheduleExpression expression, long? after)
+    public static long? NextNominal(BaseScheduleExpression expression, long? after, BaseTimeZoneRegistry? timeZones = null,
+        BaseTimeGapPolicy gapPolicy = BaseTimeGapPolicy.Skip, BaseTimeOverlapPolicy overlapPolicy = BaseTimeOverlapPolicy.EarlierOffset)
     {
         ArgumentNullException.ThrowIfNull(expression);
         long boundary = after ?? -1;
@@ -53,8 +54,8 @@ public static class BaseScheduleDefinitionBuilder
         {
             BaseOnceSchedule once => once.At > boundary ? once.At : null,
             BaseIntervalSchedule interval => NextInterval(interval, boundary),
-            BaseCronSchedule cron when cron.TimeZoneId == "UTC" => NextCron(cron.Expression, boundary),
-            BaseCalendarSchedule calendar when calendar.TimeZoneId == "UTC" => NextCalendar(calendar, boundary),
+            BaseCronSchedule cron => NextCron(cron.Expression, cron.TimeZoneId, boundary, timeZones, gapPolicy, overlapPolicy),
+            BaseCalendarSchedule calendar => NextCalendar(calendar, boundary, timeZones, gapPolicy, overlapPolicy),
             _ => throw new InvalidOperationException("base.activation.timeZoneUnavailable"),
         };
     }
@@ -104,10 +105,11 @@ public static class BaseScheduleDefinitionBuilder
         catch (OverflowException) { return null; }
     }
 
-    private static long? NextCron(string expression, long after)
+    private static long? NextCron(string expression, string zoneId, long after, BaseTimeZoneRegistry? zones,
+        BaseTimeGapPolicy gap, BaseTimeOverlapPolicy overlap)
     {
         Cron cron = Cron.Parse(expression);
-        DateTimeOffset start = DateTimeOffset.FromUnixTimeMilliseconds(Math.Max(0, after)).ToUniversalTime();
+        DateTime start = LocalAt(zoneId, Math.Max(0, after), zones);
         for (int year = start.Year; year <= 9999; year++)
         foreach (int month in cron.Month)
         {
@@ -124,28 +126,42 @@ public static class BaseScheduleDefinitionBuilder
                 foreach (int minute in cron.Minute)
                 foreach (int second in cron.Second)
                 {
-                    long candidate = new DateTimeOffset(year, month, day, hour, minute, second, TimeSpan.Zero).ToUnixTimeMilliseconds();
-                    if (candidate > after) return candidate;
+                    DateTime local = new(year, month, day, hour, minute, second, DateTimeKind.Unspecified);
+                    long? candidate = Resolve(zoneId, local, zones, gap, overlap).FirstOrDefault(value => value > after);
+                    if (candidate is not null && candidate.Value > after) return candidate;
                 }
             }
         }
         return null;
     }
 
-    private static long? NextCalendar(BaseCalendarSchedule value, long after)
+    private static long? NextCalendar(BaseCalendarSchedule value, long after, BaseTimeZoneRegistry? zones,
+        BaseTimeGapPolicy gap, BaseTimeOverlapPolicy overlap)
     {
-        DateTimeOffset cursor = DateTimeOffset.FromUnixTimeMilliseconds(Math.Max(0, after)).ToUniversalTime();
+        DateTime cursor = LocalAt(value.TimeZoneId, Math.Max(0, after), zones);
         DateTimeOffset anchor = DateTimeOffset.UnixEpoch;
-        for (DateTime date = cursor.UtcDateTime.Date; date.Year <= 9999; date = date.AddDays(1))
+        for (DateTime date = cursor.Date; date.Year <= 9999; date = date.AddDays(1))
         {
             if (!CalendarPeriodMatches(value, anchor.UtcDateTime, date) || !CalendarSelectorMatches(value.Selector, date)) continue;
-            long candidate = new DateTimeOffset(date.Year, date.Month, date.Day, value.LocalTime.Hour, value.LocalTime.Minute,
-                value.LocalTime.Second, value.LocalTime.Millisecond, TimeSpan.Zero).ToUnixTimeMilliseconds();
-            if (candidate > after) return candidate;
+            DateTime local = new(date.Year, date.Month, date.Day, value.LocalTime.Hour, value.LocalTime.Minute,
+                value.LocalTime.Second, value.LocalTime.Millisecond, DateTimeKind.Unspecified);
+            long? candidate = Resolve(value.TimeZoneId, local, zones, gap, overlap).FirstOrDefault(item => item > after);
+            if (candidate is not null && candidate.Value > after) return candidate;
             if (date == DateTime.MaxValue.Date) break;
         }
         return null;
     }
+
+    private static DateTime LocalAt(string zoneId, long utc, BaseTimeZoneRegistry? zones) =>
+        string.Equals(zoneId, "UTC", StringComparison.Ordinal)
+            ? DateTimeOffset.FromUnixTimeMilliseconds(utc).UtcDateTime
+            : (zones ?? throw new InvalidOperationException("base.activation.timeZoneUnavailable")).LocalAt(zoneId, utc);
+
+    private static ImmutableArray<long> Resolve(string zoneId, DateTime local, BaseTimeZoneRegistry? zones,
+        BaseTimeGapPolicy gap, BaseTimeOverlapPolicy overlap) =>
+        string.Equals(zoneId, "UTC", StringComparison.Ordinal)
+            ? [new DateTimeOffset(DateTime.SpecifyKind(local, DateTimeKind.Utc)).ToUnixTimeMilliseconds()]
+            : (zones ?? throw new InvalidOperationException("base.activation.timeZoneUnavailable")).ResolveLocal(zoneId, local, gap, overlap);
 
     private static bool CalendarPeriodMatches(BaseCalendarSchedule value, DateTime anchor, DateTime date)
     {

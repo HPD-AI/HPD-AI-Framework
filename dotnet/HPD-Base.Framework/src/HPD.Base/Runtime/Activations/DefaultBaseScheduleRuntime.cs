@@ -8,7 +8,8 @@ internal sealed class DefaultBaseScheduleRuntime(
     IRecordStoreRegistry stores,
     IBasePolicyOrchestrator policy,
     BaseActivationAcceptedTimeAuthority acceptedTime,
-    BaseActivationRegistry activations) : IBaseScheduleRuntime
+    BaseActivationRegistry activations,
+    BaseTimeZoneRegistry timeZones) : IBaseScheduleRuntime
 {
     public async ValueTask<OperationResult<BaseScheduleAuthority>> ReadAsync(
         BaseSession session, BaseScheduleDefinition definition, CancellationToken cancellationToken)
@@ -36,7 +37,7 @@ internal sealed class DefaultBaseScheduleRuntime(
             Definition = BaseScheduleDefinitionBuilder.Create(definition),
             ExpectedDefinitionGeneration = expectedGeneration,
             InitialNextNominal = kind is BaseScheduleMutationKind.Create or BaseScheduleMutationKind.Update
-                ? BaseScheduleDefinitionBuilder.NextNominal(definition.Expression, null)
+                ? Next(definition, null)
                 : null,
             AcceptedTime = acceptedTime.Capture(session.ApplicationId),
             Identity = identity,
@@ -76,7 +77,7 @@ internal sealed class DefaultBaseScheduleRuntime(
         long? cursor = current.Value.LastConsideredNominal;
         while (nominal.Count < maximum)
         {
-            long? next = BaseScheduleDefinitionBuilder.NextNominal(definition.Expression, cursor);
+            long? next = Next(definition, cursor);
             if (next is null || next > time.CapturedUtc) break;
             nominal.Add(next.Value);
             cursor = next;
@@ -84,7 +85,7 @@ internal sealed class DefaultBaseScheduleRuntime(
         if (nominal.Count == 0)
             return Failure<BaseScheduleMaintenancePage>(OperationStatus.Conflict, "base.activation.scheduleConflict", ErrorCategory.Conflict);
 
-        long? following = BaseScheduleDefinitionBuilder.NextNominal(definition.Expression, nominal[^1]);
+        long? following = Next(definition, nominal[^1]);
         var proposals = ImmutableArray.CreateBuilder<BaseScheduleOccurrenceProposal>(nominal.Count);
         for (int index = 0; index < nominal.Count; index++)
         {
@@ -117,6 +118,9 @@ internal sealed class DefaultBaseScheduleRuntime(
         CryptographicOperations.FixedTimeEquals(target.Checksum.AsSpan(), definition.Activation.Checksum.AsSpan())
             ? target
             : throw new InvalidOperationException("base.activation.definitionUnavailable");
+
+    private long? Next(BaseScheduleDefinition definition, long? after) => BaseScheduleDefinitionBuilder.NextNominal(
+        definition.Expression, after, timeZones, definition.GapPolicy, definition.TimeOverlapPolicy);
 
     private static BaseScheduleOccurrenceProposal Proposal(
         BaseSession session, BaseScheduleDefinition schedule, BaseActivationDefinition target,

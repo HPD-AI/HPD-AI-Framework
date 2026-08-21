@@ -46,6 +46,7 @@ public sealed class HPDBaseBuilder
     private readonly Dictionary<(string Id, int Version), IBaseModuleMutationRegistration> _moduleMutationRegistrations = [];
     private readonly Dictionary<(string Id, int Version), IBaseActivationRegistration> _activationRegistrations = [];
     private readonly Dictionary<(string Id, int Version), BaseScheduleDefinition> _activationSchedules = [];
+    private BaseTimeZoneAuthority? _timeZoneAuthority;
     private readonly List<BaseSubjectAcquisitionDefinition> _subjectAcquisitions = [];
     private readonly List<BaseSubjectLifecycleConsumerDefinition> _subjectLifecycleConsumers = [];
     private readonly List<BaseSubjectRetirementConsumerDefinition> _subjectRetirementConsumers = [];
@@ -380,6 +381,15 @@ public sealed class HPDBaseBuilder
         return this;
     }
 
+    /// <summary>Installs one exact compiled IANA time-zone authority for durable schedules.</summary>
+    public HPDBaseBuilder UseTimeZoneAuthority(BaseTimeZoneAuthority authority)
+    {
+        EnsureMutable();
+        if (_timeZoneAuthority is not null) throw new InvalidOperationException("base.activation.timeZoneDuplicate");
+        _timeZoneAuthority = BaseTimeZoneAuthorityBuilder.Create(authority);
+        return this;
+    }
+
     /// <summary>Configures the single immutable host safety envelope for selection mutations.</summary>
     public HPDBaseBuilder ConfigureSelectionMutations(HPDBaseSelectionMutationOptions options)
     {
@@ -541,6 +551,11 @@ public sealed class HPDBaseBuilder
         foreach (BaseScheduleDefinition schedule in _activationSchedules.Values)
             BaseActivationCapabilityContract.Require(provider.Activations, schedule);
         var scheduleRegistry = new BaseScheduleRegistry(_activationSchedules.Values);
+        var timeZoneRegistry = new BaseTimeZoneRegistry(_timeZoneAuthority);
+        foreach (BaseScheduleDefinition schedule in _activationSchedules.Values)
+            if (schedule.Expression is BaseCronSchedule { TimeZoneId: var cronZone } && !timeZoneRegistry.Contains(cronZone)
+                || schedule.Expression is BaseCalendarSchedule { TimeZoneId: var calendarZone } && !timeZoneRegistry.Contains(calendarZone))
+                throw new InvalidOperationException("base.activation.timeZoneUnavailable");
         BaseSubjectContractRegistry subjectRegistry = FinalizeSubjectGraph(collections);
         var subjectLifecycleRegistry = new BaseSubjectLifecycleRegistry(_subjectLifecycleConsumers, subjectRegistry);
         var subjectRetirementRegistry = new BaseSubjectRetirementRegistry(_subjectRetirementConsumers, _subjectRetirementPolicies, subjectLifecycleRegistry);
@@ -590,6 +605,7 @@ public sealed class HPDBaseBuilder
         _services.AddSingleton(moduleMutationRegistry);
         _services.AddSingleton(activationRegistry);
         _services.AddSingleton(scheduleRegistry);
+        _services.AddSingleton(timeZoneRegistry);
         foreach (BaseSelectionOperationProfile profile in _selectionProfiles)
         {
             if (_selectionOptions is null || !Fits(profile, _selectionOptions))

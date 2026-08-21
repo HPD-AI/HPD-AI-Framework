@@ -87,7 +87,8 @@ public sealed partial class ActivationRuntimeTests
             InputChecksum = SHA256.HashData(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new Input("scheduled"), Json.Default.Input)).ToImmutableArray(),
         });
         var runtime = new DefaultBaseScheduleRuntime(stores, Policy(),
-            new BaseActivationAcceptedTimeAuthority(TimeProvider.System), new BaseActivationRegistry([target]));
+            new BaseActivationAcceptedTimeAuthority(TimeProvider.System),
+            new BaseActivationRegistry([new BaseActivationRegistration<Input, Result>(target)]), new BaseTimeZoneRegistry(null));
 
         OperationResult<BaseScheduleMutationResult> created = await runtime.MutateAsync(
             Session(), schedule, BaseScheduleMutationKind.Create, null, Identity("schedule-create", "one"), default);

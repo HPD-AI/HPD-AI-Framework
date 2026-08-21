@@ -27,6 +27,44 @@ public sealed class ScheduleDefinitionTests
         BaseScheduleDefinitionBuilder.NextNominal(interval, 149).Should().Be(150);
     }
 
+    [Fact]
+    public void Installed_transition_authority_resolves_gap_and_both_overlap_instants()
+    {
+        BaseTimeZoneAuthority authority = BaseTimeZoneAuthorityBuilder.Create(new BaseTimeZoneAuthority
+        {
+            Generation = 1, ReleaseId = "2026a", MinimumUtcSecond = 0, MaximumUtcSecond = 4_102_444_800,
+            Sources = [Source("2026a.tar.lz"), Source("tzdata.zi"), Source("zone.tab"), Source("zone1970.tab"), Source("backward")],
+            Zones = [new BaseTimeZoneDefinition
+            {
+                Id = "America/Chicago", InitialOffsetSeconds = -21_600,
+                Transitions =
+                [
+                    new BaseTimeZoneTransition { UtcSecond = new DateTimeOffset(2026, 3, 8, 8, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds(), OffsetSeconds = -18_000, DaylightSaving = true, Abbreviation = "CDT" },
+                    new BaseTimeZoneTransition { UtcSecond = new DateTimeOffset(2026, 11, 1, 7, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds(), OffsetSeconds = -21_600, DaylightSaving = false, Abbreviation = "CST" },
+                ],
+            }], Aliases = [], CompiledBytes = [], Checksum = [],
+        });
+        var zones = new BaseTimeZoneRegistry(authority);
+        long beforeGap = new DateTimeOffset(2026, 3, 7, 8, 30, 0, TimeSpan.Zero).ToUnixTimeMilliseconds();
+        long gap = BaseScheduleDefinitionBuilder.NextNominal(new BaseCronSchedule("0 30 2 * * *", "America/Chicago"),
+            beforeGap, zones, BaseTimeGapPolicy.NextValid, BaseTimeOverlapPolicy.EarlierOffset)!.Value;
+        gap.Should().Be(new DateTimeOffset(2026, 3, 8, 8, 0, 0, TimeSpan.Zero).ToUnixTimeMilliseconds());
+
+        long beforeOverlap = new DateTimeOffset(2026, 10, 31, 7, 0, 0, TimeSpan.Zero).ToUnixTimeMilliseconds();
+        var expression = new BaseCronSchedule("0 30 1 * * *", "America/Chicago");
+        long earlier = BaseScheduleDefinitionBuilder.NextNominal(expression, beforeOverlap, zones,
+            BaseTimeGapPolicy.Skip, BaseTimeOverlapPolicy.Both)!.Value;
+        long later = BaseScheduleDefinitionBuilder.NextNominal(expression, earlier, zones,
+            BaseTimeGapPolicy.Skip, BaseTimeOverlapPolicy.Both)!.Value;
+        later.Should().Be(checked(earlier + 3_600_000));
+    }
+
+    private static BaseTimeZoneSourceReceipt Source(string name)
+    {
+        byte[] bytes = System.Text.Encoding.UTF8.GetBytes(name);
+        return new BaseTimeZoneSourceReceipt { Name = name, ByteLength = bytes.Length, Checksum = SHA256.HashData(bytes).ToImmutableArray() };
+    }
+
     private static BaseScheduleDefinition Definition(BaseScheduleExpression expression)
     {
         byte[] input = "input"u8.ToArray();
