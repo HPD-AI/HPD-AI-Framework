@@ -359,6 +359,8 @@ internal interface IBaseActivationRegistration
 {
     BaseActivationDefinition Definition { get; }
     object Identity { get; }
+    Type InputType { get; }
+    Type ResultType { get; }
     object? CreateHandler(IServiceProvider services);
 }
 
@@ -367,6 +369,8 @@ internal sealed class BaseInstalledTransactionalActivationRegistration<TInput, T
 {
     public BaseActivationDefinition Definition { get; } = BaseActivationContract.Seal(registration.Definition);
     public object Identity { get; } = registration.Identity;
+    public Type InputType => typeof(TInput);
+    public Type ResultType => typeof(TResult);
     public object? CreateHandler(IServiceProvider services) => null;
 }
 
@@ -375,6 +379,8 @@ internal sealed class BaseActivationRegistration<TInput, TResult>(
 {
     public BaseActivationDefinition Definition { get; } = BaseActivationContract.Seal(registration.Definition);
     public object Identity { get; } = registration.Identity;
+    public Type InputType => typeof(TInput);
+    public Type ResultType => typeof(TResult);
     public object CreateHandler(IServiceProvider services) => registration.Factory(services);
 }
 

@@ -559,6 +559,8 @@ public sealed class HPDBaseBuilder
         var activationRegistry = new BaseActivationRegistry(_activationRegistrations.Values);
         foreach (BaseActivationDefinition activation in activationRegistry.Definitions)
         {
+            IBaseActivationRegistration registration = activationRegistry.Registration(activation.Id, activation.Version)
+                ?? throw new InvalidOperationException("base.activation.definitionInvalid");
             switch (activation.TransactionalTarget)
             {
                 case BaseSelectionMutationActivationTarget target:
@@ -566,10 +568,18 @@ public sealed class HPDBaseBuilder
                         profile.Id == target.ProfileId && profile.Version == target.ProfileVersion
                         && string.Equals(BaseSelectionProfileChecksum.Compute(profile), target.ProfileChecksum, StringComparison.Ordinal)).ToArray();
                     if (matches.Length != 1) throw new InvalidOperationException("base.activation.definitionInvalid");
+                    if (registration.InputType != typeof(BaseSelectionActivationRequest)
+                        || registration.ResultType != typeof(BaseSelectionMutationResult))
+                        throw new InvalidOperationException("base.activation.definitionInvalid");
                     break;
                 case BaseModuleMutationActivationTarget target:
                     if (!_moduleMutations.TryGetValue((target.OperationId, target.OperationVersion), out BaseRegisteredModuleMutationDefinition? operation)
                         || !string.Equals(Convert.ToHexStringLower(operation.Checksum.ToArray()), target.OperationChecksum, StringComparison.Ordinal))
+                        throw new InvalidOperationException("base.activation.definitionInvalid");
+                    IBaseModuleMutationRegistration targetRegistration = moduleMutationRegistry.FindRegistration(target.OperationId, target.OperationVersion)
+                        ?? throw new InvalidOperationException("base.activation.definitionInvalid");
+                    if (registration.InputType != targetRegistration.RequestTypeInfo.Type
+                        || registration.ResultType != targetRegistration.ResultTypeInfo.Type)
                         throw new InvalidOperationException("base.activation.definitionInvalid");
                     break;
             }
