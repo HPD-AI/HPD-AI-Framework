@@ -84,6 +84,47 @@ public sealed partial class ActivationRuntimeTests
             .Should().BeOfType<BaseActivationClaimTerminalResult>();
     }
 
+    [Fact]
+    public async Task At_most_once_effect_is_durably_started_before_external_execution()
+    {
+        var store = new InMemoryRecordStore();
+        var stores = new DefaultRecordStoreRegistry();
+        stores.Add(new RecordStoreRegistration { StoreId = "activation-store", Store = store });
+        DefaultBasePolicyOrchestrator policy = Policy();
+        BaseActivationHandlerRegistration<Input, Result> ordinary = Registration();
+        BaseActivationHandlerRegistration<Input, Result> registration = BaseActivationDefinitionBuilder.Create(
+            ordinary.Definition with
+            {
+                ExecutionClass = BaseActivationExecutionClass.AtMostOnceEffect,
+                Checksum = [],
+            }, Json.Default.Input, Json.Default.Result, static _ => new Handler());
+        var registry = new BaseActivationRegistry([new BaseActivationRegistration<Input, Result>(registration)]);
+        var enqueue = new DefaultBaseActivationRuntime(stores, policy, TimeProvider.System);
+        var worker = new DefaultBaseActivationWorkerRuntime(
+            stores, policy, new BaseActivationAcceptedTimeAuthority(TimeProvider.System), registry);
+        BaseSession session = Session();
+
+        OperationResult<BaseActivationEnqueueResult> enqueued = await enqueue.EnqueueAsync(
+            session, registration.Definition, registration.Identity,
+            new Input("effect"), Identity("enqueue", "effect"), null, default);
+        enqueued.IsSuccess().Should().BeTrue(enqueued.Error?.Code);
+        BaseActivationDueObservation observed = (await worker.ObserveAsync(session, registration.Definition, default)).Value!;
+        BaseActivationClaimedResult claimed = (await worker.ClaimAsync(session, registration.Definition,
+            observed.Token, Identity("claim", "effect"), default)).Value.Should().BeOfType<BaseActivationClaimedResult>().Subject;
+
+        OperationResult<BaseActivationTransitionResult> begun = await worker.BeginEffectAsync(
+            session, registration.Definition, claimed.Claim, Identity("effect-start", "effect"), default);
+        OperationResult<BaseActivationTransitionResult> replay = await worker.BeginEffectAsync(
+            session, registration.Definition, claimed.Claim, Identity("effect-start", "effect"), default);
+
+        begun.IsSuccess().Should().BeTrue(begun.Error?.Code);
+        begun.Value!.State.Should().Be(BaseActivationState.EffectStarted);
+        begun.Value.Effect.Should().NotBeNull();
+        replay.IsSuccess().Should().BeTrue(replay.Error?.Code);
+        replay.Value!.Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
+        replay.Value.Effect!.Checksum.Should().Equal(begun.Value.Effect!.Checksum);
+    }
+
     [Theory]
     [InlineData("test.activation.observe")]
     [InlineData("test.activation.claim")]

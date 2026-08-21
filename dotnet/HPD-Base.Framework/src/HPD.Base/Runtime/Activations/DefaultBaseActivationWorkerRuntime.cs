@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -7,8 +8,20 @@ namespace HPD.Base;
 internal sealed class DefaultBaseActivationWorkerRuntime(
     IRecordStoreRegistry stores,
     IBasePolicyOrchestrator policy,
-    BaseActivationAcceptedTimeAuthority acceptedTime) : IBaseActivationWorkerRuntime
+    BaseActivationAcceptedTimeAuthority acceptedTime,
+    BaseActivationRegistry definitions) : IBaseActivationWorkerRuntime
 {
+    private readonly SemaphoreSlim _executorGate = new(1, 1);
+    private readonly string _hostId = Environment.MachineName.Normalize(NormalizationForm.FormC);
+    private readonly string _processIncarnationId = Guid.NewGuid().ToString("N");
+    private BaseExecutorRegistrationResult? _executor;
+
+    internal DefaultBaseActivationWorkerRuntime(
+        IRecordStoreRegistry stores,
+        IBasePolicyOrchestrator policy,
+        BaseActivationAcceptedTimeAuthority acceptedTime)
+        : this(stores, policy, acceptedTime, new BaseActivationRegistry([])) { }
+
     public async ValueTask<OperationResult> AuthorizeExecutionAsync(
         BaseSession session,
         BaseActivationDefinition definition,
@@ -28,6 +41,150 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
                     Category = ErrorCategory.Authorization,
                 },
             };
+    }
+
+    public async ValueTask<OperationResult<BaseActivationTransitionResult>> BeginEffectAsync(
+        BaseSession session,
+        BaseActivationDefinition definition,
+        BaseActivationClaimAuthority claim,
+        BaseMutationRequestIdentity identity,
+        CancellationToken cancellationToken)
+    {
+        if (definition.ExecutionClass != BaseActivationExecutionClass.AtMostOnceEffect)
+            return Failure<BaseActivationTransitionResult>(OperationStatus.ValidationFailed, "base.activation.invalid", ErrorCategory.Validation);
+        if (!await IsAuthorizedAsync(session, definition, definition.Grants.Execute,
+            BaseOperationKind.ActivationTransition, cancellationToken).ConfigureAwait(false))
+            return Failure<BaseActivationTransitionResult>(OperationStatus.PolicyDenied, "base.activation.unauthorized", ErrorCategory.Authorization);
+        IBaseActivationProvider? provider = ResolveProvider();
+        if (provider is null)
+            return Failure<BaseActivationTransitionResult>(OperationStatus.Unsupported, "base.activation.capabilityUnavailable", ErrorCategory.Unsupported);
+        OperationResult<BaseExecutorRegistrationResult> executor = await EnsureExecutorAsync(
+            provider, session.ApplicationId, definition, cancellationToken).ConfigureAwait(false);
+        if (!executor.IsSuccess() || executor.Value is null)
+            return CopyFailure<BaseActivationTransitionResult, BaseExecutorRegistrationResult>(executor);
+        long heartbeat = checked((long)Math.Max(
+            definition.Limits.LeaseDuration.TotalMilliseconds,
+            definition.Limits.HandlerTimeout.TotalMilliseconds + 10_000d));
+        return await provider.TransitionAsync(new BaseActivationBeginEffectRequest
+        {
+            ActivationId = claim.ActivationId,
+            Claim = claim,
+            Executor = executor.Value.Executor,
+            ExecutorHeartbeat = executor.Value.Heartbeat,
+            HeartbeatMilliseconds = heartbeat,
+            Identity = identity,
+            AcceptedTime = acceptedTime.Capture(session.ApplicationId),
+            Limits = definition.Limits.Provider,
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask<OperationResult<BaseActivationTransitionResult>> CompleteEffectAsync(
+        BaseSession session,
+        BaseActivationDefinition definition,
+        BaseEffectExecutionAuthority effect,
+        ImmutableArray<byte> result,
+        BaseMutationRequestIdentity identity,
+        CancellationToken cancellationToken)
+    {
+        if (!await IsAuthorizedAsync(session, definition, definition.Grants.Complete,
+            BaseOperationKind.ActivationTransition, cancellationToken).ConfigureAwait(false))
+            return Failure<BaseActivationTransitionResult>(OperationStatus.PolicyDenied, "base.activation.unauthorized", ErrorCategory.Authorization);
+        IBaseActivationProvider? provider = ResolveProvider();
+        return provider is null
+            ? Failure<BaseActivationTransitionResult>(OperationStatus.Unsupported, "base.activation.capabilityUnavailable", ErrorCategory.Unsupported)
+            : await provider.TransitionAsync(new BaseActivationCompleteEffectRequest
+            {
+                ActivationId = effect.Claim.ActivationId,
+                Effect = effect,
+                CanonicalResult = result,
+                ResultChecksum = SHA256.HashData(result.AsSpan()).ToImmutableArray(),
+                Identity = identity,
+                AcceptedTime = acceptedTime.Capture(session.ApplicationId),
+                Limits = definition.Limits.Provider,
+            }, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask<OperationResult<BaseExecutorRegistrationResult>> EnsureExecutorAsync(
+        IBaseActivationProvider provider,
+        string applicationId,
+        BaseActivationDefinition definition,
+        CancellationToken cancellationToken)
+    {
+        await _executorGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            long now = acceptedTime.Capture(applicationId).CapturedUtc;
+            if (_executor is not null && _executor.Heartbeat.HeartbeatExpiresAt > now + 5_000)
+                return OperationResults.Ok(_executor);
+            if (_executor is not null)
+            {
+                BaseMutationRequestIdentity heartbeatIdentity = ExecutorIdentity(
+                    "executor-heartbeat", _executor.Executor.Checksum.AsSpan(), _executor.Heartbeat.HeartbeatRevision + 1);
+                OperationResult<BaseExecutorHeartbeatResult> heartbeat = await provider.HeartbeatExecutorAsync(new BaseExecutorHeartbeatRequest
+                {
+                    Executor = _executor.Executor,
+                    ExpectedHeartbeatRevision = _executor.Heartbeat.HeartbeatRevision,
+                    ExtensionMilliseconds = checked((long)Math.Max(definition.Limits.HandlerTimeout.TotalMilliseconds + 30_000d, 60_000d)),
+                    AcceptedTime = acceptedTime.Capture(applicationId),
+                    Identity = heartbeatIdentity,
+                    Limits = definition.Limits.Provider,
+                }, cancellationToken).ConfigureAwait(false);
+                if (heartbeat.IsSuccess() && heartbeat.Value is not null)
+                {
+                    _executor = new BaseExecutorRegistrationResult
+                    {
+                        Executor = heartbeat.Value.Executor,
+                        Heartbeat = heartbeat.Value.Heartbeat,
+                        Accounting = heartbeat.Value.Accounting,
+                        Disposition = heartbeat.Value.Disposition,
+                    };
+                    return OperationResults.Ok(_executor);
+                }
+                return CopyFailure<BaseExecutorRegistrationResult, BaseExecutorHeartbeatResult>(heartbeat);
+            }
+            ImmutableArray<byte> workerSetChecksum = WorkerSetChecksum();
+            OperationResult<BaseExecutorRegistrationResult> registered = await provider.RegisterExecutorAsync(new BaseExecutorRegistrationRequest
+            {
+                ApplicationId = applicationId,
+                HostId = _hostId,
+                ProcessIncarnationId = _processIncarnationId,
+                WorkerDefinitionSetChecksum = workerSetChecksum,
+                RequestedHeartbeatMilliseconds = checked((long)Math.Max(definition.Limits.HandlerTimeout.TotalMilliseconds + 30_000d, 60_000d)),
+                AcceptedTime = acceptedTime.Capture(applicationId),
+                Identity = ExecutorIdentity("executor-register", workerSetChecksum.AsSpan(), 1),
+                Limits = definition.Limits.Provider,
+            }, cancellationToken).ConfigureAwait(false);
+            if (registered.IsSuccess() && registered.Value is not null) _executor = registered.Value;
+            return registered;
+        }
+        finally { _executorGate.Release(); }
+    }
+
+    private ImmutableArray<byte> WorkerSetChecksum()
+    {
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData(Encoding.ASCII.GetBytes("base.activation.workerSet.v1\0"));
+        Span<byte> version = stackalloc byte[4];
+        foreach (BaseActivationDefinition definition in definitions.Definitions)
+        {
+            hash.AppendData(Encoding.UTF8.GetBytes(definition.Id));
+            BinaryPrimitives.WriteInt32BigEndian(version, definition.Version);
+            hash.AppendData(version);
+            hash.AppendData(definition.Checksum.AsSpan());
+        }
+        return hash.GetHashAndReset().ToImmutableArray();
+    }
+
+    private static BaseMutationRequestIdentity ExecutorIdentity(string operation, ReadOnlySpan<byte> authority, long revision)
+    {
+        Span<byte> revisionBytes = stackalloc byte[8];
+        BinaryPrimitives.WriteInt64BigEndian(revisionBytes, revision);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData(authority);
+        hash.AppendData(revisionBytes);
+        return BaseMutationRequestIdentity.Create("base.activation.executor", operation,
+            $"{Convert.ToHexStringLower(SHA256.HashData(authority))}:{revision}",
+            BaseMutationRequestFingerprint.Create(hash.GetHashAndReset()));
     }
 
     public async ValueTask<OperationResult<BaseActivationDueObservation>> ObserveAsync(

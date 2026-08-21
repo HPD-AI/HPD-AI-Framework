@@ -297,6 +297,12 @@ public sealed class BaseActivationRegistry
 
     internal IBaseActivationRegistration? Registration(string id, int version) =>
         _registrations.GetValueOrDefault((id, version));
+
+    internal IReadOnlyList<BaseActivationDefinition> Definitions => _registrations.Values
+        .Select(static registration => registration.Definition)
+        .OrderBy(static definition => definition.Id, StringComparer.Ordinal)
+        .ThenBy(static definition => definition.Version)
+        .ToArray();
 }
 
 internal static class BaseActivationContract

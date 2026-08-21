@@ -252,6 +252,17 @@ public sealed class BaseInstalledActivationWorkerHandle<TInput, TResult>
             return Failure("base.activation.handlerUnavailable", ErrorCategory.Capability);
 
         BaseActivationDelivery<TInput> delivery = claimed.Value;
+        BaseEffectExecutionAuthority? effect = null;
+        if (_definition.ExecutionClass == BaseActivationExecutionClass.AtMostOnceEffect)
+        {
+            OperationResult<BaseActivationTransitionResult> begun = await _runtime.BeginEffectAsync(
+                _session, _definition, delivery.Claim,
+                Identity("effect-start", delivery.Claim.FencingToken.AsSpan(), delivery.ActivationId),
+                cancellationToken).ConfigureAwait(false);
+            if (!begun.IsSuccess() || begun.Value?.Effect is null)
+                return CopyFailure<BaseActivationDispatchResult, BaseActivationTransitionResult>(begun);
+            effect = begun.Value.Effect;
+        }
         BaseActivationHandlerExecutionGate? gate = _session.Services.GetService(typeof(BaseActivationHandlerExecutionGate)) as BaseActivationHandlerExecutionGate;
         if (gate is null) return Failure("base.activation.handlerUnavailable", ErrorCategory.Capability);
         BaseActivationHandlerExecutionResult<BaseActivationHandlerResult<TResult>> execution = await gate.ExecuteAsync(
@@ -262,6 +273,9 @@ public sealed class BaseInstalledActivationWorkerHandle<TInput, TResult>
                 token), delivery.Input, token).AsTask(),
             _definition.Limits.HandlerTimeout,
             cancellationToken).ConfigureAwait(false);
+        if (effect is not null && execution.Outcome != BaseActivationHandlerExecutionOutcome.Completed)
+            return OperationResults.Ok(new BaseActivationDispatchResult
+            { Empty = false, ActivationId = delivery.ActivationId, State = BaseActivationState.EffectStarted });
         if (execution.Outcome == BaseActivationHandlerExecutionOutcome.TimedOut)
             return await ResolveFailureAsync(delivery, "base.activation.handlerTimeout", cancellationToken).ConfigureAwait(false);
         if (execution.Outcome == BaseActivationHandlerExecutionOutcome.Cancelled)
@@ -271,7 +285,18 @@ public sealed class BaseInstalledActivationWorkerHandle<TInput, TResult>
         BaseActivationHandlerResult<TResult> handlerResult = execution.Value;
 
         OperationResult<BaseActivationTransitionResult> transition;
-        if (!string.IsNullOrWhiteSpace(handlerResult.FailureCode))
+        if (effect is not null)
+        {
+            if (handlerResult.Result is null)
+                return OperationResults.Ok(new BaseActivationDispatchResult
+                { Empty = false, ActivationId = delivery.ActivationId, State = BaseActivationState.EffectStarted });
+            byte[] resultBytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(handlerResult.Result, _identity.Result);
+            transition = await _runtime.CompleteEffectAsync(
+                _session, _definition, effect, resultBytes.ToImmutableArray(),
+                Identity("effect-complete", effect.Checksum.AsSpan(), Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(resultBytes))),
+                cancellationToken).ConfigureAwait(false);
+        }
+        else if (!string.IsNullOrWhiteSpace(handlerResult.FailureCode))
         {
             transition = await FailAsync(delivery, handlerResult.FailureCode, handlerResult.Retryable,
                 Identity("fail", delivery.Claim.FencingToken.AsSpan(), handlerResult.FailureCode), cancellationToken).ConfigureAwait(false);
@@ -348,6 +373,12 @@ internal interface IBaseActivationWorkerRuntime
 {
     ValueTask<OperationResult> AuthorizeExecutionAsync(
         BaseSession session, BaseActivationDefinition definition, CancellationToken cancellationToken);
+    ValueTask<OperationResult<BaseActivationTransitionResult>> BeginEffectAsync(
+        BaseSession session, BaseActivationDefinition definition, BaseActivationClaimAuthority claim,
+        BaseMutationRequestIdentity identity, CancellationToken cancellationToken);
+    ValueTask<OperationResult<BaseActivationTransitionResult>> CompleteEffectAsync(
+        BaseSession session, BaseActivationDefinition definition, BaseEffectExecutionAuthority effect,
+        ImmutableArray<byte> result, BaseMutationRequestIdentity identity, CancellationToken cancellationToken);
     ValueTask<OperationResult<BaseActivationDueObservation>> ObserveAsync(
         BaseSession session, BaseActivationDefinition definition, CancellationToken cancellationToken);
     ValueTask<OperationResult<BaseActivationClaimResult>> ClaimAsync(
