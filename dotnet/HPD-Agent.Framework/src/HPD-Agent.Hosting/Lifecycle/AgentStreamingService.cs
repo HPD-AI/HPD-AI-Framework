@@ -89,7 +89,7 @@ public sealed class AgentStreamingService : IAgentStreamingService
             if (!_sessionManager.ActivateThreadExecution(sessionId, threadId, execution.ThreadExecutionId))
                 throw new InvalidOperationException($"Thread execution '{execution.ThreadExecutionId}' lost its reserved ownership before activation.");
 
-            var submission = await agent.EnqueueAsync(input, CancellationToken.None).ConfigureAwait(false);
+            var submission = await agent.SubmitRuntimeInputAsync(input, CancellationToken.None).ConfigureAwait(false);
             _ = FinishExecutionAsync(execution, submission, publisher, runtimePin);
         }
         catch (Exception ex)
@@ -168,15 +168,22 @@ public sealed class AgentStreamingService : IAgentStreamingService
 
         var scoped = ApplyRouteScope(input, routeAgentId, sessionId, threadId);
         var result = await agent.RunAsync(scoped, cancellationToken).ConfigureAwait(false);
+        var (disposition, executionId) = result switch
+        {
+            AgentInputResult.Control control => (control.Disposition, control.ThreadExecutionId),
+            AgentInputResult.Steered steered => (AgentInputDisposition.Accepted, steered.ThreadExecutionId),
+            AgentInputResult.Completed completed => (AgentInputDisposition.Completed, completed.ThreadExecutionId),
+            _ => throw new InvalidOperationException($"Unsupported input result '{result.GetType().Name}'.")
+        };
         return AgentServiceResult<InputSubmissionDto>.Success(new InputSubmissionDto(
-            ToWireDisposition(result.Disposition),
-            result.ThreadExecutionId ?? activeExecution.ThreadExecutionId,
+            ToWireDisposition(disposition),
+            executionId ?? activeExecution.ThreadExecutionId,
             ActiveExecution: ToExecutionDto(activeExecution)));
     }
 
     private async Task FinishExecutionAsync(
         ThreadExecutionState execution,
-        AgentRuntimeInputSubmission submission,
+        RuntimeInputReceipt submission,
         IThreadEventPublisher publisher,
         IDisposable runtimePin)
     {
@@ -190,9 +197,11 @@ public sealed class AgentStreamingService : IAgentStreamingService
                 outcome.Error,
                 CancellationToken.None).ConfigureAwait(false);
             runtimePin.Dispose();
+            submission.Dispose();
         }
         catch (Exception ex)
         {
+            submission.Dispose();
             _logger?.LogCritical(
                 ex,
                 "Thread execution {ThreadExecutionId} could not commit its terminal lifecycle fact; ownership remains active.",

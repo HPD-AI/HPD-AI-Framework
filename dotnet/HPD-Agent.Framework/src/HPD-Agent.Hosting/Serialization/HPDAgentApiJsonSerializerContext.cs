@@ -158,7 +158,6 @@ namespace HPD.Agent.Hosting.Serialization;
 [JsonSerializable(typeof(ClientToolInvokeOutcomeEvent))]
 [JsonSerializable(typeof(ClientToolOperationOutcomeState))]
 [JsonSerializable(typeof(ClientToolOperationOutcomeEvent))]
-[JsonSerializable(typeof(SteeringInputEvent))]
 [JsonSerializable(typeof(ClientAppProviderReference))]
 [JsonSerializable(typeof(ClientAppProviderReference[]))]
 [JsonSerializable(typeof(List<ClientAppProviderReference>))]

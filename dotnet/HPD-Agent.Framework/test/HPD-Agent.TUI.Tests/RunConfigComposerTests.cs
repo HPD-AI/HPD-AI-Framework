@@ -103,8 +103,9 @@ public sealed class RunConfigComposerTests
         InvokePrivate(app, "TryExecuteShortcut", new KeyEvent(KeyCode.Escape));
         await runtime.Submitted.Task.WaitAsync(TimeSpan.FromSeconds(2));
         runtime.SubmitCount.Should().Be(1);
-        runtime.LastInput.Should().BeOfType<SteeringInputEvent>()
-            .Which.ThreadExecutionId.Should().Be("run-1");
+        var steering = runtime.LastInput.Should().BeOfType<UserMessagesInputEvent>().Subject;
+        steering.Delivery.Should().Be(AgentInputDelivery.Steer);
+        steering.ThreadExecutionId.Should().Be("run-1");
     }
 
     [Fact]
@@ -404,7 +405,9 @@ public sealed class RunConfigComposerTests
             Submitted.TrySetResult();
             if (SubmissionError is not null) throw SubmissionError;
             return Task.FromResult(new AgentTuiSubmitResult(
-                input is SteeringInputEvent ? ActiveControlDisposition : AgentInputDisposition.Queued,
+                input is UserMessagesInputEvent { Delivery: AgentInputDelivery.Steer }
+                    ? ActiveControlDisposition
+                    : AgentInputDisposition.Queued,
                 input.ThreadExecutionId ?? "run",
                 new AgentTuiThreadExecution("run", scope.AgentId, scope.SessionId, scope.ThreadId, "active", DateTimeOffset.UtcNow)));
         }

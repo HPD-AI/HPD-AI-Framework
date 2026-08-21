@@ -86,6 +86,8 @@ public sealed partial class Agent : IAsyncDisposable
     private int _runtimeCancelDrainRemaining;
     private readonly Dictionary<AgentInputEvent, TaskCompletionSource<AgentRuntimeInputOutcome>> _runtimeInputCompletions =
         new(ReferenceEqualityComparer.Instance);
+    private readonly HashSet<AgentInputEvent> _cancelledRuntimeInputs =
+        new(ReferenceEqualityComparer.Instance);
     private readonly ILogger? _agentLogger;
 
     // Provider registry for runtime provider switching via AgentRunConfig.ProviderKey/ModelId
@@ -1400,41 +1402,55 @@ public sealed partial class Agent : IAsyncDisposable
         return ControlResult(AgentInputDisposition.Accepted, activeInput?.ThreadExecutionId);
     }
 
-    private Task<AgentInputResult> HandleSteeringAsync(
-        SteeringInputEvent steering,
+    private async ValueTask<AgentInputResult> TrySteerAsync(
+        UserMessagesInputEvent steering,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (string.IsNullOrWhiteSpace(steering.ThreadExecutionId))
-            throw new ArgumentException("Steering requires ThreadExecutionId.", nameof(steering));
         if (steering.Messages.Count == 0 || steering.Messages.Any(static message => message is null))
             throw new ArgumentException("Steering requires at least one non-null message.", nameof(steering));
         if (steering.Messages.Any(static message => message.Role != ChatRole.User))
             throw new ArgumentException("Steering currently accepts only user-role messages.", nameof(steering));
 
-        AgentInputResult result;
+        AgentInputResult? result = null;
+        var startOrdinaryTurn = false;
         lock (_runtimeLock)
         {
             var activeInput = _activeRuntimeInput;
             if (activeInput is null)
-                result = ControlResult(AgentInputDisposition.NoActiveExecution, steering.ThreadExecutionId);
-            else if (!string.Equals(activeInput.ThreadExecutionId, steering.ThreadExecutionId, StringComparison.Ordinal))
+            {
+                if (string.IsNullOrWhiteSpace(steering.ThreadExecutionId))
+                    startOrdinaryTurn = true;
+                else
+                    result = ControlResult(AgentInputDisposition.NoActiveExecution, steering.ThreadExecutionId);
+            }
+            else if (!string.IsNullOrWhiteSpace(steering.ThreadExecutionId) &&
+                     !string.Equals(activeInput.ThreadExecutionId, steering.ThreadExecutionId, StringComparison.Ordinal))
                 result = ControlResult(AgentInputDisposition.ActiveExecutionMismatch, activeInput.ThreadExecutionId);
             else if (activeInput.Input is not UserMessagesInputEvent)
                 result = ControlResult(AgentInputDisposition.ActiveInputNotSteerable, activeInput.ThreadExecutionId);
             else if (activeInput.State != ActiveRuntimeInputState.Accepting)
                 result = ControlResult(AgentInputDisposition.ExecutionFinishing, activeInput.ThreadExecutionId);
-            else if (!activeInput.Steering.Writer.TryWrite(new AcceptedSteeringInput(steering.Messages, steering.ClientInputId)))
+            else if (!activeInput.Steering.Writer.TryWrite(
+                         new AcceptedSteeringInput(steering.Messages, steering.ClientInputId)))
                 result = ControlResult(AgentInputDisposition.ExecutionFinishing, activeInput.ThreadExecutionId);
             else
-                result = ControlResult(AgentInputDisposition.Accepted, activeInput.ThreadExecutionId);
+                result = new AgentInputResult.Steered(activeInput.ThreadExecutionId);
         }
 
-        return Task.FromResult(result);
+        if (startOrdinaryTurn)
+        {
+            return await RunCapturedInputAsync(
+                    steering with { Delivery = AgentInputDelivery.Queue },
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return result!;
     }
 
     private static AgentInputResult ControlResult(AgentInputDisposition disposition, string? executionId)
-        => new() { Disposition = disposition, ThreadExecutionId = executionId };
+        => new AgentInputResult.Control(disposition, executionId);
 
     private AgentInputEvent TargetActiveExecution(AgentInputEvent input)
     {
@@ -1594,7 +1610,6 @@ public sealed partial class Agent : IAsyncDisposable
             ActiveInput = activeInput,
             RunMessagesAsync = RunMessagesInputAsync,
             InterruptAsync = HandleInterruptionAsync,
-            SteerAsync = HandleSteeringAsync,
             TryResolveClientToolOperation = ResolveClientToolOperation,
             PublishAgentOperationNotificationDelivered = PublishAgentOperationNotificationDeliveredAsync
         };
@@ -1614,6 +1629,12 @@ public sealed partial class Agent : IAsyncDisposable
         {
             await foreach (var input in reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
             {
+                lock (_runtimeLock)
+                {
+                    if (_cancelledRuntimeInputs.Remove(input))
+                        continue;
+                }
+
                 // An interrupt that arrived with no active execution may have asked the loop to
                 // drain the queued backlog as cancelled. Skip (and complete) those inputs without
                 // running a model turn so the interrupt is not silently lost.
@@ -1642,7 +1663,9 @@ public sealed partial class Agent : IAsyncDisposable
                             activeInput,
                             activeInputCts.Token)
                         .ConfigureAwait(false);
-                    result = inputResult.TurnResult;
+                    result = inputResult is AgentInputResult.Completed completed
+                        ? completed.TurnResult
+                        : AgentTurnResult.Empty;
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -2154,6 +2177,9 @@ public sealed partial class Agent : IAsyncDisposable
     {
         var registration = _inputDispatcher.GetRegistration(input.GetType());
 
+        if (input is UserMessagesInputEvent { Delivery: AgentInputDelivery.Steer } steering)
+            return await TrySteerAsync(steering, cancellationToken).ConfigureAwait(false);
+
         if (registration.RoutingClass == AgentInputRoutingClass.Work)
         {
             ChannelWriter<AgentInputEvent>? runtimeWriter;
@@ -2172,21 +2198,13 @@ public sealed partial class Agent : IAsyncDisposable
 
             if (runtimeWriter is not null)
             {
-                try
-                {
-                    await runtimeWriter.WriteAsync(input, cancellationToken).ConfigureAwait(false);
-                    return new AgentInputResult
-                    {
-                        Disposition = AgentInputDisposition.Queued,
-                        ThreadExecutionId = input.ThreadExecutionId
-                    };
-                }
-                catch (ChannelClosedException ex)
-                {
-                    throw new InvalidOperationException(
-                        "Agent runtime is starting or stopping and cannot accept user input.",
-                        ex);
-                }
+                using var receipt = await SubmitRuntimeInputAsync(input, cancellationToken).ConfigureAwait(false);
+                var outcome = await receipt.Completion.ConfigureAwait(false);
+                if (outcome.Error is not null)
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(outcome.Error).Throw();
+                if (outcome.Cancelled)
+                    throw new OperationCanceledException(receipt.CallerToken);
+                return new AgentInputResult.Completed(outcome.Result, input.ThreadExecutionId);
             }
 
             if (runtimeTransitioning)
@@ -2196,22 +2214,13 @@ public sealed partial class Agent : IAsyncDisposable
         return await RunInputDirectAsync(input, registration, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Enqueues input into an already-running runtime and returns a receipt whose completion
-    /// reports execution outcome. This method does not create hosted thread-execution lifecycle facts.
-    /// </summary>
-    public ValueTask<AgentRuntimeInputSubmission> EnqueueAsync(
-        AgentInputEvent input,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(input);
-        return EnqueueCapturedAsync(CaptureInput(input), cancellationToken);
-    }
-
-    private async ValueTask<AgentRuntimeInputSubmission> EnqueueCapturedAsync(
+    /// <summary>Admits one captured work item to the running runtime.</summary>
+    internal async ValueTask<RuntimeInputReceipt> SubmitRuntimeInputAsync(
         AgentInputEvent input,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(input);
+        input = CaptureInput(input);
         var registration = _inputDispatcher.GetRegistration(input.GetType());
         if (registration.RoutingClass != AgentInputRoutingClass.Work)
             throw new ArgumentException("Active-control inputs cannot be enqueued as runtime work.", nameof(input));
@@ -2232,15 +2241,46 @@ public sealed partial class Agent : IAsyncDisposable
                 throw new InvalidOperationException("The same input instance is already queued in this runtime.");
         }
 
+        CancellationTokenRegistration cancellationRegistration = default;
         try
         {
+            if (cancellationToken.CanBeCanceled)
+            {
+                cancellationRegistration = cancellationToken.Register(() =>
+                {
+                    CancellationTokenSource? activeCancellation = null;
+                    lock (_runtimeLock)
+                    {
+                        if (ReferenceEquals(_activeRuntimeInput?.Input, input))
+                        {
+                            activeCancellation = _activeRuntimeInput.Cancellation;
+                        }
+                        else if (_runtimeInputCompletions.Remove(input, out var queuedCompletion))
+                        {
+                            _cancelledRuntimeInputs.Add(input);
+                            queuedCompletion.TrySetCanceled(cancellationToken);
+                        }
+                    }
+
+                    activeCancellation?.Cancel();
+                });
+            }
+
             await runtimeWriter.WriteAsync(input, cancellationToken).ConfigureAwait(false);
-            return new AgentRuntimeInputSubmission(input, completion.Task);
+            return new RuntimeInputReceipt(
+                input,
+                completion.Task,
+                cancellationToken,
+                cancellationRegistration);
         }
         catch (Exception ex)
         {
+            cancellationRegistration.Dispose();
             lock (_runtimeLock)
+            {
                 _runtimeInputCompletions.Remove(input);
+                _cancelledRuntimeInputs.Remove(input);
+            }
             completion.TrySetException(ex);
             throw;
         }
@@ -2355,7 +2395,9 @@ public sealed partial class Agent : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         var result = await RunAsync(input, cancellationToken).ConfigureAwait(false);
-        return result.TurnResult;
+        return result is AgentInputResult.Completed completed
+            ? completed.TurnResult
+            : throw new InvalidOperationException("Queued user input did not complete as a turn.");
     }
 
     private AgentInputEvent CaptureInput(AgentInputEvent input)
@@ -2367,11 +2409,6 @@ public sealed partial class Agent : IAsyncDisposable
             {
                 RunConfig = runConfig,
                 Messages = messages.Messages.ToArray()
-            },
-            SteeringInputEvent steering => steering with
-            {
-                RunConfig = runConfig,
-                Messages = steering.Messages.ToArray()
             },
             AgentOperationNotificationInputEvent notification => notification with
             {

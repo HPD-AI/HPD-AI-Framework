@@ -453,7 +453,6 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         var rejectedDraft = restoreRejectedDraft
             ? input switch
             {
-                SteeringInputEvent { Messages.Count: 1 } steering => steering.Messages[0].Text,
                 UserMessagesInputEvent { Messages.Count: 1 } messages => messages.Messages[0].Text,
                 _ => null
             }
@@ -1337,8 +1336,9 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         RequestRender();
         var submitted = await SubmitInputCoreAsync(
             scope,
-            new SteeringInputEvent
+            new UserMessagesInputEvent
             {
+                Delivery = AgentInputDelivery.Steer,
                 AgentId = scope.AgentId,
                 SessionId = scope.SessionId,
                 ThreadId = scope.ThreadId,

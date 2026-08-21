@@ -220,7 +220,6 @@ using Microsoft.Extensions.AI;
 [JsonSerializable(typeof(HPD.Agent.ClientTools.ClientToolInvokeOutcomeEvent))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.ClientToolOperationOutcomeState))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.ClientToolOperationOutcomeEvent))]
-[JsonSerializable(typeof(HPD.Agent.SteeringInputEvent))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.ClientSkillDefinition))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.ClientSkillDefinition[]))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.ClientSkillReference))]

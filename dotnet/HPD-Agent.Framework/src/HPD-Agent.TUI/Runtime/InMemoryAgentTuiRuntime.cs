@@ -776,8 +776,17 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
                 ThreadId = scope.ThreadId
             };
             var result = await _agent.RunAsync(scopedControl, cancellationToken).ConfigureAwait(false);
-            var current = GetActiveExecution();
-            return new AgentTuiSubmitResult(result.Disposition, result.ThreadExecutionId, current);
+            var (disposition, controlExecutionId) = result switch
+            {
+                AgentInputResult.Control control => (control.Disposition, control.ThreadExecutionId),
+                AgentInputResult.Steered steered => (AgentInputDisposition.Accepted, steered.ThreadExecutionId),
+                AgentInputResult.Completed completed => (AgentInputDisposition.Completed, completed.ThreadExecutionId),
+                _ => throw new InvalidOperationException($"Unsupported input result '{result.GetType().Name}'.")
+            };
+            AgentTuiThreadExecution? current;
+            lock (_gate)
+                current = _activeExecution;
+            return new AgentTuiSubmitResult(disposition, controlExecutionId, current);
         }
 
         var executionId = input.ThreadExecutionId ?? Guid.NewGuid().ToString("N");
@@ -817,7 +826,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             if (!ActivateReservedExecution(activeExecution))
                 throw new InvalidOperationException($"Thread execution '{executionId}' lost its reserved ownership before activation.");
 
-            var submission = await _agent.EnqueueAsync(scopedInput, CancellationToken.None).ConfigureAwait(false);
+            var submission = await _agent.SubmitRuntimeInputAsync(scopedInput, CancellationToken.None).ConfigureAwait(false);
             _ = CompleteSubmittedInputAsync(scope, submission, executionId);
             return new AgentTuiSubmitResult(AgentInputDisposition.Queued, executionId, activeExecution);
         }
@@ -848,7 +857,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
 
     private async Task CompleteSubmittedInputAsync(
         AgentTuiRuntimeScope scope,
-        AgentRuntimeInputSubmission submission,
+        RuntimeInputReceipt submission,
         string executionId)
     {
         try
@@ -873,9 +882,11 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             }, CancellationToken.None).ConfigureAwait(false);
 
             ReleaseExecution(executionId);
+            submission.Dispose();
         }
         catch
         {
+            submission.Dispose();
             // A missing terminal commit must leave ownership visible instead of presenting
             // an unjournaled completion as authoritative state.
         }

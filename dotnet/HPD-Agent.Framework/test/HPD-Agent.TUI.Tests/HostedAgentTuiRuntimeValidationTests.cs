@@ -245,8 +245,9 @@ public sealed class HostedAgentTuiRuntimeValidationTests
 
         var result = await runtime.SubmitInputAsync(
             scope,
-            new SteeringInputEvent
+            new UserMessagesInputEvent
             {
+                Delivery = AgentInputDelivery.Steer,
                 AgentId = scope.AgentId,
                 SessionId = scope.SessionId,
                 ThreadId = scope.ThreadId,

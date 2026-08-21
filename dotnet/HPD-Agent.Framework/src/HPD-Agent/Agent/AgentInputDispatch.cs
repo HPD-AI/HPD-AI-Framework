@@ -84,7 +84,6 @@ internal sealed class AgentInputHandlingContext
     public ActiveRuntimeInput? ActiveInput { get; init; }
     public required Func<UserMessagesInputEvent, ActiveRuntimeInput?, IEventCoordinator, CancellationToken, Task<AgentTurnResult>> RunMessagesAsync { get; init; }
     public required Func<InterruptionRequestEvent, CancellationToken, Task<AgentInputResult>> InterruptAsync { get; init; }
-    public required Func<SteeringInputEvent, CancellationToken, Task<AgentInputResult>> SteerAsync { get; init; }
     public required Func<ClientToolOperationOutcomeEvent, bool> TryResolveClientToolOperation { get; init; }
     public Func<AgentOperationNotificationInputEvent, IEventCoordinator, CancellationToken, ValueTask>? PublishAgentOperationNotificationDelivered { get; init; }
 }
@@ -128,11 +127,9 @@ internal sealed class AgentInputDispatcher
 
         if (before.Cancelled)
         {
-            var cancelledResult = new AgentInputResult
-            {
-                Disposition = AgentInputDisposition.Completed,
-                ThreadExecutionId = input.ThreadExecutionId
-            };
+            var cancelledResult = new AgentInputResult.Completed(
+                AgentTurnResult.Empty,
+                input.ThreadExecutionId);
             await _middleware.ExecuteAfterInputAsync(
                     new AfterInputContext(
                         before.Input,
@@ -171,7 +168,9 @@ internal sealed class AgentInputDispatcher
                     new AfterInputContext(
                         effectiveInput,
                         context,
-                        result?.TurnResult ?? AgentTurnResult.Empty,
+                        result is AgentInputResult.Completed completed
+                            ? completed.TurnResult
+                            : AgentTurnResult.Empty,
                         error,
                         cancelled: error is OperationCanceledException,
                         DateTimeOffset.UtcNow - startedAt),
@@ -187,7 +186,6 @@ internal sealed class AgentInputDispatcher
         yield return Register(AgentInputRoutingClass.Work, new AgentOperationNotificationInputHandler());
         yield return Register(AgentInputRoutingClass.ActiveControl, new ClientToolOperationOutcomeInputHandler());
         yield return Register(AgentInputRoutingClass.ActiveControl, new InterruptionInputHandler());
-        yield return Register(AgentInputRoutingClass.ActiveControl, new SteeringInputHandler());
     }
 
     private static AgentInputHandlerRegistration Register<TInput>(
@@ -327,11 +325,8 @@ internal sealed class ClientToolOperationOutcomeInputHandler :
                 $"No client tool background operation '{input.ClientOperationId}' is active.");
         }
 
-        return ValueTask.FromResult(new AgentInputResult
-        {
-            Disposition = AgentInputDisposition.Accepted,
-            ThreadExecutionId = input.ThreadExecutionId
-        });
+        return ValueTask.FromResult<AgentInputResult>(
+            new AgentInputResult.Control(AgentInputDisposition.Accepted, input.ThreadExecutionId));
     }
 }
 
@@ -346,22 +341,8 @@ internal sealed class InterruptionInputHandler : IAgentInputHandler<Interruption
     }
 }
 
-internal sealed class SteeringInputHandler : IAgentInputHandler<SteeringInputEvent>
-{
-    public async ValueTask<AgentInputResult> HandleAsync(
-        SteeringInputEvent input,
-        AgentInputHandlingContext context,
-        CancellationToken cancellationToken)
-        => await context.SteerAsync(input, cancellationToken).ConfigureAwait(false);
-}
-
 internal static class AgentInputResults
 {
     internal static AgentInputResult Completed(AgentInputEvent input, AgentTurnResult? turn = null)
-        => new()
-        {
-            Disposition = AgentInputDisposition.Completed,
-            TurnResult = turn ?? AgentTurnResult.Empty,
-            ThreadExecutionId = input.ThreadExecutionId
-        };
+        => new AgentInputResult.Completed(turn ?? AgentTurnResult.Empty, input.ThreadExecutionId);
 }

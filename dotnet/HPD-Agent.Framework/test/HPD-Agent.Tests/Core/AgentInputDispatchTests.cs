@@ -20,8 +20,6 @@ public class AgentInputDispatchTests
             .Should().Be(AgentInputRoutingClass.ActiveControl);
         AgentInputDispatcher.GetBuiltInRegistration(typeof(InterruptionRequestEvent)).RoutingClass
             .Should().Be(AgentInputRoutingClass.ActiveControl);
-        AgentInputDispatcher.GetBuiltInRegistration(typeof(SteeringInputEvent)).RoutingClass
-            .Should().Be(AgentInputRoutingClass.ActiveControl);
     }
 
     [Fact]
@@ -102,13 +100,12 @@ public class AgentInputDispatchTests
     }
 
     [Fact]
-    public async Task DispatchAsync_BeforeInput_CannotChangeDelivery()
+    public async Task DispatchAsync_BeforeInput_CannotChangeRoutingClass()
     {
         var middleware = new ReplacingInputMiddleware(
-            new SteeringInputEvent
+            new InterruptionRequestEvent(null, "test", InterruptionSource.User)
             {
-                ThreadExecutionId = "execution",
-                Messages = [new ChatMessage(ChatRole.User, "steer")]
+                ThreadExecutionId = "execution"
             });
         var dispatcher = new AgentInputDispatcher(new AgentMiddlewarePipeline([middleware]));
         var input = new UserMessagesInputEvent
@@ -123,7 +120,7 @@ public class AgentInputDispatchTests
             CancellationToken.None).AsTask();
 
         await act.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("*QueuedWork*ActiveControl*");
+            .WithMessage("*Work*ActiveControl*");
     }
 
     [Fact]
@@ -171,16 +168,8 @@ public class AgentInputDispatchTests
             EventCoordinator = new EventCoordinator(),
             RunMessagesAsync = (input, _, _, _) => runMessages?.Invoke(input)
                 ?? Task.FromResult(AgentTurnResult.Empty),
-            InterruptAsync = (input, _) => Task.FromResult(new AgentInputResult
-            {
-                Disposition = AgentInputDisposition.Accepted,
-                ThreadExecutionId = input.ThreadExecutionId
-            }),
-            SteerAsync = (input, _) => Task.FromResult(new AgentInputResult
-            {
-                Disposition = AgentInputDisposition.Accepted,
-                ThreadExecutionId = input.ThreadExecutionId
-            }),
+            InterruptAsync = (input, _) => Task.FromResult<AgentInputResult>(
+                new AgentInputResult.Control(AgentInputDisposition.Accepted, input.ThreadExecutionId)),
             TryResolveClientToolOperation = _ => false
         };
 
@@ -198,10 +187,8 @@ public class AgentInputDispatchTests
             CancellationToken cancellationToken)
         {
             Seen.Add(input.Value);
-            return ValueTask.FromResult(new AgentInputResult
-            {
-                Disposition = AgentInputDisposition.Completed
-            });
+            return ValueTask.FromResult<AgentInputResult>(
+                new AgentInputResult.Completed(AgentTurnResult.Empty, input.ThreadExecutionId));
         }
     }
 

@@ -169,7 +169,6 @@ public static partial class AgentEventSerializer
 
         // Priority Streaming Events
         [typeof(InterruptionRequestEvent)] = EventTypes.Streaming.INTERRUPTION_REQUEST,
-        [typeof(SteeringInputEvent)] = "STEERING_INPUT",
         [typeof(InterruptionHandledEvent)] = EventTypes.Streaming.INTERRUPTION_HANDLED,
     };
 
