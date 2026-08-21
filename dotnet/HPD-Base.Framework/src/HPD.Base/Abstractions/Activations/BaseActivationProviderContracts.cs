@@ -714,6 +714,8 @@ public static class BaseActivationCapabilityContract
     internal static void Require(BaseActivationProviderCapability capability, BaseActivationDefinition definition)
     {
         if (!IsValid(capability) || !capability.ExecutionClasses.Contains(definition.ExecutionClass)
+            || definition.TransactionalTarget is BaseSelectionMutationActivationTarget && !capability.SelectionTargetSupported
+            || definition.TransactionalTarget is BaseModuleMutationActivationTarget && !capability.ModuleTargetSupported
             || definition.Limits.MaximumInputBytes > capability.MaximumInputBytes
             || definition.Limits.MaximumResultBytes > capability.MaximumResultBytes
             || definition.Limits.MaximumAttempts > capability.MaximumAttempts
