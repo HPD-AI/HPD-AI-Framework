@@ -127,6 +127,23 @@ public sealed class AtomicExecutionTests
         late.Status.Should().Be(OperationStatus.Conflict);
         late.Error!.Code.Should().Be("base.activation.claimLost");
 
+        var disposalRequest = new BaseActivationDisposeRequest
+        {
+            ActivationId = claimed.Claim.ActivationId,
+            ExpectedGeneration = completed.Generation,
+            AcceptedTime = AcceptedTime(45),
+            Identity = RequestIdentity("dispose"),
+            Limits = limits,
+        };
+        BaseActivationTransitionResult disposed = (await store.TransitionAsync(disposalRequest)).Value!;
+        BaseActivationTransitionResult disposedReplay = (await store.TransitionAsync(disposalRequest with
+        {
+            AcceptedTime = AcceptedTime(46),
+        })).Value!;
+        disposed.State.Should().Be(BaseActivationState.Disposed);
+        disposedReplay.Generation.Should().Be(disposed.Generation);
+        disposedReplay.Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
+
         BaseActivationDueObservation terminalObservation = (await store.ObserveDueAsync(new BaseActivationDueObservationRequest
         {
             ApplicationId = "activation-test", WorkerModuleId = "test", Definitions = [definition], Scope = scope,

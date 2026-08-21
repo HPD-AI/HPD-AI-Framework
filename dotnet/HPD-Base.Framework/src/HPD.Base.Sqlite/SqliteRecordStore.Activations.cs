@@ -428,6 +428,12 @@ public sealed partial class SqliteRecordStore
                 ? reconcile.VerificationEvidence.ToArray()
                 : null;
         }
+        else if (request is BaseActivationOperatorRetryRequest retry && row.State == BaseActivationState.Exhausted &&
+            row.Generation == retry.ExpectedGeneration && retry.RetryDueAt >= request.AcceptedTime.CapturedUtc)
+            state = BaseActivationState.RetryPending;
+        else if (request is BaseActivationDisposeRequest dispose && row.Generation == dispose.ExpectedGeneration &&
+            row.State is BaseActivationState.Succeeded or BaseActivationState.Exhausted or BaseActivationState.Cancelled or BaseActivationState.Migrated)
+            state = BaseActivationState.Disposed;
         else
             return ActivationFailure<BaseActivationTransitionResult>("base.activation.claimLost", OperationStatus.Conflict, ErrorCategory.Conflict);
         if (claim is not null && !SqliteClaimMatches(row, claim))
@@ -440,7 +446,12 @@ public sealed partial class SqliteRecordStore
         command.Parameters.AddWithValue("$state", (int)state); command.Parameters.AddWithValue("$generation", generation);
         command.Parameters.Add("$result", SqliteType.Blob).Value = (object?)result ?? DBNull.Value;
         command.Parameters.AddWithValue("$retry", (int)BaseActivationState.RetryPending);
-        command.Parameters.AddWithValue("$now", request is BaseActivationFailRequest retry ? (object?)retry.RetryDueAt ?? request.AcceptedTime.CapturedUtc : request.AcceptedTime.CapturedUtc);
+        command.Parameters.AddWithValue("$now", request switch
+        {
+            BaseActivationFailRequest retry => (object?)retry.RetryDueAt ?? request.AcceptedTime.CapturedUtc,
+            BaseActivationOperatorRetryRequest retry => retry.RetryDueAt,
+            _ => request.AcceptedTime.CapturedUtc,
+        });
         command.Parameters.Add("$checksum", SqliteType.Blob).Value = control; command.Parameters.AddWithValue("$id", row.ActivationId); command.Parameters.AddWithValue("$expected", row.Generation);
         if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
             return ActivationFailure<BaseActivationTransitionResult>("base.activation.claimLost", OperationStatus.Conflict, ErrorCategory.Conflict);
@@ -1241,6 +1252,8 @@ public sealed partial class SqliteRecordStore
         BaseActivationCompleteEffectRequest => "effect-completed",
         BaseActivationRecoverEffectRequest => "effect-outcome-unknown",
         BaseActivationReconcileEffectRequest => "effect-reconciled",
+        BaseActivationOperatorRetryRequest => "activation-operator-retried",
+        BaseActivationDisposeRequest => "activation-disposed",
         _ => throw new InvalidOperationException("base.activation.invalid"),
     };
     private static byte[] ActivationHash(string value) => SHA256.HashData(Encoding.UTF8.GetBytes(value));

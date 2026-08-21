@@ -443,6 +443,22 @@ public sealed record BaseActivationReconcileEffectRequest : BaseActivationTransi
     public required ImmutableArray<byte> VerificationChecksum { get; init; }
 }
 
+/// <summary>Requests an identified operator retry of one exhausted activation.</summary>
+public sealed record BaseActivationOperatorRetryRequest : BaseActivationTransitionRequest
+{
+    /// <summary>Gets the exact exhausted activation generation.</summary>
+    public required long ExpectedGeneration { get; init; }
+    /// <summary>Gets the Runtime-accepted retry due instant.</summary>
+    public required long RetryDueAt { get; init; }
+}
+
+/// <summary>Requests identified disposal of retained terminal activation authority.</summary>
+public sealed record BaseActivationDisposeRequest : BaseActivationTransitionRequest
+{
+    /// <summary>Gets the exact terminal activation generation.</summary>
+    public required long ExpectedGeneration { get; init; }
+}
+
 /// <summary>Contains one committed activation transition.</summary>
 public sealed record BaseActivationTransitionResult
 {

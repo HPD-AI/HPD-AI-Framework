@@ -267,6 +267,24 @@ public sealed partial class SqliteModuleMutationTests
             replayed.State.Should().Be(BaseActivationState.Exhausted);
             replayed.Generation.Should().Be(reconciled.Generation);
             replayed.Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
+
+            var retry = new BaseActivationOperatorRetryRequest
+            {
+                ActivationId = claimed.Claim.ActivationId,
+                ExpectedGeneration = reconciled.Generation,
+                RetryDueAt = 230,
+                AcceptedTime = AcceptedTime(225),
+                Identity = ActivationIdentity("operator-retry"),
+                Limits = limits,
+            };
+            BaseActivationTransitionResult retried = (await store.TransitionAsync(retry)).Value!;
+            BaseActivationTransitionResult retriedReplay = (await store.TransitionAsync(retry with
+            {
+                AcceptedTime = AcceptedTime(226),
+            })).Value!;
+            retried.State.Should().Be(BaseActivationState.RetryPending);
+            retriedReplay.Generation.Should().Be(retried.Generation);
+            retriedReplay.Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
         }
         finally
         {

@@ -411,6 +411,15 @@ internal sealed partial class InMemoryRecordStore
                         ? reconcile.VerificationEvidence.ToArray()
                         : null;
                     break;
+                case BaseActivationOperatorRetryRequest retry when row.State == BaseActivationState.Exhausted &&
+                    row.Generation == retry.ExpectedGeneration && retry.RetryDueAt >= request.AcceptedTime.CapturedUtc:
+                    resultingState = BaseActivationState.RetryPending;
+                    break;
+                case BaseActivationDisposeRequest dispose when row.Generation == dispose.ExpectedGeneration &&
+                    row.State is BaseActivationState.Succeeded or BaseActivationState.Exhausted or
+                        BaseActivationState.Cancelled or BaseActivationState.Migrated:
+                    resultingState = BaseActivationState.Disposed;
+                    break;
                 default:
                     return ActivationFailure<BaseActivationTransitionResult>("base.activation.claimLost", OperationStatus.Conflict, ErrorCategory.Conflict);
             }
@@ -429,7 +438,12 @@ internal sealed partial class InMemoryRecordStore
                     ? resultingEffect
                     : null,
                 EffectiveDueAt = resultingState == BaseActivationState.RetryPending
-                    ? ((BaseActivationFailRequest)request).RetryDueAt!.Value
+                    ? request switch
+                    {
+                        BaseActivationFailRequest failed => failed.RetryDueAt!.Value,
+                        BaseActivationOperatorRetryRequest retry => retry.RetryDueAt,
+                        _ => row.EffectiveDueAt,
+                    }
                     : row.EffectiveDueAt,
                 ControlChecksum = checksum,
             };
@@ -879,6 +893,8 @@ internal sealed partial class InMemoryRecordStore
         BaseActivationCompleteEffectRequest => "effect-completed",
         BaseActivationRecoverEffectRequest => "effect-outcome-unknown",
         BaseActivationReconcileEffectRequest => "effect-reconciled",
+        BaseActivationOperatorRetryRequest => "activation-operator-retried",
+        BaseActivationDisposeRequest => "activation-disposed",
         _ => throw new InvalidOperationException("base.activation.invalid"),
     };
 
