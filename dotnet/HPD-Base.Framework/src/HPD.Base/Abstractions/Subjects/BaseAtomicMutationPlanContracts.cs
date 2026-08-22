@@ -327,6 +327,28 @@ public sealed record BaseCapturedActivationGuardEvidence
 {
     /// <summary>Gets the guarded activation identity.</summary>
     public required string ActivationId { get; init; }
+    /// <summary>Gets the exact positive attempt number.</summary>
+    public required int AttemptNumber { get; init; }
+    /// <summary>Gets the exact positive claim epoch.</summary>
+    public required long ClaimEpoch { get; init; }
+    /// <summary>Gets the exact opaque 256-bit fencing token.</summary>
+    public required ImmutableArray<byte> FencingToken { get; init; }
+    /// <summary>Gets the exact installed worker identity.</summary>
+    public required string WorkerIdentity { get; init; }
+    /// <summary>Gets the exact cancellation generation.</summary>
+    public required long CancellationGeneration { get; init; }
+    /// <summary>Gets the exact physical store-instance identity.</summary>
+    public required string StoreInstanceId { get; init; }
+    /// <summary>Gets the exact nonnegative restore epoch.</summary>
+    public required long RestoreEpoch { get; init; }
+    /// <summary>Gets the exact installed definition checksum.</summary>
+    public required ImmutableArray<byte> DefinitionChecksum { get; init; }
+    /// <summary>Gets the exact installed child-step identity.</summary>
+    public required string StepId { get; init; }
+    /// <summary>Gets the exact positive child ordinal.</summary>
+    public required int ChildOrdinal { get; init; }
+    /// <summary>Gets the exact canonical child-request fingerprint.</summary>
+    public required ImmutableArray<byte> ChildRequestFingerprint { get; init; }
     /// <summary>Gets the exact current activation generation.</summary>
     public required long Generation { get; init; }
     /// <summary>Gets the exact current lease revision.</summary>

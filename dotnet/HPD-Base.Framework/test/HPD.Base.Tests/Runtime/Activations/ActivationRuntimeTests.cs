@@ -90,6 +90,34 @@ public sealed partial class ActivationRuntimeTests
         conflict.Should().Throw<InvalidOperationException>().WithMessage("base.activation.childIdentityConflict");
     }
 
+    [Fact]
+    public void Captured_guard_evidence_rejects_every_static_authority_substitution()
+    {
+        BaseActivationContext context = Context(maximumChildren: 1);
+        BaseActivationGuard guard = context.GuardLifecycleCheckpoint("child", 1, Identity("child", "one"));
+        BaseCapturedActivationGuardEvidence evidence = BaseActivationGuardEvidenceContract.Create(guard, 7, 3, 100);
+
+        BaseActivationGuardEvidenceContract.Matches(guard, evidence).Should().BeTrue();
+        BaseActivationGuard[] substitutions =
+        [
+            guard with { Claim = guard.Claim with { AttemptNumber = 2 } },
+            guard with { Claim = guard.Claim with { ClaimEpoch = 2 } },
+            guard with { Claim = guard.Claim with { FencingToken = SHA256.HashData("fence"u8).ToImmutableArray() } },
+            guard with { Claim = guard.Claim with { WorkerIdentity = "other" } },
+            guard with { Claim = guard.Claim with { CancellationGeneration = 1 } },
+            guard with { Claim = guard.Claim with { StoreInstanceId = "other" } },
+            guard with { Claim = guard.Claim with { RestoreEpoch = 2 } },
+            guard with { Claim = guard.Claim with { DefinitionChecksum = SHA256.HashData("definition"u8).ToImmutableArray() } },
+            guard with { StepId = "other" },
+            guard with { ChildOrdinal = 2 },
+            guard with { ChildRequestFingerprint = SHA256.HashData("request"u8).ToImmutableArray() },
+        ];
+
+        substitutions.Should().OnlyContain(value => !BaseActivationGuardEvidenceContract.Matches(value, evidence));
+        BaseActivationGuardEvidenceContract.Matches(
+            guard, evidence with { Checksum = SHA256.HashData("evidence"u8).ToImmutableArray() }).Should().BeFalse();
+    }
+
     private static BaseActivationContext Context(int maximumChildren)
     {
         var claim = new BaseActivationClaimAuthority

@@ -2768,14 +2768,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 !CryptographicOperations.FixedTimeEquals(row.Claim.FencingToken.AsSpan(), claim.FencingToken.AsSpan()) ||
                 !CryptographicOperations.FixedTimeEquals(row.Payload.Definition.Checksum.AsSpan(), claim.DefinitionChecksum.AsSpan()))
                 return SubjectFailure<BaseCapturedActivationGuardEvidence>("base.activation.claimLost", OperationStatus.Conflict, ErrorCategory.Conflict);
-            byte[] checksum = SHA256.HashData(Encoding.UTF8.GetBytes(
-                $"base.activation.guard.v2\0{claim.ActivationId}\n{row.Generation}\n{row.Lease.LeaseRevision}\n{guard.StepId}\n{guard.ChildOrdinal}\n{Convert.ToHexString(guard.ChildRequestFingerprint.AsSpan())}"));
-            return OperationResults.Ok(new BaseCapturedActivationGuardEvidence
-            {
-                ActivationId = new string(claim.ActivationId.AsSpan()), Generation = row.Generation,
-                LeaseRevision = row.Lease.LeaseRevision, LeaseExpiresAt = row.Lease.LeaseExpiresAt,
-                Checksum = checksum.ToImmutableArray(),
-            });
+            return OperationResults.Ok(BaseActivationGuardEvidenceContract.Create(
+                guard, row.Generation, row.Lease.LeaseRevision, row.Lease.LeaseExpiresAt));
         }
 
         public ValueTask<OperationResult<BaseCapturedActivationGuardEvidence>> ValidateActivationGuardAsync(
@@ -2788,9 +2782,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         });
 
         private static bool ActivationGuardMatches(BaseActivationGuard? guard, BaseCapturedActivationGuardEvidence? evidence) =>
-            guard is null ? evidence is null : evidence is not null &&
-            string.Equals(guard.Claim.ActivationId, evidence.ActivationId, StringComparison.Ordinal) &&
-            guard.Claim.FencingToken.Length == 32 && guard.ChildRequestFingerprint.Length == 32;
+            BaseActivationGuardEvidenceContract.Matches(guard, evidence);
 
 
         private OperationResult<BaseCapturedAtomicExecution> CaptureActivationAuthority(

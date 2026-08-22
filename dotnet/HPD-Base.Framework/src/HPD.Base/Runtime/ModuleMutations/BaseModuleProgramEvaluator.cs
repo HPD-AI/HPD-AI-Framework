@@ -106,8 +106,7 @@ internal sealed class BaseModuleProgramEvaluator<TRequest, TResult>
         {
             "int64" => left.Value.GetInt64().CompareTo(right.Value.GetInt64()),
             "decimal" => left.Value.GetDecimal().CompareTo(right.Value.GetDecimal()),
-            "dateTime" => left.Value.GetDateTimeOffset().ToUniversalTime()
-                .CompareTo(right.Value.GetDateTimeOffset().ToUniversalTime()),
+            "dateTime" => CompareDateTime(left.Value, right.Value),
             _ => throw new InvalidOperationException("base.moduleMutation.invalid"),
         };
         return comparison switch
@@ -118,6 +117,14 @@ internal sealed class BaseModuleProgramEvaluator<TRequest, TResult>
             BaseModuleOrderedComparisonKind.GreaterThanOrEqual => order >= 0,
             _ => throw new InvalidOperationException("base.moduleMutation.invalid"),
         };
+
+        static int CompareDateTime(JsonElement left, JsonElement right)
+        {
+            if (!BaseModuleDateTimeContract.TryRead(left, out DateTimeOffset leftValue)
+                || !BaseModuleDateTimeContract.TryRead(right, out DateTimeOffset rightValue))
+                throw new InvalidOperationException("base.moduleMutation.invalid");
+            return leftValue.CompareTo(rightValue);
+        }
     }
 
     internal BaseModuleProgramValue Object(BaseModuleObjectExpression expression, CollectionDefinition? collection)

@@ -444,7 +444,7 @@ internal static class BaseModuleMutationContractValidator
             if (expression is BaseModuleCoalesceExpression coalesce
                 && coalesce.Values.Any(value => !SameUnderlyingType(coalesce.ResultTypeId, value.ResultTypeId)))
                 throw new InvalidOperationException("base.moduleMutation.invalid");
-            if (expression is BaseModuleConstantExpression constant && !ConstantMatches(constant))
+            if (expression is BaseModuleConstantExpression constant && !ConstantCanonicalMatches(constant))
                 throw new InvalidOperationException("base.moduleMutation.invalid");
         }
 
@@ -539,33 +539,34 @@ internal static class BaseModuleMutationContractValidator
         static bool SameUnderlyingType(string left, string right) =>
             string.Equals(left.TrimEnd('?'), right.TrimEnd('?'), StringComparison.Ordinal);
 
-        static bool ConstantMatches(BaseModuleConstantExpression value)
-        {
-            try
-            {
-                using System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(value.CanonicalBaseJson.ToArray());
-                string node = value.ResultTypeId.TrimEnd('?');
-                return document.RootElement.ValueKind switch
-                {
-                    System.Text.Json.JsonValueKind.Null => value.ResultTypeId.EndsWith("?", StringComparison.Ordinal),
-                    System.Text.Json.JsonValueKind.String when node == "base.moduleGeneration" =>
-                        TryGeneration(document.RootElement.GetString()),
-                    System.Text.Json.JsonValueKind.String when node == "dateTime" =>
-                        document.RootElement.TryGetDateTimeOffset(out _),
-                    System.Text.Json.JsonValueKind.String => node is "string" or "id" or "revision",
-                    System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False => node == "boolean",
-                    System.Text.Json.JsonValueKind.Number when node == "int64" => document.RootElement.TryGetInt64(out _),
-                    System.Text.Json.JsonValueKind.Number when node == "decimal" => document.RootElement.TryGetDecimal(out _),
-                    _ => false,
-                };
-            }
-            catch { return false; }
+    }
 
-            static bool TryGeneration(string? text)
+    private static bool ConstantCanonicalMatches(BaseModuleConstantExpression value)
+    {
+        try
+        {
+            using System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(value.CanonicalBaseJson.ToArray());
+            string node = value.ResultTypeId.TrimEnd('?');
+            return document.RootElement.ValueKind switch
             {
-                try { _ = BaseModuleGeneration.ParseCanonical(text ?? string.Empty); return true; }
-                catch { return false; }
-            }
+                System.Text.Json.JsonValueKind.Null => value.ResultTypeId.EndsWith("?", StringComparison.Ordinal),
+                System.Text.Json.JsonValueKind.String when node == "base.moduleGeneration" =>
+                    TryGeneration(document.RootElement.GetString()),
+                System.Text.Json.JsonValueKind.String when node == "dateTime" =>
+                    BaseModuleDateTimeContract.TryRead(document.RootElement, out _),
+                System.Text.Json.JsonValueKind.String => node is "string" or "id" or "revision",
+                System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False => node == "boolean",
+                System.Text.Json.JsonValueKind.Number when node == "int64" => document.RootElement.TryGetInt64(out _),
+                System.Text.Json.JsonValueKind.Number when node == "decimal" => document.RootElement.TryGetDecimal(out _),
+                _ => false,
+            };
+        }
+        catch { return false; }
+
+        static bool TryGeneration(string? text)
+        {
+            try { _ = BaseModuleGeneration.ParseCanonical(text ?? string.Empty); return true; }
+            catch { return false; }
         }
     }
 
@@ -904,7 +905,9 @@ internal static class BaseModuleMutationContractValidator
         switch (value)
         {
             case BaseModuleRequestPropertyExpression request when !request.Property.StablePropertyPath.IsDefaultOrEmpty: break;
-            case BaseModuleConstantExpression constant when !constant.CanonicalBaseJson.IsDefault: break;
+            case BaseModuleConstantExpression constant when !constant.CanonicalBaseJson.IsDefault
+                && (!string.Equals(constant.ResultTypeId.TrimEnd('?'), "dateTime", StringComparison.Ordinal)
+                    || ConstantCanonicalMatches(constant)): break;
             case BaseModuleCapturedRecordIdExpression captured when captures.Contains(captured.CaptureId): break;
             case BaseModuleCapturedRevisionExpression captured when captures.Contains(captured.CaptureId): break;
             case BaseModuleCapturedFieldExpression captured when captures.Contains(captured.Field.CaptureId): break;

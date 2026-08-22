@@ -1028,6 +1028,148 @@ public sealed class BaseModuleProgramEvaluatorTests
         evaluator.Guard("ordered").Should().Be(expected);
     }
 
+    [Fact]
+    public void Ordered_decimal_and_canonical_UTC_date_guards_are_closed()
+    {
+        EvaluateOrdered("decimal", BaseFieldTypes.Decimal,
+            System.Text.Json.JsonSerializer.SerializeToElement(10.250m), "10.249"u8).Should().BeTrue();
+        EvaluateOrdered("dateTime", BaseFieldTypes.DateTime,
+            System.Text.Json.JsonSerializer.SerializeToElement("2026-08-22T17:00:00.0000001Z"),
+            "\"2026-08-22T17:00:00.0000000Z\""u8).Should().BeTrue();
+
+        Action nonzeroOffset = () => EvaluateOrdered("dateTime", BaseFieldTypes.DateTime,
+            System.Text.Json.JsonSerializer.SerializeToElement("2026-08-22T12:00:00.0000000-05:00"),
+            "\"2026-08-22T17:00:00.0000000Z\""u8);
+        Action noncanonicalUtc = () => EvaluateOrdered("dateTime", BaseFieldTypes.DateTime,
+            System.Text.Json.JsonSerializer.SerializeToElement("2026-08-22T17:00:00+00:00"),
+            "\"2026-08-22T17:00:00.0000000Z\""u8);
+
+        nonzeroOffset.Should().Throw<InvalidOperationException>().WithMessage("base.moduleMutation.invalid");
+        noncanonicalUtc.Should().Throw<InvalidOperationException>().WithMessage("base.moduleMutation.invalid");
+    }
+
+    [Theory]
+    [InlineData("\"2026-08-22T17:00:00.0000000Z\"", true)]
+    [InlineData("\"2026-08-22T12:00:00.0000000-05:00\"", false)]
+    [InlineData("\"2026-08-22T17:00:00+00:00\"", false)]
+    [InlineData("\"2026-08-22T17:00:00Z\"", false)]
+    [InlineData("null", false)]
+    public void UTC_date_contract_accepts_one_canonical_base_json_representation(string json, bool expected)
+    {
+        using System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(json);
+        BaseModuleDateTimeContract.TryRead(document.RootElement, out _).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("\"2026-08-22T17:00:00.0000000Z\"", true)]
+    [InlineData("\"2026-08-22T12:00:00.0000000-05:00\"", false)]
+    [InlineData("\"2026-08-22T17:00:00+00:00\"", false)]
+    public void Graph_validation_rejects_noncanonical_UTC_date_constants(string json, bool expected)
+    {
+        BaseRegisteredModuleMutationDefinition source = CreateDefinition();
+        BaseRegisteredModuleMutationDefinition definition = BaseModuleMutationContract.Seal(source with
+        {
+            Template = source.Template with
+            {
+                Guards =
+                [
+                    new BaseModuleFieldComparisonGuard
+                    {
+                        Id = "ordered-date",
+                        Field = new BaseModuleCapturedFieldReference
+                        {
+                            CaptureId = "record", StableFieldId = "record.value", DeclaredTypeId = "dateTime",
+                        },
+                        Comparison = BaseModuleOrderedComparisonKind.GreaterThan,
+                        Expected = new BaseModuleConstantExpression
+                        {
+                            Id = "expected-date", ResultTypeId = "dateTime",
+                            CanonicalBaseJson = System.Text.Encoding.UTF8.GetBytes(json).ToImmutableArray(),
+                        },
+                    },
+                ],
+            },
+        });
+        CollectionDefinition sourceCollection = ModuleCollection();
+        var collections = new Dictionary<string, CollectionDefinition>
+        {
+            ["module-records"] = sourceCollection with
+            {
+                Fields =
+                [
+                    .. sourceCollection.Fields!,
+                    new FieldDefinition { Id = "record.value", ApplicationName = "Value", WireName = "value", Type = BaseFieldTypes.DateTime },
+                ],
+            },
+        };
+
+        Action validate = () => BaseModuleMutationContractValidator.ValidateDefinition(
+            definition, collections, new Dictionary<string, BaseModuleGenerationCellDefinition>());
+
+        if (expected) validate.Should().NotThrow();
+        else validate.Should().Throw<InvalidOperationException>().WithMessage(BaseModuleMutationErrorCodes.Invalid);
+    }
+
+    private static bool EvaluateOrdered(string typeId, string fieldType, System.Text.Json.JsonElement capturedValue, ReadOnlySpan<byte> expectedJson)
+    {
+        BaseModuleCapturedFieldReference field = new()
+        {
+            CaptureId = "existing", StableFieldId = "record.value", DeclaredTypeId = typeId,
+        };
+        BaseRegisteredModuleMutationDefinition source = Definition();
+        BaseRegisteredModuleMutationDefinition definition = source with
+        {
+            Template = source.Template with
+            {
+                Guards =
+                [
+                    new BaseModuleFieldComparisonGuard
+                    {
+                        Id = "ordered", Field = field,
+                        Comparison = BaseModuleOrderedComparisonKind.GreaterThan,
+                        Expected = new BaseModuleConstantExpression
+                        {
+                            Id = "expected", ResultTypeId = typeId,
+                            CanonicalBaseJson = expectedJson.ToArray().ToImmutableArray(),
+                        },
+                    },
+                ],
+            },
+        };
+        BaseCapturedAtomicExecution captured = Captured();
+        BaseCapturedModuleRecord record = captured.ModuleRecords[0];
+        captured = captured with
+        {
+            ModuleRecords =
+            [
+                record with
+                {
+                    Current = record.Current! with
+                    {
+                        Payload = new RecordPayload
+                        {
+                            Kind = RecordPayloadKind.FieldMap,
+                            Fields = new Dictionary<string, System.Text.Json.JsonElement> { ["value"] = capturedValue },
+                        },
+                    },
+                },
+            ],
+        };
+        var evaluator = new BaseModuleProgramEvaluator<EvaluatorRequest, EvaluatorResult>(
+            definition, Identity(), new EvaluatorRequest { Amount = 0, Enabled = true }, captured,
+            new Dictionary<string, CollectionDefinition>
+            {
+                ["records"] = new CollectionDefinition
+                {
+                    Id = "records", Name = "records", Kind = BaseCollectionKinds.Document,
+                    SchemaMode = SchemaMode.Strict, UnknownFields = UnknownFieldPolicy.Reject,
+                    MutationMode = BaseCollectionMutationMode.Mutable,
+                    Fields = [new FieldDefinition { Id = "record.value", ApplicationName = "Value", WireName = "value", Type = fieldType }],
+                },
+            });
+        return evaluator.Guard("ordered");
+    }
+
     private static BaseGeneratedModuleMutationIdentity<EvaluatorRequest, EvaluatorResult> Identity() => new(
         "module.test", 1, new byte[32], EvaluatorJsonContext.Default.EvaluatorRequest,
         EvaluatorJsonContext.Default.EvaluatorResult,

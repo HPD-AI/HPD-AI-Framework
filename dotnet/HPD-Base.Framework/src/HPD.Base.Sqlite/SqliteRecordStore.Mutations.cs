@@ -1120,13 +1120,8 @@ public sealed partial class SqliteRecordStore
                 !CryptographicOperations.FixedTimeEquals((byte[])reader[1], claim.DefinitionChecksum.AsSpan()))
                 return SubjectFailure<BaseCapturedActivationGuardEvidence>("base.activation.claimLost", OperationStatus.Conflict, ErrorCategory.Conflict);
             long generation = reader.GetInt64(0), leaseRevision = reader.GetInt64(6), leaseExpiresAt = reader.GetInt64(7);
-            byte[] checksum = SHA256.HashData(Encoding.UTF8.GetBytes(
-                $"base.activation.guard.v2\0{claim.ActivationId}\n{generation}\n{leaseRevision}\n{guard.StepId}\n{guard.ChildOrdinal}\n{Convert.ToHexString(guard.ChildRequestFingerprint.AsSpan())}"));
-            return OperationResults.Ok(new BaseCapturedActivationGuardEvidence
-            {
-                ActivationId = new string(claim.ActivationId.AsSpan()), Generation = generation,
-                LeaseRevision = leaseRevision, LeaseExpiresAt = leaseExpiresAt, Checksum = checksum.ToImmutableArray(),
-            });
+            return OperationResults.Ok(BaseActivationGuardEvidenceContract.Create(
+                guard, generation, leaseRevision, leaseExpiresAt));
         }
 
         public ValueTask<OperationResult<BaseCapturedActivationGuardEvidence>> ValidateActivationGuardAsync(
@@ -1137,9 +1132,7 @@ public sealed partial class SqliteRecordStore
                 token => CaptureActivationGuardAsync(guard, token));
 
         private static bool ActivationGuardMatches(BaseActivationGuard? guard, BaseCapturedActivationGuardEvidence? evidence) =>
-            guard is null ? evidence is null : evidence is not null &&
-            string.Equals(guard.Claim.ActivationId, evidence.ActivationId, StringComparison.Ordinal) &&
-            guard.Claim.FencingToken.Length == 32 && guard.ChildRequestFingerprint.Length == 32;
+            BaseActivationGuardEvidenceContract.Matches(guard, evidence);
 
         private async ValueTask<OperationResult<BaseCapturedAtomicExecution>> CaptureActivationAuthorityAsync(
             BaseAtomicExecutionRequest request,
