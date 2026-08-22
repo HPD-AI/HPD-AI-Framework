@@ -16,7 +16,7 @@ using EdgeType = HPD.Graph.Abstractions.Graph.Edge;
 namespace HPD.Graph.Tests.Advanced;
 
 /// <summary>
-/// Tests for Phase 4: Temporal Operators (Edge.Delay, Edge.Schedule, Edge.RetryPolicy).
+/// Tests for graph-owned temporal operators (Edge.Delay and Edge.RetryPolicy).
 /// Validates edge-level temporal controls with suspension integration.
 /// </summary>
 public class TemporalOperatorsTests
@@ -138,195 +138,6 @@ public class TemporalOperatorsTests
         // Verify start node completed but delayed node did not
         context.CompletedNodes.Should().Contain("start");
         context.CompletedNodes.Should().NotContain("delayed");
-    }
-
-    // ========== Edge.Schedule Tests ==========
-
-    [Fact]
-    public async Task EdgeSchedule_WithinWindow_AllowsTraversal()
-    {
-        // Arrange: Schedule that runs every minute (should always be satisfied)
-        var graph = new GraphType
-        {
-            Id = "test-graph",
-            Name = "Schedule Test",
-            Version = "1.0",
-            EntryNodeId = "start",
-            ExitNodeId = "scheduled",
-            Nodes = new List<NodeType>
-            {
-                new NodeType
-                {
-                    Id = "start",
-                    Name = "Start Node",
-                    Type = NodeTypeEnum.Handler,
-                    HandlerName = "SuccessHandler"
-                },
-                new NodeType
-                {
-                    Id = "scheduled",
-                    Name = "Scheduled Node",
-                    Type = NodeTypeEnum.Handler,
-                    HandlerName = "SuccessHandler"
-                }
-            },
-            Edges = new List<EdgeType>
-            {
-                new EdgeType
-                {
-                    From = "start",
-                    To = "scheduled",
-                    Schedule = new ScheduleConstraint
-                    {
-                        CronExpression = "* * * * *", // Every minute
-                        Tolerance = TimeSpan.FromMinutes(1) // Wide tolerance
-                    }
-                }
-            }
-        };
-
-        var services = new ServiceCollection();
-        services.AddSingleton<IGraphNodeHandler<GraphContext>>(new SuccessHandler());
-        var serviceProvider = services.BuildServiceProvider();
-
-        var orchestrator = new GraphOrchestrator<GraphContext>(serviceProvider);
-        var context = new GraphContext("exec-1", graph, serviceProvider);
-
-        // Act
-        var result = await orchestrator.ExecuteAsync(context);
-
-        // Assert
-        result.CompletedNodes.Should().Contain("start");
-        result.CompletedNodes.Should().Contain("scheduled");
-    }
-
-    [Fact]
-    public async Task EdgeSchedule_OutsideWindow_SuspendsExecution()
-    {
-        // Arrange: Schedule that will never be satisfied (year 2099)
-        var graph = new GraphType
-        {
-            Id = "test-graph",
-            Name = "Schedule Suspension Test",
-            Version = "1.0",
-            EntryNodeId = "start",
-            ExitNodeId = "scheduled",
-            Nodes = new List<NodeType>
-            {
-                new NodeType
-                {
-                    Id = "start",
-                    Name = "Start Node",
-                    Type = NodeTypeEnum.Handler,
-                    HandlerName = "SuccessHandler"
-                },
-                new NodeType
-                {
-                    Id = "scheduled",
-                    Name = "Scheduled Node",
-                    Type = NodeTypeEnum.Handler,
-                    HandlerName = "SuccessHandler"
-                }
-            },
-            Edges = new List<EdgeType>
-            {
-                new EdgeType
-                {
-                    From = "start",
-                    To = "scheduled",
-                    Schedule = new ScheduleConstraint
-                    {
-                        CronExpression = "0 0 1 1 *", // January 1st at midnight (next year)
-                        Tolerance = TimeSpan.FromSeconds(1) // Very tight tolerance - won't match now
-                    }
-                }
-            }
-        };
-
-        var services = new ServiceCollection();
-        services.AddSingleton<IGraphNodeHandler<GraphContext>>(new SuccessHandler());
-        var serviceProvider = services.BuildServiceProvider();
-
-        var orchestrator = new GraphOrchestrator<GraphContext>(serviceProvider);
-        var context = new GraphContext("exec-1", graph, serviceProvider);
-
-        // Act & Assert
-        var exception = await Assert.ThrowsAsync<GraphSuspendedException>(async () =>
-            await orchestrator.ExecuteAsync(context));
-
-        exception.NodeId.Should().Be("scheduled");
-        exception.Message.Should().Contain("schedule");
-
-        // Verify start node completed but scheduled node did not
-        context.CompletedNodes.Should().Contain("start");
-        context.CompletedNodes.Should().NotContain("scheduled");
-    }
-
-    [Fact]
-    public async Task EdgeSchedule_WithAdditionalCondition_BothMustBeSatisfied()
-    {
-        // Arrange: Schedule with additional condition that fails
-        var graph = new GraphType
-        {
-            Id = "test-graph",
-            Name = "Schedule Additional Condition Test",
-            Version = "1.0",
-            EntryNodeId = "start",
-            ExitNodeId = "scheduled",
-            Nodes = new List<NodeType>
-            {
-                new NodeType
-                {
-                    Id = "start",
-                    Name = "Start Node",
-                    Type = NodeTypeEnum.Handler,
-                    HandlerName = "SuccessHandler"
-                },
-                new NodeType
-                {
-                    Id = "scheduled",
-                    Name = "Scheduled Node",
-                    Type = NodeTypeEnum.Handler,
-                    HandlerName = "SuccessHandler"
-                }
-            },
-            Edges = new List<EdgeType>
-            {
-                new EdgeType
-                {
-                    From = "start",
-                    To = "scheduled",
-                    Schedule = new ScheduleConstraint
-                    {
-                        CronExpression = "* * * * *", // Every minute (satisfied)
-                        Tolerance = TimeSpan.FromMinutes(1),
-                        AdditionalCondition = async (ctx) =>
-                        {
-                            await Task.CompletedTask;
-                            return false; // Additional condition fails
-                        }
-                    }
-                }
-            }
-        };
-
-        var services = new ServiceCollection();
-        services.AddSingleton<IGraphNodeHandler<GraphContext>>(new SuccessHandler());
-        var serviceProvider = services.BuildServiceProvider();
-
-        var orchestrator = new GraphOrchestrator<GraphContext>(serviceProvider);
-        var context = new GraphContext("exec-1", graph, serviceProvider);
-
-        // Act & Assert
-        var exception = await Assert.ThrowsAsync<GraphSuspendedException>(async () =>
-            await orchestrator.ExecuteAsync(context));
-
-        exception.NodeId.Should().Be("scheduled");
-        exception.Message.Should().Contain("additional condition");
-
-        // Verify start node completed but scheduled node did not
-        context.CompletedNodes.Should().Contain("start");
-        context.CompletedNodes.Should().NotContain("scheduled");
     }
 
     // ========== Edge.RetryPolicy Tests ==========
@@ -544,9 +355,9 @@ public class TemporalOperatorsTests
     // ========== Combined Temporal Operators Tests ==========
 
     [Fact]
-    public async Task EdgeTemporalOperators_DelayAndSchedule_BothEvaluated()
+    public async Task EdgeTemporalOperator_Delay_IsEvaluated()
     {
-        // Arrange: Edge with both delay and schedule
+        // Arrange: Edge with a short delay.
         var graph = new GraphType
         {
             Id = "test-graph",
@@ -577,12 +388,7 @@ public class TemporalOperatorsTests
                 {
                     From = "start",
                     To = "temporal",
-                    Delay = TimeSpan.FromSeconds(1), // Short delay
-                    Schedule = new ScheduleConstraint
-                    {
-                        CronExpression = "* * * * *", // Every minute
-                        Tolerance = TimeSpan.FromMinutes(1)
-                    }
+                    Delay = TimeSpan.FromSeconds(1)
                 }
             }
         };
@@ -599,7 +405,7 @@ public class TemporalOperatorsTests
         var result = await orchestrator.ExecuteAsync(context);
         stopwatch.Stop();
 
-        // Assert - Both delay and schedule were satisfied
+        // Assert
         result.CompletedNodes.Should().Contain("start");
         result.CompletedNodes.Should().Contain("temporal");
         stopwatch.Elapsed.Should().BeGreaterThanOrEqualTo(TimeSpan.FromSeconds(1)); // Delay was applied

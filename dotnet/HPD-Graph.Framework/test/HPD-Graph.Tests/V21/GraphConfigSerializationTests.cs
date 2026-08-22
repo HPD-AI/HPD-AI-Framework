@@ -113,10 +113,6 @@ internal static class GraphConfigSerializationTests
                 Priority = 7,
                 Delay = TimeSpan.FromSeconds(2),
                 CloningPolicy = CloningPolicyConfig.NeverClone,
-                Schedule = new ScheduleConstraintConfig
-                {
-                    CronExpression = "0 3 * * *", TimeZoneId = "UTC", Tolerance = TimeSpan.FromMinutes(2),
-                },
                 RetryPolicy = new EdgeRetryPolicyConfig
                 {
                     RetryInterval = TimeSpan.FromSeconds(5),

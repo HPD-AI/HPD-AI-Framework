@@ -172,9 +172,6 @@ public sealed class GraphConfigExporterTests
         edge.Priority.Should().Be(8);
         edge.Delay.Should().Be(TimeSpan.FromSeconds(3));
         edge.CloningPolicy.Should().Be(CloningPolicyConfig.AlwaysClone);
-        edge.Schedule!.CronExpression.Should().Be("*/5 * * * *");
-        edge.Schedule.TimeZoneId.Should().Be("UTC");
-        edge.Schedule.Tolerance.Should().Be(TimeSpan.FromSeconds(45));
         edge.RetryPolicy!.RetryInterval.Should().Be(TimeSpan.FromSeconds(6));
         edge.RetryPolicy.MaxRetries.Should().Be(10);
         edge.RetryPolicy.MaxWaitTime.Should().Be(TimeSpan.FromMinutes(2));
@@ -269,32 +266,6 @@ public sealed class GraphConfigExporterTests
 
         act.Should().Throw<NotSupportedException>()
             .WithMessage("*edge retry predicates cannot be exported*");
-    }
-
-    [Fact]
-    public void Export_Schedule_WithRuntimePredicate_Throws()
-    {
-        var graph = CreateRuntimeGraph() with
-        {
-            Edges =
-            [
-                new Edge
-                {
-                    From = "START",
-                    To = "work",
-                    Schedule = new ScheduleConstraint
-                    {
-                        CronExpression = "* * * * *",
-                        AdditionalCondition = _ => Task.FromResult(true)
-                    }
-                }
-            ]
-        };
-
-        var act = () => _exporter.Export(graph);
-
-        act.Should().Throw<NotSupportedException>()
-            .WithMessage("*schedule predicates cannot be exported*");
     }
 
     [Fact]
@@ -407,12 +378,6 @@ public sealed class GraphConfigExporterTests
                     Priority = 8,
                     Delay = TimeSpan.FromSeconds(3),
                     CloningPolicy = CloningPolicy.AlwaysClone,
-                    Schedule = new ScheduleConstraint
-                    {
-                        CronExpression = "*/5 * * * *",
-                        TimeZone = TimeZoneInfo.Utc,
-                        Tolerance = TimeSpan.FromSeconds(45)
-                    },
                     RetryPolicy = new EdgeRetryPolicy
                     {
                         RetryInterval = TimeSpan.FromSeconds(6),

@@ -3313,68 +3313,6 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                 }
             }
 
-            //  NEW: Edge SCHEDULE evaluation (cron-based)
-            if (edge.Schedule != null)
-            {
-                var schedule = edge.Schedule;
-                var now = DateTimeOffset.UtcNow;
-
-                // Parse cron expression and get next occurrence
-                // Note: Requires Cronos NuGet package
-                var cronExpr = Cronos.CronExpression.Parse(schedule.CronExpression);
-                var timeZone = schedule.TimeZone ?? TimeZoneInfo.Utc;
-
-                // Cronos requires DateTime.Kind = Utc, so pass now.UtcDateTime
-                var nextOccurrence = cronExpr.GetNextOccurrence(now.UtcDateTime, timeZone);
-
-                if (nextOccurrence == null)
-                {
-                    throw new InvalidOperationException(
-                        $"Edge {edge.From}→{edge.To}: cron expression '{schedule.CronExpression}' has no next occurrence");
-                }
-
-                var nextTime = new DateTimeOffset(nextOccurrence.Value, timeZone.GetUtcOffset(nextOccurrence.Value));
-                var timeUntilNext = nextTime - now;
-
-                // Check if we're within tolerance window
-                var isWithinWindow = Math.Abs(timeUntilNext.TotalMilliseconds) <= schedule.Tolerance.TotalMilliseconds;
-
-                if (!isWithinWindow)
-                {
-                    // Not within schedule window - suspend until next occurrence
-                    context.Log("Orchestrator",
-                        $"Edge {edge.From}→{edge.To}: schedule not satisfied (next: {nextTime:yyyy-MM-dd HH:mm:ss zzz})",
-                        LogLevel.Information, nodeId: node.Id);
-
-                    throw new GraphSuspendedException(
-                        node.Id,
-                        Guid.NewGuid().ToString(),
-                        $"Edge {edge.From}→{edge.To} schedule: waiting until {nextTime}");
-                }
-
-                // Within window - check additional condition if present
-                if (schedule.AdditionalCondition != null)
-                {
-                    var additionalConditionMet = await schedule.AdditionalCondition(context);
-                    if (!additionalConditionMet)
-                    {
-                        context.Log("Orchestrator",
-                            $"Edge {edge.From}→{edge.To}: schedule satisfied but additional condition not met",
-                            LogLevel.Information, nodeId: node.Id);
-
-                        // Retry after tolerance period
-                        throw new GraphSuspendedException(
-                            node.Id,
-                            Guid.NewGuid().ToString(),
-                            $"Edge {edge.From}→{edge.To}: schedule additional condition not met");
-                    }
-                }
-
-                context.Log("Orchestrator",
-                    $"Edge {edge.From}→{edge.To}: schedule satisfied at {now:yyyy-MM-dd HH:mm:ss zzz}",
-                    LogLevel.Debug, nodeId: node.Id);
-            }
-
             //  NEW: Edge RETRY POLICY evaluation (polling)
             if (edge.RetryPolicy != null)
             {

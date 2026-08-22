@@ -498,7 +498,6 @@ public class GraphBuilder
                 HasRuntimeOnlySubGraph(node.SubGraph)) ||
             graph.Edges.Any(edge =>
                 edge.Predicate is not null ||
-                edge.Schedule?.AdditionalCondition is not null ||
                 edge.RetryPolicy?.RetryCondition is not null);
     }
 
@@ -942,7 +941,6 @@ public class EdgeBuilder
     private int? _priority;
     private Abstractions.Execution.CloningPolicy? _cloningPolicy;
     private TimeSpan? _delay;
-    private ScheduleConstraint? _schedule;
     private EdgeRetryPolicy? _retryPolicy;
 
     internal EdgeBuilder(string from, string to)
@@ -1027,54 +1025,6 @@ public class EdgeBuilder
     }
 
     /// <summary>
-    /// Sets a schedule constraint for this edge.
-    /// </summary>
-    public EdgeBuilder WithSchedule(ScheduleConstraint schedule)
-    {
-        _schedule = schedule ?? throw new ArgumentNullException(nameof(schedule));
-        return this;
-    }
-
-    /// <summary>
-    /// Sets a cron schedule constraint for this edge using a timezone ID.
-    /// </summary>
-    public EdgeBuilder WithCron(
-        string cronExpression,
-        string? timeZoneId = null,
-        TimeSpan? tolerance = null,
-        Func<IGraphContext, Task<bool>>? additionalCondition = null)
-    {
-        var timeZone = string.IsNullOrWhiteSpace(timeZoneId)
-            ? null
-            : TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
-
-        return WithCron(cronExpression, timeZone, tolerance, additionalCondition);
-    }
-
-    /// <summary>
-    /// Sets a cron schedule constraint for this edge.
-    /// </summary>
-    public EdgeBuilder WithCron(
-        string cronExpression,
-        TimeZoneInfo? timeZone,
-        TimeSpan? tolerance = null,
-        Func<IGraphContext, Task<bool>>? additionalCondition = null)
-    {
-        if (string.IsNullOrWhiteSpace(cronExpression))
-            throw new ArgumentException("Cron expression is required.", nameof(cronExpression));
-        if (tolerance.HasValue && tolerance.Value < TimeSpan.Zero)
-            throw new ArgumentOutOfRangeException(nameof(tolerance), "Tolerance must be non-negative");
-
-        return WithSchedule(new ScheduleConstraint
-        {
-            CronExpression = cronExpression,
-            TimeZone = timeZone,
-            Tolerance = tolerance ?? TimeSpan.FromMinutes(1),
-            AdditionalCondition = additionalCondition
-        });
-    }
-
-    /// <summary>
     /// Sets an edge-level retry policy for this edge.
     /// </summary>
     public EdgeBuilder WithRetryPolicy(EdgeRetryPolicy retryPolicy)
@@ -1145,7 +1095,6 @@ public class EdgeBuilder
             Predicate = _predicate,
             CloningPolicy = _cloningPolicy,
             Delay = _delay,
-            Schedule = _schedule,
             RetryPolicy = _retryPolicy,
             Metadata = _metadata
         };
@@ -1324,41 +1273,6 @@ public sealed class EdgeTargetBuilder
         foreach (var edgeBuilder in _edgeBuilders)
         {
             edgeBuilder.WithDelay(delay);
-        }
-        return this;
-    }
-
-    public EdgeTargetBuilder WithSchedule(ScheduleConstraint schedule)
-    {
-        foreach (var edgeBuilder in _edgeBuilders)
-        {
-            edgeBuilder.WithSchedule(schedule);
-        }
-        return this;
-    }
-
-    public EdgeTargetBuilder WithCron(
-        string cronExpression,
-        string? timeZoneId = null,
-        TimeSpan? tolerance = null,
-        Func<IGraphContext, Task<bool>>? additionalCondition = null)
-    {
-        foreach (var edgeBuilder in _edgeBuilders)
-        {
-            edgeBuilder.WithCron(cronExpression, timeZoneId, tolerance, additionalCondition);
-        }
-        return this;
-    }
-
-    public EdgeTargetBuilder WithCron(
-        string cronExpression,
-        TimeZoneInfo? timeZone,
-        TimeSpan? tolerance = null,
-        Func<IGraphContext, Task<bool>>? additionalCondition = null)
-    {
-        foreach (var edgeBuilder in _edgeBuilders)
-        {
-            edgeBuilder.WithCron(cronExpression, timeZone, tolerance, additionalCondition);
         }
         return this;
     }

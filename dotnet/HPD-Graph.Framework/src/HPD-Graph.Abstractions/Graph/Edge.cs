@@ -70,14 +70,6 @@ public sealed record Edge
     public TimeSpan? Delay { get; init; }
 
     /// <summary>
-    /// Schedule constraint for edge traversal (Phase 4: Temporal Operators).
-    /// Edge can only be traversed during scheduled time windows.
-    /// Example: Daily at 3am, weekly on Mondays, etc.
-    /// Null = no schedule constraint.
-    /// </summary>
-    public Execution.ScheduleConstraint? Schedule { get; init; }
-
-    /// <summary>
     /// Retry policy for edge traversal (Phase 4: Temporal Operators).
     /// Polls condition until met or timeout.
     /// OUTER LOOP: Retries edge traversal (before node execution).

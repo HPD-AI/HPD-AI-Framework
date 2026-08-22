@@ -164,7 +164,6 @@ public sealed class GraphConfigCompiler
             Priority = config.Priority,
             Condition = CompileCondition(config.Condition),
             Delay = config.Delay,
-            Schedule = CompileSchedule(config.Schedule),
             RetryPolicy = CompileEdgeRetryPolicy(config.RetryPolicy),
             CloningPolicy = config.CloningPolicy is null ? null : CompileCloningPolicy(config.CloningPolicy),
             Metadata = config.Metadata
@@ -714,21 +713,6 @@ public sealed class GraphConfigCompiler
         }
 
         return config.Value is null ? null : GraphJsonValue.ToObject(config.Value.Value);
-    }
-
-    private static ScheduleConstraint? CompileSchedule(ScheduleConstraintConfig? config)
-    {
-        if (config is null)
-        {
-            return null;
-        }
-
-        return new ScheduleConstraint
-        {
-            CronExpression = config.CronExpression,
-            TimeZone = config.TimeZoneId is null ? null : TimeZoneInfo.FindSystemTimeZoneById(config.TimeZoneId),
-            Tolerance = config.Tolerance
-        };
     }
 
     private static EdgeRetryPolicy? CompileEdgeRetryPolicy(EdgeRetryPolicyConfig? config)

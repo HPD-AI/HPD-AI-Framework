@@ -20,7 +20,6 @@ namespace HPD.Graph.Abstractions.Serialization;
 [JsonSerializable(typeof(ConditionConfig))]
 [JsonSerializable(typeof(RetryPolicyConfig))]
 [JsonSerializable(typeof(EdgeRetryPolicyConfig))]
-[JsonSerializable(typeof(ScheduleConstraintConfig))]
 [JsonSerializable(typeof(SuspensionOptionsConfig))]
 [JsonSerializable(typeof(ErrorPropagationPolicyConfig))]
 [JsonSerializable(typeof(IterationOptionsConfig))]

@@ -323,9 +323,6 @@ public sealed class GraphConfigCompilerTests
         edge.Priority.Should().Be(7);
         edge.Delay.Should().Be(TimeSpan.FromSeconds(2));
         edge.CloningPolicy.Should().Be(CloningPolicy.NeverClone);
-        edge.Schedule!.CronExpression.Should().Be("0 3 * * *");
-        edge.Schedule.TimeZone!.Id.Should().Be("UTC");
-        edge.Schedule.Tolerance.Should().Be(TimeSpan.FromMinutes(2));
         edge.RetryPolicy!.RetryInterval.Should().Be(TimeSpan.FromSeconds(5));
         edge.RetryPolicy.MaxRetries.Should().Be(4);
         edge.RetryPolicy.MaxWaitTime.Should().Be(TimeSpan.FromMinutes(1));

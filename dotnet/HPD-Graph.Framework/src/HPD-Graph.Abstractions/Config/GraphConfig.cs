@@ -77,7 +77,6 @@ public sealed record EdgeConfig
     public int? Priority { get; init; }
     public ConditionConfig? Condition { get; init; }
     public TimeSpan? Delay { get; init; }
-    public ScheduleConstraintConfig? Schedule { get; init; }
     public EdgeRetryPolicyConfig? RetryPolicy { get; init; }
     public CloningPolicyConfig? CloningPolicy { get; init; }
     public IReadOnlyDictionary<string, string> Metadata { get; init; } = new Dictionary<string, string>();

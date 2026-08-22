@@ -100,7 +100,6 @@ public sealed class GraphConfigExporter
             Priority = edge.Priority,
             Condition = ExportCondition(edge.Condition),
             Delay = edge.Delay,
-            Schedule = ExportSchedule(edge.Schedule),
             RetryPolicy = ExportEdgeRetryPolicy(edge.RetryPolicy),
             CloningPolicy = edge.CloningPolicy is null ? null : ExportCloningPolicy(edge.CloningPolicy.Value),
             Metadata = edge.Metadata
@@ -434,26 +433,6 @@ public sealed class GraphConfigExporter
             Value = condition.Value is null
                 ? null
                 : GraphJsonValue.ToJsonElement(condition.Value, $"edge condition '{condition.Field ?? condition.Type.ToString()}'")
-        };
-    }
-
-    private static ScheduleConstraintConfig? ExportSchedule(ScheduleConstraint? schedule)
-    {
-        if (schedule is null)
-        {
-            return null;
-        }
-
-        if (schedule.AdditionalCondition is not null)
-        {
-            throw new NotSupportedException("Runtime schedule predicates cannot be exported to GraphConfig.");
-        }
-
-        return new ScheduleConstraintConfig
-        {
-            CronExpression = schedule.CronExpression,
-            TimeZoneId = schedule.TimeZone?.Id,
-            Tolerance = schedule.Tolerance
         };
     }
 

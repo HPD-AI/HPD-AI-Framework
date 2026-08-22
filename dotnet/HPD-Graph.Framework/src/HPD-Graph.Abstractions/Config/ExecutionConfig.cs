@@ -34,13 +34,6 @@ public enum EdgeRetryExhaustedBehaviorConfig
     SkipNode
 }
 
-public sealed record ScheduleConstraintConfig
-{
-    public required string CronExpression { get; init; }
-    public string? TimeZoneId { get; init; }
-    public TimeSpan Tolerance { get; init; } = TimeSpan.FromMinutes(1);
-}
-
 public sealed record SuspensionOptionsConfig
 {
     public TimeSpan ActiveWaitTimeout { get; init; } = TimeSpan.FromSeconds(30);

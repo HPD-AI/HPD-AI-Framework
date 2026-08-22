@@ -295,12 +295,6 @@ public sealed class GraphBuilderFluentTests
     [Fact]
     public void FromTo_Chaining_AddsConfiguredEdges()
     {
-        var schedule = new ScheduleConstraint
-        {
-            CronExpression = "0 3 * * *",
-            TimeZone = TimeZoneInfo.Utc,
-            Tolerance = TimeSpan.FromMinutes(2)
-        };
         var retryPolicy = new EdgeRetryPolicy
         {
             RetryInterval = TimeSpan.FromSeconds(5),
@@ -320,7 +314,6 @@ public sealed class GraphBuilderFluentTests
                     .ToPort(0)
                     .WhenGreaterThanOrEqual("score", 0.8)
                     .WithDelay(TimeSpan.FromSeconds(2))
-                    .WithSchedule(schedule)
                     .WithRetryPolicy(retryPolicy)
                     .WithPriority(0)
                     .WithCloningPolicy(CloningPolicy.NeverClone)
@@ -342,7 +335,6 @@ public sealed class GraphBuilderFluentTests
         textEdge.Condition.Field.Should().Be("score");
         textEdge.Condition.Value.Should().Be(0.8);
         textEdge.Delay.Should().Be(TimeSpan.FromSeconds(2));
-        textEdge.Schedule.Should().BeEquivalentTo(schedule);
         textEdge.RetryPolicy.Should().BeEquivalentTo(retryPolicy);
         textEdge.Priority.Should().Be(0);
         textEdge.CloningPolicy.Should().Be(CloningPolicy.NeverClone);
@@ -465,7 +457,6 @@ public sealed class GraphBuilderFluentTests
     [Fact]
     public void EdgeBuilder_ExposesTemporalEdgeFeatures()
     {
-        var schedule = new ScheduleConstraint { CronExpression = "0 1 * * *" };
         var retryPolicy = new EdgeRetryPolicy { RetryInterval = TimeSpan.FromSeconds(1) };
 
         var graph = new GraphBuilder()
@@ -474,26 +465,22 @@ public sealed class GraphBuilderFluentTests
             .AddHandlerNode("b", "B", "b_handler")
             .AddEdge("a", "b", edge => edge
                 .WithDelay(TimeSpan.FromSeconds(3))
-                .WithSchedule(schedule)
                 .WithRetryPolicy(retryPolicy))
             .Build();
 
         var edge = graph.Edges.Single();
         edge.Delay.Should().Be(TimeSpan.FromSeconds(3));
-        edge.Schedule.Should().BeEquivalentTo(schedule);
         edge.RetryPolicy.Should().BeEquivalentTo(retryPolicy);
     }
 
     [Fact]
-    public void EdgeBuilder_WithCronAndRetryEvery_CreateTemporalEdgeFeatures()
+    public void EdgeBuilder_RetryEvery_CreatesTemporalEdgeFeature()
     {
         var graph = new GraphBuilder()
             .WithName("temporal-helpers")
             .AddHandlerNode("a", "A", "a_handler")
             .AddHandlerNode("b", "B", "b_handler")
-            .AddEdge("a", "b", edge => edge
-                .WithCron("0 3 * * *", "UTC", TimeSpan.FromMinutes(2))
-                .RetryEvery(
+            .AddEdge("a", "b", edge => edge.RetryEvery(
                     TimeSpan.FromSeconds(5),
                     maxWaitTime: TimeSpan.FromMinutes(1),
                     maxRetries: 3,
@@ -501,10 +488,6 @@ public sealed class GraphBuilderFluentTests
             .Build();
 
         var edge = graph.Edges.Single();
-        edge.Schedule.Should().NotBeNull();
-        edge.Schedule!.CronExpression.Should().Be("0 3 * * *");
-        edge.Schedule.TimeZone.Should().Be(TimeZoneInfo.Utc);
-        edge.Schedule.Tolerance.Should().Be(TimeSpan.FromMinutes(2));
         edge.RetryPolicy.Should().NotBeNull();
         edge.RetryPolicy!.RetryInterval.Should().Be(TimeSpan.FromSeconds(5));
         edge.RetryPolicy.MaxWaitTime.Should().Be(TimeSpan.FromMinutes(1));
@@ -513,7 +496,7 @@ public sealed class GraphBuilderFluentTests
     }
 
     [Fact]
-    public void FromTo_WithCronAndWithRetry_CreateTemporalEdgeFeatures()
+    public void FromTo_WithRetry_CreatesTemporalEdgeFeature()
     {
         var graph = new GraphBuilder()
             .WithName("chain-temporal-helpers")
@@ -521,16 +504,11 @@ public sealed class GraphBuilderFluentTests
             .AddHandlerNode("b", "B", "b_handler")
             .From("a")
                 .To("b")
-                    .WithCron("*/15 * * * *", TimeZoneInfo.Utc)
                     .WithRetry(TimeSpan.FromSeconds(10), maxRetries: 2)
                 .Done()
             .Build();
 
         var edge = graph.Edges.Single();
-        edge.Schedule.Should().NotBeNull();
-        edge.Schedule!.CronExpression.Should().Be("*/15 * * * *");
-        edge.Schedule.TimeZone.Should().Be(TimeZoneInfo.Utc);
-        edge.Schedule.Tolerance.Should().Be(TimeSpan.FromMinutes(1));
         edge.RetryPolicy.Should().NotBeNull();
         edge.RetryPolicy!.RetryInterval.Should().Be(TimeSpan.FromSeconds(10));
         edge.RetryPolicy.MaxRetries.Should().Be(2);
