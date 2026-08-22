@@ -355,7 +355,8 @@ public sealed class BaseInstalledActivationWorkerHandle<TInput, TResult>
                         lease.LeaseRevision.ToString(System.Globalization.CultureInfo.InvariantCulture)),
                     renewCancellation),
                 token,
-                _definition.Limits.MaximumChildrenPerAttempt), delivery.Input, token).AsTask(),
+                _definition.Limits.MaximumChildrenPerAttempt,
+                _session), delivery.Input, token).AsTask(),
             _definition.Limits.HandlerTimeout,
             cancellationToken).ConfigureAwait(false);
         if (effect is not null && execution.Outcome != BaseActivationHandlerExecutionOutcome.Completed)

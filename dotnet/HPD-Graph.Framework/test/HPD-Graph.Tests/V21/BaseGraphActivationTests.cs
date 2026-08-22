@@ -56,6 +56,7 @@ public sealed class BaseGraphActivationTests
 
         services.AddHPDBase(builder => builder
             .UseStore(HPDBaseStoreProvider.InMemory)
+            .AddGraphPersistence()
             .AddGraphActivation(definition));
 
         using ServiceProvider provider = services.BuildServiceProvider();
@@ -64,6 +65,10 @@ public sealed class BaseGraphActivationTests
             definition.Registration.Definition.Id,
             definition.Registration.Definition.Version);
         installed.Definition.Checksum.Should().Equal(definition.Registration.Definition.Checksum);
+        application.ModuleMutations.Resolve(
+            BaseGraphCheckpointMutation.Definition.Id,
+            BaseGraphCheckpointMutation.Definition.Version).Definition.Checksum
+            .Should().Be(BaseGraphCheckpointMutation.Definition.Checksum);
     }
 
     [Fact]

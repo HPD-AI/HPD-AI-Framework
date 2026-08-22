@@ -153,7 +153,7 @@ public sealed class JsonCheckpointStore : IGraphCheckpointStore
         return dto is null ? null : FromJsonCheckpoint(dto);
     }
 
-    private static JsonGraphCheckpoint ToJsonCheckpoint(GraphCheckpoint checkpoint) => new()
+    internal static JsonGraphCheckpoint ToJsonCheckpoint(GraphCheckpoint checkpoint) => new()
     {
         CheckpointId = checkpoint.CheckpointId,
         ExecutionId = checkpoint.ExecutionId,
@@ -172,7 +172,7 @@ public sealed class JsonCheckpointStore : IGraphCheckpointStore
         PendingDirtyNodes = checkpoint.PendingDirtyNodes.ToHashSet(StringComparer.Ordinal)
     };
 
-    private static GraphCheckpoint FromJsonCheckpoint(JsonGraphCheckpoint checkpoint) => new()
+    internal static GraphCheckpoint FromJsonCheckpoint(JsonGraphCheckpoint checkpoint) => new()
     {
         CheckpointId = checkpoint.CheckpointId,
         ExecutionId = checkpoint.ExecutionId,

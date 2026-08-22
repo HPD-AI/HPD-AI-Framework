@@ -5,6 +5,15 @@ namespace HPD.Graph.Base;
 /// <summary>Provides HPD-Graph registration helpers for an HPD.Base application graph.</summary>
 public static class HPDBaseGraphBuilderExtensions
 {
+    /// <summary>Installs Graph's private checkpoint collection and atomic persistence operation.</summary>
+    public static HPDBaseBuilder AddGraphPersistence(this HPDBaseBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        return builder
+            .AddCollection(BaseGraphCheckpointRecord.Collection)
+            .AddModuleMutation(BaseGraphCheckpointMutation.Definition, BaseGraphCheckpointMutation.Identity);
+    }
+
     /// <summary>
     /// Installs one sealed graph activation definition and its graph-owned,
     /// Native-AOT-safe handler factory into the application graph.

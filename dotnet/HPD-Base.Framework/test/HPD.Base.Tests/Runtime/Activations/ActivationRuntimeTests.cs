@@ -50,7 +50,7 @@ public sealed partial class ActivationRuntimeTests
                 },
                 Disposition = BaseMutationRequestDisposition.Committed,
             })),
-            CancellationToken.None, 1);
+            CancellationToken.None, 1, null!);
 
         OperationResult<BaseActivationLeaseObservation> renewed = await context.RenewAsync();
         OperationResult<BaseActivationLeaseObservation> exceeded = await context.RenewAsync();

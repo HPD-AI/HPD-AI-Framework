@@ -182,6 +182,7 @@ public interface IBaseActivationHandler<TInput, TResult>
 public sealed class BaseActivationContext
 {
     private readonly int _maximumChildren;
+    private readonly BaseSession _session;
     private readonly int _maximumRenewals;
     private readonly Func<BaseActivationLeaseObservation, CancellationToken, ValueTask<OperationResult<BaseActivationRenewResult>>> _renew;
     private readonly SemaphoreSlim _renewalLock = new(1, 1);
@@ -199,7 +200,8 @@ public sealed class BaseActivationContext
         int maximumRenewals,
         Func<BaseActivationLeaseObservation, CancellationToken, ValueTask<OperationResult<BaseActivationRenewResult>>> renew,
         CancellationToken cancellationToken,
-        int maximumChildren)
+        int maximumChildren,
+        BaseSession session)
     {
         Definition = definition;
         Claim = claim;
@@ -212,6 +214,7 @@ public sealed class BaseActivationContext
         _renew = renew;
         CancellationToken = cancellationToken;
         _maximumChildren = maximumChildren;
+        _session = session;
     }
 
     /// <summary>Gets the exact installed definition.</summary>
@@ -329,6 +332,23 @@ public sealed class BaseActivationContext
     }
 
     /// <summary>
+    /// Executes an installed module mutation through this activation's
+    /// principal-bound session without exposing provider transaction authority.
+    /// </summary>
+    public ValueTask<BaseResult<BaseModuleMutationExecutionResult<TResult>>> ExecuteModuleMutationAsync<TRequest, TResult>(
+        BaseGeneratedModuleMutationIdentity<TRequest, TResult> operation,
+        TRequest request,
+        BaseMutationRequestIdentity identity,
+        BaseModuleMutationExecutionOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(identity);
+        return _session.ModuleMutations.Get(operation)
+            .ExecuteAsync(request, identity, options, cancellationToken);
+    }
+
+    /// <summary>
     /// Creates L50 options that atomically persist guarded module state and one
     /// graph-installed child activation in the same provider transaction.
     /// </summary>
@@ -339,15 +359,20 @@ public sealed class BaseActivationContext
         BaseActivationRegistrationIdentity<TInput, TResult> activation,
         TInput input,
         long requestedDueAt,
+        string activationStepId,
+        int activationOrdinal,
         BaseModuleMutationExecutionOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(activation);
         ArgumentNullException.ThrowIfNull(fingerprint);
         ArgumentOutOfRangeException.ThrowIfNegative(requestedDueAt);
+        BaseApplicationId.Validate(activationStepId, nameof(activationStepId));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(activationOrdinal);
         BaseActivationGuard guard = GuardChild(stepId, childOrdinal, fingerprint);
         byte[] canonicalInput = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(input, activation.Input);
         byte[] inputChecksum = System.Security.Cryptography.SHA256.HashData(canonicalInput);
-        BaseMutationRequestIdentity childIdentity = DeriveChildIdentity(stepId, childOrdinal, fingerprint);
+        BaseMutationRequestIdentity childIdentity = DeriveChildIdentity(
+            activationStepId, activationOrdinal, fingerprint);
         var intent = new BaseActivationCreateIntent
         {
             Ordinal = 0,
