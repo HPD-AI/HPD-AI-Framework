@@ -140,6 +140,9 @@ public sealed record BaseRecordBatchRequest
 
     /// <summary>Gets the durable identity for an atomic request, when requested.</summary>
     public BaseMutationRequestIdentity? RequestIdentity { get; init; }
+
+    /// <summary>Gets the Runtime-owned same-store activation fence, when this is an activation child.</summary>
+    internal BaseActivationGuard? ActivationGuard { get; init; }
 }
 
 /// <summary>Describes one closed, typed mutation in a record batch.</summary>

@@ -8,6 +8,7 @@ namespace HPD.Base.Tests;
 
 internal class FakeRecordStore : IAtomicRecordStore
 {
+    public BaseActivationGuard? LastCapturedActivationGuard { get; private set; }
     public virtual ValueTask<RecordMutationExecutionResult> ResolveAtomicReceiptAsync(
         IAtomicMutationProcessor processor,
         BaseMutationRequestIdentity identity,
@@ -31,7 +32,8 @@ internal class FakeRecordStore : IAtomicRecordStore
         RecordMutationCapability? mutation = null,
         RevisionCapability? revision = null,
         bool includeAtomicBatchCapability = true,
-        TimeSpan? minimumTimeout = null)
+        TimeSpan? minimumTimeout = null,
+        bool includeAtomicRequestCapability = false)
     {
         Capabilities = new StoreCapabilityDescriptor
         {
@@ -76,7 +78,15 @@ internal class FakeRecordStore : IAtomicRecordStore
                 UpdateModes = [RecordUpsertUpdateMode.Patch, RecordUpsertUpdateMode.Replace],
                 ExpectedRevision = revision?.Patch == true || revision?.Replace == true,
                 ExistenceConditions = true
-            }
+            },
+            AtomicRequest = includeAtomicRequestCapability ? new AtomicRequestCapability
+            {
+                Supported = true, Durability = BaseAtomicRequestDurability.ProcessLocal,
+                DuplicateResultReplay = true, FingerprintConflictDetection = true,
+                IndeterminateResolution = true, MaxIdentityBytes = 4_096,
+                MaxReceiptBytes = 1_048_576, MinReceiptLifetime = TimeSpan.FromSeconds(1),
+                MaxReceiptLifetime = TimeSpan.FromDays(365),
+            } : null,
         };
     }
 
@@ -321,6 +331,7 @@ internal class FakeRecordStore : IAtomicRecordStore
         {
             EnsureActive();
             cancellationToken.ThrowIfCancellationRequested();
+            owner.LastCapturedActivationGuard = request.ActivationGuard;
             BaseAtomicMutationIntent intent = request.Intent;
             owner.GetCalls = checked(owner.GetCalls + intent.Items.Count(static item =>
                 item.RequestedKind is BaseRecordMutationKind.Patch or BaseRecordMutationKind.Replace or

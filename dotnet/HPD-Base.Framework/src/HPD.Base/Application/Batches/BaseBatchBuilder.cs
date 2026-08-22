@@ -10,6 +10,7 @@ public sealed class BaseBatchBuilder
     private readonly BaseSession _session;
     private readonly BaseRecordBatchExecutionMode _mode;
     private readonly BaseMutationRequestIdentity? _requestIdentity;
+    private readonly BaseActivationGuard? _activationGuard;
     private readonly object _owner = new();
     private readonly List<BaseRecordBatchItem> _items = [];
     private bool _committed;
@@ -17,11 +18,13 @@ public sealed class BaseBatchBuilder
     internal BaseBatchBuilder(
         BaseSession session,
         BaseRecordBatchExecutionMode mode,
-        BaseMutationRequestIdentity? requestIdentity = null)
+        BaseMutationRequestIdentity? requestIdentity = null,
+        BaseActivationGuard? activationGuard = null)
     {
         _session = session;
         _mode = mode;
         _requestIdentity = requestIdentity;
+        _activationGuard = activationGuard;
     }
 
     /// <summary>Adds a typed create command.</summary>
@@ -221,6 +224,7 @@ public sealed class BaseBatchBuilder
             Mode = _mode,
             Operations = [.. _items],
             RequestIdentity = _requestIdentity,
+            ActivationGuard = _activationGuard,
         };
         var result = await _session.Runtime.BatchAsync(
             request,

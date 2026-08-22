@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Collections.Immutable;
 using HPD.Base;
 using HPD.Base.Tests.Operations;
 using Microsoft.Extensions.DependencyInjection;
@@ -7,6 +8,39 @@ namespace HPD.Base.Tests.Mutations;
 
 public sealed class L30MutationCoordinatorTests
 {
+    [Fact]
+    public async Task Identified_atomic_batch_carries_the_activation_guard_to_capture()
+    {
+        var store = new FakeRecordStore("primary", includeAtomicRequestCapability: true);
+        using var provider = OperationTestServices.Build(store);
+        byte[] fingerprint = System.Security.Cryptography.SHA256.HashData("guarded-l30"u8);
+        BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create(
+            "activation:one", "record-child", "1", BaseMutationRequestFingerprint.Create(fingerprint));
+        BaseActivationGuard guard = new()
+        {
+            Claim = new BaseActivationClaimAuthority
+            {
+                ActivationId = "activation", AttemptNumber = 1, ClaimEpoch = 1,
+                FencingToken = new byte[32].ToImmutableArray(), WorkerIdentity = "worker",
+                CancellationGeneration = 0, StoreInstanceId = "primary", RestoreEpoch = 1,
+                DefinitionChecksum = new byte[32].ToImmutableArray(),
+            },
+            StepId = "record-child", ChildOrdinal = 1,
+            ChildRequestFingerprint = fingerprint.ToImmutableArray(),
+        };
+
+        OperationResult<BaseRecordBatchResult> result = await provider.GetRequiredService<IBaseRecordRuntime>().BatchAsync(
+            Batch(BaseRecordBatchExecutionMode.Atomic, CreateItem("one", "guarded")) with
+            {
+                RequestIdentity = identity,
+                ActivationGuard = guard,
+            },
+            RuntimeTestData.AnonymousPrincipal,
+            RuntimeTestData.Operation(BaseOperationKind.Batch));
+
+        result.IsSuccess().Should().BeTrue(result.Error?.Code);
+        store.LastCapturedActivationGuard.Should().BeSameAs(guard);
+    }
     [Fact]
     public async Task SinglesAndStandaloneUpsertUseOnlySingleExecutionBoundary()
     {

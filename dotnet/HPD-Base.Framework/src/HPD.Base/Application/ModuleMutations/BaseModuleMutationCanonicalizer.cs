@@ -31,6 +31,8 @@ public sealed class BaseModuleMutationTemplateBuilder
     public static BaseModuleRevisionEqualsGuard RevisionEquals(string id, string captureId, BaseModuleValueExpression expected) => new() { Id = id, CaptureId = captureId, Expected = expected };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
     public static BaseModuleFieldEqualsGuard FieldEquals(string id, BaseModuleCapturedFieldReference field, BaseModuleValueExpression expected) => new() { Id = id, Field = field, Expected = expected };
+    /// <summary>Creates one exact-type ordered field guard.</summary>
+    public static BaseModuleFieldComparisonGuard FieldCompare(string id, BaseModuleCapturedFieldReference field, BaseModuleOrderedComparisonKind comparison, BaseModuleValueExpression expected) => new() { Id = id, Field = field, Comparison = comparison, Expected = expected };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
     public static BaseModuleFieldPresenceGuard FieldPresence(string id, BaseModuleCapturedFieldReference field, BaseModuleFieldPresenceTest test) => new() { Id = id, Field = field, Test = test };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
@@ -258,6 +260,8 @@ public static class BaseModuleMutationContract
                     Discriminator(1); String(guard.CaptureId); Expression(guard.Expected); break;
                 case BaseModuleFieldEqualsGuard guard:
                     Discriminator(2); Field(guard.Field); Expression(guard.Expected); break;
+                case BaseModuleFieldComparisonGuard guard:
+                    Discriminator(6); Field(guard.Field); Discriminator((byte)guard.Comparison); Expression(guard.Expected); break;
                 case BaseModuleFieldPresenceGuard guard:
                     Discriminator(3); Field(guard.Field); Integer((int)guard.Test); break;
                 case BaseModuleGenerationGuard guard:

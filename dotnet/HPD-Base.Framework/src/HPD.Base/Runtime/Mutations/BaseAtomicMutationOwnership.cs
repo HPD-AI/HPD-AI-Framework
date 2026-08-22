@@ -10,6 +10,7 @@ internal static class BaseAtomicMutationOwnership
         IntentDigest = new string(value.IntentDigest.AsSpan()),
         CaptureDigest = new string(value.CaptureDigest.AsSpan()),
         PolicyAuthorityDigest = BaseAtomicPolicyAuthorityDigest.Create(value.PolicyAuthorityDigest.ToArray()),
+        ActivationGuard = value.ActivationGuard is null ? null : FreezeGuard(value.ActivationGuard),
         Authority = value.Authority with
         {
             ApplicationId = new string(value.Authority.ApplicationId.AsSpan()),
@@ -92,6 +93,20 @@ internal static class BaseAtomicMutationOwnership
             }).ToImmutableArray(),
         },
         Limits = value.Limits with { },
+    };
+
+    private static BaseActivationGuard FreezeGuard(BaseActivationGuard value) => value with
+    {
+        Claim = value.Claim with
+        {
+            ActivationId = new string(value.Claim.ActivationId.AsSpan()),
+            FencingToken = ImmutableArray.Create(value.Claim.FencingToken.ToArray()),
+            WorkerIdentity = new string(value.Claim.WorkerIdentity.AsSpan()),
+            StoreInstanceId = new string(value.Claim.StoreInstanceId.AsSpan()),
+            DefinitionChecksum = ImmutableArray.Create(value.Claim.DefinitionChecksum.ToArray()),
+        },
+        StepId = new string(value.StepId.AsSpan()),
+        ChildRequestFingerprint = ImmutableArray.Create(value.ChildRequestFingerprint.ToArray()),
     };
 
     private static BaseTextProjectionFact FreezeTextFact(BaseTextProjectionFact value) => value with

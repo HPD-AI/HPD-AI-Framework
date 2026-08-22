@@ -528,6 +528,7 @@ internal static class BaseModuleMutationContractValidator
             if (actual == typeof(long) || actual == typeof(int) || actual == typeof(short) || actual == typeof(byte))
                 return node == "int64";
             if (actual == typeof(decimal)) return node == "decimal";
+            if (actual == typeof(DateTimeOffset)) return node == "dateTime";
             if (actual == typeof(BaseModuleGeneration)) return node == "base.moduleGeneration";
             if (actual == typeof(RevisionToken)) return node == "revision";
             if (actual == typeof(RecordId) || actual.IsGenericType && actual.GetGenericTypeDefinition() == typeof(BaseRecordId<>))
@@ -549,6 +550,8 @@ internal static class BaseModuleMutationContractValidator
                     System.Text.Json.JsonValueKind.Null => value.ResultTypeId.EndsWith("?", StringComparison.Ordinal),
                     System.Text.Json.JsonValueKind.String when node == "base.moduleGeneration" =>
                         TryGeneration(document.RootElement.GetString()),
+                    System.Text.Json.JsonValueKind.String when node == "dateTime" =>
+                        document.RootElement.TryGetDateTimeOffset(out _),
                     System.Text.Json.JsonValueKind.String => node is "string" or "id" or "revision",
                     System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False => node == "boolean",
                     System.Text.Json.JsonValueKind.Number when node == "int64" => document.RootElement.TryGetInt64(out _),
@@ -580,6 +583,7 @@ internal static class BaseModuleMutationContractValidator
             {
                 BaseModuleRevisionEqualsGuard item => Walk(item.Expected),
                 BaseModuleFieldEqualsGuard item => Walk(item.Expected).Prepend(new BaseModuleCapturedFieldExpression { Id = item.Id + ".field", ResultTypeId = item.Field.DeclaredTypeId, Field = item.Field }),
+                BaseModuleFieldComparisonGuard item => Walk(item.Expected).Prepend(new BaseModuleCapturedFieldExpression { Id = item.Id + ".field", ResultTypeId = item.Field.DeclaredTypeId, Field = item.Field }),
                 BaseModuleGenerationGuard { Expected: { } expected } => Walk(expected),
                 _ => [],
             }) yield return value;
@@ -702,6 +706,11 @@ internal static class BaseModuleMutationContractValidator
                 case BaseModuleRevisionEqualsGuard value when recordCaptures.Contains(value.CaptureId):
                     ValidateExpression(value.Expected, captures, guards, false, false, 1, limits, new()); break;
                 case BaseModuleFieldEqualsGuard value when recordCaptures.Contains(value.Field.CaptureId):
+                    ValidateExpression(value.Expected, captures, guards, false, false, 1, limits, new()); break;
+                case BaseModuleFieldComparisonGuard value when recordCaptures.Contains(value.Field.CaptureId)
+                    && Enum.IsDefined(value.Comparison)
+                    && OrderedScalar(value.Field.DeclaredTypeId)
+                    && string.Equals(value.Field.DeclaredTypeId, value.Expected.ResultTypeId, StringComparison.Ordinal):
                     ValidateExpression(value.Expected, captures, guards, false, false, 1, limits, new()); break;
                 case BaseModuleFieldPresenceGuard value when recordCaptures.Contains(value.Field.CaptureId) && Enum.IsDefined(value.Test): break;
                 case BaseModuleGenerationGuard value when generationCaptures.Contains(value.CaptureId) && Enum.IsDefined(value.Comparison):
@@ -855,6 +864,8 @@ internal static class BaseModuleMutationContractValidator
             }
         }
     }
+
+    private static bool OrderedScalar(string typeId) => typeId is "int64" or "decimal" or "dateTime";
 
     private static void ValidateGuardCycles(ImmutableArray<BaseModuleGuard> values, HashSet<string> ids, int maximumDepth)
     {

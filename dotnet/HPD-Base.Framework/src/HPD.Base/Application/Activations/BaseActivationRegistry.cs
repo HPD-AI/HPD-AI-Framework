@@ -186,7 +186,7 @@ public sealed class BaseActivationContext
     private readonly int _maximumRenewals;
     private readonly Func<BaseActivationLeaseObservation, CancellationToken, ValueTask<OperationResult<BaseActivationRenewResult>>> _renew;
     private readonly SemaphoreSlim _renewalLock = new(1, 1);
-    private readonly HashSet<(string StepId, int Ordinal)> _children = [];
+    private readonly Dictionary<(string StepId, int Ordinal), byte[]> _children = [];
     private int _renewals;
 
     internal BaseActivationContext(
@@ -301,12 +301,16 @@ public sealed class BaseActivationContext
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(childOrdinal);
         lock (_children)
         {
-            bool added = _children.Add((stepId, childOrdinal));
-            if (added && _children.Count > _maximumChildren)
+            var key = (stepId, childOrdinal);
+            byte[] requested = fingerprint.ToArray();
+            if (_children.TryGetValue(key, out byte[]? existing))
             {
-                _children.Remove((stepId, childOrdinal));
-                throw new InvalidOperationException("base.activation.childLimitExceeded");
+                if (!System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(existing, requested))
+                    throw new InvalidOperationException("base.activation.childIdentityConflict");
             }
+            else if (_children.Count >= _maximumChildren)
+                throw new InvalidOperationException("base.activation.childLimitExceeded");
+            else _children.Add(key, requested);
         }
         return new BaseActivationGuard
         {
@@ -329,6 +333,54 @@ public sealed class BaseActivationContext
         {
             ActivationGuard = GuardChild(stepId, childOrdinal, fingerprint),
         };
+    }
+
+    /// <summary>Creates one identified atomic L30 batch fenced to this exact live claim.</summary>
+    public BaseBatchBuilder GuardRecordMutations(
+        string stepId,
+        int childOrdinal,
+        BaseMutationRequestIdentity identity)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        return new BaseBatchBuilder(
+            _session,
+            BaseRecordBatchExecutionMode.Atomic,
+            identity,
+            GuardChild(stepId, childOrdinal, identity.Fingerprint));
+    }
+
+    /// <summary>Creates L43 execution options fenced to this exact live claim.</summary>
+    public BaseSelectionMutationExecutionOptions GuardSelectionMutation(
+        string stepId,
+        int childOrdinal,
+        BaseMutationRequestIdentity identity,
+        BaseSelectionMutationExecutionOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        return (options ?? new BaseSelectionMutationExecutionOptions()) with
+        {
+            ActivationGuard = GuardChild(stepId, childOrdinal, identity.Fingerprint),
+        };
+    }
+
+    /// <summary>Creates the L47 checkpoint fence for one exact identified child.</summary>
+    public BaseActivationGuard GuardLifecycleCheckpoint(
+        string stepId,
+        int childOrdinal,
+        BaseMutationRequestIdentity identity)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        return GuardChild(stepId, childOrdinal, identity.Fingerprint);
+    }
+
+    /// <summary>Creates the L48 acknowledgement fence for one exact identified child.</summary>
+    public BaseActivationGuard GuardRetirementAcknowledgement(
+        string stepId,
+        int childOrdinal,
+        BaseMutationRequestIdentity identity)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        return GuardChild(stepId, childOrdinal, identity.Fingerprint);
     }
 
     /// <summary>

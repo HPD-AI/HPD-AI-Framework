@@ -82,6 +82,8 @@ internal sealed class BaseModuleProgramEvaluator<TRequest, TResult>
                 Record(revision.CaptureId, static value => JsonValue(value.Current?.Metadata.Revision?.Value)),
                 Evaluate(revision.Expected)),
             BaseModuleFieldEqualsGuard field => Equal(CapturedField(field.Field), Evaluate(field.Expected)),
+            BaseModuleFieldComparisonGuard field => OrderedCompare(
+                CapturedField(field.Field), Evaluate(field.Expected), field.Field.DeclaredTypeId, field.Comparison),
             BaseModuleFieldPresenceGuard field => Presence(CapturedField(field.Field), field.Test),
             BaseModuleGenerationGuard generation => CompareGeneration(generation),
             BaseModuleLogicalGuard logical => Logical(logical),
@@ -90,6 +92,32 @@ internal sealed class BaseModuleProgramEvaluator<TRequest, TResult>
         _evaluatingGuards.Remove(id);
         _guardValues.Add(id, value);
         return value;
+    }
+
+    private static bool OrderedCompare(
+        BaseModuleProgramValue left,
+        BaseModuleProgramValue right,
+        string typeId,
+        BaseModuleOrderedComparisonKind comparison)
+    {
+        if (!left.Present || !right.Present || left.IsNull || right.IsNull)
+            return false;
+        int order = typeId switch
+        {
+            "int64" => left.Value.GetInt64().CompareTo(right.Value.GetInt64()),
+            "decimal" => left.Value.GetDecimal().CompareTo(right.Value.GetDecimal()),
+            "dateTime" => left.Value.GetDateTimeOffset().ToUniversalTime()
+                .CompareTo(right.Value.GetDateTimeOffset().ToUniversalTime()),
+            _ => throw new InvalidOperationException("base.moduleMutation.invalid"),
+        };
+        return comparison switch
+        {
+            BaseModuleOrderedComparisonKind.LessThan => order < 0,
+            BaseModuleOrderedComparisonKind.LessThanOrEqual => order <= 0,
+            BaseModuleOrderedComparisonKind.GreaterThan => order > 0,
+            BaseModuleOrderedComparisonKind.GreaterThanOrEqual => order >= 0,
+            _ => throw new InvalidOperationException("base.moduleMutation.invalid"),
+        };
     }
 
     internal BaseModuleProgramValue Object(BaseModuleObjectExpression expression, CollectionDefinition? collection)

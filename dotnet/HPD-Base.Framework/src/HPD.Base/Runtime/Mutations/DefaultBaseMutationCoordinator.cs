@@ -95,6 +95,15 @@ internal sealed class DefaultBaseMutationCoordinator(
         ArgumentNullException.ThrowIfNull(operation);
         cancellationToken.ThrowIfCancellationRequested();
 
+        if (request.ActivationGuard is not null
+            && (request.Mode != BaseRecordBatchExecutionMode.Atomic || request.RequestIdentity is null))
+        {
+            return OperationResults.ValidationFailed<BaseRecordBatchResult>(Error(
+                "base.activation.guardInvalid",
+                "An activation child requires one identified atomic mutation.",
+                ErrorCategory.Validation));
+        }
+
         if (request.RequestIdentity is not null)
         {
             if (request.Mode != BaseRecordBatchExecutionMode.Atomic)
@@ -113,7 +122,7 @@ internal sealed class DefaultBaseMutationCoordinator(
             return Failure<BaseRecordBatchResult, BaseMutationCommand[]>(prepared);
 
         return request.Mode == BaseRecordBatchExecutionMode.Atomic
-            ? await ExecuteAtomicBatchAsync(prepared.Value, request.RequestIdentity, principal, cancellationToken).ConfigureAwait(false)
+            ? await ExecuteAtomicBatchAsync(prepared.Value, request.RequestIdentity, request.ActivationGuard, principal, cancellationToken).ConfigureAwait(false)
             : await ExecuteOrderedBatchAsync(prepared.Value, principal, request.Mode, cancellationToken).ConfigureAwait(false);
     }
 
@@ -265,6 +274,7 @@ internal sealed class DefaultBaseMutationCoordinator(
     private async ValueTask<OperationResult<BaseRecordBatchResult>> ExecuteAtomicBatchAsync(
         BaseMutationCommand[] commands,
         BaseMutationRequestIdentity? requestIdentity,
+        BaseActivationGuard? activationGuard,
         PrincipalContext principal,
         CancellationToken cancellationToken)
     {
@@ -318,7 +328,7 @@ internal sealed class DefaultBaseMutationCoordinator(
             MaxReceiptBytes = _limits.MaxReceiptBytes,
         };
 
-        var execution = await ExecuteBoundaryAsync(first, commands, principal, atomicGroup: true, cancellationToken, atomicRequest)
+        var execution = await ExecuteBoundaryAsync(first, commands, principal, atomicGroup: true, cancellationToken, atomicRequest, activationGuard)
             .ConfigureAwait(false);
         if (!execution.IsSuccess() || execution.Value is null)
             return Failure<BaseRecordBatchResult, BoundaryResult>(execution);
@@ -441,7 +451,8 @@ internal sealed class DefaultBaseMutationCoordinator(
         PrincipalContext principal,
         bool atomicGroup,
         CancellationToken cancellationToken,
-        BaseAtomicMutationExecutionRequest? atomicRequest = null)
+        BaseAtomicMutationExecutionRequest? atomicRequest = null,
+        BaseActivationGuard? activationGuard = null)
     {
         for (var index = 0; index < commands.Length; index++)
         {
@@ -513,7 +524,8 @@ internal sealed class DefaultBaseMutationCoordinator(
             authority.Value,
             subjects,
             lifecycleConsumers,
-            retirement);
+            retirement,
+            activationGuard);
         var request = new RecordMutationExecutionRequest
         {
             AcquisitionTimeout = _limits.StoreAcquisitionTimeout,

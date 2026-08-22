@@ -126,6 +126,8 @@ public sealed record BaseSelectionMutationExecutionOptions
 {
     /// <summary>Gets the optional caller observation timeout.</summary>
     public TimeSpan? CallerWaitTimeout { get; init; }
+    /// <summary>Gets the Runtime-owned same-store activation fence, when this is an activation child.</summary>
+    internal BaseActivationGuard? ActivationGuard { get; init; }
 }
 
 /// <summary>Returns the bounded outcome of one atomic selection mutation.</summary>

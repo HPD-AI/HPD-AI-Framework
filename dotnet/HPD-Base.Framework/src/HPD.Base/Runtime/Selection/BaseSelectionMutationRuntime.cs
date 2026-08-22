@@ -71,6 +71,7 @@ internal sealed class DefaultBaseSelectionMutationRuntime(
             || query.Sort is not { Length: > 0 }
             || !IsTotalOrder(query.Sort)
             || query.Page.Cursor is not null
+            || options?.ActivationGuard is not null && identity is null
             || options?.CallerWaitTimeout is { } wait && (wait <= TimeSpan.Zero || wait > profile.Limits.CallerCommitObservationTimeout)
             || profile.MutationKind == BaseSelectionMutationKind.MergePatch && patch is null
             || profile.MutationKind == BaseSelectionMutationKind.Delete && patch is not null
@@ -119,7 +120,8 @@ internal sealed class DefaultBaseSelectionMutationRuntime(
         RecordQuery providerQuery = BaseQueryFieldResolver.ToStoredNames(collection, constrained);
         var processor = new BaseSelectionMutationProcessor(
             session.Principal, operation, collection, profile, providerQuery, patch, normalizedPreviousState, policy,
-            authorization.Value, resolved.Value, authority.Value, subjects, lifecycleConsumers, transactionalActivation);
+            authorization.Value, resolved.Value, authority.Value, subjects, lifecycleConsumers,
+            transactionalActivation, options?.ActivationGuard);
         var executionRequest = new RecordMutationExecutionRequest
         {
             AcquisitionTimeout = profile.Limits.AcquisitionTimeout,
@@ -468,7 +470,8 @@ internal sealed class BaseSelectionMutationProcessor(
     BaseAtomicMutationAuthorityRequirement authority,
     BaseSubjectContractRegistry subjects,
     BaseSubjectLifecycleRegistry lifecycleConsumers,
-    BaseTransactionalActivationCandidate? transactionalActivation = null) : IAtomicMutationProcessor
+    BaseTransactionalActivationCandidate? transactionalActivation = null,
+    BaseActivationGuard? activationGuard = null) : IAtomicMutationProcessor
 {
     internal BaseSelectionMutationResult? Result { get; private set; }
     internal IReadOnlyList<BaseMutationAttempt> Attempts => _attempts;
@@ -556,6 +559,7 @@ internal sealed class BaseSelectionMutationProcessor(
                 },
             },
             Limits = captureLimits,
+            ActivationGuard = activationGuard,
         }, cancellationToken).ConfigureAwait(false);
         if (!capture.IsSuccess() || capture.Value?.Selection is null)
             return Failed(MapProviderFailure(capture));
@@ -746,6 +750,7 @@ internal sealed class BaseSelectionMutationProcessor(
             Items = finalized,
             SubjectValidations = subjectPlan.Value.Validations,
             Text = textPlan,
+            ActivationGuard = activationGuard,
             Limits = limits,
             PlanDigest = selectionPlanDigest,
         };

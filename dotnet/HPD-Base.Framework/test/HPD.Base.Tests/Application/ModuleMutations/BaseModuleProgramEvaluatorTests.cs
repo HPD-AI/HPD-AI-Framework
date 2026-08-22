@@ -159,6 +159,38 @@ public sealed class BaseModuleProgramEvaluatorTests
     }
 
     [Fact]
+    public void Ordered_field_guard_checksum_matches_the_locked_template_byte_vector()
+    {
+        BaseRegisteredModuleMutationDefinition source = GenerationDefinition();
+        BaseRegisteredModuleMutationDefinition definition = source with
+        {
+            Template = source.Template with
+            {
+                Guards =
+                [
+                    new BaseModuleFieldComparisonGuard
+                    {
+                        Id = "counter-increases",
+                        Field = new BaseModuleCapturedFieldReference
+                        {
+                            CaptureId = "existing", StableFieldId = "record.counter", DeclaredTypeId = "int64",
+                        },
+                        Comparison = BaseModuleOrderedComparisonKind.LessThan,
+                        Expected = new BaseModuleConstantExpression
+                        {
+                            Id = "next-counter", ResultTypeId = "int64",
+                            CanonicalBaseJson = "42"u8.ToArray().ToImmutableArray(),
+                        },
+                    },
+                ],
+            },
+        };
+
+        Convert.ToHexString(BaseModuleMutationContract.ComputeChecksum(definition).ToArray())
+            .Should().Be("215261263041E3D818C6F3FD3C44CDA176B3A0F8BA121A46957AA1EA7C22C80B");
+    }
+
+    [Fact]
     public void Canonical_encoder_rejects_non_NFC_source_strings()
     {
         BaseRegisteredModuleMutationDefinition definition = GenerationDefinition() with
@@ -327,6 +359,8 @@ public sealed class BaseModuleProgramEvaluatorTests
                 new BaseModuleRevisionEqualsGuard { Id = "revision", CaptureId = "record", Expected = constant }),
             (BaseModuleMutationTemplateBuilder.FieldEquals("field-equals", fieldReference, constant),
                 new BaseModuleFieldEqualsGuard { Id = "field-equals", Field = fieldReference, Expected = constant }),
+            (BaseModuleMutationTemplateBuilder.FieldCompare("field-greater", fieldReference, BaseModuleOrderedComparisonKind.GreaterThan, constant),
+                new BaseModuleFieldComparisonGuard { Id = "field-greater", Field = fieldReference, Comparison = BaseModuleOrderedComparisonKind.GreaterThan, Expected = constant }),
             (BaseModuleMutationTemplateBuilder.FieldPresence("field-present", fieldReference, BaseModuleFieldPresenceTest.PresentValue),
                 new BaseModuleFieldPresenceGuard { Id = "field-present", Field = fieldReference, Test = BaseModuleFieldPresenceTest.PresentValue }),
             (BaseModuleMutationTemplateBuilder.Generation("generation-equals", "generation", BaseModuleGenerationComparisonKind.MustEqual, constant),
@@ -921,6 +955,77 @@ public sealed class BaseModuleProgramEvaluatorTests
             out ImmutableArray<byte> bytes);
         result.Amount.Should().Be(41);
         bytes.Should().Equal("{\"Amount\":41}"u8.ToArray());
+    }
+
+    [Theory]
+    [InlineData(40, BaseModuleOrderedComparisonKind.LessThan, true)]
+    [InlineData(41, BaseModuleOrderedComparisonKind.LessThan, false)]
+    [InlineData(41, BaseModuleOrderedComparisonKind.LessThanOrEqual, true)]
+    [InlineData(42, BaseModuleOrderedComparisonKind.GreaterThan, true)]
+    [InlineData(41, BaseModuleOrderedComparisonKind.GreaterThanOrEqual, true)]
+    public void Ordered_field_guard_uses_exact_int64_semantics(
+        long capturedValue,
+        BaseModuleOrderedComparisonKind comparison,
+        bool expected)
+    {
+        BaseModuleCapturedFieldReference field = new()
+        {
+            CaptureId = "existing", StableFieldId = "record.counter", DeclaredTypeId = "int64",
+        };
+        BaseModuleConstantExpression threshold = new()
+        {
+            Id = "threshold", ResultTypeId = "int64",
+            CanonicalBaseJson = "41"u8.ToArray().ToImmutableArray(),
+        };
+        BaseRegisteredModuleMutationDefinition definition = Definition() with
+        {
+            Template = Definition().Template with
+            {
+                Guards =
+                [
+                    new BaseModuleFieldComparisonGuard
+                    {
+                        Id = "ordered", Field = field, Comparison = comparison, Expected = threshold,
+                    },
+                ],
+            },
+        };
+        BaseCapturedAtomicExecution captured = Captured();
+        BaseCapturedModuleRecord record = captured.ModuleRecords[0];
+        captured = captured with
+        {
+            ModuleRecords =
+            [
+                record with
+                {
+                    Current = record.Current! with
+                    {
+                        Payload = new RecordPayload
+                        {
+                            Kind = RecordPayloadKind.FieldMap,
+                            Fields = new Dictionary<string, System.Text.Json.JsonElement>
+                            {
+                                ["counter"] = System.Text.Json.JsonSerializer.SerializeToElement(capturedValue),
+                            },
+                        },
+                    },
+                },
+            ],
+        };
+        var evaluator = new BaseModuleProgramEvaluator<EvaluatorRequest, EvaluatorResult>(
+            definition, Identity(), new EvaluatorRequest { Amount = 0, Enabled = true }, captured,
+            new Dictionary<string, CollectionDefinition>
+            {
+                ["records"] = new CollectionDefinition
+                {
+                    Id = "records", Name = "records", Kind = BaseCollectionKinds.Document,
+                    SchemaMode = SchemaMode.Strict, UnknownFields = UnknownFieldPolicy.Reject,
+                    MutationMode = BaseCollectionMutationMode.Mutable,
+                    Fields = [new FieldDefinition { Id = "record.counter", ApplicationName = "Counter", WireName = "counter", Type = BaseFieldTypes.Integer }],
+                },
+            });
+
+        evaluator.Guard("ordered").Should().Be(expected);
     }
 
     private static BaseGeneratedModuleMutationIdentity<EvaluatorRequest, EvaluatorResult> Identity() => new(

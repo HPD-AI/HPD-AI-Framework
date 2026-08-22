@@ -61,6 +61,53 @@ public sealed partial class ActivationRuntimeTests
     }
 
     [Fact]
+    public void Handler_context_owns_every_same_store_child_guard_binding()
+    {
+        BaseActivationContext context = Context(maximumChildren: 5);
+        BaseMutationRequestIdentity recordIdentity = Identity("record-child", "one");
+        BaseMutationRequestIdentity selectionIdentity = Identity("selection-child", "one");
+        BaseMutationRequestIdentity lifecycleIdentity = Identity("lifecycle-child", "one");
+        BaseMutationRequestIdentity retirementIdentity = Identity("retirement-child", "one");
+
+        BaseBatchBuilder record = context.GuardRecordMutations("record-child", 1, recordIdentity);
+        BaseSelectionMutationExecutionOptions selection = context.GuardSelectionMutation(
+            "selection-child", 2, selectionIdentity);
+        BaseActivationGuard lifecycle = context.GuardLifecycleCheckpoint(
+            "lifecycle-child", 3, lifecycleIdentity);
+        BaseActivationGuard retirement = context.GuardRetirementAcknowledgement(
+            "retirement-child", 4, retirementIdentity);
+
+        record.Should().NotBeNull();
+        selection.ActivationGuard!.ChildRequestFingerprint.Should().Equal(selectionIdentity.Fingerprint.ToArray());
+        lifecycle.ChildRequestFingerprint.Should().Equal(lifecycleIdentity.Fingerprint.ToArray());
+        retirement.ChildRequestFingerprint.Should().Equal(retirementIdentity.Fingerprint.ToArray());
+        context.GuardSelectionMutation("selection-child", 2, selectionIdentity)
+            .ActivationGuard!.ChildRequestFingerprint.Should().Equal(selectionIdentity.Fingerprint.ToArray());
+        BaseMutationRequestIdentity substituted = BaseMutationRequestIdentity.Create(
+            selectionIdentity.Scope, selectionIdentity.Operation, selectionIdentity.IdempotencyKey,
+            BaseMutationRequestFingerprint.Create(SHA256.HashData("substituted"u8)));
+        Action conflict = () => context.GuardSelectionMutation("selection-child", 2, substituted);
+        conflict.Should().Throw<InvalidOperationException>().WithMessage("base.activation.childIdentityConflict");
+    }
+
+    private static BaseActivationContext Context(int maximumChildren)
+    {
+        var claim = new BaseActivationClaimAuthority
+        {
+            ActivationId = "activation", AttemptNumber = 1, ClaimEpoch = 1,
+            FencingToken = new byte[32].ToImmutableArray(), WorkerIdentity = "worker",
+            CancellationGeneration = 0, StoreInstanceId = "store", RestoreEpoch = 1,
+            DefinitionChecksum = new byte[32].ToImmutableArray(),
+        };
+        return new BaseActivationContext(
+            new BaseActivationDefinitionKey { Id = "definition", Version = 1, Checksum = new byte[32].ToImmutableArray() },
+            claim,
+            new BaseActivationLeaseObservation { LeaseRevision = 1, LeaseExpiresAt = 100, Checksum = new byte[32].ToImmutableArray() },
+            new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Global }, null, 0, 0, 1,
+            (_, _) => throw new InvalidOperationException(), CancellationToken.None, maximumChildren, null!);
+    }
+
+    [Fact]
     public void Transactional_activation_is_handler_free_and_target_bound()
     {
         BaseActivationDefinition worker = Registration().Definition;

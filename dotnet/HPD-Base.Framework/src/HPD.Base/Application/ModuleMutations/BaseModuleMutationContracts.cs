@@ -17,6 +17,18 @@ public enum BaseModuleGenerationAbsenceBehavior { RequireExisting = 0, RequireMi
 public enum BaseModuleFieldPresenceTest { Missing = 0, Null = 1, PresentValue = 2 }
 /// <summary>Logical guard operator.</summary>
 public enum BaseModuleLogicalGuardKind { And = 0, Or = 1, Not = 2 }
+/// <summary>Defines the closed ordering relations supported by a module field guard.</summary>
+public enum BaseModuleOrderedComparisonKind
+{
+    /// <summary>Requires the captured value to be less than the expected value.</summary>
+    LessThan = 0,
+    /// <summary>Requires the captured value to be less than or equal to the expected value.</summary>
+    LessThanOrEqual = 1,
+    /// <summary>Requires the captured value to be greater than the expected value.</summary>
+    GreaterThan = 2,
+    /// <summary>Requires the captured value to be greater than or equal to the expected value.</summary>
+    GreaterThanOrEqual = 3,
+}
 /// <summary>Generation comparison kind.</summary>
 public enum BaseModuleGenerationComparisonKind { MustExist = 0, MustBeMissing = 1, MustEqual = 2 }
 /// <summary>Checked numeric expression operator.</summary>
@@ -266,6 +278,16 @@ public sealed record BaseModuleRevisionEqualsGuard : BaseModuleGuard
 public sealed record BaseModuleFieldEqualsGuard : BaseModuleGuard
 {
     public required BaseModuleCapturedFieldReference Field { get; init; }
+    public required BaseModuleValueExpression Expected { get; init; }
+}
+/// <summary>Compares one captured non-null ordered scalar with an exact-type expression.</summary>
+public sealed record BaseModuleFieldComparisonGuard : BaseModuleGuard
+{
+    /// <summary>Gets the captured field.</summary>
+    public required BaseModuleCapturedFieldReference Field { get; init; }
+    /// <summary>Gets the required ordering relation.</summary>
+    public required BaseModuleOrderedComparisonKind Comparison { get; init; }
+    /// <summary>Gets the exact-type expected value.</summary>
     public required BaseModuleValueExpression Expected { get; init; }
 }
 public sealed record BaseModuleFieldPresenceGuard : BaseModuleGuard

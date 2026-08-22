@@ -16,7 +16,8 @@ internal sealed class DefaultBaseMutationProcessor(
     BaseAtomicMutationAuthorityRequirement authority,
     BaseSubjectContractRegistry subjects,
     BaseSubjectLifecycleRegistry lifecycleConsumers,
-    BaseSubjectRetirementRegistry retirement) : IAtomicMutationProcessor
+    BaseSubjectRetirementRegistry retirement,
+    BaseActivationGuard? activationGuard = null) : IAtomicMutationProcessor
 {
     private readonly List<BaseMutationAttempt> _attempts = [];
     private readonly List<BaseFinalizedRelationPolicy> _relationPolicies = [];
@@ -222,6 +223,7 @@ internal sealed class DefaultBaseMutationProcessor(
                     ContractVersion = value.Definition.ContractVersion,
                 })],
             SubjectRetirement = CreateRetirementCapture(commands, subjects, retirement),
+            ActivationGuard = activationGuard,
         };
         OperationResult<BaseCapturedAtomicExecution> capture = await session.CaptureAtomicExecutionAsync(captureRequest, cancellationToken).ConfigureAwait(false);
         if (!capture.IsSuccess() || capture.Value is null)
@@ -268,6 +270,7 @@ internal sealed class DefaultBaseMutationProcessor(
             SubjectValidations = finalizedPlan.Value.SubjectValidations,
             SubjectRetirement = retirementPlan,
             Text = textPlan,
+            ActivationGuard = activationGuard,
             Limits = executionLimits with { },
             PlanDigest = planDigest,
         };
