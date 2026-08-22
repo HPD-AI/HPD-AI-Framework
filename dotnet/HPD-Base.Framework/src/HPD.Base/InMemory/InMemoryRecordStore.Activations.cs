@@ -21,7 +21,7 @@ internal sealed partial class InMemoryRecordStore
 
     /// <inheritdoc />
     public BaseActivationProviderDescriptor Descriptor { get; } =
-        BaseActivationCertificationReceiptContract.BuiltIn(
+        BaseActivationCertificationReceiptContract.FromSuccessfulReport(
             "hpd.base.inMemory.activations", "1", new BaseActivationProviderCapability
         {
             AtomicCreationSupported = true,
@@ -34,6 +34,8 @@ internal sealed partial class InMemoryRecordStore
             ExecutionClasses = [BaseActivationExecutionClass.TransactionalOperation, BaseActivationExecutionClass.AtLeastOnceWorker, BaseActivationExecutionClass.AtMostOnceEffect],
             MaximumActivationsPerTransaction = 256,
             MaximumDueCandidates = 256,
+            MaximumReadIntervals = 4096,
+            MaximumIndexOperations = 4096,
             MaximumInputBytes = 4L * 1024 * 1024,
             MaximumResultBytes = 4L * 1024 * 1024,
             MaximumEvidenceBytes = 16L * 1024 * 1024,
@@ -47,6 +49,9 @@ internal sealed partial class InMemoryRecordStore
             MaximumChildrenPerAttempt = 4096,
             MaximumLineageDepth = 256,
             MaximumOccurrencePage = 256,
+            MaximumPriorityAgingBoost = 32,
+            PriorityAgingInterval = TimeSpan.FromMinutes(1),
+            ObservationTokenLifetime = TimeSpan.FromMinutes(5),
             MaximumTimeZoneBytes = 64L * 1024 * 1024,
             MaximumHandlerDependencies = 4096,
             AcquisitionDeadline = TimeSpan.FromSeconds(5),
@@ -59,8 +64,10 @@ internal sealed partial class InMemoryRecordStore
             ShutdownDrainDeadline = TimeSpan.FromSeconds(60),
             ProviderQuarantineSlots = 32,
             HandlerQuarantineSlots = 32,
+            BackupModes = [],
+            RestoreModes = [],
             CanonicalChecksum = ImmutableArray.CreateRange(SHA256.HashData("hpd.base.inMemory.activations.v2"u8)),
-        });
+        }, ImmutableArray.CreateRange(Convert.FromHexString("29ef92ef156f10c81feffbdedf8a06e2dbc5514e7b5e86d7fbcab1c4b0483fd2")));
 
     /// <inheritdoc />
     public async ValueTask<OperationResult<BaseActivationDependencyResult>> ReadDependenciesAsync(
@@ -418,15 +425,15 @@ internal sealed partial class InMemoryRecordStore
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(token);
-        while (DateTimeOffset.UtcNow < deadline)
+        while (_timeProvider.GetUtcNow() < deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            long observedGeneration = DecodeDueGeneration(token.Value.AsSpan());
-            if (observedGeneration < 0)
+            (long observedGeneration, long acceptedAt) = DecodeDueAuthority(token.Value.AsSpan());
+            if (observedGeneration < 0 || _timeProvider.GetUtcNow().ToUnixTimeMilliseconds() - acceptedAt > 300_000)
                 return new BaseDueWaitResult { Outcome = BaseDueWaitOutcome.TokenInvalid };
             if (Volatile.Read(ref _publishedState).ActivationIndexGeneration != observedGeneration)
                 return new BaseDueWaitResult { Outcome = BaseDueWaitOutcome.Changed };
-            TimeSpan remaining = deadline - DateTimeOffset.UtcNow;
+            TimeSpan remaining = deadline - _timeProvider.GetUtcNow();
             await Task.Delay(remaining < TimeSpan.FromMilliseconds(25) ? remaining : TimeSpan.FromMilliseconds(25), cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -452,7 +459,9 @@ internal sealed partial class InMemoryRecordStore
                 HPDBaseJsonSerializerContext.Default.BaseActivationClaimResult, static value => value,
                 out OperationResult<BaseActivationClaimResult>? replay))
                 return ResolveClaimReplay(current, replay, request.AcceptedTime.CapturedUtc);
-            long tokenGeneration = DecodeDueGeneration(request.Observation.Value.AsSpan());
+            (long tokenGeneration, long tokenAcceptedAt) = DecodeDueAuthority(request.Observation.Value.AsSpan());
+            if (tokenGeneration < 0 || request.AcceptedTime.CapturedUtc - tokenAcceptedAt > 300_000)
+                return ActivationFailure<BaseActivationClaimResult>("base.activation.observationTokenInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
             if (tokenGeneration != current.ActivationIndexGeneration)
                 return OperationResults.Ok<BaseActivationClaimResult>(new BaseActivationObservationChangedResult(
                     new BaseDueObservationToken { Value = CurrentWorkerToken(current, request).ToImmutableArray() }));
@@ -562,7 +571,9 @@ internal sealed partial class InMemoryRecordStore
         try
         {
             InMemoryStoreState state = Volatile.Read(ref _publishedState);
-            if (DecodeDueGeneration(request.Observation.Value.AsSpan()) != state.ActivationIndexGeneration)
+            (long observedGeneration, long observedAt) = DecodeDueAuthority(request.Observation.Value.AsSpan());
+            if (observedGeneration != state.ActivationIndexGeneration
+                || request.AcceptedTime.CapturedUtc - observedAt > 300_000)
                 return ActivationFailure<BaseTransactionalActivationCandidate>(
                     "base.activation.claimUnavailable", OperationStatus.Conflict, ErrorCategory.Conflict);
             ImmutableArray<BaseActivationDefinitionKey> definitions = [request.Definition];
@@ -1623,14 +1634,17 @@ internal sealed partial class InMemoryRecordStore
         string definitionText = string.Join("\n", definitions.Select(static item =>
             $"{item.Id}:{item.Version}:{Convert.ToHexString(item.Checksum.AsSpan())}"));
         byte[] digest = Hash($"base.activation.due.token.v2\0{generation}\n{acceptedNow}\n{Convert.ToHexString(scopeDigest)}\n{definitionText}\n{earliest?.ActivationId ?? string.Empty}");
-        byte[] token = new byte[40];
+        byte[] token = new byte[48];
         BinaryPrimitives.WriteInt64BigEndian(token, generation);
-        digest.CopyTo(token, 8);
+        BinaryPrimitives.WriteInt64BigEndian(token.AsSpan(8), acceptedNow);
+        digest.CopyTo(token, 16);
         return token;
     }
 
-    private static long DecodeDueGeneration(ReadOnlySpan<byte> token) =>
-        token.Length == 40 ? BinaryPrimitives.ReadInt64BigEndian(token) : -1;
+    private static (long Generation, long AcceptedAt) DecodeDueAuthority(ReadOnlySpan<byte> token) =>
+        token.Length == 48
+            ? (BinaryPrimitives.ReadInt64BigEndian(token), BinaryPrimitives.ReadInt64BigEndian(token[8..]))
+            : (-1, -1);
 
     private static BaseAtomicReadIntervalEvidence DueInterval(
         BaseOwnedScopeSeekAuthority scope,

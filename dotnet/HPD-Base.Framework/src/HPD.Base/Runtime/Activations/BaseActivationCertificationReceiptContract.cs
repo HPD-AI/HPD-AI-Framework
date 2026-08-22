@@ -26,14 +26,18 @@ public static class BaseActivationCertificationReceiptContract
         Bool(stream, value.RestoreFencingSupported); I64(stream, (long)value.DueInvalidation);
         Sequence(stream, value.ScheduleKinds.Select(static item => (long)item));
         Sequence(stream, value.ExecutionClasses.Select(static item => (long)item));
+        Sequence(stream, value.BackupModes.Select(static item => (long)item));
+        Sequence(stream, value.RestoreModes.Select(static item => (long)item));
         long[] numbers =
         [
-            value.MaximumActivationsPerTransaction, value.MaximumDueCandidates, value.MaximumInputBytes,
+            value.MaximumActivationsPerTransaction, value.MaximumDueCandidates,
+            value.MaximumReadIntervals, value.MaximumIndexOperations, value.MaximumInputBytes,
             value.MaximumResultBytes, value.MaximumEvidenceBytes, value.MaximumTransientBytes,
             value.MaximumReceiptBytes, value.MaximumPendingRows, value.MaximumClaimedRows,
             value.MaximumTerminalRows, value.MaximumAttempts, value.MaximumRenewalsPerAttempt,
             value.MaximumChildrenPerAttempt, value.MaximumLineageDepth, value.MaximumOccurrencePage,
-            value.MaximumTimeZoneBytes, value.MaximumHandlerDependencies,
+            value.MaximumPriorityAgingBoost, value.PriorityAgingInterval.Ticks,
+            value.ObservationTokenLifetime.Ticks, value.MaximumTimeZoneBytes, value.MaximumHandlerDependencies,
             value.AcquisitionDeadline.Ticks, value.TransactionDeadline.Ticks,
             value.ObservationWaitDeadline.Ticks, value.RenewalDeadline.Ticks,
             value.CommitObservationDeadline.Ticks, value.ReceiptResolutionDeadline.Ticks,
@@ -70,22 +74,23 @@ public static class BaseActivationCertificationReceiptContract
         return ImmutableArray.Create(SHA256.HashData(stream.ToArray()));
     }
 
-    /// <summary>Creates a descriptor for a built-in provider whose conformance report ships with the assembly.</summary>
-    public static BaseActivationProviderDescriptor BuiltIn(
+    /// <summary>Creates a descriptor from one frozen successful conformance report.</summary>
+    public static BaseActivationProviderDescriptor FromSuccessfulReport(
         string providerId,
         string providerVersion,
         BaseActivationProviderCapability capability,
+        ImmutableArray<byte> successfulReportChecksum,
         params string[] nativeDependencies)
     {
+        if (successfulReportChecksum.Length != 32)
+            throw new ArgumentException("base.activation.providerContractInvalid", nameof(successfulReportChecksum));
         ImmutableArray<string> dependencies = nativeDependencies.Order(StringComparer.Ordinal).ToImmutableArray();
-        ImmutableArray<byte> report = ImmutableArray.Create(SHA256.HashData(
-            Encoding.UTF8.GetBytes($"HPDB-ACTIVATION-BUILTIN-REPORT-1\0{providerId}\n{providerVersion}")));
         return new BaseActivationProviderDescriptor
         {
             ProviderId = providerId, ProviderVersion = providerVersion, ProtocolVersion = 2,
             Capability = capability, NativeDependencyReceipts = dependencies,
-            CertificationContractChecksum = ContractChecksum, CertificationReportChecksum = report,
-            CertificationReceipt = Create(providerId, providerVersion, 2, capability, dependencies, report),
+            CertificationContractChecksum = ContractChecksum, CertificationReportChecksum = successfulReportChecksum,
+            CertificationReceipt = Create(providerId, providerVersion, 2, capability, dependencies, successfulReportChecksum),
         };
     }
 

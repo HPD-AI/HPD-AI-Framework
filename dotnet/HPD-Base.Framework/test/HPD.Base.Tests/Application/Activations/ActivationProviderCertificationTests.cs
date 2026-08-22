@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
 using HPD.Base.Testing;
@@ -8,11 +9,53 @@ namespace HPD.Base.Tests;
 public sealed class ActivationProviderCertificationTests
 {
     [Fact]
+    public async Task InMemoryRejectsExpiredObservationToken()
+    {
+        var store = new InMemoryRecordStore();
+        byte[] token = new byte[48];
+        BinaryPrimitives.WriteInt64BigEndian(token, 0);
+        BinaryPrimitives.WriteInt64BigEndian(token.AsSpan(8), 0);
+
+        BaseDueWaitResult result = await store.WaitForDueChangeAsync(
+            new BaseDueObservationToken { Value = token.ToImmutableArray() }, DateTimeOffset.UtcNow.AddSeconds(1));
+
+        Assert.Equal(BaseDueWaitOutcome.TokenInvalid, result.Outcome);
+    }
+
+    [Fact]
+    public void CapabilityRejectsEveryPreviouslyUncheckedBoundary()
+    {
+        BaseActivationProviderCapability value = BaseActivationCapabilityContract.BuiltIn("tests.activation.capability.boundaries.v1");
+        BaseActivationProviderCapability[] invalid =
+        [
+            value with { MaximumPendingRows = 0 },
+            value with { MaximumClaimedRows = 0 },
+            value with { MaximumTerminalRows = 0 },
+            value with { MaximumTimeZoneBytes = 0 },
+            value with { MaximumReadIntervals = 0 },
+            value with { MaximumIndexOperations = 0 },
+            value with { MaximumPriorityAgingBoost = 0 },
+            value with { PriorityAgingInterval = TimeSpan.Zero },
+            value with { ObservationTokenLifetime = TimeSpan.Zero },
+            value with { ObservationWaitDeadline = TimeSpan.Zero },
+            value with { RenewalDeadline = TimeSpan.Zero },
+            value with { CommitObservationDeadline = TimeSpan.Zero },
+            value with { ReceiptResolutionDeadline = TimeSpan.Zero },
+            value with { MaintenanceDeadline = TimeSpan.Zero },
+            value with { BackupModes = default },
+            value with { RestoreModes = default },
+        ];
+
+        Assert.True(BaseActivationCapabilityContract.IsValid(value));
+        Assert.All(invalid, static candidate => Assert.False(BaseActivationCapabilityContract.IsValid(candidate)));
+    }
+
+    [Fact]
     public void ReceiptBindsCapabilityAndNativeDependencies()
     {
         BaseActivationProviderCapability capability = BaseActivationCapabilityContract.BuiltIn("tests.activation.capability.v1");
-        BaseActivationProviderDescriptor descriptor = BaseActivationCertificationReceiptContract.BuiltIn(
-            "tests.activation", "1", capability, "native-a", "native-b");
+        BaseActivationProviderDescriptor descriptor = BaseActivationCertificationReceiptContract.FromSuccessfulReport(
+            "tests.activation", "1", capability, ImmutableArray.Create(new byte[32]), "native-a", "native-b");
 
         Assert.True(BaseActivationCertificationReceiptContract.Validate(descriptor));
         Assert.False(BaseActivationCertificationReceiptContract.Validate(descriptor with
@@ -25,7 +68,7 @@ public sealed class ActivationProviderCertificationTests
         }));
         Assert.False(BaseActivationCertificationReceiptContract.Validate(descriptor with
         {
-            CertificationReportChecksum = ImmutableArray.Create(new byte[32]),
+            CertificationReportChecksum = ImmutableArray.Create(Enumerable.Repeat((byte)0xff, 32).ToArray()),
         }));
         Assert.False(BaseActivationCertificationReceiptContract.Validate(descriptor with
         {
@@ -52,45 +95,50 @@ public sealed class ActivationProviderCertificationTests
     }
 
     [Fact]
-    public async Task FailedCaseCannotIssueReceipt()
+    public async Task InMemoryDescriptorBindsExecutedProviderMatrix()
     {
-        await using var fixture = new Fixture(failOrdinal: 7);
+        await using var fixture = new BaseInMemoryActivationCertificationFixture();
         BaseActivationCertificationReport report = await BaseActivationProviderCertification.RunAsync(
             fixture, TimeSpan.FromSeconds(5));
 
-        Assert.False(report.Passed);
-        Assert.Empty(report.CertificationReceipt);
-        Assert.Equal("base.activation.certification.failed", report.Cases[7].ErrorCode);
+        Assert.True(report.Passed);
+        string expectedReport = Convert.ToHexStringLower(fixture.Descriptor.CertificationReportChecksum.AsSpan());
+        string actualReport = Convert.ToHexStringLower(report.ReportChecksum.AsSpan());
+        Assert.True(expectedReport == actualReport, $"expected={expectedReport}; actual={actualReport}");
+        Assert.Equal(Convert.ToHexStringLower(fixture.Descriptor.CertificationReceipt.AsSpan()),
+            Convert.ToHexStringLower(report.CertificationReceipt.AsSpan()));
     }
 
     [Fact]
-    public async Task SubstitutedCaseIdentityFailsClosed()
+    public async Task FixturePreparationFailureCannotIssueReceipt()
     {
-        await using var fixture = new Fixture(substituteOrdinal: 2);
-        InvalidOperationException error = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await BaseActivationProviderCertification.RunAsync(fixture, TimeSpan.FromSeconds(5)));
-        Assert.Equal("base.activation.providerContractInvalid", error.Message);
+        await using var fixture = new Fixture(failOrdinal: 7);
+        await Assert.ThrowsAsync<InvalidOperationException>(async () => await BaseActivationProviderCertification.RunAsync(
+            fixture, TimeSpan.FromSeconds(5)));
     }
 
-    private sealed class Fixture(int? failOrdinal = null, int? substituteOrdinal = null) : IBaseActivationCertificationFixture
+    [Fact]
+    public void FixtureCannotSelfAttestCaseResults()
     {
-        public BaseActivationProviderDescriptor Descriptor { get; } = BaseActivationCertificationReceiptContract.BuiltIn(
-            "tests.activation.matrix", "1", BaseActivationCapabilityContract.BuiltIn("tests.activation.matrix.capability.v1"));
+        Assert.DoesNotContain(typeof(IBaseActivationCertificationFixture).GetMethods(),
+            static method => method.ReturnType == typeof(ValueTask<BaseActivationCertificationCaseResult>));
+    }
 
-        public ValueTask<BaseActivationCertificationCaseResult> ExecuteAsync(
+    private sealed class Fixture(int? failOrdinal = null) : IBaseActivationCertificationFixture
+    {
+        private readonly InMemoryRecordStore _store = new();
+        public BaseActivationProviderDescriptor Descriptor { get; } = BaseActivationCertificationReceiptContract.FromSuccessfulReport(
+            "tests.activation.matrix", "1", BaseActivationCapabilityContract.BuiltIn("tests.activation.matrix.capability.v1"),
+            ImmutableArray.CreateRange(Convert.FromHexString("b878fb9ed43e42e5eb7528672c447d218b72f837cc404af4e2430317fd58216b")));
+
+        public IBaseActivationProvider Provider => _store;
+
+        public ValueTask PrepareAsync(
             BaseActivationCertificationCaseRequest request, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            bool passed = request.Ordinal != failOrdinal;
-            string id = request.Ordinal == substituteOrdinal ? "substituted" : request.Id;
-            return ValueTask.FromResult(new BaseActivationCertificationCaseResult
-            {
-                Id = id, Passed = passed,
-                Status = passed ? OperationStatus.Ok : OperationStatus.StoreError,
-                ErrorCode = passed ? null : "base.activation.certification.failed",
-                EvidenceChecksum = SHA256.HashData(Encoding.UTF8.GetBytes($"{request.Ordinal}:{request.Id}:{passed}"))
-                    .ToImmutableArray(),
-            });
+            if (request.Ordinal == failOrdinal) throw new InvalidOperationException("fixture preparation failed");
+            return ValueTask.CompletedTask;
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;

@@ -246,6 +246,14 @@ internal sealed class DefaultBaseProviderBootstrap(
         if (providers.Length != 1 || !BaseActivationCertificationReceiptContract.Validate(providers[0].Descriptor))
             throw new InvalidOperationException("base.activation.capabilityUnavailable");
         BaseActivationProviderDescriptor descriptor = providers[0].Descriptor;
+        bool advertisesRecovery = !descriptor.Capability.BackupModes.IsEmpty || !descriptor.Capability.RestoreModes.IsEmpty;
+        if (advertisesRecovery && (providers[0] is not IRecordStoreAdministration administration
+            || !administration.AdministrationCapability.Backup
+            || !administration.AdministrationCapability.Validate
+            || !administration.AdministrationCapability.Restore
+            || !administration.AdministrationCapability.Durable
+            || !administration.AdministrationCapability.RestoreRequiresExclusiveMaintenance))
+            throw new InvalidOperationException("base.activation.capabilityUnavailable");
         OperationResult<BaseActivationDependencyResult> observed = await providers[0].ReadDependenciesAsync(
             new BaseActivationDependencyRequest
             {

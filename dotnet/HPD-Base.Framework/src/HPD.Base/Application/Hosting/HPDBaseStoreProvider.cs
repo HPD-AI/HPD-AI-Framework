@@ -83,6 +83,8 @@ public sealed class HPDBaseStoreProvider
         {
             ScheduleKinds = descriptor.Activations.ScheduleKinds.ToArray().ToImmutableArray(),
             ExecutionClasses = descriptor.Activations.ExecutionClasses.ToArray().ToImmutableArray(),
+            BackupModes = descriptor.Activations.BackupModes.ToArray().ToImmutableArray(),
+            RestoreModes = descriptor.Activations.RestoreModes.ToArray().ToImmutableArray(),
             CanonicalChecksum = descriptor.Activations.CanonicalChecksum.ToArray().ToImmutableArray(),
         };
         Installer = installer;

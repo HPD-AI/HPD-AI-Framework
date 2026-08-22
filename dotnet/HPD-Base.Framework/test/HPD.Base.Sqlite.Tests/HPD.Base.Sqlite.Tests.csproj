@@ -29,6 +29,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/HPD.Base/HPD.Base.csproj" />
     <ProjectReference Include="../../src/HPD.Base.Sqlite/HPD.Base.Sqlite.csproj" />
+    <ProjectReference Include="../../src/HPD.Base.Testing/HPD.Base.Testing.csproj" />
     <ProjectReference Include="../HPD.Base.StoreConformance/HPD.Base.StoreConformance.csproj" />
   </ItemGroup>
 </Project>

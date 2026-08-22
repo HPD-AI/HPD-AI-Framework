@@ -196,6 +196,7 @@ public sealed partial class SqliteRecordStore :
             Durable = true,
             MaxArtifactBytes = administration ? _options.MaxBackupArtifactBytes : 0,
         };
+        _activationDescriptor = CreateActivationDescriptor(administration);
         Capabilities = CreateCapabilities(_options, _queryCursors is not null, AdministrationCapability);
     }
 

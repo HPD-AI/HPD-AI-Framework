@@ -675,6 +675,10 @@ public sealed record BaseActivationProviderCapability
     public required int MaximumActivationsPerTransaction { get; init; }
     /// <summary>Gets maximum due candidates per seek.</summary>
     public required int MaximumDueCandidates { get; init; }
+    /// <summary>Gets maximum normalized read intervals returned by one operation.</summary>
+    public required int MaximumReadIntervals { get; init; }
+    /// <summary>Gets maximum provider index operations charged to one operation.</summary>
+    public required int MaximumIndexOperations { get; init; }
     /// <summary>Gets maximum canonical input bytes.</summary>
     public required long MaximumInputBytes { get; init; }
     /// <summary>Gets maximum canonical result bytes.</summary>
@@ -701,6 +705,12 @@ public sealed record BaseActivationProviderCapability
     public required int MaximumLineageDepth { get; init; }
     /// <summary>Gets maximum occurrence page size.</summary>
     public required int MaximumOccurrencePage { get; init; }
+    /// <summary>Gets the maximum priority boost produced by deterministic aging.</summary>
+    public required int MaximumPriorityAgingBoost { get; init; }
+    /// <summary>Gets the minimum elapsed interval represented by one priority-aging step.</summary>
+    public required TimeSpan PriorityAgingInterval { get; init; }
+    /// <summary>Gets the maximum lifetime of one finite due-observation token.</summary>
+    public required TimeSpan ObservationTokenLifetime { get; init; }
     /// <summary>Gets maximum installed time-zone authority bytes.</summary>
     public required long MaximumTimeZoneBytes { get; init; }
     /// <summary>Gets maximum durable handler-definition dependencies checked during readiness.</summary>
@@ -725,8 +735,28 @@ public sealed record BaseActivationProviderCapability
     public required int ProviderQuarantineSlots { get; init; }
     /// <summary>Gets retained non-cooperative handler capacity.</summary>
     public required int HandlerQuarantineSlots { get; init; }
+    /// <summary>Gets the closed provider backup contribution modes.</summary>
+    public required ImmutableArray<BaseActivationBackupMode> BackupModes { get; init; }
+    /// <summary>Gets the closed provider restore modes.</summary>
+    public required ImmutableArray<BaseActivationRestoreMode> RestoreModes { get; init; }
     /// <summary>Gets the canonical capability checksum.</summary>
     public required ImmutableArray<byte> CanonicalChecksum { get; init; }
+}
+
+/// <summary>Identifies how durable activation authority participates in backup.</summary>
+public enum BaseActivationBackupMode
+{
+    /// <summary>Activation authority is captured atomically in the authenticated whole-store artifact.</summary>
+    WholeStoreAtomic,
+}
+
+/// <summary>Identifies certified activation restore behavior.</summary>
+public enum BaseActivationRestoreMode
+{
+    /// <summary>Restores into the same disaster domain while fencing pre-restore claims.</summary>
+    InPlaceRecovery,
+    /// <summary>Restores into a new authenticated disaster domain with an external occurrence floor.</summary>
+    NewDisasterDomain,
 }
 
 /// <summary>Validates and supplies the built-in durable-activation capability contract.</summary>
@@ -741,18 +771,23 @@ public static class BaseActivationCapabilityContract
         ScheduleKinds = [BaseScheduleKind.Once, BaseScheduleKind.Interval, BaseScheduleKind.Cron, BaseScheduleKind.Calendar],
         ExecutionClasses = [BaseActivationExecutionClass.TransactionalOperation, BaseActivationExecutionClass.AtLeastOnceWorker, BaseActivationExecutionClass.AtMostOnceEffect],
         MaximumActivationsPerTransaction = 256, MaximumDueCandidates = 256,
+        MaximumReadIntervals = 4096, MaximumIndexOperations = 4096,
         MaximumInputBytes = 4L * 1024 * 1024, MaximumResultBytes = 4L * 1024 * 1024,
         MaximumEvidenceBytes = 16L * 1024 * 1024, MaximumTransientBytes = 16L * 1024 * 1024,
         MaximumReceiptBytes = 16L * 1024 * 1024, MaximumPendingRows = 1_000_000,
         MaximumClaimedRows = 1_000_000, MaximumTerminalRows = 1_000_000,
         MaximumAttempts = 1024, MaximumRenewalsPerAttempt = 4096, MaximumChildrenPerAttempt = 4096,
         MaximumLineageDepth = 256, MaximumOccurrencePage = 256, MaximumTimeZoneBytes = 64L * 1024 * 1024,
+        MaximumPriorityAgingBoost = 32, PriorityAgingInterval = TimeSpan.FromMinutes(1),
+        ObservationTokenLifetime = TimeSpan.FromMinutes(5),
         MaximumHandlerDependencies = 4096,
         AcquisitionDeadline = TimeSpan.FromSeconds(5), TransactionDeadline = TimeSpan.FromSeconds(30),
         ObservationWaitDeadline = TimeSpan.FromMinutes(5), RenewalDeadline = TimeSpan.FromSeconds(5),
         CommitObservationDeadline = TimeSpan.FromSeconds(30), ReceiptResolutionDeadline = TimeSpan.FromSeconds(30),
         MaintenanceDeadline = TimeSpan.FromMinutes(5), ShutdownDrainDeadline = TimeSpan.FromSeconds(60),
         ProviderQuarantineSlots = 32, HandlerQuarantineSlots = 32,
+        BackupModes = [BaseActivationBackupMode.WholeStoreAtomic],
+        RestoreModes = [BaseActivationRestoreMode.InPlaceRecovery, BaseActivationRestoreMode.NewDisasterDomain],
         CanonicalChecksum = ImmutableArray.CreateRange(System.Security.Cryptography.SHA256.HashData(
             System.Text.Encoding.UTF8.GetBytes(checksumPurpose))),
     };
@@ -765,21 +800,39 @@ public static class BaseActivationCapabilityContract
         && !value.ExecutionClasses.IsDefaultOrEmpty && value.ExecutionClasses.Distinct().Count() == value.ExecutionClasses.Length
         && value.MaximumActivationsPerTransaction is >= 1 and <= 256
         && value.MaximumDueCandidates is >= 1 and <= 256
+        && value.MaximumReadIntervals is >= 1 and <= 4096
+        && value.MaximumIndexOperations is >= 1 and <= 4096
         && value.MaximumInputBytes is >= 1 and <= 4L * 1024 * 1024
         && value.MaximumResultBytes is >= 1 and <= 4L * 1024 * 1024
         && value.MaximumReceiptBytes is >= 1 and <= 16L * 1024 * 1024
         && value.MaximumEvidenceBytes is >= 1 and <= 16L * 1024 * 1024
         && value.MaximumTransientBytes is >= 1 and <= 16L * 1024 * 1024
+        && value.MaximumPendingRows is >= 1 and <= 1_000_000
+        && value.MaximumClaimedRows is >= 1 and <= 1_000_000
+        && value.MaximumTerminalRows is >= 1 and <= 1_000_000
         && value.MaximumAttempts is >= 1 and <= 1024
         && value.MaximumRenewalsPerAttempt is >= 1 and <= 4096
         && value.MaximumChildrenPerAttempt is >= 1 and <= 4096
         && value.MaximumLineageDepth is >= 1 and <= 256
         && value.MaximumHandlerDependencies is >= 1 and <= 4096
         && value.MaximumOccurrencePage is >= 1 and <= 256
+        && value.MaximumTimeZoneBytes is >= 1 and <= 64L * 1024 * 1024
+        && value.MaximumPriorityAgingBoost is >= 1 and <= 32
+        && value.PriorityAgingInterval > TimeSpan.Zero && value.PriorityAgingInterval <= TimeSpan.FromMinutes(1)
+        && value.ObservationTokenLifetime > TimeSpan.Zero && value.ObservationTokenLifetime <= TimeSpan.FromMinutes(5)
         && value.AcquisitionDeadline > TimeSpan.Zero && value.AcquisitionDeadline <= TimeSpan.FromSeconds(5)
         && value.TransactionDeadline > TimeSpan.Zero && value.TransactionDeadline <= TimeSpan.FromSeconds(30)
+        && value.ObservationWaitDeadline > TimeSpan.Zero && value.ObservationWaitDeadline <= TimeSpan.FromMinutes(5)
+        && value.RenewalDeadline > TimeSpan.Zero && value.RenewalDeadline <= TimeSpan.FromSeconds(5)
+        && value.CommitObservationDeadline > TimeSpan.Zero && value.CommitObservationDeadline <= TimeSpan.FromSeconds(30)
+        && value.ReceiptResolutionDeadline > TimeSpan.Zero && value.ReceiptResolutionDeadline <= TimeSpan.FromSeconds(30)
+        && value.MaintenanceDeadline > TimeSpan.Zero && value.MaintenanceDeadline <= TimeSpan.FromMinutes(5)
         && value.ShutdownDrainDeadline > TimeSpan.Zero && value.ShutdownDrainDeadline <= TimeSpan.FromSeconds(60)
         && value.ProviderQuarantineSlots > 0 && value.HandlerQuarantineSlots > 0
+        && !value.BackupModes.IsDefault && value.BackupModes.Distinct().Count() == value.BackupModes.Length
+        && value.BackupModes.All(Enum.IsDefined)
+        && !value.RestoreModes.IsDefault && value.RestoreModes.Distinct().Count() == value.RestoreModes.Length
+        && value.RestoreModes.All(Enum.IsDefined)
         && value.CanonicalChecksum.Length == 32;
 
     internal static void Require(BaseActivationProviderCapability capability, BaseActivationDefinition definition)
@@ -789,6 +842,15 @@ public static class BaseActivationCapabilityContract
             || definition.TransactionalTarget is BaseModuleMutationActivationTarget && !capability.ModuleTargetSupported
             || definition.Limits.MaximumInputBytes > capability.MaximumInputBytes
             || definition.Limits.MaximumResultBytes > capability.MaximumResultBytes
+            || definition.Limits.Provider.MaximumEvidenceBytes > capability.MaximumEvidenceBytes
+            || definition.Limits.Provider.MaximumTransientBytes > capability.MaximumTransientBytes
+            || definition.Limits.Provider.MaximumCandidates > capability.MaximumDueCandidates
+            || definition.Limits.Provider.MaximumReadIntervals > capability.MaximumReadIntervals
+            || definition.Limits.Provider.MaximumIndexOperations > capability.MaximumIndexOperations
+            || definition.Limits.Provider.AcquisitionTimeout > capability.AcquisitionDeadline
+            || definition.Limits.Provider.TransactionTimeout > capability.TransactionDeadline
+            || definition.Limits.Provider.CommitObservationTimeout > capability.CommitObservationDeadline
+            || definition.Limits.Provider.ReceiptResolutionTimeout > capability.ReceiptResolutionDeadline
             || definition.Limits.MaximumAttempts > capability.MaximumAttempts
             || definition.Limits.MaximumRenewalsPerAttempt > capability.MaximumRenewalsPerAttempt
             || definition.Limits.MaximumChildrenPerAttempt > capability.MaximumChildrenPerAttempt

@@ -143,8 +143,10 @@ public sealed partial class SqliteRecordStore
     private static byte[] ScheduleRecoveryKeyDigest(string id, int version) =>
         SHA256.HashData(Encoding.UTF8.GetBytes($"base.activation.scheduleRecoveryKey.v1\0{id}\n{version}"));
 
-    private static readonly BaseActivationProviderDescriptor ActivationDescriptor =
-        BaseActivationCertificationReceiptContract.BuiltIn(
+    private BaseActivationProviderDescriptor? _activationDescriptor;
+
+    private static BaseActivationProviderDescriptor CreateActivationDescriptor(bool durableRecovery) =>
+        BaseActivationCertificationReceiptContract.FromSuccessfulReport(
             "hpd.base.sqlite.activations", "1", new BaseActivationProviderCapability
         {
             AtomicCreationSupported = true,
@@ -157,6 +159,8 @@ public sealed partial class SqliteRecordStore
             ExecutionClasses = [BaseActivationExecutionClass.TransactionalOperation, BaseActivationExecutionClass.AtLeastOnceWorker, BaseActivationExecutionClass.AtMostOnceEffect],
             MaximumActivationsPerTransaction = 256,
             MaximumDueCandidates = 256,
+            MaximumReadIntervals = 4096,
+            MaximumIndexOperations = 4096,
             MaximumInputBytes = 4L * 1024 * 1024,
             MaximumResultBytes = 4L * 1024 * 1024,
             MaximumEvidenceBytes = 16L * 1024 * 1024,
@@ -170,6 +174,9 @@ public sealed partial class SqliteRecordStore
             MaximumChildrenPerAttempt = 4096,
             MaximumLineageDepth = 256,
             MaximumOccurrencePage = 256,
+            MaximumPriorityAgingBoost = 32,
+            PriorityAgingInterval = TimeSpan.FromMinutes(1),
+            ObservationTokenLifetime = TimeSpan.FromMinutes(5),
             MaximumTimeZoneBytes = 64L * 1024 * 1024,
             MaximumHandlerDependencies = 4096,
             AcquisitionDeadline = TimeSpan.FromSeconds(5),
@@ -182,10 +189,17 @@ public sealed partial class SqliteRecordStore
             ShutdownDrainDeadline = TimeSpan.FromSeconds(60),
             ProviderQuarantineSlots = 32,
             HandlerQuarantineSlots = 32,
+            BackupModes = durableRecovery ? [BaseActivationBackupMode.WholeStoreAtomic] : [],
+            RestoreModes = durableRecovery
+                ? [BaseActivationRestoreMode.InPlaceRecovery, BaseActivationRestoreMode.NewDisasterDomain]
+                : [],
             CanonicalChecksum = ImmutableArray.CreateRange(SHA256.HashData("hpd.base.sqlite.activations.v2"u8)),
-        }, "Microsoft.Data.Sqlite");
+        }, ImmutableArray.CreateRange(Convert.FromHexString(durableRecovery
+            ? "03b21e5f8acf95b5ac692881c53d520f72d843215be4a687d36cfbe808d71f90"
+            : "2a9ef13f806500c0c2a31298beb44a37960af4b256194c75c029985c9eab967c")), "Microsoft.Data.Sqlite");
 
-    BaseActivationProviderDescriptor IBaseActivationProvider.Descriptor => ActivationDescriptor;
+    BaseActivationProviderDescriptor IBaseActivationProvider.Descriptor =>
+        _activationDescriptor ?? throw new InvalidOperationException("base.activation.providerUnavailable");
 
     /// <inheritdoc />
     public async ValueTask<OperationResult<BaseActivationMaintenancePage>> AdvanceMaintenanceAsync(
@@ -454,10 +468,10 @@ public sealed partial class SqliteRecordStore
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(token);
-        (long expectedGeneration, long expectedRestore) = DecodeActivationTokenAuthority(token.Value.AsSpan());
-        if (expectedGeneration < 0)
+        (long expectedGeneration, long expectedRestore, long acceptedAt) = DecodeActivationTokenAuthority(token.Value.AsSpan());
+        if (expectedGeneration < 0 || _timeProvider.GetUtcNow().ToUnixTimeMilliseconds() - acceptedAt > 300_000)
             return new BaseDueWaitResult { Outcome = BaseDueWaitOutcome.TokenInvalid };
-        while (DateTimeOffset.UtcNow < deadline)
+        while (_timeProvider.GetUtcNow() < deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
             await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -466,7 +480,7 @@ public sealed partial class SqliteRecordStore
                 return new BaseDueWaitResult { Outcome = BaseDueWaitOutcome.TokenInvalid };
             if (generation != expectedGeneration)
                 return new BaseDueWaitResult { Outcome = BaseDueWaitOutcome.Changed };
-            TimeSpan remaining = deadline - DateTimeOffset.UtcNow;
+            TimeSpan remaining = deadline - _timeProvider.GetUtcNow();
             await Task.Delay(remaining < TimeSpan.FromMilliseconds(50) ? remaining : TimeSpan.FromMilliseconds(50), cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -492,7 +506,9 @@ public sealed partial class SqliteRecordStore
             return await ResolveSqliteClaimReplayAsync(connection, transaction, claimReceipt,
                 request.AcceptedTime.CapturedUtc, cancellationToken).ConfigureAwait(false);
         (long generation, long restoreEpoch) = await ReadActivationAuthorityAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
-        (long expectedGeneration, long expectedRestore) = DecodeActivationTokenAuthority(request.Observation.Value.AsSpan());
+        (long expectedGeneration, long expectedRestore, long tokenAcceptedAt) = DecodeActivationTokenAuthority(request.Observation.Value.AsSpan());
+        if (expectedGeneration < 0 || request.AcceptedTime.CapturedUtc - tokenAcceptedAt > 300_000)
+            return ActivationFailure<BaseActivationClaimResult>("base.activation.observationTokenInvalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         if (generation != expectedGeneration || restoreEpoch != expectedRestore)
         {
             await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
@@ -591,8 +607,9 @@ public sealed partial class SqliteRecordStore
                 "base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
         (long generation, long restoreEpoch) = await ReadActivationAuthorityAsync(connection, null, cancellationToken).ConfigureAwait(false);
-        (long expectedGeneration, long expectedRestore) = DecodeActivationTokenAuthority(request.Observation.Value.AsSpan());
-        if (generation != expectedGeneration || restoreEpoch != expectedRestore)
+        (long expectedGeneration, long expectedRestore, long observedAt) = DecodeActivationTokenAuthority(request.Observation.Value.AsSpan());
+        if (generation != expectedGeneration || restoreEpoch != expectedRestore
+            || request.AcceptedTime.CapturedUtc - observedAt > 300_000)
             return ActivationFailure<BaseTransactionalActivationCandidate>(
                 "base.activation.claimUnavailable", OperationStatus.Conflict, ErrorCategory.Conflict);
         List<SqliteActivationRow> rows = await ReadDueRowsAsync(
@@ -1723,11 +1740,13 @@ public sealed partial class SqliteRecordStore
     {
         string definitionText = string.Join("\n", definitions.Select(static item => $"{item.Id}:{item.Version}:{Convert.ToHexString(item.Checksum.AsSpan())}"));
         byte[] digest = ActivationHash($"base.activation.due.token.v2\0{generation}\n{restoreEpoch}\n{now}\n{Convert.ToHexString(scope)}\n{definitionText}\n{first?.ActivationId ?? string.Empty}");
-        byte[] token = new byte[48]; BinaryPrimitives.WriteInt64BigEndian(token, generation); BinaryPrimitives.WriteInt64BigEndian(token.AsSpan(8), restoreEpoch); digest.CopyTo(token, 16); return token;
+        byte[] token = new byte[56]; BinaryPrimitives.WriteInt64BigEndian(token, generation); BinaryPrimitives.WriteInt64BigEndian(token.AsSpan(8), restoreEpoch); BinaryPrimitives.WriteInt64BigEndian(token.AsSpan(16), now); digest.CopyTo(token, 24); return token;
     }
 
-    private static (long Generation, long RestoreEpoch) DecodeActivationTokenAuthority(ReadOnlySpan<byte> token) =>
-        token.Length == 48 ? (BinaryPrimitives.ReadInt64BigEndian(token), BinaryPrimitives.ReadInt64BigEndian(token[8..])) : (-1, -1);
+    private static (long Generation, long RestoreEpoch, long AcceptedAt) DecodeActivationTokenAuthority(ReadOnlySpan<byte> token) =>
+        token.Length == 56
+            ? (BinaryPrimitives.ReadInt64BigEndian(token), BinaryPrimitives.ReadInt64BigEndian(token[8..]), BinaryPrimitives.ReadInt64BigEndian(token[16..]))
+            : (-1, -1, -1);
 
     private static BaseAtomicReadIntervalEvidence ActivationDueInterval(BaseOwnedScopeSeekAuthority scope, long now,
         BaseActivationDueBoundary? after, BaseActivationDueBoundary? result) => new()
