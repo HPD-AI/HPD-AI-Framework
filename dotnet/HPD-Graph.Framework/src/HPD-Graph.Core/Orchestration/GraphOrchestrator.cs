@@ -92,7 +92,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
     /// <param name="serviceProvider">Service provider for dependency injection.</param>
     /// <param name="cacheStore">Optional cache store for content-addressable caching.</param>
     /// <param name="fingerprintCalculator">Optional fingerprint calculator for cache keys.</param>
-    /// <param name="checkpointStore">Optional checkpoint store for durability.</param>
+    /// <param name="checkpointStore">Optional execution-local checkpoint buffer.</param>
     /// <param name="defaultSuspensionOptions">Default suspension options for nodes.</param>
     /// <param name="affectedNodeDetector">Optional detector for incremental execution.</param>
     /// <param name="snapshotStore">Optional snapshot store for incremental execution.</param>
@@ -308,21 +308,18 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                 managed.IncrementStep();
             }
 
-            // Save checkpoint after layer completion (fire-and-forget, non-blocking)
+            // Record the execution-local checkpoint before advancing. Durable resume
+            // authority is committed later by HPD.Base together with its activation.
             if (_checkpointStore != null && context is Context.GraphContext ctxGraph)
             {
-                _ = Task.Run(async () =>
+                try
                 {
-                    try
-                    {
-                        await SaveCheckpointAsync(ctxGraph, i, Abstractions.Checkpointing.CheckpointTrigger.LayerCompleted, CancellationToken.None);
-                    }
-                    catch (Exception ex)
-                    {
-                        // Log but don't fail execution
-                        context.Log("Orchestrator", $"Failed to save checkpoint: {ex.Message}", LogLevel.Warning, exception: ex);
-                    }
-                });
+                    await SaveCheckpointAsync(ctxGraph, i, Abstractions.Checkpointing.CheckpointTrigger.LayerCompleted, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    context.Log("Orchestrator", $"Failed to record checkpoint: {ex.Message}", LogLevel.Warning, exception: ex);
+                }
             }
         }
 
@@ -604,20 +601,17 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             GraphContext = CreateGraphExecutionContext(context)
         });
 
-        // Save checkpoint after iteration (fire-and-forget)
+        // Record the execution-local checkpoint before returning the iteration.
         if (_checkpointStore != null && context is Context.GraphContext ctxGraph)
         {
-            _ = Task.Run(async () =>
+            try
             {
-                try
-                {
-                    await SaveIterationCheckpointAsync(ctxGraph, iteration, nextDirtyNodes, CancellationToken.None);
-                }
-                catch (Exception ex)
-                {
-                    context.Log("Orchestrator", $"Failed to save iteration checkpoint: {ex.Message}", LogLevel.Warning, exception: ex);
-                }
-            });
+                await SaveIterationCheckpointAsync(ctxGraph, iteration, nextDirtyNodes, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                context.Log("Orchestrator", $"Failed to record iteration checkpoint: {ex.Message}", LogLevel.Warning, exception: ex);
+            }
         }
 
         return new IterationResult
@@ -2320,19 +2314,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                     : null
             };
 
-            // Fire and forget - don't await (caching shouldn't slow down execution)
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await _cacheStore.SetAsync(fingerprint, cachedResult);
-                }
-                catch (Exception ex)
-                {
-                    context.Log("Orchestrator", $"Failed to cache result for node {node.Id}: {ex.Message}",
-                        LogLevel.Warning, nodeId: node.Id);
-                }
-            });
+            _ = CacheResultAsync(context, node.Id, fingerprint, cachedResult);
         }
 
         // Register artifact if node produces one (Phase 1: Data Orchestration Primitives)
@@ -2724,6 +2706,23 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
 
         // Halt execution
         return false;
+    }
+
+    private async Task CacheResultAsync(
+        TContext context,
+        string nodeId,
+        string fingerprint,
+        CachedNodeResult result)
+    {
+        try
+        {
+            await _cacheStore!.SetAsync(fingerprint, result).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            context.Log("Orchestrator", $"Failed to cache result for node {nodeId}: {ex.Message}",
+                LogLevel.Warning, nodeId: nodeId);
+        }
     }
 
     /// <summary>
