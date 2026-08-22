@@ -332,6 +332,7 @@ public sealed class EndpointIntegrationTests
         public ValueTask<BaseResult<BaseActivationMaintenancePage>> AdvanceActivationMaintenanceAsync(BaseActivationAdministrationMaintenanceRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseActivationPrunePage>> PruneActivationsAsync(BaseActivationAdministrationPruneRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseActivationMigrationResult>> MigrateActivationAsync(BaseActivationAdministrationMigrationRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<BaseResult<BaseActivationQuarantinePage>> ExecuteActivationRepairAsync(BaseActivationAdministrationRepairRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseActivationAdministrationPage>> ReadActivationsAsync(BaseActivationAdministrationReadRequest request, CancellationToken cancellationToken = default)
         {
             ActivationRead = request;

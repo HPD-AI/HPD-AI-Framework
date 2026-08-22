@@ -72,6 +72,7 @@ internal sealed class HPDBaseEndpointInventoryValidator(
         ["base.activation.maintenance.advance"] = Control("POST", "/control/activation-maintenance/advance", HPDBaseEndpointOperation.ActivationMaintenanceAdvance, HPDBaseCapabilities.ActivationMaintenanceAdvance),
         ["base.activation.removal.advance"] = Control("POST", "/control/activation-removal/advance", HPDBaseEndpointOperation.ActivationRemovalAdvance, HPDBaseCapabilities.ActivationRemovalAdvance),
         ["base.activation.migrate"] = Control("POST", "/control/activations/migrate", HPDBaseEndpointOperation.ActivationMigrate, HPDBaseCapabilities.ActivationMigrate),
+        ["base.activation.repair.execute"] = Control("POST", "/control/activation-repair/execute", HPDBaseEndpointOperation.ActivationRepairExecute, HPDBaseCapabilities.ActivationRepairExecute),
         ["base.activation.schedule.read"] = Control("POST", "/control/schedules/query", HPDBaseEndpointOperation.ActivationScheduleRead, HPDBaseCapabilities.ActivationScheduleRead),
         ["base.activation.schedule.mutate"] = Control("POST", "/control/schedules/mutate", HPDBaseEndpointOperation.ActivationScheduleMutate, HPDBaseCapabilities.ActivationScheduleMutate),
         ["base.activation.enqueue"] = Application("POST", "/activations/enqueue", HPDBaseEndpointOperation.ActivationEnqueue, HPDBaseCapabilities.ActivationEnqueue),

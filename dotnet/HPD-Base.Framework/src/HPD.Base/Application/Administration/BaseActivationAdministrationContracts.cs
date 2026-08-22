@@ -127,3 +127,29 @@ public sealed record BaseActivationAdministrationMigrationRequest
     /// <summary>Gets the identified semantic request.</summary>
     public required BaseMutationRequestIdentity Identity { get; init; }
 }
+
+/// <summary>Classifies one closed activation repair plan.</summary>
+public enum BaseActivationRepairKind
+{
+    /// <summary>Reads sanitized retained provider work; active work remains owned until completion.</summary>
+    InspectQuarantine = 0,
+}
+
+/// <summary>Requests execution of one independently authorized activation repair plan.</summary>
+public sealed record BaseActivationAdministrationRepairRequest
+{
+    /// <summary>Gets the configured store identity.</summary>
+    public required string StoreId { get; init; }
+    /// <summary>Gets the current ControlPlane principal.</summary>
+    public required PrincipalContext Principal { get; init; }
+    /// <summary>Gets the installed definition identity used for repair authorization.</summary>
+    public required string DefinitionId { get; init; }
+    /// <summary>Gets the installed definition version.</summary>
+    public required int DefinitionVersion { get; init; }
+    /// <summary>Gets the closed repair plan.</summary>
+    public required BaseActivationRepairKind Kind { get; init; }
+    /// <summary>Gets the optional exclusive quarantine sequence.</summary>
+    public long? AfterSequence { get; init; }
+    /// <summary>Gets the bounded page size.</summary>
+    public required int Take { get; init; }
+}

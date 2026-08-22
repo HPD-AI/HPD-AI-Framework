@@ -537,6 +537,59 @@ internal sealed class DefaultHPDBaseAdministration(
         return BaseResultMapper.Map<BaseActivationMigrationResult, BaseActivationMigrationResult>(migrated.Value, static value => value);
     }
 
+    public async ValueTask<BaseResult<BaseActivationQuarantinePage>> ExecuteActivationRepairAsync(
+        BaseActivationAdministrationRepairRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request); cancellationToken.ThrowIfCancellationRequested();
+        BaseActivationDefinition? definition = activations.Find(request.DefinitionId, request.DefinitionVersion);
+        if (definition is null || request.Kind != BaseActivationRepairKind.InspectQuarantine
+            || request.Take is < 1 or > 256 || request.AfterSequence is < 1
+            || stores.GetRegistration(request.StoreId)?.Store is not IBaseActivationProvider provider
+            || !BaseActivationCertificationReceiptContract.Validate(provider.Descriptor))
+            return ActivationPageFailure<BaseActivationQuarantinePage>(OperationStatus.PolicyDenied, "base.activation.unauthorized", ErrorCategory.Authorization);
+        var operation = new OperationContext
+        {
+            ApplicationId = features.LogicalSchema.ApplicationId, Audience = HPDBaseEndpointAudience.ControlPlane,
+            Operation = BaseOperationKind.AdminInspect, CollectionId = definition.Id,
+            TenantId = request.Principal.CurrentTenantId, Mode = OperationMode.System, Now = timeProvider.GetUtcNow(),
+        };
+        OperationResult<BasePolicyEvaluation> authorized = await policy.EvaluateReadAsync(new BasePolicyRequest
+        {
+            Principal = request.Principal, Operation = operation,
+            Collection = new CollectionDefinition
+            {
+                Id = definition.Id, Name = definition.Id, Kind = BaseCollectionKinds.Custom,
+                SchemaMode = SchemaMode.Strict, UnknownFields = UnknownFieldPolicy.Reject,
+                System = true, SystemOwnerModuleId = definition.OwningModuleId,
+                Store = new StoreAnnotation { StoreId = request.StoreId },
+            }, ResourceKind = PolicyResourceKind.ActivationDefinition,
+        }, cancellationToken).ConfigureAwait(false);
+        if (!BaseSystemCollectionGate.HasExactActivationGrant(
+            authorized, definition.Grants.Repair, definition.OwningModuleId, request.Principal, operation))
+            return ActivationPageFailure<BaseActivationQuarantinePage>(OperationStatus.PolicyDenied, "base.activation.unauthorized", ErrorCategory.Authorization);
+        BaseActivationProviderCallResult<OperationResult<BaseActivationQuarantinePage>> call = await activationProviderGate.ExecuteAsync(
+            token => provider.ReadQuarantineAsync(new BaseActivationQuarantineRequest
+            { AfterSequence = request.AfterSequence, Take = request.Take }, token),
+            definition.Limits.Provider.AcquisitionTimeout,
+            definition.Limits.Provider.TransactionTimeout,
+            cancellationToken).ConfigureAwait(false);
+        if (call.Outcome != BaseActivationProviderCallOutcome.Completed || call.Value is null)
+            return ActivationPageFailure<BaseActivationQuarantinePage>(OperationStatus.StoreError, "base.activation.storeError", ErrorCategory.Store);
+        if (!call.Value.IsSuccess() || call.Value.Value is null)
+            return BaseResultMapper.Map<BaseActivationQuarantinePage, BaseActivationQuarantinePage>(call.Value, static value => value);
+        BaseActivationQuarantinePage page = call.Value.Value;
+        bool valid = page.Items.Length <= request.Take && page.Items.All(static item =>
+                item.Sequence > 0 && !string.IsNullOrWhiteSpace(item.Operation))
+            && page.Items.Select(static item => item.Sequence).SequenceEqual(
+                page.Items.Select(static item => item.Sequence).Order())
+            && page.Items.Select(static item => item.Sequence).Distinct().Count() == page.Items.Length
+            && page.Items.All(item => request.AfterSequence is null || item.Sequence > request.AfterSequence)
+            && (page.NextSequence is null || page.Items.Length != 0 && page.NextSequence == page.Items[^1].Sequence);
+        return valid
+            ? BaseResultMapper.Map<BaseActivationQuarantinePage, BaseActivationQuarantinePage>(call.Value, static value => value)
+            : ActivationPageFailure<BaseActivationQuarantinePage>(OperationStatus.StoreError, "base.activation.providerContractInvalid", ErrorCategory.Store);
+    }
+
     private async ValueTask<BaseResult<TResult>> RouteActivationPageAsync<TRequest, TResult>(
         TRequest request,
         Func<IBaseActivationProvider, BaseActivationDefinition, BaseOwnedScopeSeekAuthority, BaseAcceptedTimeReceipt, TRequest, CancellationToken, ValueTask<OperationResult<TResult>>> invoke,

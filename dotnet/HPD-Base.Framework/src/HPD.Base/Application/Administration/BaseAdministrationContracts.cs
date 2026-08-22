@@ -96,6 +96,11 @@ public interface IHPDBaseAdministration
     ValueTask<BaseResult<BaseActivationMigrationResult>> MigrateActivationAsync(
         BaseActivationAdministrationMigrationRequest request,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Executes one closed, independently authorized activation repair plan.</summary>
+    ValueTask<BaseResult<BaseActivationQuarantinePage>> ExecuteActivationRepairAsync(
+        BaseActivationAdministrationRepairRequest request,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>Requests sanitized lifecycle authority inspection after exact ControlPlane authorization.</summary>

@@ -41,6 +41,10 @@ internal static class ActivationAdministrationEndpoints
             .WithHPDBaseEndpoint("base.activation.migrate", HPDBaseEndpointAudience.ControlPlane,
                 HPDBaseEndpointOperation.ActivationMigrate, HPDBaseCapabilities.ActivationMigrate, convention)
             .WithName("base.activation.migrate");
+        group.MapPost("/control/activation-repair/execute", (RequestDelegate)RepairAsync)
+            .WithHPDBaseEndpoint("base.activation.repair.execute", HPDBaseEndpointAudience.ControlPlane,
+                HPDBaseEndpointOperation.ActivationRepairExecute, HPDBaseCapabilities.ActivationRepairExecute, convention)
+            .WithName("base.activation.repair.execute");
     }
 
     private static async Task QueryAsync(HttpContext context)
@@ -230,6 +234,31 @@ internal static class ActivationAdministrationEndpoints
             ReplacementActivationId = value.ReplacementActivationId, ReplacementGeneration = value.ReplacementGeneration,
             Disposition = value.Disposition,
         }, BaseActivationAdministrationJsonContext.Default.BaseActivationMigrationHttpResult).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    private static async Task RepairAsync(HttpContext context)
+    {
+        BaseActivationRepairHttpRequest? wire = await ReadAsync(
+            context, BaseActivationAdministrationJsonContext.Default.BaseActivationRepairHttpRequest).ConfigureAwait(false);
+        if (wire is null) { await Problem(context, 400, "base.activation.invalid").ConfigureAwait(false); return; }
+        BaseResult<BaseActivationQuarantinePage> result = await context.RequestServices.GetRequiredService<IHPDBaseAdministration>()
+            .ExecuteActivationRepairAsync(new BaseActivationAdministrationRepairRequest
+            {
+                StoreId = wire.StoreId, Principal = await Principal(context).ConfigureAwait(false),
+                DefinitionId = wire.DefinitionId, DefinitionVersion = wire.DefinitionVersion,
+                Kind = wire.Kind, AfterSequence = wire.AfterSequence, Take = wire.Take,
+            }, context.RequestAborted).ConfigureAwait(false);
+        if (!result.TryGetValue(out BaseActivationQuarantinePage? page) || page is null)
+        {
+            await WriteFailure(context, result.Status, (result as BaseFailure<BaseActivationQuarantinePage>)?.Error).ConfigureAwait(false);
+            return;
+        }
+        await Results.Json(new BaseActivationRepairHttpResult
+        {
+            Items = page.Items.Select(static item => new BaseActivationQuarantineItemHttpResult
+            { Sequence = item.Sequence, Operation = item.Operation, RetainedAt = item.RetainedAt }).ToImmutableArray(),
+            NextSequence = page.NextSequence,
+        }, BaseActivationAdministrationJsonContext.Default.BaseActivationRepairHttpResult).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     private static async ValueTask<T?> ReadAsync<T>(HttpContext context, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo)
@@ -455,6 +484,29 @@ internal sealed record BaseActivationMigrationHttpResult
     public required BaseMutationRequestDisposition Disposition { get; init; }
 }
 
+internal sealed record BaseActivationRepairHttpRequest
+{
+    public required string StoreId { get; init; }
+    public required string DefinitionId { get; init; }
+    public required int DefinitionVersion { get; init; }
+    public required BaseActivationRepairKind Kind { get; init; }
+    public long? AfterSequence { get; init; }
+    public required int Take { get; init; }
+}
+
+internal sealed record BaseActivationQuarantineItemHttpResult
+{
+    public required long Sequence { get; init; }
+    public required string Operation { get; init; }
+    public required DateTimeOffset RetainedAt { get; init; }
+}
+
+internal sealed record BaseActivationRepairHttpResult
+{
+    public required ImmutableArray<BaseActivationQuarantineItemHttpResult> Items { get; init; }
+    public long? NextSequence { get; init; }
+}
+
 [System.Text.Json.Serialization.JsonSourceGenerationOptions(
     PropertyNamingPolicy = System.Text.Json.Serialization.JsonKnownNamingPolicy.CamelCase,
     UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow,
@@ -471,4 +523,6 @@ internal sealed record BaseActivationMigrationHttpResult
 [System.Text.Json.Serialization.JsonSerializable(typeof(BaseActivationRemovalHttpResult))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(BaseActivationMigrationHttpRequest))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(BaseActivationMigrationHttpResult))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(BaseActivationRepairHttpRequest))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(BaseActivationRepairHttpResult))]
 internal partial class BaseActivationAdministrationJsonContext : System.Text.Json.Serialization.JsonSerializerContext;
