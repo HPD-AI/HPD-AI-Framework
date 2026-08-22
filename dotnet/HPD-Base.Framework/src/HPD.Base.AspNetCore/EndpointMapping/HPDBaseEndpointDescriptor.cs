@@ -80,6 +80,8 @@ public enum HPDBaseEndpointOperation
     ,
     /// <summary>Reads a bounded activation administration page.</summary>
     ActivationQuery,
+    /// <summary>Cancels one exact durable activation generation.</summary>
+    ActivationCancel,
     /// <summary>Retries one exhausted durable activation.</summary>
     ActivationRetry,
     /// <summary>Reconciles one outcome-unknown external effect.</summary>
@@ -185,6 +187,8 @@ public static class HPDBaseCapabilities
     public const string AdministrationSubjectEpochRotate = "base.admin.subject.epoch.rotate";
     /// <summary>Reads bounded durable activation administration state.</summary>
     public const string ActivationQuery = "base.activation.query";
+    /// <summary>Cancels durable activations.</summary>
+    public const string ActivationCancel = "base.activation.cancel";
     /// <summary>Retries exhausted durable activations.</summary>
     public const string ActivationRetry = "base.activation.retry";
     /// <summary>Reconciles outcome-unknown external effects.</summary>

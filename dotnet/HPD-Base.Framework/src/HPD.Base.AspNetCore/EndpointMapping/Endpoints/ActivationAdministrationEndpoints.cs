@@ -17,6 +17,10 @@ internal static class ActivationAdministrationEndpoints
             .WithHPDBaseEndpoint("base.activation.query", HPDBaseEndpointAudience.ControlPlane,
                 HPDBaseEndpointOperation.ActivationQuery, HPDBaseCapabilities.ActivationQuery, convention)
             .WithName("base.activation.query");
+        group.MapPost("/control/activations/cancel", (RequestDelegate)CancelAsync)
+            .WithHPDBaseEndpoint("base.activation.cancel", HPDBaseEndpointAudience.ControlPlane,
+                HPDBaseEndpointOperation.ActivationCancel, HPDBaseCapabilities.ActivationCancel, convention)
+            .WithName("base.activation.cancel");
         group.MapPost("/control/activations/retry", (RequestDelegate)RetryAsync)
             .WithHPDBaseEndpoint("base.activation.retry", HPDBaseEndpointAudience.ControlPlane,
                 HPDBaseEndpointOperation.ActivationRetry, HPDBaseCapabilities.ActivationRetry, convention)
@@ -95,6 +99,27 @@ internal static class ActivationAdministrationEndpoints
                 DueAt = wire.DueAtUnixMilliseconds is long dueAt
                     ? DateTimeOffset.FromUnixTimeMilliseconds(dueAt)
                     : null,
+                Identity = wire.Identity.ToRuntime(),
+            }, context.RequestAborted).ConfigureAwait(false);
+        await Write(context, result).ConfigureAwait(false);
+    }
+
+    private static async Task CancelAsync(HttpContext context)
+    {
+        BaseActivationCancelHttpRequest? wire = await ReadAsync(
+            context, BaseActivationAdministrationJsonContext.Default.BaseActivationCancelHttpRequest).ConfigureAwait(false);
+        if (wire is null || !Enum.IsDefined(wire.Propagation))
+        { await Problem(context, 400, "base.activation.invalid").ConfigureAwait(false); return; }
+        BaseResult<BaseActivationTransitionResult> result = await context.RequestServices.GetRequiredService<IHPDBaseAdministration>()
+            .CancelActivationAsync(new BaseActivationAdministrationCancelRequest
+            {
+                StoreId = wire.StoreId,
+                Principal = await Principal(context).ConfigureAwait(false),
+                DefinitionId = wire.DefinitionId,
+                DefinitionVersion = wire.DefinitionVersion,
+                ActivationId = wire.ActivationId,
+                ExpectedGeneration = wire.ExpectedGeneration,
+                Propagation = wire.Propagation,
                 Identity = wire.Identity.ToRuntime(),
             }, context.RequestAborted).ConfigureAwait(false);
         await Write(context, result).ConfigureAwait(false);
@@ -198,6 +223,17 @@ internal sealed record BaseActivationRetryHttpRequest
     public required BaseActivationIdentityHttpRequest Identity { get; init; }
 }
 
+internal sealed record BaseActivationCancelHttpRequest
+{
+    public required string StoreId { get; init; }
+    public required string DefinitionId { get; init; }
+    public required int DefinitionVersion { get; init; }
+    public required string ActivationId { get; init; }
+    public required long ExpectedGeneration { get; init; }
+    public required BaseCancellationPropagation Propagation { get; init; }
+    public required BaseActivationIdentityHttpRequest Identity { get; init; }
+}
+
 internal sealed record BaseActivationQueryHttpRequest
 {
     public required string StoreId { get; init; }
@@ -289,6 +325,7 @@ internal sealed record BaseActivationControlHttpResult
     UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow,
     UseStringEnumConverter = true)]
 [System.Text.Json.Serialization.JsonSerializable(typeof(BaseActivationRetryHttpRequest))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(BaseActivationCancelHttpRequest))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(BaseActivationQueryHttpRequest))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(BaseActivationQueryHttpResult))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(BaseActivationReconcileHttpRequest))]

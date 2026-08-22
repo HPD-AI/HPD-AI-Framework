@@ -65,6 +65,7 @@ internal sealed class HPDBaseEndpointInventoryValidator(
         ["base.admin.backup.restore"] = Control("POST", "/administration/backups:restore", HPDBaseEndpointOperation.BackupRestore, HPDBaseCapabilities.AdministrationBackupRestore),
         ["base.admin.subject.epoch.rotate"] = Control("POST", "/administration/subjects:rotate-epoch", HPDBaseEndpointOperation.SubjectEpochRotate, HPDBaseCapabilities.AdministrationSubjectEpochRotate),
         ["base.activation.query"] = Control("POST", "/control/activations/query", HPDBaseEndpointOperation.ActivationQuery, HPDBaseCapabilities.ActivationQuery),
+        ["base.activation.cancel"] = Control("POST", "/control/activations/cancel", HPDBaseEndpointOperation.ActivationCancel, HPDBaseCapabilities.ActivationCancel),
         ["base.activation.retry"] = Control("POST", "/control/activations/retry", HPDBaseEndpointOperation.ActivationRetry, HPDBaseCapabilities.ActivationRetry),
         ["base.activation.reconcile"] = Control("POST", "/control/activations/reconcile", HPDBaseEndpointOperation.ActivationReconcile, HPDBaseCapabilities.ActivationReconcile),
         ["base.activation.dispose"] = Control("POST", "/control/activations/dispose", HPDBaseEndpointOperation.ActivationDispose, HPDBaseCapabilities.ActivationDispose),

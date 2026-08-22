@@ -230,6 +230,16 @@ public sealed class EndpointIntegrationTests
         administration.ActivationRetry.Should().NotBeNull();
         administration.ActivationRetry!.ExpectedGeneration.Should().Be(7);
 
+        string cancelJson = """
+            {"storeId":"primary","definitionId":"graph.execute","definitionVersion":1,"activationId":"activation-1","expectedGeneration":8,"propagation":"none","identity":{"scope":"activation-test","operation":"cancel","idempotencyKey":"cancel-1","fingerprint":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}}
+            """;
+        HttpResponseMessage cancel = await client.PostAsync(
+            "/base/control/activations/cancel",
+            new StringContent(cancelJson, System.Text.Encoding.UTF8, "application/json"));
+        cancel.StatusCode.Should().Be(HttpStatusCode.OK);
+        administration.ActivationCancel.Should().NotBeNull();
+        administration.ActivationCancel!.ExpectedGeneration.Should().Be(8);
+
         string queryJson = """
             {"storeId":"primary","scopeKind":"global","scopeValue":null,"definitionId":"graph.execute","definitionVersion":1,"states":"terminal","after":null,"take":8}
             """;
@@ -261,6 +271,7 @@ public sealed class EndpointIntegrationTests
     {
         public BaseSubjectEpochRotationRequest? Request { get; private set; }
         public BaseActivationAdministrationRetryRequest? ActivationRetry { get; private set; }
+        public BaseActivationAdministrationCancelRequest? ActivationCancel { get; private set; }
         public BaseActivationAdministrationReadRequest? ActivationRead { get; private set; }
         public BaseAdministrationCapability Capability { get; } = new()
         {
@@ -307,7 +318,24 @@ public sealed class EndpointIntegrationTests
         public ValueTask<BaseResult<BaseVectorRebuildResult>> RebuildVectorIndexAsync(BaseVectorRebuildRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseSubjectLifecycleMaintenanceResult>> ExecuteSubjectAuthorityMaintenanceAsync(string storeId, PrincipalContext principal, BaseSubjectAuthorityMaintenanceExecutionRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseSubjectLifecycleInspectionResult>> InspectSubjectLifecycleAsync(string storeId, PrincipalContext principal, BaseSubjectLifecycleInspectionRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public ValueTask<BaseResult<BaseActivationTransitionResult>> CancelActivationAsync(BaseActivationAdministrationCancelRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<BaseResult<BaseActivationTransitionResult>> CancelActivationAsync(BaseActivationAdministrationCancelRequest request, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ActivationCancel = request;
+            return ValueTask.FromResult<BaseResult<BaseActivationTransitionResult>>(
+                new BaseSuccess<BaseActivationTransitionResult>(new BaseActivationTransitionResult
+                {
+                    State = BaseActivationState.Cancelled,
+                    Generation = checked(request.ExpectedGeneration + 1),
+                    ControlChecksum = System.Collections.Immutable.ImmutableArray.CreateRange(new byte[32]),
+                    Accounting = new BaseActivationAccounting
+                    {
+                        Candidates = 0, Comparisons = 1, IndexOperations = 1,
+                        EvidenceBytes = 32, TransientBytes = 32, ReadIntervals = 0,
+                    },
+                    Disposition = BaseMutationRequestDisposition.Committed,
+                }, OperationStatus.Ok, null, null, null, null));
+        }
         public ValueTask<BaseResult<BaseActivationTransitionResult>> RetryActivationAsync(BaseActivationAdministrationRetryRequest request, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
