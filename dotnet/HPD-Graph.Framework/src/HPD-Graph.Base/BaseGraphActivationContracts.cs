@@ -151,7 +151,7 @@ public sealed class BaseGraphActivationDefinition
             : "{}"u8.ToArray();
         byte[] canonicalSeed = BaseGraphActivationRegistration.CanonicalJson(seedBytes);
         BaseGraphActivationInput input = CreateInput($"schedule:{scheduleId}", canonicalSeed);
-        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(input, BaseGraphActivationJsonContext.Default.BaseGraphActivationInput);
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(input, BaseGraphActivationSerializer.Context.BaseGraphActivationInput);
         BaseScheduleMisfirePolicy misfire = schedule.MisfirePolicy switch
         {
             ScheduleMisfirePolicyConfig.Skip => BaseScheduleMisfirePolicy.Skip,
@@ -258,8 +258,8 @@ public static class BaseGraphActivationRegistration
             };
             return BaseActivationDefinitionBuilder.Create(
                 definition,
-                BaseGraphActivationJsonContext.Default.BaseGraphActivationInput,
-                BaseGraphActivationJsonContext.Default.BaseGraphActivationResult,
+                BaseGraphActivationSerializer.Context.BaseGraphActivationInput,
+                BaseGraphActivationSerializer.Context.BaseGraphActivationResult,
                 InputBindings(),
                 ResultBindings(),
                 services => new BaseGraphActivationHandler(services, retained, graphChecksum,
@@ -324,7 +324,8 @@ public static class BaseGraphActivationRegistration
         return stream.ToArray();
     }
 
-    internal static byte[] CanonicalJson(ReadOnlySpan<byte> source)
+    /// <summary>Normalizes one UTF-8 JSON value to Graph's canonical property ordering.</summary>
+    public static byte[] CanonicalJson(ReadOnlySpan<byte> source)
     {
         using JsonDocument document = JsonDocument.Parse(source.ToArray());
         using var stream = new MemoryStream(source.Length);
@@ -556,3 +557,9 @@ internal sealed class BaseGraphActivationHandler(
 [JsonSerializable(typeof(BaseGraphCheckpointPersistRequest))]
 [JsonSerializable(typeof(BaseGraphCheckpointPersistResult))]
 public partial class BaseGraphActivationJsonContext : JsonSerializerContext;
+
+internal static class BaseGraphActivationSerializer
+{
+    internal static BaseGraphActivationJsonContext Context { get; } = new(
+        BaseSerializerGeneratedContract.CreateOptions(JsonNamingPolicy.CamelCase));
+}

@@ -16,15 +16,21 @@ namespace HPD.Graph.Connectors.Core.DependencyInjection;
 public static class ConnectorCoreServiceCollectionExtensions
 {
     public static IServiceCollection AddHPDGraphConnectorsCore(
-        this IServiceCollection services)
+        this IServiceCollection services,
+        params HPD.Graph.Base.BaseGraphActivationDefinition[] graphs)
     {
         ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(graphs);
+        if (graphs.Length == 0 || graphs.Select(static graph => graph.GraphId).Distinct(StringComparer.Ordinal).Count() != graphs.Length)
+            throw new ArgumentException("At least one uniquely identified installed graph is required.", nameof(graphs));
 
         services.TryAddSingleton<IWorkflowSourceStore, InMemoryWorkflowSourceStore>();
         services.TryAddSingleton<IConnectionStore, InMemoryConnectionStore>();
         services.TryAddSingleton<IConnectionProvider, StoreBackedConnectionProvider>();
         services.TryAddSingleton<IWorkflowSourceDedupeService, WorkflowSourceDedupeService>();
-        services.TryAddSingleton<IWorkflowSourceDispatcher, WorkflowSourceDispatcher>();
+        foreach (HPD.Graph.Base.BaseGraphActivationDefinition graph in graphs)
+            services.AddSingleton(graph);
+        services.TryAddSingleton<IWorkflowSourceDispatcher, BaseWorkflowSourceDispatcher>();
         services.TryAddSingleton<IWorkflowSourcePollingService, WorkflowSourcePollingService>();
         services.TryAddSingleton<WorkflowSourcePollingOptions>();
         services.TryAddSingleton<IWorkflowSourcePollingBackgroundService, WorkflowSourcePollingBackgroundService>();

@@ -1,43 +1,50 @@
 using System.Text.Json;
-using HPD.Graph.Hosting.Data;
+using System.Text.Json.Serialization;
+using HPD.Base;
 
 namespace HPD.Agent.MultiAgent.AspNetCore.EndpointMapping;
 
+/// <summary>Lists graph-installed multi-agent workflow definitions.</summary>
 public sealed record MultiAgentWorkflowListResponse
 {
+    /// <summary>Gets the immutable installed workflow descriptions.</summary>
     public required IReadOnlyList<MultiAgentWorkflowSummaryDto> Workflows { get; init; }
 }
 
+/// <summary>Describes one graph-installed multi-agent workflow.</summary>
 public sealed record MultiAgentWorkflowSummaryDto
 {
+    /// <summary>Gets the stable graph identity.</summary>
     public required string WorkflowId { get; init; }
-    public required string Name { get; init; }
+    /// <summary>Gets the graph semantic version.</summary>
     public required string GraphVersion { get; init; }
-    public DateTimeOffset CreatedAt { get; init; }
-    public DateTimeOffset UpdatedAt { get; init; }
-    public string? Description { get; init; }
-    public bool IsMultiAgent { get; init; }
-    public string? Kind { get; init; }
+    /// <summary>Gets the activation-definition version.</summary>
+    public required int DefinitionVersion { get; init; }
+    /// <summary>Gets the lowercase graph checksum.</summary>
+    public required string GraphChecksum { get; init; }
 }
 
-public sealed record MultiAgentRunListResponse
+/// <summary>Requests one identified durable multi-agent graph run.</summary>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record MultiAgentRunRequest
 {
-    public required IReadOnlyList<WorkflowExecutionDto> Runs { get; init; }
+    /// <summary>Gets an optional caller-owned execution identity.</summary>
+    public string? ExecutionId { get; init; }
+    /// <summary>Gets the graph input value.</summary>
+    public required JsonElement Input { get; init; }
+    /// <summary>Gets an optional requested due instant as Unix milliseconds.</summary>
+    public long? DueAtUnixMilliseconds { get; init; }
 }
 
-public sealed record MultiAgentRunEventDto
+/// <summary>Returns durable activation authority for one accepted graph run.</summary>
+public sealed record MultiAgentRunAcceptedResult
 {
-    public DateTimeOffset Timestamp { get; init; }
-    public required string Kind { get; init; }
-    public required string Level { get; init; }
-    public required string Source { get; init; }
-    public required string Message { get; init; }
-    public string? NodeId { get; init; }
-    public string? Exception { get; init; }
-    public JsonElement? Raw { get; init; }
-}
-
-public sealed record MultiAgentApprovalResponseRequest
-{
-    public object? ResumeValue { get; init; }
+    /// <summary>Gets the logical graph execution identity.</summary>
+    public required string ExecutionId { get; init; }
+    /// <summary>Gets the durable activation identity.</summary>
+    public required string ActivationId { get; init; }
+    /// <summary>Gets the durable activation state.</summary>
+    public required BaseActivationState State { get; init; }
+    /// <summary>Gets whether the request committed or exactly replayed.</summary>
+    public required BaseMutationRequestDisposition Disposition { get; init; }
 }

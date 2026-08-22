@@ -7,14 +7,12 @@
   </Configurations>
   <Folder Name="/HPD-Core/">
     <Project Path="../HPD-Graph.Framework/src/HPD-Graph.Abstractions/HPD-Graph.Abstractions.csproj" />
-    <Project Path="../HPD-Graph.Framework/src/HPD-Graph.AspNetCore/HPD-Graph.AspNetCore.csproj" />
     <Project Path="../HPD-Graph.Framework/src/HPD-Graph.Connectors/HPD-Graph.Connectors.Abstractions/HPD-Graph.Connectors.Abstractions.csproj" />
     <Project Path="../HPD-Graph.Framework/src/HPD-Graph.Connectors/HPD-Graph.Connectors.AspNetCore/HPD-Graph.Connectors.AspNetCore.csproj" />
     <Project Path="../HPD-Graph.Framework/src/HPD-Graph.Connectors/HPD-Graph.Connectors.Core/HPD-Graph.Connectors.Core.csproj" />
     <Project Path="../HPD-Graph.Framework/src/HPD-Graph.Connectors/HPD-Graph.Connectors.OpenApi/HPD-Graph.Connectors.OpenApi.csproj" />
     <Project Path="../HPD-Graph.Framework/src/HPD-Graph.Connectors/HPD-Graph.Connectors.SourceGenerator/HPD-Graph.Connectors.SourceGenerator.csproj" />
     <Project Path="../HPD-Graph.Framework/src/HPD-Graph.Core/HPD-Graph.Core.csproj" />
-    <Project Path="../HPD-Graph.Framework/src/HPD-Graph.Hosting/HPD-Graph.Hosting.csproj" />
     <Project Path="../HPD-Graph.Framework/src/HPD-Graph.SourceGenerator/HPD-Graph.SourceGenerator.csproj" />
     <Project Path="src/HPD-Events/HPD-Events.csproj" />
     <Project Path="src/HPD-VCS/HPD-VCS.csproj" />

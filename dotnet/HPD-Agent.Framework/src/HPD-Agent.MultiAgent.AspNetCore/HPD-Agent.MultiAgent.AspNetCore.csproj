@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+    <TargetFrameworks>net10.0</TargetFrameworks>
     <RootNamespace>HPD.Agent.MultiAgent.AspNetCore</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -13,14 +13,16 @@
   <PropertyGroup>
     <IsPackable>true</IsPackable>
     <PackageId>HPD-Agent.MultiAgent.AspNetCore</PackageId>
-    <Description>ASP.NET Core projection API for HPD multi-agent workflows over HPD-Graph hosting services.</Description>
+    <Description>ASP.NET Core projection API for durable HPD multi-agent graph activations.</Description>
     <PackageTags>ai;agent;multi-agent;aspnetcore;workflow;graph</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="../HPD-Agent.MultiAgent/HPD-Agent.MultiAgent.csproj" />
-    <ProjectReference Include="../../../HPD-Graph.Framework/src/HPD-Graph.Hosting/HPD-Graph.Hosting.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
-    <PackageReference Include="HPD-Graph.Hosting" Version="$(HPDGraphVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
+    <ProjectReference Include="../../../HPD-Graph.Framework/src/HPD-Graph.Base/HPD-Graph.Base.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
+    <ProjectReference Include="../../../HPD-Base.Framework/src/HPD.Base.AspNetCore/HPD.Base.AspNetCore.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
+    <PackageReference Include="HPD-Graph.Base" Version="$(HPDGraphVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
+    <PackageReference Include="HPD-Base.AspNetCore" Version="$(HPDBaseVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
   </ItemGroup>
 
   <ItemGroup>

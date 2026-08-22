@@ -23,7 +23,7 @@ internal sealed class BaseActivationHandlerExecutionGate : IAsyncDisposable
     private int _stopping;
     private readonly BaseActivationOperationalState _state;
 
-    internal BaseActivationHandlerExecutionGate(BaseActivationOperationalState? state = null) =>
+    public BaseActivationHandlerExecutionGate(BaseActivationOperationalState? state = null) =>
         _state = state ?? new BaseActivationOperationalState();
 
     internal int RetainedCount => _retained.Count;

@@ -16,18 +16,6 @@ public sealed record GraphScheduleConfig
     public IReadOnlyDictionary<string, string> Metadata { get; init; } = new Dictionary<string, string>();
 }
 
-public sealed record ScheduledGraph
-{
-    public required string GraphId { get; init; }
-    public required GraphScheduleConfig Schedule { get; init; }
-    public bool Enabled { get; init; } = true;
-    public DateTimeOffset CreatedAt { get; init; }
-    public DateTimeOffset UpdatedAt { get; init; }
-    public DateTimeOffset? LastRunAt { get; init; }
-    public DateTimeOffset? NextRunAt { get; init; }
-    public IReadOnlyDictionary<string, string> Metadata { get; init; } = new Dictionary<string, string>();
-}
-
 public enum ScheduleMisfirePolicyConfig
 {
     Skip,
@@ -42,4 +30,3 @@ public enum ScheduleConcurrencyPolicyConfig
     Queue,
     CancelPrevious
 }
-

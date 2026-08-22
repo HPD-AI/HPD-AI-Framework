@@ -51,17 +51,18 @@ public sealed class BaseGraphActivationTests
     }
 
     [Fact]
-    public void Installed_builder_owns_the_graph_activation_registration()
+    public async Task Installed_builder_owns_the_graph_activation_registration()
     {
         BaseGraphActivationDefinition definition = BaseGraphActivationRegistration.Create(
             Graph("graph-installed", "3.0.0", "installed"), 3, Grants(), Limits(), []);
         var services = new ServiceCollection();
+        services.AddLogging();
 
         services.AddHPDBase(builder => builder
             .AddGraphPersistence()
             .AddGraphActivation(definition));
 
-        using ServiceProvider provider = services.BuildServiceProvider();
+        await using ServiceProvider provider = services.BuildServiceProvider();
         BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
         {
             AuthenticationState = PrincipalAuthenticationState.System,

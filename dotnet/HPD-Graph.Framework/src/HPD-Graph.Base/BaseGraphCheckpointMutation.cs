@@ -140,12 +140,7 @@ public static partial class BaseGraphCheckpointMutation
                         new()
                         {
                             StablePropertyId = "hpd.graph.checkpoint.persist.result.checkpoint-id",
-                            Value = new BaseModuleCommittedRecordIdExpression
-                            {
-                                Id = "result.id",
-                                ResultTypeId = "recordId",
-                                StatementId = "persist",
-                            },
+                            Value = Request("result.id", "hpd.graph.checkpoint.persist.checkpoint-id"),
                         },
                     ],
                 },
@@ -164,7 +159,7 @@ public static partial class BaseGraphCheckpointMutation
         MaximumGenerationComparisons = 1,
         MaximumGenerationIncrements = 1,
         MaximumGuardNodes = 1,
-        MaximumGuardDepth = 1,
+        MaximumGuardDepth = 8,
         MaximumStatements = 1,
         MaximumBranches = 1,
         MaximumExpressionNodes = 32,

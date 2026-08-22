@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net10.0;net9.0;net8.0</TargetFrameworks>
+    <TargetFrameworks>net10.0</TargetFrameworks>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
@@ -29,13 +29,11 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src\HPD-Graph.Abstractions\HPD-Graph.Abstractions.csproj" />
-    <ProjectReference Include="../../src\HPD-Graph.AspNetCore\HPD-Graph.AspNetCore.csproj" />
     <ProjectReference Include="../../src\HPD-Graph.Connectors\HPD-Graph.Connectors.Abstractions\HPD-Graph.Connectors.Abstractions.csproj" />
     <ProjectReference Include="../../src\HPD-Graph.Connectors\HPD-Graph.Connectors.Core\HPD-Graph.Connectors.Core.csproj" />
     <ProjectReference Include="../../src\HPD-Graph.Connectors\HPD-Graph.Connectors.OpenApi\HPD-Graph.Connectors.OpenApi.csproj" />
     <ProjectReference Include="../../src\HPD-Graph.Connectors\HPD-Graph.Connectors.SourceGenerator\HPD-Graph.Connectors.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="true" />
     <ProjectReference Include="../../src\HPD-Graph.Core\HPD-Graph.Core.csproj" />
-    <ProjectReference Include="../../src\HPD-Graph.Hosting\HPD-Graph.Hosting.csproj" />
     <ProjectReference Include="../../src\HPD-Graph.Base\HPD-Graph.Base.csproj" Condition="'$(TargetFramework)' == 'net10.0'" />
     <ProjectReference Include="..\..\..\shared\src\HPD-OpenApi.Core\HPD-OpenApi.Core.csproj" />
     <ProjectReference Include="..\..\..\HPD-Agent.Framework\src\HPD-Agent\HPD-Agent.csproj" />
@@ -43,10 +41,6 @@
     <!-- Source Generator Reference for testing generated code -->
     <ProjectReference Include="../../src\HPD-Graph.SourceGenerator\HPD-Graph.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../src\HPD-Graph.Connectors\HPD-Graph.Connectors.AspNetCore\HPD-Graph.Connectors.AspNetCore.csproj" />
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(TargetFramework)' != 'net10.0'">
-    <Compile Remove="V21/BaseGraphActivationTests.cs" />
   </ItemGroup>
 
 </Project>

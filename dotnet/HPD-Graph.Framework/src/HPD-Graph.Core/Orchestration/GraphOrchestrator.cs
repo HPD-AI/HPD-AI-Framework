@@ -40,8 +40,6 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
     private readonly IGraphSnapshotStore? _snapshotStore;
     private readonly IArtifactRegistry? _artifactRegistry;
     private readonly IGraphHandlerRegistry? _handlerRegistry;
-    private readonly IWorkflowSuspensionSink? _suspensionSink;
-    private readonly IWorkflowExecutionStateSink? _executionStateSink;
 
     // Default suspension options for nodes that don't specify their own
     private readonly Abstractions.Execution.SuspensionOptions _defaultSuspensionOptions;
@@ -124,8 +122,6 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
         _artifactRegistry = artifactRegistry;
         _graphRegistry = graphRegistry;
         _handlerRegistry = handlerRegistry;
-        _executionStateSink = serviceProvider.GetService<IWorkflowExecutionStateSink>();
-        _suspensionSink = _executionStateSink ?? serviceProvider.GetService<IWorkflowSuspensionSink>();
         _defaultSuspensionOptions = defaultSuspensionOptions ?? Abstractions.Execution.SuspensionOptions.Default;
         _maxLayerConcurrency = maxLayerConcurrency ?? (Environment.ProcessorCount * 4);
 
@@ -2676,7 +2672,6 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                         // Update outcome
                         context.AddTag($"suspend_outcome:{node.Id}", Abstractions.Execution.SuspensionOutcome.Denied.ToString());
 
-                        await PublishSuspensionAsync(context, node, suspended, pollingAttemptNumber: null, ct);
                         return false; // Halt execution
                     }
                 }
@@ -2699,7 +2694,6 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                     });
 
                     // LAYER 4: Fallback - checkpoint already saved, halt cleanly
-                    await PublishSuspensionAsync(context, node, suspended, pollingAttemptNumber: null, ct);
                     return false;
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -2729,7 +2723,6 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
         }
 
         // Halt execution
-        await PublishSuspensionAsync(context, node, suspended, pollingAttemptNumber: null, ct);
         return false;
     }
 
@@ -2787,7 +2780,6 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                 GraphJsonSerializerContext.Default.PollingState
             ));
 
-            await PublishSuspensionAsync(context, node, suspended, currentAttempt, ct);
 
             // CHECKPOINT FIRST (durability)
             if (_checkpointStore != null && context is Context.GraphContext ctxGraph)
@@ -2847,10 +2839,8 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    await PublishFailureAsync(context, node, timeoutFailure.Exception.Message, ct);
                     throw;
                 }
-                await PublishRunningAsync(context, node, ct);
 
                 return true; // Continue execution if error policy allows it
             }
@@ -2902,10 +2892,8 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    await PublishFailureAsync(context, node, maxRetriesFailure.Exception.Message, ct);
                     throw;
                 }
-                await PublishRunningAsync(context, node, ct);
 
                 return true; // Continue execution if error policy allows it
             }
@@ -2935,7 +2923,6 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             context.RemoveTag($"polling_info:{node.Id}");
             if (retryResult is NodeExecutionResult.Success)
             {
-                await PublishRunningAsync(context, node, ct);
             }
 
             // Handle the final result
@@ -3197,104 +3184,6 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
         };
 
         await _checkpointStore.SaveCheckpointAsync(checkpoint, cancellationToken);
-    }
-
-    private async Task PublishSuspensionAsync(
-        TContext context,
-        Node node,
-        NodeExecutionResult.Suspended suspended,
-        int? pollingAttemptNumber,
-        CancellationToken cancellationToken)
-    {
-        if (_suspensionSink is null)
-        {
-            return;
-        }
-
-        try
-        {
-            await _suspensionSink.MarkSuspendedAsync(
-                context.Graph.Id,
-                context.ExecutionId,
-                node.Id,
-                suspended.SuspendToken,
-                suspended.Reason,
-                suspended.Message,
-                suspended.RetryAfter,
-                suspended.MaxWaitTime,
-                suspended.MaxRetries,
-                pollingAttemptNumber,
-                cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            context.Log(
-                "Orchestrator",
-                $"Failed to publish suspension state for node {node.Id}: {ex.Message}",
-                LogLevel.Warning,
-                nodeId: node.Id,
-                exception: ex);
-        }
-    }
-
-    private async Task PublishFailureAsync(
-        TContext context,
-        Node node,
-        string errorMessage,
-        CancellationToken cancellationToken)
-    {
-        if (_executionStateSink is null)
-        {
-            return;
-        }
-
-        try
-        {
-            await _executionStateSink.MarkFailedAsync(
-                context.Graph.Id,
-                context.ExecutionId,
-                node.Id,
-                errorMessage,
-                cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            context.Log(
-                "Orchestrator",
-                $"Failed to publish execution failure state for node {node.Id}: {ex.Message}",
-                LogLevel.Warning,
-                nodeId: node.Id,
-                exception: ex);
-        }
-    }
-
-    private async Task PublishRunningAsync(
-        TContext context,
-        Node node,
-        CancellationToken cancellationToken)
-    {
-        if (_executionStateSink is null)
-        {
-            return;
-        }
-
-        try
-        {
-            await _executionStateSink.MarkRunningAsync(
-                context.Graph.Id,
-                context.ExecutionId,
-                node.Id,
-                cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            context.Log(
-                "Orchestrator",
-                $"Failed to publish execution running state for node {node.Id}: {ex.Message}",
-                LogLevel.Warning,
-                nodeId: node.Id,
-                exception: ex);
-        }
     }
 
     private void HandleCancelled(TContext context, Node node, NodeExecutionResult.Cancelled cancelled)

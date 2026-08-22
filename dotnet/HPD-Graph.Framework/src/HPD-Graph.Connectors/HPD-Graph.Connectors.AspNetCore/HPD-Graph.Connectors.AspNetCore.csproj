@@ -9,6 +9,7 @@
     <Description>ASP.NET Core endpoints and JSON hosting setup for HPD-Graph connectors.</Description>
     <PackageTags>graph;workflow;connectors;aspnetcore;api</PackageTags>
     <NoWarn>$(NoWarn);1591</NoWarn>
+    <TargetFrameworks>net10.0</TargetFrameworks>
   </PropertyGroup>
 
   <ItemGroup>
@@ -19,7 +20,6 @@
     <ProjectReference Include="..\HPD-Graph.Connectors.Abstractions\HPD-Graph.Connectors.Abstractions.csproj" />
     <ProjectReference Include="..\HPD-Graph.Connectors.Core\HPD-Graph.Connectors.Core.csproj" />
     <ProjectReference Include="..\..\HPD-Graph.Abstractions\HPD-Graph.Abstractions.csproj" />
-    <ProjectReference Include="..\..\HPD-Graph.AspNetCore\HPD-Graph.AspNetCore.csproj" />
     <ProjectReference Include="..\..\HPD-Graph.Core\HPD-Graph.Core.csproj" />
     <ProjectReference Include="../../../../shared/src/HPD-Events/HPD-Events.csproj" />
   </ItemGroup>

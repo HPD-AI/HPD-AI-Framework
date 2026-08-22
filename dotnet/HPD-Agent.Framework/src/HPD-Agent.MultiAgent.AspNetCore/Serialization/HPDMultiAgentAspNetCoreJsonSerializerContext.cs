@@ -12,9 +12,8 @@ namespace HPD.Agent.MultiAgent.AspNetCore.Serialization;
 [JsonSerializable(typeof(MultiAgentWorkflowListResponse))]
 [JsonSerializable(typeof(MultiAgentWorkflowSummaryDto))]
 [JsonSerializable(typeof(List<MultiAgentWorkflowSummaryDto>))]
-[JsonSerializable(typeof(MultiAgentRunListResponse))]
-[JsonSerializable(typeof(MultiAgentRunEventDto))]
-[JsonSerializable(typeof(MultiAgentApprovalResponseRequest))]
+[JsonSerializable(typeof(MultiAgentRunRequest))]
+[JsonSerializable(typeof(MultiAgentRunAcceptedResult))]
 [JsonSerializable(typeof(Dictionary<string, string[]>))]
 [JsonSerializable(typeof(JsonElement))]
 internal partial class HPDMultiAgentAspNetCoreJsonSerializerContext : JsonSerializerContext

@@ -1,7 +1,6 @@
 using HPD.Agent.MultiAgent.AspNetCore.Serialization;
 using HPD.Graph.Abstractions.Serialization;
-using HPD.Graph.Hosting.DependencyInjection;
-using HPD.Graph.Hosting.Serialization;
+using HPD.Graph.Base;
 using HPD.MultiAgent;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.DependencyInjection;
@@ -12,12 +11,17 @@ namespace HPD.Agent.MultiAgent.AspNetCore;
 
 public static class HPDMultiAgentAspNetCoreServiceCollectionExtensions
 {
-    public static IServiceCollection AddHPDMultiAgentAspNetCore(this IServiceCollection services)
+    public static IServiceCollection AddHPDMultiAgentAspNetCore(
+        this IServiceCollection services,
+        params BaseGraphActivationDefinition[] graphs)
     {
         ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(graphs);
+        if (graphs.Length == 0 || graphs.Select(static graph => graph.GraphId).Distinct(StringComparer.Ordinal).Count() != graphs.Length)
+            throw new ArgumentException("At least one uniquely identified installed graph is required.", nameof(graphs));
 
-        services.AddHPDGraphHosting();
         services.AddMultiAgentGraphSerialization();
+        foreach (BaseGraphActivationDefinition graph in graphs) services.AddSingleton(graph);
         services.AddOptions<JsonOptions>();
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IConfigureOptions<JsonOptions>, HPDMultiAgentJsonOptionsSetup>());
@@ -32,10 +36,9 @@ public static class HPDMultiAgentAspNetCoreServiceCollectionExtensions
         {
             var chain = options.SerializerOptions.TypeInfoResolverChain;
             chain.Insert(0, HPDMultiAgentAspNetCoreJsonSerializerContext.Default);
-            chain.Insert(1, GraphHostingJsonSerializerContext.Default);
-            chain.Insert(2, GraphConfigJsonSerializerContext.Default);
+            chain.Insert(1, GraphConfigJsonSerializerContext.Default);
 
-            var insertIndex = 3;
+            var insertIndex = 2;
             foreach (var contributor in graphResolverContributors)
             {
                 chain.Insert(insertIndex++, contributor.Resolver);
