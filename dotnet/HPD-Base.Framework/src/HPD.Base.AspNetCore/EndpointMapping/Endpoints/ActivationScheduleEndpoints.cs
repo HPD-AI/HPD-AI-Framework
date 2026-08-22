@@ -29,9 +29,9 @@ internal static class ActivationScheduleEndpoints
         BaseScheduleReadHttpRequest? request = await ReadBodyAsync(
             context, BaseActivationScheduleJsonContext.Default.BaseScheduleReadHttpRequest).ConfigureAwait(false);
         if (request is null) { await Problem(context, OperationStatus.ValidationFailed, "base.activation.invalid"); return; }
-        BaseInstalledScheduleHandle? handle = await ResolveAsync(context, request.ScheduleId, request.ScheduleVersion).ConfigureAwait(false);
-        if (handle is null) { await Problem(context, OperationStatus.PolicyDenied, "base.activation.unauthorized"); return; }
-        OperationResult<BaseScheduleAuthority> result = await handle.ReadAsync(context.RequestAborted).ConfigureAwait(false);
+        ResolvedSchedule? resolved = await ResolveAsync(context, request.ScheduleId, request.ScheduleVersion).ConfigureAwait(false);
+        if (resolved is null) { await Problem(context, OperationStatus.PolicyDenied, "base.activation.unauthorized"); return; }
+        OperationResult<BaseScheduleAuthority> result = await resolved.Handle.ReadAsync(context.RequestAborted).ConfigureAwait(false);
         if (!result.IsSuccess() || result.Value is null)
         { await Problem(context, result.Status, result.Error?.Code ?? "base.activation.storeError"); return; }
         await Results.Json(Project(result.Value), BaseActivationScheduleJsonContext.Default.BaseScheduleHttpResult)
@@ -47,10 +47,10 @@ internal static class ActivationScheduleEndpoints
             || request.Kind == BaseScheduleMutationKind.Create && request.ExpectedGeneration is not null
             || !context.Request.Headers.TryGetValue(BaseHttpHeaders.IdempotencyKey, out var keys) || keys.Count != 1)
         { await Problem(context, OperationStatus.ValidationFailed, "base.activation.invalid"); return; }
-        BaseInstalledScheduleHandle? handle = await ResolveAsync(context, request.ScheduleId, request.ScheduleVersion).ConfigureAwait(false);
-        if (handle is null) { await Problem(context, OperationStatus.PolicyDenied, "base.activation.unauthorized"); return; }
+        ResolvedSchedule? resolved = await ResolveAsync(context, request.ScheduleId, request.ScheduleVersion).ConfigureAwait(false);
+        if (resolved is null) { await Problem(context, OperationStatus.PolicyDenied, "base.activation.unauthorized"); return; }
         byte[] fingerprint = SHA256.HashData(Encoding.UTF8.GetBytes(
-            $"base.activation.schedule.http.v1\0{request.ScheduleId}\n{request.ScheduleVersion}\n{(int)request.Kind}\n{request.ExpectedGeneration?.ToString() ?? "none"}"));
+            $"base.activation.schedule.http.v1\0{request.ScheduleId}\n{request.ScheduleVersion}\n{Convert.ToHexString(resolved.Definition.Checksum.AsSpan())}\n{(int)request.Kind}\n{request.ExpectedGeneration?.ToString() ?? "none"}"));
         BaseMutationRequestIdentity identity;
         try
         {
@@ -62,11 +62,11 @@ internal static class ActivationScheduleEndpoints
         { await Problem(context, OperationStatus.ValidationFailed, "base.activation.invalid"); return; }
         OperationResult<BaseScheduleMutationResult> result = request.Kind switch
         {
-            BaseScheduleMutationKind.Create => await handle.CreateAsync(identity, context.RequestAborted).ConfigureAwait(false),
-            BaseScheduleMutationKind.Update => await handle.UpdateAsync(request.ExpectedGeneration!.Value, identity, context.RequestAborted).ConfigureAwait(false),
-            BaseScheduleMutationKind.Enable => await handle.EnableAsync(request.ExpectedGeneration!.Value, identity, context.RequestAborted).ConfigureAwait(false),
-            BaseScheduleMutationKind.Disable => await handle.DisableAsync(request.ExpectedGeneration!.Value, identity, context.RequestAborted).ConfigureAwait(false),
-            BaseScheduleMutationKind.Remove => await handle.RemoveAsync(request.ExpectedGeneration!.Value, identity, context.RequestAborted).ConfigureAwait(false),
+            BaseScheduleMutationKind.Create => await resolved.Handle.CreateAsync(identity, context.RequestAborted).ConfigureAwait(false),
+            BaseScheduleMutationKind.Update => await resolved.Handle.UpdateAsync(request.ExpectedGeneration!.Value, identity, context.RequestAborted).ConfigureAwait(false),
+            BaseScheduleMutationKind.Enable => await resolved.Handle.EnableAsync(request.ExpectedGeneration!.Value, identity, context.RequestAborted).ConfigureAwait(false),
+            BaseScheduleMutationKind.Disable => await resolved.Handle.DisableAsync(request.ExpectedGeneration!.Value, identity, context.RequestAborted).ConfigureAwait(false),
+            BaseScheduleMutationKind.Remove => await resolved.Handle.RemoveAsync(request.ExpectedGeneration!.Value, identity, context.RequestAborted).ConfigureAwait(false),
             _ => throw new InvalidOperationException("base.activation.invalid"),
         };
         if (!result.IsSuccess() || result.Value is null)
@@ -79,7 +79,7 @@ internal static class ActivationScheduleEndpoints
         }, BaseActivationScheduleJsonContext.Default.BaseScheduleMutationHttpResult).ExecuteAsync(context).ConfigureAwait(false);
     }
 
-    private static async ValueTask<BaseInstalledScheduleHandle?> ResolveAsync(
+    private static async ValueTask<ResolvedSchedule?> ResolveAsync(
         HttpContext context, string scheduleId, int scheduleVersion)
     {
         if (string.IsNullOrWhiteSpace(scheduleId) || scheduleVersion <= 0) return null;
@@ -89,7 +89,7 @@ internal static class ActivationScheduleEndpoints
         PrincipalContext principal = await context.RequestServices.GetRequiredService<IBaseHttpPrincipalContextFactory>()
             .CreateAsync(context, context.RequestAborted).ConfigureAwait(false);
         BaseSession session = context.RequestServices.GetRequiredService<IBaseSessionFactory>().For(principal);
-        return session.Activations.GetSchedule(BaseScheduleRegistration.Create(definition));
+        return new(definition, session.Activations.GetSchedule(BaseScheduleRegistration.Create(definition)));
     }
 
     private static BaseScheduleHttpResult Project(BaseScheduleAuthority value) => new()
@@ -110,6 +110,8 @@ internal static class ActivationScheduleEndpoints
     private static Task Problem(HttpContext context, OperationStatus status, string code) => Results.Problem(
         statusCode: BaseHttpStatusCodeMapper.ToStatusCode(status), title: "BASE activation schedule request failed.",
         extensions: new Dictionary<string, object?> { ["hpd.error.code"] = code }).ExecuteAsync(context);
+
+    private sealed record ResolvedSchedule(BaseScheduleDefinition Definition, BaseInstalledScheduleHandle Handle);
 }
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
