@@ -609,6 +609,14 @@ public sealed record BaseActivationProviderDescriptor
     public required int ProtocolVersion { get; init; }
     /// <summary>Gets provider capability.</summary>
     public required BaseActivationProviderCapability Capability { get; init; }
+    /// <summary>Gets sorted native dependency receipts used during certification.</summary>
+    public required ImmutableArray<string> NativeDependencyReceipts { get; init; }
+    /// <summary>Gets the checksum of the provider certification contract.</summary>
+    public required ImmutableArray<byte> CertificationContractChecksum { get; init; }
+    /// <summary>Gets the checksum of the successful certification report.</summary>
+    public required ImmutableArray<byte> CertificationReportChecksum { get; init; }
+    /// <summary>Gets the purpose-bound deployment certification receipt.</summary>
+    public required ImmutableArray<byte> CertificationReceipt { get; init; }
 }
 
 /// <summary>Declares certified activation-provider features and maxima.</summary>

@@ -255,7 +255,9 @@ internal sealed class DefaultBaseScheduleRuntime(
         if (!BaseSystemCollectionGate.HasExactActivationGrant(decision, grantId, definition.OwningModuleId, session.Principal, operation))
             return Failure<IBaseActivationProvider>(OperationStatus.PolicyDenied, "base.activation.unauthorized", ErrorCategory.Authorization);
         IBaseActivationProvider[] providers = stores.GetRegistrations().Select(static item => item.Store)
-            .OfType<IBaseActivationProvider>().Distinct().ToArray();
+            .OfType<IBaseActivationProvider>()
+            .Where(static item => BaseActivationCertificationReceiptContract.Validate(item.Descriptor))
+            .Distinct().ToArray();
         return providers.Length == 1
             ? OperationResults.Ok(providers[0])
             : Failure<IBaseActivationProvider>(OperationStatus.Unsupported, "base.activation.capabilityUnavailable", ErrorCategory.Unsupported);

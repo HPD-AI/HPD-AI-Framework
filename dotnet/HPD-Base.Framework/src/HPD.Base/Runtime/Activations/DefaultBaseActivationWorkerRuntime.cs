@@ -721,7 +721,9 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
     private IBaseActivationProvider? ResolveProvider()
     {
         IBaseActivationProvider[] values = stores.GetRegistrations().Select(static item => item.Store)
-            .OfType<IBaseActivationProvider>().Distinct().ToArray();
+            .OfType<IBaseActivationProvider>()
+            .Where(static item => BaseActivationCertificationReceiptContract.Validate(item.Descriptor))
+            .Distinct().ToArray();
         return values.Length == 1 ? values[0] : null;
     }
 

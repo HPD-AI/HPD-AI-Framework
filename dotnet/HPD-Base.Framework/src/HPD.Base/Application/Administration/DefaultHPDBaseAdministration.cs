@@ -324,6 +324,7 @@ internal sealed class DefaultHPDBaseAdministration(
         cancellationToken.ThrowIfCancellationRequested();
         BaseActivationDefinition? definition = activations.Find(request.DefinitionId, request.DefinitionVersion);
         if (definition is null || stores.GetRegistration(request.StoreId)?.Store is not IBaseActivationProvider provider
+            || !BaseActivationCertificationReceiptContract.Validate(provider.Descriptor)
             || request.Take is < 1 or > 256 || !Enum.IsDefined(request.States))
             return ActivationReadFailure(OperationStatus.PolicyDenied, "base.activation.unauthorized", ErrorCategory.Authorization);
         var operation = new OperationContext
@@ -441,7 +442,8 @@ internal sealed class DefaultHPDBaseAdministration(
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
         BaseActivationDefinition? definition = activations.Find(request.DefinitionId, request.DefinitionVersion);
-        if (definition is null || stores.GetRegistration(request.StoreId)?.Store is not IBaseActivationProvider provider)
+        if (definition is null || stores.GetRegistration(request.StoreId)?.Store is not IBaseActivationProvider provider
+            || !BaseActivationCertificationReceiptContract.Validate(provider.Descriptor))
             return ActivationFailure(OperationStatus.PolicyDenied, "base.activation.unauthorized", ErrorCategory.Authorization);
         var operation = new OperationContext
         {

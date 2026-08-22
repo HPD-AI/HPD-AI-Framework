@@ -60,12 +60,9 @@ public sealed partial class SqliteRecordStore
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private static readonly BaseActivationProviderDescriptor ActivationDescriptor = new()
-    {
-        ProviderId = "hpd.base.sqlite.activations",
-        ProviderVersion = "1",
-        ProtocolVersion = 2,
-        Capability = new BaseActivationProviderCapability
+    private static readonly BaseActivationProviderDescriptor ActivationDescriptor =
+        BaseActivationCertificationReceiptContract.BuiltIn(
+            "hpd.base.sqlite.activations", "1", new BaseActivationProviderCapability
         {
             AtomicCreationSupported = true,
             SelectionTargetSupported = true,
@@ -102,8 +99,7 @@ public sealed partial class SqliteRecordStore
             ProviderQuarantineSlots = 32,
             HandlerQuarantineSlots = 32,
             CanonicalChecksum = ImmutableArray.CreateRange(SHA256.HashData("hpd.base.sqlite.activations.v2"u8)),
-        },
-    };
+        }, "Microsoft.Data.Sqlite");
 
     BaseActivationProviderDescriptor IBaseActivationProvider.Descriptor => ActivationDescriptor;
 

@@ -20,12 +20,9 @@ internal sealed partial class InMemoryRecordStore
     };
 
     /// <inheritdoc />
-    public BaseActivationProviderDescriptor Descriptor { get; } = new()
-    {
-        ProviderId = "hpd.base.inMemory.activations",
-        ProviderVersion = "1",
-        ProtocolVersion = 2,
-        Capability = new BaseActivationProviderCapability
+    public BaseActivationProviderDescriptor Descriptor { get; } =
+        BaseActivationCertificationReceiptContract.BuiltIn(
+            "hpd.base.inMemory.activations", "1", new BaseActivationProviderCapability
         {
             AtomicCreationSupported = true,
             SelectionTargetSupported = true,
@@ -62,8 +59,7 @@ internal sealed partial class InMemoryRecordStore
             ProviderQuarantineSlots = 32,
             HandlerQuarantineSlots = 32,
             CanonicalChecksum = ImmutableArray.CreateRange(SHA256.HashData("hpd.base.inMemory.activations.v2"u8)),
-        },
-    };
+        });
 
     /// <inheritdoc />
     public async ValueTask<OperationResult<BaseActivationDueObservation>> ObserveDueAsync(
