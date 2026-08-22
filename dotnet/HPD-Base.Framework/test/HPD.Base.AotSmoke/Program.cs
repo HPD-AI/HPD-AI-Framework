@@ -91,6 +91,24 @@ if (!activationEnqueue.IsSuccess() || activationEnqueue.Value is not BaseActivat
     throw new InvalidOperationException("Native AOT durable activation enqueue failed: " + activationEnqueue.Error?.Code);
 if (activationCreated.State != BaseActivationState.Pending)
     throw new InvalidOperationException("Native AOT durable activation enqueue failed.");
+BaseInstalledActivationWorkerHandle<ActivationSmokeInput, ActivationSmokeResult> activationWorker =
+    session.Activations.GetWorker(ActivationSmoke.Registration.Identity);
+OperationResult<BaseActivationDueObservation> activationObserved = await activationWorker.ObserveDueAsync();
+if (!activationObserved.IsSuccess() || activationObserved.Value?.Earliest is null)
+    throw new InvalidOperationException("Native AOT durable activation observation failed: " + activationObserved.Error?.Code);
+OperationResult<BaseActivationDelivery<ActivationSmokeInput>?> activationClaimed = await activationWorker.TryClaimAsync(
+    activationObserved.Value.Token,
+    BaseMutationRequestIdentity.Create("aot", "activation-claim", "activation-claim-1",
+        BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("aot-activation-claim"u8))));
+if (!activationClaimed.IsSuccess() || activationClaimed.Value is not { } activationDelivery
+    || activationDelivery.Input.Value != "native-aot")
+    throw new InvalidOperationException("Native AOT durable activation claim failed: " + activationClaimed.Error?.Code);
+OperationResult<BaseActivationTransitionResult> activationCompleted = await activationWorker.CompleteAsync(
+    activationDelivery, new ActivationSmokeResult { Value = "native-aot-complete" },
+    BaseMutationRequestIdentity.Create("aot", "activation-complete", "activation-complete-1",
+        BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("aot-activation-complete"u8))));
+if (!activationCompleted.IsSuccess() || activationCompleted.Value?.State != BaseActivationState.Succeeded)
+    throw new InvalidOperationException("Native AOT durable activation completion failed: " + activationCompleted.Error?.Code);
 BaseMutationRequestIdentity moduleIdentity = BaseMutationRequestIdentity.Create(
     "aot", "module-increment", "module-request-1",
     BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("aot-module-request"u8)));
