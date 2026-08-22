@@ -489,6 +489,25 @@ internal interface IBaseActivationWorkerRuntime
     ValueTask<OperationResult<BaseActivationTransitionResult>> FailAsync(
         BaseSession session, BaseActivationDefinition definition, BaseActivationClaimAuthority claim,
         string failureCode, bool retry, BaseMutationRequestIdentity identity, CancellationToken cancellationToken);
+    ValueTask<OperationResult<BaseActivationTransitionResult>> CancelAsync(
+        BaseSession session, BaseActivationDefinition definition, string activationId,
+        long expectedGeneration, BaseCancellationPropagation propagation,
+        BaseMutationRequestIdentity identity, CancellationToken cancellationToken);
+    ValueTask<OperationResult<BaseActivationTransitionResult>> HeartbeatEffectAsync(
+        BaseSession session, BaseActivationDefinition definition, BaseEffectExecutionAuthority effect,
+        BaseMutationRequestIdentity identity, CancellationToken cancellationToken);
+    ValueTask<OperationResult<BaseExecutorRegistrationResult>> RegisterExecutorAsync(
+        BaseSession session, BaseActivationDefinition definition, string hostId,
+        string processIncarnationId, long heartbeatMilliseconds,
+        BaseMutationRequestIdentity identity, CancellationToken cancellationToken);
+    ValueTask<OperationResult<BaseExecutorHeartbeatResult>> HeartbeatExecutorAsync(
+        BaseSession session, BaseActivationDefinition definition, BaseExecutorIncarnationAuthority executor,
+        BaseExecutorHeartbeatObservation heartbeat, long extensionMilliseconds,
+        BaseMutationRequestIdentity identity, CancellationToken cancellationToken);
+    ValueTask<OperationResult<BaseExecutorRetirementResult>> RetireExecutorAsync(
+        BaseSession session, BaseActivationDefinition definition, BaseExecutorIncarnationAuthority executor,
+        BaseExecutorHeartbeatObservation heartbeat, BaseMutationRequestIdentity identity,
+        CancellationToken cancellationToken);
     ValueTask<OperationResult<BaseActivationReceiptResolution>> ResolveReceiptAsync(
         BaseSession session, BaseActivationDefinition definition,
         IReadOnlyList<BaseModuleDtoPropertyBinding> resultBindings, BaseMutationRequestIdentity identity,

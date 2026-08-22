@@ -423,6 +423,124 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
         CancellationToken cancellationToken) =>
         FailCoreAsync(session, definition, claim, failureCode, retry, identity, cancellationToken);
 
+    public ValueTask<OperationResult<BaseActivationTransitionResult>> CancelAsync(
+        BaseSession session,
+        BaseActivationDefinition definition,
+        string activationId,
+        long expectedGeneration,
+        BaseCancellationPropagation propagation,
+        BaseMutationRequestIdentity identity,
+        CancellationToken cancellationToken) =>
+        TransitionAsync(session, definition, new BaseActivationCancelRequest
+        {
+            ActivationId = activationId,
+            ExpectedGeneration = expectedGeneration,
+            Propagation = propagation,
+            Identity = identity,
+            AcceptedTime = acceptedTime.Capture(session.ApplicationId),
+            Limits = definition.Limits.Provider,
+        }, definition.Grants.Cancel, cancellationToken);
+
+    public ValueTask<OperationResult<BaseActivationTransitionResult>> HeartbeatEffectAsync(
+        BaseSession session,
+        BaseActivationDefinition definition,
+        BaseEffectExecutionAuthority effect,
+        BaseMutationRequestIdentity identity,
+        CancellationToken cancellationToken) =>
+        TransitionAsync(session, definition, new BaseActivationEffectHeartbeatRequest
+        {
+            ActivationId = effect.Claim.ActivationId,
+            Effect = effect,
+            ExpectedHeartbeatRevision = effect.HeartbeatRevision,
+            ExtensionMilliseconds = checked((long)Math.Max(definition.Limits.HandlerTimeout.TotalMilliseconds + 30_000d, 60_000d)),
+            Identity = identity,
+            AcceptedTime = acceptedTime.Capture(session.ApplicationId),
+            Limits = definition.Limits.Provider,
+        }, definition.Grants.Renew, cancellationToken);
+
+    public async ValueTask<OperationResult<BaseExecutorRegistrationResult>> RegisterExecutorAsync(
+        BaseSession session,
+        BaseActivationDefinition definition,
+        string hostId,
+        string processIncarnationId,
+        long heartbeatMilliseconds,
+        BaseMutationRequestIdentity identity,
+        CancellationToken cancellationToken)
+    {
+        if (!await IsAuthorizedAsync(session, definition, definition.Grants.Execute,
+            BaseOperationKind.ActivationTransition, cancellationToken).ConfigureAwait(false))
+            return Failure<BaseExecutorRegistrationResult>(OperationStatus.PolicyDenied, "base.activation.unauthorized", ErrorCategory.Authorization);
+        if (string.IsNullOrWhiteSpace(hostId) || string.IsNullOrWhiteSpace(processIncarnationId)
+            || heartbeatMilliseconds is <= 0 or > 86_400_000)
+            return Failure<BaseExecutorRegistrationResult>(OperationStatus.ValidationFailed, "base.activation.invalid", ErrorCategory.Validation);
+        IBaseActivationProvider? provider = ResolveProvider();
+        if (provider is null)
+            return Failure<BaseExecutorRegistrationResult>(OperationStatus.Unsupported, "base.activation.capabilityUnavailable", ErrorCategory.Unsupported);
+        return await CallAsync(token => provider.RegisterExecutorAsync(new BaseExecutorRegistrationRequest
+        {
+            ApplicationId = session.ApplicationId,
+            HostId = hostId.Normalize(NormalizationForm.FormC),
+            ProcessIncarnationId = processIncarnationId.Normalize(NormalizationForm.FormC),
+            WorkerDefinitionSetChecksum = WorkerSetChecksum(),
+            RequestedHeartbeatMilliseconds = heartbeatMilliseconds,
+            AcceptedTime = acceptedTime.Capture(session.ApplicationId),
+            Identity = identity,
+            Limits = definition.Limits.Provider,
+        }, token), definition.Limits.Provider, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask<OperationResult<BaseExecutorHeartbeatResult>> HeartbeatExecutorAsync(
+        BaseSession session,
+        BaseActivationDefinition definition,
+        BaseExecutorIncarnationAuthority executor,
+        BaseExecutorHeartbeatObservation heartbeat,
+        long extensionMilliseconds,
+        BaseMutationRequestIdentity identity,
+        CancellationToken cancellationToken)
+    {
+        if (!await IsAuthorizedAsync(session, definition, definition.Grants.Renew,
+            BaseOperationKind.ActivationTransition, cancellationToken).ConfigureAwait(false))
+            return Failure<BaseExecutorHeartbeatResult>(OperationStatus.PolicyDenied, "base.activation.unauthorized", ErrorCategory.Authorization);
+        if (extensionMilliseconds is <= 0 or > 86_400_000)
+            return Failure<BaseExecutorHeartbeatResult>(OperationStatus.ValidationFailed, "base.activation.invalid", ErrorCategory.Validation);
+        IBaseActivationProvider? provider = ResolveProvider();
+        if (provider is null)
+            return Failure<BaseExecutorHeartbeatResult>(OperationStatus.Unsupported, "base.activation.capabilityUnavailable", ErrorCategory.Unsupported);
+        return await CallAsync(token => provider.HeartbeatExecutorAsync(new BaseExecutorHeartbeatRequest
+        {
+            Executor = executor,
+            ExpectedHeartbeatRevision = heartbeat.HeartbeatRevision,
+            ExtensionMilliseconds = extensionMilliseconds,
+            AcceptedTime = acceptedTime.Capture(session.ApplicationId),
+            Identity = identity,
+            Limits = definition.Limits.Provider,
+        }, token), definition.Limits.Provider, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask<OperationResult<BaseExecutorRetirementResult>> RetireExecutorAsync(
+        BaseSession session,
+        BaseActivationDefinition definition,
+        BaseExecutorIncarnationAuthority executor,
+        BaseExecutorHeartbeatObservation heartbeat,
+        BaseMutationRequestIdentity identity,
+        CancellationToken cancellationToken)
+    {
+        if (!await IsAuthorizedAsync(session, definition, definition.Grants.Execute,
+            BaseOperationKind.ActivationTransition, cancellationToken).ConfigureAwait(false))
+            return Failure<BaseExecutorRetirementResult>(OperationStatus.PolicyDenied, "base.activation.unauthorized", ErrorCategory.Authorization);
+        IBaseActivationProvider? provider = ResolveProvider();
+        if (provider is null)
+            return Failure<BaseExecutorRetirementResult>(OperationStatus.Unsupported, "base.activation.capabilityUnavailable", ErrorCategory.Unsupported);
+        return await CallAsync(token => provider.RetireExecutorAsync(new BaseExecutorRetirementRequest
+        {
+            Executor = executor,
+            ExpectedHeartbeatRevision = heartbeat.HeartbeatRevision,
+            AcceptedTime = acceptedTime.Capture(session.ApplicationId),
+            Identity = identity,
+            Limits = definition.Limits.Provider,
+        }, token), definition.Limits.Provider, cancellationToken).ConfigureAwait(false);
+    }
+
     public async ValueTask<OperationResult<BaseActivationReceiptResolution>> ResolveReceiptAsync(
         BaseSession session,
         BaseActivationDefinition definition,

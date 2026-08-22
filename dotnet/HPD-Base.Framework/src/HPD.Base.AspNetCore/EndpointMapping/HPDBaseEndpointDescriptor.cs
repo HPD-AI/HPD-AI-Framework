@@ -78,6 +78,28 @@ public enum HPDBaseEndpointOperation
     /// <summary>Rotates one exported-subject authority epoch.</summary>
     SubjectEpochRotate
     ,
+    /// <summary>Creates one installed durable activation.</summary>
+    ActivationEnqueue,
+    /// <summary>Atomically observes and claims one due activation.</summary>
+    ActivationClaim,
+    /// <summary>Renews one current activation claim.</summary>
+    ActivationRenew,
+    /// <summary>Completes one current activation claim.</summary>
+    ActivationComplete,
+    /// <summary>Records one failed activation attempt.</summary>
+    ActivationFail,
+    /// <summary>Resolves one identified activation receipt.</summary>
+    ActivationReceiptResolve,
+    /// <summary>Begins one at-most-once external effect.</summary>
+    ActivationEffectBegin,
+    /// <summary>Renews one current external-effect heartbeat.</summary>
+    ActivationEffectHeartbeat,
+    /// <summary>Registers one durable worker-process incarnation.</summary>
+    ActivationExecutorRegister,
+    /// <summary>Renews one durable executor heartbeat.</summary>
+    ActivationExecutorHeartbeat,
+    /// <summary>Retires one durable executor incarnation.</summary>
+    ActivationExecutorRetire,
     /// <summary>Reads a bounded activation administration page.</summary>
     ActivationQuery,
     /// <summary>Cancels one exact durable activation generation.</summary>
@@ -185,6 +207,28 @@ public static class HPDBaseCapabilities
     public const string AdministrationBackupRestore = "base.admin.backup.restore";
     /// <summary>Rotates one exported-subject authority epoch.</summary>
     public const string AdministrationSubjectEpochRotate = "base.admin.subject.epoch.rotate";
+    /// <summary>Creates installed durable activations.</summary>
+    public const string ActivationEnqueue = "base.activation.enqueue";
+    /// <summary>Claims due durable activations.</summary>
+    public const string ActivationClaim = "base.activation.claim";
+    /// <summary>Renews current activation claims.</summary>
+    public const string ActivationRenew = "base.activation.renew";
+    /// <summary>Completes current activation claims.</summary>
+    public const string ActivationComplete = "base.activation.complete";
+    /// <summary>Records failed activation attempts.</summary>
+    public const string ActivationFail = "base.activation.fail";
+    /// <summary>Resolves durable activation receipts.</summary>
+    public const string ActivationReceiptResolve = "base.activation.receipt.resolve";
+    /// <summary>Begins at-most-once effects.</summary>
+    public const string ActivationEffectBegin = "base.activation.effect.begin";
+    /// <summary>Renews current effect heartbeats.</summary>
+    public const string ActivationEffectHeartbeat = "base.activation.effect.heartbeat";
+    /// <summary>Registers durable executor incarnations.</summary>
+    public const string ActivationExecutorRegister = "base.activation.executor.register";
+    /// <summary>Renews durable executor heartbeats.</summary>
+    public const string ActivationExecutorHeartbeat = "base.activation.executor.heartbeat";
+    /// <summary>Retires durable executor incarnations.</summary>
+    public const string ActivationExecutorRetire = "base.activation.executor.retire";
     /// <summary>Reads bounded durable activation administration state.</summary>
     public const string ActivationQuery = "base.activation.query";
     /// <summary>Cancels durable activations.</summary>

@@ -30,6 +30,8 @@ public sealed class HPDBaseApplicationEndpointOptions
     public bool MapRealtime { get; init; }
     /// <summary>Gets whether Service/System-only durable subject-lifecycle worker routes are mapped.</summary>
     public bool MapSubjectLifecycle { get; init; }
+    /// <summary>Gets whether Service/System-only durable activation worker routes are mapped.</summary>
+    public bool MapActivations { get; init; }
     /// <summary>Gets whether the authenticated Application generation snapshot is mapped.</summary>
     public bool MapClientGeneration { get; init; }
 }

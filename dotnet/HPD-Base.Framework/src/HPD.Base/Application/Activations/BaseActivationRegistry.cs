@@ -603,7 +603,22 @@ internal interface IBaseActivationRegistration
     object Identity { get; }
     Type InputType { get; }
     Type ResultType { get; }
+    IReadOnlyList<BaseModuleDtoPropertyBinding> ResultBindings { get; }
     object? CreateHandler(IServiceProvider services);
+    ValueTask<OperationResult<BaseActivationEnqueueResult>> EnqueueAsync(
+        IBaseActivationRuntime runtime,
+        BaseSession session,
+        ReadOnlyMemory<byte> canonicalInput,
+        BaseMutationRequestIdentity identity,
+        BaseActivationEnqueueOptions? options,
+        CancellationToken cancellationToken);
+    ValueTask<OperationResult<BaseActivationTransitionResult>> CompleteAsync(
+        IBaseActivationWorkerRuntime runtime,
+        BaseSession session,
+        BaseActivationClaimAuthority claim,
+        ReadOnlyMemory<byte> canonicalResult,
+        BaseMutationRequestIdentity identity,
+        CancellationToken cancellationToken);
     ValueTask<OperationResult<BaseActivationDispatchResult>> RunOneAsync(
         IBaseActivationWorkerRuntime runtime,
         BaseSession session,
@@ -617,11 +632,41 @@ internal sealed class BaseInstalledTransactionalActivationRegistration<TInput, T
     public object Identity { get; } = registration.Identity;
     public Type InputType => typeof(TInput);
     public Type ResultType => typeof(TResult);
+    public IReadOnlyList<BaseModuleDtoPropertyBinding> ResultBindings => registration.Identity.ResultBindings;
     public object? CreateHandler(IServiceProvider services) => null;
+    public ValueTask<OperationResult<BaseActivationEnqueueResult>> EnqueueAsync(
+        IBaseActivationRuntime runtime, BaseSession session, ReadOnlyMemory<byte> canonicalInput,
+        BaseMutationRequestIdentity identity, BaseActivationEnqueueOptions? options,
+        CancellationToken cancellationToken) => EnqueueCore(runtime, session, canonicalInput, identity, options, cancellationToken);
+    public ValueTask<OperationResult<BaseActivationTransitionResult>> CompleteAsync(
+        IBaseActivationWorkerRuntime runtime, BaseSession session, BaseActivationClaimAuthority claim,
+        ReadOnlyMemory<byte> canonicalResult, BaseMutationRequestIdentity identity,
+        CancellationToken cancellationToken) => CompleteCore(runtime, session, claim, canonicalResult, identity, cancellationToken);
     public ValueTask<OperationResult<BaseActivationDispatchResult>> RunOneAsync(
         IBaseActivationWorkerRuntime runtime, BaseSession session, CancellationToken cancellationToken) =>
         new BaseInstalledActivationWorkerHandle<TInput, TResult>(runtime, session, Definition, registration.Identity)
             .RunOneAsync(cancellationToken);
+
+    private ValueTask<OperationResult<BaseActivationEnqueueResult>> EnqueueCore(
+        IBaseActivationRuntime runtime, BaseSession session, ReadOnlyMemory<byte> canonicalInput,
+        BaseMutationRequestIdentity identity, BaseActivationEnqueueOptions? options,
+        CancellationToken cancellationToken)
+    {
+        TInput? input = System.Text.Json.JsonSerializer.Deserialize(canonicalInput.Span, registration.Identity.Input);
+        if (input is null) throw new System.Text.Json.JsonException();
+        return runtime.EnqueueAsync(session, Definition, registration.Identity, input, identity, options, cancellationToken);
+    }
+
+    private ValueTask<OperationResult<BaseActivationTransitionResult>> CompleteCore(
+        IBaseActivationWorkerRuntime runtime, BaseSession session, BaseActivationClaimAuthority claim,
+        ReadOnlyMemory<byte> canonicalResult, BaseMutationRequestIdentity identity,
+        CancellationToken cancellationToken)
+    {
+        TResult? result = System.Text.Json.JsonSerializer.Deserialize(canonicalResult.Span, registration.Identity.Result);
+        if (result is null) throw new System.Text.Json.JsonException();
+        byte[] bytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(result, registration.Identity.Result);
+        return runtime.CompleteAsync(session, Definition, claim, bytes.ToImmutableArray(), identity, cancellationToken);
+    }
 }
 
 internal sealed class BaseActivationRegistration<TInput, TResult>(
@@ -631,7 +676,27 @@ internal sealed class BaseActivationRegistration<TInput, TResult>(
     public object Identity { get; } = registration.Identity;
     public Type InputType => typeof(TInput);
     public Type ResultType => typeof(TResult);
+    public IReadOnlyList<BaseModuleDtoPropertyBinding> ResultBindings => registration.Identity.ResultBindings;
     public object CreateHandler(IServiceProvider services) => registration.Factory(services);
+    public ValueTask<OperationResult<BaseActivationEnqueueResult>> EnqueueAsync(
+        IBaseActivationRuntime runtime, BaseSession session, ReadOnlyMemory<byte> canonicalInput,
+        BaseMutationRequestIdentity identity, BaseActivationEnqueueOptions? options,
+        CancellationToken cancellationToken)
+    {
+        TInput? input = System.Text.Json.JsonSerializer.Deserialize(canonicalInput.Span, registration.Identity.Input);
+        if (input is null) throw new System.Text.Json.JsonException();
+        return runtime.EnqueueAsync(session, Definition, registration.Identity, input, identity, options, cancellationToken);
+    }
+    public ValueTask<OperationResult<BaseActivationTransitionResult>> CompleteAsync(
+        IBaseActivationWorkerRuntime runtime, BaseSession session, BaseActivationClaimAuthority claim,
+        ReadOnlyMemory<byte> canonicalResult, BaseMutationRequestIdentity identity,
+        CancellationToken cancellationToken)
+    {
+        TResult? result = System.Text.Json.JsonSerializer.Deserialize(canonicalResult.Span, registration.Identity.Result);
+        if (result is null) throw new System.Text.Json.JsonException();
+        byte[] bytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(result, registration.Identity.Result);
+        return runtime.CompleteAsync(session, Definition, claim, bytes.ToImmutableArray(), identity, cancellationToken);
+    }
     public ValueTask<OperationResult<BaseActivationDispatchResult>> RunOneAsync(
         IBaseActivationWorkerRuntime runtime, BaseSession session, CancellationToken cancellationToken) =>
         new BaseInstalledActivationWorkerHandle<TInput, TResult>(runtime, session, Definition, registration.Identity)

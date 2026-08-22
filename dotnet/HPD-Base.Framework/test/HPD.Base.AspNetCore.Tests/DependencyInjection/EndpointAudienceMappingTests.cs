@@ -8,6 +8,58 @@ namespace HPD.Base.AspNetCore.Tests.DependencyInjection;
 public sealed class EndpointAudienceMappingTests
 {
     [Fact]
+    public async Task ActivationWorkerInventoryIsApplicationOnlyAndExact()
+    {
+        await using WebApplication app = await TestBaseApp.CreateAsync(
+            configureEndpoints: options => options.MapActivations = true);
+
+        string[] routes =
+        [
+            "/base/activations/enqueue",
+            "/base/activations/claims/next",
+            "/base/activations/claims/renew",
+            "/base/activations/complete",
+            "/base/activations/fail",
+            "/base/activations/cancel",
+            "/base/activations/receipts/resolve",
+            "/base/activations/effects/begin",
+            "/base/activations/effects/heartbeat",
+            "/base/activation-executors/register",
+            "/base/activation-executors/heartbeat",
+            "/base/activation-executors/retire",
+        ];
+        RouteEndpoint[] workerEndpoints = app.RouteEndpoints()
+            .Where(endpoint => routes.Contains(endpoint.RoutePattern.RawText, StringComparer.Ordinal))
+            .ToArray();
+
+        workerEndpoints.Should().HaveCount(routes.Length);
+        workerEndpoints.Should().OnlyContain(endpoint =>
+            endpoint.Metadata.GetRequiredMetadata<HPDBaseEndpointDescriptor>().Audience
+                == HPDBaseEndpointAudience.Application);
+        workerEndpoints.Should().OnlyContain(endpoint =>
+            endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()
+                .Any(data => data.Policy == "test-application"));
+
+        HttpClient client = app.GetTestClient();
+        HttpResponseMessage absent = await client.PostAsync(
+            "/base/activations/claims/next",
+            new StringContent(
+                """{"definitionId":"private.worker","definitionVersion":1,"identity":{"scope":"test","operation":"claim","idempotencyKey":"claim-1","fingerprint":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}}""",
+                System.Text.Encoding.UTF8,
+                "application/json"));
+        absent.StatusCode.Should().Be(System.Net.HttpStatusCode.Forbidden);
+
+        HttpResponseMessage open = await client.PostAsync(
+            "/base/activations/claims/next",
+            new StringContent(
+                """{"definitionId":"private.worker","definitionVersion":1,"identity":{"scope":"test","operation":"claim","idempotencyKey":"claim-1","fingerprint":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]},"unknown":true}""",
+                System.Text.Encoding.UTF8,
+                "application/json"));
+        open.StatusCode.Should().Be(System.Net.HttpStatusCode.Forbidden,
+            "invalid and undiscoverable definitions remain non-enumerating");
+    }
+
+    [Fact]
     public void MappingDoesNotInitializeApplication()
     {
         var builder = WebApplication.CreateBuilder();

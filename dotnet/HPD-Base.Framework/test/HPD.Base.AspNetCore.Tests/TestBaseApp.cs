@@ -51,13 +51,14 @@ internal static class TestBaseApp
             options.MetadataMode = HPDBasePublicMetadataMode.Full;
             options.MapDiagnostics = true;
         });
-        if (endpoints.MapRecords)
+        if (endpoints.MapRecords || endpoints.MapActivations)
             app.MapHPDBaseApplicationApi(new HPDBaseApplicationEndpointOptions
             {
                 RoutePrefix = endpoints.RoutePrefix,
                 AuthorizationPolicy = "test-application",
                 MapRecords = true,
-                MapRegisteredReads = false
+                MapRegisteredReads = false,
+                MapActivations = endpoints.MapActivations,
             });
         var control = app.MapGroup(endpoints.RoutePrefix).RequireAuthorization(endpoints.ControlPlanePolicy);
         control.MapHPDBaseControlPlaneEndpoints(
@@ -136,6 +137,7 @@ internal sealed class TestEndpointOptions
     public string RoutePrefix { get; set; } = "/base";
     public bool MapRecords { get; set; } = true;
     public bool MapPolicyExplain { get; set; }
+    public bool MapActivations { get; set; }
     public string ControlPlanePolicy { get; set; } = "test-control-plane";
 }
 
