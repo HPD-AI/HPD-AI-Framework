@@ -103,10 +103,20 @@ public sealed partial class ActivationRuntimeTests
 
         OperationResult<BaseActivationEnqueueResult> first = await runtime.EnqueueAsync(
             session, registration.Definition, registration.Identity, new Input("work"), identity, null, default);
+        BaseActivationDependencyResult dependencies = (await store.ReadDependenciesAsync(
+            new BaseActivationDependencyRequest
+            {
+                ApplicationId = "activation-test", MaximumDefinitions = 8,
+                DeadlineUtc = DateTimeOffset.UtcNow.AddSeconds(5),
+            })).Value!;
         OperationResult<BaseActivationEnqueueResult> duplicate = await runtime.EnqueueAsync(
             session, registration.Definition, registration.Identity, new Input("work"), identity, null, default);
 
         first.IsSuccess().Should().BeTrue(first.Error?.Code);
+        dependencies.Dependencies.Should().ContainSingle(item =>
+            item.ReferencedByActivation && !item.ReferencedBySchedule
+            && item.Definition.Id == registration.Definition.Id
+            && item.Definition.Version == registration.Definition.Version);
         duplicate.IsSuccess().Should().BeTrue(duplicate.Error?.Code);
         first.Value!.State.Should().Be(BaseActivationState.Pending);
         first.Value.Disposition.Should().Be(BaseMutationRequestDisposition.Committed);

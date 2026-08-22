@@ -43,10 +43,20 @@ public sealed partial class SqliteModuleMutationTests
                 var duplicate = new ActivationCreationProbe(authority, limits);
 
                 RecordMutationExecutionResult replayed = await reopened.ExecuteAtomicAsync(duplicate, ExecutionRequest());
+                BaseActivationDependencyResult dependencies = (await reopened.ReadDependenciesAsync(
+                    new BaseActivationDependencyRequest
+                    {
+                        ApplicationId = "activation.application", MaximumDefinitions = 8,
+                        DeadlineUtc = DateTimeOffset.UtcNow.AddSeconds(5),
+                    })).Value!;
 
                 replayed.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
                 duplicate.CapturedExisting.Should().BeTrue();
                 duplicate.ProvisionalCount.Should().Be(1);
+                dependencies.Dependencies.Should().ContainSingle(item =>
+                    item.ReferencedByActivation && !item.ReferencedBySchedule
+                    && item.Definition.Id == ActivationDefinition().Id
+                    && item.Definition.Version == ActivationDefinition().Version);
             }
         }
         finally

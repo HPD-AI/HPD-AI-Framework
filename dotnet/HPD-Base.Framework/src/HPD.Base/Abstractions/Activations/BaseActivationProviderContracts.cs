@@ -619,6 +619,39 @@ public sealed record BaseActivationProviderDescriptor
     public required ImmutableArray<byte> CertificationReceipt { get; init; }
 }
 
+/// <summary>Requests the bounded durable definition dependencies required before application readiness.</summary>
+public sealed record BaseActivationDependencyRequest
+{
+    /// <summary>Gets the exact application identity.</summary>
+    public required string ApplicationId { get; init; }
+    /// <summary>Gets the maximum distinct definitions the caller accepts.</summary>
+    public required int MaximumDefinitions { get; init; }
+    /// <summary>Gets the finite provider deadline.</summary>
+    public required DateTimeOffset DeadlineUtc { get; init; }
+}
+
+/// <summary>Describes one exact definition version referenced by durable provider authority.</summary>
+public sealed record BaseActivationDefinitionDependency
+{
+    /// <summary>Gets the exact definition authority.</summary>
+    public required BaseActivationDefinitionKey Definition { get; init; }
+    /// <summary>Gets whether at least one retained activation references the definition.</summary>
+    public required bool ReferencedByActivation { get; init; }
+    /// <summary>Gets whether at least one installed durable schedule references the definition.</summary>
+    public required bool ReferencedBySchedule { get; init; }
+}
+
+/// <summary>Contains the complete bounded durable definition dependency set.</summary>
+public sealed record BaseActivationDependencyResult
+{
+    /// <summary>Gets dependencies in definition ID, version, checksum order.</summary>
+    public required ImmutableArray<BaseActivationDefinitionDependency> Dependencies { get; init; }
+    /// <summary>Gets the provider generation at which the set was observed.</summary>
+    public required long CapturedGeneration { get; init; }
+    /// <summary>Gets exact provider accounting.</summary>
+    public required BaseActivationAccounting Accounting { get; init; }
+}
+
 /// <summary>Declares certified activation-provider features and maxima.</summary>
 public sealed record BaseActivationProviderCapability
 {
@@ -670,6 +703,8 @@ public sealed record BaseActivationProviderCapability
     public required int MaximumOccurrencePage { get; init; }
     /// <summary>Gets maximum installed time-zone authority bytes.</summary>
     public required long MaximumTimeZoneBytes { get; init; }
+    /// <summary>Gets maximum durable handler-definition dependencies checked during readiness.</summary>
+    public required int MaximumHandlerDependencies { get; init; }
     /// <summary>Gets maximum acquisition deadline.</summary>
     public required TimeSpan AcquisitionDeadline { get; init; }
     /// <summary>Gets maximum transaction deadline.</summary>
@@ -712,6 +747,7 @@ public static class BaseActivationCapabilityContract
         MaximumClaimedRows = 1_000_000, MaximumTerminalRows = 1_000_000,
         MaximumAttempts = 1024, MaximumRenewalsPerAttempt = 4096, MaximumChildrenPerAttempt = 4096,
         MaximumLineageDepth = 256, MaximumOccurrencePage = 256, MaximumTimeZoneBytes = 64L * 1024 * 1024,
+        MaximumHandlerDependencies = 4096,
         AcquisitionDeadline = TimeSpan.FromSeconds(5), TransactionDeadline = TimeSpan.FromSeconds(30),
         ObservationWaitDeadline = TimeSpan.FromMinutes(5), RenewalDeadline = TimeSpan.FromSeconds(5),
         CommitObservationDeadline = TimeSpan.FromSeconds(30), ReceiptResolutionDeadline = TimeSpan.FromSeconds(30),
@@ -738,6 +774,7 @@ public static class BaseActivationCapabilityContract
         && value.MaximumRenewalsPerAttempt is >= 1 and <= 4096
         && value.MaximumChildrenPerAttempt is >= 1 and <= 4096
         && value.MaximumLineageDepth is >= 1 and <= 256
+        && value.MaximumHandlerDependencies is >= 1 and <= 4096
         && value.MaximumOccurrencePage is >= 1 and <= 256
         && value.AcquisitionDeadline > TimeSpan.Zero && value.AcquisitionDeadline <= TimeSpan.FromSeconds(5)
         && value.TransactionDeadline > TimeSpan.Zero && value.TransactionDeadline <= TimeSpan.FromSeconds(30)
@@ -777,6 +814,11 @@ public interface IBaseActivationProvider
 {
     /// <summary>Gets the immutable provider descriptor.</summary>
     BaseActivationProviderDescriptor Descriptor { get; }
+
+    /// <summary>Reads every durable definition version required for safe application readiness.</summary>
+    ValueTask<OperationResult<BaseActivationDependencyResult>> ReadDependenciesAsync(
+        BaseActivationDependencyRequest request,
+        CancellationToken cancellationToken = default);
 
     /// <summary>Observes the earliest due activation under exact authority.</summary>
     ValueTask<OperationResult<BaseActivationDueObservation>> ObserveDueAsync(

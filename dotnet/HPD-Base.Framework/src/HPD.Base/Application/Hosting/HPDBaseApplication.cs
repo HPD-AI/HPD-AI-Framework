@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Base;
@@ -231,6 +232,61 @@ internal sealed class DefaultBaseProviderBootstrap(
             if (textIndexes.Any(index => !BaseTextIndexContract.Fits(index.Limits, maximum)))
                 throw new InvalidOperationException(BaseTextErrorCodes.CapabilityUnavailable);
         }
+        await ValidateActivationDependenciesAsync(timeout.Token).ConfigureAwait(false);
+    }
+
+    private async ValueTask ValidateActivationDependenciesAsync(CancellationToken cancellationToken)
+    {
+        BaseActivationRegistry registry = services.GetRequiredService<BaseActivationRegistry>();
+        BaseScheduleRegistry schedules = services.GetRequiredService<BaseScheduleRegistry>();
+        IBaseActivationProvider[] providers = services.GetRequiredService<IRecordStoreRegistry>()
+            .GetRegistrations().Select(static item => item.Store).OfType<IBaseActivationProvider>()
+            .Distinct().ToArray();
+        if (providers.Length == 0 && registry.Definitions.Count == 0 && schedules.All.Count == 0) return;
+        if (providers.Length != 1 || !BaseActivationCertificationReceiptContract.Validate(providers[0].Descriptor))
+            throw new InvalidOperationException("base.activation.capabilityUnavailable");
+        BaseActivationProviderDescriptor descriptor = providers[0].Descriptor;
+        OperationResult<BaseActivationDependencyResult> observed = await providers[0].ReadDependenciesAsync(
+            new BaseActivationDependencyRequest
+            {
+                ApplicationId = features.LogicalSchema.ApplicationId,
+                MaximumDefinitions = descriptor.Capability.MaximumHandlerDependencies,
+                DeadlineUtc = timeProvider.GetUtcNow().Add(descriptor.Capability.AcquisitionDeadline),
+            }, cancellationToken).ConfigureAwait(false);
+        if (!observed.IsSuccess() || observed.Value is null)
+            throw new InvalidOperationException(observed.Error?.Code ?? "base.activation.providerContractInvalid");
+        BaseActivationDependencyResult result = observed.Value;
+        if (result.Dependencies.Length > descriptor.Capability.MaximumHandlerDependencies
+            || result.CapturedGeneration < 0 || result.Accounting.Candidates != result.Dependencies.Length
+            || result.Accounting.EvidenceBytes > descriptor.Capability.MaximumEvidenceBytes
+            || result.Accounting.TransientBytes > descriptor.Capability.MaximumTransientBytes
+            || !DependenciesOrdered(result.Dependencies))
+            throw new InvalidOperationException("base.activation.providerContractInvalid");
+        foreach (BaseActivationDefinitionDependency dependency in result.Dependencies)
+        {
+            BaseActivationDefinition? installed = registry.Find(
+                dependency.Definition.Id, dependency.Definition.Version);
+            if (installed is null || dependency.Definition.Checksum.Length != 32
+                || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                    installed.Checksum.AsSpan(), dependency.Definition.Checksum.AsSpan()))
+                throw new InvalidOperationException("base.activation.handlerVersionUnavailable");
+        }
+    }
+
+    private static bool DependenciesOrdered(ImmutableArray<BaseActivationDefinitionDependency> values)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        string? previous = null;
+        foreach (BaseActivationDefinitionDependency value in values)
+        {
+            if (string.IsNullOrWhiteSpace(value.Definition.Id) || value.Definition.Version <= 0
+                || value.Definition.Checksum.Length != 32 || !value.ReferencedByActivation && !value.ReferencedBySchedule)
+                return false;
+            string key = $"{value.Definition.Id}\n{value.Definition.Version:D10}\n{Convert.ToHexString(value.Definition.Checksum.AsSpan())}";
+            if (!seen.Add(key) || previous is not null && string.CompareOrdinal(previous, key) >= 0) return false;
+            previous = key;
+        }
+        return true;
     }
 
     /// <inheritdoc />

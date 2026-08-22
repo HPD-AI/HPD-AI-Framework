@@ -48,6 +48,7 @@ internal sealed partial class InMemoryRecordStore
             MaximumLineageDepth = 256,
             MaximumOccurrencePage = 256,
             MaximumTimeZoneBytes = 64L * 1024 * 1024,
+            MaximumHandlerDependencies = 4096,
             AcquisitionDeadline = TimeSpan.FromSeconds(5),
             TransactionDeadline = TimeSpan.FromSeconds(30),
             ObservationWaitDeadline = TimeSpan.FromMinutes(5),
@@ -60,6 +61,63 @@ internal sealed partial class InMemoryRecordStore
             HandlerQuarantineSlots = 32,
             CanonicalChecksum = ImmutableArray.CreateRange(SHA256.HashData("hpd.base.inMemory.activations.v2"u8)),
         });
+
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseActivationDependencyResult>> ReadDependenciesAsync(
+        BaseActivationDependencyRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (string.IsNullOrWhiteSpace(request.ApplicationId) || request.MaximumDefinitions is < 1 or > 4096
+            || request.DeadlineUtc.ToUnixTimeMilliseconds() < 0)
+            return ActivationFailure<BaseActivationDependencyResult>(
+                "base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            InMemoryStoreState state = Volatile.Read(ref _publishedState);
+            var values = new Dictionary<string, (BaseActivationDefinitionKey Definition, bool Activation, bool Schedule)>(StringComparer.Ordinal);
+            foreach (InMemoryActivationRow row in state.Activations.Values)
+                Merge(row.Payload.Definition, activation: true, schedule: false);
+            foreach (BaseScheduleAuthority schedule in state.Schedules.Values)
+                Merge(schedule.Definition.Activation, activation: false, schedule: true);
+            if (values.Count > request.MaximumDefinitions)
+                return ActivationFailure<BaseActivationDependencyResult>(
+                    "base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
+            BaseActivationDefinitionDependency[] dependencies = values.Values
+                .OrderBy(static item => item.Definition.Id, StringComparer.Ordinal)
+                .ThenBy(static item => item.Definition.Version)
+                .ThenBy(static item => Convert.ToHexString(item.Definition.Checksum.AsSpan()), StringComparer.Ordinal)
+                .Select(static item => new BaseActivationDefinitionDependency
+                {
+                    Definition = item.Definition with { Checksum = item.Definition.Checksum.ToArray().ToImmutableArray() },
+                    ReferencedByActivation = item.Activation,
+                    ReferencedBySchedule = item.Schedule,
+                }).ToArray();
+            long evidenceBytes = dependencies.Sum(static item =>
+                Encoding.UTF8.GetByteCount(item.Definition.Id) + item.Definition.Checksum.Length + 18L);
+            return OperationResults.Ok(new BaseActivationDependencyResult
+            {
+                Dependencies = dependencies.ToImmutableArray(), CapturedGeneration = state.ActivationIndexGeneration,
+                Accounting = EmptyActivationAccounting with
+                {
+                    Candidates = dependencies.Length, Comparisons = dependencies.Length,
+                    IndexOperations = 2, ReadIntervals = 2, EvidenceBytes = evidenceBytes,
+                    TransientBytes = evidenceBytes,
+                },
+            });
+
+            void Merge(BaseActivationDefinitionKey definition, bool activation, bool schedule)
+            {
+                string key = $"{definition.Id}\n{definition.Version}\n{Convert.ToHexString(definition.Checksum.AsSpan())}";
+                if (values.TryGetValue(key, out var current))
+                    values[key] = (current.Definition, current.Activation || activation, current.Schedule || schedule);
+                else
+                    values.Add(key, (definition with { Checksum = definition.Checksum.ToArray().ToImmutableArray() }, activation, schedule));
+            }
+        }
+        finally { _stateGate.Release(); }
+    }
 
     /// <inheritdoc />
     public async ValueTask<OperationResult<BaseActivationDueObservation>> ObserveDueAsync(
