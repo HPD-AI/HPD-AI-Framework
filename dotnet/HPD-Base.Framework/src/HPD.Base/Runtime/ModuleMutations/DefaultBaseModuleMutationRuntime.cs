@@ -199,7 +199,10 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         RecordStoreRegistration[] registrations = authorityCollections.Length == 0
             ? stores.GetRegistrations()
             : authorityCollections.Select(value => stores.GetRegistrationForCollection(value.Id)).Where(static value => value is not null).Cast<RecordStoreRegistration>().DistinctBy(static value => value.StoreId).ToArray();
-        return registrations.Length == 1 ? registrations[0].Store as IAtomicRecordStore : null;
+        return registrations.Length == 1
+            ? registrations[0].AtomicExecutionStore
+                ?? registrations[0].Store as IAtomicRecordStore
+            : null;
     }
 
     private async ValueTask<bool> AuthorizeDeclaredAuthorityAsync(

@@ -32,3 +32,15 @@ public interface IRecordStoreRegistry
     /// <returns>The registered store entries.</returns>
     RecordStoreRegistration[] GetRegistrations();
 }
+
+/// <summary>
+/// Provides internal compare-and-replace authority for infrastructure that must
+/// decorate one registration without changing registry cardinality or ordering.
+/// </summary>
+internal interface IRecordStoreRegistrationEditor
+{
+    /// <summary>Replaces one exact registration in its existing registry slot.</summary>
+    void Replace(
+        RecordStoreRegistration expected,
+        RecordStoreRegistration replacement);
+}

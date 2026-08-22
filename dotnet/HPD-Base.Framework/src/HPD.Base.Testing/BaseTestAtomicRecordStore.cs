@@ -23,13 +23,15 @@ internal sealed class BaseTestStoreInitializer(
                 "The HPD.BASE test provider must support atomic mutations.");
         }
 
-        IRecordStore decorated = atomic is ITransactionalMutationJournalStore journal
+        IAtomicRecordStore decorated = atomic is ITransactionalMutationJournalStore journal
             ? new BaseTestJournalAtomicRecordStore(atomic, journal, faults)
             : new BaseTestAtomicRecordStore(atomic, faults);
-        registry.Add(registration with
-        {
-            Store = decorated,
-        });
+        if (registry is not IRecordStoreRegistrationEditor editor)
+            throw new InvalidOperationException(
+                "The HPD.BASE test registry does not support capability-transparent decoration.");
+        editor.Replace(
+            registration,
+            registration with { AtomicExecutionStore = decorated });
         _initialized = true;
     }
 }

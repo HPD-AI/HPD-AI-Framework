@@ -58,11 +58,12 @@ internal sealed class DefaultBaseActivationRuntime(
             .Where(static item => item.Store is IAtomicRecordStore and IBaseActivationProvider)
             .DistinctBy(static item => item.Store)
             .ToArray();
-        if (candidates.Length != 1 || candidates[0].Store is not IAtomicRecordStore store ||
+        if (candidates.Length != 1 || candidates[0].Store is not IAtomicRecordStore capabilityStore ||
             candidates[0].Store is not IBaseActivationProvider activationProvider ||
             !BaseActivationCertificationReceiptContract.Validate(activationProvider.Descriptor) ||
             !activationProvider.Descriptor.Capability.AtomicCreationSupported)
             return Failure<BaseActivationEnqueueResult>(OperationStatus.Unsupported, "base.activation.capabilityUnavailable", ErrorCategory.Unsupported);
+        IAtomicRecordStore store = candidates[0].AtomicExecutionStore ?? capabilityStore;
 
         BaseAtomicMutationExecutionLimits limits = definition.Limits.AtomicCreation;
         OperationResult<BaseAtomicMutationAuthorityRequirement> authority = await store

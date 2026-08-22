@@ -1,7 +1,9 @@
 
 namespace HPD.Base;
 
-internal sealed class DefaultRecordStoreRegistry : IRecordStoreRegistry
+internal sealed class DefaultRecordStoreRegistry :
+    IRecordStoreRegistry,
+    IRecordStoreRegistrationEditor
 {
     private readonly object _gate = new();
     private readonly List<RecordStoreRegistration> _registrations = [];
@@ -56,6 +58,29 @@ internal sealed class DefaultRecordStoreRegistry : IRecordStoreRegistry
         lock (_gate)
         {
             return _registrations.ToArray();
+        }
+    }
+
+    /// <inheritdoc />
+    public void Replace(
+        RecordStoreRegistration expected,
+        RecordStoreRegistration replacement)
+    {
+        ArgumentNullException.ThrowIfNull(expected);
+        ArgumentNullException.ThrowIfNull(replacement);
+        if (!string.Equals(expected.StoreId, replacement.StoreId, StringComparison.Ordinal))
+            throw new ArgumentException(
+                "A replacement registration must retain the same store identifier.",
+                nameof(replacement));
+
+        lock (_gate)
+        {
+            int index = _registrations.FindLastIndex(registration =>
+                ReferenceEquals(registration, expected));
+            if (index < 0)
+                throw new InvalidOperationException(
+                    "The record-store registration changed before it could be decorated.");
+            _registrations[index] = replacement;
         }
     }
 }

@@ -56,7 +56,8 @@ internal sealed class DefaultBaseStoreExecutionResolver(
         {
             Registration = registration,
             Store = mutationStore,
-            AtomicStore = mutationStore as IAtomicRecordStore
+            AtomicStore = registration.AtomicExecutionStore
+                ?? mutationStore as IAtomicRecordStore
         });
     }
 

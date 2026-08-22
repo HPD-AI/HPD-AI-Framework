@@ -136,6 +136,48 @@ public sealed class BaseTestHostTests
     }
 
     [Fact]
+    public async Task SqliteTestFaultsPreserveTheProductionProviderCapabilitySurface()
+    {
+        string database = Path.Combine(
+            Path.GetTempPath(),
+            $"hpd-base-testing-capabilities-{Guid.NewGuid():N}.db");
+        try
+        {
+            await using BaseTestHost host = await BaseTestHost.CreateAsync(
+                builder => builder
+                    .UseStore(SqliteStore.Configure(options => options.DataSource = database))
+                    .AddCollection(GeneratedProject.Collection));
+
+            IRecordStoreRegistry registry = host.GetRequiredService<IRecordStoreRegistry>();
+            RecordStoreRegistration registration = registry.GetRegistration("sqlite")!;
+
+            registry.GetRegistrations().Should().ContainSingle();
+            registration.Store.Should().BeAssignableTo<IBaseSchemaStore>();
+            registration.Store.Should().BeAssignableTo<IRelationalReadStore>();
+            registration.Store.Should().BeAssignableTo<IConsistentRecordIncludeStore>();
+            registration.Store.Should().BeAssignableTo<IRecordStoreAdministration>();
+            registration.Store.Should().BeAssignableTo<IBaseSubjectAdministration>();
+            registration.Store.Should().BeAssignableTo<IBaseSubjectPublicationStore>();
+            registration.Store.Should().BeAssignableTo<IBaseSubjectValidationPlanReceiptStore>();
+            registration.Store.Should().BeAssignableTo<IBaseActivationProvider>();
+            registration.AtomicExecutionStore.Should().NotBeNull();
+            registration.AtomicExecutionStore.Should().NotBeSameAs(registration.Store);
+
+            OperationResult<BaseSchemaPlan> plan = await host
+                .GetRequiredService<IBaseSchemaManager>()
+                .PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite" });
+
+            plan.IsSuccess().Should().BeTrue(plan.Error?.Code);
+        }
+        finally
+        {
+            File.Delete(database);
+            File.Delete(database + "-shm");
+            File.Delete(database + "-wal");
+        }
+    }
+
+    [Fact]
     public async Task IndeterminateCommitExposesNoBatchItemsButMayHavePersisted()
     {
         await using BaseTestHost host = await BaseTestHost.CreateAsync(
