@@ -13,6 +13,7 @@ internal sealed class DefaultHPDBaseAdministration(
     BaseSubjectLifecycleInspectionAuthorityRegistry lifecycleInspectionAuthorities,
     BaseActivationRegistry activations,
     BaseActivationAcceptedTimeAuthority activationTime,
+    BaseActivationProviderExecutionGate activationProviderGate,
     BaseSubjectControlOperationalState subjectControlState,
     HPDBaseInstalledFeatures features,
     TimeProvider timeProvider) : IHPDBaseAdministration
@@ -369,10 +370,19 @@ internal sealed class DefaultHPDBaseAdministration(
             AcceptedTime = activationTime.Capture(features.LogicalSchema.ApplicationId),
             Limits = definition.Limits.Provider,
         };
-        OperationResult<BaseActivationAdministrationPage> result;
-        try { result = await provider.ReadAdministrationAsync(providerRequest, cancellationToken).ConfigureAwait(false); }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-        catch { return ActivationReadFailure(OperationStatus.StoreError, "base.activation.storeError", ErrorCategory.Store); }
+        BaseActivationProviderCallResult<OperationResult<BaseActivationAdministrationPage>> call =
+            await activationProviderGate.ExecuteAsync(
+                token => provider.ReadAdministrationAsync(providerRequest, token),
+                definition.Limits.Provider.AcquisitionDeadline,
+                definition.Limits.Provider.ObservationWaitDeadline,
+                cancellationToken).ConfigureAwait(false);
+        if (call.Outcome == BaseActivationProviderCallOutcome.Cancelled && cancellationToken.IsCancellationRequested)
+            throw new OperationCanceledException(cancellationToken);
+        if (call.Outcome is BaseActivationProviderCallOutcome.TimedOut or BaseActivationProviderCallOutcome.Capacity)
+            return ActivationReadFailure(OperationStatus.CapabilityUnavailable, "base.activation.capacityUnavailable", ErrorCategory.Availability);
+        if (call.Outcome != BaseActivationProviderCallOutcome.Completed || call.Value is null)
+            return ActivationReadFailure(OperationStatus.StoreError, "base.activation.storeError", ErrorCategory.Store);
+        OperationResult<BaseActivationAdministrationPage> result = call.Value;
         if (!result.IsSuccess() || result.Value is null)
             return BaseResultMapper.Map<BaseActivationAdministrationPage, BaseActivationAdministrationPage>(result, static value => value);
         BaseActivationAdministrationPage page = result.Value;
