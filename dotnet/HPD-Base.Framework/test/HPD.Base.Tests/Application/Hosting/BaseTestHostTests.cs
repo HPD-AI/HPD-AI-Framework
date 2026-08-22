@@ -145,7 +145,17 @@ public sealed class BaseTestHostTests
         {
             await using BaseTestHost host = await BaseTestHost.CreateAsync(
                 builder => builder
-                    .UseStore(SqliteStore.Configure(options => options.DataSource = database))
+                    .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey
+                    {
+                        Id = 17,
+                        Key = Enumerable.Repeat((byte)0x6D, 32).ToArray(),
+                        IssueNotBefore = DateTimeOffset.UnixEpoch,
+                    })
+                    .UseStore(SqliteStore.Configure(options =>
+                    {
+                        options.DataSource = database;
+                        options.AdministrationEnabled = true;
+                    }))
                     .AddCollection(GeneratedProject.Collection));
 
             IRecordStoreRegistry registry = host.GetRequiredService<IRecordStoreRegistry>();
@@ -168,6 +178,68 @@ public sealed class BaseTestHostTests
                 .PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite" });
 
             plan.IsSuccess().Should().BeTrue(plan.Error?.Code);
+
+            IHPDBaseAdministration administration = host.GetRequiredService<IHPDBaseAdministration>();
+            administration.Capability.Should().Match<BaseAdministrationCapability>(capability =>
+                capability.Durable && capability.Backup && capability.Validate && capability.Restore);
+            PrincipalContext principal = BaseTestPrincipal.System("administration-test");
+            BaseCollectionSession<GeneratedProject> collection = host.Session(principal)
+                .Collection(GeneratedProject.Collection);
+            (await collection.CreateAsync(new RecordId("before-backup"), new GeneratedProject
+            {
+                OrganizationId = "org_1",
+                Name = "retained",
+            })).RequireValue();
+
+            using var artifact = new MemoryStream();
+            BaseBackupManifest manifest = (await administration.CreateBackupAsync(
+                artifact,
+                new BaseBackupRequest { StoreId = "sqlite", Principal = principal })).RequireValue();
+            artifact.Position = 0;
+            (await administration.ValidateBackupAsync(
+                artifact,
+                new BaseBackupValidationRequest
+                {
+                    StoreId = "sqlite",
+                    Principal = principal,
+                    ExpectedArtifactStoreIdentityDigest = manifest.StoreIdentityDigest,
+                })).RequireValue();
+
+            host.Faults.FailNextAtomicCommit();
+            BaseBatchBuilder failed = host.Session(principal).Atomic();
+            failed.Create(
+                GeneratedProject.Collection,
+                new RecordId("failed-after-backup"),
+                new GeneratedProject { OrganizationId = "org_1", Name = "rolled-back" });
+            (await failed.CommitAsync()).RequireValue().Outcome.Should().Be(BaseRecordBatchOutcome.RolledBack);
+
+            (await collection.CreateAsync(new RecordId("after-backup"), new GeneratedProject
+            {
+                OrganizationId = "org_1",
+                Name = "removed-by-restore",
+            })).RequireValue();
+            artifact.Position = 0;
+            BaseRestoreResult restored = (await administration.RestoreAsync(
+                artifact,
+                new BaseRestoreRequest
+                {
+                    StoreId = "sqlite",
+                    Principal = principal,
+                    ExpectedCurrentStoreIdentityDigest = manifest.StoreIdentityDigest,
+                    ExpectedArtifactStoreIdentityDigest = manifest.StoreIdentityDigest,
+                    IdentityMode = BaseRestoreIdentityMode.RequireCurrentStoreIdentity,
+                    RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
+                    ConfirmDestructiveReplacement = true,
+                    ScheduleRestoreDomain = BaseScheduleRestoreDomain.InPlaceRecovery,
+                })).RequireValue();
+
+            restored.RestoreEpoch.Should().Be(manifest.RestoreEpoch + 1);
+            (await collection.GetAsync(new RecordId("before-backup"))).Should()
+                .BeOfType<BaseSuccess<BaseRecord<GeneratedProject>>>();
+            (await collection.GetAsync(new RecordId("failed-after-backup"))).Should()
+                .BeOfType<BaseFailure<BaseRecord<GeneratedProject>>>();
+            (await collection.GetAsync(new RecordId("after-backup"))).Should()
+                .BeOfType<BaseFailure<BaseRecord<GeneratedProject>>>();
         }
         finally
         {

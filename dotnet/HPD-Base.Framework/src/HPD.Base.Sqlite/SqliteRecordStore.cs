@@ -182,6 +182,8 @@ public sealed partial class SqliteRecordStore :
             _options.MaxQuarantinedAdministrationExecutions,
             _options.MaxQuarantinedAdministrationExecutions);
         bool administration = _options.AdministrationEnabled && _tokenProtector is not null && IsFileBacked(_options);
+        if (administration && !CanCaptureAdministrationPath())
+            throw new InvalidOperationException("base.admin.pathUnsupported");
         AdministrationCapability = new BaseAdministrationCapability
         {
             Backup = administration,
@@ -202,6 +204,22 @@ public sealed partial class SqliteRecordStore :
 
     /// <inheritdoc />
     public BaseAdministrationCapability AdministrationCapability { get; }
+
+    private bool CanCaptureAdministrationPath()
+    {
+        try
+        {
+            _ = SqliteAdministrationPathGuard.Capture(DatabasePath(), activeRequired: false);
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException
+            or UnauthorizedAccessException
+            or NotSupportedException
+            or PlatformNotSupportedException)
+        {
+            return false;
+        }
+    }
 
     internal int QuarantinedMutationCount => _quarantinedMutations.Count;
     internal int QuarantinedAdministrationCount => _quarantinedAdministration.Count;

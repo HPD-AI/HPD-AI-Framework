@@ -53,11 +53,15 @@ internal sealed class SqliteConnectionFactory
     {
         if (!string.IsNullOrWhiteSpace(options.ConnectionString))
         {
-            return options.ConnectionString;
+            var configured = new SqliteConnectionStringBuilder(options.ConnectionString);
+            configured.DataSource = NormalizeDataSource(configured.DataSource);
+            return configured.ToString();
         }
 
         var memory = string.IsNullOrWhiteSpace(options.DataSource);
-        var dataSource = memory ? "hpd_base_" + SanitizeStoreId(options.StoreId) : options.DataSource!;
+        var dataSource = memory
+            ? "hpd_base_" + SanitizeStoreId(options.StoreId)
+            : NormalizeDataSource(options.DataSource!);
         var builder = new SqliteConnectionStringBuilder
         {
             DataSource = dataSource,
@@ -66,6 +70,26 @@ internal sealed class SqliteConnectionFactory
             DefaultTimeout = Math.Max(1, (int)Math.Ceiling(options.CommandTimeout.TotalSeconds))
         };
         return builder.ToString();
+    }
+
+    /// <summary>
+    /// Resolves the fixed macOS system aliases before SQLite and administration
+    /// capture the provider-owned database path.
+    /// </summary>
+    private static string NormalizeDataSource(string dataSource)
+    {
+        if (!OperatingSystem.IsMacOS() || string.IsNullOrWhiteSpace(dataSource))
+            return dataSource;
+
+        if (string.Equals(dataSource, "/var", StringComparison.Ordinal)
+            || dataSource.StartsWith("/var/", StringComparison.Ordinal)
+            || string.Equals(dataSource, "/tmp", StringComparison.Ordinal)
+            || dataSource.StartsWith("/tmp/", StringComparison.Ordinal))
+        {
+            return "/private" + dataSource;
+        }
+
+        return dataSource;
     }
 
     private async ValueTask ApplyPragmasAsync(SqliteConnection connection, CancellationToken cancellationToken)

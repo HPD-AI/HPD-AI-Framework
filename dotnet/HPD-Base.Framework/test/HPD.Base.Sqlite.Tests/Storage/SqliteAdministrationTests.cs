@@ -276,7 +276,7 @@ public sealed class SqliteAdministrationTests
     }
 
     [Fact]
-    public async Task AdministrationRejectsSymlinkedParentDirectory()
+    public void AdministrationRejectsSymlinkedParentDirectory()
     {
         if (OperatingSystem.IsWindows()) return;
         string root = Path.Combine(AdministrationTempDirectory(), $"hpd-base-admin-real-{Guid.NewGuid():N}");
@@ -287,10 +287,11 @@ public sealed class SqliteAdministrationTests
         using BaseOpaqueTokenProtector protector = Protector(19, Enumerable.Repeat((byte)0x19, 32).ToArray());
         try
         {
-            await using SqliteRecordStore store = Store(path, protector);
-            OperationResult<BaseBackupManifest> result = await store.CreateBackupAsync(new MemoryStream(), BackupRequest());
-            result.Error!.Code.Should().Be(BaseAdministrationErrorCodes.CapabilityUnavailable);
-            File.Exists(Path.Combine(root, "store.db")).Should().BeTrue();
+            Action construct = () => _ = Store(path, protector);
+
+            construct.Should().Throw<InvalidOperationException>()
+                .WithMessage("base.admin.pathUnsupported");
+            File.Exists(Path.Combine(root, "store.db")).Should().BeFalse();
             File.Exists(path + ".restore-state").Should().BeFalse();
         }
         finally
