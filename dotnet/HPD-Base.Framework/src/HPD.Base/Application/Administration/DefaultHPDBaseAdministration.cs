@@ -709,16 +709,29 @@ internal sealed class DefaultHPDBaseAdministration(
         if (!BaseSystemCollectionGate.HasExactActivationGrant(
             authorized, requiredGrant(definition), definition.OwningModuleId, request.Principal, operation))
             return ActivationFailure(OperationStatus.PolicyDenied, "base.activation.unauthorized", ErrorCategory.Authorization);
-        OperationResult<BaseActivationTransitionResult> result;
-        try
-        {
-            result = await provider.TransitionAsync(
-                create(definition, activationTime.Capture(features.LogicalSchema.ApplicationId), request), cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-        catch { return ActivationFailure(OperationStatus.StoreError, "base.activation.storeError", ErrorCategory.Store); }
-        return BaseResultMapper.Map<BaseActivationTransitionResult, BaseActivationTransitionResult>(result, static value => value);
+        BaseActivationTransitionRequest transition = create(
+            definition, activationTime.Capture(features.LogicalSchema.ApplicationId), request);
+        BaseActivationProviderCallResult<OperationResult<BaseActivationTransitionResult>> call = await activationProviderGate.ExecuteAsync(
+            async token => transition is BaseActivationReconcileEffectRequest reconciliation
+                ? (await provider.ResolveIndeterminateAsync(
+                    new BaseActivationIndeterminateRequest { Reconciliation = reconciliation }, token).ConfigureAwait(false)) switch
+                    {
+                        { Status: var status, Value: { } value } => new OperationResult<BaseActivationTransitionResult>
+                            { Status = status, Value = value.Transition },
+                        { } failed => new OperationResult<BaseActivationTransitionResult>
+                            { Status = failed.Status, Error = failed.Error, Warnings = failed.Warnings, Diagnostics = failed.Diagnostics },
+                    }
+                : await provider.TransitionAsync(transition, token).ConfigureAwait(false),
+            definition.Limits.Provider.AcquisitionTimeout,
+            definition.Limits.Provider.TransactionTimeout,
+            cancellationToken).ConfigureAwait(false);
+        if (call.Outcome == BaseActivationProviderCallOutcome.Cancelled && cancellationToken.IsCancellationRequested)
+            throw new OperationCanceledException(cancellationToken);
+        if (call.Outcome is BaseActivationProviderCallOutcome.TimedOut or BaseActivationProviderCallOutcome.Capacity)
+            return ActivationFailure(OperationStatus.CapabilityUnavailable, "base.activation.capacityUnavailable", ErrorCategory.Capability);
+        if (call.Outcome != BaseActivationProviderCallOutcome.Completed || call.Value is null)
+            return ActivationFailure(OperationStatus.StoreError, "base.activation.storeError", ErrorCategory.Store);
+        return BaseResultMapper.Map<BaseActivationTransitionResult, BaseActivationTransitionResult>(call.Value, static value => value);
     }
 
     private static BaseFailure<BaseActivationTransitionResult> ActivationFailure(
