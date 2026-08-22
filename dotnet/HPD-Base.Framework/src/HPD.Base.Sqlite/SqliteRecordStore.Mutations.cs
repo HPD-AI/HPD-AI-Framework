@@ -2287,6 +2287,9 @@ public sealed partial class SqliteRecordStore
                     TransientBytes = transient,
                 },
             };
+            if (!await _owner.ActivationRowCapacityAllowsAsync(_connection, _transaction, token).ConfigureAwait(false))
+                return SubjectFailure<BaseProvisionalAtomicExecution>(
+                    "base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
             _appliedProvisional = applied;
             return OperationResults.Ok(applied);
         });
@@ -2341,6 +2344,9 @@ public sealed partial class SqliteRecordStore
             advance.CommandText = $"UPDATE {_owner._names.ProviderState} SET value=CAST(CAST(value AS INTEGER)+1 AS TEXT) WHERE key='activation_generation';";
             if (await advance.ExecuteNonQueryAsync(token).ConfigureAwait(false) != 1)
                 return SubjectFailure<BaseTransactionalActivationCommitEvidence>(BaseSubjectErrorCodes.ProviderContractInvalid);
+            if (!await _owner.ActivationRowCapacityAllowsAsync(_connection, _transaction, token).ConfigureAwait(false))
+                return SubjectFailure<BaseTransactionalActivationCommitEvidence>(
+                    "base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
             var accounting = new BaseActivationAccounting
             {
                 Candidates = 1,

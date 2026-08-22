@@ -47,6 +47,12 @@ public sealed class HPDBaseInMemoryStoreOptions
     public int MaxVectorIndexedRecords { get; set; } = 10_000;
     /// <summary>Gets or sets the maximum owned vector bytes in the currently published root.</summary>
     public long MaxVectorBytes { get; set; } = 67_108_864;
+    /// <summary>Gets or sets the maximum retained runnable activation rows.</summary>
+    public int MaxPendingActivationRows { get; set; } = 1_000_000;
+    /// <summary>Gets or sets the maximum retained active activation rows.</summary>
+    public int MaxClaimedActivationRows { get; set; } = 1_000_000;
+    /// <summary>Gets or sets the maximum retained terminal activation rows.</summary>
+    public int MaxTerminalActivationRows { get; set; } = 1_000_000;
     /// <summary>Gets or sets the maximum authoritative records in one vector-bearing collection.</summary>
     public int MaxVectorSourceRecordsPerCollection { get; set; } = 100_000;
     internal bool ContributeModuleDescriptor { get; set; } = true;

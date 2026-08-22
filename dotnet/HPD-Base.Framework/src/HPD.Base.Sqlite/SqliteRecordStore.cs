@@ -196,7 +196,7 @@ public sealed partial class SqliteRecordStore :
             Durable = true,
             MaxArtifactBytes = administration ? _options.MaxBackupArtifactBytes : 0,
         };
-        _activationDescriptor = CreateActivationDescriptor(administration);
+        _activationDescriptor = CreateActivationDescriptor(administration, _options);
         Capabilities = CreateCapabilities(_options, _queryCursors is not null, AdministrationCapability);
     }
 
@@ -1107,6 +1107,9 @@ FROM {_names.MutationJournal};
         if (options.RestoreStagingTimeout < TimeSpan.FromSeconds(1) || options.RestoreStagingTimeout > TimeSpan.FromHours(2)) throw new ArgumentOutOfRangeException(nameof(options));
         if (options.IntegrityCheckTimeout < TimeSpan.FromSeconds(1) || options.IntegrityCheckTimeout > TimeSpan.FromHours(1)) throw new ArgumentOutOfRangeException(nameof(options));
         if (options.MaxQuarantinedAdministrationExecutions is < 1 or > 4) throw new ArgumentOutOfRangeException(nameof(options));
+        if (options.MaxPendingActivationRows is < 1 or > 1_000_000
+            || options.MaxClaimedActivationRows is < 1 or > 1_000_000
+            || options.MaxTerminalActivationRows is < 1 or > 1_000_000) throw new ArgumentOutOfRangeException(nameof(options));
     }
 
     private static StoreCapabilityDescriptor CreateCapabilities(HPDBaseSqliteOptions options, bool cursorEnabled, BaseAdministrationCapability administration) => new()

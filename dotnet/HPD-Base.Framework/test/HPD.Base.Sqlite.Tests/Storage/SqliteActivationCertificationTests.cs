@@ -39,7 +39,8 @@ public sealed class SqliteActivationCertificationTests
         BaseActivationCertificationReport report = await BaseActivationProviderCertification.RunAsync(
             fixture, TimeSpan.FromSeconds(5));
 
-        Assert.True(report.Passed);
+        Assert.True(report.Passed, string.Join("; ", report.Cases.Where(static item => !item.Passed)
+            .Select(static item => $"{item.Id}:{item.Status}:{item.ErrorCode}")));
         string expectedReport = Convert.ToHexStringLower(fixture.Descriptor.CertificationReportChecksum.AsSpan());
         string actualReport = Convert.ToHexStringLower(report.ReportChecksum.AsSpan());
         Assert.True(expectedReport == actualReport, $"expected={expectedReport}; actual={actualReport}");
@@ -54,7 +55,8 @@ public sealed class SqliteActivationCertificationTests
         BaseActivationCertificationReport report = await BaseActivationProviderCertification.RunAsync(
             fixture, TimeSpan.FromSeconds(5));
 
-        Assert.True(report.Passed);
+        Assert.True(report.Passed, string.Join("; ", report.Cases.Where(static item => !item.Passed)
+            .Select(static item => $"{item.Id}:{item.Status}:{item.ErrorCode}")));
         string expectedReport = Convert.ToHexStringLower(fixture.Descriptor.CertificationReportChecksum.AsSpan());
         string actualReport = Convert.ToHexStringLower(report.ReportChecksum.AsSpan());
         Assert.True(expectedReport == actualReport, $"expected={expectedReport}; actual={actualReport}");
@@ -91,6 +93,7 @@ public sealed class SqliteActivationCertificationTests
         public BaseActivationProviderDescriptor Descriptor => ((IBaseActivationProvider)_store).Descriptor;
 
         public IBaseActivationProvider Provider => _store;
+        public IAtomicRecordStore AtomicStore => _store;
 
         public ValueTask PrepareAsync(
             BaseActivationCertificationCaseRequest request,

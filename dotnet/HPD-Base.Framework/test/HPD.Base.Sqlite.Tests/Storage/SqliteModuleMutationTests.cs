@@ -557,6 +557,104 @@ public sealed partial class SqliteModuleMutationTests
         }
     }
 
+    [Fact]
+    public async Task Pending_activation_capacity_succeeds_at_exact_limit_and_rejects_max_plus_one()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-activation-capacity-{Guid.NewGuid():N}.db");
+        try
+        {
+            await using SqliteRecordStore store = Store(path, maxPendingActivationRows: 1);
+            BaseActivationProviderDescriptor descriptor = ((IBaseActivationProvider)store).Descriptor;
+            descriptor.Capability.MaximumPendingRows.Should().Be(1);
+            BaseActivationCertificationReceiptContract.Validate(descriptor).Should().BeTrue();
+            byte[] overlap = System.Security.Cryptography.SHA256.HashData("capacity"u8);
+            BaseScheduleDefinition first = Schedule(11, BaseScheduleOverlapPolicy.Allow, overlap);
+            BaseScheduleDefinition second = Schedule(12, BaseScheduleOverlapPolicy.Allow, overlap);
+            (await store.MutateScheduleAsync(ScheduleMutation(first, 100, "capacity-create-1"))).IsSuccess().Should().BeTrue();
+            BaseScheduleAuthority firstAuthority = (await store.ReadScheduleAsync(first.Id, first.Version)).Value!;
+            (await store.AdvanceSchedulesAsync(SchedulePage(firstAuthority, first, 101, "capacity-page-1")))
+                .IsSuccess().Should().BeTrue();
+
+            (await store.MutateScheduleAsync(ScheduleMutation(second, 102, "capacity-create-2"))).IsSuccess().Should().BeTrue();
+            BaseScheduleAuthority secondAuthority = (await store.ReadScheduleAsync(second.Id, second.Version)).Value!;
+            OperationResult<BaseScheduleMaintenancePage> excess = await store.AdvanceSchedulesAsync(
+                SchedulePage(secondAuthority, second, 103, "capacity-page-2"));
+
+            excess.IsSuccess().Should().BeFalse();
+            excess.Status.Should().Be(OperationStatus.CapabilityUnavailable);
+            excess.Error!.Code.Should().Be("base.activation.capacityUnavailable");
+        }
+        finally
+        {
+            foreach (string suffix in new[] { "", "-wal", "-shm" }) if (File.Exists(path + suffix)) File.Delete(path + suffix);
+        }
+    }
+
+    [Fact]
+    public async Task Active_and_terminal_capacities_are_transactional_at_exact_and_plus_one()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-activation-state-capacity-{Guid.NewGuid():N}.db");
+        try
+        {
+            await using SqliteRecordStore store = Store(path, maxPendingActivationRows: 2,
+                maxClaimedActivationRows: 1, maxTerminalActivationRows: 1);
+            byte[] overlap = System.Security.Cryptography.SHA256.HashData("state-capacity"u8);
+            foreach (int version in new[] { 21, 22 })
+            {
+                BaseScheduleDefinition schedule = Schedule(version, BaseScheduleOverlapPolicy.Allow, overlap);
+                (await store.MutateScheduleAsync(ScheduleMutation(schedule, version, $"state-create-{version}"))).IsSuccess().Should().BeTrue();
+                BaseScheduleAuthority authority = (await store.ReadScheduleAsync(schedule.Id, schedule.Version)).Value!;
+                (await store.AdvanceSchedulesAsync(SchedulePage(authority, schedule, version + 1, $"state-page-{version}")))
+                    .IsSuccess().Should().BeTrue();
+            }
+            BaseActivationExecutionLimits limits = ActivationLimits();
+            BaseActivationDefinitionKey definition = ActivationDefinition();
+            BaseOwnedScopeSeekAuthority scope = ActivationScope();
+            var worker = new BaseActivationWorkerAuthority
+            {
+                ApplicationId = "activation-test", ModuleId = "test", WorkerIdentity = "capacity-worker",
+                Definitions = [definition], Scope = scope, Checksum = new byte[32].ToImmutableArray(),
+            };
+            async ValueTask<OperationResult<BaseActivationClaimResult>> Claim(long now, string id)
+            {
+                BaseActivationDueObservation observed = (await store.ObserveDueAsync(new BaseActivationDueObservationRequest
+                {
+                    ApplicationId = "activation-test", WorkerModuleId = "test", Definitions = [definition], Scope = scope,
+                    AcceptedTime = AcceptedTime(now), MaximumCandidates = 8, Limits = limits,
+                })).Value!;
+                return await store.TryClaimNextAsync(new BaseActivationClaimRequest
+                {
+                    Observation = observed.Token, Worker = worker, AcceptedTime = AcceptedTime(now), LeaseMilliseconds = 1_000,
+                    Identity = ActivationIdentity(id), Limits = limits,
+                });
+            }
+            var first = (BaseActivationClaimedResult)(await Claim(30, "state-claim-1")).Value!;
+            OperationResult<BaseActivationClaimResult> activeExcess = await Claim(31, "state-claim-excess");
+            activeExcess.Status.Should().Be(OperationStatus.CapabilityUnavailable);
+            activeExcess.Error!.Code.Should().Be("base.activation.capacityUnavailable");
+            byte[] result = "done"u8.ToArray();
+            (await store.TransitionAsync(new BaseActivationCompleteRequest
+            {
+                ActivationId = first.Claim.ActivationId, Claim = first.Claim, CanonicalResult = result.ToImmutableArray(),
+                ResultChecksum = System.Security.Cryptography.SHA256.HashData(result).ToImmutableArray(), AcceptedTime = AcceptedTime(32),
+                Identity = ActivationIdentity("state-complete-1"), Limits = limits,
+            })).IsSuccess().Should().BeTrue();
+            var second = (BaseActivationClaimedResult)(await Claim(33, "state-claim-2")).Value!;
+            OperationResult<BaseActivationTransitionResult> terminalExcess = await store.TransitionAsync(new BaseActivationCompleteRequest
+            {
+                ActivationId = second.Claim.ActivationId, Claim = second.Claim, CanonicalResult = result.ToImmutableArray(),
+                ResultChecksum = System.Security.Cryptography.SHA256.HashData(result).ToImmutableArray(), AcceptedTime = AcceptedTime(34),
+                Identity = ActivationIdentity("state-complete-excess"), Limits = limits,
+            });
+            terminalExcess.Status.Should().Be(OperationStatus.CapabilityUnavailable);
+            terminalExcess.Error!.Code.Should().Be("base.activation.capacityUnavailable");
+        }
+        finally
+        {
+            foreach (string suffix in new[] { "", "-wal", "-shm" }) if (File.Exists(path + suffix)) File.Delete(path + suffix);
+        }
+    }
+
     private static BaseScheduleDefinition Schedule(int version, BaseScheduleOverlapPolicy policy, byte[] overlap)
     {
         byte[] input = "scheduled"u8.ToArray();
@@ -1000,11 +1098,17 @@ public sealed partial class SqliteModuleMutationTests
         bool installModuleAssets = true,
         BaseRegisteredModuleMutationDefinition? operation = null,
         bool? installOperation = null,
-        bool? installCell = null)
+        bool? installCell = null,
+        int maxPendingActivationRows = 1_000_000,
+        int maxClaimedActivationRows = 1_000_000,
+        int maxTerminalActivationRows = 1_000_000)
     {
         var options = new HPDBaseSqliteOptions
         {
             StoreId = "module-store", DataSource = path, Collections = [],
+            MaxPendingActivationRows = maxPendingActivationRows,
+            MaxClaimedActivationRows = maxClaimedActivationRows,
+            MaxTerminalActivationRows = maxTerminalActivationRows,
         };
         if (installOperation ?? installModuleAssets)
             options.ModuleMutations = [operation ?? Definition()];

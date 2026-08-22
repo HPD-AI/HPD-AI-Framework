@@ -83,7 +83,8 @@ public sealed class ActivationProviderCertificationTests
         BaseActivationCertificationReport report = await BaseActivationProviderCertification.RunAsync(
             fixture, TimeSpan.FromSeconds(5));
 
-        Assert.True(report.Passed);
+        Assert.True(report.Passed, string.Join("; ", report.Cases.Where(static item => !item.Passed)
+            .Select(static item => $"{item.Id}:{item.Status}:{item.ErrorCode}")));
         Assert.Equal(BaseActivationProviderCertification.MandatoryCases, report.Cases.Select(static item => item.Id));
         Assert.Equal(32, report.ReportChecksum.Length);
         Assert.Equal(32, report.CertificationReceipt.Length);
@@ -101,7 +102,8 @@ public sealed class ActivationProviderCertificationTests
         BaseActivationCertificationReport report = await BaseActivationProviderCertification.RunAsync(
             fixture, TimeSpan.FromSeconds(5));
 
-        Assert.True(report.Passed);
+        Assert.True(report.Passed, string.Join("; ", report.Cases.Where(static item => !item.Passed)
+            .Select(static item => $"{item.Id}:{item.Status}:{item.ErrorCode}")));
         string expectedReport = Convert.ToHexStringLower(fixture.Descriptor.CertificationReportChecksum.AsSpan());
         string actualReport = Convert.ToHexStringLower(report.ReportChecksum.AsSpan());
         Assert.True(expectedReport == actualReport, $"expected={expectedReport}; actual={actualReport}");
@@ -127,11 +129,10 @@ public sealed class ActivationProviderCertificationTests
     private sealed class Fixture(int? failOrdinal = null) : IBaseActivationCertificationFixture
     {
         private readonly InMemoryRecordStore _store = new();
-        public BaseActivationProviderDescriptor Descriptor { get; } = BaseActivationCertificationReceiptContract.FromSuccessfulReport(
-            "tests.activation.matrix", "1", BaseActivationCapabilityContract.BuiltIn("tests.activation.matrix.capability.v1"),
-            ImmutableArray.CreateRange(Convert.FromHexString("b878fb9ed43e42e5eb7528672c447d218b72f837cc404af4e2430317fd58216b")));
+        public BaseActivationProviderDescriptor Descriptor => _store.Descriptor;
 
         public IBaseActivationProvider Provider => _store;
+        public IAtomicRecordStore AtomicStore => _store;
 
         public ValueTask PrepareAsync(
             BaseActivationCertificationCaseRequest request, CancellationToken cancellationToken = default)

@@ -10,6 +10,8 @@ public sealed class BaseInMemoryActivationCertificationFixture : IBaseActivation
 
     /// <inheritdoc />
     public IBaseActivationProvider Provider => _store;
+    /// <inheritdoc />
+    public IAtomicRecordStore AtomicStore => _store;
 
     /// <inheritdoc />
     public ValueTask PrepareAsync(

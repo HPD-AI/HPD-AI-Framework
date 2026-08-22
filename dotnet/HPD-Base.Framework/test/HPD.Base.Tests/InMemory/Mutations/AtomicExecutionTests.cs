@@ -38,6 +38,95 @@ public sealed class AtomicExecutionTests
     }
 
     [Fact]
+    public async Task Pending_activation_capacity_succeeds_at_exact_limit_and_rejects_max_plus_one()
+    {
+        var store = new InMemoryRecordStore(new HPDBaseInMemoryStoreOptions
+        {
+            MaxPendingActivationRows = 1,
+        });
+        store.Descriptor.Capability.MaximumPendingRows.Should().Be(1);
+        BaseActivationCertificationReceiptContract.Validate(store.Descriptor).Should().BeTrue();
+        BaseAtomicMutationExecutionLimits limits = ModuleLimits();
+        BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync(
+            "activation-test", [], limits)).Value!;
+
+        RecordMutationExecutionResult exact = await store.ExecuteAtomicAsync(
+            new ActivationCreationProbe(authority, limits, activationId: "activation-1"), ExecutionRequest);
+        var excessProbe = new ActivationCreationProbe(authority, limits, activationId: "activation-2");
+        RecordMutationExecutionResult excess = await store.ExecuteAtomicAsync(excessProbe, ExecutionRequest);
+
+        exact.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+        excess.Outcome.Should().Be(RecordMutationExecutionOutcome.RollbackConfirmed);
+        excessProbe.RejectedCode.Should().Be("base.activation.capacityUnavailable");
+    }
+
+    [Fact]
+    public async Task Active_and_terminal_capacities_are_transactional_at_exact_and_plus_one()
+    {
+        var store = new InMemoryRecordStore(new HPDBaseInMemoryStoreOptions
+        {
+            MaxPendingActivationRows = 2, MaxClaimedActivationRows = 1, MaxTerminalActivationRows = 1,
+        });
+        BaseAtomicMutationExecutionLimits mutationLimits = ModuleLimits();
+        BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync(
+            "activation-test", [], mutationLimits)).Value!;
+        (await store.ExecuteAtomicAsync(new ActivationCreationProbe(authority, mutationLimits, activationId: "active-1"), ExecutionRequest))
+            .Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+        (await store.ExecuteAtomicAsync(new ActivationCreationProbe(authority, mutationLimits, activationId: "active-2"), ExecutionRequest))
+            .Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+
+        BaseActivationExecutionLimits limits = ActivationLimits();
+        BaseActivationDefinitionKey definition = new() { Id = "test.activation", Version = 1, Checksum = new byte[32].ToImmutableArray() };
+        var scope = new BaseOwnedScopeSeekAuthority
+        {
+            Kind = BaseSubjectScopeKind.Global,
+            ProtectedIndexDigest = System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes($"base.activation.scope.v2\0{(int)BaseSubjectScopeKind.Global}\n")).ToImmutableArray(),
+        };
+        var worker = new BaseActivationWorkerAuthority
+        {
+            ApplicationId = "activation-test", ModuleId = "test", WorkerIdentity = "capacity-worker",
+            Definitions = [definition], Scope = scope, Checksum = new byte[32].ToImmutableArray(),
+        };
+
+        async ValueTask<OperationResult<BaseActivationClaimResult>> Claim(long now, string id)
+        {
+            BaseActivationDueObservation observation = (await store.ObserveDueAsync(new BaseActivationDueObservationRequest
+            {
+                ApplicationId = "activation-test", WorkerModuleId = "test", Definitions = [definition], Scope = scope,
+                AcceptedTime = AcceptedTime(now), MaximumCandidates = 8, Limits = limits,
+            })).Value!;
+            return await store.TryClaimNextAsync(new BaseActivationClaimRequest
+            {
+                Observation = observation.Token, Worker = worker, AcceptedTime = AcceptedTime(now), LeaseMilliseconds = 1_000,
+                Identity = RequestIdentity(id), Limits = limits,
+            });
+        }
+
+        var first = (BaseActivationClaimedResult)(await Claim(10, "capacity-claim-1")).Value!;
+        OperationResult<BaseActivationClaimResult> activeExcess = await Claim(11, "capacity-claim-2-rejected");
+        activeExcess.Status.Should().Be(OperationStatus.CapabilityUnavailable);
+        activeExcess.Error!.Code.Should().Be("base.activation.capacityUnavailable");
+
+        byte[] result = "done"u8.ToArray();
+        (await store.TransitionAsync(new BaseActivationCompleteRequest
+        {
+            ActivationId = first.Claim.ActivationId, Claim = first.Claim, CanonicalResult = result.ToImmutableArray(),
+            ResultChecksum = System.Security.Cryptography.SHA256.HashData(result).ToImmutableArray(), AcceptedTime = AcceptedTime(12),
+            Identity = RequestIdentity("capacity-complete-1"), Limits = limits,
+        })).IsSuccess().Should().BeTrue();
+        var second = (BaseActivationClaimedResult)(await Claim(13, "capacity-claim-2")).Value!;
+        OperationResult<BaseActivationTransitionResult> terminalExcess = await store.TransitionAsync(new BaseActivationCompleteRequest
+        {
+            ActivationId = second.Claim.ActivationId, Claim = second.Claim, CanonicalResult = result.ToImmutableArray(),
+            ResultChecksum = System.Security.Cryptography.SHA256.HashData(result).ToImmutableArray(), AcceptedTime = AcceptedTime(14),
+            Identity = RequestIdentity("capacity-complete-2"), Limits = limits,
+        });
+        terminalExcess.Status.Should().Be(OperationStatus.CapabilityUnavailable);
+        terminalExcess.Error!.Code.Should().Be("base.activation.capacityUnavailable");
+    }
+
+    [Fact]
     public async Task Activation_due_claim_renew_complete_is_fenced_and_terminal()
     {
         var store = new InMemoryRecordStore();
@@ -745,7 +834,8 @@ public sealed class AtomicExecutionTests
     private sealed class ActivationCreationProbe(
         BaseAtomicMutationAuthorityRequirement authority,
         BaseAtomicMutationExecutionLimits limits,
-        string inputText = "activation-input") : IAtomicMutationProcessor
+        string inputText = "activation-input",
+        string activationId = "activation-1") : IAtomicMutationProcessor
     {
         public bool CapturedExisting { get; private set; }
         public int ProvisionalCount { get; private set; }
@@ -758,7 +848,8 @@ public sealed class AtomicExecutionTests
             byte[] input = System.Text.Encoding.UTF8.GetBytes(inputText);
             var extension = new BaseActivationCreationExtension
             {
-                StructuralDigest = new byte[32].ToImmutableArray(),
+                StructuralDigest = System.Security.Cryptography.SHA256.HashData(
+                    System.Text.Encoding.UTF8.GetBytes(activationId)).ToImmutableArray(),
                 Items = [new BaseActivationCreateIntent
                 {
                     Ordinal = 0,
@@ -772,7 +863,7 @@ public sealed class AtomicExecutionTests
                     RequestedDueAt = 1,
                     EffectiveDueAt = 1,
                     Identity = BaseMutationRequestIdentity.Create(
-                        "activation-test", "enqueue", "activation-1",
+                        "activation-test", "enqueue", activationId,
                         BaseMutationRequestFingerprint.Create(new byte[32])),
                 }],
             };
@@ -811,7 +902,10 @@ public sealed class AtomicExecutionTests
             OperationResult<BaseProvisionalAtomicExecution> applied =
                 await session.ApplyPreparedAtomicExecutionAsync(prepared.Value, cancellationToken);
             if (!applied.IsSuccess() || applied.Value?.Activations is null)
+            {
+                RejectedCode = applied.Error?.Code;
                 return ProbeFailure(applied.Error);
+            }
             ProvisionalCount = applied.Value.Activations.Items.Length;
             return new AtomicMutationProcessingResult(AtomicMutationProcessingOutcome.ReadyToCommit, []);
         }

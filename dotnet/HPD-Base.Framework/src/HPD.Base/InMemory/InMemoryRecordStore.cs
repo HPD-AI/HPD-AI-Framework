@@ -509,6 +509,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         TimeProvider timeProvider)
     {
         _options = options ?? new HPDBaseInMemoryStoreOptions();
+        Descriptor = CreateActivationDescriptor(_options);
         _timeProvider = timeProvider;
         _queryCursors = new BaseQueryCursorCodec(tokenProtector, timeProvider);
         _subjectScopeTokens = tokenProtector;
@@ -2316,6 +2317,10 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         {
             throw new ArgumentOutOfRangeException(nameof(options.DefaultPageSize), "Default and maximum page sizes must be positive and ordered.");
         }
+        if (options.MaxPendingActivationRows is < 1 or > 1_000_000
+            || options.MaxClaimedActivationRows is < 1 or > 1_000_000
+            || options.MaxTerminalActivationRows is < 1 or > 1_000_000)
+            throw new ArgumentOutOfRangeException(nameof(options), "Activation row ceilings must be between one and one million.");
 
         if (options.CollectionIds.Any(id => !InMemoryValidation.IsValidIdText(id)))
         {
@@ -4242,6 +4247,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     TransientBytes = transient,
                 },
             };
+            if (!_owner.ActivationRowCapacityAllows(_working))
+                return SubjectFailure<BaseProvisionalAtomicExecution>(
+                    "base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
             _appliedProvisional = applied;
             return OperationResults.Ok(applied);
         });
@@ -4290,6 +4298,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 ControlChecksum = controlChecksum,
             };
             _working.ActivationIndexGeneration = checked(_working.ActivationIndexGeneration + 1);
+            if (!_owner.ActivationRowCapacityAllows(_working))
+                return ValueTask.FromResult(SubjectFailure<BaseTransactionalActivationCommitEvidence>(
+                    "base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability));
             var accounting = new BaseActivationAccounting
             {
                 Candidates = 1,

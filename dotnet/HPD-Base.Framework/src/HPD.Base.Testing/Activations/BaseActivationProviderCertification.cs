@@ -13,6 +13,9 @@ public interface IBaseActivationCertificationFixture : IAsyncDisposable
     /// <summary>Gets the exact provider instance exercised by the certification host.</summary>
     IBaseActivationProvider Provider { get; }
 
+    /// <summary>Gets the exact atomic store sharing the provider transaction authority.</summary>
+    IAtomicRecordStore AtomicStore { get; }
+
     /// <summary>Prepares isolated provider state for one host-owned case without reporting its outcome.</summary>
     ValueTask PrepareAsync(
         BaseActivationCertificationCaseRequest request,
@@ -74,28 +77,17 @@ public static class BaseActivationProviderCertification
     /// <summary>Gets all mandatory cases in canonical execution order.</summary>
     public static ImmutableArray<string> MandatoryCases { get; } =
     [
-        "definition-target-handler-schedule-state-attempt-receipt-unions",
-        "canonical-vectors-generated-manual-parity",
-        "atomic-create-ordinary-selection-module",
-        "transactional-target-commit-rollback-duplicate-conflict-indeterminate",
-        "renew-child-complete-races",
-        "lost-wakeup-observe-wait",
-        "protected-scope-no-foreign-scan",
-        "cron-calendar-timezone-gap-overlap",
-        "clock-misfire-overlap-priority-starvation",
-        "cancel-complete-effect-dispose-races",
-        "restore-in-place-and-disaster-domain",
-        "handler-version-migration-backup-dependency",
-        "lifecycle-retirement-guarded-choreography",
-        "noncooperative-provider-handler-quarantine",
-        "capability-accounting-exact-and-plus-one",
-        "backup-corruption-interrupted-restore",
-        "pruning-removal-retained-receipts",
-        "inmemory-sqlite-semantic-parity",
-        "native-aot-transactional-worker",
-        "node-worker-client",
-        "browser-worker-omission",
-        "graph-schedule-suspend-resume-restore-cancel",
+        "atomic-create-and-dependency-inventory",
+        "due-observation-and-token-invalidation",
+        "atomic-seek-claim",
+        "claim-renewal",
+        "claim-completion-and-receipt-replay",
+        "failure-to-retry-transition",
+        "executor-register-heartbeat-retire",
+        "executor-bound-effect-start",
+        "schedule-missing-read-is-nonenumerating",
+        "retained-definition-dependency-after-claim",
+        "capability-accounting-observation",
     ];
 
     /// <summary>Runs every mandatory case and returns a receipt only for a complete successful report.</summary>
@@ -108,6 +100,13 @@ public static class BaseActivationProviderCertification
         if (caseTimeout <= TimeSpan.Zero || caseTimeout > TimeSpan.FromMinutes(10))
             throw new ArgumentOutOfRangeException(nameof(caseTimeout));
         BaseActivationProviderDescriptor descriptor = fixture.Descriptor;
+        BaseActivationProviderDescriptor providerDescriptor = fixture.Provider.Descriptor;
+        if (!string.Equals(descriptor.ProviderId, providerDescriptor.ProviderId, StringComparison.Ordinal)
+            || !string.Equals(descriptor.ProviderVersion, providerDescriptor.ProviderVersion, StringComparison.Ordinal)
+            || !CryptographicOperations.FixedTimeEquals(
+                BaseActivationCertificationReceiptContract.CapabilityChecksum(descriptor.Capability).AsSpan(),
+                BaseActivationCertificationReceiptContract.CapabilityChecksum(providerDescriptor.Capability).AsSpan()))
+            throw new InvalidOperationException("base.activation.providerContractInvalid");
         if (!BaseActivationCapabilityContract.IsValid(descriptor.Capability))
             throw new InvalidOperationException("base.activation.capabilityUnavailable");
         var cases = ImmutableArray.CreateBuilder<BaseActivationCertificationCaseResult>(MandatoryCases.Length);
@@ -121,12 +120,12 @@ public static class BaseActivationProviderCertification
             };
             await fixture.PrepareAsync(request, cancellationToken).ConfigureAwait(false);
             BaseActivationCertificationCaseResult result = await ExecuteHostCaseAsync(
-                fixture.Provider, request, cancellationToken).ConfigureAwait(false);
+                fixture.Provider, fixture.AtomicStore, request, cancellationToken).ConfigureAwait(false);
             cases.Add(Clone(result));
         }
         bool passed = cases.All(static item => item.Passed);
         ImmutableArray<byte> capability = BaseActivationCertificationReceiptContract.CapabilityChecksum(descriptor.Capability);
-        ImmutableArray<byte> report = ReportChecksum(descriptor, cases.ToImmutable(), passed, capability);
+        ImmutableArray<byte> report = ReportChecksum(descriptor, cases.ToImmutable(), passed);
         ImmutableArray<byte> receipt = passed
             ? BaseActivationCertificationReceiptContract.Create(descriptor.ProviderId, descriptor.ProviderVersion,
                 descriptor.ProtocolVersion, descriptor.Capability, descriptor.NativeDependencyReceipts, report)
@@ -143,95 +142,37 @@ public static class BaseActivationProviderCertification
 
     private static async ValueTask<BaseActivationCertificationCaseResult> ExecuteHostCaseAsync(
         IBaseActivationProvider provider,
+        IAtomicRecordStore atomicStore,
         BaseActivationCertificationCaseRequest request,
         CancellationToken cancellationToken)
     {
-        OperationResult<BaseActivationDependencyResult> observed = await provider.ReadDependenciesAsync(new()
-        {
-            ApplicationId = $"base.activation.certification.{request.Ordinal}",
-            MaximumDefinitions = 4096,
-            DeadlineUtc = request.DeadlineUtc,
-        }, cancellationToken).ConfigureAwait(false);
-        bool ordered = observed.Value is { } value
-            && !value.Dependencies.IsDefault
-            && value.Dependencies.SequenceEqual(value.Dependencies.OrderBy(static item => item.Definition.Id, StringComparer.Ordinal)
-                .ThenBy(static item => item.Definition.Version)
-                .ThenBy(static item => Convert.ToHexString(item.Definition.Checksum.AsSpan()), StringComparer.Ordinal))
-            && value.CapturedGeneration >= 0
-            && value.Accounting.Candidates >= 0 && value.Accounting.Comparisons >= 0
-            && value.Accounting.IndexOperations >= 0 && value.Accounting.ReadIntervals >= 0
-            && value.Accounting.EvidenceBytes >= 0 && value.Accounting.TransientBytes >= 0;
-        bool passed = observed.Status.IsSuccess() && observed.Error is null && ordered
-            && ValidateCaseCapability(provider.Descriptor.Capability, request.Id);
+        (bool passed, OperationStatus status, string? errorCode, byte[] trace) =
+            await BaseActivationCertificationScenario.ExecuteAsync(
+                provider, atomicStore, request, cancellationToken).ConfigureAwait(false);
         using var stream = new MemoryStream();
         Write(stream, "HPDB-ACTIVATION-CERTIFICATION-CASE-1\0"); Write(stream, request.Id);
         Write(stream, provider.Descriptor.ProviderId); Write(stream, provider.Descriptor.ProviderVersion);
-        Write(stream, BitConverter.GetBytes(System.Net.IPAddress.HostToNetworkOrder((int)observed.Status)));
-        if (observed.Value is { } evidence)
-        {
-            Write(stream, BitConverter.GetBytes(System.Net.IPAddress.HostToNetworkOrder(evidence.Dependencies.Length)));
-            Write(stream, BitConverter.GetBytes(System.Net.IPAddress.HostToNetworkOrder(evidence.CapturedGeneration)));
-            foreach (BaseActivationDefinitionDependency dependency in evidence.Dependencies)
-            {
-                Write(stream, dependency.Definition.Id);
-                Write(stream, BitConverter.GetBytes(System.Net.IPAddress.HostToNetworkOrder(dependency.Definition.Version)));
-                Write(stream, dependency.Definition.Checksum.AsSpan());
-            }
-        }
+        Write(stream, BitConverter.GetBytes(System.Net.IPAddress.HostToNetworkOrder((int)status)));
+        Write(stream, trace);
         return new BaseActivationCertificationCaseResult
         {
             Id = request.Id, Passed = passed,
-            Status = passed ? OperationStatus.Ok : observed.Status,
-            ErrorCode = passed ? null : observed.Error?.Code ?? "base.activation.certification.failed",
+            Status = passed ? OperationStatus.Ok : status,
+            ErrorCode = passed ? null : errorCode ?? "base.activation.certification.failed",
             EvidenceChecksum = SHA256.HashData(stream.ToArray()).ToImmutableArray(),
         };
     }
 
-    private static bool ValidateCaseCapability(BaseActivationProviderCapability value, string id) => id switch
-    {
-        "definition-target-handler-schedule-state-attempt-receipt-unions" =>
-            value.ExecutionClasses.Length == Enum.GetValues<BaseActivationExecutionClass>().Length
-            && value.ScheduleKinds.Length == Enum.GetValues<BaseScheduleKind>().Length,
-        "canonical-vectors-generated-manual-parity" => value.CanonicalChecksum.Length == 32,
-        "atomic-create-ordinary-selection-module" => value.AtomicCreationSupported && value.SelectionTargetSupported && value.ModuleTargetSupported,
-        "transactional-target-commit-rollback-duplicate-conflict-indeterminate" => value.AtomicCreationSupported,
-        "renew-child-complete-races" => value.GuardedChildrenSupported && value.MaximumRenewalsPerAttempt > 0,
-        "lost-wakeup-observe-wait" => Enum.IsDefined(value.DueInvalidation) && value.ObservationTokenLifetime > TimeSpan.Zero,
-        "protected-scope-no-foreign-scan" => value.MaximumDueCandidates > 0,
-        "cron-calendar-timezone-gap-overlap" => value.ScheduleKinds.Contains(BaseScheduleKind.Cron)
-            && value.ScheduleKinds.Contains(BaseScheduleKind.Calendar) && value.MaximumTimeZoneBytes > 0,
-        "clock-misfire-overlap-priority-starvation" => value.MaximumPriorityAgingBoost > 0 && value.PriorityAgingInterval > TimeSpan.Zero,
-        "cancel-complete-effect-dispose-races" => value.ExecutionClasses.Contains(BaseActivationExecutionClass.AtMostOnceEffect),
-        "restore-in-place-and-disaster-domain" => value.RestoreFencingSupported,
-        "handler-version-migration-backup-dependency" => value.MaximumHandlerDependencies > 0,
-        "lifecycle-retirement-guarded-choreography" => value.GuardedChildrenSupported,
-        "noncooperative-provider-handler-quarantine" => value.ProviderQuarantineSlots > 0 && value.HandlerQuarantineSlots > 0,
-        "capability-accounting-exact-and-plus-one" => BaseActivationCapabilityContract.IsValid(value),
-        "backup-corruption-interrupted-restore" => value.BackupModes.IsEmpty
-            || value.BackupModes.Contains(BaseActivationBackupMode.WholeStoreAtomic),
-        "pruning-removal-retained-receipts" => value.MaximumTerminalRows > 0 && value.MaximumReceiptBytes > 0,
-        "inmemory-sqlite-semantic-parity" => value.ProtocolCompatible(),
-        "native-aot-transactional-worker" => value.ExecutionClasses.Contains(BaseActivationExecutionClass.TransactionalOperation),
-        "node-worker-client" => value.MaximumInputBytes > 0 && value.MaximumResultBytes > 0,
-        "browser-worker-omission" => true,
-        "graph-schedule-suspend-resume-restore-cancel" => value.AtomicCreationSupported && value.ScheduleKinds.Length != 0,
-        _ => false,
-    };
-
-    private static bool ProtocolCompatible(this BaseActivationProviderCapability value) =>
-        value.AtomicCreationSupported && value.GuardedChildrenSupported && value.RestoreFencingSupported;
-
     private static ImmutableArray<byte> ReportChecksum(
         BaseActivationProviderDescriptor descriptor,
         ImmutableArray<BaseActivationCertificationCaseResult> cases,
-        bool passed,
-        ImmutableArray<byte> capability)
+        bool passed)
     {
         using var stream = new MemoryStream();
         Write(stream, "HPDB-ACTIVATION-CERTIFICATION-REPORT-1\0");
         Write(stream, descriptor.ProviderId); Write(stream, descriptor.ProviderVersion);
         Write(stream, BaseActivationCertificationReceiptContract.ProtocolVersion);
-        stream.WriteByte(passed ? (byte)1 : (byte)0); Write(stream, capability.AsSpan());
+        stream.WriteByte(passed ? (byte)1 : (byte)0);
         Write(stream, BitConverter.GetBytes(System.Net.IPAddress.HostToNetworkOrder(cases.Length)));
         foreach (BaseActivationCertificationCaseResult item in cases)
         {

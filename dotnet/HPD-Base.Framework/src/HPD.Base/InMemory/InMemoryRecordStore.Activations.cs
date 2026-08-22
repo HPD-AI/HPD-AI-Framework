@@ -19,8 +19,35 @@ internal sealed partial class InMemoryRecordStore
         TransientBytes = 0,
     };
 
+    private bool ActivationRowCapacityAllows(InMemoryStoreState state)
+    {
+        int pending = 0, claimed = 0, terminal = 0;
+        foreach (InMemoryActivationRow row in state.Activations.Values)
+        {
+            switch (row.State)
+            {
+                case BaseActivationState.Pending:
+                case BaseActivationState.RetryPending:
+                    pending = checked(pending + 1);
+                    break;
+                case BaseActivationState.Claimed:
+                case BaseActivationState.EffectStarted:
+                    claimed = checked(claimed + 1);
+                    break;
+                default:
+                    terminal = checked(terminal + 1);
+                    break;
+            }
+        }
+        return pending <= Descriptor.Capability.MaximumPendingRows
+            && claimed <= Descriptor.Capability.MaximumClaimedRows
+            && terminal <= Descriptor.Capability.MaximumTerminalRows;
+    }
+
     /// <inheritdoc />
-    public BaseActivationProviderDescriptor Descriptor { get; } =
+    public BaseActivationProviderDescriptor Descriptor { get; private set; } = null!;
+
+    private static BaseActivationProviderDescriptor CreateActivationDescriptor(HPDBaseInMemoryStoreOptions options) =>
         BaseActivationCertificationReceiptContract.FromSuccessfulReport(
             "hpd.base.inMemory.activations", "1", new BaseActivationProviderCapability
         {
@@ -41,9 +68,9 @@ internal sealed partial class InMemoryRecordStore
             MaximumEvidenceBytes = 16L * 1024 * 1024,
             MaximumTransientBytes = 16L * 1024 * 1024,
             MaximumReceiptBytes = 16L * 1024 * 1024,
-            MaximumPendingRows = 1_000_000,
-            MaximumClaimedRows = 1_000_000,
-            MaximumTerminalRows = 1_000_000,
+            MaximumPendingRows = options.MaxPendingActivationRows,
+            MaximumClaimedRows = options.MaxClaimedActivationRows,
+            MaximumTerminalRows = options.MaxTerminalActivationRows,
             MaximumAttempts = 1024,
             MaximumRenewalsPerAttempt = 4096,
             MaximumChildrenPerAttempt = 4096,
@@ -67,7 +94,7 @@ internal sealed partial class InMemoryRecordStore
             BackupModes = [],
             RestoreModes = [],
             CanonicalChecksum = ImmutableArray.CreateRange(SHA256.HashData("hpd.base.inMemory.activations.v2"u8)),
-        }, ImmutableArray.CreateRange(Convert.FromHexString("29ef92ef156f10c81feffbdedf8a06e2dbc5514e7b5e86d7fbcab1c4b0483fd2")));
+        }, ImmutableArray.CreateRange(Convert.FromHexString("d4319506e983adbbbe294e19340b198042a065be4675c28a46b963c98813e5ca")));
 
     /// <inheritdoc />
     public async ValueTask<OperationResult<BaseActivationDependencyResult>> ReadDependenciesAsync(
@@ -228,6 +255,8 @@ internal sealed partial class InMemoryRecordStore
             };
             WriteActivationReceipt(next, request.Identity, "activation-migrated", result,
                 HPDBaseJsonSerializerContext.Default.BaseActivationMigrationResult);
+            if (!ActivationRowCapacityAllows(next))
+                return ActivationFailure<BaseActivationMigrationResult>("base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
             Volatile.Write(ref _publishedState, next);
             return OperationResults.Ok(result);
         }
@@ -295,6 +324,8 @@ internal sealed partial class InMemoryRecordStore
             };
             WriteActivationReceipt(next, request.Identity, "activation-maintenance", result,
                 HPDBaseJsonSerializerContext.Default.BaseActivationMaintenancePage);
+            if (!ActivationRowCapacityAllows(next))
+                return ActivationFailure<BaseActivationMaintenancePage>("base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
             Volatile.Write(ref _publishedState, next);
             return OperationResults.Ok(result);
         }
@@ -425,12 +456,12 @@ internal sealed partial class InMemoryRecordStore
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(token);
+        (long observedGeneration, long acceptedAt) = DecodeDueAuthority(token.Value.AsSpan());
+        if (observedGeneration < 0 || _timeProvider.GetUtcNow().ToUnixTimeMilliseconds() - acceptedAt > 300_000)
+            return new BaseDueWaitResult { Outcome = BaseDueWaitOutcome.TokenInvalid };
         while (_timeProvider.GetUtcNow() < deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            (long observedGeneration, long acceptedAt) = DecodeDueAuthority(token.Value.AsSpan());
-            if (observedGeneration < 0 || _timeProvider.GetUtcNow().ToUnixTimeMilliseconds() - acceptedAt > 300_000)
-                return new BaseDueWaitResult { Outcome = BaseDueWaitOutcome.TokenInvalid };
             if (Volatile.Read(ref _publishedState).ActivationIndexGeneration != observedGeneration)
                 return new BaseDueWaitResult { Outcome = BaseDueWaitOutcome.Changed };
             TimeSpan remaining = deadline - _timeProvider.GetUtcNow();
@@ -489,6 +520,8 @@ internal sealed partial class InMemoryRecordStore
                     ControlChecksum = ControlChecksum(row.Payload.ActivationId, recoveredGeneration, BaseActivationState.RetryPending),
                 };
                 next.ActivationIndexGeneration = checked(next.ActivationIndexGeneration + 1);
+                if (!ActivationRowCapacityAllows(next))
+                    return ActivationFailure<BaseActivationClaimResult>("base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
                 BaseActivationClaimResult recoveredResult = new BaseActivationRecoveredClaimResult(
                     row.Payload.ActivationId, recoveredGeneration);
                 WriteActivationReceipt(next, request.Identity, "activation-claimed", recoveredResult,
@@ -548,6 +581,8 @@ internal sealed partial class InMemoryRecordStore
                 EmptyActivationAccounting with { Candidates = 1, Comparisons = 1 });
             WriteActivationReceipt(next, request.Identity, "activation-claimed", claimedResult,
                 HPDBaseJsonSerializerContext.Default.BaseActivationClaimResult);
+            if (!ActivationRowCapacityAllows(next))
+                return ActivationFailure<BaseActivationClaimResult>("base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
             Volatile.Write(ref _publishedState, next);
             return OperationResults.Ok(claimedResult);
         }
@@ -820,6 +855,8 @@ internal sealed partial class InMemoryRecordStore
             };
             WriteActivationReceipt(next, request.Identity, receiptKind, transitionResult,
                 HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult);
+            if (!ActivationRowCapacityAllows(next))
+                return ActivationFailure<BaseActivationTransitionResult>("base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
             Volatile.Write(ref _publishedState, next);
             return OperationResults.Ok(transitionResult);
         }
@@ -1107,6 +1144,8 @@ internal sealed partial class InMemoryRecordStore
                 Disposition = BaseMutationRequestDisposition.Committed,
             };
             WriteActivationReceipt(next, request.Identity, "occurrence-page", result, HPDBaseJsonSerializerContext.Default.BaseScheduleMaintenancePage);
+            if (!ActivationRowCapacityAllows(next))
+                return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
             Volatile.Write(ref _publishedState, next);
             return OperationResults.Ok(result);
         }
@@ -1192,6 +1231,8 @@ internal sealed partial class InMemoryRecordStore
             };
             WriteActivationReceipt(next, request.Identity, "cancellation-maintenance", result,
                 HPDBaseJsonSerializerContext.Default.BaseScheduleCancellationMaintenancePage);
+            if (!ActivationRowCapacityAllows(next))
+                return ActivationFailure<BaseScheduleCancellationMaintenancePage>("base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
             Volatile.Write(ref _publishedState, next);
             return OperationResults.Ok(result);
         }

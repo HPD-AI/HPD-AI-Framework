@@ -93,6 +93,12 @@ public sealed class HPDBaseSqliteOptions
     public TimeSpan IntegrityCheckTimeout { get; set; } = TimeSpan.FromMinutes(5);
     /// <summary>Gets or sets the maximum number of quarantined administration executions.</summary>
     public int MaxQuarantinedAdministrationExecutions { get; set; } = 1;
+    /// <summary>Gets or sets the maximum retained runnable activation rows.</summary>
+    public int MaxPendingActivationRows { get; set; } = 1_000_000;
+    /// <summary>Gets or sets the maximum retained active activation rows.</summary>
+    public int MaxClaimedActivationRows { get; set; } = 1_000_000;
+    /// <summary>Gets or sets the maximum retained terminal activation rows.</summary>
+    public int MaxTerminalActivationRows { get; set; } = 1_000_000;
     /// <summary>Gets or sets health Ref Id.</summary>
     public string HealthRefId { get; set; } = HPDBaseSqliteDefaults.DefaultHealthRefId;
     /// <summary>Gets or sets diagnostic Ref Id.</summary>

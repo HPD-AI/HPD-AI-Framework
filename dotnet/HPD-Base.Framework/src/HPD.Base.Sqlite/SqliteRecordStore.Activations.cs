@@ -12,6 +12,32 @@ namespace HPD.Base.Sqlite;
 
 public sealed partial class SqliteRecordStore
 {
+    private async ValueTask<bool> ActivationRowCapacityAllowsAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        await using SqliteCommand command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = $"""
+            SELECT
+              COALESCE(SUM(CASE WHEN state IN ($pending,$retry) THEN 1 ELSE 0 END),0),
+              COALESCE(SUM(CASE WHEN state IN ($claimed,$effect) THEN 1 ELSE 0 END),0),
+              COALESCE(SUM(CASE WHEN state NOT IN ($pending,$retry,$claimed,$effect) THEN 1 ELSE 0 END),0)
+            FROM {_names.Activations};
+            """;
+        command.Parameters.AddWithValue("$pending", (int)BaseActivationState.Pending);
+        command.Parameters.AddWithValue("$retry", (int)BaseActivationState.RetryPending);
+        command.Parameters.AddWithValue("$claimed", (int)BaseActivationState.Claimed);
+        command.Parameters.AddWithValue("$effect", (int)BaseActivationState.EffectStarted);
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) return false;
+        BaseActivationProviderCapability capability = ((IBaseActivationProvider)this).Descriptor.Capability;
+        return reader.GetInt64(0) <= capability.MaximumPendingRows
+            && reader.GetInt64(1) <= capability.MaximumClaimedRows
+            && reader.GetInt64(2) <= capability.MaximumTerminalRows;
+    }
+
     private async ValueTask TransformRestoredActivationAuthoritiesAsync(
         SqliteConnection connection, long restoreEpoch,
         ImmutableArray<BaseScheduleRecoveryFloor> recoveryFloors,
@@ -91,6 +117,8 @@ public sealed partial class SqliteRecordStore
             await write.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
         if (claimed.Count != 0) await IncrementActivationGenerationAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+        if (!await ActivationRowCapacityAllowsAsync(connection, transaction, cancellationToken).ConfigureAwait(false))
+            throw new InvalidDataException("base.activation.capacityUnavailable");
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -145,7 +173,7 @@ public sealed partial class SqliteRecordStore
 
     private BaseActivationProviderDescriptor? _activationDescriptor;
 
-    private static BaseActivationProviderDescriptor CreateActivationDescriptor(bool durableRecovery) =>
+    private static BaseActivationProviderDescriptor CreateActivationDescriptor(bool durableRecovery, HPDBaseSqliteOptions options) =>
         BaseActivationCertificationReceiptContract.FromSuccessfulReport(
             "hpd.base.sqlite.activations", "1", new BaseActivationProviderCapability
         {
@@ -166,9 +194,9 @@ public sealed partial class SqliteRecordStore
             MaximumEvidenceBytes = 16L * 1024 * 1024,
             MaximumTransientBytes = 16L * 1024 * 1024,
             MaximumReceiptBytes = 16L * 1024 * 1024,
-            MaximumPendingRows = 1_000_000,
-            MaximumClaimedRows = 1_000_000,
-            MaximumTerminalRows = 1_000_000,
+            MaximumPendingRows = options.MaxPendingActivationRows,
+            MaximumClaimedRows = options.MaxClaimedActivationRows,
+            MaximumTerminalRows = options.MaxTerminalActivationRows,
             MaximumAttempts = 1024,
             MaximumRenewalsPerAttempt = 4096,
             MaximumChildrenPerAttempt = 4096,
@@ -195,8 +223,8 @@ public sealed partial class SqliteRecordStore
                 : [],
             CanonicalChecksum = ImmutableArray.CreateRange(SHA256.HashData("hpd.base.sqlite.activations.v2"u8)),
         }, ImmutableArray.CreateRange(Convert.FromHexString(durableRecovery
-            ? "03b21e5f8acf95b5ac692881c53d520f72d843215be4a687d36cfbe808d71f90"
-            : "2a9ef13f806500c0c2a31298beb44a37960af4b256194c75c029985c9eab967c")), "Microsoft.Data.Sqlite");
+            ? "76ec60b6e206e167343e6266e73c80e9eac7300927dafa7a039c5a7993247c13"
+            : "76ec60b6e206e167343e6266e73c80e9eac7300927dafa7a039c5a7993247c13")), "Microsoft.Data.Sqlite");
 
     BaseActivationProviderDescriptor IBaseActivationProvider.Descriptor =>
         _activationDescriptor ?? throw new InvalidOperationException("base.activation.providerUnavailable");
@@ -258,6 +286,8 @@ public sealed partial class SqliteRecordStore
             Completed = completed, Accounting = ActivationAccounting(candidates.Count, items.Count * 32L),
             Disposition = BaseMutationRequestDisposition.Committed,
         };
+        if (!await ActivationRowCapacityAllowsAsync(connection, transaction, cancellationToken).ConfigureAwait(false))
+            return ActivationFailure<BaseActivationMaintenancePage>("base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
         await WriteActivationReceiptAsync(connection, transaction, request.Identity, "activation-maintenance", result,
             HPDBaseJsonSerializerContext.Default.BaseActivationMaintenancePage, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -530,6 +560,8 @@ public sealed partial class SqliteRecordStore
             await UpdateRecoveredAsync(connection, transaction, row.ActivationId, recovered,
                 request.AcceptedTime.CapturedUtc, cancellationToken).ConfigureAwait(false);
             await IncrementActivationGenerationAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+            if (!await ActivationRowCapacityAllowsAsync(connection, transaction, cancellationToken).ConfigureAwait(false))
+                return ActivationFailure<BaseActivationClaimResult>("base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
             BaseActivationClaimResult recoveredResult = new BaseActivationRecoveredClaimResult(row.ActivationId, recovered);
             await WriteActivationReceiptAsync(connection, transaction, request.Identity, "activation-claimed", recoveredResult,
                 HPDBaseJsonSerializerContext.Default.BaseActivationClaimResult, cancellationToken).ConfigureAwait(false);
@@ -589,6 +621,8 @@ public sealed partial class SqliteRecordStore
             [ActivationDueInterval(request.Worker.Scope, request.AcceptedTime.CapturedUtc, null,
                 ActivationBoundary(row, request.AcceptedTime.CapturedUtc))],
             ActivationAccounting(1, 128));
+        if (!await ActivationRowCapacityAllowsAsync(connection, transaction, cancellationToken).ConfigureAwait(false))
+            return ActivationFailure<BaseActivationClaimResult>("base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
         await WriteActivationReceiptAsync(connection, transaction, request.Identity, "activation-claimed", claimedResult,
             HPDBaseJsonSerializerContext.Default.BaseActivationClaimResult, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -832,6 +866,8 @@ public sealed partial class SqliteRecordStore
             Accounting = ActivationAccounting(1, 64), Disposition = BaseMutationRequestDisposition.Committed, Effect = resultingEffect,
             CanonicalResult = result?.ToImmutableArray() ?? ImmutableArray<byte>.Empty,
         };
+        if (!await ActivationRowCapacityAllowsAsync(connection, transaction, cancellationToken).ConfigureAwait(false))
+            return ActivationFailure<BaseActivationTransitionResult>("base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
         await WriteActivationReceiptAsync(connection, transaction, request.Identity, receiptKind, transitionResult,
             HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -943,6 +979,8 @@ public sealed partial class SqliteRecordStore
             Accounting = ActivationAccounting(1, 64) with { Comparisons = 8, IndexOperations = 2 },
             Disposition = BaseMutationRequestDisposition.Committed,
         };
+        if (!await ActivationRowCapacityAllowsAsync(connection, transaction, cancellationToken).ConfigureAwait(false))
+            return ActivationFailure<BaseActivationMigrationResult>("base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
         await WriteActivationReceiptAsync(connection, transaction, request.Identity, "activation-migrated", result,
             HPDBaseJsonSerializerContext.Default.BaseActivationMigrationResult, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -1211,6 +1249,8 @@ public sealed partial class SqliteRecordStore
         var result = new BaseScheduleMaintenancePage { Authority = replacement,
             Occurrences = committedFacts.MoveToImmutable(), Cancellations = cancellations.ToImmutable(), Accounting = ActivationAccounting(request.Occurrences.Length, request.Occurrences.Length * 128L),
             Disposition = BaseMutationRequestDisposition.Committed };
+        if (!await ActivationRowCapacityAllowsAsync(connection, transaction, cancellationToken).ConfigureAwait(false))
+            return ActivationFailure<BaseScheduleMaintenancePage>("base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
         await WriteActivationReceiptAsync(connection, transaction, request.Identity, "occurrence-page", result,
             HPDBaseJsonSerializerContext.Default.BaseScheduleMaintenancePage, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -1345,6 +1385,8 @@ public sealed partial class SqliteRecordStore
             Completed = !hasMore, Accounting = ActivationAccounting(page.Count, page.Count * 96L),
             Disposition = BaseMutationRequestDisposition.Committed,
         };
+        if (!await ActivationRowCapacityAllowsAsync(connection, transaction, cancellationToken).ConfigureAwait(false))
+            return ActivationFailure<BaseScheduleCancellationMaintenancePage>("base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
         await WriteActivationReceiptAsync(connection, transaction, request.Identity, "cancellation-maintenance", result,
             HPDBaseJsonSerializerContext.Default.BaseScheduleCancellationMaintenancePage, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
