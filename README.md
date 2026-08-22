@@ -44,7 +44,7 @@ Use HPD-ML to build machine-learning pipelines with a common data abstraction, c
 
 ---
 
-## HPD-Extract
+## HPD-Extract - Coming Soon
 
 Use HPD-Extract for high-precision, multi-modal document,image,wesbite text extraction.
 
@@ -71,7 +71,7 @@ Use HPD-Environment to orchestrate sandboxed compute runtimes: virtual machines,
 
 ---
 
-## HPD-Base
+## HPD-Base - Coming Soon
 
 Use HPD-Base as your application data runtime: collections, fail-closed policy enforcement, atomic multi-collection batches, transactional receipts, live query replacement recomputation, and co-located SQLiteVec vector search[cite: 1].
 
@@ -80,7 +80,7 @@ Use HPD-Base as your application data runtime: collections, fail-closed policy e
 
 ---
 
-## HPD-Gateway
+## HPD-Gateway - Coming Soon
 
 Use HPD-Gateway to embed ASP.NET Core-native, YARP-backed API gateway capabilities into your app: candidate configuration validation, Microsoft Service Discovery integration, Redis-backed distributed token-bucket admission, and optional standalone Native AOT binaries[cite: 4].
 
@@ -97,7 +97,7 @@ Use HPD-Auth when you want hosted-auth-service ergonomics inside your own ASP.NE
 
 ---
 
-## HPD-Payments
+## HPD-Payments - Coming Soon
 
 Use HPD-Payments to run formal double-entry financial ledgers and billing lifecycles across 17 closed authority domains, featuring compare-bind generation guards, out-of-process authenticated extension hosts, and deterministic virtual-time simulation.
 
