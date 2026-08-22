@@ -417,6 +417,9 @@ internal sealed record InMemoryMutationReceipt(
                 CellId = new string(generation.CellId.AsSpan()),
             }).ToImmutableArray(),
             CanonicalResultBytes = result.ModuleMutation.CanonicalResultBytes.ToArray().ToImmutableArray(),
+            CreatedActivationIds = result.ModuleMutation.CreatedActivationIds
+                .Select(static value => new string(value.AsSpan()))
+                .ToImmutableArray(),
         },
         SubjectLifecycleCheckpoint = result.SubjectLifecycleCheckpoint is null
             ? null

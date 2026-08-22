@@ -122,6 +122,8 @@ public sealed record BaseActivationDelivery<TInput>
     public required BaseActivationLeaseObservation Lease { get; init; }
     /// <summary>Gets the exact attempt observation.</summary>
     public required BaseActivationAttemptEvidence Attempt { get; init; }
+    /// <summary>Gets the protected semantic scope inherited by guarded child work.</summary>
+    public required BaseOwnedSubjectScopeEvidence Scope { get; init; }
     /// <summary>Gets the immutable schedule occurrence identity, when scheduled.</summary>
     public string? OccurrenceId { get; init; }
     /// <summary>Gets the requested due instant as Unix milliseconds.</summary>
@@ -206,6 +208,7 @@ public sealed class BaseInstalledActivationWorkerHandle<TInput, TResult>
             Claim = value.Claim,
             Lease = value.Lease,
             Attempt = value.Attempt,
+            Scope = value.Payload.Scope with { },
             OccurrenceId = value.Payload.OccurrenceId,
             RequestedDueAt = value.Payload.RequestedDueAt,
             EffectiveDueAt = value.Payload.EffectiveDueAt,
@@ -336,6 +339,7 @@ public sealed class BaseInstalledActivationWorkerHandle<TInput, TResult>
                 new BaseActivationDefinitionKey { Id = _definition.Id, Version = _definition.Version, Checksum = _definition.Checksum },
                 delivery.Claim,
                 delivery.Lease,
+                delivery.Scope,
                 delivery.OccurrenceId,
                 delivery.RequestedDueAt,
                 delivery.EffectiveDueAt,

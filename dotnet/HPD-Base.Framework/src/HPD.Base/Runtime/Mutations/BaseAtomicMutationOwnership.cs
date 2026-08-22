@@ -65,6 +65,32 @@ internal static class BaseAtomicMutationOwnership
             ProjectionDigest = ImmutableArray.Create(value.Text.ProjectionDigest.ToArray()),
             Facts = value.Text.Facts.Select(FreezeTextFact).ToImmutableArray(),
         },
+        Activations = value.Activations is null ? null : new BaseActivationCreationExtension
+        {
+            StructuralDigest = ImmutableArray.Create(value.Activations.StructuralDigest.ToArray()),
+            Items = value.Activations.Items.Select(static item => item with
+            {
+                Definition = item.Definition with
+                {
+                    Id = new string(item.Definition.Id.AsSpan()),
+                    Checksum = ImmutableArray.Create(item.Definition.Checksum.ToArray()),
+                },
+                CanonicalInput = ImmutableArray.Create(item.CanonicalInput.ToArray()),
+                InputChecksum = ImmutableArray.Create(item.InputChecksum.ToArray()),
+                OccurrenceId = item.OccurrenceId is null ? null : new string(item.OccurrenceId.AsSpan()),
+                OverlapKey = item.OverlapKey.IsDefaultOrEmpty
+                    ? []
+                    : ImmutableArray.Create(item.OverlapKey.ToArray()),
+                Scope = item.Scope with
+                {
+                    Value = item.Scope.Value is null ? null : new string(item.Scope.Value.AsSpan()),
+                },
+                Identity = item.Identity with
+                {
+                    IdempotencyKey = new string(item.Identity.IdempotencyKey.AsSpan()),
+                },
+            }).ToImmutableArray(),
+        },
         Limits = value.Limits with { },
     };
 

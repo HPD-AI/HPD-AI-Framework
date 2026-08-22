@@ -40,7 +40,7 @@ public sealed partial class ActivationRuntimeTests
         var replacement = initial with { LeaseRevision = 2, LeaseExpiresAt = 200 };
         var context = new BaseActivationContext(
             new BaseActivationDefinitionKey { Id = "definition", Version = 1, Checksum = new byte[32].ToImmutableArray() },
-            claim, initial, null, 0, 0, 1,
+            claim, initial, new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Global }, null, 0, 0, 1,
             (_, _) => ValueTask.FromResult(OperationResults.Ok(new BaseActivationRenewResult
             {
                 Claim = claim, Lease = replacement, Accounting = new BaseActivationAccounting

@@ -95,6 +95,8 @@ public sealed record BaseModuleMutationReceiptResult
     public required ImmutableArray<BaseModuleCommittedGeneration> Generations { get; init; }
     /// <summary>Gets the exact graph-owned canonical result bytes.</summary>
     public required ImmutableArray<byte> CanonicalResultBytes { get; init; }
+    /// <summary>Gets child activations created atomically with this module operation.</summary>
+    public ImmutableArray<string> CreatedActivationIds { get; init; } = [];
 }
 
 /// <summary>Provides the source-generated persistence shape for one committed module generation.</summary>
@@ -127,6 +129,8 @@ public sealed record BaseModuleMutationReceiptResultWire
     public required BaseModuleCommittedGenerationWire[] Generations { get; init; }
     /// <summary>Gets the exact canonical result bytes.</summary>
     public required byte[] CanonicalResultBytes { get; init; }
+    /// <summary>Gets child activation identities created by the same transaction.</summary>
+    public string[] CreatedActivationIds { get; init; } = [];
 }
 
 /// <summary>Stores the bounded durable result of one selection mutation.</summary>
@@ -232,6 +236,7 @@ public sealed record BaseAtomicReceiptWire
                     Resulting = generation.Resulting.ToCanonicalString(),
                 }).ToArray(),
                 CanonicalResultBytes = result.ModuleMutation.CanonicalResultBytes.ToArray(),
+                CreatedActivationIds = result.ModuleMutation.CreatedActivationIds.ToArray(),
             },
             SubjectLifecycleCheckpoint = result.SubjectLifecycleCheckpoint is null
                 ? null
@@ -267,6 +272,7 @@ public sealed record BaseAtomicReceiptWire
                     Resulting = BaseModuleGeneration.ParseCanonical(generation.Resulting),
                 }).ToImmutableArray(),
                 CanonicalResultBytes = ModuleMutation.CanonicalResultBytes.ToArray().ToImmutableArray(),
+                CreatedActivationIds = ModuleMutation.CreatedActivationIds.ToImmutableArray(),
             },
             SubjectLifecycleCheckpoint = SubjectLifecycleCheckpoint is null
                 ? null

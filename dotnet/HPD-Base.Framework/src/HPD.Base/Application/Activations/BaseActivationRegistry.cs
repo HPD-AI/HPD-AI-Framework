@@ -192,6 +192,7 @@ public sealed class BaseActivationContext
         BaseActivationDefinitionKey definition,
         BaseActivationClaimAuthority claim,
         BaseActivationLeaseObservation lease,
+        BaseOwnedSubjectScopeEvidence scope,
         string? occurrenceId,
         long requestedDueAt,
         long effectiveDueAt,
@@ -203,6 +204,7 @@ public sealed class BaseActivationContext
         Definition = definition;
         Claim = claim;
         Lease = lease;
+        Scope = scope with { };
         OccurrenceId = occurrenceId;
         RequestedDueAt = requestedDueAt;
         EffectiveDueAt = effectiveDueAt;
@@ -218,6 +220,8 @@ public sealed class BaseActivationContext
     public BaseActivationClaimAuthority Claim { get; }
     /// <summary>Gets the current immutable lease observation.</summary>
     public BaseActivationLeaseObservation Lease { get; internal set; }
+    /// <summary>Gets the immutable protected semantic scope inherited from the activation.</summary>
+    public BaseOwnedSubjectScopeEvidence Scope { get; }
     /// <summary>Gets the immutable schedule occurrence identity, when scheduled.</summary>
     public string? OccurrenceId { get; }
     /// <summary>Gets the requested due instant as Unix milliseconds.</summary>
@@ -321,6 +325,67 @@ public sealed class BaseActivationContext
         return (options ?? new BaseModuleMutationExecutionOptions()) with
         {
             ActivationGuard = GuardChild(stepId, childOrdinal, fingerprint),
+        };
+    }
+
+    /// <summary>
+    /// Creates L50 options that atomically persist guarded module state and one
+    /// graph-installed child activation in the same provider transaction.
+    /// </summary>
+    public BaseModuleMutationExecutionOptions GuardModuleMutationAndCreateActivation<TInput, TResult>(
+        string stepId,
+        int childOrdinal,
+        BaseMutationRequestFingerprint fingerprint,
+        BaseActivationRegistrationIdentity<TInput, TResult> activation,
+        TInput input,
+        long requestedDueAt,
+        BaseModuleMutationExecutionOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(activation);
+        ArgumentNullException.ThrowIfNull(fingerprint);
+        ArgumentOutOfRangeException.ThrowIfNegative(requestedDueAt);
+        BaseActivationGuard guard = GuardChild(stepId, childOrdinal, fingerprint);
+        byte[] canonicalInput = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(input, activation.Input);
+        byte[] inputChecksum = System.Security.Cryptography.SHA256.HashData(canonicalInput);
+        BaseMutationRequestIdentity childIdentity = DeriveChildIdentity(stepId, childOrdinal, fingerprint);
+        var intent = new BaseActivationCreateIntent
+        {
+            Ordinal = 0,
+            Definition = new BaseActivationDefinitionKey
+            {
+                Id = activation.Id,
+                Version = activation.Version,
+                Checksum = activation.Checksum.ToArray().ToImmutableArray(),
+            },
+            CanonicalInput = canonicalInput.ToImmutableArray(),
+            InputChecksum = inputChecksum.ToImmutableArray(),
+            Scope = Scope with { },
+            RequestedDueAt = requestedDueAt,
+            EffectiveDueAt = requestedDueAt,
+            Priority = 0,
+            OverlapKey = [],
+            OverlapPolicy = BaseScheduleOverlapPolicy.Allow,
+            InitiallyEligible = true,
+            Identity = childIdentity,
+        };
+        using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(
+            System.Security.Cryptography.HashAlgorithmName.SHA256);
+        hash.AppendData("base.activation.childCreation.v1\0"u8);
+        hash.AppendData(guard.ChildRequestFingerprint.AsSpan());
+        hash.AppendData(Encoding.UTF8.GetBytes(activation.Id));
+        hash.AppendData(activation.Checksum.Span);
+        hash.AppendData(inputChecksum);
+        Span<byte> due = stackalloc byte[sizeof(long)];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt64BigEndian(due, requestedDueAt);
+        hash.AppendData(due);
+        return (options ?? new BaseModuleMutationExecutionOptions()) with
+        {
+            ActivationGuard = guard,
+            ActivationCreation = new BaseActivationCreationExtension
+            {
+                Items = [intent],
+                StructuralDigest = hash.GetHashAndReset().ToImmutableArray(),
+            },
         };
     }
 }

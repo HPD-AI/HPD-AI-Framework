@@ -1350,6 +1350,59 @@ public sealed partial class SqliteRecordStore
                 });
             }
 
+            BaseCapturedActivationExtension? capturedActivations = null;
+            if (request.Activations is { } activationExtension)
+            {
+                if (activationExtension.Items.IsDefaultOrEmpty
+                    || activationExtension.Items.Length > limits.MaximumItems
+                    || activationExtension.StructuralDigest.Length != 32)
+                    return SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                var activationItems = ImmutableArray.CreateBuilder<BaseCapturedActivationItem>(activationExtension.Items.Length);
+                var activationIntervals = ImmutableArray.CreateBuilder<BaseAtomicReadIntervalEvidence>(activationExtension.Items.Length);
+                using var activationDigest = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+                activationDigest.AppendData(activationExtension.StructuralDigest.AsSpan());
+                for (int ordinal = 0; ordinal < activationExtension.Items.Length; ordinal++)
+                {
+                    BaseActivationCreateIntent item = activationExtension.Items[ordinal];
+                    if (item.Ordinal != ordinal || item.Definition.Version < 1 || item.Definition.Checksum.Length != 32
+                        || item.InputChecksum.Length != 32 || item.CanonicalInput.IsDefault
+                        || !CryptographicOperations.FixedTimeEquals(SHA256.HashData(item.CanonicalInput.AsSpan()), item.InputChecksum.AsSpan()))
+                        return SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                    byte[] idBytes = SHA256.HashData(activationExtension.StructuralDigest
+                        .Concat(BitConverter.GetBytes(ordinal).Reverse()).ToArray());
+                    string activationId = Convert.ToHexStringLower(idBytes);
+                    byte[] fingerprint = ActivationFingerprint(item);
+                    byte[]? existingFingerprint;
+                    await using (SqliteCommand command = _connection.CreateCommand())
+                    {
+                        command.Transaction = _transaction;
+                        command.CommandText = $"SELECT fingerprint FROM {_owner._names.Activations} WHERE activation_id=$id;";
+                        command.Parameters.AddWithValue("$id", activationId);
+                        existingFingerprint = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as byte[];
+                    }
+                    if (existingFingerprint is not null && !CryptographicOperations.FixedTimeEquals(existingFingerprint, fingerprint))
+                        return SubjectFailure<BaseCapturedAtomicExecution>(
+                            "base.activation.fingerprintConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+                    byte[] key = Encoding.UTF8.GetBytes(activationId);
+                    BaseAtomicReadIntervalEvidence interval = ExactInterval("base.activation.byId", key);
+                    intervals.Add(interval); activationIntervals.Add(interval);
+                    activationDigest.AppendData(key); activationDigest.AppendData(fingerprint);
+                    selectedBytes = checked(selectedBytes + item.CanonicalInput.Length + fingerprint.Length);
+                    activationItems.Add(new BaseCapturedActivationItem
+                    {
+                        Ordinal = ordinal, ActivationId = activationId, Exists = existingFingerprint is not null,
+                        ExistingFingerprint = existingFingerprint?.ToImmutableArray() ?? [],
+                    });
+                }
+                capturedActivations = new BaseCapturedActivationExtension
+                {
+                    Items = activationItems.MoveToImmutable(), ReadIntervals = activationIntervals.MoveToImmutable(),
+                    Checksum = activationDigest.GetHashAndReset().ToImmutableArray(),
+                };
+                digest.AppendData(capturedActivations.Checksum.AsSpan());
+                _capturedActivationExtension = FreezeActivationExtension(activationExtension);
+            }
+
             OperationResult<ImmutableArray<BaseCapturedSubjectRetirementProjection>> retirementResult =
                 await CaptureRetirementAsync(request.SubjectRetirement, intent, module, digest, intervals, cancellationToken).ConfigureAwait(false);
             if (!retirementResult.IsSuccess() || retirementResult.Value.IsDefault)
@@ -1376,6 +1429,7 @@ public sealed partial class SqliteRecordStore
                 },
                 Items = [], ModuleRecords = records.MoveToImmutable(), ModuleRelationTargets = relations.MoveToImmutable(),
                 Generations = generations.MoveToImmutable(), ActivationGuard = _capturedActivationGuard,
+                Activations = capturedActivations,
                 SubjectRetirement = retirementResult.Value,
                 ReadIntervals = intervals.MoveToImmutable(),
                 Accounting = new BaseAtomicCaptureAccounting
@@ -1499,15 +1553,15 @@ public sealed partial class SqliteRecordStore
                 (plan.Kind == BaseAtomicMutationExecutionKind.ModuleMutation
                     ? plan.Module is null || captured.Items.Length != 0
                     : plan.Items.Length != captured.Items.Length)
-                || (plan.Kind == BaseAtomicMutationExecutionKind.ActivationCreation
-                    && (plan.Activations is null || captured.Activations is null
-                        || _capturedActivationExtension is null || !plan.Items.IsDefaultOrEmpty)))
+                || (plan.Activations is not null
+                    && (captured.Activations is null || _capturedActivationExtension is null
+                        || plan.Kind == BaseAtomicMutationExecutionKind.ActivationCreation && !plan.Items.IsDefaultOrEmpty)))
                 return SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
             if (!ActivationGuardMatches(plan.ActivationGuard, captured.ActivationGuard))
                 return SubjectFailure<BasePreparedAtomicExecution>("base.activation.claimLost", OperationStatus.Conflict, ErrorCategory.Conflict);
             var preparedGenerations = ImmutableArray.CreateBuilder<BasePreparedModuleGenerationEvidence>(captured.Generations.Length);
             BasePreparedActivationExtension? preparedActivations = null;
-            if (plan.Kind == BaseAtomicMutationExecutionKind.ActivationCreation)
+            if (plan.Activations is not null)
             {
                 if (!ActivationExtensionsMatch(plan.Activations!, _capturedActivationExtension!, captured.Activations!))
                     return SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
@@ -2122,7 +2176,7 @@ public sealed partial class SqliteRecordStore
                 _capturedModuleGenerationKeys = null;
             }
             BaseProvisionalActivationExtension? provisionalActivations = null;
-            if (plan.Kind == BaseAtomicMutationExecutionKind.ActivationCreation)
+            if (plan.Activations is not null)
             {
                 if (prepared.Activations is null || plan.Activations is null || _capturedMutation?.Activations is null
                     || prepared.Activations.Items.Length != plan.Activations.Items.Length)

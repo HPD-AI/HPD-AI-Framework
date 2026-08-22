@@ -400,6 +400,7 @@ public sealed record BaseModuleMutationExecutionOptions
     /// <summary>Gets an optional caller-narrowed commit observation deadline.</summary>
     public TimeSpan? MaximumWait { get; init; }
     internal BaseActivationGuard? ActivationGuard { get; init; }
+    internal BaseActivationCreationExtension? ActivationCreation { get; init; }
 }
 /// <summary>Public typed execution result.</summary>
 public sealed record BaseModuleMutationExecutionResult<TResult>

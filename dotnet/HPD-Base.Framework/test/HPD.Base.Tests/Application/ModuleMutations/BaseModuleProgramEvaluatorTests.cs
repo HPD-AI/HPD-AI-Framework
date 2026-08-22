@@ -214,7 +214,7 @@ public sealed class BaseModuleProgramEvaluatorTests
         };
         BaseCapturedAtomicExecution valid = RelationEvidence(expected, requirement);
         BaseModuleMutationProcessor<CreateRequest, CreateResult>.CapturedMatches(
-            intent, extension, DefaultBaseModuleMutationRuntime.ResolveExecutionLimits(Limits()), valid).Should().BeTrue();
+            intent, extension, null, DefaultBaseModuleMutationRuntime.ResolveExecutionLimits(Limits()), valid).Should().BeTrue();
 
         BaseCapturedAtomicExecution[] hostile =
         [
@@ -224,7 +224,7 @@ public sealed class BaseModuleProgramEvaluatorTests
         ];
         foreach (BaseCapturedAtomicExecution evidence in hostile)
             BaseModuleMutationProcessor<CreateRequest, CreateResult>.CapturedMatches(
-                intent, extension, DefaultBaseModuleMutationRuntime.ResolveExecutionLimits(Limits()), evidence).Should().BeFalse();
+                intent, extension, null, DefaultBaseModuleMutationRuntime.ResolveExecutionLimits(Limits()), evidence).Should().BeFalse();
     }
 
     private static BaseAtomicMutationAuthorityRequirement AuthorityRequirement() => new()

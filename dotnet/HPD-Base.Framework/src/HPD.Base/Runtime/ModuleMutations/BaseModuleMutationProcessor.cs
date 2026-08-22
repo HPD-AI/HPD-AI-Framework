@@ -12,6 +12,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
     BaseAtomicMutationIntent intent,
     BaseModuleMutationCaptureExtension extension,
     BaseActivationGuard? activationGuard,
+    BaseActivationCreationExtension? activationCreation,
     BaseAtomicMutationExecutionLimits limits,
     IReadOnlyDictionary<string, CollectionDefinition> collections,
     PrincipalContext principal,
@@ -36,6 +37,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             Kind = BaseAtomicMutationExecutionKind.ModuleMutation,
             Intent = intent,
             Module = extension,
+            Activations = activationCreation,
             ActivationGuard = activationGuard,
             SubjectRetirement = CreateRetirementCapture(extension),
             Limits = limits,
@@ -45,7 +47,8 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         if (!captured.IsSuccess() || captured.Value is null)
             return Failed(captured.Error ?? Error(BaseModuleMutationErrorCodes.StoreError, ErrorCategory.Store));
         BaseCapturedAtomicExecution evidence = captured.Value;
-        if (!CapturedMatches(intent, extension, limits, evidence))
+        if (!CapturedMatches(intent, extension, activationCreation, limits, evidence)
+            || !ActivationCapturedMatches(activationCreation, evidence.Activations))
             return Failed(Error("base.moduleMutation.captureEvidenceInvalid", ErrorCategory.Store));
 
         var evaluator = new BaseModuleProgramEvaluator<TRequest, TResult>(definition, identity, request, evidence, collections);
@@ -128,7 +131,8 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             string.Join(';', authorizedRelations.Select(static value =>
                 $"{value.CaptureOrdinal}:{value.SourceStatementId}:{value.SourceFieldId}:{value.TargetCollectionId}:{value.TargetRecordId.Value}:{Convert.ToHexString(value.PolicyAuthorityDigest.ToArray())}")),
             retirementPlan?.PlanChecksum ?? string.Empty,
-            textPlan is null ? string.Empty : Convert.ToHexString(textPlan.ProjectionDigest.AsSpan()));
+            textPlan is null ? string.Empty : Convert.ToHexString(textPlan.ProjectionDigest.AsSpan()),
+            activationCreation is null ? string.Empty : Convert.ToHexString(activationCreation.StructuralDigest.AsSpan()));
         var plan = new BaseFinalizedAtomicExecutionPlan
         {
             Kind = BaseAtomicMutationExecutionKind.ModuleMutation,
@@ -140,6 +144,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             SubjectValidations = recordPlan.Value.SubjectValidations,
             SubjectRetirement = retirementPlan,
             Text = textPlan,
+            Activations = activationCreation,
             Module = new BaseFinalizedModuleMutationExtension
             {
                 OperationId = definition.Id, OperationVersion = definition.Version,
@@ -191,6 +196,8 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             Disposition = BaseMutationRequestDisposition.Committed, Outcome = BaseModuleMutationOutcome.Committed,
             Generations = applied.Value.Generations.Select(static value => value with { }).ToImmutableArray(),
             CanonicalResultBytes = resultBytes.ToArray().ToImmutableArray(),
+            CreatedActivationIds = applied.Value.Activations?.Items
+                .Select(static value => new string(value.ActivationId.AsSpan())).ToImmutableArray() ?? [],
         };
         var receipt = activationCommit is null
             ? new BaseAtomicReceiptResult
@@ -513,6 +520,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
     internal static bool CapturedMatches(
         BaseAtomicMutationIntent intent,
         BaseModuleMutationCaptureExtension extension,
+        BaseActivationCreationExtension? activationCreation,
         BaseAtomicMutationExecutionLimits limits,
         BaseCapturedAtomicExecution value)
     {
@@ -589,7 +597,19 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
                 return false;
             generationBytes = checked(generationBytes + interval.CanonicalLowerBound.Length + 1 + (actual.Exists ? 8 : 0));
         }
-        if (intervalOrdinal != value.ReadIntervals.Length) return false;
+        if (value.Activations is { } activationEvidence)
+        {
+            if (intervalOrdinal + activationEvidence.ReadIntervals.Length > value.ReadIntervals.Length)
+                return false;
+            for (int index = 0; index < activationEvidence.ReadIntervals.Length; index++)
+            {
+                if (!Equals(value.ReadIntervals[intervalOrdinal + index], activationEvidence.ReadIntervals[index]))
+                    return false;
+            }
+            intervalOrdinal += activationEvidence.ReadIntervals.Length;
+        }
+        if (activationCreation is not null)
+            selectedBytes = checked(selectedBytes + activationCreation.Items.Sum(static item => item.CanonicalInput.Length + 32L));
         long evidenceBytes = BaseSubjectCanonicalRetainedWork.MeasureIntervals(value.ReadIntervals);
         long transient = checked(selectedBytes + relationBytes + generationBytes + evidenceBytes);
         return value.Accounting.Records == extension.Records.Length
@@ -618,6 +638,31 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             && intervals[ordinal].CanonicalUpperBound.AsSpan().SequenceEqual(key);
     }
 
+    private static bool ActivationCapturedMatches(
+        BaseActivationCreationExtension? expected,
+        BaseCapturedActivationExtension? actual)
+    {
+        if (expected is null) return actual is null;
+        if (actual is null || expected.StructuralDigest.Length != 32
+            || actual.Checksum.Length != 32 || actual.Items.Length != expected.Items.Length
+            || actual.ReadIntervals.Length != expected.Items.Length)
+            return false;
+        for (int ordinal = 0; ordinal < expected.Items.Length; ordinal++)
+        {
+            BaseCapturedActivationItem item = actual.Items[ordinal];
+            BaseAtomicReadIntervalEvidence interval = actual.ReadIntervals[ordinal];
+            if (item.Ordinal != ordinal || string.IsNullOrWhiteSpace(item.ActivationId)
+                || interval.LogicalAccessPathId != "base.activation.byId"
+                || !interval.LowerInclusive || !interval.UpperInclusive
+                || !interval.CanonicalLowerBound.AsSpan().SequenceEqual(interval.CanonicalUpperBound.AsSpan())
+                || !interval.CanonicalLowerBound.AsSpan().SequenceEqual(Encoding.UTF8.GetBytes(item.ActivationId))
+                || item.Exists && item.ExistingFingerprint.Length != 32
+                || !item.Exists && !item.ExistingFingerprint.IsDefaultOrEmpty)
+                return false;
+        }
+        return true;
+    }
+
     private static bool PreparedMatches(BaseFinalizedAtomicExecutionPlan plan, BaseCapturedAtomicExecution captured, BasePreparedAtomicExecution prepared)
     {
         BaseFinalizedModuleMutationExtension? module = plan.Module;
@@ -630,6 +675,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             || prepared.Accounting.GenerationComparisons != module.Comparisons.Length
             || prepared.Accounting.GenerationIncrements != module.Increments.Length
             || prepared.Accounting.ReadIntervals != prepared.ReadIntervals.Length
+            || !PreparedActivationMatches(plan.Activations, captured.Activations, prepared.Activations)
             || !DefaultBaseMutationProcessor.RetirementEvidenceMatches(plan.SubjectRetirement, prepared.SubjectRetirement)
             || !BaseTextAtomicMutationContract.PreparedMatches(plan.Text, prepared.Text))
             return false;
@@ -661,6 +707,28 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         return true;
     }
 
+    private static bool PreparedActivationMatches(
+        BaseActivationCreationExtension? plan,
+        BaseCapturedActivationExtension? captured,
+        BasePreparedActivationExtension? prepared)
+    {
+        if (plan is null) return captured is null && prepared is null;
+        if (captured is null || prepared is null || prepared.Checksum.Length != 32
+            || captured.Items.Length != plan.Items.Length || prepared.Items.Length != plan.Items.Length)
+            return false;
+        for (int ordinal = 0; ordinal < plan.Items.Length; ordinal++)
+        {
+            BasePreparedActivationItem item = prepared.Items[ordinal];
+            if (item.Ordinal != ordinal || item.ActivationId != captured.Items[ordinal].ActivationId
+                || item.ResultingGeneration != 1 || item.PayloadChecksum.Length != 32
+                || item.ControlChecksum.Length != 32
+                || !CryptographicOperations.FixedTimeEquals(
+                    item.PayloadChecksum.AsSpan(), SHA256.HashData(plan.Items[ordinal].CanonicalInput.AsSpan())))
+                return false;
+        }
+        return true;
+    }
+
     private static bool AuthorityMatches(BaseAtomicMutationAuthorityEvidence left, BaseAtomicMutationAuthorityEvidence right) =>
         left.ApplicationId == right.ApplicationId
         && left.StoreInstanceId == right.StoreInstanceId
@@ -685,6 +753,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             || applied.Facts.Length != plan.Items.Length
             || applied.Generations.Length != module.Increments.Length
             || !DefaultBaseMutationProcessor.RetirementEvidenceMatches(plan.SubjectRetirement, applied.SubjectRetirement)
+            || !AppliedActivationMatches(plan.Activations, prepared.Activations, applied.Activations)
             || !BaseTextAtomicMutationContract.AppliedMatches(plan.Text, prepared.Text, applied.Text, applied.Facts))
             return false;
         for (int index = 0; index < applied.Generations.Length; index++)
@@ -699,6 +768,25 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
                 || !Equals(actual.Previous, prior.Generation)
                 || actual.Previous is not null && (actual.Previous.Value == long.MaxValue || actual.Resulting.Value != actual.Previous.Value + 1)
                 || actual.Previous is null && actual.Resulting.ToCanonicalString() != "1")
+                return false;
+        }
+        return true;
+    }
+
+    private static bool AppliedActivationMatches(
+        BaseActivationCreationExtension? plan,
+        BasePreparedActivationExtension? prepared,
+        BaseProvisionalActivationExtension? applied)
+    {
+        if (plan is null) return prepared is null && applied is null;
+        if (prepared is null || applied is null || applied.Checksum.Length != 32
+            || applied.Items.Length != plan.Items.Length || prepared.Items.Length != plan.Items.Length)
+            return false;
+        for (int ordinal = 0; ordinal < plan.Items.Length; ordinal++)
+        {
+            BaseProvisionalActivationItem item = applied.Items[ordinal];
+            if (item.Ordinal != ordinal || item.ActivationId != prepared.Items[ordinal].ActivationId
+                || item.Generation != prepared.Items[ordinal].ResultingGeneration || item.Checksum.Length != 32)
                 return false;
         }
         return true;
