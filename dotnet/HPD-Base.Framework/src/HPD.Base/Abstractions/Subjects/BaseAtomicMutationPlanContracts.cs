@@ -126,6 +126,8 @@ public sealed record BaseAtomicExecutionRequest
     public BaseActivationCreationExtension? Activations { get; init; }
     /// <summary>Gets the optional same-store activation fence.</summary>
     public BaseActivationGuard? ActivationGuard { get; init; }
+    /// <summary>Gets the optional L53 semantic activation operation.</summary>
+    public BaseAtomicSemanticActivationExtension? SemanticActivation { get; init; }
     /// <summary>Gets the sole complete safety envelope.</summary>
     public required BaseAtomicMutationExecutionLimits Limits { get; init; }
 }
@@ -316,6 +318,8 @@ public sealed record BaseCapturedAtomicExecution
     public BaseCapturedActivationExtension? Activations { get; init; }
     /// <summary>Gets transaction-captured activation-fence authority when a child operation is guarded.</summary>
     public BaseCapturedActivationGuardEvidence? ActivationGuard { get; init; }
+    /// <summary>Gets captured L53 semantic activation authority.</summary>
+    public BaseCapturedSemanticActivationEvidence? SemanticActivation { get; init; }
     /// <summary>Gets normalized transaction read intervals.</summary>
     public required ImmutableArray<BaseAtomicReadIntervalEvidence> ReadIntervals { get; init; }
     /// <summary>Gets exact capture accounting.</summary>
@@ -563,6 +567,8 @@ public sealed record BaseFinalizedAtomicExecutionPlan
     public BaseActivationCreationExtension? Activations { get; init; }
     /// <summary>Gets the activation fence finalized by Runtime.</summary>
     public BaseActivationGuard? ActivationGuard { get; init; }
+    /// <summary>Gets the Runtime-finalized L53 semantic activation operation.</summary>
+    public BaseAtomicSemanticActivationExtension? SemanticActivation { get; init; }
     /// <summary>Gets the complete immutable execution limits.</summary>
     public required BaseAtomicMutationExecutionLimits Limits { get; init; }
 }
@@ -894,6 +900,8 @@ public sealed record BasePreparedAtomicExecution
     public BasePreparedActivationExtension? Activations { get; init; }
     /// <summary>Gets the prepared activation-fence evidence.</summary>
     public BaseCapturedActivationGuardEvidence? ActivationGuard { get; init; }
+    /// <summary>Gets prepared L53 semantic activation evidence.</summary>
+    public BasePreparedSemanticActivation? SemanticActivation { get; init; }
     /// <summary>Gets provider-prepared retirement evidence.</summary>
     public BaseSubjectRetirementPreparedEvidence? SubjectRetirement { get; init; }
     /// <summary>Gets provider-prepared text projection evidence.</summary>
@@ -992,6 +1000,8 @@ public sealed record BaseProvisionalAtomicExecution
     public BaseProvisionalActivationExtension? Activations { get; init; }
     /// <summary>Gets activation-fence evidence validated in the committing transaction.</summary>
     public BaseCapturedActivationGuardEvidence? ActivationGuard { get; init; }
+    /// <summary>Gets provisional L53 semantic activation evidence.</summary>
+    public BaseProvisionalSemanticActivation? SemanticActivation { get; init; }
     /// <summary>Gets applied retirement evidence.</summary>
     public BaseSubjectRetirementProvisionalEvidence? SubjectRetirement { get; init; }
     /// <summary>Gets applied text projection evidence.</summary>

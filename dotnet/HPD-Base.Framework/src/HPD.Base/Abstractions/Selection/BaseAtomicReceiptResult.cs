@@ -97,6 +97,8 @@ public sealed record BaseModuleMutationReceiptResult
     public required ImmutableArray<byte> CanonicalResultBytes { get; init; }
     /// <summary>Gets child activations created atomically with this module operation.</summary>
     public ImmutableArray<string> CreatedActivationIds { get; init; } = [];
+    /// <summary>Gets semantic activation evidence when the module operation carried L53 authority.</summary>
+    public BaseSemanticActivationReceiptEvidence? SemanticActivation { get; init; }
 }
 
 /// <summary>Provides the source-generated persistence shape for one committed module generation.</summary>
@@ -131,6 +133,8 @@ public sealed record BaseModuleMutationReceiptResultWire
     public required byte[] CanonicalResultBytes { get; init; }
     /// <summary>Gets child activation identities created by the same transaction.</summary>
     public string[] CreatedActivationIds { get; init; } = [];
+    /// <summary>Gets semantic activation wire evidence when present.</summary>
+    public BaseSemanticActivationReceiptEvidenceWire? SemanticActivation { get; init; }
 }
 
 /// <summary>Stores the bounded durable result of one selection mutation.</summary>
@@ -237,6 +241,7 @@ public sealed record BaseAtomicReceiptWire
                 }).ToArray(),
                 CanonicalResultBytes = result.ModuleMutation.CanonicalResultBytes.ToArray(),
                 CreatedActivationIds = result.ModuleMutation.CreatedActivationIds.ToArray(),
+                SemanticActivation = ToWire(result.ModuleMutation.SemanticActivation),
             },
             SubjectLifecycleCheckpoint = result.SubjectLifecycleCheckpoint is null
                 ? null
@@ -273,6 +278,7 @@ public sealed record BaseAtomicReceiptWire
                 }).ToImmutableArray(),
                 CanonicalResultBytes = ModuleMutation.CanonicalResultBytes.ToArray().ToImmutableArray(),
                 CreatedActivationIds = ModuleMutation.CreatedActivationIds.ToImmutableArray(),
+                SemanticActivation = FromWire(ModuleMutation.SemanticActivation),
             },
             SubjectLifecycleCheckpoint = SubjectLifecycleCheckpoint is null
                 ? null
@@ -287,6 +293,51 @@ public sealed record BaseAtomicReceiptWire
         };
         ValidateShape(result);
         return result;
+    }
+
+    private static BaseSemanticActivationReceiptEvidenceWire? ToWire(BaseSemanticActivationReceiptEvidence? value) => value is null ? null : new()
+    {
+        Operation = (int)value.Operation,
+        DefinitionId = value.DefinitionId,
+        DefinitionVersion = value.DefinitionVersion,
+        DefinitionChecksum = value.DefinitionChecksum.ToArray(),
+        KeyDigest = value.Key.ToArray(),
+        State = (int)value.State,
+        SlotGeneration = value.SlotGeneration.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        EnsureDisposition = value.EnsureDisposition is null ? null : (int)value.EnsureDisposition.Value,
+        RetirementDisposition = value.RetirementDisposition is null ? null : (int)value.RetirementDisposition.Value,
+        ActivationId = value.ActivationId,
+        SlotChecksum = value.SlotChecksum.ToArray(),
+        JournalPosition = value.JournalPosition.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        CommitEvidenceChecksum = value.CommitEvidenceChecksum.ToArray(),
+        Checksum = value.Checksum.ToArray(),
+    };
+
+    private static BaseSemanticActivationReceiptEvidence? FromWire(BaseSemanticActivationReceiptEvidenceWire? value) => value is null ? null : new()
+    {
+        Operation = Enum.IsDefined(typeof(BaseSemanticActivationOperationKind), value.Operation) ? (BaseSemanticActivationOperationKind)value.Operation : throw new InvalidOperationException("The semantic operation is invalid."),
+        DefinitionId = value.DefinitionId,
+        DefinitionVersion = value.DefinitionVersion,
+        DefinitionChecksum = value.DefinitionChecksum.ToImmutableArray(),
+        Key = BaseSemanticActivationKeyDigest.Create(value.KeyDigest),
+        State = Enum.IsDefined(typeof(BaseSemanticActivationSlotState), value.State) ? (BaseSemanticActivationSlotState)value.State : throw new InvalidOperationException("The semantic state is invalid."),
+        SlotGeneration = ParsePositiveCanonical(value.SlotGeneration),
+        EnsureDisposition = value.EnsureDisposition is null ? null : Enum.IsDefined(typeof(BaseSemanticActivationEnsureDisposition), value.EnsureDisposition.Value) ? (BaseSemanticActivationEnsureDisposition)value.EnsureDisposition.Value : throw new InvalidOperationException("The semantic ensure disposition is invalid."),
+        RetirementDisposition = value.RetirementDisposition is null ? null : Enum.IsDefined(typeof(BaseSemanticActivationRetirementDisposition), value.RetirementDisposition.Value) ? (BaseSemanticActivationRetirementDisposition)value.RetirementDisposition.Value : throw new InvalidOperationException("The semantic retirement disposition is invalid."),
+        ActivationId = value.ActivationId,
+        SlotChecksum = value.SlotChecksum.ToImmutableArray(),
+        JournalPosition = ParsePositiveCanonical(value.JournalPosition),
+        CommitEvidenceChecksum = value.CommitEvidenceChecksum.ToImmutableArray(),
+        Checksum = value.Checksum.ToImmutableArray(),
+    };
+
+    private static long ParsePositiveCanonical(string value)
+    {
+        if (string.IsNullOrEmpty(value) || value[0] == '0' || value.Any(static character => character is < '0' or > '9')
+            || !long.TryParse(value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out long parsed)
+            || parsed <= 0)
+            throw new InvalidOperationException("base.mutation.receipt.invalid");
+        return parsed;
     }
 
     private static void ValidateShape(BaseAtomicReceiptResult result)
@@ -320,8 +371,42 @@ public sealed record BaseAtomicReceiptWire
                 _ => false,
             };
         }
+        if (valid && result.ModuleMutation?.SemanticActivation is { } semantic)
+            valid = result.ModuleMutation.CreatedActivationIds.IsEmpty && SemanticShapeValid(semantic);
         if (!valid) throw new InvalidOperationException("base.mutation.receipt.invalid");
     }
+
+    private static bool SemanticShapeValid(BaseSemanticActivationReceiptEvidence value)
+    {
+        if (string.IsNullOrWhiteSpace(value.DefinitionId) || value.DefinitionVersion <= 0 || value.SlotGeneration <= 0
+            || value.JournalPosition <= 0 || value.DefinitionChecksum.Length != 32 || value.SlotChecksum.Length != 32
+            || value.CommitEvidenceChecksum.Length != 32 || value.Checksum.Length != 32)
+            return false;
+
+        return value.Operation switch
+        {
+            BaseSemanticActivationOperationKind.Ensure when value.EnsureDisposition is { } disposition && value.RetirementDisposition is null => disposition switch
+            {
+                BaseSemanticActivationEnsureDisposition.Created or BaseSemanticActivationEnsureDisposition.Existing =>
+                    value.State == BaseSemanticActivationSlotState.Live && IsActivationId(value.ActivationId),
+                BaseSemanticActivationEnsureDisposition.Retired =>
+                    value.State is BaseSemanticActivationSlotState.Retired or BaseSemanticActivationSlotState.CompactedAbsent && value.ActivationId is null,
+                _ => false,
+            },
+            BaseSemanticActivationOperationKind.Retire when value.EnsureDisposition is null && value.RetirementDisposition is { } disposition => disposition switch
+            {
+                BaseSemanticActivationRetirementDisposition.RetiredNow or BaseSemanticActivationRetirementDisposition.AlreadyRetired =>
+                    value.State == BaseSemanticActivationSlotState.Retired && value.ActivationId is null,
+                BaseSemanticActivationRetirementDisposition.AlreadyCompacted =>
+                    value.State == BaseSemanticActivationSlotState.CompactedAbsent && value.ActivationId is null,
+                _ => false,
+            },
+            _ => false,
+        };
+    }
+
+    private static bool IsActivationId(string? value) => value is { Length: 64 }
+        && value.All(static character => character is >= '0' and <= '9' or >= 'a' and <= 'f');
 
     private static BaseSubjectLifecycleMaintenanceResult CloneMaintenance(BaseSubjectLifecycleMaintenanceResult value) => value with
     {
