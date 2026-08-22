@@ -23,7 +23,7 @@ public sealed record SuspensionOptions
     /// <summary>
     /// Whether to save checkpoint before waiting.
     /// Default: true (ensures durability even if process crashes during wait).
-    /// Note: Checkpoint only saved if IGraphCheckpointStore is configured.
+    /// Note: a checkpoint is emitted only when an execution-local checkpoint buffer is configured.
     /// If no store is configured, this option is ignored.
     /// </summary>
     public bool SaveCheckpointFirst { get; init; } = true;

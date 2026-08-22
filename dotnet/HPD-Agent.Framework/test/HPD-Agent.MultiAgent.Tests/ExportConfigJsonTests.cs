@@ -443,7 +443,7 @@ public class ExportConfigJsonTests
             .BuildAsync();
 
         var act = () => workflow.ExportConfigJson();
-        act.Should().NotThrow("default EnableCheckpointing=false must never resolve IGraphCheckpointStore");
+        act.Should().NotThrow("interactive execution must not resolve durable checkpoint authority");
     }
 
     // ── Phase 4 — New condition type round-trip tests ─────────────────────────

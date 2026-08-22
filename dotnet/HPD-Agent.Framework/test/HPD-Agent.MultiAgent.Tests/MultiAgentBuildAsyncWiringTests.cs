@@ -80,67 +80,9 @@ public class MultiAgentBuildAsyncWiringTests
 
     // ── 4.3  EnableCheckpointing=false → build succeeds without DI store ─────
 
-    [Fact]
-    public async Task BuildAsync_EnableCheckpointing_False_DoesNotRequireCheckpointStore()
-    {
-        // Default EnableCheckpointing is false — no IGraphCheckpointStore registered
-        var act = async () => await AgentWorkflow.Create()
-            .AddAgent("a", Cfg())
-            .BuildAsync();
-
-        await act.Should().NotThrowAsync(
-            "EnableCheckpointing=false must not attempt to resolve IGraphCheckpointStore");
-    }
 
     // ── 4.4  EnableCheckpointing=true with no store registered → graceful ─────
 
-    [Fact]
-    public async Task BuildAsync_EnableCheckpointing_True_NoStore_Graceful()
-    {
-        var config = new MultiAgentWorkflowConfig
-        {
-            Name = "W",
-            Agents = new Dictionary<string, AgentNodeConfig>
-            {
-                ["a"] = new() { Agent = Cfg() }
-            },
-            Edges = [],
-            Settings = new WorkflowSettingsConfig { EnableCheckpointing = true }
-        };
-
-        // No IGraphCheckpointStore registered in DI → should still build, store will be null
-        var act = async () => await new MultiAgentFactory().BuildAsync(config);
-        await act.Should().NotThrowAsync(
-            "missing checkpoint store must be handled gracefully");
-    }
-
-    [Fact]
-    public async Task BuildAsync_WithCheckpointing_EnablesSetting()
-    {
-        var instance = await AgentWorkflow.Create()
-            .AddAgent("a", Cfg())
-            .WithCheckpointing()
-            .BuildAsync();
-
-        GetSettings(instance).EnableCheckpointing.Should().BeTrue();
-    }
-
-    [Fact]
-    public async Task BuildAsync_WithInMemoryWorkflowStore_RegistersStoreInterfaces()
-    {
-        var instance = await AgentWorkflow.Create()
-            .AddAgent("a", Cfg())
-            .WithInMemoryWorkflowStore(MultiAgentCheckpointRetention.FullHistory)
-            .BuildAsync();
-
-        var services = GetServiceProvider(instance);
-        var store = services.GetService<IGraphStore>();
-
-        store.Should().NotBeNull();
-        services.GetService<IGraphDefinitionStore>().Should().BeSameAs(store);
-        services.GetService<IGraphCheckpointStore>().Should().BeSameAs(store);
-        store!.RetentionMode.Should().Be(CheckpointRetentionMode.FullHistory);
-    }
 
     // ── 4.5  Predicate edge forwarded to graph ────────────────────────────────
 

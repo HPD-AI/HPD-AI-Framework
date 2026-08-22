@@ -260,7 +260,6 @@ public sealed record WorkflowSettingsConfig
     /// <summary>
     /// Enable checkpointing for durability.
     /// </summary>
-    public bool EnableCheckpointing { get; init; } = false;
 
     /// <summary>
     /// Enable metrics collection.
@@ -285,7 +284,7 @@ public sealed record WorkflowSettingsConfig
 
     /// <summary>
     /// Controls how workflow node agents write transcripts into HPD sessions and threads.
-    /// This is separate from the workflow store used for definitions and checkpoints.
+    /// This is separate from HPD.Base-owned durable workflow execution authority.
     /// </summary>
     public MultiAgentConversationConfig Conversation { get; init; } = new();
 }

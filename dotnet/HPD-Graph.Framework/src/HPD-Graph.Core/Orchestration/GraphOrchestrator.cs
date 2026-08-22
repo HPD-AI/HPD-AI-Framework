@@ -35,7 +35,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
     private readonly IServiceProvider _serviceProvider;
     private readonly INodeCacheStore? _cacheStore;
     private readonly INodeFingerprintCalculator? _fingerprintCalculator;
-    private readonly Abstractions.Checkpointing.IGraphCheckpointStore? _checkpointStore;
+    private readonly Abstractions.Checkpointing.IGraphCheckpointBuffer? _checkpointStore;
     private readonly IAffectedNodeDetector? _affectedNodeDetector;
     private readonly IGraphSnapshotStore? _snapshotStore;
     private readonly IArtifactRegistry? _artifactRegistry;
@@ -104,7 +104,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
         IServiceProvider serviceProvider,
         INodeCacheStore? cacheStore = null,
         INodeFingerprintCalculator? fingerprintCalculator = null,
-        Abstractions.Checkpointing.IGraphCheckpointStore? checkpointStore = null,
+        Abstractions.Checkpointing.IGraphCheckpointBuffer? checkpointStore = null,
         Abstractions.Execution.SuspensionOptions? defaultSuspensionOptions = null,
         IAffectedNodeDetector? affectedNodeDetector = null,
         IGraphSnapshotStore? snapshotStore = null,

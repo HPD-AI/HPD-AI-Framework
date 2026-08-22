@@ -1,4 +1,3 @@
-using HPD.Graph.Abstractions.Checkpointing;
 using HPD.Graph.Abstractions.Config;
 
 namespace HPD.Graph.Abstractions.Storage;
@@ -9,10 +8,6 @@ public interface IGraphDefinitionStore
     Task SaveAsync(StoredGraph graph, CancellationToken ct = default);
     Task DeleteAsync(string graphId, CancellationToken ct = default);
     Task<IReadOnlyList<StoredGraphSummary>> ListAsync(CancellationToken ct = default);
-}
-
-public interface IGraphStore : IGraphDefinitionStore, IGraphCheckpointStore
-{
 }
 
 public sealed record StoredGraph
@@ -36,4 +31,3 @@ public sealed record StoredGraphSummary
     public DateTimeOffset UpdatedAt { get; init; }
     public string? Description { get; init; }
 }
-

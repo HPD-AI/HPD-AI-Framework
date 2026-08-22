@@ -231,7 +231,6 @@ public class ConfigTests
     {
         var settings = new WorkflowSettingsConfig();
 
-        settings.EnableCheckpointing.Should().BeFalse();
         settings.EnableMetrics.Should().BeTrue();
         settings.StreamingMode.Should().Be(StreamingMode.PerNode);
         settings.MaxIterations.Should().Be(25);

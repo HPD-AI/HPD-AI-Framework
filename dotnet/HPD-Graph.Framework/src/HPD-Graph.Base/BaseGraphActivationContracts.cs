@@ -493,7 +493,7 @@ internal sealed class BaseGraphActivationHandler(
         };
     }
 
-    private sealed class ActivationCheckpointStore(GraphCheckpoint? seed) : IGraphCheckpointStore
+    private sealed class ActivationCheckpointStore(GraphCheckpoint? seed) : IGraphCheckpointBuffer
     {
         public CheckpointRetentionMode RetentionMode => CheckpointRetentionMode.LatestOnly;
         public GraphCheckpoint? Latest { get; private set; } = seed;

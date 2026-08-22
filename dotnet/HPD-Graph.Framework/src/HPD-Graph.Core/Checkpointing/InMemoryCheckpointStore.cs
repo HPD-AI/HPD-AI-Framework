@@ -3,11 +3,11 @@ using HPD.Graph.Abstractions.Checkpointing;
 namespace HPD.Graph.Core.Checkpointing;
 
 /// <summary>
-/// In-memory implementation of IGraphCheckpointStore.
+/// In-memory execution-local checkpoint buffer used by Graph tests and bounded handlers.
 /// Useful for testing and development.
 /// NOT suitable for production (data lost on process restart).
 /// </summary>
-public class InMemoryCheckpointStore : IGraphCheckpointStore
+internal sealed class InMemoryCheckpointStore : IGraphCheckpointBuffer
 {
     private readonly Dictionary<string, List<GraphCheckpoint>> _checkpointsByExecutionId = new();
     private readonly Dictionary<string, GraphCheckpoint> _checkpointsById = new();

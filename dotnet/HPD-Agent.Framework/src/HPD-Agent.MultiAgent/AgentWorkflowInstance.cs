@@ -559,12 +559,9 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
         // Set initial input in channels
         context.Channels["input"].Set(input);
 
-        // Create orchestrator — pass checkpoint store when checkpointing is enabled
-        var checkpointStore = _settings.EnableCheckpointing
-            ? _serviceProvider.GetService<HPD.Graph.Abstractions.Checkpointing.IGraphCheckpointStore>()
-            : null;
-
-        var orchestrator = new GraphOrchestrator<AgentGraphContext>(_serviceProvider, checkpointStore: checkpointStore);
+        // Interactive execution has no independent durable checkpoint authority.
+        // Hosted durable execution is owned by HPD.Base activations.
+        var orchestrator = new GraphOrchestrator<AgentGraphContext>(_serviceProvider);
 
         var eventChannel = Channel.CreateUnbounded<Event>();
         using var eventSubscription = eventCoordinator.SubscribeAny(evt =>

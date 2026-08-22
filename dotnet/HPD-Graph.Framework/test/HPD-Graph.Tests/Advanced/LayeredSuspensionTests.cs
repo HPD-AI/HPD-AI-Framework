@@ -575,7 +575,7 @@ public sealed class NoopSubscription : IDisposable
 /// <summary>
 /// Checkpoint store that always fails.
 /// </summary>
-public class FailingCheckpointStore : IGraphCheckpointStore
+public class FailingCheckpointStore : IGraphCheckpointBuffer
 {
     public CheckpointRetentionMode RetentionMode => CheckpointRetentionMode.LatestOnly;
 

@@ -7,7 +7,7 @@ namespace HPD.Graph.Core.Storage;
 /// <summary>
 /// File-backed checkpoint store that preserves latest-only and full-history retention.
 /// </summary>
-public sealed class JsonCheckpointStore : IGraphCheckpointStore
+internal sealed class JsonCheckpointStore : IGraphCheckpointBuffer
 {
     private readonly string _checkpointsDirectory;
 
