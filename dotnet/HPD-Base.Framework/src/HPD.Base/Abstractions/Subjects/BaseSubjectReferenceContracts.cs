@@ -334,6 +334,19 @@ public sealed class BaseSubjectReferenceJsonConverterFactory : JsonConverterFact
 
 internal static class BaseSubjectReferenceEncoding
 {
+    internal static (BaseSubjectId SubjectId, BaseSubjectAuthorityEpoch AuthorityEpoch, BaseSubjectIncarnation Incarnation) DecodeElement(
+        JsonElement value, BaseSubjectIdKind kind, int maximumSubjectIdUtf8Bytes)
+    {
+        if (value.ValueKind != JsonValueKind.Object
+            || !value.TryGetProperty("subjectId", out JsonElement subject) || subject.ValueKind != JsonValueKind.String
+            || !value.TryGetProperty("authorityEpoch", out JsonElement epoch) || epoch.ValueKind != JsonValueKind.String
+            || !value.TryGetProperty("incarnation", out JsonElement incarnation) || incarnation.ValueKind != JsonValueKind.String
+            || value.EnumerateObject().Count() != 3)
+            throw new InvalidOperationException(BaseSubjectErrorCodes.ReferenceInvalid);
+        return (BaseSubjectId.Create(subject.GetString()!, kind, maximumSubjectIdUtf8Bytes),
+            BaseSubjectAuthorityEpoch.Parse(epoch.GetString()!), BaseSubjectIncarnation.Parse(incarnation.GetString()!));
+    }
+
     internal static string Encode(ReadOnlySpan<byte> value) => Convert.ToBase64String(value).TrimEnd('=').Replace('+', '-').Replace('/', '_');
     internal static byte[] Decode(string value, int expectedLength)
     {

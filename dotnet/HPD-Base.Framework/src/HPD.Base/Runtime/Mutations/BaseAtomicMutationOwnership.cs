@@ -92,7 +92,87 @@ internal static class BaseAtomicMutationOwnership
                 },
             }).ToImmutableArray(),
         },
+        SemanticActivation = value.SemanticActivation is null ? null : FreezeSemantic(value.SemanticActivation),
         Limits = value.Limits with { },
+    };
+
+    private static BaseAtomicSemanticActivationExtension FreezeSemantic(BaseAtomicSemanticActivationExtension value) => new()
+    {
+        Capture = value.Capture with
+        {
+            Definition = FreezeSemanticDefinition(value.Capture.Definition),
+            CanonicalKey = value.Capture.CanonicalKey.ToArray().ToImmutableArray(),
+            KeyPreimageChecksum = value.Capture.KeyPreimageChecksum.ToArray().ToImmutableArray(),
+            Scope = value.Capture.Scope with { Value = value.Capture.Scope.Value is null ? null : new string(value.Capture.Scope.Value.AsSpan()) },
+            ProposedScopeBindingId = value.Capture.ProposedScopeBindingId.ToArray().ToImmutableArray(),
+            StoreAuthority = value.Capture.StoreAuthority with
+            {
+                ApplicationId = new string(value.Capture.StoreAuthority.ApplicationId.AsSpan()),
+                LogicalStoreId = new string(value.Capture.StoreAuthority.LogicalStoreId.AsSpan()),
+                StoreInstanceId = new string(value.Capture.StoreAuthority.StoreInstanceId.AsSpan()),
+                DefinitionSetChecksum = value.Capture.StoreAuthority.DefinitionSetChecksum.ToArray().ToImmutableArray(),
+            },
+            Limits = value.Capture.Limits with { },
+        },
+        StructuralDigest = value.StructuralDigest.ToArray().ToImmutableArray(),
+        Operation = value.Operation switch
+        {
+            BaseSemanticActivationEnsureIntent ensure => ensure with
+            {
+                Definition = FreezeSemanticDefinition(ensure.Definition),
+                Key = BaseSemanticActivationKeyDigest.Create(ensure.Key.ToArray()),
+                CanonicalKey = ensure.CanonicalKey.ToArray().ToImmutableArray(),
+                Scope = ensure.Scope with { Value = ensure.Scope.Value is null ? null : new string(ensure.Scope.Value.AsSpan()) },
+                SubjectLifetime = FreezeLifetime(ensure.SubjectLifetime),
+                Due = ensure.Due with { },
+                Activation = ensure.Activation with
+                {
+                    Definition = ensure.Activation.Definition with { Id = new string(ensure.Activation.Definition.Id.AsSpan()), Checksum = ensure.Activation.Definition.Checksum.ToArray().ToImmutableArray() },
+                    CanonicalInput = ensure.Activation.CanonicalInput.ToArray().ToImmutableArray(),
+                    InputChecksum = ensure.Activation.InputChecksum.ToArray().ToImmutableArray(),
+                    Scope = ensure.Activation.Scope with { Value = ensure.Activation.Scope.Value is null ? null : new string(ensure.Activation.Scope.Value.AsSpan()) },
+                    Due = ensure.Activation.Due with { },
+                    Limits = ensure.Activation.Limits with
+                    {
+                        Provider = ensure.Activation.Limits.Provider with { },
+                        AtomicCreation = ensure.Activation.Limits.AtomicCreation with { Deadlines = ensure.Activation.Limits.AtomicCreation.Deadlines with { } },
+                    },
+                    Identity = ensure.Activation.Identity with
+                    {
+                        SemanticDefinition = FreezeSemanticDefinition(ensure.Activation.Identity.SemanticDefinition),
+                        Key = BaseSemanticActivationKeyDigest.Create(ensure.Activation.Identity.Key.ToArray()),
+                        ScopeBindingId = ensure.Activation.Identity.ScopeBindingId.ToArray().ToImmutableArray(),
+                        DerivedActivationIdBytes = ensure.Activation.Identity.DerivedActivationIdBytes.ToArray().ToImmutableArray(),
+                        Checksum = ensure.Activation.Identity.Checksum.ToArray().ToImmutableArray(),
+                    },
+                },
+            },
+            BaseSemanticActivationRetireIntent retire => retire with
+            {
+                Definition = FreezeSemanticDefinition(retire.Definition),
+                Key = BaseSemanticActivationKeyDigest.Create(retire.Key.ToArray()),
+                CanonicalKey = retire.CanonicalKey.ToArray().ToImmutableArray(),
+                Scope = retire.Scope with { Value = retire.Scope.Value is null ? null : new string(retire.Scope.Value.AsSpan()) },
+                SubjectLifetime = FreezeLifetime(retire.SubjectLifetime),
+                CompletionOperation = retire.CompletionOperation with
+                {
+                    OperationId = new string(retire.CompletionOperation.OperationId.AsSpan()),
+                    OperationChecksum = new string(retire.CompletionOperation.OperationChecksum.AsSpan()),
+                },
+            },
+            _ => throw new InvalidOperationException("base.semanticActivation.contractInvalid"),
+        },
+    };
+
+    private static BaseSemanticActivationDefinitionIdentity FreezeSemanticDefinition(BaseSemanticActivationDefinitionIdentity value) => value with
+    {
+        Id = new string(value.Id.AsSpan()), Checksum = value.Checksum.ToArray().ToImmutableArray(),
+    };
+
+    private static BaseSemanticActivationSubjectLifetimeBinding? FreezeLifetime(BaseSemanticActivationSubjectLifetimeBinding? value) => value is null ? null : value with
+    {
+        ContractId = new string(value.ContractId.AsSpan()), ContractChecksum = value.ContractChecksum.ToArray().ToImmutableArray(),
+        ScopeBindingId = value.ScopeBindingId.ToArray().ToImmutableArray(), Checksum = value.Checksum.ToArray().ToImmutableArray(),
     };
 
     private static BaseActivationGuard FreezeGuard(BaseActivationGuard value) => value with

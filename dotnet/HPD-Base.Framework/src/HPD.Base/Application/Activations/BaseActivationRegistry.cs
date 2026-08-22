@@ -465,6 +465,76 @@ public sealed class BaseActivationContext
             },
         };
     }
+
+    /// <summary>Creates L50 options that ensure one parent-independent semantic activation atomically.</summary>
+    public BaseSemanticActivationKey<TDefinition> CreateSemanticActivationKey<TRequest, TDefinition>(
+        BaseSemanticActivationKeyIdentity<TRequest, TDefinition> identity,
+        TRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        BaseSemanticActivationRegistry registry = _session.Services.GetService(typeof(BaseSemanticActivationRegistry)) as BaseSemanticActivationRegistry
+            ?? throw new InvalidOperationException("base.semanticActivation.notInstalled");
+        return registry.CreateKey(identity, request);
+    }
+
+    /// <summary>Creates L50 options that ensure one parent-independent semantic activation atomically.</summary>
+    public BaseModuleMutationExecutionOptions GuardModuleMutationAndEnsureActivation<TInput, TResult, TDefinition>(
+        string stepId,
+        int childOrdinal,
+        BaseMutationRequestFingerprint fingerprint,
+        BaseActivationRegistrationIdentity<TInput, TResult> activation,
+        TInput input,
+        DateTimeOffset? dueAt,
+        BaseSemanticActivationKey<TDefinition> semanticKey,
+        BaseModuleMutationExecutionOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(fingerprint);
+        ArgumentNullException.ThrowIfNull(activation);
+        ArgumentNullException.ThrowIfNull(semanticKey);
+        if (dueAt is { Offset: not { Ticks: 0 } })
+            throw new InvalidOperationException("base.semanticActivation.dueInvalid");
+        BaseActivationGuard guard = GuardChild(stepId, childOrdinal, fingerprint);
+        byte[] canonicalInput = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(input, activation.Input);
+        return (options ?? new BaseModuleMutationExecutionOptions()) with
+        {
+            ActivationGuard = guard,
+            SemanticActivation = new BaseSemanticActivationGuardedEnsureRequest
+            {
+                Key = semanticKey,
+                Scope = Scope with { Value = Scope.Value is null ? null : new string(Scope.Value.AsSpan()) },
+                Activation = new BaseActivationDefinitionKey
+                {
+                    Id = new string(activation.Id.AsSpan()),
+                    Version = activation.Version,
+                    Checksum = activation.Checksum.ToArray().ToImmutableArray(),
+                },
+                CanonicalInput = canonicalInput.ToImmutableArray(),
+                InputChecksum = System.Security.Cryptography.SHA256.HashData(canonicalInput).ToImmutableArray(),
+                DueAt = dueAt,
+            },
+        };
+    }
+
+    /// <summary>Creates L50 options that retire one terminal parent-independent semantic activation.</summary>
+    public BaseModuleMutationExecutionOptions GuardModuleMutationAndRetireSemanticActivation<TDefinition>(
+        string stepId,
+        int childOrdinal,
+        BaseMutationRequestFingerprint fingerprint,
+        BaseSemanticActivationKey<TDefinition> semanticKey,
+        BaseModuleMutationExecutionOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(fingerprint);
+        ArgumentNullException.ThrowIfNull(semanticKey);
+        return (options ?? new BaseModuleMutationExecutionOptions()) with
+        {
+            ActivationGuard = GuardChild(stepId, childOrdinal, fingerprint),
+            SemanticActivation = new BaseSemanticActivationGuardedRetireRequest
+            {
+                Key = semanticKey,
+                Scope = Scope with { Value = Scope.Value is null ? null : new string(Scope.Value.AsSpan()) },
+            },
+        };
+    }
 }
 
 /// <summary>Contains the closed result returned by a worker handler.</summary>

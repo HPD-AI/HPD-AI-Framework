@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 
 namespace HPD.Base;
 
@@ -15,10 +16,14 @@ internal sealed class DefaultBaseModuleMutationRuntime(
     BaseSubjectContractRegistry subjects,
     TimeProvider timeProvider,
     BaseSubjectLifecycleRegistry? lifecycleRegistry = null,
-    BaseSubjectRetirementRegistry? retirementRegistry = null) : IBaseModuleMutationRuntime
+    BaseSubjectRetirementRegistry? retirementRegistry = null,
+    BaseSemanticActivationRegistry? semanticRegistry = null,
+    BaseActivationRegistry? activationRegistry = null,
+    BaseActivationAcceptedTimeAuthority? acceptedTimeAuthority = null) : IBaseModuleMutationRuntime
 {
     private readonly BaseSubjectLifecycleRegistry lifecycleConsumers = lifecycleRegistry ?? new([], subjects);
     private readonly BaseSubjectRetirementRegistry retirement = retirementRegistry ?? new([], [], lifecycleRegistry ?? new([], subjects));
+    private readonly BaseActivationAcceptedTimeAuthority acceptedTimes = acceptedTimeAuthority ?? new(timeProvider);
     public ValueTask<BaseResult<BaseModuleMutationExecutionResult<TResult>>> ExecuteAsync<TRequest, TResult>(
         BaseSession session,
         BaseRegisteredModuleMutationDefinition definition,
@@ -77,7 +82,12 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         catch { return Failure<TResult>(OperationStatus.ValidationFailed, BaseModuleMutationErrorCodes.Invalid, ErrorCategory.Validation); }
         if (requestBytes.LongLength > definition.Limits.MaximumRequestBytes)
             return Failure<TResult>(OperationStatus.ValidationFailed, BaseModuleMutationErrorCodes.LimitExceeded, ErrorCategory.Validation);
-
+        BaseSemanticActivationKeyDefinition? semanticDefinition;
+        try { semanticDefinition = ResolveSemanticDefinition(definition, options, semanticRegistry); }
+        catch { return Failure<TResult>(OperationStatus.ValidationFailed, "base.semanticActivation.contractInvalid", ErrorCategory.Validation); }
+        if (semanticDefinition is not null && !await AuthorizeSemanticAsync(
+                session, semanticDefinition, options!.SemanticActivation!, cancellationToken).ConfigureAwait(false))
+            return Failure<TResult>(OperationStatus.PolicyDenied, BaseModuleMutationErrorCodes.Unauthorized, ErrorCategory.Authorization);
         IReadOnlyDictionary<string, CollectionDefinition> installed = collections.Collections;
         var requestEvaluator = new BaseModuleProgramEvaluator<TRequest, TResult>(definition, generatedIdentity, request, null, installed);
         BaseModuleMutationCaptureExtension extension;
@@ -93,7 +103,9 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         }
         catch { return Failure<TResult>(OperationStatus.ValidationFailed, BaseModuleMutationErrorCodes.Invalid, ErrorCategory.Validation); }
 
-        IAtomicRecordStore? atomicStore = ResolveOneStore(authorityCollections);
+        RecordStoreRegistration? storeRegistration = ResolveOneRegistration(authorityCollections);
+        IAtomicRecordStore? atomicStore = storeRegistration?.AtomicExecutionStore
+            ?? storeRegistration?.Store as IAtomicRecordStore;
         if (atomicStore is null || !BaseModuleMutationCapabilityContract.Supports(definition.Limits, atomicStore.Capabilities.ModuleMutation))
             return Failure<TResult>(OperationStatus.Unsupported, BaseModuleMutationErrorCodes.CapabilityMissing, ErrorCategory.Unsupported);
         BaseAtomicMutationExecutionLimits limits = ResolveExecutionLimits(definition.Limits);
@@ -102,6 +114,9 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             .ConfigureAwait(false);
         if (!authority.IsSuccess() || authority.Value is null)
             return Failure<TResult>(authority.Status, authority.Error ?? Error(BaseModuleMutationErrorCodes.AuthorityChanged, ErrorCategory.Conflict));
+        BaseAtomicSemanticActivationExtension? semantic;
+        try { semantic = CreateSemanticExtension(definition, options, semanticRegistry, acceptedTimes, authority.Value, storeRegistration!.StoreId, request, generatedIdentity); }
+        catch { return Failure<TResult>(OperationStatus.ValidationFailed, "base.semanticActivation.contractInvalid", ErrorCategory.Validation); }
 
         string intentDigest = Digest("base.moduleMutation.intent.v1", extension.RequestDigest, authority.Value.ApplicationId);
         var intent = new BaseAtomicMutationIntent
@@ -112,7 +127,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         };
         var processor = new BaseModuleMutationProcessor<TRequest, TResult>(
             definition, generatedIdentity, request, intent, extension, options?.ActivationGuard,
-            options?.ActivationCreation, limits, installed,
+            options?.ActivationCreation, semantic, limits, installed,
             session.Principal, moduleOperation, operationPolicy.Value,
             schemaValidator, policy, normalizer, subjects, lifecycleConsumers, retirement, transactionalActivation);
         var executionRequest = new RecordMutationExecutionRequest
@@ -146,6 +161,255 @@ internal sealed class DefaultBaseModuleMutationRuntime(
                     ? BaseModuleMutationOutcome.Duplicate : BaseModuleMutationOutcome.Committed,
             },
             OperationStatus.Updated, null, null, null, null);
+    }
+
+    private BaseAtomicSemanticActivationExtension? CreateSemanticExtension<TRequest, TResult>(
+        BaseRegisteredModuleMutationDefinition operation,
+        BaseModuleMutationExecutionOptions? options,
+        BaseSemanticActivationRegistry? registry,
+        BaseActivationAcceptedTimeAuthority acceptedTime,
+        BaseAtomicMutationAuthorityRequirement authority,
+        string logicalStoreId,
+        TRequest request,
+        BaseGeneratedModuleMutationIdentity<TRequest, TResult> requestIdentity)
+    {
+        BaseSemanticActivationGuardedRequest? requested = options?.SemanticActivation;
+        if (requested is null) return null;
+        if (registry is null || options!.ActivationGuard is null || options.ActivationCreation is not null)
+            throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+        BaseSemanticActivationKeyDefinition definition = registry.Find(requested.Key.DefinitionId, requested.Key.DefinitionVersion)
+            ?? throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+        byte[] suppliedChecksum = requested.Key.CopyDefinitionChecksum();
+        if (!CryptographicOperations.FixedTimeEquals(suppliedChecksum, definition.Checksum.AsSpan())
+            || !string.Equals(requested.Key.ApplicationId, definition.OwningApplicationId, StringComparison.Ordinal)
+            || !string.Equals(requested.Key.ModuleId, definition.OwningModuleId, StringComparison.Ordinal)
+            || requested.Key.OwnerGeneration != registry.OwnerGeneration
+            || requested.Scope.Kind != definition.ScopeKind)
+            throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+        BaseSemanticActivationModuleOperationIdentity expected = requested is BaseSemanticActivationGuardedEnsureRequest
+            ? definition.EnsureOperation : definition.RetirementOperation;
+        if (!string.Equals(operation.Id, expected.OperationId, StringComparison.Ordinal)
+            || operation.Version != expected.OperationVersion
+            || !string.Equals(Convert.ToHexStringLower(operation.Checksum.ToArray()), expected.OperationChecksum, StringComparison.Ordinal))
+            throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+        byte[] canonicalKey = requested.Key.CopyCanonicalKey();
+        if (canonicalKey.Length is < 1 || canonicalKey.Length > definition.Limits.MaximumCanonicalKeyBytes)
+            throw new InvalidOperationException("base.semanticActivation.keyInvalid");
+        byte[] proposedScopeBinding = RandomNumberGenerator.GetBytes(32);
+        BaseSemanticActivationSubjectLifetimeBinding? subjectLifetime = ExtractSubjectLifetime(
+            definition, request, requestIdentity, proposedScopeBinding);
+        BaseSemanticActivationKeyDigest key = BaseSemanticActivationKeyDigest.Create(Hash(
+            "base.semanticActivation.key.v1\0", Encoding.UTF8.GetBytes(definition.Id), proposedScopeBinding, canonicalKey));
+        var identity = new BaseSemanticActivationDefinitionIdentity
+        {
+            Id = new string(definition.Id.AsSpan()), Version = definition.Version,
+            Checksum = definition.Checksum.ToArray().ToImmutableArray(), OwnerGeneration = registry.OwnerGeneration,
+            OwningModuleId = new string(definition.OwningModuleId.AsSpan()),
+            RetirementOperation = definition.RetirementOperation with { },
+        };
+        BaseSemanticActivationOperation semanticOperation = requested switch
+        {
+            BaseSemanticActivationGuardedEnsureRequest ensure => CreateEnsure(ensure, identity, key, canonicalKey, proposedScopeBinding, subjectLifetime,
+                definition.OwningApplicationId, logicalStoreId, definition.OwningModuleId,
+                activationRegistry ?? throw new InvalidOperationException("base.semanticActivation.contractInvalid")),
+            BaseSemanticActivationGuardedRetireRequest => new BaseSemanticActivationRetireIntent
+            {
+                Definition = identity, Key = key, CanonicalKey = canonicalKey.ToImmutableArray(),
+                Scope = requested.Scope with { Value = requested.Scope.Value is null ? null : new string(requested.Scope.Value.AsSpan()) },
+                SubjectLifetime = subjectLifetime,
+                CompletionOperation = definition.RetirementOperation with { },
+            },
+            _ => throw new InvalidOperationException("base.semanticActivation.contractInvalid"),
+        };
+        byte[] structural = Hash("base.semanticActivation.extension.v1\0", definition.Checksum.ToArray(), canonicalKey,
+            proposedScopeBinding, [(byte)(requested is BaseSemanticActivationGuardedEnsureRequest ? 1 : 2)]);
+        return new BaseAtomicSemanticActivationExtension
+        {
+            Capture = new BaseSemanticActivationCaptureRequest
+            {
+                Definition = identity,
+                CanonicalKey = canonicalKey.ToImmutableArray(),
+                KeyPreimageChecksum = requested.Key.CopyPreimageChecksum().ToImmutableArray(),
+                Scope = requested.Scope with { Value = requested.Scope.Value is null ? null : new string(requested.Scope.Value.AsSpan()) },
+                ProposedScopeBindingId = proposedScopeBinding.ToImmutableArray(),
+                Operation = requested is BaseSemanticActivationGuardedEnsureRequest
+                    ? BaseSemanticActivationOperationKind.Ensure : BaseSemanticActivationOperationKind.Retire,
+                StoreAuthority = new BaseSemanticActivationStoreAuthorityRequirement
+                {
+                    ApplicationId = authority.ApplicationId,
+                    LogicalStoreId = logicalStoreId,
+                    StoreInstanceId = authority.StoreInstanceId,
+                    RestoreEpoch = authority.RestoreEpoch,
+                    SchemaGeneration = authority.SchemaGeneration,
+                    SemanticAuthorityGeneration = registry.OwnerGeneration,
+                    DefinitionSetChecksum = registry.DefinitionSetChecksum.ToArray().ToImmutableArray(),
+                },
+                Limits = definition.Limits.Execution with { },
+                AcceptedTime = acceptedTime.Capture(definition.OwningApplicationId),
+            },
+            Operation = semanticOperation,
+            StructuralDigest = structural.ToImmutableArray(),
+        };
+    }
+
+    private static BaseSemanticActivationKeyDefinition? ResolveSemanticDefinition(
+        BaseRegisteredModuleMutationDefinition operation,
+        BaseModuleMutationExecutionOptions? options,
+        BaseSemanticActivationRegistry? registry)
+    {
+        BaseSemanticActivationGuardedRequest? requested = options?.SemanticActivation;
+        if (requested is null) return null;
+        if (registry is null || options!.ActivationGuard is null || options.ActivationCreation is not null)
+            throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+        BaseSemanticActivationKeyDefinition definition = registry.Find(requested.Key.DefinitionId, requested.Key.DefinitionVersion)
+            ?? throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+        BaseSemanticActivationModuleOperationIdentity expected = requested is BaseSemanticActivationGuardedEnsureRequest
+            ? definition.EnsureOperation : definition.RetirementOperation;
+        if (!string.Equals(operation.Id, expected.OperationId, StringComparison.Ordinal)
+            || operation.Version != expected.OperationVersion
+            || !string.Equals(Convert.ToHexStringLower(operation.Checksum.ToArray()), expected.OperationChecksum, StringComparison.Ordinal))
+            throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+        return definition;
+    }
+
+    private async ValueTask<bool> AuthorizeSemanticAsync(
+        BaseSession session,
+        BaseSemanticActivationKeyDefinition definition,
+        BaseSemanticActivationGuardedRequest request,
+        CancellationToken cancellationToken)
+    {
+        string grant = request is BaseSemanticActivationGuardedEnsureRequest
+            ? definition.EnsureGrantId : definition.RetirementGrantId;
+        OperationContext operation = session.Operation(BaseOperationKind.ModuleMutation, definition.Id) with
+        {
+            CollectionId = definition.Id,
+            Mode = OperationMode.System,
+        };
+        OperationResult<BasePolicyEvaluation> evaluation = await policy.EvaluateWriteAsync(new BasePolicyRequest
+        {
+            Principal = session.Principal,
+            Operation = operation,
+            Collection = new CollectionDefinition
+            {
+                Id = definition.Id, Name = "Semantic activation authority", Kind = BaseCollectionKinds.Custom,
+                SchemaMode = SchemaMode.Strict, UnknownFields = UnknownFieldPolicy.Reject,
+                System = true, SystemOwnerModuleId = definition.OwningModuleId,
+            },
+            ResourceKind = PolicyResourceKind.ModuleMutation,
+        }, cancellationToken).ConfigureAwait(false);
+        return BaseSystemCollectionGate.HasExactModuleGrant(
+            evaluation, grant, definition.OwningModuleId, session.Principal, operation);
+    }
+
+    private static BaseSemanticActivationEnsureIntent CreateEnsure(
+        BaseSemanticActivationGuardedEnsureRequest request,
+        BaseSemanticActivationDefinitionIdentity definition,
+        BaseSemanticActivationKeyDigest key,
+        byte[] canonicalKey,
+        byte[] scopeBinding,
+        BaseSemanticActivationSubjectLifetimeBinding? subjectLifetime,
+        string applicationId,
+        string logicalStoreId,
+        string owningModuleId,
+        BaseActivationRegistry installedActivations)
+    {
+        long due = request.DueAt?.ToUnixTimeMilliseconds() ?? 0;
+        var dueAuthority = new BaseSemanticActivationDueAuthority
+        {
+            Mode = request.DueAt is null ? BaseSemanticActivationDueMode.AcceptedCurrentTime : BaseSemanticActivationDueMode.ExplicitUtcInstant,
+            CanonicalUnixMilliseconds = due,
+        };
+        Span<byte> digest = stackalloc byte[32]; key.CopyTo(digest);
+        byte[] activationIdBytes = SemanticActivationId(applicationId, logicalStoreId, owningModuleId,
+            definition.Id, scopeBinding, canonicalKey);
+        byte[] creationChecksum = Hash("base.semanticActivation.creation.v1\0", definition.Checksum.ToArray(), digest.ToArray(), scopeBinding, activationIdBytes);
+        BaseActivationDefinition installed = installedActivations.Find(request.Activation.Id, request.Activation.Version)
+            ?? throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+        if (!CryptographicOperations.FixedTimeEquals(installed.Checksum.AsSpan(), request.Activation.Checksum.AsSpan()))
+            throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+        return new BaseSemanticActivationEnsureIntent
+        {
+            Definition = definition, Key = key, CanonicalKey = canonicalKey.ToImmutableArray(),
+            Scope = request.Scope with { Value = request.Scope.Value is null ? null : new string(request.Scope.Value.AsSpan()) },
+            SubjectLifetime = subjectLifetime,
+            Due = dueAuthority,
+            Activation = new BaseSemanticActivationCreateIntent
+            {
+                Definition = request.Activation with { Checksum = request.Activation.Checksum.ToArray().ToImmutableArray() },
+                CanonicalInput = request.CanonicalInput.ToArray().ToImmutableArray(), InputChecksum = request.InputChecksum.ToArray().ToImmutableArray(),
+                Scope = request.Scope with { Value = request.Scope.Value is null ? null : new string(request.Scope.Value.AsSpan()) }, Due = dueAuthority,
+                Priority = 0, InitiallyEligible = true,
+                Identity = new BaseSemanticActivationCreationIdentity
+                {
+                    SemanticDefinition = definition, Key = key, ScopeBindingId = scopeBinding.ToImmutableArray(),
+                    DerivedActivationIdBytes = activationIdBytes.ToImmutableArray(), Checksum = creationChecksum.ToImmutableArray(),
+                },
+                Limits = installed.Limits with
+                {
+                    Provider = installed.Limits.Provider with { },
+                    AtomicCreation = installed.Limits.AtomicCreation with { Deadlines = installed.Limits.AtomicCreation.Deadlines with { } },
+                },
+            },
+        };
+    }
+
+    private static byte[] SemanticActivationId(string applicationId, string logicalStoreId, string owningModuleId,
+        string definitionId, byte[] scopeBinding, byte[] canonicalKey) => Hash(
+        "base.semanticActivation.activation.v1\0", Encoding.UTF8.GetBytes(applicationId), Encoding.UTF8.GetBytes(logicalStoreId),
+        Encoding.UTF8.GetBytes(owningModuleId), Encoding.UTF8.GetBytes(definitionId), scopeBinding, canonicalKey);
+
+    private BaseSemanticActivationSubjectLifetimeBinding? ExtractSubjectLifetime<TRequest, TResult>(
+        BaseSemanticActivationKeyDefinition definition,
+        TRequest request,
+        BaseGeneratedModuleMutationIdentity<TRequest, TResult> identity,
+        byte[] proposedScopeBinding)
+    {
+        if (definition.Compaction is BaseSemanticActivationNoCompaction) return null;
+        if (definition.Compaction is not BaseSemanticActivationSubjectRetirementCompaction compaction)
+            throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+        BaseGeneratedSubjectRegistration subject = subjects.Find(
+            compaction.SubjectContract.ContractId, compaction.SubjectContract.ContractVersion)
+            ?? throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+        BaseModuleDtoPropertyBinding[] matches = identity.RequestBindings.Values
+            .Where(value => value.StablePropertyId == compaction.SubjectReferenceRequestPropertyId).ToArray();
+        if (matches.Length != 1) throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+        JsonElement current = JsonSerializer.SerializeToElement(request, identity.RequestTypeInfo);
+        for (int index = 0; index < matches[0].WirePropertyPath.Count; index++)
+        {
+            if (current.ValueKind != JsonValueKind.Object || !current.TryGetProperty(matches[0].WirePropertyPath[index], out current))
+                throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+        }
+        var decoded = BaseSubjectReferenceEncoding.DecodeElement(current, subject.Definition.SubjectIdKind,
+            subject.Definition.MaximumSubjectIdUtf8Bytes);
+        var value = new BaseSemanticActivationSubjectLifetimeBinding
+        {
+            ContractId = subject.Definition.Id, ContractVersion = subject.Definition.Version,
+            ContractChecksum = Convert.FromHexString(subject.Checksum).ToImmutableArray(),
+            SubjectId = decoded.SubjectId,
+            AuthorityEpoch = decoded.AuthorityEpoch,
+            Incarnation = decoded.Incarnation,
+            ScopeBindingId = proposedScopeBinding.ToImmutableArray(), Checksum = [],
+        };
+        return value with { Checksum = SemanticLifetimeChecksum(value).ToImmutableArray() };
+    }
+
+    private static byte[] SemanticLifetimeChecksum(BaseSemanticActivationSubjectLifetimeBinding value) => Hash(
+        "base.semanticActivation.subjectLifetime.v1\0", Encoding.UTF8.GetBytes(value.ContractId),
+        BitConverter.GetBytes(value.ContractVersion).Reverse().ToArray(), value.ContractChecksum.ToArray(),
+        value.SubjectId.ToUtf8Bytes(), Encoding.UTF8.GetBytes(value.AuthorityEpoch.ToBase64Url()),
+        Encoding.UTF8.GetBytes(value.Incarnation.ToBase64Url()), value.ScopeBindingId.ToArray());
+
+    private static byte[] Hash(string purpose, params byte[][] fields)
+    {
+        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData(Encoding.UTF8.GetBytes(purpose));
+        byte[] length = new byte[4];
+        foreach (byte[] field in fields)
+        {
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(length, field.Length);
+            hash.AppendData(length); hash.AppendData(field);
+        }
+        return hash.GetHashAndReset();
     }
 
     public async ValueTask<BaseResult<BaseModuleMutationExecutionResult<TResult>>> ResolveAsync<TRequest, TResult>(
@@ -196,13 +460,16 @@ internal sealed class DefaultBaseModuleMutationRuntime(
 
     private IAtomicRecordStore? ResolveOneStore(CollectionDefinition[] authorityCollections)
     {
+        RecordStoreRegistration? registration = ResolveOneRegistration(authorityCollections);
+        return registration?.AtomicExecutionStore ?? registration?.Store as IAtomicRecordStore;
+    }
+
+    private RecordStoreRegistration? ResolveOneRegistration(CollectionDefinition[] authorityCollections)
+    {
         RecordStoreRegistration[] registrations = authorityCollections.Length == 0
             ? stores.GetRegistrations()
             : authorityCollections.Select(value => stores.GetRegistrationForCollection(value.Id)).Where(static value => value is not null).Cast<RecordStoreRegistration>().DistinctBy(static value => value.StoreId).ToArray();
-        return registrations.Length == 1
-            ? registrations[0].AtomicExecutionStore
-                ?? registrations[0].Store as IAtomicRecordStore
-            : null;
+        return registrations.Length == 1 ? registrations[0] : null;
     }
 
     private async ValueTask<bool> AuthorizeDeclaredAuthorityAsync(

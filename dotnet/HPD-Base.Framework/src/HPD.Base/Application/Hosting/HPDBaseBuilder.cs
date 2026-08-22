@@ -45,6 +45,7 @@ public sealed class HPDBaseBuilder
     private readonly Dictionary<(string Id, int Version), BaseRegisteredModuleMutationDefinition> _moduleMutations = [];
     private readonly Dictionary<(string Id, int Version), IBaseModuleMutationRegistration> _moduleMutationRegistrations = [];
     private readonly Dictionary<(string Id, int Version), IBaseActivationRegistration> _activationRegistrations = [];
+    private readonly Dictionary<(string Id, int Version), IBaseSemanticActivationRegistration> _semanticActivationRegistrations = [];
     private readonly Dictionary<(string Id, int Version), IBaseActivationMigrationRegistration> _activationMigrations = [];
     private readonly Dictionary<(string Id, int Version), BaseScheduleDefinition> _activationSchedules = [];
     private BaseTimeZoneAuthority? _timeZoneAuthority;
@@ -373,6 +374,18 @@ public sealed class HPDBaseBuilder
         return this;
     }
 
+    /// <summary>Registers one graph-owned semantic activation identity.</summary>
+    public HPDBaseBuilder AddSemanticActivation<TRequest, TDefinition>(BaseSemanticActivationRegistration<TRequest, TDefinition> registration)
+    {
+        EnsureMutable();
+        ArgumentNullException.ThrowIfNull(registration);
+        var installed = new BaseInstalledSemanticActivationRegistration<TRequest, TDefinition>(registration);
+        if (_semanticActivationRegistrations.Keys.Any(key => string.Equals(key.Id, installed.Definition.Id, StringComparison.Ordinal))
+            || !_semanticActivationRegistrations.TryAdd((installed.Definition.Id, installed.Definition.Version), installed))
+            throw new InvalidOperationException("base.semanticActivation.registrationConflict");
+        return this;
+    }
+
     /// <summary>Registers one callback-free graph-owned activation input migration.</summary>
     public HPDBaseBuilder AddActivationMigration<TSource, TTarget>(
         BaseActivationMigrationRegistration<TSource, TTarget> registration)
@@ -584,6 +597,7 @@ public sealed class HPDBaseBuilder
         }
         var moduleMutationRegistry = new BaseModuleMutationRegistry(_moduleMutations.Values, _moduleGenerationCells.Values, _moduleMutationRegistrations.Values);
         var activationRegistry = new BaseActivationRegistry(_activationRegistrations.Values);
+        var semanticActivationRegistry = new BaseSemanticActivationRegistry(_semanticActivationRegistrations.Values);
         var activationMigrationRegistry = new BaseActivationMigrationRegistry(_activationMigrations.Values);
         foreach (IBaseActivationMigrationRegistration migration in _activationMigrations.Values)
         {
@@ -621,6 +635,35 @@ public sealed class HPDBaseBuilder
                     break;
             }
         }
+        foreach (BaseSemanticActivationKeyDefinition semantic in semanticActivationRegistry.Definitions)
+        {
+            BaseRegisteredModuleMutationDefinition? ensure = moduleMutationRegistry.Find(semantic.EnsureOperation.OperationId, semantic.EnsureOperation.OperationVersion);
+            BaseRegisteredModuleMutationDefinition? retire = moduleMutationRegistry.Find(semantic.RetirementOperation.OperationId, semantic.RetirementOperation.OperationVersion);
+            BaseActivationDefinition? activation = activationRegistry.Find(semantic.Activation.Id, semantic.Activation.Version);
+            if (ensure is null || retire is null || activation is null
+                || !string.Equals(ensure.OwningModuleId, semantic.OwningModuleId, StringComparison.Ordinal)
+                || !string.Equals(retire.OwningModuleId, semantic.OwningModuleId, StringComparison.Ordinal)
+                || !string.Equals(activation.OwningModuleId, semantic.OwningModuleId, StringComparison.Ordinal)
+                || !string.Equals(Convert.ToHexStringLower(ensure.Checksum.ToArray()), semantic.EnsureOperation.OperationChecksum, StringComparison.Ordinal)
+                || !string.Equals(Convert.ToHexStringLower(retire.Checksum.ToArray()), semantic.RetirementOperation.OperationChecksum, StringComparison.Ordinal)
+                || !CryptographicOperations.FixedTimeEquals(activation.Checksum.AsSpan(), semantic.Activation.Checksum.AsSpan()))
+                throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+            IBaseModuleMutationRegistration ensureRegistration = moduleMutationRegistry.FindRegistration(ensure.Id, ensure.Version)
+                ?? throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+            IBaseModuleMutationRegistration retireRegistration = moduleMutationRegistry.FindRegistration(retire.Id, retire.Version)
+                ?? throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+            ValidateSemanticCompaction(semantic, ensureRegistration, retireRegistration);
+            ValidateSemanticProgram(ensure.Template, ensureOperation: true);
+            ValidateSemanticProgram(retire.Template, ensureOperation: false);
+        }
+        HashSet<(string, int)> semanticOperations = semanticActivationRegistry.Definitions
+            .SelectMany(static value => new[] { (value.EnsureOperation.OperationId, value.EnsureOperation.OperationVersion), (value.RetirementOperation.OperationId, value.RetirementOperation.OperationVersion) })
+            .ToHashSet();
+        if (semanticOperations.Count != semanticActivationRegistry.Definitions.Count * 2)
+            throw new InvalidOperationException("base.semanticActivation.registrationConflict");
+        foreach (BaseRegisteredModuleMutationDefinition operation in moduleMutationRegistry.Operations)
+            if (!semanticOperations.Contains((operation.Id, operation.Version)) && HasSemanticProgramNodes(operation.Template))
+                throw new InvalidOperationException("base.semanticActivation.contractInvalid");
         foreach (BaseScheduleDefinition schedule in _activationSchedules.Values)
         {
             BaseActivationDefinition? activation = activationRegistry.Find(schedule.Activation.Id, schedule.Activation.Version);
@@ -675,6 +718,10 @@ public sealed class HPDBaseBuilder
             throw new InvalidOperationException(BaseConfidentialityErrorCodes.ProviderCapabilityMissing);
         BaseLogicalSchema logicalSchema = BaseLogicalSchemaFactory.Create(schemaOptions, collections, _reads.Values, storageProtection, subjectRegistry);
         BasePolicyAuthorityOwner policyAuthorityOwner = PolicyAuthority.Freeze(logicalSchema.ApplicationId);
+        semanticActivationRegistry.ValidatePolicyAuthority(policyAuthorityOwner);
+        foreach (BaseSemanticActivationKeyDefinition semantic in semanticActivationRegistry.Definitions)
+            if (!string.Equals(semantic.OwningApplicationId, logicalSchema.ApplicationId, StringComparison.Ordinal))
+                throw new InvalidOperationException("base.semanticActivation.contractInvalid");
         var lifecycleInspectionAuthorities = new BaseSubjectLifecycleInspectionAuthorityRegistry(
             logicalSchema.ApplicationId, subjectRegistry.All, policyAuthorityOwner);
         ValidateIndexCapabilities(collections, provider);
@@ -687,6 +734,7 @@ public sealed class HPDBaseBuilder
         _services.AddSingleton(lifecycleInspectionAuthorities);
         _services.AddSingleton(moduleMutationRegistry);
         _services.AddSingleton(activationRegistry);
+        _services.AddSingleton(semanticActivationRegistry);
         _services.AddSingleton(activationMigrationRegistry);
         _services.AddSingleton(scheduleRegistry);
         _services.AddSingleton(timeZoneRegistry);
@@ -764,7 +812,9 @@ public sealed class HPDBaseBuilder
             subjectLifecycleRegistry.All.Select(static value => value.Definition).ToArray(),
             lifecycleInspectionAuthorities.All.ToArray(),
             subjectRetirementRegistry.Consumers.Select(static value => value.Definition).ToArray(),
-            subjectRetirementRegistry.Policies.Select(static value => value.Definition).ToArray());
+            subjectRetirementRegistry.Policies.Select(static value => value.Definition).ToArray(),
+            semanticActivationRegistry.Definitions.ToArray(), logicalSchema.ApplicationId,
+            semanticActivationRegistry.OwnerGeneration, semanticActivationRegistry.DefinitionSetChecksum);
         HPDBaseStoreRegistrationReceipt receipt;
         try { receipt = provider.Installer.Configure(installation); }
         catch (InvalidOperationException exception) when (exception.Message.StartsWith("base.store.", StringComparison.Ordinal)) { throw; }
@@ -775,7 +825,8 @@ public sealed class HPDBaseBuilder
                 collections, installedSubjects, _moduleMutations.Values, _moduleGenerationCells.Values,
                 subjectLifecycleRegistry.All.Select(static value => value.Definition), lifecycleInspectionAuthorities.All,
                 subjectRetirementRegistry.Consumers.Select(static value => value.Definition),
-                subjectRetirementRegistry.Policies.Select(static value => value.Definition)), StringComparison.Ordinal) ||
+                subjectRetirementRegistry.Policies.Select(static value => value.Definition),
+                semanticActivationRegistry.Definitions), StringComparison.Ordinal) ||
             !receipt.ContributorIds.SequenceEqual(provider.RegistrationIds, StringComparer.Ordinal))
             throw new InvalidOperationException("base.store.providerInvalid");
         ConfigureVectorRuntime(collections);
@@ -841,6 +892,172 @@ public sealed class HPDBaseBuilder
         {
             if (key.IssueUntil is null)
                 throw new ArgumentException("A decryption-only token key requires its issuance-stop instant.", nameof(options));
+        }
+    }
+
+    private static void ValidateSemanticProgram(BaseModuleMutationTemplate template, bool ensureOperation)
+    {
+        BaseModuleSemanticActivationStateGuard[] stateGuards = template.Guards
+            .OfType<BaseModuleSemanticActivationStateGuard>().ToArray();
+        if (stateGuards.Length != 4
+            || stateGuards.Select(static value => value.Test).Distinct().Count() != 4)
+            throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+        foreach (BaseModuleValueExpression expression in SemanticExpressions(template.Result.Value))
+        {
+            bool valid = ensureOperation
+                ? expression is not BaseModuleSemanticActivationRetirementDispositionExpression
+                : expression is not (BaseModuleSemanticActivationDispositionExpression or BaseModuleSemanticActivationIdExpression or BaseModuleSemanticActivationWasMaterializedExpression);
+            if (!valid) throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+        }
+
+        IReadOnlyDictionary<string, BaseModuleGuard> guards = template.Guards.ToDictionary(static value => value.Id, StringComparer.Ordinal);
+        foreach (BaseModuleSemanticActivationStateTest state in Enum.GetValues<BaseModuleSemanticActivationStateTest>())
+        {
+            bool terminal = state is BaseModuleSemanticActivationStateTest.Retired
+                or BaseModuleSemanticActivationStateTest.CompactedAbsent;
+            foreach (BaseModuleMutationBlock path in SelectSemanticPaths(template.Body, state, guards))
+                if (terminal && ContainsSemanticTerminalWork(path))
+                    throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+            if (terminal && ExpressionCanSelectSemanticActivationId(template.Result.Value, state, guards))
+                throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+        }
+    }
+
+    private static IEnumerable<BaseModuleMutationBlock> SelectSemanticPaths(
+        BaseModuleMutationBlock block,
+        BaseModuleSemanticActivationStateTest state,
+        IReadOnlyDictionary<string, BaseModuleGuard> guards)
+    {
+        List<BaseModuleMutationBlock> paths = [new() { Statements = [] }];
+        foreach (BaseModuleStatement statement in block.Statements)
+        {
+            if (statement is not BaseModuleIfStatement branch)
+            {
+                paths = paths.Select(path => path with { Statements = [.. path.Statements, statement] }).ToList();
+                continue;
+            }
+            bool? decision = SemanticGuardDecision(branch.GuardId, state, guards, new(StringComparer.Ordinal));
+            BaseModuleMutationBlock[] selections = decision switch
+            {
+                true => [branch.WhenTrue],
+                false => [branch.WhenFalse],
+                null => [branch.WhenTrue, branch.WhenFalse],
+            };
+            paths = paths.SelectMany(prefix => selections.SelectMany(selected =>
+                SelectSemanticPaths(selected, state, guards).Select(suffix => new BaseModuleMutationBlock
+                {
+                    Statements = [.. prefix.Statements, .. suffix.Statements],
+                }))).ToList();
+            if (paths.Count > 4_096) throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+        }
+        return paths;
+    }
+
+    private static bool ContainsSemanticTerminalWork(BaseModuleMutationBlock block) =>
+        block.Statements.Any(static statement => statement is BaseModuleIncrementGenerationStatement
+            or BaseModuleCreateStatement or BaseModulePatchStatement or BaseModuleReplaceStatement
+            or BaseModuleDeleteStatement or BaseModuleUpsertStatement);
+
+    private static bool ExpressionCanSelectSemanticActivationId(
+        BaseModuleValueExpression expression,
+        BaseModuleSemanticActivationStateTest state,
+        IReadOnlyDictionary<string, BaseModuleGuard> guards) => expression switch
+    {
+        BaseModuleSemanticActivationIdExpression => true,
+        BaseModuleConditionalExpression conditional => SemanticGuardDecision(conditional.GuardId, state, guards, new(StringComparer.Ordinal)) switch
+        {
+            true => ExpressionCanSelectSemanticActivationId(conditional.WhenTrue, state, guards),
+            false => ExpressionCanSelectSemanticActivationId(conditional.WhenFalse, state, guards),
+            null => ExpressionCanSelectSemanticActivationId(conditional.WhenTrue, state, guards)
+                || ExpressionCanSelectSemanticActivationId(conditional.WhenFalse, state, guards),
+        },
+        BaseModuleObjectExpression obj => obj.Properties.Any(value => ExpressionCanSelectSemanticActivationId(value.Value, state, guards)),
+        BaseModuleCoalesceExpression coalesce => coalesce.Values.Any(value => ExpressionCanSelectSemanticActivationId(value, state, guards)),
+        BaseModuleBinaryNumericExpression numeric => ExpressionCanSelectSemanticActivationId(numeric.Left, state, guards)
+            || ExpressionCanSelectSemanticActivationId(numeric.Right, state, guards),
+        _ => false,
+    };
+
+    private static bool? SemanticGuardDecision(
+        string guardId,
+        BaseModuleSemanticActivationStateTest state,
+        IReadOnlyDictionary<string, BaseModuleGuard> guards,
+        HashSet<string> visiting)
+    {
+        if (!guards.TryGetValue(guardId, out BaseModuleGuard? guard) || !visiting.Add(guardId)) return null;
+        try
+        {
+            if (guard is BaseModuleSemanticActivationStateGuard semantic) return semantic.Test == state;
+            if (guard is not BaseModuleLogicalGuard logical) return null;
+            bool?[] children = logical.ChildGuardIds.Select(id => SemanticGuardDecision(id, state, guards, visiting)).ToArray();
+            return logical.Kind switch
+            {
+                BaseModuleLogicalGuardKind.Not when children.Length == 1 => children[0] is { } value ? !value : null,
+                BaseModuleLogicalGuardKind.And when children.Any(static value => value == false) => false,
+                BaseModuleLogicalGuardKind.And when children.All(static value => value == true) => true,
+                BaseModuleLogicalGuardKind.Or when children.Any(static value => value == true) => true,
+                BaseModuleLogicalGuardKind.Or when children.All(static value => value == false) => false,
+                _ => null,
+            };
+        }
+        finally { visiting.Remove(guardId); }
+    }
+
+    private void ValidateSemanticCompaction(
+        BaseSemanticActivationKeyDefinition definition,
+        IBaseModuleMutationRegistration ensure,
+        IBaseModuleMutationRegistration retire)
+    {
+        if (definition.Compaction is BaseSemanticActivationNoCompaction) return;
+        if (definition.Compaction is not BaseSemanticActivationSubjectRetirementCompaction compaction)
+            throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+        BaseGeneratedSubjectRegistration[] contracts = _subjectContracts.Where(value =>
+            value.Definition.Id == compaction.SubjectContract.ContractId
+            && value.Definition.Version == compaction.SubjectContract.ContractVersion
+            && string.Equals(value.Checksum, Convert.ToHexStringLower(compaction.SubjectContract.ContractChecksum.AsSpan()), StringComparison.Ordinal))
+            .ToArray();
+        if (contracts.Length != 1) throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+        bool Matches(IBaseModuleMutationRegistration registration)
+        {
+            BaseModuleDtoPropertyBinding[] bindings = registration.RequestBindings.Values
+                .Where(value => value.StablePropertyId == compaction.SubjectReferenceRequestPropertyId).ToArray();
+            Type? propertyType = bindings.Length == 1 ? bindings[0].PropertyType : null;
+            return propertyType?.IsGenericType == true
+                && propertyType.GetGenericTypeDefinition() == typeof(BaseSubjectReference<>)
+                && propertyType.GenericTypeArguments[0] == contracts[0].MarkerType
+                && !bindings[0].Nullable;
+        }
+        if (!Matches(ensure) || !Matches(retire))
+            throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+    }
+
+    private static bool HasSemanticProgramNodes(BaseModuleMutationTemplate template) =>
+        template.Guards.Any(static guard => guard is BaseModuleSemanticActivationStateGuard)
+        || SemanticExpressions(template.Result.Value).Any(static expression => expression is BaseModuleSemanticActivationDispositionExpression
+            or BaseModuleSemanticActivationIdExpression or BaseModuleSemanticActivationWasMaterializedExpression
+            or BaseModuleSemanticActivationRetirementDispositionExpression);
+
+    private static IEnumerable<BaseModuleValueExpression> SemanticExpressions(BaseModuleValueExpression value)
+    {
+        yield return value;
+        switch (value)
+        {
+            case BaseModuleObjectExpression obj:
+                foreach (BaseModuleObjectPropertyExpression property in obj.Properties)
+                    foreach (BaseModuleValueExpression child in SemanticExpressions(property.Value)) yield return child;
+                break;
+            case BaseModuleCoalesceExpression coalesce:
+                foreach (BaseModuleValueExpression item in coalesce.Values)
+                    foreach (BaseModuleValueExpression child in SemanticExpressions(item)) yield return child;
+                break;
+            case BaseModuleConditionalExpression conditional:
+                foreach (BaseModuleValueExpression child in SemanticExpressions(conditional.WhenTrue)) yield return child;
+                foreach (BaseModuleValueExpression child in SemanticExpressions(conditional.WhenFalse)) yield return child;
+                break;
+            case BaseModuleBinaryNumericExpression numeric:
+                foreach (BaseModuleValueExpression child in SemanticExpressions(numeric.Left)) yield return child;
+                foreach (BaseModuleValueExpression child in SemanticExpressions(numeric.Right)) yield return child;
+                break;
         }
     }
 

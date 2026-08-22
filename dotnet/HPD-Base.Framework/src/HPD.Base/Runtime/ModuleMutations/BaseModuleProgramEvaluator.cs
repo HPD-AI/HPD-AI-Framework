@@ -28,6 +28,7 @@ internal sealed class BaseModuleProgramEvaluator<TRequest, TResult>
     private readonly HashSet<string> _evaluatingGuards = new(StringComparer.Ordinal);
     private readonly ImmutableArray<BaseModuleDecisionTraceEntry>.Builder _decisions = ImmutableArray.CreateBuilder<BaseModuleDecisionTraceEntry>();
     private int _decisionOrdinal;
+    private readonly BaseSemanticActivationCapturedState? _semanticState;
 
     internal BaseModuleProgramEvaluator(
         BaseRegisteredModuleMutationDefinition definition,
@@ -45,6 +46,7 @@ internal sealed class BaseModuleProgramEvaluator<TRequest, TResult>
             ?? new Dictionary<string, BaseCapturedModuleGeneration>(StringComparer.Ordinal);
         _guards = definition.Template.Guards.ToDictionary(static value => value.Id, StringComparer.Ordinal);
         _collections = collections;
+        _semanticState = captured?.SemanticActivation?.State;
     }
 
     internal ImmutableArray<BaseModuleDecisionTraceEntry> Decisions => _decisions.ToImmutable();
@@ -86,6 +88,14 @@ internal sealed class BaseModuleProgramEvaluator<TRequest, TResult>
                 CapturedField(field.Field), Evaluate(field.Expected), field.Field.DeclaredTypeId, field.Comparison),
             BaseModuleFieldPresenceGuard field => Presence(CapturedField(field.Field), field.Test),
             BaseModuleGenerationGuard generation => CompareGeneration(generation),
+            BaseModuleSemanticActivationStateGuard semantic => _semanticState == semantic.Test switch
+            {
+                BaseModuleSemanticActivationStateTest.Missing => BaseSemanticActivationCapturedState.Missing,
+                BaseModuleSemanticActivationStateTest.Live => BaseSemanticActivationCapturedState.Live,
+                BaseModuleSemanticActivationStateTest.Retired => BaseSemanticActivationCapturedState.Retired,
+                BaseModuleSemanticActivationStateTest.CompactedAbsent => BaseSemanticActivationCapturedState.CompactedAbsent,
+                _ => throw new InvalidOperationException("base.moduleMutation.invalid"),
+            },
             BaseModuleLogicalGuard logical => Logical(logical),
             _ => throw new InvalidOperationException("base.moduleMutation.invalid"),
         };
@@ -147,6 +157,14 @@ internal sealed class BaseModuleProgramEvaluator<TRequest, TResult>
         BaseModuleResultProjection projection,
         IReadOnlyDictionary<string, BaseRecordMutationFact> committed,
         IReadOnlyDictionary<string, BaseModuleCommittedGeneration> generations,
+        out ImmutableArray<byte> canonicalBytes) =>
+        ProjectResult(projection, committed, generations, null, out canonicalBytes);
+
+    internal TResult ProjectResult(
+        BaseModuleResultProjection projection,
+        IReadOnlyDictionary<string, BaseRecordMutationFact> committed,
+        IReadOnlyDictionary<string, BaseModuleCommittedGeneration> generations,
+        BaseSemanticActivationReceiptEvidence? semantic,
         out ImmutableArray<byte> canonicalBytes)
     {
         BaseModuleProgramValue EvaluateResult(BaseModuleValueExpression expression) => expression switch
@@ -156,6 +174,14 @@ internal sealed class BaseModuleProgramEvaluator<TRequest, TResult>
             BaseModuleCommittedUpsertDispositionExpression upsert => Committed(upsert.StatementId, static fact => JsonValue(fact.UpsertOutcome?.ToString()), committed),
             BaseModuleResultingGenerationExpression generation => generations.TryGetValue(generation.CaptureId, out BaseModuleCommittedGeneration? value)
                 ? JsonValue(value.Resulting.ToCanonicalString()) : BaseModuleProgramValue.Missing,
+            BaseModuleSemanticActivationDispositionExpression => semantic?.EnsureDisposition is { } ensure
+                ? JsonValue(ensure.ToString()) : BaseModuleProgramValue.Missing,
+            BaseModuleSemanticActivationIdExpression => semantic?.ActivationId is { } activationId
+                ? JsonValue(activationId) : BaseModuleProgramValue.Missing,
+            BaseModuleSemanticActivationWasMaterializedExpression => semantic?.EnsureDisposition is { } materialized
+                ? JsonValue(materialized == BaseSemanticActivationEnsureDisposition.Created) : BaseModuleProgramValue.Missing,
+            BaseModuleSemanticActivationRetirementDispositionExpression => semantic?.RetirementDisposition is { } retirement
+                ? JsonValue(retirement.ToString()) : BaseModuleProgramValue.Missing,
             BaseModuleObjectExpression objectExpression => ResultObject(objectExpression, EvaluateResult),
             BaseModuleCoalesceExpression coalesce => coalesce.Values.Select(EvaluateResult).FirstOrDefault(static value => value.Present),
             BaseModuleConditionalExpression conditional => ResultConditional(conditional, EvaluateResult),

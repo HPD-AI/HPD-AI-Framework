@@ -58,8 +58,9 @@ internal static class BaseModuleMutationGenerator
                 .AddRange(validation.UnionGraph.PropertiesForRoot(result))
                 .GroupBy(static property => property.CanonicalKey, StringComparer.Ordinal).Select(static group => group.First())
                 .OrderBy(static property => property.CanonicalKey, StringComparer.Ordinal).ToImmutableArray();
-            List<PropertyBinding> requestBindings = Bindings(request, validation.UnionGraph.PropertiesForRoot(request), includeNested: true);
-            List<PropertyBinding> resultBindings = Bindings(result, validation.UnionGraph.PropertiesForRoot(result), includeNested: false);
+            int namingPolicy = int.Parse(validation.OptionReceipt.Single(static value => value.StartsWith("PropertyNamingPolicy=", StringComparison.Ordinal)).Split('=')[1]);
+            List<PropertyBinding> requestBindings = Bindings(request, validation.UnionGraph.PropertiesForRoot(request), includeNested: true, namingPolicy);
+            List<PropertyBinding> resultBindings = Bindings(result, validation.UnionGraph.PropertiesForRoot(result), includeNested: false, namingPolicy);
             if (requestBindings.Count == 0 || resultBindings.Count == 0)
             {
                 context.ReportDiagnostic(Diagnostic.Create(Invalid, symbol.Locations.FirstOrDefault(), id,
@@ -88,6 +89,11 @@ internal static class BaseModuleMutationGenerator
         AppendBindings(source, requestBindings, trailingComma: true);
         AppendBindings(source, resultBindings, trailingComma: false);
         source.AppendLine("        );\n    }");
+        source.AppendLine("    /// <summary>Creates graph-installation evidence for a semantic activation whose key is derived from this operation request.</summary>");
+        source.Append("    public static global::HPD.Base.BaseSemanticActivationKeyIdentity<").Append(Type(request)).Append(", TDefinition> CreateSemanticActivationKeyIdentity<TDefinition>(global::HPD.Base.BaseSemanticActivationKeyDefinition definition, global::HPD.Base.BaseSemanticActivationKeyExpression expression)\n    {\n");
+        source.AppendLine("        global::System.ArgumentNullException.ThrowIfNull(definition);");
+        source.AppendLine("        global::System.ArgumentNullException.ThrowIfNull(expression);");
+        source.Append("        return global::HPD.Base.BaseGeneratedSemanticActivations.Register<").Append(Type(request)).Append(", ").Append(Type(result)).Append(", TDefinition>(definition.Id, definition.Version, definition.OwningApplicationId, definition.OwningModuleId, definition.Checksum.AsSpan(), definition.Limits.MaximumCanonicalKeyBytes, Identity, expression);\n    }\n");
         source.AppendLine("    private static class __HPDBaseSerializerFactory\n    {");
         source.AppendLine("        [global::System.CodeDom.Compiler.GeneratedCode(\"HPD.Base.Generators\", \"50\")]");
         source.Append("        internal static ").Append(Type(context)).AppendLine(" Create() => new(global::HPD.Base.BaseSerializerGeneratedContract.CreateOptions(null));");
@@ -116,7 +122,7 @@ internal static class BaseModuleMutationGenerator
         foreach (PropertyBinding binding in bindings)
         {
             source.Append("                global::HPD.Base.BaseModuleDtoPropertyBinding.")
-                .Append(binding.Path.Length == 1 ? "Create" : "CreatePath").Append('<').Append(Type(binding.DeclaringType)).Append(", ").Append(Type(binding.PropertyType)).Append(">(");
+                .Append(binding.Path.Length == 1 ? "CreateWire" : "CreatePathWire").Append('<').Append(Type(binding.DeclaringType)).Append(", ").Append(Type(binding.PropertyType)).Append(">(");
             if (binding.Path.Length == 1) source.Append(Literal(binding.Path[0]));
             else
             {
@@ -124,20 +130,28 @@ internal static class BaseModuleMutationGenerator
                 foreach (string edge in binding.Path) source.Append(Literal(edge)).Append(", ");
                 source.Append('}');
             }
-            source.Append(", ").Append(Literal(binding.Name)).Append(", (global::HPD.Base.BaseFieldConfidentiality)")
+            source.Append(", ").Append(Literal(binding.Name)).Append(", ");
+            if (binding.Path.Length == 1) source.Append(Literal(binding.WirePath[0]));
+            else
+            {
+                source.Append("new string[] { ");
+                foreach (string edge in binding.WirePath) source.Append(Literal(edge)).Append(", ");
+                source.Append('}');
+            }
+            source.Append(", (global::HPD.Base.BaseFieldConfidentiality)")
                 .Append(binding.Confidentiality).Append(", (global::HPD.Base.BaseRecordDisclosure)")
                 .Append(binding.RecordDisclosure).Append(", ").Append(binding.Nullable ? "true" : "false").AppendLine("),");
         }
         source.Append("            }").AppendLine(trailingComma ? "," : string.Empty);
     }
 
-    private static List<PropertyBinding> Bindings(INamedTypeSymbol root, ImmutableArray<ContextGraphProperty> graph, bool includeNested)
+    private static List<PropertyBinding> Bindings(INamedTypeSymbol root, ImmutableArray<ContextGraphProperty> graph, bool includeNested, int namingPolicy)
     {
         var result = new List<PropertyBinding>();
-        Walk(root, ImmutableArray<string>.Empty, new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default));
+        Walk(root, ImmutableArray<string>.Empty, ImmutableArray<string>.Empty, new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default));
         return result.OrderBy(static value => string.Join("\0", value.Path), StringComparer.Ordinal).ToList();
 
-        void Walk(INamedTypeSymbol current, ImmutableArray<string> prefix, HashSet<INamedTypeSymbol> ancestry)
+        void Walk(INamedTypeSymbol current, ImmutableArray<string> prefix, ImmutableArray<string> wirePrefix, HashSet<INamedTypeSymbol> ancestry)
         {
             if (prefix.Length >= 16 || !ancestry.Add(current)) return;
             foreach (ContextGraphProperty property in graph.Where(value => SymbolEqualityComparer.Default.Equals(value.DeclaringType, current))
@@ -148,17 +162,44 @@ internal static class BaseModuleMutationGenerator
                 string id = symbol.GetAttributes().FirstOrDefault(attribute => attribute.AttributeClass?.ToDisplayString() == FieldAttribute)?.ConstructorArguments.ElementAtOrDefault(0).Value as string ?? string.Empty;
                 if (!ValidId(id)) continue;
                 ImmutableArray<string> path = prefix.Add(id);
+                ImmutableArray<string> wirePath = wirePrefix.Add(WireName(property, namingPolicy));
                 int confidentiality = symbol.GetAttributes().FirstOrDefault(attribute => attribute.AttributeClass?.ToDisplayString() == ConfidentialityAttribute)?.ConstructorArguments.ElementAtOrDefault(0).Value is int value ? value : 0;
                 AttributeData? disclosure = symbol.GetAttributes().FirstOrDefault(attribute => attribute.AttributeClass?.ToDisplayString() == DisclosureAttribute);
                 int recordDisclosure = disclosure?.NamedArguments.FirstOrDefault(value => value.Key == "RecordRead").Value.Value is int explicitValue
                     ? explicitValue
                     : confidentiality <= 1 ? 0 : 1;
-                result.Add(new PropertyBinding(path, property.ApplicationName, root, property.PropertyType, confidentiality, recordDisclosure, property.Nullable));
+                result.Add(new PropertyBinding(path, wirePath, property.ApplicationName, root, property.PropertyType, confidentiality, recordDisclosure, property.Nullable));
                 if (includeNested && property.PropertyType is INamedTypeSymbol nested
                     && graph.Any(value => SymbolEqualityComparer.Default.Equals(value.DeclaringType, nested)))
-                    Walk(nested, path, new HashSet<INamedTypeSymbol>(ancestry, SymbolEqualityComparer.Default));
+                    Walk(nested, path, wirePath, new HashSet<INamedTypeSymbol>(ancestry, SymbolEqualityComparer.Default));
             }
         }
+    }
+
+    private static string WireName(ContextGraphProperty property, int namingPolicy)
+    {
+        if (!string.IsNullOrEmpty(property.ExplicitWireName)) return property.ExplicitWireName;
+        return namingPolicy switch
+        {
+            1 => char.ToLowerInvariant(property.ApplicationName[0]) + property.ApplicationName.Substring(1),
+            2 => ConvertSeparated(property.ApplicationName, '_', false),
+            3 => ConvertSeparated(property.ApplicationName, '_', true),
+            4 => ConvertSeparated(property.ApplicationName, '-', false),
+            5 => ConvertSeparated(property.ApplicationName, '-', true),
+            _ => property.ApplicationName,
+        };
+    }
+
+    private static string ConvertSeparated(string value, char separator, bool upper)
+    {
+        var output = new StringBuilder();
+        for (int index = 0; index < value.Length; index++)
+        {
+            char current = value[index];
+            if (index > 0 && char.IsUpper(current) && (char.IsLower(value[index - 1]) || index + 1 < value.Length && char.IsLower(value[index + 1]))) output.Append(separator);
+            output.Append(upper ? char.ToUpperInvariant(current) : char.ToLowerInvariant(current));
+        }
+        return output.ToString();
     }
 
     private static string RenderRecovery(INamedTypeSymbol symbol, INamedTypeSymbol? request, INamedTypeSymbol? result)
@@ -183,11 +224,12 @@ internal static class BaseModuleMutationGenerator
     private static string Sanitize(INamedTypeSymbol symbol) => new(symbol.ToDisplayString().Select(character => char.IsLetterOrDigit(character) ? character : '_').ToArray());
     private sealed class PropertyBinding
     {
-        internal PropertyBinding(ImmutableArray<string> path, string name, INamedTypeSymbol declaringType, ITypeSymbol propertyType, int confidentiality, int recordDisclosure, bool nullable)
+        internal PropertyBinding(ImmutableArray<string> path, ImmutableArray<string> wirePath, string name, INamedTypeSymbol declaringType, ITypeSymbol propertyType, int confidentiality, int recordDisclosure, bool nullable)
         {
-            Path = path; Name = name; DeclaringType = declaringType; PropertyType = propertyType; Confidentiality = confidentiality; RecordDisclosure = recordDisclosure; Nullable = nullable;
+            Path = path; WirePath = wirePath; Name = name; DeclaringType = declaringType; PropertyType = propertyType; Confidentiality = confidentiality; RecordDisclosure = recordDisclosure; Nullable = nullable;
         }
         internal ImmutableArray<string> Path { get; }
+        internal ImmutableArray<string> WirePath { get; }
         internal string Name { get; }
         internal INamedTypeSymbol DeclaringType { get; }
         internal ITypeSymbol PropertyType { get; }

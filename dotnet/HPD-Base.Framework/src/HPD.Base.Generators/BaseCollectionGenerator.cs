@@ -163,19 +163,28 @@ internal static class BaseCollectionGenerator
         "'{0}' may only be emitted by HPD Base generated source; the compiled application/build pipeline is trusted",
         "HPD.Base.Generation", DiagnosticSeverity.Error, true);
 
+    private static readonly DiagnosticDescriptor GeneratedSemanticActivationInfrastructureInvocation = new DiagnosticDescriptor(
+        "HPDBASE0530", "Generated semantic activation infrastructure is not an application API",
+        "'{0}' may only be emitted by HPD Base generated source; the compiled application/build pipeline is trusted",
+        "HPD.Base.Generation", DiagnosticSeverity.Error, true);
+
     internal static void RegisterForbiddenReferences(IncrementalGeneratorInitializationContext context)
     {
-        IncrementalValuesProvider<(Location Location, string Method, bool Subject)?> forbiddenReferences =
+        IncrementalValuesProvider<(Location Location, string Method, int Kind)?> forbiddenReferences =
             context.SyntaxProvider.CreateSyntaxProvider(
                 static (node, _) => node is SimpleNameSyntax,
                 static (syntaxContext, _) => ForbiddenGeneratedReference(syntaxContext));
         context.RegisterSourceOutput(forbiddenReferences.Where(static item => item.HasValue),
             static (productionContext, item) => productionContext.ReportDiagnostic(Diagnostic.Create(
-                item!.Value.Subject ? GeneratedSubjectInfrastructureInvocation : GeneratedInfrastructureInvocation,
-                item.Value.Location, item.Value.Method)));
+                item!.Value.Kind switch
+                {
+                    1 => GeneratedSubjectInfrastructureInvocation,
+                    2 => GeneratedSemanticActivationInfrastructureInvocation,
+                    _ => GeneratedInfrastructureInvocation,
+                }, item.Value.Location, item.Value.Method)));
     }
 
-    private static (Location Location, string Method, bool Subject)? ForbiddenGeneratedReference(GeneratorSyntaxContext context)
+    private static (Location Location, string Method, int Kind)? ForbiddenGeneratedReference(GeneratorSyntaxContext context)
     {
         var name = (SimpleNameSyntax)context.Node;
         SymbolInfo symbolInfo = context.SemanticModel.GetSymbolInfo(name);
@@ -186,7 +195,8 @@ internal static class BaseCollectionGenerator
         if (method is null) return null;
         string owner = method.ContainingType.OriginalDefinition.ToDisplayString();
         return (name.GetLocation(), owner + "." + method.Name,
-            owner is "HPD.Base.BaseGeneratedSubjects" or "HPD.Base.BaseSubjectReferenceJsonConverterFactory");
+            owner == "HPD.Base.BaseGeneratedSemanticActivations" ? 2
+                : owner is "HPD.Base.BaseGeneratedSubjects" or "HPD.Base.BaseSubjectReferenceJsonConverterFactory" ? 1 : 0);
     }
 
     private static bool IsGeneratedInfrastructure(IMethodSymbol method)
@@ -196,7 +206,8 @@ internal static class BaseCollectionGenerator
             owner == "HPD.Base.BaseCollection<T>" && method.Name == "CreateGenerated" ||
             owner == "HPD.Base.BaseReadGeneratedContract" && method.Name == "CreateGenerated" ||
             owner == "HPD.Base.BaseGeneratedSubjects" && method.Name == "Register" ||
-            owner == "HPD.Base.BaseSubjectReferenceJsonConverterFactory" && method.Name == "Register";
+            owner == "HPD.Base.BaseSubjectReferenceJsonConverterFactory" && method.Name == "Register" ||
+            owner == "HPD.Base.BaseGeneratedSemanticActivations" && method.Name == "Register";
     }
 
     internal static void GenerateCombined(

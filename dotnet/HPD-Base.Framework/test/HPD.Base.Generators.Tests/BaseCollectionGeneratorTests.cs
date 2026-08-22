@@ -1082,6 +1082,24 @@ public sealed class BaseCollectionGeneratorTests
         Run(source).Diagnostics.Should().Contain(item => item.Id == "HPDBASE0461");
     }
 
+    [Fact]
+    public void CallerAuthoredSemanticKeyRegistrationFailsTheTrustedBuildDiagnostic()
+    {
+        const string source = """
+            using HPD.Base;
+            public sealed record Request(string Value);
+            public sealed class Semantic;
+            public static class Forgery
+            {
+                public static BaseSemanticActivationKeyIdentity<Request, Semantic> Forge() =>
+                    BaseGeneratedSemanticActivations.Register<Request, object, Semantic>(
+                        "semantic", 1, "application", "module", new byte[32], 64, null!, null!);
+            }
+            """;
+
+        Run(source).Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE0530");
+    }
+
     [Theory]
     [InlineData("BaseSubjectReferenceJsonConverterFactory.Register<Subject>(BaseSubjectIdKind.Guid, 36);")]
     [InlineData("System.Action<BaseSubjectIdKind, int> register = BaseSubjectReferenceJsonConverterFactory.Register<Subject>; register(BaseSubjectIdKind.Guid, 36);")]

@@ -257,6 +257,10 @@ public sealed class HPDBaseStoreInstallationContext
     private readonly BaseSubjectLifecycleInspectionAuthority[] _lifecycleInspectionAuthorities;
     private readonly BaseSubjectRetirementConsumerDefinition[] _retirementConsumers;
     private readonly BaseSubjectRetirementPolicy[] _retirementPolicies;
+    private readonly BaseSemanticActivationKeyDefinition[] _semanticActivations;
+    private readonly string _applicationId;
+    private readonly long _semanticActivationOwnerGeneration;
+    private readonly byte[] _semanticActivationDefinitionSetChecksum;
     private readonly string _schemaDigest;
     internal HPDBaseStoreInstallationContext(
         IServiceCollection services,
@@ -268,7 +272,11 @@ public sealed class HPDBaseStoreInstallationContext
         BaseSubjectLifecycleConsumerDefinition[]? lifecycleConsumers = null,
         BaseSubjectLifecycleInspectionAuthority[]? lifecycleInspectionAuthorities = null,
         BaseSubjectRetirementConsumerDefinition[]? retirementConsumers = null,
-        BaseSubjectRetirementPolicy[]? retirementPolicies = null)
+        BaseSubjectRetirementPolicy[]? retirementPolicies = null,
+        BaseSemanticActivationKeyDefinition[]? semanticActivations = null,
+        string? applicationId = null,
+        long semanticActivationOwnerGeneration = 0,
+        ImmutableArray<byte> semanticActivationDefinitionSetChecksum = default)
     {
         _services = services;
         _provider = provider;
@@ -280,7 +288,16 @@ public sealed class HPDBaseStoreInstallationContext
         _lifecycleInspectionAuthorities = (lifecycleInspectionAuthorities ?? []).Select(static value => value with { }).ToArray();
         _retirementConsumers = (retirementConsumers ?? []).Select(static value => BaseSubjectRetirementRegistry.Normalize(value)).ToArray();
         _retirementPolicies = (retirementPolicies ?? []).Select(static value => BaseSubjectRetirementRegistry.NormalizePolicy(value)).ToArray();
-        _schemaDigest = ComputeSchemaDigest(_collections, _subjects, _moduleMutations, _moduleGenerationCells, _lifecycleConsumers, _lifecycleInspectionAuthorities, _retirementConsumers, _retirementPolicies);
+        _semanticActivations = (semanticActivations ?? []).Select(BaseSemanticActivationDefinitionContract.Seal).ToArray();
+        _applicationId = applicationId is null ? string.Empty : new string(applicationId.AsSpan());
+        _semanticActivationOwnerGeneration = semanticActivationOwnerGeneration;
+        _semanticActivationDefinitionSetChecksum = semanticActivationDefinitionSetChecksum.IsDefault
+            ? [] : semanticActivationDefinitionSetChecksum.ToArray();
+        if (_semanticActivations.Length != 0
+            && (string.IsNullOrEmpty(_applicationId) || _semanticActivationOwnerGeneration <= 0
+                || _semanticActivationDefinitionSetChecksum.Length != 32))
+            throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+        _schemaDigest = ComputeSchemaDigest(_collections, _subjects, _moduleMutations, _moduleGenerationCells, _lifecycleConsumers, _lifecycleInspectionAuthorities, _retirementConsumers, _retirementPolicies, _semanticActivations);
     }
     /// <summary>Gets the host service collection during the installation call.</summary>
     public IServiceCollection Services { get { ThrowIfCompleted(); return _services; } }
@@ -302,6 +319,14 @@ public sealed class HPDBaseStoreInstallationContext
     public IReadOnlyList<BaseSubjectRetirementConsumerDefinition> SubjectRetirementConsumers { get { ThrowIfCompleted(); return Array.AsReadOnly(_retirementConsumers.Select(static value => BaseSubjectRetirementRegistry.Normalize(value)).ToArray()); } }
     /// <summary>Gets installed exporter-owned retirement policies.</summary>
     public IReadOnlyList<BaseSubjectRetirementPolicy> SubjectRetirementPolicies { get { ThrowIfCompleted(); return Array.AsReadOnly(_retirementPolicies.Select(static value => BaseSubjectRetirementRegistry.NormalizePolicy(value)).ToArray()); } }
+    /// <summary>Gets the exact installed semantic activation definitions.</summary>
+    public IReadOnlyList<BaseSemanticActivationKeyDefinition> SemanticActivations { get { ThrowIfCompleted(); return Array.AsReadOnly(_semanticActivations.Select(BaseSemanticActivationDefinitionContract.Seal).ToArray()); } }
+    /// <summary>Gets the owning application identity for installed semantic activation authority.</summary>
+    public string ApplicationId { get { ThrowIfCompleted(); return new string(_applicationId.AsSpan()); } }
+    /// <summary>Gets the positive finalized semantic activation owner generation.</summary>
+    public long SemanticActivationOwnerGeneration { get { ThrowIfCompleted(); return _semanticActivationOwnerGeneration; } }
+    /// <summary>Gets the exact installed semantic definition-set checksum.</summary>
+    public ImmutableArray<byte> SemanticActivationDefinitionSetChecksum { get { ThrowIfCompleted(); return _semanticActivationDefinitionSetChecksum.ToImmutableArray(); } }
     /// <summary>Creates the single frozen receipt for this installation.</summary>
     public HPDBaseStoreRegistrationReceipt CreateReceipt(string recordStoreRegistrationId)
     {
@@ -356,7 +381,8 @@ public sealed class HPDBaseStoreInstallationContext
         IEnumerable<BaseSubjectLifecycleConsumerDefinition>? lifecycleConsumers = null,
         IEnumerable<BaseSubjectLifecycleInspectionAuthority>? lifecycleInspectionAuthorities = null,
         IEnumerable<BaseSubjectRetirementConsumerDefinition>? retirementConsumers = null,
-        IEnumerable<BaseSubjectRetirementPolicy>? retirementPolicies = null)
+        IEnumerable<BaseSubjectRetirementPolicy>? retirementPolicies = null,
+        IEnumerable<BaseSemanticActivationKeyDefinition>? semanticActivations = null)
     {
         var canonical = new StringBuilder();
         foreach (CollectionDefinition collection in collections.OrderBy(static value => value.Id, StringComparer.Ordinal))
@@ -394,6 +420,9 @@ public sealed class HPDBaseStoreInstallationContext
                 .Append(BaseSubjectRetirementRegistry.ConsumerChecksum(consumer)).Append('\n');
         foreach (BaseSubjectRetirementPolicy policy in (retirementPolicies ?? []).OrderBy(static value => value.ContractId, StringComparer.Ordinal).ThenBy(static value => value.ContractVersion))
             canonical.Append("rp:").Append(policy.ContractId).Append(':').Append(policy.ContractVersion).Append(':').Append(policy.PolicyChecksum).Append('\n');
+        foreach (BaseSemanticActivationKeyDefinition semantic in (semanticActivations ?? []).OrderBy(static value => value.Id, StringComparer.Ordinal).ThenBy(static value => value.Version))
+            canonical.Append("sa:").Append(semantic.Id).Append(':').Append(semantic.Version).Append(':')
+                .Append(Convert.ToHexStringLower(semantic.Checksum.AsSpan())).Append('\n');
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString())));
     }
 

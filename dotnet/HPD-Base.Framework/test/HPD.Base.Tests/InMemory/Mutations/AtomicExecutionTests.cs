@@ -13,6 +13,190 @@ public sealed class AtomicExecutionTests
     };
 
     [Fact]
+    public async Task Semantic_ensure_is_parent_independent_and_materializes_once()
+    {
+        var store = SemanticStore();
+        BaseAtomicMutationExecutionLimits limits = ModuleLimits();
+        BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync(
+            "activation-test", [], limits)).Value!;
+        var first = new SemanticEnsureProbe(authority, limits, "parent-one");
+        var second = new SemanticEnsureProbe(authority, limits, "different-parent");
+
+        RecordMutationExecutionResult created = await store.ExecuteAtomicAsync(first, ExecutionRequest);
+        RecordMutationExecutionResult existing = await store.ExecuteAtomicAsync(second, ExecutionRequest);
+
+        created.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed, first.RejectedCode);
+        existing.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+        first.CapturedState.Should().Be(BaseSemanticActivationCapturedState.Missing);
+        second.CapturedState.Should().Be(BaseSemanticActivationCapturedState.Live);
+        first.Provisional!.ActivationId.Should().Be(second.Provisional!.ActivationId);
+        first.Provisional!.ResultingSlotGeneration.Should().Be(1);
+        second.Provisional!.ResultingSlotGeneration.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Semantic_ensure_cannot_bypass_L51_pending_capacity()
+    {
+        var store = SemanticStore(maxPendingActivationRows: 1);
+        BaseAtomicMutationExecutionLimits limits = ModuleLimits();
+        BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync(
+            "activation-test", [], limits)).Value!;
+        (await store.ExecuteAtomicAsync(new ActivationCreationProbe(authority, limits), ExecutionRequest))
+            .Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+        var semantic = new SemanticEnsureProbe(authority, limits, "semantic-parent");
+
+        RecordMutationExecutionResult result = await store.ExecuteAtomicAsync(semantic, ExecutionRequest);
+
+        result.Outcome.Should().Be(RecordMutationExecutionOutcome.RollbackConfirmed);
+        semantic.RejectedCode.Should().Be("base.activation.capacityUnavailable");
+    }
+
+    [Fact]
+    public async Task Semantic_retirement_requires_terminal_activation_and_is_idempotent()
+    {
+        var store = SemanticStore();
+        BaseAtomicMutationExecutionLimits mutationLimits = ModuleLimits();
+        BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync(
+            "activation-test", [], mutationLimits)).Value!;
+        (await store.ExecuteAtomicAsync(new SemanticEnsureProbe(authority, mutationLimits, "ensure"), ExecutionRequest))
+            .Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+
+        var premature = new SemanticEnsureProbe(authority, mutationLimits, "retire-too-soon", retire: true);
+        (await store.ExecuteAtomicAsync(premature, ExecutionRequest)).Outcome.Should().Be(RecordMutationExecutionOutcome.RollbackConfirmed);
+
+        BaseActivationExecutionLimits activationLimits = ActivationLimits();
+        BaseActivationDefinitionKey activation = new()
+        {
+            Id = "test.activation", Version = 1,
+            Checksum = System.Security.Cryptography.SHA256.HashData("activation-definition"u8).ToImmutableArray(),
+        };
+        var scope = new BaseOwnedScopeSeekAuthority
+        {
+            Kind = BaseSubjectScopeKind.Global,
+            ProtectedIndexDigest = System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes($"base.activation.scope.v2\0{(int)BaseSubjectScopeKind.Global}\n")).ToImmutableArray(),
+        };
+        BaseActivationDueObservation observed = (await store.ObserveDueAsync(new BaseActivationDueObservationRequest
+        {
+            ApplicationId = "activation-test", WorkerModuleId = "test", Definitions = [activation], Scope = scope,
+            AcceptedTime = AcceptedTime(10), MaximumCandidates = 8, Limits = activationLimits,
+        })).Value!;
+        var worker = new BaseActivationWorkerAuthority
+        {
+            ApplicationId = "activation-test", ModuleId = "test", WorkerIdentity = "semantic-worker",
+            Definitions = [activation], Scope = scope, Checksum = new byte[32].ToImmutableArray(),
+        };
+        var claimed = (BaseActivationClaimedResult)(await store.TryClaimNextAsync(new BaseActivationClaimRequest
+        {
+            Observation = observed.Token, Worker = worker, AcceptedTime = AcceptedTime(10), LeaseMilliseconds = 1_000,
+            Identity = RequestIdentity("semantic-claim"), Limits = activationLimits,
+        })).Value!;
+        byte[] resultBytes = "done"u8.ToArray();
+        (await store.TransitionAsync(new BaseActivationCompleteRequest
+        {
+            ActivationId = claimed.Claim.ActivationId, Claim = claimed.Claim,
+            CanonicalResult = resultBytes.ToImmutableArray(),
+            ResultChecksum = System.Security.Cryptography.SHA256.HashData(resultBytes).ToImmutableArray(),
+            AcceptedTime = AcceptedTime(11), Identity = RequestIdentity("semantic-complete"), Limits = activationLimits,
+        })).IsSuccess().Should().BeTrue();
+
+        var first = new SemanticEnsureProbe(authority, mutationLimits, "retire", retire: true);
+        var duplicate = new SemanticEnsureProbe(authority, mutationLimits, "retire-again", retire: true);
+        (await store.ExecuteAtomicAsync(first, ExecutionRequest)).Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+        (await store.ExecuteAtomicAsync(duplicate, ExecutionRequest)).Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+        first.Provisional!.ResultingState.Should().Be(BaseSemanticActivationSlotState.Retired);
+        duplicate.CapturedState.Should().Be(BaseSemanticActivationCapturedState.Retired);
+        duplicate.Provisional!.ResultingSlotGeneration.Should().Be(first.Provisional.ResultingSlotGeneration);
+    }
+
+    [Fact]
+    public async Task Concurrent_semantic_ensure_race_converges_on_one_slot()
+    {
+        var store = SemanticStore();
+        BaseAtomicMutationExecutionLimits limits = ModuleLimits();
+        BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync(
+            "activation-test", [], limits)).Value!;
+        var left = new SemanticEnsureProbe(authority, limits, "parent-left");
+        var right = new SemanticEnsureProbe(authority, limits, "parent-right");
+
+        RecordMutationExecutionResult[] raced = await Task.WhenAll(
+            store.ExecuteAtomicAsync(left, ExecutionRequest).AsTask(),
+            store.ExecuteAtomicAsync(right, ExecutionRequest).AsTask());
+
+        raced.Count(static result => result.Outcome == RecordMutationExecutionOutcome.Committed).Should().BeGreaterThanOrEqualTo(1);
+        foreach (RecordMutationExecutionResult result in raced)
+            (result.Outcome == RecordMutationExecutionOutcome.Committed
+                || result.Outcome == RecordMutationExecutionOutcome.RollbackConfirmed).Should().BeTrue();
+        left.Provisional!.ActivationId.Should().Be(right.Provisional!.ActivationId);
+        var retry = new SemanticEnsureProbe(authority, limits, "parent-retry");
+        (await store.ExecuteAtomicAsync(retry, ExecutionRequest)).Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+        retry.CapturedState.Should().Be(BaseSemanticActivationCapturedState.Live);
+        retry.Provisional!.ResultingSlotGeneration.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Semantic_accounting_rejects_max_plus_one_before_writes()
+    {
+        var store = SemanticStore();
+        BaseAtomicMutationExecutionLimits limits = ModuleLimits();
+        BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync(
+            "activation-test", [], limits)).Value!;
+        BaseSemanticActivationExecutionLimits tooSmall = SemanticEnsureProbe.CreateLimits() with { MaximumScopeDirectoryReads = 0 };
+        var probe = new SemanticEnsureProbe(authority, limits, "bounded", semanticLimits: tooSmall);
+
+        RecordMutationExecutionResult result = await store.ExecuteAtomicAsync(probe, ExecutionRequest);
+
+        result.Outcome.Should().Be(RecordMutationExecutionOutcome.RollbackConfirmed);
+        probe.RejectedCode.Should().Be(BaseSubjectErrorCodes.BudgetExceeded);
+        var retry = new SemanticEnsureProbe(authority, limits, "exact");
+        (await store.ExecuteAtomicAsync(retry, ExecutionRequest)).Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+        retry.CapturedState.Should().Be(BaseSemanticActivationCapturedState.Missing);
+    }
+
+    [Fact]
+    public async Task Semantic_activation_limits_are_intersected_by_measured_work_not_declared_maxima()
+    {
+        var store = SemanticStore();
+        BaseAtomicMutationExecutionLimits enclosing = ModuleLimits() with
+        {
+            MaximumProducedMutations = 1,
+            MaximumReadIntervals = 4,
+            MaximumEvidenceBytes = 16_384,
+            MaximumTransientBytes = 32_768,
+            MaximumJournalBytes = 16_384,
+            MaximumFactBytes = 16_384,
+            MaximumReceiptBytes = 16_384,
+        };
+        BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync(
+            "activation-test", [], enclosing)).Value!;
+        BaseActivationLimits broaderInstalled = SemanticCreationLimits() with
+        {
+            AtomicCreation = ModuleLimits(),
+        };
+        var probe = new SemanticEnsureProbe(authority, enclosing, "intersected", activationLimits: broaderInstalled);
+
+        RecordMutationExecutionResult result = await store.ExecuteAtomicAsync(probe, ExecutionRequest);
+
+        result.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed, probe.RejectedCode);
+        probe.Provisional!.Accounting.ActivationCreation.Candidates.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Semantic_activation_creation_honors_exact_provider_candidate_and_interval_caps()
+    {
+        InMemoryRecordStore store = SemanticStore(maximumDueCandidates: 1, maximumActivationReadIntervals: 1);
+        BaseAtomicMutationExecutionLimits limits = ModuleLimits();
+        BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync(
+            "activation-test", [], limits)).Value!;
+        var probe = new SemanticEnsureProbe(authority, limits, "provider-intersection");
+
+        RecordMutationExecutionResult result = await store.ExecuteAtomicAsync(probe, ExecutionRequest);
+
+        result.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed, probe.RejectedCode);
+        probe.Provisional!.Accounting.ActivationCreation.ReadIntervals.Should().Be(1);
+    }
+
+    [Fact]
     public async Task ActivationCreationCommitsAndExactReplayObservesExistingAuthority()
     {
         var store = new InMemoryRecordStore();
@@ -684,6 +868,20 @@ public sealed class AtomicExecutionTests
     private static BaseAtomicMutationExecutionLimits ModuleLimits() =>
         DefaultBaseModuleMutationRuntime.ResolveExecutionLimits(BaseModuleMutationPlatform.MaximumLimits);
 
+    private static InMemoryRecordStore SemanticStore(
+        int maxPendingActivationRows = 1_000_000,
+        int maximumDueCandidates = 256,
+        int maximumActivationReadIntervals = 4096) => new(
+        new HPDBaseInMemoryStoreOptions
+        {
+            MaxPendingActivationRows = maxPendingActivationRows,
+            ActivationMaximumDueCandidates = maximumDueCandidates,
+            ActivationMaximumReadIntervals = maximumActivationReadIntervals,
+            SemanticActivationApplicationId = "activation-test",
+            SemanticActivationOwnerGeneration = 1,
+            SemanticActivationDefinitionSetChecksum = System.Security.Cryptography.SHA256.HashData("semantic-definition"u8),
+        });
+
     private static BaseActivationExecutionLimits ActivationLimits() => new()
     {
         MaximumCandidates = 8,
@@ -697,6 +895,20 @@ public sealed class AtomicExecutionTests
         TransactionTimeout = TimeSpan.FromSeconds(5),
         CommitObservationTimeout = TimeSpan.FromSeconds(5),
         ReceiptResolutionTimeout = TimeSpan.FromSeconds(5),
+    };
+
+    private static BaseActivationLimits SemanticCreationLimits() => new()
+    {
+        MaximumInputBytes = 4096,
+        MaximumResultBytes = 4096,
+        MaximumAttempts = 3,
+        MaximumRenewalsPerAttempt = 3,
+        MaximumChildrenPerAttempt = 8,
+        MaximumLineageDepth = 8,
+        LeaseDuration = TimeSpan.FromMinutes(1),
+        HandlerTimeout = TimeSpan.FromMinutes(1),
+        Provider = ActivationLimits(),
+        AtomicCreation = ModuleLimits(),
     };
 
     private static BaseAcceptedTimeReceipt AcceptedTime(long milliseconds)
@@ -908,6 +1120,157 @@ public sealed class AtomicExecutionTests
             }
             ProvisionalCount = applied.Value.Activations.Items.Length;
             return new AtomicMutationProcessingResult(AtomicMutationProcessingOutcome.ReadyToCommit, []);
+        }
+    }
+
+    private sealed class SemanticEnsureProbe(
+        BaseAtomicMutationAuthorityRequirement authority,
+        BaseAtomicMutationExecutionLimits limits,
+        string parentIdentity,
+        bool retire = false,
+        BaseSemanticActivationExecutionLimits? semanticLimits = null,
+        BaseActivationLimits? activationLimits = null) : IAtomicMutationProcessor
+    {
+        public BaseSemanticActivationCapturedState? CapturedState { get; private set; }
+        public BaseProvisionalSemanticActivation? Provisional { get; private set; }
+        public string RejectedCode { get; private set; } = string.Empty;
+
+        public async ValueTask<AtomicMutationProcessingResult> ProcessAsync(
+            IAtomicRecordSession session,
+            CancellationToken cancellationToken = default)
+        {
+            byte[] definitionChecksum = System.Security.Cryptography.SHA256.HashData("semantic-definition"u8);
+            byte[] activationChecksum = System.Security.Cryptography.SHA256.HashData("activation-definition"u8);
+            byte[] canonicalKey = "auth-user-42"u8.ToArray();
+            byte[] binding = System.Security.Cryptography.SHA256.HashData("runtime-proposed-binding"u8);
+            BaseSemanticActivationKeyDigest key = SemanticKey("test.semantic", binding, canonicalKey);
+            Span<byte> keyBytes = stackalloc byte[32];
+            key.CopyTo(keyBytes);
+            byte[] activationId = SemanticHash("base.semanticActivation.activation.v1\0",
+                System.Text.Encoding.UTF8.GetBytes(authority.ApplicationId), System.Text.Encoding.UTF8.GetBytes(authority.StoreInstanceId),
+                "test"u8.ToArray(), "test.semantic"u8.ToArray(), binding, canonicalKey);
+            var definition = new BaseSemanticActivationDefinitionIdentity
+            {
+                Id = "test.semantic", Version = 1, Checksum = definitionChecksum.ToImmutableArray(), OwnerGeneration = 1,
+                OwningModuleId = "test",
+                RetirementOperation = new BaseSemanticActivationModuleOperationIdentity
+                {
+                    OperationId = "semantic.retire", OperationVersion = 1,
+                    OperationChecksum = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData("completion-operation"u8)),
+                },
+            };
+            var scope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Global };
+            var due = new BaseSemanticActivationDueAuthority
+            {
+                Mode = BaseSemanticActivationDueMode.ExplicitUtcInstant, CanonicalUnixMilliseconds = 1,
+            };
+            byte[] creationChecksum = SemanticHash("base.semanticActivation.creation.v1\0", definitionChecksum, keyBytes.ToArray(), binding, activationId);
+            var ensure = new BaseSemanticActivationEnsureIntent
+            {
+                Definition = definition, Key = key, CanonicalKey = canonicalKey.ToImmutableArray(), Scope = scope, Due = due,
+                Activation = new BaseSemanticActivationCreateIntent
+                {
+                    Definition = new BaseActivationDefinitionKey { Id = "test.activation", Version = 1, Checksum = activationChecksum.ToImmutableArray() },
+                    CanonicalInput = "payload"u8.ToArray().ToImmutableArray(),
+                    InputChecksum = System.Security.Cryptography.SHA256.HashData("payload"u8).ToImmutableArray(),
+                    Scope = scope, Due = due, Priority = 0, InitiallyEligible = true,
+                    Limits = activationLimits ?? SemanticCreationLimits(),
+                    Identity = new BaseSemanticActivationCreationIdentity
+                    {
+                        SemanticDefinition = definition, Key = key, ScopeBindingId = binding.ToImmutableArray(),
+                        DerivedActivationIdBytes = activationId.ToImmutableArray(), Checksum = creationChecksum.ToImmutableArray(),
+                    },
+                },
+            };
+            BaseSemanticActivationOperation operation = retire
+                ? new BaseSemanticActivationRetireIntent
+                {
+                    Definition = definition, Key = key, CanonicalKey = canonicalKey.ToImmutableArray(), Scope = scope,
+                    CompletionOperation = new BaseSemanticActivationModuleOperationIdentity
+                    {
+                        OperationId = "semantic.retire", OperationVersion = 1,
+                        OperationChecksum = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData("completion-operation"u8)),
+                    },
+                }
+                : ensure;
+            BaseSemanticActivationExecutionLimits effectiveSemanticLimits = semanticLimits ?? CreateLimits();
+            var extension = new BaseAtomicSemanticActivationExtension
+            {
+                Capture = new BaseSemanticActivationCaptureRequest
+                {
+                    Definition = definition, CanonicalKey = canonicalKey.ToImmutableArray(),
+                    KeyPreimageChecksum = System.Security.Cryptography.SHA256.HashData(canonicalKey).ToImmutableArray(),
+                    Scope = scope, ProposedScopeBindingId = binding.ToImmutableArray(), Operation = retire
+                        ? BaseSemanticActivationOperationKind.Retire : BaseSemanticActivationOperationKind.Ensure,
+                    StoreAuthority = new BaseSemanticActivationStoreAuthorityRequirement
+                    {
+                        ApplicationId = authority.ApplicationId, LogicalStoreId = authority.StoreInstanceId,
+                        StoreInstanceId = authority.StoreInstanceId, RestoreEpoch = authority.RestoreEpoch,
+                        SchemaGeneration = authority.SchemaGeneration, SemanticAuthorityGeneration = 1,
+                        DefinitionSetChecksum = definitionChecksum.ToImmutableArray(),
+                    },
+                    Limits = effectiveSemanticLimits,
+                    AcceptedTime = AcceptedTime(1),
+                },
+                Operation = operation,
+                StructuralDigest = SemanticHash("base.semanticActivation.extension.v1\0", definitionChecksum, canonicalKey, binding, [retire ? (byte)2 : (byte)1]).ToImmutableArray(),
+            };
+            var request = new BaseAtomicExecutionRequest
+            {
+                Kind = BaseAtomicMutationExecutionKind.ModuleMutation,
+                Intent = new BaseAtomicMutationIntent { IntentDigest = parentIdentity, Authority = authority, Items = [] },
+                Module = new BaseModuleMutationCaptureExtension
+                {
+                    OperationId = retire ? "semantic.retire" : "semantic.ensure", OperationVersion = 1, OperationChecksum = new string('a', 64),
+                    RequestDigest = parentIdentity, Records = [], RelationTargets = [], Generations = [],
+                },
+                SemanticActivation = extension, Limits = limits,
+            };
+            OperationResult<BaseCapturedAtomicExecution> captured = await session.CaptureAtomicExecutionAsync(request, cancellationToken);
+            if (!captured.IsSuccess() || captured.Value?.SemanticActivation is null) { RejectedCode = captured.Error?.Code ?? "capture"; return ProbeFailure(captured.Error); }
+            CapturedState = captured.Value.SemanticActivation.State;
+            var plan = new BaseFinalizedAtomicExecutionPlan
+            {
+                Kind = request.Kind, PlanDigest = $"semantic-plan-{parentIdentity}", IntentDigest = request.Intent.IntentDigest,
+                CaptureDigest = captured.Value.CaptureDigest, PolicyAuthorityDigest = BaseAtomicPolicyAuthorityDigest.Create(new byte[32]),
+                Authority = authority, Items = [], SubjectValidations = [], Limits = limits, SemanticActivation = extension,
+                Module = new BaseFinalizedModuleMutationExtension
+                {
+                    OperationId = retire ? "semantic.retire" : "semantic.ensure", OperationVersion = 1, OperationChecksum = new string('a', 64),
+                    Decisions = [], ItemBindings = [], RelationTargets = [], Comparisons = [], Increments = [],
+                    ResultProjectionDigest = parentIdentity,
+                },
+            };
+            OperationResult<BasePreparedAtomicExecution> prepared = await session.PrepareAtomicExecutionAsync(captured.Value, plan, cancellationToken);
+            if (!prepared.IsSuccess() || prepared.Value?.SemanticActivation is null) { RejectedCode = prepared.Error?.Code ?? "prepare"; return ProbeFailure(prepared.Error); }
+            OperationResult<BaseProvisionalAtomicExecution> applied = await session.ApplyPreparedAtomicExecutionAsync(prepared.Value, cancellationToken);
+            if (!applied.IsSuccess() || applied.Value?.SemanticActivation is null) { RejectedCode = applied.Error?.Code ?? "apply"; return ProbeFailure(applied.Error); }
+            Provisional = applied.Value.SemanticActivation;
+            return new AtomicMutationProcessingResult(AtomicMutationProcessingOutcome.ReadyToCommit, []);
+        }
+
+        internal static BaseSemanticActivationExecutionLimits CreateLimits() => new()
+        {
+            MaximumOperations = 1, MaximumScopeDirectoryReads = 1, MaximumSlotReads = 1, MaximumActivationReads = 1,
+            MaximumReadIntervals = 4, MaximumIndexOperations = 4, MaximumActivationBytes = 4096,
+            MaximumScopeDirectoryBytes = 4096, MaximumEvidenceBytes = 16384, MaximumReceiptBytes = 4096,
+            MaximumTransientBytes = 32768,
+        };
+
+        private static BaseSemanticActivationKeyDigest SemanticKey(string id, byte[] binding, byte[] key) =>
+            BaseSemanticActivationKeyDigest.Create(SemanticHash("base.semanticActivation.key.v1\0", System.Text.Encoding.UTF8.GetBytes(id), binding, key));
+
+        private static byte[] SemanticHash(string marker, params byte[][] parts)
+        {
+            using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+            hash.AppendData(System.Text.Encoding.UTF8.GetBytes(marker));
+            byte[] length = new byte[4];
+            foreach (byte[] part in parts)
+            {
+                System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(length, part.Length);
+                hash.AppendData(length); hash.AppendData(part);
+            }
+            return hash.GetHashAndReset();
         }
     }
 

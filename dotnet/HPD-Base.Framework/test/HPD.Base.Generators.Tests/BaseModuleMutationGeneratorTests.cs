@@ -32,6 +32,8 @@ public sealed class BaseModuleMutationGeneratorTests
         result.Source.Should().Contain("BaseGeneratedModuleMutationIdentity")
             .And.Contain("RegisterContext(__HPDBaseSerializerFactory.Create)")
             .And.Contain("Definition.Checksum.ToArray()")
+            .And.Contain("CreateSemanticActivationKeyIdentity<TDefinition>")
+            .And.Contain("BaseGeneratedSemanticActivations.Register")
             .And.NotContain("ExecuteAsync");
         result.CompilationDiagnostics.Where(static value => value.Severity == Microsoft.CodeAnalysis.DiagnosticSeverity.Error
             && value.Id != "CS1729"
@@ -79,9 +81,37 @@ public sealed class BaseModuleMutationGeneratorTests
             """);
 
         result.Diagnostics.Should().BeEmpty();
-        result.Source.Should().Contain("CreatePath<")
+        result.Source.Should().Contain("CreatePathWire<")
             .And.Contain("new string[] { \"request.owner\", \"owner.id\",")
             .And.Contain("(global::HPD.Base.BaseRecordDisclosure)2");
+    }
+
+    [Fact]
+    public void EmitsExactFrozenWirePathsForNamingPolicyAndExplicitNames()
+    {
+        Result result = Run("""
+            using HPD.Base;
+            using System.Text.Json;
+            using System.Text.Json.Serialization;
+            [BaseRegisteredModuleMutation("payments.wire", typeof(AppJsonContext), typeof(Request), typeof(Result), OwningModuleId="payments", GrantId="payments.wire")]
+            public static partial class Wire { internal static BaseRegisteredModuleMutationDefinition Definition => throw null!; }
+            public sealed record Request
+            {
+                [BaseField("request.owner")]
+                [JsonPropertyName("exact-owner")]
+                public required Owner AccountOwner { get; init; }
+            }
+            public sealed record Owner { [BaseField("owner.id")] public required string SubjectValue { get; init; } }
+            public sealed record Result { [BaseField("result.ok")] public required bool IsReady { get; init; } }
+            [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
+            [JsonSerializable(typeof(Request))]
+            [JsonSerializable(typeof(Result))]
+            public sealed partial class AppJsonContext : JsonSerializerContext;
+            """);
+
+        result.Diagnostics.Should().BeEmpty();
+        result.Source.Should().Contain("new string[] { \"exact-owner\", \"subject_value\",")
+            .And.Contain("CreateWire<global::Result, bool>(\"result.ok\", \"IsReady\", \"is_ready\"");
     }
 
     private static Result Run(string source)

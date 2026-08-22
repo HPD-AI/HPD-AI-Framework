@@ -37,6 +37,8 @@ public sealed class BaseModuleMutationTemplateBuilder
     public static BaseModuleFieldPresenceGuard FieldPresence(string id, BaseModuleCapturedFieldReference field, BaseModuleFieldPresenceTest test) => new() { Id = id, Field = field, Test = test };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
     public static BaseModuleGenerationGuard Generation(string id, string captureId, BaseModuleGenerationComparisonKind comparison, BaseModuleValueExpression? expected = null) => new() { Id = id, CaptureId = captureId, Comparison = comparison, Expected = expected };
+    /// <summary>Creates one closed semantic-slot state guard.</summary>
+    public static BaseModuleSemanticActivationStateGuard SemanticActivationState(string id, BaseModuleSemanticActivationStateTest test) => new() { Id = id, Test = test };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
     public static BaseModuleLogicalGuard And(string id, params string[] guardIds) => Logical(id, BaseModuleLogicalGuardKind.And, guardIds);
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
@@ -79,6 +81,14 @@ public sealed class BaseModuleMutationTemplateBuilder
     public static BaseModuleCommittedUpsertDispositionExpression CommittedUpsertDisposition(string id, string resultTypeId, string statementId) => new() { Id = id, ResultTypeId = resultTypeId, StatementId = statementId };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
     public static BaseModuleResultingGenerationExpression ResultingGeneration(string id, string resultTypeId, string captureId) => new() { Id = id, ResultTypeId = resultTypeId, CaptureId = captureId };
+    /// <summary>Projects the semantic ensure disposition.</summary>
+    public static BaseModuleSemanticActivationDispositionExpression SemanticActivationDisposition(string id, string resultTypeId) => new() { Id = id, ResultTypeId = resultTypeId };
+    /// <summary>Projects the live semantic activation ID.</summary>
+    public static BaseModuleSemanticActivationIdExpression SemanticActivationId(string id, string resultTypeId) => new() { Id = id, ResultTypeId = resultTypeId };
+    /// <summary>Projects whether ensure created the activation.</summary>
+    public static BaseModuleSemanticActivationWasMaterializedExpression SemanticActivationWasMaterialized(string id) => new() { Id = id, ResultTypeId = "bool" };
+    /// <summary>Projects the semantic retirement disposition.</summary>
+    public static BaseModuleSemanticActivationRetirementDispositionExpression SemanticActivationRetirementDisposition(string id, string resultTypeId) => new() { Id = id, ResultTypeId = resultTypeId };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
     public static BaseModuleCoalesceExpression Coalesce(string id, string resultTypeId, params BaseModuleValueExpression[] values) => new() { Id = id, ResultTypeId = resultTypeId, Values = [.. values] };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
@@ -284,6 +294,8 @@ public static class BaseModuleMutationContract
                     }
                     Count(materialized.Length);
                     foreach (string child in materialized) String(child); break;
+                case BaseModuleSemanticActivationStateGuard guard:
+                    Discriminator(7); Integer((int)guard.Test); break;
                 default: throw new InvalidOperationException("base.moduleMutation.invalid");
             }
         }
@@ -352,6 +364,10 @@ public static class BaseModuleMutationContract
                     if (expression.Decimal is { } context)
                     { Integer(context.Precision); Integer(context.Scale); Integer((int)context.Rounding); }
                     break;
+                case BaseModuleSemanticActivationDispositionExpression: Discriminator(13); break;
+                case BaseModuleSemanticActivationIdExpression: Discriminator(14); break;
+                case BaseModuleSemanticActivationWasMaterializedExpression: Discriminator(15); break;
+                case BaseModuleSemanticActivationRetirementDispositionExpression: Discriminator(16); break;
                 case BaseModuleObjectExpression expression:
                     Discriminator(13); Count(expression.Properties.Length);
                     foreach (BaseModuleObjectPropertyExpression property in expression.Properties)

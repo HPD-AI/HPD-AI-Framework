@@ -516,6 +516,23 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         _subjectScopes = new BaseSubjectScopeProtector(tokenProtector);
         _subjectScopeProtectionKey = tokenProtector.ActiveKeyId;
         _subjectScopeProtectionKeyId = _subjectScopeProtectionKey.ToString(CultureInfo.InvariantCulture);
+        if (_options.SemanticActivationOwnerGeneration != 0)
+        {
+            if (string.IsNullOrEmpty(_options.SemanticActivationApplicationId)
+                || _options.SemanticActivationOwnerGeneration <= 0
+                || _options.SemanticActivationDefinitionSetChecksum.Length != 32)
+                throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+            _publishedState.SemanticActivationAuthority = new BaseSemanticActivationStoreAuthorityRequirement
+            {
+                ApplicationId = new string(_options.SemanticActivationApplicationId.AsSpan()),
+                LogicalStoreId = new string(_options.StoreId.AsSpan()),
+                StoreInstanceId = new string(_options.StoreId.AsSpan()),
+                RestoreEpoch = 0,
+                SchemaGeneration = 1,
+                SemanticAuthorityGeneration = _options.SemanticActivationOwnerGeneration,
+                DefinitionSetChecksum = _options.SemanticActivationDefinitionSetChecksum.ToImmutableArray(),
+            };
+        }
         IInMemoryAtomicMutationProjection[] projections =
         [
             .. (_options.Collections ?? []).Any(static collection => (collection.VectorIndexes ?? []).Length != 0) ? [new InMemoryVectorMutationProjection()] : Array.Empty<IInMemoryAtomicMutationProjection>(),
@@ -2546,7 +2563,22 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         private Dictionary<int, string>? _capturedModuleGenerationKeys;
         private BaseModuleMutationCaptureExtension? _capturedModuleExtension;
         private BaseActivationCreationExtension? _capturedActivationExtension;
+        private BaseAtomicSemanticActivationExtension? _capturedSemanticExtension;
+        private string? _capturedSemanticScopeKey;
+        private string? _capturedSemanticSlotKey;
         private BaseCapturedActivationGuardEvidence? _capturedActivationGuard;
+        private sealed class InMemorySemanticPreparedPlan : BaseSemanticActivationPreparedPlan
+        {
+            internal required string ScopeKey { get; init; }
+            internal required string SlotKey { get; init; }
+            internal required BaseSemanticActivationScopeBinding Binding { get; init; }
+            internal required bool InsertScope { get; init; }
+            internal required BaseAtomicSemanticActivationExtension Extension { get; init; }
+            internal required BaseSemanticActivationCapturedState PriorState { get; init; }
+            internal required BaseSemanticActivationSlotState ResultingState { get; init; }
+            internal required long ResultingGeneration { get; init; }
+            internal string? ActivationId { get; init; }
+        }
         public ValueTask<OperationResult<BaseSelectionMutationCommitAccounting>> MeasureSelectionMutationAsync(
             BaseAtomicReceiptResult receipt, BaseSelectionMutationResult result, CancellationToken cancellationToken = default)
         {
@@ -3094,6 +3126,11 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 _capturedActivationExtension = FreezeActivationExtension(activationExtension);
             }
 
+            OperationResult<BaseCapturedSemanticActivationEvidence?> semanticResult = CaptureSemanticActivation(request.SemanticActivation, intent, digest, intervals);
+            if (!semanticResult.IsSuccess())
+                return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicExecution>(semanticResult.Error?.Code ?? BaseSubjectErrorCodes.ProviderContractInvalid));
+            BaseCapturedSemanticActivationEvidence? capturedSemantic = semanticResult.Value;
+
             OperationResult<ImmutableArray<BaseCapturedSubjectRetirementProjection>> retirementResult =
                 CaptureRetirement(request.SubjectRetirement, intent, module, digest, intervals);
             if (!retirementResult.IsSuccess() || retirementResult.Value.IsDefault)
@@ -3120,6 +3157,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 Items = [], ModuleRecords = records.MoveToImmutable(), ModuleRelationTargets = relations.MoveToImmutable(),
                 Generations = generations.MoveToImmutable(), ActivationGuard = _capturedActivationGuard,
                 Activations = capturedActivations,
+                SemanticActivation = capturedSemantic,
                 SubjectRetirement = retirementResult.Value,
                 ReadIntervals = intervals.MoveToImmutable(),
                 Accounting = new BaseAtomicCaptureAccounting
@@ -3136,6 +3174,212 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             _capturedModuleGenerationKeys = generationKeys;
             return ValueTask.FromResult(OperationResults.Ok(_capturedMutation));
         }
+
+        private OperationResult<BaseCapturedSemanticActivationEvidence?> CaptureSemanticActivation(
+            BaseAtomicSemanticActivationExtension? extension,
+            BaseAtomicMutationIntent intent,
+            IncrementalHash aggregate,
+            ImmutableArray<BaseAtomicReadIntervalEvidence>.Builder enclosingIntervals)
+        {
+            if (extension is null) return OperationResults.Ok<BaseCapturedSemanticActivationEvidence?>(null);
+            BaseSemanticActivationOperation operation = extension.Operation;
+            BaseSemanticActivationCaptureRequest capture = extension.Capture;
+            BaseSemanticActivationDefinitionIdentity definition = capture.Definition;
+            ImmutableArray<byte> canonicalKey = capture.CanonicalKey;
+            BaseOwnedSubjectScopeEvidence scope = capture.Scope;
+            BaseSemanticActivationOperationKind operationKind = operation is BaseSemanticActivationEnsureIntent
+                ? BaseSemanticActivationOperationKind.Ensure : operation is BaseSemanticActivationRetireIntent
+                    ? BaseSemanticActivationOperationKind.Retire : 0;
+            BaseSemanticActivationDefinitionIdentity? operationDefinition = operation switch
+            {
+                BaseSemanticActivationEnsureIntent value => value.Definition,
+                BaseSemanticActivationRetireIntent value => value.Definition,
+                _ => null,
+            };
+            ImmutableArray<byte> operationKey = operation switch
+            {
+                BaseSemanticActivationEnsureIntent value => value.CanonicalKey,
+                BaseSemanticActivationRetireIntent value => value.CanonicalKey,
+                _ => [],
+            };
+            BaseOwnedSubjectScopeEvidence? operationScope = operation switch
+            {
+                BaseSemanticActivationEnsureIntent value => value.Scope,
+                BaseSemanticActivationRetireIntent value => value.Scope,
+                _ => null,
+            };
+            if (extension.StructuralDigest.Length != 32 || definition.Checksum.Length != 32
+                || definition.OwnerGeneration < 1 || canonicalKey.IsDefaultOrEmpty
+                || capture.KeyPreimageChecksum.Length != 32
+                || !CryptographicOperations.FixedTimeEquals(SHA256.HashData(canonicalKey.AsSpan()), capture.KeyPreimageChecksum.AsSpan())
+                || capture.ProposedScopeBindingId.Length != 32 || capture.Operation != operationKind
+                || capture.StoreAuthority.DefinitionSetChecksum.Length != 32
+                || capture.StoreAuthority.RestoreEpoch != intent.Authority.RestoreEpoch
+                || capture.StoreAuthority.SchemaGeneration != intent.Authority.SchemaGeneration
+                || capture.StoreAuthority.SemanticAuthorityGeneration < 1
+                || !_owner.AcceptActivationTime(capture.AcceptedTime)
+                || !string.Equals(capture.StoreAuthority.ApplicationId, intent.Authority.ApplicationId, StringComparison.Ordinal)
+                || !string.Equals(capture.StoreAuthority.StoreInstanceId, intent.Authority.StoreInstanceId, StringComparison.Ordinal)
+                || !string.Equals(capture.StoreAuthority.LogicalStoreId, _owner._options.StoreId, StringComparison.Ordinal)
+                || operationDefinition is null || operationScope is null
+                || operationDefinition.Id != definition.Id || operationDefinition.Version != definition.Version
+                || operationDefinition.OwnerGeneration != definition.OwnerGeneration
+                || !CryptographicOperations.FixedTimeEquals(operationDefinition.Checksum.AsSpan(), definition.Checksum.AsSpan())
+                || operationDefinition.RetirementOperation != definition.RetirementOperation
+                || !operationKey.AsSpan().SequenceEqual(canonicalKey.AsSpan())
+                || operationScope.Kind != scope.Kind || !string.Equals(operationScope.Value, scope.Value, StringComparison.Ordinal)
+                || capture.Limits.MaximumOperations < 1)
+                return SubjectFailure<BaseCapturedSemanticActivationEvidence?>(BaseSubjectErrorCodes.ProviderContractInvalid);
+            if (_working.SemanticActivationAuthority is not { } installed
+                || !SemanticAuthorityEquals(installed, capture.StoreAuthority))
+                return SubjectFailure<BaseCapturedSemanticActivationEvidence?>(BaseSubjectErrorCodes.ProviderContractInvalid);
+            BaseProtectedSubjectScope protectedScope = _owner._subjectScopes.Protect(scope, _owner._subjectScopeProtectionKey);
+            string scopeKey = $"{(int)scope.Kind}\n{Convert.ToHexString(protectedScope.IndexDigest)}";
+            byte[] proposed = capture.ProposedScopeBindingId.ToArray();
+            if (proposed.Length != 32)
+                return SubjectFailure<BaseCapturedSemanticActivationEvidence?>(BaseSubjectErrorCodes.ProviderContractInvalid);
+            bool scopeExists = _working.SemanticActivationScopes.TryGetValue(scopeKey, out BaseSemanticActivationScopeBinding? binding);
+            binding ??= SemanticScopeBinding(scope.Kind, protectedScope, proposed);
+            byte[] keyBytes = SemanticKeyDigest(definition.Id, binding.BindingId.AsSpan(), canonicalKey.AsSpan());
+            BaseSemanticActivationKeyDigest keyDigest = BaseSemanticActivationKeyDigest.Create(keyBytes);
+            string slotKey = $"{definition.Id}\n{Convert.ToHexString(binding.BindingId.AsSpan())}\n{Convert.ToHexString(keyBytes)}";
+            _working.SemanticActivationSlots.TryGetValue(slotKey, out InMemorySemanticActivationSlot? slot);
+            BaseSemanticActivationStoreAuthority storeAuthority = SemanticStoreAuthority(capture.StoreAuthority);
+            BaseAtomicReadIntervalEvidence scopeInterval = ExactInterval("base.semanticActivation.scope", Encoding.UTF8.GetBytes(scopeKey));
+            BaseAtomicReadIntervalEvidence slotInterval = ExactInterval("base.semanticActivation.slot", Encoding.UTF8.GetBytes(slotKey));
+            ImmutableArray<BaseAtomicReadIntervalEvidence> semanticIntervals = [scopeInterval, slotInterval];
+            enclosingIntervals.Add(scopeInterval); enclosingIntervals.Add(slotInterval);
+            long bytes = checked(canonicalKey.Length + binding.BindingId.Length + 64);
+            BaseSemanticActivationAccounting accounting = SemanticAccounting(canonicalKey.Length, bytes, semanticIntervals.Length);
+            if (!SemanticAccountingWithin(accounting, capture.Limits))
+                return SubjectFailure<BaseCapturedSemanticActivationEvidence?>(BaseSubjectErrorCodes.BudgetExceeded);
+            var scopeCapture = new BaseSemanticActivationScopeDirectoryCapture
+            {
+                State = scopeExists ? BaseSemanticActivationScopeDirectoryState.Existing : BaseSemanticActivationScopeDirectoryState.Missing,
+                ResultingBinding = binding, ReadIntervals = [scopeInterval], CanonicalBytes = binding.BindingId.Length + binding.ProtectedCanonicalScope.Length + binding.SeekDigest.Length,
+                Checksum = SHA256.HashData(binding.Checksum.AsSpan()).ToImmutableArray(),
+            };
+            BaseSemanticActivationCapturedState state;
+            BaseSemanticActivationMissingAuthority? missing = null;
+            BaseSemanticActivationLiveAuthority? live = null;
+            BaseSemanticActivationRetirementAuthority? retired = null;
+            BaseSemanticActivationAbsenceAuthority? absent = null;
+            long? capturedActivationGeneration = null;
+            BaseActivationState? capturedActivationState = null;
+            ImmutableArray<byte> capturedActivationChecksum = [];
+            if (slot?.Live is not null)
+            {
+                state = BaseSemanticActivationCapturedState.Live; live = slot.Live with { KeyDigest = keyDigest };
+                if (!_working.Activations.TryGetValue(live.ActivationId, out InMemoryActivationRow? mapped))
+                    return SubjectFailure<BaseCapturedSemanticActivationEvidence?>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                capturedActivationGeneration = mapped.Generation;
+                capturedActivationState = mapped.State;
+                capturedActivationChecksum = mapped.ControlChecksum.ToArray().ToImmutableArray();
+            }
+            else if (slot?.Retired is not null) { state = BaseSemanticActivationCapturedState.Retired; retired = slot.Retired with { KeyDigest = keyDigest }; }
+            else if (slot?.Absent is not null) { state = BaseSemanticActivationCapturedState.CompactedAbsent; absent = slot.Absent with { Key = keyDigest }; }
+            else
+            {
+                state = BaseSemanticActivationCapturedState.Missing;
+                missing = new BaseSemanticActivationMissingAuthority
+                {
+                    Key = keyDigest, StoreAuthority = storeAuthority,
+                    AccessPathChecksum = SHA256.HashData(Encoding.UTF8.GetBytes(slotKey)).ToImmutableArray(),
+                };
+            }
+            _capturedSemanticExtension = extension;
+            _capturedSemanticScopeKey = scopeKey;
+            _capturedSemanticSlotKey = slotKey;
+            var capturedResult = new BaseCapturedSemanticActivationEvidence
+            {
+                State = state, ScopeDirectory = scopeCapture, Missing = missing, Live = live, Retired = retired, Absent = absent,
+                ActivationGeneration = capturedActivationGeneration, ActivationChecksum = capturedActivationChecksum,
+                ActivationState = capturedActivationState,
+                ReadIntervals = semanticIntervals, Accounting = accounting, AcceptedTime = capture.AcceptedTime, Checksum = [],
+            };
+            capturedResult = capturedResult with { Checksum = BaseSemanticActivationEvidenceContract.CapturedChecksum(extension, capturedResult) };
+            aggregate.AppendData(capturedResult.Checksum.AsSpan());
+            return OperationResults.Ok<BaseCapturedSemanticActivationEvidence?>(capturedResult);
+        }
+
+        private BaseSemanticActivationScopeBinding SemanticScopeBinding(
+            BaseSubjectScopeKind kind, BaseProtectedSubjectScope scope, byte[] bindingId)
+        {
+            byte[] checksum = SemanticBoundHash("base.semanticActivation.scopeBinding.v1\0",
+                BitConverter.GetBytes((int)kind).Reverse().ToArray(), bindingId,
+                scope.ProtectedCanonicalValue, scope.IndexDigest,
+                Encoding.UTF8.GetBytes(_owner._subjectScopeProtectionKeyId),
+                BitConverter.GetBytes((int)_owner._subjectScopeProtectionKey).Reverse().ToArray());
+            return new BaseSemanticActivationScopeBinding
+            {
+                Kind = kind, BindingId = bindingId.ToImmutableArray(), ProtectedCanonicalScope = scope.ProtectedCanonicalValue.ToImmutableArray(),
+                SeekDigest = scope.IndexDigest.ToImmutableArray(), ProtectionKeyId = _owner._subjectScopeProtectionKeyId,
+                ProtectionKeyVersion = _owner._subjectScopeProtectionKey, Checksum = checksum.ToImmutableArray(),
+            };
+        }
+
+        private static BaseSemanticActivationStoreAuthority SemanticStoreAuthority(BaseSemanticActivationStoreAuthorityRequirement source)
+        {
+            var requirement = source with
+            {
+                ApplicationId = new string(source.ApplicationId.AsSpan()), LogicalStoreId = new string(source.LogicalStoreId.AsSpan()),
+                StoreInstanceId = new string(source.StoreInstanceId.AsSpan()),
+                DefinitionSetChecksum = source.DefinitionSetChecksum.ToArray().ToImmutableArray(),
+            };
+            byte[] checksum = SemanticBoundHash("base.semanticActivation.storeAuthority.v1\0",
+                Encoding.UTF8.GetBytes(requirement.ApplicationId), Encoding.UTF8.GetBytes(requirement.LogicalStoreId),
+                Encoding.UTF8.GetBytes(requirement.StoreInstanceId), BitConverter.GetBytes(requirement.RestoreEpoch).Reverse().ToArray(),
+                BitConverter.GetBytes(requirement.SchemaGeneration).Reverse().ToArray(),
+                BitConverter.GetBytes(requirement.SemanticAuthorityGeneration).Reverse().ToArray(), requirement.DefinitionSetChecksum.ToArray());
+            return new BaseSemanticActivationStoreAuthority
+            {
+                Requirement = requirement, Checksum = checksum.ToImmutableArray(),
+            };
+        }
+
+        private static bool SemanticAuthorityEquals(
+            BaseSemanticActivationStoreAuthorityRequirement installed,
+            BaseSemanticActivationStoreAuthorityRequirement requested) =>
+            string.Equals(installed.ApplicationId, requested.ApplicationId, StringComparison.Ordinal)
+            && string.Equals(installed.LogicalStoreId, requested.LogicalStoreId, StringComparison.Ordinal)
+            && string.Equals(installed.StoreInstanceId, requested.StoreInstanceId, StringComparison.Ordinal)
+            && installed.RestoreEpoch == requested.RestoreEpoch
+            && installed.SchemaGeneration == requested.SchemaGeneration
+            && installed.SemanticAuthorityGeneration == requested.SemanticAuthorityGeneration
+            && CryptographicOperations.FixedTimeEquals(installed.DefinitionSetChecksum.AsSpan(), requested.DefinitionSetChecksum.AsSpan());
+
+        private static byte[] SemanticKeyDigest(string definitionId, ReadOnlySpan<byte> bindingId, ReadOnlySpan<byte> canonicalKey)
+        {
+            using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            hash.AppendData("base.semanticActivation.key.v1\0"u8);
+            byte[] length = new byte[4];
+            byte[] definition = Encoding.UTF8.GetBytes(definitionId);
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(length, definition.Length); hash.AppendData(length); hash.AppendData(definition);
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(length, bindingId.Length); hash.AppendData(length); hash.AppendData(bindingId);
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(length, canonicalKey.Length); hash.AppendData(length); hash.AppendData(canonicalKey);
+            return hash.GetHashAndReset();
+        }
+
+        private static BaseSemanticActivationAccounting SemanticAccounting(long keyBytes, long evidenceBytes, int intervals) => new()
+        {
+            Operations = 1, ScopeDirectoryReads = 1, SlotReads = 1, ActivationReads = 0, ReadIntervals = intervals,
+            IndexOperations = 0, KeyBytes = keyBytes, ScopeDirectoryBytes = 96, ActivationBytes = 0,
+            EvidenceBytes = evidenceBytes, ReceiptBytes = 0, TransientBytes = checked(keyBytes + evidenceBytes + 96),
+            ActivationCreation = new BaseActivationAccounting { Candidates = 0, Comparisons = 0, IndexOperations = 0, ReadIntervals = 0, EvidenceBytes = 0, TransientBytes = 0 },
+        };
+
+        private static bool SemanticAccountingWithin(BaseSemanticActivationAccounting value, BaseSemanticActivationExecutionLimits limits) =>
+            value.Operations <= limits.MaximumOperations
+            && value.ScopeDirectoryReads <= limits.MaximumScopeDirectoryReads
+            && value.SlotReads <= limits.MaximumSlotReads
+            && value.ActivationReads <= limits.MaximumActivationReads
+            && value.ReadIntervals <= limits.MaximumReadIntervals
+            && value.IndexOperations <= limits.MaximumIndexOperations
+            && value.ActivationBytes <= limits.MaximumActivationBytes
+            && value.ScopeDirectoryBytes <= limits.MaximumScopeDirectoryBytes
+            && value.EvidenceBytes <= limits.MaximumEvidenceBytes
+            && value.ReceiptBytes <= limits.MaximumReceiptBytes
+            && value.TransientBytes <= limits.MaximumTransientBytes;
 
         public ValueTask<OperationResult<BasePreparedAtomicExecution>> PrepareAtomicExecutionAsync(
             BaseCapturedAtomicExecution captured,
@@ -3189,6 +3433,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     Checksum = activationDigest.GetHashAndReset().ToImmutableArray(),
                 };
             }
+            BasePreparedSemanticActivation? preparedSemantic = PrepareSemantic(plan.SemanticActivation, captured.SemanticActivation, plan.Limits);
+            if ((plan.SemanticActivation is null) != (preparedSemantic is null))
+                return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
             if (plan.Kind == BaseAtomicMutationExecutionKind.ModuleMutation)
             {
                 if (captured.Accounting.GenerationReads > plan.Limits.MaximumGenerationReads
@@ -3535,6 +3782,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     : captured.Items.Select(static item => item.Disposition).ToImmutableArray(),
                 Generations = preparedGenerations.MoveToImmutable(),
                 Activations = preparedActivations,
+                SemanticActivation = preparedSemantic,
                 ActivationGuard = captured.ActivationGuard,
                 SubjectOverlay = overlays.Values.OrderBy(static value => value.ContractId, StringComparer.Ordinal).ThenBy(static value => value.ContractVersion).ThenBy(static value => value.SubjectId.Value, StringComparer.Ordinal).ToImmutableArray(),
                 SubjectValidations = validationEvidence.MoveToImmutable(),
@@ -3555,6 +3803,161 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             };
             return ValueTask.FromResult(OperationResults.Ok(_preparedMutation));
         });
+
+        private BasePreparedSemanticActivation? PrepareSemantic(
+            BaseAtomicSemanticActivationExtension? extension,
+            BaseCapturedSemanticActivationEvidence? captured,
+            BaseAtomicMutationExecutionLimits enclosingLimits)
+        {
+            if (extension is null) return captured is null ? null : throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+            if (captured is null || _capturedSemanticScopeKey is null || _capturedSemanticSlotKey is null)
+                throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+            BaseSemanticActivationKeyDigest capturedKey = captured.State switch
+            {
+                BaseSemanticActivationCapturedState.Missing => captured.Missing!.Key,
+                BaseSemanticActivationCapturedState.Live => captured.Live!.KeyDigest,
+                BaseSemanticActivationCapturedState.Retired => captured.Retired!.KeyDigest,
+                BaseSemanticActivationCapturedState.CompactedAbsent => captured.Absent!.Key,
+                _ => throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid),
+            };
+            BaseSemanticActivationKeyDigest finalizedKey = extension.Operation switch
+            {
+                BaseSemanticActivationEnsureIntent value => value.Key,
+                BaseSemanticActivationRetireIntent value => value.Key,
+                _ => throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid),
+            };
+            if (!CryptographicOperations.FixedTimeEquals(capturedKey.ToArray(), finalizedKey.ToArray()))
+                throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+            if (extension.Operation is BaseSemanticActivationEnsureIntent finalizedEnsure)
+            {
+                Span<byte> keyBytes = stackalloc byte[32]; finalizedKey.CopyTo(keyBytes);
+                byte[] expectedActivationId = SemanticBoundHash("base.semanticActivation.activation.v1\0",
+                    Encoding.UTF8.GetBytes(extension.Capture.StoreAuthority.ApplicationId),
+                    Encoding.UTF8.GetBytes(extension.Capture.StoreAuthority.LogicalStoreId),
+                    Encoding.UTF8.GetBytes(finalizedEnsure.Definition.OwningModuleId),
+                    Encoding.UTF8.GetBytes(finalizedEnsure.Definition.Id),
+                    captured.ScopeDirectory.ResultingBinding.BindingId.ToArray(), finalizedEnsure.CanonicalKey.ToArray());
+                byte[] expectedCreationChecksum = SemanticBoundHash("base.semanticActivation.creation.v1\0",
+                    finalizedEnsure.Definition.Checksum.ToArray(), keyBytes.ToArray(),
+                    captured.ScopeDirectory.ResultingBinding.BindingId.ToArray(), expectedActivationId);
+                if (!finalizedEnsure.Activation.Identity.ScopeBindingId.AsSpan().SequenceEqual(captured.ScopeDirectory.ResultingBinding.BindingId.AsSpan())
+                    || !finalizedEnsure.Activation.Identity.DerivedActivationIdBytes.AsSpan().SequenceEqual(expectedActivationId)
+                    || !CryptographicOperations.FixedTimeEquals(finalizedEnsure.Activation.Identity.Checksum.AsSpan(), expectedCreationChecksum))
+                    throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+            }
+            BaseSemanticActivationOperationKind kind = extension.Operation is BaseSemanticActivationEnsureIntent
+                ? BaseSemanticActivationOperationKind.Ensure : BaseSemanticActivationOperationKind.Retire;
+            BaseSemanticActivationSlotState resulting;
+            long generation;
+            string? activationId = null;
+            BaseActivationAccounting activationAccounting = new()
+            {
+                Candidates = 0, Comparisons = 0, IndexOperations = 0, ReadIntervals = 0, EvidenceBytes = 0, TransientBytes = 0,
+            };
+            long activationBytes = 0;
+            switch (kind, captured.State)
+            {
+                case (BaseSemanticActivationOperationKind.Ensure, BaseSemanticActivationCapturedState.Missing):
+                    var ensure = (BaseSemanticActivationEnsureIntent)extension.Operation;
+                    BaseActivationProviderCapability capability = _owner.Descriptor.Capability;
+                    BaseActivationLimits installedLimits = ensure.Activation.Limits;
+                    activationBytes = checked(ensure.Activation.CanonicalInput.Length + ensure.Activation.InputChecksum.Length
+                        + ensure.Activation.Definition.Checksum.Length + 64);
+                    long activationEvidenceBytes = checked(activationBytes + 32 + sizeof(long) * 2);
+                    if (!capability.AtomicCreationSupported || capability.MaximumActivationsPerTransaction < 1
+                        || ensure.Activation.CanonicalInput.Length > Math.Min(capability.MaximumInputBytes, installedLimits.MaximumInputBytes)
+                        || 1 > Math.Min(capability.MaximumDueCandidates, installedLimits.Provider.MaximumCandidates)
+                        || 1 > Math.Min(capability.MaximumReadIntervals, installedLimits.Provider.MaximumReadIntervals)
+                        || 2 > capability.MaximumIndexOperations
+                        || activationEvidenceBytes > Math.Min(capability.MaximumEvidenceBytes, installedLimits.Provider.MaximumEvidenceBytes)
+                        || activationEvidenceBytes > Math.Min(capability.MaximumTransientBytes, installedLimits.Provider.MaximumTransientBytes)
+                        || 1 > installedLimits.Provider.MaximumCandidates
+                        || 1 > installedLimits.Provider.MaximumReadIntervals
+                        || 2 > installedLimits.Provider.MaximumIndexOperations
+                        || 1 > Math.Min(installedLimits.AtomicCreation.MaximumProducedMutations, enclosingLimits.MaximumProducedMutations)
+                        || 1 > Math.Min(installedLimits.AtomicCreation.MaximumReadIntervals, enclosingLimits.MaximumReadIntervals)
+                        || activationEvidenceBytes > Math.Min(installedLimits.AtomicCreation.MaximumEvidenceBytes, enclosingLimits.MaximumEvidenceBytes)
+                        || activationEvidenceBytes > Math.Min(installedLimits.AtomicCreation.MaximumTransientBytes, enclosingLimits.MaximumTransientBytes)
+                        || activationEvidenceBytes > Math.Min(installedLimits.AtomicCreation.MaximumJournalBytes, enclosingLimits.MaximumJournalBytes)
+                        || activationEvidenceBytes > Math.Min(installedLimits.AtomicCreation.MaximumFactBytes, enclosingLimits.MaximumFactBytes)
+                        || activationEvidenceBytes > Math.Min(installedLimits.AtomicCreation.MaximumReceiptBytes, enclosingLimits.MaximumReceiptBytes))
+                        throw new InvalidOperationException("base.activation.budgetExceeded");
+                    activationAccounting = new BaseActivationAccounting
+                    {
+                        Candidates = 1, Comparisons = 1, IndexOperations = 2, ReadIntervals = 1,
+                        EvidenceBytes = activationEvidenceBytes, TransientBytes = activationEvidenceBytes,
+                    };
+                    activationId = Convert.ToHexStringLower(ensure.Activation.Identity.DerivedActivationIdBytes.AsSpan());
+                    resulting = BaseSemanticActivationSlotState.Live; generation = 1; break;
+                case (BaseSemanticActivationOperationKind.Ensure, BaseSemanticActivationCapturedState.Live):
+                    activationId = captured.Live!.ActivationId;
+                    resulting = BaseSemanticActivationSlotState.Live; generation = captured.Live.SlotGeneration; break;
+                case (BaseSemanticActivationOperationKind.Ensure, BaseSemanticActivationCapturedState.Retired):
+                    resulting = BaseSemanticActivationSlotState.Retired; generation = captured.Retired!.SlotGeneration; break;
+                case (BaseSemanticActivationOperationKind.Ensure, BaseSemanticActivationCapturedState.CompactedAbsent):
+                    resulting = BaseSemanticActivationSlotState.CompactedAbsent; generation = captured.Absent!.FinalSlotGeneration; break;
+                case (BaseSemanticActivationOperationKind.Retire, BaseSemanticActivationCapturedState.Live):
+                    activationId = captured.Live!.ActivationId;
+                    if (!_working.Activations.TryGetValue(activationId, out InMemoryActivationRow? row)
+                        || row.State is BaseActivationState.Pending or BaseActivationState.RetryPending or BaseActivationState.Claimed
+                            or BaseActivationState.EffectStarted or BaseActivationState.OutcomeUnknown
+                        || row.TerminalReceiptChecksum is not { Length: 32 })
+                        throw new InvalidOperationException("base.semanticActivation.activationNotTerminal");
+                    resulting = BaseSemanticActivationSlotState.Retired; generation = checked(captured.Live.SlotGeneration + 1); break;
+                case (BaseSemanticActivationOperationKind.Retire, BaseSemanticActivationCapturedState.Retired):
+                    activationId = captured.Retired!.ActivationId;
+                    resulting = BaseSemanticActivationSlotState.Retired; generation = captured.Retired.SlotGeneration; break;
+                case (BaseSemanticActivationOperationKind.Retire, BaseSemanticActivationCapturedState.CompactedAbsent):
+                    resulting = BaseSemanticActivationSlotState.CompactedAbsent; generation = captured.Absent!.FinalSlotGeneration; break;
+                default: throw new InvalidOperationException("base.semanticActivation.referenceInvalid");
+            }
+            var providerPlan = new InMemorySemanticPreparedPlan
+            {
+                ScopeKey = _capturedSemanticScopeKey, SlotKey = _capturedSemanticSlotKey,
+                Binding = captured.ScopeDirectory.ResultingBinding, InsertScope = captured.ScopeDirectory.State == BaseSemanticActivationScopeDirectoryState.Missing,
+                Extension = extension, PriorState = captured.State, ResultingState = resulting, ResultingGeneration = generation, ActivationId = activationId,
+            };
+            BaseSemanticActivationAccounting accounting = captured.Accounting with
+            {
+                IndexOperations = captured.ScopeDirectory.State == BaseSemanticActivationScopeDirectoryState.Missing ? 2 : 1,
+                ActivationReads = kind == BaseSemanticActivationOperationKind.Retire ? 1 : 0,
+                ActivationBytes = activationBytes,
+                EvidenceBytes = checked(captured.Accounting.EvidenceBytes + activationAccounting.EvidenceBytes),
+                TransientBytes = checked(captured.Accounting.TransientBytes + activationAccounting.TransientBytes),
+                ActivationCreation = activationAccounting,
+            };
+            if (!SemanticAccountingWithin(accounting, extension.Capture.Limits))
+                throw new InvalidOperationException(BaseSubjectErrorCodes.BudgetExceeded);
+            var writeInterval = new BaseSemanticActivationWriteIntervalEvidence
+            {
+                AccessPathId = "base.semanticActivation.slot", Lower = Encoding.UTF8.GetBytes(_capturedSemanticSlotKey).ToImmutableArray(),
+                LowerInclusive = true, Upper = Encoding.UTF8.GetBytes(_capturedSemanticSlotKey).ToImmutableArray(), UpperInclusive = true,
+                Checksum = [],
+            };
+            writeInterval = writeInterval with { Checksum = BaseSemanticActivationEvidenceContract.WriteIntervalChecksum(writeInterval) };
+            var preparedResult = new BasePreparedSemanticActivation
+            {
+                SessionPlan = providerPlan, Operation = kind, PriorState = captured.State, ResultingState = resulting,
+                ResultingSlotGeneration = generation, ResultingActivationId = activationId,
+                ReadIntervals = captured.ReadIntervals, WriteIntervals = [writeInterval],
+                Accounting = accounting,
+                Checksum = [],
+            };
+            return preparedResult with { Checksum = BaseSemanticActivationEvidenceContract.PreparedChecksum(extension, preparedResult) };
+        }
+
+        private static byte[] SemanticBoundHash(string marker, params byte[][] parts)
+        {
+            using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            hash.AppendData(Encoding.UTF8.GetBytes(marker));
+            byte[] length = new byte[4];
+            foreach (byte[] part in parts)
+            {
+                System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(length, part.Length);
+                hash.AppendData(length); hash.AppendData(part);
+            }
+            return hash.GetHashAndReset();
+        }
 
         private static long CanonicalLifetimeRetainedBytes(InMemorySubjectLifetimeState value)
         {
@@ -4183,6 +4586,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 };
                 _capturedActivationExtension = null;
             }
+            BaseProvisionalSemanticActivation? provisionalSemantic;
+            try { provisionalSemantic = ApplySemantic(prepared.SemanticActivation); }
+            catch { return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid); }
 
             BaseRecordMutationFact[] materialized = facts.Select(static fact => fact.MaterializeOwned()).ToArray();
             if (_owner._mutationProjection is { } projection)
@@ -4215,6 +4621,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 Facts = facts.MoveToImmutable(),
                 Generations = generations,
                 Activations = provisionalActivations,
+                SemanticActivation = provisionalSemantic,
                 ActivationGuard = prepared.ActivationGuard,
                 SubjectRetirement = appliedRetirement,
                 Text = BaseTextAtomicMutationContract.Apply(plan.Text, materialized, prepared.Text?.Indexes ?? []),
@@ -4245,6 +4652,100 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             _appliedProvisional = applied;
             return OperationResults.Ok(applied);
         });
+
+        private BaseProvisionalSemanticActivation? ApplySemantic(BasePreparedSemanticActivation? prepared)
+        {
+            if (prepared is null) return null;
+            if (prepared.SessionPlan is not InMemorySemanticPreparedPlan semantic
+                || !ReferenceEquals(prepared.SessionPlan, semantic))
+                throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+            if (semantic.InsertScope)
+            {
+                if (_working.SemanticActivationScopes.ContainsKey(semantic.ScopeKey))
+                    throw new InvalidOperationException("base.semanticActivation.conflict");
+                _working.SemanticActivationScopes.Add(semantic.ScopeKey, semantic.Binding);
+            }
+            BaseSemanticActivationOperation operation = semantic.Extension.Operation;
+            long? activationGeneration = null;
+            ImmutableArray<byte> activationChecksum = [];
+            if (operation is BaseSemanticActivationEnsureIntent ensure && semantic.PriorState == BaseSemanticActivationCapturedState.Missing)
+            {
+                string activationId = semantic.ActivationId!;
+                byte[] fingerprint = SHA256.HashData(ensure.Activation.CanonicalInput.Concat(ensure.Activation.InputChecksum).ToArray());
+                byte[] payloadChecksum = SHA256.HashData(ensure.Activation.CanonicalInput.AsSpan());
+                byte[] controlChecksum = ControlChecksum(activationId, 1, BaseActivationState.Pending);
+                if (_working.Activations.ContainsKey(activationId) || _working.SemanticActivationSlots.ContainsKey(semantic.SlotKey))
+                    throw new InvalidOperationException("base.semanticActivation.conflict");
+                var payload = new BaseActivationPayload
+                {
+                    ActivationId = activationId,
+                    Definition = ensure.Activation.Definition with { Checksum = ensure.Activation.Definition.Checksum.ToArray().ToImmutableArray() },
+                    CanonicalInput = ensure.Activation.CanonicalInput.ToArray().ToImmutableArray(), InputChecksum = ensure.Activation.InputChecksum.ToArray().ToImmutableArray(),
+                    Scope = ensure.Scope with { Value = ensure.Scope.Value is null ? null : new string(ensure.Scope.Value.AsSpan()) },
+                    RequestedDueAt = ensure.Due.CanonicalUnixMilliseconds, EffectiveDueAt = ensure.Due.CanonicalUnixMilliseconds,
+                    Checksum = payloadChecksum.ToImmutableArray(),
+                };
+                _working.Activations.Add(activationId, new InMemoryActivationRow(payload, BaseActivationState.Pending, 1,
+                    ensure.Due.CanonicalUnixMilliseconds, ensure.Due.CanonicalUnixMilliseconds, fingerprint, controlChecksum,
+                    Priority: ensure.Activation.Priority, Eligible: ensure.Activation.InitiallyEligible));
+                IndexActivation(_working, payload);
+                _working.ActivationIndexGeneration = checked(_working.ActivationIndexGeneration + 1);
+                BaseSemanticActivationStoreAuthority store = _capturedMutation!.SemanticActivation!.Missing!.StoreAuthority;
+                var live = new BaseSemanticActivationLiveAuthority
+                {
+                    Definition = ensure.Definition, KeyDigest = ensure.Key, Scope = ensure.Scope,
+                    ScopeBinding = semantic.Binding, SubjectLifetime = ensure.SubjectLifetime,
+                    ActivationId = activationId, ActivationDefinition = ensure.Activation.Definition,
+                    InputChecksum = ensure.Activation.InputChecksum, Due = ensure.Due, SlotGeneration = 1,
+                    StoreAuthority = store, Checksum = [],
+                };
+                live = live with { Checksum = BaseSemanticActivationEvidenceContract.LiveChecksum(live) };
+                _working.SemanticActivationSlots.Add(semantic.SlotKey, new InMemorySemanticActivationSlot
+                {
+                    CanonicalKey = ensure.CanonicalKey.ToArray(), ScopeBinding = semantic.Binding, Live = live,
+                });
+                _working.GlobalMutationPosition = checked(_working.GlobalMutationPosition + 1);
+                activationGeneration = 1; activationChecksum = controlChecksum.ToImmutableArray();
+            }
+            else if (operation is BaseSemanticActivationEnsureIntent && semantic.PriorState == BaseSemanticActivationCapturedState.Live)
+            {
+                InMemoryActivationRow row = _working.Activations[semantic.ActivationId!];
+                activationGeneration = row.Generation; activationChecksum = row.ControlChecksum.ToImmutableArray();
+            }
+            else if (operation is BaseSemanticActivationRetireIntent retire && semantic.PriorState == BaseSemanticActivationCapturedState.Live)
+            {
+                InMemoryActivationRow row = _working.Activations[semantic.ActivationId!];
+                BaseSemanticActivationLiveAuthority prior = _working.SemanticActivationSlots[semantic.SlotKey].Live!;
+                long position = checked(++_working.GlobalMutationPosition);
+                byte[] receiptChecksum = row.TerminalReceiptChecksum?.ToArray()
+                    ?? throw new InvalidOperationException("base.semanticActivation.activationNotTerminal");
+                var retired = new BaseSemanticActivationRetirementAuthority
+                {
+                    Definition = new BaseSemanticActivationDefinitionKey { Id = retire.Definition.Id, Version = retire.Definition.Version, Checksum = retire.Definition.Checksum },
+                    KeyDigest = retire.Key, SubjectLifetime = retire.SubjectLifetime, ActivationId = row.Payload.ActivationId,
+                    TerminalState = row.State, TerminalActivationGeneration = row.Generation, TerminalActivationChecksum = row.ControlChecksum.ToImmutableArray(),
+                    CompletionOperationChecksum = Convert.FromHexString(retire.CompletionOperation.OperationChecksum).ToImmutableArray(),
+                    CompletionReceiptChecksum = receiptChecksum.ToImmutableArray(), RetirementPosition = position,
+                    SlotGeneration = semantic.ResultingGeneration, StoreAuthority = prior.StoreAuthority, Checksum = [],
+                };
+                retired = retired with { Checksum = BaseSemanticActivationEvidenceContract.RetirementChecksum(retired) };
+                _working.SemanticActivationSlots[semantic.SlotKey] = _working.SemanticActivationSlots[semantic.SlotKey] with { Live = null, Retired = retired };
+                activationGeneration = row.Generation; activationChecksum = row.ControlChecksum.ToImmutableArray();
+            }
+            else if (semantic.ActivationId is not null && _working.Activations.TryGetValue(semantic.ActivationId, out InMemoryActivationRow? existing))
+            {
+                activationGeneration = existing.Generation; activationChecksum = existing.ControlChecksum.ToImmutableArray();
+            }
+            var provisional = new BaseProvisionalSemanticActivation
+            {
+                Operation = prepared.Operation, PriorState = prepared.PriorState, ResultingState = prepared.ResultingState,
+                ResultingSlotGeneration = prepared.ResultingSlotGeneration, ActivationId = prepared.ResultingActivationId,
+                ActivationGeneration = activationGeneration, ActivationChecksum = activationChecksum,
+                CommitJournalPosition = _working.GlobalMutationPosition,
+                Accounting = prepared.Accounting, Checksum = [],
+            };
+            return provisional with { Checksum = BaseSemanticActivationEvidenceContract.ProvisionalChecksum(prepared, provisional) };
+        }
 
         public ValueTask<OperationResult<BaseTransactionalActivationCommitEvidence>> FinalizeActivationAsync(
             BaseTransactionalActivationFinalization finalization,

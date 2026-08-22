@@ -237,7 +237,8 @@ public sealed class BaseGeneratedModuleMutationIdentity<TRequest, TResult> : IBa
                     binding.Confidentiality,
                     binding.RecordDisclosure,
                     binding.Nullable,
-                    new string(binding.ApplicationName.AsSpan()))))
+                    new string(binding.ApplicationName.AsSpan()),
+                    binding.WirePropertyPath)))
                 throw new InvalidOperationException("base.moduleMutation.invalid");
         }
         return result;
@@ -254,7 +255,8 @@ public sealed class BaseModuleDtoPropertyBinding
         BaseFieldConfidentiality confidentiality,
         BaseRecordDisclosure recordDisclosure,
         bool nullable,
-        string applicationName)
+        string applicationName,
+        IReadOnlyList<string>? wirePropertyPath = null)
     {
         StablePropertyPath = stablePropertyPath.Select(static edge => new string(edge.AsSpan())).ToArray();
         DeclaringType = declaringType;
@@ -263,6 +265,9 @@ public sealed class BaseModuleDtoPropertyBinding
         RecordDisclosure = recordDisclosure;
         Nullable = nullable;
         ApplicationName = applicationName;
+        WirePropertyPath = (wirePropertyPath ?? [applicationName]).Select(static edge => new string(edge.AsSpan())).ToArray();
+        if (WirePropertyPath.Count != StablePropertyPath.Count || WirePropertyPath.Any(string.IsNullOrWhiteSpace))
+            throw new InvalidOperationException("base.moduleMutation.invalid");
     }
 
     /// <summary>Gets the globally stable property edge identity.</summary>
@@ -281,6 +286,8 @@ public sealed class BaseModuleDtoPropertyBinding
     public bool Nullable { get; }
     /// <summary>Gets the exact application property identity.</summary>
     public string ApplicationName { get; }
+    /// <summary>Gets the exact frozen L44 wire-property path.</summary>
+    public IReadOnlyList<string> WirePropertyPath { get; }
 
     /// <summary>Creates an exact opaque binding to one generated DTO property.</summary>
     public static BaseModuleDtoPropertyBinding Create<
@@ -291,7 +298,17 @@ public sealed class BaseModuleDtoPropertyBinding
         BaseFieldConfidentiality confidentiality = BaseFieldConfidentiality.Public,
         BaseRecordDisclosure recordDisclosure = BaseRecordDisclosure.Include,
         bool nullable = false) =>
-        new([stablePropertyId], typeof(TDeclaring), typeof(TProperty), confidentiality, recordDisclosure, nullable, applicationName);
+        new([stablePropertyId], typeof(TDeclaring), typeof(TProperty), confidentiality, recordDisclosure, nullable, applicationName, [applicationName]);
+
+    /// <summary>Creates a generated binding with its exact frozen L44 wire name.</summary>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public static BaseModuleDtoPropertyBinding CreateWire<
+        [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)] TDeclaring,
+        [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)] TProperty>(
+        string stablePropertyId, string applicationName, string wireName,
+        BaseFieldConfidentiality confidentiality = BaseFieldConfidentiality.Public,
+        BaseRecordDisclosure recordDisclosure = BaseRecordDisclosure.Include, bool nullable = false) =>
+        new([stablePropertyId], typeof(TDeclaring), typeof(TProperty), confidentiality, recordDisclosure, nullable, applicationName, [wireName]);
 
     /// <summary>Creates an exact opaque binding to one generated nested DTO property path.</summary>
     public static BaseModuleDtoPropertyBinding CreatePath<
@@ -302,7 +319,17 @@ public sealed class BaseModuleDtoPropertyBinding
         BaseFieldConfidentiality confidentiality = BaseFieldConfidentiality.Public,
         BaseRecordDisclosure recordDisclosure = BaseRecordDisclosure.Include,
         bool nullable = false) =>
-        new(stablePropertyPath, typeof(TDeclaring), typeof(TProperty), confidentiality, recordDisclosure, nullable, applicationName);
+        new(stablePropertyPath, typeof(TDeclaring), typeof(TProperty), confidentiality, recordDisclosure, nullable, applicationName, stablePropertyPath);
+
+    /// <summary>Creates a generated nested binding with its exact frozen L44 wire path.</summary>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public static BaseModuleDtoPropertyBinding CreatePathWire<
+        [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)] TDeclaring,
+        [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)] TProperty>(
+        IReadOnlyList<string> stablePropertyPath, string applicationName, IReadOnlyList<string> wirePropertyPath,
+        BaseFieldConfidentiality confidentiality = BaseFieldConfidentiality.Public,
+        BaseRecordDisclosure recordDisclosure = BaseRecordDisclosure.Include, bool nullable = false) =>
+        new(stablePropertyPath, typeof(TDeclaring), typeof(TProperty), confidentiality, recordDisclosure, nullable, applicationName, wirePropertyPath);
 }
 
 /// <summary>Infrastructure-only factory used by generated module mutation declarations.</summary>
@@ -719,6 +746,7 @@ internal static class BaseModuleMutationContractValidator
                         throw new InvalidOperationException("base.moduleMutation.invalid");
                     if (value.Expected is not null) ValidateExpression(value.Expected, captures, guards, false, false, 1, limits, new());
                     break;
+                case BaseModuleSemanticActivationStateGuard value when Enum.IsDefined(value.Test): break;
                 case BaseModuleLogicalGuard value when Enum.IsDefined(value.Kind)
                     && ((value.Kind is BaseModuleLogicalGuardKind.And or BaseModuleLogicalGuardKind.Or
                             && value.ChildGuardIds.Length is >= 2 and <= 64)
@@ -900,7 +928,9 @@ internal static class BaseModuleMutationContractValidator
         if (captureKey && value is not (BaseModuleRequestPropertyExpression or BaseModuleConstantExpression))
             throw new InvalidOperationException("base.moduleMutation.invalid");
         if (!resultOnly && value is BaseModuleCommittedRecordIdExpression or BaseModuleCommittedRevisionExpression
-            or BaseModuleCommittedUpsertDispositionExpression or BaseModuleResultingGenerationExpression)
+            or BaseModuleCommittedUpsertDispositionExpression or BaseModuleResultingGenerationExpression
+            or BaseModuleSemanticActivationDispositionExpression or BaseModuleSemanticActivationIdExpression
+            or BaseModuleSemanticActivationWasMaterializedExpression or BaseModuleSemanticActivationRetirementDispositionExpression)
             throw new InvalidOperationException("base.moduleMutation.invalid");
         switch (value)
         {
@@ -917,6 +947,10 @@ internal static class BaseModuleMutationContractValidator
             case BaseModuleCommittedUpsertDispositionExpression committed when resultOnly && definiteStatements?.Contains(committed.StatementId) == true: break;
             case BaseModuleResultingGenerationExpression generation when resultOnly
                 && definiteGenerations?.Contains(generation.CaptureId) == true: break;
+            case BaseModuleSemanticActivationDispositionExpression when resultOnly: break;
+            case BaseModuleSemanticActivationIdExpression when resultOnly: break;
+            case BaseModuleSemanticActivationWasMaterializedExpression when resultOnly: break;
+            case BaseModuleSemanticActivationRetirementDispositionExpression when resultOnly: break;
             case BaseModuleCoalesceExpression coalesce when coalesce.Values.Length is >= 2 and <= 16:
                 foreach (BaseModuleValueExpression child in coalesce.Values) Child(child); break;
             case BaseModuleConditionalExpression conditional when guards.Contains(conditional.GuardId):

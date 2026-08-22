@@ -77,6 +77,10 @@ public sealed record BaseSemanticActivationDefinitionIdentity
     public required ImmutableArray<byte> Checksum { get; init; }
     /// <summary>Gets the positive graph-owner generation.</summary>
     public required long OwnerGeneration { get; init; }
+    /// <summary>Gets the exact owning module identity.</summary>
+    public required string OwningModuleId { get; init; }
+    /// <summary>Gets the exact installed operation authorized to retire this semantic activation.</summary>
+    public required BaseSemanticActivationModuleOperationIdentity RetirementOperation { get; init; }
 }
 
 /// <summary>Owns a canonical semantic activation key digest.</summary>
@@ -156,6 +160,118 @@ public sealed record BaseSemanticActivationCreateIntent
     public required bool InitiallyEligible { get; init; }
     /// <summary>Gets the complete Runtime-owned semantic creation identity.</summary>
     public required BaseSemanticActivationCreationIdentity Identity { get; init; }
+    /// <summary>Gets the exact installed L51 limits applied to this creation.</summary>
+    public required BaseActivationLimits Limits { get; init; }
+}
+
+internal static class BaseSemanticActivationEvidenceContract
+{
+    internal static ImmutableArray<byte> LiveChecksum(BaseSemanticActivationLiveAuthority value)
+    {
+        Span<byte> key = stackalloc byte[BaseSemanticActivationKeyDigest.Length]; value.KeyDigest.CopyTo(key);
+        return Hash("base.semanticActivation.live.v1\0",
+            System.Text.Encoding.UTF8.GetBytes(value.Definition.Id), Int64(value.Definition.Version), value.Definition.Checksum.ToArray(),
+            Int64(value.Definition.OwnerGeneration), System.Text.Encoding.UTF8.GetBytes(value.Definition.OwningModuleId), key.ToArray(),
+            Scope(value.Scope), value.ScopeBinding.Checksum.ToArray(), Lifetime(value.SubjectLifetime),
+            System.Text.Encoding.UTF8.GetBytes(value.ActivationId), System.Text.Encoding.UTF8.GetBytes(value.ActivationDefinition.Id),
+            Int64(value.ActivationDefinition.Version), value.ActivationDefinition.Checksum.ToArray(), value.InputChecksum.ToArray(),
+            [(byte)value.Due.Mode], Int64(value.Due.CanonicalUnixMilliseconds), Int64(value.SlotGeneration),
+            value.StoreAuthority.Checksum.ToArray());
+    }
+
+    internal static ImmutableArray<byte> RetirementChecksum(BaseSemanticActivationRetirementAuthority value)
+    {
+        Span<byte> key = stackalloc byte[BaseSemanticActivationKeyDigest.Length]; value.KeyDigest.CopyTo(key);
+        return Hash("base.semanticActivation.retired.v1\0", System.Text.Encoding.UTF8.GetBytes(value.Definition.Id),
+            Int64(value.Definition.Version), value.Definition.Checksum.ToArray(), key.ToArray(), Lifetime(value.SubjectLifetime),
+            System.Text.Encoding.UTF8.GetBytes(value.ActivationId), [(byte)value.TerminalState], Int64(value.TerminalActivationGeneration),
+            value.TerminalActivationChecksum.ToArray(), value.CompletionOperationChecksum.ToArray(), value.CompletionReceiptChecksum.ToArray(),
+            Int64(value.RetirementPosition), Int64(value.SlotGeneration), value.StoreAuthority.Checksum.ToArray());
+    }
+
+    internal static ImmutableArray<byte> AbsenceChecksum(BaseSemanticActivationAbsenceAuthority value)
+    {
+        Span<byte> key = stackalloc byte[BaseSemanticActivationKeyDigest.Length]; value.Key.CopyTo(key);
+        return Hash("base.semanticActivation.absent.v1\0", key.ToArray(), System.Text.Encoding.UTF8.GetBytes(value.Definition.Id),
+            Int64(value.Definition.Version), value.Definition.Checksum.ToArray(), Int64(value.Definition.OwnerGeneration),
+            System.Text.Encoding.UTF8.GetBytes(value.Definition.OwningModuleId), value.ScopeBindingId.ToArray(), Lifetime(value.SubjectLifetime),
+            Int64(value.FinalSlotGeneration), Int64(value.AbsenceFloorGeneration), Int64(value.RetirementPosition),
+            value.StoreAuthority.Checksum.ToArray());
+    }
+
+    internal static ImmutableArray<byte> CapturedChecksum(BaseAtomicSemanticActivationExtension extension, BaseCapturedSemanticActivationEvidence value)
+    {
+        var fields = new List<byte[]>
+        {
+            extension.StructuralDigest.ToArray(), new byte[] { (byte)value.State }, value.ScopeDirectory.Checksum.ToArray(),
+            value.Missing?.AccessPathChecksum.ToArray() ?? [], value.Live?.Checksum.ToArray() ?? [],
+            value.Retired?.Checksum.ToArray() ?? [], value.Absent?.Checksum.ToArray() ?? [],
+            Int64(value.ActivationGeneration ?? 0), value.ActivationChecksum.ToArray(),
+            new byte[] { value.ActivationState is null ? (byte)0 : (byte)value.ActivationState.Value },
+            value.AcceptedTime.Checksum.ToArray(),
+        };
+        foreach (BaseAtomicReadIntervalEvidence interval in value.ReadIntervals)
+        {
+            fields.Add(System.Text.Encoding.UTF8.GetBytes(interval.LogicalAccessPathId)); fields.Add(interval.CanonicalLowerBound.ToArray());
+            fields.Add([interval.LowerInclusive ? (byte)1 : (byte)0]); fields.Add(interval.CanonicalUpperBound.ToArray());
+            fields.Add([interval.UpperInclusive ? (byte)1 : (byte)0]);
+        }
+        fields.Add(Accounting(value.Accounting));
+        return Hash("base.semanticActivation.captured.v1\0", [.. fields]);
+    }
+
+    internal static ImmutableArray<byte> WriteIntervalChecksum(BaseSemanticActivationWriteIntervalEvidence value) =>
+        Hash("base.semanticActivation.writeInterval.v1\0", System.Text.Encoding.UTF8.GetBytes(value.AccessPathId),
+            value.Lower.ToArray(), [value.LowerInclusive ? (byte)1 : (byte)0], value.Upper.ToArray(), [value.UpperInclusive ? (byte)1 : (byte)0]);
+
+    internal static ImmutableArray<byte> PreparedChecksum(BaseAtomicSemanticActivationExtension extension, BasePreparedSemanticActivation value)
+    {
+        var fields = new List<byte[]>
+        {
+            extension.StructuralDigest.ToArray(), new byte[] { (byte)value.Operation }, new byte[] { (byte)value.PriorState }, new byte[] { (byte)value.ResultingState },
+            Int64(value.ResultingSlotGeneration), System.Text.Encoding.UTF8.GetBytes(value.ResultingActivationId ?? string.Empty),
+        };
+        foreach (BaseSemanticActivationWriteIntervalEvidence interval in value.WriteIntervals) fields.Add(interval.Checksum.ToArray());
+        fields.Add(Accounting(value.Accounting));
+        return Hash("base.semanticActivation.prepared.v1\0", [.. fields]);
+    }
+
+    internal static ImmutableArray<byte> ProvisionalChecksum(BasePreparedSemanticActivation prepared, BaseProvisionalSemanticActivation value) =>
+        Hash("base.semanticActivation.provisional.v1\0", prepared.Checksum.ToArray(), [(byte)value.Operation], [(byte)value.PriorState],
+            [(byte)value.ResultingState], Int64(value.ResultingSlotGeneration), System.Text.Encoding.UTF8.GetBytes(value.ActivationId ?? string.Empty),
+            Int64(value.ActivationGeneration ?? 0), value.ActivationChecksum.ToArray(), Int64(value.CommitJournalPosition), Accounting(value.Accounting));
+
+    private static byte[] Accounting(BaseSemanticActivationAccounting value)
+    {
+        long[] values = [value.Operations, value.ScopeDirectoryReads, value.SlotReads, value.ActivationReads, value.ReadIntervals,
+            value.IndexOperations, value.KeyBytes, value.ScopeDirectoryBytes, value.ActivationBytes, value.EvidenceBytes,
+            value.ReceiptBytes, value.TransientBytes, value.ActivationCreation.Candidates, value.ActivationCreation.Comparisons,
+            value.ActivationCreation.IndexOperations, value.ActivationCreation.ReadIntervals, value.ActivationCreation.EvidenceBytes,
+            value.ActivationCreation.TransientBytes];
+        return values.SelectMany(Int64).ToArray();
+    }
+
+    private static byte[] Scope(BaseOwnedSubjectScopeEvidence value) =>
+        [(byte)value.Kind, .. System.Text.Encoding.UTF8.GetBytes(value.Value ?? string.Empty)];
+
+    private static byte[] Lifetime(BaseSemanticActivationSubjectLifetimeBinding? value)
+    {
+        if (value is null) return [];
+        return Hash("base.semanticActivation.subjectLifetimeAuthority.v1\0", System.Text.Encoding.UTF8.GetBytes(value.ContractId),
+            Int64(value.ContractVersion), value.ContractChecksum.ToArray(), value.SubjectId.ToUtf8Bytes(),
+            System.Text.Encoding.UTF8.GetBytes(value.AuthorityEpoch.ToBase64Url()),
+            System.Text.Encoding.UTF8.GetBytes(value.Incarnation.ToBase64Url()), value.ScopeBindingId.ToArray(), value.Checksum.ToArray()).ToArray();
+    }
+
+    private static byte[] Int64(long value) { byte[] bytes = new byte[8]; System.Buffers.Binary.BinaryPrimitives.WriteInt64BigEndian(bytes, value); return bytes; }
+    private static ImmutableArray<byte> Hash(string purpose, params byte[][] fields)
+    {
+        using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+        hash.AppendData(System.Text.Encoding.UTF8.GetBytes(purpose));
+        byte[] length = new byte[4];
+        foreach (byte[] field in fields) { System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(length, field.Length); hash.AppendData(length); hash.AppendData(field); }
+        return hash.GetHashAndReset().ToImmutableArray();
+    }
 }
 
 /// <summary>Contains Runtime-owned identity for one semantic activation creation.</summary>
@@ -189,6 +305,29 @@ public sealed record BaseSemanticActivationModuleOperationIdentity
 [JsonDerivedType(typeof(BaseSemanticActivationEnsureIntent), "ensure")]
 [JsonDerivedType(typeof(BaseSemanticActivationRetireIntent), "retire")]
 public abstract record BaseSemanticActivationOperation;
+
+/// <summary>Requests one bounded transaction-local semantic-slot capture.</summary>
+public sealed record BaseSemanticActivationCaptureRequest
+{
+    /// <summary>Gets installed semantic definition authority.</summary>
+    public required BaseSemanticActivationDefinitionIdentity Definition { get; init; }
+    /// <summary>Gets the unbound canonical key bytes.</summary>
+    public required ImmutableArray<byte> CanonicalKey { get; init; }
+    /// <summary>Gets the checksum of the unbound canonical key preimage.</summary>
+    public required ImmutableArray<byte> KeyPreimageChecksum { get; init; }
+    /// <summary>Gets protected logical scope authority.</summary>
+    public required BaseOwnedSubjectScopeEvidence Scope { get; init; }
+    /// <summary>Gets the Runtime-proposed binding for an absent scope-directory entry.</summary>
+    public required ImmutableArray<byte> ProposedScopeBindingId { get; init; }
+    /// <summary>Gets the requested semantic transition.</summary>
+    public required BaseSemanticActivationOperationKind Operation { get; init; }
+    /// <summary>Gets exact store authority required by capture.</summary>
+    public required BaseSemanticActivationStoreAuthorityRequirement StoreAuthority { get; init; }
+    /// <summary>Gets effective semantic execution limits.</summary>
+    public required BaseSemanticActivationExecutionLimits Limits { get; init; }
+    /// <summary>Gets the Runtime-issued accepted-time receipt validated inside the provider transaction.</summary>
+    public required BaseAcceptedTimeReceipt AcceptedTime { get; init; }
+}
 
 /// <summary>Ensures one semantic activation.</summary>
 public sealed record BaseSemanticActivationEnsureIntent : BaseSemanticActivationOperation
@@ -229,6 +368,8 @@ public sealed record BaseSemanticActivationRetireIntent : BaseSemanticActivation
 /// <summary>Contains one semantic operation in the shared atomic request.</summary>
 public sealed record BaseAtomicSemanticActivationExtension
 {
+    /// <summary>Gets the exact read-only capture request.</summary>
+    public required BaseSemanticActivationCaptureRequest Capture { get; init; }
     /// <summary>Gets the closed semantic operation.</summary>
     public required BaseSemanticActivationOperation Operation { get; init; }
     /// <summary>Gets the canonical structural digest.</summary>
@@ -459,10 +600,18 @@ public sealed record BaseCapturedSemanticActivationEvidence
     public BaseSemanticActivationRetirementAuthority? Retired { get; init; }
     /// <summary>Gets absence authority only for CompactedAbsent.</summary>
     public BaseSemanticActivationAbsenceAuthority? Absent { get; init; }
+    /// <summary>Gets the mapped activation generation only while the slot is live.</summary>
+    public long? ActivationGeneration { get; init; }
+    /// <summary>Gets the mapped activation state only while the slot is live.</summary>
+    public BaseActivationState? ActivationState { get; init; }
+    /// <summary>Gets the mapped activation control checksum only while the slot is live.</summary>
+    public ImmutableArray<byte> ActivationChecksum { get; init; }
     /// <summary>Gets normalized nonempty read intervals.</summary>
     public required ImmutableArray<BaseAtomicReadIntervalEvidence> ReadIntervals { get; init; }
     /// <summary>Gets exact capture accounting.</summary>
     public required BaseSemanticActivationAccounting Accounting { get; init; }
+    /// <summary>Gets the exact accepted-time receipt admitted by the provider transaction.</summary>
+    public required BaseAcceptedTimeReceipt AcceptedTime { get; init; }
     /// <summary>Gets evidence checksum.</summary>
     public required ImmutableArray<byte> Checksum { get; init; }
 }

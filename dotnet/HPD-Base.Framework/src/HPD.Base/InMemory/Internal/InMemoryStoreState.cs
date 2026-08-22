@@ -44,6 +44,12 @@ internal sealed class InMemoryStoreState
     public List<BaseSubjectRetirementPublicationRow> SubjectRetirementPublications { get; } = [];
     /// <summary>Gets module-owned generation cells by canonical scoped key.</summary>
     public Dictionary<string, long> ModuleGenerations { get; } = new(StringComparer.Ordinal);
+    /// <summary>Gets semantic scope-directory bindings by protected exact scope.</summary>
+    public Dictionary<string, BaseSemanticActivationScopeBinding> SemanticActivationScopes { get; } = new(StringComparer.Ordinal);
+    /// <summary>Gets durable semantic activation slots by stable semantic key.</summary>
+    public Dictionary<string, InMemorySemanticActivationSlot> SemanticActivationSlots { get; } = new(StringComparer.Ordinal);
+    /// <summary>Gets the provider-owned installed semantic graph authority.</summary>
+    public BaseSemanticActivationStoreAuthorityRequirement? SemanticActivationAuthority { get; set; }
     /// <summary>Gets durable activation rows by deterministic activation identity.</summary>
     public Dictionary<string, InMemoryActivationRow> Activations { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, SortedSet<string>> ActivationsByProtectedScope { get; } = new(StringComparer.Ordinal);
@@ -122,6 +128,24 @@ internal sealed class InMemoryStoreState
         }));
         foreach ((string key, long generation) in ModuleGenerations)
             clone.ModuleGenerations.Add(key, generation);
+        foreach ((string key, BaseSemanticActivationScopeBinding binding) in SemanticActivationScopes)
+            clone.SemanticActivationScopes.Add(key, binding with
+            {
+                BindingId = binding.BindingId.ToArray().ToImmutableArray(),
+                ProtectedCanonicalScope = binding.ProtectedCanonicalScope.ToArray().ToImmutableArray(),
+                SeekDigest = binding.SeekDigest.ToArray().ToImmutableArray(),
+                ProtectionKeyId = new string(binding.ProtectionKeyId.AsSpan()),
+                Checksum = binding.Checksum.ToArray().ToImmutableArray(),
+            });
+        foreach ((string key, InMemorySemanticActivationSlot slot) in SemanticActivationSlots)
+            clone.SemanticActivationSlots.Add(key, slot.DeepClone());
+        clone.SemanticActivationAuthority = SemanticActivationAuthority is null ? null : SemanticActivationAuthority with
+        {
+            ApplicationId = new string(SemanticActivationAuthority.ApplicationId.AsSpan()),
+            LogicalStoreId = new string(SemanticActivationAuthority.LogicalStoreId.AsSpan()),
+            StoreInstanceId = new string(SemanticActivationAuthority.StoreInstanceId.AsSpan()),
+            DefinitionSetChecksum = SemanticActivationAuthority.DefinitionSetChecksum.ToArray().ToImmutableArray(),
+        };
         foreach ((string key, InMemoryActivationRow activation) in Activations)
             clone.Activations.Add(key, activation.DeepClone());
         foreach ((string key, SortedSet<string> activationIds) in ActivationsByProtectedScope)
@@ -197,6 +221,71 @@ internal sealed class InMemoryStoreState
     };
 }
 
+internal sealed record InMemorySemanticActivationSlot
+{
+    internal required byte[] CanonicalKey { get; init; }
+    internal required BaseSemanticActivationScopeBinding ScopeBinding { get; init; }
+    internal BaseSemanticActivationLiveAuthority? Live { get; init; }
+    internal BaseSemanticActivationRetirementAuthority? Retired { get; init; }
+    internal BaseSemanticActivationAbsenceAuthority? Absent { get; init; }
+
+    internal InMemorySemanticActivationSlot DeepClone() => this with
+    {
+        CanonicalKey = CanonicalKey.ToArray(),
+        ScopeBinding = ScopeBinding with
+        {
+            BindingId = ScopeBinding.BindingId.ToArray().ToImmutableArray(),
+            ProtectedCanonicalScope = ScopeBinding.ProtectedCanonicalScope.ToArray().ToImmutableArray(),
+            SeekDigest = ScopeBinding.SeekDigest.ToArray().ToImmutableArray(),
+            ProtectionKeyId = new string(ScopeBinding.ProtectionKeyId.AsSpan()),
+            Checksum = ScopeBinding.Checksum.ToArray().ToImmutableArray(),
+        },
+        Live = Live is null ? null : Live with
+        {
+            Definition = Live.Definition with { Checksum = Live.Definition.Checksum.ToArray().ToImmutableArray() },
+            KeyDigest = BaseSemanticActivationKeyDigest.Create(Live.KeyDigest.ToArray()),
+            Scope = Live.Scope with { Value = Live.Scope.Value is null ? null : new string(Live.Scope.Value.AsSpan()) },
+            ScopeBinding = ScopeBinding with
+            {
+                BindingId = ScopeBinding.BindingId.ToArray().ToImmutableArray(),
+                ProtectedCanonicalScope = ScopeBinding.ProtectedCanonicalScope.ToArray().ToImmutableArray(),
+                SeekDigest = ScopeBinding.SeekDigest.ToArray().ToImmutableArray(), Checksum = ScopeBinding.Checksum.ToArray().ToImmutableArray(),
+            },
+            ActivationDefinition = Live.ActivationDefinition with { Checksum = Live.ActivationDefinition.Checksum.ToArray().ToImmutableArray() },
+            InputChecksum = Live.InputChecksum.ToArray().ToImmutableArray(), Checksum = Live.Checksum.ToArray().ToImmutableArray(),
+            StoreAuthority = CloneStore(Live.StoreAuthority), SubjectLifetime = CloneLifetime(Live.SubjectLifetime),
+        },
+        Retired = Retired is null ? null : Retired with
+        {
+            Definition = Retired.Definition with { Checksum = Retired.Definition.Checksum.ToArray().ToImmutableArray() },
+            KeyDigest = BaseSemanticActivationKeyDigest.Create(Retired.KeyDigest.ToArray()),
+            SubjectLifetime = CloneLifetime(Retired.SubjectLifetime), TerminalActivationChecksum = Retired.TerminalActivationChecksum.ToArray().ToImmutableArray(),
+            CompletionOperationChecksum = Retired.CompletionOperationChecksum.ToArray().ToImmutableArray(),
+            CompletionReceiptChecksum = Retired.CompletionReceiptChecksum.ToArray().ToImmutableArray(),
+            StoreAuthority = CloneStore(Retired.StoreAuthority), Checksum = Retired.Checksum.ToArray().ToImmutableArray(),
+        },
+        Absent = Absent is null ? null : Absent with
+        {
+            Definition = Absent.Definition with { Checksum = Absent.Definition.Checksum.ToArray().ToImmutableArray() },
+            Key = BaseSemanticActivationKeyDigest.Create(Absent.Key.ToArray()),
+            ScopeBindingId = Absent.ScopeBindingId.ToArray().ToImmutableArray(),
+            StoreAuthority = CloneStore(Absent.StoreAuthority), Checksum = Absent.Checksum.ToArray().ToImmutableArray(),
+        },
+    };
+
+    private static BaseSemanticActivationStoreAuthority CloneStore(BaseSemanticActivationStoreAuthority value) => value with
+    {
+        Requirement = value.Requirement with { DefinitionSetChecksum = value.Requirement.DefinitionSetChecksum.ToArray().ToImmutableArray() },
+        Checksum = value.Checksum.ToArray().ToImmutableArray(),
+    };
+
+    private static BaseSemanticActivationSubjectLifetimeBinding? CloneLifetime(BaseSemanticActivationSubjectLifetimeBinding? value) => value is null ? null : value with
+    {
+        ContractChecksum = value.ContractChecksum.ToArray().ToImmutableArray(), ScopeBindingId = value.ScopeBindingId.ToArray().ToImmutableArray(),
+        Checksum = value.Checksum.ToArray().ToImmutableArray(),
+    };
+}
+
 internal sealed record InMemoryScheduleCancellationRow(
     string MaintenanceId,
     string ReplacementActivationId,
@@ -256,7 +345,8 @@ internal sealed record InMemoryActivationRow(
     BaseActivationClaimAuthority? Claim = null,
     BaseActivationLeaseObservation? Lease = null,
     byte[]? CanonicalResult = null,
-    BaseEffectExecutionAuthority? Effect = null)
+    BaseEffectExecutionAuthority? Effect = null,
+    byte[]? TerminalReceiptChecksum = null)
 {
     internal InMemoryActivationRow DeepClone() => new(
         Payload with
@@ -300,7 +390,8 @@ internal sealed record InMemoryActivationRow(
                 Checksum = Effect.Executor.Checksum.ToArray().ToImmutableArray(),
             },
             Checksum = Effect.Checksum.ToArray().ToImmutableArray(),
-        });
+        },
+        TerminalReceiptChecksum is null ? null : [.. TerminalReceiptChecksum]);
 }
 
 internal sealed record InMemorySubjectContractState(
@@ -420,6 +511,7 @@ internal sealed record InMemoryMutationReceipt(
             CreatedActivationIds = result.ModuleMutation.CreatedActivationIds
                 .Select(static value => new string(value.AsSpan()))
                 .ToImmutableArray(),
+            SemanticActivation = result.ModuleMutation.SemanticActivation is null ? null : CloneSemantic(result.ModuleMutation.SemanticActivation),
         },
         SubjectLifecycleCheckpoint = result.SubjectLifecycleCheckpoint is null
             ? null
@@ -451,6 +543,24 @@ internal sealed record InMemoryMutationReceipt(
             CanonicalResultBytes = result.ActivationTransactionalOperation.CanonicalResultBytes.ToArray().ToImmutableArray(),
             ActivationControlChecksum = result.ActivationTransactionalOperation.ActivationControlChecksum.ToArray().ToImmutableArray(),
         },
+    };
+
+    private static BaseSemanticActivationReceiptEvidence CloneSemantic(BaseSemanticActivationReceiptEvidence value) => new()
+    {
+        Operation = value.Operation,
+        DefinitionId = new string(value.DefinitionId.AsSpan()),
+        DefinitionVersion = value.DefinitionVersion,
+        DefinitionChecksum = value.DefinitionChecksum.ToArray().ToImmutableArray(),
+        Key = BaseSemanticActivationKeyDigest.Create(value.Key.ToArray()),
+        State = value.State,
+        SlotGeneration = value.SlotGeneration,
+        EnsureDisposition = value.EnsureDisposition,
+        RetirementDisposition = value.RetirementDisposition,
+        ActivationId = value.ActivationId is null ? null : new string(value.ActivationId.AsSpan()),
+        SlotChecksum = value.SlotChecksum.ToArray().ToImmutableArray(),
+        JournalPosition = value.JournalPosition,
+        CommitEvidenceChecksum = value.CommitEvidenceChecksum.ToArray().ToImmutableArray(),
+        Checksum = value.Checksum.ToArray().ToImmutableArray(),
     };
 }
 

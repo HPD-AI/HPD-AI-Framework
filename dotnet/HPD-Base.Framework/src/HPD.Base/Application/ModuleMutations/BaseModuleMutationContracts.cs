@@ -301,6 +301,24 @@ public sealed record BaseModuleGenerationGuard : BaseModuleGuard
     public required BaseModuleGenerationComparisonKind Comparison { get; init; }
     public BaseModuleValueExpression? Expected { get; init; }
 }
+/// <summary>Tests the captured semantic slot state for an installed ensure or retirement operation.</summary>
+public sealed record BaseModuleSemanticActivationStateGuard : BaseModuleGuard
+{
+    /// <summary>Gets the required captured semantic state.</summary>
+    public required BaseModuleSemanticActivationStateTest Test { get; init; }
+}
+/// <summary>Classifies closed semantic-state guard tests.</summary>
+public enum BaseModuleSemanticActivationStateTest
+{
+    /// <summary>The slot is missing.</summary>
+    Missing = 1,
+    /// <summary>The slot is live.</summary>
+    Live = 2,
+    /// <summary>The slot is retired.</summary>
+    Retired = 3,
+    /// <summary>The slot contains compacted permanent absence.</summary>
+    CompactedAbsent = 4,
+}
 public sealed record BaseModuleLogicalGuard : BaseModuleGuard
 {
     public required BaseModuleLogicalGuardKind Kind { get; init; }
@@ -388,6 +406,14 @@ public sealed record BaseModuleCommittedRecordIdExpression : BaseModuleValueExpr
 public sealed record BaseModuleCommittedRevisionExpression : BaseModuleValueExpression { public required string StatementId { get; init; } }
 public sealed record BaseModuleCommittedUpsertDispositionExpression : BaseModuleValueExpression { public required string StatementId { get; init; } }
 public sealed record BaseModuleResultingGenerationExpression : BaseModuleValueExpression { public required string CaptureId { get; init; } }
+/// <summary>Projects the closed ensure disposition.</summary>
+public sealed record BaseModuleSemanticActivationDispositionExpression : BaseModuleValueExpression;
+/// <summary>Projects the live semantic activation ID.</summary>
+public sealed record BaseModuleSemanticActivationIdExpression : BaseModuleValueExpression;
+/// <summary>Projects whether ensure materialized a new activation.</summary>
+public sealed record BaseModuleSemanticActivationWasMaterializedExpression : BaseModuleValueExpression;
+/// <summary>Projects the closed retirement disposition.</summary>
+public sealed record BaseModuleSemanticActivationRetirementDispositionExpression : BaseModuleValueExpression;
 public sealed record BaseModuleCoalesceExpression : BaseModuleValueExpression { public required ImmutableArray<BaseModuleValueExpression> Values { get; init; } }
 public sealed record BaseModuleConditionalExpression : BaseModuleValueExpression
 {
@@ -423,6 +449,7 @@ public sealed record BaseModuleMutationExecutionOptions
     public TimeSpan? MaximumWait { get; init; }
     internal BaseActivationGuard? ActivationGuard { get; init; }
     internal BaseActivationCreationExtension? ActivationCreation { get; init; }
+    internal BaseSemanticActivationGuardedRequest? SemanticActivation { get; init; }
 }
 /// <summary>Public typed execution result.</summary>
 public sealed record BaseModuleMutationExecutionResult<TResult>

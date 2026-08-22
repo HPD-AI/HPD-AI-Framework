@@ -60,8 +60,8 @@ internal sealed partial class InMemoryRecordStore
             ScheduleKinds = [BaseScheduleKind.Once, BaseScheduleKind.Interval, BaseScheduleKind.Cron, BaseScheduleKind.Calendar],
             ExecutionClasses = [BaseActivationExecutionClass.TransactionalOperation, BaseActivationExecutionClass.AtLeastOnceWorker, BaseActivationExecutionClass.AtMostOnceEffect],
             MaximumActivationsPerTransaction = 256,
-            MaximumDueCandidates = 256,
-            MaximumReadIntervals = 4096,
+            MaximumDueCandidates = options.ActivationMaximumDueCandidates,
+            MaximumReadIntervals = options.ActivationMaximumReadIntervals,
             MaximumIndexOperations = 4096,
             MaximumInputBytes = 4L * 1024 * 1024,
             MaximumResultBytes = 4L * 1024 * 1024,
@@ -852,6 +852,17 @@ internal sealed partial class InMemoryRecordStore
                 Disposition = BaseMutationRequestDisposition.Committed,
                 Effect = resultingEffect,
                 CanonicalResult = result?.ToImmutableArray() ?? ImmutableArray<byte>.Empty,
+            };
+            byte[] terminalReceiptChecksum = SHA256.HashData(
+                Encoding.UTF8.GetBytes(receiptKind)
+                    .Concat(request.Identity.Fingerprint.ToArray())
+                    .Concat(JsonSerializer.SerializeToUtf8Bytes(transitionResult, HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult))
+                    .ToArray());
+            next.Activations[row.Payload.ActivationId] = next.Activations[row.Payload.ActivationId] with
+            {
+                TerminalReceiptChecksum = resultingState is BaseActivationState.Succeeded or BaseActivationState.Exhausted
+                    or BaseActivationState.Cancelled or BaseActivationState.Migrated or BaseActivationState.Disposed
+                    ? terminalReceiptChecksum : null,
             };
             WriteActivationReceipt(next, request.Identity, receiptKind, transitionResult,
                 HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult);
