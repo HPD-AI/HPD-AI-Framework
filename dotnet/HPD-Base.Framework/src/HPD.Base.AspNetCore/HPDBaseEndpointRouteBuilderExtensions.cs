@@ -73,6 +73,7 @@ public static class HPDBaseEndpointRouteBuilderExtensions
         ModuleMutationEndpoints.Map(group, convention);
         SubjectRetirementEndpoints.MapControlPlane(group, convention);
         ActivationAdministrationEndpoints.Map(group, convention);
+        ActivationScheduleEndpoints.Map(group, convention);
         return group;
     }
 

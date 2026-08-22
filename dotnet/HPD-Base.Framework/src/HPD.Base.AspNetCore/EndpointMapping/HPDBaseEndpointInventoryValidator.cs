@@ -68,6 +68,8 @@ internal sealed class HPDBaseEndpointInventoryValidator(
         ["base.activation.retry"] = Control("POST", "/control/activations/retry", HPDBaseEndpointOperation.ActivationRetry, HPDBaseCapabilities.ActivationRetry),
         ["base.activation.reconcile"] = Control("POST", "/control/activations/reconcile", HPDBaseEndpointOperation.ActivationReconcile, HPDBaseCapabilities.ActivationReconcile),
         ["base.activation.dispose"] = Control("POST", "/control/activations/dispose", HPDBaseEndpointOperation.ActivationDispose, HPDBaseCapabilities.ActivationDispose),
+        ["base.activation.schedule.read"] = Control("POST", "/control/schedules/query", HPDBaseEndpointOperation.ActivationScheduleRead, HPDBaseCapabilities.ActivationScheduleRead),
+        ["base.activation.schedule.mutate"] = Control("POST", "/control/schedules/mutate", HPDBaseEndpointOperation.ActivationScheduleMutate, HPDBaseCapabilities.ActivationScheduleMutate),
         ["hpd.base.vector.query"] = Protected("POST", "/base/vector/{collectionId}/{vectorIndexId}/query", HPDBaseEndpointOperation.VectorQuery, HPDBaseCapabilities.VectorQuery),
         ["hpd.base.vector.metadata.list"] = Control("GET", "/base/vector/indexes", HPDBaseEndpointOperation.VectorMetadataRead, HPDBaseCapabilities.VectorMetadataRead),
         ["hpd.base.vector.diagnostics.read"] = Control("GET", "/base/vector/indexes/{collectionId}/{vectorIndexId}/diagnostics", HPDBaseEndpointOperation.DiagnosticsRead, HPDBaseCapabilities.VectorDiagnosticsRead),

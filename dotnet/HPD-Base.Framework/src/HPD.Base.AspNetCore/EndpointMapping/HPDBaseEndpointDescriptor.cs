@@ -86,6 +86,11 @@ public enum HPDBaseEndpointOperation
     ActivationReconcile,
     /// <summary>Disposes one retained terminal activation.</summary>
     ActivationDispose
+    ,
+    /// <summary>Reads one installed durable schedule.</summary>
+    ActivationScheduleRead,
+    /// <summary>Mutates one installed durable schedule.</summary>
+    ActivationScheduleMutate
 }
 
 /// <summary>Describes one exact BASE HTTP endpoint.</summary>
@@ -186,4 +191,8 @@ public static class HPDBaseCapabilities
     public const string ActivationReconcile = "base.activation.reconcile";
     /// <summary>Disposes retained terminal activations.</summary>
     public const string ActivationDispose = "base.activation.dispose";
+    /// <summary>Reads installed durable schedule authority.</summary>
+    public const string ActivationScheduleRead = "base.activation.schedule.read";
+    /// <summary>Mutates installed durable schedule authority.</summary>
+    public const string ActivationScheduleMutate = "base.activation.schedule.mutate";
 }

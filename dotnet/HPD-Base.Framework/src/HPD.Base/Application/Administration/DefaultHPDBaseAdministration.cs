@@ -373,13 +373,13 @@ internal sealed class DefaultHPDBaseAdministration(
         BaseActivationProviderCallResult<OperationResult<BaseActivationAdministrationPage>> call =
             await activationProviderGate.ExecuteAsync(
                 token => provider.ReadAdministrationAsync(providerRequest, token),
-                definition.Limits.Provider.AcquisitionDeadline,
-                definition.Limits.Provider.ObservationWaitDeadline,
+                definition.Limits.Provider.AcquisitionTimeout,
+                definition.Limits.Provider.TransactionTimeout,
                 cancellationToken).ConfigureAwait(false);
         if (call.Outcome == BaseActivationProviderCallOutcome.Cancelled && cancellationToken.IsCancellationRequested)
             throw new OperationCanceledException(cancellationToken);
         if (call.Outcome is BaseActivationProviderCallOutcome.TimedOut or BaseActivationProviderCallOutcome.Capacity)
-            return ActivationReadFailure(OperationStatus.CapabilityUnavailable, "base.activation.capacityUnavailable", ErrorCategory.Availability);
+            return ActivationReadFailure(OperationStatus.CapabilityUnavailable, "base.activation.capacityUnavailable", ErrorCategory.Capability);
         if (call.Outcome != BaseActivationProviderCallOutcome.Completed || call.Value is null)
             return ActivationReadFailure(OperationStatus.StoreError, "base.activation.storeError", ErrorCategory.Store);
         OperationResult<BaseActivationAdministrationPage> result = call.Value;
