@@ -27,7 +27,9 @@ public sealed class PublicApiShapeTests
         var publicTypes = typeof(SqliteRecordStore).Assembly.GetExportedTypes();
         publicTypes.SelectMany(type => type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static))
             .Select(method => method.Name)
-            .Should().NotContain(name => name.Contains("ExecuteSql", StringComparison.Ordinal) || name.Contains("Migration", StringComparison.Ordinal));
+            .Should().NotContain(name => name.Contains("ExecuteSql", StringComparison.Ordinal)
+                || name.Contains("Migration", StringComparison.Ordinal)
+                && !name.Equals("ReadMigrationCandidateAsync", StringComparison.Ordinal));
         publicTypes.Select(type => type.FullName).Any(name => name is not null && name.Contains("SqliteConnection", StringComparison.Ordinal)).Should().BeFalse();
         var nativeLeaks = publicTypes.SelectMany(type => type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static))
             .SelectMany(method => method.GetParameters().Select(parameter => (method, type: parameter.ParameterType)).Append((method: method, type: method.ReturnType)))

@@ -330,6 +330,21 @@ public sealed partial class SqliteRecordStore
             return ActivationFailure<BaseActivationDependencyResult>(
                 "base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
+        if (!await ActivationSchemaExistsAsync(connection, cancellationToken).ConfigureAwait(false))
+            return OperationResults.Ok(new BaseActivationDependencyResult
+            {
+                Dependencies = [],
+                CapturedGeneration = 0,
+                Accounting = new BaseActivationAccounting
+                {
+                    Candidates = 0,
+                    Comparisons = 0,
+                    IndexOperations = 1,
+                    ReadIntervals = 1,
+                    EvidenceBytes = 0,
+                    TransientBytes = 0,
+                },
+            });
         (long generation, _) = await ReadActivationAuthorityAsync(connection, null, cancellationToken).ConfigureAwait(false);
         var values = new Dictionary<string, (BaseActivationDefinitionKey Definition, bool Activation, bool Schedule)>(StringComparer.Ordinal);
         await using (SqliteCommand activations = connection.CreateCommand())
@@ -388,6 +403,17 @@ public sealed partial class SqliteRecordStore
             else
                 values.Add(key, (definition with { Checksum = definition.Checksum.ToArray().ToImmutableArray() }, activation, schedule));
         }
+    }
+
+    private async ValueTask<bool> ActivationSchemaExistsAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT 1 FROM sqlite_master WHERE type='table' AND name=$name LIMIT 1;";
+        command.Parameters.AddWithValue("$name", _names.Activations);
+        object? value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        return value is not null && value is not DBNull;
     }
 
     /// <inheritdoc />
