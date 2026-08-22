@@ -413,6 +413,134 @@ internal sealed class DefaultHPDBaseAdministration(
         return new BaseSuccess<BaseActivationAdministrationPage>(page, OperationStatus.Ok, null, null, null, null);
     }
 
+    public ValueTask<BaseResult<BaseActivationMaintenancePage>> AdvanceActivationMaintenanceAsync(
+        BaseActivationAdministrationMaintenanceRequest request, CancellationToken cancellationToken = default) =>
+        RouteActivationPageAsync(request, static (provider, definition, scope, accepted, value, token) =>
+            provider.AdvanceMaintenanceAsync(new BaseActivationMaintenanceRequest
+            {
+                ApplicationId = accepted.ApplicationId, Scope = scope,
+                Definition = new BaseActivationDefinitionKey { Id = definition.Id, Version = definition.Version, Checksum = definition.Checksum },
+                Kind = value.Kind, AfterActivationId = value.AfterActivationId, Take = value.Take,
+                AcceptedTime = accepted, Identity = value.Identity, Limits = definition.Limits.Provider,
+            }, token), static definition => definition.Grants.Repair, cancellationToken);
+
+    public ValueTask<BaseResult<BaseActivationPrunePage>> PruneActivationsAsync(
+        BaseActivationAdministrationPruneRequest request, CancellationToken cancellationToken = default) =>
+        RouteActivationPageAsync(request, static (provider, definition, scope, accepted, value, token) =>
+            provider.PruneAsync(new BaseActivationPruneRequest
+            {
+                ApplicationId = accepted.ApplicationId, Scope = scope,
+                Definition = new BaseActivationDefinitionKey { Id = definition.Id, Version = definition.Version, Checksum = definition.Checksum },
+                AfterActivationId = value.AfterActivationId, Take = value.Take,
+                AcceptedTime = accepted, Identity = value.Identity, Limits = definition.Limits.Provider,
+            }, token), static definition => definition.Grants.Remove, cancellationToken);
+
+    private async ValueTask<BaseResult<TResult>> RouteActivationPageAsync<TRequest, TResult>(
+        TRequest request,
+        Func<IBaseActivationProvider, BaseActivationDefinition, BaseOwnedScopeSeekAuthority, BaseAcceptedTimeReceipt, TRequest, CancellationToken, ValueTask<OperationResult<TResult>>> invoke,
+        Func<BaseActivationDefinition, string> requiredGrant,
+        CancellationToken cancellationToken)
+        where TRequest : BaseActivationAdministrationPageRequest
+    {
+        ArgumentNullException.ThrowIfNull(request); cancellationToken.ThrowIfCancellationRequested();
+        BaseActivationDefinition? definition = activations.Find(request.DefinitionId, request.DefinitionVersion);
+        if (definition is null || request.Take is < 1 or > 256
+            || stores.GetRegistration(request.StoreId)?.Store is not IBaseActivationProvider provider
+            || !BaseActivationCertificationReceiptContract.Validate(provider.Descriptor))
+            return ActivationPageFailure<TResult>(OperationStatus.PolicyDenied, "base.activation.unauthorized", ErrorCategory.Authorization);
+        var operation = new OperationContext
+        {
+            ApplicationId = features.LogicalSchema.ApplicationId, Audience = HPDBaseEndpointAudience.ControlPlane,
+            Operation = BaseOperationKind.ActivationTransition, CollectionId = definition.Id,
+            TenantId = request.Principal.CurrentTenantId, Mode = OperationMode.System, Now = timeProvider.GetUtcNow(),
+        };
+        OperationResult<BasePolicyEvaluation> authorized = await policy.EvaluateWriteAsync(new BasePolicyRequest
+        {
+            Principal = request.Principal, Operation = operation,
+            Collection = new CollectionDefinition
+            {
+                Id = definition.Id, Name = definition.Id, Kind = BaseCollectionKinds.Custom,
+                SchemaMode = SchemaMode.Strict, UnknownFields = UnknownFieldPolicy.Reject,
+                System = true, SystemOwnerModuleId = definition.OwningModuleId,
+                Store = new StoreAnnotation { StoreId = request.StoreId },
+            },
+            ResourceKind = PolicyResourceKind.ActivationDefinition,
+        }, cancellationToken).ConfigureAwait(false);
+        if (!BaseSystemCollectionGate.HasExactActivationGrant(
+            authorized, requiredGrant(definition), definition.OwningModuleId, request.Principal, operation))
+            return ActivationPageFailure<TResult>(OperationStatus.PolicyDenied, "base.activation.unauthorized", ErrorCategory.Authorization);
+        var scope = new BaseOwnedScopeSeekAuthority
+        {
+            Kind = request.Scope.Kind,
+            ProtectedIndexDigest = SHA256.HashData(Encoding.UTF8.GetBytes(
+                $"base.activation.scope.v2\0{(int)request.Scope.Kind}\n{request.Scope.Value ?? string.Empty}")).ToImmutableArray(),
+        };
+        BaseActivationProviderCallResult<OperationResult<TResult>> call = await activationProviderGate.ExecuteAsync(
+            token => invoke(provider, definition, scope, activationTime.Capture(features.LogicalSchema.ApplicationId), request, token),
+            definition.Limits.Provider.AcquisitionTimeout, definition.Limits.Provider.TransactionTimeout, cancellationToken).ConfigureAwait(false);
+        if (call.Outcome == BaseActivationProviderCallOutcome.Cancelled && cancellationToken.IsCancellationRequested)
+            throw new OperationCanceledException(cancellationToken);
+        if (call.Outcome is BaseActivationProviderCallOutcome.TimedOut or BaseActivationProviderCallOutcome.Capacity)
+            return ActivationPageFailure<TResult>(OperationStatus.CapabilityUnavailable, "base.activation.capacityUnavailable", ErrorCategory.Capability);
+        if (call.Outcome != BaseActivationProviderCallOutcome.Completed || call.Value is null)
+            return ActivationPageFailure<TResult>(OperationStatus.StoreError, "base.activation.storeError", ErrorCategory.Store);
+        OperationResult<TResult> result = call.Value;
+        if (!result.IsSuccess() || result.Value is null)
+            return BaseResultMapper.Map<TResult, TResult>(result, static value => value);
+        bool valid = result.Value switch
+        {
+            BaseActivationMaintenancePage page => ValidateMaintenancePage(page, request.Take, definition.Limits.Provider),
+            BaseActivationPrunePage page => ValidatePrunePage(page, request.Take, definition.Limits.Provider),
+            _ => false,
+        };
+        return valid
+            ? BaseResultMapper.Map<TResult, TResult>(result, static value => value)
+            : ActivationPageFailure<TResult>(OperationStatus.StoreError, "base.activation.providerContractInvalid", ErrorCategory.Store);
+    }
+
+    private static bool ValidateMaintenancePage(
+        BaseActivationMaintenancePage page, int take, BaseActivationExecutionLimits limits)
+    {
+        if (page.Items.Length > take || page.Items.Length > limits.MaximumCandidates
+            || !AccountingValid(page.Accounting, page.Items.Length, limits)) return false;
+        for (int index = 0; index < page.Items.Length; index++)
+        {
+            BaseActivationMaintenanceItem item = page.Items[index];
+            if (string.IsNullOrWhiteSpace(item.ActivationId) || item.PreviousGeneration < 1
+                || item.PreviousGeneration == long.MaxValue || item.ResultingGeneration != item.PreviousGeneration + 1
+                || item.ControlChecksum.Length != 32
+                || index != 0 && string.CompareOrdinal(page.Items[index - 1].ActivationId, item.ActivationId) >= 0)
+                return false;
+        }
+        return page.Completed
+            ? page.NextActivationId is null
+            : page.Items.Length != 0 && page.NextActivationId == page.Items[^1].ActivationId;
+    }
+
+    private static bool ValidatePrunePage(BaseActivationPrunePage page, int take, BaseActivationExecutionLimits limits)
+    {
+        if (page.ActivationIds.Length > take || page.ActivationIds.Length > limits.MaximumCandidates
+            || !AccountingValid(page.Accounting, page.ActivationIds.Length, limits)) return false;
+        for (int index = 0; index < page.ActivationIds.Length; index++)
+            if (string.IsNullOrWhiteSpace(page.ActivationIds[index])
+                || index != 0 && string.CompareOrdinal(page.ActivationIds[index - 1], page.ActivationIds[index]) >= 0)
+                return false;
+        return page.Completed
+            ? page.NextActivationId is null
+            : page.ActivationIds.Length != 0 && page.NextActivationId == page.ActivationIds[^1];
+    }
+
+    private static bool AccountingValid(BaseActivationAccounting accounting, int candidates, BaseActivationExecutionLimits limits) =>
+        accounting.Candidates == candidates && accounting.Comparisons >= 0
+        && accounting.IndexOperations >= 0 && accounting.IndexOperations <= limits.MaximumIndexOperations
+        && accounting.ReadIntervals >= 0 && accounting.ReadIntervals <= limits.MaximumReadIntervals
+        && accounting.EvidenceBytes >= 0 && accounting.EvidenceBytes <= limits.MaximumEvidenceBytes
+        && accounting.TransientBytes >= accounting.EvidenceBytes
+        && accounting.TransientBytes <= limits.MaximumTransientBytes;
+
+    private static BaseFailure<TResult> ActivationPageFailure<TResult>(OperationStatus status, string code, ErrorCategory category) =>
+        new(status, new BaseError { Code = code, Message = "The activation administration request could not be completed.", Category = category }, null, null);
+
     private static bool CanonicallyOrdered(ImmutableArray<BaseActivationAdministrationItem> items)
     {
         for (int index = 1; index < items.Length; index++)

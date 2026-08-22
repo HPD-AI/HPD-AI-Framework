@@ -81,6 +81,16 @@ public interface IHPDBaseAdministration
     ValueTask<BaseResult<BaseActivationAdministrationPage>> ReadActivationsAsync(
         BaseActivationAdministrationReadRequest request,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Advances one crash-recovery activation-maintenance page.</summary>
+    ValueTask<BaseResult<BaseActivationMaintenancePage>> AdvanceActivationMaintenanceAsync(
+        BaseActivationAdministrationMaintenanceRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Prunes one dependency-free disposed-activation page.</summary>
+    ValueTask<BaseResult<BaseActivationPrunePage>> PruneActivationsAsync(
+        BaseActivationAdministrationPruneRequest request,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>Requests sanitized lifecycle authority inspection after exact ControlPlane authorization.</summary>

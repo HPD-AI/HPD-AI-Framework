@@ -29,6 +29,14 @@ internal static class ActivationAdministrationEndpoints
             .WithHPDBaseEndpoint("base.activation.dispose", HPDBaseEndpointAudience.ControlPlane,
                 HPDBaseEndpointOperation.ActivationDispose, HPDBaseCapabilities.ActivationDispose, convention)
             .WithName("base.activation.dispose");
+        group.MapPost("/control/activation-maintenance/advance", (RequestDelegate)AdvanceMaintenanceAsync)
+            .WithHPDBaseEndpoint("base.activation.maintenance.advance", HPDBaseEndpointAudience.ControlPlane,
+                HPDBaseEndpointOperation.ActivationMaintenanceAdvance, HPDBaseCapabilities.ActivationMaintenanceAdvance, convention)
+            .WithName("base.activation.maintenance.advance");
+        group.MapPost("/control/activation-removal/advance", (RequestDelegate)AdvanceRemovalAsync)
+            .WithHPDBaseEndpoint("base.activation.removal.advance", HPDBaseEndpointAudience.ControlPlane,
+                HPDBaseEndpointOperation.ActivationRemovalAdvance, HPDBaseCapabilities.ActivationRemovalAdvance, convention)
+            .WithName("base.activation.removal.advance");
     }
 
     private static async Task QueryAsync(HttpContext context)
@@ -136,6 +144,62 @@ internal static class ActivationAdministrationEndpoints
         await Write(context, result).ConfigureAwait(false);
     }
 
+    private static async Task AdvanceMaintenanceAsync(HttpContext context)
+    {
+        BaseActivationMaintenanceHttpRequest? wire = await ReadAsync(
+            context, BaseActivationAdministrationJsonContext.Default.BaseActivationMaintenanceHttpRequest).ConfigureAwait(false);
+        if (wire is null) { await Problem(context, 400, "base.activation.invalid").ConfigureAwait(false); return; }
+        BaseResult<BaseActivationMaintenancePage> result = await context.RequestServices.GetRequiredService<IHPDBaseAdministration>()
+            .AdvanceActivationMaintenanceAsync(new BaseActivationAdministrationMaintenanceRequest
+            {
+                StoreId = wire.StoreId, Principal = await Principal(context).ConfigureAwait(false),
+                Scope = new BaseOwnedSubjectScopeEvidence { Kind = wire.ScopeKind, Value = wire.ScopeValue },
+                DefinitionId = wire.DefinitionId, DefinitionVersion = wire.DefinitionVersion,
+                Kind = wire.Kind, AfterActivationId = wire.AfterActivationId, Take = wire.Take,
+                Identity = wire.Identity.ToRuntime(),
+            }, context.RequestAborted).ConfigureAwait(false);
+        if (!result.TryGetValue(out BaseActivationMaintenancePage? page) || page is null)
+        {
+            await WriteFailure(context, result.Status, (result as BaseFailure<BaseActivationMaintenancePage>)?.Error).ConfigureAwait(false);
+            return;
+        }
+        await Results.Json(new BaseActivationMaintenanceHttpResult
+        {
+            Items = page.Items.Select(static item => new BaseActivationMaintenanceItemHttpResult
+            {
+                ActivationId = item.ActivationId, PreviousGeneration = item.PreviousGeneration,
+                ResultingGeneration = item.ResultingGeneration, PreviousState = item.PreviousState,
+                ResultingState = item.ResultingState, ControlChecksum = item.ControlChecksum,
+            }).ToImmutableArray(),
+            NextActivationId = page.NextActivationId, Completed = page.Completed, Disposition = page.Disposition,
+        }, BaseActivationAdministrationJsonContext.Default.BaseActivationMaintenanceHttpResult).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    private static async Task AdvanceRemovalAsync(HttpContext context)
+    {
+        BaseActivationRemovalHttpRequest? wire = await ReadAsync(
+            context, BaseActivationAdministrationJsonContext.Default.BaseActivationRemovalHttpRequest).ConfigureAwait(false);
+        if (wire is null) { await Problem(context, 400, "base.activation.invalid").ConfigureAwait(false); return; }
+        BaseResult<BaseActivationPrunePage> result = await context.RequestServices.GetRequiredService<IHPDBaseAdministration>()
+            .PruneActivationsAsync(new BaseActivationAdministrationPruneRequest
+            {
+                StoreId = wire.StoreId, Principal = await Principal(context).ConfigureAwait(false),
+                Scope = new BaseOwnedSubjectScopeEvidence { Kind = wire.ScopeKind, Value = wire.ScopeValue },
+                DefinitionId = wire.DefinitionId, DefinitionVersion = wire.DefinitionVersion,
+                AfterActivationId = wire.AfterActivationId, Take = wire.Take, Identity = wire.Identity.ToRuntime(),
+            }, context.RequestAborted).ConfigureAwait(false);
+        if (!result.TryGetValue(out BaseActivationPrunePage? page) || page is null)
+        {
+            await WriteFailure(context, result.Status, (result as BaseFailure<BaseActivationPrunePage>)?.Error).ConfigureAwait(false);
+            return;
+        }
+        await Results.Json(new BaseActivationRemovalHttpResult
+        {
+            ActivationIds = page.ActivationIds, NextActivationId = page.NextActivationId,
+            Completed = page.Completed, Disposition = page.Disposition,
+        }, BaseActivationAdministrationJsonContext.Default.BaseActivationRemovalHttpResult).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
     private static async ValueTask<T?> ReadAsync<T>(HttpContext context, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo)
     {
         const int maximum = 1024 * 1024;
@@ -186,6 +250,13 @@ internal static class ActivationAdministrationEndpoints
     private static Task Problem(HttpContext context, int status, string code) =>
         Results.Problem(statusCode: status, title: "The activation operation failed.",
             extensions: new Dictionary<string, object?> { ["code"] = code }).ExecuteAsync(context);
+
+    private static Task WriteFailure(HttpContext context, OperationStatus status, BaseError? error) => Problem(context, status switch
+    {
+        OperationStatus.ValidationFailed => 400, OperationStatus.PolicyDenied => 403,
+        OperationStatus.NotFound => 404, OperationStatus.Conflict => 409,
+        OperationStatus.Unsupported or OperationStatus.CapabilityUnavailable => 424, _ => 500,
+    }, error?.Code ?? "base.activation.storeError");
 }
 
 internal sealed record BaseActivationRetryHttpRequest
@@ -285,6 +356,51 @@ internal sealed record BaseActivationControlHttpResult
     public required BaseMutationRequestDisposition Disposition { get; init; }
 }
 
+internal abstract record BaseActivationPageHttpRequest
+{
+    public required string StoreId { get; init; }
+    public required BaseSubjectScopeKind ScopeKind { get; init; }
+    public string? ScopeValue { get; init; }
+    public required string DefinitionId { get; init; }
+    public required int DefinitionVersion { get; init; }
+    public string? AfterActivationId { get; init; }
+    public required int Take { get; init; }
+    public required BaseActivationIdentityHttpRequest Identity { get; init; }
+}
+
+internal sealed record BaseActivationMaintenanceHttpRequest : BaseActivationPageHttpRequest
+{
+    public required BaseActivationMaintenanceKind Kind { get; init; }
+}
+
+internal sealed record BaseActivationRemovalHttpRequest : BaseActivationPageHttpRequest;
+
+internal sealed record BaseActivationMaintenanceItemHttpResult
+{
+    public required string ActivationId { get; init; }
+    public required long PreviousGeneration { get; init; }
+    public required long ResultingGeneration { get; init; }
+    public required BaseActivationState PreviousState { get; init; }
+    public required BaseActivationState ResultingState { get; init; }
+    public required ImmutableArray<byte> ControlChecksum { get; init; }
+}
+
+internal sealed record BaseActivationMaintenanceHttpResult
+{
+    public required ImmutableArray<BaseActivationMaintenanceItemHttpResult> Items { get; init; }
+    public string? NextActivationId { get; init; }
+    public required bool Completed { get; init; }
+    public required BaseMutationRequestDisposition Disposition { get; init; }
+}
+
+internal sealed record BaseActivationRemovalHttpResult
+{
+    public required ImmutableArray<string> ActivationIds { get; init; }
+    public string? NextActivationId { get; init; }
+    public required bool Completed { get; init; }
+    public required BaseMutationRequestDisposition Disposition { get; init; }
+}
+
 [System.Text.Json.Serialization.JsonSourceGenerationOptions(
     PropertyNamingPolicy = System.Text.Json.Serialization.JsonKnownNamingPolicy.CamelCase,
     UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow,
@@ -295,4 +411,8 @@ internal sealed record BaseActivationControlHttpResult
 [System.Text.Json.Serialization.JsonSerializable(typeof(BaseActivationReconcileHttpRequest))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(BaseActivationDisposeHttpRequest))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(BaseActivationControlHttpResult))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(BaseActivationMaintenanceHttpRequest))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(BaseActivationMaintenanceHttpResult))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(BaseActivationRemovalHttpRequest))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(BaseActivationRemovalHttpResult))]
 internal partial class BaseActivationAdministrationJsonContext : System.Text.Json.Serialization.JsonSerializerContext;
