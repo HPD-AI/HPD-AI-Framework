@@ -164,6 +164,16 @@ public sealed class ControlPlaneCompositionTests
         HPDBaseCapabilities.AdministrationHealthRead,
         HPDBaseCapabilities.AdministrationDiagnosticsRead,
         HPDBaseCapabilities.AdministrationRecordsRead,
+        HPDBaseCapabilities.ActivationQuery,
+        HPDBaseCapabilities.ActivationRetry,
+        HPDBaseCapabilities.ActivationReconcile,
+        HPDBaseCapabilities.ActivationDispose,
+        HPDBaseCapabilities.ActivationMaintenanceAdvance,
+        HPDBaseCapabilities.ActivationRemovalAdvance,
+        HPDBaseCapabilities.ActivationMigrate,
+        HPDBaseCapabilities.ActivationRepairExecute,
+        HPDBaseCapabilities.ActivationScheduleRead,
+        HPDBaseCapabilities.ActivationScheduleMutate,
         HPDBaseCapabilities.PolicyExplain
     ];
 
