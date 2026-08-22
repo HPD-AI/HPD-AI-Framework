@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Base;
@@ -10,6 +11,24 @@ var value = new AotProject
     OrganizationId = "org_aot",
     Name = "AOT",
 };
+byte[] recoverySeed = System.Security.Cryptography.SHA256.HashData("hpd-base-aot-recovery-key"u8);
+BaseScheduleRecoveryVerificationKey recoveryKey = BaseScheduleRecoveryManifestContract.CreateVerificationKeyFromPrivateSeed(
+    "aot-recovery", 1, recoverySeed, 1, 10_000);
+BaseScheduleRecoveryManifest recoveryManifest = BaseScheduleRecoveryManifestContract.Sign(new BaseScheduleRecoveryManifest
+{
+    ApplicationId = "hpd.base.application", LogicalStoreId = "inmemory",
+    BackupArtifactId = "aot-artifact", BackupArtifactChecksum = System.Security.Cryptography.SHA256.HashData("artifact"u8).ToImmutableArray(),
+    SourceStoreInstanceId = "inmemory", SourceRestoreEpoch = 0, Floors = [],
+    IssuedAt = 100, ExpiresAt = 1_000, Nonce = System.Security.Cryptography.SHA256.HashData("nonce"u8).ToImmutableArray(),
+    SigningKeyId = recoveryKey.Id, SigningKeyVersion = recoveryKey.Version, ManifestChecksum = [], Signature = [],
+}, recoveryKey, recoverySeed);
+if (!BaseScheduleRecoveryManifestContract.Validate(recoveryManifest, new BaseScheduleRecoveryManifestValidation
+{
+    ApplicationId = "hpd.base.application", LogicalStoreId = "inmemory", BackupArtifactId = "aot-artifact",
+    BackupArtifactChecksum = System.Security.Cryptography.SHA256.HashData("artifact"u8).ToImmutableArray(),
+    AcceptedNow = 500, ExpectedScheduleKeyDigests = [],
+}, [recoveryKey])) throw new InvalidOperationException("Native AOT schedule recovery verification failed.");
+System.Security.Cryptography.CryptographicOperations.ZeroMemory(recoverySeed);
 var lifecycleConsumer = new BaseSubjectLifecycleConsumerDefinition
 {
     Id = "hpd.base.aot.subject.lifecycle", Version = 1, OwningModuleId = "hpd.base.aot.consumer",
