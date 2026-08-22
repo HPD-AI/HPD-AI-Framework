@@ -46,8 +46,9 @@ services.AddHPDBase(hpd =>
         Id = "hpd.base.aot.allow", Version = 1, OwningModuleId = "hpd.base.aot",
         EvaluatorContractId = "hpd.base.aot.policy", EvaluatorContractVersion = 1, CompositionOrder = 0,
     }, new AotAllowPolicyEvaluator());
-    foreach (string grantId in new[] { "hpd.base.aot.subject.private", "hpd.base.aot.subject.acquire", "hpd.base.aot.subject.validate", "hpd.base.aot.subject.rotate", "hpd.base.aot.subject.lifecycle.read", "base.subjectLifecycle.feed.read", "base.subjectLifecycle.feed.checkpoint", "hpd.base.aot.module.increment" })
+    foreach (string grantId in new[] { "hpd.base.aot.subject.private", "hpd.base.aot.subject.acquire", "hpd.base.aot.subject.validate", "hpd.base.aot.subject.rotate", "hpd.base.aot.subject.lifecycle.read", "base.subjectLifecycle.feed.read", "base.subjectLifecycle.feed.checkpoint", "hpd.base.aot.module.increment" }.Concat(ActivationSmoke.GrantIds))
         hpd.AddStaticGrantAuthority(GrantDefinition(grantId, "hpd.base.aot"), Grant(grantId, "aot"));
+    hpd.AddActivation(ActivationSmoke.Registration);
     hpd.AddModuleGenerationCell(ModuleMutationSmoke.Cell);
     hpd.AddModuleMutation(ModuleMutationSmoke.Definition, ModuleMutationSmoke.Identity);
     hpd.AddCollection(collection);
@@ -68,7 +69,7 @@ services.AddHPDBase(hpd =>
         MaximumResults = 1,
     });
 });
-using var provider = services.BuildServiceProvider(
+await using var provider = services.BuildServiceProvider(
     new ServiceProviderOptions { ValidateOnBuild = true });
 if (!(await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess())
     throw new InvalidOperationException("InMemory application initialization failed.");
@@ -80,6 +81,16 @@ var session = provider.GetRequiredService<IBaseSessionFactory>().For(new Princip
     CurrentTenantId = "tenant-a",
 });
 BaseCollectionSession<AotProject> projects = session.Collection(collection);
+BaseInstalledActivationHandle<ActivationSmokeInput, ActivationSmokeResult> activation =
+    session.Activations.Get(ActivationSmoke.Registration.Identity);
+OperationResult<BaseActivationEnqueueResult> activationEnqueue = await activation.EnqueueAsync(
+    new ActivationSmokeInput { Value = "native-aot" },
+    BaseMutationRequestIdentity.Create("aot", "activation-enqueue", "activation-request-1",
+        BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("aot-activation-request"u8))));
+if (!activationEnqueue.IsSuccess() || activationEnqueue.Value is not BaseActivationEnqueueResult activationCreated)
+    throw new InvalidOperationException("Native AOT durable activation enqueue failed: " + activationEnqueue.Error?.Code);
+if (activationCreated.State != BaseActivationState.Pending)
+    throw new InvalidOperationException("Native AOT durable activation enqueue failed.");
 BaseMutationRequestIdentity moduleIdentity = BaseMutationRequestIdentity.Create(
     "aot", "module-increment", "module-request-1",
     BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("aot-module-request"u8)));
@@ -229,7 +240,9 @@ static AccessGrant Grant(string id, string subjectId) => new()
     Id = id, ApplicationId = "hpd.base.application", ModuleId = id == "hpd.base.aot.module.increment" ? "hpd.base.aot.module" : id.Contains("subjectLifecycle", StringComparison.Ordinal) || id.Contains("subject.lifecycle", StringComparison.Ordinal) ? "hpd.base.aot.consumer" : "hpd.base.aot",
     Audience = HPDBaseEndpointAudience.Application,
     Subject = new AccessSubject { Kind = AccessSubjectKind.ServicePrincipal, Id = subjectId, TenantId = "tenant-a" },
-    Action = id == "hpd.base.aot.subject.lifecycle.read" ? "hpd.base.aot.subject.lifecycle" : id,
+    Action = id.StartsWith("hpd.base.aot.activation.", StringComparison.Ordinal)
+        ? "hpd.base.aot.activation"
+        : id == "hpd.base.aot.subject.lifecycle.read" ? "hpd.base.aot.subject.lifecycle" : id,
     Scope = id.Contains("subjectLifecycle", StringComparison.Ordinal) || id.Contains("subject.lifecycle", StringComparison.Ordinal)
         ? new ResourceScope { Kind = ResourceScopeKind.SubjectContract, SubjectContractId = "hpd.base.aot.subject", SubjectContractVersion = 1, TenantId = "tenant-a" }
         : new ResourceScope { Kind = ResourceScopeKind.Runtime, TenantId = "tenant-a" },
@@ -271,6 +284,8 @@ namespace HPD.Base.AotSmoke
     [JsonSerializable(typeof(AotSubjectConsumerRecord))]
     [JsonSerializable(typeof(AotAcquireSubject))]
     [JsonSerializable(typeof(AotAcquireSubject.Row), TypeInfoPropertyName = "AotAcquireSubjectRow")]
+    [JsonSerializable(typeof(ActivationSmokeInput))]
+    [JsonSerializable(typeof(ActivationSmokeResult))]
     [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
     internal sealed partial class AotApplicationJsonContext : JsonSerializerContext;
 
