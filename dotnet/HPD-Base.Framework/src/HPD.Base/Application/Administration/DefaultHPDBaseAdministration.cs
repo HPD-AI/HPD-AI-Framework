@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Base;
@@ -12,6 +13,7 @@ internal sealed class DefaultHPDBaseAdministration(
     BaseSubjectContractRegistry subjects,
     BaseSubjectLifecycleInspectionAuthorityRegistry lifecycleInspectionAuthorities,
     BaseActivationRegistry activations,
+    BaseActivationMigrationRegistry activationMigrations,
     BaseScheduleRecoveryKeyRegistry scheduleRecoveryKeys,
     BaseActivationAcceptedTimeAuthority activationTime,
     BaseActivationProviderExecutionGate activationProviderGate,
@@ -434,6 +436,106 @@ internal sealed class DefaultHPDBaseAdministration(
                 AfterActivationId = value.AfterActivationId, Take = value.Take,
                 AcceptedTime = accepted, Identity = value.Identity, Limits = definition.Limits.Provider,
             }, token), static definition => definition.Grants.Remove, cancellationToken);
+
+    public async ValueTask<BaseResult<BaseActivationMigrationResult>> MigrateActivationAsync(
+        BaseActivationAdministrationMigrationRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request); cancellationToken.ThrowIfCancellationRequested();
+        IBaseActivationMigrationRegistration? migration = activationMigrations.Find(request.MigrationId, request.MigrationVersion);
+        BaseActivationDefinition? source = migration is null ? null : activations.Find(
+            migration.Definition.Source.Id, migration.Definition.Source.Version);
+        BaseActivationDefinition? target = migration is null ? null : activations.Find(
+            migration.Definition.Target.Id, migration.Definition.Target.Version);
+        if (migration is null || source is null || target is null || request.ExpectedGeneration is < 1 or long.MaxValue
+            || stores.GetRegistration(request.StoreId)?.Store is not IBaseActivationProvider provider
+            || !BaseActivationCertificationReceiptContract.Validate(provider.Descriptor))
+            return ActivationPageFailure<BaseActivationMigrationResult>(OperationStatus.PolicyDenied, "base.activation.unauthorized", ErrorCategory.Authorization);
+        var operation = new OperationContext
+        {
+            ApplicationId = features.LogicalSchema.ApplicationId, Audience = HPDBaseEndpointAudience.ControlPlane,
+            Operation = BaseOperationKind.ActivationTransition, CollectionId = source.Id,
+            TenantId = request.Principal.CurrentTenantId, Mode = OperationMode.System, Now = timeProvider.GetUtcNow(),
+        };
+        OperationResult<BasePolicyEvaluation> authorized = await policy.EvaluateWriteAsync(new BasePolicyRequest
+        {
+            Principal = request.Principal, Operation = operation,
+            Collection = new CollectionDefinition
+            {
+                Id = source.Id, Name = source.Id, Kind = BaseCollectionKinds.Custom, SchemaMode = SchemaMode.Strict,
+                UnknownFields = UnknownFieldPolicy.Reject, System = true, SystemOwnerModuleId = source.OwningModuleId,
+                Store = new StoreAnnotation { StoreId = request.StoreId },
+            },
+            ResourceKind = PolicyResourceKind.ActivationDefinition,
+        }, cancellationToken).ConfigureAwait(false);
+        if (!BaseSystemCollectionGate.HasExactActivationGrant(
+            authorized, source.Grants.Migrate, source.OwningModuleId, request.Principal, operation)
+            || migration.Definition.GrantId != source.Grants.Migrate)
+            return ActivationPageFailure<BaseActivationMigrationResult>(OperationStatus.PolicyDenied, "base.activation.unauthorized", ErrorCategory.Authorization);
+        BaseAcceptedTimeReceipt accepted = activationTime.Capture(features.LogicalSchema.ApplicationId);
+        var scope = new BaseOwnedScopeSeekAuthority
+        {
+            Kind = request.Scope.Kind,
+            ProtectedIndexDigest = SHA256.HashData(Encoding.UTF8.GetBytes(
+                $"base.activation.scope.v2\0{(int)request.Scope.Kind}\n{request.Scope.Value ?? string.Empty}")).ToImmutableArray(),
+        };
+        BaseActivationProviderCallResult<OperationResult<BaseActivationMigrationCandidate>> candidateCall =
+            await activationProviderGate.ExecuteAsync(token => provider.ReadMigrationCandidateAsync(new BaseActivationMigrationCandidateRequest
+            {
+                ApplicationId = features.LogicalSchema.ApplicationId, Scope = scope,
+                SourceDefinition = migration.Definition.Source, ActivationId = request.ActivationId,
+                ExpectedGeneration = request.ExpectedGeneration, AcceptedTime = accepted, Limits = source.Limits.Provider,
+            }, token), source.Limits.Provider.AcquisitionTimeout, source.Limits.Provider.TransactionTimeout, cancellationToken).ConfigureAwait(false);
+        if (candidateCall.Outcome != BaseActivationProviderCallOutcome.Completed || candidateCall.Value?.Value is not { } candidate)
+            return ActivationPageFailure<BaseActivationMigrationResult>(
+                candidateCall.Outcome is BaseActivationProviderCallOutcome.TimedOut or BaseActivationProviderCallOutcome.Capacity
+                    ? OperationStatus.CapabilityUnavailable : candidateCall.Value?.Status ?? OperationStatus.StoreError,
+                candidateCall.Value?.Error?.Code ?? "base.activation.migrationConflict",
+                candidateCall.Value?.Error?.Category ?? ErrorCategory.Store);
+        if (candidate.ActivationId != request.ActivationId || candidate.Generation != request.ExpectedGeneration
+            || candidate.InputChecksum.Length != 32 || candidate.ControlChecksum.Length != 32
+            || !CryptographicOperations.FixedTimeEquals(SHA256.HashData(candidate.CanonicalInput.AsSpan()), candidate.InputChecksum.AsSpan())
+            || candidate.CanonicalInput.Length > source.Limits.MaximumInputBytes)
+            return ActivationPageFailure<BaseActivationMigrationResult>(OperationStatus.StoreError, "base.activation.providerContractInvalid", ErrorCategory.Store);
+        ImmutableArray<byte> replacementInput;
+        try { replacementInput = migration.Project(candidate.CanonicalInput.AsSpan()); }
+        catch (JsonException)
+        { return ActivationPageFailure<BaseActivationMigrationResult>(OperationStatus.ValidationFailed, "base.activation.migrationInvalid", ErrorCategory.Validation); }
+        if (replacementInput.Length > target.Limits.MaximumInputBytes)
+            return ActivationPageFailure<BaseActivationMigrationResult>(OperationStatus.ValidationFailed, "base.activation.budgetExceeded", ErrorCategory.Validation);
+        string replacementId = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(
+            $"base.activation.migration.id.v1\0{Convert.ToHexString(migration.Definition.Checksum.AsSpan())}\n{request.ActivationId}\n{request.ExpectedGeneration}\n{Convert.ToHexString(request.Identity.Fingerprint.ToArray())}")));
+        var intent = new BaseActivationCreateIntent
+        {
+            Ordinal = 0, Definition = migration.Definition.Target,
+            CanonicalInput = replacementInput, InputChecksum = SHA256.HashData(replacementInput.AsSpan()).ToImmutableArray(),
+            Scope = request.Scope with { }, RequestedDueAt = request.DueAt?.ToUnixTimeMilliseconds() ?? accepted.CapturedUtc,
+            EffectiveDueAt = request.DueAt?.ToUnixTimeMilliseconds() ?? accepted.CapturedUtc,
+            Priority = 0, OverlapKey = [], OverlapPolicy = BaseScheduleOverlapPolicy.Allow,
+            InitiallyEligible = true, Identity = request.Identity,
+        };
+        BaseActivationProviderCallResult<OperationResult<BaseActivationMigrationResult>> migrated =
+            await activationProviderGate.ExecuteAsync(token => provider.MigrateAsync(new BaseActivationMigrationRequest
+            {
+                ApplicationId = features.LogicalSchema.ApplicationId, Scope = scope,
+                SourceDefinition = migration.Definition.Source, SourceActivationId = request.ActivationId,
+                ExpectedSourceGeneration = request.ExpectedGeneration, ExpectedSourceInputChecksum = candidate.InputChecksum,
+                ReplacementActivationId = replacementId, Replacement = intent,
+                MigrationId = migration.Definition.Id, MigrationVersion = migration.Definition.Version,
+                MigrationChecksum = migration.Definition.Checksum, AcceptedTime = accepted,
+                Identity = request.Identity, Limits = source.Limits.Provider,
+            }, token), source.Limits.Provider.AcquisitionTimeout, source.Limits.Provider.TransactionTimeout, cancellationToken).ConfigureAwait(false);
+        if (migrated.Outcome != BaseActivationProviderCallOutcome.Completed || migrated.Value is null)
+            return ActivationPageFailure<BaseActivationMigrationResult>(OperationStatus.StoreError, "base.activation.storeError", ErrorCategory.Store);
+        if (migrated.Value.IsSuccess() && migrated.Value.Value is { } committed
+            && (committed.SourceActivationId != request.ActivationId
+                || committed.SourceGeneration != request.ExpectedGeneration + 1
+                || committed.SourceControlChecksum.Length != 32
+                || committed.ReplacementActivationId != replacementId || committed.ReplacementGeneration != 1
+                || committed.ReplacementControlChecksum.Length != 32
+                || !AccountingValid(committed.Accounting, 1, source.Limits.Provider)))
+            return ActivationPageFailure<BaseActivationMigrationResult>(OperationStatus.StoreError, "base.activation.providerContractInvalid", ErrorCategory.Store);
+        return BaseResultMapper.Map<BaseActivationMigrationResult, BaseActivationMigrationResult>(migrated.Value, static value => value);
+    }
 
     private async ValueTask<BaseResult<TResult>> RouteActivationPageAsync<TRequest, TResult>(
         TRequest request,

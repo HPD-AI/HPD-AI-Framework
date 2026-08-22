@@ -796,6 +796,117 @@ public sealed partial class SqliteRecordStore
     }
 
     /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseActivationMigrationCandidate>> ReadMigrationCandidateAsync(
+        BaseActivationMigrationCandidateRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.ExpectedGeneration < 1 || request.SourceDefinition.Checksum.Length != 32
+            || !ActivationLimitsValid(request.Limits) || !await AcceptActivationTimeAsync(request.AcceptedTime, cancellationToken).ConfigureAwait(false))
+            return ActivationFailure<BaseActivationMigrationCandidate>("base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+        await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        SqliteActivationRow? row = await ReadActivationAsync(connection, transaction, request.ActivationId, cancellationToken).ConfigureAwait(false);
+        if (row is null || row.Generation != request.ExpectedGeneration || !SqliteMigrationState(row.State)
+            || row.DefinitionId != request.SourceDefinition.Id || row.DefinitionVersion != request.SourceDefinition.Version
+            || !CryptographicOperations.FixedTimeEquals(row.DefinitionChecksum, request.SourceDefinition.Checksum.AsSpan())
+            || row.ScopeKind != request.Scope.Kind
+            || !CryptographicOperations.FixedTimeEquals(
+                ActivationHash($"base.activation.scope.v2\0{(int)row.ScopeKind}\n{row.ScopeValue}"), request.Scope.ProtectedIndexDigest.AsSpan()))
+            return ActivationFailure<BaseActivationMigrationCandidate>("base.activation.migrationConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+        long bytes = row.CanonicalInput.LongLength + row.InputChecksum.LongLength + row.ControlChecksum.LongLength;
+        if (bytes > request.Limits.MaximumEvidenceBytes || bytes > request.Limits.MaximumTransientBytes)
+            return ActivationFailure<BaseActivationMigrationCandidate>("base.activation.budgetExceeded", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+        return OperationResults.Ok(new BaseActivationMigrationCandidate
+        {
+            ActivationId = row.ActivationId,
+            SourceDefinition = new BaseActivationDefinitionKey
+            {
+                Id = row.DefinitionId, Version = row.DefinitionVersion,
+                Checksum = row.DefinitionChecksum.ToImmutableArray(),
+            },
+            Generation = row.Generation, State = row.State,
+            CanonicalInput = row.CanonicalInput.ToImmutableArray(), InputChecksum = row.InputChecksum.ToImmutableArray(),
+            ControlChecksum = row.ControlChecksum.ToImmutableArray(),
+            Accounting = ActivationAccounting(1, bytes) with { Comparisons = 4 },
+        });
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseActivationMigrationResult>> MigrateAsync(
+        BaseActivationMigrationRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.ExpectedSourceGeneration < 1 || request.ExpectedSourceInputChecksum.Length != 32
+            || string.IsNullOrWhiteSpace(request.ReplacementActivationId) || request.MigrationVersion < 1
+            || request.MigrationChecksum.Length != 32 || request.Replacement.InputChecksum.Length != 32
+            || !ActivationLimitsValid(request.Limits) || !await AcceptActivationTimeAsync(request.AcceptedTime, cancellationToken).ConfigureAwait(false))
+            return ActivationFailure<BaseActivationMigrationResult>("base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+        await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        (bool found, OperationResult<BaseActivationMigrationResult> receipt) = await ReadActivationReceiptAsync(
+            connection, transaction, request.Identity, "activation-migrated", HPDBaseJsonSerializerContext.Default.BaseActivationMigrationResult,
+            static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, cancellationToken).ConfigureAwait(false);
+        if (found) return receipt;
+        SqliteActivationRow? source = await ReadActivationAsync(connection, transaction, request.SourceActivationId, cancellationToken).ConfigureAwait(false);
+        byte[] replacementScope = ActivationHash($"base.activation.scope.v2\0{(int)request.Replacement.Scope.Kind}\n{request.Replacement.Scope.Value ?? string.Empty}");
+        if (source is null || source.Generation != request.ExpectedSourceGeneration || !SqliteMigrationState(source.State)
+            || source.DefinitionId != request.SourceDefinition.Id || source.DefinitionVersion != request.SourceDefinition.Version
+            || !CryptographicOperations.FixedTimeEquals(source.DefinitionChecksum, request.SourceDefinition.Checksum.AsSpan())
+            || source.ScopeKind != request.Scope.Kind
+            || !CryptographicOperations.FixedTimeEquals(ActivationHash($"base.activation.scope.v2\0{(int)source.ScopeKind}\n{source.ScopeValue}"), request.Scope.ProtectedIndexDigest.AsSpan())
+            || !CryptographicOperations.FixedTimeEquals(source.InputChecksum, request.ExpectedSourceInputChecksum.AsSpan())
+            || request.Replacement.Scope.Kind != request.Scope.Kind
+            || !CryptographicOperations.FixedTimeEquals(replacementScope, request.Scope.ProtectedIndexDigest.AsSpan())
+            || !CryptographicOperations.FixedTimeEquals(SHA256.HashData(request.Replacement.CanonicalInput.AsSpan()), request.Replacement.InputChecksum.AsSpan()))
+            return ActivationFailure<BaseActivationMigrationResult>("base.activation.migrationConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+
+        long sourceGeneration = checked(source.Generation + 1);
+        byte[] sourceControl = ActivationControlChecksum(source.ActivationId, sourceGeneration, BaseActivationState.Migrated);
+        await using (SqliteCommand update = connection.CreateCommand())
+        {
+            update.Transaction = transaction;
+            update.CommandText = $"UPDATE {_names.Activations} SET state=$state,generation=$generation,claim_fence=NULL,claim_worker=NULL,lease_revision=NULL,lease_expires_at=NULL,control_checksum=$control WHERE activation_id=$id AND generation=$expected;";
+            update.Parameters.AddWithValue("$state", (int)BaseActivationState.Migrated); update.Parameters.AddWithValue("$generation", sourceGeneration);
+            update.Parameters.Add("$control", SqliteType.Blob).Value = sourceControl; update.Parameters.AddWithValue("$id", source.ActivationId);
+            update.Parameters.AddWithValue("$expected", source.Generation);
+            if (await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                return ActivationFailure<BaseActivationMigrationResult>("base.activation.migrationConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+        }
+        byte[] replacementControl = ActivationControlChecksum(request.ReplacementActivationId, 1, BaseActivationState.Pending);
+        byte[] fingerprint = ActivationHash($"base.activation.migration.create.v1\0{request.MigrationId}\n{request.MigrationVersion}\n{Convert.ToHexString(request.MigrationChecksum.AsSpan())}\n{request.SourceActivationId}\n{request.ReplacementActivationId}\n{Convert.ToHexString(request.Replacement.InputChecksum.AsSpan())}");
+        await using (SqliteCommand insert = connection.CreateCommand())
+        {
+            insert.Transaction = transaction;
+            insert.CommandText = $"INSERT INTO {_names.Activations}(activation_id,definition_id,definition_version,definition_checksum,canonical_input,input_checksum,scope_kind,scope_value,scope_digest,payload_checksum,fingerprint,state,generation,requested_due_at,effective_due_at,occurrence_id,priority,overlap_key,overlap_policy,eligible,control_checksum) VALUES($id,$definition,$version,$definition_checksum,$input,$input_checksum,$scope_kind,$scope_value,$scope_digest,$payload_checksum,$fingerprint,$state,1,$requested,$effective,$occurrence,$priority,$overlap_key,$overlap_policy,$eligible,$control);";
+            insert.Parameters.AddWithValue("$id", request.ReplacementActivationId); insert.Parameters.AddWithValue("$definition", request.Replacement.Definition.Id); insert.Parameters.AddWithValue("$version", request.Replacement.Definition.Version);
+            insert.Parameters.Add("$definition_checksum", SqliteType.Blob).Value = request.Replacement.Definition.Checksum.ToArray(); insert.Parameters.Add("$input", SqliteType.Blob).Value = request.Replacement.CanonicalInput.ToArray(); insert.Parameters.Add("$input_checksum", SqliteType.Blob).Value = request.Replacement.InputChecksum.ToArray();
+            insert.Parameters.AddWithValue("$scope_kind", (int)request.Replacement.Scope.Kind); insert.Parameters.AddWithValue("$scope_value", request.Replacement.Scope.Value ?? string.Empty); insert.Parameters.Add("$scope_digest", SqliteType.Blob).Value = replacementScope;
+            insert.Parameters.Add("$payload_checksum", SqliteType.Blob).Value = SHA256.HashData(request.Replacement.CanonicalInput.AsSpan()); insert.Parameters.Add("$fingerprint", SqliteType.Blob).Value = fingerprint; insert.Parameters.AddWithValue("$state", (int)BaseActivationState.Pending);
+            insert.Parameters.AddWithValue("$requested", request.Replacement.RequestedDueAt); insert.Parameters.AddWithValue("$effective", request.Replacement.EffectiveDueAt ?? request.Replacement.RequestedDueAt);
+            insert.Parameters.AddWithValue("$occurrence", (object?)request.Replacement.OccurrenceId ?? DBNull.Value); insert.Parameters.AddWithValue("$priority", request.Replacement.Priority);
+            insert.Parameters.Add("$overlap_key", SqliteType.Blob).Value = request.Replacement.OverlapKey.IsDefaultOrEmpty ? DBNull.Value : request.Replacement.OverlapKey.ToArray(); insert.Parameters.AddWithValue("$overlap_policy", (int)request.Replacement.OverlapPolicy);
+            insert.Parameters.AddWithValue("$eligible", request.Replacement.InitiallyEligible ? 1 : 0); insert.Parameters.Add("$control", SqliteType.Blob).Value = replacementControl;
+            try { await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false); }
+            catch (SqliteException exception) when (exception.SqliteErrorCode == 19)
+            { return ActivationFailure<BaseActivationMigrationResult>("base.activation.migrationConflict", OperationStatus.Conflict, ErrorCategory.Conflict); }
+        }
+        await IncrementActivationGenerationAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+        await IncrementActivationGenerationAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+        var result = new BaseActivationMigrationResult
+        {
+            SourceActivationId = source.ActivationId, SourceGeneration = sourceGeneration,
+            SourceControlChecksum = sourceControl.ToImmutableArray(), ReplacementActivationId = request.ReplacementActivationId,
+            ReplacementGeneration = 1, ReplacementControlChecksum = replacementControl.ToImmutableArray(),
+            Accounting = ActivationAccounting(1, 64) with { Comparisons = 8, IndexOperations = 2 },
+            Disposition = BaseMutationRequestDisposition.Committed,
+        };
+        await WriteActivationReceiptAsync(connection, transaction, request.Identity, "activation-migrated", result,
+            HPDBaseJsonSerializerContext.Default.BaseActivationMigrationResult, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return OperationResults.Ok(result);
+    }
+
+    /// <inheritdoc />
     public async ValueTask<OperationResult<BaseExecutorRegistrationResult>> RegisterExecutorAsync(
         BaseExecutorRegistrationRequest request,
         CancellationToken cancellationToken = default)
@@ -1570,6 +1681,10 @@ public sealed partial class SqliteRecordStore
         row.State == BaseActivationState.Claimed && row.AttemptNumber == claim.AttemptNumber && row.ClaimEpoch == claim.ClaimEpoch &&
         row.ClaimFence is not null && row.ClaimWorker == claim.WorkerIdentity &&
         CryptographicOperations.FixedTimeEquals(row.ClaimFence, claim.FencingToken.AsSpan());
+
+    private static bool SqliteMigrationState(BaseActivationState state) => state is
+        BaseActivationState.Pending or BaseActivationState.RetryPending or BaseActivationState.Exhausted
+        or BaseActivationState.Cancelled;
 
     private static BaseActivationDueBoundary ActivationBoundary(SqliteActivationRow row, long now) => new()
     {

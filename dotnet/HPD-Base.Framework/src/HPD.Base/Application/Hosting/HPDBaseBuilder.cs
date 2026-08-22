@@ -45,6 +45,7 @@ public sealed class HPDBaseBuilder
     private readonly Dictionary<(string Id, int Version), BaseRegisteredModuleMutationDefinition> _moduleMutations = [];
     private readonly Dictionary<(string Id, int Version), IBaseModuleMutationRegistration> _moduleMutationRegistrations = [];
     private readonly Dictionary<(string Id, int Version), IBaseActivationRegistration> _activationRegistrations = [];
+    private readonly Dictionary<(string Id, int Version), IBaseActivationMigrationRegistration> _activationMigrations = [];
     private readonly Dictionary<(string Id, int Version), BaseScheduleDefinition> _activationSchedules = [];
     private BaseTimeZoneAuthority? _timeZoneAuthority;
     private readonly Dictionary<(string Id, int Version), BaseScheduleRecoveryVerificationKey> _scheduleRecoveryKeys = [];
@@ -372,6 +373,18 @@ public sealed class HPDBaseBuilder
         return this;
     }
 
+    /// <summary>Registers one callback-free graph-owned activation input migration.</summary>
+    public HPDBaseBuilder AddActivationMigration<TSource, TTarget>(
+        BaseActivationMigrationRegistration<TSource, TTarget> registration)
+    {
+        EnsureMutable();
+        ArgumentNullException.ThrowIfNull(registration);
+        var installed = new BaseInstalledActivationMigration<TSource, TTarget>(registration);
+        if (!_activationMigrations.TryAdd((installed.Definition.Id, installed.Definition.Version), installed))
+            throw new InvalidOperationException("base.activation.migrationDuplicate");
+        return this;
+    }
+
     /// <summary>Registers one graph-owned handler-free transactional activation.</summary>
     public HPDBaseBuilder AddActivation<TInput, TResult>(
         BaseTransactionalActivationRegistration<TInput, TResult> registration)
@@ -571,6 +584,16 @@ public sealed class HPDBaseBuilder
         }
         var moduleMutationRegistry = new BaseModuleMutationRegistry(_moduleMutations.Values, _moduleGenerationCells.Values, _moduleMutationRegistrations.Values);
         var activationRegistry = new BaseActivationRegistry(_activationRegistrations.Values);
+        var activationMigrationRegistry = new BaseActivationMigrationRegistry(_activationMigrations.Values);
+        foreach (IBaseActivationMigrationRegistration migration in _activationMigrations.Values)
+        {
+            BaseActivationDefinition? source = activationRegistry.Find(migration.Definition.Source.Id, migration.Definition.Source.Version);
+            BaseActivationDefinition? target = activationRegistry.Find(migration.Definition.Target.Id, migration.Definition.Target.Version);
+            if (source is null || target is null
+                || !CryptographicOperations.FixedTimeEquals(source.Checksum.AsSpan(), migration.Definition.Source.Checksum.AsSpan())
+                || !CryptographicOperations.FixedTimeEquals(target.Checksum.AsSpan(), migration.Definition.Target.Checksum.AsSpan()))
+                throw new InvalidOperationException("base.activation.migrationInvalid");
+        }
         foreach (BaseActivationDefinition activation in activationRegistry.Definitions)
         {
             IBaseActivationRegistration registration = activationRegistry.Registration(activation.Id, activation.Version)
@@ -664,6 +687,7 @@ public sealed class HPDBaseBuilder
         _services.AddSingleton(lifecycleInspectionAuthorities);
         _services.AddSingleton(moduleMutationRegistry);
         _services.AddSingleton(activationRegistry);
+        _services.AddSingleton(activationMigrationRegistry);
         _services.AddSingleton(scheduleRegistry);
         _services.AddSingleton(timeZoneRegistry);
         foreach (BaseSelectionOperationProfile profile in _selectionProfiles)

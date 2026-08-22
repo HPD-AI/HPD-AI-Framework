@@ -114,6 +114,8 @@ public enum HPDBaseEndpointOperation
     ActivationMaintenanceAdvance,
     /// <summary>Prunes bounded dependency-free disposed activation authority.</summary>
     ActivationRemovalAdvance,
+    /// <summary>Migrates one live activation through an installed projection.</summary>
+    ActivationMigrate,
     /// <summary>Reads one installed durable schedule.</summary>
     ActivationScheduleRead,
     /// <summary>Mutates one installed durable schedule.</summary>
@@ -246,6 +248,8 @@ public static class HPDBaseCapabilities
     public const string ActivationMaintenanceAdvance = "base.activation.maintenance.advance";
     /// <summary>Advances activation removal and pruning.</summary>
     public const string ActivationRemovalAdvance = "base.activation.removal.advance";
+    /// <summary>Migrates live activation versions.</summary>
+    public const string ActivationMigrate = "base.activation.migrate";
     /// <summary>Reads installed durable schedule authority.</summary>
     public const string ActivationScheduleRead = "base.activation.schedule.read";
     /// <summary>Mutates installed durable schedule authority.</summary>

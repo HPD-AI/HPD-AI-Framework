@@ -37,6 +37,10 @@ internal static class ActivationAdministrationEndpoints
             .WithHPDBaseEndpoint("base.activation.removal.advance", HPDBaseEndpointAudience.ControlPlane,
                 HPDBaseEndpointOperation.ActivationRemovalAdvance, HPDBaseCapabilities.ActivationRemovalAdvance, convention)
             .WithName("base.activation.removal.advance");
+        group.MapPost("/control/activations/migrate", (RequestDelegate)MigrateAsync)
+            .WithHPDBaseEndpoint("base.activation.migrate", HPDBaseEndpointAudience.ControlPlane,
+                HPDBaseEndpointOperation.ActivationMigrate, HPDBaseCapabilities.ActivationMigrate, convention)
+            .WithName("base.activation.migrate");
     }
 
     private static async Task QueryAsync(HttpContext context)
@@ -198,6 +202,34 @@ internal static class ActivationAdministrationEndpoints
             ActivationIds = page.ActivationIds, NextActivationId = page.NextActivationId,
             Completed = page.Completed, Disposition = page.Disposition,
         }, BaseActivationAdministrationJsonContext.Default.BaseActivationRemovalHttpResult).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    private static async Task MigrateAsync(HttpContext context)
+    {
+        BaseActivationMigrationHttpRequest? wire = await ReadAsync(
+            context, BaseActivationAdministrationJsonContext.Default.BaseActivationMigrationHttpRequest).ConfigureAwait(false);
+        if (wire is null) { await Problem(context, 400, "base.activation.invalid").ConfigureAwait(false); return; }
+        BaseResult<BaseActivationMigrationResult> result = await context.RequestServices.GetRequiredService<IHPDBaseAdministration>()
+            .MigrateActivationAsync(new BaseActivationAdministrationMigrationRequest
+            {
+                StoreId = wire.StoreId, Principal = await Principal(context).ConfigureAwait(false),
+                Scope = new BaseOwnedSubjectScopeEvidence { Kind = wire.ScopeKind, Value = wire.ScopeValue },
+                MigrationId = wire.MigrationId, MigrationVersion = wire.MigrationVersion,
+                ActivationId = wire.ActivationId, ExpectedGeneration = wire.ExpectedGeneration,
+                DueAt = wire.DueAtUnixMilliseconds is long due ? DateTimeOffset.FromUnixTimeMilliseconds(due) : null,
+                Identity = wire.Identity.ToRuntime(),
+            }, context.RequestAborted).ConfigureAwait(false);
+        if (!result.TryGetValue(out BaseActivationMigrationResult? value) || value is null)
+        {
+            await WriteFailure(context, result.Status, (result as BaseFailure<BaseActivationMigrationResult>)?.Error).ConfigureAwait(false);
+            return;
+        }
+        await Results.Json(new BaseActivationMigrationHttpResult
+        {
+            SourceActivationId = value.SourceActivationId, SourceGeneration = value.SourceGeneration,
+            ReplacementActivationId = value.ReplacementActivationId, ReplacementGeneration = value.ReplacementGeneration,
+            Disposition = value.Disposition,
+        }, BaseActivationAdministrationJsonContext.Default.BaseActivationMigrationHttpResult).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     private static async ValueTask<T?> ReadAsync<T>(HttpContext context, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo)
@@ -401,6 +433,28 @@ internal sealed record BaseActivationRemovalHttpResult
     public required BaseMutationRequestDisposition Disposition { get; init; }
 }
 
+internal sealed record BaseActivationMigrationHttpRequest
+{
+    public required string StoreId { get; init; }
+    public required BaseSubjectScopeKind ScopeKind { get; init; }
+    public string? ScopeValue { get; init; }
+    public required string MigrationId { get; init; }
+    public required int MigrationVersion { get; init; }
+    public required string ActivationId { get; init; }
+    public required long ExpectedGeneration { get; init; }
+    public long? DueAtUnixMilliseconds { get; init; }
+    public required BaseActivationIdentityHttpRequest Identity { get; init; }
+}
+
+internal sealed record BaseActivationMigrationHttpResult
+{
+    public required string SourceActivationId { get; init; }
+    public required long SourceGeneration { get; init; }
+    public required string ReplacementActivationId { get; init; }
+    public required long ReplacementGeneration { get; init; }
+    public required BaseMutationRequestDisposition Disposition { get; init; }
+}
+
 [System.Text.Json.Serialization.JsonSourceGenerationOptions(
     PropertyNamingPolicy = System.Text.Json.Serialization.JsonKnownNamingPolicy.CamelCase,
     UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow,
@@ -415,4 +469,6 @@ internal sealed record BaseActivationRemovalHttpResult
 [System.Text.Json.Serialization.JsonSerializable(typeof(BaseActivationMaintenanceHttpResult))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(BaseActivationRemovalHttpRequest))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(BaseActivationRemovalHttpResult))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(BaseActivationMigrationHttpRequest))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(BaseActivationMigrationHttpResult))]
 internal partial class BaseActivationAdministrationJsonContext : System.Text.Json.Serialization.JsonSerializerContext;

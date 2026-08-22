@@ -120,6 +120,114 @@ internal sealed partial class InMemoryRecordStore
     }
 
     /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseActivationMigrationCandidate>> ReadMigrationCandidateAsync(
+        BaseActivationMigrationCandidateRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.ExpectedGeneration < 1 || request.SourceDefinition.Checksum.Length != 32
+            || !ValidateLimits(request.Limits) || !AcceptActivationTime(request.AcceptedTime))
+            return ActivationFailure<BaseActivationMigrationCandidate>("base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            InMemoryStoreState state = Volatile.Read(ref _publishedState);
+            if (!state.Activations.TryGetValue(request.ActivationId, out InMemoryActivationRow? row)
+                || row.Generation != request.ExpectedGeneration || !DefinitionMatches(row.Payload.Definition, request.SourceDefinition)
+                || !ScopeMatches(row.Payload.Scope, request.Scope) || !MigrationSourceState(row.State))
+                return ActivationFailure<BaseActivationMigrationCandidate>("base.activation.migrationConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+            long bytes = row.Payload.CanonicalInput.Length + row.Payload.InputChecksum.Length + row.ControlChecksum.Length;
+            if (bytes > request.Limits.MaximumEvidenceBytes || bytes > request.Limits.MaximumTransientBytes)
+                return ActivationFailure<BaseActivationMigrationCandidate>("base.activation.budgetExceeded", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+            return OperationResults.Ok(new BaseActivationMigrationCandidate
+            {
+                ActivationId = new string(row.Payload.ActivationId.AsSpan()),
+                SourceDefinition = row.Payload.Definition with { Checksum = row.Payload.Definition.Checksum.ToArray().ToImmutableArray() },
+                Generation = row.Generation, State = row.State,
+                CanonicalInput = row.Payload.CanonicalInput.ToArray().ToImmutableArray(),
+                InputChecksum = row.Payload.InputChecksum.ToArray().ToImmutableArray(),
+                ControlChecksum = row.ControlChecksum.ToImmutableArray(),
+                Accounting = EmptyActivationAccounting with { Candidates = 1, Comparisons = 4, EvidenceBytes = bytes, TransientBytes = bytes },
+            });
+        }
+        finally { _stateGate.Release(); }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseActivationMigrationResult>> MigrateAsync(
+        BaseActivationMigrationRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.ExpectedSourceGeneration < 1 || request.ExpectedSourceInputChecksum.Length != 32
+            || request.MigrationVersion < 1 || request.MigrationChecksum.Length != 32
+            || request.Replacement.InputChecksum.Length != 32 || !ValidateLimits(request.Limits)
+            || !AcceptActivationTime(request.AcceptedTime))
+            return ActivationFailure<BaseActivationMigrationResult>("base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            InMemoryStoreState current = Volatile.Read(ref _publishedState);
+            if (TryReadActivationReceipt(current, request.Identity, "activation-migrated",
+                HPDBaseJsonSerializerContext.Default.BaseActivationMigrationResult,
+                static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, out OperationResult<BaseActivationMigrationResult> replay))
+                return replay;
+            if (!current.Activations.TryGetValue(request.SourceActivationId, out InMemoryActivationRow? source)
+                || source.Generation != request.ExpectedSourceGeneration || !MigrationSourceState(source.State)
+                || !DefinitionMatches(source.Payload.Definition, request.SourceDefinition)
+                || !ScopeMatches(source.Payload.Scope, request.Scope)
+                || !CryptographicOperations.FixedTimeEquals(source.Payload.InputChecksum.AsSpan(), request.ExpectedSourceInputChecksum.AsSpan())
+                || current.Activations.ContainsKey(request.ReplacementActivationId)
+                || !ScopeMatches(request.Replacement.Scope, request.Scope)
+                || !CryptographicOperations.FixedTimeEquals(SHA256.HashData(request.Replacement.CanonicalInput.AsSpan()), request.Replacement.InputChecksum.AsSpan()))
+                return ActivationFailure<BaseActivationMigrationResult>("base.activation.migrationConflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+
+            long sourceGeneration = checked(source.Generation + 1);
+            byte[] sourceChecksum = ControlChecksum(source.Payload.ActivationId, sourceGeneration, BaseActivationState.Migrated);
+            byte[] replacementFingerprint = SHA256.HashData(Encoding.UTF8.GetBytes(
+                $"base.activation.migration.create.v1\0{request.MigrationId}\n{request.MigrationVersion}\n{Convert.ToHexString(request.MigrationChecksum.AsSpan())}\n{request.SourceActivationId}\n{request.ReplacementActivationId}\n{Convert.ToHexString(request.Replacement.InputChecksum.AsSpan())}"));
+            var replacementPayload = new BaseActivationPayload
+            {
+                ActivationId = request.ReplacementActivationId,
+                Definition = request.Replacement.Definition with { Checksum = request.Replacement.Definition.Checksum.ToArray().ToImmutableArray() },
+                CanonicalInput = request.Replacement.CanonicalInput.ToArray().ToImmutableArray(),
+                InputChecksum = request.Replacement.InputChecksum.ToArray().ToImmutableArray(),
+                Scope = request.Replacement.Scope with { }, OccurrenceId = request.Replacement.OccurrenceId,
+                RequestedDueAt = request.Replacement.RequestedDueAt,
+                EffectiveDueAt = request.Replacement.EffectiveDueAt ?? request.Replacement.RequestedDueAt,
+                Checksum = SHA256.HashData(request.Replacement.CanonicalInput.AsSpan()).ToImmutableArray(),
+            };
+            byte[] replacementChecksum = ControlChecksum(replacementPayload.ActivationId, 1, BaseActivationState.Pending);
+            var next = current.Clone();
+            next.Activations[source.Payload.ActivationId] = source with
+            {
+                State = BaseActivationState.Migrated, Generation = sourceGeneration, Claim = null, Lease = null,
+                Effect = null, ControlChecksum = sourceChecksum,
+            };
+            next.Activations.Add(replacementPayload.ActivationId, new InMemoryActivationRow(
+                replacementPayload, BaseActivationState.Pending, 1, replacementPayload.RequestedDueAt,
+                replacementPayload.EffectiveDueAt, replacementFingerprint, replacementChecksum,
+                request.Replacement.OccurrenceId, request.Replacement.Priority,
+                request.Replacement.OverlapKey.IsDefaultOrEmpty ? null : request.Replacement.OverlapKey.ToArray(),
+                request.Replacement.OverlapPolicy));
+            IndexActivation(next, replacementPayload);
+            next.ActivationIndexGeneration = checked(next.ActivationIndexGeneration + 2);
+            var result = new BaseActivationMigrationResult
+            {
+                SourceActivationId = source.Payload.ActivationId, SourceGeneration = sourceGeneration,
+                SourceControlChecksum = sourceChecksum.ToImmutableArray(),
+                ReplacementActivationId = replacementPayload.ActivationId, ReplacementGeneration = 1,
+                ReplacementControlChecksum = replacementChecksum.ToImmutableArray(),
+                Accounting = EmptyActivationAccounting with { Candidates = 1, Comparisons = 8, IndexOperations = 2 },
+                Disposition = BaseMutationRequestDisposition.Committed,
+            };
+            WriteActivationReceipt(next, request.Identity, "activation-migrated", result,
+                HPDBaseJsonSerializerContext.Default.BaseActivationMigrationResult);
+            Volatile.Write(ref _publishedState, next);
+            return OperationResults.Ok(result);
+        }
+        finally { _stateGate.Release(); }
+    }
+
+    /// <inheritdoc />
     public async ValueTask<OperationResult<BaseActivationMaintenancePage>> AdvanceMaintenanceAsync(
         BaseActivationMaintenanceRequest request, CancellationToken cancellationToken = default)
     {
@@ -1454,6 +1562,14 @@ internal sealed partial class InMemoryRecordStore
 
     private static bool ScopeMatches(BaseOwnedSubjectScopeEvidence scope, BaseOwnedScopeSeekAuthority authority) =>
         scope.Kind == authority.Kind && CryptographicOperations.FixedTimeEquals(ScopeDigest(scope), authority.ProtectedIndexDigest.AsSpan());
+
+    private static bool DefinitionMatches(BaseActivationDefinitionKey left, BaseActivationDefinitionKey right) =>
+        left.Id == right.Id && left.Version == right.Version && left.Checksum.Length == 32 && right.Checksum.Length == 32
+        && CryptographicOperations.FixedTimeEquals(left.Checksum.AsSpan(), right.Checksum.AsSpan());
+
+    private static bool MigrationSourceState(BaseActivationState state) => state is
+        BaseActivationState.Pending or BaseActivationState.RetryPending or BaseActivationState.Exhausted
+        or BaseActivationState.Cancelled;
 
     private static byte[] ScopeDigest(BaseOwnedSubjectScopeEvidence scope) =>
         Hash($"base.activation.scope.v2\0{(int)scope.Kind}\n{scope.Value ?? string.Empty}");

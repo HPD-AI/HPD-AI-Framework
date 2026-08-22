@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using System.Collections.Immutable;
+using System.Security.Cryptography;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -394,6 +395,78 @@ public sealed partial class SqliteModuleMutationTests
             retried.State.Should().Be(BaseActivationState.RetryPending);
             retriedReplay.Generation.Should().Be(retried.Generation);
             retriedReplay.Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
+        }
+        finally
+        {
+            foreach (string suffix in new[] { "", "-wal", "-shm" })
+                if (File.Exists(path + suffix)) File.Delete(path + suffix);
+        }
+    }
+
+    [Fact]
+    public async Task Activation_migration_atomically_terminalizes_source_creates_replacement_and_replays()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-activation-migration-{Guid.NewGuid():N}.db");
+        try
+        {
+            BaseAtomicMutationExecutionLimits mutationLimits = ExecutionLimits();
+            BaseActivationExecutionLimits limits = ActivationLimits();
+            BaseOwnedScopeSeekAuthority scope = ActivationScope();
+            BaseActivationDefinitionKey sourceDefinition = ActivationDefinition();
+            await using SqliteRecordStore store = Store(path);
+            BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync(
+                "activation.application", [], mutationLimits, default)).Value!;
+            (await store.ExecuteAtomicAsync(new ActivationCreationProbe(authority, mutationLimits), ExecutionRequest()))
+                .Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+            BaseActivationAdministrationPage sourcePage = (await store.ReadAdministrationAsync(new BaseActivationAdministrationQueryRequest
+            {
+                ApplicationId = "activation-test", Scope = scope, Definition = sourceDefinition,
+                States = BaseActivationStateSelector.All, Take = 8, AcceptedTime = AcceptedTime(10), Limits = limits,
+            })).Value!;
+            BaseActivationAdministrationItem source = sourcePage.Items.Should().ContainSingle().Subject;
+            BaseActivationMigrationCandidate candidate = (await store.ReadMigrationCandidateAsync(new BaseActivationMigrationCandidateRequest
+            {
+                ApplicationId = "activation-test", Scope = scope, SourceDefinition = sourceDefinition,
+                ActivationId = source.ActivationId, ExpectedGeneration = source.Generation,
+                AcceptedTime = AcceptedTime(11), Limits = limits,
+            })).Value!;
+            byte[] replacementInput = "{\"value\":\"migrated\"}"u8.ToArray();
+            BaseActivationDefinitionKey target = sourceDefinition with
+            {
+                Id = "activation.target", Version = 2,
+                Checksum = SHA256.HashData("activation.target.v2"u8).ToImmutableArray(),
+            };
+            var request = new BaseActivationMigrationRequest
+            {
+                ApplicationId = "activation-test", Scope = scope, SourceDefinition = sourceDefinition,
+                SourceActivationId = source.ActivationId, ExpectedSourceGeneration = source.Generation,
+                ExpectedSourceInputChecksum = candidate.InputChecksum, ReplacementActivationId = "replacement-activation",
+                Replacement = new BaseActivationCreateIntent
+                {
+                    Ordinal = 0, Definition = target, CanonicalInput = replacementInput.ToImmutableArray(),
+                    InputChecksum = SHA256.HashData(replacementInput).ToImmutableArray(),
+                    Scope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Global },
+                    RequestedDueAt = 12, EffectiveDueAt = 12, Priority = 0, OverlapKey = [],
+                    OverlapPolicy = BaseScheduleOverlapPolicy.Allow, InitiallyEligible = true,
+                    Identity = ActivationIdentity("migration-replacement"),
+                },
+                MigrationId = "activation.migration", MigrationVersion = 1,
+                MigrationChecksum = SHA256.HashData("activation.migration.v1"u8).ToImmutableArray(),
+                AcceptedTime = AcceptedTime(12), Identity = ActivationIdentity("migration"), Limits = limits,
+            };
+            BaseActivationMigrationResult committed = (await store.MigrateAsync(request)).Value!;
+            BaseActivationMigrationResult replayed = (await store.MigrateAsync(request with { AcceptedTime = AcceptedTime(13) })).Value!;
+
+            committed.SourceGeneration.Should().Be(source.Generation + 1);
+            committed.ReplacementActivationId.Should().Be("replacement-activation");
+            replayed.SourceGeneration.Should().Be(committed.SourceGeneration);
+            replayed.Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
+            BaseActivationAdministrationPage terminal = (await store.ReadAdministrationAsync(new BaseActivationAdministrationQueryRequest
+            {
+                ApplicationId = "activation-test", Scope = scope, Definition = sourceDefinition,
+                States = BaseActivationStateSelector.Terminal, Take = 8, AcceptedTime = AcceptedTime(14), Limits = limits,
+            })).Value!;
+            terminal.Items.Should().ContainSingle(item => item.ActivationId == source.ActivationId && item.State == BaseActivationState.Migrated);
         }
         finally
         {

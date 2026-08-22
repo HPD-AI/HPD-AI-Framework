@@ -91,6 +91,11 @@ public interface IHPDBaseAdministration
     ValueTask<BaseResult<BaseActivationPrunePage>> PruneActivationsAsync(
         BaseActivationAdministrationPruneRequest request,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Atomically migrates one activation through an installed closed projection.</summary>
+    ValueTask<BaseResult<BaseActivationMigrationResult>> MigrateActivationAsync(
+        BaseActivationAdministrationMigrationRequest request,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>Requests sanitized lifecycle authority inspection after exact ControlPlane authorization.</summary>

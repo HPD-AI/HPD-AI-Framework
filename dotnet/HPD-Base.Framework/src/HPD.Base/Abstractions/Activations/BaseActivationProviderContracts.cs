@@ -892,6 +892,16 @@ public interface IBaseActivationProvider
         BaseActivationAdministrationQueryRequest request,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Reads one exact live activation under installed migration authority.</summary>
+    ValueTask<OperationResult<BaseActivationMigrationCandidate>> ReadMigrationCandidateAsync(
+        BaseActivationMigrationCandidateRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Atomically migrates one live activation to one installed replacement definition.</summary>
+    ValueTask<OperationResult<BaseActivationMigrationResult>> MigrateAsync(
+        BaseActivationMigrationRequest request,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Resolves one durable receipt without re-executing its operation.</summary>
     ValueTask<OperationResult<BaseActivationReceiptResolution>> ResolveReceiptAsync(
         BaseActivationReceiptResolutionRequest request,

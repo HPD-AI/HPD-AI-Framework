@@ -104,3 +104,26 @@ public sealed record BaseActivationAdministrationMaintenanceRequest : BaseActiva
 
 /// <summary>Requests one ControlPlane disposed-activation pruning page.</summary>
 public sealed record BaseActivationAdministrationPruneRequest : BaseActivationAdministrationPageRequest;
+
+/// <summary>Requests one installed callback-free activation migration.</summary>
+public sealed record BaseActivationAdministrationMigrationRequest
+{
+    /// <summary>Gets the configured store identity.</summary>
+    public required string StoreId { get; init; }
+    /// <summary>Gets the current ControlPlane principal.</summary>
+    public required PrincipalContext Principal { get; init; }
+    /// <summary>Gets exact semantic scope authority.</summary>
+    public required BaseOwnedSubjectScopeEvidence Scope { get; init; }
+    /// <summary>Gets the installed migration identity.</summary>
+    public required string MigrationId { get; init; }
+    /// <summary>Gets the installed migration version.</summary>
+    public required int MigrationVersion { get; init; }
+    /// <summary>Gets the source activation identity.</summary>
+    public required string ActivationId { get; init; }
+    /// <summary>Gets the exact expected source generation.</summary>
+    public required long ExpectedGeneration { get; init; }
+    /// <summary>Gets the replacement due instant; null uses trusted accepted time.</summary>
+    public DateTimeOffset? DueAt { get; init; }
+    /// <summary>Gets the identified semantic request.</summary>
+    public required BaseMutationRequestIdentity Identity { get; init; }
+}
