@@ -32,7 +32,7 @@ public sealed class GeneratedConnectorBehaviorTests
         using var provider = new ServiceCollection()
             .AddSingleton<IConnectionProvider, TestConnectionProvider>()
             .AddSingleton<IConnectorClientFactory<TestConnectorClient>, TestConnectorClientFactory>()
-            .AddTestConnector()
+            .AddTestConnector(HPD.Graph.Tests.V21.ConnectorAspNetCoreEndpointTests.ConnectorGraph())
             .BuildServiceProvider();
 
         var handler = provider
@@ -68,7 +68,7 @@ public sealed class GeneratedConnectorBehaviorTests
         using var provider = new ServiceCollection()
             .AddSingleton<IWorkflowSourceDispatcher>(dispatcher)
             .AddSingleton<IConnectionProvider, TestConnectionProvider>()
-            .AddTestConnector()
+            .AddTestConnector(HPD.Graph.Tests.V21.ConnectorAspNetCoreEndpointTests.ConnectorGraph())
             .BuildServiceProvider();
 
         var sourceProvider = provider
@@ -112,7 +112,7 @@ public sealed class GeneratedConnectorBehaviorTests
         using var provider = new ServiceCollection()
             .AddSingleton<IWorkflowSourceDispatcher>(new CapturingWorkflowSourceDispatcher())
             .AddSingleton<IConnectionProvider, TestConnectionProvider>()
-            .AddTestConnector()
+            .AddTestConnector(HPD.Graph.Tests.V21.ConnectorAspNetCoreEndpointTests.ConnectorGraph())
             .BuildServiceProvider();
 
         var sourceProvider = provider
@@ -145,7 +145,7 @@ public sealed class GeneratedConnectorBehaviorTests
         using var provider = new ServiceCollection()
             .AddSingleton<IConnectionProvider, TestConnectionProvider>()
             .AddSingleton<IConnectorClientFactory<TestConnectorClient>, TestConnectorClientFactory>()
-            .AddTestConnector()
+            .AddTestConnector(HPD.Graph.Tests.V21.ConnectorAspNetCoreEndpointTests.ConnectorGraph())
             .BuildServiceProvider();
 
         var optionProvider = provider
@@ -215,7 +215,7 @@ public sealed class GeneratedConnectorBehaviorTests
     {
         using var provider = new ServiceCollection()
             .AddSingleton<IConnectionProvider, TestConnectionProvider>()
-            .AddTestConnector()
+            .AddTestConnector(HPD.Graph.Tests.V21.ConnectorAspNetCoreEndpointTests.ConnectorGraph())
             .BuildServiceProvider();
 
         var descriptor = provider.GetRequiredService<HPD.Graph.Connectors.Abstractions.Descriptors.ConnectorPackageDescriptor>();
@@ -249,7 +249,7 @@ public sealed class GeneratedConnectorBehaviorTests
         using var provider = new ServiceCollection()
             .AddSingleton<IWorkflowSourceDispatcher>(dispatcher)
             .AddSingleton<IConnectionProvider, TestConnectionProvider>()
-            .AddTestConnector()
+            .AddTestConnector(HPD.Graph.Tests.V21.ConnectorAspNetCoreEndpointTests.ConnectorGraph())
             .BuildServiceProvider();
 
         await provider.GetRequiredService<TestConnector>().HandleWebhookAsync(

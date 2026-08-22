@@ -935,9 +935,9 @@ public sealed class ConnectorSourceGenerator : IIncrementalGenerator
         sb.AppendLine($"namespace {connector.Namespace};");
         sb.AppendLine($"public static partial class {pascal}ConnectorServiceCollectionExtensions");
         sb.AppendLine("{");
-        sb.AppendLine($"    public static Microsoft.Extensions.DependencyInjection.IServiceCollection Add{pascal}Connector(this Microsoft.Extensions.DependencyInjection.IServiceCollection services)");
+        sb.AppendLine($"    public static Microsoft.Extensions.DependencyInjection.IServiceCollection Add{pascal}Connector(this Microsoft.Extensions.DependencyInjection.IServiceCollection services, params HPD.Graph.Base.BaseGraphActivationDefinition[] graphs)");
         sb.AppendLine("    {");
-        sb.AppendLine("        HPD.Graph.Connectors.Core.DependencyInjection.ConnectorCoreServiceCollectionExtensions.AddHPDGraphConnectorsCore(services);");
+        sb.AppendLine("        HPD.Graph.Connectors.Core.DependencyInjection.ConnectorCoreServiceCollectionExtensions.AddHPDGraphConnectorsCore(services, graphs);");
         if (model.OpenApiOperations.Count > 0)
             sb.AppendLine("        HPD.Graph.Connectors.OpenApi.DependencyInjection.OpenApiConnectorServiceCollectionExtensions.AddHPDGraphConnectorsOpenApi(services);");
         sb.AppendLine($"        Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton<{connector.FullyQualifiedName}>(services);");

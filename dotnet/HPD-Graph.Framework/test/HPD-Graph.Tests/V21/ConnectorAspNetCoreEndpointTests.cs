@@ -1,8 +1,13 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using FluentAssertions;
+using HPD.Base;
 using HPD.Events;
+using HPD.Events.DependencyInjection;
+using HPD.Graph.Abstractions.Config;
 using HPD.Graph.Abstractions.Artifacts;
+using HPD.Graph.Base;
 using HPD.Graph.Connectors.Abstractions.Assets;
 using HPD.Graph.Connectors.Abstractions.Connections;
 using HPD.Graph.Connectors.Abstractions.Descriptors;
@@ -16,6 +21,7 @@ using HPD.Graph.Connectors.AspNetCore.DependencyInjection;
 using HPD.Graph.Connectors.AspNetCore.EndpointMapping;
 using HPD.Graph.Connectors.AspNetCore.Serialization;
 using HPD.Graph.Connectors.Core.IO;
+using HPD.Graph.Core.Artifacts;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
@@ -252,7 +258,9 @@ public sealed class ConnectorAspNetCoreEndpointTests
     private static WebApplication CreateApp()
     {
         var builder = WebApplication.CreateBuilder();
-        builder.Services.AddHPDGraphConnectors();
+        builder.Services.AddHPDGraphConnectors(ConnectorGraph());
+        builder.Services.AddHPDEvents();
+        builder.Services.AddSingleton<IArtifactRegistry, InMemoryArtifactRegistry>();
         builder.Services.AddSingleton(new ConnectorPackageDescriptor
         {
             ConnectorId = "github",
@@ -270,6 +278,69 @@ public sealed class ConnectorAspNetCoreEndpointTests
         app.MapHPDGraphConnectors();
         return app;
     }
+
+    internal static BaseGraphActivationDefinition ConnectorGraph() => BaseGraphActivationRegistration.Create(
+        new GraphConfig
+        {
+            GraphId = "connector-test",
+            GraphVersion = "1.0.0",
+            Name = "connector-test",
+            Nodes = new Dictionary<string, NodeConfig>(StringComparer.Ordinal),
+            Edges = [],
+        },
+        1,
+        new BaseActivationGrantSet
+        {
+            Enqueue = "graph.enqueue", Observe = "graph.observe", Claim = "graph.claim",
+            Execute = "graph.execute", Renew = "graph.renew", Complete = "graph.complete",
+            Fail = "graph.fail", Cancel = "graph.cancel", Inspect = "graph.inspect",
+            Replay = "graph.replay", Migrate = "graph.migrate", Reconcile = "graph.reconcile",
+            Retry = "graph.retry", Dispose = "graph.dispose", Remove = "graph.remove", Repair = "graph.repair",
+        },
+        new BaseActivationLimits
+        {
+            MaximumInputBytes = 1_048_576,
+            MaximumResultBytes = 65_536,
+            MaximumAttempts = 3,
+            MaximumRenewalsPerAttempt = 128,
+            MaximumChildrenPerAttempt = 128,
+            MaximumLineageDepth = 32,
+            LeaseDuration = TimeSpan.FromMinutes(1),
+            HandlerTimeout = TimeSpan.FromMinutes(30),
+            Provider = new BaseActivationExecutionLimits
+            {
+                MaximumCandidates = 64, MaximumInputBytes = 1_048_576, MaximumResultBytes = 65_536,
+                MaximumEvidenceBytes = 1_048_576, MaximumTransientBytes = 4_194_304,
+                MaximumReadIntervals = 64, MaximumIndexOperations = 512,
+                AcquisitionTimeout = TimeSpan.FromSeconds(5), TransactionTimeout = TimeSpan.FromSeconds(30),
+                CommitObservationTimeout = TimeSpan.FromSeconds(30), ReceiptResolutionTimeout = TimeSpan.FromSeconds(30),
+            },
+            AtomicCreation = new BaseAtomicMutationExecutionLimits
+            {
+                MaximumItems = 256, MaximumQueryNodes = 2_048, MaximumQueryDepth = 64,
+                MaximumLiteralValues = 2_048, MaximumSelectedRecords = 256, MaximumProducedMutations = 256,
+                MaximumQueryExecutions = 1, MaximumPreviousStateRequirements = 256,
+                MaximumSelectedBytes = 1_048_576, MaximumEvidenceBytes = 1_048_576,
+                MaximumTransientBytes = 4_194_304, MaximumReadIntervals = 256, MaximumSubjectValidations = 256,
+                MaximumAuthorityReads = 512, MaximumRequestBytes = 1_048_576, MaximumResultBytes = 1_048_576,
+                MaximumReceiptBytes = 1_048_576, MaximumWrittenBytes = 4_194_304, MaximumFactBytes = 4_194_304,
+                MaximumJournalBytes = 4_194_304, MaximumGenerationBytes = 1_048_576,
+                MaximumRelationChecks = 256, MaximumUniqueConstraintChecks = 256,
+                MaximumGenerationReads = 256, MaximumGenerationComparisons = 256, MaximumGenerationIncrements = 256,
+                MaximumGuardNodes = 2_048, MaximumGuardDepth = 64, MaximumStatements = 512,
+                MaximumBranches = 64, MaximumExpressionNodes = 2_048,
+                MaximumRecordCaptures = 256, MaximumRelationTargetCaptures = 256,
+                MaximumRetirementProjections = 256, MaximumRetirementBarrierReads = 256,
+                MaximumRetirementAcknowledgementReads = 256, MaximumRetirementPublications = 256,
+                MaximumRetirementEvidenceBytes = 1_048_576, MaximumRetirementPublicationBytes = 1_048_576,
+                Deadlines = new BaseAtomicMutationDeadlines
+                {
+                    AcquisitionTimeout = TimeSpan.FromSeconds(5), TransactionTimeout = TimeSpan.FromSeconds(30),
+                    CommitObservationTimeout = TimeSpan.FromSeconds(30), ReceiptResolutionTimeout = TimeSpan.FromSeconds(30),
+                },
+            },
+        },
+        ImmutableArray<string>.Empty);
 
     private static async Task<CapturedResponse> InvokeJsonAsync<T>(
         WebApplication app,
