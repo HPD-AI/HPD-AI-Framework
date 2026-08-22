@@ -20,6 +20,9 @@ public sealed class BaseGraphActivationTests
             BaseGraphActivationRegistration.Create(graph with { Description = "changed" }, 1, Grants(), Limits(), []);
 
         registration.Registration.Definition.Id.Should().Be("hpd.graph.execute.graph-one");
+        registration.ResumeRegistration.Definition.Id.Should().Be("hpd.graph.resume.graph-one");
+        registration.PollingResumeRegistration.Definition.Id.Should().Be("hpd.graph.polling-resume.graph-one");
+        registration.OperatorResumeRegistration.Definition.Id.Should().Be("hpd.graph.operator-resume.graph-one");
         registration.Registration.Definition.ExecutionClass.Should().Be(BaseActivationExecutionClass.AtLeastOnceWorker);
         registration.Registration.Definition.Handler.Should().NotBeNull();
         registration.Registration.Identity.Input.Type.Should().Be(typeof(BaseGraphActivationInput));
@@ -55,20 +58,20 @@ public sealed class BaseGraphActivationTests
         var services = new ServiceCollection();
 
         services.AddHPDBase(builder => builder
-            .UseStore(HPDBaseStoreProvider.InMemory)
             .AddGraphPersistence()
             .AddGraphActivation(definition));
 
         using ServiceProvider provider = services.BuildServiceProvider();
-        HPDBaseApplication application = provider.GetRequiredService<HPDBaseApplication>();
-        BaseInstalledActivationRegistration installed = application.Activations.Resolve(
-            definition.Registration.Definition.Id,
-            definition.Registration.Definition.Version);
-        installed.Definition.Checksum.Should().Equal(definition.Registration.Definition.Checksum);
-        application.ModuleMutations.Resolve(
-            BaseGraphCheckpointMutation.Definition.Id,
-            BaseGraphCheckpointMutation.Definition.Version).Definition.Checksum
-            .Should().Be(BaseGraphCheckpointMutation.Definition.Checksum);
+        BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
+        {
+            AuthenticationState = PrincipalAuthenticationState.System,
+            SubjectId = "graph-test",
+        });
+        session.Activations.Get(definition.Registration.Identity).Should().NotBeNull();
+        session.Activations.Get(definition.ResumeRegistration.Identity).Should().NotBeNull();
+        session.Activations.Get(definition.PollingResumeRegistration.Identity).Should().NotBeNull();
+        session.Activations.Get(definition.OperatorResumeRegistration.Identity).Should().NotBeNull();
+        session.ModuleMutations.Get(BaseGraphCheckpointMutation.Identity).Should().NotBeNull();
     }
 
     [Fact]

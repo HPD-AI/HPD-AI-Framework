@@ -28,6 +28,9 @@ public static class HPDBaseGraphBuilderExtensions
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(definition);
         builder.AddActivation(definition.Registration);
+        builder.AddActivation(definition.ResumeRegistration);
+        builder.AddActivation(definition.PollingResumeRegistration);
+        builder.AddActivation(definition.OperatorResumeRegistration);
         return builder;
     }
 
@@ -50,6 +53,9 @@ public static class HPDBaseGraphBuilderExtensions
                 schedule.Activation.Checksum.AsSpan(), definition.Registration.Definition.Checksum.AsSpan()))
             throw new InvalidOperationException("hpd.graph.activation.scheduleInvalid");
         builder.AddActivation(definition.Registration);
+        builder.AddActivation(definition.ResumeRegistration);
+        builder.AddActivation(definition.PollingResumeRegistration);
+        builder.AddActivation(definition.OperatorResumeRegistration);
         builder.AddSchedule(schedule);
         return builder;
     }

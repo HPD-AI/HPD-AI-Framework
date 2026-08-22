@@ -65,12 +65,18 @@ public enum BaseGraphActivationOutcome
 public sealed class BaseGraphActivationDefinition
 {
     internal BaseGraphActivationDefinition(
-        BaseActivationHandlerRegistration<BaseGraphActivationInput, BaseGraphActivationResult> registration,
+        BaseActivationHandlerRegistration<BaseGraphActivationInput, BaseGraphActivationResult> initial,
+        BaseActivationHandlerRegistration<BaseGraphActivationInput, BaseGraphActivationResult> resume,
+        BaseActivationHandlerRegistration<BaseGraphActivationInput, BaseGraphActivationResult> pollingResume,
+        BaseActivationHandlerRegistration<BaseGraphActivationInput, BaseGraphActivationResult> operatorResume,
         byte[] graphChecksum,
         string graphId,
         string graphVersion)
     {
-        Registration = registration;
+        Registration = initial;
+        ResumeRegistration = resume;
+        PollingResumeRegistration = pollingResume;
+        OperatorResumeRegistration = operatorResume;
         GraphChecksum = graphChecksum.ToArray();
         GraphId = new string(graphId.AsSpan());
         GraphVersion = new string(graphVersion.AsSpan());
@@ -78,6 +84,12 @@ public sealed class BaseGraphActivationDefinition
 
     /// <summary>Gets the graph-owned activation registration installed into HPD.Base.</summary>
     public BaseActivationHandlerRegistration<BaseGraphActivationInput, BaseGraphActivationResult> Registration { get; }
+    /// <summary>Gets the checkpoint-required ordinary resume registration.</summary>
+    public BaseActivationHandlerRegistration<BaseGraphActivationInput, BaseGraphActivationResult> ResumeRegistration { get; }
+    /// <summary>Gets the checkpoint-required polling resume registration.</summary>
+    public BaseActivationHandlerRegistration<BaseGraphActivationInput, BaseGraphActivationResult> PollingResumeRegistration { get; }
+    /// <summary>Gets the checkpoint-required operator resume registration.</summary>
+    public BaseActivationHandlerRegistration<BaseGraphActivationInput, BaseGraphActivationResult> OperatorResumeRegistration { get; }
     /// <summary>Gets the exact installed graph checksum.</summary>
     public ReadOnlyMemory<byte> GraphChecksum { get; }
     /// <summary>Gets the exact graph identity.</summary>
@@ -200,55 +212,73 @@ public static class BaseGraphActivationRegistration
         ArgumentNullException.ThrowIfNull(limits);
         byte[] graphBytes = CanonicalGraphBytes(graph);
         byte[] graphChecksum = SHA256.HashData(graphBytes);
-        string definitionId = $"hpd.graph.execute.{graph.GraphId}";
-        byte[] handlerChecksum = HandlerChecksum(graph.GraphId, graph.GraphVersion, graphChecksum);
-        var definition = new BaseActivationDefinition
-        {
-            Id = definitionId,
-            Version = definitionVersion,
-            OwningModuleId = "hpd.graph",
-            ExecutionClass = BaseActivationExecutionClass.AtLeastOnceWorker,
-            InputTypeId = "hpd.graph.activation.input",
-            ResultTypeId = "hpd.graph.activation.result",
-            Grants = grants,
-            SourceGrantIds = sourceGrantIds,
-            Retry = new BaseActivationRetryProfile
-            {
-                MaximumAttempts = limits.MaximumAttempts,
-                InitialDelayMilliseconds = 1_000,
-                MaximumDelayMilliseconds = 300_000,
-                MultiplierNumerator = 2,
-                MultiplierDenominator = 1,
-                JitterBasisPoints = 1_000,
-                RetryableFailureCodes = ["hpd.graph.execution.transient"],
-            },
-            Limits = limits,
-            Handler = new BaseActivationHandlerBinding
-            {
-                Id = "hpd.graph.execution-handler",
-                Version = 1,
-                FactoryId = $"hpd.graph.execution-handler.{graph.GraphId}.{graph.GraphVersion}",
-                InputTypeId = "hpd.graph.activation.input",
-                ResultTypeId = "hpd.graph.activation.result",
-                WorkerSubjectKind = AccessSubjectKind.ServicePrincipal,
-                Checksum = handlerChecksum.ToImmutableArray(),
-            },
-            Checksum = [],
-        };
         GraphConfig retained = JsonSerializer.Deserialize(
             graphBytes, HPD.Graph.Abstractions.Serialization.GraphConfigJsonSerializerContext.Default.GraphConfig)
             ?? throw new InvalidOperationException("hpd.graph.activation.definitionInvalid");
-        BaseActivationRegistrationIdentity<BaseGraphActivationInput, BaseGraphActivationResult>? activationIdentity = null;
-        BaseActivationHandlerRegistration<BaseGraphActivationInput, BaseGraphActivationResult> registration = BaseActivationDefinitionBuilder.Create(
-            definition,
-            BaseGraphActivationJsonContext.Default.BaseGraphActivationInput,
-            BaseGraphActivationJsonContext.Default.BaseGraphActivationResult,
-            InputBindings(),
-            ResultBindings(),
-            services => new BaseGraphActivationHandler(services, retained, graphChecksum,
-                activationIdentity ?? throw new InvalidOperationException("hpd.graph.activation.definitionInvalid")));
-        activationIdentity = registration.Identity;
-        return new BaseGraphActivationDefinition(registration, graphChecksum, graph.GraphId, graph.GraphVersion);
+        BaseActivationRegistrationIdentity<BaseGraphActivationInput, BaseGraphActivationResult>? resumeIdentity = null;
+
+        BaseActivationHandlerRegistration<BaseGraphActivationInput, BaseGraphActivationResult> Build(
+            string role,
+            bool checkpointRequired)
+        {
+            string definitionId = $"hpd.graph.{role}.{graph.GraphId}";
+            byte[] handlerChecksum = HandlerChecksum(definitionId, graph.GraphVersion, graphChecksum);
+            var definition = new BaseActivationDefinition
+            {
+                Id = definitionId,
+                Version = definitionVersion,
+                OwningModuleId = "hpd.graph",
+                ExecutionClass = BaseActivationExecutionClass.AtLeastOnceWorker,
+                InputTypeId = "hpd.graph.activation.input",
+                ResultTypeId = "hpd.graph.activation.result",
+                Grants = grants,
+                SourceGrantIds = sourceGrantIds,
+                Retry = new BaseActivationRetryProfile
+                {
+                    MaximumAttempts = limits.MaximumAttempts,
+                    InitialDelayMilliseconds = 1_000,
+                    MaximumDelayMilliseconds = 300_000,
+                    MultiplierNumerator = 2,
+                    MultiplierDenominator = 1,
+                    JitterBasisPoints = 1_000,
+                    RetryableFailureCodes = ["hpd.graph.execution.transient"],
+                },
+                Limits = limits,
+                Handler = new BaseActivationHandlerBinding
+                {
+                    Id = $"hpd.graph.{role}-handler",
+                    Version = 1,
+                    FactoryId = $"hpd.graph.{role}-handler.{graph.GraphId}.{graph.GraphVersion}",
+                    InputTypeId = "hpd.graph.activation.input",
+                    ResultTypeId = "hpd.graph.activation.result",
+                    WorkerSubjectKind = AccessSubjectKind.ServicePrincipal,
+                    Checksum = handlerChecksum.ToImmutableArray(),
+                },
+                Checksum = [],
+            };
+            return BaseActivationDefinitionBuilder.Create(
+                definition,
+                BaseGraphActivationJsonContext.Default.BaseGraphActivationInput,
+                BaseGraphActivationJsonContext.Default.BaseGraphActivationResult,
+                InputBindings(),
+                ResultBindings(),
+                services => new BaseGraphActivationHandler(services, retained, graphChecksum,
+                    resumeIdentity ?? throw new InvalidOperationException("hpd.graph.activation.definitionInvalid"),
+                    checkpointRequired));
+        }
+
+        BaseActivationHandlerRegistration<BaseGraphActivationInput, BaseGraphActivationResult> initial =
+            Build("execute", checkpointRequired: false);
+        BaseActivationHandlerRegistration<BaseGraphActivationInput, BaseGraphActivationResult> resume =
+            Build("resume", checkpointRequired: true);
+        resumeIdentity = resume.Identity;
+        BaseActivationHandlerRegistration<BaseGraphActivationInput, BaseGraphActivationResult> pollingResume =
+            Build("polling-resume", checkpointRequired: true);
+        BaseActivationHandlerRegistration<BaseGraphActivationInput, BaseGraphActivationResult> operatorResume =
+            Build("operator-resume", checkpointRequired: true);
+        return new BaseGraphActivationDefinition(
+            initial, resume, pollingResume, operatorResume,
+            graphChecksum, graph.GraphId, graph.GraphVersion);
     }
 
     private static IReadOnlyList<BaseModuleDtoPropertyBinding> InputBindings() =>
@@ -334,7 +364,8 @@ internal sealed class BaseGraphActivationHandler(
     IServiceProvider services,
     GraphConfig graph,
     byte[] graphChecksum,
-    BaseActivationRegistrationIdentity<BaseGraphActivationInput, BaseGraphActivationResult> activationIdentity)
+    BaseActivationRegistrationIdentity<BaseGraphActivationInput, BaseGraphActivationResult> continuationIdentity,
+    bool checkpointRequired)
     : IBaseActivationHandler<BaseGraphActivationInput, BaseGraphActivationResult>
 {
     public async ValueTask<BaseActivationHandlerResult<BaseGraphActivationResult>> ExecuteAsync(
@@ -347,6 +378,7 @@ internal sealed class BaseGraphActivationHandler(
             || !CryptographicOperations.FixedTimeEquals(input.GraphChecksum.AsSpan(), graphChecksum)
             || string.IsNullOrWhiteSpace(input.ExecutionId)
             || input.CanonicalInput.IsDefault
+            || checkpointRequired != (input.CheckpointId is not null)
             || (input.CheckpointId is null) != (input.CanonicalCheckpoint is null)
             || input.CanonicalCheckpoint is not null && (input.CheckpointChecksum.Length != 32
                 || !CryptographicOperations.FixedTimeEquals(
@@ -409,7 +441,9 @@ internal sealed class BaseGraphActivationHandler(
                 CheckpointChecksum = SHA256.HashData(checkpointBytes).ToImmutableArray(),
             };
             BaseModuleMutationExecutionOptions options = context.GuardModuleMutationAndCreateActivation(
-                "graph-checkpoint", 1, fingerprint, activationIdentity, resumeInput,
+                "graph-checkpoint", 1, fingerprint,
+                continuationIdentity,
+                resumeInput,
                 checked(context.EffectiveDueAt + 60_000), "graph-resume", 2);
             BaseMutationRequestIdentity identity = context.DeriveChildIdentity("graph-checkpoint", 1, fingerprint);
             BaseResult<BaseModuleMutationExecutionResult<BaseGraphCheckpointPersistResult>> persisted =
