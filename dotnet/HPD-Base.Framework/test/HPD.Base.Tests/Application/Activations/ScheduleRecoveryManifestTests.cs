@@ -7,6 +7,23 @@ namespace HPD.Base.Tests.Application.Activations;
 public sealed class ScheduleRecoveryManifestTests
 {
     [Fact]
+    public void Installed_key_registry_is_canonical_and_defensively_owned()
+    {
+        byte[] seed = SHA256.HashData("registry-key"u8);
+        BaseScheduleRecoveryVerificationKey second = BaseScheduleRecoveryManifestContract.CreateVerificationKeyFromPrivateSeed(
+            "key-b", 2, seed, 0);
+        BaseScheduleRecoveryVerificationKey first = BaseScheduleRecoveryManifestContract.CreateVerificationKeyFromPrivateSeed(
+            "key-a", 1, seed, 0);
+        var registry = new BaseScheduleRecoveryKeyRegistry([second, first]);
+
+        Assert.Equal(["key-a", "key-b"], registry.Keys.Select(static key => key.Id));
+        BaseScheduleRecoveryVerificationKey[] copy = registry.Keys.ToArray();
+        copy[0] = copy[0] with { PublicKey = new byte[32].ToImmutableArray() };
+        Assert.True(first.PublicKey.AsSpan().SequenceEqual(registry.Keys[0].PublicKey.AsSpan()));
+        Assert.Throws<InvalidOperationException>(() => new BaseScheduleRecoveryKeyRegistry([first, first]));
+    }
+
+    [Fact]
     public void Manifest_is_canonical_authenticated_and_exactly_bound()
     {
         byte[] seed = SHA256.HashData("schedule-recovery-test-key"u8);

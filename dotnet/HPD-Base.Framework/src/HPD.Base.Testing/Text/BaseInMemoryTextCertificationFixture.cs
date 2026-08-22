@@ -186,6 +186,7 @@ internal sealed class BaseInMemoryTextCertificationHost(ServiceProvider services
             IdentityMode = BaseRestoreIdentityMode.RequireCurrentStoreIdentity,
             RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
             ConfirmDestructiveReplacement = true,
+            ScheduleRestoreDomain = BaseScheduleRestoreDomain.InPlaceRecovery,
         }, cancellationToken).ConfigureAwait(false)).RequireValue();
         if (restored.RestoreEpoch != value.ExpectedRestoreEpoch) throw new InvalidDataException("base.testing.text.restoreEpochMismatch");
     }

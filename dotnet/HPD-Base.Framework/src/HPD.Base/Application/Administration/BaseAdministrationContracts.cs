@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace HPD.Base;
 
 /// <summary>Host-only BASE provider administration.</summary>
@@ -218,6 +220,15 @@ public enum BaseRecoveryImageRetention
     RetainUntilHostRemoves
 }
 
+/// <summary>Controls durable schedule-occurrence authority across restoration.</summary>
+public enum BaseScheduleRestoreDomain
+{
+    /// <summary>Preserves the pre-restore non-prunable occurrence floor in the same disaster domain.</summary>
+    InPlaceRecovery,
+    /// <summary>Begins a new disaster domain from one authenticated external occurrence floor.</summary>
+    NewDisasterDomain
+}
+
 /// <summary>Requests destructive restoration of one configured store.</summary>
 public sealed record BaseRestoreRequest
 {
@@ -235,6 +246,13 @@ public sealed record BaseRestoreRequest
     public required BaseRecoveryImageRetention RecoveryImageRetention { get; init; }
     /// <summary>Gets explicit confirmation of destructive replacement.</summary>
     public required bool ConfirmDestructiveReplacement { get; init; }
+    /// <summary>Gets the schedule-occurrence recovery domain.</summary>
+    public required BaseScheduleRestoreDomain ScheduleRestoreDomain { get; init; }
+    /// <summary>Gets the authenticated external floor required for a new disaster domain.</summary>
+    public BaseScheduleRecoveryManifest? ScheduleRecoveryManifest { get; init; }
+    internal string? RecoveryApplicationId { get; init; }
+    internal ImmutableArray<BaseScheduleRecoveryVerificationKey> RecoveryVerificationKeys { get; init; }
+    internal long RecoveryAcceptedNow { get; init; }
 }
 
 /// <summary>Describes a successful restore result.</summary>

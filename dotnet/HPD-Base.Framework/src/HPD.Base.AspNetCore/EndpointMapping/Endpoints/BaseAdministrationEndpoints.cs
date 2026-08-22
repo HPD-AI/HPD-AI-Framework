@@ -115,7 +115,8 @@ internal static class BaseAdministrationEndpoints
         {
             StoreId = request.StoreId, Principal = principal, ExpectedCurrentStoreIdentityDigest = request.ExpectedCurrentStoreIdentityDigest,
             ExpectedArtifactStoreIdentityDigest = request.ExpectedArtifactStoreIdentityDigest, IdentityMode = request.IdentityMode,
-            RecoveryImageRetention = request.RecoveryImageRetention, ConfirmDestructiveReplacement = request.ConfirmDestructiveReplacement
+            RecoveryImageRetention = request.RecoveryImageRetention, ConfirmDestructiveReplacement = request.ConfirmDestructiveReplacement,
+            ScheduleRestoreDomain = request.ScheduleRestoreDomain, ScheduleRecoveryManifest = request.ScheduleRecoveryManifest
         }, context.RequestAborted).ConfigureAwait(false);
         await lease.CleanupAsync().ConfigureAwait(false);
         await WriteResultAsync(context, result).ConfigureAwait(false);
@@ -231,7 +232,7 @@ internal static class BaseAdministrationEndpoints
 
 internal sealed record BaseBackupCreateHttpRequest { public required string StoreId { get; init; } public string? ExpectedStoreIdentityDigest { get; init; } }
 internal sealed record BaseBackupValidationHttpRequest { public required string StoreId { get; init; } public string? ExpectedArtifactStoreIdentityDigest { get; init; } }
-internal sealed record BaseRestoreHttpRequest { public required string StoreId { get; init; } public required string ExpectedCurrentStoreIdentityDigest { get; init; } public required string ExpectedArtifactStoreIdentityDigest { get; init; } public required BaseRestoreIdentityMode IdentityMode { get; init; } public required BaseRecoveryImageRetention RecoveryImageRetention { get; init; } public required bool ConfirmDestructiveReplacement { get; init; } }
+internal sealed record BaseRestoreHttpRequest { public required string StoreId { get; init; } public required string ExpectedCurrentStoreIdentityDigest { get; init; } public required string ExpectedArtifactStoreIdentityDigest { get; init; } public required BaseRestoreIdentityMode IdentityMode { get; init; } public required BaseRecoveryImageRetention RecoveryImageRetention { get; init; } public required bool ConfirmDestructiveReplacement { get; init; } public required BaseScheduleRestoreDomain ScheduleRestoreDomain { get; init; } public BaseScheduleRecoveryManifest? ScheduleRecoveryManifest { get; init; } }
 internal sealed record BasePurgeHttpRequest { public required string CollectionId { get; init; } public required string[] RecordIds { get; init; } public required string ReasonCode { get; init; } public required string AuditReference { get; init; } public required DateTimeOffset EvaluatedAt { get; init; } public long? ExpectedPurgeGeneration { get; init; } }
 internal sealed record BaseSubjectEpochRotationHttpRequest { public required string StoreId { get; init; } public required string ContractId { get; init; } public required int ContractVersion { get; init; } public required string ExpectedStateGeneration { get; init; } public required string DestructiveIntent { get; init; } }
 internal sealed record BaseSubjectEpochRotationHttpResult { public required string ContractId { get; init; } public required int ContractVersion { get; init; } public required string PreviousStateGeneration { get; init; } public required string PublishedStateGeneration { get; init; } public required string PublicationPosition { get; init; } public required string ExaminedRecords { get; init; } public required string RewrittenReferences { get; init; } }

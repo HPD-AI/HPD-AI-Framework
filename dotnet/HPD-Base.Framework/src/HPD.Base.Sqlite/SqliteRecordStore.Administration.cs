@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -74,8 +75,9 @@ public sealed partial class SqliteRecordStore
                 && !FixedHexEquals(expected, manifest.StoreIdentityDigest))
                 return AdminConflict<BaseBackupManifest>(BaseAdministrationErrorCodes.ArtifactIdentityMismatch, "The active store identity does not match the request.");
 
-            await WriteEnvelopeAsync(destination, staging, manifest, cancellationToken).ConfigureAwait(false);
-            return OperationResults.Ok(manifest);
+            BaseBackupManifest authenticatedManifest = await WriteEnvelopeAsync(
+                destination, staging, manifest, cancellationToken).ConfigureAwait(false);
+            return OperationResults.Ok(authenticatedManifest);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -219,7 +221,10 @@ public sealed partial class SqliteRecordStore
         if (!AdministrationCapability.Restore || _tokenProtector is null)
             return AdminUnsupported<BaseRestoreResult>();
         if (!source.CanRead || !ValidStoreRequest(request.StoreId)
-            || !Enum.IsDefined(request.IdentityMode) || !Enum.IsDefined(request.RecoveryImageRetention))
+            || !Enum.IsDefined(request.IdentityMode) || !Enum.IsDefined(request.RecoveryImageRetention)
+            || !Enum.IsDefined(request.ScheduleRestoreDomain)
+            || request.ScheduleRestoreDomain == BaseScheduleRestoreDomain.InPlaceRecovery && request.ScheduleRecoveryManifest is not null
+            || request.ScheduleRestoreDomain == BaseScheduleRestoreDomain.NewDisasterDomain && request.ScheduleRecoveryManifest is null)
             return RestoreValidation(BaseAdministrationErrorCodes.Invalid, "The restore request is invalid.", BaseRestoreFailureDisposition.RejectedBeforeChange);
         if (!TryCaptureAdministrationPath(out SqliteAdministrationPathGuard pathGuard))
             return AdminUnsupported<BaseRestoreResult>();
@@ -237,6 +242,10 @@ public sealed partial class SqliteRecordStore
         bool administrationSlot = false;
         IReadOnlyDictionary<string, long> preRestoreSubjectGenerations = new Dictionary<string, long>(StringComparer.Ordinal);
         long preRestoreLifecycleDeliveryEpoch = 1;
+        ImmutableArray<BaseScheduleRecoveryFloor> preRestoreScheduleFloors = [];
+        ImmutableArray<string> consumedScheduleRecoveryNonces = [];
+        ImmutableArray<BaseScheduleRecoveryFloor> selectedScheduleRecoveryFloors = [];
+        string? consumedScheduleRecoveryNonce = null;
         RestoreFilePolicy? filePolicy = null;
         try
         {
@@ -310,6 +319,53 @@ public sealed partial class SqliteRecordStore
             (string ActiveIdentity, long PreRestoreEpoch) = await ReadActiveIdentityAsync(acquisition.Token).ConfigureAwait(false);
             preRestoreSubjectGenerations = await ReadSubjectStateGenerationsAsync(acquisition.Token).ConfigureAwait(false);
             preRestoreLifecycleDeliveryEpoch = await ReadSubjectLifecycleDeliveryEpochAsync(acquisition.Token).ConfigureAwait(false);
+            await using (SqliteConnection active = await _connections.OpenAsync(acquisition.Token).ConfigureAwait(false))
+            {
+                preRestoreScheduleFloors = await CaptureScheduleRecoveryFloorsAsync(active, acquisition.Token).ConfigureAwait(false);
+                consumedScheduleRecoveryNonces = await ReadConsumedRecoveryNoncesAsync(active, acquisition.Token).ConfigureAwait(false);
+            }
+            if (!Enum.IsDefined(request.ScheduleRestoreDomain)
+                || request.ScheduleRestoreDomain == BaseScheduleRestoreDomain.InPlaceRecovery && request.ScheduleRecoveryManifest is not null
+                || request.ScheduleRestoreDomain == BaseScheduleRestoreDomain.NewDisasterDomain && request.ScheduleRecoveryManifest is null)
+                return RestoreValidation(BaseAdministrationErrorCodes.Invalid, "The restore request is invalid.", BaseRestoreFailureDisposition.OriginalPreserved);
+            if (request.ScheduleRestoreDomain == BaseScheduleRestoreDomain.InPlaceRecovery)
+            {
+                selectedScheduleRecoveryFloors = preRestoreScheduleFloors;
+            }
+            else
+            {
+                BaseScheduleRecoveryManifest manifestAuthority = request.ScheduleRecoveryManifest!;
+                await using var artifactConnection = new SqliteConnection(new SqliteConnectionStringBuilder
+                { DataSource = stagingPath, Mode = SqliteOpenMode.ReadOnly, Pooling = false }.ToString());
+                await artifactConnection.OpenAsync(acquisition.Token).ConfigureAwait(false);
+                ImmutableArray<BaseScheduleRecoveryFloor> artifactFloors = await CaptureScheduleRecoveryFloorsAsync(
+                    artifactConnection, acquisition.Token).ConfigureAwait(false);
+                ImmutableArray<ImmutableArray<byte>> expectedKeys = artifactFloors
+                    .Select(static floor => floor.ProtectedScheduleKeyDigest).ToImmutableArray();
+                byte[] artifactChecksum;
+                try { artifactChecksum = Convert.FromHexString(manifest.ProviderPayloadSha256); }
+                catch (FormatException) { return RestoreValidation(BaseAdministrationErrorCodes.ArtifactInvalid, "The backup artifact is invalid.", BaseRestoreFailureDisposition.OriginalPreserved); }
+                bool validRecovery = request.RecoveryApplicationId is not null
+                    && manifestAuthority.SourceStoreInstanceId == manifest.StoreIdentityDigest
+                    && manifestAuthority.SourceRestoreEpoch == manifest.RestoreEpoch
+                    && BaseScheduleRecoveryManifestContract.Validate(manifestAuthority, new BaseScheduleRecoveryManifestValidation
+                    {
+                        ApplicationId = request.RecoveryApplicationId, LogicalStoreId = request.StoreId,
+                        BackupArtifactId = manifest.ProviderPayloadSha256,
+                        BackupArtifactChecksum = artifactChecksum.ToImmutableArray(),
+                        AcceptedNow = request.RecoveryAcceptedNow, ExpectedScheduleKeyDigests = expectedKeys,
+                    }, request.RecoveryVerificationKeys);
+                string nonce = Convert.ToHexStringLower(manifestAuthority.Nonce.AsSpan());
+                if (!validRecovery || consumedScheduleRecoveryNonces.Contains(nonce, StringComparer.Ordinal))
+                    return RestoreValidation(BaseAdministrationErrorCodes.ArtifactInvalid, "The schedule recovery authority is invalid.", BaseRestoreFailureDisposition.OriginalPreserved);
+                selectedScheduleRecoveryFloors = manifestAuthority.Floors.Select(static floor => floor with
+                {
+                    ProtectedScheduleKeyDigest = floor.ProtectedScheduleKeyDigest.ToArray().ToImmutableArray(),
+                    OccurrenceChecksum = floor.OccurrenceChecksum.ToArray().ToImmutableArray(),
+                    LatestActivationLineageChecksum = floor.LatestActivationLineageChecksum.ToArray().ToImmutableArray(),
+                }).ToImmutableArray();
+                consumedScheduleRecoveryNonce = nonce;
+            }
             if (!FixedHexEquals(request.ExpectedCurrentStoreIdentityDigest, ActiveIdentity)
                 || request.IdentityMode == BaseRestoreIdentityMode.RequireCurrentStoreIdentity
                     && !FixedHexEquals(ActiveIdentity, manifest.StoreIdentityDigest))
@@ -366,7 +422,8 @@ public sealed partial class SqliteRecordStore
                     preRestoreSubjectGenerations,
                     preRestoreLifecycleDeliveryEpoch,
                     cancellationToken).ConfigureAwait(false);
-                await TransformRestoredActivationAuthoritiesAsync(installed, epoch, cancellationToken).ConfigureAwait(false);
+                await TransformRestoredActivationAuthoritiesAsync(installed, epoch, selectedScheduleRecoveryFloors,
+                    consumedScheduleRecoveryNonces, consumedScheduleRecoveryNonce, cancellationToken).ConfigureAwait(false);
             }
             Volatile.Write(ref _schemaGeneration, manifest.SchemaGeneration);
             WriteRestoreMarker("ReplacementValidated", stagingPath, recovery, ActiveIdentity, manifest.StoreIdentityDigest);
@@ -554,7 +611,7 @@ public sealed partial class SqliteRecordStore
         };
     }
 
-    private async Task WriteEnvelopeAsync(Stream destination, string payloadPath, BaseBackupManifest initial, CancellationToken cancellationToken)
+    private async Task<BaseBackupManifest> WriteEnvelopeAsync(Stream destination, string payloadPath, BaseBackupManifest initial, CancellationToken cancellationToken)
     {
         byte[] digest;
         await using (var payload = new FileStream(payloadPath, FileMode.Open, FileAccess.Read, FileShare.Read, 131072, FileOptions.SequentialScan))
@@ -569,6 +626,7 @@ public sealed partial class SqliteRecordStore
         await using (var payload = new FileStream(payloadPath, FileMode.Open, FileAccess.Read, FileShare.Read, 131072, FileOptions.SequentialScan))
             await payload.CopyToAsync(destination, 131072, cancellationToken).ConfigureAwait(false);
         await destination.WriteAsync(tag, cancellationToken).ConfigureAwait(false);
+        return manifest;
     }
 
     private async Task<(BaseBackupManifest Manifest, byte KeyId, byte[] Header, byte[] ManifestBytes, byte[] Digest)> ReadEnvelopeAsync(

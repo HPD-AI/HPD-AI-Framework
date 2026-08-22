@@ -638,6 +638,7 @@ SELECT 'consumer.remove',1,$checksum,'example.subject',1,1,0,0,$digest,X'',value
                     IdentityMode = BaseRestoreIdentityMode.RequireCurrentStoreIdentity,
                     RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
                     ConfirmDestructiveReplacement = true,
+                ScheduleRestoreDomain = BaseScheduleRestoreDomain.InPlaceRecovery,
                 });
 
             restored.IsSuccess().Should().BeTrue(restored.Error?.Code);
@@ -741,6 +742,7 @@ SELECT 'consumer.remove',1,$checksum,'example.subject',1,1,0,0,$digest,X'',value
                     IdentityMode = BaseRestoreIdentityMode.RequireCurrentStoreIdentity,
                     RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
                     ConfirmDestructiveReplacement = true,
+                ScheduleRestoreDomain = BaseScheduleRestoreDomain.InPlaceRecovery,
                 });
 
             restored.IsSuccess().Should().BeFalse();

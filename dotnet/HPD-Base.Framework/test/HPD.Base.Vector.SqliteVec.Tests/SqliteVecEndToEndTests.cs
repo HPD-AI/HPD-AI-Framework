@@ -106,6 +106,7 @@ public sealed class SqliteVecEndToEndTests
                 IdentityMode = BaseRestoreIdentityMode.RequireCurrentStoreIdentity,
                 RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
                 ConfirmDestructiveReplacement = true,
+                ScheduleRestoreDomain = BaseScheduleRestoreDomain.InPlaceRecovery,
             })).RequireValue();
 
             BaseVectorResult<VectorDocument> restored = (await collection.Vector(VectorDocument.VectorIndexes.Semantic).Nearest(BaseVector.Create([1, 0])).Take(1).ExecuteAsync()).RequireValue();

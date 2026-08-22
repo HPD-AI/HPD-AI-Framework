@@ -12,6 +12,7 @@ internal sealed class DefaultHPDBaseAdministration(
     BaseSubjectContractRegistry subjects,
     BaseSubjectLifecycleInspectionAuthorityRegistry lifecycleInspectionAuthorities,
     BaseActivationRegistry activations,
+    BaseScheduleRecoveryKeyRegistry scheduleRecoveryKeys,
     BaseActivationAcceptedTimeAuthority activationTime,
     BaseActivationProviderExecutionGate activationProviderGate,
     BaseSubjectControlOperationalState subjectControlState,
@@ -33,8 +34,15 @@ internal sealed class DefaultHPDBaseAdministration(
 
     public async ValueTask<BaseResult<BaseRestoreResult>> RestoreAsync(Stream source, BaseRestoreRequest request, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(request);
+        BaseRestoreRequest authorized = request with
+        {
+            RecoveryApplicationId = features.LogicalSchema.ApplicationId,
+            RecoveryVerificationKeys = scheduleRecoveryKeys.Keys,
+            RecoveryAcceptedNow = timeProvider.GetUtcNow().ToUnixTimeMilliseconds(),
+        };
         BaseResult<BaseRestoreResult> result = await RouteAsync(request.StoreId, request.Principal, BaseOperationKind.AdminRestore,
-            administration => administration.RestoreAsync(source, request, cancellationToken), cancellationToken).ConfigureAwait(false);
+            administration => administration.RestoreAsync(source, authorized, cancellationToken), cancellationToken).ConfigureAwait(false);
         if (result is BaseSuccess<BaseRestoreResult>)
         {
             try { await services.GetRequiredService<BaseSubjectControlDispatcher>().ReconcileAsync(cancellationToken).ConfigureAwait(false); }

@@ -590,6 +590,7 @@ public sealed class ApplicationHostBuilderTests
                 IdentityMode = BaseRestoreIdentityMode.RequireCurrentStoreIdentity,
                 RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
                 ConfirmDestructiveReplacement = true,
+                ScheduleRestoreDomain = BaseScheduleRestoreDomain.InPlaceRecovery,
             })).RequireValue();
 
             restored.RestoreEpoch.Should().Be(manifest.RestoreEpoch + 1);

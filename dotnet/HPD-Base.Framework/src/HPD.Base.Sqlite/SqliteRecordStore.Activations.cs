@@ -13,7 +13,11 @@ namespace HPD.Base.Sqlite;
 public sealed partial class SqliteRecordStore
 {
     private async ValueTask TransformRestoredActivationAuthoritiesAsync(
-        SqliteConnection connection, long restoreEpoch, CancellationToken cancellationToken)
+        SqliteConnection connection, long restoreEpoch,
+        ImmutableArray<BaseScheduleRecoveryFloor> recoveryFloors,
+        ImmutableArray<string> consumedRecoveryNonces,
+        string? consumedManifestNonce,
+        CancellationToken cancellationToken)
     {
         await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         long acceptedNow;
@@ -56,9 +60,88 @@ public sealed partial class SqliteRecordStore
             effects.Parameters.AddWithValue("$now", acceptedNow);
             await effects.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
+        foreach (BaseScheduleRecoveryFloor floor in recoveryFloors)
+        {
+            await using SqliteCommand schedules = connection.CreateCommand(); schedules.Transaction = transaction;
+            schedules.CommandText = $"SELECT definition_json,definition_generation,enabled,schedule_epoch,last_nominal,next_nominal FROM {_names.ActivationSchedules} ORDER BY schedule_id,schedule_version;";
+            await using SqliteDataReader reader = await schedules.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            var matched = new List<BaseScheduleAuthority>();
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                BaseScheduleDefinition definition = JsonSerializer.Deserialize((byte[])reader[0], HPDBaseJsonSerializerContext.Default.BaseScheduleDefinition)
+                    ?? throw new InvalidDataException("base.activation.scheduleInvalid");
+                if (!CryptographicOperations.FixedTimeEquals(ScheduleRecoveryKeyDigest(definition.Id, definition.Version), floor.ProtectedScheduleKeyDigest.AsSpan())) continue;
+                long epoch = Math.Max(reader.GetInt64(3), floor.ScheduleEpoch);
+                long? restoredLast = reader.IsDBNull(4) ? null : reader.GetInt64(4);
+                long? last = restoredLast is null ? floor.LastConsideredNominal
+                    : floor.LastConsideredNominal is null ? restoredLast : Math.Max(restoredLast.Value, floor.LastConsideredNominal.Value);
+                long? next = reader.IsDBNull(5) ? null : reader.GetInt64(5);
+                if (last is not null && next is not null && next <= last) next = null;
+                matched.Add(SqliteScheduleAuthority(definition, reader.GetInt64(1), reader.GetInt64(2) != 0, epoch, last, next));
+            }
+            await reader.DisposeAsync().ConfigureAwait(false);
+            if (matched.Count != 1) throw new InvalidDataException("base.activation.recoveryManifestInvalid");
+            await WriteScheduleAsync(connection, transaction, matched[0], cancellationToken).ConfigureAwait(false);
+        }
+        foreach (string nonce in consumedRecoveryNonces.Append(consumedManifestNonce).OfType<string>())
+        {
+            await using SqliteCommand write = connection.CreateCommand(); write.Transaction = transaction;
+            write.CommandText = $"INSERT OR IGNORE INTO {_names.ProviderState}(key,value) VALUES($key,'1');";
+            write.Parameters.AddWithValue("$key", $"activation_recovery_nonce_{nonce}");
+            await write.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
         if (claimed.Count != 0) await IncrementActivationGenerationAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
+
+    private async ValueTask<ImmutableArray<BaseScheduleRecoveryFloor>> CaptureScheduleRecoveryFloorsAsync(
+        SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        var floors = ImmutableArray.CreateBuilder<BaseScheduleRecoveryFloor>();
+        var authorities = new List<(string Id, int Version, long Epoch, long? Last)>();
+        await using SqliteCommand schedules = connection.CreateCommand();
+        schedules.CommandText = $"SELECT schedule_id,schedule_version,schedule_epoch,last_nominal FROM {_names.ActivationSchedules} ORDER BY schedule_id,schedule_version;";
+        await using SqliteDataReader reader = await schedules.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            authorities.Add((reader.GetString(0), reader.GetInt32(1), reader.GetInt64(2), reader.IsDBNull(3) ? null : reader.GetInt64(3)));
+        await reader.DisposeAsync().ConfigureAwait(false);
+        foreach ((string id, int version, long epoch, long? last) in authorities)
+        {
+            var occurrenceChecksums = new List<byte[]>();
+            await using SqliteCommand occurrences = connection.CreateCommand();
+            occurrences.CommandText = $"SELECT fact_checksum FROM {_names.ActivationOccurrences} WHERE schedule_id=$id AND schedule_version=$version ORDER BY schedule_epoch,nominal_at,overlap_ordinal,occurrence_id;";
+            occurrences.Parameters.AddWithValue("$id", id); occurrences.Parameters.AddWithValue("$version", version);
+            await using SqliteDataReader occurrenceReader = await occurrences.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await occurrenceReader.ReadAsync(cancellationToken).ConfigureAwait(false)) occurrenceChecksums.Add((byte[])occurrenceReader[0]);
+            using var aggregate = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            foreach (byte[] checksum in occurrenceChecksums) aggregate.AppendData(checksum);
+            byte[] occurrenceChecksum = aggregate.GetHashAndReset();
+            byte[] lineage = occurrenceChecksums.Count == 0 ? SHA256.HashData("base.activation.emptyLineage.v1"u8) : SHA256.HashData(occurrenceChecksums[^1]);
+            floors.Add(new BaseScheduleRecoveryFloor
+            {
+                ProtectedScheduleKeyDigest = ScheduleRecoveryKeyDigest(id, version).ToImmutableArray(), ScheduleEpoch = epoch,
+                LastConsideredNominal = last, OccurrenceCount = occurrenceChecksums.Count,
+                OccurrenceChecksum = occurrenceChecksum.ToImmutableArray(), LatestActivationLineageChecksum = lineage.ToImmutableArray(),
+            });
+        }
+        return floors.ToImmutable();
+    }
+
+    private async ValueTask<ImmutableArray<string>> ReadConsumedRecoveryNoncesAsync(
+        SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        const string prefix = "activation_recovery_nonce_";
+        var values = ImmutableArray.CreateBuilder<string>();
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = $"SELECT key FROM {_names.ProviderState} WHERE key GLOB $pattern ORDER BY key;";
+        command.Parameters.AddWithValue("$pattern", prefix + "*");
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) values.Add(reader.GetString(0)[prefix.Length..]);
+        return values.ToImmutable();
+    }
+
+    private static byte[] ScheduleRecoveryKeyDigest(string id, int version) =>
+        SHA256.HashData(Encoding.UTF8.GetBytes($"base.activation.scheduleRecoveryKey.v1\0{id}\n{version}"));
 
     private static readonly BaseActivationProviderDescriptor ActivationDescriptor =
         BaseActivationCertificationReceiptContract.BuiltIn(

@@ -695,6 +695,7 @@ public sealed partial class SqliteModuleMutationTests
                 IdentityMode = BaseRestoreIdentityMode.RequireCurrentStoreIdentity,
                 RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
                 ConfirmDestructiveReplacement = true,
+                ScheduleRestoreDomain = BaseScheduleRestoreDomain.InPlaceRecovery,
             });
             restore.IsSuccess().Should().BeTrue(restore.Error?.Code);
 
@@ -710,6 +711,117 @@ public sealed partial class SqliteModuleMutationTests
             foreach (string candidate in Directory.GetFiles(Path.GetDirectoryName(path)!)
                 .Where(file => Path.GetFileName(file).Contains(Path.GetFileName(path), StringComparison.Ordinal)))
                 File.Delete(candidate);
+        }
+    }
+
+    [Fact]
+    public async Task In_place_restore_preserves_nonprunable_schedule_floor()
+    {
+        string temporary = Path.GetFullPath(Path.GetTempPath());
+        if (OperatingSystem.IsMacOS() && temporary.StartsWith("/var/", StringComparison.Ordinal))
+            temporary = "/private" + temporary;
+        string path = Path.Combine(temporary, $"hpd-base-activation-floor-{Guid.NewGuid():N}.db");
+        using BaseOpaqueTokenProtector protector = Protector();
+        try
+        {
+            await using SqliteRecordStore store = AdministrationStore(path, protector);
+            BaseScheduleDefinition schedule = Schedule(11, BaseScheduleOverlapPolicy.Allow, new byte[32]);
+            (await store.MutateScheduleAsync(ScheduleMutation(schedule, 100, "floor-create"))).IsSuccess().Should().BeTrue();
+            var artifact = new MemoryStream();
+            OperationResult<BaseBackupManifest> backup = await store.CreateBackupAsync(artifact, new BaseBackupRequest
+            { StoreId = "module-store", Principal = AdministrationPrincipal() });
+            backup.IsSuccess().Should().BeTrue(backup.Error?.Code);
+            BaseBackupManifest manifest = backup.Value!;
+
+            BaseScheduleAuthority beforeAdvance = (await store.ReadScheduleAsync(schedule.Id, schedule.Version)).Value!;
+            (await store.AdvanceSchedulesAsync(SchedulePage(beforeAdvance, schedule, 101, "floor-advance")))
+                .IsSuccess().Should().BeTrue();
+
+            artifact.Position = 0;
+            OperationResult<BaseRestoreResult> restored = await store.RestoreAsync(artifact, new BaseRestoreRequest
+            {
+                StoreId = "module-store", Principal = AdministrationPrincipal(),
+                ExpectedCurrentStoreIdentityDigest = manifest.StoreIdentityDigest,
+                ExpectedArtifactStoreIdentityDigest = manifest.StoreIdentityDigest,
+                IdentityMode = BaseRestoreIdentityMode.RequireCurrentStoreIdentity,
+                RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
+                ConfirmDestructiveReplacement = true,
+                ScheduleRestoreDomain = BaseScheduleRestoreDomain.InPlaceRecovery,
+            });
+
+            restored.IsSuccess().Should().BeTrue(restored.Error?.Code);
+            BaseScheduleAuthority authority = (await store.ReadScheduleAsync(schedule.Id, schedule.Version)).Value!;
+            authority.LastConsideredNominal.Should().Be(schedule.Version);
+            authority.ScheduleEpoch.Should().Be(beforeAdvance.ScheduleEpoch);
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            foreach (string candidate in Directory.GetFiles(Path.GetDirectoryName(path)!)
+                .Where(file => Path.GetFileName(file).Contains(Path.GetFileName(path), StringComparison.Ordinal)))
+                File.Delete(candidate);
+        }
+    }
+
+    [Fact]
+    public async Task Disaster_restore_requires_graph_key_and_consumes_manifest_nonce()
+    {
+        string temporary = Path.GetFullPath(Path.GetTempPath());
+        if (OperatingSystem.IsMacOS() && temporary.StartsWith("/var/", StringComparison.Ordinal)) temporary = "/private" + temporary;
+        string path = Path.Combine(temporary, $"hpd-base-activation-disaster-{Guid.NewGuid():N}.db");
+        using BaseOpaqueTokenProtector protector = Protector();
+        try
+        {
+            await using SqliteRecordStore store = AdministrationStore(path, protector);
+            BaseScheduleDefinition schedule = Schedule(12, BaseScheduleOverlapPolicy.Allow, new byte[32]);
+            (await store.MutateScheduleAsync(ScheduleMutation(schedule, 100, "disaster-create"))).IsSuccess().Should().BeTrue();
+            var artifact = new MemoryStream();
+            BaseBackupManifest backup = (await store.CreateBackupAsync(artifact, new BaseBackupRequest
+            { StoreId = "module-store", Principal = AdministrationPrincipal() })).Value!;
+            byte[] seed = Enumerable.Range(1, 32).Select(static value => checked((byte)value)).ToArray();
+            BaseScheduleRecoveryVerificationKey key = BaseScheduleRecoveryManifestContract.CreateVerificationKeyFromPrivateSeed(
+                "recovery", 1, seed, 0);
+            byte[] protectedKey = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
+                $"base.activation.scheduleRecoveryKey.v1\0{schedule.Id}\n{schedule.Version}"));
+            var unsignedRecovery = new BaseScheduleRecoveryManifest
+            {
+                ApplicationId = "tests.application", LogicalStoreId = "module-store",
+                BackupArtifactId = backup.ProviderPayloadSha256,
+                BackupArtifactChecksum = Convert.FromHexString(backup.ProviderPayloadSha256).ToImmutableArray(),
+                SourceStoreInstanceId = backup.StoreIdentityDigest, SourceRestoreEpoch = backup.RestoreEpoch,
+                Floors = [new BaseScheduleRecoveryFloor
+                {
+                    ProtectedScheduleKeyDigest = protectedKey.ToImmutableArray(), ScheduleEpoch = 1,
+                    LastConsideredNominal = schedule.Version, OccurrenceCount = 0, OccurrenceChecksum = System.Security.Cryptography.SHA256.HashData([]).ToImmutableArray(),
+                    LatestActivationLineageChecksum = System.Security.Cryptography.SHA256.HashData("base.activation.emptyLineage.v1"u8).ToImmutableArray(),
+                }],
+                IssuedAt = 1_000, ExpiresAt = 2_000, Nonce = Enumerable.Repeat((byte)9, 32).ToImmutableArray(),
+                SigningKeyId = key.Id, SigningKeyVersion = key.Version, ManifestChecksum = [], Signature = [],
+            };
+            BaseScheduleRecoveryManifest recovery = BaseScheduleRecoveryManifestContract.Sign(unsignedRecovery, key, seed);
+            var request = new BaseRestoreRequest
+            {
+                StoreId = "module-store", Principal = AdministrationPrincipal(),
+                ExpectedCurrentStoreIdentityDigest = backup.StoreIdentityDigest,
+                ExpectedArtifactStoreIdentityDigest = backup.StoreIdentityDigest,
+                IdentityMode = BaseRestoreIdentityMode.RequireCurrentStoreIdentity,
+                RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
+                ConfirmDestructiveReplacement = true, ScheduleRestoreDomain = BaseScheduleRestoreDomain.NewDisasterDomain,
+                ScheduleRecoveryManifest = recovery, RecoveryApplicationId = "tests.application",
+                RecoveryVerificationKeys = [key], RecoveryAcceptedNow = 1_500,
+            };
+            artifact.Position = 0;
+            (await store.RestoreAsync(artifact, request)).IsSuccess().Should().BeTrue();
+            artifact.Position = 0;
+            OperationResult<BaseRestoreResult> replay = await store.RestoreAsync(artifact, request);
+            replay.IsSuccess().Should().BeFalse();
+            replay.Error!.Code.Should().Be(BaseAdministrationErrorCodes.ArtifactInvalid);
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            foreach (string candidate in Directory.GetFiles(Path.GetDirectoryName(path)!)
+                .Where(file => Path.GetFileName(file).Contains(Path.GetFileName(path), StringComparison.Ordinal))) File.Delete(candidate);
         }
     }
 

@@ -319,6 +319,7 @@ try
             IdentityMode = BaseRestoreIdentityMode.RequireCurrentStoreIdentity,
             RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
             ConfirmDestructiveReplacement = true,
+                ScheduleRestoreDomain = BaseScheduleRestoreDomain.InPlaceRecovery,
         })).RequireValue();
     Require(restored.RestoreEpoch == manifest.RestoreEpoch + 1, "Restore epoch did not advance.");
     BaseBatchBuilder postRestoreRetry = session.Atomic(identity);

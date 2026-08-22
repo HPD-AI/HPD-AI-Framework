@@ -47,6 +47,7 @@ public sealed class HPDBaseBuilder
     private readonly Dictionary<(string Id, int Version), IBaseActivationRegistration> _activationRegistrations = [];
     private readonly Dictionary<(string Id, int Version), BaseScheduleDefinition> _activationSchedules = [];
     private BaseTimeZoneAuthority? _timeZoneAuthority;
+    private readonly Dictionary<(string Id, int Version), BaseScheduleRecoveryVerificationKey> _scheduleRecoveryKeys = [];
     private readonly List<BaseSubjectAcquisitionDefinition> _subjectAcquisitions = [];
     private readonly List<BaseSubjectLifecycleConsumerDefinition> _subjectLifecycleConsumers = [];
     private readonly List<BaseSubjectRetirementConsumerDefinition> _subjectRetirementConsumers = [];
@@ -408,6 +409,19 @@ public sealed class HPDBaseBuilder
         return this;
     }
 
+    /// <summary>Registers one retained graph-owned verification key for schedule disaster recovery.</summary>
+    public HPDBaseBuilder AddScheduleRecoveryVerificationKey(BaseScheduleRecoveryVerificationKey key)
+    {
+        EnsureMutable();
+        ArgumentNullException.ThrowIfNull(key);
+        BaseScheduleRecoveryVerificationKey expected = BaseScheduleRecoveryManifestContract.CreateVerificationKey(
+            key.Id, key.Version, key.PublicKey.AsSpan(), key.ActiveFrom, key.RetireAfter);
+        if (!CryptographicOperations.FixedTimeEquals(expected.Checksum.AsSpan(), key.Checksum.AsSpan())
+            || !_scheduleRecoveryKeys.TryAdd((key.Id, key.Version), key))
+            throw new InvalidOperationException("base.activation.recoveryKeyInvalid");
+        return this;
+    }
+
     /// <summary>Configures the single immutable host safety envelope for selection mutations.</summary>
     public HPDBaseBuilder ConfigureSelectionMutations(HPDBaseSelectionMutationOptions options)
     {
@@ -596,6 +610,7 @@ public sealed class HPDBaseBuilder
         foreach (BaseScheduleDefinition schedule in _activationSchedules.Values)
             BaseActivationCapabilityContract.Require(provider.Activations, schedule);
         var scheduleRegistry = new BaseScheduleRegistry(_activationSchedules.Values);
+        var scheduleRecoveryKeys = new BaseScheduleRecoveryKeyRegistry(_scheduleRecoveryKeys.Values);
         var timeZoneRegistry = new BaseTimeZoneRegistry(_timeZoneAuthority);
         foreach (BaseScheduleDefinition schedule in _activationSchedules.Values)
             if (schedule.Expression is BaseCronSchedule { TimeZoneId: var cronZone } && !timeZoneRegistry.Contains(cronZone)
@@ -742,6 +757,7 @@ public sealed class HPDBaseBuilder
         ConfigureVectorRuntime(collections);
         ConfigureTextRuntime(collections, provider);
         _services.AddSingleton(new HPDBaseInstalledFeatures { Provider = provider.Kind, StoreProvider = provider, StoreReceipt = receipt, CollectionIds = collections.Select(static item => item.Id).ToArray(), CollectionDefinitions = collections, ReadIds = _reads.Keys.ToArray(), Files = _files is not null, Dependencies = _dependencies is not null, Realtime = _realtime is not null, LiveQueries = _liveQueries is not null, ExtensionIds = installedExtensions.Select(static item => item.Id).ToArray(), Extensions = installedExtensions, LogicalSchema = logicalSchema });
+        _services.AddSingleton(scheduleRecoveryKeys);
         _services.TryAddSingleton<IHPDBaseApplication, DefaultHPDBaseApplication>();
         _services.TryAddSingleton<IHPDBaseAdministration, DefaultHPDBaseAdministration>();
         _services.TryAddSingleton(_ =>

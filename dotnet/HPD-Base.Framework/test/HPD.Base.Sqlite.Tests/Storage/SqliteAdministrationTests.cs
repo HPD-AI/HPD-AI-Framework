@@ -203,8 +203,10 @@ public sealed class SqliteAdministrationTests
                 IdentityMode = BaseRestoreIdentityMode.RequireCurrentStoreIdentity,
                 RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
                 ConfirmDestructiveReplacement = true,
+                ScheduleRestoreDomain = BaseScheduleRestoreDomain.InPlaceRecovery,
             };
-            BaseError confirmation = (await store.RestoreAsync(new MemoryStream(artifact), valid with { ConfirmDestructiveReplacement = false })).Error!;
+            BaseError confirmation = (await store.RestoreAsync(new MemoryStream(artifact), valid with { ConfirmDestructiveReplacement = false,
+                ScheduleRestoreDomain = BaseScheduleRestoreDomain.InPlaceRecovery, })).Error!;
             BaseError artifactMismatch = (await store.RestoreAsync(new MemoryStream(artifact), valid with { ExpectedArtifactStoreIdentityDigest = new string('0', 64) })).Error!;
             BaseError currentMismatch = (await store.RestoreAsync(new MemoryStream(artifact), valid with { ExpectedCurrentStoreIdentityDigest = new string('0', 64) })).Error!;
 
@@ -256,6 +258,7 @@ public sealed class SqliteAdministrationTests
                     IdentityMode = BaseRestoreIdentityMode.RequireCurrentStoreIdentity,
                     RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
                     ConfirmDestructiveReplacement = true,
+                ScheduleRestoreDomain = BaseScheduleRestoreDomain.InPlaceRecovery,
                 });
 
             restored.IsSuccess().Should().BeTrue(restored.Error?.Code);
@@ -592,6 +595,7 @@ public sealed class SqliteAdministrationTests
                 IdentityMode = BaseRestoreIdentityMode.RequireCurrentStoreIdentity,
                 RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
                 ConfirmDestructiveReplacement = true,
+                ScheduleRestoreDomain = BaseScheduleRestoreDomain.InPlaceRecovery,
             };
 
             OperationResult<BaseRestoreResult> timedOut = await store.RestoreAsync(source, request);
@@ -638,6 +642,7 @@ public sealed class SqliteAdministrationTests
                     IdentityMode = BaseRestoreIdentityMode.RequireCurrentStoreIdentity,
                     RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
                     ConfirmDestructiveReplacement = true,
+                ScheduleRestoreDomain = BaseScheduleRestoreDomain.InPlaceRecovery,
                 });
 
             indeterminate.Error!.Code.Should().Be(BaseAdministrationErrorCodes.RestoreIndeterminate);
@@ -689,6 +694,7 @@ public sealed class SqliteAdministrationTests
                     IdentityMode = BaseRestoreIdentityMode.RequireCurrentStoreIdentity,
                     RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
                     ConfirmDestructiveReplacement = true,
+                ScheduleRestoreDomain = BaseScheduleRestoreDomain.InPlaceRecovery,
                 });
 
             failed.Error!.Code.Should().Be(BaseAdministrationErrorCodes.RestoreFailed);
@@ -798,6 +804,7 @@ public sealed class SqliteAdministrationTests
         IdentityMode = BaseRestoreIdentityMode.RequireCurrentStoreIdentity,
         RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
         ConfirmDestructiveReplacement = true,
+                ScheduleRestoreDomain = BaseScheduleRestoreDomain.InPlaceRecovery,
     };
 
     private static byte[] RewriteAuthenticatedArtifact(
