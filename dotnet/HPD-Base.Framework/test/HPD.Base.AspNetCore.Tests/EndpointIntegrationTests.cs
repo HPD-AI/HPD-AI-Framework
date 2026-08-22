@@ -239,6 +239,16 @@ public sealed class EndpointIntegrationTests
         query.StatusCode.Should().Be(HttpStatusCode.OK);
         administration.ActivationRead.Should().NotBeNull();
         administration.ActivationRead!.Take.Should().Be(8);
+
+        using var invalidSchedule = new HttpRequestMessage(HttpMethod.Post, "/base/control/schedules/mutate")
+        {
+            Content = new StringContent(
+                """{"scheduleId":"daily","scheduleVersion":1,"kind":"create","expectedGeneration":null,"unknown":true}""",
+                System.Text.Encoding.UTF8,
+                "application/json"),
+        };
+        invalidSchedule.Headers.Add(BaseHttpHeaders.IdempotencyKey, "schedule-create-1");
+        (await client.SendAsync(invalidSchedule)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     private static async Task<T?> ReadJson<T>(WebApplication app, HttpContent content)
