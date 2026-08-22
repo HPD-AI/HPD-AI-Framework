@@ -15,7 +15,7 @@ internal sealed record BaseActivationHandlerExecutionResult<T>(
     BaseActivationHandlerExecutionOutcome Outcome,
     T? Value);
 
-internal sealed class BaseActivationHandlerExecutionGate : IAsyncDisposable
+internal sealed class BaseActivationHandlerExecutionGate : IDisposable, IAsyncDisposable
 {
     private readonly SemaphoreSlim _capacity = new(32, 32);
     private readonly ConcurrentDictionary<long, Task> _retained = new();
@@ -110,4 +110,6 @@ internal sealed class BaseActivationHandlerExecutionGate : IAsyncDisposable
         try { await Task.WhenAll(retained).WaitAsync(TimeSpan.FromSeconds(60)).ConfigureAwait(false); }
         catch { }
     }
+
+    public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
 }

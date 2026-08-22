@@ -18,10 +18,12 @@ public sealed class DependencyContractTests
         "System.Threading",
         "System.Threading.Channels",
         "System.Security.Cryptography",
+        "BouncyCastle.Cryptography",
         "Microsoft.Extensions.DependencyInjection",
         "Microsoft.Extensions.DependencyInjection.Abstractions",
         "Microsoft.Extensions.Logging.Abstractions",
         "Microsoft.Extensions.Options",
+        "Microsoft.Extensions.Hosting.Abstractions",
         "HPD.Events"
     };
 

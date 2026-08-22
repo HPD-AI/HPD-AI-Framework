@@ -15,7 +15,7 @@ internal sealed record BaseActivationProviderCallResult<T>(
     BaseActivationProviderCallOutcome Outcome,
     T? Value);
 
-internal sealed class BaseActivationProviderExecutionGate : IAsyncDisposable
+internal sealed class BaseActivationProviderExecutionGate : IDisposable, IAsyncDisposable
 {
     private readonly BaseActivationOperationalState _state;
     private readonly SemaphoreSlim _capacity = new(32, 32);
@@ -111,4 +111,6 @@ internal sealed class BaseActivationProviderExecutionGate : IAsyncDisposable
         try { await Task.WhenAll(retained).WaitAsync(TimeSpan.FromSeconds(60)).ConfigureAwait(false); }
         catch { }
     }
+
+    public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
 }
