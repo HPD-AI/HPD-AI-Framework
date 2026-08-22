@@ -181,6 +181,65 @@ public sealed partial class SqliteModuleMutationTests
     }
 
     [Fact]
+    public async Task Expired_claim_maintenance_is_bounded_and_fenced()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-l51-maintenance-{Guid.NewGuid():N}.db");
+        try
+        {
+            BaseAtomicMutationExecutionLimits mutationLimits = ExecutionLimits(); BaseActivationExecutionLimits limits = ActivationLimits();
+            BaseOwnedScopeSeekAuthority scope = ActivationScope(); BaseActivationDefinitionKey definition = ActivationDefinition();
+            await using SqliteRecordStore store = Store(path);
+            BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync(
+                "activation.application", [], mutationLimits, default)).Value!;
+            (await store.ExecuteAtomicAsync(new ActivationCreationProbe(authority, mutationLimits), ExecutionRequest()))
+                .Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+            BaseActivationDueObservation observed = (await store.ObserveDueAsync(new BaseActivationDueObservationRequest
+            {
+                ApplicationId = "activation-test", WorkerModuleId = "test", Definitions = [definition], Scope = scope,
+                AcceptedTime = AcceptedTime(10), MaximumCandidates = 8, Limits = limits,
+            })).Value!;
+            _ = (BaseActivationClaimedResult)(await store.TryClaimNextAsync(new BaseActivationClaimRequest
+            {
+                Observation = observed.Token, Worker = new BaseActivationWorkerAuthority
+                {
+                    ApplicationId = "activation-test", ModuleId = "test", WorkerIdentity = "worker",
+                    Definitions = [definition], Scope = scope, Checksum = new byte[32].ToImmutableArray(),
+                },
+                AcceptedTime = AcceptedTime(10), LeaseMilliseconds = 1,
+                Identity = ActivationIdentity("maintenance-claim"), Limits = limits,
+            })).Value!;
+
+            var maintenance = new BaseActivationMaintenanceRequest
+            {
+                ApplicationId = "activation-test", Scope = scope, Definition = definition,
+                Kind = BaseActivationMaintenanceKind.RecoverExpiredClaims, Take = 1,
+                AcceptedTime = AcceptedTime(12), Identity = ActivationIdentity("maintenance-page"), Limits = limits,
+            };
+            BaseActivationMaintenancePage recovered = (await store.AdvanceMaintenanceAsync(maintenance)).Value!;
+
+            recovered.Completed.Should().BeTrue();
+            BaseActivationMaintenanceItem item = recovered.Items.Should().ContainSingle().Subject;
+            item.PreviousState.Should().Be(BaseActivationState.Claimed);
+            item.ResultingState.Should().Be(BaseActivationState.RetryPending);
+            item.ResultingGeneration.Should().Be(item.PreviousGeneration + 1);
+            BaseActivationMaintenancePage replay = (await store.AdvanceMaintenanceAsync(
+                maintenance with { AcceptedTime = AcceptedTime(13) })).Value!;
+            replay.Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
+            replay.Items.Should().ContainSingle();
+            (await store.AdvanceMaintenanceAsync(new BaseActivationMaintenanceRequest
+            {
+                ApplicationId = "activation-test", Scope = scope, Definition = definition,
+                Kind = BaseActivationMaintenanceKind.RecoverExpiredClaims, Take = 1,
+                AcceptedTime = AcceptedTime(13), Identity = ActivationIdentity("maintenance-empty"), Limits = limits,
+            })).Value!.Items.Should().BeEmpty();
+        }
+        finally
+        {
+            foreach (string suffix in new[] { "", "-wal", "-shm" }) if (File.Exists(path + suffix)) File.Delete(path + suffix);
+        }
+    }
+
+    [Fact]
     public async Task Expired_claim_recovery_is_receipted_and_exactly_replayed()
     {
         string path = Path.Combine(Path.GetTempPath(), $"hpd-base-claim-recovery-{Guid.NewGuid():N}.db");

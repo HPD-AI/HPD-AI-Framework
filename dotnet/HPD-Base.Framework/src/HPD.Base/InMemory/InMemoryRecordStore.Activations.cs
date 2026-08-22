@@ -120,6 +120,136 @@ internal sealed partial class InMemoryRecordStore
     }
 
     /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseActivationMaintenancePage>> AdvanceMaintenanceAsync(
+        BaseActivationMaintenanceRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!Enum.IsDefined(request.Kind) || request.Take is < 1 or > 256 || !ValidateLimits(request.Limits)
+            || !AcceptActivationTime(request.AcceptedTime))
+            return ActivationFailure<BaseActivationMaintenancePage>("base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            InMemoryStoreState current = Volatile.Read(ref _publishedState); InMemoryStoreState next = current.Clone();
+            if (TryReadActivationReceipt(current, request.Identity, "activation-maintenance",
+                HPDBaseJsonSerializerContext.Default.BaseActivationMaintenancePage,
+                static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate },
+                out OperationResult<BaseActivationMaintenancePage>? replay)) return replay;
+            InMemoryActivationRow[] candidates = current.Activations.Values
+                .Where(row => row.Payload.Definition.Id == request.Definition.Id && row.Payload.Definition.Version == request.Definition.Version
+                    && CryptographicOperations.FixedTimeEquals(row.Payload.Definition.Checksum.AsSpan(), request.Definition.Checksum.AsSpan())
+                    && ScopeMatches(row.Payload.Scope, request.Scope)
+                    && (request.AfterActivationId is null || string.CompareOrdinal(row.Payload.ActivationId, request.AfterActivationId) > 0))
+                .Where(row => request.Kind switch
+                {
+                    BaseActivationMaintenanceKind.RecoverExpiredClaims => row.State == BaseActivationState.Claimed
+                        && row.Lease is not null && row.Lease.LeaseExpiresAt <= request.AcceptedTime.CapturedUtc,
+                    BaseActivationMaintenanceKind.RecoverExpiredEffects => row.State == BaseActivationState.EffectStarted
+                        && row.Effect is not null && row.Effect.HeartbeatExpiresAt <= request.AcceptedTime.CapturedUtc
+                        && !CurrentExecutorAllows(current, row.Effect.Executor, request.AcceptedTime.CapturedUtc),
+                    _ => false,
+                }).OrderBy(static row => row.Payload.ActivationId, StringComparer.Ordinal).Take(request.Take + 1).ToArray();
+            bool completed = candidates.Length <= request.Take; InMemoryActivationRow[] page = candidates.Take(request.Take).ToArray();
+            var items = ImmutableArray.CreateBuilder<BaseActivationMaintenanceItem>(page.Length);
+            foreach (InMemoryActivationRow row in page)
+            {
+                BaseActivationState state = request.Kind == BaseActivationMaintenanceKind.RecoverExpiredClaims
+                    ? BaseActivationState.RetryPending : BaseActivationState.OutcomeUnknown;
+                long generation = checked(row.Generation + 1); byte[] checksum = ControlChecksum(row.Payload.ActivationId, generation, state);
+                next.Activations[row.Payload.ActivationId] = row with
+                {
+                    State = state, Generation = generation, ControlChecksum = checksum,
+                    EffectiveDueAt = request.Kind == BaseActivationMaintenanceKind.RecoverExpiredClaims
+                        ? request.AcceptedTime.CapturedUtc : row.EffectiveDueAt,
+                    Claim = null, Lease = null,
+                };
+                items.Add(new BaseActivationMaintenanceItem
+                {
+                    ActivationId = row.Payload.ActivationId, PreviousGeneration = row.Generation,
+                    ResultingGeneration = generation, PreviousState = row.State, ResultingState = state,
+                    ControlChecksum = checksum.ToImmutableArray(),
+                });
+            }
+            if (page.Length != 0) next.ActivationIndexGeneration = checked(next.ActivationIndexGeneration + 1);
+            var result = new BaseActivationMaintenancePage
+            {
+                Items = items.MoveToImmutable(), NextActivationId = completed || page.Length == 0 ? null : page[^1].Payload.ActivationId,
+                Completed = completed, Accounting = EmptyActivationAccounting with
+                { Candidates = candidates.Length, Comparisons = candidates.Length, IndexOperations = page.Length },
+                Disposition = BaseMutationRequestDisposition.Committed,
+            };
+            WriteActivationReceipt(next, request.Identity, "activation-maintenance", result,
+                HPDBaseJsonSerializerContext.Default.BaseActivationMaintenancePage);
+            Volatile.Write(ref _publishedState, next);
+            return OperationResults.Ok(result);
+        }
+        finally { _stateGate.Release(); }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseActivationPrunePage>> PruneAsync(
+        BaseActivationPruneRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Take is < 1 or > 256 || !ValidateLimits(request.Limits) || !AcceptActivationTime(request.AcceptedTime))
+            return ActivationFailure<BaseActivationPrunePage>("base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            InMemoryStoreState current = Volatile.Read(ref _publishedState); InMemoryStoreState next = current.Clone();
+            if (TryReadActivationReceipt(current, request.Identity, "activation-pruned",
+                HPDBaseJsonSerializerContext.Default.BaseActivationPrunePage,
+                static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate },
+                out OperationResult<BaseActivationPrunePage>? replay)) return replay;
+            if (current.ActivationReceipts.Count != 0)
+                return ActivationFailure<BaseActivationPrunePage>("base.activation.removalBlocked", OperationStatus.Conflict, ErrorCategory.Conflict);
+            string[] candidates = current.Activations.Values.Where(row => row.State == BaseActivationState.Disposed
+                && row.Payload.Definition.Id == request.Definition.Id && row.Payload.Definition.Version == request.Definition.Version
+                && CryptographicOperations.FixedTimeEquals(row.Payload.Definition.Checksum.AsSpan(), request.Definition.Checksum.AsSpan())
+                && ScopeMatches(row.Payload.Scope, request.Scope)
+                && (request.AfterActivationId is null || string.CompareOrdinal(row.Payload.ActivationId, request.AfterActivationId) > 0))
+                .Select(static row => row.Payload.ActivationId).Order(StringComparer.Ordinal).Take(request.Take + 1).ToArray();
+            bool completed = candidates.Length <= request.Take; string[] page = candidates.Take(request.Take).ToArray();
+            foreach (string id in page) { next.Activations.Remove(id); foreach (SortedSet<string> index in next.ActivationsByProtectedScope.Values) index.Remove(id); }
+            if (page.Length != 0) next.ActivationIndexGeneration = checked(next.ActivationIndexGeneration + 1);
+            var result = new BaseActivationPrunePage
+            {
+                ActivationIds = page.ToImmutableArray(), NextActivationId = completed || page.Length == 0 ? null : page[^1],
+                Completed = completed, Accounting = EmptyActivationAccounting with
+                { Candidates = candidates.Length, Comparisons = candidates.Length, IndexOperations = page.Length },
+                Disposition = BaseMutationRequestDisposition.Committed,
+            };
+            WriteActivationReceipt(next, request.Identity, "activation-pruned", result,
+                HPDBaseJsonSerializerContext.Default.BaseActivationPrunePage);
+            Volatile.Write(ref _publishedState, next);
+            return OperationResults.Ok(result);
+        }
+        finally { _stateGate.Release(); }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseActivationIndeterminateResolution>> ResolveIndeterminateAsync(
+        BaseActivationIndeterminateRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        OperationResult<BaseActivationTransitionResult> result = await TransitionAsync(request.Reconciliation, cancellationToken).ConfigureAwait(false);
+        return result.IsSuccess() && result.Value is not null
+            ? OperationResults.Ok(new BaseActivationIndeterminateResolution { Transition = result.Value })
+            : new OperationResult<BaseActivationIndeterminateResolution> { Status = result.Status, Error = result.Error };
+    }
+
+    /// <inheritdoc />
+    public ValueTask<OperationResult<BaseActivationQuarantinePage>> ReadQuarantineAsync(
+        BaseActivationQuarantineRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request); cancellationToken.ThrowIfCancellationRequested();
+        if (request.Take is < 1 or > 256 || request.AfterSequence < 0)
+            return ValueTask.FromResult(ActivationFailure<BaseActivationQuarantinePage>(
+                "base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation));
+        return ValueTask.FromResult(OperationResults.Ok(new BaseActivationQuarantinePage { Items = [], NextSequence = null }));
+    }
+
+    /// <inheritdoc />
     public async ValueTask<OperationResult<BaseActivationDueObservation>> ObserveDueAsync(
         BaseActivationDueObservationRequest request,
         CancellationToken cancellationToken = default)

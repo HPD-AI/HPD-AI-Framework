@@ -188,6 +188,138 @@ public sealed partial class SqliteRecordStore
     BaseActivationProviderDescriptor IBaseActivationProvider.Descriptor => ActivationDescriptor;
 
     /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseActivationMaintenancePage>> AdvanceMaintenanceAsync(
+        BaseActivationMaintenanceRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!Enum.IsDefined(request.Kind) || request.Take is < 1 or > 256 || !ActivationLimitsValid(request.Limits)
+            || !await AcceptActivationTimeAsync(request.AcceptedTime, cancellationToken).ConfigureAwait(false))
+            return ActivationFailure<BaseActivationMaintenancePage>("base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+        await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        (bool maintenanceFound, OperationResult<BaseActivationMaintenancePage> maintenanceReplay) = await ReadActivationReceiptAsync(
+            connection, transaction, request.Identity, "activation-maintenance",
+            HPDBaseJsonSerializerContext.Default.BaseActivationMaintenancePage,
+            static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, cancellationToken).ConfigureAwait(false);
+        if (maintenanceFound) return maintenanceReplay;
+        var candidates = new List<(string Id, long Generation, BaseActivationState State)>();
+        await using (SqliteCommand read = connection.CreateCommand())
+        {
+            read.Transaction = transaction;
+            string effectJoin = request.Kind == BaseActivationMaintenanceKind.RecoverExpiredEffects
+                ? $" JOIN {_names.ActivationEffects} f ON f.activation_id=a.activation_id LEFT JOIN {_names.Executors} e ON e.application_id=f.executor_application AND e.host_id=f.executor_host AND e.process_incarnation_id=f.executor_process " : string.Empty;
+            string eligibility = request.Kind == BaseActivationMaintenanceKind.RecoverExpiredClaims
+                ? "a.state=$state AND a.lease_expires_at<=$now"
+                : "a.state=$state AND f.heartbeat_expires_at<=$now AND (e.application_id IS NULL OR e.retired=1 OR e.heartbeat_expires_at<=$now OR e.executor_generation<>f.executor_generation OR e.restore_epoch<>f.executor_restore_epoch OR e.authority_checksum<>f.executor_checksum)";
+            read.CommandText = $"SELECT a.activation_id,a.generation,a.state FROM {_names.Activations} a {effectJoin} WHERE a.definition_id=$definition AND a.definition_version=$version AND a.definition_checksum=$checksum AND a.scope_kind=$scope AND a.scope_digest=$scopeDigest AND a.activation_id>$after AND {eligibility} ORDER BY a.activation_id LIMIT $take;";
+            read.Parameters.AddWithValue("$definition", request.Definition.Id); read.Parameters.AddWithValue("$version", request.Definition.Version);
+            read.Parameters.Add("$checksum", SqliteType.Blob).Value = request.Definition.Checksum.ToArray(); read.Parameters.AddWithValue("$scope", (int)request.Scope.Kind);
+            read.Parameters.Add("$scopeDigest", SqliteType.Blob).Value = request.Scope.ProtectedIndexDigest.ToArray(); read.Parameters.AddWithValue("$after", request.AfterActivationId ?? string.Empty);
+            read.Parameters.AddWithValue("$state", (int)(request.Kind == BaseActivationMaintenanceKind.RecoverExpiredClaims ? BaseActivationState.Claimed : BaseActivationState.EffectStarted));
+            read.Parameters.AddWithValue("$now", request.AcceptedTime.CapturedUtc); read.Parameters.AddWithValue("$take", checked(request.Take + 1));
+            await using SqliteDataReader reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) candidates.Add((reader.GetString(0), reader.GetInt64(1), (BaseActivationState)reader.GetInt32(2)));
+        }
+        bool completed = candidates.Count <= request.Take; (string Id, long Generation, BaseActivationState State)[] page = candidates.Take(request.Take).ToArray();
+        var items = ImmutableArray.CreateBuilder<BaseActivationMaintenanceItem>(page.Length);
+        foreach ((string id, long prior, BaseActivationState priorState) in page)
+        {
+            BaseActivationState resulting = request.Kind == BaseActivationMaintenanceKind.RecoverExpiredClaims ? BaseActivationState.RetryPending : BaseActivationState.OutcomeUnknown;
+            long generation = checked(prior + 1); byte[] checksum = ActivationControlChecksum(id, generation, resulting);
+            await using SqliteCommand update = connection.CreateCommand(); update.Transaction = transaction;
+            update.CommandText = $"UPDATE {_names.Activations} SET state=$resulting,generation=$generation,claim_fence=NULL,claim_worker=NULL,lease_revision=NULL,lease_expires_at=NULL,effective_due_at=CASE WHEN $retry=1 THEN $now ELSE effective_due_at END,eligible=CASE WHEN $retry=1 THEN 1 ELSE eligible END,control_checksum=$control WHERE activation_id=$id AND generation=$prior AND state=$state;";
+            update.Parameters.AddWithValue("$resulting", (int)resulting); update.Parameters.AddWithValue("$generation", generation);
+            update.Parameters.AddWithValue("$retry", request.Kind == BaseActivationMaintenanceKind.RecoverExpiredClaims ? 1 : 0); update.Parameters.AddWithValue("$now", request.AcceptedTime.CapturedUtc);
+            update.Parameters.Add("$control", SqliteType.Blob).Value = checksum; update.Parameters.AddWithValue("$id", id);
+            update.Parameters.AddWithValue("$prior", prior); update.Parameters.AddWithValue("$state", (int)priorState);
+            if (await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                return ActivationFailure<BaseActivationMaintenancePage>("base.activation.conflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+            items.Add(new BaseActivationMaintenanceItem { ActivationId = id, PreviousGeneration = prior, ResultingGeneration = generation,
+                PreviousState = priorState, ResultingState = resulting, ControlChecksum = checksum.ToImmutableArray() });
+        }
+        if (page.Length != 0) await IncrementActivationGenerationAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+        var result = new BaseActivationMaintenancePage
+        {
+            Items = items.MoveToImmutable(), NextActivationId = completed || page.Length == 0 ? null : page[^1].Id,
+            Completed = completed, Accounting = ActivationAccounting(candidates.Count, items.Count * 32L),
+            Disposition = BaseMutationRequestDisposition.Committed,
+        };
+        await WriteActivationReceiptAsync(connection, transaction, request.Identity, "activation-maintenance", result,
+            HPDBaseJsonSerializerContext.Default.BaseActivationMaintenancePage, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return OperationResults.Ok(result);
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseActivationPrunePage>> PruneAsync(
+        BaseActivationPruneRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Take is < 1 or > 256 || !ActivationLimitsValid(request.Limits)
+            || !await AcceptActivationTimeAsync(request.AcceptedTime, cancellationToken).ConfigureAwait(false))
+            return ActivationFailure<BaseActivationPrunePage>("base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
+        await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        (bool pruneFound, OperationResult<BaseActivationPrunePage> pruneReplay) = await ReadActivationReceiptAsync(
+            connection, transaction, request.Identity, "activation-pruned", HPDBaseJsonSerializerContext.Default.BaseActivationPrunePage,
+            static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate }, cancellationToken).ConfigureAwait(false);
+        if (pruneFound) return pruneReplay;
+        await using (SqliteCommand dependencies = connection.CreateCommand())
+        {
+            dependencies.Transaction = transaction;
+            dependencies.CommandText = $"SELECT EXISTS(SELECT 1 FROM {_names.ActivationReceipts} LIMIT 1);";
+            if (Convert.ToInt64(await dependencies.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture) != 0)
+                return ActivationFailure<BaseActivationPrunePage>("base.activation.removalBlocked", OperationStatus.Conflict, ErrorCategory.Conflict);
+        }
+        var candidates = new List<string>();
+        await using (SqliteCommand read = connection.CreateCommand())
+        {
+            read.Transaction = transaction; read.CommandText = $"SELECT activation_id FROM {_names.Activations} WHERE definition_id=$definition AND definition_version=$version AND definition_checksum=$checksum AND scope_kind=$scope AND scope_digest=$scopeDigest AND state=$disposed AND activation_id>$after ORDER BY activation_id LIMIT $take;";
+            read.Parameters.AddWithValue("$definition", request.Definition.Id); read.Parameters.AddWithValue("$version", request.Definition.Version);
+            read.Parameters.Add("$checksum", SqliteType.Blob).Value = request.Definition.Checksum.ToArray(); read.Parameters.AddWithValue("$scope", (int)request.Scope.Kind);
+            read.Parameters.Add("$scopeDigest", SqliteType.Blob).Value = request.Scope.ProtectedIndexDigest.ToArray(); read.Parameters.AddWithValue("$disposed", (int)BaseActivationState.Disposed);
+            read.Parameters.AddWithValue("$after", request.AfterActivationId ?? string.Empty); read.Parameters.AddWithValue("$take", checked(request.Take + 1));
+            await using SqliteDataReader reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) candidates.Add(reader.GetString(0));
+        }
+        bool completed = candidates.Count <= request.Take; string[] page = candidates.Take(request.Take).ToArray();
+        foreach (string id in page)
+        {
+            await using SqliteCommand remove = connection.CreateCommand(); remove.Transaction = transaction;
+            remove.CommandText = $"DELETE FROM {_names.Activations} WHERE activation_id=$id AND state=$disposed;";
+            remove.Parameters.AddWithValue("$id", id); remove.Parameters.AddWithValue("$disposed", (int)BaseActivationState.Disposed);
+            if (await remove.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                return ActivationFailure<BaseActivationPrunePage>("base.activation.conflict", OperationStatus.Conflict, ErrorCategory.Conflict);
+        }
+        if (page.Length != 0) await IncrementActivationGenerationAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+        var result = new BaseActivationPrunePage { ActivationIds = page.ToImmutableArray(), NextActivationId = completed || page.Length == 0 ? null : page[^1],
+            Completed = completed, Accounting = ActivationAccounting(candidates.Count, page.Sum(static id => (long)Encoding.UTF8.GetByteCount(id))), Disposition = BaseMutationRequestDisposition.Committed };
+        await WriteActivationReceiptAsync(connection, transaction, request.Identity, "activation-pruned", result,
+            HPDBaseJsonSerializerContext.Default.BaseActivationPrunePage, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return OperationResults.Ok(result);
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseActivationIndeterminateResolution>> ResolveIndeterminateAsync(
+        BaseActivationIndeterminateRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request); OperationResult<BaseActivationTransitionResult> result = await TransitionAsync(request.Reconciliation, cancellationToken).ConfigureAwait(false);
+        return result.IsSuccess() && result.Value is not null ? OperationResults.Ok(new BaseActivationIndeterminateResolution { Transition = result.Value })
+            : new OperationResult<BaseActivationIndeterminateResolution> { Status = result.Status, Error = result.Error };
+    }
+
+    /// <inheritdoc />
+    public ValueTask<OperationResult<BaseActivationQuarantinePage>> ReadQuarantineAsync(
+        BaseActivationQuarantineRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request); cancellationToken.ThrowIfCancellationRequested();
+        if (request.Take is < 1 or > 256 || request.AfterSequence < 0)
+            return ValueTask.FromResult(ActivationFailure<BaseActivationQuarantinePage>("base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation));
+        return ValueTask.FromResult(OperationResults.Ok(new BaseActivationQuarantinePage { Items = [], NextSequence = null }));
+    }
+
+    /// <inheritdoc />
     public async ValueTask<OperationResult<BaseActivationDependencyResult>> ReadDependenciesAsync(
         BaseActivationDependencyRequest request,
         CancellationToken cancellationToken = default)

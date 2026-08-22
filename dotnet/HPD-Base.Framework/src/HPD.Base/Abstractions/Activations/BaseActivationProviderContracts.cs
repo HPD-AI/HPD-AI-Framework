@@ -896,4 +896,24 @@ public interface IBaseActivationProvider
     ValueTask<OperationResult<BaseActivationReceiptResolution>> ResolveReceiptAsync(
         BaseActivationReceiptResolutionRequest request,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Advances one identified crash-recovery maintenance page.</summary>
+    ValueTask<OperationResult<BaseActivationMaintenancePage>> AdvanceMaintenanceAsync(
+        BaseActivationMaintenanceRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Prunes one identified page of dependency-free disposed activation authority.</summary>
+    ValueTask<OperationResult<BaseActivationPrunePage>> PruneAsync(
+        BaseActivationPruneRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Resolves one exact indeterminate external-effect outcome.</summary>
+    ValueTask<OperationResult<BaseActivationIndeterminateResolution>> ResolveIndeterminateAsync(
+        BaseActivationIndeterminateRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Reads one bounded sanitized provider-quarantine page.</summary>
+    ValueTask<OperationResult<BaseActivationQuarantinePage>> ReadQuarantineAsync(
+        BaseActivationQuarantineRequest request,
+        CancellationToken cancellationToken = default);
 }
