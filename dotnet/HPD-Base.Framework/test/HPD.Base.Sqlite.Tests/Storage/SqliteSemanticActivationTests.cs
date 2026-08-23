@@ -302,6 +302,58 @@ public sealed partial class SqliteModuleMutationTests
     }
 
     [Fact]
+    public async Task Semantic_recovery_preflight_returns_exact_terminal_authority_without_open_transaction()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-l53-preflight-{Guid.NewGuid():N}.db");
+        try
+        {
+            BaseAtomicMutationExecutionLimits limits = ExecutionLimits();
+            await using SqliteRecordStore store = SemanticStore(path, maximumCanonicalKeyBytes: 12);
+            BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync(
+                "activation-test", [], limits, default)).Value!;
+            var ensure = new SqliteSemanticEnsureProbe(authority, limits, "preflight-parent");
+            (await store.ExecuteAtomicAsync(ensure, ExecutionRequest())).Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+            await CompleteSemanticActivationAsync(store, "preflight");
+            BaseSemanticActivationKeyDefinition installed = SemanticDefinition(maximumCanonicalKeyBytes: 12);
+            byte[] canonicalKey = Encoding.UTF8.GetBytes("auth-user-42");
+            var request = new BaseSemanticRecoveryPreflightRequest
+            {
+                Definition = new BaseSemanticActivationDefinitionIdentity
+                {
+                    Id = installed.Id, Version = installed.Version, Checksum = installed.Checksum,
+                    OwnerGeneration = 1, OwningModuleId = installed.OwningModuleId,
+                    RetirementOperation = installed.RetirementOperation,
+                },
+                CanonicalKey = canonicalKey.ToImmutableArray(),
+                KeyPreimageChecksum = SHA256.HashData(canonicalKey).ToImmutableArray(),
+                Scope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Global },
+                MaximumCanonicalKeyBytes = installed.Limits.MaximumCanonicalKeyBytes,
+                StoreAuthority = authority.SemanticActivation!, Limits = installed.Limits.Execution,
+                Deadline = TimeSpan.FromSeconds(5),
+            };
+            OperationResult<BaseSemanticRecoveryPreflightEvidence> result = await store.PreflightSemanticRecoveryAsync(request);
+            result.IsSuccess().Should().BeTrue(result.Error?.Code);
+            BaseSemanticActivationEvidenceContract.RecoveryPreflightIsValid(request, result.Value!).Should().BeTrue();
+            result.Value!.ActivationTerminalReceiptChecksum.Should().HaveCount(32);
+
+            BaseSemanticRecoveryPreflightRequest substituted = request with
+            {
+                StoreAuthority = request.StoreAuthority with { RestoreEpoch = checked(request.StoreAuthority.RestoreEpoch + 1) },
+            };
+            (await store.PreflightSemanticRecoveryAsync(substituted)).IsSuccess().Should().BeFalse();
+            byte[] oversizedKey = Enumerable.Repeat((byte)'x', 13).ToArray();
+            OperationResult<BaseSemanticRecoveryPreflightEvidence> oversized = await store.PreflightSemanticRecoveryAsync(request with
+            {
+                CanonicalKey = oversizedKey.ToImmutableArray(),
+                KeyPreimageChecksum = SHA256.HashData(oversizedKey).ToImmutableArray(),
+            });
+            oversized.IsSuccess().Should().BeFalse();
+            oversized.Error!.Code.Should().Be(BaseSemanticActivationErrorCodes.BudgetExceeded);
+        }
+        finally { foreach (string suffix in new[] { "", "-wal", "-shm" }) if (File.Exists(path + suffix)) File.Delete(path + suffix); }
+    }
+
+    [Fact]
     public async Task Semantic_retirement_charges_terminal_receipt_bytes()
     {
         string path = Path.Combine(Path.GetTempPath(), $"hpd-base-l53-receipt-budget-{Guid.NewGuid():N}.db");
@@ -639,9 +691,10 @@ public sealed partial class SqliteModuleMutationTests
         long ownerGeneration = 1,
         ImmutableArray<byte> definitionSetChecksum = default,
         ImmutableArray<BaseSemanticActivationMigrationDefinition> migrations = default,
-        bool administrationEnabled = false)
+        bool administrationEnabled = false,
+        int maximumCanonicalKeyBytes = 256)
     {
-        BaseSemanticActivationKeyDefinition definition = installedDefinition ?? SemanticDefinition(maximumLiveSlots, maximumReceiptBytes);
+        BaseSemanticActivationKeyDefinition definition = installedDefinition ?? SemanticDefinition(maximumLiveSlots, maximumReceiptBytes, maximumCanonicalKeyBytes);
         var options = new HPDBaseSqliteOptions
         {
             StoreId = "module-store", DataSource = path, Collections = [],
@@ -678,7 +731,8 @@ public sealed partial class SqliteModuleMutationTests
         return store;
     }
 
-    private static BaseSemanticActivationKeyDefinition SemanticDefinition(long maximumLiveSlots = 100, long maximumReceiptBytes = 4096) => new()
+    private static BaseSemanticActivationKeyDefinition SemanticDefinition(long maximumLiveSlots = 100,
+        long maximumReceiptBytes = 4096, int maximumCanonicalKeyBytes = 256) => new()
     {
         Id = "test.semantic", Version = 1, OwningApplicationId = "activation-test", OwningModuleId = "test",
         EnsureOperation = new() { OperationId = "semantic.ensure", OperationVersion = 1, OperationChecksum = new string('a', 64) },
@@ -690,7 +744,7 @@ public sealed partial class SqliteModuleMutationTests
         KeyExpressionChecksum = SHA256.HashData("key"u8).ToImmutableArray(),
         Limits = new()
         {
-            MaximumCanonicalKeyBytes = 256, MaximumLiveSlots = maximumLiveSlots, MaximumRetiredSlots = 100, MaximumAbsenceMarkers = 100,
+            MaximumCanonicalKeyBytes = maximumCanonicalKeyBytes, MaximumLiveSlots = maximumLiveSlots, MaximumRetiredSlots = 100, MaximumAbsenceMarkers = 100,
             Execution = SqliteSemanticEnsureProbe.CreateLimits() with { MaximumReceiptBytes = maximumReceiptBytes },
             Deadlines = new()
             {

@@ -26,6 +26,7 @@ public sealed partial class SqliteRecordStore :
     IBaseSubjectRetirementStore,
     IBaseSubjectAuthorityMaintenanceStore,
     IBaseActivationProvider,
+    IBaseSemanticActivationPreflightStore,
     IBaseSemanticActivationAdministration,
     IAsyncDisposable
 {

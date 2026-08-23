@@ -47,6 +47,8 @@ public sealed class HPDBaseBuilder
     private readonly Dictionary<(string Id, int Version), IBaseActivationRegistration> _activationRegistrations = [];
     private readonly Dictionary<(string Id, int Version), IBaseSemanticActivationRegistration> _semanticActivationRegistrations = [];
     private readonly Dictionary<(string Id, int Version), BaseSemanticActivationMigrationDefinition> _semanticActivationMigrations = [];
+    private readonly Dictionary<string, BaseSemanticActivationRestoreSelection> _semanticRestoreSelections = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, BaseSemanticRecoveryAuthorityRegistration> _semanticRecoveryAuthorities = new(StringComparer.Ordinal);
     private readonly Dictionary<(string Id, int Version), IBaseActivationMigrationRegistration> _activationMigrations = [];
     private readonly Dictionary<(string Id, int Version), BaseScheduleDefinition> _activationSchedules = [];
     private BaseTimeZoneAuthority? _timeZoneAuthority;
@@ -397,6 +399,25 @@ public sealed class HPDBaseBuilder
         return this;
     }
 
+    /// <summary>Selects semantic restore authority for one logical store.</summary>
+    public HPDBaseBuilder SetSemanticActivationRestoreSelection(BaseSemanticActivationRestoreSelection selection)
+    {
+        EnsureMutable(); ArgumentNullException.ThrowIfNull(selection);
+        if (!_semanticRestoreSelections.TryAdd(selection.LogicalStoreId, selection))
+            throw new InvalidOperationException(BaseSemanticActivationErrorCodes.Invalid);
+        return this;
+    }
+
+    /// <summary>Registers one certified external semantic recovery authority.</summary>
+    public HPDBaseBuilder AddSemanticRecoveryAuthority(BaseSemanticRecoveryAuthorityRegistration registration)
+    {
+        EnsureMutable(); ArgumentNullException.ThrowIfNull(registration);
+        if (!BaseSemanticRecoveryAuthorityContract.IsValid(registration)
+            || !_semanticRecoveryAuthorities.TryAdd(registration.Definition.LogicalStoreId, registration))
+            throw new InvalidOperationException(BaseSemanticActivationErrorCodes.Invalid);
+        return this;
+    }
+
     /// <summary>Registers one callback-free graph-owned activation input migration.</summary>
     public HPDBaseBuilder AddActivationMigration<TSource, TTarget>(
         BaseActivationMigrationRegistration<TSource, TTarget> registration)
@@ -609,6 +630,12 @@ public sealed class HPDBaseBuilder
         var moduleMutationRegistry = new BaseModuleMutationRegistry(_moduleMutations.Values, _moduleGenerationCells.Values, _moduleMutationRegistrations.Values);
         var activationRegistry = new BaseActivationRegistry(_activationRegistrations.Values);
         var semanticActivationRegistry = new BaseSemanticActivationRegistry(_semanticActivationRegistrations.Values);
+        BaseSemanticActivationRestoreSelection[] semanticRestoreSelections = [.. _semanticRestoreSelections.Values];
+        BaseSemanticRecoveryAuthorityRegistration[] semanticRecoveryAuthorities = [.. _semanticRecoveryAuthorities.Values];
+        ServiceDescriptor? timeDescriptor = _services.LastOrDefault(static descriptor => descriptor.ServiceType == typeof(TimeProvider));
+        TimeProvider graphTimeProvider = timeDescriptor?.ImplementationInstance as TimeProvider
+            ?? (semanticActivationRegistry.Definitions.Count == 0 ? TimeProvider.System
+                : throw new InvalidOperationException(BaseSemanticActivationErrorCodes.Invalid));
         var activationMigrationRegistry = new BaseActivationMigrationRegistry(_activationMigrations.Values);
         foreach (IBaseActivationMigrationRegistration migration in _activationMigrations.Values)
         {
@@ -879,6 +906,18 @@ public sealed class HPDBaseBuilder
         {
             _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseHealthContributor, BaseActivationHealthContributor>());
             _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDiagnosticContributor, BaseActivationHealthContributor>());
+        }
+        // External recovery instances are materialized only after every fallible graph and provider
+        // validation above has completed. The registry constructor disposes a mismatched instance
+        // before throwing, so successful construction is the application owner's publication point.
+        var semanticRecoveryRegistry = new BaseSemanticRecoveryAuthorityRegistry(
+            semanticRestoreSelections, semanticRecoveryAuthorities, provider.SemanticActivations,
+            semanticActivationRegistry.Definitions.Count, graphTimeProvider);
+        try { _services.AddSingleton(semanticRecoveryRegistry); }
+        catch
+        {
+            semanticRecoveryRegistry.DisposeAfterFailedPublication();
+            throw;
         }
     }
 

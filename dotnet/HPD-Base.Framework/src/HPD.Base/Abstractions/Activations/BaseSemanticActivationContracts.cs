@@ -348,6 +348,208 @@ public static class BaseSemanticActivationEvidenceContract
             [(byte)value.ResultingState], Int64(value.ResultingSlotGeneration), value.ResultingSlotChecksum.ToArray(), System.Text.Encoding.UTF8.GetBytes(value.ActivationId ?? string.Empty),
             Int64(value.ActivationGeneration ?? 0), value.ActivationChecksum.ToArray(), Int64(value.CommitJournalPosition), Accounting(value.Accounting));
 
+    /// <summary>Computes the canonical checksum for read-only external recovery preflight evidence.</summary>
+    public static ImmutableArray<byte> RecoveryPreflightChecksum(BaseSemanticRecoveryPreflightRequest request, BaseSemanticRecoveryPreflightEvidence value)
+    {
+        Span<byte> key = stackalloc byte[BaseSemanticActivationKeyDigest.Length]; value.Key.CopyTo(key);
+        var fields = new List<byte[]>
+        {
+            request.Definition.Checksum.ToArray(), request.CanonicalKey.ToArray(), request.KeyPreimageChecksum.ToArray(), Scope(request.Scope),
+            RecoveryLifetime(request.SubjectLifetime), Int32(request.MaximumCanonicalKeyBytes),
+            request.StoreAuthority.DefinitionSetChecksum.ToArray(), Int64(request.Deadline.Ticks),
+            value.ScopeBinding.Checksum.ToArray(), key.ToArray(), value.Live.Checksum.ToArray(),
+            Int64(value.ActivationGeneration), new byte[] { (byte)value.ActivationState }, value.ActivationChecksum.ToArray(),
+            value.ActivationTerminalReceiptChecksum.ToArray(), System.Text.Encoding.UTF8.GetBytes(value.TerminalReceipt.ReceiptKey),
+            System.Text.Encoding.UTF8.GetBytes(value.TerminalReceipt.OperationKind), value.TerminalReceipt.Fingerprint.ToArray(),
+            value.TerminalReceipt.ResultBytes.ToArray(), value.TerminalReceipt.ResultChecksum.ToArray(), value.TerminalReceipt.AuthorityChecksum.ToArray(),
+        };
+        foreach (BaseAtomicReadIntervalEvidence interval in value.ReadIntervals)
+        {
+            fields.Add(System.Text.Encoding.UTF8.GetBytes(interval.LogicalAccessPathId)); fields.Add(interval.CanonicalLowerBound.ToArray());
+            fields.Add([interval.LowerInclusive ? (byte)1 : (byte)0]); fields.Add(interval.CanonicalUpperBound.ToArray());
+            fields.Add([interval.UpperInclusive ? (byte)1 : (byte)0]);
+        }
+        fields.Add(Accounting(value.Accounting));
+        return Hash("base.semanticRecovery.preflight.v1\0", [.. fields]);
+    }
+
+    /// <summary>Validates complete read-only recovery preflight authority before external influence.</summary>
+    public static bool RecoveryPreflightIsValid(
+        BaseSemanticRecoveryPreflightRequest request,
+        BaseSemanticRecoveryPreflightEvidence value)
+    {
+        try
+        {
+            if (request.MaximumCanonicalKeyBytes <= 0 || request.CanonicalKey.IsDefaultOrEmpty
+                || request.CanonicalKey.Length > request.MaximumCanonicalKeyBytes || request.KeyPreimageChecksum.Length != 32
+                || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                    System.Security.Cryptography.SHA256.HashData(request.CanonicalKey.AsSpan()), request.KeyPreimageChecksum.AsSpan())
+                || request.Deadline <= TimeSpan.Zero || value.ScopeBinding.BindingId.Length != 32
+                || !RecoveryLifetimeValid(request.SubjectLifetime)
+                || value.ScopeBinding.Kind != request.Scope.Kind || value.ScopeBinding.Checksum.Length != 32
+                || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                    ScopeBindingChecksum(value.ScopeBinding).AsSpan(), value.ScopeBinding.Checksum.AsSpan())
+                || value.Live.Definition.Id != request.Definition.Id || value.Live.Definition.Version != request.Definition.Version
+                || value.Live.Definition.OwnerGeneration != request.Definition.OwnerGeneration
+                || value.Live.Definition.OwningModuleId != request.Definition.OwningModuleId
+                || !value.Live.Definition.Checksum.AsSpan().SequenceEqual(request.Definition.Checksum.AsSpan())
+                || value.Live.Scope.Kind != request.Scope.Kind || value.Live.Scope.Value != request.Scope.Value
+                || !ScopeBindingEqual(value.Live.ScopeBinding, value.ScopeBinding)
+                || !StoreEqual(value.Live.StoreAuthority.Requirement, request.StoreAuthority)
+                || value.Live.SlotGeneration <= 0 || value.Live.Checksum.Length != 32
+                || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                    LiveChecksum(value.Live).AsSpan(), value.Live.Checksum.AsSpan())
+                || !LifetimeMatchesPreflight(value.Live.SubjectLifetime, request.SubjectLifetime, value.ScopeBinding.BindingId)
+                || value.ActivationGeneration <= 0 || !Terminal(value.ActivationState)
+                || value.ActivationChecksum.Length != 32 || value.ActivationTerminalReceiptChecksum.Length != 32
+                || !TerminalReceiptValid(value)
+                || value.ReadIntervals.Length != 3 || value.Accounting.Operations != 1
+                || value.Accounting.ScopeDirectoryReads != 1 || value.Accounting.SlotReads != 1
+                || value.Accounting.ActivationReads != 1 || value.Accounting.ReadIntervals != 3
+                || value.Accounting.Operations > request.Limits.MaximumOperations
+                || value.Accounting.ScopeDirectoryReads > request.Limits.MaximumScopeDirectoryReads
+                || value.Accounting.SlotReads > request.Limits.MaximumSlotReads
+                || value.Accounting.ActivationReads > request.Limits.MaximumActivationReads
+                || value.Accounting.ReadIntervals > request.Limits.MaximumReadIntervals
+                || value.Accounting.IndexOperations > request.Limits.MaximumIndexOperations
+                || value.Accounting.ActivationBytes > request.Limits.MaximumActivationBytes
+                || value.Accounting.ScopeDirectoryBytes > request.Limits.MaximumScopeDirectoryBytes
+                || value.Accounting.EvidenceBytes > request.Limits.MaximumEvidenceBytes
+                || value.Accounting.ReceiptBytes > request.Limits.MaximumReceiptBytes
+                || value.Accounting.TransientBytes > request.Limits.MaximumTransientBytes
+                || value.Accounting != RecoveryPreflightAccounting(request, value)
+                || value.Checksum.Length != 32)
+                return false;
+            Span<byte> key = stackalloc byte[BaseSemanticActivationKeyDigest.Length]; value.Key.CopyTo(key);
+            ImmutableArray<byte> expectedKey = Hash("base.semanticActivation.key.v1\0", System.Text.Encoding.UTF8.GetBytes(request.Definition.Id),
+                value.ScopeBinding.BindingId.ToArray(), request.CanonicalKey.ToArray());
+            ImmutableArray<byte> expectedActivationId = Hash("base.semanticActivation.activation.v1\0",
+                System.Text.Encoding.UTF8.GetBytes(request.StoreAuthority.ApplicationId),
+                System.Text.Encoding.UTF8.GetBytes(request.StoreAuthority.LogicalStoreId),
+                System.Text.Encoding.UTF8.GetBytes(request.Definition.OwningModuleId),
+                System.Text.Encoding.UTF8.GetBytes(request.Definition.Id), value.ScopeBinding.BindingId.ToArray(), request.CanonicalKey.ToArray());
+            byte[] expectedControl = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
+                $"base.activation.control.v2\0{value.Live.ActivationId}\n{value.ActivationGeneration}\n{(int)value.ActivationState}"));
+            byte[] scopeBound = System.Text.Encoding.UTF8.GetBytes($"{(int)request.Scope.Kind}\n{Convert.ToHexString(value.ScopeBinding.SeekDigest.AsSpan())}");
+            byte[] slotBound = System.Text.Encoding.UTF8.GetBytes($"{request.Definition.Id}\n{Convert.ToHexString(value.ScopeBinding.BindingId.AsSpan())}\n{Convert.ToHexString(key)}");
+            return key.SequenceEqual(expectedKey.AsSpan())
+                && string.Equals(value.Live.ActivationId, Convert.ToHexStringLower(expectedActivationId.AsSpan()), StringComparison.Ordinal)
+                && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(expectedControl, value.ActivationChecksum.AsSpan())
+                && PreflightInterval(value.ReadIntervals[0], "base.semanticActivation.scope", scopeBound)
+                && PreflightInterval(value.ReadIntervals[1], "base.semanticActivation.slot", slotBound)
+                && PreflightInterval(value.ReadIntervals[2], "base.activation.byId", System.Text.Encoding.UTF8.GetBytes(value.Live.ActivationId))
+                && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                    RecoveryPreflightChecksum(request, value).AsSpan(), value.Checksum.AsSpan());
+        }
+        catch { return false; }
+    }
+
+    private static bool PreflightInterval(BaseAtomicReadIntervalEvidence value, string path, ReadOnlySpan<byte> bound) =>
+        string.Equals(value.LogicalAccessPathId, path, StringComparison.Ordinal) && value.LowerInclusive && value.UpperInclusive
+        && value.CanonicalLowerBound.AsSpan().SequenceEqual(bound) && value.CanonicalUpperBound.AsSpan().SequenceEqual(bound);
+
+    private static bool ScopeBindingEqual(BaseSemanticActivationScopeBinding left, BaseSemanticActivationScopeBinding right) =>
+        left.Kind == right.Kind && left.ProtectionKeyVersion == right.ProtectionKeyVersion
+        && left.ProtectionKeyId == right.ProtectionKeyId && left.BindingId.AsSpan().SequenceEqual(right.BindingId.AsSpan())
+        && left.ProtectedCanonicalScope.AsSpan().SequenceEqual(right.ProtectedCanonicalScope.AsSpan())
+        && left.SeekDigest.AsSpan().SequenceEqual(right.SeekDigest.AsSpan())
+        && left.Checksum.AsSpan().SequenceEqual(right.Checksum.AsSpan());
+
+    private static bool StoreEqual(BaseSemanticActivationStoreAuthorityRequirement left, BaseSemanticActivationStoreAuthorityRequirement right) =>
+        left.ApplicationId == right.ApplicationId && left.LogicalStoreId == right.LogicalStoreId
+        && left.StoreInstanceId == right.StoreInstanceId && left.RestoreEpoch == right.RestoreEpoch
+        && left.SchemaGeneration == right.SchemaGeneration && left.SemanticAuthorityGeneration == right.SemanticAuthorityGeneration
+        && left.DefinitionSetChecksum.AsSpan().SequenceEqual(right.DefinitionSetChecksum.AsSpan());
+
+    private static bool LifetimeMatchesPreflight(BaseSemanticActivationSubjectLifetimeBinding? actual,
+        BaseSemanticRecoverySubjectLifetimePreimage? requested, ImmutableArray<byte> binding)
+    {
+        if (actual is null || requested is null) return actual is null && requested is null;
+        return actual.ContractId == requested.ContractId && actual.ContractVersion == requested.ContractVersion
+            && actual.ContractChecksum.AsSpan().SequenceEqual(requested.ContractChecksum.AsSpan())
+            && actual.SubjectId.Value == requested.SubjectId.Value
+            && actual.AuthorityEpoch.ToBase64Url() == requested.AuthorityEpoch.ToBase64Url()
+            && actual.Incarnation.ToBase64Url() == requested.Incarnation.ToBase64Url()
+            && actual.ScopeBindingId.AsSpan().SequenceEqual(binding.AsSpan())
+            && actual.Checksum.Length == 32 && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                SubjectLifetimeChecksum(actual).AsSpan(), actual.Checksum.AsSpan());
+    }
+
+    private static bool RecoveryLifetimeValid(BaseSemanticRecoverySubjectLifetimePreimage? value) => value is null
+        || !string.IsNullOrWhiteSpace(value.ContractId) && value.ContractVersion > 0 && value.ContractChecksum.Length == 32
+        && !string.IsNullOrWhiteSpace(value.SubjectId.Value)
+        && value.AuthorityEpoch.ToArray().Length == 16 && value.Incarnation.ToArray().Length == 24;
+
+    private static bool Terminal(BaseActivationState state) => state is BaseActivationState.Succeeded
+        or BaseActivationState.Exhausted or BaseActivationState.Cancelled or BaseActivationState.Migrated or BaseActivationState.Disposed;
+
+    /// <summary>Recomputes exact provider-neutral logical accounting for one recovery preflight.</summary>
+    public static BaseSemanticActivationAccounting RecoveryPreflightAccounting(
+        BaseSemanticRecoveryPreflightRequest request, BaseSemanticRecoveryPreflightEvidence value)
+    {
+        long intervalBytes = checked(value.ReadIntervals.Sum(static interval => (long)System.Text.Encoding.UTF8.GetByteCount(interval.LogicalAccessPathId)
+            + interval.CanonicalLowerBound.Length + interval.CanonicalUpperBound.Length + 2));
+        long scopeBytes = checked(value.ScopeBinding.BindingId.Length + value.ScopeBinding.ProtectedCanonicalScope.Length
+            + value.ScopeBinding.SeekDigest.Length + System.Text.Encoding.UTF8.GetByteCount(value.ScopeBinding.ProtectionKeyId)
+            + sizeof(int) + value.ScopeBinding.Checksum.Length);
+        long activationBytes = checked(System.Text.Encoding.UTF8.GetByteCount(value.Live.ActivationId) + sizeof(long) + sizeof(int)
+            + value.ActivationChecksum.Length + value.ActivationTerminalReceiptChecksum.Length);
+        long receiptBytes = checked(System.Text.Encoding.UTF8.GetByteCount(value.TerminalReceipt.ReceiptKey)
+            + System.Text.Encoding.UTF8.GetByteCount(value.TerminalReceipt.OperationKind) + value.TerminalReceipt.Fingerprint.Length
+            + value.TerminalReceipt.ResultBytes.Length + value.TerminalReceipt.ResultChecksum.Length + value.TerminalReceipt.AuthorityChecksum.Length);
+        long evidenceBytes = checked(intervalBytes + value.ScopeBinding.Checksum.Length + value.Live.Checksum.Length
+            + value.ActivationChecksum.Length + value.ActivationTerminalReceiptChecksum.Length);
+        long liveBytes = checked(value.Live.Definition.Checksum.Length + value.Live.ScopeBinding.Checksum.Length
+            + (value.Live.SubjectLifetime?.Checksum.Length ?? 0) + System.Text.Encoding.UTF8.GetByteCount(value.Live.ActivationId)
+            + value.Live.ActivationDefinition.Checksum.Length + value.Live.InputChecksum.Length + value.Live.StoreAuthority.Checksum.Length
+            + sizeof(long) * 2 + 2);
+        return new BaseSemanticActivationAccounting
+        {
+            Operations = 1, ScopeDirectoryReads = 1, SlotReads = 1, ActivationReads = 1, ReadIntervals = 3,
+            IndexOperations = 3, KeyBytes = request.CanonicalKey.Length, ScopeDirectoryBytes = scopeBytes,
+            ActivationBytes = activationBytes, EvidenceBytes = evidenceBytes, ReceiptBytes = receiptBytes,
+            TransientBytes = checked(request.CanonicalKey.Length + scopeBytes + liveBytes + activationBytes + receiptBytes + evidenceBytes),
+            ActivationCreation = new BaseActivationAccounting
+            {
+                Candidates = 0, Comparisons = 0, IndexOperations = 0, ReadIntervals = 0, EvidenceBytes = 0, TransientBytes = 0,
+            },
+        };
+    }
+
+    private static bool TerminalReceiptValid(BaseSemanticRecoveryPreflightEvidence value)
+    {
+        BaseSemanticRecoveryTerminalReceiptEvidence receipt = value.TerminalReceipt;
+        if (string.IsNullOrWhiteSpace(receipt.ReceiptKey) || string.IsNullOrWhiteSpace(receipt.OperationKind)
+            || receipt.Fingerprint.Length != 32 || receipt.ResultBytes.IsDefaultOrEmpty
+            || receipt.ResultChecksum.Length != 32 || receipt.AuthorityChecksum.Length != 32
+            || !receipt.AuthorityChecksum.AsSpan().SequenceEqual(value.ActivationTerminalReceiptChecksum.AsSpan())
+            || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                System.Security.Cryptography.SHA256.HashData(receipt.ResultBytes.AsSpan()), receipt.ResultChecksum.AsSpan())) return false;
+        byte[] expectedAuthority = System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(receipt.OperationKind).Concat(receipt.Fingerprint).Concat(receipt.ResultBytes).ToArray());
+        if (!System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(expectedAuthority, receipt.AuthorityChecksum.AsSpan())) return false;
+        BaseActivationTransitionResult? result = System.Text.Json.JsonSerializer.Deserialize(
+            receipt.ResultBytes.AsSpan(), HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult);
+        return result is not null && result.State == value.ActivationState && result.Generation == value.ActivationGeneration
+            && result.ControlChecksum.AsSpan().SequenceEqual(value.ActivationChecksum.AsSpan())
+            && receipt.OperationKind switch
+            {
+                "activation-completed" or "effect-completed" => value.ActivationState == BaseActivationState.Succeeded,
+                "activation-failed-terminal" => value.ActivationState == BaseActivationState.Exhausted,
+                "activation-cancelled" => value.ActivationState == BaseActivationState.Cancelled,
+                "activation-migrated" => value.ActivationState == BaseActivationState.Migrated,
+                "activation-disposed" => value.ActivationState == BaseActivationState.Disposed,
+                "effect-reconciled" => value.ActivationState is BaseActivationState.Succeeded or BaseActivationState.Exhausted,
+                _ => false,
+            };
+    }
+
+    private static byte[] RecoveryLifetime(BaseSemanticRecoverySubjectLifetimePreimage? value) => value is null ? [] :
+        Hash("base.semanticRecovery.subjectLifetimePreimage.v1\0", System.Text.Encoding.UTF8.GetBytes(value.ContractId),
+            Int32(value.ContractVersion), value.ContractChecksum.ToArray(), value.SubjectId.ToUtf8Bytes(),
+            System.Text.Encoding.UTF8.GetBytes(value.AuthorityEpoch.ToBase64Url()),
+            System.Text.Encoding.UTF8.GetBytes(value.Incarnation.ToBase64Url())).ToArray();
+
     private static byte[] Accounting(BaseSemanticActivationAccounting value)
     {
         long[] values = [value.Operations, value.ScopeDirectoryReads, value.SlotReads, value.ActivationReads, value.ReadIntervals,
