@@ -3274,6 +3274,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             long? capturedActivationGeneration = null;
             BaseActivationState? capturedActivationState = null;
             ImmutableArray<byte> capturedActivationChecksum = [];
+            ImmutableArray<byte> capturedTerminalReceiptChecksum = [];
             if (slot?.Live is not null)
             {
                 state = BaseSemanticActivationCapturedState.Live; live = slot.Live with { KeyDigest = keyDigest };
@@ -3282,6 +3283,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 capturedActivationGeneration = mapped.Generation;
                 capturedActivationState = mapped.State;
                 capturedActivationChecksum = mapped.ControlChecksum.ToArray().ToImmutableArray();
+                capturedTerminalReceiptChecksum = mapped.TerminalReceiptChecksum?.ToArray().ToImmutableArray() ?? [];
             }
             else if (slot?.Retired is not null) { state = BaseSemanticActivationCapturedState.Retired; retired = slot.Retired with { KeyDigest = keyDigest }; }
             else if (slot?.Absent is not null) { state = BaseSemanticActivationCapturedState.CompactedAbsent; absent = slot.Absent with { Key = keyDigest }; }
@@ -3303,6 +3305,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 State = state, ScopeDirectory = scopeCapture, Missing = missing, Live = live, Retired = retired, Absent = absent,
                 ActivationGeneration = capturedActivationGeneration, ActivationChecksum = capturedActivationChecksum,
                 ActivationState = capturedActivationState,
+                ActivationTerminalReceiptChecksum = capturedTerminalReceiptChecksum,
                 ReadIntervals = semanticIntervals, Accounting = accounting, AcceptedTime = capture.AcceptedTime, Checksum = [],
             };
             capturedResult = capturedResult with { Checksum = BaseSemanticActivationEvidenceContract.CapturedChecksum(extension, capturedResult) };
@@ -4660,6 +4663,13 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             BaseSemanticActivationOperation operation = semantic.Extension.Operation;
             long? activationGeneration = null;
             ImmutableArray<byte> activationChecksum = [];
+            ImmutableArray<byte> resultingSlotChecksum = semantic.PriorState switch
+            {
+                BaseSemanticActivationCapturedState.Live => _capturedMutation!.SemanticActivation!.Live!.Checksum,
+                BaseSemanticActivationCapturedState.Retired => _capturedMutation!.SemanticActivation!.Retired!.Checksum,
+                BaseSemanticActivationCapturedState.CompactedAbsent => _capturedMutation!.SemanticActivation!.Absent!.Checksum,
+                _ => [],
+            };
             if (operation is BaseSemanticActivationEnsureIntent ensure && semantic.PriorState == BaseSemanticActivationCapturedState.Missing)
             {
                 string activationId = semantic.ActivationId!;
@@ -4692,6 +4702,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     StoreAuthority = store, Checksum = [],
                 };
                 live = live with { Checksum = BaseSemanticActivationEvidenceContract.LiveChecksum(live) };
+                resultingSlotChecksum = live.Checksum;
                 _working.SemanticActivationSlots.Add(semantic.SlotKey, new InMemorySemanticActivationSlot
                 {
                     CanonicalKey = ensure.CanonicalKey.ToArray(), ScopeBinding = semantic.Binding, Live = live,
@@ -4721,6 +4732,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     SlotGeneration = semantic.ResultingGeneration, StoreAuthority = prior.StoreAuthority, Checksum = [],
                 };
                 retired = retired with { Checksum = BaseSemanticActivationEvidenceContract.RetirementChecksum(retired) };
+                resultingSlotChecksum = retired.Checksum;
                 _working.SemanticActivationSlots[semantic.SlotKey] = _working.SemanticActivationSlots[semantic.SlotKey] with { Live = null, Retired = retired };
                 activationGeneration = row.Generation; activationChecksum = row.ControlChecksum.ToImmutableArray();
             }
@@ -4731,7 +4743,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             var provisional = new BaseProvisionalSemanticActivation
             {
                 Operation = prepared.Operation, PriorState = prepared.PriorState, ResultingState = prepared.ResultingState,
-                ResultingSlotGeneration = prepared.ResultingSlotGeneration, ActivationId = prepared.ResultingActivationId,
+                ResultingSlotGeneration = prepared.ResultingSlotGeneration, ResultingSlotChecksum = resultingSlotChecksum,
+                ActivationId = prepared.ResultingActivationId,
                 ActivationGeneration = activationGeneration, ActivationChecksum = activationChecksum,
                 CommitJournalPosition = _working.GlobalMutationPosition,
                 Accounting = prepared.Accounting, Checksum = [],

@@ -771,9 +771,13 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         {
             if (captured.ActivationGeneration is not > 0 || captured.ActivationChecksum.Length != 32
                 || captured.ActivationState is null || !Enum.IsDefined(captured.ActivationState.Value)) return false;
+            bool terminal = captured.ActivationState.Value is BaseActivationState.Succeeded or BaseActivationState.Exhausted
+                or BaseActivationState.Cancelled or BaseActivationState.Migrated or BaseActivationState.Disposed;
+            if (terminal ? captured.ActivationTerminalReceiptChecksum.Length != 32
+                : !captured.ActivationTerminalReceiptChecksum.IsDefaultOrEmpty) return false;
         }
         else if (captured.ActivationGeneration is not null || captured.ActivationState is not null
-            || !captured.ActivationChecksum.IsDefaultOrEmpty) return false;
+            || !captured.ActivationChecksum.IsDefaultOrEmpty || !captured.ActivationTerminalReceiptChecksum.IsDefaultOrEmpty) return false;
         return CryptographicOperations.FixedTimeEquals(
             BaseSemanticActivationEvidenceContract.CapturedChecksum(requested, captured).AsSpan(), captured.Checksum.AsSpan());
     }
@@ -1194,7 +1198,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             || applied.Generations.Length != module.Increments.Length
             || !DefaultBaseMutationProcessor.RetirementEvidenceMatches(plan.SubjectRetirement, applied.SubjectRetirement)
             || !AppliedActivationMatches(plan.Activations, prepared.Activations, applied.Activations)
-            || !AppliedSemanticMatches(plan.SemanticActivation, prepared.SemanticActivation, applied.SemanticActivation)
+            || !AppliedSemanticMatches(plan.SemanticActivation, captured.SemanticActivation, prepared.SemanticActivation, applied.SemanticActivation)
             || !BaseTextAtomicMutationContract.AppliedMatches(plan.Text, prepared.Text, applied.Text, applied.Facts))
             return false;
         for (int index = 0; index < applied.Generations.Length; index++)
@@ -1216,11 +1220,13 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
 
     private static bool AppliedSemanticMatches(
         BaseAtomicSemanticActivationExtension? plan,
+        BaseCapturedSemanticActivationEvidence? captured,
         BasePreparedSemanticActivation? prepared,
         BaseProvisionalSemanticActivation? applied)
     {
-        if (plan is null) return prepared is null && applied is null;
-        if (prepared is null || applied is null || applied.Checksum.Length != 32
+        if (plan is null) return captured is null && prepared is null && applied is null;
+        if (captured is null || prepared is null || applied is null || applied.Checksum.Length != 32
+            || applied.ResultingSlotChecksum.Length != 32
             || applied.Operation != prepared.Operation || applied.PriorState != prepared.PriorState
             || applied.ResultingState != prepared.ResultingState
             || applied.ResultingSlotGeneration != prepared.ResultingSlotGeneration
@@ -1230,7 +1236,8 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
                 ? applied.ActivationGeneration is not null || !applied.ActivationChecksum.IsDefaultOrEmpty
                 : applied.ActivationGeneration is not > 0 || applied.ActivationChecksum.Length != 32)
             || applied.CommitJournalPosition <= 0) return false;
-        if (!CryptographicOperations.FixedTimeEquals(applied.Checksum.AsSpan(), BaseSemanticActivationEvidenceContract.ProvisionalChecksum(prepared, applied).AsSpan())) return false;
+        if (!CryptographicOperations.FixedTimeEquals(applied.Checksum.AsSpan(), BaseSemanticActivationEvidenceContract.ProvisionalChecksum(prepared, applied).AsSpan())
+            || !ResultingSlotChecksumMatches(plan, captured, applied)) return false;
         if (prepared.PriorState == BaseSemanticActivationCapturedState.Missing && prepared.Operation == BaseSemanticActivationOperationKind.Ensure)
         {
             if (plan.Operation is not BaseSemanticActivationEnsureIntent ensure || applied.ActivationGeneration != 1
@@ -1239,6 +1246,60 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             return CryptographicOperations.FixedTimeEquals(expectedControl, applied.ActivationChecksum.AsSpan());
         }
         return true;
+    }
+
+    internal static bool ResultingSlotChecksumMatches(
+        BaseAtomicSemanticActivationExtension plan,
+        BaseCapturedSemanticActivationEvidence captured,
+        BaseProvisionalSemanticActivation applied)
+    {
+        ImmutableArray<byte> expected;
+        if (applied.PriorState == BaseSemanticActivationCapturedState.Live
+            && applied.Operation == BaseSemanticActivationOperationKind.Ensure)
+            expected = captured.Live?.Checksum ?? [];
+        else if (applied.PriorState == BaseSemanticActivationCapturedState.Retired)
+            expected = captured.Retired?.Checksum ?? [];
+        else if (applied.PriorState == BaseSemanticActivationCapturedState.CompactedAbsent)
+            expected = captured.Absent?.Checksum ?? [];
+        else if (applied.PriorState == BaseSemanticActivationCapturedState.Missing
+            && plan.Operation is BaseSemanticActivationEnsureIntent ensure
+            && captured.Missing is not null)
+        {
+            var live = new BaseSemanticActivationLiveAuthority
+            {
+                Definition = ensure.Definition, KeyDigest = ensure.Key, Scope = ensure.Scope,
+                ScopeBinding = captured.ScopeDirectory.ResultingBinding, SubjectLifetime = ensure.SubjectLifetime,
+                ActivationId = applied.ActivationId!, ActivationDefinition = ensure.Activation.Definition,
+                InputChecksum = ensure.Activation.InputChecksum, Due = ensure.Due,
+                SlotGeneration = applied.ResultingSlotGeneration, StoreAuthority = captured.Missing.StoreAuthority, Checksum = [],
+            };
+            expected = BaseSemanticActivationEvidenceContract.LiveChecksum(live);
+        }
+        else if (applied.PriorState == BaseSemanticActivationCapturedState.Live
+            && plan.Operation is BaseSemanticActivationRetireIntent retire
+            && captured.Live is not null && captured.ActivationState is { } terminalState
+            && captured.ActivationGeneration is { } terminalGeneration
+            && captured.ActivationChecksum.Length == 32 && captured.ActivationTerminalReceiptChecksum.Length == 32)
+        {
+            var retired = new BaseSemanticActivationRetirementAuthority
+            {
+                Definition = new BaseSemanticActivationDefinitionKey
+                {
+                    Id = retire.Definition.Id, Version = retire.Definition.Version, Checksum = retire.Definition.Checksum,
+                },
+                KeyDigest = retire.Key, SubjectLifetime = retire.SubjectLifetime, ActivationId = applied.ActivationId!,
+                TerminalState = terminalState, TerminalActivationGeneration = terminalGeneration,
+                TerminalActivationChecksum = captured.ActivationChecksum,
+                CompletionOperationChecksum = Convert.FromHexString(retire.CompletionOperation.OperationChecksum).ToImmutableArray(),
+                CompletionReceiptChecksum = captured.ActivationTerminalReceiptChecksum,
+                RetirementPosition = applied.CommitJournalPosition, SlotGeneration = applied.ResultingSlotGeneration,
+                StoreAuthority = captured.Live.StoreAuthority, Checksum = [],
+            };
+            expected = BaseSemanticActivationEvidenceContract.RetirementChecksum(retired);
+        }
+        else return false;
+        return expected.Length == 32
+            && CryptographicOperations.FixedTimeEquals(expected.AsSpan(), applied.ResultingSlotChecksum.AsSpan());
     }
 
     private static bool SemanticReadIntervalsEqual(
@@ -1296,7 +1357,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
                 BaseSemanticActivationCapturedState.Retired => BaseSemanticActivationRetirementDisposition.AlreadyRetired,
                 _ => BaseSemanticActivationRetirementDisposition.AlreadyCompacted,
             } : null;
-        byte[] slotChecksum = applied.Checksum.ToArray();
+        byte[] slotChecksum = applied.ResultingSlotChecksum.ToArray();
         byte[] commitChecksum = SemanticHash("base.semanticActivation.commit.v1\0", slotChecksum,
             BitConverter.GetBytes(applied.CommitJournalPosition).Reverse().ToArray());
         Span<byte> keyBytes = stackalloc byte[32]; key.CopyTo(keyBytes);

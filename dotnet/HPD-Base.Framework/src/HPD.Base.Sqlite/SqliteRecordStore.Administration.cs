@@ -243,6 +243,8 @@ public sealed partial class SqliteRecordStore
         IReadOnlyDictionary<string, long> preRestoreSubjectGenerations = new Dictionary<string, long>(StringComparer.Ordinal);
         long preRestoreLifecycleDeliveryEpoch = 1;
         ImmutableArray<BaseScheduleRecoveryFloor> preRestoreScheduleFloors = [];
+        long preRestoreActivationGeneration = 0;
+        SemanticRecoverySnapshot? preRestoreSemanticRecovery = null;
         ImmutableArray<string> consumedScheduleRecoveryNonces = [];
         ImmutableArray<BaseScheduleRecoveryFloor> selectedScheduleRecoveryFloors = [];
         string? consumedScheduleRecoveryNonce = null;
@@ -322,6 +324,8 @@ public sealed partial class SqliteRecordStore
             await using (SqliteConnection active = await _connections.OpenAsync(acquisition.Token).ConfigureAwait(false))
             {
                 preRestoreScheduleFloors = await CaptureScheduleRecoveryFloorsAsync(active, acquisition.Token).ConfigureAwait(false);
+                (preRestoreActivationGeneration, _) = await ReadActivationAuthorityAsync(active, null, acquisition.Token).ConfigureAwait(false);
+                preRestoreSemanticRecovery = await CaptureSemanticRecoverySnapshotAsync(active, acquisition.Token).ConfigureAwait(false);
                 consumedScheduleRecoveryNonces = await ReadConsumedRecoveryNoncesAsync(active, acquisition.Token).ConfigureAwait(false);
             }
             if (!Enum.IsDefined(request.ScheduleRestoreDomain)
@@ -422,7 +426,9 @@ public sealed partial class SqliteRecordStore
                     preRestoreSubjectGenerations,
                     preRestoreLifecycleDeliveryEpoch,
                     cancellationToken).ConfigureAwait(false);
-                await TransformRestoredActivationAuthoritiesAsync(installed, manifest.RestoreEpoch, epoch, selectedScheduleRecoveryFloors,
+                await TransformRestoredActivationAuthoritiesAsync(installed, manifest.RestoreEpoch, epoch, manifest.SchemaGeneration,
+                    preRestoreActivationGeneration, selectedScheduleRecoveryFloors,
+                    preRestoreSemanticRecovery, recovery,
                     consumedScheduleRecoveryNonces, consumedScheduleRecoveryNonce, cancellationToken).ConfigureAwait(false);
             }
             Volatile.Write(ref _schemaGeneration, manifest.SchemaGeneration);

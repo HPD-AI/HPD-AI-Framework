@@ -39,13 +39,18 @@ public sealed partial class SqliteRecordStore
     }
 
     private async ValueTask TransformRestoredActivationAuthoritiesAsync(
-        SqliteConnection connection, long sourceRestoreEpoch, long restoreEpoch,
+        SqliteConnection connection, long sourceRestoreEpoch, long restoreEpoch, long artifactSchemaGeneration,
+        long preRestoreActivationGeneration,
         ImmutableArray<BaseScheduleRecoveryFloor> recoveryFloors,
+        SemanticRecoverySnapshot? semanticRecovery,
+        string recoveryDatabasePath,
         ImmutableArray<string> consumedRecoveryNonces,
         string? consumedManifestNonce,
         CancellationToken cancellationToken)
     {
         await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        (long artifactActivationGeneration, _) = await ReadActivationAuthorityAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+        long resultingActivationGeneration = checked(Math.Max(artifactActivationGeneration, preRestoreActivationGeneration) + 1);
         long acceptedNow;
         await using (SqliteCommand time = connection.CreateCommand())
         {
@@ -117,10 +122,42 @@ public sealed partial class SqliteRecordStore
             await write.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
         await RebindActivationPruneFloorsAsync(connection, transaction, sourceRestoreEpoch, restoreEpoch, cancellationToken).ConfigureAwait(false);
-        if (claimed.Count != 0) await IncrementActivationGenerationAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+        await RestoreSemanticRecoverySnapshotAsync(connection, transaction, sourceRestoreEpoch, restoreEpoch, artifactSchemaGeneration,
+            semanticRecovery, recoveryDatabasePath, preRestoreActivationGeneration, resultingActivationGeneration, cancellationToken).ConfigureAwait(false);
+        await RebindAllActivationPruneFloorsGenerationAsync(connection, transaction, restoreEpoch, resultingActivationGeneration, cancellationToken).ConfigureAwait(false);
+        await using (SqliteCommand publish = connection.CreateCommand())
+        {
+            publish.Transaction = transaction;
+            publish.CommandText = $"UPDATE {_names.ProviderState} SET value=$resulting WHERE key='activation_generation' AND CAST(value AS INTEGER)=$artifact;";
+            publish.Parameters.AddWithValue("$resulting", resultingActivationGeneration); publish.Parameters.AddWithValue("$artifact", artifactActivationGeneration);
+            if (await publish.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1) throw new InvalidDataException("base.activation.restoreConflict");
+        }
         if (!await ActivationRowCapacityAllowsAsync(connection, transaction, cancellationToken).ConfigureAwait(false))
             throw new InvalidDataException("base.activation.capacityUnavailable");
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask RebindAllActivationPruneFloorsGenerationAsync(SqliteConnection connection, SqliteTransaction transaction,
+        long restoreEpoch, long resultingGeneration, CancellationToken cancellationToken)
+    {
+        var rows = new List<BaseActivationPruneEvidence>();
+        await using (SqliteCommand read = connection.CreateCommand())
+        {
+            read.Transaction = transaction;
+            read.CommandText = $"SELECT activation_id,definition_id,definition_version,definition_checksum,terminal_generation,terminal_control_checksum,terminal_receipt_checksum,occurrence_checksum,result_checksum,prune_authority_generation,application_id,logical_store_id,store_instance_id,restore_epoch,publication_authority_checksum,authority_checksum FROM {_names.ActivationPruneFloors} ORDER BY activation_id;";
+            await using SqliteDataReader reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) rows.Add(new BaseActivationPruneEvidence
+            {
+                ActivationId=reader.GetString(0),Definition=new(){Id=reader.GetString(1),Version=reader.GetInt32(2),Checksum=((byte[])reader[3]).ToImmutableArray()},TerminalGeneration=reader.GetInt64(4),TerminalControlChecksum=((byte[])reader[5]).ToImmutableArray(),TerminalReceiptChecksum=((byte[])reader[6]).ToImmutableArray(),OccurrenceChecksum=reader.IsDBNull(7)?null:((byte[])reader[7]).ToImmutableArray(),ResultChecksum=reader.IsDBNull(8)?null:((byte[])reader[8]).ToImmutableArray(),PruneAuthorityGeneration=reader.GetInt64(9),ApplicationId=reader.GetString(10),LogicalStoreId=reader.GetString(11),StoreInstanceId=reader.GetString(12),RestoreEpoch=reader.GetInt64(13),PublicationAuthorityChecksum=((byte[])reader[14]).ToImmutableArray(),Checksum=((byte[])reader[15]).ToImmutableArray()
+            });
+        }
+        foreach (BaseActivationPruneEvidence prior in rows)
+        {
+            if (!BaseActivationPruneEvidenceContract.IsValid(prior) || prior.RestoreEpoch != restoreEpoch) throw new InvalidDataException("base.activation.restoreConflict");
+            byte[] publication=SHA256.HashData(Encoding.UTF8.GetBytes($"base.activation.publicationAuthority.v1\0{prior.ApplicationId}\n{prior.LogicalStoreId}\n{prior.StoreInstanceId}\n{restoreEpoch}\n{resultingGeneration}"));
+            BaseActivationPruneEvidence replacement=prior with{PruneAuthorityGeneration=resultingGeneration,PublicationAuthorityChecksum=publication.ToImmutableArray(),Checksum=[]}; replacement=replacement with{Checksum=BaseActivationPruneEvidenceContract.Checksum(replacement)};
+            await using SqliteCommand update=connection.CreateCommand();update.Transaction=transaction;update.CommandText=$"UPDATE {_names.ActivationPruneFloors} SET prune_authority_generation=$generation,publication_authority_checksum=$publication,authority_checksum=$checksum WHERE activation_id=$id;";update.Parameters.AddWithValue("$generation",resultingGeneration);update.Parameters.Add("$publication",SqliteType.Blob).Value=publication;update.Parameters.Add("$checksum",SqliteType.Blob).Value=replacement.Checksum.ToArray();update.Parameters.AddWithValue("$id",prior.ActivationId);if(await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false)!=1)throw new InvalidDataException("base.activation.restoreConflict");
+        }
     }
 
     private async ValueTask RebindActivationPruneFloorsAsync(SqliteConnection connection, SqliteTransaction transaction,

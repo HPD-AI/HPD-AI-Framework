@@ -533,25 +533,29 @@ public sealed partial class SqliteRecordStore
             { Operation: BaseSemanticActivationOperationKind.Retire, State: BaseSemanticActivationSlotState.Retired } semantic)
         {
             byte[] key = semantic.Key.ToArray();
+            byte[] receiptAuthority = BaseSemanticActivationEvidenceContract.RecoveryReceiptChecksum(request.Identity.Scope,
+                request.Identity.Operation, request.Identity.IdempotencyKey, request.Identity.Fingerprint.ToArray(),
+                request.StructuralDigest, result).ToArray();
             await using SqliteCommand floor = connection.CreateCommand(); floor.Transaction = transaction;
             floor.CommandText = $"""
 INSERT INTO {_names.SemanticActivationRecoveryFloors}(
   definition_id,binding_id,key_digest,state,slot_generation,authority_json,
-  receipt_scope,receipt_operation,receipt_key,receipt_fingerprint,receipt_structural_digest,receipt_result_json)
+  receipt_scope,receipt_operation,receipt_key,receipt_fingerprint,receipt_structural_digest,receipt_result_json,receipt_authority_checksum)
 SELECT definition_id,binding_id,key_digest,state,slot_generation,authority_json,
-  $scope,$operation,$receiptKey,$fingerprint,$structural,$result
+  $scope,$operation,$receiptKey,$fingerprint,$structural,$result,$receiptAuthority
 FROM {_names.SemanticActivationSlots}
 WHERE definition_id=$definition AND key_digest=$semanticKey AND state=2
 ON CONFLICT(definition_id,binding_id,key_digest) DO UPDATE SET
   state=excluded.state,slot_generation=excluded.slot_generation,authority_json=excluded.authority_json,
   receipt_scope=excluded.receipt_scope,receipt_operation=excluded.receipt_operation,receipt_key=excluded.receipt_key,
   receipt_fingerprint=excluded.receipt_fingerprint,receipt_structural_digest=excluded.receipt_structural_digest,
-  receipt_result_json=excluded.receipt_result_json
+  receipt_result_json=excluded.receipt_result_json,receipt_authority_checksum=excluded.receipt_authority_checksum
 WHERE excluded.slot_generation>=slot_generation;
 """;
             floor.Parameters.AddWithValue("$scope", request.Identity.Scope); floor.Parameters.AddWithValue("$operation", request.Identity.Operation);
             floor.Parameters.AddWithValue("$receiptKey", request.Identity.IdempotencyKey); floor.Parameters.Add("$fingerprint", SqliteType.Blob).Value = request.Identity.Fingerprint.ToArray();
             floor.Parameters.Add("$structural", SqliteType.Blob).Value = request.StructuralDigest; floor.Parameters.Add("$result", SqliteType.Blob).Value = result;
+            floor.Parameters.Add("$receiptAuthority", SqliteType.Blob).Value = receiptAuthority;
             floor.Parameters.AddWithValue("$definition", semantic.DefinitionId); floor.Parameters.Add("$semanticKey", SqliteType.Blob).Value = key;
             if (await floor.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
                 throw new InvalidDataException(BaseSemanticActivationErrorCodes.ProviderContractInvalid);
@@ -1444,6 +1448,7 @@ WHERE excluded.slot_generation>=slot_generation;
             {
                 State = state, ScopeDirectory = scopeCapture, Missing = missing, Live = live, Retired = retired, Absent = absent,
                 ActivationGeneration = activationGeneration, ActivationState = activationState, ActivationChecksum = activationChecksum,
+                ActivationTerminalReceiptChecksum = (_capturedSemanticTerminalReceiptChecksum ?? []).ToImmutableArray(),
                 ReadIntervals = [scopeInterval, slotInterval], Accounting = accounting,
                 AcceptedTime = capture.AcceptedTime, Checksum = [],
             };
@@ -2980,6 +2985,13 @@ WHERE excluded.slot_generation>=slot_generation;
             await EnsureSemanticCapacityAsync(semantic, token).ConfigureAwait(false);
             long? activationGeneration = null;
             ImmutableArray<byte> activationChecksum = [];
+            ImmutableArray<byte> resultingSlotChecksum = semantic.PriorState switch
+            {
+                BaseSemanticActivationCapturedState.Live => _capturedMutation!.SemanticActivation!.Live!.Checksum,
+                BaseSemanticActivationCapturedState.Retired => _capturedMutation!.SemanticActivation!.Retired!.Checksum,
+                BaseSemanticActivationCapturedState.CompactedAbsent => _capturedMutation!.SemanticActivation!.Absent!.Checksum,
+                _ => [],
+            };
             bool changesState = semantic.PriorState == BaseSemanticActivationCapturedState.Missing
                 || operation is BaseSemanticActivationRetireIntent && semantic.PriorState == BaseSemanticActivationCapturedState.Live;
             long journalPosition = await SemanticJournalPositionAsync(changesState, token).ConfigureAwait(false);
@@ -3010,6 +3022,7 @@ WHERE excluded.slot_generation>=slot_generation;
                     InputChecksum = ensure.Activation.InputChecksum, Due = ensure.Due, SlotGeneration = 1, StoreAuthority = store, Checksum = [],
                 };
                 live = live with { Checksum = BaseSemanticActivationEvidenceContract.LiveChecksum(live) };
+                resultingSlotChecksum = live.Checksum;
                 await InsertSemanticSlotAsync(ensure.Definition.Id, semantic.Binding.BindingId, ensure.Key, 1, 1, activationId,
                     JsonSerializer.SerializeToUtf8Bytes(live, HPDBaseJsonSerializerContext.Default.BaseSemanticActivationLiveAuthority), token).ConfigureAwait(false);
                 await _owner.IncrementActivationGenerationAsync(_connection, _transaction, token).ConfigureAwait(false);
@@ -3045,6 +3058,7 @@ WHERE excluded.slot_generation>=slot_generation;
                     SlotGeneration = prepared.ResultingSlotGeneration, StoreAuthority = prior.StoreAuthority, Checksum = [],
                 };
                 retired = retired with { Checksum = BaseSemanticActivationEvidenceContract.RetirementChecksum(retired) };
+                resultingSlotChecksum = retired.Checksum;
                 await UpdateSemanticSlotAsync(retire.Definition.Id, semantic.Binding.BindingId, retire.Key, 2,
                     prepared.ResultingSlotGeneration,
                     null, JsonSerializer.SerializeToUtf8Bytes(retired, HPDBaseJsonSerializerContext.Default.BaseSemanticActivationRetirementAuthority), token).ConfigureAwait(false);
@@ -3052,7 +3066,8 @@ WHERE excluded.slot_generation>=slot_generation;
             var provisional = new BaseProvisionalSemanticActivation
             {
                 Operation = prepared.Operation, PriorState = prepared.PriorState, ResultingState = prepared.ResultingState,
-                ResultingSlotGeneration = prepared.ResultingSlotGeneration, ActivationId = prepared.ResultingActivationId,
+                ResultingSlotGeneration = prepared.ResultingSlotGeneration, ResultingSlotChecksum = resultingSlotChecksum,
+                ActivationId = prepared.ResultingActivationId,
                 ActivationGeneration = activationGeneration, ActivationChecksum = activationChecksum,
                 CommitJournalPosition = journalPosition, Accounting = prepared.Accounting, Checksum = [],
             };

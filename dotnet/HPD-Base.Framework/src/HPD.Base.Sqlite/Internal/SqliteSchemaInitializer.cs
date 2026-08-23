@@ -406,9 +406,9 @@ CREATE TABLE IF NOT EXISTS {_names.SemanticActivationRecoveryFloors} (
   definition_id TEXT NOT NULL, binding_id BLOB NOT NULL CHECK(length(binding_id)=32), key_digest BLOB NOT NULL CHECK(length(key_digest)=32),
   state INTEGER NOT NULL CHECK(state IN (2,3)), slot_generation INTEGER NOT NULL CHECK(slot_generation>0), authority_json BLOB NOT NULL,
   receipt_scope TEXT NULL, receipt_operation TEXT NULL, receipt_key TEXT NULL, receipt_fingerprint BLOB NULL,
-  receipt_structural_digest BLOB NULL, receipt_result_json BLOB NULL,
-  CHECK((receipt_scope IS NULL AND receipt_operation IS NULL AND receipt_key IS NULL AND receipt_fingerprint IS NULL AND receipt_structural_digest IS NULL AND receipt_result_json IS NULL)
-     OR (receipt_scope IS NOT NULL AND receipt_operation IS NOT NULL AND receipt_key IS NOT NULL AND length(receipt_fingerprint)=32 AND length(receipt_structural_digest)=32 AND receipt_result_json IS NOT NULL)),
+  receipt_structural_digest BLOB NULL, receipt_result_json BLOB NULL, receipt_authority_checksum BLOB NULL,
+  CHECK((receipt_scope IS NULL AND receipt_operation IS NULL AND receipt_key IS NULL AND receipt_fingerprint IS NULL AND receipt_structural_digest IS NULL AND receipt_result_json IS NULL AND receipt_authority_checksum IS NULL)
+     OR (receipt_scope IS NOT NULL AND receipt_operation IS NOT NULL AND receipt_key IS NOT NULL AND length(receipt_fingerprint)=32 AND length(receipt_structural_digest)=32 AND receipt_result_json IS NOT NULL AND length(receipt_authority_checksum)=32)),
   PRIMARY KEY(definition_id,binding_id,key_digest)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.SemanticActivationRewriteStage} (
@@ -865,9 +865,9 @@ CREATE TABLE IF NOT EXISTS {_names.SemanticActivationRecoveryFloors} (
   definition_id TEXT NOT NULL, binding_id BLOB NOT NULL CHECK(length(binding_id)=32), key_digest BLOB NOT NULL CHECK(length(key_digest)=32),
   state INTEGER NOT NULL CHECK(state IN (2,3)), slot_generation INTEGER NOT NULL CHECK(slot_generation>0), authority_json BLOB NOT NULL,
   receipt_scope TEXT NULL, receipt_operation TEXT NULL, receipt_key TEXT NULL, receipt_fingerprint BLOB NULL,
-  receipt_structural_digest BLOB NULL, receipt_result_json BLOB NULL,
-  CHECK((receipt_scope IS NULL AND receipt_operation IS NULL AND receipt_key IS NULL AND receipt_fingerprint IS NULL AND receipt_structural_digest IS NULL AND receipt_result_json IS NULL)
-     OR (receipt_scope IS NOT NULL AND receipt_operation IS NOT NULL AND receipt_key IS NOT NULL AND length(receipt_fingerprint)=32 AND length(receipt_structural_digest)=32 AND receipt_result_json IS NOT NULL)),
+  receipt_structural_digest BLOB NULL, receipt_result_json BLOB NULL, receipt_authority_checksum BLOB NULL,
+  CHECK((receipt_scope IS NULL AND receipt_operation IS NULL AND receipt_key IS NULL AND receipt_fingerprint IS NULL AND receipt_structural_digest IS NULL AND receipt_result_json IS NULL AND receipt_authority_checksum IS NULL)
+     OR (receipt_scope IS NOT NULL AND receipt_operation IS NOT NULL AND receipt_key IS NOT NULL AND length(receipt_fingerprint)=32 AND length(receipt_structural_digest)=32 AND receipt_result_json IS NOT NULL AND length(receipt_authority_checksum)=32)),
   PRIMARY KEY(definition_id,binding_id,key_digest)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.SemanticActivationRewriteStage} (
@@ -1242,7 +1242,7 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
         [
             ("definition_id","TEXT",true,true),("binding_id","BLOB",true,true),("key_digest","BLOB",true,true),("state","INTEGER",true,false),
             ("slot_generation","INTEGER",true,false),("authority_json","BLOB",true,false),("receipt_scope","TEXT",false,false),("receipt_operation","TEXT",false,false),
-            ("receipt_key","TEXT",false,false),("receipt_fingerprint","BLOB",false,false),("receipt_structural_digest","BLOB",false,false),("receipt_result_json","BLOB",false,false),
+            ("receipt_key","TEXT",false,false),("receipt_fingerprint","BLOB",false,false),("receipt_structural_digest","BLOB",false,false),("receipt_result_json","BLOB",false,false),("receipt_authority_checksum","BLOB",false,false),
         ], ["definition_id","binding_id","key_digest"]);
         await Exact(_names.SemanticActivationRewriteStage,
         [
@@ -1253,7 +1253,7 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
         await RequireSql(_names.SemanticActivationMaintenance,
             "CHECK((DISPOSITION=3ANDCHECKPOINT_CHECKSUMISNOTNULLANDLENGTH(CHECKPOINT_CHECKSUM)=32ANDRESULT_CHECKSUMISNULLANDCOMMIT_CHECKSUMISNULL)OR(DISPOSITION<>3ANDCHECKPOINT_CHECKSUMISNULLANDLENGTH(RESULT_CHECKSUM)=32ANDLENGTH(COMMIT_CHECKSUM)=32))");
         await RequireSql(_names.SemanticActivationRecoveryFloors,
-            "CHECK((RECEIPT_SCOPEISNULLANDRECEIPT_OPERATIONISNULLANDRECEIPT_KEYISNULLANDRECEIPT_FINGERPRINTISNULLANDRECEIPT_STRUCTURAL_DIGESTISNULLANDRECEIPT_RESULT_JSONISNULL)OR(RECEIPT_SCOPEISNOTNULLANDRECEIPT_OPERATIONISNOTNULLANDRECEIPT_KEYISNOTNULLANDLENGTH(RECEIPT_FINGERPRINT)=32ANDLENGTH(RECEIPT_STRUCTURAL_DIGEST)=32ANDRECEIPT_RESULT_JSONISNOTNULL))");
+            "CHECK((RECEIPT_SCOPEISNULLANDRECEIPT_OPERATIONISNULLANDRECEIPT_KEYISNULLANDRECEIPT_FINGERPRINTISNULLANDRECEIPT_STRUCTURAL_DIGESTISNULLANDRECEIPT_RESULT_JSONISNULLANDRECEIPT_AUTHORITY_CHECKSUMISNULL)OR(RECEIPT_SCOPEISNOTNULLANDRECEIPT_OPERATIONISNOTNULLANDRECEIPT_KEYISNOTNULLANDLENGTH(RECEIPT_FINGERPRINT)=32ANDLENGTH(RECEIPT_STRUCTURAL_DIGEST)=32ANDRECEIPT_RESULT_JSONISNOTNULLANDLENGTH(RECEIPT_AUTHORITY_CHECKSUM)=32))");
         await RequireSql(_names.SemanticActivationMigrations, "CHECK(LENGTH(AUTHORITY_CHECKSUM)=32)");
         await RequireSql(_names.SemanticActivationRewriteStage, "CHECK(LENGTH(SOURCE_CHECKSUM)=32)");
 

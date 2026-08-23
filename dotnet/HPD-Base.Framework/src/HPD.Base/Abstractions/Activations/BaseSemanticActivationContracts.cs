@@ -248,6 +248,24 @@ public static class BaseSemanticActivationEvidenceContract
     public static ImmutableArray<byte> MissingAccessPathChecksum(ReadOnlySpan<byte> canonicalSlotBound) =>
         System.Security.Cryptography.SHA256.HashData(canonicalSlotBound).ToImmutableArray();
 
+    /// <summary>Computes the canonical checksum for one exported-subject lifetime binding.</summary>
+    public static ImmutableArray<byte> SubjectLifetimeChecksum(BaseSemanticActivationSubjectLifetimeBinding value) =>
+        Hash("base.semanticActivation.subjectLifetime.v1\0", System.Text.Encoding.UTF8.GetBytes(value.ContractId),
+            Int32(value.ContractVersion), value.ContractChecksum.ToArray(), value.SubjectId.ToUtf8Bytes(),
+            System.Text.Encoding.UTF8.GetBytes(value.AuthorityEpoch.ToBase64Url()),
+            System.Text.Encoding.UTF8.GetBytes(value.Incarnation.ToBase64Url()), value.ScopeBindingId.ToArray());
+
+    /// <summary>Computes the canonical corruption-detection checksum for retained semantic receipt authority.</summary>
+    public static ImmutableArray<byte> RecoveryReceiptChecksum(string scope, string operation, string key,
+        ReadOnlySpan<byte> fingerprint, ReadOnlySpan<byte> structuralDigest, ReadOnlySpan<byte> resultJson)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(scope); ArgumentException.ThrowIfNullOrWhiteSpace(operation);
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        return Hash("base.semanticActivation.recoveryReceipt.v1\0", System.Text.Encoding.UTF8.GetBytes(scope),
+            System.Text.Encoding.UTF8.GetBytes(operation), System.Text.Encoding.UTF8.GetBytes(key),
+            fingerprint.ToArray(), structuralDigest.ToArray(), resultJson.ToArray());
+    }
+
     /// <summary>Computes the canonical checksum for one live semantic-slot authority.</summary>
     public static ImmutableArray<byte> LiveChecksum(BaseSemanticActivationLiveAuthority value)
     {
@@ -292,7 +310,7 @@ public static class BaseSemanticActivationEvidenceContract
             extension.StructuralDigest.ToArray(), new byte[] { (byte)value.State }, value.ScopeDirectory.Checksum.ToArray(),
             value.Missing?.AccessPathChecksum.ToArray() ?? [], value.Live?.Checksum.ToArray() ?? [],
             value.Retired?.Checksum.ToArray() ?? [], value.Absent?.Checksum.ToArray() ?? [],
-            Int64(value.ActivationGeneration ?? 0), value.ActivationChecksum.ToArray(),
+            Int64(value.ActivationGeneration ?? 0), value.ActivationChecksum.ToArray(), value.ActivationTerminalReceiptChecksum.ToArray(),
             new byte[] { value.ActivationState is null ? (byte)0 : (byte)value.ActivationState.Value },
             value.AcceptedTime.Checksum.ToArray(),
         };
@@ -327,7 +345,7 @@ public static class BaseSemanticActivationEvidenceContract
     /// <summary>Computes the canonical checksum for provisional semantic evidence.</summary>
     public static ImmutableArray<byte> ProvisionalChecksum(BasePreparedSemanticActivation prepared, BaseProvisionalSemanticActivation value) =>
         Hash("base.semanticActivation.provisional.v1\0", prepared.Checksum.ToArray(), [(byte)value.Operation], [(byte)value.PriorState],
-            [(byte)value.ResultingState], Int64(value.ResultingSlotGeneration), System.Text.Encoding.UTF8.GetBytes(value.ActivationId ?? string.Empty),
+            [(byte)value.ResultingState], Int64(value.ResultingSlotGeneration), value.ResultingSlotChecksum.ToArray(), System.Text.Encoding.UTF8.GetBytes(value.ActivationId ?? string.Empty),
             Int64(value.ActivationGeneration ?? 0), value.ActivationChecksum.ToArray(), Int64(value.CommitJournalPosition), Accounting(value.Accounting));
 
     private static byte[] Accounting(BaseSemanticActivationAccounting value)
@@ -696,6 +714,8 @@ public sealed record BaseCapturedSemanticActivationEvidence
     public BaseActivationState? ActivationState { get; init; }
     /// <summary>Gets the mapped activation control checksum only while the slot is live.</summary>
     public ImmutableArray<byte> ActivationChecksum { get; init; }
+    /// <summary>Gets the mapped activation terminal receipt checksum when the live mapping is terminal.</summary>
+    public ImmutableArray<byte> ActivationTerminalReceiptChecksum { get; init; }
     /// <summary>Gets normalized nonempty read intervals.</summary>
     public required ImmutableArray<BaseAtomicReadIntervalEvidence> ReadIntervals { get; init; }
     /// <summary>Gets exact capture accounting.</summary>
@@ -766,6 +786,8 @@ public sealed record BaseProvisionalSemanticActivation
     public required BaseSemanticActivationSlotState ResultingState { get; init; }
     /// <summary>Gets resulting slot generation.</summary>
     public required long ResultingSlotGeneration { get; init; }
+    /// <summary>Gets the canonical checksum of the resulting durable slot authority.</summary>
+    public required ImmutableArray<byte> ResultingSlotChecksum { get; init; }
     /// <summary>Gets activation ID when live.</summary>
     public string? ActivationId { get; init; }
     /// <summary>Gets activation generation when live.</summary>

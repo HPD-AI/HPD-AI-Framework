@@ -32,6 +32,8 @@ public sealed class AtomicExecutionTests
         first.Provisional!.ActivationId.Should().Be(second.Provisional!.ActivationId);
         first.Provisional!.ResultingSlotGeneration.Should().Be(1);
         second.Provisional!.ResultingSlotGeneration.Should().Be(1);
+        RejectsSubstitutedResultingSlotChecksum(first);
+        RejectsSubstitutedResultingSlotChecksum(second);
     }
 
     [Fact]
@@ -107,6 +109,18 @@ public sealed class AtomicExecutionTests
         first.Provisional!.ResultingState.Should().Be(BaseSemanticActivationSlotState.Retired);
         duplicate.CapturedState.Should().Be(BaseSemanticActivationCapturedState.Retired);
         duplicate.Provisional!.ResultingSlotGeneration.Should().Be(first.Provisional.ResultingSlotGeneration);
+        RejectsSubstitutedResultingSlotChecksum(first);
+        RejectsSubstitutedResultingSlotChecksum(duplicate);
+    }
+
+    private static void RejectsSubstitutedResultingSlotChecksum(SemanticEnsureProbe probe)
+    {
+        BaseProvisionalSemanticActivation hostile = probe.Provisional! with
+        {
+            ResultingSlotChecksum = Enumerable.Repeat((byte)0xA5, 32).ToImmutableArray(),
+        };
+        BaseModuleMutationProcessor<object, object>.ResultingSlotChecksumMatches(
+            probe.FinalizedExtension!, probe.CapturedEvidence!, hostile).Should().BeFalse();
     }
 
     [Fact]
@@ -1132,6 +1146,8 @@ public sealed class AtomicExecutionTests
         BaseActivationLimits? activationLimits = null) : IAtomicMutationProcessor
     {
         public BaseSemanticActivationCapturedState? CapturedState { get; private set; }
+        public BaseCapturedSemanticActivationEvidence? CapturedEvidence { get; private set; }
+        public BaseAtomicSemanticActivationExtension? FinalizedExtension { get; private set; }
         public BaseProvisionalSemanticActivation? Provisional { get; private set; }
         public string RejectedCode { get; private set; } = string.Empty;
 
@@ -1229,6 +1245,7 @@ public sealed class AtomicExecutionTests
             OperationResult<BaseCapturedAtomicExecution> captured = await session.CaptureAtomicExecutionAsync(request, cancellationToken);
             if (!captured.IsSuccess() || captured.Value?.SemanticActivation is null) { RejectedCode = captured.Error?.Code ?? "capture"; return ProbeFailure(captured.Error); }
             CapturedState = captured.Value.SemanticActivation.State;
+            CapturedEvidence = captured.Value.SemanticActivation;
             var plan = new BaseFinalizedAtomicExecutionPlan
             {
                 Kind = request.Kind, PlanDigest = $"semantic-plan-{parentIdentity}", IntentDigest = request.Intent.IntentDigest,
@@ -1241,6 +1258,7 @@ public sealed class AtomicExecutionTests
                     ResultProjectionDigest = parentIdentity,
                 },
             };
+            FinalizedExtension = extension;
             OperationResult<BasePreparedAtomicExecution> prepared = await session.PrepareAtomicExecutionAsync(captured.Value, plan, cancellationToken);
             if (!prepared.IsSuccess() || prepared.Value?.SemanticActivation is null) { RejectedCode = prepared.Error?.Code ?? "prepare"; return ProbeFailure(prepared.Error); }
             OperationResult<BaseProvisionalAtomicExecution> applied = await session.ApplyPreparedAtomicExecutionAsync(prepared.Value, cancellationToken);

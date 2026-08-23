@@ -463,7 +463,7 @@ WHERE m.contract_id=$contract AND m.contract_version=$version AND m.scope_kind=$
         string definitionId, byte[] binding, byte[] key, int state, long generation, byte[] authority, CancellationToken token)
     {
         await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction;
-        command.CommandText = $"INSERT INTO {_names.SemanticActivationRecoveryFloors}(definition_id,binding_id,key_digest,state,slot_generation,authority_json) VALUES($id,$binding,$key,$state,$generation,$authority) ON CONFLICT(definition_id,binding_id,key_digest) DO UPDATE SET state=excluded.state,slot_generation=excluded.slot_generation,authority_json=excluded.authority_json WHERE excluded.slot_generation>=slot_generation;";
+        command.CommandText = $"INSERT INTO {_names.SemanticActivationRecoveryFloors}(definition_id,binding_id,key_digest,state,slot_generation,authority_json) VALUES($id,$binding,$key,$state,$generation,$authority) ON CONFLICT(definition_id,binding_id,key_digest) DO UPDATE SET state=excluded.state,slot_generation=excluded.slot_generation,authority_json=excluded.authority_json,receipt_scope=NULL,receipt_operation=NULL,receipt_key=NULL,receipt_fingerprint=NULL,receipt_structural_digest=NULL,receipt_result_json=NULL,receipt_authority_checksum=NULL WHERE excluded.slot_generation>=slot_generation;";
         command.Parameters.AddWithValue("$id", definitionId); command.Parameters.Add("$binding", SqliteType.Blob).Value = binding;
         command.Parameters.Add("$key", SqliteType.Blob).Value = key; command.Parameters.AddWithValue("$state", state);
         command.Parameters.AddWithValue("$generation", generation); command.Parameters.Add("$authority", SqliteType.Blob).Value = authority;
