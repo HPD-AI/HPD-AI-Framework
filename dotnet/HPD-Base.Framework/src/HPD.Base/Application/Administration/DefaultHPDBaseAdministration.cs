@@ -38,14 +38,71 @@ internal sealed class DefaultHPDBaseAdministration(
     public async ValueTask<BaseResult<BaseRestoreResult>> RestoreAsync(Stream source, BaseRestoreRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        BaseRestoreRequest authorized = request with
-        {
-            RecoveryApplicationId = features.LogicalSchema.ApplicationId,
-            RecoveryVerificationKeys = scheduleRecoveryKeys.Keys,
-            RecoveryAcceptedNow = timeProvider.GetUtcNow().ToUnixTimeMilliseconds(),
-        };
         BaseResult<BaseRestoreResult> result = await RouteAsync(request.StoreId, request.Principal, BaseOperationKind.AdminRestore,
-            administration => administration.RestoreAsync(source, authorized, cancellationToken), cancellationToken).ConfigureAwait(false);
+            async administration =>
+            {
+                BaseRestoreRequest authorized = request with
+                {
+                    RecoveryApplicationId = features.LogicalSchema.ApplicationId,
+                    RecoveryVerificationKeys = scheduleRecoveryKeys.Keys,
+                    RecoveryAcceptedNow = timeProvider.GetUtcNow().ToUnixTimeMilliseconds(),
+                    SemanticRecoveryAuthority = null,
+                };
+                if (!semanticRecovery.Selections.TryGetValue(request.StoreId, out BaseSemanticActivationRestoreSelection? selection)
+                    || selection.EnabledRestoreMode != BaseActivationRestoreMode.NewDisasterDomain)
+                    return await administration.RestoreAsync(source, authorized, cancellationToken).ConfigureAwait(false);
+
+                Stream effective = source;
+                string? temporaryPath = null;
+                try
+                {
+                    if (!source.CanSeek)
+                    {
+                        temporaryPath = Path.Combine(Path.GetTempPath(), $"hpd-base-semantic-restore-{Guid.NewGuid():N}.tmp");
+                        var temporary = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.ReadWrite,
+                            FileShare.None, 131072, FileOptions.Asynchronous | FileOptions.SequentialScan);
+                        effective = temporary;
+                        byte[] buffer = new byte[131072]; long total = 0;
+                        while (true)
+                        {
+                            int read = await source.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+                            if (read == 0) break;
+                            total = checked(total + read);
+                            if (total > administration.AdministrationCapability.MaxArtifactBytes)
+                                return RestoreFailure(BaseAdministrationErrorCodes.ArtifactTooLarge, "The backup artifact exceeds the configured bound.");
+                            await temporary.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+                        }
+                        await temporary.FlushAsync(cancellationToken).ConfigureAwait(false);
+                        temporary.Position = 0;
+                    }
+                    long start = effective.Position;
+                    OperationResult<BaseBackupManifest> validation = await administration.ValidateBackupAsync(effective,
+                        new BaseBackupValidationRequest
+                        {
+                            StoreId = request.StoreId, Principal = request.Principal,
+                            ExpectedArtifactStoreIdentityDigest = request.ExpectedArtifactStoreIdentityDigest,
+                        }, cancellationToken).ConfigureAwait(false);
+                    if (!validation.IsSuccess() || validation.Value is null)
+                        return new OperationResult<BaseRestoreResult> { Status = validation.Status, Error = validation.Error,
+                            Warnings = validation.Warnings, Diagnostics = validation.Diagnostics };
+                    effective.Position = start;
+                    BaseResult<BaseSemanticRecoveryRestoreAuthority> recovery = await ReadSemanticRestoreAuthorityAsync(
+                        semanticRecovery, features.LogicalSchema.ApplicationId, request.StoreId,
+                        validation.Value, authorized.RecoveryAcceptedNow, cancellationToken).ConfigureAwait(false);
+                    if (recovery is not BaseSuccess<BaseSemanticRecoveryRestoreAuthority> success)
+                    {
+                        BaseFailure<BaseSemanticRecoveryRestoreAuthority> failure = (BaseFailure<BaseSemanticRecoveryRestoreAuthority>)recovery;
+                        return new OperationResult<BaseRestoreResult> { Status = failure.Status, Error = failure.Error };
+                    }
+                    return await administration.RestoreAsync(effective,
+                        authorized with { SemanticRecoveryAuthority = success.Value }, cancellationToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    if (!ReferenceEquals(effective, source)) await effective.DisposeAsync().ConfigureAwait(false);
+                    if (temporaryPath is not null) try { File.Delete(temporaryPath); } catch { }
+                }
+            }, cancellationToken).ConfigureAwait(false);
         if (result is BaseSuccess<BaseRestoreResult>)
         {
             try { await services.GetRequiredService<BaseSubjectControlDispatcher>().ReconcileAsync(cancellationToken).ConfigureAwait(false); }
@@ -53,6 +110,83 @@ internal sealed class DefaultHPDBaseAdministration(
         }
         return result;
     }
+
+    internal static async ValueTask<BaseResult<BaseSemanticRecoveryRestoreAuthority>> ReadSemanticRestoreAuthorityAsync(
+        BaseSemanticRecoveryAuthorityRegistry semanticRecovery, string applicationId,
+        string logicalStoreId, BaseBackupManifest artifact, long acceptedNow, CancellationToken cancellationToken)
+    {
+        var owned = semanticRecovery.Find(logicalStoreId);
+        if (owned is null) return SemanticRecoveryFailure();
+        BaseSemanticRecoveryAuthorityDefinition definition = owned.Value.Definition;
+        BaseSemanticRecoveryOperationLimits limits = definition.Limits;
+        byte[] artifactChecksum;
+        try { artifactChecksum = Convert.FromHexString(artifact.ProviderPayloadSha256); }
+        catch (FormatException) { return SemanticRecoveryFailure(); }
+        var headRequest = new BaseSemanticRecoveryHeadRequest
+        {
+            ApplicationId = applicationId, LogicalStoreId = logicalStoreId,
+            ArtifactId = artifact.ProviderPayloadSha256, ArtifactChecksum = artifactChecksum.ToImmutableArray(), Limits = limits,
+        };
+        try
+        {
+            BaseResult<BaseSemanticRecoveryPublishedHead> headResult = await semanticRecovery.InvokeAsync(logicalStoreId,
+                limits.ResolutionDeadline, headRequest, HPDBaseJsonSerializerContext.Default.BaseSemanticRecoveryHeadRequest,
+                HPDBaseJsonSerializerContext.Default.BaseSemanticRecoveryPublishedHead,
+                static (instance, value, token) => instance.ReadHeadAsync(value, token), cancellationToken).ConfigureAwait(false);
+            if (headResult is not BaseSuccess<BaseSemanticRecoveryPublishedHead> headSuccess
+                || !BaseSemanticRecoveryAuthorityContract.PublishedHeadIsValid(definition,
+                    headRequest.ApplicationId, headRequest.LogicalStoreId,
+                    BaseSemanticRecoveryAuthorityContract.HeadRequestChecksum(headRequest), headSuccess.Value)
+                || headSuccess.Value.HasPendingSuccessor || headSuccess.Value.PublishedSequence < artifact.SemanticTerminalPublicationSequence)
+                return SemanticRecoveryFailure();
+            var entries = ImmutableArray.CreateBuilder<BaseSemanticRecoveryPublicationEntry>();
+            long after = artifact.SemanticTerminalPublicationSequence; int pageCount = 0; long canonicalBytes = 0;
+            while (after < headSuccess.Value.PublishedSequence)
+            {
+                pageCount = checked(pageCount + 1);
+                if (pageCount > limits.MaximumPages) return SemanticRecoveryFailure();
+                int take = (int)Math.Min(limits.MaximumPageEntries, headSuccess.Value.PublishedSequence - after);
+                var pageRequest = new BaseSemanticRecoveryPageRequest
+                { Head = headSuccess.Value, AfterSequence = after, Take = take, Limits = limits };
+                BaseResult<BaseSemanticRecoveryPublicationPage> pageResult = await semanticRecovery.InvokeAsync(logicalStoreId,
+                    limits.ResolutionDeadline, pageRequest, HPDBaseJsonSerializerContext.Default.BaseSemanticRecoveryPageRequest,
+                    HPDBaseJsonSerializerContext.Default.BaseSemanticRecoveryPublicationPage,
+                    static (instance, value, token) => instance.ReadPageAsync(value, token), cancellationToken).ConfigureAwait(false);
+                if (pageResult is not BaseSuccess<BaseSemanticRecoveryPublicationPage> pageSuccess
+                    || !BaseSemanticRecoveryAuthorityContract.PublicationPageIsValid(pageRequest, pageSuccess.Value))
+                    return SemanticRecoveryFailure();
+                foreach (BaseSemanticRecoveryPublicationEntry entry in pageSuccess.Value.Entries)
+                    canonicalBytes = checked(canonicalBytes + JsonSerializer.SerializeToUtf8Bytes(
+                        entry, HPDBaseJsonSerializerContext.Default.BaseSemanticRecoveryPublicationEntry).LongLength);
+                if (canonicalBytes > limits.MaximumTransientBytes) return SemanticRecoveryFailure();
+                entries.AddRange(pageSuccess.Value.Entries);
+                after = pageSuccess.Value.NextAfterSequence ?? pageSuccess.Value.HeadSequence;
+                if (entries.Count > limits.MaximumEntries) return SemanticRecoveryFailure();
+            }
+            var authority = new BaseSemanticRecoveryRestoreAuthority
+            {
+                Definition = definition,
+                AcceptedNow = acceptedNow, PageCount = pageCount, CanonicalBytes = canonicalBytes,
+                TransientBytes = canonicalBytes, Limits = limits,
+                ArtifactSequence = artifact.SemanticTerminalPublicationSequence,
+                ArtifactOrderedChecksum = artifact.SemanticTerminalPublicationChecksum,
+                HeadRequest = headRequest, Head = headSuccess.Value,
+                Publications = entries.ToImmutable(), Checksum = [],
+            };
+            authority = authority with { Checksum = BaseSemanticRecoveryAuthorityContract.RestoreAuthorityChecksum(authority) };
+            return BaseSemanticRecoveryAuthorityContract.RestoreAuthorityIsValid(definition, authority)
+                ? new BaseSuccess<BaseSemanticRecoveryRestoreAuthority>(authority, OperationStatus.Ok, null, null, null, null)
+                : SemanticRecoveryFailure();
+        }
+        catch when (!cancellationToken.IsCancellationRequested) { return SemanticRecoveryFailure(); }
+    }
+
+    private static BaseFailure<BaseSemanticRecoveryRestoreAuthority> SemanticRecoveryFailure() => new(
+        OperationStatus.StoreError, new BaseError { Code = BaseSemanticActivationErrorCodes.RecoveryProofInvalid,
+            Message = "Semantic activation recovery proof is invalid.", Category = ErrorCategory.Store }, null, null);
+
+    private static OperationResult<BaseRestoreResult> RestoreFailure(string code, string message) => new()
+    { Status = OperationStatus.ValidationFailed, Error = new BaseError { Code = code, Message = message, Category = ErrorCategory.Validation } };
 
     public async ValueTask<BaseResult<BasePurgeResult>> PurgeAsync(BasePurgeRequest request, CancellationToken cancellationToken = default) =>
         BaseResultMapper.Map<BasePurgeResult, BasePurgeResult>(

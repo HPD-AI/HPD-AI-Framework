@@ -152,6 +152,7 @@ public sealed partial class SqliteRecordStore
         long restoreEpoch,
         long artifactSchemaGeneration,
         SemanticRecoverySnapshot? prior,
+        BaseSemanticRecoveryRestoreAuthority? external,
         string recoveryDatabasePath,
         long preRestoreActivationGeneration,
         long resultingActivationGeneration,
@@ -208,6 +209,19 @@ public sealed partial class SqliteRecordStore
                     RebindSemanticRecoveryRow(transformed, resultingGeneration, definitionSet, restoreEpoch, artifactSchemaGeneration), cancellationToken).ConfigureAwait(false);
             }
             if (count != prior.RowCount || !CryptographicOperations.FixedTimeEquals(rolling.GetHashAndReset(), prior.OrderedChecksum.AsSpan()))
+                throw new InvalidDataException(BaseSemanticActivationErrorCodes.RestoreConflict);
+        }
+        if (external is not null)
+        {
+            foreach (BaseSemanticRecoveryPublicationEntry entryPublication in external.Publications)
+                await ApplyExternalSemanticRecoveryPublicationAsync(connection, transaction, entryPublication,
+                    resultingGeneration, definitionSet, restoreEpoch, artifactSchemaGeneration,
+                    resultingActivationGeneration, external.AcceptedNow, cancellationToken).ConfigureAwait(false);
+            await using SqliteCommand publication = connection.CreateCommand(); publication.Transaction = transaction;
+            publication.CommandText = $"UPDATE {_names.ProviderState} SET value=CASE key WHEN 'semantic_terminal_publication_sequence' THEN $sequence ELSE $checksum END WHERE key IN ('semantic_terminal_publication_sequence','semantic_terminal_publication_checksum');";
+            publication.Parameters.AddWithValue("$sequence", external.Head.PublishedSequence);
+            publication.Parameters.AddWithValue("$checksum", Convert.ToHexStringLower(external.Head.OrderedEntrySetChecksum.AsSpan()));
+            if (await publication.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 2)
                 throw new InvalidDataException(BaseSemanticActivationErrorCodes.RestoreConflict);
         }
 
@@ -817,5 +831,235 @@ WHERE (excluded.state=3 AND {_names.SemanticActivationSlots}.state<>3) OR exclud
         command.Parameters.Add("$structural", SqliteType.Blob).Value = (object?)row.ReceiptStructuralDigest ?? DBNull.Value; command.Parameters.Add("$result", SqliteType.Blob).Value = (object?)row.ReceiptResultJson ?? DBNull.Value;
         command.Parameters.Add("$receiptAuthority", SqliteType.Blob).Value = (object?)row.ReceiptAuthorityChecksum ?? DBNull.Value;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask ApplyExternalSemanticRecoveryPublicationAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        BaseSemanticRecoveryPublicationEntry publication,
+        long semanticGeneration,
+        byte[] definitionSet,
+        long restoreEpoch,
+        long schemaGeneration,
+        long activationGeneration,
+        long acceptedNow,
+        CancellationToken cancellationToken)
+    {
+        if (!BaseSemanticRecoveryAuthorityContract.LocalReceiptEnvelopeIsValid(publication.LocalReceipt)
+            || publication.Entry.State != BaseSemanticActivationSlotState.Retired
+            || !BaseSemanticRecoveryAuthorityContract.TerminalActivationIsValid(publication.Entry.TerminalActivation)
+            || !CryptographicOperations.FixedTimeEquals(
+                BaseSemanticRecoveryAuthorityContract.RecoveryEntryChecksum(publication.Entry).AsSpan(),
+                publication.Entry.Checksum.AsSpan()))
+            throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+
+        BaseSemanticActivationRetirementAuthority retired = JsonSerializer.Deserialize(
+            publication.Entry.AuthorityBytes.AsSpan(),
+            HPDBaseJsonSerializerContext.Default.BaseSemanticActivationRetirementAuthority)
+            ?? throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+        BaseSemanticRecoveryTerminalActivationAuthority terminal = publication.Entry.TerminalActivation;
+        BaseSemanticActivationKeyDefinition? installedSemantic = _options.SemanticActivations.SingleOrDefault(value =>
+            value.Id == retired.Definition.Id && value.Version == retired.Definition.Version
+            && value.Checksum.AsSpan().SequenceEqual(retired.Definition.Checksum.AsSpan()));
+        if (installedSemantic is null
+            || installedSemantic.RetirementOperation.OperationId != publication.Entry.RetirementOperation.OperationId
+            || installedSemantic.RetirementOperation.OperationVersion != publication.Entry.RetirementOperation.OperationVersion
+            || installedSemantic.RetirementOperation.OperationChecksum != publication.Entry.RetirementOperation.OperationChecksum
+            || installedSemantic.Activation.Id != terminal.Payload.Definition.Id
+            || installedSemantic.Activation.Version != terminal.Payload.Definition.Version
+            || !installedSemantic.Activation.Checksum.AsSpan().SequenceEqual(terminal.Payload.Definition.Checksum.AsSpan()))
+            throw new InvalidDataException(BaseSemanticActivationErrorCodes.GraphChanged);
+        byte[] key = new byte[BaseSemanticActivationKeyDigest.Length]; retired.KeyDigest.CopyTo(key);
+        if (retired.Definition.Id != publication.Entry.Definition.Id
+            || retired.Definition.Version != publication.Entry.Definition.Version
+            || !retired.Definition.Checksum.AsSpan().SequenceEqual(publication.Entry.Definition.Checksum.AsSpan())
+            || retired.ActivationId != terminal.Payload.ActivationId
+            || retired.TerminalState != terminal.State || retired.TerminalActivationGeneration != terminal.Generation
+            || !retired.TerminalActivationChecksum.AsSpan().SequenceEqual(terminal.ControlChecksum.AsSpan())
+            || !retired.CompletionReceiptChecksum.AsSpan().SequenceEqual(terminal.TerminalReceipt.AuthorityChecksum.AsSpan())
+            || retired.SlotGeneration != publication.Entry.SlotGeneration
+            || !key.AsSpan().SequenceEqual(publication.Entry.Boundary.Key.ToArray())
+            || !publication.Entry.ScopeBinding.BindingId.AsSpan().SequenceEqual(publication.Entry.Boundary.ScopeBindingId.AsSpan())
+            || !CryptographicOperations.FixedTimeEquals(
+                BaseSemanticActivationEvidenceContract.RetirementChecksum(retired).AsSpan(), retired.Checksum.AsSpan()))
+            throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+
+        if (_subjectScopes is null || _subjectScopeProtectionKey is null || _subjectScopeProtectionKeyId is null)
+            throw new InvalidDataException(BaseSemanticActivationErrorCodes.ProviderContractInvalid);
+        BaseProtectedSubjectScope protectedScope = _subjectScopes.Protect(terminal.Payload.Scope, _subjectScopeProtectionKey.Value);
+        BaseSemanticActivationScopeBinding binding = BaseSemanticActivationEvidenceContract.CreateScopeBinding(
+            terminal.Payload.Scope.Kind, publication.Entry.ScopeBinding.BindingId.AsSpan(),
+            protectedScope.ProtectedCanonicalValue, protectedScope.IndexDigest,
+            _subjectScopeProtectionKeyId, _subjectScopeProtectionKey.Value);
+        await using (SqliteCommand priorScope = connection.CreateCommand())
+        {
+            priorScope.Transaction = transaction;
+            priorScope.CommandText = $"SELECT binding_json FROM {_names.SemanticActivationScopes} WHERE binding_id=$binding;";
+            priorScope.Parameters.Add("$binding", SqliteType.Blob).Value = binding.BindingId.ToArray();
+            if (await priorScope.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is byte[] priorJson)
+            {
+                BaseSemanticActivationScopeBinding prior = JsonSerializer.Deserialize(priorJson,
+                    HPDBaseJsonSerializerContext.Default.BaseSemanticActivationScopeBinding)
+                    ?? throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+                if (prior.Kind != terminal.Payload.Scope.Kind || _subjectScopes is null
+                    || !_subjectScopes.Matches(new BaseProtectedSubjectScope
+                    {
+                        Kind = prior.Kind,
+                        IndexDigest = prior.SeekDigest.ToArray(),
+                        ProtectedCanonicalValue = prior.ProtectedCanonicalScope.ToArray(),
+                    }, terminal.Payload.Scope))
+                    throw new InvalidDataException(BaseSemanticActivationErrorCodes.RestoreConflict);
+                await priorScope.DisposeAsync().ConfigureAwait(false);
+                await using SqliteCommand remove = connection.CreateCommand(); remove.Transaction = transaction;
+                remove.CommandText = $"DELETE FROM {_names.SemanticActivationScopes} WHERE binding_id=$binding;";
+                remove.Parameters.Add("$binding", SqliteType.Blob).Value = binding.BindingId.ToArray();
+                if (await remove.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                    throw new InvalidDataException(BaseSemanticActivationErrorCodes.RestoreConflict);
+            }
+        }
+        byte[] bindingJson = JsonSerializer.SerializeToUtf8Bytes(binding,
+            HPDBaseJsonSerializerContext.Default.BaseSemanticActivationScopeBinding);
+        await using (SqliteCommand scope = connection.CreateCommand())
+        {
+            scope.Transaction = transaction;
+            scope.CommandText = $"INSERT INTO {_names.SemanticActivationScopes}(scope_kind,seek_digest,binding_id,binding_json) VALUES($kind,$seek,$binding,$json) ON CONFLICT(scope_kind,seek_digest) DO UPDATE SET binding_id=excluded.binding_id,binding_json=excluded.binding_json WHERE binding_id=excluded.binding_id;";
+            scope.Parameters.AddWithValue("$kind", (int)binding.Kind);
+            scope.Parameters.Add("$seek", SqliteType.Blob).Value = binding.SeekDigest.ToArray();
+            scope.Parameters.Add("$binding", SqliteType.Blob).Value = binding.BindingId.ToArray();
+            scope.Parameters.Add("$json", SqliteType.Blob).Value = bindingJson;
+            if (await scope.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                throw new InvalidDataException(BaseSemanticActivationErrorCodes.RestoreConflict);
+        }
+
+        bool artifactHasActivation = await RequireArtifactActivationCompatibleWithTerminalAsync(
+            connection, transaction, terminal, cancellationToken).ConfigureAwait(false);
+
+        if (artifactHasActivation) await using (SqliteCommand clear = connection.CreateCommand())
+        {
+            clear.Transaction = transaction;
+            clear.CommandText = $"DELETE FROM {_names.ActivationEffects} WHERE activation_id=$id;";
+            clear.Parameters.AddWithValue("$id", terminal.Payload.ActivationId);
+            await clear.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        byte[] scopeDigest = SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
+            $"base.activation.scope.v2\0{(int)terminal.Payload.Scope.Kind}\n{terminal.Payload.Scope.Value ?? string.Empty}"));
+        if (artifactHasActivation) await using (SqliteCommand activation = connection.CreateCommand())
+        {
+            activation.Transaction = transaction;
+            activation.CommandText = $"""
+INSERT INTO {_names.Activations}(activation_id,definition_id,definition_version,definition_checksum,canonical_input,input_checksum,scope_kind,scope_value,scope_digest,payload_checksum,fingerprint,state,generation,requested_due_at,effective_due_at,occurrence_id,priority,overlap_key,overlap_policy,eligible,control_checksum,attempt_number,claim_epoch,claim_fence,claim_worker,lease_revision,lease_expires_at,canonical_result,terminal_receipt_checksum)
+VALUES($id,$definition,$version,$definitionChecksum,$input,$inputChecksum,$scopeKind,$scopeValue,$scopeDigest,$payloadChecksum,$fingerprint,$state,$generation,$requested,$effective,NULL,$priority,$overlapKey,$overlapPolicy,0,$control,$attempt,$claimEpoch,NULL,NULL,NULL,NULL,$result,$terminalReceipt)
+ON CONFLICT(activation_id) DO UPDATE SET definition_id=excluded.definition_id,definition_version=excluded.definition_version,definition_checksum=excluded.definition_checksum,canonical_input=excluded.canonical_input,input_checksum=excluded.input_checksum,scope_kind=excluded.scope_kind,scope_value=excluded.scope_value,scope_digest=excluded.scope_digest,payload_checksum=excluded.payload_checksum,fingerprint=excluded.fingerprint,state=excluded.state,generation=excluded.generation,requested_due_at=excluded.requested_due_at,effective_due_at=excluded.effective_due_at,occurrence_id=NULL,priority=excluded.priority,overlap_key=excluded.overlap_key,overlap_policy=excluded.overlap_policy,eligible=0,control_checksum=excluded.control_checksum,attempt_number=excluded.attempt_number,claim_epoch=excluded.claim_epoch,claim_fence=NULL,claim_worker=NULL,lease_revision=NULL,lease_expires_at=NULL,canonical_result=excluded.canonical_result,terminal_receipt_checksum=excluded.terminal_receipt_checksum;
+""";
+            activation.Parameters.AddWithValue("$id", terminal.Payload.ActivationId);
+            activation.Parameters.AddWithValue("$definition", terminal.Payload.Definition.Id);
+            activation.Parameters.AddWithValue("$version", terminal.Payload.Definition.Version);
+            activation.Parameters.Add("$definitionChecksum", SqliteType.Blob).Value = terminal.Payload.Definition.Checksum.ToArray();
+            activation.Parameters.Add("$input", SqliteType.Blob).Value = terminal.Payload.CanonicalInput.ToArray();
+            activation.Parameters.Add("$inputChecksum", SqliteType.Blob).Value = terminal.Payload.InputChecksum.ToArray();
+            activation.Parameters.AddWithValue("$scopeKind", (int)terminal.Payload.Scope.Kind);
+            activation.Parameters.AddWithValue("$scopeValue", terminal.Payload.Scope.Value ?? string.Empty);
+            activation.Parameters.Add("$scopeDigest", SqliteType.Blob).Value = scopeDigest;
+            activation.Parameters.Add("$payloadChecksum", SqliteType.Blob).Value = terminal.Payload.Checksum.ToArray();
+            activation.Parameters.Add("$fingerprint", SqliteType.Blob).Value = terminal.CreationFingerprint.ToArray();
+            activation.Parameters.AddWithValue("$state", (int)terminal.State);
+            activation.Parameters.AddWithValue("$generation", terminal.Generation);
+            activation.Parameters.AddWithValue("$requested", terminal.Payload.RequestedDueAt);
+            activation.Parameters.AddWithValue("$effective", terminal.Payload.EffectiveDueAt);
+            activation.Parameters.AddWithValue("$priority", terminal.Priority);
+            activation.Parameters.Add("$overlapKey", SqliteType.Blob).Value = terminal.OverlapKey is { } overlap ? overlap.ToArray() : DBNull.Value;
+            activation.Parameters.AddWithValue("$overlapPolicy", (int)terminal.OverlapPolicy);
+            activation.Parameters.Add("$control", SqliteType.Blob).Value = terminal.ControlChecksum.ToArray();
+            activation.Parameters.AddWithValue("$attempt", terminal.AttemptNumber);
+            activation.Parameters.AddWithValue("$claimEpoch", terminal.ClaimEpoch);
+            activation.Parameters.Add("$result", SqliteType.Blob).Value = terminal.CanonicalResult is { } result ? result.ToArray() : DBNull.Value;
+            activation.Parameters.Add("$terminalReceipt", SqliteType.Blob).Value = terminal.TerminalReceipt.AuthorityChecksum.ToArray();
+            await activation.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        BaseSemanticRecoveryTerminalReceiptEvidence terminalReceipt = terminal.TerminalReceipt;
+        if (artifactHasActivation) await using (SqliteCommand activationReceipt = connection.CreateCommand())
+        {
+            activationReceipt.Transaction = transaction;
+            activationReceipt.CommandText = $"INSERT INTO {_names.ActivationReceipts}(receipt_key,operation_kind,fingerprint,result_json,result_checksum,activation_id,authority_checksum) VALUES($key,$kind,$fingerprint,$result,$resultChecksum,$id,$authority) ON CONFLICT(receipt_key) DO UPDATE SET operation_kind=excluded.operation_kind,fingerprint=excluded.fingerprint,result_json=excluded.result_json,result_checksum=excluded.result_checksum,activation_id=excluded.activation_id,authority_checksum=excluded.authority_checksum WHERE operation_kind=excluded.operation_kind AND fingerprint=excluded.fingerprint AND result_json=excluded.result_json AND result_checksum=excluded.result_checksum AND activation_id=excluded.activation_id AND authority_checksum=excluded.authority_checksum;";
+            activationReceipt.Parameters.AddWithValue("$key", terminalReceipt.ReceiptKey);
+            activationReceipt.Parameters.AddWithValue("$kind", terminalReceipt.OperationKind);
+            activationReceipt.Parameters.Add("$fingerprint", SqliteType.Blob).Value = terminalReceipt.Fingerprint.ToArray();
+            activationReceipt.Parameters.Add("$result", SqliteType.Blob).Value = terminalReceipt.ResultBytes.ToArray();
+            activationReceipt.Parameters.Add("$resultChecksum", SqliteType.Blob).Value = terminalReceipt.ResultChecksum.ToArray();
+            activationReceipt.Parameters.AddWithValue("$id", terminal.Payload.ActivationId);
+            activationReceipt.Parameters.Add("$authority", SqliteType.Blob).Value = terminalReceipt.AuthorityChecksum.ToArray();
+            if (await activationReceipt.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                throw new InvalidDataException(BaseSemanticActivationErrorCodes.RestoreConflict);
+        }
+
+        if (retired.SubjectLifetime is { } lifetime)
+            retired = retired with
+            {
+                SubjectLifetime = await ReadRestoredSubjectLifetimeAsync(
+                    connection, transaction, lifetime, cancellationToken).ConfigureAwait(false),
+                Checksum = [],
+            };
+        BaseSemanticActivationStoreAuthority store = ReboundStore(retired.StoreAuthority, semanticGeneration,
+            definitionSet, restoreEpoch, schemaGeneration);
+        retired = retired with { StoreAuthority = store, Checksum = [] };
+        retired = retired with { Checksum = BaseSemanticActivationEvidenceContract.RetirementChecksum(retired) };
+        byte[] authorityJson = JsonSerializer.SerializeToUtf8Bytes(retired,
+            HPDBaseJsonSerializerContext.Default.BaseSemanticActivationRetirementAuthority);
+        BaseSemanticRecoveryLocalReceiptEnvelope envelope = publication.LocalReceipt;
+        byte[] receiptAuthority = BaseSemanticActivationEvidenceContract.RecoveryReceiptChecksum(
+            envelope.Identity.Scope, envelope.Identity.Operation, envelope.Identity.IdempotencyKey,
+            envelope.Identity.Fingerprint.ToArray(), envelope.StructuralDigest.ToArray(), envelope.ReceiptBytes.ToArray()).ToArray();
+        var row = new SemanticRecoveryRow(publication.Entry.Definition.Id, binding.BindingId.ToArray(), key,
+            (int)BaseSemanticActivationSlotState.Retired, retired.SlotGeneration, authorityJson,
+            envelope.Identity.Scope, envelope.Identity.Operation, envelope.Identity.IdempotencyKey,
+            envelope.Identity.Fingerprint.ToArray(), envelope.StructuralDigest.ToArray(), envelope.ReceiptBytes.ToArray(), receiptAuthority);
+        await UpsertRestoredSemanticRecoveryRowAsync(connection, transaction, row, cancellationToken).ConfigureAwait(false);
+
+        if (envelope.ExpiresAt.ToUnixTimeMilliseconds() > acceptedNow)
+        {
+            await using SqliteCommand operationReceipt = connection.CreateCommand(); operationReceipt.Transaction = transaction;
+            operationReceipt.CommandText = $"INSERT INTO {_names.OperationReceipts}(scope,operation,idempotency_key,fingerprint,structural_digest,result_json,result_format_version,schema_generation,store_instance_id,committed_at,expires_at) VALUES($scope,$operation,$key,$fingerprint,$structural,$result,$format,$schema,$store,$committed,$expires) ON CONFLICT(scope,operation,idempotency_key) DO UPDATE SET fingerprint=excluded.fingerprint WHERE fingerprint=excluded.fingerprint AND structural_digest=excluded.structural_digest AND result_json=excluded.result_json AND result_format_version=excluded.result_format_version AND schema_generation=excluded.schema_generation AND store_instance_id=excluded.store_instance_id AND committed_at=excluded.committed_at AND expires_at=excluded.expires_at;";
+            operationReceipt.Parameters.AddWithValue("$scope", envelope.Identity.Scope); operationReceipt.Parameters.AddWithValue("$operation", envelope.Identity.Operation);
+            operationReceipt.Parameters.AddWithValue("$key", envelope.Identity.IdempotencyKey); operationReceipt.Parameters.Add("$fingerprint", SqliteType.Blob).Value = envelope.Identity.Fingerprint.ToArray();
+            operationReceipt.Parameters.Add("$structural", SqliteType.Blob).Value = envelope.StructuralDigest.ToArray(); operationReceipt.Parameters.Add("$result", SqliteType.Blob).Value = envelope.ReceiptBytes.ToArray();
+            operationReceipt.Parameters.AddWithValue("$format", envelope.ReceiptFormatVersion); operationReceipt.Parameters.AddWithValue("$schema", envelope.SchemaGeneration);
+            operationReceipt.Parameters.AddWithValue("$store", envelope.StoreInstanceId); operationReceipt.Parameters.AddWithValue("$committed", envelope.CommittedAt.ToString("O", System.Globalization.CultureInfo.InvariantCulture));
+            operationReceipt.Parameters.AddWithValue("$expires", envelope.ExpiresAt.ToString("O", System.Globalization.CultureInfo.InvariantCulture));
+            if (await operationReceipt.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                throw new InvalidDataException(BaseSemanticActivationErrorCodes.RestoreConflict);
+        }
+        _ = activationGeneration;
+    }
+
+    private async ValueTask<bool> RequireArtifactActivationCompatibleWithTerminalAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        BaseSemanticRecoveryTerminalActivationAuthority terminal,
+        CancellationToken cancellationToken)
+    {
+        await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction;
+        command.CommandText = $"SELECT definition_id,definition_version,definition_checksum,canonical_input,input_checksum,scope_kind,scope_value,payload_checksum,fingerprint,requested_due_at,effective_due_at,occurrence_id,priority,overlap_key,overlap_policy FROM {_names.Activations} WHERE activation_id=$id;";
+        command.Parameters.AddWithValue("$id", terminal.Payload.ActivationId);
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) return false;
+        if (reader.GetString(0) != terminal.Payload.Definition.Id
+            || reader.GetInt32(1) != terminal.Payload.Definition.Version
+            || !((byte[])reader.GetValue(2)).AsSpan().SequenceEqual(terminal.Payload.Definition.Checksum.AsSpan())
+            || !((byte[])reader.GetValue(3)).AsSpan().SequenceEqual(terminal.Payload.CanonicalInput.AsSpan())
+            || !((byte[])reader.GetValue(4)).AsSpan().SequenceEqual(terminal.Payload.InputChecksum.AsSpan())
+            || reader.GetInt32(5) != (int)terminal.Payload.Scope.Kind
+            || reader.GetString(6) != (terminal.Payload.Scope.Value ?? string.Empty)
+            || !((byte[])reader.GetValue(7)).AsSpan().SequenceEqual(terminal.Payload.Checksum.AsSpan())
+            || !((byte[])reader.GetValue(8)).AsSpan().SequenceEqual(terminal.CreationFingerprint.AsSpan())
+            || reader.GetInt64(9) != terminal.Payload.RequestedDueAt
+            || reader.GetInt64(10) != terminal.Payload.EffectiveDueAt
+            || !reader.IsDBNull(11)
+            || reader.GetInt32(12) != terminal.Priority
+            || !(reader.IsDBNull(13) ? terminal.OverlapKey is null
+                : terminal.OverlapKey is { } overlap && ((byte[])reader.GetValue(13)).AsSpan().SequenceEqual(overlap.AsSpan()))
+            || reader.GetInt32(14) != (int)terminal.OverlapPolicy)
+            throw new InvalidDataException(BaseSemanticActivationErrorCodes.RestoreConflict);
+        return true;
     }
 }

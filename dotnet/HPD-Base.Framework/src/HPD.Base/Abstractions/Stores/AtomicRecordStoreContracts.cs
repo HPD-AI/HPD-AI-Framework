@@ -307,6 +307,30 @@ public sealed record RecordMutationExecutionResult
 
     /// <summary>Gets whether commit was new or resolved from an existing receipt.</summary>
     public BaseMutationRequestDisposition RequestDisposition { get; init; } = BaseMutationRequestDisposition.Committed;
+
+    /// <summary>Gets exact provider-authored durable receipt storage authority after confirmed commit or replay.</summary>
+    public BaseCommittedAtomicReceiptAuthority? ReceiptAuthority { get; init; }
+}
+
+/// <summary>Describes the byte-exact durable L37 receipt row committed by a provider.</summary>
+public sealed record BaseCommittedAtomicReceiptAuthority
+{
+    /// <summary>Gets the exact structural digest stored beside the receipt.</summary>
+    public required ImmutableArray<byte> StructuralDigest { get; init; }
+    /// <summary>Gets canonical source-generated receipt bytes.</summary>
+    public required ImmutableArray<byte> ReceiptBytes { get; init; }
+    /// <summary>Gets SHA-256 of the canonical receipt bytes.</summary>
+    public required ImmutableArray<byte> ReceiptChecksum { get; init; }
+    /// <summary>Gets the fixed receipt format version.</summary>
+    public required int FormatVersion { get; init; }
+    /// <summary>Gets the historical schema generation.</summary>
+    public required long SchemaGeneration { get; init; }
+    /// <summary>Gets the historical provider store-instance authority.</summary>
+    public required string StoreInstanceId { get; init; }
+    /// <summary>Gets the exact committed instant.</summary>
+    public required DateTimeOffset CommittedAt { get; init; }
+    /// <summary>Gets the exact expiration instant.</summary>
+    public required DateTimeOffset ExpiresAt { get; init; }
 }
 
 /// <summary>

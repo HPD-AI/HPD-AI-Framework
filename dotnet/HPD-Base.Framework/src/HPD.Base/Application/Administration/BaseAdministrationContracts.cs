@@ -278,6 +278,38 @@ public sealed record BaseRestoreRequest
     internal string? RecoveryApplicationId { get; init; }
     internal ImmutableArray<BaseScheduleRecoveryVerificationKey> RecoveryVerificationKeys { get; init; }
     internal long RecoveryAcceptedNow { get; init; }
+    /// <summary>Gets Runtime-validated external semantic recovery authority for a selected new disaster domain.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public BaseSemanticRecoveryRestoreAuthority? SemanticRecoveryAuthority { get; init; }
+}
+
+/// <summary>Binds one authenticated external semantic recovery suffix to its backup artifact prefix.</summary>
+public sealed record BaseSemanticRecoveryRestoreAuthority
+{
+    /// <summary>Gets the exact graph-owned external authority used to authenticate this suffix.</summary>
+    public required BaseSemanticRecoveryAuthorityDefinition Definition { get; init; }
+    /// <summary>Gets the Runtime-issued accepted restore instant in Unix milliseconds.</summary>
+    public required long AcceptedNow { get; init; }
+    /// <summary>Gets the exact number of external pages read.</summary>
+    public required int PageCount { get; init; }
+    /// <summary>Gets the checked canonical publication bytes retained for restore.</summary>
+    public required long CanonicalBytes { get; init; }
+    /// <summary>Gets the checked transient bytes retained for restore.</summary>
+    public required long TransientBytes { get; init; }
+    /// <summary>Gets the exact effective external operation limits.</summary>
+    public required BaseSemanticRecoveryOperationLimits Limits { get; init; }
+    /// <summary>Gets the artifact-time contiguous terminal publication sequence.</summary>
+    public required long ArtifactSequence { get; init; }
+    /// <summary>Gets the artifact-time ordered publication checksum.</summary>
+    public required ImmutableArray<byte> ArtifactOrderedChecksum { get; init; }
+    /// <summary>Gets the exact artifact-bound request authenticated by the returned head.</summary>
+    public required BaseSemanticRecoveryHeadRequest HeadRequest { get; init; }
+    /// <summary>Gets the authenticated current external head.</summary>
+    public required BaseSemanticRecoveryPublishedHead Head { get; init; }
+    /// <summary>Gets every contiguous publication after the artifact sequence through the head.</summary>
+    public required ImmutableArray<BaseSemanticRecoveryPublicationEntry> Publications { get; init; }
+    /// <summary>Gets the canonical complete authority checksum.</summary>
+    public required ImmutableArray<byte> Checksum { get; init; }
 }
 
 /// <summary>Describes a successful restore result.</summary>
@@ -319,6 +351,10 @@ public sealed record BaseRestoreResult
 public sealed record BaseBackupManifest
 {
     private string[] _logicalPartitions = [];
+    /// <summary>Gets the contiguous external semantic-terminal publication sequence captured by this artifact.</summary>
+    public required long SemanticTerminalPublicationSequence { get; init; }
+    /// <summary>Gets the canonical ordered semantic-terminal publication checksum through that sequence.</summary>
+    public required ImmutableArray<byte> SemanticTerminalPublicationChecksum { get; init; }
     /// <summary>Gets the authenticated artifact-envelope version.</summary>
     public required ushort EnvelopeVersion { get; init; }
     /// <summary>Gets the provider kind.</summary>

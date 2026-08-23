@@ -1441,6 +1441,10 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         var entry = new BaseSemanticActivationRecoveryEntry
         {
             Boundary = pending.Intent.Boundary,
+            ScopeBinding = live.ScopeBinding,
+            TerminalActivation = extension.Capture.RecoveryPreflight?.TerminalActivation
+                ?? throw new InvalidOperationException(),
+            RetirementOperation = retire.CompletionOperation,
             Definition = retired.Definition,
             State = BaseSemanticActivationSlotState.Retired,
             SlotGeneration = retired.SlotGeneration,

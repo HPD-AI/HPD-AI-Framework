@@ -566,6 +566,7 @@ using AtomicMutationProcessingOutcomeConverter = LowerCamelJsonStringEnumConvert
 [JsonSerializable(typeof(BaseSemanticRecoveryPendingCommitAuthority))]
 [JsonSerializable(typeof(BaseSemanticRecoveryLocalReceiptAuthority))]
 [JsonSerializable(typeof(BaseSemanticRecoveryTerminalReceiptEvidence))]
+[JsonSerializable(typeof(BaseSemanticRecoveryTerminalActivationAuthority))]
 [JsonSerializable(typeof(BaseSemanticRecoveryBeginRequest))]
 [JsonSerializable(typeof(BaseSemanticRecoveryPendingPublication))]
 [JsonSerializable(typeof(BaseSemanticRecoveryResolvePendingRequest))]
@@ -578,6 +579,7 @@ using AtomicMutationProcessingOutcomeConverter = LowerCamelJsonStringEnumConvert
 [JsonSerializable(typeof(BaseSemanticRecoveryPublishedHead))]
 [JsonSerializable(typeof(BaseSemanticRecoveryPageRequest))]
 [JsonSerializable(typeof(BaseSemanticRecoveryPublicationPage))]
+[JsonSerializable(typeof(BaseSemanticRecoveryRestoreAuthority))]
 public partial class HPDBaseJsonSerializerContext : JsonSerializerContext
 {
     /// <summary>Performs create Options.</summary>

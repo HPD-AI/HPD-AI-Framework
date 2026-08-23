@@ -284,6 +284,24 @@ public sealed partial class SqliteRecordStore
                     BaseRestoreFailureDisposition.RejectedBeforeChange);
             }
             BaseBackupManifest manifest = artifact.Manifest;
+            if (request.SemanticRecoveryAuthority is { } semanticRecoveryAuthority
+                && (!BaseSemanticRecoveryAuthorityContract.RestoreAuthorityIsValid(
+                        semanticRecoveryAuthority.Definition, semanticRecoveryAuthority)
+                    || semanticRecoveryAuthority.Definition.LogicalStoreId != request.StoreId
+                    || semanticRecoveryAuthority.AcceptedNow != request.RecoveryAcceptedNow
+                    || semanticRecoveryAuthority.PageCount < 0
+                    || semanticRecoveryAuthority.PageCount > semanticRecoveryAuthority.Limits.MaximumPages
+                    || semanticRecoveryAuthority.CanonicalBytes < 0
+                    || semanticRecoveryAuthority.TransientBytes != semanticRecoveryAuthority.CanonicalBytes
+                    || semanticRecoveryAuthority.TransientBytes > semanticRecoveryAuthority.Limits.MaximumTransientBytes
+                    || semanticRecoveryAuthority.ArtifactSequence != manifest.SemanticTerminalPublicationSequence
+                    || !CryptographicOperations.FixedTimeEquals(semanticRecoveryAuthority.ArtifactOrderedChecksum.AsSpan(),
+                        manifest.SemanticTerminalPublicationChecksum.AsSpan())
+                    || !CryptographicOperations.FixedTimeEquals(
+                        BaseSemanticRecoveryAuthorityContract.RestoreAuthorityChecksum(semanticRecoveryAuthority).AsSpan(),
+                        semanticRecoveryAuthority.Checksum.AsSpan())))
+                return RestoreValidation(BaseSemanticActivationErrorCodes.RecoveryProofInvalid,
+                    "Semantic activation recovery proof is invalid.", BaseRestoreFailureDisposition.OriginalPreserved);
             pathGuard.RevalidateActive();
             pathGuard.ValidateSibling(stagingPath, mustExist: true);
             if (!FixedHexEquals(request.ExpectedArtifactStoreIdentityDigest, manifest.StoreIdentityDigest))
@@ -428,7 +446,7 @@ public sealed partial class SqliteRecordStore
                     cancellationToken).ConfigureAwait(false);
                 await TransformRestoredActivationAuthoritiesAsync(installed, manifest.RestoreEpoch, epoch, manifest.SchemaGeneration,
                     preRestoreActivationGeneration, selectedScheduleRecoveryFloors,
-                    preRestoreSemanticRecovery, recovery,
+                    preRestoreSemanticRecovery, request.SemanticRecoveryAuthority, recovery,
                     consumedScheduleRecoveryNonces, consumedScheduleRecoveryNonce, cancellationToken).ConfigureAwait(false);
             }
             Volatile.Write(ref _schemaGeneration, manifest.SchemaGeneration);
@@ -593,18 +611,29 @@ public sealed partial class SqliteRecordStore
         await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             throw new InvalidDataException("Required schema metadata is unavailable.");
+        string storeInstanceId = reader.GetString(0);
+        string baselineId = reader.GetString(1);
+        string schemaChecksum = reader.GetString(2);
+        long schemaGeneration = reader.GetInt64(3);
+        long restoreEpoch = reader.GetInt64(4);
+        string sqliteVersion = reader.GetString(5);
+        await reader.DisposeAsync().ConfigureAwait(false);
+        (long semanticSequence, ImmutableArray<byte> semanticChecksum) =
+            await ReadSemanticTerminalPublicationAuthorityAsync(connection, cancellationToken).ConfigureAwait(false);
         return new BaseBackupManifest
         {
+            SemanticTerminalPublicationSequence = semanticSequence,
+            SemanticTerminalPublicationChecksum = semanticChecksum,
             EnvelopeVersion = BackupVersion,
             ProviderKind = "sqlite",
             ProviderVersion = _options.StoreVersion,
-            NativeSqliteVersion = reader.GetString(5),
+            NativeSqliteVersion = sqliteVersion,
             BaseContractVersion = "37",
-            StoreIdentityDigest = HexDigest(reader.GetString(0)),
-            SchemaBaselineId = reader.GetString(1),
-            SchemaChecksum = reader.GetString(2),
-            SchemaGeneration = reader.GetInt64(3),
-            RestoreEpoch = reader.GetInt64(4),
+            StoreIdentityDigest = HexDigest(storeInstanceId),
+            SchemaBaselineId = baselineId,
+            SchemaChecksum = schemaChecksum,
+            SchemaGeneration = schemaGeneration,
+            RestoreEpoch = restoreEpoch,
             CreatedAt = _timeProvider.GetUtcNow(),
             ProviderPayloadLength = payloadLength,
             ProviderPayloadSha256 = string.Empty,
@@ -615,6 +644,28 @@ public sealed partial class SqliteRecordStore
             PayloadEncryptedAtRest = false,
             ExternalKeyReferenceKind = null,
         };
+    }
+
+    private async ValueTask<(long Sequence, ImmutableArray<byte> Checksum)> ReadSemanticTerminalPublicationAuthorityAsync(
+        SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandTimeout = TimeoutSeconds(_options.IntegrityCheckTimeout);
+        command.CommandText = $"SELECT key,value FROM {_names.ProviderState} WHERE key IN ('semantic_terminal_publication_sequence','semantic_terminal_publication_checksum') ORDER BY key;";
+        long? sequence = null;
+        ImmutableArray<byte> checksum = [];
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (reader.GetString(0) == "semantic_terminal_publication_sequence")
+                sequence = long.Parse(reader.GetString(1), System.Globalization.CultureInfo.InvariantCulture);
+            else checksum = Convert.FromHexString(reader.GetString(1)).ToImmutableArray();
+        }
+        if (sequence is null or < 0 || checksum.Length != 32
+            || sequence == 0 && !CryptographicOperations.FixedTimeEquals(
+                checksum.AsSpan(), BaseSemanticRecoveryAuthorityContract.EmptyPublicationSetChecksum().AsSpan()))
+            throw new InvalidDataException(BaseSemanticActivationErrorCodes.ProviderContractInvalid);
+        return (sequence.Value, checksum);
     }
 
     private async Task<BaseBackupManifest> WriteEnvelopeAsync(Stream destination, string payloadPath, BaseBackupManifest initial, CancellationToken cancellationToken)
@@ -665,6 +716,9 @@ public sealed partial class SqliteRecordStore
         if (manifest.BaseContractVersion != "37" || manifest.ReceiptFormatVersion != 1
             || manifest.JournalFormatVersion != 1 || manifest.CollectionHistoryFormatVersion != 1
             || !ValidDigest(manifest.StoreIdentityDigest) || !ValidDigest(manifest.ProviderPayloadSha256)
+            || manifest.SemanticTerminalPublicationSequence < 0 || manifest.SemanticTerminalPublicationChecksum.Length != 32
+            || manifest.SemanticTerminalPublicationSequence == 0 && !CryptographicOperations.FixedTimeEquals(
+                manifest.SemanticTerminalPublicationChecksum.AsSpan(), BaseSemanticRecoveryAuthorityContract.EmptyPublicationSetChecksum().AsSpan())
             || manifest.PayloadEncryptedAtRest || manifest.ExternalKeyReferenceKind is not null)
             throw new InvalidDataException();
         byte[] digest;

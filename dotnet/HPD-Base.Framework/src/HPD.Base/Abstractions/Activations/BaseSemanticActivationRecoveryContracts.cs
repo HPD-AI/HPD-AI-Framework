@@ -234,6 +234,9 @@ public static class BaseSemanticRecoveryAuthorityContract
     public static ImmutableArray<byte> PendingCommitChecksum(BaseSemanticRecoveryPendingCommitAuthority value) =>
         Hash("base.semanticRecovery.pendingCommit.v1\0", writer =>
         {
+            writer.Text(value.ApplicationId); writer.Text(value.LogicalStoreId);
+            writer.Text(value.LocalScope); writer.Text(value.LocalOperation); writer.Text(value.LocalIdempotencyKey);
+            writer.Bytes(value.LocalFingerprint.AsSpan()); writer.Bytes(value.LocalStructuralDigest.AsSpan());
             writer.Text(value.AuthorityId); writer.I32(value.AuthorityVersion); writer.Bytes(value.AuthorityChecksum.AsSpan());
             writer.Bytes(value.Intent.Checksum.AsSpan()); writer.Bytes(value.Pending.Checksum.AsSpan());
         });
@@ -279,8 +282,9 @@ public static class BaseSemanticRecoveryAuthorityContract
     public static ImmutableArray<byte> FinalizeRequestChecksum(BaseSemanticRecoveryFinalizeRequest value) =>
         Hash("base.semanticRecovery.finalizeRequest.v1\0", writer =>
         {
+            writer.Text(value.ApplicationId); writer.Text(value.LogicalStoreId);
             writer.Bytes(PendingChecksum(value.Pending).AsSpan()); writer.Bytes(value.FinalEntry.Checksum.AsSpan());
-            writer.Bytes(value.LocalReceiptChecksum.AsSpan()); writer.Bytes(value.CommitObservationChecksum.AsSpan());
+            writer.Bytes(value.LocalReceipt.Checksum.AsSpan()); writer.Bytes(value.CommitObservationChecksum.AsSpan());
             Identity(writer, value.Identity); WriteLimits(writer, value.Limits);
         });
 
@@ -299,7 +303,8 @@ public static class BaseSemanticRecoveryAuthorityContract
         && Fixed(value.Checksum, FinalizationResultChecksum(value))
         && Verify(definition.KeyAuthority.CurrentSigningPublicKey,
             "base.semanticRecovery.finalizationResultSignature.v1\0", value.Checksum, value.Signature)
-        && PublishedHeadIsValid(definition, value.Head)
+        && PublishedHeadIsValid(definition, request.ApplicationId, request.LogicalStoreId,
+            FinalizeRequestChecksum(request), value.Head)
         && value.Head.PublishedSequence >= request.Pending.Sequence;
 
     /// <summary>Computes the canonical cancellation-request binding checksum.</summary>
@@ -341,16 +346,365 @@ public static class BaseSemanticRecoveryAuthorityContract
     public static ImmutableArray<byte> RecoveryEntryChecksum(BaseSemanticActivationRecoveryEntry value) =>
         Hash("base.semanticRecovery.entry.v1\0", writer =>
         {
-            Boundary(writer, value.Boundary); writer.Text(value.Definition.Id); writer.I32(value.Definition.Version);
+            Boundary(writer, value.Boundary);
+            writer.Bytes(BaseSemanticActivationEvidenceContract.ScopeBindingChecksum(value.ScopeBinding).AsSpan());
+            writer.Bytes(value.TerminalActivation.Checksum.AsSpan());
+            writer.Text(value.RetirementOperation.OperationId); writer.I32(value.RetirementOperation.OperationVersion);
+            writer.Text(value.RetirementOperation.OperationChecksum);
+            writer.Text(value.Definition.Id); writer.I32(value.Definition.Version);
             writer.Bytes(value.Definition.Checksum.AsSpan()); writer.I32((int)value.State); writer.I64(value.SlotGeneration);
             writer.Bytes(value.AuthorityBytes.AsSpan());
         });
+
+    /// <summary>Computes the canonical fingerprint of the installed retirement operation.</summary>
+    public static ImmutableArray<byte> RetirementOperationFingerprint(BaseSemanticActivationModuleOperationIdentity value) =>
+        Hash("base.semanticRecovery.retirementOperation.v1\0", writer =>
+        {
+            writer.Text(value.OperationId); writer.I32(value.OperationVersion); writer.Text(value.OperationChecksum);
+        });
+
+    /// <summary>Computes the canonical terminal activation snapshot checksum.</summary>
+    public static ImmutableArray<byte> TerminalActivationChecksum(BaseSemanticRecoveryTerminalActivationAuthority value) =>
+        Hash("base.semanticRecovery.terminalActivation.v1\0", writer =>
+        {
+            BaseActivationPayload payload = value.Payload;
+            writer.Text(payload.ActivationId); writer.Text(payload.Definition.Id); writer.I32(payload.Definition.Version);
+            writer.Bytes(payload.Definition.Checksum.AsSpan()); writer.Bytes(payload.CanonicalInput.AsSpan());
+            writer.Bytes(payload.InputChecksum.AsSpan()); writer.I32((int)payload.Scope.Kind);
+            writer.Bool(payload.Scope.Value is not null); if (payload.Scope.Value is { } scope) writer.Text(scope);
+            writer.Bool(payload.OccurrenceId is not null); if (payload.OccurrenceId is { } occurrence) writer.Text(occurrence);
+            writer.I64(payload.RequestedDueAt); writer.I64(payload.EffectiveDueAt); writer.Bytes(payload.Checksum.AsSpan());
+            writer.Bytes(value.CreationFingerprint.AsSpan()); writer.I32(value.Priority);
+            writer.Bool(value.OverlapKey is not null); if (value.OverlapKey is { } overlap) writer.Bytes(overlap.AsSpan());
+            writer.I32((int)value.OverlapPolicy); writer.Bool(value.Eligible); writer.I32((int)value.State);
+            writer.I64(value.Generation); writer.Bytes(value.ControlChecksum.AsSpan()); writer.I32(value.AttemptNumber);
+            writer.I64(value.ClaimEpoch); writer.Bool(value.CanonicalResult is not null);
+            if (value.CanonicalResult is { } result) writer.Bytes(result.AsSpan());
+            writer.Bool(value.CanonicalResultChecksum is not null);
+            if (value.CanonicalResultChecksum is { } resultChecksum) writer.Bytes(resultChecksum.AsSpan());
+            writer.Text(value.TerminalReceipt.ReceiptKey); writer.Text(value.TerminalReceipt.OperationKind);
+            writer.Bytes(value.TerminalReceipt.Fingerprint.AsSpan()); writer.Bytes(value.TerminalReceipt.ResultBytes.AsSpan());
+            writer.Bytes(value.TerminalReceipt.ResultChecksum.AsSpan()); writer.Bytes(value.TerminalReceipt.AuthorityChecksum.AsSpan());
+        });
+
+    /// <summary>Validates the closed terminal activation snapshot shape and its internal checksums.</summary>
+    public static bool TerminalActivationIsValid(BaseSemanticRecoveryTerminalActivationAuthority value)
+    {
+        try
+        {
+            BaseActivationPayload payload = value.Payload;
+            bool terminal = value.State is BaseActivationState.Succeeded or BaseActivationState.Exhausted
+                or BaseActivationState.Cancelled or BaseActivationState.Migrated or BaseActivationState.Disposed;
+            return terminal && value.Generation > 0 && value.AttemptNumber >= 0 && value.ClaimEpoch >= 0
+                && !value.Eligible && payload.OccurrenceId is null && value.OverlapKey is null
+                && value.OverlapPolicy == BaseScheduleOverlapPolicy.Allow && value.Priority is >= -32 and <= 32
+                && payload.ActivationId.Length > 0 && payload.Definition.Version > 0
+                && payload.Definition.Checksum.Length == 32 && payload.InputChecksum.Length == 32
+                && payload.Checksum.Length == 32 && value.CreationFingerprint.Length == 32
+                && value.ControlChecksum.Length == 32 && value.TerminalReceipt.AuthorityChecksum.Length == 32
+                && CryptographicOperations.FixedTimeEquals(SHA256.HashData(payload.CanonicalInput.AsSpan()), payload.InputChecksum.AsSpan())
+                && CryptographicOperations.FixedTimeEquals(SHA256.HashData(payload.CanonicalInput.AsSpan()), payload.Checksum.AsSpan())
+                && CryptographicOperations.FixedTimeEquals(SHA256.HashData(Encoding.UTF8.GetBytes(
+                    $"base.activation.control.v2\0{payload.ActivationId}\n{value.Generation}\n{(int)value.State}")), value.ControlChecksum.AsSpan())
+                && value.TerminalReceipt.ResultChecksum.Length == 32
+                && CryptographicOperations.FixedTimeEquals(SHA256.HashData(value.TerminalReceipt.ResultBytes.AsSpan()),
+                    value.TerminalReceipt.ResultChecksum.AsSpan())
+                && TerminalReceiptMatches(value)
+                && (value.CanonicalResult is null) == (value.CanonicalResultChecksum is null)
+                && (value.CanonicalResult is null || CryptographicOperations.FixedTimeEquals(
+                    SHA256.HashData(value.CanonicalResult.Value.AsSpan()), value.CanonicalResultChecksum!.Value.AsSpan()))
+                && value.Checksum.Length == 32 && Fixed(value.Checksum, TerminalActivationChecksum(value));
+        }
+        catch { return false; }
+    }
+
+    private static bool TerminalReceiptMatches(BaseSemanticRecoveryTerminalActivationAuthority value)
+    {
+        BaseSemanticRecoveryTerminalReceiptEvidence receipt = value.TerminalReceipt;
+        if (string.IsNullOrWhiteSpace(receipt.ReceiptKey) || string.IsNullOrWhiteSpace(receipt.OperationKind)
+            || receipt.Fingerprint.Length != 32 || receipt.AuthorityChecksum.Length != 32) return false;
+        byte[] authority = SHA256.HashData(Encoding.UTF8.GetBytes(receipt.OperationKind)
+            .Concat(receipt.Fingerprint).Concat(receipt.ResultBytes).ToArray());
+        if (!Fixed(receipt.AuthorityChecksum, authority.ToImmutableArray())) return false;
+        BaseActivationTransitionResult? result = System.Text.Json.JsonSerializer.Deserialize(
+            receipt.ResultBytes.AsSpan(), HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult);
+        if (result is null || result.State != value.State || result.Generation != value.Generation
+            || !Fixed(result.ControlChecksum, value.ControlChecksum)) return false;
+        return receipt.OperationKind switch
+        {
+            "activation-completed" or "effect-completed" => value.State == BaseActivationState.Succeeded,
+            "activation-failed-terminal" => value.State == BaseActivationState.Exhausted,
+            "activation-cancelled" => value.State == BaseActivationState.Cancelled,
+            "activation-migrated" => value.State == BaseActivationState.Migrated,
+            "activation-disposed" => value.State == BaseActivationState.Disposed,
+            "effect-reconciled" => value.State is BaseActivationState.Succeeded or BaseActivationState.Exhausted,
+            _ => false,
+        };
+    }
+
+    /// <summary>Computes the canonical checksum for one finalized external publication.</summary>
+    public static ImmutableArray<byte> PublicationEntryChecksum(BaseSemanticRecoveryPublicationEntry value) =>
+        Hash("base.semanticRecovery.publicationEntry.v1\0", writer =>
+        {
+            writer.I64(value.Sequence); writer.Bytes(value.Entry.Checksum.AsSpan());
+            writer.Bytes(value.LocalReceipt.Checksum.AsSpan()); writer.Bytes(value.CommitObservationChecksum.AsSpan());
+        });
+
+    /// <summary>Computes the canonical externally retained local L37 receipt envelope checksum.</summary>
+    public static ImmutableArray<byte> LocalReceiptEnvelopeChecksum(BaseSemanticRecoveryLocalReceiptEnvelope value) =>
+        Hash("base.semanticRecovery.localReceiptEnvelope.v1\0", writer =>
+        {
+            Identity(writer, value.Identity); writer.Bytes(value.StructuralDigest.AsSpan());
+            writer.Bytes(value.ReceiptBytes.AsSpan()); writer.Bytes(value.ReceiptChecksum.AsSpan());
+            writer.I32(value.ReceiptFormatVersion); writer.I64(value.SchemaGeneration); writer.Text(value.StoreInstanceId);
+            writer.I64(value.CommittedAt.ToUnixTimeMilliseconds()); writer.I64(value.ExpiresAt.ToUnixTimeMilliseconds());
+            writer.Bytes(value.CommitObservationChecksum.AsSpan());
+        });
+
+    /// <summary>Computes the canonical checksum for one strict external publication page.</summary>
+    public static ImmutableArray<byte> PublicationPageChecksum(BaseSemanticRecoveryPublicationPage value) =>
+        Hash("base.semanticRecovery.publicationPage.v1\0", writer =>
+        {
+            writer.I64(value.AfterSequence); writer.I32(value.Entries.Length);
+            foreach (BaseSemanticRecoveryPublicationEntry entry in value.Entries) writer.Bytes(entry.Checksum.AsSpan());
+            writer.Bool(value.NextAfterSequence is not null);
+            if (value.NextAfterSequence is { } next) writer.I64(next);
+            writer.I64(value.HeadSequence);
+        });
+
+    /// <summary>Computes the canonical ordered checksum for a complete contiguous publication set.</summary>
+    public static ImmutableArray<byte> EmptyPublicationSetChecksum() =>
+        SHA256.HashData("base.semanticRecovery.orderedPublicationSet.empty.v1\0"u8).ToImmutableArray();
+
+    /// <summary>Advances the canonical ordered publication checksum by exactly one contiguous entry.</summary>
+    public static ImmutableArray<byte> AdvancePublicationSetChecksum(ImmutableArray<byte> prior,
+        long priorCount, BaseSemanticRecoveryPublicationEntry entry) =>
+        Hash("base.semanticRecovery.orderedPublicationSet.advance.v1\0", writer =>
+        {
+            writer.I64(priorCount); writer.Bytes(prior.AsSpan()); writer.I64(entry.Sequence);
+            writer.Bytes(entry.Checksum.AsSpan());
+        });
+
+    /// <summary>Computes the canonical ordered checksum for a complete contiguous publication set.</summary>
+    public static ImmutableArray<byte> OrderedPublicationSetChecksum(
+        IEnumerable<BaseSemanticRecoveryPublicationEntry> entries)
+    {
+        ImmutableArray<byte> checksum = EmptyPublicationSetChecksum();
+        long count = 0;
+        foreach (BaseSemanticRecoveryPublicationEntry entry in entries)
+        {
+            if (entry.Sequence != checked(count + 1))
+                throw new ArgumentException("Recovery publication sequences must be contiguous.", nameof(entries));
+            checksum = AdvancePublicationSetChecksum(checksum, count, entry);
+            count++;
+        }
+        return checksum;
+    }
+
+    /// <summary>Validates one page against its exact request and authenticated immutable head.</summary>
+    public static bool PublicationPageIsValid(BaseSemanticRecoveryPageRequest request,
+        BaseSemanticRecoveryPublicationPage value)
+    {
+        try
+        {
+            if (request.Take is <= 0 or > 256 || value.AfterSequence != request.AfterSequence
+                || value.HeadSequence != request.Head.PublishedSequence || value.Entries.Length > request.Take
+                || value.Checksum.Length != 32 || !Fixed(value.Checksum, PublicationPageChecksum(value))) return false;
+            long expected = checked(value.AfterSequence + 1);
+            foreach (BaseSemanticRecoveryPublicationEntry publication in value.Entries)
+            {
+                if (publication.Sequence != expected || publication.Entry.Checksum.Length != 32
+                    || !LocalReceiptEnvelopeIsValid(publication.LocalReceipt) || publication.CommitObservationChecksum.Length != 32
+                    || publication.Checksum.Length != 32 || !Fixed(publication.Entry.Checksum, RecoveryEntryChecksum(publication.Entry))
+                    || !Fixed(publication.Checksum, PublicationEntryChecksum(publication))) return false;
+                expected = checked(expected + 1);
+            }
+            long last = value.Entries.IsEmpty ? value.AfterSequence : value.Entries[^1].Sequence;
+            return value.NextAfterSequence switch
+            {
+                null => last == value.HeadSequence,
+                long next => value.Entries.Length == request.Take && next == last && next < value.HeadSequence,
+            };
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Validates exact canonical local receipt bytes and their request authority.</summary>
+    public static bool LocalReceiptEnvelopeIsValid(BaseSemanticRecoveryLocalReceiptEnvelope value)
+    {
+        try
+        {
+            if (!(value.Identity is not null && value.Identity.Fingerprint.ToArray().Length == 32
+                && value.StructuralDigest.Length == 32 && !value.ReceiptBytes.IsDefaultOrEmpty
+                && value.ReceiptChecksum.Length == 32 && value.Checksum.Length == 32
+                && value.ReceiptFormatVersion == 2 && value.SchemaGeneration > 0 && !string.IsNullOrWhiteSpace(value.StoreInstanceId)
+                && value.CommittedAt > DateTimeOffset.UnixEpoch && value.ExpiresAt > value.CommittedAt
+                && value.CommitObservationChecksum.Length == 32
+                && Fixed(value.ReceiptChecksum, SHA256.HashData(value.ReceiptBytes.AsSpan()).ToImmutableArray())
+                && Fixed(value.Checksum, LocalReceiptEnvelopeChecksum(value)))) return false;
+            BaseAtomicReceiptWire? wire = System.Text.Json.JsonSerializer.Deserialize(
+                value.ReceiptBytes.AsSpan(), HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire);
+            if (wire is null) return false;
+            BaseAtomicReceiptResult materialized = wire.Materialize();
+            if (materialized.Kind != BaseAtomicReceiptResultKind.ModuleMutation
+                || materialized.ModuleMutation?.SemanticActivation?.RecoveryPublication is null) return false;
+            byte[] canonical = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
+                BaseAtomicReceiptWire.From(materialized), HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire);
+            return canonical.AsSpan().SequenceEqual(value.ReceiptBytes.AsSpan());
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Computes the canonical checksum for Runtime-validated restore authority.</summary>
+    public static ImmutableArray<byte> RestoreAuthorityChecksum(BaseSemanticRecoveryRestoreAuthority value) =>
+        Hash("base.semanticRecovery.restoreAuthority.v1\0", writer =>
+        {
+            writer.Bytes(value.Definition.ContractChecksum.AsSpan());
+            writer.I64(value.AcceptedNow); writer.I32(value.PageCount); writer.I64(value.CanonicalBytes);
+            writer.I64(value.TransientBytes); WriteLimits(writer, value.Limits);
+            writer.I64(value.ArtifactSequence); writer.Bytes(value.ArtifactOrderedChecksum.AsSpan());
+            writer.Bytes(HeadRequestChecksum(value.HeadRequest).AsSpan());
+            writer.Bytes(value.Head.Checksum.AsSpan()); writer.I32(value.Publications.Length);
+            foreach (BaseSemanticRecoveryPublicationEntry entry in value.Publications) writer.Bytes(entry.Checksum.AsSpan());
+        });
+
+    /// <summary>Validates a complete contiguous external suffix against its authenticated head.</summary>
+    public static bool RestoreAuthorityIsValid(BaseSemanticRecoveryAuthorityDefinition definition,
+        BaseSemanticRecoveryRestoreAuthority value)
+    {
+        try
+        {
+            if (!Fixed(value.Definition.ContractChecksum, definition.ContractChecksum)
+                || value.Definition.LogicalStoreId != definition.LogicalStoreId
+                || value.AcceptedNow <= 0 || value.PageCount < 0 || value.PageCount > value.Limits.MaximumPages
+                || value.CanonicalBytes < 0 || value.TransientBytes != value.CanonicalBytes
+                || value.TransientBytes > value.Limits.MaximumTransientBytes
+                || value.ArtifactSequence < 0 || value.ArtifactOrderedChecksum.Length != 32
+                || value.Head.HasPendingSuccessor || value.Head.EntryCount != value.Head.PublishedSequence
+                || value.Head.PublishedSequence < value.ArtifactSequence
+                || value.Publications.Length != value.Head.PublishedSequence - value.ArtifactSequence
+                || !HeadRequestIsValid(definition, value.HeadRequest)
+                || !PublishedHeadIsValid(definition, value.HeadRequest.ApplicationId, value.HeadRequest.LogicalStoreId,
+                    HeadRequestChecksum(value.HeadRequest), value.Head) || value.Checksum.Length != 32
+                || !Fixed(value.Checksum, RestoreAuthorityChecksum(value))) return false;
+            long exactBytes = 0;
+            foreach (BaseSemanticRecoveryPublicationEntry entry in value.Publications)
+                exactBytes = checked(exactBytes + System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
+                    entry, HPDBaseJsonSerializerContext.Default.BaseSemanticRecoveryPublicationEntry).LongLength);
+            int exactPages = value.Publications.IsEmpty ? 0
+                : checked((value.Publications.Length + value.Limits.MaximumPageEntries - 1) / value.Limits.MaximumPageEntries);
+            if (value.CanonicalBytes != exactBytes || value.PageCount != exactPages) return false;
+            long sequence = value.ArtifactSequence;
+            ImmutableArray<byte> checksum = value.ArtifactOrderedChecksum;
+            foreach (BaseSemanticRecoveryPublicationEntry publication in value.Publications)
+            {
+                if (publication.Sequence != checked(sequence + 1)
+                    || publication.Checksum.Length != 32 || !Fixed(publication.Checksum, PublicationEntryChecksum(publication))
+                    || !LocalReceiptEnvelopeIsValid(publication.LocalReceipt)
+                    || !Fixed(publication.Entry.Checksum, RecoveryEntryChecksum(publication.Entry))
+                    || !Fixed(publication.Entry.ScopeBinding.Checksum,
+                        BaseSemanticActivationEvidenceContract.ScopeBindingChecksum(publication.Entry.ScopeBinding))
+                    || !Fixed(publication.Entry.Boundary.ScopeBindingId, publication.Entry.ScopeBinding.BindingId)
+                    || !TerminalActivationIsValid(publication.Entry.TerminalActivation)
+                    || !PublicationCorrespondenceIsValid(definition, value.Head.ApplicationId,
+                        value.Head.LogicalStoreId, publication)
+                    || publication.Entry.TerminalActivation.Payload.Scope.Kind != publication.Entry.ScopeBinding.Kind) return false;
+                checksum = AdvancePublicationSetChecksum(checksum, sequence, publication);
+                sequence++;
+            }
+            return sequence == value.Head.PublishedSequence && Fixed(checksum, value.Head.OrderedEntrySetChecksum);
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Validates exact correspondence among one signed publication, its pending authority, terminal entry, and outer receipt.</summary>
+    public static bool PublicationCorrespondenceIsValid(BaseSemanticRecoveryAuthorityDefinition definition,
+        string applicationId, string logicalStoreId, BaseSemanticRecoveryPublicationEntry publication)
+    {
+        BaseAtomicReceiptWire? wire = System.Text.Json.JsonSerializer.Deserialize(
+            publication.LocalReceipt.ReceiptBytes.AsSpan(), HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire);
+        BaseSemanticActivationReceiptEvidence? semantic = wire?.Materialize().ModuleMutation?.SemanticActivation;
+        if (semantic?.RecoveryPublication is not { } recovery) return false;
+        BaseSemanticRecoveryPendingCommitAuthority pending = recovery.PendingAuthority;
+        BaseSemanticActivationRetirementAuthority? retired = System.Text.Json.JsonSerializer.Deserialize(
+            publication.Entry.AuthorityBytes.AsSpan(), HPDBaseJsonSerializerContext.Default.BaseSemanticActivationRetirementAuthority);
+        if (retired is null) return false;
+        return CompleteReceiptCorrespondence();
+
+        bool CompleteReceiptCorrespondence() =>
+            pending.ApplicationId == applicationId && pending.LogicalStoreId == logicalStoreId
+            && pending.LocalScope == publication.LocalReceipt.Identity.Scope
+            && pending.LocalOperation == publication.LocalReceipt.Identity.Operation
+            && pending.LocalIdempotencyKey == publication.LocalReceipt.Identity.IdempotencyKey
+            && Fixed(pending.LocalFingerprint, publication.LocalReceipt.Identity.Fingerprint.ToArray().ToImmutableArray())
+            && Fixed(pending.LocalStructuralDigest, publication.LocalReceipt.StructuralDigest)
+            && pending.AuthorityId == definition.Id && pending.AuthorityVersion == definition.Version
+            && Fixed(pending.AuthorityChecksum, definition.ContractChecksum)
+            && Fixed(pending.Checksum, PendingCommitChecksum(pending))
+            && Fixed(pending.Intent.Checksum, PendingIntentChecksum(pending.Intent))
+            && PendingCommitIsValid(definition, pending.Intent, pending.Pending)
+            && Fixed(pending.Intent.RetirementOperationFingerprint,
+                RetirementOperationFingerprint(publication.Entry.RetirementOperation))
+            && recovery.PendingAuthority.Pending.Sequence == publication.Sequence
+            && pending.Intent.Boundary.DefinitionId == publication.Entry.Boundary.DefinitionId
+            && Fixed(pending.Intent.Boundary.ScopeBindingId, publication.Entry.Boundary.ScopeBindingId)
+            && FixedKey(pending.Intent.Boundary.Key, publication.Entry.Boundary.Key)
+            && Fixed(recovery.FinalEntry.Checksum, publication.Entry.Checksum)
+            && semantic.Operation == BaseSemanticActivationOperationKind.Retire
+            && semantic.RetirementDisposition == BaseSemanticActivationRetirementDisposition.RetiredNow
+            && semantic.EnsureDisposition is null && semantic.State == BaseSemanticActivationSlotState.Retired
+            && semantic.DefinitionId == publication.Entry.Definition.Id
+            && semantic.DefinitionVersion == publication.Entry.Definition.Version
+            && Fixed(semantic.DefinitionChecksum, publication.Entry.Definition.Checksum)
+            && FixedKey(semantic.Key, publication.Entry.Boundary.Key)
+            && semantic.SlotGeneration == publication.Entry.SlotGeneration
+            && Fixed(semantic.SlotChecksum, retired.Checksum)
+            && semantic.JournalPosition == retired.RetirementPosition
+            && retired.SlotGeneration == publication.Entry.SlotGeneration
+            && retired.Definition.Id == publication.Entry.Definition.Id
+            && retired.Definition.Version == publication.Entry.Definition.Version
+            && Fixed(retired.Definition.Checksum, publication.Entry.Definition.Checksum)
+            && FixedKey(retired.KeyDigest, publication.Entry.Boundary.Key)
+            && retired.TerminalState == publication.Entry.TerminalActivation.State
+            && retired.TerminalActivationGeneration == publication.Entry.TerminalActivation.Generation
+            && Fixed(retired.TerminalActivationChecksum, publication.Entry.TerminalActivation.ControlChecksum)
+            && Fixed(retired.CompletionReceiptChecksum, publication.Entry.TerminalActivation.TerminalReceipt.AuthorityChecksum)
+            && Fixed(retired.CompletionOperationChecksum,
+                Convert.FromHexString(publication.Entry.RetirementOperation.OperationChecksum).ToImmutableArray())
+            && SubjectLifetimeEqual(pending.Intent.SubjectLifetime, retired.SubjectLifetime)
+            && Fixed(retired.Checksum, BaseSemanticActivationEvidenceContract.RetirementChecksum(retired))
+            && Fixed(semantic.Checksum, BaseSemanticActivationEvidenceContract.ReceiptChecksum(semantic))
+            && Fixed(semantic.CommitEvidenceChecksum, publication.CommitObservationChecksum)
+            && Fixed(publication.LocalReceipt.CommitObservationChecksum, publication.CommitObservationChecksum);
+    }
+
+    private static bool FixedKey(BaseSemanticActivationKeyDigest left, BaseSemanticActivationKeyDigest right)
+    {
+        Span<byte> leftBytes = stackalloc byte[BaseSemanticActivationKeyDigest.Length]; left.CopyTo(leftBytes);
+        Span<byte> rightBytes = stackalloc byte[BaseSemanticActivationKeyDigest.Length]; right.CopyTo(rightBytes);
+        return CryptographicOperations.FixedTimeEquals(leftBytes, rightBytes);
+    }
+
+    private static bool IdentityEqual(BaseMutationRequestIdentity left, BaseMutationRequestIdentity right) =>
+        left.Scope == right.Scope && left.Operation == right.Operation
+        && left.IdempotencyKey == right.IdempotencyKey
+        && CryptographicOperations.FixedTimeEquals(left.Fingerprint.ToArray(), right.Fingerprint.ToArray());
+
+    private static bool SubjectLifetimeEqual(BaseSemanticActivationSubjectLifetimeBinding? left,
+        BaseSemanticActivationSubjectLifetimeBinding? right) =>
+        left is null ? right is null : right is not null
+        && left.ContractId == right.ContractId && left.ContractVersion == right.ContractVersion
+        && Fixed(left.ContractChecksum, right.ContractChecksum) && left.SubjectId.Equals(right.SubjectId)
+        && left.AuthorityEpoch.Equals(right.AuthorityEpoch)
+        && left.Incarnation.Equals(right.Incarnation)
+        && Fixed(left.ScopeBindingId, right.ScopeBindingId)
+        && Fixed(left.Checksum, right.Checksum);
 
     /// <summary>Computes the canonical published-head checksum.</summary>
     public static ImmutableArray<byte> PublishedHeadChecksum(BaseSemanticRecoveryPublishedHead value) =>
         Hash("base.semanticRecovery.head.v1\0", writer =>
         {
-            writer.Text(value.ApplicationId); writer.Text(value.LogicalStoreId); writer.I64(value.PublishedSequence);
+            writer.Bytes(value.RequestChecksum.AsSpan()); writer.Text(value.ApplicationId); writer.Text(value.LogicalStoreId); writer.I64(value.PublishedSequence);
             writer.Bool(value.HasPendingSuccessor); writer.I64(value.EntryCount); writer.Bytes(value.OrderedEntrySetChecksum.AsSpan());
             writer.Text(value.SigningKeyId); writer.I32(value.SigningKeyVersion);
         });
@@ -392,16 +746,42 @@ public static class BaseSemanticRecoveryAuthorityContract
 
     /// <summary>Validates an authority-signed current publication head.</summary>
     public static bool PublishedHeadIsValid(BaseSemanticRecoveryAuthorityDefinition definition,
+        string applicationId, string logicalStoreId, ImmutableArray<byte> requestChecksum,
         BaseSemanticRecoveryPublishedHead value)
     {
         try
         {
-            return value.ApplicationId.Length > 0 && value.LogicalStoreId == definition.LogicalStoreId
+            return !string.IsNullOrWhiteSpace(applicationId) && logicalStoreId == definition.LogicalStoreId
+                && requestChecksum.Length == 32 && Fixed(value.RequestChecksum, requestChecksum)
+                && value.ApplicationId == applicationId && value.LogicalStoreId == logicalStoreId
                 && value.PublishedSequence >= 0 && value.EntryCount >= 0 && value.OrderedEntrySetChecksum.Length == 32
                 && value.SigningKeyId == definition.KeyAuthority.CurrentSigningKeyId
                 && value.SigningKeyVersion == definition.KeyAuthority.CurrentSigningKeyVersion
                 && Fixed(value.Checksum, PublishedHeadChecksum(value)) && Verify(definition.KeyAuthority.CurrentSigningPublicKey,
                     "base.semanticRecovery.headSignature.v1\0", value.Checksum, value.Signature);
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Computes the canonical checksum for an artifact-bound head request.</summary>
+    public static ImmutableArray<byte> HeadRequestChecksum(BaseSemanticRecoveryHeadRequest value) =>
+        Hash("base.semanticRecovery.headRequest.v1\0", writer =>
+        {
+            writer.Text(value.ApplicationId); writer.Text(value.LogicalStoreId); writer.Text(value.ArtifactId);
+            writer.Bytes(value.ArtifactChecksum.AsSpan()); WriteLimits(writer, value.Limits);
+        });
+
+    /// <summary>Validates an artifact-bound head request against installed recovery authority.</summary>
+    public static bool HeadRequestIsValid(BaseSemanticRecoveryAuthorityDefinition definition,
+        BaseSemanticRecoveryHeadRequest value)
+    {
+        try
+        {
+            return !string.IsNullOrWhiteSpace(value.ApplicationId)
+                && value.LogicalStoreId == definition.LogicalStoreId
+                && !string.IsNullOrWhiteSpace(value.ArtifactId)
+                && value.ArtifactChecksum.Length == 32
+                && value.Limits == definition.Limits;
         }
         catch { return false; }
     }
@@ -676,6 +1056,8 @@ public sealed record BaseSemanticRecoveryPreflightEvidence
     public required ImmutableArray<byte> ActivationTerminalReceiptChecksum { get; init; }
     /// <summary>Gets the exact bounded terminal-receipt evidence used to recompute authority and accounting.</summary>
     public required BaseSemanticRecoveryTerminalReceiptEvidence TerminalReceipt { get; init; }
+    /// <summary>Gets the complete terminal activation snapshot from the same finite provider snapshot.</summary>
+    public required BaseSemanticRecoveryTerminalActivationAuthority TerminalActivation { get; init; }
     /// <summary>Gets nonempty read intervals.</summary>
     public required ImmutableArray<BaseAtomicReadIntervalEvidence> ReadIntervals { get; init; }
     /// <summary>Gets exact accounting.</summary>
@@ -701,6 +1083,41 @@ public sealed record BaseSemanticRecoveryTerminalReceiptEvidence
     public required ImmutableArray<byte> AuthorityChecksum { get; init; }
 }
 
+/// <summary>Captures the exact terminal L51 activation row required by disaster recovery.</summary>
+public sealed record BaseSemanticRecoveryTerminalActivationAuthority
+{
+    /// <summary>Gets the immutable activation payload.</summary>
+    public required BaseActivationPayload Payload { get; init; }
+    /// <summary>Gets the creation fingerprint.</summary>
+    public required ImmutableArray<byte> CreationFingerprint { get; init; }
+    /// <summary>Gets the retained priority.</summary>
+    public required int Priority { get; init; }
+    /// <summary>Gets the optional overlap key.</summary>
+    public ImmutableArray<byte>? OverlapKey { get; init; }
+    /// <summary>Gets the overlap policy.</summary>
+    public required BaseScheduleOverlapPolicy OverlapPolicy { get; init; }
+    /// <summary>Gets whether this terminal row is claim-eligible; it must be false.</summary>
+    public required bool Eligible { get; init; }
+    /// <summary>Gets the exact eligible terminal state.</summary>
+    public required BaseActivationState State { get; init; }
+    /// <summary>Gets the positive terminal generation.</summary>
+    public required long Generation { get; init; }
+    /// <summary>Gets the terminal control checksum.</summary>
+    public required ImmutableArray<byte> ControlChecksum { get; init; }
+    /// <summary>Gets the retained attempt number.</summary>
+    public required int AttemptNumber { get; init; }
+    /// <summary>Gets the retained claim epoch after claim authority has been cleared.</summary>
+    public required long ClaimEpoch { get; init; }
+    /// <summary>Gets optional canonical terminal result bytes.</summary>
+    public ImmutableArray<byte>? CanonicalResult { get; init; }
+    /// <summary>Gets the optional canonical result checksum.</summary>
+    public ImmutableArray<byte>? CanonicalResultChecksum { get; init; }
+    /// <summary>Gets the exact durable terminal transition receipt.</summary>
+    public required BaseSemanticRecoveryTerminalReceiptEvidence TerminalReceipt { get; init; }
+    /// <summary>Gets the purpose-bound snapshot checksum.</summary>
+    public required ImmutableArray<byte> Checksum { get; init; }
+}
+
 /// <summary>Provides bounded semantic preflight without opening or retaining a provider transaction.</summary>
 public interface IBaseSemanticActivationPreflightStore
 {
@@ -717,7 +1134,7 @@ public sealed record BaseSemanticRecoveryPendingTerminalIntent
     /// <summary>Gets the installed retirement-operation fingerprint.</summary>
     public required ImmutableArray<byte> RetirementOperationFingerprint { get; init; }
     /// <summary>Gets optional complete subject-lifetime authority.</summary>
-    public required BaseSemanticActivationSubjectLifetimeBinding? SubjectLifetime { get; init; }
+    public BaseSemanticActivationSubjectLifetimeBinding? SubjectLifetime { get; init; }
     /// <summary>Gets the canonical intent checksum.</summary>
     public required ImmutableArray<byte> Checksum { get; init; }
 }
@@ -761,6 +1178,20 @@ public sealed record BaseSemanticRecoveryPendingPublication
 /// <summary>Binds one certified external pending reservation into the local atomic transaction.</summary>
 public sealed record BaseSemanticRecoveryPendingCommitAuthority
 {
+    /// <summary>Gets the application authority owning the pending publication.</summary>
+    public required string ApplicationId { get; init; }
+    /// <summary>Gets the logical store authority owning the pending publication.</summary>
+    public required string LogicalStoreId { get; init; }
+    /// <summary>Gets the exact local L37 request scope.</summary>
+    public required string LocalScope { get; init; }
+    /// <summary>Gets the exact local L37 operation.</summary>
+    public required string LocalOperation { get; init; }
+    /// <summary>Gets the exact local L37 idempotency key.</summary>
+    public required string LocalIdempotencyKey { get; init; }
+    /// <summary>Gets the exact local L37 request fingerprint.</summary>
+    public required ImmutableArray<byte> LocalFingerprint { get; init; }
+    /// <summary>Gets the Runtime-owned structural digest of the exact local operation.</summary>
+    public required ImmutableArray<byte> LocalStructuralDigest { get; init; }
     /// <summary>Gets the installed external authority ID.</summary>
     public required string AuthorityId { get; init; }
     /// <summary>Gets the installed external authority version.</summary>
@@ -854,6 +1285,12 @@ public sealed record BaseSemanticActivationRecoveryEntry
 {
     /// <summary>Gets its strict ordering boundary.</summary>
     public required BaseSemanticActivationRecoveryBoundary Boundary { get; init; }
+    /// <summary>Gets the protected scope-directory authority required to resolve this boundary.</summary>
+    public required BaseSemanticActivationScopeBinding ScopeBinding { get; init; }
+    /// <summary>Gets the exact terminal activation snapshot that dominates an older artifact row.</summary>
+    public required BaseSemanticRecoveryTerminalActivationAuthority TerminalActivation { get; init; }
+    /// <summary>Gets the exact installed completion operation that authorized retirement.</summary>
+    public required BaseSemanticActivationModuleOperationIdentity RetirementOperation { get; init; }
     /// <summary>Gets the exact definition authority.</summary>
     public required BaseSemanticActivationDefinitionKey Definition { get; init; }
     /// <summary>Gets the terminal slot state.</summary>
@@ -869,18 +1306,49 @@ public sealed record BaseSemanticActivationRecoveryEntry
 /// <summary>Finalizes one commit-bound pending publication.</summary>
 public sealed record BaseSemanticRecoveryFinalizeRequest
 {
+    /// <summary>Gets the application authority owning the finalized publication.</summary>
+    public required string ApplicationId { get; init; }
+    /// <summary>Gets the logical store authority owning the finalized publication.</summary>
+    public required string LogicalStoreId { get; init; }
     /// <summary>Gets the pending ticket.</summary>
     public required BaseSemanticRecoveryPendingPublication Pending { get; init; }
     /// <summary>Gets the exact post-commit entry.</summary>
     public required BaseSemanticActivationRecoveryEntry FinalEntry { get; init; }
-    /// <summary>Gets the local receipt checksum.</summary>
-    public required ImmutableArray<byte> LocalReceiptChecksum { get; init; }
+    /// <summary>Gets the complete bounded local L37 receipt envelope.</summary>
+    public required BaseSemanticRecoveryLocalReceiptEnvelope LocalReceipt { get; init; }
     /// <summary>Gets the local commit-observation checksum.</summary>
     public required ImmutableArray<byte> CommitObservationChecksum { get; init; }
     /// <summary>Gets the identified request identity.</summary>
     public required BaseMutationRequestIdentity Identity { get; init; }
     /// <summary>Gets effective limits.</summary>
     public required BaseSemanticRecoveryOperationLimits Limits { get; init; }
+}
+
+/// <summary>Retains the complete canonical L37 receipt and request key needed for disaster replay.</summary>
+public sealed record BaseSemanticRecoveryLocalReceiptEnvelope
+{
+    /// <summary>Gets the exact identified local request.</summary>
+    public required BaseMutationRequestIdentity Identity { get; init; }
+    /// <summary>Gets the local request structural digest.</summary>
+    public required ImmutableArray<byte> StructuralDigest { get; init; }
+    /// <summary>Gets canonical source-generated <see cref="BaseAtomicReceiptWire"/> bytes.</summary>
+    public required ImmutableArray<byte> ReceiptBytes { get; init; }
+    /// <summary>Gets SHA-256 of the canonical receipt bytes.</summary>
+    public required ImmutableArray<byte> ReceiptChecksum { get; init; }
+    /// <summary>Gets the fixed durable receipt format version.</summary>
+    public required int ReceiptFormatVersion { get; init; }
+    /// <summary>Gets the historical schema generation under which the receipt committed.</summary>
+    public required long SchemaGeneration { get; init; }
+    /// <summary>Gets the historical provider store-instance authority.</summary>
+    public required string StoreInstanceId { get; init; }
+    /// <summary>Gets the exact committed instant.</summary>
+    public required DateTimeOffset CommittedAt { get; init; }
+    /// <summary>Gets the original durable receipt expiration.</summary>
+    public required DateTimeOffset ExpiresAt { get; init; }
+    /// <summary>Gets the exact outer semantic commit-observation checksum.</summary>
+    public required ImmutableArray<byte> CommitObservationChecksum { get; init; }
+    /// <summary>Gets the purpose-bound envelope checksum.</summary>
+    public required ImmutableArray<byte> Checksum { get; init; }
 }
 
 /// <summary>Proves finalization of the exact requested pending publication.</summary>
@@ -955,6 +1423,8 @@ public sealed record BaseSemanticRecoveryHeadRequest
 /// <summary>Contains the authenticated current external publication head.</summary>
 public sealed record BaseSemanticRecoveryPublishedHead
 {
+    /// <summary>Gets the checksum of the exact artifact-bound head request.</summary>
+    public required ImmutableArray<byte> RequestChecksum { get; init; }
     /// <summary>Gets the application ID.</summary>
     public required string ApplicationId { get; init; }
     /// <summary>Gets the logical store ID.</summary>
@@ -997,8 +1467,8 @@ public sealed record BaseSemanticRecoveryPublicationEntry
     public required long Sequence { get; init; }
     /// <summary>Gets the finalized semantic entry.</summary>
     public required BaseSemanticActivationRecoveryEntry Entry { get; init; }
-    /// <summary>Gets the local receipt checksum.</summary>
-    public required ImmutableArray<byte> LocalReceiptChecksum { get; init; }
+    /// <summary>Gets the complete bounded local L37 receipt envelope.</summary>
+    public required BaseSemanticRecoveryLocalReceiptEnvelope LocalReceipt { get; init; }
     /// <summary>Gets the local commit-observation checksum.</summary>
     public required ImmutableArray<byte> CommitObservationChecksum { get; init; }
     /// <summary>Gets the canonical publication checksum.</summary>

@@ -846,6 +846,12 @@ public sealed partial class SqliteModuleMutationTests
         public byte[]? RecoveryReceiptJson { get; private set; }
         public string RejectedCode { get; private set; } = string.Empty;
 
+        public ValueTask<AtomicMutationProcessingResult> ResolveReceiptAsync(
+            BaseAtomicReceiptResult committedResult,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(new AtomicMutationProcessingResult(
+                AtomicMutationProcessingOutcome.ReadyToCommit, committedResult));
+
         public async ValueTask<AtomicMutationProcessingResult> ProcessAsync(IAtomicRecordSession session, CancellationToken cancellationToken = default)
         {
             byte[] definitionChecksum = SHA256.HashData("semantic-definition"u8);

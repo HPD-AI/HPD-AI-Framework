@@ -86,16 +86,33 @@ public sealed partial class SqliteRecordStore
                 throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
         }
         long activationGeneration; BaseActivationState activationState; ImmutableArray<byte> activationChecksum; ImmutableArray<byte> terminalReceipt;
+        BaseActivationPayload activationPayload; ImmutableArray<byte> creationFingerprint; int priority; ImmutableArray<byte>? overlapKey;
+        BaseScheduleOverlapPolicy overlapPolicy; bool eligible; int attemptNumber; long claimEpoch; ImmutableArray<byte>? canonicalResult;
         await using (SqliteCommand activation = connection.CreateCommand())
         {
             activation.Transaction = transaction;
-            activation.CommandText = $"SELECT generation,state,control_checksum,terminal_receipt_checksum FROM {_names.Activations} WHERE activation_id=$id;";
+            activation.CommandText = $"SELECT definition_id,definition_version,definition_checksum,canonical_input,input_checksum,scope_kind,scope_value,payload_checksum,fingerprint,state,generation,requested_due_at,effective_due_at,occurrence_id,priority,overlap_key,overlap_policy,eligible,control_checksum,attempt_number,claim_epoch,claim_fence,claim_worker,lease_revision,lease_expires_at,canonical_result,terminal_receipt_checksum FROM {_names.Activations} WHERE activation_id=$id;";
             activation.Parameters.AddWithValue("$id", live.ActivationId);
             await using SqliteDataReader reader = await activation.ExecuteReaderAsync(token).ConfigureAwait(false);
             if (!await reader.ReadAsync(token).ConfigureAwait(false)) throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
-            activationGeneration = reader.GetInt64(0); activationState = (BaseActivationState)reader.GetInt32(1);
-            activationChecksum = ((byte[])reader.GetValue(2)).ToImmutableArray();
-            terminalReceipt = reader.IsDBNull(3) ? [] : ((byte[])reader.GetValue(3)).ToImmutableArray();
+            activationState = (BaseActivationState)reader.GetInt32(9); activationGeneration = reader.GetInt64(10);
+            activationChecksum = ((byte[])reader.GetValue(18)).ToImmutableArray();
+            terminalReceipt = reader.IsDBNull(26) ? [] : ((byte[])reader.GetValue(26)).ToImmutableArray();
+            if (!reader.IsDBNull(13) || !reader.IsDBNull(21) || !reader.IsDBNull(22) || !reader.IsDBNull(23) || !reader.IsDBNull(24))
+                return PreflightFailure(BaseSemanticActivationErrorCodes.ActivationNotTerminal, OperationStatus.Conflict, ErrorCategory.Conflict);
+            activationPayload = new BaseActivationPayload
+            {
+                ActivationId = live.ActivationId,
+                Definition = new() { Id = reader.GetString(0), Version = reader.GetInt32(1), Checksum = ((byte[])reader.GetValue(2)).ToImmutableArray() },
+                CanonicalInput = ((byte[])reader.GetValue(3)).ToImmutableArray(), InputChecksum = ((byte[])reader.GetValue(4)).ToImmutableArray(),
+                Scope = live.Scope, OccurrenceId = null, RequestedDueAt = reader.GetInt64(11), EffectiveDueAt = reader.GetInt64(12),
+                Checksum = ((byte[])reader.GetValue(7)).ToImmutableArray(),
+            };
+            creationFingerprint = ((byte[])reader.GetValue(8)).ToImmutableArray(); priority = reader.GetInt32(14);
+            overlapKey = reader.IsDBNull(15) ? null : ((byte[])reader.GetValue(15)).ToImmutableArray();
+            overlapPolicy = (BaseScheduleOverlapPolicy)reader.GetInt32(16); eligible = reader.GetInt32(17) != 0;
+            attemptNumber = reader.GetInt32(19); claimEpoch = reader.GetInt64(20);
+            canonicalResult = reader.IsDBNull(25) ? null : ((byte[])reader.GetValue(25)).ToImmutableArray();
         }
         if (activationState is not (BaseActivationState.Succeeded or BaseActivationState.Exhausted or BaseActivationState.Cancelled
                 or BaseActivationState.Migrated or BaseActivationState.Disposed) || terminalReceipt.Length != 32)
@@ -105,6 +122,23 @@ public sealed partial class SqliteRecordStore
         BaseSemanticRecoveryTerminalReceiptEvidence? receipt = await ReadPreflightTerminalReceiptAsync(connection, transaction, live.ActivationId, activationGeneration,
             activationState, activationChecksum, terminalReceipt, token).ConfigureAwait(false);
         if (receipt is null) throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+        await using (SqliteCommand effect = connection.CreateCommand())
+        {
+            effect.Transaction = transaction; effect.CommandText = $"SELECT COUNT(*) FROM {_names.ActivationEffects} WHERE activation_id=$id;";
+            effect.Parameters.AddWithValue("$id", live.ActivationId);
+            if (Convert.ToInt64(await effect.ExecuteScalarAsync(token).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture) != 0)
+                return PreflightFailure(BaseSemanticActivationErrorCodes.ActivationNotTerminal, OperationStatus.Conflict, ErrorCategory.Conflict);
+        }
+        var terminalActivation = new BaseSemanticRecoveryTerminalActivationAuthority
+        {
+            Payload = activationPayload, CreationFingerprint = creationFingerprint, Priority = priority,
+            OverlapKey = overlapKey, OverlapPolicy = overlapPolicy, Eligible = eligible,
+            State = activationState, Generation = activationGeneration, ControlChecksum = activationChecksum,
+            AttemptNumber = attemptNumber, ClaimEpoch = claimEpoch, CanonicalResult = canonicalResult,
+            CanonicalResultChecksum = canonicalResult is null ? null : SHA256.HashData(canonicalResult.Value.AsSpan()).ToImmutableArray(),
+            TerminalReceipt = receipt, Checksum = [],
+        };
+        terminalActivation = terminalActivation with { Checksum = BaseSemanticRecoveryAuthorityContract.TerminalActivationChecksum(terminalActivation) };
         BaseAtomicReadIntervalEvidence[] intervals =
         [
             PreflightInterval("base.semanticActivation.scope", Encoding.UTF8.GetBytes($"{(int)request.Scope.Kind}\n{Convert.ToHexString(binding.SeekDigest.AsSpan())}")),
@@ -116,6 +150,7 @@ public sealed partial class SqliteRecordStore
             ScopeBinding = binding, Key = key, Live = live, ActivationGeneration = activationGeneration,
             ActivationState = activationState, ActivationChecksum = activationChecksum,
             ActivationTerminalReceiptChecksum = terminalReceipt, TerminalReceipt = receipt,
+            TerminalActivation = terminalActivation,
             ReadIntervals = intervals.ToImmutableArray(), Accounting = null!, Checksum = [],
         };
         BaseSemanticActivationAccounting accounting = BaseSemanticActivationEvidenceContract.RecoveryPreflightAccounting(request, result);

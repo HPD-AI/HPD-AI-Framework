@@ -43,4 +43,6 @@ public static class BaseSemanticActivationErrorCodes
     public const string ExternalPublicationPending = "base.semanticActivation.externalPublicationPending";
     /// <summary>The installed external recovery authority is unavailable.</summary>
     public const string ExternalPublicationUnavailable = "base.semanticActivation.externalPublicationUnavailable";
+    /// <summary>The authenticated external recovery proof is invalid.</summary>
+    public const string RecoveryProofInvalid = "base.semanticActivation.recoveryProofInvalid";
 }

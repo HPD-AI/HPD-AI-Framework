@@ -65,7 +65,8 @@ public sealed partial class SqliteRecordStore
             AtomicMutationProcessingResult resolved = await processor.ResolveReceiptAsync(receipt.Result, lifetime.Token).ConfigureAwait(false);
             return resolved.Outcome == AtomicMutationProcessingOutcome.ReadyToCommit
                 ? new RecordMutationExecutionResult(RecordMutationExecutionOutcome.Committed, resolved)
-                  { RequestDisposition = BaseMutationRequestDisposition.Duplicate, ReceiptResolution = BaseAtomicReceiptResolutionDisposition.Found }
+                  { RequestDisposition = BaseMutationRequestDisposition.Duplicate, ReceiptResolution = BaseAtomicReceiptResolutionDisposition.Found,
+                      ReceiptAuthority = receipt.Authority }
                 : new RecordMutationExecutionResult(RecordMutationExecutionOutcome.RollbackConfirmed, resolved, resolved.Error)
                   { ReceiptResolution = BaseAtomicReceiptResolutionDisposition.Unavailable };
         }
@@ -399,11 +400,14 @@ public sealed partial class SqliteRecordStore
             try
             {
                 await commitTask.WaitAsync(commitLifetime.Token).ConfigureAwait(false);
+                BaseCommittedAtomicReceiptAuthority? receiptAuthority = request.AtomicRequest is null ? null
+                    : await ReadCommittedReceiptAuthorityAsync(request.AtomicRequest.Identity, CancellationToken.None).ConfigureAwait(false);
                 return new RecordMutationExecutionResult(
                     RecordMutationExecutionOutcome.Committed,
                     processing)
                 {
                     RequestDisposition = duplicate ? BaseMutationRequestDisposition.Duplicate : BaseMutationRequestDisposition.Committed,
+                    ReceiptAuthority = receiptAuthority,
                 };
             }
             catch (OperationCanceledException) when (!commitTask.IsCompleted)
@@ -460,6 +464,27 @@ public sealed partial class SqliteRecordStore
         }
     }
 
+    private async ValueTask<BaseCommittedAtomicReceiptAuthority?> ReadCommittedReceiptAuthorityAsync(
+        BaseMutationRequestIdentity identity, CancellationToken cancellationToken)
+    {
+        await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = $"SELECT result_json,result_format_version,schema_generation,store_instance_id,committed_at,expires_at,structural_digest FROM {_names.OperationReceipts} WHERE scope=$scope AND operation=$operation AND idempotency_key=$key;";
+        command.Parameters.AddWithValue("$scope", identity.Scope); command.Parameters.AddWithValue("$operation", identity.Operation);
+        command.Parameters.AddWithValue("$key", identity.IdempotencyKey);
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) return null;
+        byte[] bytes = (byte[])reader.GetValue(0);
+        return new BaseCommittedAtomicReceiptAuthority
+        {
+            ReceiptBytes = bytes.ToImmutableArray(), ReceiptChecksum = SHA256.HashData(bytes).ToImmutableArray(),
+            StructuralDigest = ((byte[])reader.GetValue(6)).ToImmutableArray(),
+            FormatVersion = reader.GetInt32(1), SchemaGeneration = reader.GetInt64(2), StoreInstanceId = reader.GetString(3),
+            CommittedAt = DateTimeOffset.Parse(reader.GetString(4), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+            ExpiresAt = DateTimeOffset.Parse(reader.GetString(5), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+        };
+    }
+
     private static void ValidateExecutionRequest(RecordMutationExecutionRequest request)
     {
         ValidateExecutionTimeout(request.AcquisitionTimeout, "Acquisition timeout");
@@ -478,7 +503,7 @@ public sealed partial class SqliteRecordStore
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandTimeout = TimeoutSeconds();
-        command.CommandText = $"SELECT fingerprint, structural_digest, result_json, expires_at FROM {_names.OperationReceipts} WHERE scope=$scope AND operation=$operation AND idempotency_key=$key;";
+        command.CommandText = $"SELECT fingerprint,structural_digest,result_json,expires_at,result_format_version,schema_generation,store_instance_id,committed_at FROM {_names.OperationReceipts} WHERE scope=$scope AND operation=$operation AND idempotency_key=$key;";
         command.Parameters.AddWithValue("$scope", request.Identity.Scope);
         command.Parameters.AddWithValue("$operation", request.Identity.Operation);
         command.Parameters.AddWithValue("$key", request.Identity.IdempotencyKey);
@@ -488,6 +513,8 @@ public sealed partial class SqliteRecordStore
         byte[] structuralDigest = (byte[])reader[1];
         byte[] result = (byte[])reader[2];
         DateTimeOffset expiresAt = DateTimeOffset.Parse(reader.GetString(3), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+        int formatVersion = reader.GetInt32(4); long schemaGeneration = reader.GetInt64(5); string storeInstanceId = reader.GetString(6);
+        DateTimeOffset committedAt = DateTimeOffset.Parse(reader.GetString(7), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
         await reader.DisposeAsync().ConfigureAwait(false);
         if (expiresAt <= _timeProvider.GetUtcNow())
         {
@@ -504,7 +531,13 @@ public sealed partial class SqliteRecordStore
         BaseAtomicReceiptWire? receiptWire = JsonSerializer.Deserialize(result, HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire);
         if (fingerprint.Length != 32 || structuralDigest.Length != 32 || receiptWire is null)
             throw new InvalidOperationException("SQLite receipt state is malformed.");
-        return new SqliteMutationReceipt(fingerprint, structuralDigest, receiptWire.Materialize());
+        return new SqliteMutationReceipt(fingerprint, structuralDigest, receiptWire.Materialize(), new BaseCommittedAtomicReceiptAuthority
+        {
+            ReceiptBytes = result.ToImmutableArray(), ReceiptChecksum = SHA256.HashData(result).ToImmutableArray(),
+            StructuralDigest = structuralDigest.ToImmutableArray(),
+            ExpiresAt = expiresAt, FormatVersion = formatVersion, SchemaGeneration = schemaGeneration,
+            StoreInstanceId = storeInstanceId, CommittedAt = committedAt,
+        });
     }
 
     private async ValueTask InsertReceiptAsync(
@@ -517,6 +550,7 @@ public sealed partial class SqliteRecordStore
         byte[] result = JsonSerializer.SerializeToUtf8Bytes(BaseAtomicReceiptWire.From(processing.Receipt), HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire);
         if (result.Length > request.MaxReceiptBytes)
             throw new BaseReceiptTooLargeException();
+        DateTimeOffset committedAt = _timeProvider.GetUtcNow();
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandTimeout = TimeoutSeconds();
@@ -529,7 +563,7 @@ public sealed partial class SqliteRecordStore
         command.Parameters.AddWithValue("$result", result);
         command.Parameters.AddWithValue("$generation", Volatile.Read(ref _schemaGeneration));
         command.Parameters.AddWithValue("$store", _options.StoreId);
-        command.Parameters.AddWithValue("$committed", _timeProvider.GetUtcNow().ToString("O", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$committed", committedAt.ToString("O", CultureInfo.InvariantCulture));
         command.Parameters.AddWithValue("$expires", request.ExpiresAt.ToString("O", CultureInfo.InvariantCulture));
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         if (processing.Receipt.ModuleMutation?.SemanticActivation is
@@ -562,10 +596,65 @@ WHERE excluded.slot_generation>=slot_generation;
             floor.Parameters.AddWithValue("$definition", semantic.DefinitionId); floor.Parameters.Add("$semanticKey", SqliteType.Blob).Value = key;
             if (await floor.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
                 throw new InvalidDataException(BaseSemanticActivationErrorCodes.ProviderContractInvalid);
+            if (semantic.RecoveryPublication is { } recovery)
+            {
+                long sequence = recovery.PendingAuthority.Pending.Sequence;
+                long priorSequence = checked(sequence - 1);
+                ImmutableArray<byte> priorChecksum;
+                await using (SqliteCommand read = connection.CreateCommand())
+                {
+                    read.Transaction = transaction;
+                    read.CommandText = $"SELECT value FROM {_names.ProviderState} WHERE key='semantic_terminal_publication_checksum';";
+                    string? encoded = (string?)await read.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+                    if (encoded is null) throw new InvalidDataException(BaseSemanticActivationErrorCodes.ProviderContractInvalid);
+                    priorChecksum = Convert.FromHexString(encoded).ToImmutableArray();
+                }
+                var publication = new BaseSemanticRecoveryPublicationEntry
+                {
+                    Sequence = sequence, Entry = recovery.FinalEntry,
+                    LocalReceipt = CreateLocalReceiptEnvelope(request, result, committedAt,
+                        semantic.CommitEvidenceChecksum),
+                    CommitObservationChecksum = semantic.CommitEvidenceChecksum, Checksum = [],
+                };
+                publication = publication with { Checksum = BaseSemanticRecoveryAuthorityContract.PublicationEntryChecksum(publication) };
+                ImmutableArray<byte> nextChecksum = BaseSemanticRecoveryAuthorityContract.AdvancePublicationSetChecksum(
+                    priorChecksum, priorSequence, publication);
+                await using SqliteCommand advance = connection.CreateCommand(); advance.Transaction = transaction;
+                advance.CommandText = $"UPDATE {_names.ProviderState} SET value=CASE key WHEN 'semantic_terminal_publication_sequence' THEN $sequence ELSE $checksum END WHERE key IN ('semantic_terminal_publication_sequence','semantic_terminal_publication_checksum') AND ((key='semantic_terminal_publication_sequence' AND CAST(value AS INTEGER)=$prior) OR (key='semantic_terminal_publication_checksum' AND value=$priorChecksum));";
+                advance.Parameters.AddWithValue("$sequence", sequence); advance.Parameters.AddWithValue("$prior", priorSequence);
+                advance.Parameters.AddWithValue("$checksum", Convert.ToHexStringLower(nextChecksum.AsSpan()));
+                advance.Parameters.AddWithValue("$priorChecksum", Convert.ToHexStringLower(priorChecksum.AsSpan()));
+                if (await advance.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 2)
+                    throw new InvalidDataException(BaseSemanticActivationErrorCodes.ProviderContractInvalid);
+            }
         }
     }
 
-    private sealed record SqliteMutationReceipt(byte[] Fingerprint, byte[] StructuralDigest, BaseAtomicReceiptResult Result);
+    private BaseSemanticRecoveryLocalReceiptEnvelope CreateLocalReceiptEnvelope(
+        BaseAtomicMutationExecutionRequest request,
+        byte[] receiptBytes,
+        DateTimeOffset committedAt,
+        ImmutableArray<byte> commitObservationChecksum)
+    {
+        var value = new BaseSemanticRecoveryLocalReceiptEnvelope
+        {
+            Identity = request.Identity,
+            StructuralDigest = request.StructuralDigest.ToImmutableArray(),
+            ReceiptBytes = receiptBytes.ToImmutableArray(),
+            ReceiptChecksum = SHA256.HashData(receiptBytes).ToImmutableArray(),
+            ReceiptFormatVersion = 2,
+            SchemaGeneration = Volatile.Read(ref _schemaGeneration),
+            StoreInstanceId = _options.StoreId,
+            CommittedAt = committedAt,
+            ExpiresAt = request.ExpiresAt,
+            CommitObservationChecksum = commitObservationChecksum,
+            Checksum = [],
+        };
+        return value with { Checksum = BaseSemanticRecoveryAuthorityContract.LocalReceiptEnvelopeChecksum(value) };
+    }
+
+    private sealed record SqliteMutationReceipt(byte[] Fingerprint, byte[] StructuralDigest, BaseAtomicReceiptResult Result,
+        BaseCommittedAtomicReceiptAuthority Authority);
     private sealed class BaseReceiptTooLargeException : Exception;
 
     private static void ValidateExecutionTimeout(TimeSpan timeout, string name)

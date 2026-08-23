@@ -52,6 +52,8 @@ INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('restore_epoch'
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('subject_lifecycle_delivery_epoch', '1');
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('subject_retirement_position', '0');
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_generation', '0');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('semantic_terminal_publication_sequence', '0');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('semantic_terminal_publication_checksum', '{Convert.ToHexStringLower(BaseSemanticRecoveryAuthorityContract.EmptyPublicationSetChecksum().AsSpan())}');
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_accepted_utc', '0');
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('semantic_activation_authority_generation', '0');
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('semantic_activation_definition_set_checksum', '');
@@ -505,6 +507,8 @@ CREATE TABLE IF NOT EXISTS {_names.ProviderState} (
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('restore_epoch', '0');
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('subject_lifecycle_delivery_epoch', '1');
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_generation', '0');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('semantic_terminal_publication_sequence', '0');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('semantic_terminal_publication_checksum', '{Convert.ToHexStringLower(BaseSemanticRecoveryAuthorityContract.EmptyPublicationSetChecksum().AsSpan())}');
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_accepted_utc', '0');
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('semantic_activation_authority_generation', '0');
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('semantic_activation_definition_set_checksum', '');

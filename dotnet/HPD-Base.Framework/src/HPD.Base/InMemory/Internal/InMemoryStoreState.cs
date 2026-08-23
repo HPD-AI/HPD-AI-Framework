@@ -499,12 +499,16 @@ internal sealed record InMemoryMutationReceipt(
     byte[] Fingerprint,
     byte[] StructuralDigest,
     BaseAtomicReceiptResult Result,
+    byte[] ReceiptBytes,
+    DateTimeOffset CommittedAt,
     DateTimeOffset ExpiresAt)
 {
     public InMemoryMutationReceipt DeepClone() => new(
         [.. Fingerprint],
         [.. StructuralDigest],
         CloneReceipt(Result),
+        [.. ReceiptBytes],
+        CommittedAt,
         ExpiresAt);
 
     private static BaseAtomicReceiptResult CloneReceipt(BaseAtomicReceiptResult result) => new()

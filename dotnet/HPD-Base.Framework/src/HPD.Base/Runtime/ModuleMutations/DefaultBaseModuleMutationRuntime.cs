@@ -122,7 +122,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
                 if (existing.Outcome == RecordMutationExecutionOutcome.Committed && replay.Result is not null)
                 {
                     if (!await FinalizeStoredSemanticRecoveryAsync(storeRegistration.StoreId, replay.SemanticReceipt,
-                            replay.OuterReceiptChecksum, identity, cancellationToken).ConfigureAwait(false))
+                            existing.ReceiptAuthority, identity, cancellationToken).ConfigureAwait(false))
                         return Failure<TResult>(OperationStatus.StoreError, BaseSemanticActivationErrorCodes.ExternalPublicationPending, ErrorCategory.Store);
                     return new BaseSuccess<BaseModuleMutationExecutionResult<TResult>>(replay.Result,
                         OperationStatus.Ok, null, null, null, null);
@@ -145,13 +145,15 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         if (!authority.IsSuccess() || authority.Value is null)
             return Failure<TResult>(authority.Status, authority.Error ?? Error(BaseModuleMutationErrorCodes.AuthorityChanged, ErrorCategory.Conflict));
         BaseAtomicSemanticActivationExtension? semantic;
+        byte[] localStructuralDigest = SHA256.HashData(Encoding.UTF8.GetBytes(
+            $"base.moduleMutation.receipt.v1\0{definition.Id}\0{definition.Version}\0{Convert.ToHexString(definition.Checksum.ToArray())}\0{Convert.ToHexString(requestBytes)}"));
         try { semantic = CreateSemanticExtension(definition, options, semanticRegistry, acceptedTimes, authority.Value, storeRegistration!.StoreId, request, generatedIdentity); }
         catch { return Failure<TResult>(OperationStatus.ValidationFailed, "base.semanticActivation.contractInvalid", ErrorCategory.Validation); }
         SemanticRecoveryExecution? recovery = null;
         if (semantic?.Operation is BaseSemanticActivationRetireIntent)
         {
             BaseResult<SemanticRecoveryExecution?> recoveryResult = await PrepareSemanticRecoveryAsync(
-                atomicStore, semantic, identity, semanticDefinition!, cancellationToken).ConfigureAwait(false);
+                atomicStore, semantic, identity, localStructuralDigest, semanticDefinition!, cancellationToken).ConfigureAwait(false);
             if (recoveryResult is not BaseSuccess<SemanticRecoveryExecution?> recoverySuccess)
                 return Failure<TResult>(recoveryResult.Status, ((BaseFailure<SemanticRecoveryExecution?>)recoveryResult).Error);
             recovery = recoverySuccess.Value;
@@ -186,7 +188,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             AtomicRequest = new BaseAtomicMutationExecutionRequest
             {
                 Identity = identity,
-                StructuralDigest = SHA256.HashData(Encoding.UTF8.GetBytes($"base.moduleMutation.receipt.v1\0{definition.Id}\0{definition.Version}\0{Convert.ToHexString(definition.Checksum.ToArray())}\0{Convert.ToHexString(requestBytes)}")),
+                StructuralDigest = localStructuralDigest,
                 ExpiresAt = timeProvider.GetUtcNow().Add(definition.ReceiptPolicy.Lifetime),
                 MaxReceiptBytes = checked((int)Math.Min(definition.Limits.MaximumReceiptBytes, int.MaxValue)),
             },
@@ -228,7 +230,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
                     catch { return Failure<TResult>(OperationStatus.StoreError, BaseSemanticActivationErrorCodes.ExternalPublicationPending, ErrorCategory.Store); }
                     if (resolved.ReceiptResolution == BaseAtomicReceiptResolutionDisposition.Found && resolver.Result is not null
                         && await FinalizeStoredSemanticRecoveryAsync(storeRegistration!.StoreId, resolver.SemanticReceipt,
-                            resolver.OuterReceiptChecksum, identity, cancellationToken).ConfigureAwait(false))
+                            resolved.ReceiptAuthority, identity, cancellationToken).ConfigureAwait(false))
                         return new BaseSuccess<BaseModuleMutationExecutionResult<TResult>>(resolver.Result,
                             OperationStatus.Ok, null, null, null, null);
                     return Failure<TResult>(OperationStatus.StoreError, BaseSemanticActivationErrorCodes.ExternalPublicationPending, ErrorCategory.Store);
@@ -241,7 +243,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
                 execution.Processing?.Error ?? execution.Error ?? Error(BaseModuleMutationErrorCodes.GenerationConflict, ErrorCategory.Conflict));
         }
         if (recovery is not null && !await FinalizeSemanticRecoveryAsync(
-                recovery, processor.SemanticReceipt, processor.OuterReceiptChecksum, identity, cancellationToken).ConfigureAwait(false))
+                recovery, processor.SemanticReceipt, execution.ReceiptAuthority, identity, cancellationToken).ConfigureAwait(false))
             return Failure<TResult>(OperationStatus.StoreError, BaseSemanticActivationErrorCodes.ExternalPublicationPending, ErrorCategory.Store);
         return new BaseSuccess<BaseModuleMutationExecutionResult<TResult>>(
             processor.Result with
@@ -258,12 +260,12 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         && selection.EnabledRestoreMode == BaseActivationRestoreMode.NewDisasterDomain;
 
     private async ValueTask<bool> FinalizeStoredSemanticRecoveryAsync(string logicalStoreId,
-        BaseSemanticActivationReceiptEvidence? receipt, ImmutableArray<byte> outerReceiptChecksum,
+        BaseSemanticActivationReceiptEvidence? receipt, BaseCommittedAtomicReceiptAuthority? receiptAuthority,
         BaseMutationRequestIdentity localIdentity, CancellationToken cancellationToken)
     {
         BaseSemanticRecoveryLocalReceiptAuthority? local = receipt?.RecoveryPublication;
         var owned = semanticRecoveryRegistry?.Find(logicalStoreId);
-        if (local is null || owned is null || outerReceiptChecksum.Length != 32) return false;
+        if (local is null || owned is null || receiptAuthority is null) return false;
         BaseSemanticRecoveryPendingCommitAuthority pending = local.PendingAuthority;
         BaseSemanticRecoveryAuthorityDefinition definition = owned.Value.Definition;
         if (pending.AuthorityId != definition.Id || pending.AuthorityVersion != definition.Version
@@ -280,8 +282,10 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             deadline.CancelAfter(limits.PublicationDeadline);
             var request = new BaseSemanticRecoveryFinalizeRequest
             {
+                ApplicationId = pending.ApplicationId, LogicalStoreId = pending.LogicalStoreId,
                 Pending = pending.Pending, FinalEntry = local.FinalEntry,
-                LocalReceiptChecksum = outerReceiptChecksum, CommitObservationChecksum = receipt!.CommitEvidenceChecksum,
+                LocalReceipt = CreateLocalReceiptEnvelope(localIdentity, receiptAuthority, receipt!.CommitEvidenceChecksum),
+                CommitObservationChecksum = receipt.CommitEvidenceChecksum,
                 Identity = RecoveryIdentity(localIdentity, "finalize", local.FinalEntry.Checksum.AsSpan()), Limits = limits,
             };
             BaseResult<BaseSemanticRecoveryFinalizationResult> result = await semanticRecoveryRegistry!.InvokeAsync(logicalStoreId,
@@ -298,6 +302,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         IAtomicRecordStore atomicStore,
         BaseAtomicSemanticActivationExtension semantic,
         BaseMutationRequestIdentity localIdentity,
+        byte[] localStructuralDigest,
         BaseSemanticActivationKeyDefinition installedDefinition,
         CancellationToken cancellationToken)
     {
@@ -344,10 +349,8 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             DefinitionId = retire.Definition.Id, ScopeBindingId = preflight.Value.ScopeBinding.BindingId,
             Key = BaseSemanticActivationKeyDigest.Create(preflight.Value.Key.ToArray()),
         };
-        byte[] operationFingerprint = Hash("base.semanticRecovery.retirementOperation.v1\0",
-            Encoding.UTF8.GetBytes(retire.CompletionOperation.OperationId),
-            BitConverter.GetBytes(retire.CompletionOperation.OperationVersion).Reverse().ToArray(),
-            Encoding.UTF8.GetBytes(retire.CompletionOperation.OperationChecksum));
+        byte[] operationFingerprint = BaseSemanticRecoveryAuthorityContract
+            .RetirementOperationFingerprint(retire.CompletionOperation).ToArray();
         var intent = new BaseSemanticRecoveryPendingTerminalIntent
         {
             Boundary = boundary, RetirementOperationFingerprint = operationFingerprint.ToImmutableArray(),
@@ -418,6 +421,12 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             return RecoveryFailure(BaseSemanticActivationErrorCodes.ExternalPublicationUnavailable, OperationStatus.StoreError);
         var pendingAuthority = new BaseSemanticRecoveryPendingCommitAuthority
         {
+            ApplicationId = semantic.Capture.StoreAuthority.ApplicationId,
+            LogicalStoreId = semantic.Capture.StoreAuthority.LogicalStoreId,
+            LocalScope = localIdentity.Scope, LocalOperation = localIdentity.Operation,
+            LocalIdempotencyKey = localIdentity.IdempotencyKey,
+            LocalFingerprint = localIdentity.Fingerprint.ToArray().ToImmutableArray(),
+            LocalStructuralDigest = localStructuralDigest.ToImmutableArray(),
             AuthorityId = authorityDefinition.Id, AuthorityVersion = authorityDefinition.Version,
             AuthorityChecksum = authorityDefinition.ContractChecksum, Intent = intent,
             Pending = pendingValue, Checksum = [],
@@ -471,12 +480,12 @@ internal sealed class DefaultBaseModuleMutationRuntime(
     }
 
     private async ValueTask<bool> FinalizeSemanticRecoveryAsync(SemanticRecoveryExecution recovery,
-        BaseSemanticActivationReceiptEvidence? receipt, ImmutableArray<byte> outerReceiptChecksum,
+        BaseSemanticActivationReceiptEvidence? receipt, BaseCommittedAtomicReceiptAuthority? receiptAuthority,
         BaseMutationRequestIdentity localIdentity,
         CancellationToken cancellationToken)
     {
         BaseSemanticRecoveryLocalReceiptAuthority? local = receipt?.RecoveryPublication;
-        if (local is null || outerReceiptChecksum.Length != 32
+        if (local is null || receiptAuthority is null
             || !CryptographicOperations.FixedTimeEquals(local.PendingAuthority.Checksum.AsSpan(), recovery.PendingAuthority.Checksum.AsSpan())
             || !CryptographicOperations.FixedTimeEquals(BaseSemanticRecoveryAuthorityContract.LocalReceiptAuthorityChecksum(local).AsSpan(), local.Checksum.AsSpan()))
             return false;
@@ -487,7 +496,10 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             deadline.CancelAfter(recovery.Limits.PublicationDeadline);
             var request = new BaseSemanticRecoveryFinalizeRequest
             {
-                Pending = recovery.Pending, FinalEntry = entry, LocalReceiptChecksum = outerReceiptChecksum,
+                ApplicationId = recovery.PendingAuthority.ApplicationId,
+                LogicalStoreId = recovery.PendingAuthority.LogicalStoreId,
+                Pending = recovery.Pending, FinalEntry = entry,
+                LocalReceipt = CreateLocalReceiptEnvelope(localIdentity, receiptAuthority, receipt!.CommitEvidenceChecksum),
                 CommitObservationChecksum = receipt!.CommitEvidenceChecksum,
                 Identity = RecoveryIdentity(localIdentity, "finalize", entry.Checksum.AsSpan()), Limits = recovery.Limits,
             };
@@ -508,6 +520,28 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         return BaseMutationRequestIdentity.Create(local.Scope, $"semantic-recovery-{operation}",
             Convert.ToHexStringLower(Hash("base.semanticRecovery.idempotency.v1\0", local.Fingerprint.ToArray(), authority.ToArray())),
             BaseMutationRequestFingerprint.Create(fingerprint));
+    }
+
+    private static BaseSemanticRecoveryLocalReceiptEnvelope CreateLocalReceiptEnvelope(
+        BaseMutationRequestIdentity identity,
+        BaseCommittedAtomicReceiptAuthority authority,
+        ImmutableArray<byte> commitObservationChecksum)
+    {
+        var value = new BaseSemanticRecoveryLocalReceiptEnvelope
+        {
+            Identity = identity,
+            StructuralDigest = authority.StructuralDigest,
+            ReceiptBytes = authority.ReceiptBytes,
+            ReceiptChecksum = authority.ReceiptChecksum,
+            ReceiptFormatVersion = authority.FormatVersion,
+            SchemaGeneration = authority.SchemaGeneration,
+            StoreInstanceId = authority.StoreInstanceId,
+            CommittedAt = authority.CommittedAt,
+            ExpiresAt = authority.ExpiresAt,
+            CommitObservationChecksum = commitObservationChecksum,
+            Checksum = [],
+        };
+        return value with { Checksum = BaseSemanticRecoveryAuthorityContract.LocalReceiptEnvelopeChecksum(value) };
     }
 
     private static bool FinalizationMatches(BaseSemanticRecoveryAuthorityDefinition definition,
@@ -834,7 +868,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             return Failure<TResult>(OperationStatus.NotFound, BaseModuleMutationErrorCodes.ReceiptUnavailable, ErrorCategory.NotFound);
         if (resolver.SemanticReceipt?.RecoveryPublication is not null
             && !await FinalizeStoredSemanticRecoveryAsync(receiptRegistration!.StoreId, resolver.SemanticReceipt,
-                resolver.OuterReceiptChecksum, identity, cancellationToken).ConfigureAwait(false))
+                resolution.ReceiptAuthority, identity, cancellationToken).ConfigureAwait(false))
             return Failure<TResult>(OperationStatus.StoreError, BaseSemanticActivationErrorCodes.ExternalPublicationPending, ErrorCategory.Store);
         return new BaseSuccess<BaseModuleMutationExecutionResult<TResult>>(resolver.Result, OperationStatus.Ok, null, null, null, null);
     }

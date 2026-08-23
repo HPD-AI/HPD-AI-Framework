@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Security.Cryptography;
+using System.Text.Json;
 using System.Text;
 
 namespace HPD.Base;
@@ -78,10 +79,12 @@ internal sealed partial class InMemoryRecordStore
                 Duplicate = false,
             };
             BaseSubjectRetirementMaintenanceResult? retirementResult=execution.Retirement is null?null:new BaseSubjectRetirementMaintenanceResult{Kind=execution.Retirement.Kind,Outcome=BaseSubjectRetirementMutationOutcome.Applied,ExaminedCount=progress.RetirementExamined,ChangedCount=progress.RetirementChanged,CanonicalBytes=result.CanonicalBytes,RollingChecksum=result.RollingChecksum,PublishedBarrierControlGeneration=progress.Working.SubjectRetirementPosition};
+            var maintenanceReceipt = new BaseAtomicReceiptResult { Kind = BaseAtomicReceiptResultKind.SubjectLifecycleMaintenance, Mutations = [], SubjectLifecycleMaintenance = result with { RollingChecksum = new string(result.RollingChecksum.AsSpan()) },SubjectRetirement=retirementResult is null?null:new(){Operation=BaseSubjectRetirementReceiptOperation.Maintenance,Maintenance=retirementResult} };
+            byte[] maintenanceReceiptBytes = JsonSerializer.SerializeToUtf8Bytes(BaseAtomicReceiptWire.From(maintenanceReceipt), HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire);
+            DateTimeOffset committedAt = _timeProvider.GetUtcNow();
             progress.Working.Receipts[receiptKey] = new InMemoryMutationReceipt(
                 execution.Identity.Fingerprint.ToArray(), execution.CombinedPlanChecksum.ToArray(),
-                new BaseAtomicReceiptResult { Kind = BaseAtomicReceiptResultKind.SubjectLifecycleMaintenance, Mutations = [], SubjectLifecycleMaintenance = result with { RollingChecksum = new string(result.RollingChecksum.AsSpan()) },SubjectRetirement=retirementResult is null?null:new(){Operation=BaseSubjectRetirementReceiptOperation.Maintenance,Maintenance=retirementResult} },
-                _timeProvider.GetUtcNow().AddDays(30));
+                maintenanceReceipt, maintenanceReceiptBytes, committedAt, committedAt.AddDays(30));
             _publishedState = progress.Working;
             checked { _generation++; }
             if (progress.ReplacementScopeKey is { } replacement)

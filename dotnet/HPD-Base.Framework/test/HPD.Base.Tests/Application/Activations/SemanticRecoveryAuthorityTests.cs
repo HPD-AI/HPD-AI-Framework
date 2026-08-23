@@ -148,6 +148,40 @@ public sealed class SemanticRecoveryAuthorityTests
     }
 
     [Fact]
+    public void Published_head_is_signed_and_bound_to_the_exact_artifact_request()
+    {
+        byte[] seed = Enumerable.Range(1, Ed25519.SecretKeySize).Select(static value => (byte)value).ToArray();
+        BaseSemanticRecoveryAuthorityDefinition definition = Registration(seed).Definition;
+        var request = new BaseSemanticRecoveryHeadRequest
+        {
+            ApplicationId = "app", LogicalStoreId = definition.LogicalStoreId, ArtifactId = "artifact-one",
+            ArtifactChecksum = SHA256.HashData("artifact-one"u8).ToImmutableArray(), Limits = definition.Limits,
+        };
+        var head = new BaseSemanticRecoveryPublishedHead
+        {
+            RequestChecksum = BaseSemanticRecoveryAuthorityContract.HeadRequestChecksum(request),
+            ApplicationId = request.ApplicationId, LogicalStoreId = request.LogicalStoreId,
+            PublishedSequence = 0, HasPendingSuccessor = false, EntryCount = 0,
+            OrderedEntrySetChecksum = BaseSemanticRecoveryAuthorityContract.EmptyPublicationSetChecksum(),
+            SigningKeyId = definition.KeyAuthority.CurrentSigningKeyId,
+            SigningKeyVersion = definition.KeyAuthority.CurrentSigningKeyVersion, Checksum = [], Signature = [],
+        };
+        head = head with { Checksum = BaseSemanticRecoveryAuthorityContract.PublishedHeadChecksum(head) };
+        head = head with { Signature = Sign(seed, "base.semanticRecovery.headSignature.v1\0", head.Checksum) };
+
+        BaseSemanticRecoveryAuthorityContract.PublishedHeadIsValid(definition, request.ApplicationId,
+            request.LogicalStoreId, BaseSemanticRecoveryAuthorityContract.HeadRequestChecksum(request), head).Should().BeTrue();
+        BaseSemanticRecoveryHeadRequest substituted = request with
+        {
+            ArtifactId = "artifact-two", ArtifactChecksum = SHA256.HashData("artifact-two"u8).ToImmutableArray(),
+        };
+        BaseSemanticRecoveryAuthorityContract.PublishedHeadIsValid(definition, substituted.ApplicationId,
+            substituted.LogicalStoreId, BaseSemanticRecoveryAuthorityContract.HeadRequestChecksum(substituted), head).Should().BeFalse();
+        BaseSemanticRecoveryAuthorityContract.PublishedHeadIsValid(definition, "other-app",
+            request.LogicalStoreId, BaseSemanticRecoveryAuthorityContract.HeadRequestChecksum(request), head).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Noncooperative_external_work_quarantines_until_explicit_release()
     {
         byte[] seed = Enumerable.Range(1, Ed25519.SecretKeySize).Select(static value => (byte)value).ToArray();

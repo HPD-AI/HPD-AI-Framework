@@ -825,7 +825,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         AtomicMutationProcessingResult resolved = await processor.ResolveReceiptAsync(receipt.Result, lifetime.Token).ConfigureAwait(false);
         return resolved.Outcome == AtomicMutationProcessingOutcome.ReadyToCommit
             ? new RecordMutationExecutionResult(RecordMutationExecutionOutcome.Committed, resolved)
-              { RequestDisposition = BaseMutationRequestDisposition.Duplicate, ReceiptResolution = BaseAtomicReceiptResolutionDisposition.Found }
+              { RequestDisposition = BaseMutationRequestDisposition.Duplicate, ReceiptResolution = BaseAtomicReceiptResolutionDisposition.Found,
+                ReceiptAuthority = ReceiptAuthority(receipt) }
             : new RecordMutationExecutionResult(RecordMutationExecutionOutcome.RollbackConfirmed, resolved, resolved.Error)
               { ReceiptResolution = BaseAtomicReceiptResolutionDisposition.Unavailable };
     }
@@ -969,15 +970,18 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
 
         if (request.AtomicRequest is { } identified)
         {
-            int receiptBytes = JsonSerializer.SerializeToUtf8Bytes(
+            byte[] receiptData = JsonSerializer.SerializeToUtf8Bytes(
                 BaseAtomicReceiptWire.From(processing.Receipt),
-                HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire).Length;
-            if (receiptBytes > identified.MaxReceiptBytes)
+                HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire);
+            if (receiptData.Length > identified.MaxReceiptBytes)
                 return Rollback(BaseMutationRequestErrorCodes.ReceiptTooLarge, "The mutation receipt exceeds its configured bound.", processing);
+            DateTimeOffset committedAt = _timeProvider.GetUtcNow();
             working.Receipts[receiptKey!] = new InMemoryMutationReceipt(
                 identified.Identity.Fingerprint.ToArray(),
                 [.. identified.StructuralDigest],
                 processing.Receipt,
+                receiptData,
+                committedAt,
                 identified.ExpiresAt);
         }
 
@@ -1021,13 +1025,28 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             _generation++;
             return new RecordMutationExecutionResult(
                 RecordMutationExecutionOutcome.Committed,
-                processing);
+                processing)
+            {
+                ReceiptAuthority = request.AtomicRequest is null ? null : ReceiptAuthority(working.Receipts[receiptKey!]),
+            };
         }
         finally
         {
             _stateGate.Release();
         }
     }
+
+    private BaseCommittedAtomicReceiptAuthority ReceiptAuthority(InMemoryMutationReceipt receipt) => new()
+    {
+        StructuralDigest = receipt.StructuralDigest.ToImmutableArray(),
+        ReceiptBytes = receipt.ReceiptBytes.ToImmutableArray(),
+        ReceiptChecksum = SHA256.HashData(receipt.ReceiptBytes).ToImmutableArray(),
+        FormatVersion = 2,
+        SchemaGeneration = 1,
+        StoreInstanceId = _options.StoreId,
+        CommittedAt = receipt.CommittedAt,
+        ExpiresAt = receipt.ExpiresAt,
+    };
 
     private static void ValidateExecutionRequest(RecordMutationExecutionRequest request)
     {

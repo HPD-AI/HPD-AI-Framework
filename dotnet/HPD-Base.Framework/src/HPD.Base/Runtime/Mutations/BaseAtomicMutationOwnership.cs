@@ -218,6 +218,8 @@ internal static class BaseAtomicMutationOwnership
     private static BaseSemanticRecoveryPendingCommitAuthority FreezeRecoveryPending(BaseSemanticRecoveryPendingCommitAuthority value) => value with
     {
         AuthorityChecksum = value.AuthorityChecksum.ToArray().ToImmutableArray(),
+        LocalFingerprint = value.LocalFingerprint.ToArray().ToImmutableArray(),
+        LocalStructuralDigest = value.LocalStructuralDigest.ToArray().ToImmutableArray(),
         Intent = value.Intent with
         {
             Boundary = value.Intent.Boundary with

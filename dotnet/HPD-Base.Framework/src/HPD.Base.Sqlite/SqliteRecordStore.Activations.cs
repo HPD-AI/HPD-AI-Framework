@@ -43,6 +43,7 @@ public sealed partial class SqliteRecordStore
         long preRestoreActivationGeneration,
         ImmutableArray<BaseScheduleRecoveryFloor> recoveryFloors,
         SemanticRecoverySnapshot? semanticRecovery,
+        BaseSemanticRecoveryRestoreAuthority? externalSemanticRecovery,
         string recoveryDatabasePath,
         ImmutableArray<string> consumedRecoveryNonces,
         string? consumedManifestNonce,
@@ -123,7 +124,8 @@ public sealed partial class SqliteRecordStore
         }
         await RebindActivationPruneFloorsAsync(connection, transaction, sourceRestoreEpoch, restoreEpoch, cancellationToken).ConfigureAwait(false);
         await RestoreSemanticRecoverySnapshotAsync(connection, transaction, sourceRestoreEpoch, restoreEpoch, artifactSchemaGeneration,
-            semanticRecovery, recoveryDatabasePath, preRestoreActivationGeneration, resultingActivationGeneration, cancellationToken).ConfigureAwait(false);
+            externalSemanticRecovery is null ? semanticRecovery : null, externalSemanticRecovery,
+            recoveryDatabasePath, preRestoreActivationGeneration, resultingActivationGeneration, cancellationToken).ConfigureAwait(false);
         await RebindAllActivationPruneFloorsGenerationAsync(connection, transaction, restoreEpoch, resultingActivationGeneration, cancellationToken).ConfigureAwait(false);
         await using (SqliteCommand publish = connection.CreateCommand())
         {
@@ -1025,7 +1027,7 @@ WHERE a.activation_id=$id AND a.state=$disposed
             : null;
         await using SqliteCommand command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = $"UPDATE {_names.Activations} SET state=$state,generation=$generation,claim_fence=NULL,claim_worker=NULL,lease_revision=NULL,lease_expires_at=NULL,canonical_result=$result,effective_due_at=CASE WHEN $state=$retry THEN $now ELSE effective_due_at END,control_checksum=$checksum,terminal_receipt_checksum=$terminalReceipt WHERE activation_id=$id AND generation=$expected;";
+        command.CommandText = $"UPDATE {_names.Activations} SET state=$state,generation=$generation,claim_fence=NULL,claim_worker=NULL,lease_revision=NULL,lease_expires_at=NULL,canonical_result=$result,effective_due_at=CASE WHEN $state=$retry THEN $now ELSE effective_due_at END,eligible=CASE WHEN $state=$retry THEN 1 ELSE 0 END,control_checksum=$checksum,terminal_receipt_checksum=$terminalReceipt WHERE activation_id=$id AND generation=$expected;";
         command.Parameters.AddWithValue("$state", (int)state); command.Parameters.AddWithValue("$generation", generation);
         command.Parameters.Add("$result", SqliteType.Blob).Value = (object?)result ?? DBNull.Value;
         command.Parameters.AddWithValue("$retry", (int)BaseActivationState.RetryPending);
@@ -1119,7 +1121,7 @@ WHERE a.activation_id=$id AND a.state=$disposed
         await using (SqliteCommand update = connection.CreateCommand())
         {
             update.Transaction = transaction;
-            update.CommandText = $"UPDATE {_names.Activations} SET state=$state,generation=$generation,claim_fence=NULL,claim_worker=NULL,lease_revision=NULL,lease_expires_at=NULL,control_checksum=$control WHERE activation_id=$id AND generation=$expected;";
+            update.CommandText = $"UPDATE {_names.Activations} SET state=$state,generation=$generation,claim_fence=NULL,claim_worker=NULL,lease_revision=NULL,lease_expires_at=NULL,eligible=0,control_checksum=$control WHERE activation_id=$id AND generation=$expected;";
             update.Parameters.AddWithValue("$state", (int)BaseActivationState.Migrated); update.Parameters.AddWithValue("$generation", sourceGeneration);
             update.Parameters.Add("$control", SqliteType.Blob).Value = sourceControl; update.Parameters.AddWithValue("$id", source.ActivationId);
             update.Parameters.AddWithValue("$expected", source.Generation);

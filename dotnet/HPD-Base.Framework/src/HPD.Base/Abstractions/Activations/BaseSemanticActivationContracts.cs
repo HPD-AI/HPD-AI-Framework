@@ -373,6 +373,7 @@ public static class BaseSemanticActivationEvidenceContract
             value.ActivationTerminalReceiptChecksum.ToArray(), System.Text.Encoding.UTF8.GetBytes(value.TerminalReceipt.ReceiptKey),
             System.Text.Encoding.UTF8.GetBytes(value.TerminalReceipt.OperationKind), value.TerminalReceipt.Fingerprint.ToArray(),
             value.TerminalReceipt.ResultBytes.ToArray(), value.TerminalReceipt.ResultChecksum.ToArray(), value.TerminalReceipt.AuthorityChecksum.ToArray(),
+            value.TerminalActivation.Checksum.ToArray(),
         };
         foreach (BaseAtomicReadIntervalEvidence interval in value.ReadIntervals)
         {
@@ -413,7 +414,12 @@ public static class BaseSemanticActivationEvidenceContract
                 || !LifetimeMatchesPreflight(value.Live.SubjectLifetime, request.SubjectLifetime, value.ScopeBinding.BindingId)
                 || value.ActivationGeneration <= 0 || !Terminal(value.ActivationState)
                 || value.ActivationChecksum.Length != 32 || value.ActivationTerminalReceiptChecksum.Length != 32
-                || !TerminalReceiptValid(value)
+                || !TerminalReceiptValid(value) || !BaseSemanticRecoveryAuthorityContract.TerminalActivationIsValid(value.TerminalActivation)
+                || value.TerminalActivation.Payload.ActivationId != value.Live.ActivationId
+                || value.TerminalActivation.Generation != value.ActivationGeneration
+                || value.TerminalActivation.State != value.ActivationState
+                || !value.TerminalActivation.ControlChecksum.AsSpan().SequenceEqual(value.ActivationChecksum.AsSpan())
+                || !value.TerminalActivation.TerminalReceipt.AuthorityChecksum.AsSpan().SequenceEqual(value.ActivationTerminalReceiptChecksum.AsSpan())
                 || value.ReadIntervals.Length != 3 || value.Accounting.Operations != 1
                 || value.Accounting.ScopeDirectoryReads != 1 || value.Accounting.SlotReads != 1
                 || value.Accounting.ActivationReads != 1 || value.Accounting.ReadIntervals != 3
@@ -504,12 +510,15 @@ public static class BaseSemanticActivationEvidenceContract
             + value.ScopeBinding.SeekDigest.Length + System.Text.Encoding.UTF8.GetByteCount(value.ScopeBinding.ProtectionKeyId)
             + sizeof(int) + value.ScopeBinding.Checksum.Length);
         long activationBytes = checked(System.Text.Encoding.UTF8.GetByteCount(value.Live.ActivationId) + sizeof(long) + sizeof(int)
-            + value.ActivationChecksum.Length + value.ActivationTerminalReceiptChecksum.Length);
+            + value.ActivationChecksum.Length + value.ActivationTerminalReceiptChecksum.Length
+            + value.TerminalActivation.Payload.CanonicalInput.Length + value.TerminalActivation.Checksum.Length
+            + (value.TerminalActivation.CanonicalResult?.Length ?? 0));
         long receiptBytes = checked(System.Text.Encoding.UTF8.GetByteCount(value.TerminalReceipt.ReceiptKey)
             + System.Text.Encoding.UTF8.GetByteCount(value.TerminalReceipt.OperationKind) + value.TerminalReceipt.Fingerprint.Length
             + value.TerminalReceipt.ResultBytes.Length + value.TerminalReceipt.ResultChecksum.Length + value.TerminalReceipt.AuthorityChecksum.Length);
         long evidenceBytes = checked(intervalBytes + value.ScopeBinding.Checksum.Length + value.Live.Checksum.Length
-            + value.ActivationChecksum.Length + value.ActivationTerminalReceiptChecksum.Length);
+            + value.ActivationChecksum.Length + value.ActivationTerminalReceiptChecksum.Length
+            + value.TerminalActivation.Checksum.Length);
         long liveBytes = checked(value.Live.Definition.Checksum.Length + value.Live.ScopeBinding.Checksum.Length
             + (value.Live.SubjectLifetime?.Checksum.Length ?? 0) + System.Text.Encoding.UTF8.GetByteCount(value.Live.ActivationId)
             + value.Live.ActivationDefinition.Checksum.Length + value.Live.InputChecksum.Length + value.Live.StoreAuthority.Checksum.Length
