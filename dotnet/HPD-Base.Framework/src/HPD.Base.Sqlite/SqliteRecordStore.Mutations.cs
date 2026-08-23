@@ -61,12 +61,13 @@ public sealed partial class SqliteRecordStore
                     Code = BaseMutationRequestErrorCodes.ReceiptUnavailable,
                     Message = "The stored mutation receipt cannot be resolved.",
                     Category = ErrorCategory.Authorization,
-                });
+                }) with { ReceiptResolution = BaseAtomicReceiptResolutionDisposition.ConfirmedMissing };
             AtomicMutationProcessingResult resolved = await processor.ResolveReceiptAsync(receipt.Result, lifetime.Token).ConfigureAwait(false);
             return resolved.Outcome == AtomicMutationProcessingOutcome.ReadyToCommit
                 ? new RecordMutationExecutionResult(RecordMutationExecutionOutcome.Committed, resolved)
-                  { RequestDisposition = BaseMutationRequestDisposition.Duplicate }
-                : new RecordMutationExecutionResult(RecordMutationExecutionOutcome.RollbackConfirmed, resolved, resolved.Error);
+                  { RequestDisposition = BaseMutationRequestDisposition.Duplicate, ReceiptResolution = BaseAtomicReceiptResolutionDisposition.Found }
+                : new RecordMutationExecutionResult(RecordMutationExecutionOutcome.RollbackConfirmed, resolved, resolved.Error)
+                  { ReceiptResolution = BaseAtomicReceiptResolutionDisposition.Unavailable };
         }
         catch (OperationCanceledException)
         {
@@ -75,11 +76,12 @@ public sealed partial class SqliteRecordStore
                 Code = BaseMutationRequestErrorCodes.ReceiptUnavailable,
                 Message = "The stored mutation receipt cannot be resolved.",
                 Category = ErrorCategory.Authorization,
-            });
+            }) with { ReceiptResolution = BaseAtomicReceiptResolutionDisposition.Unavailable };
         }
         catch
         {
-            return FailedBeforeCommit(ProviderError(SqliteErrorCodes.DatabaseUnavailable, "SQLite receipt resolution is unavailable."));
+            return FailedBeforeCommit(ProviderError(SqliteErrorCodes.DatabaseUnavailable, "SQLite receipt resolution is unavailable.")) with
+            { ReceiptResolution = BaseAtomicReceiptResolutionDisposition.Unavailable };
         }
     }
 
@@ -241,7 +243,7 @@ public sealed partial class SqliteRecordStore
                     FailedProcessing(
                         BaseMutationErrorCodes.TransactionTimeout,
                         "SQLite mutation processing was cancelled or exceeded its bounded lifetime."),
-                    request.CommitCompletionTimeout)
+                    request.CommitCompletionTimeout, request.AtomicRequest, session.RecoveryPending)
                     .ConfigureAwait(false);
             }
             catch (Exception) when (processingLifetime.IsCancellationRequested)
@@ -258,7 +260,7 @@ public sealed partial class SqliteRecordStore
                     FailedProcessing(
                         BaseMutationErrorCodes.TransactionTimeout,
                         "SQLite mutation processing was cancelled or exceeded its bounded lifetime."),
-                    request.CommitCompletionTimeout)
+                    request.CommitCompletionTimeout, request.AtomicRequest, session.RecoveryPending)
                     .ConfigureAwait(false);
             }
             catch
@@ -275,7 +277,7 @@ public sealed partial class SqliteRecordStore
                     FailedProcessing(
                         SqliteErrorCodes.DatabaseUnavailable,
                         "SQLite mutation processing failed."),
-                    request.CommitCompletionTimeout)
+                    request.CommitCompletionTimeout, request.AtomicRequest, session.RecoveryPending)
                     .ConfigureAwait(false);
             }
 
@@ -295,7 +297,7 @@ public sealed partial class SqliteRecordStore
                         BaseMutationErrorCodes.TransactionTimeout,
                         "SQLite mutation processing was cancelled or exceeded its bounded lifetime.",
                         processing.Mutations),
-                    request.CommitCompletionTimeout).ConfigureAwait(false);
+                    request.CommitCompletionTimeout, request.AtomicRequest, session.RecoveryPending).ConfigureAwait(false);
             }
 
             if (processing.Outcome != AtomicMutationProcessingOutcome.ReadyToCommit)
@@ -313,7 +315,7 @@ public sealed partial class SqliteRecordStore
                     transaction,
                     outcome,
                     processing,
-                    request.CommitCompletionTimeout).ConfigureAwait(false);
+                    request.CommitCompletionTimeout, request.AtomicRequest, session.RecoveryPending).ConfigureAwait(false);
             }
 
             // Duplicate resolution returns the already committed receipt and deliberately performs
@@ -325,7 +327,7 @@ public sealed partial class SqliteRecordStore
                     transaction,
                     RecordMutationExecutionOutcome.RollbackConfirmed,
                     FailedProcessing(BaseSubjectErrorCodes.ProviderContractInvalid, "The mutation commit finalization was invalid.", processing.Mutations),
-                    request.CommitCompletionTimeout).ConfigureAwait(false);
+                    request.CommitCompletionTimeout, request.AtomicRequest, session.RecoveryPending).ConfigureAwait(false);
             }
 
             try
@@ -358,7 +360,7 @@ public sealed partial class SqliteRecordStore
                         BaseMutationErrorCodes.TransactionTimeout,
                         "SQLite mutation processing was cancelled or exceeded its bounded lifetime.",
                         processing.Mutations),
-                    request.CommitCompletionTimeout)
+                    request.CommitCompletionTimeout, request.AtomicRequest, session.RecoveryPending)
                     .ConfigureAwait(false);
             }
             catch (SqliteException ex)
@@ -375,7 +377,7 @@ public sealed partial class SqliteRecordStore
                         : FailedProcessing(
                             MapSqlite<object>(BaseOperationKind.Batch, ex).Error!,
                             processing.Mutations),
-                    request.CommitCompletionTimeout)
+                    request.CommitCompletionTimeout, request.AtomicRequest, session.RecoveryPending)
                     .ConfigureAwait(false);
             }
             catch (BaseReceiptTooLargeException)
@@ -385,7 +387,7 @@ public sealed partial class SqliteRecordStore
                     transaction,
                     RecordMutationExecutionOutcome.RollbackConfirmed,
                     FailedProcessing(BaseMutationRequestErrorCodes.ReceiptTooLarge, "The mutation receipt exceeds its configured bound.", processing.Mutations),
-                    request.CommitCompletionTimeout).ConfigureAwait(false);
+                    request.CommitCompletionTimeout, request.AtomicRequest, session.RecoveryPending).ConfigureAwait(false);
             }
 
             // Request cancellation stops controlling the result at this point. The controller call
@@ -433,12 +435,13 @@ public sealed partial class SqliteRecordStore
                                 SqliteErrorCodes.DatabaseUnavailable,
                                 "SQLite mutation commit failed.")
                     };
-                    return new RecordMutationExecutionResult(
-                        error.Code == BaseMutationErrorCodes.TransactionConflict
-                            ? RecordMutationExecutionOutcome.ConflictRollbackConfirmed
-                            : RecordMutationExecutionOutcome.RollbackConfirmed,
-                        processing,
-                        error);
+                    RecordMutationExecutionOutcome rollbackOutcome = error.Code == BaseMutationErrorCodes.TransactionConflict
+                        ? RecordMutationExecutionOutcome.ConflictRollbackConfirmed
+                        : RecordMutationExecutionOutcome.RollbackConfirmed;
+                    ImmutableArray<byte> rollbackProof = request.AtomicRequest is not null && session.RecoveryPending is not null
+                        ? BaseSemanticRecoveryAuthorityContract.RollbackProofChecksum(session.RecoveryPending, request.AtomicRequest, rollbackOutcome)
+                        : [];
+                    return new RecordMutationExecutionResult(rollbackOutcome, processing, error, rollbackProof);
                 }
                 catch (OperationCanceledException) when (!rollbackTask.IsCompleted)
                 {
@@ -581,7 +584,9 @@ WHERE excluded.slot_generation>=slot_generation;
         SqliteTransaction transaction,
         RecordMutationExecutionOutcome confirmedOutcome,
         AtomicMutationProcessingResult processing,
-        TimeSpan completionTimeout)
+        TimeSpan completionTimeout,
+        BaseAtomicMutationExecutionRequest? atomicRequest = null,
+        BaseSemanticRecoveryPendingCommitAuthority? recoveryPending = null)
     {
         using var rollbackLifetime = new CancellationTokenSource(completionTimeout);
         var rollbackTask = InvokeTransactionOperationAsync(
@@ -589,7 +594,10 @@ WHERE excluded.slot_generation>=slot_generation;
         try
         {
             await rollbackTask.WaitAsync(rollbackLifetime.Token).ConfigureAwait(false);
-            return new RecordMutationExecutionResult(confirmedOutcome, processing, processing.Error);
+            ImmutableArray<byte> proof = atomicRequest is not null && recoveryPending is not null
+                ? BaseSemanticRecoveryAuthorityContract.RollbackProofChecksum(recoveryPending, atomicRequest, confirmedOutcome)
+                : [];
+            return new RecordMutationExecutionResult(confirmedOutcome, processing, processing.Error, proof);
         }
         catch (OperationCanceledException) when (!rollbackTask.IsCompleted)
         {
@@ -810,6 +818,7 @@ WHERE excluded.slot_generation>=slot_generation;
 
     private sealed class SqliteAtomicRecordSession : IAtomicRecordSession
     {
+        internal BaseSemanticRecoveryPendingCommitAuthority? RecoveryPending => _capturedSemanticExtension?.Capture.RecoveryPending;
         private int _relationChecks;
         private int _uniqueChecks;
         private SqlitePhysicalModel.CollectionModel? _constraintCollection;
@@ -1453,6 +1462,12 @@ WHERE excluded.slot_generation>=slot_generation;
                 AcceptedTime = capture.AcceptedTime, Checksum = [],
             };
             result = result with { Checksum = BaseSemanticActivationEvidenceContract.CapturedChecksum(extension, result) };
+            if (capture.RecoveryPreflight is { } preflight
+                && !BaseSemanticActivationEvidenceContract.RecoveryPreflightMatchesCapture(preflight, result))
+                return SubjectFailure<BaseCapturedSemanticActivationEvidence?>(BaseSemanticActivationErrorCodes.GraphChanged,
+                    OperationStatus.Conflict, ErrorCategory.Conflict);
+            if (!BaseSemanticActivationEvidenceContract.RecoveryPendingMatchesCapture(capture, result))
+                return SubjectFailure<BaseCapturedSemanticActivationEvidence?>(BaseSemanticActivationErrorCodes.ProviderContractInvalid);
             _capturedSemanticExtension = extension; _capturedSemanticScopeKey = scopeKey; _capturedSemanticSlotKey = slotKey;
             aggregate.AppendData(result.Checksum.AsSpan());
             return OperationResults.Ok<BaseCapturedSemanticActivationEvidence?>(result);
@@ -2443,6 +2458,8 @@ WHERE excluded.slot_generation>=slot_generation;
                 || requested.Capture.Operation != finalized.Capture.Operation
                 || !SemanticStoreRequirementEquals(requested.Capture.StoreAuthority, finalized.Capture.StoreAuthority)
                 || requested.Capture.Limits != finalized.Capture.Limits
+                || !OptionalChecksumEquals(requested.Capture.RecoveryPreflight?.Checksum, finalized.Capture.RecoveryPreflight?.Checksum)
+                || !OptionalChecksumEquals(requested.Capture.RecoveryPending?.Checksum, finalized.Capture.RecoveryPending?.Checksum)
                 || !CryptographicOperations.FixedTimeEquals(requested.Capture.AcceptedTime.Checksum.Span, finalized.Capture.AcceptedTime.Checksum.Span))
                 return false;
 
@@ -2451,8 +2468,11 @@ WHERE excluded.slot_generation>=slot_generation;
             byte[] expectedKeyBytes = SemanticHash("base.semanticActivation.key.v1\0", Encoding.UTF8.GetBytes(definition.Id),
                 binding.BindingId.ToArray(), canonicalKey);
             var expectedKey = BaseSemanticActivationKeyDigest.Create(expectedKeyBytes);
-            byte[] expectedStructural = SemanticHash("base.semanticActivation.extension.v1\0", definition.Checksum.ToArray(),
-                canonicalKey, binding.BindingId.ToArray(), [(byte)(requested.Operation is BaseSemanticActivationEnsureIntent ? 1 : 2)]);
+            byte[] expectedStructural = requested.Capture.RecoveryPending is { } pending
+                ? SemanticHash("base.semanticActivation.extension.v1\0", definition.Checksum.ToArray(), canonicalKey,
+                    binding.BindingId.ToArray(), [(byte)(requested.Operation is BaseSemanticActivationEnsureIntent ? 1 : 2)], pending.Checksum.ToArray())
+                : SemanticHash("base.semanticActivation.extension.v1\0", definition.Checksum.ToArray(),
+                    canonicalKey, binding.BindingId.ToArray(), [(byte)(requested.Operation is BaseSemanticActivationEnsureIntent ? 1 : 2)]);
             if (!CryptographicOperations.FixedTimeEquals(expectedStructural, finalized.StructuralDigest.AsSpan())) return false;
 
             return (requested.Operation, finalized.Operation) switch
@@ -2471,6 +2491,10 @@ WHERE excluded.slot_generation>=slot_generation;
                 _ => false,
             };
         }
+
+        private static bool OptionalChecksumEquals(ImmutableArray<byte>? left, ImmutableArray<byte>? right) =>
+            left is null || right is null ? left is null && right is null
+                : left.Value.AsSpan().SequenceEqual(right.Value.AsSpan());
 
         private static bool SemanticFinalizedEnsureMatches(
             BaseSemanticActivationEnsureIntent requested,

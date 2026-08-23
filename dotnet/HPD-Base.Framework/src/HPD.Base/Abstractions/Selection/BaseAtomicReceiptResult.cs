@@ -310,6 +310,7 @@ public sealed record BaseAtomicReceiptWire
         SlotChecksum = value.SlotChecksum.ToArray(),
         JournalPosition = value.JournalPosition.ToString(System.Globalization.CultureInfo.InvariantCulture),
         CommitEvidenceChecksum = value.CommitEvidenceChecksum.ToArray(),
+        RecoveryPublication = value.RecoveryPublication,
         Checksum = value.Checksum.ToArray(),
     };
 
@@ -328,6 +329,7 @@ public sealed record BaseAtomicReceiptWire
         SlotChecksum = value.SlotChecksum.ToImmutableArray(),
         JournalPosition = ParsePositiveCanonical(value.JournalPosition),
         CommitEvidenceChecksum = value.CommitEvidenceChecksum.ToImmutableArray(),
+        RecoveryPublication = value.RecoveryPublication,
         Checksum = value.Checksum.ToImmutableArray(),
     };
 
@@ -380,7 +382,11 @@ public sealed record BaseAtomicReceiptWire
     {
         if (string.IsNullOrWhiteSpace(value.DefinitionId) || value.DefinitionVersion <= 0 || value.SlotGeneration <= 0
             || value.JournalPosition <= 0 || value.DefinitionChecksum.Length != 32 || value.SlotChecksum.Length != 32
-            || value.CommitEvidenceChecksum.Length != 32 || value.Checksum.Length != 32)
+            || value.CommitEvidenceChecksum.Length != 32 || value.Checksum.Length != 32
+            || value.RecoveryPublication is { } recovery && !RecoveryShapeValid(recovery, value))
+            return false;
+        if (!System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                BaseSemanticActivationEvidenceContract.ReceiptChecksum(value).AsSpan(), value.Checksum.AsSpan()))
             return false;
 
         return value.Operation switch
@@ -403,6 +409,23 @@ public sealed record BaseAtomicReceiptWire
             },
             _ => false,
         };
+    }
+
+    private static bool RecoveryShapeValid(BaseSemanticRecoveryLocalReceiptAuthority value,
+        BaseSemanticActivationReceiptEvidence semantic)
+    {
+        BaseSemanticRecoveryPendingCommitAuthority pending = value.PendingAuthority;
+        return semantic.Operation == BaseSemanticActivationOperationKind.Retire
+            && semantic.RetirementDisposition == BaseSemanticActivationRetirementDisposition.RetiredNow
+            && semantic.State == BaseSemanticActivationSlotState.Retired
+            && pending.AuthorityVersion > 0 && !string.IsNullOrWhiteSpace(pending.AuthorityId)
+            && pending.AuthorityChecksum.Length == 32 && pending.Checksum.Length == 32
+            && value.FinalEntry.State == BaseSemanticActivationSlotState.Retired
+            && value.FinalEntry.SlotGeneration == semantic.SlotGeneration
+            && value.FinalEntry.Checksum.Length == 32 && value.Checksum.Length == 32
+            && BaseSemanticRecoveryAuthorityContract.PendingCommitChecksum(pending).AsSpan().SequenceEqual(pending.Checksum.AsSpan())
+            && BaseSemanticRecoveryAuthorityContract.RecoveryEntryChecksum(value.FinalEntry).AsSpan().SequenceEqual(value.FinalEntry.Checksum.AsSpan())
+            && BaseSemanticRecoveryAuthorityContract.LocalReceiptAuthorityChecksum(value).AsSpan().SequenceEqual(value.Checksum.AsSpan());
     }
 
     private static bool IsActivationId(string? value) => value is { Length: 64 }

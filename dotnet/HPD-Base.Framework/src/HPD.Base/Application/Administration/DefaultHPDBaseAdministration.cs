@@ -17,6 +17,7 @@ internal sealed class DefaultHPDBaseAdministration(
     BaseScheduleRecoveryKeyRegistry scheduleRecoveryKeys,
     BaseActivationAcceptedTimeAuthority activationTime,
     BaseActivationProviderExecutionGate activationProviderGate,
+    BaseSemanticRecoveryAuthorityRegistry semanticRecovery,
     BaseSubjectControlOperationalState subjectControlState,
     HPDBaseInstalledFeatures features,
     TimeProvider timeProvider) : IHPDBaseAdministration
@@ -283,6 +284,43 @@ internal sealed class DefaultHPDBaseAdministration(
             AcceptedTime = accepted,
             Limits = definition.Limits.Provider,
         }, static definition => definition.Grants.Cancel, cancellationToken);
+
+    public async ValueTask<BaseResult<BaseSemanticRecoveryQuarantineRecoveryResult>> RecoverSemanticRecoveryQuarantineAsync(
+        BaseSemanticRecoveryQuarantineRecoveryRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request); ArgumentNullException.ThrowIfNull(request.Principal);
+        cancellationToken.ThrowIfCancellationRequested();
+        var installed = semanticRecovery.Find(request.LogicalStoreId);
+        if (installed is null)
+            return new BaseFailure<BaseSemanticRecoveryQuarantineRecoveryResult>(OperationStatus.NotFound,
+                new BaseError { Code = BaseSemanticActivationErrorCodes.ExternalPublicationUnavailable,
+                    Message = "Semantic recovery authority is unavailable.", Category = ErrorCategory.NotFound }, null, null);
+        BaseSemanticRecoveryAuthorityDefinition definition = installed.Value.Definition;
+        var operation = new OperationContext
+        {
+            ApplicationId = features.LogicalSchema.ApplicationId, Audience = HPDBaseEndpointAudience.ControlPlane,
+            Operation = BaseOperationKind.SemanticRecoveryMaintenance, CollectionId = definition.Id,
+            TenantId = request.Principal.CurrentTenantId, Mode = OperationMode.System,
+        };
+        var resource = new CollectionDefinition
+        {
+            Id = definition.Id, Name = definition.Id, Kind = BaseCollectionKinds.Custom,
+            SchemaMode = SchemaMode.Strict, UnknownFields = UnknownFieldPolicy.Reject,
+            System = true, SystemOwnerModuleId = definition.OwningModuleId,
+        };
+        OperationResult<BasePolicyEvaluation> authorized = await policy.EvaluateWriteAsync(new BasePolicyRequest
+        {
+            Principal = request.Principal, Operation = operation, Collection = resource,
+            ResourceKind = PolicyResourceKind.ModuleMutation,
+        }, cancellationToken).ConfigureAwait(false);
+        if (!authorized.IsSuccess() || authorized.Value?.Authority is null
+            || !BaseSystemCollectionGate.HasExactModuleGrant(authorized, definition.RecoveryGrantId,
+                definition.OwningModuleId, request.Principal, operation))
+            return new BaseFailure<BaseSemanticRecoveryQuarantineRecoveryResult>(OperationStatus.PolicyDenied,
+                new BaseError { Code = "base.semanticActivation.unauthorized", Message = "Semantic recovery authority is unavailable.", Category = ErrorCategory.Authorization }, null, null);
+        return semanticRecovery.RecoverQuarantine(request);
+    }
 
     public ValueTask<BaseResult<BaseActivationTransitionResult>> RetryActivationAsync(
         BaseActivationAdministrationRetryRequest request,

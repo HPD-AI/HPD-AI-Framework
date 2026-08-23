@@ -101,6 +101,11 @@ public interface IHPDBaseAdministration
     ValueTask<BaseResult<BaseActivationQuarantinePage>> ExecuteActivationRepairAsync(
         BaseActivationAdministrationRepairRequest request,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Explicitly releases completed external semantic-recovery quarantine under ControlPlane authority.</summary>
+    ValueTask<BaseResult<BaseSemanticRecoveryQuarantineRecoveryResult>> RecoverSemanticRecoveryQuarantineAsync(
+        BaseSemanticRecoveryQuarantineRecoveryRequest request,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>Requests sanitized lifecycle authority inspection after exact ControlPlane authorization.</summary>

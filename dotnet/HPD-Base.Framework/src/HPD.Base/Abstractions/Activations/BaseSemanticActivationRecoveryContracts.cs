@@ -93,6 +93,8 @@ public sealed record BaseSemanticRecoveryAuthorityCapability
     public required bool IdentifiedCancellationSupported { get; init; }
     /// <summary>Gets whether locally committed pending publications are retained until resolution.</summary>
     public required bool CommitBoundRetentionSupported { get; init; }
+    /// <summary>Gets whether signing keys referenced by unresolved tickets are retained permanently.</summary>
+    public required bool PermanentPendingKeyRetentionSupported { get; init; }
     /// <summary>Gets the maximum entries across one bounded operation.</summary>
     public required int MaximumEntries { get; init; }
     /// <summary>Gets the maximum pages across one bounded operation.</summary>
@@ -107,8 +109,12 @@ public sealed record BaseSemanticRecoveryAuthorityCapability
     public required long MaximumTransientBytes { get; init; }
     /// <summary>Gets the maximum acquisition duration.</summary>
     public required TimeSpan MaximumAcquisitionDuration { get; init; }
+    /// <summary>Gets the maximum identified resolution duration.</summary>
+    public required TimeSpan MaximumResolutionDuration { get; init; }
     /// <summary>Gets the maximum publication duration.</summary>
     public required TimeSpan MaximumPublicationDuration { get; init; }
+    /// <summary>Gets the maximum concurrent retained external operations.</summary>
+    public required int MaximumConcurrentOperations { get; init; }
     /// <summary>Gets the canonical capability checksum.</summary>
     public required ImmutableArray<byte> CapabilityChecksum { get; init; }
 }
@@ -124,8 +130,12 @@ public sealed record BaseSemanticRecoveryAuthorityDefinition
     public required string LogicalStoreId { get; init; }
     /// <summary>Gets the owning module ID.</summary>
     public required string OwningModuleId { get; init; }
+    /// <summary>Gets the exact ControlPlane grant for quarantine recovery.</summary>
+    public required string RecoveryGrantId { get; init; }
     /// <summary>Gets the required finite capability.</summary>
     public required BaseSemanticRecoveryAuthorityCapability RequiredCapability { get; init; }
+    /// <summary>Gets graph-owned host execution ceilings.</summary>
+    public required BaseSemanticRecoveryOperationLimits Limits { get; init; }
     /// <summary>Gets the exact key authority.</summary>
     public required BaseSemanticRecoveryKeyAuthorityReceipt KeyAuthority { get; init; }
     /// <summary>Gets the canonical definition checksum.</summary>
@@ -199,6 +209,203 @@ public sealed record BaseSemanticRecoveryAuthorityRegistration
 /// <summary>Creates and validates canonical external semantic-recovery installation authority.</summary>
 public static class BaseSemanticRecoveryAuthorityContract
 {
+    /// <summary>Creates the exact effective operation limits certified by one installed definition.</summary>
+    public static BaseSemanticRecoveryOperationLimits OperationLimits(BaseSemanticRecoveryAuthorityDefinition definition) => definition.Limits;
+
+    /// <summary>Computes the canonical pending terminal-intent checksum.</summary>
+    public static ImmutableArray<byte> PendingIntentChecksum(BaseSemanticRecoveryPendingTerminalIntent value) =>
+        Hash("base.semanticRecovery.pendingIntent.v1\0", writer =>
+        {
+            Boundary(writer, value.Boundary); writer.Bytes(value.RetirementOperationFingerprint.AsSpan());
+            writer.Bool(value.SubjectLifetime is not null);
+            if (value.SubjectLifetime is { } lifetime) writer.Bytes(BaseSemanticActivationEvidenceContract.SubjectLifetimeChecksum(lifetime).AsSpan());
+        });
+
+    /// <summary>Computes the canonical pending-ticket checksum.</summary>
+    public static ImmutableArray<byte> PendingChecksum(BaseSemanticRecoveryPendingPublication value) =>
+        Hash("base.semanticRecovery.pending.v1\0", writer =>
+        {
+            writer.I64(value.Sequence); writer.Text(value.TicketNonce); writer.Bytes(value.IntentChecksum.AsSpan());
+            writer.Text(value.SigningKeyId); writer.I32(value.SigningKeyVersion);
+            writer.I64(value.CancellationEligibleAt.ToUnixTimeMilliseconds());
+        });
+
+    /// <summary>Computes the canonical local transaction binding for one pending ticket.</summary>
+    public static ImmutableArray<byte> PendingCommitChecksum(BaseSemanticRecoveryPendingCommitAuthority value) =>
+        Hash("base.semanticRecovery.pendingCommit.v1\0", writer =>
+        {
+            writer.Text(value.AuthorityId); writer.I32(value.AuthorityVersion); writer.Bytes(value.AuthorityChecksum.AsSpan());
+            writer.Bytes(value.Intent.Checksum.AsSpan()); writer.Bytes(value.Pending.Checksum.AsSpan());
+        });
+
+    /// <summary>Computes the canonical identified pending-resolution request checksum.</summary>
+    public static ImmutableArray<byte> ResolvePendingRequestChecksum(BaseSemanticRecoveryResolvePendingRequest value) =>
+        Hash("base.semanticRecovery.resolvePendingRequest.v1\0", writer =>
+        {
+            writer.Text(value.ApplicationId); writer.Text(value.LogicalStoreId); writer.Bytes(value.Intent.Checksum.AsSpan());
+            Identity(writer, value.BeginIdentity); WriteLimits(writer, value.Limits);
+        });
+
+    /// <summary>Computes the canonical identified pending-resolution checksum.</summary>
+    public static ImmutableArray<byte> PendingResolutionChecksum(BaseSemanticRecoveryPendingResolution value) =>
+        Hash("base.semanticRecovery.pendingResolution.v1\0", writer =>
+        {
+            writer.Bytes(value.RequestChecksum.AsSpan()); writer.I32((int)value.Disposition); writer.Bool(value.Pending is not null);
+            if (value.Pending is { } pending) writer.Bytes(PendingChecksum(pending).AsSpan());
+        });
+
+    /// <summary>Validates one identified pending-resolution result.</summary>
+    public static bool PendingResolutionIsValid(BaseSemanticRecoveryAuthorityDefinition definition,
+        BaseSemanticRecoveryResolvePendingRequest request, BaseSemanticRecoveryPendingResolution value,
+        DateTimeOffset observedAt)
+    {
+        if (!Enum.IsDefined(value.Disposition) || value.RequestChecksum.Length != 32 || value.Checksum.Length != 32
+            || !Fixed(value.RequestChecksum, ResolvePendingRequestChecksum(request))
+            || !Fixed(value.Checksum, PendingResolutionChecksum(value))
+            || !Verify(definition.KeyAuthority.CurrentSigningPublicKey,
+                "base.semanticRecovery.pendingResolutionSignature.v1\0", value.Checksum, value.Signature)) return false;
+        return value.Disposition switch
+        {
+            BaseSemanticRecoveryPendingResolutionDisposition.Missing => value.Pending is null,
+            BaseSemanticRecoveryPendingResolutionDisposition.Pending
+                or BaseSemanticRecoveryPendingResolutionDisposition.Cancelled
+                or BaseSemanticRecoveryPendingResolutionDisposition.Finalized => value.Pending is { } pending
+                    && PendingIsValid(definition, request.Intent, pending, observedAt),
+            _ => false,
+        };
+    }
+
+    /// <summary>Computes the canonical finalize-request binding checksum.</summary>
+    public static ImmutableArray<byte> FinalizeRequestChecksum(BaseSemanticRecoveryFinalizeRequest value) =>
+        Hash("base.semanticRecovery.finalizeRequest.v1\0", writer =>
+        {
+            writer.Bytes(PendingChecksum(value.Pending).AsSpan()); writer.Bytes(value.FinalEntry.Checksum.AsSpan());
+            writer.Bytes(value.LocalReceiptChecksum.AsSpan()); writer.Bytes(value.CommitObservationChecksum.AsSpan());
+            Identity(writer, value.Identity); WriteLimits(writer, value.Limits);
+        });
+
+    /// <summary>Computes the canonical exact finalization-result checksum.</summary>
+    public static ImmutableArray<byte> FinalizationResultChecksum(BaseSemanticRecoveryFinalizationResult value) =>
+        Hash("base.semanticRecovery.finalizationResult.v1\0", writer =>
+        {
+            writer.Bytes(value.RequestChecksum.AsSpan()); writer.Bytes(PublishedHeadChecksum(value.Head).AsSpan());
+        });
+
+    /// <summary>Validates exact finalize-request/result correspondence and authenticated head authority.</summary>
+    public static bool FinalizationIsValid(BaseSemanticRecoveryAuthorityDefinition definition,
+        BaseSemanticRecoveryFinalizeRequest request, BaseSemanticRecoveryFinalizationResult value) =>
+        value.RequestChecksum.Length == 32 && value.Checksum.Length == 32
+        && Fixed(value.RequestChecksum, FinalizeRequestChecksum(request))
+        && Fixed(value.Checksum, FinalizationResultChecksum(value))
+        && Verify(definition.KeyAuthority.CurrentSigningPublicKey,
+            "base.semanticRecovery.finalizationResultSignature.v1\0", value.Checksum, value.Signature)
+        && PublishedHeadIsValid(definition, value.Head)
+        && value.Head.PublishedSequence >= request.Pending.Sequence;
+
+    /// <summary>Computes the canonical cancellation-request binding checksum.</summary>
+    public static ImmutableArray<byte> CancelRequestChecksum(BaseSemanticRecoveryCancelRequest value) =>
+        Hash("base.semanticRecovery.cancelRequest.v1\0", writer =>
+        {
+            writer.Bytes(PendingChecksum(value.Pending).AsSpan()); writer.Bytes(value.ConfirmedRollbackProofChecksum.AsSpan());
+            Identity(writer, value.Identity); WriteLimits(writer, value.Limits);
+        });
+
+    /// <summary>Validates exact cancel-request/result correspondence.</summary>
+    public static bool CancellationIsValid(BaseSemanticRecoveryAuthorityDefinition definition,
+        BaseSemanticRecoveryCancelRequest request,
+        BaseSemanticRecoveryCancellationResult value) => Enum.IsDefined(value.Disposition)
+        && value.Sequence == request.Pending.Sequence && value.RequestChecksum.Length == 32 && value.Checksum.Length == 32
+        && Fixed(value.RequestChecksum, CancelRequestChecksum(request))
+        && Fixed(value.Checksum, CancellationResultChecksum(value))
+        && Verify(definition.KeyAuthority.CurrentSigningPublicKey,
+            "base.semanticRecovery.cancellationResultSignature.v1\0", value.Checksum, value.Signature);
+
+    /// <summary>Computes the canonical receipt-resolvable local recovery handoff checksum.</summary>
+    public static ImmutableArray<byte> LocalReceiptAuthorityChecksum(BaseSemanticRecoveryLocalReceiptAuthority value) =>
+        Hash("base.semanticRecovery.localReceipt.v1\0", writer =>
+        {
+            writer.Bytes(value.PendingAuthority.Checksum.AsSpan()); writer.Bytes(value.FinalEntry.Checksum.AsSpan());
+        });
+
+    /// <summary>Computes provider-confirmed no-commit authority after a rolled-back local transaction.</summary>
+    public static ImmutableArray<byte> RollbackProofChecksum(BaseSemanticRecoveryPendingCommitAuthority pending,
+        BaseAtomicMutationExecutionRequest request, RecordMutationExecutionOutcome outcome) =>
+        Hash("base.semanticRecovery.rollbackProof.v1\0", writer =>
+        {
+            writer.Bytes(pending.Checksum.AsSpan()); writer.Text(request.Identity.Scope); writer.Text(request.Identity.Operation);
+            writer.Text(request.Identity.IdempotencyKey); writer.Bytes(request.Identity.Fingerprint.ToArray());
+            writer.Bytes(request.StructuralDigest); writer.I32((int)outcome);
+        });
+
+    /// <summary>Computes the canonical finalized recovery-entry checksum.</summary>
+    public static ImmutableArray<byte> RecoveryEntryChecksum(BaseSemanticActivationRecoveryEntry value) =>
+        Hash("base.semanticRecovery.entry.v1\0", writer =>
+        {
+            Boundary(writer, value.Boundary); writer.Text(value.Definition.Id); writer.I32(value.Definition.Version);
+            writer.Bytes(value.Definition.Checksum.AsSpan()); writer.I32((int)value.State); writer.I64(value.SlotGeneration);
+            writer.Bytes(value.AuthorityBytes.AsSpan());
+        });
+
+    /// <summary>Computes the canonical published-head checksum.</summary>
+    public static ImmutableArray<byte> PublishedHeadChecksum(BaseSemanticRecoveryPublishedHead value) =>
+        Hash("base.semanticRecovery.head.v1\0", writer =>
+        {
+            writer.Text(value.ApplicationId); writer.Text(value.LogicalStoreId); writer.I64(value.PublishedSequence);
+            writer.Bool(value.HasPendingSuccessor); writer.I64(value.EntryCount); writer.Bytes(value.OrderedEntrySetChecksum.AsSpan());
+            writer.Text(value.SigningKeyId); writer.I32(value.SigningKeyVersion);
+        });
+
+    /// <summary>Computes the canonical identified cancellation result checksum.</summary>
+    public static ImmutableArray<byte> CancellationResultChecksum(BaseSemanticRecoveryCancellationResult value) =>
+        Hash("base.semanticRecovery.cancellation.v1\0", writer =>
+        {
+            writer.Bytes(value.RequestChecksum.AsSpan()); writer.I32((int)value.Disposition); writer.I64(value.Sequence);
+        });
+
+    /// <summary>Validates an authority-signed pending ticket.</summary>
+    public static bool PendingIsValid(BaseSemanticRecoveryAuthorityDefinition definition,
+        BaseSemanticRecoveryPendingTerminalIntent intent, BaseSemanticRecoveryPendingPublication value, DateTimeOffset observedAt)
+    {
+        try
+        {
+            return value.CancellationEligibleAt > DateTimeOffset.UnixEpoch && PendingCommitIsValid(definition, intent, value);
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Validates a signed pending ticket after local commit, when pre-commit expiry no longer applies.</summary>
+    public static bool PendingCommitIsValid(BaseSemanticRecoveryAuthorityDefinition definition,
+        BaseSemanticRecoveryPendingTerminalIntent intent, BaseSemanticRecoveryPendingPublication value)
+    {
+        try
+        {
+            BaseSemanticRecoveryRetainedKeyAuthority? signingKey = definition.KeyAuthority.RetainedKeys.SingleOrDefault(key =>
+                key.SigningKeyId == value.SigningKeyId && key.SigningKeyVersion == value.SigningKeyVersion);
+            return value.Sequence > 0 && !string.IsNullOrWhiteSpace(value.TicketNonce)
+                && signingKey is not null
+                && Fixed(value.IntentChecksum, intent.Checksum) && Fixed(value.Checksum, PendingChecksum(value))
+                && Verify(signingKey.SigningPublicKey,
+                    "base.semanticRecovery.pendingSignature.v1\0", value.Checksum, value.Signature);
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Validates an authority-signed current publication head.</summary>
+    public static bool PublishedHeadIsValid(BaseSemanticRecoveryAuthorityDefinition definition,
+        BaseSemanticRecoveryPublishedHead value)
+    {
+        try
+        {
+            return value.ApplicationId.Length > 0 && value.LogicalStoreId == definition.LogicalStoreId
+                && value.PublishedSequence >= 0 && value.EntryCount >= 0 && value.OrderedEntrySetChecksum.Length == 32
+                && value.SigningKeyId == definition.KeyAuthority.CurrentSigningKeyId
+                && value.SigningKeyVersion == definition.KeyAuthority.CurrentSigningKeyVersion
+                && Fixed(value.Checksum, PublishedHeadChecksum(value)) && Verify(definition.KeyAuthority.CurrentSigningPublicKey,
+                    "base.semanticRecovery.headSignature.v1\0", value.Checksum, value.Signature);
+        }
+        catch { return false; }
+    }
+
     /// <summary>Computes the canonical retained-key checksum.</summary>
     public static ImmutableArray<byte> RetainedKeyChecksum(BaseSemanticRecoveryRetainedKeyAuthority value) =>
         Hash("base.semanticRecovery.retainedKey.v1\0", writer =>
@@ -224,9 +431,12 @@ public static class BaseSemanticRecoveryAuthorityContract
         Hash("base.semanticRecovery.capability.v1\0", writer =>
         {
             writer.Bool(value.DurablePendingSupported); writer.Bool(value.IdentifiedCancellationSupported);
-            writer.Bool(value.CommitBoundRetentionSupported); writer.I32(value.MaximumEntries); writer.I32(value.MaximumPages);
+            writer.Bool(value.CommitBoundRetentionSupported); writer.Bool(value.PermanentPendingKeyRetentionSupported);
+            writer.I32(value.MaximumEntries); writer.I32(value.MaximumPages);
             writer.I32(value.MaximumPageEntries); writer.I64(value.MaximumRequestBytes); writer.I64(value.MaximumResultBytes);
-            writer.I64(value.MaximumTransientBytes); writer.I64(value.MaximumAcquisitionDuration.Ticks); writer.I64(value.MaximumPublicationDuration.Ticks);
+            writer.I64(value.MaximumTransientBytes); writer.I64(value.MaximumAcquisitionDuration.Ticks);
+            writer.I64(value.MaximumResolutionDuration.Ticks); writer.I64(value.MaximumPublicationDuration.Ticks);
+            writer.I32(value.MaximumConcurrentOperations);
         });
 
     /// <summary>Computes the canonical definition checksum.</summary>
@@ -234,7 +444,9 @@ public static class BaseSemanticRecoveryAuthorityContract
         Hash("base.semanticRecovery.definition.v1\0", writer =>
         {
             writer.Text(value.Id); writer.I32(value.Version); writer.Text(value.LogicalStoreId); writer.Text(value.OwningModuleId);
-            writer.Bytes(value.RequiredCapability.CapabilityChecksum.AsSpan()); writer.Bytes(value.KeyAuthority.Checksum.AsSpan());
+            writer.Text(value.RecoveryGrantId);
+            writer.Bytes(value.RequiredCapability.CapabilityChecksum.AsSpan()); WriteLimits(writer, value.Limits);
+            writer.Bytes(value.KeyAuthority.Checksum.AsSpan());
         });
 
     /// <summary>Computes the canonical unsigned certification checksum.</summary>
@@ -271,13 +483,15 @@ public static class BaseSemanticRecoveryAuthorityContract
             BaseSemanticRecoveryKeyAuthorityReceipt keys = definition.KeyAuthority;
             BaseSemanticRecoveryAuthorityCapability capability = definition.RequiredCapability;
             if (!TextValid(definition.Id) || definition.Version <= 0 || !TextValid(definition.LogicalStoreId)
-                || !TextValid(definition.OwningModuleId) || keys.AuthorityId != definition.Id || keys.AuthorityVersion != definition.Version
+                || !TextValid(definition.OwningModuleId) || !TextValid(definition.RecoveryGrantId)
+                || keys.AuthorityId != definition.Id || keys.AuthorityVersion != definition.Version
                 || keys.SigningAlgorithm != BaseSemanticRecoverySigningAlgorithm.Ed25519
                 || keys.EncryptionAlgorithm != BaseSemanticRecoveryEncryptionAlgorithm.Aes256Gcm
                 || !TextValid(keys.CurrentSigningKeyId) || keys.CurrentSigningKeyVersion <= 0
                 || keys.CurrentSigningPublicKey.Length != Ed25519.PublicKeySize || !TextValid(keys.CurrentEncryptionKeyId)
                 || keys.CurrentEncryptionKeyVersion <= 0 || keys.MinimumKeyRetention <= TimeSpan.Zero
-                || !CapabilityValid(capability) || !Fixed(capability.CapabilityChecksum, CapabilityChecksum(capability))) return false;
+                || !CapabilityValid(capability) || !OperationLimitsValid(definition.Limits, capability)
+                || !Fixed(capability.CapabilityChecksum, CapabilityChecksum(capability))) return false;
             string? prior = null; int currentCoverage = 0;
             foreach (BaseSemanticRecoveryRetainedKeyAuthority key in keys.RetainedKeys)
             {
@@ -286,6 +500,7 @@ public static class BaseSemanticRecoveryAuthorityContract
                     || key.SigningKeyVersion <= 0 || key.SigningPublicKey.Length != Ed25519.PublicKeySize
                     || !TextValid(key.EncryptionKeyId) || key.EncryptionKeyVersion <= 0 || key.RetainUntil <= key.NotBefore
                     || key.RetainUntil - key.NotBefore < keys.MinimumKeyRetention
+                    || capability.PermanentPendingKeyRetentionSupported && key.RetainUntil != DateTimeOffset.MaxValue
                     || !Fixed(key.Checksum, RetainedKeyChecksum(key))) return false;
                 bool current = key.SigningKeyId == keys.CurrentSigningKeyId && key.SigningKeyVersion == keys.CurrentSigningKeyVersion
                     && key.EncryptionKeyId == keys.CurrentEncryptionKeyId && key.EncryptionKeyVersion == keys.CurrentEncryptionKeyVersion
@@ -316,10 +531,32 @@ public static class BaseSemanticRecoveryAuthorityContract
 
     private static bool CapabilityValid(BaseSemanticRecoveryAuthorityCapability value) =>
         value.DurablePendingSupported && value.IdentifiedCancellationSupported && value.CommitBoundRetentionSupported
+        && value.PermanentPendingKeyRetentionSupported
         && value.MaximumEntries > 0 && value.MaximumPages > 0 && value.MaximumPageEntries is > 0 and <= 256
         && value.MaximumPageEntries <= value.MaximumEntries && value.MaximumRequestBytes > 0 && value.MaximumResultBytes > 0
         && value.MaximumTransientBytes > 0 && value.MaximumAcquisitionDuration > TimeSpan.Zero
-        && value.MaximumPublicationDuration > TimeSpan.Zero;
+        && value.MaximumResolutionDuration > TimeSpan.Zero
+        && value.MaximumPublicationDuration > TimeSpan.Zero && value.MaximumConcurrentOperations > 0;
+
+    private static bool OperationLimitsValid(BaseSemanticRecoveryOperationLimits value, BaseSemanticRecoveryAuthorityCapability capability) =>
+        value.AcquisitionDeadline > TimeSpan.Zero && value.AcquisitionDeadline <= capability.MaximumAcquisitionDuration
+        && value.ResolutionDeadline > TimeSpan.Zero && value.ResolutionDeadline <= capability.MaximumResolutionDuration
+        && value.PublicationDeadline > TimeSpan.Zero && value.PublicationDeadline <= capability.MaximumPublicationDuration
+        && value.MaximumEntries > 0 && value.MaximumEntries <= capability.MaximumEntries
+        && value.MaximumPages > 0 && value.MaximumPages <= capability.MaximumPages
+        && value.MaximumPageEntries > 0 && value.MaximumPageEntries <= capability.MaximumPageEntries
+        && value.MaximumRequestBytes > 0 && value.MaximumRequestBytes <= capability.MaximumRequestBytes
+        && value.MaximumResultBytes > 0 && value.MaximumResultBytes <= capability.MaximumResultBytes
+        && value.MaximumTransientBytes > 0 && value.MaximumTransientBytes <= capability.MaximumTransientBytes
+        && value.MaximumConcurrentOperations > 0 && value.MaximumConcurrentOperations <= capability.MaximumConcurrentOperations;
+
+    private static void WriteLimits(CanonicalWriter writer, BaseSemanticRecoveryOperationLimits value)
+    {
+        writer.I64(value.AcquisitionDeadline.Ticks); writer.I64(value.ResolutionDeadline.Ticks);
+        writer.I64(value.PublicationDeadline.Ticks); writer.I32(value.MaximumEntries); writer.I32(value.MaximumPages);
+        writer.I32(value.MaximumPageEntries); writer.I64(value.MaximumRequestBytes); writer.I64(value.MaximumResultBytes);
+        writer.I64(value.MaximumTransientBytes); writer.I32(value.MaximumConcurrentOperations);
+    }
     private static bool TextValid(string value) => !string.IsNullOrWhiteSpace(value) && value.Length <= 256;
     private static bool Fixed(ImmutableArray<byte> left, ImmutableArray<byte> right) =>
         left.Length == right.Length && left.Length > 0 && CryptographicOperations.FixedTimeEquals(left.AsSpan(), right.AsSpan());
@@ -327,6 +564,23 @@ public static class BaseSemanticRecoveryAuthorityContract
     {
         using var stream = new MemoryStream(); stream.Write(Encoding.ASCII.GetBytes(marker)); var writer = new CanonicalWriter(stream); write(writer);
         return SHA256.HashData(stream.ToArray()).ToImmutableArray();
+    }
+    private static bool Verify(ImmutableArray<byte> publicKey, string marker, ImmutableArray<byte> checksum, ImmutableArray<byte> signature)
+    {
+        if (publicKey.Length != Ed25519.PublicKeySize || checksum.Length != 32 || signature.Length != Ed25519.SignatureSize) return false;
+        byte[] digest = SHA512.HashData([.. Encoding.UTF8.GetBytes(marker), .. checksum]);
+        return Ed25519.Verify(signature.ToArray(), 0, publicKey.ToArray(), 0, digest, 0, digest.Length);
+    }
+    private static void Boundary(CanonicalWriter writer, BaseSemanticActivationRecoveryBoundary value)
+    {
+        writer.Text(value.DefinitionId); writer.Bytes(value.ScopeBindingId.AsSpan());
+        Span<byte> key = stackalloc byte[BaseSemanticActivationKeyDigest.Length]; value.Key.CopyTo(key); writer.Bytes(key);
+    }
+
+    private static void Identity(CanonicalWriter writer, BaseMutationRequestIdentity value)
+    {
+        writer.Text(value.Scope); writer.Text(value.Operation); writer.Text(value.IdempotencyKey);
+        writer.Bytes(value.Fingerprint.ToArray());
     }
     private sealed class CanonicalWriter(Stream stream)
     {
@@ -343,6 +597,8 @@ public sealed record BaseSemanticRecoveryOperationLimits
 {
     /// <summary>Gets the acquisition deadline.</summary>
     public required TimeSpan AcquisitionDeadline { get; init; }
+    /// <summary>Gets the identified response-resolution deadline.</summary>
+    public required TimeSpan ResolutionDeadline { get; init; }
     /// <summary>Gets the publication deadline.</summary>
     public required TimeSpan PublicationDeadline { get; init; }
     /// <summary>Gets the maximum entries.</summary>
@@ -357,6 +613,8 @@ public sealed record BaseSemanticRecoveryOperationLimits
     public required long MaximumResultBytes { get; init; }
     /// <summary>Gets the maximum retained transient bytes.</summary>
     public required long MaximumTransientBytes { get; init; }
+    /// <summary>Gets the maximum concurrent retained external operations.</summary>
+    public required int MaximumConcurrentOperations { get; init; }
 }
 
 /// <summary>Requests a bounded read-only preflight of an existing semantic slot before external publication.</summary>
@@ -488,12 +746,107 @@ public sealed record BaseSemanticRecoveryPendingPublication
     public required string TicketNonce { get; init; }
     /// <summary>Gets the exact intent checksum.</summary>
     public required ImmutableArray<byte> IntentChecksum { get; init; }
-    /// <summary>Gets the expiry applicable only before local commit binding.</summary>
-    public required DateTimeOffset PreCommitExpiresAt { get; init; }
+    /// <summary>Gets the signing-key ID used for this immutable ticket.</summary>
+    public required string SigningKeyId { get; init; }
+    /// <summary>Gets the positive signing-key version used for this immutable ticket.</summary>
+    public required int SigningKeyVersion { get; init; }
+    /// <summary>Gets the earliest instant at which confirmed rollback may cancel this ticket. Tickets never expire autonomously.</summary>
+    public required DateTimeOffset CancellationEligibleAt { get; init; }
     /// <summary>Gets the canonical ticket checksum.</summary>
     public required ImmutableArray<byte> Checksum { get; init; }
     /// <summary>Gets the Ed25519 signature.</summary>
     public required ImmutableArray<byte> Signature { get; init; }
+}
+
+/// <summary>Binds one certified external pending reservation into the local atomic transaction.</summary>
+public sealed record BaseSemanticRecoveryPendingCommitAuthority
+{
+    /// <summary>Gets the installed external authority ID.</summary>
+    public required string AuthorityId { get; init; }
+    /// <summary>Gets the installed external authority version.</summary>
+    public required int AuthorityVersion { get; init; }
+    /// <summary>Gets the installed external authority checksum.</summary>
+    public required ImmutableArray<byte> AuthorityChecksum { get; init; }
+    /// <summary>Gets the exact pending intent.</summary>
+    public required BaseSemanticRecoveryPendingTerminalIntent Intent { get; init; }
+    /// <summary>Gets the exact signed pending ticket.</summary>
+    public required BaseSemanticRecoveryPendingPublication Pending { get; init; }
+    /// <summary>Gets the canonical binding checksum.</summary>
+    public required ImmutableArray<byte> Checksum { get; init; }
+}
+
+/// <summary>Requests identified resolution of one Begin operation after response loss.</summary>
+public sealed record BaseSemanticRecoveryResolvePendingRequest
+{
+    /// <summary>Gets the application ID.</summary>
+    public required string ApplicationId { get; init; }
+    /// <summary>Gets the logical store ID.</summary>
+    public required string LogicalStoreId { get; init; }
+    /// <summary>Gets the exact pending terminal intent.</summary>
+    public required BaseSemanticRecoveryPendingTerminalIntent Intent { get; init; }
+    /// <summary>Gets the original Begin identity.</summary>
+    public required BaseMutationRequestIdentity BeginIdentity { get; init; }
+    /// <summary>Gets effective limits.</summary>
+    public required BaseSemanticRecoveryOperationLimits Limits { get; init; }
+}
+
+/// <summary>Classifies the durable state of one identified Begin operation.</summary>
+public enum BaseSemanticRecoveryPendingResolutionDisposition
+{
+    /// <summary>No identified Begin authority exists.</summary>
+    Missing = 1,
+    /// <summary>The ticket remains pending and may be commit-bound.</summary>
+    Pending = 2,
+    /// <summary>The ticket was cancelled by confirmed rollback.</summary>
+    Cancelled = 3,
+    /// <summary>The ticket was finalized.</summary>
+    Finalized = 4,
+}
+
+/// <summary>Returns the authenticated durable state of one identified Begin operation.</summary>
+public sealed record BaseSemanticRecoveryPendingResolution
+{
+    /// <summary>Gets the exact canonical resolution-request checksum.</summary>
+    public required ImmutableArray<byte> RequestChecksum { get; init; }
+    /// <summary>Gets the closed durable disposition.</summary>
+    public required BaseSemanticRecoveryPendingResolutionDisposition Disposition { get; init; }
+    /// <summary>Gets the exact ticket for every disposition except Missing.</summary>
+    public required BaseSemanticRecoveryPendingPublication? Pending { get; init; }
+    /// <summary>Gets the canonical result checksum.</summary>
+    public required ImmutableArray<byte> Checksum { get; init; }
+    /// <summary>Gets the authority signature over the canonical result checksum.</summary>
+    public required ImmutableArray<byte> Signature { get; init; }
+}
+
+/// <summary>Requests explicit release of process-local external recovery quarantine after retained work completes.</summary>
+public sealed record BaseSemanticRecoveryQuarantineRecoveryRequest
+{
+    /// <summary>Gets the exact logical store.</summary>
+    public required string LogicalStoreId { get; init; }
+    /// <summary>Gets the exact ControlPlane principal.</summary>
+    public required PrincipalContext Principal { get; init; }
+    /// <summary>Gets the identified ControlPlane recovery identity.</summary>
+    public required BaseMutationRequestIdentity Identity { get; init; }
+}
+
+/// <summary>Reports explicit process-local quarantine recovery.</summary>
+public sealed record BaseSemanticRecoveryQuarantineRecoveryResult
+{
+    /// <summary>Gets whether quarantine was released.</summary>
+    public required bool Released { get; init; }
+    /// <summary>Gets the remaining retained late-work count.</summary>
+    public required long RetainedLateWork { get; init; }
+}
+
+/// <summary>Persists the complete recovery handoff in the one outer module receipt.</summary>
+public sealed record BaseSemanticRecoveryLocalReceiptAuthority
+{
+    /// <summary>Gets the transaction-bound pending authority.</summary>
+    public required BaseSemanticRecoveryPendingCommitAuthority PendingAuthority { get; init; }
+    /// <summary>Gets the exact terminal entry resulting from local commit.</summary>
+    public required BaseSemanticActivationRecoveryEntry FinalEntry { get; init; }
+    /// <summary>Gets the canonical local handoff checksum.</summary>
+    public required ImmutableArray<byte> Checksum { get; init; }
 }
 
 /// <summary>Contains one exact finalized semantic recovery entry.</summary>
@@ -530,6 +883,19 @@ public sealed record BaseSemanticRecoveryFinalizeRequest
     public required BaseSemanticRecoveryOperationLimits Limits { get; init; }
 }
 
+/// <summary>Proves finalization of the exact requested pending publication.</summary>
+public sealed record BaseSemanticRecoveryFinalizationResult
+{
+    /// <summary>Gets the exact canonical finalize-request checksum.</summary>
+    public required ImmutableArray<byte> RequestChecksum { get; init; }
+    /// <summary>Gets the authenticated head resulting from the exact finalization.</summary>
+    public required BaseSemanticRecoveryPublishedHead Head { get; init; }
+    /// <summary>Gets the canonical result checksum.</summary>
+    public required ImmutableArray<byte> Checksum { get; init; }
+    /// <summary>Gets the authority signature over the canonical result checksum.</summary>
+    public required ImmutableArray<byte> Signature { get; init; }
+}
+
 /// <summary>Cancels one pre-commit pending publication after confirmed rollback.</summary>
 public sealed record BaseSemanticRecoveryCancelRequest
 {
@@ -559,12 +925,16 @@ public enum BaseSemanticRecoveryCancellationDisposition
 /// <summary>Reports identified pending-publication cancellation.</summary>
 public sealed record BaseSemanticRecoveryCancellationResult
 {
+    /// <summary>Gets the exact canonical cancel-request checksum.</summary>
+    public required ImmutableArray<byte> RequestChecksum { get; init; }
     /// <summary>Gets the cancellation disposition.</summary>
     public required BaseSemanticRecoveryCancellationDisposition Disposition { get; init; }
     /// <summary>Gets the affected sequence.</summary>
     public required long Sequence { get; init; }
     /// <summary>Gets the canonical result checksum.</summary>
     public required ImmutableArray<byte> Checksum { get; init; }
+    /// <summary>Gets the authority signature over the canonical result checksum.</summary>
+    public required ImmutableArray<byte> Signature { get; init; }
 }
 
 /// <summary>Requests the authenticated current external publication head.</summary>
@@ -657,8 +1027,10 @@ public interface IBaseSemanticActivationRecoveryAuthority
     BaseSemanticRecoveryAuthorityInstanceDescriptor Descriptor { get; }
     /// <summary>Durably reserves one pending terminal sequence.</summary>
     ValueTask<BaseResult<BaseSemanticRecoveryPendingPublication>> BeginAsync(BaseSemanticRecoveryBeginRequest request, CancellationToken cancellationToken);
+    /// <summary>Resolves one identified Begin operation without allocating another sequence.</summary>
+    ValueTask<BaseResult<BaseSemanticRecoveryPendingResolution>> ResolvePendingAsync(BaseSemanticRecoveryResolvePendingRequest request, CancellationToken cancellationToken);
     /// <summary>Finalizes one commit-bound terminal publication.</summary>
-    ValueTask<BaseResult<BaseSemanticRecoveryPublishedHead>> FinalizeAsync(BaseSemanticRecoveryFinalizeRequest request, CancellationToken cancellationToken);
+    ValueTask<BaseResult<BaseSemanticRecoveryFinalizationResult>> FinalizeAsync(BaseSemanticRecoveryFinalizeRequest request, CancellationToken cancellationToken);
     /// <summary>Cancels one confirmed-uncommitted pending publication.</summary>
     ValueTask<BaseResult<BaseSemanticRecoveryCancellationResult>> CancelAsync(BaseSemanticRecoveryCancelRequest request, CancellationToken cancellationToken);
     /// <summary>Reads the authenticated current publication head.</summary>

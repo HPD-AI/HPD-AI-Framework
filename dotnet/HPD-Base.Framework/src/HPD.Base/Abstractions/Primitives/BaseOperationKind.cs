@@ -87,6 +87,8 @@ RealtimeSubscribe,
     SubjectRetirementConsumerRemoval,
     /// <summary>Identifies one graph-installed registered module mutation.</summary>
     ModuleMutation,
+    /// <summary>Recovers quarantined external semantic-activation publication authority.</summary>
+    SemanticRecoveryMaintenance,
     /// <summary>Identifies authorized durable activation creation.</summary>
     ActivationEnqueue,
     /// <summary>Identifies authorized worker observation and claiming.</summary>

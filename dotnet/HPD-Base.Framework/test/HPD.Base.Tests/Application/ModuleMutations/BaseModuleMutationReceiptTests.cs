@@ -97,7 +97,7 @@ public sealed class BaseModuleMutationReceiptTests
                 Outcome = BaseModuleMutationOutcome.Committed,
                 Generations = [],
                 CanonicalResultBytes = "{\"created\":true}"u8.ToArray().ToImmutableArray(),
-                SemanticActivation = new BaseSemanticActivationReceiptEvidence
+                SemanticActivation = WithSemanticChecksum(new BaseSemanticActivationReceiptEvidence
                 {
                     Operation = BaseSemanticActivationOperationKind.Ensure,
                     DefinitionId = "hpd.auth.cleanup.v1",
@@ -111,8 +111,8 @@ public sealed class BaseModuleMutationReceiptTests
                     SlotChecksum = Enumerable.Repeat((byte)4, 32).ToImmutableArray(),
                     JournalPosition = 7,
                     CommitEvidenceChecksum = Enumerable.Repeat((byte)5, 32).ToImmutableArray(),
-                    Checksum = Enumerable.Repeat((byte)2, 32).ToImmutableArray(),
-                },
+                    Checksum = ImmutableArray<byte>.Empty,
+                }),
             },
         };
 
@@ -129,7 +129,7 @@ public sealed class BaseModuleMutationReceiptTests
         evidence.SlotGeneration.Should().Be(1);
         evidence.ActivationId.Should().Be(new string('a', 64));
         evidence.DefinitionChecksum.Should().Equal(Enumerable.Repeat((byte)1, 32));
-        evidence.Checksum.Should().Equal(Enumerable.Repeat((byte)2, 32));
+        evidence.Checksum.Should().Equal(BaseSemanticActivationEvidenceContract.ReceiptChecksum(evidence));
     }
 
     [Fact]
@@ -218,14 +218,14 @@ public sealed class BaseModuleMutationReceiptTests
         BaseSemanticActivationRetirementDisposition disposition,
         BaseSemanticActivationSlotState state)
     {
-        BaseSemanticActivationReceiptEvidence evidence = SemanticEvidence() with
+        BaseSemanticActivationReceiptEvidence evidence = WithSemanticChecksum(SemanticEvidence() with
         {
             Operation = BaseSemanticActivationOperationKind.Retire,
             State = state,
             EnsureDisposition = null,
             RetirementDisposition = disposition,
             ActivationId = null,
-        };
+        });
 
         BaseAtomicReceiptResult restored = BaseAtomicReceiptWire.From(ModuleReceipt(evidence)).Materialize();
 
@@ -251,7 +251,7 @@ public sealed class BaseModuleMutationReceiptTests
         },
     };
 
-    private static BaseSemanticActivationReceiptEvidence SemanticEvidence() => new()
+    private static BaseSemanticActivationReceiptEvidence SemanticEvidence() => WithSemanticChecksum(new()
     {
         Operation = BaseSemanticActivationOperationKind.Ensure,
         DefinitionId = "hpd.auth.cleanup.v1",
@@ -265,8 +265,11 @@ public sealed class BaseModuleMutationReceiptTests
         SlotChecksum = Enumerable.Repeat((byte)3, 32).ToImmutableArray(),
         JournalPosition = 1,
         CommitEvidenceChecksum = Enumerable.Repeat((byte)4, 32).ToImmutableArray(),
-        Checksum = Enumerable.Repeat((byte)5, 32).ToImmutableArray(),
-    };
+        Checksum = ImmutableArray<byte>.Empty,
+    });
+
+    private static BaseSemanticActivationReceiptEvidence WithSemanticChecksum(BaseSemanticActivationReceiptEvidence evidence)
+        => evidence with { Checksum = BaseSemanticActivationEvidenceContract.ReceiptChecksum(evidence) };
 
     [Fact]
     public void Mixed_specialized_receipt_members_fail_closed()

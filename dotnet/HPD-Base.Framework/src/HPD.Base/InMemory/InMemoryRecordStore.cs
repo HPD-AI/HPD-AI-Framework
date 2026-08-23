@@ -820,12 +820,14 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         }
         finally { _stateGate.Release(); }
         if (receipt is null)
-            return Rollback(BaseMutationRequestErrorCodes.ReceiptUnavailable, "The stored mutation receipt cannot be resolved.");
+            return Rollback(BaseMutationRequestErrorCodes.ReceiptUnavailable, "The stored mutation receipt cannot be resolved.") with
+            { ReceiptResolution = BaseAtomicReceiptResolutionDisposition.ConfirmedMissing };
         AtomicMutationProcessingResult resolved = await processor.ResolveReceiptAsync(receipt.Result, lifetime.Token).ConfigureAwait(false);
         return resolved.Outcome == AtomicMutationProcessingOutcome.ReadyToCommit
             ? new RecordMutationExecutionResult(RecordMutationExecutionOutcome.Committed, resolved)
-              { RequestDisposition = BaseMutationRequestDisposition.Duplicate }
-            : new RecordMutationExecutionResult(RecordMutationExecutionOutcome.RollbackConfirmed, resolved, resolved.Error);
+              { RequestDisposition = BaseMutationRequestDisposition.Duplicate, ReceiptResolution = BaseAtomicReceiptResolutionDisposition.Found }
+            : new RecordMutationExecutionResult(RecordMutationExecutionOutcome.RollbackConfirmed, resolved, resolved.Error)
+              { ReceiptResolution = BaseAtomicReceiptResolutionDisposition.Unavailable };
     }
 
     private async ValueTask<RecordMutationExecutionResult> ExecuteMutationAsync(
@@ -3309,6 +3311,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 ReadIntervals = semanticIntervals, Accounting = accounting, AcceptedTime = capture.AcceptedTime, Checksum = [],
             };
             capturedResult = capturedResult with { Checksum = BaseSemanticActivationEvidenceContract.CapturedChecksum(extension, capturedResult) };
+            if (capture.RecoveryPreflight is not null)
+                return SubjectFailure<BaseCapturedSemanticActivationEvidence?>(BaseSemanticActivationErrorCodes.CapabilityUnavailable,
+                    OperationStatus.Unsupported, ErrorCategory.Unsupported);
             aggregate.AppendData(capturedResult.Checksum.AsSpan());
             return OperationResults.Ok<BaseCapturedSemanticActivationEvidence?>(capturedResult);
         }

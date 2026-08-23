@@ -1,4 +1,6 @@
 
+using System.Collections.Immutable;
+
 namespace HPD.Base;
 
 /// <summary>Classifies the confirmed provider outcome of one mutation execution boundary.</summary>
@@ -14,6 +16,21 @@ CancelledRollbackConfirmed,
 ConflictRollbackConfirmed,
     /// <summary>The provider cannot determine whether commit occurred.</summary>
 Indeterminate
+}
+
+/// <summary>Classifies the authoritative result of a dedicated receipt-resolution operation.</summary>
+public enum BaseAtomicReceiptResolutionDisposition
+{
+    /// <summary>The operation was not a dedicated receipt resolution.</summary>
+    NotApplicable = 0,
+    /// <summary>The exact authorized receipt was found and materialized.</summary>
+    Found = 1,
+    /// <summary>The provider authoritatively confirmed that no retained exact receipt exists.</summary>
+    ConfirmedMissing = 2,
+    /// <summary>Receipt authority could not be read or validated.</summary>
+    Unavailable = 3,
+    /// <summary>The provider cannot determine whether the receipt exists.</summary>
+    Indeterminate = 4,
 }
 
 /// <summary>Classifies whether the framework-owned processor permits provider commit.</summary>
@@ -249,7 +266,8 @@ public sealed record RecordMutationExecutionResult
     public RecordMutationExecutionResult(
         RecordMutationExecutionOutcome outcome,
         AtomicMutationProcessingResult? processing,
-        BaseError? error = null)
+        BaseError? error = null,
+        ImmutableArray<byte> confirmedRollbackProofChecksum = default)
     {
         if (outcome == RecordMutationExecutionOutcome.Committed
             && processing?.Outcome != AtomicMutationProcessingOutcome.ReadyToCommit)
@@ -259,20 +277,33 @@ public sealed record RecordMutationExecutionResult
 
         if (outcome == RecordMutationExecutionOutcome.Indeterminate && processing is not null)
             throw new ArgumentException("An indeterminate execution cannot expose provisional mutations.", nameof(processing));
+        bool rollback = outcome is RecordMutationExecutionOutcome.RollbackConfirmed
+            or RecordMutationExecutionOutcome.CancelledRollbackConfirmed
+            or RecordMutationExecutionOutcome.ConflictRollbackConfirmed;
+        if (!confirmedRollbackProofChecksum.IsDefaultOrEmpty && (!rollback || confirmedRollbackProofChecksum.Length != 32))
+            throw new ArgumentException("Confirmed rollback proof must contain exactly 32 bytes and accompany a rollback outcome.", nameof(confirmedRollbackProofChecksum));
 
         Outcome = outcome;
         Processing = processing;
         Error = error;
+        ConfirmedRollbackProofChecksum = confirmedRollbackProofChecksum.IsDefaultOrEmpty
+            ? [] : confirmedRollbackProofChecksum.ToArray().ToImmutableArray();
     }
 
     /// <summary>Gets the confirmed or indeterminate provider outcome.</summary>
     public RecordMutationExecutionOutcome Outcome { get; }
+
+    /// <summary>Gets the dedicated receipt-resolution disposition.</summary>
+    public BaseAtomicReceiptResolutionDisposition ReceiptResolution { get; init; }
 
     /// <summary>Gets the processor decision returned inside the provider boundary.</summary>
     public AtomicMutationProcessingResult? Processing { get; }
 
     /// <summary>Gets a bounded normalized provider failure.</summary>
     public BaseError? Error { get; }
+
+    /// <summary>Gets provider-confirmed rollback authority for a transaction-bound external recovery ticket.</summary>
+    public ImmutableArray<byte> ConfirmedRollbackProofChecksum { get; }
 
     /// <summary>Gets whether commit was new or resolved from an existing receipt.</summary>
     public BaseMutationRequestDisposition RequestDisposition { get; init; } = BaseMutationRequestDisposition.Committed;

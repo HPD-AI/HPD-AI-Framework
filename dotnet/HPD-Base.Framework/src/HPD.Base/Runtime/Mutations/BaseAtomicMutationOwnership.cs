@@ -113,6 +113,8 @@ internal static class BaseAtomicMutationOwnership
                 DefinitionSetChecksum = value.Capture.StoreAuthority.DefinitionSetChecksum.ToArray().ToImmutableArray(),
             },
             Limits = value.Capture.Limits with { },
+            RecoveryPreflight = value.Capture.RecoveryPreflight is null ? null : FreezeRecoveryPreflight(value.Capture.RecoveryPreflight),
+            RecoveryPending = value.Capture.RecoveryPending is null ? null : FreezeRecoveryPending(value.Capture.RecoveryPending),
         },
         StructuralDigest = value.StructuralDigest.ToArray().ToImmutableArray(),
         Operation = value.Operation switch
@@ -162,6 +164,78 @@ internal static class BaseAtomicMutationOwnership
             },
             _ => throw new InvalidOperationException("base.semanticActivation.contractInvalid"),
         },
+    };
+
+    private static BaseSemanticRecoveryPreflightEvidence FreezeRecoveryPreflight(BaseSemanticRecoveryPreflightEvidence value) => value with
+    {
+        ScopeBinding = value.ScopeBinding with
+        {
+            BindingId = value.ScopeBinding.BindingId.ToArray().ToImmutableArray(),
+            ProtectedCanonicalScope = value.ScopeBinding.ProtectedCanonicalScope.ToArray().ToImmutableArray(),
+            SeekDigest = value.ScopeBinding.SeekDigest.ToArray().ToImmutableArray(),
+            Checksum = value.ScopeBinding.Checksum.ToArray().ToImmutableArray(),
+        },
+        Key = BaseSemanticActivationKeyDigest.Create(value.Key.ToArray()),
+        Live = value.Live with
+        {
+            Definition = FreezeSemanticDefinition(value.Live.Definition),
+            KeyDigest = BaseSemanticActivationKeyDigest.Create(value.Live.KeyDigest.ToArray()),
+            Scope = value.Live.Scope with { Value = value.Live.Scope.Value is null ? null : new string(value.Live.Scope.Value.AsSpan()) },
+            ScopeBinding = value.Live.ScopeBinding with
+            {
+                BindingId = value.Live.ScopeBinding.BindingId.ToArray().ToImmutableArray(),
+                ProtectedCanonicalScope = value.Live.ScopeBinding.ProtectedCanonicalScope.ToArray().ToImmutableArray(),
+                SeekDigest = value.Live.ScopeBinding.SeekDigest.ToArray().ToImmutableArray(),
+                Checksum = value.Live.ScopeBinding.Checksum.ToArray().ToImmutableArray(),
+            },
+            SubjectLifetime = FreezeLifetime(value.Live.SubjectLifetime),
+            ActivationDefinition = value.Live.ActivationDefinition with { Checksum = value.Live.ActivationDefinition.Checksum.ToArray().ToImmutableArray() },
+            InputChecksum = value.Live.InputChecksum.ToArray().ToImmutableArray(),
+            StoreAuthority = value.Live.StoreAuthority with
+            {
+                Requirement = value.Live.StoreAuthority.Requirement with { DefinitionSetChecksum = value.Live.StoreAuthority.Requirement.DefinitionSetChecksum.ToArray().ToImmutableArray() },
+                Checksum = value.Live.StoreAuthority.Checksum.ToArray().ToImmutableArray(),
+            },
+            Checksum = value.Live.Checksum.ToArray().ToImmutableArray(),
+        },
+        ActivationChecksum = value.ActivationChecksum.ToArray().ToImmutableArray(),
+        ActivationTerminalReceiptChecksum = value.ActivationTerminalReceiptChecksum.ToArray().ToImmutableArray(),
+        TerminalReceipt = value.TerminalReceipt with
+        {
+            Fingerprint = value.TerminalReceipt.Fingerprint.ToArray().ToImmutableArray(),
+            ResultBytes = value.TerminalReceipt.ResultBytes.ToArray().ToImmutableArray(),
+            ResultChecksum = value.TerminalReceipt.ResultChecksum.ToArray().ToImmutableArray(),
+            AuthorityChecksum = value.TerminalReceipt.AuthorityChecksum.ToArray().ToImmutableArray(),
+        },
+        ReadIntervals = value.ReadIntervals.Select(static interval => interval with
+        {
+            CanonicalLowerBound = interval.CanonicalLowerBound.ToArray().ToImmutableArray(),
+            CanonicalUpperBound = interval.CanonicalUpperBound.ToArray().ToImmutableArray(),
+        }).ToImmutableArray(),
+        Checksum = value.Checksum.ToArray().ToImmutableArray(),
+    };
+
+    private static BaseSemanticRecoveryPendingCommitAuthority FreezeRecoveryPending(BaseSemanticRecoveryPendingCommitAuthority value) => value with
+    {
+        AuthorityChecksum = value.AuthorityChecksum.ToArray().ToImmutableArray(),
+        Intent = value.Intent with
+        {
+            Boundary = value.Intent.Boundary with
+            {
+                ScopeBindingId = value.Intent.Boundary.ScopeBindingId.ToArray().ToImmutableArray(),
+                Key = BaseSemanticActivationKeyDigest.Create(value.Intent.Boundary.Key.ToArray()),
+            },
+            RetirementOperationFingerprint = value.Intent.RetirementOperationFingerprint.ToArray().ToImmutableArray(),
+            SubjectLifetime = FreezeLifetime(value.Intent.SubjectLifetime),
+            Checksum = value.Intent.Checksum.ToArray().ToImmutableArray(),
+        },
+        Pending = value.Pending with
+        {
+            IntentChecksum = value.Pending.IntentChecksum.ToArray().ToImmutableArray(),
+            Checksum = value.Pending.Checksum.ToArray().ToImmutableArray(),
+            Signature = value.Pending.Signature.ToArray().ToImmutableArray(),
+        },
+        Checksum = value.Checksum.ToArray().ToImmutableArray(),
     };
 
     private static BaseSemanticActivationDefinitionIdentity FreezeSemanticDefinition(BaseSemanticActivationDefinitionIdentity value) => value with

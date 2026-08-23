@@ -348,6 +348,17 @@ public static class BaseSemanticActivationEvidenceContract
             [(byte)value.ResultingState], Int64(value.ResultingSlotGeneration), value.ResultingSlotChecksum.ToArray(), System.Text.Encoding.UTF8.GetBytes(value.ActivationId ?? string.Empty),
             Int64(value.ActivationGeneration ?? 0), value.ActivationChecksum.ToArray(), Int64(value.CommitJournalPosition), Accounting(value.Accounting));
 
+    /// <summary>Computes canonical semantic receipt evidence, including any durable external handoff.</summary>
+    public static ImmutableArray<byte> ReceiptChecksum(BaseSemanticActivationReceiptEvidence value)
+    {
+        Span<byte> key = stackalloc byte[BaseSemanticActivationKeyDigest.Length]; value.Key.CopyTo(key);
+        return value.RecoveryPublication is null
+            ? Hash("base.semanticActivation.receipt.v1\0", value.DefinitionChecksum.ToArray(), key.ToArray(),
+                value.SlotChecksum.ToArray(), value.CommitEvidenceChecksum.ToArray())
+            : Hash("base.semanticActivation.receipt.v1\0", value.DefinitionChecksum.ToArray(), key.ToArray(),
+                value.SlotChecksum.ToArray(), value.CommitEvidenceChecksum.ToArray(), value.RecoveryPublication.Checksum.ToArray());
+    }
+
     /// <summary>Computes the canonical checksum for read-only external recovery preflight evidence.</summary>
     public static ImmutableArray<byte> RecoveryPreflightChecksum(BaseSemanticRecoveryPreflightRequest request, BaseSemanticRecoveryPreflightEvidence value)
     {
@@ -516,6 +527,65 @@ public static class BaseSemanticActivationEvidenceContract
         };
     }
 
+    /// <summary>Validates byte-exact transaction recapture of an earlier read-only recovery preflight.</summary>
+    public static bool RecoveryPreflightMatchesCapture(
+        BaseSemanticRecoveryPreflightEvidence preflight,
+        BaseCapturedSemanticActivationEvidence captured)
+    {
+        try
+        {
+            return captured.State == BaseSemanticActivationCapturedState.Live && captured.Live is { } live
+                && ScopeBindingEqual(preflight.ScopeBinding, captured.ScopeDirectory.ResultingBinding)
+                && preflight.Key.Equals(live.KeyDigest) && preflight.Key.Equals(captured.Live.KeyDigest)
+                && preflight.Live.Checksum.AsSpan().SequenceEqual(live.Checksum.AsSpan())
+                && preflight.ActivationGeneration == captured.ActivationGeneration
+                && preflight.ActivationState == captured.ActivationState
+                && preflight.ActivationChecksum.AsSpan().SequenceEqual(captured.ActivationChecksum.AsSpan())
+                && preflight.ActivationTerminalReceiptChecksum.AsSpan().SequenceEqual(captured.ActivationTerminalReceiptChecksum.AsSpan())
+                && preflight.ScopeBinding.Checksum.AsSpan().SequenceEqual(captured.ScopeDirectory.ResultingBinding.Checksum.AsSpan());
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Validates transaction-bound pending authority against the exact recaptured slot.</summary>
+    public static bool RecoveryPendingMatchesCapture(BaseSemanticActivationCaptureRequest request,
+        BaseCapturedSemanticActivationEvidence captured)
+    {
+        try
+        {
+            BaseSemanticRecoveryPendingCommitAuthority? value = request.RecoveryPending;
+            if (value is null) return request.RecoveryPreflight is null;
+            if (request.RecoveryPreflight is null || request.Operation != BaseSemanticActivationOperationKind.Retire
+                || captured.Live is null || !RecoveryPreflightMatchesCapture(request.RecoveryPreflight, captured)
+                || value.AuthorityVersion <= 0 || string.IsNullOrWhiteSpace(value.AuthorityId) || value.AuthorityChecksum.Length != 32
+                || value.Intent.Boundary.DefinitionId != request.Definition.Id
+                || !value.Intent.Boundary.ScopeBindingId.AsSpan().SequenceEqual(captured.ScopeDirectory.ResultingBinding.BindingId.AsSpan())
+                || !value.Intent.Boundary.Key.Equals(captured.Live.KeyDigest)
+                || value.Intent.RetirementOperationFingerprint.Length != 32
+                || !LifetimeAuthorityEqual(value.Intent.SubjectLifetime, captured.Live.SubjectLifetime)
+                || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                    BaseSemanticRecoveryAuthorityContract.PendingIntentChecksum(value.Intent).AsSpan(), value.Intent.Checksum.AsSpan())
+                || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(value.Intent.Checksum.AsSpan(), value.Pending.IntentChecksum.AsSpan())
+                || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                    BaseSemanticRecoveryAuthorityContract.PendingChecksum(value.Pending).AsSpan(), value.Pending.Checksum.AsSpan())
+                || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                    BaseSemanticRecoveryAuthorityContract.PendingCommitChecksum(value).AsSpan(), value.Checksum.AsSpan())) return false;
+            return true;
+        }
+        catch { return false; }
+    }
+
+    private static bool LifetimeAuthorityEqual(BaseSemanticActivationSubjectLifetimeBinding? left,
+        BaseSemanticActivationSubjectLifetimeBinding? right)
+    {
+        if (left is null || right is null) return left is null && right is null;
+        return left.ContractId == right.ContractId && left.ContractVersion == right.ContractVersion
+            && left.ContractChecksum.AsSpan().SequenceEqual(right.ContractChecksum.AsSpan())
+            && left.SubjectId.Equals(right.SubjectId) && left.AuthorityEpoch.Equals(right.AuthorityEpoch)
+            && left.Incarnation.Equals(right.Incarnation) && left.ScopeBindingId.AsSpan().SequenceEqual(right.ScopeBindingId.AsSpan())
+            && left.Checksum.AsSpan().SequenceEqual(right.Checksum.AsSpan());
+    }
+
     private static bool TerminalReceiptValid(BaseSemanticRecoveryPreflightEvidence value)
     {
         BaseSemanticRecoveryTerminalReceiptEvidence receipt = value.TerminalReceipt;
@@ -637,6 +707,10 @@ public sealed record BaseSemanticActivationCaptureRequest
     public required BaseSemanticActivationExecutionLimits Limits { get; init; }
     /// <summary>Gets the Runtime-issued accepted-time receipt validated inside the provider transaction.</summary>
     public required BaseAcceptedTimeReceipt AcceptedTime { get; init; }
+    /// <summary>Gets optional read-only external-recovery preflight authority that transaction capture must exactly recapture.</summary>
+    public BaseSemanticRecoveryPreflightEvidence? RecoveryPreflight { get; init; }
+    /// <summary>Gets the certified external pending ticket bound to this local transaction.</summary>
+    public BaseSemanticRecoveryPendingCommitAuthority? RecoveryPending { get; init; }
 }
 
 /// <summary>Ensures one semantic activation.</summary>
@@ -1033,6 +1107,8 @@ public sealed record BaseSemanticActivationReceiptEvidence
     public required long JournalPosition { get; init; }
     /// <summary>Gets commit-evidence checksum.</summary>
     public required ImmutableArray<byte> CommitEvidenceChecksum { get; init; }
+    /// <summary>Gets the durable external recovery handoff for a newly retired slot.</summary>
+    public BaseSemanticRecoveryLocalReceiptAuthority? RecoveryPublication { get; init; }
     /// <summary>Gets the canonical evidence checksum.</summary>
     public required ImmutableArray<byte> Checksum { get; init; }
 }
@@ -1066,6 +1142,8 @@ public sealed record BaseSemanticActivationReceiptEvidenceWire
     public required string JournalPosition { get; init; }
     /// <summary>Gets commit-evidence checksum.</summary>
     public required byte[] CommitEvidenceChecksum { get; init; }
+    /// <summary>Gets the durable external recovery handoff.</summary>
+    public BaseSemanticRecoveryLocalReceiptAuthority? RecoveryPublication { get; init; }
     /// <summary>Gets the canonical evidence checksum.</summary>
     public required byte[] Checksum { get; init; }
 }

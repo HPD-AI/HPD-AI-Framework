@@ -913,7 +913,15 @@ public sealed class HPDBaseBuilder
         var semanticRecoveryRegistry = new BaseSemanticRecoveryAuthorityRegistry(
             semanticRestoreSelections, semanticRecoveryAuthorities, provider.SemanticActivations,
             semanticActivationRegistry.Definitions.Count, graphTimeProvider);
-        try { _services.AddSingleton(semanticRecoveryRegistry); }
+        try
+        {
+            if (semanticRecoveryAuthorities.Length != 0)
+            {
+                _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseHealthContributor, BaseSemanticRecoveryHealthContributor>());
+                _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDiagnosticContributor, BaseSemanticRecoveryHealthContributor>());
+            }
+            _services.AddSingleton(semanticRecoveryRegistry);
+        }
         catch
         {
             semanticRecoveryRegistry.DisposeAfterFailedPublication();

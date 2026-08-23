@@ -28,6 +28,8 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
     BaseTransactionalActivationCandidate? transactionalActivation = null) : IAtomicMutationProcessor
 {
     internal BaseModuleMutationExecutionResult<TResult>? Result { get; private set; }
+    internal BaseSemanticActivationReceiptEvidence? SemanticReceipt { get; private set; }
+    internal ImmutableArray<byte> OuterReceiptChecksum { get; private set; }
 
     public async ValueTask<AtomicMutationProcessingResult> ProcessAsync(
         IAtomicRecordSession provider,
@@ -183,7 +185,8 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             .ToDictionary(static value => value.ItemId, static value => value.Fact, StringComparer.Ordinal);
         TResult typed;
         ImmutableArray<byte> resultBytes;
-        BaseSemanticActivationReceiptEvidence? semanticReceipt = CreateSemanticReceipt(finalizedSemantic, applied.Value.SemanticActivation);
+        BaseSemanticActivationReceiptEvidence? semanticReceipt = CreateSemanticReceipt(finalizedSemantic, evidence.SemanticActivation, applied.Value.SemanticActivation);
+        SemanticReceipt = semanticReceipt;
         try { typed = evaluator.ProjectResult(definition.Template.Result, committedStatements, committedGenerations, semanticReceipt, out resultBytes); }
         catch { return Failed(Error("base.moduleMutation.resultInvalid", ErrorCategory.Validation)); }
         BaseTransactionalActivationCommitEvidence? activationCommit = null;
@@ -236,8 +239,10 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
                     ActivationControlChecksum = activationCommit.ControlChecksum,
                 },
             };
-        long receiptBytes = JsonSerializer.SerializeToUtf8Bytes(
-            BaseAtomicReceiptWire.From(receipt), HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire).LongLength;
+        byte[] outerReceiptBytes = JsonSerializer.SerializeToUtf8Bytes(
+            BaseAtomicReceiptWire.From(receipt), HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire);
+        OuterReceiptChecksum = SHA256.HashData(outerReceiptBytes).ToImmutableArray();
+        long receiptBytes = outerReceiptBytes.LongLength;
         BaseProvisionalAtomicMutationAccounting prior = applied.Value.Accounting;
         long activationEvidenceBytes = activationCommit?.Accounting.EvidenceBytes ?? 0;
         long activationTransientBytes = activationCommit?.Accounting.TransientBytes ?? 0;
@@ -314,6 +319,9 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
                 Outcome = BaseModuleMutationOutcome.Duplicate,
                 Result = typed,
             };
+            SemanticReceipt = module.SemanticActivation;
+            OuterReceiptChecksum = SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(
+                BaseAtomicReceiptWire.From(committedResult), HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire)).ToImmutableArray();
             return new AtomicMutationProcessingResult(AtomicMutationProcessingOutcome.ReadyToCommit, committedResult);
         }
         catch { return Failed(Error(BaseModuleMutationErrorCodes.ReceiptUnavailable, ErrorCategory.Authorization)); }
@@ -704,7 +712,11 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             _ => throw new InvalidOperationException(),
         };
         Span<byte> digestBytes = stackalloc byte[32]; key.CopyTo(digestBytes);
-        byte[] structural = SemanticHash("base.semanticActivation.extension.v1\0", definition.Checksum.ToArray(), canonicalKey.ToArray(), binding.BindingId.ToArray(), [(byte)(operation is BaseSemanticActivationEnsureIntent ? 1 : 2)]);
+        byte[] structural = requested.Capture.RecoveryPending is { } pending
+            ? SemanticHash("base.semanticActivation.extension.v1\0", definition.Checksum.ToArray(), canonicalKey.ToArray(), binding.BindingId.ToArray(),
+                [(byte)(operation is BaseSemanticActivationEnsureIntent ? 1 : 2)], pending.Checksum.ToArray())
+            : SemanticHash("base.semanticActivation.extension.v1\0", definition.Checksum.ToArray(), canonicalKey.ToArray(), binding.BindingId.ToArray(),
+                [(byte)(operation is BaseSemanticActivationEnsureIntent ? 1 : 2)]);
         return new BaseAtomicSemanticActivationExtension
         {
             Capture = requested.Capture with
@@ -767,6 +779,12 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
                 BaseSemanticActivationCapturedState.CompactedAbsent => !AbsentMatches(captured.Absent, key, requested, binding),
                 _ => true,
             }) return false;
+        if (capture.RecoveryPreflight is { } preflight
+            && !BaseSemanticActivationEvidenceContract.RecoveryPreflightMatchesCapture(preflight, captured))
+            return false;
+        if ((capture.RecoveryPreflight is null) != (capture.RecoveryPending is null)
+            || capture.RecoveryPending is { } pending && !RecoveryPendingMatches(pending, capture, binding, key))
+            return false;
         if (captured.State == BaseSemanticActivationCapturedState.Live)
         {
             if (captured.ActivationGeneration is not > 0 || captured.ActivationChecksum.Length != 32
@@ -932,6 +950,24 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
 
     private static bool KeyEqual(BaseSemanticActivationKeyDigest left, BaseSemanticActivationKeyDigest right) =>
         CryptographicOperations.FixedTimeEquals(left.ToArray(), right.ToArray());
+
+    private static bool RecoveryPendingMatches(BaseSemanticRecoveryPendingCommitAuthority value,
+        BaseSemanticActivationCaptureRequest capture, BaseSemanticActivationScopeBinding binding,
+        BaseSemanticActivationKeyDigest key)
+    {
+        if (capture.Operation != BaseSemanticActivationOperationKind.Retire || value.AuthorityVersion <= 0
+            || string.IsNullOrWhiteSpace(value.AuthorityId) || value.AuthorityChecksum.Length != 32
+            || value.Intent.Boundary.DefinitionId != capture.Definition.Id
+            || !value.Intent.Boundary.ScopeBindingId.AsSpan().SequenceEqual(binding.BindingId.AsSpan())
+            || !KeyEqual(value.Intent.Boundary.Key, key) || value.Intent.RetirementOperationFingerprint.Length != 32
+            || value.Intent.Checksum.Length != 32 || value.Pending.IntentChecksum.Length != 32
+            || !CryptographicOperations.FixedTimeEquals(BaseSemanticRecoveryAuthorityContract.PendingIntentChecksum(value.Intent).AsSpan(), value.Intent.Checksum.AsSpan())
+            || !CryptographicOperations.FixedTimeEquals(value.Intent.Checksum.AsSpan(), value.Pending.IntentChecksum.AsSpan())
+            || !CryptographicOperations.FixedTimeEquals(BaseSemanticRecoveryAuthorityContract.PendingChecksum(value.Pending).AsSpan(), value.Pending.Checksum.AsSpan())
+            || !CryptographicOperations.FixedTimeEquals(BaseSemanticRecoveryAuthorityContract.PendingCommitChecksum(value).AsSpan(), value.Checksum.AsSpan()))
+            return false;
+        return LifetimeEqual(value.Intent.SubjectLifetime, capture.RecoveryPreflight?.Live.SubjectLifetime);
+    }
 
     private static bool StoreMatches(BaseSemanticActivationStoreAuthority actual, BaseSemanticActivationStoreAuthorityRequirement expected)
     {
@@ -1334,6 +1370,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
 
     private static BaseSemanticActivationReceiptEvidence? CreateSemanticReceipt(
         BaseAtomicSemanticActivationExtension? extension,
+        BaseCapturedSemanticActivationEvidence? captured,
         BaseProvisionalSemanticActivation? applied)
     {
         if (extension is null) return applied is null ? null : throw new InvalidOperationException();
@@ -1360,10 +1397,8 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         byte[] slotChecksum = applied.ResultingSlotChecksum.ToArray();
         byte[] commitChecksum = SemanticHash("base.semanticActivation.commit.v1\0", slotChecksum,
             BitConverter.GetBytes(applied.CommitJournalPosition).Reverse().ToArray());
-        Span<byte> keyBytes = stackalloc byte[32]; key.CopyTo(keyBytes);
-        byte[] checksum = SemanticHash("base.semanticActivation.receipt.v1\0", definition.Checksum.ToArray(), keyBytes.ToArray(),
-            slotChecksum, commitChecksum);
-        return new BaseSemanticActivationReceiptEvidence
+        BaseSemanticRecoveryLocalReceiptAuthority? recovery = CreateRecoveryReceipt(extension, captured, applied);
+        var receipt = new BaseSemanticActivationReceiptEvidence
         {
             Operation = applied.Operation, DefinitionId = definition.Id, DefinitionVersion = definition.Version,
             DefinitionChecksum = definition.Checksum.ToArray().ToImmutableArray(), Key = key,
@@ -1371,8 +1406,52 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             EnsureDisposition = ensureDisposition, RetirementDisposition = retirementDisposition,
             ActivationId = applied.ResultingState == BaseSemanticActivationSlotState.Live ? applied.ActivationId : null,
             SlotChecksum = slotChecksum.ToImmutableArray(), JournalPosition = applied.CommitJournalPosition,
-            CommitEvidenceChecksum = commitChecksum.ToImmutableArray(), Checksum = checksum.ToImmutableArray(),
+            CommitEvidenceChecksum = commitChecksum.ToImmutableArray(), RecoveryPublication = recovery,
+            Checksum = [],
         };
+        return receipt with { Checksum = BaseSemanticActivationEvidenceContract.ReceiptChecksum(receipt) };
+    }
+
+    private static BaseSemanticRecoveryLocalReceiptAuthority? CreateRecoveryReceipt(
+        BaseAtomicSemanticActivationExtension extension,
+        BaseCapturedSemanticActivationEvidence? captured,
+        BaseProvisionalSemanticActivation applied)
+    {
+        BaseSemanticRecoveryPendingCommitAuthority? pending = extension.Capture.RecoveryPending;
+        if (pending is null) return null;
+        if (extension.Operation is not BaseSemanticActivationRetireIntent retire || captured?.Live is not { } live
+            || captured.ActivationState is not { } terminal || captured.ActivationGeneration is not { } generation
+            || applied.PriorState != BaseSemanticActivationCapturedState.Live
+            || applied.ResultingState != BaseSemanticActivationSlotState.Retired) throw new InvalidOperationException();
+        var retired = new BaseSemanticActivationRetirementAuthority
+        {
+            Definition = new BaseSemanticActivationDefinitionKey { Id = retire.Definition.Id, Version = retire.Definition.Version, Checksum = retire.Definition.Checksum },
+            KeyDigest = retire.Key, SubjectLifetime = retire.SubjectLifetime, ActivationId = live.ActivationId,
+            TerminalState = terminal, TerminalActivationGeneration = generation,
+            TerminalActivationChecksum = captured.ActivationChecksum,
+            CompletionOperationChecksum = Convert.FromHexString(retire.CompletionOperation.OperationChecksum).ToImmutableArray(),
+            CompletionReceiptChecksum = captured.ActivationTerminalReceiptChecksum,
+            RetirementPosition = applied.CommitJournalPosition, SlotGeneration = applied.ResultingSlotGeneration,
+            StoreAuthority = live.StoreAuthority, Checksum = [],
+        };
+        retired = retired with { Checksum = BaseSemanticActivationEvidenceContract.RetirementChecksum(retired) };
+        if (!CryptographicOperations.FixedTimeEquals(retired.Checksum.AsSpan(), applied.ResultingSlotChecksum.AsSpan()))
+            throw new InvalidOperationException();
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(retired, HPDBaseJsonSerializerContext.Default.BaseSemanticActivationRetirementAuthority);
+        var entry = new BaseSemanticActivationRecoveryEntry
+        {
+            Boundary = pending.Intent.Boundary,
+            Definition = retired.Definition,
+            State = BaseSemanticActivationSlotState.Retired,
+            SlotGeneration = retired.SlotGeneration,
+            AuthorityBytes = bytes.ToImmutableArray(), Checksum = [],
+        };
+        entry = entry with { Checksum = BaseSemanticRecoveryAuthorityContract.RecoveryEntryChecksum(entry) };
+        var value = new BaseSemanticRecoveryLocalReceiptAuthority
+        {
+            PendingAuthority = pending, FinalEntry = entry, Checksum = [],
+        };
+        return value with { Checksum = BaseSemanticRecoveryAuthorityContract.LocalReceiptAuthorityChecksum(value) };
     }
 
     private static bool AppliedActivationMatches(

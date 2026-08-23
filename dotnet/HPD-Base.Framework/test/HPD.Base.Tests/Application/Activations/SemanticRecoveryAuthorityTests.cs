@@ -57,12 +57,11 @@ public sealed class SemanticRecoveryAuthorityTests
             },
         }).Should().BeFalse();
         BaseSemanticRecoveryAuthorityContract.IsValid(Registration(seed, TimeSpan.FromDays(30) - TimeSpan.FromTicks(1))).Should().BeFalse();
-        BaseSemanticRecoveryAuthorityContract.IsValidAt(registration, new DateTimeOffset(2110, 1, 1, 0, 0, 0, TimeSpan.Zero)).Should().BeFalse();
+        BaseSemanticRecoveryAuthorityContract.IsValidAt(registration, new DateTimeOffset(2110, 1, 1, 0, 0, 0, TimeSpan.Zero)).Should().BeTrue();
         BaseSemanticRecoveryAuthorityContract.IsValidAt(registration, new DateTimeOffset(2010, 1, 1, 0, 0, 0, TimeSpan.Zero)).Should().BeFalse();
-        BaseSemanticRecoveryAuthorityRegistration exactRemaining = Registration(seed, TimeSpan.FromDays(30));
+        BaseSemanticRecoveryAuthorityRegistration exactRemaining = Registration(seed);
         DateTimeOffset retainedStart = exactRemaining.Definition.KeyAuthority.RetainedKeys[0].NotBefore;
         BaseSemanticRecoveryAuthorityContract.IsValidAt(exactRemaining, retainedStart).Should().BeTrue();
-        BaseSemanticRecoveryAuthorityContract.IsValidAt(exactRemaining, retainedStart.AddTicks(1)).Should().BeFalse();
         BaseSemanticRecoveryAuthorityContract.IsValid(registration with
         {
             Definition = registration.Definition with
@@ -108,6 +107,173 @@ public sealed class SemanticRecoveryAuthorityTests
         nullDescriptor.DisposeCount.Should().Be(1);
     }
 
+    [Fact]
+    public void Pending_resolution_is_signed_and_bound_to_the_complete_begin_request()
+    {
+        byte[] seed = Enumerable.Range(1, Ed25519.SecretKeySize).Select(static value => (byte)value).ToArray();
+        BaseSemanticRecoveryAuthorityDefinition definition = Registration(seed).Definition;
+        var intent = new BaseSemanticRecoveryPendingTerminalIntent
+        {
+            Boundary = new() { DefinitionId = "semantic", ScopeBindingId = new byte[16].ToImmutableArray(),
+                Key = BaseSemanticActivationKeyDigest.Create(SHA256.HashData("key"u8)) },
+            RetirementOperationFingerprint = SHA256.HashData("retire"u8).ToImmutableArray(),
+            SubjectLifetime = null, Checksum = [],
+        };
+        intent = intent with { Checksum = BaseSemanticRecoveryAuthorityContract.PendingIntentChecksum(intent) };
+        var request = new BaseSemanticRecoveryResolvePendingRequest
+        {
+            ApplicationId = "app", LogicalStoreId = definition.LogicalStoreId, Intent = intent,
+            BeginIdentity = BaseMutationRequestIdentity.Create("scope", "begin", "one",
+                BaseMutationRequestFingerprint.Create(SHA256.HashData("begin-one"u8))),
+            Limits = definition.Limits,
+        };
+        var resolution = new BaseSemanticRecoveryPendingResolution
+        {
+            RequestChecksum = BaseSemanticRecoveryAuthorityContract.ResolvePendingRequestChecksum(request),
+            Disposition = BaseSemanticRecoveryPendingResolutionDisposition.Missing,
+            Pending = null, Checksum = [], Signature = [],
+        };
+        resolution = resolution with { Checksum = BaseSemanticRecoveryAuthorityContract.PendingResolutionChecksum(resolution) };
+        resolution = resolution with { Signature = Sign(seed, "base.semanticRecovery.pendingResolutionSignature.v1\0", resolution.Checksum) };
+
+        BaseSemanticRecoveryAuthorityContract.PendingResolutionIsValid(definition, request, resolution,
+            new DateTimeOffset(2026, 8, 23, 0, 0, 0, TimeSpan.Zero)).Should().BeTrue();
+        BaseSemanticRecoveryResolvePendingRequest substituted = request with
+        {
+            BeginIdentity = BaseMutationRequestIdentity.Create("scope", "begin", "two",
+                BaseMutationRequestFingerprint.Create(SHA256.HashData("begin-two"u8))),
+        };
+        BaseSemanticRecoveryAuthorityContract.PendingResolutionIsValid(definition, substituted, resolution,
+            new DateTimeOffset(2026, 8, 23, 0, 0, 0, TimeSpan.Zero)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Noncooperative_external_work_quarantines_until_explicit_release()
+    {
+        byte[] seed = Enumerable.Range(1, Ed25519.SecretKeySize).Select(static value => (byte)value).ToArray();
+        BaseSemanticRecoveryAuthorityRegistration registration = Registration(seed);
+        var delayed = new DelayedAuthority(((Authority)registration.Factory.CreateOwned()).Descriptor);
+        registration = registration with { Factory = new OwnedFactory(delayed) };
+        BaseSemanticActivationCapability capability = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true);
+        capability = capability with { RestoreModes = [BaseActivationRestoreMode.NewDisasterDomain], Checksum = [] };
+        capability = capability with { Checksum = BaseSemanticActivationCapabilityContract.Checksum(capability) };
+        var selection = new BaseSemanticActivationRestoreSelection
+        {
+            LogicalStoreId = "module-store", EnabledRestoreMode = BaseActivationRestoreMode.NewDisasterDomain,
+            SelectionGeneration = 1, Identity = BaseMutationRequestIdentity.Create("semantic", "selection", "one",
+                BaseMutationRequestFingerprint.Create(SHA256.HashData("selection"u8))), Checksum = [],
+        };
+        await using var registry = new BaseSemanticRecoveryAuthorityRegistry([selection], [registration], capability, 1,
+            new FixedTimeProvider(new DateTimeOffset(2026, 8, 23, 0, 0, 0, TimeSpan.Zero)));
+
+        Func<Task> invoke = async () => await registry.InvokeAsync<BaseSemanticRecoveryPendingResolution>(
+            "module-store", TimeSpan.FromMilliseconds(10),
+            (authority, token) => authority.ResolvePendingAsync(null!, token), default);
+        await invoke.Should().ThrowAsync<TimeoutException>();
+        registry.IsQuarantined("module-store").Should().BeTrue();
+        registry.RecoverQuarantine(new() { LogicalStoreId = "module-store", Principal = new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.Authenticated, SubjectId = "operator" }, Identity = selection.Identity })
+            .RequireValue().Released.Should().BeFalse();
+        delayed.Release();
+        await Task.Delay(20);
+        registry.RecoverQuarantine(new() { LogicalStoreId = "module-store", Principal = new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.Authenticated, SubjectId = "operator" }, Identity = selection.Identity })
+            .RequireValue().Released.Should().BeTrue();
+        registry.IsQuarantined("module-store").Should().BeFalse();
+        delayed.Reset();
+        await invoke.Should().ThrowAsync<TimeoutException>();
+        await registry.DisposeAsync();
+        delayed.DisposeCount.Should().Be(0);
+        delayed.Release();
+        await Task.Delay(20);
+        delayed.DisposeCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Disposal_drains_an_admitted_cooperative_call_before_disposing_authority()
+    {
+        byte[] seed = Enumerable.Range(1, Ed25519.SecretKeySize).Select(static value => (byte)value).ToArray();
+        BaseSemanticRecoveryAuthorityRegistration registration = Registration(seed);
+        var delayed = new DelayedAuthority(((Authority)registration.Factory.CreateOwned()).Descriptor);
+        registration = registration with { Factory = new OwnedFactory(delayed) };
+        BaseSemanticActivationCapability capability = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true);
+        capability = capability with { RestoreModes = [BaseActivationRestoreMode.NewDisasterDomain], Checksum = [] };
+        capability = capability with { Checksum = BaseSemanticActivationCapabilityContract.Checksum(capability) };
+        var selection = new BaseSemanticActivationRestoreSelection
+        {
+            LogicalStoreId = "module-store", EnabledRestoreMode = BaseActivationRestoreMode.NewDisasterDomain,
+            SelectionGeneration = 1, Identity = BaseMutationRequestIdentity.Create("semantic", "selection", "drain",
+                BaseMutationRequestFingerprint.Create(SHA256.HashData("selection-drain"u8))), Checksum = [],
+        };
+        var registry = new BaseSemanticRecoveryAuthorityRegistry([selection], [registration], capability, 1,
+            new FixedTimeProvider(new DateTimeOffset(2026, 8, 23, 0, 0, 0, TimeSpan.Zero)));
+
+        Task<BaseResult<BaseSemanticRecoveryPendingResolution>> active = registry.InvokeAsync<BaseSemanticRecoveryPendingResolution>(
+            "module-store", TimeSpan.FromSeconds(5),
+            (authority, token) => authority.ResolvePendingAsync(null!, token), default).AsTask();
+        await delayed.Started.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await registry.DisposeAsync();
+        delayed.DisposeCount.Should().Be(0);
+
+        delayed.Release();
+        await active;
+        await Task.Delay(20);
+        delayed.DisposeCount.Should().Be(1);
+    }
+
+    [Fact]
+    public void Pending_ticket_remains_verifiable_after_current_signing_key_rotation()
+    {
+        byte[] oldSeed = Enumerable.Range(1, Ed25519.SecretKeySize).Select(static value => (byte)value).ToArray();
+        byte[] newSeed = Enumerable.Range(33, Ed25519.SecretKeySize).Select(static value => (byte)value).ToArray();
+        BaseSemanticRecoveryAuthorityDefinition original = Registration(oldSeed).Definition;
+        var intent = new BaseSemanticRecoveryPendingTerminalIntent
+        {
+            Boundary = new() { DefinitionId = "semantic", ScopeBindingId = new byte[16].ToImmutableArray(),
+                Key = BaseSemanticActivationKeyDigest.Create(SHA256.HashData("rotated-key"u8)) },
+            RetirementOperationFingerprint = SHA256.HashData("retire"u8).ToImmutableArray(), SubjectLifetime = null,
+            Checksum = [],
+        };
+        intent = intent with { Checksum = BaseSemanticRecoveryAuthorityContract.PendingIntentChecksum(intent) };
+        var pending = new BaseSemanticRecoveryPendingPublication
+        {
+            Sequence = 1, TicketNonce = "ticket", IntentChecksum = intent.Checksum,
+            SigningKeyId = "signing", SigningKeyVersion = 1,
+            CancellationEligibleAt = new DateTimeOffset(2026, 8, 23, 0, 0, 0, TimeSpan.Zero),
+            Checksum = [], Signature = [],
+        };
+        pending = pending with { Checksum = BaseSemanticRecoveryAuthorityContract.PendingChecksum(pending) };
+        pending = pending with { Signature = Sign(oldSeed, "base.semanticRecovery.pendingSignature.v1\0", pending.Checksum) };
+
+        byte[] newPublic = new byte[Ed25519.PublicKeySize]; Ed25519.GeneratePublicKey(newSeed, 0, newPublic, 0);
+        BaseSemanticRecoveryRetainedKeyAuthority oldKey = original.KeyAuthority.RetainedKeys[0];
+        var newKey = oldKey with
+        {
+            SigningKeyId = "signing-next", SigningKeyVersion = 2, SigningPublicKey = newPublic.ToImmutableArray(),
+            EncryptionKeyId = "encryption-next", EncryptionKeyVersion = 2, Checksum = [],
+        };
+        newKey = newKey with { Checksum = BaseSemanticRecoveryAuthorityContract.RetainedKeyChecksum(newKey) };
+        BaseSemanticRecoveryKeyAuthorityReceipt rotatedKeys = original.KeyAuthority with
+        {
+            CurrentSigningKeyId = newKey.SigningKeyId, CurrentSigningKeyVersion = newKey.SigningKeyVersion,
+            CurrentSigningPublicKey = newKey.SigningPublicKey, CurrentEncryptionKeyId = newKey.EncryptionKeyId,
+            CurrentEncryptionKeyVersion = newKey.EncryptionKeyVersion,
+            RetainedKeys = [oldKey, newKey], Checksum = [],
+        };
+        rotatedKeys = rotatedKeys with { Checksum = BaseSemanticRecoveryAuthorityContract.KeyAuthorityChecksum(rotatedKeys) };
+        BaseSemanticRecoveryAuthorityDefinition rotated = original with { KeyAuthority = rotatedKeys, ContractChecksum = [] };
+        rotated = rotated with { ContractChecksum = BaseSemanticRecoveryAuthorityContract.DefinitionChecksum(rotated) };
+
+        BaseSemanticRecoveryAuthorityContract.PendingCommitIsValid(rotated, intent, pending).Should().BeTrue();
+    }
+
+    private static ImmutableArray<byte> Sign(byte[] seed, string purpose, ImmutableArray<byte> checksum)
+    {
+        byte[] publicKey = new byte[Ed25519.PublicKeySize]; Ed25519.GeneratePublicKey(seed, 0, publicKey, 0);
+        byte[] digest = SHA512.HashData([.. Encoding.UTF8.GetBytes(purpose), .. checksum]);
+        byte[] signature = new byte[Ed25519.SignatureSize];
+        Ed25519.Sign(seed, 0, publicKey, 0, digest, 0, digest.Length, signature, 0);
+        return signature.ToImmutableArray();
+    }
+
     private static BaseSemanticRecoveryAuthorityRegistration Registration(byte[] seed, TimeSpan? retainedFor = null)
     {
         byte[] publicKey = new byte[Ed25519.PublicKeySize]; Ed25519.GeneratePublicKey(seed, 0, publicKey, 0);
@@ -117,7 +283,7 @@ public sealed class SemanticRecoveryAuthorityTests
             EncryptionKeyId = "encryption", EncryptionKeyVersion = 1,
             NotBefore = new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.Zero),
             RetainUntil = retainedFor is null
-                ? new DateTimeOffset(2100, 1, 1, 0, 0, 0, TimeSpan.Zero)
+                ? DateTimeOffset.MaxValue
                 : new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.Zero).Add(retainedFor.Value), Checksum = [],
         };
         retained = retained with { Checksum = BaseSemanticRecoveryAuthorityContract.RetainedKeyChecksum(retained) };
@@ -135,16 +301,26 @@ public sealed class SemanticRecoveryAuthorityTests
         var capability = new BaseSemanticRecoveryAuthorityCapability
         {
             DurablePendingSupported = true, IdentifiedCancellationSupported = true, CommitBoundRetentionSupported = true,
+            PermanentPendingKeyRetentionSupported = true,
             MaximumEntries = 1024, MaximumPages = 8, MaximumPageEntries = 256,
             MaximumRequestBytes = 1_048_576, MaximumResultBytes = 1_048_576, MaximumTransientBytes = 2_097_152,
-            MaximumAcquisitionDuration = TimeSpan.FromSeconds(5), MaximumPublicationDuration = TimeSpan.FromSeconds(10),
+            MaximumAcquisitionDuration = TimeSpan.FromSeconds(5), MaximumResolutionDuration = TimeSpan.FromSeconds(5),
+            MaximumPublicationDuration = TimeSpan.FromSeconds(10),
+            MaximumConcurrentOperations = 2,
             CapabilityChecksum = [],
         };
         capability = capability with { CapabilityChecksum = BaseSemanticRecoveryAuthorityContract.CapabilityChecksum(capability) };
         var definition = new BaseSemanticRecoveryAuthorityDefinition
         {
             Id = keys.AuthorityId, Version = keys.AuthorityVersion, LogicalStoreId = "module-store", OwningModuleId = "module",
-            RequiredCapability = capability, KeyAuthority = keys, ContractChecksum = [],
+            RecoveryGrantId = "semantic.recovery.recover",
+            RequiredCapability = capability, Limits = new BaseSemanticRecoveryOperationLimits
+            {
+                AcquisitionDeadline = TimeSpan.FromSeconds(3), ResolutionDeadline = TimeSpan.FromSeconds(3),
+                PublicationDeadline = TimeSpan.FromSeconds(8), MaximumEntries = 512, MaximumPages = 4,
+                MaximumPageEntries = 128, MaximumRequestBytes = 524_288, MaximumResultBytes = 524_288,
+                MaximumTransientBytes = 1_048_576, MaximumConcurrentOperations = 1,
+            }, KeyAuthority = keys, ContractChecksum = [],
         };
         definition = definition with { ContractChecksum = BaseSemanticRecoveryAuthorityContract.DefinitionChecksum(definition) };
         var certification = new BaseSemanticRecoveryAuthorityCertificationReceipt
@@ -190,7 +366,8 @@ public sealed class SemanticRecoveryAuthorityTests
         public BaseSemanticRecoveryAuthorityInstanceDescriptor Descriptor => throw new InvalidOperationException("hostile");
         public void Dispose() => DisposeCount++;
         public ValueTask<BaseResult<BaseSemanticRecoveryPendingPublication>> BeginAsync(BaseSemanticRecoveryBeginRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
-        public ValueTask<BaseResult<BaseSemanticRecoveryPublishedHead>> FinalizeAsync(BaseSemanticRecoveryFinalizeRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<BaseResult<BaseSemanticRecoveryPendingResolution>> ResolvePendingAsync(BaseSemanticRecoveryResolvePendingRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<BaseResult<BaseSemanticRecoveryFinalizationResult>> FinalizeAsync(BaseSemanticRecoveryFinalizeRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseSemanticRecoveryCancellationResult>> CancelAsync(BaseSemanticRecoveryCancelRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseSemanticRecoveryPublishedHead>> ReadHeadAsync(BaseSemanticRecoveryHeadRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseSemanticRecoveryPublicationPage>> ReadPageAsync(BaseSemanticRecoveryPageRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
@@ -202,7 +379,8 @@ public sealed class SemanticRecoveryAuthorityTests
         public BaseSemanticRecoveryAuthorityInstanceDescriptor Descriptor => null!;
         public ValueTask DisposeAsync() { DisposeCount++; return ValueTask.CompletedTask; }
         public ValueTask<BaseResult<BaseSemanticRecoveryPendingPublication>> BeginAsync(BaseSemanticRecoveryBeginRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
-        public ValueTask<BaseResult<BaseSemanticRecoveryPublishedHead>> FinalizeAsync(BaseSemanticRecoveryFinalizeRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<BaseResult<BaseSemanticRecoveryPendingResolution>> ResolvePendingAsync(BaseSemanticRecoveryResolvePendingRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<BaseResult<BaseSemanticRecoveryFinalizationResult>> FinalizeAsync(BaseSemanticRecoveryFinalizeRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseSemanticRecoveryCancellationResult>> CancelAsync(BaseSemanticRecoveryCancelRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseSemanticRecoveryPublishedHead>> ReadHeadAsync(BaseSemanticRecoveryHeadRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseSemanticRecoveryPublicationPage>> ReadPageAsync(BaseSemanticRecoveryPageRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
@@ -212,10 +390,32 @@ public sealed class SemanticRecoveryAuthorityTests
     {
         public BaseSemanticRecoveryAuthorityInstanceDescriptor Descriptor { get; } = descriptor;
         public ValueTask<BaseResult<BaseSemanticRecoveryPendingPublication>> BeginAsync(BaseSemanticRecoveryBeginRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
-        public ValueTask<BaseResult<BaseSemanticRecoveryPublishedHead>> FinalizeAsync(BaseSemanticRecoveryFinalizeRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<BaseResult<BaseSemanticRecoveryPendingResolution>> ResolvePendingAsync(BaseSemanticRecoveryResolvePendingRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<BaseResult<BaseSemanticRecoveryFinalizationResult>> FinalizeAsync(BaseSemanticRecoveryFinalizeRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseSemanticRecoveryCancellationResult>> CancelAsync(BaseSemanticRecoveryCancelRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseSemanticRecoveryPublishedHead>> ReadHeadAsync(BaseSemanticRecoveryHeadRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseSemanticRecoveryPublicationPage>> ReadPageAsync(BaseSemanticRecoveryPageRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
+
+    private sealed class DelayedAuthority(BaseSemanticRecoveryAuthorityInstanceDescriptor descriptor) : IBaseSemanticActivationRecoveryAuthority, IDisposable
+    {
+        private TaskCompletionSource<BaseResult<BaseSemanticRecoveryPendingResolution>> completion = NewCompletion();
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int DisposeCount { get; private set; }
+        public BaseSemanticRecoveryAuthorityInstanceDescriptor Descriptor => descriptor;
+        public void Release() => completion.TrySetResult(new BaseFailure<BaseSemanticRecoveryPendingResolution>(OperationStatus.StoreError,
+            new BaseError { Code = "late", Message = "late", Category = ErrorCategory.Store }, null, null));
+        public void Reset() => completion = NewCompletion();
+        public void Dispose() => DisposeCount++;
+        public ValueTask<BaseResult<BaseSemanticRecoveryPendingPublication>> BeginAsync(BaseSemanticRecoveryBeginRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<BaseResult<BaseSemanticRecoveryPendingResolution>> ResolvePendingAsync(BaseSemanticRecoveryResolvePendingRequest request, CancellationToken cancellationToken)
+        { Started.TrySetResult(); return new(completion.Task); }
+        public ValueTask<BaseResult<BaseSemanticRecoveryFinalizationResult>> FinalizeAsync(BaseSemanticRecoveryFinalizeRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<BaseResult<BaseSemanticRecoveryCancellationResult>> CancelAsync(BaseSemanticRecoveryCancelRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<BaseResult<BaseSemanticRecoveryPublishedHead>> ReadHeadAsync(BaseSemanticRecoveryHeadRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<BaseResult<BaseSemanticRecoveryPublicationPage>> ReadPageAsync(BaseSemanticRecoveryPageRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
+        private static TaskCompletionSource<BaseResult<BaseSemanticRecoveryPendingResolution>> NewCompletion() =>
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
     private sealed class FixedTimeProvider(DateTimeOffset value) : TimeProvider

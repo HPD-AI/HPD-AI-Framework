@@ -39,4 +39,8 @@ public static class BaseSemanticActivationErrorCodes
     public const string MaintenanceIndeterminate = "base.semanticActivation.maintenanceIndeterminate";
     /// <summary>Bounded maintenance did not complete before its effective deadline.</summary>
     public const string MaintenanceTimeout = "base.semanticActivation.maintenanceTimeout";
+    /// <summary>The external recovery publication remains durably pending after local commit.</summary>
+    public const string ExternalPublicationPending = "base.semanticActivation.externalPublicationPending";
+    /// <summary>The installed external recovery authority is unavailable.</summary>
+    public const string ExternalPublicationUnavailable = "base.semanticActivation.externalPublicationUnavailable";
 }
