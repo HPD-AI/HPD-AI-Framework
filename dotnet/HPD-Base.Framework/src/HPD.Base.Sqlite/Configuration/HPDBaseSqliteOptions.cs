@@ -108,6 +108,10 @@ public sealed class HPDBaseSqliteOptions
     internal BaseExportedSubjectDefinition[] ExportedSubjects { get; set; } = [];
     internal BaseRegisteredModuleMutationDefinition[] ModuleMutations { get; set; } = [];
     internal BaseModuleGenerationCellDefinition[] ModuleGenerationCells { get; set; } = [];
+    internal BaseSemanticActivationKeyDefinition[] SemanticActivations { get; set; } = [];
+    internal string SemanticActivationApplicationId { get; set; } = string.Empty;
+    internal long SemanticActivationOwnerGeneration { get; set; }
+    internal byte[] SemanticActivationDefinitionSetChecksum { get; set; } = [];
     internal BaseSubjectLifecycleConsumerDefinition[] SubjectLifecycleConsumers { get; set; } = [];
     internal BaseSubjectRetirementConsumerDefinition[] SubjectRetirementConsumers { get; set; } = [];
     internal BaseSubjectRetirementPolicy[] SubjectRetirementPolicies { get; set; } = [];

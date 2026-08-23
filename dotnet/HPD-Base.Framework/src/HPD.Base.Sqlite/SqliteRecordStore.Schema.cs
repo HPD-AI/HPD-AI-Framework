@@ -557,6 +557,50 @@ INSERT OR IGNORE INTO {_names.ProviderState}(key,value) VALUES('subject_scope_pr
             if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
                 throw new InvalidOperationException("base.moduleMutation.schemaDrift");
         }
+
+        var installedSemantic = _options.SemanticActivations.Select(static value => (value.Id, value.Version)).ToHashSet();
+        await using (SqliteCommand existing = connection.CreateCommand())
+        {
+            existing.CommandTimeout = TimeoutSeconds();
+            existing.CommandText = $"SELECT definition_id,definition_version FROM {_names.SemanticActivationDefinitions} ORDER BY definition_id COLLATE BINARY,definition_version;";
+            await using SqliteDataReader reader = await existing.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            var removed = new List<(string Id, int Version)>();
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                if (!installedSemantic.Contains((reader.GetString(0), reader.GetInt32(1))))
+                    removed.Add((reader.GetString(0), reader.GetInt32(1)));
+            await reader.DisposeAsync().ConfigureAwait(false);
+            foreach ((string id, int version) in removed)
+            {
+                await using var retained = connection.CreateCommand();
+                retained.CommandTimeout = TimeoutSeconds();
+                retained.CommandText = $"SELECT 1 FROM {_names.SemanticActivationSlots} WHERE definition_id=$id LIMIT 1;";
+                retained.Parameters.AddWithValue("$id", id);
+                if (await retained.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is not null)
+                    throw new InvalidOperationException("base.semanticActivation.removalRequired");
+                await using var remove = connection.CreateCommand();
+                remove.CommandTimeout = TimeoutSeconds();
+                remove.CommandText = $"DELETE FROM {_names.SemanticActivationDefinitions} WHERE definition_id=$id AND definition_version=$version;";
+                remove.Parameters.AddWithValue("$id", id); remove.Parameters.AddWithValue("$version", version);
+                if (await remove.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                    throw new InvalidOperationException("base.semanticActivation.schemaDrift");
+            }
+        }
+        foreach (BaseSemanticActivationKeyDefinition definition in _options.SemanticActivations
+            .OrderBy(static value => value.Id, StringComparer.Ordinal).ThenBy(static value => value.Version))
+        {
+            byte[] json = JsonSerializer.SerializeToUtf8Bytes(definition, HPDBaseJsonSerializerContext.Default.BaseSemanticActivationKeyDefinition);
+            await using SqliteCommand command = connection.CreateCommand();
+            command.CommandTimeout = TimeoutSeconds();
+            command.CommandText = $"INSERT INTO {_names.SemanticActivationDefinitions}(definition_id,definition_version,definition_checksum,owner_generation,application_id,definition_set_checksum,definition_json) VALUES($id,$version,$checksum,$generation,$application,$set,$json) ON CONFLICT(definition_id,definition_version) DO UPDATE SET definition_checksum=excluded.definition_checksum,owner_generation=excluded.owner_generation,application_id=excluded.application_id,definition_set_checksum=excluded.definition_set_checksum,definition_json=excluded.definition_json WHERE definition_checksum=excluded.definition_checksum AND application_id=excluded.application_id;";
+            command.Parameters.AddWithValue("$id", definition.Id); command.Parameters.AddWithValue("$version", definition.Version);
+            command.Parameters.Add("$checksum", SqliteType.Blob).Value = definition.Checksum.ToArray();
+            command.Parameters.AddWithValue("$generation", _options.SemanticActivationOwnerGeneration);
+            command.Parameters.AddWithValue("$application", _options.SemanticActivationApplicationId);
+            command.Parameters.Add("$set", SqliteType.Blob).Value = _options.SemanticActivationDefinitionSetChecksum;
+            command.Parameters.Add("$json", SqliteType.Blob).Value = json;
+            if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                throw new InvalidOperationException("base.semanticActivation.schemaDrift");
+        }
     }
 
     /// <inheritdoc />

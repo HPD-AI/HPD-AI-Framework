@@ -549,6 +549,11 @@ using AtomicMutationProcessingOutcomeConverter = LowerCamelJsonStringEnumConvert
 [JsonSerializable(typeof(BaseActivationPrunePage))]
 [JsonSerializable(typeof(BaseActivationIndeterminateResolution))]
 [JsonSerializable(typeof(BaseActivationQuarantinePage))]
+[JsonSerializable(typeof(BaseSemanticActivationKeyDefinition))]
+[JsonSerializable(typeof(BaseSemanticActivationScopeBinding))]
+[JsonSerializable(typeof(BaseSemanticActivationLiveAuthority))]
+[JsonSerializable(typeof(BaseSemanticActivationRetirementAuthority))]
+[JsonSerializable(typeof(BaseSemanticActivationAbsenceAuthority))]
 public partial class HPDBaseJsonSerializerContext : JsonSerializerContext
 {
     /// <summary>Performs create Options.</summary>

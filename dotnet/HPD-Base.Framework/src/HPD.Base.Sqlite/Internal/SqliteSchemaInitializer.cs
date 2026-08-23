@@ -337,6 +337,25 @@ CREATE TABLE IF NOT EXISTS {_names.ModuleGenerationDefinitions} (
   definition_checksum TEXT NOT NULL CHECK(length(definition_checksum)=64),
   PRIMARY KEY(cell_id,cell_version)
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.SemanticActivationDefinitions} (
+  definition_id TEXT NOT NULL, definition_version INTEGER NOT NULL CHECK(definition_version > 0),
+  definition_checksum BLOB NOT NULL CHECK(length(definition_checksum)=32),
+  owner_generation INTEGER NOT NULL CHECK(owner_generation > 0),
+  application_id TEXT NOT NULL, definition_set_checksum BLOB NOT NULL CHECK(length(definition_set_checksum)=32),
+  definition_json BLOB NOT NULL,
+  PRIMARY KEY(definition_id,definition_version)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.SemanticActivationScopes} (
+  scope_kind INTEGER NOT NULL, seek_digest BLOB NOT NULL CHECK(length(seek_digest)=32),
+  binding_id BLOB NOT NULL UNIQUE CHECK(length(binding_id)=32), binding_json BLOB NOT NULL,
+  PRIMARY KEY(scope_kind,seek_digest)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.SemanticActivationSlots} (
+  definition_id TEXT NOT NULL, binding_id BLOB NOT NULL CHECK(length(binding_id)=32),
+  key_digest BLOB NOT NULL CHECK(length(key_digest)=32), state INTEGER NOT NULL CHECK(state IN (1,2,3)),
+  slot_generation INTEGER NOT NULL CHECK(slot_generation > 0), authority_json BLOB NOT NULL,
+  PRIMARY KEY(definition_id,binding_id,key_digest)
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.MutationJournal} (
   position INTEGER PRIMARY KEY AUTOINCREMENT,
   entry_kind INTEGER NOT NULL DEFAULT 0,
@@ -715,6 +734,25 @@ CREATE TABLE IF NOT EXISTS {_names.ModuleGenerationDefinitions} (
   definition_checksum TEXT NOT NULL CHECK(length(definition_checksum)=64),
   PRIMARY KEY(cell_id,cell_version)
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.SemanticActivationDefinitions} (
+  definition_id TEXT NOT NULL, definition_version INTEGER NOT NULL CHECK(definition_version > 0),
+  definition_checksum BLOB NOT NULL CHECK(length(definition_checksum)=32),
+  owner_generation INTEGER NOT NULL CHECK(owner_generation > 0),
+  application_id TEXT NOT NULL, definition_set_checksum BLOB NOT NULL CHECK(length(definition_set_checksum)=32),
+  definition_json BLOB NOT NULL,
+  PRIMARY KEY(definition_id,definition_version)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.SemanticActivationScopes} (
+  scope_kind INTEGER NOT NULL, seek_digest BLOB NOT NULL CHECK(length(seek_digest)=32),
+  binding_id BLOB NOT NULL UNIQUE CHECK(length(binding_id)=32), binding_json BLOB NOT NULL,
+  PRIMARY KEY(scope_kind,seek_digest)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.SemanticActivationSlots} (
+  definition_id TEXT NOT NULL, binding_id BLOB NOT NULL CHECK(length(binding_id)=32),
+  key_digest BLOB NOT NULL CHECK(length(key_digest)=32), state INTEGER NOT NULL CHECK(state IN (1,2,3)),
+  slot_generation INTEGER NOT NULL CHECK(slot_generation > 0), authority_json BLOB NOT NULL,
+  PRIMARY KEY(definition_id,binding_id,key_digest)
+) WITHOUT ROWID;
 """, cancellationToken).ConfigureAwait(false);
 
         await ExecuteAsync(connection, $"""
@@ -900,7 +938,7 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
     public async ValueTask<string[]> GetMissingSchemaPartsAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         var missing = new List<string>();
-        foreach (var table in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.OperationReceipts, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease, _names.SubjectContracts, _names.SubjectLifetimes, _names.SubjectTerminalLifetimes, _names.SubjectLifecycleFacts, _names.SubjectLifecycleMemberships, _names.SubjectLifecycleConsumers, _names.SubjectLifecycleCheckpoints, _names.SubjectLifecycleMaintenance, _names.SubjectLifecycleScopeStage, _names.SubjectLifecycleMembershipStage, _names.SubjectRetirementBarriers, _names.SubjectRetirementAcknowledgements, _names.SubjectRetirementTerminals, _names.SubjectRetirementPublications, _names.SubjectMaintenance, _names.SubjectRewriteStage, _names.ModuleGenerations, _names.ModuleMutationDefinitions, _names.ModuleGenerationDefinitions, _names.Activations }
+        foreach (var table in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.OperationReceipts, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease, _names.SubjectContracts, _names.SubjectLifetimes, _names.SubjectTerminalLifetimes, _names.SubjectLifecycleFacts, _names.SubjectLifecycleMemberships, _names.SubjectLifecycleConsumers, _names.SubjectLifecycleCheckpoints, _names.SubjectLifecycleMaintenance, _names.SubjectLifecycleScopeStage, _names.SubjectLifecycleMembershipStage, _names.SubjectRetirementBarriers, _names.SubjectRetirementAcknowledgements, _names.SubjectRetirementTerminals, _names.SubjectRetirementPublications, _names.SubjectMaintenance, _names.SubjectRewriteStage, _names.ModuleGenerations, _names.ModuleMutationDefinitions, _names.ModuleGenerationDefinitions, _names.SemanticActivationDefinitions, _names.SemanticActivationScopes, _names.SemanticActivationSlots, _names.Activations }
             .Concat(_physical.Collections.Select(static collection => collection.Table))
             .Concat(_physical.Relations.Select(static relation => relation.Table))
             .Concat(_projectionSchemaTables))

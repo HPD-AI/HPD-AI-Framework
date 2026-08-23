@@ -54,6 +54,10 @@ public static class SqliteStore
                 options.ExportedSubjects = context.ExportedSubjects.ToArray();
                 options.ModuleMutations = context.ModuleMutations.ToArray();
                 options.ModuleGenerationCells = context.ModuleGenerationCells.ToArray();
+                options.SemanticActivations = context.SemanticActivations.ToArray();
+                options.SemanticActivationApplicationId = context.ApplicationId;
+                options.SemanticActivationOwnerGeneration = context.SemanticActivationOwnerGeneration;
+                options.SemanticActivationDefinitionSetChecksum = context.SemanticActivationDefinitionSetChecksum.ToArray();
                 options.SubjectLifecycleConsumers = context.SubjectLifecycleConsumers.ToArray();
                 options.SubjectRetirementConsumers = context.SubjectRetirementConsumers.ToArray();
                 options.SubjectRetirementPolicies = context.SubjectRetirementPolicies.ToArray();

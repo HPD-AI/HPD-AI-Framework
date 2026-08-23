@@ -36,6 +36,9 @@ internal sealed class SqliteNames
         ModuleGenerations = Prefix + "module_generations";
         ModuleMutationDefinitions = Prefix + "module_mutation_definitions";
         ModuleGenerationDefinitions = Prefix + "module_generation_definitions";
+        SemanticActivationDefinitions = Prefix + "semantic_activation_definitions";
+        SemanticActivationScopes = Prefix + "semantic_activation_scopes";
+        SemanticActivationSlots = Prefix + "semantic_activation_slots";
         Activations = Prefix + "activations";
         Executors = Prefix + "activation_executors";
         ActivationEffects = Prefix + "activation_effects";
@@ -92,6 +95,12 @@ internal sealed class SqliteNames
     public string ModuleMutationDefinitions { get; }
     /// <summary>Gets persisted module-generation-cell schema authority.</summary>
     public string ModuleGenerationDefinitions { get; }
+    /// <summary>Gets persisted semantic-definition authority.</summary>
+    public string SemanticActivationDefinitions { get; }
+    /// <summary>Gets provider-owned semantic scope-directory authority.</summary>
+    public string SemanticActivationScopes { get; }
+    /// <summary>Gets provider-owned semantic live/retired/absence slots.</summary>
+    public string SemanticActivationSlots { get; }
     /// <summary>Gets provider-owned durable activation payload and control rows.</summary>
     public string Activations { get; }
     /// <summary>Gets provider-owned durable executor-incarnation authority.</summary>
