@@ -132,7 +132,7 @@ internal static class SemanticActivationAdministrationEndpoints
 
     private static readonly BaseSemanticActivationExecutionLimits SemanticInspectionWireLimits = new()
     {
-        MaximumOperations = 1, MaximumScopeDirectoryReads = 1, MaximumSlotReads = 1,
+        MaximumOperations = 1, MaximumScopeDirectoryReads = 1, MaximumSlotReads = 256,
         MaximumActivationReads = 1, MaximumReadIntervals = 4096, MaximumIndexOperations = 8192,
         MaximumActivationBytes = 1_048_576, MaximumScopeDirectoryBytes = 65_536, MaximumEvidenceBytes = 1_048_576,
         MaximumReceiptBytes = 1_048_576, MaximumTransientBytes = 8_388_608,

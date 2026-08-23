@@ -218,6 +218,26 @@ test("control-plane backup succeeds only after the complete length-framed multip
   assert.equal(truncated.ok, false); assert.equal(truncated.error.code, "base.client.responseInvalid");
 });
 
+test("control-plane semantic inspection keeps continuations opaque and is absent from application clients", async () => {
+  const checksum = btoa("x".repeat(32)); let request;
+  const controlSchema = { ...schema, audience: "controlPlane", features: { ...schema.features, controlOperations: ["base.semanticActivation.inspect"] } };
+  const client = createBaseClient({ schema: controlSchema, url: "https://base.test/base/", fetch: async (url, init) => {
+    assert.match(String(url), /control\/stores\/primary\/semantic-activations\/query$/u); request = JSON.parse(new TextDecoder().decode(init.body));
+    return Response.json({ items: [{ state: 3, slotGeneration: "2", itemToken: "opaque_item", retirementPosition: "9", sanitizedChecksum: checksum }], next: "opaque_next", capturedAuthorityGeneration: "4", checksum });
+  } });
+  const result = await client.$control.inspectSemanticActivations({ storeId: "primary", definitionId: "auth.reconcile", definitionVersion: 1, definitionChecksum: checksum, take: 1 });
+  assert.equal(result.ok, true); assert.equal(result.value.next, "opaque_next");
+  assert.deepEqual(request, { definitionId: "auth.reconcile", definitionVersion: 1, definitionChecksum: checksum, state: null, after: null, take: 1 });
+  assert.equal(Object.hasOwn(createBaseClient({ schema, url: "https://base.test/base/" }), "$control"), false);
+  await assert.rejects(() => client.$control.inspectSemanticActivations({ storeId: "primary", definitionId: "auth.reconcile", definitionVersion: 1, definitionChecksum: checksum, after: "bad token", take: 1 }), /requestInvalid/u);
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const significant = checksum.length - 2; const canonicalIndex = alphabet.indexOf(checksum[significant]);
+  const aliasIndex = (canonicalIndex & ~3) | ((canonicalIndex + 1) & 3);
+  const alias = `${checksum.slice(0, significant)}${alphabet[aliasIndex]}=`;
+  assert.equal(atob(alias), atob(checksum)); assert.notEqual(alias, checksum);
+  await assert.rejects(() => client.$control.inspectSemanticActivations({ storeId: "primary", definitionId: "auth.reconcile", definitionVersion: 1, definitionChecksum: alias, take: 1 }), /requestInvalid/u);
+});
+
 test("vector search preserves binary32 inputs and validates disclosed dot-product measures", async () => {
   let wire;
   const vectorSchema = { ...schema, collections: { documents: collection({ ...schema.collections.documents, operations: ["vector"], vectorIndexes: { semantic: { id: "semantic", dimensions: 2, measure: "dotProductSimilarity", direction: "higherIsNearer" } } }) } };

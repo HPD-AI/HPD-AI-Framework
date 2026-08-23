@@ -1,5 +1,6 @@
 using HPD.Base;
 using Microsoft.AspNetCore.Http;
+using System.Collections.Immutable;
 using System.Text.Json.Serialization;
 
 namespace HPD.Base.AspNetCore.Tests;
@@ -241,6 +242,23 @@ public sealed class EndpointIntegrationTests
         administration.ActivationRead.Should().NotBeNull();
         administration.ActivationRead!.Take.Should().Be(8);
 
+        static string SemanticInspection(int take) => $$"""
+            {"definitionId":"auth.reconcile","definitionVersion":1,"definitionChecksum":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=","state":null,"after":null,"take":{{take}}}
+            """;
+        foreach (int take in new[] { 2, 256 })
+        {
+            HttpResponseMessage semantic = await client.PostAsync(
+                "/base/control/stores/primary/semantic-activations/query",
+                new StringContent(SemanticInspection(take), System.Text.Encoding.UTF8, "application/json"));
+            semantic.StatusCode.Should().Be(HttpStatusCode.OK);
+            using JsonDocument semanticBody = JsonDocument.Parse(await semantic.Content.ReadAsByteArrayAsync());
+            semanticBody.RootElement.GetProperty("items").GetArrayLength().Should().Be(take);
+        }
+        HttpResponseMessage excessiveSemantic = await client.PostAsync(
+            "/base/control/stores/primary/semantic-activations/query",
+            new StringContent(SemanticInspection(257), System.Text.Encoding.UTF8, "application/json"));
+        excessiveSemantic.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
         using var invalidSchedule = new HttpRequestMessage(HttpMethod.Post, "/base/control/schedules/mutate")
         {
             Content = new StringContent(
@@ -308,7 +326,42 @@ public sealed class EndpointIntegrationTests
         public ValueTask<BaseResult<BaseVectorRebuildResult>> RebuildVectorIndexAsync(BaseVectorRebuildRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseSubjectLifecycleMaintenanceResult>> ExecuteSubjectAuthorityMaintenanceAsync(string storeId, PrincipalContext principal, BaseSubjectAuthorityMaintenanceExecutionRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseSubjectLifecycleInspectionResult>> InspectSubjectLifecycleAsync(string storeId, PrincipalContext principal, BaseSubjectLifecycleInspectionRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public ValueTask<BaseResult<BaseSemanticActivationInspectionPage>> InspectSemanticActivationsAsync(string storeId, PrincipalContext principal, BaseSemanticActivationInspectionRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<BaseResult<BaseSemanticActivationInspectionPage>> InspectSemanticActivationsAsync(string storeId, PrincipalContext principal, BaseSemanticActivationInspectionRequest request, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (request.Take is < 1 or > 256)
+                return ValueTask.FromResult<BaseResult<BaseSemanticActivationInspectionPage>>(new BaseFailure<BaseSemanticActivationInspectionPage>(
+                    OperationStatus.ValidationFailed, new BaseError { Code = BaseSemanticActivationErrorCodes.Invalid, Category = ErrorCategory.Validation, Message = "Invalid semantic activation inspection request." }, null, null));
+            ImmutableArray<BaseSemanticActivationInspectionItem> items = Enumerable.Range(1, request.Take).Select(index => new BaseSemanticActivationInspectionItem
+            {
+                State = BaseSemanticActivationSlotState.CompactedAbsent,
+                SlotGeneration = index,
+                ItemToken = BaseSemanticActivationInspectionToken.FromWire($"item_{index}"),
+                RetirementPosition = index,
+                SanitizedChecksum = ImmutableArray.CreateRange(new byte[32]),
+            }).ToImmutableArray();
+            return ValueTask.FromResult<BaseResult<BaseSemanticActivationInspectionPage>>(new BaseSuccess<BaseSemanticActivationInspectionPage>(new BaseSemanticActivationInspectionPage
+            {
+                Items = items, Next = null, CapturedAuthorityGeneration = 1,
+                Checksum = ImmutableArray.CreateRange(new byte[32]),
+                Accounting = new BaseSemanticActivationAccounting
+                {
+                    Operations = 1, ScopeDirectoryReads = 0, SlotReads = request.Take, ActivationReads = 0,
+                    ReadIntervals = 1, IndexOperations = request.Take, KeyBytes = 0, ScopeDirectoryBytes = 0,
+                    ActivationBytes = 0, EvidenceBytes = checked(request.Take * 32L), ReceiptBytes = 0,
+                    TransientBytes = checked(request.Take * 64L), ActivationCreation = new BaseActivationAccounting
+                    {
+                        Candidates = 0, Comparisons = 0, IndexOperations = 0, ReadIntervals = 0,
+                        EvidenceBytes = 0, TransientBytes = 0,
+                    },
+                },
+                ReadIntervals = ImmutableArray.Create(new BaseAtomicReadIntervalEvidence
+                {
+                    LogicalAccessPathId = "semantic-inspection", CanonicalLowerBound = ImmutableArray.Create((byte)0),
+                    LowerInclusive = true, CanonicalUpperBound = ImmutableArray.Create((byte)255), UpperInclusive = true,
+                }),
+            }, OperationStatus.Ok, null, null, null, null));
+        }
         public ValueTask<BaseResult<BaseSemanticActivationMaintenanceResult>> ExecuteSemanticActivationMaintenanceAsync(string storeId, PrincipalContext principal, BaseSemanticActivationMaintenanceRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseSemanticActivationMaintenanceResult>> ResolveSemanticActivationMaintenanceAsync(string storeId, PrincipalContext principal, BaseSemanticActivationMaintenanceResolutionRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseSemanticRecoveryQuarantineRecoveryResult>> RecoverSemanticRecoveryQuarantineAsync(BaseSemanticRecoveryQuarantineRecoveryRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
