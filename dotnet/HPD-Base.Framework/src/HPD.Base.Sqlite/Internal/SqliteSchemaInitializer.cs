@@ -276,7 +276,8 @@ CREATE TABLE IF NOT EXISTS {_names.Activations} (
   claim_worker TEXT NULL,
   lease_revision INTEGER NULL,
   lease_expires_at INTEGER NULL,
-  canonical_result BLOB NULL
+  canonical_result BLOB NULL,
+  terminal_receipt_checksum BLOB NULL CHECK(terminal_receipt_checksum IS NULL OR length(terminal_receipt_checksum)=32)
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS {_names.Prefix}activation_due_idx ON {_names.Activations}(scope_kind,scope_digest,eligible,state,priority,effective_due_at,occurrence_id,activation_id);
 CREATE TABLE IF NOT EXISTS {_names.Executors} (
@@ -323,7 +324,9 @@ CREATE TABLE IF NOT EXISTS {_names.ActivationScheduleCancellations} (
 CREATE TABLE IF NOT EXISTS {_names.ActivationReceipts} (
   receipt_key TEXT NOT NULL PRIMARY KEY, operation_kind TEXT NOT NULL,
   fingerprint BLOB NOT NULL CHECK(length(fingerprint)=32), result_json BLOB NOT NULL,
-  result_checksum BLOB NOT NULL CHECK(length(result_checksum)=32)
+  result_checksum BLOB NOT NULL CHECK(length(result_checksum)=32),
+  activation_id TEXT NULL,
+  authority_checksum BLOB NULL CHECK(authority_checksum IS NULL OR length(authority_checksum)=32)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.ModuleMutationDefinitions} (
   operation_id TEXT NOT NULL, operation_version INTEGER NOT NULL CHECK(operation_version > 0),
@@ -353,9 +356,11 @@ CREATE TABLE IF NOT EXISTS {_names.SemanticActivationScopes} (
 CREATE TABLE IF NOT EXISTS {_names.SemanticActivationSlots} (
   definition_id TEXT NOT NULL, binding_id BLOB NOT NULL CHECK(length(binding_id)=32),
   key_digest BLOB NOT NULL CHECK(length(key_digest)=32), state INTEGER NOT NULL CHECK(state IN (1,2,3)),
-  slot_generation INTEGER NOT NULL CHECK(slot_generation > 0), authority_json BLOB NOT NULL,
+  slot_generation INTEGER NOT NULL CHECK(slot_generation > 0), activation_id TEXT NULL,
+  authority_json BLOB NOT NULL,
   PRIMARY KEY(definition_id,binding_id,key_digest)
 ) WITHOUT ROWID;
+CREATE UNIQUE INDEX IF NOT EXISTS {_names.Prefix}semantic_activation_live_idx ON {_names.SemanticActivationSlots}(activation_id) WHERE activation_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS {_names.MutationJournal} (
   position INTEGER PRIMARY KEY AUTOINCREMENT,
   entry_kind INTEGER NOT NULL DEFAULT 0,
@@ -673,7 +678,8 @@ CREATE TABLE IF NOT EXISTS {_names.Activations} (
   claim_worker TEXT NULL,
   lease_revision INTEGER NULL,
   lease_expires_at INTEGER NULL,
-  canonical_result BLOB NULL
+  canonical_result BLOB NULL,
+  terminal_receipt_checksum BLOB NULL CHECK(terminal_receipt_checksum IS NULL OR length(terminal_receipt_checksum)=32)
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS {_names.Prefix}activation_due_idx ON {_names.Activations}(scope_kind,scope_digest,eligible,state,priority,effective_due_at,occurrence_id,activation_id);
 CREATE TABLE IF NOT EXISTS {_names.Executors} (
@@ -720,7 +726,9 @@ CREATE TABLE IF NOT EXISTS {_names.ActivationScheduleCancellations} (
 CREATE TABLE IF NOT EXISTS {_names.ActivationReceipts} (
   receipt_key TEXT NOT NULL PRIMARY KEY, operation_kind TEXT NOT NULL,
   fingerprint BLOB NOT NULL CHECK(length(fingerprint)=32), result_json BLOB NOT NULL,
-  result_checksum BLOB NOT NULL CHECK(length(result_checksum)=32)
+  result_checksum BLOB NOT NULL CHECK(length(result_checksum)=32),
+  activation_id TEXT NULL,
+  authority_checksum BLOB NULL CHECK(authority_checksum IS NULL OR length(authority_checksum)=32)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.ModuleMutationDefinitions} (
   operation_id TEXT NOT NULL, operation_version INTEGER NOT NULL CHECK(operation_version > 0),
@@ -750,9 +758,11 @@ CREATE TABLE IF NOT EXISTS {_names.SemanticActivationScopes} (
 CREATE TABLE IF NOT EXISTS {_names.SemanticActivationSlots} (
   definition_id TEXT NOT NULL, binding_id BLOB NOT NULL CHECK(length(binding_id)=32),
   key_digest BLOB NOT NULL CHECK(length(key_digest)=32), state INTEGER NOT NULL CHECK(state IN (1,2,3)),
-  slot_generation INTEGER NOT NULL CHECK(slot_generation > 0), authority_json BLOB NOT NULL,
+  slot_generation INTEGER NOT NULL CHECK(slot_generation > 0), activation_id TEXT NULL,
+  authority_json BLOB NOT NULL,
   PRIMARY KEY(definition_id,binding_id,key_digest)
 ) WITHOUT ROWID;
+CREATE UNIQUE INDEX IF NOT EXISTS {_names.Prefix}semantic_activation_live_idx ON {_names.SemanticActivationSlots}(activation_id) WHERE activation_id IS NOT NULL;
 """, cancellationToken).ConfigureAwait(false);
 
         await ExecuteAsync(connection, $"""
@@ -969,6 +979,7 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
             missing.AddRange(await GetMalformedReceiptColumnsAsync(connection, cancellationToken).ConfigureAwait(false));
             missing.AddRange(await GetMissingSchemaAuthorityColumnsAsync(connection, cancellationToken).ConfigureAwait(false));
             missing.AddRange(await GetMissingCollectionStateAsync(connection, cancellationToken).ConfigureAwait(false));
+            missing.AddRange(await GetSemanticActivationSchemaProblemsAsync(connection, cancellationToken).ConfigureAwait(false));
 
             foreach (SqlitePhysicalModel.CollectionModel collection in _physical.Collections)
             {
@@ -1003,6 +1014,83 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
         var result = missing.ToArray();
         HPDBaseSqliteTelemetry.RecordSchemaMissingParts(_options.StoreId, result.Length);
         return result;
+    }
+
+    private async ValueTask<string[]> GetSemanticActivationSchemaProblemsAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        var problems = new List<string>();
+        foreach ((string table, string column) in new[]
+        {
+            (_names.Activations, "terminal_receipt_checksum"),
+            (_names.ActivationReceipts, "activation_id"), (_names.ActivationReceipts, "authority_checksum"),
+            (_names.SemanticActivationSlots, "definition_id"), (_names.SemanticActivationSlots, "binding_id"),
+            (_names.SemanticActivationSlots, "key_digest"), (_names.SemanticActivationSlots, "state"),
+            (_names.SemanticActivationSlots, "slot_generation"), (_names.SemanticActivationSlots, "activation_id"),
+            (_names.SemanticActivationSlots, "authority_json"),
+        })
+            if (!await ColumnExistsAsync(connection, table, column, cancellationToken).ConfigureAwait(false))
+                problems.Add("column:" + table + "." + column);
+        Dictionary<string, ColumnShape> activation = await GetColumnShapesAsync(connection, _names.Activations, cancellationToken).ConfigureAwait(false);
+        Check(activation, problems, _names.Activations, "terminal_receipt_checksum", "BLOB", false, false);
+        Dictionary<string, ColumnShape> activationReceipts = await GetColumnShapesAsync(connection, _names.ActivationReceipts, cancellationToken).ConfigureAwait(false);
+        Check(activationReceipts, problems, _names.ActivationReceipts, "activation_id", "TEXT", false, false);
+        Check(activationReceipts, problems, _names.ActivationReceipts, "authority_checksum", "BLOB", false, false);
+        Dictionary<string, ColumnShape> slots = await GetColumnShapesAsync(connection, _names.SemanticActivationSlots, cancellationToken).ConfigureAwait(false);
+        Check(slots, problems, _names.SemanticActivationSlots, "definition_id", "TEXT", true, true);
+        Check(slots, problems, _names.SemanticActivationSlots, "binding_id", "BLOB", true, true);
+        Check(slots, problems, _names.SemanticActivationSlots, "key_digest", "BLOB", true, true);
+        Check(slots, problems, _names.SemanticActivationSlots, "state", "INTEGER", true, false);
+        Check(slots, problems, _names.SemanticActivationSlots, "slot_generation", "INTEGER", true, false);
+        Check(slots, problems, _names.SemanticActivationSlots, "activation_id", "TEXT", false, false);
+        Check(slots, problems, _names.SemanticActivationSlots, "authority_json", "BLOB", true, false);
+        string index = _names.Prefix + "semantic_activation_live_idx";
+        if (!await HasExactSemanticLiveIndexAsync(connection, index, cancellationToken).ConfigureAwait(false))
+            problems.Add("index-shape:" + index);
+        return problems.ToArray();
+    }
+
+    private async ValueTask<bool> HasExactSemanticLiveIndexAsync(
+        SqliteConnection connection,
+        string index,
+        CancellationToken cancellationToken)
+    {
+        bool found = false;
+        await using (SqliteCommand list = connection.CreateCommand())
+        {
+            list.CommandText = $"PRAGMA index_list('{_names.SemanticActivationSlots.Replace("'", "''", StringComparison.Ordinal)}');";
+            await using SqliteDataReader reader = await list.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                if (string.Equals(reader.GetString(1), index, StringComparison.Ordinal))
+                {
+                    found = reader.GetInt32(2) == 1 && reader.GetInt32(4) == 1;
+                    break;
+                }
+        }
+        if (!found) return false;
+        int keys = 0;
+        await using (SqliteCommand info = connection.CreateCommand())
+        {
+            info.CommandText = $"PRAGMA index_xinfo('{index.Replace("'", "''", StringComparison.Ordinal)}');";
+            await using SqliteDataReader reader = await info.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (reader.GetInt32(5) != 1) continue;
+                keys++;
+                if (reader.GetInt32(1) < 0 || !string.Equals(reader.GetString(2), "activation_id", StringComparison.Ordinal)
+                    || reader.GetInt32(3) != 0 || !string.Equals(reader.GetString(4), "BINARY", StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
+        }
+        if (keys != 1) return false;
+        await using SqliteCommand sql = connection.CreateCommand();
+        sql.CommandText = "SELECT sql FROM sqlite_master WHERE type='index' AND name=$name;";
+        sql.Parameters.AddWithValue("$name", index);
+        string? definition = await sql.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as string;
+        string normalized = string.Concat((definition ?? string.Empty).Where(static character => !char.IsWhiteSpace(character))).ToUpperInvariant();
+        string expectedSuffix = $"ON{_names.SemanticActivationSlots}(ACTIVATION_ID)WHEREACTIVATION_IDISNOTNULL".ToUpperInvariant();
+        return normalized.StartsWith("CREATEUNIQUEINDEX", StringComparison.Ordinal) && normalized.EndsWith(expectedSuffix, StringComparison.Ordinal);
     }
 
     private async ValueTask ExecuteAsync(SqliteConnection connection, string commandText, CancellationToken cancellationToken)

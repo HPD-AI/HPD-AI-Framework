@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Security.Cryptography;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace HPD.Base;
@@ -84,6 +85,7 @@ public sealed record BaseSemanticActivationDefinitionIdentity
 }
 
 /// <summary>Owns a canonical semantic activation key digest.</summary>
+[JsonConverter(typeof(BaseSemanticActivationKeyDigestJsonConverter))]
 public sealed class BaseSemanticActivationKeyDigest : IEquatable<BaseSemanticActivationKeyDigest>
 {
     /// <summary>Gets the exact digest length.</summary>
@@ -109,6 +111,27 @@ public sealed class BaseSemanticActivationKeyDigest : IEquatable<BaseSemanticAct
     public override bool Equals(object? obj) => obj is BaseSemanticActivationKeyDigest other && Equals(other);
     /// <inheritdoc />
     public override int GetHashCode() => BitConverter.ToInt32(_bytes, 0);
+}
+
+internal sealed class BaseSemanticActivationKeyDigestJsonConverter : JsonConverter<BaseSemanticActivationKeyDigest>
+{
+    public override BaseSemanticActivationKeyDigest Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+            throw new JsonException("The semantic activation key digest must be a string.");
+        string text = reader.GetString() ?? throw new JsonException("The semantic activation key digest is missing.");
+        if (text.Length != 64 || text.Any(static value => !char.IsAsciiHexDigit(value) || char.IsUpper(value)))
+            throw new JsonException("The semantic activation key digest is not canonical.");
+        try { return BaseSemanticActivationKeyDigest.Create(Convert.FromHexString(text)); }
+        catch (FormatException exception) { throw new JsonException("The semantic activation key digest is invalid.", exception); }
+    }
+
+    public override void Write(Utf8JsonWriter writer, BaseSemanticActivationKeyDigest value, JsonSerializerOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(writer); ArgumentNullException.ThrowIfNull(value);
+        Span<byte> bytes = stackalloc byte[BaseSemanticActivationKeyDigest.Length]; value.CopyTo(bytes);
+        writer.WriteStringValue(Convert.ToHexStringLower(bytes));
+    }
 }
 
 /// <summary>Contains the canonical due authority stored in one semantic slot.</summary>
@@ -164,9 +187,69 @@ public sealed record BaseSemanticActivationCreateIntent
     public required BaseActivationLimits Limits { get; init; }
 }
 
-internal static class BaseSemanticActivationEvidenceContract
+/// <summary>
+/// Provides the canonical, provider-neutral checksum encoders for semantic activation evidence.
+/// </summary>
+/// <remarks>
+/// Providers use these methods to author evidence returned through <see cref="IAtomicRecordSession"/>.
+/// Runtime independently invokes the same canonical contract when validating hostile provider results.
+/// All returned byte sequences are newly owned immutable values.
+/// </remarks>
+public static class BaseSemanticActivationEvidenceContract
 {
-    internal static ImmutableArray<byte> LiveChecksum(BaseSemanticActivationLiveAuthority value)
+    /// <summary>Creates a deeply owned, canonically checksummed scope binding.</summary>
+    public static BaseSemanticActivationScopeBinding CreateScopeBinding(
+        BaseSubjectScopeKind kind,
+        ReadOnlySpan<byte> bindingId,
+        ReadOnlySpan<byte> protectedCanonicalScope,
+        ReadOnlySpan<byte> seekDigest,
+        string protectionKeyId,
+        int protectionKeyVersion)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(protectionKeyId);
+        var value = new BaseSemanticActivationScopeBinding
+        {
+            Kind = kind,
+            BindingId = bindingId.ToArray().ToImmutableArray(),
+            ProtectedCanonicalScope = protectedCanonicalScope.ToArray().ToImmutableArray(),
+            SeekDigest = seekDigest.ToArray().ToImmutableArray(),
+            ProtectionKeyId = new string(protectionKeyId.AsSpan()),
+            ProtectionKeyVersion = protectionKeyVersion,
+            Checksum = [],
+        };
+        return value with { Checksum = ScopeBindingChecksum(value) };
+    }
+
+    /// <summary>Computes the canonical checksum for a scope binding.</summary>
+    public static ImmutableArray<byte> ScopeBindingChecksum(BaseSemanticActivationScopeBinding value) =>
+        Hash("base.semanticActivation.scopeBinding.v1\0", Int32((int)value.Kind), value.BindingId.ToArray(),
+            value.ProtectedCanonicalScope.ToArray(), value.SeekDigest.ToArray(),
+            System.Text.Encoding.UTF8.GetBytes(value.ProtectionKeyId), Int32(value.ProtectionKeyVersion));
+
+    /// <summary>Computes the canonical checksum for a captured scope-directory binding.</summary>
+    public static ImmutableArray<byte> ScopeDirectoryChecksum(BaseSemanticActivationScopeBinding value) =>
+        System.Security.Cryptography.SHA256.HashData(value.Checksum.AsSpan()).ToImmutableArray();
+
+    /// <summary>Creates deeply owned, canonically checksummed store authority.</summary>
+    public static BaseSemanticActivationStoreAuthority CreateStoreAuthority(BaseSemanticActivationStoreAuthorityRequirement requirement)
+    {
+        var owned = requirement with { DefinitionSetChecksum = requirement.DefinitionSetChecksum.ToArray().ToImmutableArray() };
+        return new BaseSemanticActivationStoreAuthority { Requirement = owned, Checksum = StoreAuthorityChecksum(owned) };
+    }
+
+    /// <summary>Computes the canonical checksum for captured store authority.</summary>
+    public static ImmutableArray<byte> StoreAuthorityChecksum(BaseSemanticActivationStoreAuthorityRequirement value) =>
+        Hash("base.semanticActivation.storeAuthority.v1\0", System.Text.Encoding.UTF8.GetBytes(value.ApplicationId),
+            System.Text.Encoding.UTF8.GetBytes(value.LogicalStoreId), System.Text.Encoding.UTF8.GetBytes(value.StoreInstanceId),
+            Int64(value.RestoreEpoch), Int64(value.SchemaGeneration), Int64(value.SemanticAuthorityGeneration),
+            value.DefinitionSetChecksum.ToArray());
+
+    /// <summary>Computes exact missing-slot access authority from the canonical interval bound.</summary>
+    public static ImmutableArray<byte> MissingAccessPathChecksum(ReadOnlySpan<byte> canonicalSlotBound) =>
+        System.Security.Cryptography.SHA256.HashData(canonicalSlotBound).ToImmutableArray();
+
+    /// <summary>Computes the canonical checksum for one live semantic-slot authority.</summary>
+    public static ImmutableArray<byte> LiveChecksum(BaseSemanticActivationLiveAuthority value)
     {
         Span<byte> key = stackalloc byte[BaseSemanticActivationKeyDigest.Length]; value.KeyDigest.CopyTo(key);
         return Hash("base.semanticActivation.live.v1\0",
@@ -179,7 +262,8 @@ internal static class BaseSemanticActivationEvidenceContract
             value.StoreAuthority.Checksum.ToArray());
     }
 
-    internal static ImmutableArray<byte> RetirementChecksum(BaseSemanticActivationRetirementAuthority value)
+    /// <summary>Computes the canonical checksum for one retired semantic-slot authority.</summary>
+    public static ImmutableArray<byte> RetirementChecksum(BaseSemanticActivationRetirementAuthority value)
     {
         Span<byte> key = stackalloc byte[BaseSemanticActivationKeyDigest.Length]; value.KeyDigest.CopyTo(key);
         return Hash("base.semanticActivation.retired.v1\0", System.Text.Encoding.UTF8.GetBytes(value.Definition.Id),
@@ -189,7 +273,8 @@ internal static class BaseSemanticActivationEvidenceContract
             Int64(value.RetirementPosition), Int64(value.SlotGeneration), value.StoreAuthority.Checksum.ToArray());
     }
 
-    internal static ImmutableArray<byte> AbsenceChecksum(BaseSemanticActivationAbsenceAuthority value)
+    /// <summary>Computes the canonical checksum for one compacted-absence authority.</summary>
+    public static ImmutableArray<byte> AbsenceChecksum(BaseSemanticActivationAbsenceAuthority value)
     {
         Span<byte> key = stackalloc byte[BaseSemanticActivationKeyDigest.Length]; value.Key.CopyTo(key);
         return Hash("base.semanticActivation.absent.v1\0", key.ToArray(), System.Text.Encoding.UTF8.GetBytes(value.Definition.Id),
@@ -199,7 +284,8 @@ internal static class BaseSemanticActivationEvidenceContract
             value.StoreAuthority.Checksum.ToArray());
     }
 
-    internal static ImmutableArray<byte> CapturedChecksum(BaseAtomicSemanticActivationExtension extension, BaseCapturedSemanticActivationEvidence value)
+    /// <summary>Computes the canonical checksum for captured semantic evidence.</summary>
+    public static ImmutableArray<byte> CapturedChecksum(BaseAtomicSemanticActivationExtension extension, BaseCapturedSemanticActivationEvidence value)
     {
         var fields = new List<byte[]>
         {
@@ -220,11 +306,13 @@ internal static class BaseSemanticActivationEvidenceContract
         return Hash("base.semanticActivation.captured.v1\0", [.. fields]);
     }
 
-    internal static ImmutableArray<byte> WriteIntervalChecksum(BaseSemanticActivationWriteIntervalEvidence value) =>
+    /// <summary>Computes the canonical checksum for one semantic write interval.</summary>
+    public static ImmutableArray<byte> WriteIntervalChecksum(BaseSemanticActivationWriteIntervalEvidence value) =>
         Hash("base.semanticActivation.writeInterval.v1\0", System.Text.Encoding.UTF8.GetBytes(value.AccessPathId),
             value.Lower.ToArray(), [value.LowerInclusive ? (byte)1 : (byte)0], value.Upper.ToArray(), [value.UpperInclusive ? (byte)1 : (byte)0]);
 
-    internal static ImmutableArray<byte> PreparedChecksum(BaseAtomicSemanticActivationExtension extension, BasePreparedSemanticActivation value)
+    /// <summary>Computes the canonical checksum for prepared semantic evidence.</summary>
+    public static ImmutableArray<byte> PreparedChecksum(BaseAtomicSemanticActivationExtension extension, BasePreparedSemanticActivation value)
     {
         var fields = new List<byte[]>
         {
@@ -236,7 +324,8 @@ internal static class BaseSemanticActivationEvidenceContract
         return Hash("base.semanticActivation.prepared.v1\0", [.. fields]);
     }
 
-    internal static ImmutableArray<byte> ProvisionalChecksum(BasePreparedSemanticActivation prepared, BaseProvisionalSemanticActivation value) =>
+    /// <summary>Computes the canonical checksum for provisional semantic evidence.</summary>
+    public static ImmutableArray<byte> ProvisionalChecksum(BasePreparedSemanticActivation prepared, BaseProvisionalSemanticActivation value) =>
         Hash("base.semanticActivation.provisional.v1\0", prepared.Checksum.ToArray(), [(byte)value.Operation], [(byte)value.PriorState],
             [(byte)value.ResultingState], Int64(value.ResultingSlotGeneration), System.Text.Encoding.UTF8.GetBytes(value.ActivationId ?? string.Empty),
             Int64(value.ActivationGeneration ?? 0), value.ActivationChecksum.ToArray(), Int64(value.CommitJournalPosition), Accounting(value.Accounting));
@@ -264,6 +353,7 @@ internal static class BaseSemanticActivationEvidenceContract
     }
 
     private static byte[] Int64(long value) { byte[] bytes = new byte[8]; System.Buffers.Binary.BinaryPrimitives.WriteInt64BigEndian(bytes, value); return bytes; }
+    private static byte[] Int32(int value) { byte[] bytes = new byte[4]; System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(bytes, value); return bytes; }
     private static ImmutableArray<byte> Hash(string purpose, params byte[][] fields)
     {
         using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);

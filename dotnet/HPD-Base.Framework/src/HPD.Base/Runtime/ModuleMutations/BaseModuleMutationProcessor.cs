@@ -153,6 +153,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             Text = textPlan,
             Activations = activationCreation,
             SemanticActivation = finalizedSemantic,
+            ActivationGuard = activationGuard,
             Module = new BaseFinalizedModuleMutationExtension
             {
                 OperationId = definition.Id, OperationVersion = definition.Version,
@@ -741,13 +742,9 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
                 && !binding.BindingId.AsSpan().SequenceEqual(capture.ProposedScopeBindingId.AsSpan())
             || binding.Kind != capture.Scope.Kind
             || !CryptographicOperations.FixedTimeEquals(
-                SemanticHash("base.semanticActivation.scopeBinding.v1\0",
-                    BitConverter.GetBytes((int)binding.Kind).Reverse().ToArray(), binding.BindingId.ToArray(),
-                    binding.ProtectedCanonicalScope.ToArray(), binding.SeekDigest.ToArray(),
-                    Encoding.UTF8.GetBytes(binding.ProtectionKeyId),
-                    BitConverter.GetBytes(binding.ProtectionKeyVersion).Reverse().ToArray()),
-                binding.Checksum.AsSpan())
-            || !CryptographicOperations.FixedTimeEquals(SHA256.HashData(binding.Checksum.AsSpan()), captured.ScopeDirectory.Checksum.AsSpan()))
+                BaseSemanticActivationEvidenceContract.ScopeBindingChecksum(binding).AsSpan(), binding.Checksum.AsSpan())
+            || !CryptographicOperations.FixedTimeEquals(
+                BaseSemanticActivationEvidenceContract.ScopeDirectoryChecksum(binding).AsSpan(), captured.ScopeDirectory.Checksum.AsSpan()))
             return false;
         BaseSemanticActivationKeyDigest key = BaseSemanticActivationKeyDigest.Create(SemanticHash(
             "base.semanticActivation.key.v1\0", Encoding.UTF8.GetBytes(capture.Definition.Id),
@@ -786,7 +783,8 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
     {
         return value is not null && KeyEqual(value.Key, key) && StoreMatches(value.StoreAuthority, store)
             && value.AccessPathChecksum.Length == 32
-            && CryptographicOperations.FixedTimeEquals(value.AccessPathChecksum.AsSpan(), SHA256.HashData(slot.CanonicalLowerBound.AsSpan()));
+            && CryptographicOperations.FixedTimeEquals(value.AccessPathChecksum.AsSpan(),
+                BaseSemanticActivationEvidenceContract.MissingAccessPathChecksum(slot.CanonicalLowerBound.AsSpan()).AsSpan());
     }
 
     private static bool LiveMatches(BaseSemanticActivationLiveAuthority? value, BaseSemanticActivationKeyDigest key,
@@ -939,12 +937,8 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             || value.RestoreEpoch != expected.RestoreEpoch || value.SchemaGeneration != expected.SchemaGeneration
             || value.SemanticAuthorityGeneration != expected.SemanticAuthorityGeneration
             || !value.DefinitionSetChecksum.AsSpan().SequenceEqual(expected.DefinitionSetChecksum.AsSpan())) return false;
-        byte[] checksum = SemanticHash("base.semanticActivation.storeAuthority.v1\0",
-            Encoding.UTF8.GetBytes(value.ApplicationId), Encoding.UTF8.GetBytes(value.LogicalStoreId),
-            Encoding.UTF8.GetBytes(value.StoreInstanceId), BitConverter.GetBytes(value.RestoreEpoch).Reverse().ToArray(),
-            BitConverter.GetBytes(value.SchemaGeneration).Reverse().ToArray(),
-            BitConverter.GetBytes(value.SemanticAuthorityGeneration).Reverse().ToArray(), value.DefinitionSetChecksum.ToArray());
-        return CryptographicOperations.FixedTimeEquals(checksum, actual.Checksum.AsSpan());
+        return CryptographicOperations.FixedTimeEquals(
+            BaseSemanticActivationEvidenceContract.StoreAuthorityChecksum(value).AsSpan(), actual.Checksum.AsSpan());
     }
 
     private static BaseSemanticActivationEnsureIntent FinalizeEnsure(
@@ -1144,7 +1138,8 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         return captured.Accounting with
         {
             IndexOperations = captured.ScopeDirectory.State == BaseSemanticActivationScopeDirectoryState.Missing ? 2 : 1,
-            ActivationReads = plan.Operation is BaseSemanticActivationRetireIntent ? 1 : 0,
+            ActivationReads = Math.Max(captured.Accounting.ActivationReads,
+                plan.Operation is BaseSemanticActivationRetireIntent ? 1 : 0),
             ActivationBytes = activationBytes,
             EvidenceBytes = checked(captured.Accounting.EvidenceBytes + activation.EvidenceBytes),
             TransientBytes = checked(captured.Accounting.TransientBytes + activation.TransientBytes),

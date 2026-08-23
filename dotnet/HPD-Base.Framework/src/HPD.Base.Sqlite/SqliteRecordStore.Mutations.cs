@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Collections.Immutable;
 using HPD.Base;
@@ -852,7 +853,23 @@ public sealed partial class SqliteRecordStore
         private readonly long _transactionStarted;
         private readonly TimeSpan _transactionTimeout;
         private readonly byte[]? _requestFingerprint;
+        private BaseAtomicSemanticActivationExtension? _capturedSemanticExtension;
+        private string? _capturedSemanticScopeKey;
+        private string? _capturedSemanticSlotKey;
+        private byte[]? _capturedSemanticTerminalReceiptChecksum;
+        private long _capturedSemanticJournalPosition;
         private int _lifetimeState;
+
+        private sealed class SqliteSemanticPreparedPlan : BaseSemanticActivationPreparedPlan
+        {
+            internal required string ScopeKey { get; init; }
+            internal required string SlotKey { get; init; }
+            internal required BaseSemanticActivationScopeBinding Binding { get; init; }
+            internal required bool InsertScope { get; init; }
+            internal required BaseAtomicSemanticActivationExtension Extension { get; init; }
+            internal required BaseSemanticActivationCapturedState PriorState { get; init; }
+            internal required BaseSemanticActivationSlotState ResultingState { get; init; }
+        }
 
         /// <summary>Initializes a new instance.</summary>
         public SqliteAtomicRecordSession(
@@ -1232,6 +1249,210 @@ public sealed partial class SqliteRecordStore
             return OperationResults.Ok(_capturedMutation);
         }
 
+        private async ValueTask<OperationResult<BaseCapturedSemanticActivationEvidence?>> CaptureSemanticActivationAsync(
+            BaseAtomicSemanticActivationExtension? extension,
+            BaseAtomicMutationIntent intent,
+            IncrementalHash aggregate,
+            ImmutableArray<BaseAtomicReadIntervalEvidence>.Builder enclosingIntervals,
+            CancellationToken cancellationToken)
+        {
+            if (extension is null) return OperationResults.Ok<BaseCapturedSemanticActivationEvidence?>(null);
+            BaseSemanticActivationCaptureRequest capture = extension.Capture;
+            BaseSemanticActivationOperationKind kind = extension.Operation is BaseSemanticActivationEnsureIntent
+                ? BaseSemanticActivationOperationKind.Ensure : extension.Operation is BaseSemanticActivationRetireIntent
+                    ? BaseSemanticActivationOperationKind.Retire : 0;
+            BaseSemanticActivationDefinitionIdentity definition = capture.Definition;
+            ImmutableArray<byte> canonicalKey = extension.Operation switch
+            {
+                BaseSemanticActivationEnsureIntent ensure => ensure.CanonicalKey,
+                BaseSemanticActivationRetireIntent retire => retire.CanonicalKey,
+                _ => [],
+            };
+            BaseOwnedSubjectScopeEvidence scope = extension.Operation switch
+            {
+                BaseSemanticActivationEnsureIntent ensure => ensure.Scope,
+                BaseSemanticActivationRetireIntent retire => retire.Scope,
+                _ => new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Global },
+            };
+            if (kind == 0 || canonicalKey.IsDefaultOrEmpty || capture.Operation != kind
+                || capture.KeyPreimageChecksum.Length != 32
+                || !CryptographicOperations.FixedTimeEquals(SHA256.HashData(canonicalKey.AsSpan()), capture.KeyPreimageChecksum.AsSpan())
+                || capture.ProposedScopeBindingId.Length != 32 || _owner._subjectScopes is null
+                || _owner._subjectScopeProtectionKey is null || _owner._subjectScopeProtectionKeyId is null
+                || !await AcceptSemanticTimeAsync(capture.AcceptedTime, cancellationToken).ConfigureAwait(false))
+                return SubjectFailure<BaseCapturedSemanticActivationEvidence?>(BaseSubjectErrorCodes.ProviderContractInvalid);
+
+            await using (SqliteCommand installed = _connection.CreateCommand())
+            {
+                installed.Transaction = _transaction;
+                installed.CommandText = $"SELECT definition_checksum,owner_generation,application_id,definition_set_checksum FROM {_owner._names.SemanticActivationDefinitions} WHERE definition_id=$id AND definition_version=$version;";
+                installed.Parameters.AddWithValue("$id", definition.Id); installed.Parameters.AddWithValue("$version", definition.Version);
+                await using SqliteDataReader reader = await installed.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
+                    || !CryptographicOperations.FixedTimeEquals((byte[])reader.GetValue(0), definition.Checksum.AsSpan())
+                    || reader.GetInt64(1) != definition.OwnerGeneration
+                    || !string.Equals(reader.GetString(2), capture.StoreAuthority.ApplicationId, StringComparison.Ordinal)
+                    || !CryptographicOperations.FixedTimeEquals((byte[])reader.GetValue(3), capture.StoreAuthority.DefinitionSetChecksum.AsSpan()))
+                    return SubjectFailure<BaseCapturedSemanticActivationEvidence?>(BaseSubjectErrorCodes.SchemaGenerationChanged, OperationStatus.Conflict, ErrorCategory.Conflict);
+            }
+            BaseSemanticActivationKeyDefinition installedDefinition = _owner._options.SemanticActivations.Single(value =>
+                string.Equals(value.Id, definition.Id, StringComparison.Ordinal) && value.Version == definition.Version
+                && CryptographicOperations.FixedTimeEquals(value.Checksum.AsSpan(), definition.Checksum.AsSpan()));
+            if (canonicalKey.Length > installedDefinition.Limits.MaximumCanonicalKeyBytes)
+                return SubjectFailure<BaseCapturedSemanticActivationEvidence?>(BaseSubjectErrorCodes.BudgetExceeded, OperationStatus.ValidationFailed, ErrorCategory.Validation);
+
+            BaseProtectedSubjectScope protectedScope = _owner._subjectScopes.Protect(scope, _owner._subjectScopeProtectionKey.Value);
+            string scopeKey = $"{(int)scope.Kind}\n{Convert.ToHexString(protectedScope.IndexDigest)}";
+            BaseSemanticActivationScopeBinding? binding = null;
+            await using (SqliteCommand readScope = _connection.CreateCommand())
+            {
+                readScope.Transaction = _transaction;
+                readScope.CommandText = $"SELECT binding_json FROM {_owner._names.SemanticActivationScopes} WHERE scope_kind=$kind AND seek_digest=$digest;";
+                readScope.Parameters.AddWithValue("$kind", (int)scope.Kind);
+                readScope.Parameters.Add("$digest", SqliteType.Blob).Value = protectedScope.IndexDigest;
+                if (await readScope.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is byte[] json)
+                    binding = JsonSerializer.Deserialize(json, HPDBaseJsonSerializerContext.Default.BaseSemanticActivationScopeBinding);
+            }
+            bool scopeExists = binding is not null;
+            binding ??= CreateSemanticScopeBinding(scope.Kind, protectedScope, capture.ProposedScopeBindingId.ToArray());
+            byte[] keyDigestBytes = SemanticHash("base.semanticActivation.key.v1\0", Encoding.UTF8.GetBytes(definition.Id), binding.BindingId.ToArray(), canonicalKey.ToArray());
+            BaseSemanticActivationKeyDigest keyDigest = BaseSemanticActivationKeyDigest.Create(keyDigestBytes);
+            string slotKey = $"{definition.Id}\n{Convert.ToHexString(binding.BindingId.AsSpan())}\n{Convert.ToHexString(keyDigestBytes)}";
+            BaseAtomicReadIntervalEvidence scopeInterval = ExactInterval("base.semanticActivation.scope", Encoding.UTF8.GetBytes(scopeKey));
+            BaseAtomicReadIntervalEvidence slotInterval = ExactInterval("base.semanticActivation.slot", Encoding.UTF8.GetBytes(slotKey));
+            enclosingIntervals.Add(scopeInterval); enclosingIntervals.Add(slotInterval);
+
+            BaseSemanticActivationCapturedState state = BaseSemanticActivationCapturedState.Missing;
+            BaseSemanticActivationLiveAuthority? live = null;
+            BaseSemanticActivationRetirementAuthority? retired = null;
+            BaseSemanticActivationAbsenceAuthority? absent = null;
+            long slotAuthorityBytes = 0;
+            await using (SqliteCommand readSlot = _connection.CreateCommand())
+            {
+                readSlot.Transaction = _transaction;
+                readSlot.CommandText = $"SELECT state,activation_id,authority_json FROM {_owner._names.SemanticActivationSlots} WHERE definition_id=$definition AND binding_id=$binding AND key_digest=$key;";
+                readSlot.Parameters.AddWithValue("$definition", definition.Id);
+                readSlot.Parameters.Add("$binding", SqliteType.Blob).Value = binding.BindingId.ToArray();
+                readSlot.Parameters.Add("$key", SqliteType.Blob).Value = keyDigestBytes;
+                await using SqliteDataReader reader = await readSlot.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    int storedState = reader.GetInt32(0); string? indexedActivationId = reader.IsDBNull(1) ? null : reader.GetString(1);
+                    byte[] json = (byte[])reader.GetValue(2);
+                    slotAuthorityBytes = json.LongLength;
+                    if (storedState == 1) { state = BaseSemanticActivationCapturedState.Live; live = JsonSerializer.Deserialize(json, HPDBaseJsonSerializerContext.Default.BaseSemanticActivationLiveAuthority); }
+                    else if (storedState == 2) { state = BaseSemanticActivationCapturedState.Retired; retired = JsonSerializer.Deserialize(json, HPDBaseJsonSerializerContext.Default.BaseSemanticActivationRetirementAuthority); }
+                    else if (storedState == 3) { state = BaseSemanticActivationCapturedState.CompactedAbsent; absent = JsonSerializer.Deserialize(json, HPDBaseJsonSerializerContext.Default.BaseSemanticActivationAbsenceAuthority); }
+                    else return SubjectFailure<BaseCapturedSemanticActivationEvidence?>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                    if (storedState == 1 ? live is null || !string.Equals(indexedActivationId, live.ActivationId, StringComparison.Ordinal) : indexedActivationId is not null)
+                        return SubjectFailure<BaseCapturedSemanticActivationEvidence?>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                }
+            }
+            await using (SqliteCommand journal = _connection.CreateCommand())
+            {
+                journal.Transaction = _transaction;
+                journal.CommandText = $"SELECT COALESCE(MAX(position),0) FROM {_owner._names.MutationJournal};";
+                _capturedSemanticJournalPosition = Convert.ToInt64(
+                    await journal.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
+            }
+            BaseSemanticActivationStoreAuthority storeAuthority = BaseSemanticActivationEvidenceContract.CreateStoreAuthority(capture.StoreAuthority);
+            BaseSemanticActivationMissingAuthority? missing = state == BaseSemanticActivationCapturedState.Missing ? new()
+            {
+                Key = keyDigest, StoreAuthority = storeAuthority,
+                AccessPathChecksum = BaseSemanticActivationEvidenceContract.MissingAccessPathChecksum(Encoding.UTF8.GetBytes(slotKey)),
+            } : null;
+            long? activationGeneration = null; BaseActivationState? activationState = null; ImmutableArray<byte> activationChecksum = [];
+            long activationBytes = 0;
+            if (live is not null)
+            {
+                await using SqliteCommand activation = _connection.CreateCommand(); activation.Transaction = _transaction;
+                activation.CommandText = $"SELECT generation,state,control_checksum,terminal_receipt_checksum FROM {_owner._names.Activations} WHERE activation_id=$id;";
+                activation.Parameters.AddWithValue("$id", live.ActivationId);
+                await using SqliteDataReader reader = await activation.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                    return SubjectFailure<BaseCapturedSemanticActivationEvidence?>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                activationGeneration = reader.GetInt64(0); activationState = (BaseActivationState)reader.GetInt32(1);
+                activationChecksum = ((byte[])reader.GetValue(2)).ToImmutableArray();
+                _capturedSemanticTerminalReceiptChecksum = reader.IsDBNull(3) ? null : (byte[])reader.GetValue(3);
+                activationBytes = checked(Encoding.UTF8.GetByteCount(live.ActivationId) + sizeof(long) + sizeof(int)
+                    + activationChecksum.Length + (_capturedSemanticTerminalReceiptChecksum?.LongLength ?? 0));
+            }
+            long receiptBytes = 0;
+            if (_capturedSemanticTerminalReceiptChecksum is { Length: 32 } terminal)
+            {
+                receiptBytes = await ValidateTerminalReceiptAsync(live!.ActivationId, activationGeneration!.Value,
+                    activationState!.Value, activationChecksum, terminal, cancellationToken).ConfigureAwait(false);
+                if (receiptBytes < 0)
+                    return SubjectFailure<BaseCapturedSemanticActivationEvidence?>(BaseSubjectErrorCodes.ProviderContractInvalid);
+            }
+            long scopeDirectoryBytes = checked(binding.BindingId.Length + binding.ProtectedCanonicalScope.Length
+                + binding.SeekDigest.Length + Encoding.UTF8.GetByteCount(binding.ProtectionKeyId) + sizeof(int) + binding.Checksum.Length);
+            long evidenceBytes = checked(canonicalKey.Length + scopeDirectoryBytes + slotAuthorityBytes + activationBytes
+                + scopeInterval.CanonicalLowerBound.Length + slotInterval.CanonicalLowerBound.Length + 128);
+            BaseSemanticActivationAccounting accounting = EmptySemanticAccounting(canonicalKey.Length, scopeDirectoryBytes,
+                slotAuthorityBytes, activationBytes, live is null ? 0 : 1, receiptBytes, evidenceBytes);
+            if (!SemanticAccountingWithin(accounting, capture.Limits)
+                || !SemanticAccountingWithin(accounting, installedDefinition.Limits.Execution))
+                return SubjectFailure<BaseCapturedSemanticActivationEvidence?>(BaseSubjectErrorCodes.BudgetExceeded, OperationStatus.ValidationFailed, ErrorCategory.Validation);
+            var scopeCapture = new BaseSemanticActivationScopeDirectoryCapture
+            {
+                State = scopeExists ? BaseSemanticActivationScopeDirectoryState.Existing : BaseSemanticActivationScopeDirectoryState.Missing,
+                ResultingBinding = binding, ReadIntervals = [scopeInterval],
+                CanonicalBytes = binding.BindingId.Length + binding.ProtectedCanonicalScope.Length + binding.SeekDigest.Length,
+                Checksum = SHA256.HashData(binding.Checksum.AsSpan()).ToImmutableArray(),
+            };
+            var result = new BaseCapturedSemanticActivationEvidence
+            {
+                State = state, ScopeDirectory = scopeCapture, Missing = missing, Live = live, Retired = retired, Absent = absent,
+                ActivationGeneration = activationGeneration, ActivationState = activationState, ActivationChecksum = activationChecksum,
+                ReadIntervals = [scopeInterval, slotInterval], Accounting = accounting,
+                AcceptedTime = capture.AcceptedTime, Checksum = [],
+            };
+            result = result with { Checksum = BaseSemanticActivationEvidenceContract.CapturedChecksum(extension, result) };
+            _capturedSemanticExtension = extension; _capturedSemanticScopeKey = scopeKey; _capturedSemanticSlotKey = slotKey;
+            aggregate.AppendData(result.Checksum.AsSpan());
+            return OperationResults.Ok<BaseCapturedSemanticActivationEvidence?>(result);
+        }
+
+        private async ValueTask<long> ValidateTerminalReceiptAsync(
+            string activationId,
+            long generation,
+            BaseActivationState state,
+            ImmutableArray<byte> controlChecksum,
+            byte[] authorityChecksum,
+            CancellationToken token)
+        {
+            await using SqliteCommand command = _connection.CreateCommand(); command.Transaction = _transaction;
+            command.CommandText = $"SELECT receipt_key,operation_kind,fingerprint,result_json,result_checksum,authority_checksum FROM {_owner._names.ActivationReceipts} WHERE activation_id=$id AND authority_checksum=$authority LIMIT 2;";
+            command.Parameters.AddWithValue("$id", activationId); command.Parameters.Add("$authority", SqliteType.Blob).Value = authorityChecksum;
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
+            if (!await reader.ReadAsync(token).ConfigureAwait(false)) return -1;
+            string receiptKey = reader.GetString(0); string kind = reader.GetString(1); byte[] fingerprint = (byte[])reader.GetValue(2);
+            byte[] json = (byte[])reader.GetValue(3); byte[] resultChecksum = (byte[])reader.GetValue(4); byte[] storedAuthority = (byte[])reader.GetValue(5);
+            BaseActivationTransitionResult? result = JsonSerializer.Deserialize(json, HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult);
+            byte[] expectedAuthority = SHA256.HashData(Encoding.UTF8.GetBytes(kind).Concat(fingerprint).Concat(json).ToArray());
+            bool valid = TerminalReceiptKind(kind, state) && fingerprint.Length == 32 && result is not null && result.State == state && result.Generation == generation
+                && CryptographicOperations.FixedTimeEquals(result.ControlChecksum.AsSpan(), controlChecksum.AsSpan())
+                && CryptographicOperations.FixedTimeEquals(SHA256.HashData(json), resultChecksum)
+                && CryptographicOperations.FixedTimeEquals(authorityChecksum, storedAuthority)
+                && CryptographicOperations.FixedTimeEquals(expectedAuthority, authorityChecksum);
+            bool additional = await reader.ReadAsync(token).ConfigureAwait(false);
+            return valid && !additional
+                ? checked(Encoding.UTF8.GetByteCount(receiptKey) + Encoding.UTF8.GetByteCount(kind) + fingerprint.Length
+                    + json.LongLength + resultChecksum.Length + storedAuthority.Length)
+                : -1;
+        }
+
+        private static bool TerminalReceiptKind(string kind, BaseActivationState state) => state switch
+        {
+            BaseActivationState.Succeeded => kind is "activation-completed" or "effect-completed" or "effect-reconciled",
+            BaseActivationState.Exhausted => kind is "activation-failed-terminal" or "effect-reconciled",
+            BaseActivationState.Cancelled => kind == "activation-cancelled",
+            BaseActivationState.Migrated => kind == "activation-migrated",
+            BaseActivationState.Disposed => kind == "activation-disposed",
+            _ => false,
+        };
+
         private async ValueTask<OperationResult<BaseCapturedAtomicExecution>> CaptureModuleAuthorityAsync(
             BaseAtomicExecutionRequest request,
             CancellationToken cancellationToken)
@@ -1396,6 +1617,12 @@ public sealed partial class SqliteRecordStore
                 _capturedActivationExtension = FreezeActivationExtension(activationExtension);
             }
 
+            OperationResult<BaseCapturedSemanticActivationEvidence?> semanticResult = await CaptureSemanticActivationAsync(
+                request.SemanticActivation, intent, digest, intervals, cancellationToken).ConfigureAwait(false);
+            if (!semanticResult.IsSuccess())
+                return new OperationResult<BaseCapturedAtomicExecution> { Status = semanticResult.Status, Error = semanticResult.Error };
+            BaseCapturedSemanticActivationEvidence? capturedSemantic = semanticResult.Value;
+
             OperationResult<ImmutableArray<BaseCapturedSubjectRetirementProjection>> retirementResult =
                 await CaptureRetirementAsync(request.SubjectRetirement, intent, module, digest, intervals, cancellationToken).ConfigureAwait(false);
             if (!retirementResult.IsSuccess() || retirementResult.Value.IsDefault)
@@ -1423,8 +1650,9 @@ public sealed partial class SqliteRecordStore
                 Items = [], ModuleRecords = records.MoveToImmutable(), ModuleRelationTargets = relations.MoveToImmutable(),
                 Generations = generations.MoveToImmutable(), ActivationGuard = _capturedActivationGuard,
                 Activations = capturedActivations,
+                SemanticActivation = capturedSemantic,
                 SubjectRetirement = retirementResult.Value,
-                ReadIntervals = intervals.MoveToImmutable(),
+                ReadIntervals = intervals.ToImmutable(),
                 Accounting = new BaseAtomicCaptureAccounting
                 {
                     Records = module.Records.Length, RelationTargetReads = module.RelationTargets.Length,
@@ -1552,6 +1780,19 @@ public sealed partial class SqliteRecordStore
                 return SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
             if (!ActivationGuardMatches(plan.ActivationGuard, captured.ActivationGuard))
                 return SubjectFailure<BasePreparedAtomicExecution>("base.activation.claimLost", OperationStatus.Conflict, ErrorCategory.Conflict);
+            if ((plan.SemanticActivation is null) != (captured.SemanticActivation is null)
+                || (plan.SemanticActivation is null) != (_capturedSemanticExtension is null))
+                return SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
+            BasePreparedSemanticActivation? preparedSemantic;
+            try
+            {
+                preparedSemantic = await PrepareSemanticAsync(
+                    plan.SemanticActivation, captured.SemanticActivation, plan.Limits, token).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return SubjectFailure<BasePreparedAtomicExecution>(ex.Message);
+            }
             var preparedGenerations = ImmutableArray.CreateBuilder<BasePreparedModuleGenerationEvidence>(captured.Generations.Length);
             BasePreparedActivationExtension? preparedActivations = null;
             if (plan.Activations is not null)
@@ -1918,6 +2159,7 @@ public sealed partial class SqliteRecordStore
                     : captured.Items.Select(static item => item.Disposition).ToImmutableArray(),
                 Generations = preparedGenerations.MoveToImmutable(),
                 Activations = preparedActivations,
+                SemanticActivation = preparedSemantic,
                 ActivationGuard = captured.ActivationGuard,
                 SubjectOverlay = overlays.Values.OrderBy(static value => value.ContractId, StringComparer.Ordinal).ThenBy(static value => value.ContractVersion).ThenBy(static value => value.SubjectId.Value, StringComparer.Ordinal).ToImmutableArray(),
                 SubjectValidations = validationEvidence.MoveToImmutable(),
@@ -1937,6 +2179,375 @@ public sealed partial class SqliteRecordStore
             };
             return OperationResults.Ok(_preparedMutation);
         });
+
+        private async ValueTask<BasePreparedSemanticActivation?> PrepareSemanticAsync(
+            BaseAtomicSemanticActivationExtension? extension,
+            BaseCapturedSemanticActivationEvidence? captured,
+            BaseAtomicMutationExecutionLimits enclosingLimits,
+            CancellationToken token)
+        {
+            if (extension is null) return captured is null ? null : throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+            if (captured is null || _capturedSemanticScopeKey is null || _capturedSemanticSlotKey is null)
+                throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+            if (_capturedSemanticExtension is null)
+                throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+            if (!SemanticFinalizationMatches(_capturedSemanticExtension, extension, captured))
+                throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+            if (!SemanticCaptureMatches(_capturedSemanticExtension, captured))
+                throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+            BaseSemanticActivationKeyDigest capturedKey = captured.State switch
+            {
+                BaseSemanticActivationCapturedState.Missing => captured.Missing!.Key,
+                BaseSemanticActivationCapturedState.Live => captured.Live!.KeyDigest,
+                BaseSemanticActivationCapturedState.Retired => captured.Retired!.KeyDigest,
+                BaseSemanticActivationCapturedState.CompactedAbsent => captured.Absent!.Key,
+                _ => throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid),
+            };
+            BaseSemanticActivationKeyDigest finalizedKey = extension.Operation switch
+            {
+                BaseSemanticActivationEnsureIntent value => value.Key,
+                BaseSemanticActivationRetireIntent value => value.Key,
+                _ => throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid),
+            };
+            if (!CryptographicOperations.FixedTimeEquals(capturedKey.ToArray(), finalizedKey.ToArray()))
+                throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+
+            BaseSemanticActivationDefinitionIdentity operationDefinition = extension.Operation switch
+            {
+                BaseSemanticActivationEnsureIntent value => value.Definition,
+                BaseSemanticActivationRetireIntent value => value.Definition,
+                _ => throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid),
+            };
+            BaseOwnedSubjectScopeEvidence operationScope = extension.Operation switch
+            {
+                BaseSemanticActivationEnsureIntent value => value.Scope,
+                BaseSemanticActivationRetireIntent value => value.Scope,
+                _ => throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid),
+            };
+            if (!SemanticDefinitionEquals(extension.Capture.Definition, operationDefinition)
+                || !SemanticScopeEquals(extension.Capture.Scope, operationScope))
+                throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+            if (extension.Operation is BaseSemanticActivationRetireIntent retirement
+                && !SemanticOperationEquals(retirement.CompletionOperation, retirement.Definition.RetirementOperation))
+                throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+
+            BaseSemanticActivationOperationKind kind = extension.Operation is BaseSemanticActivationEnsureIntent
+                ? BaseSemanticActivationOperationKind.Ensure : BaseSemanticActivationOperationKind.Retire;
+            BaseSemanticActivationSlotState resulting;
+            long generation;
+            string? activationId = null;
+            long activationBytes = 0;
+            BaseActivationAccounting activationAccounting = new()
+            {
+                Candidates = 0, Comparisons = 0, IndexOperations = 0, ReadIntervals = 0,
+                EvidenceBytes = 0, TransientBytes = 0,
+            };
+            switch (kind, captured.State)
+            {
+                case (BaseSemanticActivationOperationKind.Ensure, BaseSemanticActivationCapturedState.Missing):
+                    var ensure = (BaseSemanticActivationEnsureIntent)extension.Operation;
+                    Span<byte> finalKey = stackalloc byte[32]; ensure.Key.CopyTo(finalKey);
+                    byte[] expectedActivationId = SemanticHash("base.semanticActivation.activation.v1\0",
+                        Encoding.UTF8.GetBytes(extension.Capture.StoreAuthority.ApplicationId),
+                        Encoding.UTF8.GetBytes(extension.Capture.StoreAuthority.LogicalStoreId),
+                        Encoding.UTF8.GetBytes(ensure.Definition.OwningModuleId), Encoding.UTF8.GetBytes(ensure.Definition.Id),
+                        captured.ScopeDirectory.ResultingBinding.BindingId.ToArray(), ensure.CanonicalKey.ToArray());
+                    byte[] expectedCreation = SemanticHash("base.semanticActivation.creation.v1\0", ensure.Definition.Checksum.ToArray(),
+                        finalKey.ToArray(), captured.ScopeDirectory.ResultingBinding.BindingId.ToArray(), expectedActivationId);
+                    if (!ensure.Activation.Identity.ScopeBindingId.AsSpan().SequenceEqual(captured.ScopeDirectory.ResultingBinding.BindingId.AsSpan())
+                        || !ensure.Activation.Identity.DerivedActivationIdBytes.AsSpan().SequenceEqual(expectedActivationId)
+                        || !CryptographicOperations.FixedTimeEquals(ensure.Activation.Identity.Checksum.AsSpan(), expectedCreation)
+                        || !SemanticDefinitionEquals(ensure.Activation.Identity.SemanticDefinition, ensure.Definition))
+                        throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+                    BaseActivationProviderCapability capability = ((IBaseActivationProvider)_owner).Descriptor.Capability;
+                    BaseActivationLimits installed = ensure.Activation.Limits;
+                    activationBytes = checked(ensure.Activation.CanonicalInput.Length + ensure.Activation.InputChecksum.Length
+                        + ensure.Activation.Definition.Checksum.Length + 64);
+                    long evidence = checked(activationBytes + 32 + sizeof(long) * 2);
+                    if (!capability.AtomicCreationSupported || capability.MaximumActivationsPerTransaction < 1
+                        || ensure.Activation.CanonicalInput.Length > Math.Min(capability.MaximumInputBytes, installed.MaximumInputBytes)
+                        || 1 > Math.Min(capability.MaximumDueCandidates, installed.Provider.MaximumCandidates)
+                        || 1 > Math.Min(capability.MaximumReadIntervals, installed.Provider.MaximumReadIntervals)
+                        || 2 > Math.Min(capability.MaximumIndexOperations, installed.Provider.MaximumIndexOperations)
+                        || evidence > Math.Min(capability.MaximumEvidenceBytes, installed.Provider.MaximumEvidenceBytes)
+                        || evidence > Math.Min(capability.MaximumTransientBytes, installed.Provider.MaximumTransientBytes)
+                        || 1 > Math.Min(installed.AtomicCreation.MaximumProducedMutations, enclosingLimits.MaximumProducedMutations)
+                        || 1 > Math.Min(installed.AtomicCreation.MaximumReadIntervals, enclosingLimits.MaximumReadIntervals)
+                        || evidence > Math.Min(installed.AtomicCreation.MaximumEvidenceBytes, enclosingLimits.MaximumEvidenceBytes)
+                        || evidence > Math.Min(installed.AtomicCreation.MaximumTransientBytes, enclosingLimits.MaximumTransientBytes)
+                        || evidence > Math.Min(installed.AtomicCreation.MaximumJournalBytes, enclosingLimits.MaximumJournalBytes)
+                        || evidence > Math.Min(installed.AtomicCreation.MaximumFactBytes, enclosingLimits.MaximumFactBytes)
+                        || evidence > Math.Min(installed.AtomicCreation.MaximumReceiptBytes, enclosingLimits.MaximumReceiptBytes))
+                        throw new InvalidOperationException("base.activation.budgetExceeded");
+                    activationAccounting = new BaseActivationAccounting
+                    {
+                        Candidates = 1, Comparisons = 1, IndexOperations = 2, ReadIntervals = 1,
+                        EvidenceBytes = evidence, TransientBytes = evidence,
+                    };
+                    activationId = Convert.ToHexStringLower(ensure.Activation.Identity.DerivedActivationIdBytes.AsSpan());
+                    resulting = BaseSemanticActivationSlotState.Live; generation = 1; break;
+                case (BaseSemanticActivationOperationKind.Ensure, BaseSemanticActivationCapturedState.Live):
+                    activationId = captured.Live!.ActivationId; resulting = BaseSemanticActivationSlotState.Live; generation = captured.Live.SlotGeneration; break;
+                case (BaseSemanticActivationOperationKind.Ensure, BaseSemanticActivationCapturedState.Retired):
+                    resulting = BaseSemanticActivationSlotState.Retired; generation = captured.Retired!.SlotGeneration; break;
+                case (BaseSemanticActivationOperationKind.Ensure, BaseSemanticActivationCapturedState.CompactedAbsent):
+                    resulting = BaseSemanticActivationSlotState.CompactedAbsent; generation = captured.Absent!.FinalSlotGeneration; break;
+                case (BaseSemanticActivationOperationKind.Retire, BaseSemanticActivationCapturedState.Live):
+                    activationId = captured.Live!.ActivationId;
+                    if (captured.ActivationState is not (BaseActivationState.Succeeded or BaseActivationState.Exhausted
+                        or BaseActivationState.Cancelled or BaseActivationState.Migrated or BaseActivationState.Disposed)
+                        || _capturedSemanticTerminalReceiptChecksum is not { Length: 32 })
+                        throw new InvalidOperationException("base.semanticActivation.activationNotTerminal");
+                    generation = checked(captured.Live.SlotGeneration + 1); resulting = BaseSemanticActivationSlotState.Retired; break;
+                case (BaseSemanticActivationOperationKind.Retire, BaseSemanticActivationCapturedState.Retired):
+                    activationId = captured.Retired!.ActivationId; generation = captured.Retired.SlotGeneration; resulting = BaseSemanticActivationSlotState.Retired; break;
+                case (BaseSemanticActivationOperationKind.Retire, BaseSemanticActivationCapturedState.CompactedAbsent):
+                    generation = captured.Absent!.FinalSlotGeneration; resulting = BaseSemanticActivationSlotState.CompactedAbsent; break;
+                default: throw new InvalidOperationException("base.semanticActivation.referenceInvalid");
+            }
+            var providerPlan = new SqliteSemanticPreparedPlan
+            {
+                ScopeKey = _capturedSemanticScopeKey, SlotKey = _capturedSemanticSlotKey,
+                Binding = captured.ScopeDirectory.ResultingBinding,
+                InsertScope = captured.ScopeDirectory.State == BaseSemanticActivationScopeDirectoryState.Missing,
+                Extension = extension, PriorState = captured.State, ResultingState = resulting,
+            };
+            BaseSemanticActivationAccounting accounting = captured.Accounting with
+            {
+                IndexOperations = providerPlan.InsertScope ? 2 : 1,
+                ActivationReads = Math.Max(captured.Accounting.ActivationReads,
+                    kind == BaseSemanticActivationOperationKind.Retire ? 1 : 0),
+                ActivationBytes = activationBytes,
+                EvidenceBytes = checked(captured.Accounting.EvidenceBytes + activationAccounting.EvidenceBytes),
+                TransientBytes = checked(captured.Accounting.TransientBytes + activationAccounting.TransientBytes),
+                ActivationCreation = activationAccounting,
+            };
+            if (!SemanticAccountingWithin(accounting, extension.Capture.Limits))
+                throw new InvalidOperationException(BaseSubjectErrorCodes.BudgetExceeded);
+            var write = new BaseSemanticActivationWriteIntervalEvidence
+            {
+                AccessPathId = "base.semanticActivation.slot", Lower = Encoding.UTF8.GetBytes(_capturedSemanticSlotKey).ToImmutableArray(),
+                LowerInclusive = true, Upper = Encoding.UTF8.GetBytes(_capturedSemanticSlotKey).ToImmutableArray(), UpperInclusive = true, Checksum = [],
+            };
+            write = write with { Checksum = BaseSemanticActivationEvidenceContract.WriteIntervalChecksum(write) };
+            var result = new BasePreparedSemanticActivation
+            {
+                SessionPlan = providerPlan, Operation = kind, PriorState = captured.State, ResultingState = resulting,
+                ResultingSlotGeneration = generation, ResultingActivationId = activationId,
+                ReadIntervals = captured.ReadIntervals, WriteIntervals = [write], Accounting = accounting, Checksum = [],
+            };
+            return result with { Checksum = BaseSemanticActivationEvidenceContract.PreparedChecksum(extension, result) };
+        }
+
+        private static bool SemanticCaptureMatches(BaseAtomicSemanticActivationExtension extension, BaseCapturedSemanticActivationEvidence captured)
+        {
+            if (!CryptographicOperations.FixedTimeEquals(
+                    BaseSemanticActivationEvidenceContract.CapturedChecksum(extension, captured).AsSpan(), captured.Checksum.AsSpan())
+                || captured.ReadIntervals.Length != 2 || captured.ScopeDirectory.ReadIntervals.Length != 1
+                || !Enum.IsDefined(captured.State)
+                || !BaseActivationAcceptedTimeAuthority.Verify(captured.AcceptedTime, captured.AcceptedTime.CapturedUtc)
+                || !SemanticScopeBindingValid(extension.Capture, captured.ScopeDirectory))
+                return false;
+            BaseSemanticActivationSubjectLifetimeBinding? requestedLifetime = extension.Operation switch
+            {
+                BaseSemanticActivationEnsureIntent value => FinalizeSemanticLifetime(value.SubjectLifetime, captured.ScopeDirectory.ResultingBinding.BindingId),
+                BaseSemanticActivationRetireIntent value => FinalizeSemanticLifetime(value.SubjectLifetime, captured.ScopeDirectory.ResultingBinding.BindingId),
+                _ => null,
+            };
+            return captured.State switch
+            {
+                BaseSemanticActivationCapturedState.Missing => captured.Missing is { } missing
+                    && captured.Live is null && captured.Retired is null && captured.Absent is null
+                    && SemanticStoreAuthorityValid(missing.StoreAuthority),
+                BaseSemanticActivationCapturedState.Live => captured.Live is { } live
+                    && captured.Missing is null && captured.Retired is null && captured.Absent is null
+                    && CryptographicOperations.FixedTimeEquals(BaseSemanticActivationEvidenceContract.LiveChecksum(live).AsSpan(), live.Checksum.AsSpan())
+                    && SemanticStoreAuthorityValid(live.StoreAuthority)
+                    && SemanticLifetimeEquals(requestedLifetime, live.SubjectLifetime)
+                    && captured.ActivationGeneration is > 0 && captured.ActivationState is { } state && Enum.IsDefined(state)
+                    && captured.ActivationChecksum.Length == 32
+                    && CryptographicOperations.FixedTimeEquals(
+                        ActivationControlChecksum(live.ActivationId, captured.ActivationGeneration.Value, state), captured.ActivationChecksum.AsSpan()),
+                BaseSemanticActivationCapturedState.Retired => captured.Retired is { } retired
+                    && captured.Missing is null && captured.Live is null && captured.Absent is null
+                    && CryptographicOperations.FixedTimeEquals(BaseSemanticActivationEvidenceContract.RetirementChecksum(retired).AsSpan(), retired.Checksum.AsSpan())
+                    && SemanticStoreAuthorityValid(retired.StoreAuthority)
+                    && SemanticLifetimeEquals(requestedLifetime, retired.SubjectLifetime)
+                    && retired.TerminalState is BaseActivationState.Succeeded or BaseActivationState.Exhausted or BaseActivationState.Cancelled
+                        or BaseActivationState.Migrated or BaseActivationState.Disposed
+                    && SemanticOperationChecksumEquals(extension.Capture.Definition.RetirementOperation, retired.CompletionOperationChecksum),
+                BaseSemanticActivationCapturedState.CompactedAbsent => captured.Absent is { } absent
+                    && captured.Missing is null && captured.Live is null && captured.Retired is null
+                    && CryptographicOperations.FixedTimeEquals(BaseSemanticActivationEvidenceContract.AbsenceChecksum(absent).AsSpan(), absent.Checksum.AsSpan())
+                    && SemanticStoreAuthorityValid(absent.StoreAuthority)
+                    && SemanticLifetimeEquals(requestedLifetime, absent.SubjectLifetime),
+                _ => false,
+            };
+        }
+
+        private static bool SemanticFinalizationMatches(
+            BaseAtomicSemanticActivationExtension requested,
+            BaseAtomicSemanticActivationExtension finalized,
+            BaseCapturedSemanticActivationEvidence captured)
+        {
+            BaseSemanticActivationScopeBinding binding = captured.ScopeDirectory.ResultingBinding;
+            if (!SemanticDefinitionEquals(requested.Capture.Definition, finalized.Capture.Definition)
+                || !requested.Capture.CanonicalKey.AsSpan().SequenceEqual(finalized.Capture.CanonicalKey.AsSpan())
+                || !CryptographicOperations.FixedTimeEquals(requested.Capture.KeyPreimageChecksum.AsSpan(), finalized.Capture.KeyPreimageChecksum.AsSpan())
+                || !SemanticScopeEquals(requested.Capture.Scope, finalized.Capture.Scope)
+                || !requested.Capture.ProposedScopeBindingId.AsSpan().SequenceEqual(finalized.Capture.ProposedScopeBindingId.AsSpan())
+                || requested.Capture.Operation != finalized.Capture.Operation
+                || !SemanticStoreRequirementEquals(requested.Capture.StoreAuthority, finalized.Capture.StoreAuthority)
+                || requested.Capture.Limits != finalized.Capture.Limits
+                || !CryptographicOperations.FixedTimeEquals(requested.Capture.AcceptedTime.Checksum.Span, finalized.Capture.AcceptedTime.Checksum.Span))
+                return false;
+
+            BaseSemanticActivationDefinitionIdentity definition = requested.Capture.Definition;
+            byte[] canonicalKey = requested.Capture.CanonicalKey.ToArray();
+            byte[] expectedKeyBytes = SemanticHash("base.semanticActivation.key.v1\0", Encoding.UTF8.GetBytes(definition.Id),
+                binding.BindingId.ToArray(), canonicalKey);
+            var expectedKey = BaseSemanticActivationKeyDigest.Create(expectedKeyBytes);
+            byte[] expectedStructural = SemanticHash("base.semanticActivation.extension.v1\0", definition.Checksum.ToArray(),
+                canonicalKey, binding.BindingId.ToArray(), [(byte)(requested.Operation is BaseSemanticActivationEnsureIntent ? 1 : 2)]);
+            if (!CryptographicOperations.FixedTimeEquals(expectedStructural, finalized.StructuralDigest.AsSpan())) return false;
+
+            return (requested.Operation, finalized.Operation) switch
+            {
+                (BaseSemanticActivationEnsureIntent a, BaseSemanticActivationEnsureIntent b) =>
+                    SemanticDefinitionEquals(a.Definition, b.Definition) && b.Key.Equals(expectedKey)
+                    && a.CanonicalKey.AsSpan().SequenceEqual(b.CanonicalKey.AsSpan()) && SemanticScopeEquals(a.Scope, b.Scope)
+                    && SemanticLifetimeEquals(FinalizeSemanticLifetime(a.SubjectLifetime, binding.BindingId), b.SubjectLifetime)
+                    && SemanticFinalizedEnsureMatches(a, b, definition, requested.Capture.StoreAuthority,
+                        binding.BindingId, captured.AcceptedTime, expectedKey),
+                (BaseSemanticActivationRetireIntent a, BaseSemanticActivationRetireIntent b) =>
+                    SemanticDefinitionEquals(a.Definition, b.Definition) && b.Key.Equals(expectedKey)
+                    && a.CanonicalKey.AsSpan().SequenceEqual(b.CanonicalKey.AsSpan()) && SemanticScopeEquals(a.Scope, b.Scope)
+                    && SemanticLifetimeEquals(FinalizeSemanticLifetime(a.SubjectLifetime, binding.BindingId), b.SubjectLifetime)
+                    && SemanticOperationEquals(a.CompletionOperation, b.CompletionOperation),
+                _ => false,
+            };
+        }
+
+        private static bool SemanticFinalizedEnsureMatches(
+            BaseSemanticActivationEnsureIntent requested,
+            BaseSemanticActivationEnsureIntent finalized,
+            BaseSemanticActivationDefinitionIdentity definition,
+            BaseSemanticActivationStoreAuthorityRequirement store,
+            ImmutableArray<byte> bindingId,
+            BaseAcceptedTimeReceipt acceptedTime,
+            BaseSemanticActivationKeyDigest expectedKey)
+        {
+            BaseSemanticActivationDueAuthority expectedDue = requested.Due.Mode == BaseSemanticActivationDueMode.AcceptedCurrentTime
+                ? requested.Due with { CanonicalUnixMilliseconds = acceptedTime.CapturedUtc }
+                : requested.Due;
+            byte[] activationId = SemanticHash("base.semanticActivation.activation.v1\0", Encoding.UTF8.GetBytes(store.ApplicationId),
+                Encoding.UTF8.GetBytes(store.LogicalStoreId), Encoding.UTF8.GetBytes(definition.OwningModuleId),
+                Encoding.UTF8.GetBytes(definition.Id), bindingId.ToArray(), requested.CanonicalKey.ToArray());
+            byte[] creationChecksum = SemanticHash("base.semanticActivation.creation.v1\0", definition.Checksum.ToArray(),
+                expectedKey.ToArray(), bindingId.ToArray(), activationId);
+            var expectedActivation = requested.Activation with
+            {
+                Due = expectedDue,
+                Identity = requested.Activation.Identity with
+                {
+                    SemanticDefinition = definition,
+                    Key = expectedKey,
+                    ScopeBindingId = bindingId.ToArray().ToImmutableArray(),
+                    DerivedActivationIdBytes = activationId.ToImmutableArray(),
+                    Checksum = creationChecksum.ToImmutableArray(),
+                },
+            };
+            return finalized.Due == expectedDue && SemanticCreateEquals(expectedActivation, finalized.Activation);
+        }
+
+        private static BaseSemanticActivationSubjectLifetimeBinding? FinalizeSemanticLifetime(
+            BaseSemanticActivationSubjectLifetimeBinding? value,
+            ImmutableArray<byte> bindingId)
+        {
+            if (value is null) return null;
+            var bound = value with { ScopeBindingId = bindingId.ToArray().ToImmutableArray(), Checksum = [] };
+            byte[] checksum = SemanticHash("base.semanticActivation.subjectLifetime.v1\0", Encoding.UTF8.GetBytes(bound.ContractId),
+                BitConverter.GetBytes(bound.ContractVersion).Reverse().ToArray(), bound.ContractChecksum.ToArray(), bound.SubjectId.ToUtf8Bytes(),
+                Encoding.UTF8.GetBytes(bound.AuthorityEpoch.ToBase64Url()), Encoding.UTF8.GetBytes(bound.Incarnation.ToBase64Url()),
+                bound.ScopeBindingId.ToArray());
+            return bound with { Checksum = checksum.ToImmutableArray() };
+        }
+
+        private static bool SemanticStoreRequirementEquals(
+            BaseSemanticActivationStoreAuthorityRequirement left,
+            BaseSemanticActivationStoreAuthorityRequirement right) =>
+            left.ApplicationId == right.ApplicationId && left.LogicalStoreId == right.LogicalStoreId
+            && left.StoreInstanceId == right.StoreInstanceId && left.RestoreEpoch == right.RestoreEpoch
+            && left.SchemaGeneration == right.SchemaGeneration && left.SemanticAuthorityGeneration == right.SemanticAuthorityGeneration
+            && CryptographicOperations.FixedTimeEquals(left.DefinitionSetChecksum.AsSpan(), right.DefinitionSetChecksum.AsSpan());
+
+        private static bool SemanticCreateEquals(BaseSemanticActivationCreateIntent left, BaseSemanticActivationCreateIntent right) =>
+            left.Definition.Id == right.Definition.Id && left.Definition.Version == right.Definition.Version
+            && CryptographicOperations.FixedTimeEquals(left.Definition.Checksum.AsSpan(), right.Definition.Checksum.AsSpan())
+            && left.CanonicalInput.AsSpan().SequenceEqual(right.CanonicalInput.AsSpan())
+            && CryptographicOperations.FixedTimeEquals(left.InputChecksum.AsSpan(), right.InputChecksum.AsSpan())
+            && SemanticScopeEquals(left.Scope, right.Scope) && left.Due == right.Due && left.Priority == right.Priority
+            && left.InitiallyEligible == right.InitiallyEligible && left.Limits == right.Limits
+            && SemanticDefinitionEquals(left.Identity.SemanticDefinition, right.Identity.SemanticDefinition)
+            && left.Identity.Key.Equals(right.Identity.Key)
+            && left.Identity.ScopeBindingId.AsSpan().SequenceEqual(right.Identity.ScopeBindingId.AsSpan())
+            && left.Identity.DerivedActivationIdBytes.AsSpan().SequenceEqual(right.Identity.DerivedActivationIdBytes.AsSpan())
+            && CryptographicOperations.FixedTimeEquals(left.Identity.Checksum.AsSpan(), right.Identity.Checksum.AsSpan());
+
+        private static bool SemanticStoreAuthorityValid(BaseSemanticActivationStoreAuthority value) =>
+            CryptographicOperations.FixedTimeEquals(BaseSemanticActivationEvidenceContract.StoreAuthorityChecksum(value.Requirement).AsSpan(), value.Checksum.AsSpan());
+
+        private static bool SemanticScopeBindingValid(
+            BaseSemanticActivationCaptureRequest capture,
+            BaseSemanticActivationScopeDirectoryCapture directory)
+        {
+            BaseSemanticActivationScopeBinding value = directory.ResultingBinding;
+            ImmutableArray<byte> expected = BaseSemanticActivationEvidenceContract.ScopeBindingChecksum(value);
+            return value.Kind == capture.Scope.Kind && value.BindingId.Length == 32 && value.SeekDigest.Length == 32
+                && value.Checksum.Length == 32 && CryptographicOperations.FixedTimeEquals(expected.AsSpan(), value.Checksum.AsSpan())
+                && CryptographicOperations.FixedTimeEquals(SHA256.HashData(value.Checksum.AsSpan()), directory.Checksum.AsSpan())
+                && (directory.State == BaseSemanticActivationScopeDirectoryState.Existing
+                    || directory.State == BaseSemanticActivationScopeDirectoryState.Missing
+                        && CryptographicOperations.FixedTimeEquals(value.BindingId.AsSpan(), capture.ProposedScopeBindingId.AsSpan()));
+        }
+
+        private static bool SemanticDefinitionEquals(BaseSemanticActivationDefinitionIdentity left, BaseSemanticActivationDefinitionIdentity right) =>
+            left.Id == right.Id && left.Version == right.Version && left.OwnerGeneration == right.OwnerGeneration
+            && left.OwningModuleId == right.OwningModuleId
+            && CryptographicOperations.FixedTimeEquals(left.Checksum.AsSpan(), right.Checksum.AsSpan())
+            && SemanticOperationEquals(left.RetirementOperation, right.RetirementOperation);
+
+        private static bool SemanticOperationEquals(BaseSemanticActivationModuleOperationIdentity left, BaseSemanticActivationModuleOperationIdentity right) =>
+            left.OperationId == right.OperationId && left.OperationVersion == right.OperationVersion
+            && string.Equals(left.OperationChecksum, right.OperationChecksum, StringComparison.Ordinal);
+
+        private static bool SemanticOperationChecksumEquals(BaseSemanticActivationModuleOperationIdentity operation, ImmutableArray<byte> checksum)
+        {
+            try { return CryptographicOperations.FixedTimeEquals(Convert.FromHexString(operation.OperationChecksum), checksum.AsSpan()); }
+            catch (FormatException) { return false; }
+        }
+
+        private static bool SemanticScopeEquals(BaseOwnedSubjectScopeEvidence left, BaseOwnedSubjectScopeEvidence right) =>
+            left.Kind == right.Kind && string.Equals(left.Value, right.Value, StringComparison.Ordinal);
+
+        private static bool SemanticLifetimeEquals(BaseSemanticActivationSubjectLifetimeBinding? left, BaseSemanticActivationSubjectLifetimeBinding? right)
+        {
+            if (left is null || right is null) return left is null && right is null;
+            return left.ContractId == right.ContractId && left.ContractVersion == right.ContractVersion
+                && left.SubjectId.Equals(right.SubjectId) && left.AuthorityEpoch.Equals(right.AuthorityEpoch)
+                && left.Incarnation.Equals(right.Incarnation)
+                && CryptographicOperations.FixedTimeEquals(left.ContractChecksum.AsSpan(), right.ContractChecksum.AsSpan())
+                && CryptographicOperations.FixedTimeEquals(left.ScopeBindingId.AsSpan(), right.ScopeBindingId.AsSpan())
+                && CryptographicOperations.FixedTimeEquals(left.Checksum.AsSpan(), right.Checksum.AsSpan());
+        }
+
+        private static bool SemanticAccountingWithin(BaseSemanticActivationAccounting value, BaseSemanticActivationExecutionLimits limits) =>
+            value.Operations <= limits.MaximumOperations && value.ScopeDirectoryReads <= limits.MaximumScopeDirectoryReads
+            && value.SlotReads <= limits.MaximumSlotReads && value.ActivationReads <= limits.MaximumActivationReads
+            && value.ReadIntervals <= limits.MaximumReadIntervals && value.IndexOperations <= limits.MaximumIndexOperations
+            && value.ActivationBytes <= limits.MaximumActivationBytes && value.ScopeDirectoryBytes <= limits.MaximumScopeDirectoryBytes
+            && value.EvidenceBytes <= limits.MaximumEvidenceBytes && value.ReceiptBytes <= limits.MaximumReceiptBytes
+            && value.TransientBytes <= limits.MaximumTransientBytes;
 
         private static bool LifecycleProjectionBindingsValid(BaseFinalizedAtomicExecutionPlan plan, BaseCapturedAtomicExecution captured)
         {
@@ -2233,6 +2844,15 @@ public sealed partial class SqliteRecordStore
                 };
                 _capturedActivationExtension = null;
             }
+            BaseProvisionalSemanticActivation? provisionalSemantic;
+            try
+            {
+                provisionalSemantic = await ApplySemanticAsync(prepared.SemanticActivation, token).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return SubjectFailure<BaseProvisionalAtomicExecution>(ex.Message, OperationStatus.Conflict, ErrorCategory.Conflict);
+            }
             BaseRecordMutationFact[] materialized = facts.Select(static fact => fact.MaterializeOwned()).ToArray();
             foreach (ISqliteAtomicMutationProjection contributor in _owner._mutationProjectionContributors)
             {
@@ -2256,6 +2876,7 @@ public sealed partial class SqliteRecordStore
                 Facts = facts.MoveToImmutable(),
                 Generations = generations,
                 Activations = provisionalActivations,
+                SemanticActivation = provisionalSemantic,
                 ActivationGuard = prepared.ActivationGuard,
                 SubjectRetirement = appliedRetirement,
                 Text = BaseTextAtomicMutationContract.Apply(plan.Text, materialized, prepared.Text?.Indexes ?? []),
@@ -2286,6 +2907,188 @@ public sealed partial class SqliteRecordStore
             _appliedProvisional = applied;
             return OperationResults.Ok(applied);
         });
+
+        private async ValueTask<BaseProvisionalSemanticActivation?> ApplySemanticAsync(
+            BasePreparedSemanticActivation? prepared,
+            CancellationToken token)
+        {
+            if (prepared is null) return null;
+            if (prepared.SessionPlan is not SqliteSemanticPreparedPlan semantic)
+                throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+            if (semantic.InsertScope)
+            {
+                byte[] bindingJson = JsonSerializer.SerializeToUtf8Bytes(
+                    semantic.Binding, HPDBaseJsonSerializerContext.Default.BaseSemanticActivationScopeBinding);
+                await using SqliteCommand insert = _connection.CreateCommand(); insert.Transaction = _transaction;
+                insert.CommandText = $"INSERT OR IGNORE INTO {_owner._names.SemanticActivationScopes}(scope_kind,seek_digest,binding_id,binding_json) VALUES($kind,$seek,$binding,$json);";
+                insert.Parameters.AddWithValue("$kind", (int)semantic.Binding.Kind);
+                insert.Parameters.Add("$seek", SqliteType.Blob).Value = semantic.Binding.SeekDigest.ToArray();
+                insert.Parameters.Add("$binding", SqliteType.Blob).Value = semantic.Binding.BindingId.ToArray();
+                insert.Parameters.Add("$json", SqliteType.Blob).Value = bindingJson;
+                await insert.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                await using SqliteCommand verify = _connection.CreateCommand(); verify.Transaction = _transaction;
+                verify.CommandText = $"SELECT binding_id,binding_json FROM {_owner._names.SemanticActivationScopes} WHERE scope_kind=$kind AND seek_digest=$seek;";
+                verify.Parameters.AddWithValue("$kind", (int)semantic.Binding.Kind);
+                verify.Parameters.Add("$seek", SqliteType.Blob).Value = semantic.Binding.SeekDigest.ToArray();
+                await using SqliteDataReader reader = await verify.ExecuteReaderAsync(token).ConfigureAwait(false);
+                if (!await reader.ReadAsync(token).ConfigureAwait(false)
+                    || !CryptographicOperations.FixedTimeEquals((byte[])reader.GetValue(0), semantic.Binding.BindingId.AsSpan())
+                    || !CryptographicOperations.FixedTimeEquals(SHA256.HashData((byte[])reader.GetValue(1)), SHA256.HashData(bindingJson)))
+                    throw new InvalidOperationException("base.semanticActivation.conflict");
+            }
+
+            BaseSemanticActivationOperation operation = semantic.Extension.Operation;
+            await EnsureSemanticCapacityAsync(semantic, token).ConfigureAwait(false);
+            long? activationGeneration = null;
+            ImmutableArray<byte> activationChecksum = [];
+            bool changesState = semantic.PriorState == BaseSemanticActivationCapturedState.Missing
+                || operation is BaseSemanticActivationRetireIntent && semantic.PriorState == BaseSemanticActivationCapturedState.Live;
+            long journalPosition = await SemanticJournalPositionAsync(changesState, token).ConfigureAwait(false);
+            if (operation is BaseSemanticActivationEnsureIntent ensure && semantic.PriorState == BaseSemanticActivationCapturedState.Missing)
+            {
+                string activationId = prepared.ResultingActivationId!;
+                byte[] fingerprint = SHA256.HashData(ensure.Activation.CanonicalInput.Concat(ensure.Activation.InputChecksum).ToArray());
+                byte[] payloadChecksum = SHA256.HashData(ensure.Activation.CanonicalInput.AsSpan());
+                byte[] control = ActivationControlChecksum(activationId, 1, BaseActivationState.Pending);
+                await using SqliteCommand insert = _connection.CreateCommand(); insert.Transaction = _transaction;
+                insert.CommandText = $"INSERT INTO {_owner._names.Activations}(activation_id,definition_id,definition_version,definition_checksum,canonical_input,input_checksum,scope_kind,scope_value,scope_digest,payload_checksum,fingerprint,state,generation,requested_due_at,effective_due_at,occurrence_id,priority,overlap_key,overlap_policy,eligible,control_checksum) VALUES($id,$definition,$version,$definitionChecksum,$input,$inputChecksum,$scopeKind,$scopeValue,$scopeDigest,$payloadChecksum,$fingerprint,$state,1,$due,$due,NULL,$priority,NULL,0,$eligible,$control);";
+                insert.Parameters.AddWithValue("$id", activationId); insert.Parameters.AddWithValue("$definition", ensure.Activation.Definition.Id);
+                insert.Parameters.AddWithValue("$version", ensure.Activation.Definition.Version); insert.Parameters.Add("$definitionChecksum", SqliteType.Blob).Value = ensure.Activation.Definition.Checksum.ToArray();
+                insert.Parameters.Add("$input", SqliteType.Blob).Value = ensure.Activation.CanonicalInput.ToArray(); insert.Parameters.Add("$inputChecksum", SqliteType.Blob).Value = ensure.Activation.InputChecksum.ToArray();
+                insert.Parameters.AddWithValue("$scopeKind", (int)ensure.Scope.Kind); insert.Parameters.AddWithValue("$scopeValue", ensure.Scope.Value ?? string.Empty);
+                insert.Parameters.Add("$scopeDigest", SqliteType.Blob).Value = SHA256.HashData(
+                    Encoding.UTF8.GetBytes($"base.activation.scope.v2\0{(int)ensure.Scope.Kind}\n{ensure.Scope.Value ?? string.Empty}"));
+                insert.Parameters.Add("$payloadChecksum", SqliteType.Blob).Value = payloadChecksum; insert.Parameters.Add("$fingerprint", SqliteType.Blob).Value = fingerprint;
+                insert.Parameters.AddWithValue("$state", (int)BaseActivationState.Pending); insert.Parameters.AddWithValue("$due", ensure.Due.CanonicalUnixMilliseconds);
+                insert.Parameters.AddWithValue("$priority", ensure.Activation.Priority); insert.Parameters.AddWithValue("$eligible", ensure.Activation.InitiallyEligible ? 1 : 0);
+                insert.Parameters.Add("$control", SqliteType.Blob).Value = control;
+                if (await insert.ExecuteNonQueryAsync(token).ConfigureAwait(false) != 1) throw new InvalidOperationException("base.semanticActivation.conflict");
+                BaseSemanticActivationStoreAuthority store = _capturedMutation!.SemanticActivation!.Missing!.StoreAuthority;
+                var live = new BaseSemanticActivationLiveAuthority
+                {
+                    Definition = ensure.Definition, KeyDigest = ensure.Key, Scope = ensure.Scope, ScopeBinding = semantic.Binding,
+                    SubjectLifetime = ensure.SubjectLifetime, ActivationId = activationId, ActivationDefinition = ensure.Activation.Definition,
+                    InputChecksum = ensure.Activation.InputChecksum, Due = ensure.Due, SlotGeneration = 1, StoreAuthority = store, Checksum = [],
+                };
+                live = live with { Checksum = BaseSemanticActivationEvidenceContract.LiveChecksum(live) };
+                await InsertSemanticSlotAsync(ensure.Definition.Id, semantic.Binding.BindingId, ensure.Key, 1, 1, activationId,
+                    JsonSerializer.SerializeToUtf8Bytes(live, HPDBaseJsonSerializerContext.Default.BaseSemanticActivationLiveAuthority), token).ConfigureAwait(false);
+                await _owner.IncrementActivationGenerationAsync(_connection, _transaction, token).ConfigureAwait(false);
+                activationGeneration = 1; activationChecksum = control.ToImmutableArray();
+            }
+            else if (prepared.ResultingActivationId is not null)
+            {
+                await using SqliteCommand read = _connection.CreateCommand(); read.Transaction = _transaction;
+                read.CommandText = $"SELECT generation,control_checksum FROM {_owner._names.Activations} WHERE activation_id=$id;";
+                read.Parameters.AddWithValue("$id", prepared.ResultingActivationId);
+                await using SqliteDataReader reader = await read.ExecuteReaderAsync(token).ConfigureAwait(false);
+                if (await reader.ReadAsync(token).ConfigureAwait(false))
+                {
+                    activationGeneration = reader.GetInt64(0); activationChecksum = ((byte[])reader.GetValue(1)).ToImmutableArray();
+                }
+            }
+            if (operation is BaseSemanticActivationRetireIntent retire && semantic.PriorState == BaseSemanticActivationCapturedState.Live)
+            {
+                BaseSemanticActivationLiveAuthority prior = _capturedMutation!.SemanticActivation!.Live!;
+                byte[] receipt = _capturedSemanticTerminalReceiptChecksum is { Length: 32 } terminalReceipt
+                    ? terminalReceipt.ToArray()
+                    : throw new InvalidOperationException("base.semanticActivation.activationNotTerminal");
+                var retired = new BaseSemanticActivationRetirementAuthority
+                {
+                    Definition = new() { Id = retire.Definition.Id, Version = retire.Definition.Version, Checksum = retire.Definition.Checksum },
+                    KeyDigest = retire.Key, SubjectLifetime = retire.SubjectLifetime, ActivationId = prepared.ResultingActivationId!,
+                    TerminalState = _capturedMutation.SemanticActivation.ActivationState!.Value,
+                    TerminalActivationGeneration = activationGeneration
+                        ?? throw new InvalidOperationException("base.semanticActivation.activationNotTerminal"),
+                    TerminalActivationChecksum = activationChecksum,
+                    CompletionOperationChecksum = Convert.FromHexString(retire.CompletionOperation.OperationChecksum).ToImmutableArray(),
+                    CompletionReceiptChecksum = receipt.ToImmutableArray(), RetirementPosition = journalPosition,
+                    SlotGeneration = prepared.ResultingSlotGeneration, StoreAuthority = prior.StoreAuthority, Checksum = [],
+                };
+                retired = retired with { Checksum = BaseSemanticActivationEvidenceContract.RetirementChecksum(retired) };
+                await UpdateSemanticSlotAsync(retire.Definition.Id, semantic.Binding.BindingId, retire.Key, 2,
+                    prepared.ResultingSlotGeneration,
+                    null, JsonSerializer.SerializeToUtf8Bytes(retired, HPDBaseJsonSerializerContext.Default.BaseSemanticActivationRetirementAuthority), token).ConfigureAwait(false);
+            }
+            var provisional = new BaseProvisionalSemanticActivation
+            {
+                Operation = prepared.Operation, PriorState = prepared.PriorState, ResultingState = prepared.ResultingState,
+                ResultingSlotGeneration = prepared.ResultingSlotGeneration, ActivationId = prepared.ResultingActivationId,
+                ActivationGeneration = activationGeneration, ActivationChecksum = activationChecksum,
+                CommitJournalPosition = journalPosition, Accounting = prepared.Accounting, Checksum = [],
+            };
+            return provisional with { Checksum = BaseSemanticActivationEvidenceContract.ProvisionalChecksum(prepared, provisional) };
+        }
+
+        private async ValueTask EnsureSemanticCapacityAsync(SqliteSemanticPreparedPlan semantic, CancellationToken token)
+        {
+            BaseSemanticActivationDefinitionIdentity identity = semantic.Extension.Capture.Definition;
+            BaseSemanticActivationKeyDefinition definition = _owner._options.SemanticActivations.Single(value =>
+                string.Equals(value.Id, identity.Id, StringComparison.Ordinal) && value.Version == identity.Version
+                && CryptographicOperations.FixedTimeEquals(value.Checksum.AsSpan(), identity.Checksum.AsSpan()));
+            long live = 0, retired = 0, absent = 0;
+            await using SqliteCommand command = _connection.CreateCommand(); command.Transaction = _transaction;
+            command.CommandText = $"SELECT state,COUNT(*) FROM {_owner._names.SemanticActivationSlots} WHERE definition_id=$definition GROUP BY state;";
+            command.Parameters.AddWithValue("$definition", identity.Id);
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
+            while (await reader.ReadAsync(token).ConfigureAwait(false))
+            {
+                switch (reader.GetInt32(0))
+                {
+                    case 1: live = reader.GetInt64(1); break;
+                    case 2: retired = reader.GetInt64(1); break;
+                    case 3: absent = reader.GetInt64(1); break;
+                    default: throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+                }
+            }
+            if (semantic.PriorState == BaseSemanticActivationCapturedState.Missing
+                && semantic.ResultingState == BaseSemanticActivationSlotState.Live) live = checked(live + 1);
+            if (semantic.PriorState == BaseSemanticActivationCapturedState.Live
+                && semantic.ResultingState == BaseSemanticActivationSlotState.Retired)
+            { live = checked(live - 1); retired = checked(retired + 1); }
+            if (live > definition.Limits.MaximumLiveSlots || retired > definition.Limits.MaximumRetiredSlots
+                || absent > definition.Limits.MaximumAbsenceMarkers)
+                throw new InvalidOperationException(BaseSubjectErrorCodes.BudgetExceeded);
+        }
+
+        private async ValueTask InsertSemanticSlotAsync(string definitionId, ImmutableArray<byte> bindingId,
+            BaseSemanticActivationKeyDigest key, int state, long generation, string? activationId, byte[] json, CancellationToken token)
+        {
+            Span<byte> keyBytes = stackalloc byte[32]; key.CopyTo(keyBytes);
+            await using SqliteCommand command = _connection.CreateCommand(); command.Transaction = _transaction;
+            command.CommandText = $"INSERT INTO {_owner._names.SemanticActivationSlots}(definition_id,binding_id,key_digest,state,slot_generation,activation_id,authority_json) VALUES($definition,$binding,$key,$state,$generation,$activation,$json);";
+            command.Parameters.AddWithValue("$definition", definitionId); command.Parameters.Add("$binding", SqliteType.Blob).Value = bindingId.ToArray();
+            command.Parameters.Add("$key", SqliteType.Blob).Value = keyBytes.ToArray(); command.Parameters.AddWithValue("$state", state);
+            command.Parameters.AddWithValue("$generation", generation); command.Parameters.AddWithValue("$activation", (object?)activationId ?? DBNull.Value); command.Parameters.Add("$json", SqliteType.Blob).Value = json;
+            if (await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) != 1) throw new InvalidOperationException("base.semanticActivation.conflict");
+        }
+
+        private async ValueTask UpdateSemanticSlotAsync(string definitionId, ImmutableArray<byte> bindingId,
+            BaseSemanticActivationKeyDigest key, int state, long generation, string? activationId, byte[] json, CancellationToken token)
+        {
+            Span<byte> keyBytes = stackalloc byte[32]; key.CopyTo(keyBytes);
+            await using SqliteCommand command = _connection.CreateCommand(); command.Transaction = _transaction;
+            command.CommandText = $"UPDATE {_owner._names.SemanticActivationSlots} SET state=$state,slot_generation=$generation,activation_id=$activation,authority_json=$json WHERE definition_id=$definition AND binding_id=$binding AND key_digest=$key AND slot_generation=$previous;";
+            command.Parameters.AddWithValue("$state", state); command.Parameters.AddWithValue("$generation", generation); command.Parameters.AddWithValue("$activation", (object?)activationId ?? DBNull.Value); command.Parameters.Add("$json", SqliteType.Blob).Value = json;
+            command.Parameters.AddWithValue("$definition", definitionId); command.Parameters.Add("$binding", SqliteType.Blob).Value = bindingId.ToArray(); command.Parameters.Add("$key", SqliteType.Blob).Value = keyBytes.ToArray();
+            command.Parameters.AddWithValue("$previous", checked(generation - 1));
+            if (await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) != 1) throw new InvalidOperationException("base.semanticActivation.conflict");
+        }
+
+        private async ValueTask<long> SemanticJournalPositionAsync(bool advance, CancellationToken token)
+        {
+            if (advance)
+            {
+                await using SqliteCommand journal = _connection.CreateCommand(); journal.Transaction = _transaction;
+                journal.CommandText = $"INSERT INTO {_owner._names.MutationJournal}(entry_kind) VALUES(2) RETURNING position;";
+                object? next = await journal.ExecuteScalarAsync(token).ConfigureAwait(false);
+                return next is long position && position > _capturedSemanticJournalPosition
+                    ? position : throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+            }
+            return _capturedSemanticJournalPosition > 0
+                ? _capturedSemanticJournalPosition
+                : throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+        }
 
         public ValueTask<OperationResult<BaseTransactionalActivationCommitEvidence>> FinalizeActivationAsync(
             BaseTransactionalActivationFinalization finalization,
@@ -2898,6 +3701,43 @@ public sealed partial class SqliteRecordStore
                 try { _ = BaseSubjectId.Create(scope!, BaseSubjectIdKind.OrdinalString, 256); }
                 catch { valid = false; scope = null; }
             }
+        }
+
+        private async ValueTask<bool> AcceptSemanticTimeAsync(BaseAcceptedTimeReceipt receipt, CancellationToken cancellationToken)
+        {
+            if (!BaseActivationAcceptedTimeAuthority.Verify(receipt, _owner._timeProvider.GetUtcNow().ToUnixTimeMilliseconds())) return false;
+            await using SqliteCommand read = _connection.CreateCommand(); read.Transaction = _transaction;
+            read.CommandText = $"SELECT CAST(value AS INTEGER) FROM {_owner._names.ProviderState} WHERE key='activation_accepted_utc';";
+            long persisted = Convert.ToInt64(await read.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
+            if (receipt.CapturedUtc < persisted) return false;
+            await using SqliteCommand update = _connection.CreateCommand(); update.Transaction = _transaction;
+            update.CommandText = $"UPDATE {_owner._names.ProviderState} SET value=$value WHERE key='activation_accepted_utc';";
+            update.Parameters.AddWithValue("$value", receipt.CapturedUtc.ToString(CultureInfo.InvariantCulture));
+            return await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
+        }
+
+        private BaseSemanticActivationScopeBinding CreateSemanticScopeBinding(BaseSubjectScopeKind kind, BaseProtectedSubjectScope scope, byte[] bindingId)
+        {
+            return BaseSemanticActivationEvidenceContract.CreateScopeBinding(kind, bindingId, scope.ProtectedCanonicalValue,
+                scope.IndexDigest, _owner._subjectScopeProtectionKeyId!, _owner._subjectScopeProtectionKey!.Value);
+        }
+
+        private static BaseSemanticActivationAccounting EmptySemanticAccounting(long keyBytes, long scopeDirectoryBytes,
+            long slotAuthorityBytes, long activationBytes, int activationReads, long receiptBytes, long evidenceBytes) => new()
+        {
+            Operations = 1, ScopeDirectoryReads = 1, SlotReads = 1, ActivationReads = activationReads, ReadIntervals = 2,
+            IndexOperations = 0, KeyBytes = keyBytes, ScopeDirectoryBytes = scopeDirectoryBytes, ActivationBytes = activationBytes,
+            EvidenceBytes = evidenceBytes, ReceiptBytes = receiptBytes,
+            TransientBytes = checked(keyBytes + scopeDirectoryBytes + slotAuthorityBytes + activationBytes + receiptBytes + evidenceBytes),
+            ActivationCreation = new BaseActivationAccounting { Candidates = 0, Comparisons = 0, IndexOperations = 0, ReadIntervals = 0, EvidenceBytes = 0, TransientBytes = 0 },
+        };
+
+        private static byte[] SemanticHash(string purpose, params byte[][] fields)
+        {
+            using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256); hash.AppendData(Encoding.UTF8.GetBytes(purpose));
+            byte[] length = new byte[4];
+            foreach (byte[] field in fields) { BinaryPrimitives.WriteInt32BigEndian(length, field.Length); hash.AppendData(length); hash.AppendData(field); }
+            return hash.GetHashAndReset();
         }
 
         private static BaseAtomicReadIntervalEvidence ExactInterval(string path, byte[] key) => new()

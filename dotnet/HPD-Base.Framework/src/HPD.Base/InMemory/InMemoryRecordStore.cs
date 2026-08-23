@@ -3284,7 +3284,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 missing = new BaseSemanticActivationMissingAuthority
                 {
                     Key = keyDigest, StoreAuthority = storeAuthority,
-                    AccessPathChecksum = SHA256.HashData(Encoding.UTF8.GetBytes(slotKey)).ToImmutableArray(),
+                    AccessPathChecksum = BaseSemanticActivationEvidenceContract.MissingAccessPathChecksum(
+                        Encoding.UTF8.GetBytes(slotKey)),
                 };
             }
             _capturedSemanticExtension = extension;
@@ -3305,17 +3306,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         private BaseSemanticActivationScopeBinding SemanticScopeBinding(
             BaseSubjectScopeKind kind, BaseProtectedSubjectScope scope, byte[] bindingId)
         {
-            byte[] checksum = SemanticBoundHash("base.semanticActivation.scopeBinding.v1\0",
-                BitConverter.GetBytes((int)kind).Reverse().ToArray(), bindingId,
-                scope.ProtectedCanonicalValue, scope.IndexDigest,
-                Encoding.UTF8.GetBytes(_owner._subjectScopeProtectionKeyId),
-                BitConverter.GetBytes((int)_owner._subjectScopeProtectionKey).Reverse().ToArray());
-            return new BaseSemanticActivationScopeBinding
-            {
-                Kind = kind, BindingId = bindingId.ToImmutableArray(), ProtectedCanonicalScope = scope.ProtectedCanonicalValue.ToImmutableArray(),
-                SeekDigest = scope.IndexDigest.ToImmutableArray(), ProtectionKeyId = _owner._subjectScopeProtectionKeyId,
-                ProtectionKeyVersion = _owner._subjectScopeProtectionKey, Checksum = checksum.ToImmutableArray(),
-            };
+            return BaseSemanticActivationEvidenceContract.CreateScopeBinding(kind, bindingId,
+                scope.ProtectedCanonicalValue, scope.IndexDigest, _owner._subjectScopeProtectionKeyId,
+                _owner._subjectScopeProtectionKey);
         }
 
         private static BaseSemanticActivationStoreAuthority SemanticStoreAuthority(BaseSemanticActivationStoreAuthorityRequirement source)
@@ -3326,15 +3319,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 StoreInstanceId = new string(source.StoreInstanceId.AsSpan()),
                 DefinitionSetChecksum = source.DefinitionSetChecksum.ToArray().ToImmutableArray(),
             };
-            byte[] checksum = SemanticBoundHash("base.semanticActivation.storeAuthority.v1\0",
-                Encoding.UTF8.GetBytes(requirement.ApplicationId), Encoding.UTF8.GetBytes(requirement.LogicalStoreId),
-                Encoding.UTF8.GetBytes(requirement.StoreInstanceId), BitConverter.GetBytes(requirement.RestoreEpoch).Reverse().ToArray(),
-                BitConverter.GetBytes(requirement.SchemaGeneration).Reverse().ToArray(),
-                BitConverter.GetBytes(requirement.SemanticAuthorityGeneration).Reverse().ToArray(), requirement.DefinitionSetChecksum.ToArray());
-            return new BaseSemanticActivationStoreAuthority
-            {
-                Requirement = requirement, Checksum = checksum.ToImmutableArray(),
-            };
+            return BaseSemanticActivationEvidenceContract.CreateStoreAuthority(requirement);
         }
 
         private static bool SemanticAuthorityEquals(

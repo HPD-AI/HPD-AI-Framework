@@ -843,9 +843,22 @@ public sealed partial class SqliteRecordStore
             return ActivationFailure<BaseActivationTransitionResult>("base.activation.claimLost", OperationStatus.Conflict, ErrorCategory.Conflict);
         long generation = checked(row.Generation + 1);
         byte[] control = ActivationControlChecksum(row.ActivationId, generation, state);
+        var transitionResult = new BaseActivationTransitionResult
+        {
+            State = state, Generation = generation, ControlChecksum = control.ToImmutableArray(),
+            Accounting = ActivationAccounting(1, 64), Disposition = BaseMutationRequestDisposition.Committed, Effect = resultingEffect,
+            CanonicalResult = result?.ToImmutableArray() ?? ImmutableArray<byte>.Empty,
+        };
+        byte[]? terminalReceiptChecksum = state is BaseActivationState.Succeeded or BaseActivationState.Exhausted
+            or BaseActivationState.Cancelled or BaseActivationState.Migrated or BaseActivationState.Disposed
+            ? SHA256.HashData(Encoding.UTF8.GetBytes(receiptKind)
+                .Concat(request.Identity.Fingerprint.ToArray())
+                .Concat(JsonSerializer.SerializeToUtf8Bytes(transitionResult, HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult))
+                .ToArray())
+            : null;
         await using SqliteCommand command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = $"UPDATE {_names.Activations} SET state=$state,generation=$generation,claim_fence=NULL,claim_worker=NULL,lease_revision=NULL,lease_expires_at=NULL,canonical_result=$result,effective_due_at=CASE WHEN $state=$retry THEN $now ELSE effective_due_at END,control_checksum=$checksum WHERE activation_id=$id AND generation=$expected;";
+        command.CommandText = $"UPDATE {_names.Activations} SET state=$state,generation=$generation,claim_fence=NULL,claim_worker=NULL,lease_revision=NULL,lease_expires_at=NULL,canonical_result=$result,effective_due_at=CASE WHEN $state=$retry THEN $now ELSE effective_due_at END,control_checksum=$checksum,terminal_receipt_checksum=$terminalReceipt WHERE activation_id=$id AND generation=$expected;";
         command.Parameters.AddWithValue("$state", (int)state); command.Parameters.AddWithValue("$generation", generation);
         command.Parameters.Add("$result", SqliteType.Blob).Value = (object?)result ?? DBNull.Value;
         command.Parameters.AddWithValue("$retry", (int)BaseActivationState.RetryPending);
@@ -856,20 +869,15 @@ public sealed partial class SqliteRecordStore
             _ => request.AcceptedTime.CapturedUtc,
         });
         command.Parameters.Add("$checksum", SqliteType.Blob).Value = control; command.Parameters.AddWithValue("$id", row.ActivationId); command.Parameters.AddWithValue("$expected", row.Generation);
+        command.Parameters.Add("$terminalReceipt", SqliteType.Blob).Value = (object?)terminalReceiptChecksum ?? DBNull.Value;
         if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
             return ActivationFailure<BaseActivationTransitionResult>("base.activation.claimLost", OperationStatus.Conflict, ErrorCategory.Conflict);
         if (resultingEffect is not null) await WriteEffectAsync(connection, transaction, resultingEffect, cancellationToken).ConfigureAwait(false);
         await IncrementActivationGenerationAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
-        var transitionResult = new BaseActivationTransitionResult
-        {
-            State = state, Generation = generation, ControlChecksum = control.ToImmutableArray(),
-            Accounting = ActivationAccounting(1, 64), Disposition = BaseMutationRequestDisposition.Committed, Effect = resultingEffect,
-            CanonicalResult = result?.ToImmutableArray() ?? ImmutableArray<byte>.Empty,
-        };
         if (!await ActivationRowCapacityAllowsAsync(connection, transaction, cancellationToken).ConfigureAwait(false))
             return ActivationFailure<BaseActivationTransitionResult>("base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
-        await WriteActivationReceiptAsync(connection, transaction, request.Identity, receiptKind, transitionResult,
-            HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult, cancellationToken).ConfigureAwait(false);
+        await WriteTerminalActivationReceiptAsync(connection, transaction, request.Identity, receiptKind, row.ActivationId,
+            transitionResult, terminalReceiptChecksum, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return OperationResults.Ok(transitionResult);
     }
@@ -1906,6 +1914,26 @@ public sealed partial class SqliteRecordStore
         command.Parameters.AddWithValue("$key", SqliteActivationReceiptKey(identity)); command.Parameters.AddWithValue("$kind", kind);
         command.Parameters.Add("$fingerprint", SqliteType.Blob).Value = identity.Fingerprint.ToArray(); command.Parameters.Add("$result", SqliteType.Blob).Value = bytes;
         command.Parameters.Add("$checksum", SqliteType.Blob).Value = SHA256.HashData(bytes);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask WriteTerminalActivationReceiptAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        BaseMutationRequestIdentity identity,
+        string kind,
+        string activationId,
+        BaseActivationTransitionResult result,
+        byte[]? terminalAuthority,
+        CancellationToken cancellationToken)
+    {
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(result, HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult);
+        await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction;
+        command.CommandText = $"INSERT INTO {_names.ActivationReceipts}(receipt_key,operation_kind,fingerprint,result_json,result_checksum,activation_id,authority_checksum) VALUES($key,$kind,$fingerprint,$result,$checksum,$activation,$authority);";
+        command.Parameters.AddWithValue("$key", SqliteActivationReceiptKey(identity)); command.Parameters.AddWithValue("$kind", kind);
+        command.Parameters.Add("$fingerprint", SqliteType.Blob).Value = identity.Fingerprint.ToArray(); command.Parameters.Add("$result", SqliteType.Blob).Value = bytes;
+        command.Parameters.Add("$checksum", SqliteType.Blob).Value = SHA256.HashData(bytes); command.Parameters.AddWithValue("$activation", activationId);
+        command.Parameters.Add("$authority", SqliteType.Blob).Value = (object?)terminalAuthority ?? DBNull.Value;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 

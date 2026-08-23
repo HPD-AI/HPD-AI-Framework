@@ -1352,7 +1352,8 @@ public sealed partial class SqliteModuleMutationTests
     private sealed class ActivationCreationProbe(
         BaseAtomicMutationAuthorityRequirement authority,
         BaseAtomicMutationExecutionLimits limits,
-        string inputText = "activation-input") : IAtomicMutationProcessor
+        string inputText = "activation-input",
+        string activationIdentity = "activation-1") : IAtomicMutationProcessor
     {
         public bool CapturedExisting { get; private set; }
         public int ProvisionalCount { get; private set; }
@@ -1365,7 +1366,8 @@ public sealed partial class SqliteModuleMutationTests
             byte[] input = System.Text.Encoding.UTF8.GetBytes(inputText);
             var extension = new BaseActivationCreationExtension
             {
-                StructuralDigest = new byte[32].ToImmutableArray(),
+                StructuralDigest = System.Security.Cryptography.SHA256.HashData(
+                    System.Text.Encoding.UTF8.GetBytes(activationIdentity)).ToImmutableArray(),
                 Items = [new BaseActivationCreateIntent
                 {
                     Ordinal = 0,
@@ -1379,7 +1381,7 @@ public sealed partial class SqliteModuleMutationTests
                     RequestedDueAt = 1,
                     EffectiveDueAt = 1,
                     Identity = BaseMutationRequestIdentity.Create(
-                        "activation-test", "enqueue", "activation-1",
+                        "activation-test", "enqueue", activationIdentity,
                         BaseMutationRequestFingerprint.Create(new byte[32])),
                 }],
             };
