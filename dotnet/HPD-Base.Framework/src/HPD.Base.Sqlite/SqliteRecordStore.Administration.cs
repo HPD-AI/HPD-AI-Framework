@@ -422,7 +422,7 @@ public sealed partial class SqliteRecordStore
                     preRestoreSubjectGenerations,
                     preRestoreLifecycleDeliveryEpoch,
                     cancellationToken).ConfigureAwait(false);
-                await TransformRestoredActivationAuthoritiesAsync(installed, epoch, selectedScheduleRecoveryFloors,
+                await TransformRestoredActivationAuthoritiesAsync(installed, manifest.RestoreEpoch, epoch, selectedScheduleRecoveryFloors,
                     consumedScheduleRecoveryNonces, consumedScheduleRecoveryNonce, cancellationToken).ConfigureAwait(false);
             }
             Volatile.Write(ref _schemaGeneration, manifest.SchemaGeneration);

@@ -111,6 +111,7 @@ public sealed class HPDBaseSqliteOptions
     internal BaseSemanticActivationKeyDefinition[] SemanticActivations { get; set; } = [];
     internal string SemanticActivationApplicationId { get; set; } = string.Empty;
     internal long SemanticActivationOwnerGeneration { get; set; }
+    internal BaseSemanticActivationMigrationDefinition[] SemanticActivationMigrations { get; set; } = [];
     internal byte[] SemanticActivationDefinitionSetChecksum { get; set; } = [];
     internal BaseSubjectLifecycleConsumerDefinition[] SubjectLifecycleConsumers { get; set; } = [];
     internal BaseSubjectRetirementConsumerDefinition[] SubjectRetirementConsumers { get; set; } = [];

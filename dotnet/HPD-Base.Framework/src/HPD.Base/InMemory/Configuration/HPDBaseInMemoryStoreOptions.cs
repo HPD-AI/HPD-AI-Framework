@@ -16,6 +16,7 @@ public sealed class HPDBaseInMemoryStoreOptions
     internal BaseRegisteredModuleMutationDefinition[] ModuleMutations { get; set; } = [];
     internal BaseModuleGenerationCellDefinition[] ModuleGenerationCells { get; set; } = [];
     internal BaseSemanticActivationKeyDefinition[] SemanticActivations { get; set; } = [];
+    internal BaseSemanticActivationMigrationDefinition[] SemanticActivationMigrations { get; set; } = [];
     internal int ActivationMaximumDueCandidates { get; set; } = 256;
     internal int ActivationMaximumReadIntervals { get; set; } = 4096;
     internal string SemanticActivationApplicationId { get; set; } = string.Empty;

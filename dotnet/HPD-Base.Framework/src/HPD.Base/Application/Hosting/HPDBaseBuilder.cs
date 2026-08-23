@@ -46,6 +46,7 @@ public sealed class HPDBaseBuilder
     private readonly Dictionary<(string Id, int Version), IBaseModuleMutationRegistration> _moduleMutationRegistrations = [];
     private readonly Dictionary<(string Id, int Version), IBaseActivationRegistration> _activationRegistrations = [];
     private readonly Dictionary<(string Id, int Version), IBaseSemanticActivationRegistration> _semanticActivationRegistrations = [];
+    private readonly Dictionary<(string Id, int Version), BaseSemanticActivationMigrationDefinition> _semanticActivationMigrations = [];
     private readonly Dictionary<(string Id, int Version), IBaseActivationMigrationRegistration> _activationMigrations = [];
     private readonly Dictionary<(string Id, int Version), BaseScheduleDefinition> _activationSchedules = [];
     private BaseTimeZoneAuthority? _timeZoneAuthority;
@@ -386,6 +387,16 @@ public sealed class HPDBaseBuilder
         return this;
     }
 
+    /// <summary>Registers one callback-free graph-owned semantic definition migration.</summary>
+    public HPDBaseBuilder AddSemanticActivationMigration(BaseSemanticActivationMigrationDefinition migration)
+    {
+        EnsureMutable();
+        BaseSemanticActivationMigrationDefinition installed = BaseSemanticActivationMigrationContract.Seal(migration);
+        if (!_semanticActivationMigrations.TryAdd((installed.Id, installed.Version), installed))
+            throw new InvalidOperationException("base.semanticActivation.migrationInvalid");
+        return this;
+    }
+
     /// <summary>Registers one callback-free graph-owned activation input migration.</summary>
     public HPDBaseBuilder AddActivationMigration<TSource, TTarget>(
         BaseActivationMigrationRegistration<TSource, TTarget> registration)
@@ -637,6 +648,7 @@ public sealed class HPDBaseBuilder
         }
         foreach (BaseSemanticActivationKeyDefinition semantic in semanticActivationRegistry.Definitions)
         {
+            RequireSemanticCapability(provider.SemanticActivations, semantic);
             BaseRegisteredModuleMutationDefinition? ensure = moduleMutationRegistry.Find(semantic.EnsureOperation.OperationId, semantic.EnsureOperation.OperationVersion);
             BaseRegisteredModuleMutationDefinition? retire = moduleMutationRegistry.Find(semantic.RetirementOperation.OperationId, semantic.RetirementOperation.OperationVersion);
             BaseActivationDefinition? activation = activationRegistry.Find(semantic.Activation.Id, semantic.Activation.Version);
@@ -661,9 +673,16 @@ public sealed class HPDBaseBuilder
             .ToHashSet();
         if (semanticOperations.Count != semanticActivationRegistry.Definitions.Count * 2)
             throw new InvalidOperationException("base.semanticActivation.registrationConflict");
+        if (semanticActivationRegistry.Definitions.Count > provider.SemanticActivations.MaximumDefinitions)
+            throw new InvalidOperationException(BaseSemanticActivationErrorCodes.CapabilityUnavailable);
         foreach (BaseRegisteredModuleMutationDefinition operation in moduleMutationRegistry.Operations)
             if (!semanticOperations.Contains((operation.Id, operation.Version)) && HasSemanticProgramNodes(operation.Template))
                 throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+        ValidateSemanticMigrations(semanticActivationRegistry);
+        if ((_semanticActivationMigrations.Values.Any()
+                || semanticActivationRegistry.Definitions.Any(static definition => definition.Compaction is not BaseSemanticActivationNoCompaction))
+            && !provider.SemanticActivations.MaintenanceSupported)
+            throw new InvalidOperationException(BaseSemanticActivationErrorCodes.CapabilityUnavailable);
         foreach (BaseScheduleDefinition schedule in _activationSchedules.Values)
         {
             BaseActivationDefinition? activation = activationRegistry.Find(schedule.Activation.Id, schedule.Activation.Version);
@@ -813,7 +832,7 @@ public sealed class HPDBaseBuilder
             lifecycleInspectionAuthorities.All.ToArray(),
             subjectRetirementRegistry.Consumers.Select(static value => value.Definition).ToArray(),
             subjectRetirementRegistry.Policies.Select(static value => value.Definition).ToArray(),
-            semanticActivationRegistry.Definitions.ToArray(), logicalSchema.ApplicationId,
+            semanticActivationRegistry.Definitions.ToArray(), _semanticActivationMigrations.Values.ToArray(), logicalSchema.ApplicationId,
             semanticActivationRegistry.OwnerGeneration, semanticActivationRegistry.DefinitionSetChecksum);
         HPDBaseStoreRegistrationReceipt receipt;
         try { receipt = provider.Installer.Configure(installation); }
@@ -826,7 +845,7 @@ public sealed class HPDBaseBuilder
                 subjectLifecycleRegistry.All.Select(static value => value.Definition), lifecycleInspectionAuthorities.All,
                 subjectRetirementRegistry.Consumers.Select(static value => value.Definition),
                 subjectRetirementRegistry.Policies.Select(static value => value.Definition),
-                semanticActivationRegistry.Definitions), StringComparison.Ordinal) ||
+                semanticActivationRegistry.Definitions, _semanticActivationMigrations.Values), StringComparison.Ordinal) ||
             !receipt.ContributorIds.SequenceEqual(provider.RegistrationIds, StringComparer.Ordinal))
             throw new InvalidOperationException("base.store.providerInvalid");
         ConfigureVectorRuntime(collections);
@@ -892,6 +911,65 @@ public sealed class HPDBaseBuilder
         {
             if (key.IssueUntil is null)
                 throw new ArgumentException("A decryption-only token key requires its issuance-stop instant.", nameof(options));
+        }
+    }
+
+    private static void RequireSemanticCapability(BaseSemanticActivationCapability capability,
+        BaseSemanticActivationKeyDefinition definition)
+    {
+        BaseSemanticActivationLimits limits = definition.Limits;
+        BaseSemanticActivationExecutionLimits execution = limits.Execution;
+        if (!BaseSemanticActivationCapabilityContract.IsValid(capability)
+            || definition.RequestSerializerChecksum.Length != 32 || definition.KeyExpressionChecksum.Length != 32
+            || limits.MaximumCanonicalKeyBytes > capability.MaximumKeyBytes
+            || limits.MaximumLiveSlots > capability.MaximumLiveSlots
+            || limits.MaximumRetiredSlots > capability.MaximumRetiredSlots
+            || limits.MaximumAbsenceMarkers > capability.MaximumAbsenceMarkers
+            || execution.MaximumOperations > capability.MaximumOperationsPerTransaction
+            || execution.MaximumScopeDirectoryReads > capability.MaximumScopeDirectoryReads
+            || execution.MaximumSlotReads > capability.MaximumSlotReads
+            || execution.MaximumActivationReads > capability.MaximumActivationReads
+            || execution.MaximumReadIntervals > capability.MaximumReadIntervals
+            || execution.MaximumIndexOperations > capability.MaximumIndexOperations
+            || execution.MaximumActivationBytes > capability.MaximumActivationBytes
+            || execution.MaximumScopeDirectoryBytes > capability.MaximumScopeDirectoryBytes
+            || execution.MaximumEvidenceBytes > capability.MaximumEvidenceBytes
+            || execution.MaximumReceiptBytes > capability.MaximumReceiptBytes
+            || execution.MaximumTransientBytes > capability.MaximumTransientBytes
+            || limits.Deadlines.AcquisitionTimeout > capability.Deadlines.AcquisitionTimeout
+            || limits.Deadlines.TransactionTimeout > capability.Deadlines.TransactionTimeout
+            || limits.Deadlines.CommitObservationTimeout > capability.Deadlines.CommitObservationTimeout
+            || limits.Deadlines.ReceiptResolutionTimeout > capability.Deadlines.ReceiptResolutionTimeout
+            || limits.Deadlines.MaintenanceTimeout > capability.Deadlines.MaintenanceTimeout
+            || limits.Deadlines.QuarantineRetentionTimeout > capability.Deadlines.QuarantineRetentionTimeout)
+            throw new InvalidOperationException(BaseSemanticActivationErrorCodes.CapabilityUnavailable);
+    }
+
+    private void ValidateSemanticMigrations(BaseSemanticActivationRegistry registry)
+    {
+        var from = new HashSet<(string, int, string)>();
+        foreach (BaseSemanticActivationMigrationDefinition migration in _semanticActivationMigrations.Values)
+        {
+            BaseSemanticActivationKeyDefinition? target = registry.Find(migration.To.Id, migration.To.Version);
+            if (target is null || !target.Checksum.AsSpan().SequenceEqual(migration.To.Checksum.AsSpan())
+                || migration.From.Version == migration.To.Version
+                && migration.From.Checksum.AsSpan().SequenceEqual(migration.To.Checksum.AsSpan())
+                || !from.Add((migration.From.Id, migration.From.Version, Convert.ToHexString(migration.From.Checksum.AsSpan()))))
+                throw new InvalidOperationException("base.semanticActivation.migrationInvalid");
+        }
+        foreach (IGrouping<string, BaseSemanticActivationMigrationDefinition> chain in _semanticActivationMigrations.Values.GroupBy(static value => value.From.Id, StringComparer.Ordinal))
+        {
+            var edges = chain.ToDictionary(static value => (value.From.Version, Convert.ToHexString(value.From.Checksum.AsSpan())));
+            foreach (BaseSemanticActivationMigrationDefinition start in chain)
+            {
+                var visited = new HashSet<(int, string)>(); BaseSemanticActivationDefinitionKey cursor = start.From;
+                while (edges.TryGetValue((cursor.Version, Convert.ToHexString(cursor.Checksum.AsSpan())), out BaseSemanticActivationMigrationDefinition? edge))
+                {
+                    if (!visited.Add((cursor.Version, Convert.ToHexString(cursor.Checksum.AsSpan()))))
+                        throw new InvalidOperationException("base.semanticActivation.migrationInvalid");
+                    cursor = edge.To;
+                }
+            }
         }
     }
 

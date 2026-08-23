@@ -234,21 +234,32 @@ internal sealed class DefaultBaseModuleMutationRuntime(
                 ProposedScopeBindingId = proposedScopeBinding.ToImmutableArray(),
                 Operation = requested is BaseSemanticActivationGuardedEnsureRequest
                     ? BaseSemanticActivationOperationKind.Ensure : BaseSemanticActivationOperationKind.Retire,
-                StoreAuthority = new BaseSemanticActivationStoreAuthorityRequirement
-                {
-                    ApplicationId = authority.ApplicationId,
-                    LogicalStoreId = logicalStoreId,
-                    StoreInstanceId = authority.StoreInstanceId,
-                    RestoreEpoch = authority.RestoreEpoch,
-                    SchemaGeneration = authority.SchemaGeneration,
-                    SemanticAuthorityGeneration = registry.OwnerGeneration,
-                    DefinitionSetChecksum = registry.DefinitionSetChecksum.ToArray().ToImmutableArray(),
-                },
+                StoreAuthority = ResolveSemanticStoreAuthority(authority, registry, logicalStoreId),
                 Limits = definition.Limits.Execution with { },
                 AcceptedTime = acceptedTime.Capture(definition.OwningApplicationId),
             },
             Operation = semanticOperation,
             StructuralDigest = structural.ToImmutableArray(),
+        };
+    }
+
+    private static BaseSemanticActivationStoreAuthorityRequirement ResolveSemanticStoreAuthority(
+        BaseAtomicMutationAuthorityRequirement authority, BaseSemanticActivationRegistry registry, string logicalStoreId)
+    {
+        BaseSemanticActivationStoreAuthorityRequirement value = authority.SemanticActivation
+            ?? throw new InvalidOperationException("base.semanticActivation.capabilityMissing");
+        if (!string.Equals(value.ApplicationId, authority.ApplicationId, StringComparison.Ordinal)
+            || !string.Equals(value.LogicalStoreId, logicalStoreId, StringComparison.Ordinal)
+            || !string.Equals(value.StoreInstanceId, authority.StoreInstanceId, StringComparison.Ordinal)
+            || value.RestoreEpoch != authority.RestoreEpoch || value.SchemaGeneration != authority.SchemaGeneration
+            || value.SemanticAuthorityGeneration <= 0 || value.DefinitionSetChecksum.Length != 32
+            || !CryptographicOperations.FixedTimeEquals(value.DefinitionSetChecksum.AsSpan(), registry.DefinitionSetChecksum.AsSpan()))
+            throw new InvalidOperationException("base.semanticActivation.authorityChanged");
+        return value with
+        {
+            ApplicationId = new string(value.ApplicationId.AsSpan()), LogicalStoreId = new string(value.LogicalStoreId.AsSpan()),
+            StoreInstanceId = new string(value.StoreInstanceId.AsSpan()),
+            DefinitionSetChecksum = value.DefinitionSetChecksum.ToArray().ToImmutableArray(),
         };
     }
 

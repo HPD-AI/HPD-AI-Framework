@@ -39,6 +39,10 @@ internal sealed class SqliteNames
         SemanticActivationDefinitions = Prefix + "semantic_activation_definitions";
         SemanticActivationScopes = Prefix + "semantic_activation_scopes";
         SemanticActivationSlots = Prefix + "semantic_activation_slots";
+        SemanticActivationMaintenance = Prefix + "semantic_activation_maintenance";
+        SemanticActivationMigrations = Prefix + "semantic_activation_migrations";
+        SemanticActivationRecoveryFloors = Prefix + "semantic_activation_recovery_floors";
+        SemanticActivationRewriteStage = Prefix + "semantic_activation_rewrite_stage";
         Activations = Prefix + "activations";
         Executors = Prefix + "activation_executors";
         ActivationEffects = Prefix + "activation_effects";
@@ -46,6 +50,7 @@ internal sealed class SqliteNames
         ActivationOccurrences = Prefix + "activation_occurrences";
         ActivationScheduleCancellations = Prefix + "activation_schedule_cancellations";
         ActivationReceipts = Prefix + "activation_receipts";
+        ActivationPruneFloors = Prefix + "activation_prune_floors";
         MutationJournalScopeIndex = "ix_" + Prefix + "mutation_journal_scope_position";
     }
 
@@ -101,6 +106,14 @@ internal sealed class SqliteNames
     public string SemanticActivationScopes { get; }
     /// <summary>Gets provider-owned semantic live/retired/absence slots.</summary>
     public string SemanticActivationSlots { get; }
+    /// <summary>Gets resumable semantic maintenance authority.</summary>
+    public string SemanticActivationMaintenance { get; }
+    /// <summary>Gets immutable semantic definition migration authority.</summary>
+    public string SemanticActivationMigrations { get; }
+    /// <summary>Gets non-prunable semantic negative recovery authority.</summary>
+    public string SemanticActivationRecoveryFloors { get; }
+    /// <summary>Gets bounded semantic restore and maintenance staging authority.</summary>
+    public string SemanticActivationRewriteStage { get; }
     /// <summary>Gets provider-owned durable activation payload and control rows.</summary>
     public string Activations { get; }
     /// <summary>Gets provider-owned durable executor-incarnation authority.</summary>
@@ -115,6 +128,8 @@ internal sealed class SqliteNames
     public string ActivationScheduleCancellations { get; }
     /// <summary>Gets durable activation-operation receipt table name.</summary>
     public string ActivationReceipts { get; }
+    /// <summary>Gets non-prunable per-activation L51 prune authority.</summary>
+    public string ActivationPruneFloors { get; }
     /// <summary>Gets the mutation journal scope index.</summary>
     public string MutationJournalScopeIndex { get; }
 }

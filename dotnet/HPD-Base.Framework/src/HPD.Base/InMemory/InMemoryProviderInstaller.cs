@@ -26,6 +26,7 @@ internal sealed class InMemoryProviderInstaller(Action<HPDBaseInMemoryStoreOptio
             },
             TextSearch = BaseTextPlatform.ProviderCapability(BaseTextProviderClass.CoLocatedTransactional),
             Activations = BaseActivationCapabilityContract.BuiltIn("hpd.base.inMemory.activations.v2"),
+            SemanticActivations = BaseSemanticActivationCapabilityContract.BuiltIn(durable: false),
         }, new InMemoryProviderInstaller(configure));
 
     public HPDBaseStoreRegistrationReceipt Configure(HPDBaseStoreInstallationContext context)
@@ -42,6 +43,7 @@ internal sealed class InMemoryProviderInstaller(Action<HPDBaseInMemoryStoreOptio
             options.ModuleMutations = context.ModuleMutations.ToArray();
             options.ModuleGenerationCells = context.ModuleGenerationCells.ToArray();
             options.SemanticActivations = context.SemanticActivations.ToArray();
+            options.SemanticActivationMigrations = context.SemanticActivationMigrations.ToArray();
             options.SemanticActivationApplicationId = context.ApplicationId;
             options.SemanticActivationOwnerGeneration = context.SemanticActivationOwnerGeneration;
             options.SemanticActivationDefinitionSetChecksum = context.SemanticActivationDefinitionSetChecksum.ToArray();

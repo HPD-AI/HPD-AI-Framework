@@ -26,6 +26,7 @@ public sealed partial class SqliteRecordStore :
     IBaseSubjectRetirementStore,
     IBaseSubjectAuthorityMaintenanceStore,
     IBaseActivationProvider,
+    IBaseSemanticActivationAdministration,
     IAsyncDisposable
 {
     /// <inheritdoc />
@@ -45,6 +46,24 @@ public sealed partial class SqliteRecordStore :
         {
             epoch.CommandText = $"SELECT COALESCE((SELECT CAST(value AS INTEGER) FROM {_names.ProviderState} WHERE key='restore_epoch'),0);";
             restoreEpoch = Convert.ToInt64(await epoch.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
+        }
+        BaseSemanticActivationStoreAuthorityRequirement? semanticAuthority = null;
+        if (_options.SemanticActivationOwnerGeneration > 0)
+        {
+            await using SqliteCommand semantic = connection.CreateCommand();
+            semantic.CommandText = $"SELECT CAST((SELECT value FROM {_names.ProviderState} WHERE key='semantic_activation_authority_generation') AS INTEGER),(SELECT value FROM {_names.ProviderState} WHERE key='semantic_activation_definition_set_checksum');";
+            await using SqliteDataReader reader = await semantic.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false) || reader.IsDBNull(0) || reader.IsDBNull(1)
+                || reader.GetInt64(0) <= 0 || reader.GetString(1).Length != 64)
+                throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+            byte[] definitionSetChecksum = Convert.FromHexString(reader.GetString(1));
+            semanticAuthority = new BaseSemanticActivationStoreAuthorityRequirement
+            {
+                ApplicationId = new string(applicationId.AsSpan()), LogicalStoreId = new string(_options.StoreId.AsSpan()),
+                StoreInstanceId = new string(_options.StoreId.AsSpan()), RestoreEpoch = restoreEpoch,
+                SchemaGeneration = Volatile.Read(ref _schemaGeneration), SemanticAuthorityGeneration = reader.GetInt64(0),
+                DefinitionSetChecksum = definitionSetChecksum.ToImmutableArray(),
+            };
         }
         var generations = ImmutableArray.CreateBuilder<BaseCollectionGenerationRequirement>(ordered.Length);
         foreach (CollectionDefinition collection in ordered)
@@ -71,6 +90,7 @@ public sealed partial class SqliteRecordStore :
             RestoreEpoch = restoreEpoch,
             SchemaGeneration = Volatile.Read(ref _schemaGeneration),
             Collections = generations.MoveToImmutable(),
+            SemanticActivation = semanticAuthority,
         });
     }
 

@@ -428,11 +428,71 @@ public sealed partial class SqliteModuleMutationTests
         finally { foreach (string suffix in new[] { "", "-wal", "-shm" }) if (File.Exists(path + suffix)) File.Delete(path + suffix); }
     }
 
+    [Fact]
+    public async Task Semantic_migration_stages_fixed_pages_and_resumes_after_restart()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-l53-migrate-{Guid.NewGuid():N}.db");
+        try
+        {
+            BaseSemanticActivationKeyDefinition sourceDefinition = SemanticDefinition();
+            BaseAtomicMutationExecutionLimits limits = ExecutionLimits();
+            await using (SqliteRecordStore initial = SemanticStore(path, installedDefinition: sourceDefinition))
+            {
+                BaseAtomicMutationAuthorityRequirement authority = (await initial.CaptureAtomicMutationAuthorityRequirementAsync("activation-test", [], limits)).Value!;
+                (await initial.ExecuteAtomicAsync(new SqliteSemanticEnsureProbe(authority, limits, "migration-parent"), ExecutionRequest()))
+                    .Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+                (await initial.ExecuteAtomicAsync(new SqliteSemanticEnsureProbe(authority, limits, "migration-parent-2", "auth-user-43"), ExecutionRequest()))
+                    .Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+            }
+            BaseSemanticActivationKeyDefinition to = sourceDefinition with
+            {
+                Version = 2, EnsureGrantId = "semantic.ensure.v2",
+                Checksum = SHA256.HashData("semantic-definition-v2"u8).ToImmutableArray(),
+            };
+            BaseSemanticActivationMigrationDefinition migration = BaseSemanticActivationMigrationContract.Seal(new()
+            {
+                Id = "test.semantic.migration", Version = 1,
+                From = new() { Id = sourceDefinition.Id, Version = sourceDefinition.Version, Checksum = sourceDefinition.Checksum },
+                To = new() { Id = to.Id, Version = to.Version, Checksum = to.Checksum }, Checksum = [],
+            });
+            BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create("semantic-maintenance", "migrate", "migration-1",
+                BaseMutationRequestFingerprint.Create(SHA256.HashData("migration-request"u8)));
+            BaseSemanticActivationMigrateRequest request = new()
+            {
+                Identity = identity, Definition = migration.From, ExpectedSemanticAuthorityGeneration = 1,
+                Migration = migration, Limits = new() { PageSize = 1, MaximumPages = 2, MaximumRows = 2,
+                    MaximumBytes = 1_000_000, Deadline = TimeSpan.FromSeconds(5) },
+            };
+            await using (SqliteRecordStore first = SemanticStore(path, installedDefinition: to, ownerGeneration: 2,
+                definitionSetChecksum: to.Checksum, migrations: [migration]))
+            {
+                BaseResult<BaseSemanticActivationMaintenanceResult> progress = await first.ExecuteAsync(request, default);
+                progress.RequireValue().Disposition.Should().Be(BaseSemanticActivationMaintenanceDisposition.InProgress);
+                progress.RequireValue().Checkpoint!.CompletedRows.Should().Be(1);
+            }
+            await using (SqliteRecordStore resumed = SemanticStore(path, installedDefinition: to, ownerGeneration: 2,
+                definitionSetChecksum: to.Checksum, migrations: [migration]))
+            {
+                BaseResult<BaseSemanticActivationMaintenanceResult> completed = await resumed.ExecuteAsync(request, default);
+                completed.RequireValue().Disposition.Should().Be(BaseSemanticActivationMaintenanceDisposition.Completed);
+                completed.RequireValue().ResultingAuthorityGeneration.Should().Be(2);
+                completed.RequireValue().ChangedRows.Should().Be(2);
+                (await resumed.ExecuteAsync(request, default)).RequireValue().Disposition
+                    .Should().Be(BaseSemanticActivationMaintenanceDisposition.Duplicate);
+                BaseAtomicMutationAuthorityRequirement authority = (await resumed.CaptureAtomicMutationAuthorityRequirementAsync("activation-test", [], limits)).Value!;
+                authority.SemanticActivation!.SemanticAuthorityGeneration.Should().Be(2);
+                authority.SemanticActivation.DefinitionSetChecksum.Should().Equal(to.Checksum);
+            }
+        }
+        finally { foreach (string suffix in new[] { "", "-wal", "-shm" }) if (File.Exists(path + suffix)) File.Delete(path + suffix); }
+    }
+
     private static SqliteRecordStore SemanticStore(string path, long maximumLiveSlots = 100,
         int maximumPendingRows = 1_000_000, long maximumReceiptBytes = 4096,
         BaseSemanticActivationKeyDefinition? installedDefinition = null,
         long ownerGeneration = 1,
-        ImmutableArray<byte> definitionSetChecksum = default)
+        ImmutableArray<byte> definitionSetChecksum = default,
+        ImmutableArray<BaseSemanticActivationMigrationDefinition> migrations = default)
     {
         BaseSemanticActivationKeyDefinition definition = installedDefinition ?? SemanticDefinition(maximumLiveSlots, maximumReceiptBytes);
         var options = new HPDBaseSqliteOptions
@@ -442,6 +502,7 @@ public sealed partial class SqliteModuleMutationTests
             SemanticActivationOwnerGeneration = ownerGeneration,
             SemanticActivationDefinitionSetChecksum = definitionSetChecksum.IsDefaultOrEmpty
                 ? definition.Checksum.ToArray() : definitionSetChecksum.ToArray(),
+            SemanticActivationMigrations = migrations.IsDefault ? [] : migrations.ToArray(),
             ModuleMutations = [Definition()], ModuleGenerationCells = [Cell()],
             MaxPendingActivationRows = maximumPendingRows, MaxClaimedActivationRows = 100,
         };

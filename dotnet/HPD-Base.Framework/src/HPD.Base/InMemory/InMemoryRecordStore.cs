@@ -352,6 +352,13 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             RestoreEpoch = 0,
             SchemaGeneration = 1,
             Collections = [.. generations],
+            SemanticActivation = _publishedState.SemanticActivationAuthority is { } semantic ? semantic with
+            {
+                ApplicationId = new string(semantic.ApplicationId.AsSpan()),
+                LogicalStoreId = new string(semantic.LogicalStoreId.AsSpan()),
+                StoreInstanceId = new string(semantic.StoreInstanceId.AsSpan()),
+                DefinitionSetChecksum = semantic.DefinitionSetChecksum.ToArray().ToImmutableArray(),
+            } : null,
         }));
     }
 

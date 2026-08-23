@@ -5,6 +5,21 @@ namespace HPD.Base.Tests.Application.Activations;
 public sealed class BaseSemanticActivationRegistryTests
 {
     [Fact]
+    public void Capability_checksum_binds_maintenance_authority_and_page_limit()
+    {
+        BaseSemanticActivationCapability identityOnly = BaseSemanticActivationCapabilityContract.BuiltIn(durable: false);
+        BaseSemanticActivationCapability maintained = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true);
+
+        BaseSemanticActivationCapabilityContract.IsValid(identityOnly).Should().BeTrue();
+        BaseSemanticActivationCapabilityContract.IsValid(maintained).Should().BeTrue();
+        identityOnly.Checksum.Should().NotEqual(maintained.Checksum);
+        BaseSemanticActivationCapabilityContract.IsValid(identityOnly with { MaintenanceSupported = true }).Should().BeFalse();
+        BaseSemanticActivationCapabilityContract.IsValid(identityOnly with { MaximumMaintenancePageSize = 256 }).Should().BeFalse();
+        BaseSemanticActivationCapabilityContract.IsValid(maintained with { MaintenanceSupported = false }).Should().BeFalse();
+        BaseSemanticActivationCapabilityContract.IsValid(maintained with { MaximumMaintenancePageSize = 0 }).Should().BeFalse();
+    }
+
+    [Fact]
     public void Closed_key_compiler_is_deterministic_and_property_bound()
     {
         BaseSemanticActivationKeyDefinition definition = Installed();
@@ -138,13 +153,13 @@ public sealed class BaseSemanticActivationRegistryTests
     [Fact]
     public void Retired_authority_accepts_only_the_closed_L51_terminal_union()
     {
-        BaseModuleMutationProcessor.SemanticTerminalStateAllowed(BaseActivationState.Succeeded).Should().BeTrue();
-        BaseModuleMutationProcessor.SemanticTerminalStateAllowed(BaseActivationState.Exhausted).Should().BeTrue();
-        BaseModuleMutationProcessor.SemanticTerminalStateAllowed(BaseActivationState.Cancelled).Should().BeTrue();
-        BaseModuleMutationProcessor.SemanticTerminalStateAllowed(BaseActivationState.Migrated).Should().BeTrue();
-        BaseModuleMutationProcessor.SemanticTerminalStateAllowed(BaseActivationState.Disposed).Should().BeTrue();
-        BaseModuleMutationProcessor.SemanticTerminalStateAllowed(BaseActivationState.OutcomeUnknown).Should().BeFalse();
-        BaseModuleMutationProcessor.SemanticTerminalStateAllowed((BaseActivationState)999).Should().BeFalse();
+        BaseModuleMutationProcessor<Request, object>.SemanticTerminalStateAllowed(BaseActivationState.Succeeded).Should().BeTrue();
+        BaseModuleMutationProcessor<Request, object>.SemanticTerminalStateAllowed(BaseActivationState.Exhausted).Should().BeTrue();
+        BaseModuleMutationProcessor<Request, object>.SemanticTerminalStateAllowed(BaseActivationState.Cancelled).Should().BeTrue();
+        BaseModuleMutationProcessor<Request, object>.SemanticTerminalStateAllowed(BaseActivationState.Migrated).Should().BeTrue();
+        BaseModuleMutationProcessor<Request, object>.SemanticTerminalStateAllowed(BaseActivationState.Disposed).Should().BeTrue();
+        BaseModuleMutationProcessor<Request, object>.SemanticTerminalStateAllowed(BaseActivationState.OutcomeUnknown).Should().BeFalse();
+        BaseModuleMutationProcessor<Request, object>.SemanticTerminalStateAllowed((BaseActivationState)999).Should().BeFalse();
     }
 
     [Fact]

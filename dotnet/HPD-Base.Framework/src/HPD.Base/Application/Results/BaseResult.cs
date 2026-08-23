@@ -137,3 +137,15 @@ public sealed record BaseFailure<T> : BaseResult<T>
         return failure(this);
     }
 }
+
+/// <summary>Creates bounded result values for public provider service-provider interfaces.</summary>
+public static class BaseProviderResultContract
+{
+    /// <summary>Creates a successful provider result.</summary>
+    public static BaseResult<T> Ok<T>(T value, OperationStatus status = OperationStatus.Ok) =>
+        new BaseSuccess<T>(value, status, null, null, null, null);
+
+    /// <summary>Creates a failed provider result with safe fixed evidence.</summary>
+    public static BaseResult<T> Failure<T>(OperationStatus status, BaseError error) =>
+        new BaseFailure<T>(status, error, null, null);
+}

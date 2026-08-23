@@ -670,6 +670,98 @@ public sealed partial class SqliteModuleMutationTests
         });
     }
 
+    [Fact]
+    public async Task Activation_prune_pages_emit_exact_durable_floors_without_self_blocking()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-l51-prune-{Guid.NewGuid():N}.db");
+        using BaseOpaqueTokenProtector protector = Protector();
+        try
+        {
+            await using SqliteRecordStore store = ActivationAdministrationStore(path, protector);
+            BaseActivationExecutionLimits limits = ActivationLimits(); BaseActivationDefinitionKey definition = ActivationDefinition();
+            BaseOwnedScopeSeekAuthority scope = ActivationScope(); byte[] overlap = System.Security.Cryptography.SHA256.HashData("prune"u8);
+            long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var worker = new BaseActivationWorkerAuthority
+            {
+                ApplicationId = "activation-test", ModuleId = "test", WorkerIdentity = "prune-worker",
+                Definitions = [definition], Scope = scope, Checksum = new byte[32].ToImmutableArray(),
+            };
+            for (int version = 21; version <= 22; version++)
+            {
+                BaseScheduleDefinition schedule = Schedule(version, BaseScheduleOverlapPolicy.Allow, overlap);
+                OperationResult<BaseScheduleMutationResult> scheduled = await store.MutateScheduleAsync(ScheduleMutation(schedule, version, $"prune-create-{version}") with { AcceptedTime = AcceptedTime(now++) });
+                scheduled.IsSuccess().Should().BeTrue(scheduled.Error?.Code);
+                BaseScheduleAuthority scheduleAuthority = (await store.ReadScheduleAsync(schedule.Id, schedule.Version)).Value!;
+                (await store.AdvanceSchedulesAsync(SchedulePage(scheduleAuthority, schedule, version + 1, $"prune-page-{version}") with { AcceptedTime = AcceptedTime(now++) })).IsSuccess().Should().BeTrue();
+                BaseActivationDueObservation observed = (await store.ObserveDueAsync(new BaseActivationDueObservationRequest
+                {
+                    ApplicationId = "activation-test", WorkerModuleId = "test", Definitions = [definition], Scope = scope,
+                    AcceptedTime = AcceptedTime(now++), MaximumCandidates = 8, Limits = limits,
+                })).Value!;
+                var claimed = (BaseActivationClaimedResult)(await store.TryClaimNextAsync(new BaseActivationClaimRequest
+                {
+                    Observation = observed.Token, Worker = worker, AcceptedTime = AcceptedTime(now++), LeaseMilliseconds = 1_000,
+                    Identity = ActivationIdentity($"prune-claim-{version}"), Limits = limits,
+                })).Value!;
+                byte[] result = [(byte)version];
+                BaseActivationTransitionResult terminal = (await store.TransitionAsync(new BaseActivationCompleteRequest
+                {
+                    ActivationId = claimed.Claim.ActivationId, Claim = claimed.Claim, CanonicalResult = result.ToImmutableArray(),
+                    ResultChecksum = System.Security.Cryptography.SHA256.HashData(result).ToImmutableArray(), AcceptedTime = AcceptedTime(now++),
+                    Identity = ActivationIdentity($"prune-complete-{version}"), Limits = limits,
+                })).Value!;
+                (await store.TransitionAsync(new BaseActivationDisposeRequest
+                {
+                    ActivationId = claimed.Claim.ActivationId, ExpectedGeneration = terminal.Generation, AcceptedTime = AcceptedTime(now++),
+                    Identity = ActivationIdentity($"prune-dispose-{version}"), Limits = limits,
+                })).IsSuccess().Should().BeTrue();
+            }
+            var firstRequest = new BaseActivationPruneRequest
+            {
+                ApplicationId = "activation-test", Scope = scope, Definition = definition, Take = 1, AcceptedTime = AcceptedTime(now++),
+                Identity = ActivationIdentity("prune-first"), Limits = limits,
+            };
+            OperationResult<BaseActivationPrunePage> tooSmall = await store.PruneAsync(firstRequest with
+            {
+                Identity = ActivationIdentity("prune-too-small"), Limits = limits with { MaximumEvidenceBytes = 1 },
+            });
+            tooSmall.Status.Should().Be(OperationStatus.ValidationFailed);
+            tooSmall.Error!.Code.Should().Be("base.activation.budgetExceeded");
+            BaseActivationPrunePage first = (await store.PruneAsync(firstRequest)).Value!;
+            first.Items.Should().ContainSingle(); first.Completed.Should().BeFalse();
+            BaseActivationPruneEvidenceContract.IsValid(first.Items[0]).Should().BeTrue();
+            BaseActivationPrunePage second = (await store.PruneAsync(new BaseActivationPruneRequest
+            {
+                ApplicationId = "activation-test", Scope = scope, Definition = definition, AfterActivationId = first.NextActivationId,
+                Take = 1, AcceptedTime = AcceptedTime(now++), Identity = ActivationIdentity("prune-second"), Limits = limits,
+            })).Value!;
+            second.Items.Should().ContainSingle(); second.Completed.Should().BeTrue();
+            BaseActivationPruneEvidenceContract.IsValid(second.Items[0]).Should().BeTrue();
+            second.Items[0].ActivationId.Should().NotBe(first.Items[0].ActivationId);
+
+            var artifact = new MemoryStream();
+            OperationResult<BaseBackupManifest> backupResult = await store.CreateBackupAsync(artifact, new BaseBackupRequest
+            {
+                StoreId = "module-store", Principal = AdministrationPrincipal(),
+            });
+            backupResult.IsSuccess().Should().BeTrue(backupResult.Error?.Code);
+            BaseBackupManifest manifest = backupResult.Value!;
+            artifact.Position = 0;
+            (await store.RestoreAsync(artifact, new BaseRestoreRequest
+            {
+                StoreId = "module-store", Principal = AdministrationPrincipal(),
+                ExpectedCurrentStoreIdentityDigest = manifest.StoreIdentityDigest,
+                ExpectedArtifactStoreIdentityDigest = manifest.StoreIdentityDigest,
+                IdentityMode = BaseRestoreIdentityMode.RequireCurrentStoreIdentity,
+                RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
+                ConfirmDestructiveReplacement = true,
+                ScheduleRestoreDomain = BaseScheduleRestoreDomain.InPlaceRecovery,
+            })).IsSuccess().Should().BeTrue();
+            await AssertStoredPruneFloorsValidAsync(path, expectedCount: 2);
+        }
+        finally { foreach (string suffix in new[] { "", "-wal", "-shm" }) if (File.Exists(path + suffix)) File.Delete(path + suffix); }
+    }
+
     private static BaseScheduleMutationRequest ScheduleMutation(BaseScheduleDefinition definition, long now, string key) => new()
     {
         Kind = BaseScheduleMutationKind.Create, Definition = definition, InitialNextNominal = definition.Version,
@@ -1074,6 +1166,49 @@ public sealed partial class SqliteModuleMutationTests
             """;
         command.ExecuteNonQuery();
         return store;
+    }
+
+    private static SqliteRecordStore ActivationAdministrationStore(string path, BaseOpaqueTokenProtector protector)
+    {
+        var options = new HPDBaseSqliteOptions
+        {
+            StoreId = "module-store", DataSource = path, AdministrationEnabled = true,
+            Collections = [], ModuleMutations = [Definition()], ModuleGenerationCells = [Cell()],
+            MaxBackupArtifactBytes = 16 * 1024 * 1024,
+        };
+        SqliteRecordStore store = SqliteTestFactory.Create(options, tokenProtector: protector);
+        using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path};Pooling=False");
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT OR IGNORE INTO hpd_base_schema_identity(singleton,store_instance_id) VALUES (1,'module-store-instance');
+            INSERT OR IGNORE INTO hpd_base_schema_baseline(application_id,store_instance_id,baseline_id,checksum,generation,last_plan_id,applied_at)
+            VALUES ('module.application','module-store-instance','baseline-1','checksum-1',1,'plan-1','2026-08-19T00:00:00Z');
+            """;
+        command.ExecuteNonQuery();
+        return store;
+    }
+
+    private static async Task AssertStoredPruneFloorsValidAsync(string path, int expectedCount)
+    {
+        await using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path};Pooling=False");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT activation_id,definition_id,definition_version,definition_checksum,terminal_generation,terminal_control_checksum,terminal_receipt_checksum,occurrence_checksum,result_checksum,prune_authority_generation,application_id,logical_store_id,store_instance_id,restore_epoch,publication_authority_checksum,authority_checksum FROM hpd_base_activation_prune_floors ORDER BY activation_id;";
+        await using Microsoft.Data.Sqlite.SqliteDataReader reader = await command.ExecuteReaderAsync();
+        var evidence = new List<BaseActivationPruneEvidence>();
+        while (await reader.ReadAsync())
+            evidence.Add(new BaseActivationPruneEvidence
+            {
+                ActivationId = reader.GetString(0), Definition = new BaseActivationDefinitionKey { Id = reader.GetString(1), Version = reader.GetInt32(2), Checksum = ((byte[])reader[3]).ToImmutableArray() },
+                TerminalGeneration = reader.GetInt64(4), TerminalControlChecksum = ((byte[])reader[5]).ToImmutableArray(), TerminalReceiptChecksum = ((byte[])reader[6]).ToImmutableArray(),
+                OccurrenceChecksum = reader.IsDBNull(7) ? null : ((byte[])reader[7]).ToImmutableArray(), ResultChecksum = reader.IsDBNull(8) ? null : ((byte[])reader[8]).ToImmutableArray(),
+                PruneAuthorityGeneration = reader.GetInt64(9), ApplicationId = reader.GetString(10), LogicalStoreId = reader.GetString(11), StoreInstanceId = reader.GetString(12), RestoreEpoch = reader.GetInt64(13),
+                PublicationAuthorityChecksum = ((byte[])reader[14]).ToImmutableArray(), Checksum = ((byte[])reader[15]).ToImmutableArray(),
+            });
+        evidence.Should().HaveCount(expectedCount);
+        evidence.Should().OnlyContain(static item => BaseActivationPruneEvidenceContract.IsValid(item));
+        evidence.Should().OnlyContain(static item => item.RestoreEpoch > 0);
     }
 
     private static BaseOpaqueTokenProtector Protector() => new(Microsoft.Extensions.Options.Options.Create(

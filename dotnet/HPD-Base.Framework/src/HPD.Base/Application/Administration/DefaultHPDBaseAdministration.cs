@@ -674,15 +674,21 @@ internal sealed class DefaultHPDBaseAdministration(
 
     private static bool ValidatePrunePage(BaseActivationPrunePage page, int take, BaseActivationExecutionLimits limits)
     {
-        if (page.ActivationIds.Length > take || page.ActivationIds.Length > limits.MaximumCandidates
-            || !AccountingValid(page.Accounting, page.ActivationIds.Length, limits)) return false;
-        for (int index = 0; index < page.ActivationIds.Length; index++)
-            if (string.IsNullOrWhiteSpace(page.ActivationIds[index])
-                || index != 0 && string.CompareOrdinal(page.ActivationIds[index - 1], page.ActivationIds[index]) >= 0)
+        int candidates = checked(page.Items.Length + (page.Completed ? 0 : 1));
+        long evidenceBytes = 0;
+        foreach (BaseActivationPruneEvidence item in page.Items)
+            evidenceBytes = checked(evidenceBytes + BaseActivationPruneEvidenceContract.MeasureCanonicalBytes(item));
+        if (page.Items.Length > take || candidates > limits.MaximumCandidates
+            || !AccountingValid(page.Accounting, candidates, limits)
+            || page.Accounting.EvidenceBytes != evidenceBytes
+            || page.Accounting.IndexOperations != checked(1 + page.Items.Length * 2)) return false;
+        for (int index = 0; index < page.Items.Length; index++)
+            if (!BaseActivationPruneEvidenceContract.IsValid(page.Items[index])
+                || index != 0 && string.CompareOrdinal(page.Items[index - 1].ActivationId, page.Items[index].ActivationId) >= 0)
                 return false;
         return page.Completed
             ? page.NextActivationId is null
-            : page.ActivationIds.Length != 0 && page.NextActivationId == page.ActivationIds[^1];
+            : page.Items.Length != 0 && page.NextActivationId == page.Items[^1].ActivationId;
     }
 
     private static bool AccountingValid(BaseActivationAccounting accounting, int candidates, BaseActivationExecutionLimits limits) =>

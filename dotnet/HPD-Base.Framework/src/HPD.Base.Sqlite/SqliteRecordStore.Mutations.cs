@@ -529,6 +529,33 @@ public sealed partial class SqliteRecordStore
         command.Parameters.AddWithValue("$committed", _timeProvider.GetUtcNow().ToString("O", CultureInfo.InvariantCulture));
         command.Parameters.AddWithValue("$expires", request.ExpiresAt.ToString("O", CultureInfo.InvariantCulture));
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        if (processing.Receipt.ModuleMutation?.SemanticActivation is
+            { Operation: BaseSemanticActivationOperationKind.Retire, State: BaseSemanticActivationSlotState.Retired } semantic)
+        {
+            byte[] key = semantic.Key.ToArray();
+            await using SqliteCommand floor = connection.CreateCommand(); floor.Transaction = transaction;
+            floor.CommandText = $"""
+INSERT INTO {_names.SemanticActivationRecoveryFloors}(
+  definition_id,binding_id,key_digest,state,slot_generation,authority_json,
+  receipt_scope,receipt_operation,receipt_key,receipt_fingerprint,receipt_structural_digest,receipt_result_json)
+SELECT definition_id,binding_id,key_digest,state,slot_generation,authority_json,
+  $scope,$operation,$receiptKey,$fingerprint,$structural,$result
+FROM {_names.SemanticActivationSlots}
+WHERE definition_id=$definition AND key_digest=$semanticKey AND state=2
+ON CONFLICT(definition_id,binding_id,key_digest) DO UPDATE SET
+  state=excluded.state,slot_generation=excluded.slot_generation,authority_json=excluded.authority_json,
+  receipt_scope=excluded.receipt_scope,receipt_operation=excluded.receipt_operation,receipt_key=excluded.receipt_key,
+  receipt_fingerprint=excluded.receipt_fingerprint,receipt_structural_digest=excluded.receipt_structural_digest,
+  receipt_result_json=excluded.receipt_result_json
+WHERE excluded.slot_generation>=slot_generation;
+""";
+            floor.Parameters.AddWithValue("$scope", request.Identity.Scope); floor.Parameters.AddWithValue("$operation", request.Identity.Operation);
+            floor.Parameters.AddWithValue("$receiptKey", request.Identity.IdempotencyKey); floor.Parameters.Add("$fingerprint", SqliteType.Blob).Value = request.Identity.Fingerprint.ToArray();
+            floor.Parameters.Add("$structural", SqliteType.Blob).Value = request.StructuralDigest; floor.Parameters.Add("$result", SqliteType.Blob).Value = result;
+            floor.Parameters.AddWithValue("$definition", semantic.DefinitionId); floor.Parameters.Add("$semanticKey", SqliteType.Blob).Value = key;
+            if (await floor.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                throw new InvalidDataException(BaseSemanticActivationErrorCodes.ProviderContractInvalid);
+        }
     }
 
     private sealed record SqliteMutationReceipt(byte[] Fingerprint, byte[] StructuralDigest, BaseAtomicReceiptResult Result);
@@ -1282,17 +1309,29 @@ public sealed partial class SqliteRecordStore
                 || !await AcceptSemanticTimeAsync(capture.AcceptedTime, cancellationToken).ConfigureAwait(false))
                 return SubjectFailure<BaseCapturedSemanticActivationEvidence?>(BaseSubjectErrorCodes.ProviderContractInvalid);
 
+            await using (SqliteCommand semanticAuthority = _connection.CreateCommand())
+            {
+                semanticAuthority.Transaction = _transaction;
+                semanticAuthority.CommandText = $"SELECT CAST(value AS INTEGER) FROM {_owner._names.ProviderState} WHERE key='semantic_activation_authority_generation';";
+                object? storedGeneration = await semanticAuthority.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+                if (storedGeneration is null || Convert.ToInt64(storedGeneration, CultureInfo.InvariantCulture)
+                    != capture.StoreAuthority.SemanticAuthorityGeneration)
+                    return SubjectFailure<BaseCapturedSemanticActivationEvidence?>(BaseSubjectErrorCodes.SchemaGenerationChanged,
+                        OperationStatus.Conflict, ErrorCategory.Conflict);
+            }
+
             await using (SqliteCommand installed = _connection.CreateCommand())
             {
                 installed.Transaction = _transaction;
-                installed.CommandText = $"SELECT definition_checksum,owner_generation,application_id,definition_set_checksum FROM {_owner._names.SemanticActivationDefinitions} WHERE definition_id=$id AND definition_version=$version;";
+                installed.CommandText = $"SELECT definition_checksum,owner_generation,application_id,definition_set_checksum,execution_enabled FROM {_owner._names.SemanticActivationDefinitions} WHERE definition_id=$id AND definition_version=$version;";
                 installed.Parameters.AddWithValue("$id", definition.Id); installed.Parameters.AddWithValue("$version", definition.Version);
                 await using SqliteDataReader reader = await installed.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
                 if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
                     || !CryptographicOperations.FixedTimeEquals((byte[])reader.GetValue(0), definition.Checksum.AsSpan())
                     || reader.GetInt64(1) != definition.OwnerGeneration
                     || !string.Equals(reader.GetString(2), capture.StoreAuthority.ApplicationId, StringComparison.Ordinal)
-                    || !CryptographicOperations.FixedTimeEquals((byte[])reader.GetValue(3), capture.StoreAuthority.DefinitionSetChecksum.AsSpan()))
+                    || !CryptographicOperations.FixedTimeEquals((byte[])reader.GetValue(3), capture.StoreAuthority.DefinitionSetChecksum.AsSpan())
+                    || reader.GetInt32(4) != 1)
                     return SubjectFailure<BaseCapturedSemanticActivationEvidence?>(BaseSubjectErrorCodes.SchemaGenerationChanged, OperationStatus.Conflict, ErrorCategory.Conflict);
             }
             BaseSemanticActivationKeyDefinition installedDefinition = _owner._options.SemanticActivations.Single(value =>

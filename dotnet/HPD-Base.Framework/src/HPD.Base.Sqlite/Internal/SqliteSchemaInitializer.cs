@@ -53,6 +53,8 @@ INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('subject_lifecy
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('subject_retirement_position', '0');
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_generation', '0');
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_accepted_utc', '0');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('semantic_activation_authority_generation', '0');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('semantic_activation_definition_set_checksum', '');
 CREATE TABLE IF NOT EXISTS {_names.SchemaIdentity} (
   singleton INTEGER NOT NULL PRIMARY KEY CHECK (singleton = 1),
   store_instance_id TEXT NOT NULL
@@ -328,6 +330,21 @@ CREATE TABLE IF NOT EXISTS {_names.ActivationReceipts} (
   activation_id TEXT NULL,
   authority_checksum BLOB NULL CHECK(authority_checksum IS NULL OR length(authority_checksum)=32)
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.ActivationPruneFloors} (
+  activation_id TEXT NOT NULL PRIMARY KEY,
+  definition_id TEXT NOT NULL, definition_version INTEGER NOT NULL CHECK(definition_version>0),
+  definition_checksum BLOB NOT NULL CHECK(length(definition_checksum)=32),
+  terminal_generation INTEGER NOT NULL CHECK(terminal_generation>0),
+  terminal_control_checksum BLOB NOT NULL CHECK(length(terminal_control_checksum)=32),
+  terminal_receipt_checksum BLOB NOT NULL CHECK(length(terminal_receipt_checksum)=32),
+  occurrence_checksum BLOB NULL CHECK(occurrence_checksum IS NULL OR length(occurrence_checksum)=32),
+  result_checksum BLOB NULL CHECK(result_checksum IS NULL OR length(result_checksum)=32),
+  prune_authority_generation INTEGER NOT NULL CHECK(prune_authority_generation>0),
+  application_id TEXT NOT NULL, logical_store_id TEXT NOT NULL, store_instance_id TEXT NOT NULL,
+  restore_epoch INTEGER NOT NULL CHECK(restore_epoch>=0),
+  publication_authority_checksum BLOB NOT NULL CHECK(length(publication_authority_checksum)=32),
+  authority_checksum BLOB NOT NULL CHECK(length(authority_checksum)=32)
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.ModuleMutationDefinitions} (
   operation_id TEXT NOT NULL, operation_version INTEGER NOT NULL CHECK(operation_version > 0),
   owning_module_id TEXT NOT NULL, operation_checksum TEXT NOT NULL CHECK(length(operation_checksum)=64),
@@ -345,7 +362,7 @@ CREATE TABLE IF NOT EXISTS {_names.SemanticActivationDefinitions} (
   definition_checksum BLOB NOT NULL CHECK(length(definition_checksum)=32),
   owner_generation INTEGER NOT NULL CHECK(owner_generation > 0),
   application_id TEXT NOT NULL, definition_set_checksum BLOB NOT NULL CHECK(length(definition_set_checksum)=32),
-  definition_json BLOB NOT NULL,
+  definition_json BLOB NOT NULL, execution_enabled INTEGER NOT NULL DEFAULT 1 CHECK(execution_enabled IN (0,1)),
   PRIMARY KEY(definition_id,definition_version)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.SemanticActivationScopes} (
@@ -361,6 +378,46 @@ CREATE TABLE IF NOT EXISTS {_names.SemanticActivationSlots} (
   PRIMARY KEY(definition_id,binding_id,key_digest)
 ) WITHOUT ROWID;
 CREATE UNIQUE INDEX IF NOT EXISTS {_names.Prefix}semantic_activation_live_idx ON {_names.SemanticActivationSlots}(activation_id) WHERE activation_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS {_names.SemanticActivationMaintenance} (
+  request_scope TEXT NOT NULL, request_operation TEXT NOT NULL, request_key TEXT NOT NULL,
+  request_fingerprint BLOB NOT NULL CHECK(length(request_fingerprint)=32), maintenance_id TEXT NOT NULL,
+  operation_kind INTEGER NOT NULL CHECK(operation_kind BETWEEN 1 AND 3), definition_id TEXT NOT NULL,
+  definition_version INTEGER NOT NULL CHECK(definition_version>0), definition_checksum BLOB NOT NULL CHECK(length(definition_checksum)=32),
+  disposition INTEGER NOT NULL CHECK(disposition BETWEEN 1 AND 5), previous_generation INTEGER NOT NULL CHECK(previous_generation>0),
+  resulting_generation INTEGER NOT NULL CHECK(resulting_generation>0), examined_rows INTEGER NOT NULL CHECK(examined_rows>=0),
+  changed_rows INTEGER NOT NULL CHECK(changed_rows>=0), canonical_bytes INTEGER NOT NULL CHECK(canonical_bytes>=0),
+  after_binding BLOB NULL, after_key BLOB NULL, completed_pages INTEGER NOT NULL DEFAULT 0 CHECK(completed_pages>=0),
+  rolling_checksum BLOB NOT NULL CHECK(length(rolling_checksum)=32), checkpoint_checksum BLOB NULL,
+  result_checksum BLOB NULL, commit_checksum BLOB NULL,
+  CHECK((disposition=3 AND checkpoint_checksum IS NOT NULL AND length(checkpoint_checksum)=32 AND result_checksum IS NULL AND commit_checksum IS NULL)
+     OR (disposition<>3 AND checkpoint_checksum IS NULL AND length(result_checksum)=32 AND length(commit_checksum)=32)),
+  PRIMARY KEY(request_scope,request_operation,request_key)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.SemanticActivationMigrations} (
+  migration_id TEXT NOT NULL, migration_version INTEGER NOT NULL CHECK(migration_version>0),
+  from_definition_id TEXT NOT NULL, from_version INTEGER NOT NULL CHECK(from_version>0), from_checksum BLOB NOT NULL CHECK(length(from_checksum)=32),
+  to_definition_id TEXT NOT NULL, to_version INTEGER NOT NULL CHECK(to_version>0), to_checksum BLOB NOT NULL CHECK(length(to_checksum)=32),
+  live_count INTEGER NOT NULL CHECK(live_count>=0), retired_count INTEGER NOT NULL CHECK(retired_count>=0), absence_count INTEGER NOT NULL CHECK(absence_count>=0),
+  negative_checksum BLOB NOT NULL CHECK(length(negative_checksum)=32), publication_generation INTEGER NOT NULL CHECK(publication_generation>0),
+  receipt_checksum BLOB NOT NULL CHECK(length(receipt_checksum)=32), authority_checksum BLOB NOT NULL CHECK(length(authority_checksum)=32),
+  PRIMARY KEY(migration_id,migration_version)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.SemanticActivationRecoveryFloors} (
+  definition_id TEXT NOT NULL, binding_id BLOB NOT NULL CHECK(length(binding_id)=32), key_digest BLOB NOT NULL CHECK(length(key_digest)=32),
+  state INTEGER NOT NULL CHECK(state IN (2,3)), slot_generation INTEGER NOT NULL CHECK(slot_generation>0), authority_json BLOB NOT NULL,
+  receipt_scope TEXT NULL, receipt_operation TEXT NULL, receipt_key TEXT NULL, receipt_fingerprint BLOB NULL,
+  receipt_structural_digest BLOB NULL, receipt_result_json BLOB NULL,
+  CHECK((receipt_scope IS NULL AND receipt_operation IS NULL AND receipt_key IS NULL AND receipt_fingerprint IS NULL AND receipt_structural_digest IS NULL AND receipt_result_json IS NULL)
+     OR (receipt_scope IS NOT NULL AND receipt_operation IS NOT NULL AND receipt_key IS NOT NULL AND length(receipt_fingerprint)=32 AND length(receipt_structural_digest)=32 AND receipt_result_json IS NOT NULL)),
+  PRIMARY KEY(definition_id,binding_id,key_digest)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.SemanticActivationRewriteStage} (
+  maintenance_id TEXT NOT NULL, definition_id TEXT NOT NULL, binding_id BLOB NOT NULL CHECK(length(binding_id)=32),
+  key_digest BLOB NOT NULL CHECK(length(key_digest)=32), state INTEGER NOT NULL CHECK(state IN (1,2,3)),
+  slot_generation INTEGER NOT NULL CHECK(slot_generation>0), activation_id TEXT NULL, authority_json BLOB NOT NULL,
+  source_authority_json BLOB NOT NULL, source_checksum BLOB NOT NULL CHECK(length(source_checksum)=32),
+  PRIMARY KEY(maintenance_id,definition_id,binding_id,key_digest)
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.MutationJournal} (
   position INTEGER PRIMARY KEY AUTOINCREMENT,
   entry_kind INTEGER NOT NULL DEFAULT 0,
@@ -449,6 +506,8 @@ INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('restore_epoch'
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('subject_lifecycle_delivery_epoch', '1');
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_generation', '0');
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_accepted_utc', '0');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('semantic_activation_authority_generation', '0');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('semantic_activation_definition_set_checksum', '');
 """, cancellationToken).ConfigureAwait(false);
 
         await ExecuteAsync(connection, $"""
@@ -730,6 +789,21 @@ CREATE TABLE IF NOT EXISTS {_names.ActivationReceipts} (
   activation_id TEXT NULL,
   authority_checksum BLOB NULL CHECK(authority_checksum IS NULL OR length(authority_checksum)=32)
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.ActivationPruneFloors} (
+  activation_id TEXT NOT NULL PRIMARY KEY,
+  definition_id TEXT NOT NULL, definition_version INTEGER NOT NULL CHECK(definition_version>0),
+  definition_checksum BLOB NOT NULL CHECK(length(definition_checksum)=32),
+  terminal_generation INTEGER NOT NULL CHECK(terminal_generation>0),
+  terminal_control_checksum BLOB NOT NULL CHECK(length(terminal_control_checksum)=32),
+  terminal_receipt_checksum BLOB NOT NULL CHECK(length(terminal_receipt_checksum)=32),
+  occurrence_checksum BLOB NULL CHECK(occurrence_checksum IS NULL OR length(occurrence_checksum)=32),
+  result_checksum BLOB NULL CHECK(result_checksum IS NULL OR length(result_checksum)=32),
+  prune_authority_generation INTEGER NOT NULL CHECK(prune_authority_generation>0),
+  application_id TEXT NOT NULL, logical_store_id TEXT NOT NULL, store_instance_id TEXT NOT NULL,
+  restore_epoch INTEGER NOT NULL CHECK(restore_epoch>=0),
+  publication_authority_checksum BLOB NOT NULL CHECK(length(publication_authority_checksum)=32),
+  authority_checksum BLOB NOT NULL CHECK(length(authority_checksum)=32)
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.ModuleMutationDefinitions} (
   operation_id TEXT NOT NULL, operation_version INTEGER NOT NULL CHECK(operation_version > 0),
   owning_module_id TEXT NOT NULL, operation_checksum TEXT NOT NULL CHECK(length(operation_checksum)=64),
@@ -747,7 +821,7 @@ CREATE TABLE IF NOT EXISTS {_names.SemanticActivationDefinitions} (
   definition_checksum BLOB NOT NULL CHECK(length(definition_checksum)=32),
   owner_generation INTEGER NOT NULL CHECK(owner_generation > 0),
   application_id TEXT NOT NULL, definition_set_checksum BLOB NOT NULL CHECK(length(definition_set_checksum)=32),
-  definition_json BLOB NOT NULL,
+  definition_json BLOB NOT NULL, execution_enabled INTEGER NOT NULL DEFAULT 1 CHECK(execution_enabled IN (0,1)),
   PRIMARY KEY(definition_id,definition_version)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.SemanticActivationScopes} (
@@ -763,6 +837,46 @@ CREATE TABLE IF NOT EXISTS {_names.SemanticActivationSlots} (
   PRIMARY KEY(definition_id,binding_id,key_digest)
 ) WITHOUT ROWID;
 CREATE UNIQUE INDEX IF NOT EXISTS {_names.Prefix}semantic_activation_live_idx ON {_names.SemanticActivationSlots}(activation_id) WHERE activation_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS {_names.SemanticActivationMaintenance} (
+  request_scope TEXT NOT NULL, request_operation TEXT NOT NULL, request_key TEXT NOT NULL,
+  request_fingerprint BLOB NOT NULL CHECK(length(request_fingerprint)=32), maintenance_id TEXT NOT NULL,
+  operation_kind INTEGER NOT NULL CHECK(operation_kind BETWEEN 1 AND 3), definition_id TEXT NOT NULL,
+  definition_version INTEGER NOT NULL CHECK(definition_version>0), definition_checksum BLOB NOT NULL CHECK(length(definition_checksum)=32),
+  disposition INTEGER NOT NULL CHECK(disposition BETWEEN 1 AND 5), previous_generation INTEGER NOT NULL CHECK(previous_generation>0),
+  resulting_generation INTEGER NOT NULL CHECK(resulting_generation>0), examined_rows INTEGER NOT NULL CHECK(examined_rows>=0),
+  changed_rows INTEGER NOT NULL CHECK(changed_rows>=0), canonical_bytes INTEGER NOT NULL CHECK(canonical_bytes>=0),
+  after_binding BLOB NULL, after_key BLOB NULL, completed_pages INTEGER NOT NULL DEFAULT 0 CHECK(completed_pages>=0),
+  rolling_checksum BLOB NOT NULL CHECK(length(rolling_checksum)=32), checkpoint_checksum BLOB NULL,
+  result_checksum BLOB NULL, commit_checksum BLOB NULL,
+  CHECK((disposition=3 AND checkpoint_checksum IS NOT NULL AND length(checkpoint_checksum)=32 AND result_checksum IS NULL AND commit_checksum IS NULL)
+     OR (disposition<>3 AND checkpoint_checksum IS NULL AND length(result_checksum)=32 AND length(commit_checksum)=32)),
+  PRIMARY KEY(request_scope,request_operation,request_key)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.SemanticActivationMigrations} (
+  migration_id TEXT NOT NULL, migration_version INTEGER NOT NULL CHECK(migration_version>0),
+  from_definition_id TEXT NOT NULL, from_version INTEGER NOT NULL CHECK(from_version>0), from_checksum BLOB NOT NULL CHECK(length(from_checksum)=32),
+  to_definition_id TEXT NOT NULL, to_version INTEGER NOT NULL CHECK(to_version>0), to_checksum BLOB NOT NULL CHECK(length(to_checksum)=32),
+  live_count INTEGER NOT NULL CHECK(live_count>=0), retired_count INTEGER NOT NULL CHECK(retired_count>=0), absence_count INTEGER NOT NULL CHECK(absence_count>=0),
+  negative_checksum BLOB NOT NULL CHECK(length(negative_checksum)=32), publication_generation INTEGER NOT NULL CHECK(publication_generation>0),
+  receipt_checksum BLOB NOT NULL CHECK(length(receipt_checksum)=32), authority_checksum BLOB NOT NULL CHECK(length(authority_checksum)=32),
+  PRIMARY KEY(migration_id,migration_version)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.SemanticActivationRecoveryFloors} (
+  definition_id TEXT NOT NULL, binding_id BLOB NOT NULL CHECK(length(binding_id)=32), key_digest BLOB NOT NULL CHECK(length(key_digest)=32),
+  state INTEGER NOT NULL CHECK(state IN (2,3)), slot_generation INTEGER NOT NULL CHECK(slot_generation>0), authority_json BLOB NOT NULL,
+  receipt_scope TEXT NULL, receipt_operation TEXT NULL, receipt_key TEXT NULL, receipt_fingerprint BLOB NULL,
+  receipt_structural_digest BLOB NULL, receipt_result_json BLOB NULL,
+  CHECK((receipt_scope IS NULL AND receipt_operation IS NULL AND receipt_key IS NULL AND receipt_fingerprint IS NULL AND receipt_structural_digest IS NULL AND receipt_result_json IS NULL)
+     OR (receipt_scope IS NOT NULL AND receipt_operation IS NOT NULL AND receipt_key IS NOT NULL AND length(receipt_fingerprint)=32 AND length(receipt_structural_digest)=32 AND receipt_result_json IS NOT NULL)),
+  PRIMARY KEY(definition_id,binding_id,key_digest)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.SemanticActivationRewriteStage} (
+  maintenance_id TEXT NOT NULL, definition_id TEXT NOT NULL, binding_id BLOB NOT NULL CHECK(length(binding_id)=32),
+  key_digest BLOB NOT NULL CHECK(length(key_digest)=32), state INTEGER NOT NULL CHECK(state IN (1,2,3)),
+  slot_generation INTEGER NOT NULL CHECK(slot_generation>0), activation_id TEXT NULL, authority_json BLOB NOT NULL,
+  source_authority_json BLOB NOT NULL, source_checksum BLOB NOT NULL CHECK(length(source_checksum)=32),
+  PRIMARY KEY(maintenance_id,definition_id,binding_id,key_digest)
+) WITHOUT ROWID;
 """, cancellationToken).ConfigureAwait(false);
 
         await ExecuteAsync(connection, $"""
@@ -948,7 +1062,7 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
     public async ValueTask<string[]> GetMissingSchemaPartsAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         var missing = new List<string>();
-        foreach (var table in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.OperationReceipts, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease, _names.SubjectContracts, _names.SubjectLifetimes, _names.SubjectTerminalLifetimes, _names.SubjectLifecycleFacts, _names.SubjectLifecycleMemberships, _names.SubjectLifecycleConsumers, _names.SubjectLifecycleCheckpoints, _names.SubjectLifecycleMaintenance, _names.SubjectLifecycleScopeStage, _names.SubjectLifecycleMembershipStage, _names.SubjectRetirementBarriers, _names.SubjectRetirementAcknowledgements, _names.SubjectRetirementTerminals, _names.SubjectRetirementPublications, _names.SubjectMaintenance, _names.SubjectRewriteStage, _names.ModuleGenerations, _names.ModuleMutationDefinitions, _names.ModuleGenerationDefinitions, _names.SemanticActivationDefinitions, _names.SemanticActivationScopes, _names.SemanticActivationSlots, _names.Activations }
+        foreach (var table in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.OperationReceipts, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease, _names.SubjectContracts, _names.SubjectLifetimes, _names.SubjectTerminalLifetimes, _names.SubjectLifecycleFacts, _names.SubjectLifecycleMemberships, _names.SubjectLifecycleConsumers, _names.SubjectLifecycleCheckpoints, _names.SubjectLifecycleMaintenance, _names.SubjectLifecycleScopeStage, _names.SubjectLifecycleMembershipStage, _names.SubjectRetirementBarriers, _names.SubjectRetirementAcknowledgements, _names.SubjectRetirementTerminals, _names.SubjectRetirementPublications, _names.SubjectMaintenance, _names.SubjectRewriteStage, _names.ModuleGenerations, _names.ModuleMutationDefinitions, _names.ModuleGenerationDefinitions, _names.SemanticActivationDefinitions, _names.SemanticActivationScopes, _names.SemanticActivationSlots, _names.SemanticActivationMaintenance, _names.SemanticActivationMigrations, _names.SemanticActivationRecoveryFloors, _names.SemanticActivationRewriteStage, _names.Activations, _names.ActivationPruneFloors }
             .Concat(_physical.Collections.Select(static collection => collection.Table))
             .Concat(_physical.Relations.Select(static relation => relation.Table))
             .Concat(_projectionSchemaTables))
@@ -1025,10 +1139,16 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
         {
             (_names.Activations, "terminal_receipt_checksum"),
             (_names.ActivationReceipts, "activation_id"), (_names.ActivationReceipts, "authority_checksum"),
+            (_names.SemanticActivationDefinitions, "execution_enabled"),
             (_names.SemanticActivationSlots, "definition_id"), (_names.SemanticActivationSlots, "binding_id"),
             (_names.SemanticActivationSlots, "key_digest"), (_names.SemanticActivationSlots, "state"),
             (_names.SemanticActivationSlots, "slot_generation"), (_names.SemanticActivationSlots, "activation_id"),
             (_names.SemanticActivationSlots, "authority_json"),
+            (_names.SemanticActivationMaintenance, "operation_kind"), (_names.SemanticActivationMaintenance, "definition_id"),
+            (_names.SemanticActivationMaintenance, "after_binding"), (_names.SemanticActivationMaintenance, "after_key"),
+            (_names.SemanticActivationMaintenance, "completed_pages"), (_names.SemanticActivationMaintenance, "rolling_checksum"),
+            (_names.SemanticActivationMaintenance, "checkpoint_checksum"),
+            (_names.SemanticActivationRewriteStage, "source_authority_json"), (_names.SemanticActivationRewriteStage, "source_checksum"),
         })
             if (!await ColumnExistsAsync(connection, table, column, cancellationToken).ConfigureAwait(false))
                 problems.Add("column:" + table + "." + column);
@@ -1037,6 +1157,19 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
         Dictionary<string, ColumnShape> activationReceipts = await GetColumnShapesAsync(connection, _names.ActivationReceipts, cancellationToken).ConfigureAwait(false);
         Check(activationReceipts, problems, _names.ActivationReceipts, "activation_id", "TEXT", false, false);
         Check(activationReceipts, problems, _names.ActivationReceipts, "authority_checksum", "BLOB", false, false);
+        Dictionary<string, ColumnShape> activationPruneFloors = await GetColumnShapesAsync(connection, _names.ActivationPruneFloors, cancellationToken).ConfigureAwait(false);
+        CheckExact(activationPruneFloors, problems, _names.ActivationPruneFloors,
+        [
+            ("activation_id","TEXT",true,true),("definition_id","TEXT",true,false),("definition_version","INTEGER",true,false),
+            ("definition_checksum","BLOB",true,false),("terminal_generation","INTEGER",true,false),("terminal_control_checksum","BLOB",true,false),
+            ("terminal_receipt_checksum","BLOB",true,false),
+            ("occurrence_checksum","BLOB",false,false),("result_checksum","BLOB",false,false),
+            ("prune_authority_generation","INTEGER",true,false),("application_id","TEXT",true,false),("logical_store_id","TEXT",true,false),
+            ("store_instance_id","TEXT",true,false),("restore_epoch","INTEGER",true,false),("publication_authority_checksum","BLOB",true,false),
+            ("authority_checksum","BLOB",true,false),
+        ]);
+        Dictionary<string, ColumnShape> definitions = await GetColumnShapesAsync(connection, _names.SemanticActivationDefinitions, cancellationToken).ConfigureAwait(false);
+        Check(definitions, problems, _names.SemanticActivationDefinitions, "execution_enabled", "INTEGER", true, false);
         Dictionary<string, ColumnShape> slots = await GetColumnShapesAsync(connection, _names.SemanticActivationSlots, cancellationToken).ConfigureAwait(false);
         Check(slots, problems, _names.SemanticActivationSlots, "definition_id", "TEXT", true, true);
         Check(slots, problems, _names.SemanticActivationSlots, "binding_id", "BLOB", true, true);
@@ -1045,10 +1178,107 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
         Check(slots, problems, _names.SemanticActivationSlots, "slot_generation", "INTEGER", true, false);
         Check(slots, problems, _names.SemanticActivationSlots, "activation_id", "TEXT", false, false);
         Check(slots, problems, _names.SemanticActivationSlots, "authority_json", "BLOB", true, false);
+        Dictionary<string, ColumnShape> maintenance = await GetColumnShapesAsync(connection, _names.SemanticActivationMaintenance, cancellationToken).ConfigureAwait(false);
+        Check(maintenance, problems, _names.SemanticActivationMaintenance, "operation_kind", "INTEGER", true, false);
+        Check(maintenance, problems, _names.SemanticActivationMaintenance, "definition_id", "TEXT", true, false);
+        Check(maintenance, problems, _names.SemanticActivationMaintenance, "after_binding", "BLOB", false, false);
+        Check(maintenance, problems, _names.SemanticActivationMaintenance, "after_key", "BLOB", false, false);
+        Check(maintenance, problems, _names.SemanticActivationMaintenance, "completed_pages", "INTEGER", true, false);
+        Check(maintenance, problems, _names.SemanticActivationMaintenance, "rolling_checksum", "BLOB", true, false);
+        Check(maintenance, problems, _names.SemanticActivationMaintenance, "checkpoint_checksum", "BLOB", false, false);
+        Dictionary<string, ColumnShape> stage = await GetColumnShapesAsync(connection, _names.SemanticActivationRewriteStage, cancellationToken).ConfigureAwait(false);
+        Check(stage, problems, _names.SemanticActivationRewriteStage, "source_authority_json", "BLOB", true, false);
+        Check(stage, problems, _names.SemanticActivationRewriteStage, "source_checksum", "BLOB", true, false);
+        await CheckExactSemanticAuthorityTablesAsync(connection, problems, cancellationToken).ConfigureAwait(false);
         string index = _names.Prefix + "semantic_activation_live_idx";
         if (!await HasExactSemanticLiveIndexAsync(connection, index, cancellationToken).ConfigureAwait(false))
             problems.Add("index-shape:" + index);
         return problems.ToArray();
+
+        static void CheckExact(Dictionary<string, ColumnShape> actual, List<string> errors, string table,
+            (string Name,string Type,bool NotNull,bool Primary)[] expected)
+        {
+            if (actual.Count != expected.Length) { errors.Add("table-shape:" + table); return; }
+            foreach (var item in expected)
+                Check(actual, errors, table, item.Name, item.Type, item.NotNull, item.Primary);
+        }
+    }
+
+    private async ValueTask CheckExactSemanticAuthorityTablesAsync(SqliteConnection connection, List<string> problems,
+        CancellationToken token)
+    {
+        await Exact(_names.SemanticActivationDefinitions,
+        [
+            ("definition_id","TEXT",true,true),("definition_version","INTEGER",true,true),("definition_checksum","BLOB",true,false),
+            ("owner_generation","INTEGER",true,false),("application_id","TEXT",true,false),("definition_set_checksum","BLOB",true,false),
+            ("definition_json","BLOB",true,false),("execution_enabled","INTEGER",true,false),
+        ], ["definition_id","definition_version"]);
+        await Exact(_names.SemanticActivationScopes,
+        [
+            ("scope_kind","INTEGER",true,true),("seek_digest","BLOB",true,true),("binding_id","BLOB",true,false),("binding_json","BLOB",true,false),
+        ], ["scope_kind","seek_digest"]);
+        await Exact(_names.SemanticActivationSlots,
+        [
+            ("definition_id","TEXT",true,true),("binding_id","BLOB",true,true),("key_digest","BLOB",true,true),("state","INTEGER",true,false),
+            ("slot_generation","INTEGER",true,false),("activation_id","TEXT",false,false),("authority_json","BLOB",true,false),
+        ], ["definition_id","binding_id","key_digest"]);
+        await Exact(_names.SemanticActivationMaintenance,
+        [
+            ("request_scope","TEXT",true,true),("request_operation","TEXT",true,true),("request_key","TEXT",true,true),("request_fingerprint","BLOB",true,false),
+            ("maintenance_id","TEXT",true,false),("operation_kind","INTEGER",true,false),("definition_id","TEXT",true,false),("definition_version","INTEGER",true,false),
+            ("definition_checksum","BLOB",true,false),("disposition","INTEGER",true,false),("previous_generation","INTEGER",true,false),("resulting_generation","INTEGER",true,false),
+            ("examined_rows","INTEGER",true,false),("changed_rows","INTEGER",true,false),("canonical_bytes","INTEGER",true,false),("after_binding","BLOB",false,false),
+            ("after_key","BLOB",false,false),("completed_pages","INTEGER",true,false),("rolling_checksum","BLOB",true,false),("checkpoint_checksum","BLOB",false,false),
+            ("result_checksum","BLOB",false,false),("commit_checksum","BLOB",false,false),
+        ], ["request_scope","request_operation","request_key"]);
+        await Exact(_names.SemanticActivationMigrations,
+        [
+            ("migration_id","TEXT",true,true),("migration_version","INTEGER",true,true),("from_definition_id","TEXT",true,false),("from_version","INTEGER",true,false),
+            ("from_checksum","BLOB",true,false),("to_definition_id","TEXT",true,false),("to_version","INTEGER",true,false),("to_checksum","BLOB",true,false),
+            ("live_count","INTEGER",true,false),("retired_count","INTEGER",true,false),("absence_count","INTEGER",true,false),("negative_checksum","BLOB",true,false),
+            ("publication_generation","INTEGER",true,false),("receipt_checksum","BLOB",true,false),("authority_checksum","BLOB",true,false),
+        ], ["migration_id","migration_version"]);
+        await Exact(_names.SemanticActivationRecoveryFloors,
+        [
+            ("definition_id","TEXT",true,true),("binding_id","BLOB",true,true),("key_digest","BLOB",true,true),("state","INTEGER",true,false),
+            ("slot_generation","INTEGER",true,false),("authority_json","BLOB",true,false),("receipt_scope","TEXT",false,false),("receipt_operation","TEXT",false,false),
+            ("receipt_key","TEXT",false,false),("receipt_fingerprint","BLOB",false,false),("receipt_structural_digest","BLOB",false,false),("receipt_result_json","BLOB",false,false),
+        ], ["definition_id","binding_id","key_digest"]);
+        await Exact(_names.SemanticActivationRewriteStage,
+        [
+            ("maintenance_id","TEXT",true,true),("definition_id","TEXT",true,true),("binding_id","BLOB",true,true),("key_digest","BLOB",true,true),
+            ("state","INTEGER",true,false),("slot_generation","INTEGER",true,false),("activation_id","TEXT",false,false),("authority_json","BLOB",true,false),
+            ("source_authority_json","BLOB",true,false),("source_checksum","BLOB",true,false),
+        ], ["maintenance_id","definition_id","binding_id","key_digest"]);
+        await RequireSql(_names.SemanticActivationMaintenance,
+            "CHECK((DISPOSITION=3ANDCHECKPOINT_CHECKSUMISNOTNULLANDLENGTH(CHECKPOINT_CHECKSUM)=32ANDRESULT_CHECKSUMISNULLANDCOMMIT_CHECKSUMISNULL)OR(DISPOSITION<>3ANDCHECKPOINT_CHECKSUMISNULLANDLENGTH(RESULT_CHECKSUM)=32ANDLENGTH(COMMIT_CHECKSUM)=32))");
+        await RequireSql(_names.SemanticActivationRecoveryFloors,
+            "CHECK((RECEIPT_SCOPEISNULLANDRECEIPT_OPERATIONISNULLANDRECEIPT_KEYISNULLANDRECEIPT_FINGERPRINTISNULLANDRECEIPT_STRUCTURAL_DIGESTISNULLANDRECEIPT_RESULT_JSONISNULL)OR(RECEIPT_SCOPEISNOTNULLANDRECEIPT_OPERATIONISNOTNULLANDRECEIPT_KEYISNOTNULLANDLENGTH(RECEIPT_FINGERPRINT)=32ANDLENGTH(RECEIPT_STRUCTURAL_DIGEST)=32ANDRECEIPT_RESULT_JSONISNOTNULL))");
+        await RequireSql(_names.SemanticActivationMigrations, "CHECK(LENGTH(AUTHORITY_CHECKSUM)=32)");
+        await RequireSql(_names.SemanticActivationRewriteStage, "CHECK(LENGTH(SOURCE_CHECKSUM)=32)");
+
+        async ValueTask Exact(string table, (string Name,string Type,bool NotNull,bool Primary)[] expected, string[] primaryKey)
+        {
+            Dictionary<string, ColumnShape> shapes = await GetColumnShapesAsync(connection, table, token).ConfigureAwait(false);
+            if (shapes.Count != expected.Length) problems.Add("table-shape:" + table);
+            foreach (var column in expected) Check(shapes, problems, table, column.Name, column.Type, column.NotNull, column.Primary);
+            await using SqliteCommand command = connection.CreateCommand();
+            command.CommandText = $"PRAGMA table_info('{table.Replace("'", "''", StringComparison.Ordinal)}');";
+            var actual = new SortedDictionary<int,string>();
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
+            while (await reader.ReadAsync(token).ConfigureAwait(false)) if (reader.GetInt32(5) > 0) actual[reader.GetInt32(5)] = reader.GetString(1);
+            if (!actual.Values.SequenceEqual(primaryKey, StringComparer.Ordinal)) problems.Add("primary-key-shape:" + table);
+        }
+
+        async ValueTask RequireSql(string table, string required)
+        {
+            await using SqliteCommand command = connection.CreateCommand();
+            command.CommandText = "SELECT sql FROM sqlite_master WHERE type='table' AND name=$name;";
+            command.Parameters.AddWithValue("$name", table);
+            string? sql = await command.ExecuteScalarAsync(token).ConfigureAwait(false) as string;
+            string normalized = string.Concat((sql ?? string.Empty).Where(static value => !char.IsWhiteSpace(value))).ToUpperInvariant();
+            if (!normalized.Contains(required, StringComparison.Ordinal)) problems.Add("table-constraint:" + table);
+        }
     }
 
     private async ValueTask<bool> HasExactSemanticLiveIndexAsync(

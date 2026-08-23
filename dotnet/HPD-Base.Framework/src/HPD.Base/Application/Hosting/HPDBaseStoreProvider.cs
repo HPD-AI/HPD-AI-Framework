@@ -59,6 +59,8 @@ public sealed class BaseStoreProviderDescriptor
     public BaseTextProviderCapability? TextSearch { get; init; }
     /// <summary>Gets the provider's certified durable-activation envelope.</summary>
     public required BaseActivationProviderCapability Activations { get; init; }
+    /// <summary>Gets the provider's certified semantic-activation envelope.</summary>
+    public required BaseSemanticActivationCapability SemanticActivations { get; init; }
 }
 
 /// <summary>Represents one validated immutable authoritative store selection.</summary>
@@ -87,6 +89,7 @@ public sealed class HPDBaseStoreProvider
             RestoreModes = descriptor.Activations.RestoreModes.ToArray().ToImmutableArray(),
             CanonicalChecksum = descriptor.Activations.CanonicalChecksum.ToArray().ToImmutableArray(),
         };
+        SemanticActivations = BaseSemanticActivationCapabilityContract.Clone(descriptor.SemanticActivations);
         Installer = installer;
     }
 
@@ -112,6 +115,8 @@ public sealed class HPDBaseStoreProvider
     public BaseTextProviderCapability? TextSearch { get; }
     /// <summary>Gets the provider's certified durable-activation envelope.</summary>
     public BaseActivationProviderCapability Activations { get; }
+    /// <summary>Gets the provider's certified semantic-activation envelope.</summary>
+    public BaseSemanticActivationCapability SemanticActivations { get; }
     internal IHPDBaseStoreInstaller Installer { get; }
 }
 
@@ -133,7 +138,8 @@ public static class HPDBaseStoreProviderFactory
             || !BaseModuleMutationCapabilityContract.IsValid(descriptor.ModuleMutations)
             || descriptor.Capabilities.HasFlag(BaseStoreProviderCapabilities.CoLocatedTextSearch) != (descriptor.TextSearch is not null)
             || descriptor.TextSearch is not null && !ValidTextCapability(descriptor.TextSearch)
-            || !BaseActivationCapabilityContract.IsValid(descriptor.Activations))
+            || !BaseActivationCapabilityContract.IsValid(descriptor.Activations)
+            || !BaseSemanticActivationCapabilityContract.IsValid(descriptor.SemanticActivations))
             throw new InvalidOperationException("base.store.providerInvalid");
         const BaseStoreProviderCapabilities known = BaseStoreProviderCapabilities.Records | BaseStoreProviderCapabilities.AtomicMutations |
             BaseStoreProviderCapabilities.RequiredIndexes | BaseStoreProviderCapabilities.RelationalExecution |
@@ -172,6 +178,7 @@ public static class HPDBaseStoreProviderFactory
                 ExecutionClasses = descriptor.Activations.ExecutionClasses.ToArray().ToImmutableArray(),
                 CanonicalChecksum = descriptor.Activations.CanonicalChecksum.ToArray().ToImmutableArray(),
             },
+            SemanticActivations = BaseSemanticActivationCapabilityContract.Clone(descriptor.SemanticActivations),
         }, installer);
     }
 
@@ -258,6 +265,7 @@ public sealed class HPDBaseStoreInstallationContext
     private readonly BaseSubjectRetirementConsumerDefinition[] _retirementConsumers;
     private readonly BaseSubjectRetirementPolicy[] _retirementPolicies;
     private readonly BaseSemanticActivationKeyDefinition[] _semanticActivations;
+    private readonly BaseSemanticActivationMigrationDefinition[] _semanticActivationMigrations;
     private readonly string _applicationId;
     private readonly long _semanticActivationOwnerGeneration;
     private readonly byte[] _semanticActivationDefinitionSetChecksum;
@@ -274,6 +282,7 @@ public sealed class HPDBaseStoreInstallationContext
         BaseSubjectRetirementConsumerDefinition[]? retirementConsumers = null,
         BaseSubjectRetirementPolicy[]? retirementPolicies = null,
         BaseSemanticActivationKeyDefinition[]? semanticActivations = null,
+        BaseSemanticActivationMigrationDefinition[]? semanticActivationMigrations = null,
         string? applicationId = null,
         long semanticActivationOwnerGeneration = 0,
         ImmutableArray<byte> semanticActivationDefinitionSetChecksum = default)
@@ -289,6 +298,7 @@ public sealed class HPDBaseStoreInstallationContext
         _retirementConsumers = (retirementConsumers ?? []).Select(static value => BaseSubjectRetirementRegistry.Normalize(value)).ToArray();
         _retirementPolicies = (retirementPolicies ?? []).Select(static value => BaseSubjectRetirementRegistry.NormalizePolicy(value)).ToArray();
         _semanticActivations = (semanticActivations ?? []).Select(BaseSemanticActivationDefinitionContract.Seal).ToArray();
+        _semanticActivationMigrations = (semanticActivationMigrations ?? []).Select(BaseSemanticActivationMigrationContract.Seal).ToArray();
         _applicationId = applicationId is null ? string.Empty : new string(applicationId.AsSpan());
         _semanticActivationOwnerGeneration = semanticActivationOwnerGeneration;
         _semanticActivationDefinitionSetChecksum = semanticActivationDefinitionSetChecksum.IsDefault
@@ -297,7 +307,7 @@ public sealed class HPDBaseStoreInstallationContext
             && (string.IsNullOrEmpty(_applicationId) || _semanticActivationOwnerGeneration <= 0
                 || _semanticActivationDefinitionSetChecksum.Length != 32))
             throw new InvalidOperationException("base.semanticActivation.contractInvalid");
-        _schemaDigest = ComputeSchemaDigest(_collections, _subjects, _moduleMutations, _moduleGenerationCells, _lifecycleConsumers, _lifecycleInspectionAuthorities, _retirementConsumers, _retirementPolicies, _semanticActivations);
+        _schemaDigest = ComputeSchemaDigest(_collections, _subjects, _moduleMutations, _moduleGenerationCells, _lifecycleConsumers, _lifecycleInspectionAuthorities, _retirementConsumers, _retirementPolicies, _semanticActivations, _semanticActivationMigrations);
     }
     /// <summary>Gets the host service collection during the installation call.</summary>
     public IServiceCollection Services { get { ThrowIfCompleted(); return _services; } }
@@ -321,6 +331,8 @@ public sealed class HPDBaseStoreInstallationContext
     public IReadOnlyList<BaseSubjectRetirementPolicy> SubjectRetirementPolicies { get { ThrowIfCompleted(); return Array.AsReadOnly(_retirementPolicies.Select(static value => BaseSubjectRetirementRegistry.NormalizePolicy(value)).ToArray()); } }
     /// <summary>Gets the exact installed semantic activation definitions.</summary>
     public IReadOnlyList<BaseSemanticActivationKeyDefinition> SemanticActivations { get { ThrowIfCompleted(); return Array.AsReadOnly(_semanticActivations.Select(BaseSemanticActivationDefinitionContract.Seal).ToArray()); } }
+    /// <summary>Gets exact graph-owned semantic definition migrations.</summary>
+    public IReadOnlyList<BaseSemanticActivationMigrationDefinition> SemanticActivationMigrations { get { ThrowIfCompleted(); return Array.AsReadOnly(_semanticActivationMigrations.Select(BaseSemanticActivationMigrationContract.Seal).ToArray()); } }
     /// <summary>Gets the owning application identity for installed semantic activation authority.</summary>
     public string ApplicationId { get { ThrowIfCompleted(); return new string(_applicationId.AsSpan()); } }
     /// <summary>Gets the positive finalized semantic activation owner generation.</summary>
@@ -382,7 +394,8 @@ public sealed class HPDBaseStoreInstallationContext
         IEnumerable<BaseSubjectLifecycleInspectionAuthority>? lifecycleInspectionAuthorities = null,
         IEnumerable<BaseSubjectRetirementConsumerDefinition>? retirementConsumers = null,
         IEnumerable<BaseSubjectRetirementPolicy>? retirementPolicies = null,
-        IEnumerable<BaseSemanticActivationKeyDefinition>? semanticActivations = null)
+        IEnumerable<BaseSemanticActivationKeyDefinition>? semanticActivations = null,
+        IEnumerable<BaseSemanticActivationMigrationDefinition>? semanticActivationMigrations = null)
     {
         var canonical = new StringBuilder();
         foreach (CollectionDefinition collection in collections.OrderBy(static value => value.Id, StringComparer.Ordinal))
@@ -423,6 +436,9 @@ public sealed class HPDBaseStoreInstallationContext
         foreach (BaseSemanticActivationKeyDefinition semantic in (semanticActivations ?? []).OrderBy(static value => value.Id, StringComparer.Ordinal).ThenBy(static value => value.Version))
             canonical.Append("sa:").Append(semantic.Id).Append(':').Append(semantic.Version).Append(':')
                 .Append(Convert.ToHexStringLower(semantic.Checksum.AsSpan())).Append('\n');
+        foreach (BaseSemanticActivationMigrationDefinition migration in (semanticActivationMigrations ?? []).OrderBy(static value => value.Id, StringComparer.Ordinal).ThenBy(static value => value.Version))
+            canonical.Append("sam:").Append(migration.Id).Append(':').Append(migration.Version).Append(':')
+                .Append(Convert.ToHexStringLower(migration.Checksum.AsSpan())).Append('\n');
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString())));
     }
 

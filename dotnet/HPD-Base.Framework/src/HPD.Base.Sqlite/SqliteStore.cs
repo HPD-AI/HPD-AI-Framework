@@ -36,6 +36,7 @@ public static class SqliteStore
             },
             TextSearch = BaseTextPlatform.ProviderCapability(BaseTextProviderClass.CoLocatedTransactional),
             Activations = BaseActivationCapabilityContract.BuiltIn("hpd.base.sqlite.activations.v2"),
+            SemanticActivations = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true),
         }, new Installer(configure));
 
     private sealed class Installer(Action<HPDBaseSqliteOptions>? configure) : IHPDBaseStoreInstaller
@@ -55,6 +56,7 @@ public static class SqliteStore
                 options.ModuleMutations = context.ModuleMutations.ToArray();
                 options.ModuleGenerationCells = context.ModuleGenerationCells.ToArray();
                 options.SemanticActivations = context.SemanticActivations.ToArray();
+                options.SemanticActivationMigrations = context.SemanticActivationMigrations.ToArray();
                 options.SemanticActivationApplicationId = context.ApplicationId;
                 options.SemanticActivationOwnerGeneration = context.SemanticActivationOwnerGeneration;
                 options.SemanticActivationDefinitionSetChecksum = context.SemanticActivationDefinitionSetChecksum.ToArray();

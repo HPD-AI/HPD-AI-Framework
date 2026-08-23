@@ -52,6 +52,8 @@ internal sealed class InMemoryStoreState
     public BaseSemanticActivationStoreAuthorityRequirement? SemanticActivationAuthority { get; set; }
     /// <summary>Gets durable activation rows by deterministic activation identity.</summary>
     public Dictionary<string, InMemoryActivationRow> Activations { get; } = new(StringComparer.Ordinal);
+    /// <summary>Gets non-prunable exact L51 prune authority by activation identity.</summary>
+    public Dictionary<string, BaseActivationPruneEvidence> ActivationPruneFloors { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, SortedSet<string>> ActivationsByProtectedScope { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets durable executor incarnations by application/host/process key.</summary>
     public Dictionary<string, InMemoryExecutorRow> Executors { get; } = new(StringComparer.Ordinal);
@@ -148,6 +150,17 @@ internal sealed class InMemoryStoreState
         };
         foreach ((string key, InMemoryActivationRow activation) in Activations)
             clone.Activations.Add(key, activation.DeepClone());
+        foreach ((string key, BaseActivationPruneEvidence evidence) in ActivationPruneFloors)
+            clone.ActivationPruneFloors.Add(key, evidence with
+            {
+                Definition = evidence.Definition with { Checksum = evidence.Definition.Checksum.ToArray().ToImmutableArray() },
+                TerminalControlChecksum = evidence.TerminalControlChecksum.ToArray().ToImmutableArray(),
+                TerminalReceiptChecksum = evidence.TerminalReceiptChecksum.ToArray().ToImmutableArray(),
+                OccurrenceChecksum = evidence.OccurrenceChecksum?.ToArray().ToImmutableArray(),
+                ResultChecksum = evidence.ResultChecksum?.ToArray().ToImmutableArray(),
+                PublicationAuthorityChecksum = evidence.PublicationAuthorityChecksum.ToArray().ToImmutableArray(),
+                Checksum = evidence.Checksum.ToArray().ToImmutableArray(),
+            });
         foreach ((string key, SortedSet<string> activationIds) in ActivationsByProtectedScope)
             clone.ActivationsByProtectedScope.Add(key, new SortedSet<string>(activationIds, StringComparer.Ordinal));
         foreach ((string key, InMemoryExecutorRow executor) in Executors)

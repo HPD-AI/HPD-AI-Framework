@@ -337,7 +337,8 @@ internal sealed partial class InMemoryRecordStore
         BaseActivationPruneRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (request.Take is < 1 or > 256 || !ValidateLimits(request.Limits) || !AcceptActivationTime(request.AcceptedTime))
+        if (request.Take is < 1 or > 256 || !ValidateLimits(request.Limits) || request.Take > request.Limits.MaximumCandidates
+            || !AcceptActivationTime(request.AcceptedTime))
             return ActivationFailure<BaseActivationPrunePage>("base.activation.invalid", OperationStatus.ValidationFailed, ErrorCategory.Validation);
         await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -347,8 +348,6 @@ internal sealed partial class InMemoryRecordStore
                 HPDBaseJsonSerializerContext.Default.BaseActivationPrunePage,
                 static value => value with { Disposition = BaseMutationRequestDisposition.Duplicate },
                 out OperationResult<BaseActivationPrunePage>? replay)) return replay;
-            if (current.ActivationReceipts.Count != 0)
-                return ActivationFailure<BaseActivationPrunePage>("base.activation.removalBlocked", OperationStatus.Conflict, ErrorCategory.Conflict);
             string[] candidates = current.Activations.Values.Where(row => row.State == BaseActivationState.Disposed
                 && row.Payload.Definition.Id == request.Definition.Id && row.Payload.Definition.Version == request.Definition.Version
                 && CryptographicOperations.FixedTimeEquals(row.Payload.Definition.Checksum.AsSpan(), request.Definition.Checksum.AsSpan())
@@ -356,13 +355,47 @@ internal sealed partial class InMemoryRecordStore
                 && (request.AfterActivationId is null || string.CompareOrdinal(row.Payload.ActivationId, request.AfterActivationId) > 0))
                 .Select(static row => row.Payload.ActivationId).Order(StringComparer.Ordinal).Take(request.Take + 1).ToArray();
             bool completed = candidates.Length <= request.Take; string[] page = candidates.Take(request.Take).ToArray();
-            foreach (string id in page) { next.Activations.Remove(id); foreach (SortedSet<string> index in next.ActivationsByProtectedScope.Values) index.Remove(id); }
-            if (page.Length != 0) next.ActivationIndexGeneration = checked(next.ActivationIndexGeneration + 1);
+            long resultingGeneration = page.Length == 0 ? next.ActivationIndexGeneration : checked(next.ActivationIndexGeneration + 1);
+            var evidence = ImmutableArray.CreateBuilder<BaseActivationPruneEvidence>(page.Length);
+            foreach (string id in page)
+            {
+                InMemoryActivationRow row = next.Activations[id];
+                if (row.Effect is not null || row.Claim is not null || row.TerminalReceiptChecksum is not { Length: 32 }
+                    || !CryptographicOperations.FixedTimeEquals(row.ControlChecksum,
+                        ControlChecksum(id, row.Generation, BaseActivationState.Disposed)))
+                    return ActivationFailure<BaseActivationPrunePage>("base.activation.removalBlocked", OperationStatus.Conflict, ErrorCategory.Conflict);
+                ImmutableArray<byte>? occurrence = row.OccurrenceId is not null && next.ScheduleOccurrences.TryGetValue(row.OccurrenceId, out BaseScheduleOccurrenceFact? fact)
+                    ? fact.Checksum.ToArray().ToImmutableArray() : null;
+                byte[] publication = SHA256.HashData(Encoding.UTF8.GetBytes(
+                    $"base.activation.publicationAuthority.v1\0{request.ApplicationId}\n{_options.StoreId}\n{_options.StoreId}\n0\n{resultingGeneration}"));
+                var item = new BaseActivationPruneEvidence
+                {
+                    ActivationId = id, Definition = row.Payload.Definition with { Checksum = row.Payload.Definition.Checksum.ToArray().ToImmutableArray() },
+                    TerminalGeneration = row.Generation, TerminalControlChecksum = row.ControlChecksum.ToImmutableArray(),
+                    TerminalReceiptChecksum = row.TerminalReceiptChecksum.ToImmutableArray(),
+                    OccurrenceChecksum = occurrence, ResultChecksum = row.CanonicalResult is null ? null : SHA256.HashData(row.CanonicalResult).ToImmutableArray(),
+                    PruneAuthorityGeneration = resultingGeneration, ApplicationId = request.ApplicationId, LogicalStoreId = _options.StoreId,
+                    StoreInstanceId = _options.StoreId, RestoreEpoch = 0, PublicationAuthorityChecksum = publication.ToImmutableArray(), Checksum = [],
+                };
+                item = item with { Checksum = BaseActivationPruneEvidenceContract.Checksum(item) };
+                next.ActivationPruneFloors.Add(id, item); evidence.Add(item);
+                next.Activations.Remove(id); foreach (SortedSet<string> index in next.ActivationsByProtectedScope.Values) index.Remove(id);
+            }
+            next.ActivationIndexGeneration = resultingGeneration;
+            long evidenceBytes = 0;
+            foreach (BaseActivationPruneEvidence item in evidence) evidenceBytes = checked(evidenceBytes + BaseActivationPruneEvidenceContract.MeasureCanonicalBytes(item));
+            long transientBytes = checked(evidenceBytes + candidates.Sum(static id => 4L + Encoding.UTF8.GetByteCount(id)));
+            int indexOperations = checked(1 + page.Length * 2);
+            if (candidates.Length > request.Limits.MaximumCandidates || evidenceBytes > request.Limits.MaximumEvidenceBytes
+                || transientBytes > request.Limits.MaximumTransientBytes || indexOperations > request.Limits.MaximumIndexOperations
+                || request.Limits.MaximumReadIntervals < 1)
+                return ActivationFailure<BaseActivationPrunePage>("base.activation.budgetExceeded", OperationStatus.ValidationFailed, ErrorCategory.Validation);
             var result = new BaseActivationPrunePage
             {
-                ActivationIds = page.ToImmutableArray(), NextActivationId = completed || page.Length == 0 ? null : page[^1],
+                Items = evidence.MoveToImmutable(), NextActivationId = completed || page.Length == 0 ? null : page[^1],
                 Completed = completed, Accounting = EmptyActivationAccounting with
-                { Candidates = candidates.Length, Comparisons = candidates.Length, IndexOperations = page.Length },
+                { Candidates = candidates.Length, Comparisons = candidates.Length, IndexOperations = indexOperations,
+                    ReadIntervals = 1, EvidenceBytes = evidenceBytes, TransientBytes = transientBytes },
                 Disposition = BaseMutationRequestDisposition.Committed,
             };
             WriteActivationReceipt(next, request.Identity, "activation-pruned", result,

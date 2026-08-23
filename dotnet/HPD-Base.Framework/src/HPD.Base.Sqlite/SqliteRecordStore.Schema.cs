@@ -558,46 +558,74 @@ INSERT OR IGNORE INTO {_names.ProviderState}(key,value) VALUES('subject_scope_pr
                 throw new InvalidOperationException("base.moduleMutation.schemaDrift");
         }
 
+        if (_options.SemanticActivationOwnerGeneration > 0)
+        {
+            await using SqliteCommand initializeSemanticAuthority = connection.CreateCommand();
+            initializeSemanticAuthority.CommandTimeout = TimeoutSeconds();
+            initializeSemanticAuthority.CommandText = $"UPDATE {_names.ProviderState} SET value=$generation WHERE key='semantic_activation_authority_generation' AND CAST(value AS INTEGER)=0;";
+            initializeSemanticAuthority.Parameters.AddWithValue("$generation", _options.SemanticActivationOwnerGeneration);
+            await initializeSemanticAuthority.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            await using SqliteCommand initializeSemanticChecksum = connection.CreateCommand();
+            initializeSemanticChecksum.CommandTimeout = TimeoutSeconds();
+            initializeSemanticChecksum.CommandText = $"UPDATE {_names.ProviderState} SET value=$checksum WHERE key='semantic_activation_definition_set_checksum' AND value='';";
+            initializeSemanticChecksum.Parameters.AddWithValue("$checksum", Convert.ToHexStringLower(_options.SemanticActivationDefinitionSetChecksum));
+            await initializeSemanticChecksum.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         var installedSemantic = _options.SemanticActivations.Select(static value => (value.Id, value.Version)).ToHashSet();
         await using (SqliteCommand existing = connection.CreateCommand())
         {
             existing.CommandTimeout = TimeoutSeconds();
-            existing.CommandText = $"SELECT definition_id,definition_version FROM {_names.SemanticActivationDefinitions} ORDER BY definition_id COLLATE BINARY,definition_version;";
+            existing.CommandText = $"SELECT definition_id,definition_version,definition_checksum,execution_enabled FROM {_names.SemanticActivationDefinitions} ORDER BY definition_id COLLATE BINARY,definition_version;";
             await using SqliteDataReader reader = await existing.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-            var removed = new List<(string Id, int Version)>();
+            var removed = new List<(string Id, int Version, byte[] Checksum, bool Enabled)>();
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
                 if (!installedSemantic.Contains((reader.GetString(0), reader.GetInt32(1))))
-                    removed.Add((reader.GetString(0), reader.GetInt32(1)));
+                    removed.Add((reader.GetString(0), reader.GetInt32(1), (byte[])reader[2], reader.GetInt32(3) == 1));
             await reader.DisposeAsync().ConfigureAwait(false);
-            foreach ((string id, int version) in removed)
+            foreach ((string id, int version, byte[] checksum, bool enabled) in removed)
             {
-                await using var retained = connection.CreateCommand();
-                retained.CommandTimeout = TimeoutSeconds();
-                retained.CommandText = $"SELECT 1 FROM {_names.SemanticActivationSlots} WHERE definition_id=$id LIMIT 1;";
-                retained.Parameters.AddWithValue("$id", id);
-                if (await retained.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is not null)
-                    throw new InvalidOperationException("base.semanticActivation.removalRequired");
-                await using var remove = connection.CreateCommand();
-                remove.CommandTimeout = TimeoutSeconds();
-                remove.CommandText = $"DELETE FROM {_names.SemanticActivationDefinitions} WHERE definition_id=$id AND definition_version=$version;";
-                remove.Parameters.AddWithValue("$id", id); remove.Parameters.AddWithValue("$version", version);
-                if (await remove.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                if (!enabled) continue;
+                bool admitted = _options.SemanticActivationMigrations.Any(migration => migration.From.Id == id
+                    && migration.From.Version == version
+                    && CryptographicOperations.FixedTimeEquals(migration.From.Checksum.AsSpan(), checksum));
+                if (!admitted) throw new InvalidOperationException("base.semanticActivation.removalRequired");
+                await using SqliteCommand close = connection.CreateCommand();
+                close.CommandTimeout = TimeoutSeconds();
+                close.CommandText = $"UPDATE {_names.SemanticActivationDefinitions} SET execution_enabled=0 WHERE definition_id=$id AND definition_version=$version AND definition_checksum=$checksum;";
+                close.Parameters.AddWithValue("$id", id); close.Parameters.AddWithValue("$version", version);
+                close.Parameters.Add("$checksum", SqliteType.Blob).Value = checksum;
+                if (await close.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
                     throw new InvalidOperationException("base.semanticActivation.schemaDrift");
             }
         }
         foreach (BaseSemanticActivationKeyDefinition definition in _options.SemanticActivations
             .OrderBy(static value => value.Id, StringComparer.Ordinal).ThenBy(static value => value.Version))
         {
+            BaseSemanticActivationMigrationDefinition? transition = _options.SemanticActivationMigrations.SingleOrDefault(value =>
+                value.To.Id == definition.Id && value.To.Version == definition.Version
+                && value.To.Checksum.AsSpan().SequenceEqual(definition.Checksum.AsSpan()));
+            bool migrationPublished = false;
+            if (transition is not null)
+            {
+                await using SqliteCommand publication = connection.CreateCommand();
+                publication.CommandTimeout = TimeoutSeconds();
+                publication.CommandText = $"SELECT 1 FROM {_names.SemanticActivationMigrations} WHERE migration_id=$id AND migration_version=$version AND authority_checksum IS NOT NULL;";
+                publication.Parameters.AddWithValue("$id", transition.Id);
+                publication.Parameters.AddWithValue("$version", transition.Version);
+                migrationPublished = await publication.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is not null;
+            }
             byte[] json = JsonSerializer.SerializeToUtf8Bytes(definition, HPDBaseJsonSerializerContext.Default.BaseSemanticActivationKeyDefinition);
             await using SqliteCommand command = connection.CreateCommand();
             command.CommandTimeout = TimeoutSeconds();
-            command.CommandText = $"INSERT INTO {_names.SemanticActivationDefinitions}(definition_id,definition_version,definition_checksum,owner_generation,application_id,definition_set_checksum,definition_json) VALUES($id,$version,$checksum,$generation,$application,$set,$json) ON CONFLICT(definition_id,definition_version) DO UPDATE SET definition_checksum=excluded.definition_checksum,owner_generation=excluded.owner_generation,application_id=excluded.application_id,definition_set_checksum=excluded.definition_set_checksum,definition_json=excluded.definition_json WHERE definition_checksum=excluded.definition_checksum AND application_id=excluded.application_id;";
+            command.CommandText = $"INSERT INTO {_names.SemanticActivationDefinitions}(definition_id,definition_version,definition_checksum,owner_generation,application_id,definition_set_checksum,definition_json,execution_enabled) VALUES($id,$version,$checksum,$generation,$application,$set,$json,$enabled) ON CONFLICT(definition_id,definition_version) DO UPDATE SET definition_checksum=excluded.definition_checksum,owner_generation=excluded.owner_generation,application_id=excluded.application_id,definition_set_checksum=excluded.definition_set_checksum,definition_json=excluded.definition_json,execution_enabled=$enabled WHERE definition_checksum=excluded.definition_checksum AND application_id=excluded.application_id;";
             command.Parameters.AddWithValue("$id", definition.Id); command.Parameters.AddWithValue("$version", definition.Version);
             command.Parameters.Add("$checksum", SqliteType.Blob).Value = definition.Checksum.ToArray();
             command.Parameters.AddWithValue("$generation", _options.SemanticActivationOwnerGeneration);
             command.Parameters.AddWithValue("$application", _options.SemanticActivationApplicationId);
             command.Parameters.Add("$set", SqliteType.Blob).Value = _options.SemanticActivationDefinitionSetChecksum;
             command.Parameters.Add("$json", SqliteType.Blob).Value = json;
+            command.Parameters.AddWithValue("$enabled", transition is null || migrationPublished ? 1 : 0);
             if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
                 throw new InvalidOperationException("base.semanticActivation.schemaDrift");
         }

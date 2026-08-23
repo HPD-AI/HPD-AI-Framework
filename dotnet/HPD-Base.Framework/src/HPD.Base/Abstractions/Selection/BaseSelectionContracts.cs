@@ -259,6 +259,8 @@ public sealed record BaseAtomicMutationAuthorityRequirement
     public required long SchemaGeneration { get; init; }
     /// <summary>Gets exact collection generations in ordinal collection-ID order.</summary>
     public required ImmutableArray<BaseCollectionGenerationRequirement> Collections { get; init; }
+    /// <summary>Gets current provider-owned semantic activation authority when installed.</summary>
+    public BaseSemanticActivationStoreAuthorityRequirement? SemanticActivation { get; init; }
 }
 
 /// <summary>Returns transaction-local evidence for one coherent multi-collection authority.</summary>

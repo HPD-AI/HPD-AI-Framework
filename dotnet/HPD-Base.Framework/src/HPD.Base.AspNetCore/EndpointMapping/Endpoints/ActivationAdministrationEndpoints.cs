@@ -203,7 +203,7 @@ internal static class ActivationAdministrationEndpoints
         }
         await Results.Json(new BaseActivationRemovalHttpResult
         {
-            ActivationIds = page.ActivationIds, NextActivationId = page.NextActivationId,
+            ActivationIds = page.Items.Select(static item => item.ActivationId).ToImmutableArray(), NextActivationId = page.NextActivationId,
             Completed = page.Completed, Disposition = page.Disposition,
         }, BaseActivationAdministrationJsonContext.Default.BaseActivationRemovalHttpResult).ExecuteAsync(context).ConfigureAwait(false);
     }
