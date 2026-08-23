@@ -483,6 +483,12 @@ public sealed partial class SqliteRecordStore
             "retirement-acknowledgements",
             "retirement-terminals",
             "retirement-publications",
+            "semantic-scopes",
+            "semantic-live-slots",
+            "semantic-retired-slots",
+            "semantic-absence-slots",
+            "semantic-retired-floors",
+            "semantic-absence-floors",
         ];
 
         private static readonly string[] ConsumerRemovalDomains = ["retirement-barriers", "delivery-memberships", "consumer-checkpoints"];
@@ -882,6 +888,12 @@ WHERE s.source_rowid>$after ORDER BY s.source_rowid LIMIT $take;
             6 => owner._names.SubjectRetirementAcknowledgements,
             7 => owner._names.SubjectRetirementTerminals,
             8 => owner._names.SubjectRetirementPublications,
+            9 => owner._names.SemanticActivationScopes,
+            10 => owner._names.SemanticActivationSlots,
+            11 => owner._names.SemanticActivationSlots,
+            12 => owner._names.SemanticActivationSlots,
+            13 => owner._names.SemanticActivationRecoveryFloors,
+            14 => owner._names.SemanticActivationRecoveryFloors,
             _ => throw new InvalidDataException(BaseSubjectErrorCodes.LifecycleProviderContractInvalid),
         };
 
@@ -901,6 +913,18 @@ WHERE s.source_rowid>$after ORDER BY s.source_rowid LIMIT $take;
                 || !byte.TryParse(request.ReplacementScopeProtectionKeyId, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out byte replacement)
                 || replacement == owner._subjectScopeProtectionKey
                 || !owner._tokenProtector.CanIssueWithKey(replacement))
+                return Failure(BaseSubjectErrorCodes.ScopeProtectionRotationConflict, OperationStatus.Conflict, ErrorCategory.Conflict);
+            bool semanticInstalled = owner._options.SemanticActivations.Length != 0;
+            if (semanticInstalled)
+            {
+                long semanticGeneration = await owner.ReadSemanticAuthorityGenerationAsync(connection, null, cancellationToken).ConfigureAwait(false);
+                if (request.ExpectedSemanticActivationAuthorityGeneration != semanticGeneration
+                    || request.ExpectedSemanticActivationDefinitionSetChecksum.Length != 32
+                    || !CryptographicOperations.FixedTimeEquals(request.ExpectedSemanticActivationDefinitionSetChecksum.AsSpan(), owner._options.SemanticActivationDefinitionSetChecksum))
+                    return Failure(BaseSubjectErrorCodes.ScopeProtectionRotationConflict, OperationStatus.Conflict, ErrorCategory.Conflict);
+            }
+            else if (request.ExpectedSemanticActivationAuthorityGeneration is not null
+                || !request.ExpectedSemanticActivationDefinitionSetChecksum.IsDefaultOrEmpty)
                 return Failure(BaseSubjectErrorCodes.ScopeProtectionRotationConflict, OperationStatus.Conflict, ErrorCategory.Conflict);
             OperationResult<BaseSubjectLifecycleMaintenanceResult>? initialization = await InitializeRotationAsync(connection, request, cancellationToken).ConfigureAwait(false);
             if (initialization is not null)
@@ -932,8 +956,18 @@ WHERE s.source_rowid>$after ORDER BY s.source_rowid LIMIT $take;
                 || !string.Equals(scopeKeyId, request.ExpectedScopeProtectionKeyId, StringComparison.Ordinal))
                 return Failure(BaseSubjectErrorCodes.ScopeProtectionRotationConflict, OperationStatus.Conflict, ErrorCategory.Conflict);
 
+            long? resultingSemanticGeneration = null;
+            if (semanticInstalled)
+            {
+                long currentSemanticGeneration = await owner.ReadSemanticAuthorityGenerationAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+                if (currentSemanticGeneration != request.ExpectedSemanticActivationAuthorityGeneration)
+                    return Failure(BaseSubjectErrorCodes.ScopeProtectionRotationConflict, OperationStatus.Conflict, ErrorCategory.Conflict);
+                resultingSemanticGeneration = checked(currentSemanticGeneration + 1);
+            }
             RotationEvidence evidence = await ValidateAndPublishRotationAsync(
-                connection, transaction, replacement, request.PageSize, cancellationToken).ConfigureAwait(false);
+                connection, transaction, replacement, request.ExpectedScopeProtectionKeyId,
+                request.ExpectedRestoreEpoch, request.ExpectedSchemaGeneration,
+                request.PageSize, resultingSemanticGeneration, cancellationToken).ConfigureAwait(false);
             if (evidence.Examined != completed.ExaminedCount
                 || evidence.Changed != completed.ChangedCount
                 || evidence.CanonicalBytes != completed.CanonicalBytes
@@ -963,6 +997,7 @@ UPDATE {owner._names.SubjectLifecycleCheckpoints} SET projection_generation=proj
 UPDATE {owner._names.ProviderState} SET value=$delivery WHERE key='subject_lifecycle_delivery_epoch';
 UPDATE {owner._names.ProviderState} SET value=$generation WHERE key='subject_scope_protection_generation';
 UPDATE {owner._names.ProviderState} SET value=$key WHERE key='subject_scope_protection_key_id';
+UPDATE {owner._names.ProviderState} SET value=$semanticGeneration WHERE key='semantic_activation_authority_generation' AND $semanticGeneration IS NOT NULL;
 UPDATE {owner._names.ProviderState} SET value=CAST(value AS INTEGER)+1 WHERE key='subject_retirement_position';
 DELETE FROM {owner._names.SubjectLifecycleScopeStage};
 DELETE FROM {owner._names.SubjectLifecycleMaintenance} WHERE singleton=1;
@@ -970,6 +1005,7 @@ DELETE FROM {owner._names.SubjectLifecycleMaintenance} WHERE singleton=1;
                 publish.Parameters.AddWithValue("$delivery", nextDelivery.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 publish.Parameters.AddWithValue("$generation", nextScopeGeneration.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 publish.Parameters.AddWithValue("$key", replacement.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                publish.Parameters.AddWithValue("$semanticGeneration", (object?)resultingSemanticGeneration?.ToString(CultureInfo.InvariantCulture) ?? DBNull.Value);
                 await publish.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 
@@ -1065,13 +1101,43 @@ DELETE FROM {owner._names.SubjectLifecycleMaintenance} WHERE singleton=1;
             await using SqliteCommand select = connection.CreateCommand();
             select.Transaction = transaction;
             select.CommandTimeout = owner.TimeoutSeconds();
-            select.CommandText = $"SELECT rowid,scope_kind,scope_index_digest,protected_scope_value FROM {table} WHERE rowid>$after{(current.DomainOrdinal==8?" AND scope_kind IS NOT NULL":string.Empty)} ORDER BY rowid LIMIT $take;";
+            select.CommandText = current.DomainOrdinal switch
+            {
+                9 => $"SELECT rowid,binding_json FROM {table} WHERE rowid>$after ORDER BY rowid LIMIT $take;",
+                10 => $"SELECT rowid,authority_json FROM {table} WHERE rowid>$after AND state=1 ORDER BY rowid LIMIT $take;",
+                11 => $"SELECT rowid,authority_json FROM {table} WHERE rowid>$after AND state=2 ORDER BY rowid LIMIT $take;",
+                12 => $"SELECT rowid,authority_json FROM {table} WHERE rowid>$after AND state=3 ORDER BY rowid LIMIT $take;",
+                13 => $"SELECT rowid,authority_json FROM {table} WHERE rowid>$after AND state=2 ORDER BY rowid LIMIT $take;",
+                14 => $"SELECT rowid,authority_json FROM {table} WHERE rowid>$after AND state=3 ORDER BY rowid LIMIT $take;",
+                _ => $"SELECT rowid,scope_kind,scope_index_digest,protected_scope_value FROM {table} WHERE rowid>$after{(current.DomainOrdinal==8?" AND scope_kind IS NOT NULL":string.Empty)} ORDER BY rowid LIMIT $take;",
+            };
             select.Parameters.AddWithValue("$after", current.LastRowId);
             select.Parameters.AddWithValue("$take", request.PageSize);
             var rows = new List<(long RowId, BaseProtectedSubjectScope Scope)>();
             await using (SqliteDataReader reader = await select.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
                 while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-                    rows.Add((reader.GetInt64(0), new BaseProtectedSubjectScope { Kind = (BaseSubjectScopeKind)reader.GetInt32(1), IndexDigest = (byte[])reader.GetValue(2), ProtectedCanonicalValue = (byte[])reader.GetValue(3) }));
+                {
+                    if (current.DomainOrdinal == 9)
+                    {
+                        BaseSemanticActivationScopeBinding binding = JsonSerializer.Deserialize((byte[])reader.GetValue(1), HPDBaseJsonSerializerContext.Default.BaseSemanticActivationScopeBinding)
+                            ?? throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+                        rows.Add((reader.GetInt64(0), new BaseProtectedSubjectScope { Kind = binding.Kind, IndexDigest = binding.SeekDigest.ToArray(), ProtectedCanonicalValue = binding.ProtectedCanonicalScope.ToArray() }));
+                    }
+                    else if (current.DomainOrdinal == 10)
+                    {
+                        BaseSemanticActivationLiveAuthority live = JsonSerializer.Deserialize((byte[])reader.GetValue(1), HPDBaseJsonSerializerContext.Default.BaseSemanticActivationLiveAuthority)
+                            ?? throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+                        rows.Add((reader.GetInt64(0), new BaseProtectedSubjectScope { Kind = live.ScopeBinding.Kind, IndexDigest = live.ScopeBinding.SeekDigest.ToArray(), ProtectedCanonicalValue = live.ScopeBinding.ProtectedCanonicalScope.ToArray() }));
+                    }
+                    else if (current.DomainOrdinal is >= 11 and <= 14)
+                    {
+                        byte[] authority = (byte[])reader.GetValue(1);
+                        byte[] checksum = ReadNegativeAuthorityChecksum(authority, current.DomainOrdinal is 11 or 13);
+                        rows.Add((reader.GetInt64(0), new BaseProtectedSubjectScope
+                        { Kind = BaseSubjectScopeKind.Global, IndexDigest = checksum, ProtectedCanonicalValue = authority }));
+                    }
+                    else rows.Add((reader.GetInt64(0), new BaseProtectedSubjectScope { Kind = (BaseSubjectScopeKind)reader.GetInt32(1), IndexDigest = (byte[])reader.GetValue(2), ProtectedCanonicalValue = (byte[])reader.GetValue(3) }));
+                }
 
             long examined = current.ExaminedCount;
             long changed = current.ChangedCount;
@@ -1080,9 +1146,62 @@ DELETE FROM {owner._names.SubjectLifecycleMaintenance} WHERE singleton=1;
             byte[] rolling = Convert.FromHexString(current.RollingChecksum);
             foreach ((long rowId, BaseProtectedSubjectScope prior) in rows)
             {
-                BaseOwnedSubjectScopeEvidence logical = owner._subjectScopes!.Unprotect(prior)
-                    ?? throw new InvalidDataException(BaseSubjectErrorCodes.LifecycleProviderContractInvalid);
-                BaseProtectedSubjectScope next = owner._subjectScopes.Protect(logical, replacement);
+                if (current.DomainOrdinal == 9)
+                {
+                    BaseSemanticActivationScopeBinding binding = await ReadSemanticScopeBindingAsync(
+                        connection, transaction, rowId, cancellationToken).ConfigureAwait(false);
+                    ValidateSemanticScopeBinding(binding, request.ExpectedScopeProtectionKeyId);
+                }
+                else if (current.DomainOrdinal == 10)
+                {
+                    BaseSemanticActivationLiveAuthority live = await ReadSemanticLiveAuthorityAsync(
+                        connection, transaction, rowId, cancellationToken).ConfigureAwait(false);
+                    await ValidateSemanticLiveRotationSourceAsync(connection, transaction, live,
+                        request.ExpectedSemanticActivationAuthorityGeneration
+                            ?? throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt),
+                        request.ExpectedSemanticActivationDefinitionSetChecksum,
+                        request.ExpectedRestoreEpoch, request.ExpectedSchemaGeneration,
+                        request.ExpectedScopeProtectionKeyId, directoryAlreadyRotated: false,
+                        cancellationToken).ConfigureAwait(false);
+                }
+                else if (current.DomainOrdinal is 13 or 14)
+                {
+                    await ValidateSemanticRecoveryFloorRotationSourceAsync(connection, transaction, rowId,
+                        current.DomainOrdinal == 13,
+                        request.ExpectedSemanticActivationAuthorityGeneration
+                            ?? throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt),
+                        request.ExpectedSemanticActivationDefinitionSetChecksum.ToArray(),
+                        request.ExpectedRestoreEpoch, request.ExpectedSchemaGeneration, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                else if (current.DomainOrdinal is 11 or 12)
+                {
+                    await ValidateSemanticNegativeSlotRotationSourceAsync(connection, transaction, rowId,
+                        current.DomainOrdinal == 11,
+                        request.ExpectedSemanticActivationAuthorityGeneration
+                            ?? throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt),
+                        request.ExpectedSemanticActivationDefinitionSetChecksum.ToArray(),
+                        request.ExpectedRestoreEpoch, request.ExpectedSchemaGeneration, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                BaseProtectedSubjectScope next;
+                if (current.DomainOrdinal is >= 11 and <= 14)
+                {
+                    (byte[] checksum, byte[] authority) = RotateNegativeAuthority(prior.ProtectedCanonicalValue,
+                        current.DomainOrdinal is 11 or 13,
+                        request.ExpectedSemanticActivationAuthorityGeneration
+                            ?? throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt),
+                        request.ExpectedSemanticActivationDefinitionSetChecksum);
+                    next = new BaseProtectedSubjectScope { Kind = prior.Kind, IndexDigest = checksum, ProtectedCanonicalValue = authority };
+                }
+                else
+                {
+                    BaseOwnedSubjectScopeEvidence logical = owner._subjectScopes!.Unprotect(prior)
+                        ?? throw new InvalidDataException(BaseSubjectErrorCodes.LifecycleProviderContractInvalid);
+                    next = current.DomainOrdinal == 10
+                        ? await ReadStagedSemanticScopeProtectionAsync(connection, transaction, rowId, cancellationToken).ConfigureAwait(false)
+                        : owner._subjectScopes.Protect(logical, replacement);
+                }
                 byte[] canonical = RotationCanonicalBytes(current.DomainOrdinal, rowId, prior, next);
                 rolling = SHA256.HashData([.. rolling, .. canonical]);
                 checked { examined++; changed++; canonicalBytes += canonical.LongLength; }
@@ -1120,11 +1239,91 @@ DELETE FROM {owner._names.SubjectLifecycleMaintenance} WHERE singleton=1;
             return rows.Count != 0;
         }
 
+        private async ValueTask<BaseProtectedSubjectScope> ReadStagedSemanticScopeProtectionAsync(
+            SqliteConnection connection, SqliteTransaction transaction, long liveRotationId, CancellationToken cancellationToken)
+        {
+            await using SqliteCommand command = connection.CreateCommand();
+            command.Transaction = transaction; command.CommandTimeout = owner.TimeoutSeconds();
+            command.CommandText = $"""
+SELECT s.scope_kind,st.replacement_digest,st.replacement_value
+FROM {owner._names.SemanticActivationSlots} l
+JOIN {owner._names.SemanticActivationScopes} s ON s.binding_id=l.binding_id
+JOIN {owner._names.SubjectLifecycleScopeStage} st ON st.domain_ordinal=9 AND st.source_rowid=s.rotation_id
+WHERE l.rotation_id=$rotation;
+""";
+            command.Parameters.AddWithValue("$rotation", liveRotationId);
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+            return new BaseProtectedSubjectScope
+            {
+                Kind = (BaseSubjectScopeKind)reader.GetInt32(0),
+                IndexDigest = (byte[])reader.GetValue(1),
+                ProtectedCanonicalValue = (byte[])reader.GetValue(2),
+            };
+        }
+
+        private static byte[] ReadNegativeAuthorityChecksum(byte[] authority, bool retired) => retired
+            ? (JsonSerializer.Deserialize(authority, HPDBaseJsonSerializerContext.Default.BaseSemanticActivationRetirementAuthority)
+                ?? throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt)).Checksum.ToArray()
+            : (JsonSerializer.Deserialize(authority, HPDBaseJsonSerializerContext.Default.BaseSemanticActivationAbsenceAuthority)
+                ?? throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt)).Checksum.ToArray();
+
+        private static (byte[] Checksum, byte[] Authority) RotateNegativeAuthority(
+            byte[] authority, bool retired, long expectedGeneration, ImmutableArray<byte> definitionSet)
+        {
+            long resultingGeneration = checked(expectedGeneration + 1);
+            if (retired)
+            {
+                BaseSemanticActivationRetirementAuthority prior = JsonSerializer.Deserialize(authority,
+                    HPDBaseJsonSerializerContext.Default.BaseSemanticActivationRetirementAuthority)
+                    ?? throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+                ValidateSemanticStoreAuthority(prior.StoreAuthority, expectedGeneration, definitionSet);
+                if (!CryptographicOperations.FixedTimeEquals(prior.Checksum.AsSpan(),
+                    BaseSemanticActivationEvidenceContract.RetirementChecksum(prior).AsSpan()))
+                    throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+                BaseSemanticActivationStoreAuthority store = BaseSemanticActivationEvidenceContract.CreateStoreAuthority(
+                    prior.StoreAuthority.Requirement with { SemanticAuthorityGeneration = resultingGeneration });
+                BaseSemanticActivationRetirementAuthority next = prior with { StoreAuthority = store, Checksum = [] };
+                next = next with { Checksum = BaseSemanticActivationEvidenceContract.RetirementChecksum(next) };
+                return (next.Checksum.ToArray(), JsonSerializer.SerializeToUtf8Bytes(next,
+                    HPDBaseJsonSerializerContext.Default.BaseSemanticActivationRetirementAuthority));
+            }
+            BaseSemanticActivationAbsenceAuthority priorAbsent = JsonSerializer.Deserialize(authority,
+                HPDBaseJsonSerializerContext.Default.BaseSemanticActivationAbsenceAuthority)
+                ?? throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+            ValidateSemanticStoreAuthority(priorAbsent.StoreAuthority, expectedGeneration, definitionSet);
+            if (!CryptographicOperations.FixedTimeEquals(priorAbsent.Checksum.AsSpan(),
+                BaseSemanticActivationEvidenceContract.AbsenceChecksum(priorAbsent).AsSpan()))
+                throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+            BaseSemanticActivationStoreAuthority absentStore = BaseSemanticActivationEvidenceContract.CreateStoreAuthority(
+                priorAbsent.StoreAuthority.Requirement with { SemanticAuthorityGeneration = resultingGeneration });
+            BaseSemanticActivationAbsenceAuthority nextAbsent = priorAbsent with { StoreAuthority = absentStore, Checksum = [] };
+            nextAbsent = nextAbsent with { Checksum = BaseSemanticActivationEvidenceContract.AbsenceChecksum(nextAbsent) };
+            return (nextAbsent.Checksum.ToArray(), JsonSerializer.SerializeToUtf8Bytes(nextAbsent,
+                HPDBaseJsonSerializerContext.Default.BaseSemanticActivationAbsenceAuthority));
+        }
+
+        private static void ValidateSemanticStoreAuthority(BaseSemanticActivationStoreAuthority authority,
+            long expectedGeneration, ImmutableArray<byte> definitionSet)
+        {
+            if (authority.Requirement.SemanticAuthorityGeneration != expectedGeneration
+                || definitionSet.Length != 32
+                || !CryptographicOperations.FixedTimeEquals(authority.Requirement.DefinitionSetChecksum.AsSpan(), definitionSet.AsSpan())
+                || !CryptographicOperations.FixedTimeEquals(authority.Checksum.AsSpan(),
+                    BaseSemanticActivationEvidenceContract.StoreAuthorityChecksum(authority.Requirement).AsSpan()))
+                throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+        }
+
         private async ValueTask<RotationEvidence> ValidateAndPublishRotationAsync(
             SqliteConnection connection,
             SqliteTransaction transaction,
             byte replacement,
+            string expectedProtectionKeyId,
+            long expectedRestoreEpoch,
+            long expectedSchemaGeneration,
             int pageSize,
+            long? resultingSemanticGeneration,
             CancellationToken cancellationToken)
         {
             long examined = 0;
@@ -1158,44 +1357,147 @@ DELETE FROM {owner._names.SubjectLifecycleMaintenance} WHERE singleton=1;
                         {
                             source.Transaction = transaction;
                             source.CommandTimeout = owner.TimeoutSeconds();
-                            source.CommandText = $"SELECT scope_kind,scope_index_digest,protected_scope_value FROM {table} WHERE rowid=$rowid;";
+                            source.CommandText = domain switch
+                            {
+                                9 => $"SELECT binding_json FROM {table} WHERE rowid=$rowid;",
+                                10 => $"SELECT authority_json FROM {table} WHERE rowid=$rowid AND state=1;",
+                                11 or 13 => $"SELECT authority_json FROM {table} WHERE rowid=$rowid AND state=2;",
+                                12 or 14 => $"SELECT authority_json FROM {table} WHERE rowid=$rowid AND state=3;",
+                                _ => $"SELECT scope_kind,scope_index_digest,protected_scope_value FROM {table} WHERE rowid=$rowid;",
+                            };
                             source.Parameters.AddWithValue("$rowid", row.RowId);
                             await using SqliteDataReader reader = await source.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
                             if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
                                 throw new InvalidDataException(BaseSubjectErrorCodes.LifecycleProviderContractInvalid);
-                            prior = new BaseProtectedSubjectScope { Kind = (BaseSubjectScopeKind)reader.GetInt32(0), IndexDigest = (byte[])reader.GetValue(1), ProtectedCanonicalValue = (byte[])reader.GetValue(2) };
+                            if (domain == 9)
+                            {
+                                BaseSemanticActivationScopeBinding binding = JsonSerializer.Deserialize((byte[])reader.GetValue(0), HPDBaseJsonSerializerContext.Default.BaseSemanticActivationScopeBinding)
+                                    ?? throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+                                prior = new BaseProtectedSubjectScope { Kind = binding.Kind, IndexDigest = binding.SeekDigest.ToArray(), ProtectedCanonicalValue = binding.ProtectedCanonicalScope.ToArray() };
+                            }
+                            else if (domain == 10)
+                            {
+                                BaseSemanticActivationLiveAuthority live = JsonSerializer.Deserialize((byte[])reader.GetValue(0), HPDBaseJsonSerializerContext.Default.BaseSemanticActivationLiveAuthority)
+                                    ?? throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+                                prior = new BaseProtectedSubjectScope { Kind = live.ScopeBinding.Kind, IndexDigest = live.ScopeBinding.SeekDigest.ToArray(), ProtectedCanonicalValue = live.ScopeBinding.ProtectedCanonicalScope.ToArray() };
+                            }
+                            else if (domain is >= 11 and <= 14)
+                            {
+                                byte[] authority = (byte[])reader.GetValue(0);
+                                prior = new BaseProtectedSubjectScope
+                                {
+                                    Kind = BaseSubjectScopeKind.Global,
+                                    IndexDigest = ReadNegativeAuthorityChecksum(authority, domain is 11 or 13),
+                                    ProtectedCanonicalValue = authority,
+                                };
+                            }
+                            else prior = new BaseProtectedSubjectScope { Kind = (BaseSubjectScopeKind)reader.GetInt32(0), IndexDigest = (byte[])reader.GetValue(1), ProtectedCanonicalValue = (byte[])reader.GetValue(2) };
                         }
                         BaseSubjectRetirementTerminalReceipt? priorTerminal=domain==7?await ReadRetirementTerminalAsync(connection,transaction,row.RowId,prior,cancellationToken).ConfigureAwait(false):null;
                         if (!CryptographicOperations.FixedTimeEquals(prior.IndexDigest, row.PriorDigest)
                             || !CryptographicOperations.FixedTimeEquals(prior.ProtectedCanonicalValue, row.PriorValue))
                             throw new InvalidDataException(BaseSubjectErrorCodes.LifecycleProviderContractInvalid);
-                        BaseOwnedSubjectScopeEvidence logical = owner._subjectScopes!.Unprotect(prior)
-                            ?? throw new InvalidDataException(BaseSubjectErrorCodes.LifecycleProviderContractInvalid);
-                        BaseProtectedSubjectScope expectedDigest = owner._subjectScopes.Protect(logical, replacement);
                         var stagedReplacement = new BaseProtectedSubjectScope
                         {
                             Kind = prior.Kind,
                             IndexDigest = row.NextDigest,
                             ProtectedCanonicalValue = row.NextValue,
                         };
-                        BaseOwnedSubjectScopeEvidence replacementLogical = owner._subjectScopes.Unprotect(stagedReplacement)
-                            ?? throw new InvalidDataException(BaseSubjectErrorCodes.LifecycleProviderContractInvalid);
-                        if (!CryptographicOperations.FixedTimeEquals(expectedDigest.IndexDigest, row.NextDigest)
-                            || replacementLogical.Kind != logical.Kind
-                            || !string.Equals(replacementLogical.Value, logical.Value, StringComparison.Ordinal))
-                            throw new InvalidDataException(BaseSubjectErrorCodes.LifecycleProviderContractInvalid);
+                        if (domain is >= 11 and <= 14)
+                        {
+                            if (resultingSemanticGeneration is null)
+                                throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+                            if (domain is 13 or 14)
+                            {
+                                await ValidateSemanticRecoveryFloorRotationSourceAsync(connection, transaction, row.RowId,
+                                    domain == 13,
+                                    checked(resultingSemanticGeneration.Value - 1),
+                                    owner._options.SemanticActivationDefinitionSetChecksum,
+                                    expectedRestoreEpoch, expectedSchemaGeneration, cancellationToken,
+                                    slotAlreadyRotated: true)
+                                    .ConfigureAwait(false);
+                            }
+                            else if (domain is 11 or 12)
+                            {
+                                await ValidateSemanticNegativeSlotRotationSourceAsync(connection, transaction, row.RowId,
+                                    domain == 11, checked(resultingSemanticGeneration.Value - 1),
+                                    owner._options.SemanticActivationDefinitionSetChecksum,
+                                    expectedRestoreEpoch, expectedSchemaGeneration, cancellationToken).ConfigureAwait(false);
+                            }
+                            (byte[] expectedChecksum, byte[] expectedAuthority) = RotateNegativeAuthority(
+                                row.PriorValue, domain is 11 or 13, checked(resultingSemanticGeneration.Value - 1),
+                                owner._options.SemanticActivationDefinitionSetChecksum.ToImmutableArray());
+                            if (!CryptographicOperations.FixedTimeEquals(expectedChecksum, row.NextDigest)
+                                || !CryptographicOperations.FixedTimeEquals(expectedAuthority, row.NextValue))
+                                throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+                        }
+                        else
+                        {
+                            BaseOwnedSubjectScopeEvidence logical = owner._subjectScopes!.Unprotect(prior)
+                                ?? throw new InvalidDataException(BaseSubjectErrorCodes.LifecycleProviderContractInvalid);
+                            BaseProtectedSubjectScope expectedDigest = owner._subjectScopes.Protect(logical, replacement);
+                            BaseOwnedSubjectScopeEvidence replacementLogical = owner._subjectScopes.Unprotect(stagedReplacement)
+                                ?? throw new InvalidDataException(BaseSubjectErrorCodes.LifecycleProviderContractInvalid);
+                            if (!CryptographicOperations.FixedTimeEquals(expectedDigest.IndexDigest, row.NextDigest)
+                                || replacementLogical.Kind != logical.Kind
+                                || !string.Equals(replacementLogical.Value, logical.Value, StringComparison.Ordinal))
+                                throw new InvalidDataException(BaseSubjectErrorCodes.LifecycleProviderContractInvalid);
+                        }
                         byte[] canonical = RotationCanonicalBytes(domain, row.RowId, prior, stagedReplacement);
                         rolling = SHA256.HashData([.. rolling, .. canonical]);
                         checked { examined++; changed++; canonicalBytes += canonical.LongLength; stagedCount++; }
                         await using SqliteCommand update = connection.CreateCommand();
                         update.Transaction = transaction;
                         update.CommandTimeout = owner.TimeoutSeconds();
-                        update.CommandText = $"UPDATE {table} SET scope_index_digest=$digest,protected_scope_value=$value WHERE rowid=$rowid AND scope_index_digest=$priorDigest AND protected_scope_value=$priorValue;";
+                        update.CommandText = domain switch
+                        {
+                            9 => $"UPDATE {table} SET seek_digest=$digest,binding_json=$authority WHERE rowid=$rowid AND seek_digest=$priorDigest;",
+                            10 => $"UPDATE {table} SET authority_json=$authority WHERE rowid=$rowid AND state=1 AND authority_json=$priorAuthority;",
+                            11 or 13 => $"UPDATE {table} SET authority_json=$authority WHERE rowid=$rowid AND state=2 AND authority_json=$priorAuthority;",
+                            12 or 14 => $"UPDATE {table} SET authority_json=$authority WHERE rowid=$rowid AND state=3 AND authority_json=$priorAuthority;",
+                            _ => $"UPDATE {table} SET scope_index_digest=$digest,protected_scope_value=$value WHERE rowid=$rowid AND scope_index_digest=$priorDigest AND protected_scope_value=$priorValue;",
+                        };
                         update.Parameters.Add("$digest", SqliteType.Blob).Value = row.NextDigest;
                         update.Parameters.Add("$value", SqliteType.Blob).Value = row.NextValue;
                         update.Parameters.AddWithValue("$rowid", row.RowId);
                         update.Parameters.Add("$priorDigest", SqliteType.Blob).Value = row.PriorDigest;
                         update.Parameters.Add("$priorValue", SqliteType.Blob).Value = row.PriorValue;
+                        if (domain == 9)
+                        {
+                            BaseSemanticActivationScopeBinding priorBinding = await ReadSemanticScopeBindingAsync(connection, transaction, row.RowId, cancellationToken).ConfigureAwait(false);
+                            ValidateSemanticScopeBinding(priorBinding, expectedProtectionKeyId);
+                            BaseSemanticActivationScopeBinding replacementBinding = BaseSemanticActivationEvidenceContract.CreateScopeBinding(
+                                priorBinding.Kind, priorBinding.BindingId.AsSpan(), row.NextValue, row.NextDigest,
+                                replacement.ToString(CultureInfo.InvariantCulture), replacement);
+                            update.Parameters.Add("$authority", SqliteType.Blob).Value = JsonSerializer.SerializeToUtf8Bytes(replacementBinding, HPDBaseJsonSerializerContext.Default.BaseSemanticActivationScopeBinding);
+                        }
+                        else if (domain == 10)
+                        {
+                            BaseSemanticActivationLiveAuthority priorLive = await ReadSemanticLiveAuthorityAsync(connection, transaction, row.RowId, cancellationToken).ConfigureAwait(false);
+                            await ValidateSemanticLiveRotationSourceAsync(connection, transaction, priorLive,
+                                checked(resultingSemanticGeneration!.Value - 1),
+                                owner._options.SemanticActivationDefinitionSetChecksum.ToImmutableArray(),
+                                expectedRestoreEpoch, expectedSchemaGeneration,
+                                expectedProtectionKeyId, directoryAlreadyRotated: true,
+                                cancellationToken).ConfigureAwait(false);
+                            BaseSemanticActivationScopeBinding replacementBinding = BaseSemanticActivationEvidenceContract.CreateScopeBinding(
+                                priorLive.ScopeBinding.Kind, priorLive.ScopeBinding.BindingId.AsSpan(), row.NextValue, row.NextDigest,
+                                replacement.ToString(CultureInfo.InvariantCulture), replacement);
+                            if (resultingSemanticGeneration is null)
+                                throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+                            BaseSemanticActivationStoreAuthority storeAuthority = BaseSemanticActivationEvidenceContract.CreateStoreAuthority(
+                                priorLive.StoreAuthority.Requirement with { SemanticAuthorityGeneration = resultingSemanticGeneration.Value });
+                            BaseSemanticActivationLiveAuthority replacementLive = priorLive with
+                            { ScopeBinding = replacementBinding, StoreAuthority = storeAuthority, Checksum = [] };
+                            replacementLive = replacementLive with { Checksum = BaseSemanticActivationEvidenceContract.LiveChecksum(replacementLive) };
+                            update.Parameters.Add("$authority", SqliteType.Blob).Value = JsonSerializer.SerializeToUtf8Bytes(replacementLive, HPDBaseJsonSerializerContext.Default.BaseSemanticActivationLiveAuthority);
+                            update.Parameters.Add("$priorAuthority", SqliteType.Blob).Value = JsonSerializer.SerializeToUtf8Bytes(priorLive, HPDBaseJsonSerializerContext.Default.BaseSemanticActivationLiveAuthority);
+                        }
+                        else if (domain is >= 11 and <= 14)
+                        {
+                            update.Parameters.Add("$authority", SqliteType.Blob).Value = row.NextValue;
+                            update.Parameters.Add("$priorAuthority", SqliteType.Blob).Value = row.PriorValue;
+                        }
                         if (await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
                             throw new InvalidDataException(BaseSubjectErrorCodes.LifecycleProviderContractInvalid);
                         if(priorTerminal is not null)
@@ -1211,12 +1513,266 @@ DELETE FROM {owner._names.SubjectLifecycleMaintenance} WHERE singleton=1;
                 await using SqliteCommand sourceCount = connection.CreateCommand();
                 sourceCount.Transaction = transaction;
                 sourceCount.CommandTimeout = owner.TimeoutSeconds();
-                sourceCount.CommandText = $"SELECT COUNT(*) FROM {table}{(domain==8?" WHERE scope_kind IS NOT NULL":string.Empty)};";
+                string predicate = domain switch
+                {
+                    8 => " WHERE scope_kind IS NOT NULL",
+                    10 => " WHERE state=1",
+                    11 or 13 => " WHERE state=2",
+                    12 or 14 => " WHERE state=3",
+                    _ => string.Empty,
+                };
+                sourceCount.CommandText = $"SELECT COUNT(*) FROM {table}{predicate};";
                 long count = Convert.ToInt64(await sourceCount.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture);
                 if (count != stagedCount)
                     throw new InvalidDataException(BaseSubjectErrorCodes.LifecycleProviderContractInvalid);
             }
             return new RotationEvidence(examined, changed, canonicalBytes, Convert.ToHexStringLower(rolling));
+        }
+
+        private async ValueTask<BaseSemanticActivationScopeBinding> ReadSemanticScopeBindingAsync(
+            SqliteConnection connection, SqliteTransaction transaction, long rowId, CancellationToken cancellationToken)
+        {
+            await using SqliteCommand command = connection.CreateCommand();
+            command.Transaction = transaction; command.CommandTimeout = owner.TimeoutSeconds();
+            command.CommandText = $"SELECT scope_kind,binding_id,seek_digest,binding_json FROM {owner._names.SemanticActivationScopes} WHERE rowid=$rowid;";
+            command.Parameters.AddWithValue("$rowid", rowId);
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+            BaseSemanticActivationScopeBinding binding = JsonSerializer.Deserialize((byte[])reader[3],
+                HPDBaseJsonSerializerContext.Default.BaseSemanticActivationScopeBinding)
+                ?? throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+            if (reader.GetInt32(0) != (int)binding.Kind
+                || !((byte[])reader[1]).AsSpan().SequenceEqual(binding.BindingId.AsSpan())
+                || !((byte[])reader[2]).AsSpan().SequenceEqual(binding.SeekDigest.AsSpan()))
+                throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+            return binding;
+        }
+
+        private async ValueTask<BaseSemanticActivationLiveAuthority> ReadSemanticLiveAuthorityAsync(
+            SqliteConnection connection, SqliteTransaction transaction, long rowId, CancellationToken cancellationToken)
+        {
+            await using SqliteCommand command = connection.CreateCommand();
+            command.Transaction = transaction; command.CommandTimeout = owner.TimeoutSeconds();
+            command.CommandText = $"SELECT definition_id,binding_id,key_digest,slot_generation,authority_json FROM {owner._names.SemanticActivationSlots} WHERE rowid=$rowid AND state=1;";
+            command.Parameters.AddWithValue("$rowid", rowId);
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+            BaseSemanticActivationLiveAuthority live = JsonSerializer.Deserialize((byte[])reader[4],
+                HPDBaseJsonSerializerContext.Default.BaseSemanticActivationLiveAuthority)
+                ?? throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+            Span<byte> key = stackalloc byte[BaseSemanticActivationKeyDigest.Length]; live.KeyDigest.CopyTo(key);
+            if (!string.Equals(reader.GetString(0), live.Definition.Id, StringComparison.Ordinal)
+                || !((byte[])reader[1]).AsSpan().SequenceEqual(live.ScopeBinding.BindingId.AsSpan())
+                || !((byte[])reader[2]).AsSpan().SequenceEqual(key)
+                || reader.GetInt64(3) != live.SlotGeneration)
+                throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+            return live;
+        }
+
+        private static void ValidateSemanticScopeBinding(
+            BaseSemanticActivationScopeBinding binding, string expectedProtectionKeyId)
+        {
+            if (binding.BindingId.Length != 32 || binding.SeekDigest.Length != 32
+                || binding.ProtectedCanonicalScope.IsDefaultOrEmpty
+                || binding.ProtectionKeyVersion < 1
+                || !string.Equals(binding.ProtectionKeyId, expectedProtectionKeyId, StringComparison.Ordinal)
+                || !CryptographicOperations.FixedTimeEquals(binding.Checksum.AsSpan(),
+                    BaseSemanticActivationEvidenceContract.ScopeBindingChecksum(binding).AsSpan()))
+                throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+        }
+
+        private async ValueTask ValidateSemanticLiveRotationSourceAsync(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            BaseSemanticActivationLiveAuthority live,
+            long expectedGeneration,
+            ImmutableArray<byte> definitionSet,
+            long expectedRestoreEpoch,
+            long expectedSchemaGeneration,
+            string expectedProtectionKeyId,
+            bool directoryAlreadyRotated,
+            CancellationToken cancellationToken)
+        {
+            owner.ValidateSemanticStore(live.StoreAuthority, expectedGeneration, definitionSet.ToArray(),
+                expectedRestoreEpoch, expectedSchemaGeneration);
+            await using (SqliteCommand installed = connection.CreateCommand())
+            {
+                installed.Transaction = transaction; installed.CommandTimeout = owner.TimeoutSeconds();
+                installed.CommandText = $"SELECT COUNT(*) FROM {owner._names.SemanticActivationDefinitions} WHERE definition_id=$id AND definition_version=$version AND definition_checksum=$checksum AND execution_enabled=1;";
+                installed.Parameters.AddWithValue("$id", live.Definition.Id);
+                installed.Parameters.AddWithValue("$version", live.Definition.Version);
+                installed.Parameters.Add("$checksum", SqliteType.Blob).Value = live.Definition.Checksum.ToArray();
+                if (Convert.ToInt64(await installed.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture) != 1)
+                    throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+            }
+            ValidateSemanticScopeBinding(live.ScopeBinding, expectedProtectionKeyId);
+            if (!CryptographicOperations.FixedTimeEquals(live.Checksum.AsSpan(),
+                    BaseSemanticActivationEvidenceContract.LiveChecksum(live).AsSpan()))
+                throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+            if (directoryAlreadyRotated)
+            {
+                await using SqliteCommand staged = connection.CreateCommand();
+                staged.Transaction = transaction; staged.CommandTimeout = owner.TimeoutSeconds();
+                staged.CommandText = $"""
+SELECT st.prior_digest,st.prior_value
+FROM {owner._names.SemanticActivationScopes} s
+JOIN {owner._names.SubjectLifecycleScopeStage} st ON st.domain_ordinal=9 AND st.source_rowid=s.rotation_id
+WHERE s.binding_id=$binding;
+""";
+                staged.Parameters.Add("$binding", SqliteType.Blob).Value = live.ScopeBinding.BindingId.ToArray();
+                await using SqliteDataReader reader = await staged.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
+                    || !CryptographicOperations.FixedTimeEquals((byte[])reader.GetValue(0), live.ScopeBinding.SeekDigest.AsSpan())
+                    || !CryptographicOperations.FixedTimeEquals((byte[])reader.GetValue(1), live.ScopeBinding.ProtectedCanonicalScope.AsSpan()))
+                    throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+            }
+            else
+            {
+                BaseSemanticActivationScopeBinding directory = await ReadSemanticScopeBindingByIdAsync(
+                    connection, transaction, live.ScopeBinding.BindingId, cancellationToken).ConfigureAwait(false);
+                if (!ScopeBindingsEqual(directory, live.ScopeBinding))
+                    throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+            }
+            await owner.RequireLiveActivationCorrespondenceAsync(connection, transaction, live, cancellationToken,
+                    requireCurrentScopeBinding: !directoryAlreadyRotated)
+                .ConfigureAwait(false);
+        }
+
+        private async ValueTask<BaseSemanticActivationScopeBinding> ReadSemanticScopeBindingByIdAsync(
+            SqliteConnection connection, SqliteTransaction transaction, ImmutableArray<byte> bindingId,
+            CancellationToken cancellationToken)
+        {
+            await using SqliteCommand command = connection.CreateCommand();
+            command.Transaction = transaction; command.CommandTimeout = owner.TimeoutSeconds();
+            command.CommandText = $"SELECT binding_json FROM {owner._names.SemanticActivationScopes} WHERE binding_id=$binding;";
+            command.Parameters.Add("$binding", SqliteType.Blob).Value = bindingId.ToArray();
+            return JsonSerializer.Deserialize((byte[])(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt)),
+                HPDBaseJsonSerializerContext.Default.BaseSemanticActivationScopeBinding)
+                ?? throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+        }
+
+        private async ValueTask<SemanticRecoveryRow> ReadSemanticRecoveryRowByRotationIdAsync(
+            SqliteConnection connection, SqliteTransaction transaction, long rotationId,
+            CancellationToken cancellationToken)
+        {
+            await using SqliteCommand command = connection.CreateCommand();
+            command.Transaction = transaction; command.CommandTimeout = owner.TimeoutSeconds();
+            command.CommandText = $"""
+SELECT definition_id,binding_id,key_digest,state,slot_generation,authority_json,
+ receipt_scope,receipt_operation,receipt_key,receipt_fingerprint,receipt_structural_digest,
+ receipt_result_json,receipt_authority_checksum,receipt_slot_authority_json
+FROM {owner._names.SemanticActivationRecoveryFloors} WHERE rotation_id=$rotation;
+""";
+            command.Parameters.AddWithValue("$rotation", rotationId);
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+            return new SemanticRecoveryRow(reader.GetString(0), (byte[])reader[1], (byte[])reader[2], reader.GetInt32(3),
+                reader.GetInt64(4), (byte[])reader[5], reader.IsDBNull(6) ? null : reader.GetString(6),
+                reader.IsDBNull(7) ? null : reader.GetString(7), reader.IsDBNull(8) ? null : reader.GetString(8),
+                reader.IsDBNull(9) ? null : (byte[])reader[9], reader.IsDBNull(10) ? null : (byte[])reader[10],
+                reader.IsDBNull(11) ? null : (byte[])reader[11], reader.IsDBNull(12) ? null : (byte[])reader[12],
+                reader.IsDBNull(13) ? null : (byte[])reader[13]);
+        }
+
+        private async ValueTask ValidateSemanticNegativeSlotRotationSourceAsync(
+            SqliteConnection connection, SqliteTransaction transaction, long rotationId, bool retired,
+            long expectedGeneration, byte[] definitionSet, long expectedRestoreEpoch, long expectedSchemaGeneration,
+            CancellationToken cancellationToken)
+        {
+            await using SqliteCommand slot = connection.CreateCommand();
+            slot.Transaction = transaction; slot.CommandTimeout = owner.TimeoutSeconds();
+            slot.CommandText = $"SELECT definition_id,binding_id,key_digest,state,slot_generation,authority_json FROM {owner._names.SemanticActivationSlots} WHERE rotation_id=$rotation AND state=$state;";
+            slot.Parameters.AddWithValue("$rotation", rotationId);
+            slot.Parameters.AddWithValue("$state", retired ? 2 : 3);
+            await using SqliteDataReader reader = await slot.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+            var current = new SemanticRecoveryRow(reader.GetString(0), (byte[])reader[1], (byte[])reader[2],
+                reader.GetInt32(3), reader.GetInt64(4), (byte[])reader[5], null, null, null, null, null, null, null, null);
+            await reader.DisposeAsync().ConfigureAwait(false);
+            owner.ValidateSemanticRecoveryRow(current, expectedGeneration, definitionSet, expectedRestoreEpoch, expectedSchemaGeneration);
+            SemanticRecoveryRow floor = await ReadSemanticRecoveryRowByKeyAsync(connection, transaction,
+                current.DefinitionId, current.BindingId, current.KeyDigest, cancellationToken).ConfigureAwait(false);
+            if (floor.State != current.State || floor.SlotGeneration != current.SlotGeneration
+                || !CryptographicOperations.FixedTimeEquals(floor.AuthorityJson, current.AuthorityJson))
+                throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+            owner.ValidateSemanticRecoveryRow(floor, expectedGeneration, definitionSet, expectedRestoreEpoch, expectedSchemaGeneration);
+            await owner.ValidateSemanticRecoveryDependenciesAsync(connection, transaction, floor, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        private async ValueTask ValidateSemanticRecoveryFloorRotationSourceAsync(
+            SqliteConnection connection, SqliteTransaction transaction, long rotationId, bool retired,
+            long expectedGeneration, byte[] definitionSet, long expectedRestoreEpoch, long expectedSchemaGeneration,
+            CancellationToken cancellationToken, bool slotAlreadyRotated = false)
+        {
+            SemanticRecoveryRow floor = await ReadSemanticRecoveryRowByRotationIdAsync(
+                connection, transaction, rotationId, cancellationToken).ConfigureAwait(false);
+            if (floor.State != (retired ? 2 : 3))
+                throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+            await using SqliteCommand slot = connection.CreateCommand();
+            slot.Transaction = transaction; slot.CommandTimeout = owner.TimeoutSeconds();
+            slot.CommandText = $"SELECT rotation_id FROM {owner._names.SemanticActivationSlots} WHERE definition_id=$definition AND binding_id=$binding AND key_digest=$key AND state=$state;";
+            slot.Parameters.AddWithValue("$definition", floor.DefinitionId);
+            slot.Parameters.Add("$binding", SqliteType.Blob).Value = floor.BindingId;
+            slot.Parameters.Add("$key", SqliteType.Blob).Value = floor.KeyDigest;
+            slot.Parameters.AddWithValue("$state", floor.State);
+            object? value = await slot.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            if (value is null)
+                throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+            long slotRotationId = Convert.ToInt64(value, CultureInfo.InvariantCulture);
+            if (!slotAlreadyRotated)
+            {
+                await ValidateSemanticNegativeSlotRotationSourceAsync(connection, transaction,
+                    slotRotationId, retired, expectedGeneration, definitionSet,
+                    expectedRestoreEpoch, expectedSchemaGeneration, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+            owner.ValidateSemanticRecoveryRow(floor, expectedGeneration, definitionSet,
+                expectedRestoreEpoch, expectedSchemaGeneration);
+            await owner.ValidateSemanticRecoveryDependenciesAsync(connection, transaction, floor, cancellationToken)
+                .ConfigureAwait(false);
+            (byte[] expectedChecksum, byte[] expectedAuthority) = RotateNegativeAuthority(
+                floor.AuthorityJson, retired, expectedGeneration, definitionSet.ToImmutableArray());
+            await using SqliteCommand current = connection.CreateCommand();
+            current.Transaction = transaction; current.CommandTimeout = owner.TimeoutSeconds();
+            current.CommandText = $"SELECT authority_json FROM {owner._names.SemanticActivationSlots} WHERE rotation_id=$rotation;";
+            current.Parameters.AddWithValue("$rotation", slotRotationId);
+            if (await current.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is not byte[] currentAuthority
+                || !CryptographicOperations.FixedTimeEquals(currentAuthority, expectedAuthority)
+                || !CryptographicOperations.FixedTimeEquals(ReadNegativeAuthorityChecksum(currentAuthority, retired), expectedChecksum))
+                throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+        }
+
+        private async ValueTask<SemanticRecoveryRow> ReadSemanticRecoveryRowByKeyAsync(
+            SqliteConnection connection, SqliteTransaction transaction, string definitionId, byte[] bindingId,
+            byte[] keyDigest, CancellationToken cancellationToken)
+        {
+            await using SqliteCommand command = connection.CreateCommand();
+            command.Transaction = transaction; command.CommandTimeout = owner.TimeoutSeconds();
+            command.CommandText = $"""
+SELECT definition_id,binding_id,key_digest,state,slot_generation,authority_json,
+ receipt_scope,receipt_operation,receipt_key,receipt_fingerprint,receipt_structural_digest,
+ receipt_result_json,receipt_authority_checksum,receipt_slot_authority_json
+FROM {owner._names.SemanticActivationRecoveryFloors}
+WHERE definition_id=$definition AND binding_id=$binding AND key_digest=$key;
+""";
+            command.Parameters.AddWithValue("$definition", definitionId);
+            command.Parameters.Add("$binding", SqliteType.Blob).Value = bindingId;
+            command.Parameters.Add("$key", SqliteType.Blob).Value = keyDigest;
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+            return new SemanticRecoveryRow(reader.GetString(0), (byte[])reader[1], (byte[])reader[2], reader.GetInt32(3),
+                reader.GetInt64(4), (byte[])reader[5], reader.IsDBNull(6) ? null : reader.GetString(6),
+                reader.IsDBNull(7) ? null : reader.GetString(7), reader.IsDBNull(8) ? null : reader.GetString(8),
+                reader.IsDBNull(9) ? null : (byte[])reader[9], reader.IsDBNull(10) ? null : (byte[])reader[10],
+                reader.IsDBNull(11) ? null : (byte[])reader[11], reader.IsDBNull(12) ? null : (byte[])reader[12],
+                reader.IsDBNull(13) ? null : (byte[])reader[13]);
         }
 
         private async ValueTask<BaseSubjectRetirementTerminalReceipt> ReadRetirementTerminalAsync(SqliteConnection connection,SqliteTransaction transaction,long rowId,BaseProtectedSubjectScope scope,CancellationToken token)
@@ -1527,6 +2083,8 @@ WHERE p.consumer_id=$consumer AND p.consumer_version=$version AND p.state=0;
         public required long ExpectedScopeProtectionGeneration { get; init; }
         public required string ExpectedScopeProtectionKeyId { get; init; }
         public string? ReplacementScopeProtectionKeyId { get; init; }
+        public long? ExpectedSemanticActivationAuthorityGeneration { get; init; }
+        public ImmutableArray<byte> ExpectedSemanticActivationDefinitionSetChecksum { get; init; }
         public byte[]? LastCanonicalKey { get; init; }
         public required int PageSize { get; init; }
         public required TimeSpan OperationTimeout { get; init; }
@@ -1553,6 +2111,8 @@ WHERE p.consumer_id=$consumer AND p.consumer_version=$version AND p.state=0;
             ExpectedScopeProtectionGeneration = request.ExpectedScopeProtectionGeneration,
             ExpectedScopeProtectionKeyId = request.ExpectedScopeProtectionKeyId,
             ReplacementScopeProtectionKeyId = request.ReplacementScopeProtectionKeyId,
+            ExpectedSemanticActivationAuthorityGeneration = request.ExpectedSemanticActivationAuthorityGeneration,
+            ExpectedSemanticActivationDefinitionSetChecksum = request.ExpectedSemanticActivationDefinitionSetChecksum,
             LastCanonicalKey = null,
             PageSize = request.PageSize,
             OperationTimeout = request.OperationTimeout,

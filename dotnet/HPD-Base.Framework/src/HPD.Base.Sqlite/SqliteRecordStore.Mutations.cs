@@ -577,16 +577,17 @@ public sealed partial class SqliteRecordStore
             floor.CommandText = $"""
 INSERT INTO {_names.SemanticActivationRecoveryFloors}(
   definition_id,binding_id,key_digest,state,slot_generation,authority_json,
-  receipt_scope,receipt_operation,receipt_key,receipt_fingerprint,receipt_structural_digest,receipt_result_json,receipt_authority_checksum)
+  receipt_scope,receipt_operation,receipt_key,receipt_fingerprint,receipt_structural_digest,receipt_result_json,receipt_authority_checksum,receipt_slot_authority_json)
 SELECT definition_id,binding_id,key_digest,state,slot_generation,authority_json,
-  $scope,$operation,$receiptKey,$fingerprint,$structural,$result,$receiptAuthority
+  $scope,$operation,$receiptKey,$fingerprint,$structural,$result,$receiptAuthority,authority_json
 FROM {_names.SemanticActivationSlots}
 WHERE definition_id=$definition AND key_digest=$semanticKey AND state=2
 ON CONFLICT(definition_id,binding_id,key_digest) DO UPDATE SET
   state=excluded.state,slot_generation=excluded.slot_generation,authority_json=excluded.authority_json,
   receipt_scope=excluded.receipt_scope,receipt_operation=excluded.receipt_operation,receipt_key=excluded.receipt_key,
   receipt_fingerprint=excluded.receipt_fingerprint,receipt_structural_digest=excluded.receipt_structural_digest,
-  receipt_result_json=excluded.receipt_result_json,receipt_authority_checksum=excluded.receipt_authority_checksum
+  receipt_result_json=excluded.receipt_result_json,receipt_authority_checksum=excluded.receipt_authority_checksum,
+  receipt_slot_authority_json=excluded.receipt_slot_authority_json
 WHERE excluded.slot_generation>=slot_generation;
 """;
             floor.Parameters.AddWithValue("$scope", request.Identity.Scope); floor.Parameters.AddWithValue("$operation", request.Identity.Operation);

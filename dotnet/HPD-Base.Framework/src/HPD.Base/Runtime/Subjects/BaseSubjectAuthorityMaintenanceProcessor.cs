@@ -64,6 +64,11 @@ internal sealed class BaseSubjectAuthorityMaintenanceProcessor : IBaseSubjectAut
             || request.PageSize is < 1 or > 256 || request.OperationTimeout < TimeSpan.FromMilliseconds(100)
             || request.OperationTimeout > TimeSpan.FromMinutes(30) || request.CommitCompletionTimeout < TimeSpan.FromMilliseconds(100)
             || request.CommitCompletionTimeout > TimeSpan.FromMinutes(5)) return false;
+        bool semanticAbsent = request.ExpectedSemanticActivationAuthorityGeneration is null
+            && request.ExpectedSemanticActivationDefinitionSetChecksum.IsDefaultOrEmpty;
+        bool semanticPresent = request.ExpectedSemanticActivationAuthorityGeneration is > 0
+            && request.ExpectedSemanticActivationDefinitionSetChecksum.Length == 32;
+        if (!semanticAbsent && !semanticPresent) return false;
         if (request.Retirement is not null && request.PageSize != 256) return false;
         return CryptographicOperations.FixedTimeEquals(request.CombinedPlanChecksum, PlanChecksum(request));
     }
@@ -71,7 +76,7 @@ internal sealed class BaseSubjectAuthorityMaintenanceProcessor : IBaseSubjectAut
     internal static byte[] PlanChecksum(BaseSubjectAuthorityMaintenanceExecutionRequest request)
     {
         BaseSubjectLifecycleMaintenancePlan plan = request.Lifecycle;
-        string framed = $"base.subjectAuthority.maintenance.v1\0{request.Identity.Scope}\0{request.Identity.Operation}\0{request.Identity.IdempotencyKey}\0{Convert.ToHexStringLower(request.Identity.Fingerprint.ToArray())}\0{(int)plan.Kind}\0{plan.ContractId}\0{plan.ContractVersion}\0{plan.ConsumerId}\0{plan.ConsumerVersion}\0{(int?)plan.Scope?.Kind}\0{plan.Scope?.Value}\0{plan.RetainedFrom?.CommitPosition.Value}\0{plan.RetainedFrom?.SubjectId.Value}\0{plan.RetainedFrom?.AuthorityEpoch.ToBase64Url()}\0{plan.RetainedFrom?.Incarnation.ToBase64Url()}\0{plan.RetainedFrom?.SubjectSequence}\0{Convert.ToHexStringLower(plan.PlanChecksum)}\0{request.ExpectedStoreGeneration}\0{request.ExpectedSchemaGeneration}\0{request.ExpectedRestoreEpoch}\0{plan.ExpectedDeliveryEpoch}\0{plan.ExpectedProjectionGeneration}\0{request.ExpectedScopeProtectionGeneration}\0{request.ExpectedScopeProtectionKeyId}\0{request.ReplacementScopeProtectionKeyId}\0{request.PageSize}\0{(int?)request.Retirement?.Kind}\0{request.Retirement?.ExpectedGraphGeneration}\0{request.Retirement?.ExpectedBarrierControlGeneration}\0{(request.Retirement is null?string.Empty:Convert.ToHexStringLower(request.Retirement.PlanChecksum))}";
+        string framed = $"base.subjectAuthority.maintenance.v2\0{request.Identity.Scope}\0{request.Identity.Operation}\0{request.Identity.IdempotencyKey}\0{Convert.ToHexStringLower(request.Identity.Fingerprint.ToArray())}\0{(int)plan.Kind}\0{plan.ContractId}\0{plan.ContractVersion}\0{plan.ConsumerId}\0{plan.ConsumerVersion}\0{(int?)plan.Scope?.Kind}\0{plan.Scope?.Value}\0{plan.RetainedFrom?.CommitPosition.Value}\0{plan.RetainedFrom?.SubjectId.Value}\0{plan.RetainedFrom?.AuthorityEpoch.ToBase64Url()}\0{plan.RetainedFrom?.Incarnation.ToBase64Url()}\0{plan.RetainedFrom?.SubjectSequence}\0{Convert.ToHexStringLower(plan.PlanChecksum)}\0{request.ExpectedStoreGeneration}\0{request.ExpectedSchemaGeneration}\0{request.ExpectedRestoreEpoch}\0{plan.ExpectedDeliveryEpoch}\0{plan.ExpectedProjectionGeneration}\0{request.ExpectedScopeProtectionGeneration}\0{request.ExpectedScopeProtectionKeyId}\0{request.ReplacementScopeProtectionKeyId}\0{request.ExpectedSemanticActivationAuthorityGeneration}\0{Convert.ToHexStringLower(request.ExpectedSemanticActivationDefinitionSetChecksum.AsSpan())}\0{request.PageSize}\0{(int?)request.Retirement?.Kind}\0{request.Retirement?.ExpectedGraphGeneration}\0{request.Retirement?.ExpectedBarrierControlGeneration}\0{(request.Retirement is null?string.Empty:Convert.ToHexStringLower(request.Retirement.PlanChecksum))}";
         return SHA256.HashData(Encoding.UTF8.GetBytes(framed));
     }
 

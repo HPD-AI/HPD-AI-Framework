@@ -368,17 +368,19 @@ CREATE TABLE IF NOT EXISTS {_names.SemanticActivationDefinitions} (
   PRIMARY KEY(definition_id,definition_version)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.SemanticActivationScopes} (
+  rotation_id INTEGER PRIMARY KEY AUTOINCREMENT,
   scope_kind INTEGER NOT NULL, seek_digest BLOB NOT NULL CHECK(length(seek_digest)=32),
   binding_id BLOB NOT NULL UNIQUE CHECK(length(binding_id)=32), binding_json BLOB NOT NULL,
-  PRIMARY KEY(scope_kind,seek_digest)
-) WITHOUT ROWID;
+  UNIQUE(scope_kind,seek_digest)
+);
 CREATE TABLE IF NOT EXISTS {_names.SemanticActivationSlots} (
+  rotation_id INTEGER PRIMARY KEY AUTOINCREMENT,
   definition_id TEXT NOT NULL, binding_id BLOB NOT NULL CHECK(length(binding_id)=32),
   key_digest BLOB NOT NULL CHECK(length(key_digest)=32), state INTEGER NOT NULL CHECK(state IN (1,2,3)),
   slot_generation INTEGER NOT NULL CHECK(slot_generation > 0), activation_id TEXT NULL,
   authority_json BLOB NOT NULL,
-  PRIMARY KEY(definition_id,binding_id,key_digest)
-) WITHOUT ROWID;
+  UNIQUE(definition_id,binding_id,key_digest)
+);
 CREATE UNIQUE INDEX IF NOT EXISTS {_names.Prefix}semantic_activation_live_idx ON {_names.SemanticActivationSlots}(activation_id) WHERE activation_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS {_names.SemanticActivationMaintenance} (
   request_scope TEXT NOT NULL, request_operation TEXT NOT NULL, request_key TEXT NOT NULL,
@@ -405,14 +407,15 @@ CREATE TABLE IF NOT EXISTS {_names.SemanticActivationMigrations} (
   PRIMARY KEY(migration_id,migration_version)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.SemanticActivationRecoveryFloors} (
+  rotation_id INTEGER PRIMARY KEY AUTOINCREMENT,
   definition_id TEXT NOT NULL, binding_id BLOB NOT NULL CHECK(length(binding_id)=32), key_digest BLOB NOT NULL CHECK(length(key_digest)=32),
   state INTEGER NOT NULL CHECK(state IN (2,3)), slot_generation INTEGER NOT NULL CHECK(slot_generation>0), authority_json BLOB NOT NULL,
   receipt_scope TEXT NULL, receipt_operation TEXT NULL, receipt_key TEXT NULL, receipt_fingerprint BLOB NULL,
-  receipt_structural_digest BLOB NULL, receipt_result_json BLOB NULL, receipt_authority_checksum BLOB NULL,
-  CHECK((receipt_scope IS NULL AND receipt_operation IS NULL AND receipt_key IS NULL AND receipt_fingerprint IS NULL AND receipt_structural_digest IS NULL AND receipt_result_json IS NULL AND receipt_authority_checksum IS NULL)
-     OR (receipt_scope IS NOT NULL AND receipt_operation IS NOT NULL AND receipt_key IS NOT NULL AND length(receipt_fingerprint)=32 AND length(receipt_structural_digest)=32 AND receipt_result_json IS NOT NULL AND length(receipt_authority_checksum)=32)),
-  PRIMARY KEY(definition_id,binding_id,key_digest)
-) WITHOUT ROWID;
+  receipt_structural_digest BLOB NULL, receipt_result_json BLOB NULL, receipt_authority_checksum BLOB NULL, receipt_slot_authority_json BLOB NULL,
+  CHECK((receipt_scope IS NULL AND receipt_operation IS NULL AND receipt_key IS NULL AND receipt_fingerprint IS NULL AND receipt_structural_digest IS NULL AND receipt_result_json IS NULL AND receipt_authority_checksum IS NULL AND receipt_slot_authority_json IS NULL)
+     OR (receipt_scope IS NOT NULL AND receipt_operation IS NOT NULL AND receipt_key IS NOT NULL AND length(receipt_fingerprint)=32 AND length(receipt_structural_digest)=32 AND receipt_result_json IS NOT NULL AND length(receipt_authority_checksum)=32 AND receipt_slot_authority_json IS NOT NULL)),
+  UNIQUE(definition_id,binding_id,key_digest)
+);
 CREATE TABLE IF NOT EXISTS {_names.SemanticActivationRewriteStage} (
   maintenance_id TEXT NOT NULL, definition_id TEXT NOT NULL, binding_id BLOB NOT NULL CHECK(length(binding_id)=32),
   key_digest BLOB NOT NULL CHECK(length(key_digest)=32), state INTEGER NOT NULL CHECK(state IN (1,2,3)),
@@ -829,17 +832,19 @@ CREATE TABLE IF NOT EXISTS {_names.SemanticActivationDefinitions} (
   PRIMARY KEY(definition_id,definition_version)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.SemanticActivationScopes} (
+  rotation_id INTEGER PRIMARY KEY AUTOINCREMENT,
   scope_kind INTEGER NOT NULL, seek_digest BLOB NOT NULL CHECK(length(seek_digest)=32),
   binding_id BLOB NOT NULL UNIQUE CHECK(length(binding_id)=32), binding_json BLOB NOT NULL,
-  PRIMARY KEY(scope_kind,seek_digest)
-) WITHOUT ROWID;
+  UNIQUE(scope_kind,seek_digest)
+);
 CREATE TABLE IF NOT EXISTS {_names.SemanticActivationSlots} (
+  rotation_id INTEGER PRIMARY KEY AUTOINCREMENT,
   definition_id TEXT NOT NULL, binding_id BLOB NOT NULL CHECK(length(binding_id)=32),
   key_digest BLOB NOT NULL CHECK(length(key_digest)=32), state INTEGER NOT NULL CHECK(state IN (1,2,3)),
   slot_generation INTEGER NOT NULL CHECK(slot_generation > 0), activation_id TEXT NULL,
   authority_json BLOB NOT NULL,
-  PRIMARY KEY(definition_id,binding_id,key_digest)
-) WITHOUT ROWID;
+  UNIQUE(definition_id,binding_id,key_digest)
+);
 CREATE UNIQUE INDEX IF NOT EXISTS {_names.Prefix}semantic_activation_live_idx ON {_names.SemanticActivationSlots}(activation_id) WHERE activation_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS {_names.SemanticActivationMaintenance} (
   request_scope TEXT NOT NULL, request_operation TEXT NOT NULL, request_key TEXT NOT NULL,
@@ -866,14 +871,15 @@ CREATE TABLE IF NOT EXISTS {_names.SemanticActivationMigrations} (
   PRIMARY KEY(migration_id,migration_version)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.SemanticActivationRecoveryFloors} (
+  rotation_id INTEGER PRIMARY KEY AUTOINCREMENT,
   definition_id TEXT NOT NULL, binding_id BLOB NOT NULL CHECK(length(binding_id)=32), key_digest BLOB NOT NULL CHECK(length(key_digest)=32),
   state INTEGER NOT NULL CHECK(state IN (2,3)), slot_generation INTEGER NOT NULL CHECK(slot_generation>0), authority_json BLOB NOT NULL,
   receipt_scope TEXT NULL, receipt_operation TEXT NULL, receipt_key TEXT NULL, receipt_fingerprint BLOB NULL,
-  receipt_structural_digest BLOB NULL, receipt_result_json BLOB NULL, receipt_authority_checksum BLOB NULL,
-  CHECK((receipt_scope IS NULL AND receipt_operation IS NULL AND receipt_key IS NULL AND receipt_fingerprint IS NULL AND receipt_structural_digest IS NULL AND receipt_result_json IS NULL AND receipt_authority_checksum IS NULL)
-     OR (receipt_scope IS NOT NULL AND receipt_operation IS NOT NULL AND receipt_key IS NOT NULL AND length(receipt_fingerprint)=32 AND length(receipt_structural_digest)=32 AND receipt_result_json IS NOT NULL AND length(receipt_authority_checksum)=32)),
-  PRIMARY KEY(definition_id,binding_id,key_digest)
-) WITHOUT ROWID;
+  receipt_structural_digest BLOB NULL, receipt_result_json BLOB NULL, receipt_authority_checksum BLOB NULL, receipt_slot_authority_json BLOB NULL,
+  CHECK((receipt_scope IS NULL AND receipt_operation IS NULL AND receipt_key IS NULL AND receipt_fingerprint IS NULL AND receipt_structural_digest IS NULL AND receipt_result_json IS NULL AND receipt_authority_checksum IS NULL AND receipt_slot_authority_json IS NULL)
+     OR (receipt_scope IS NOT NULL AND receipt_operation IS NOT NULL AND receipt_key IS NOT NULL AND length(receipt_fingerprint)=32 AND length(receipt_structural_digest)=32 AND receipt_result_json IS NOT NULL AND length(receipt_authority_checksum)=32 AND receipt_slot_authority_json IS NOT NULL)),
+  UNIQUE(definition_id,binding_id,key_digest)
+);
 CREATE TABLE IF NOT EXISTS {_names.SemanticActivationRewriteStage} (
   maintenance_id TEXT NOT NULL, definition_id TEXT NOT NULL, binding_id BLOB NOT NULL CHECK(length(binding_id)=32),
   key_digest BLOB NOT NULL CHECK(length(key_digest)=32), state INTEGER NOT NULL CHECK(state IN (1,2,3)),
@@ -1175,9 +1181,10 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
         Dictionary<string, ColumnShape> definitions = await GetColumnShapesAsync(connection, _names.SemanticActivationDefinitions, cancellationToken).ConfigureAwait(false);
         Check(definitions, problems, _names.SemanticActivationDefinitions, "execution_enabled", "INTEGER", true, false);
         Dictionary<string, ColumnShape> slots = await GetColumnShapesAsync(connection, _names.SemanticActivationSlots, cancellationToken).ConfigureAwait(false);
-        Check(slots, problems, _names.SemanticActivationSlots, "definition_id", "TEXT", true, true);
-        Check(slots, problems, _names.SemanticActivationSlots, "binding_id", "BLOB", true, true);
-        Check(slots, problems, _names.SemanticActivationSlots, "key_digest", "BLOB", true, true);
+        Check(slots, problems, _names.SemanticActivationSlots, "rotation_id", "INTEGER", false, true);
+        Check(slots, problems, _names.SemanticActivationSlots, "definition_id", "TEXT", true, false);
+        Check(slots, problems, _names.SemanticActivationSlots, "binding_id", "BLOB", true, false);
+        Check(slots, problems, _names.SemanticActivationSlots, "key_digest", "BLOB", true, false);
         Check(slots, problems, _names.SemanticActivationSlots, "state", "INTEGER", true, false);
         Check(slots, problems, _names.SemanticActivationSlots, "slot_generation", "INTEGER", true, false);
         Check(slots, problems, _names.SemanticActivationSlots, "activation_id", "TEXT", false, false);
@@ -1219,13 +1226,13 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
         ], ["definition_id","definition_version"]);
         await Exact(_names.SemanticActivationScopes,
         [
-            ("scope_kind","INTEGER",true,true),("seek_digest","BLOB",true,true),("binding_id","BLOB",true,false),("binding_json","BLOB",true,false),
-        ], ["scope_kind","seek_digest"]);
+            ("rotation_id","INTEGER",false,true),("scope_kind","INTEGER",true,false),("seek_digest","BLOB",true,false),("binding_id","BLOB",true,false),("binding_json","BLOB",true,false),
+        ], ["rotation_id"]);
         await Exact(_names.SemanticActivationSlots,
         [
-            ("definition_id","TEXT",true,true),("binding_id","BLOB",true,true),("key_digest","BLOB",true,true),("state","INTEGER",true,false),
+            ("rotation_id","INTEGER",false,true),("definition_id","TEXT",true,false),("binding_id","BLOB",true,false),("key_digest","BLOB",true,false),("state","INTEGER",true,false),
             ("slot_generation","INTEGER",true,false),("activation_id","TEXT",false,false),("authority_json","BLOB",true,false),
-        ], ["definition_id","binding_id","key_digest"]);
+        ], ["rotation_id"]);
         await Exact(_names.SemanticActivationMaintenance,
         [
             ("request_scope","TEXT",true,true),("request_operation","TEXT",true,true),("request_key","TEXT",true,true),("request_fingerprint","BLOB",true,false),
@@ -1244,10 +1251,10 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
         ], ["migration_id","migration_version"]);
         await Exact(_names.SemanticActivationRecoveryFloors,
         [
-            ("definition_id","TEXT",true,true),("binding_id","BLOB",true,true),("key_digest","BLOB",true,true),("state","INTEGER",true,false),
+            ("rotation_id","INTEGER",false,true),("definition_id","TEXT",true,false),("binding_id","BLOB",true,false),("key_digest","BLOB",true,false),("state","INTEGER",true,false),
             ("slot_generation","INTEGER",true,false),("authority_json","BLOB",true,false),("receipt_scope","TEXT",false,false),("receipt_operation","TEXT",false,false),
-            ("receipt_key","TEXT",false,false),("receipt_fingerprint","BLOB",false,false),("receipt_structural_digest","BLOB",false,false),("receipt_result_json","BLOB",false,false),("receipt_authority_checksum","BLOB",false,false),
-        ], ["definition_id","binding_id","key_digest"]);
+            ("receipt_key","TEXT",false,false),("receipt_fingerprint","BLOB",false,false),("receipt_structural_digest","BLOB",false,false),("receipt_result_json","BLOB",false,false),("receipt_authority_checksum","BLOB",false,false),("receipt_slot_authority_json","BLOB",false,false),
+        ], ["rotation_id"]);
         await Exact(_names.SemanticActivationRewriteStage,
         [
             ("maintenance_id","TEXT",true,true),("definition_id","TEXT",true,true),("binding_id","BLOB",true,true),("key_digest","BLOB",true,true),
@@ -1257,9 +1264,46 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
         await RequireSql(_names.SemanticActivationMaintenance,
             "CHECK((DISPOSITION=3ANDCHECKPOINT_CHECKSUMISNOTNULLANDLENGTH(CHECKPOINT_CHECKSUM)=32ANDRESULT_CHECKSUMISNULLANDCOMMIT_CHECKSUMISNULL)OR(DISPOSITION<>3ANDCHECKPOINT_CHECKSUMISNULLANDLENGTH(RESULT_CHECKSUM)=32ANDLENGTH(COMMIT_CHECKSUM)=32))");
         await RequireSql(_names.SemanticActivationRecoveryFloors,
-            "CHECK((RECEIPT_SCOPEISNULLANDRECEIPT_OPERATIONISNULLANDRECEIPT_KEYISNULLANDRECEIPT_FINGERPRINTISNULLANDRECEIPT_STRUCTURAL_DIGESTISNULLANDRECEIPT_RESULT_JSONISNULLANDRECEIPT_AUTHORITY_CHECKSUMISNULL)OR(RECEIPT_SCOPEISNOTNULLANDRECEIPT_OPERATIONISNOTNULLANDRECEIPT_KEYISNOTNULLANDLENGTH(RECEIPT_FINGERPRINT)=32ANDLENGTH(RECEIPT_STRUCTURAL_DIGEST)=32ANDRECEIPT_RESULT_JSONISNOTNULLANDLENGTH(RECEIPT_AUTHORITY_CHECKSUM)=32))");
+            "CHECK((RECEIPT_SCOPEISNULLANDRECEIPT_OPERATIONISNULLANDRECEIPT_KEYISNULLANDRECEIPT_FINGERPRINTISNULLANDRECEIPT_STRUCTURAL_DIGESTISNULLANDRECEIPT_RESULT_JSONISNULLANDRECEIPT_AUTHORITY_CHECKSUMISNULLANDRECEIPT_SLOT_AUTHORITY_JSONISNULL)OR(RECEIPT_SCOPEISNOTNULLANDRECEIPT_OPERATIONISNOTNULLANDRECEIPT_KEYISNOTNULLANDLENGTH(RECEIPT_FINGERPRINT)=32ANDLENGTH(RECEIPT_STRUCTURAL_DIGEST)=32ANDRECEIPT_RESULT_JSONISNOTNULLANDLENGTH(RECEIPT_AUTHORITY_CHECKSUM)=32ANDRECEIPT_SLOT_AUTHORITY_JSONISNOTNULL))");
         await RequireSql(_names.SemanticActivationMigrations, "CHECK(LENGTH(AUTHORITY_CHECKSUM)=32)");
         await RequireSql(_names.SemanticActivationRewriteStage, "CHECK(LENGTH(SOURCE_CHECKSUM)=32)");
+        await RequireSql(_names.SemanticActivationScopes, "ROTATION_IDINTEGERPRIMARYKEYAUTOINCREMENT");
+        await RequireSql(_names.SemanticActivationScopes, "BINDING_IDBLOBNOTNULLUNIQUE");
+        await RequireSql(_names.SemanticActivationScopes, "UNIQUE(SCOPE_KIND,SEEK_DIGEST)");
+        await RequireSql(_names.SemanticActivationSlots, "ROTATION_IDINTEGERPRIMARYKEYAUTOINCREMENT");
+        await RequireSql(_names.SemanticActivationSlots, "UNIQUE(DEFINITION_ID,BINDING_ID,KEY_DIGEST)");
+        await RequireSql(_names.SemanticActivationRecoveryFloors, "ROTATION_IDINTEGERPRIMARYKEYAUTOINCREMENT");
+        await RequireSql(_names.SemanticActivationRecoveryFloors, "UNIQUE(DEFINITION_ID,BINDING_ID,KEY_DIGEST)");
+        await RequireExactSql(_names.SemanticActivationScopes, $"""
+CREATE TABLE {_names.SemanticActivationScopes} (
+  rotation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scope_kind INTEGER NOT NULL, seek_digest BLOB NOT NULL CHECK(length(seek_digest)=32),
+  binding_id BLOB NOT NULL UNIQUE CHECK(length(binding_id)=32), binding_json BLOB NOT NULL,
+  UNIQUE(scope_kind,seek_digest)
+)
+""");
+        await RequireExactSql(_names.SemanticActivationSlots, $"""
+CREATE TABLE {_names.SemanticActivationSlots} (
+  rotation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  definition_id TEXT NOT NULL, binding_id BLOB NOT NULL CHECK(length(binding_id)=32),
+  key_digest BLOB NOT NULL CHECK(length(key_digest)=32), state INTEGER NOT NULL CHECK(state IN (1,2,3)),
+  slot_generation INTEGER NOT NULL CHECK(slot_generation > 0), activation_id TEXT NULL,
+  authority_json BLOB NOT NULL,
+  UNIQUE(definition_id,binding_id,key_digest)
+)
+""");
+        await RequireExactSql(_names.SemanticActivationRecoveryFloors, $"""
+CREATE TABLE {_names.SemanticActivationRecoveryFloors} (
+  rotation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  definition_id TEXT NOT NULL, binding_id BLOB NOT NULL CHECK(length(binding_id)=32), key_digest BLOB NOT NULL CHECK(length(key_digest)=32),
+  state INTEGER NOT NULL CHECK(state IN (2,3)), slot_generation INTEGER NOT NULL CHECK(slot_generation>0), authority_json BLOB NOT NULL,
+  receipt_scope TEXT NULL, receipt_operation TEXT NULL, receipt_key TEXT NULL, receipt_fingerprint BLOB NULL,
+  receipt_structural_digest BLOB NULL, receipt_result_json BLOB NULL, receipt_authority_checksum BLOB NULL, receipt_slot_authority_json BLOB NULL,
+  CHECK((receipt_scope IS NULL AND receipt_operation IS NULL AND receipt_key IS NULL AND receipt_fingerprint IS NULL AND receipt_structural_digest IS NULL AND receipt_result_json IS NULL AND receipt_authority_checksum IS NULL AND receipt_slot_authority_json IS NULL)
+     OR (receipt_scope IS NOT NULL AND receipt_operation IS NOT NULL AND receipt_key IS NOT NULL AND length(receipt_fingerprint)=32 AND length(receipt_structural_digest)=32 AND receipt_result_json IS NOT NULL AND length(receipt_authority_checksum)=32 AND receipt_slot_authority_json IS NOT NULL)),
+  UNIQUE(definition_id,binding_id,key_digest)
+)
+""");
 
         async ValueTask Exact(string table, (string Name,string Type,bool NotNull,bool Primary)[] expected, string[] primaryKey)
         {
@@ -1272,6 +1316,17 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
             await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
             while (await reader.ReadAsync(token).ConfigureAwait(false)) if (reader.GetInt32(5) > 0) actual[reader.GetInt32(5)] = reader.GetString(1);
             if (!actual.Values.SequenceEqual(primaryKey, StringComparer.Ordinal)) problems.Add("primary-key-shape:" + table);
+        }
+
+        async ValueTask RequireExactSql(string table, string expected)
+        {
+            await using SqliteCommand command = connection.CreateCommand();
+            command.CommandText = "SELECT sql FROM sqlite_master WHERE type='table' AND name=$table;";
+            command.Parameters.AddWithValue("$table", table);
+            string? actual = await command.ExecuteScalarAsync(token).ConfigureAwait(false) as string;
+            static string Normalize(string value) => string.Concat(value.Where(static character => !char.IsWhiteSpace(character))).ToUpperInvariant();
+            if (actual is null || !string.Equals(Normalize(actual), Normalize(expected), StringComparison.Ordinal))
+                problems.Add("table-sql:" + table);
         }
 
         async ValueTask RequireSql(string table, string required)

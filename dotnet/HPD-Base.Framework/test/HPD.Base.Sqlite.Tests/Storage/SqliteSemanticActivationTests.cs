@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using FluentAssertions;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -11,6 +12,441 @@ namespace HPD.Base.Sqlite.Tests.Storage;
 
 public sealed partial class SqliteModuleMutationTests
 {
+    [Fact]
+    public async Task Scope_rotation_reprotects_semantic_directory_and_live_authority_without_changing_identity()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-semantic-scope-rotation-{Guid.NewGuid():N}.db");
+        try
+        {
+            await using SqliteRecordStore store = SemanticStore(path, enableScopeRotationKey: true);
+            BaseAtomicMutationExecutionLimits limits = ExecutionLimits();
+            BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync("activation-test", [], limits)).Value!;
+            var first = new SqliteSemanticEnsureProbe(authority, limits, "rotation-parent-a");
+            (await store.ExecuteAtomicAsync(first, ExecutionRequest())).Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+            (BaseSemanticActivationScopeBinding priorBinding, BaseSemanticActivationLiveAuthority priorLive) = await ReadSemanticRotationAuthorityAsync(path);
+
+            var request = new BaseSubjectAuthorityMaintenanceExecutionRequest
+            {
+                Lifecycle = new() { Kind = BaseSubjectLifecycleMaintenanceKind.RotateScopeProtection, ExpectedDeliveryEpoch = 1, PlanChecksum = SHA256.HashData("semantic-rotation-plan"u8) },
+                Identity = BaseMutationRequestIdentity.Create("control-plane", "rotate-subject-scope-protection", "semantic-rotation-1",
+                    BaseMutationRequestFingerprint.Create(SHA256.HashData("semantic-rotation"u8))),
+                CombinedPlanChecksum = new byte[32], ExpectedStoreGeneration = store.VectorSchemaGeneration,
+                ExpectedSchemaGeneration = store.VectorSchemaGeneration, ExpectedRestoreEpoch = 0,
+                ExpectedScopeProtectionGeneration = 1, ExpectedScopeProtectionKeyId = "31", ReplacementScopeProtectionKeyId = "32",
+                ExpectedSemanticActivationAuthorityGeneration = 1,
+                ExpectedSemanticActivationDefinitionSetChecksum = SemanticDefinition().Checksum,
+                PageSize = 256, OperationTimeout = TimeSpan.FromSeconds(5), CommitCompletionTimeout = TimeSpan.FromSeconds(5),
+            };
+            request = request with { CombinedPlanChecksum = BaseSubjectAuthorityMaintenanceProcessor.PlanChecksum(request) };
+            var processor = new BaseSubjectAuthorityMaintenanceProcessor();
+            RecordMutationExecutionResult rotated = await store.ExecuteMaintenanceAsync(processor, request);
+            rotated.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed, rotated.Error?.Code ?? rotated.Processing?.Error?.Code);
+
+            (BaseSemanticActivationScopeBinding nextBinding, BaseSemanticActivationLiveAuthority nextLive) = await ReadSemanticRotationAuthorityAsync(path);
+            nextBinding.BindingId.Should().Equal(priorBinding.BindingId);
+            nextBinding.ProtectionKeyId.Should().Be("32");
+            nextBinding.SeekDigest.Should().NotEqual(priorBinding.SeekDigest);
+            nextBinding.Checksum.Should().NotEqual(priorBinding.Checksum);
+            nextLive.ActivationId.Should().Be(priorLive.ActivationId);
+            nextLive.KeyDigest.Should().Be(priorLive.KeyDigest);
+            nextLive.ScopeBinding.BindingId.Should().Equal(priorLive.ScopeBinding.BindingId);
+            nextLive.ScopeBinding.Checksum.Should().Equal(nextBinding.Checksum);
+            nextLive.Checksum.Should().NotEqual(priorLive.Checksum);
+            BaseSemanticActivationEvidenceContract.LiveChecksum(nextLive).Should().Equal(nextLive.Checksum);
+
+            authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync("activation-test", [], limits)).Value!;
+            var duplicate = new SqliteSemanticEnsureProbe(authority, limits, "rotation-parent-b");
+            (await store.ExecuteAtomicAsync(duplicate, ExecutionRequest())).Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+            duplicate.CapturedState.Should().Be(BaseSemanticActivationCapturedState.Live);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            foreach (string suffix in new[] { "", "-wal", "-shm" }) if (File.Exists(path + suffix)) File.Delete(path + suffix);
+        }
+    }
+
+    private static async Task<(BaseSemanticActivationScopeBinding Binding, BaseSemanticActivationLiveAuthority Live)> ReadSemanticRotationAuthorityAsync(string path)
+    {
+        await using var connection = new SqliteConnection($"Data Source={path};Pooling=False");
+        await connection.OpenAsync();
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT s.binding_json,l.authority_json FROM hpd_base_semantic_activation_scopes s JOIN hpd_base_semantic_activation_slots l ON l.binding_id=s.binding_id WHERE l.state=1;";
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync();
+        (await reader.ReadAsync()).Should().BeTrue();
+        return (
+            JsonSerializer.Deserialize((byte[])reader.GetValue(0), HPDBaseJsonSerializerContext.Default.BaseSemanticActivationScopeBinding)!,
+            JsonSerializer.Deserialize((byte[])reader.GetValue(1), HPDBaseJsonSerializerContext.Default.BaseSemanticActivationLiveAuthority)!);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task Scope_rotation_rebinds_retired_slot_and_recovery_floor_without_rewriting_historical_receipt(
+        bool corruptHistoricalAuthority, bool corruptSlotRow)
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-semantic-retired-rotation-{Guid.NewGuid():N}.db");
+        try
+        {
+            await using SqliteRecordStore store = SemanticStore(path, enableScopeRotationKey: true);
+            BaseAtomicMutationExecutionLimits limits = ExecutionLimits();
+            BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync("activation-test", [], limits)).Value!;
+            (await store.ExecuteAtomicAsync(new SqliteSemanticEnsureProbe(authority, limits, "retired-rotation-ensure"), ExecutionRequest()))
+                .Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+            await CompleteSemanticActivationAsync(store, "retired-rotation-complete");
+            var retire = new SqliteSemanticEnsureProbe(authority, limits, "retired-rotation-retire", retire: true);
+            (await store.ExecuteAtomicAsync(retire, ExecutionRequest())).Outcome.Should().Be(RecordMutationExecutionOutcome.Committed, retire.RejectedCode);
+            await InsertRetiredRecoveryFloorAsync(path, retire.RecoveryReceiptJson!);
+            (BaseSemanticActivationRetirementAuthority priorSlot, BaseSemanticActivationRetirementAuthority priorFloor, byte[] priorReceipt) =
+                await ReadRetiredRotationAuthorityAsync(path);
+            if (corruptHistoricalAuthority)
+            {
+                await using var connection = new SqliteConnection($"Data Source={path};Pooling=False"); await connection.OpenAsync();
+                await using SqliteCommand corrupt = connection.CreateCommand();
+                corrupt.CommandText = "UPDATE hpd_base_semantic_activation_recovery_floors SET receipt_slot_authority_json=randomblob(length(receipt_slot_authority_json));";
+                (await corrupt.ExecuteNonQueryAsync()).Should().Be(1);
+            }
+            if (corruptSlotRow)
+            {
+                await using var connection = new SqliteConnection($"Data Source={path};Pooling=False"); await connection.OpenAsync();
+                await using SqliteCommand corrupt = connection.CreateCommand();
+                corrupt.CommandText = "UPDATE hpd_base_semantic_activation_slots SET slot_generation=slot_generation+1 WHERE state=2;";
+                (await corrupt.ExecuteNonQueryAsync()).Should().Be(1);
+            }
+
+            BaseSubjectAuthorityMaintenanceExecutionRequest request = SemanticRotationRequest(store, "semantic-retired-rotation");
+            RecordMutationExecutionResult rotated = await store.ExecuteMaintenanceAsync(new BaseSubjectAuthorityMaintenanceProcessor(), request);
+            if (corruptHistoricalAuthority || corruptSlotRow)
+            {
+                rotated.Outcome.Should().Be(RecordMutationExecutionOutcome.RollbackConfirmed);
+                return;
+            }
+            rotated.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed, rotated.Error?.Code ?? rotated.Processing?.Error?.Code);
+
+            (BaseSemanticActivationRetirementAuthority nextSlot, BaseSemanticActivationRetirementAuthority nextFloor, byte[] nextReceipt) =
+                await ReadRetiredRotationAuthorityAsync(path);
+            nextSlot.StoreAuthority.Requirement.SemanticAuthorityGeneration.Should().Be(2);
+            nextFloor.StoreAuthority.Requirement.SemanticAuthorityGeneration.Should().Be(2);
+            nextSlot.Checksum.Should().NotEqual(priorSlot.Checksum);
+            nextFloor.Checksum.Should().NotEqual(priorFloor.Checksum);
+            nextReceipt.Should().Equal(priorReceipt);
+            var duplicate = new SqliteSemanticEnsureProbe(
+                (await store.CaptureAtomicMutationAuthorityRequirementAsync("activation-test", [], limits)).Value!,
+                limits, "retired-rotation-duplicate", retire: true);
+            (await store.ExecuteAtomicAsync(duplicate, ExecutionRequest())).Outcome.Should().Be(RecordMutationExecutionOutcome.Committed, duplicate.RejectedCode);
+            duplicate.CapturedState.Should().Be(BaseSemanticActivationCapturedState.Retired);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            foreach (string suffix in new[] { "", "-wal", "-shm" }) if (File.Exists(path + suffix)) File.Delete(path + suffix);
+        }
+    }
+
+    private static async Task<(BaseSemanticActivationRetirementAuthority Slot, BaseSemanticActivationRetirementAuthority Floor, byte[] Receipt)>
+        ReadRetiredRotationAuthorityAsync(string path)
+    {
+        await using var connection = new SqliteConnection($"Data Source={path};Pooling=False");
+        await connection.OpenAsync();
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT s.authority_json,f.authority_json,f.receipt_result_json FROM hpd_base_semantic_activation_slots s JOIN hpd_base_semantic_activation_recovery_floors f ON f.definition_id=s.definition_id AND f.binding_id=s.binding_id AND f.key_digest=s.key_digest WHERE s.state=2 AND f.state=2;";
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync();
+        (await reader.ReadAsync()).Should().BeTrue();
+        return (
+            JsonSerializer.Deserialize((byte[])reader.GetValue(0), HPDBaseJsonSerializerContext.Default.BaseSemanticActivationRetirementAuthority)!,
+            JsonSerializer.Deserialize((byte[])reader.GetValue(1), HPDBaseJsonSerializerContext.Default.BaseSemanticActivationRetirementAuthority)!,
+            (byte[])reader.GetValue(2));
+    }
+
+    private static async Task InsertRetiredRecoveryFloorAsync(string path, byte[] receipt)
+    {
+        const string scope = "semantic-rotation";
+        const string operation = "retire";
+        const string key = "retired-floor";
+        byte[] fingerprint = SHA256.HashData("retired-floor-fingerprint"u8);
+        byte[] structural = SHA256.HashData("retired-floor-structural"u8);
+        byte[] receiptAuthority = BaseSemanticActivationEvidenceContract.RecoveryReceiptChecksum(
+            scope, operation, key, fingerprint, structural, receipt).ToArray();
+        await using var connection = new SqliteConnection($"Data Source={path};Pooling=False");
+        await connection.OpenAsync();
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = """
+INSERT INTO hpd_base_semantic_activation_recovery_floors(
+ definition_id,binding_id,key_digest,state,slot_generation,authority_json,
+ receipt_scope,receipt_operation,receipt_key,receipt_fingerprint,receipt_structural_digest,receipt_result_json,receipt_authority_checksum,receipt_slot_authority_json)
+SELECT definition_id,binding_id,key_digest,state,slot_generation,authority_json,
+ $scope,$operation,$key,$fingerprint,$structural,$receipt,$authority,authority_json
+FROM hpd_base_semantic_activation_slots WHERE state=2;
+""";
+        command.Parameters.AddWithValue("$scope", scope); command.Parameters.AddWithValue("$operation", operation);
+        command.Parameters.AddWithValue("$key", key); command.Parameters.Add("$fingerprint", SqliteType.Blob).Value = fingerprint;
+        command.Parameters.Add("$structural", SqliteType.Blob).Value = structural; command.Parameters.Add("$receipt", SqliteType.Blob).Value = receipt;
+        command.Parameters.Add("$authority", SqliteType.Blob).Value = receiptAuthority;
+        (await command.ExecuteNonQueryAsync()).Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Scope_rotation_rebinds_compacted_absence_slot_and_floor(bool corruptSlotRow)
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-semantic-absence-rotation-{Guid.NewGuid():N}.db");
+        try
+        {
+            await using SqliteRecordStore store = SemanticStore(path, enableScopeRotationKey: true);
+            BaseAtomicMutationExecutionLimits limits = ExecutionLimits();
+            BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync("activation-test", [], limits)).Value!;
+            (await store.ExecuteAtomicAsync(new SqliteSemanticEnsureProbe(authority, limits, "absence-rotation-ensure"), ExecutionRequest()))
+                .Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+            await CompleteSemanticActivationAsync(store, "absence-rotation-complete");
+            var retire = new SqliteSemanticEnsureProbe(authority, limits, "absence-rotation-retire", retire: true);
+            (await store.ExecuteAtomicAsync(retire, ExecutionRequest())).Outcome.Should().Be(RecordMutationExecutionOutcome.Committed, retire.RejectedCode);
+            await ConvertRetiredToAbsenceForRotationAsync(path);
+            ImmutableArray<byte> prior = await ReadAbsenceChecksumAsync(path);
+            if (corruptSlotRow)
+            {
+                await using var connection = new SqliteConnection($"Data Source={path};Pooling=False"); await connection.OpenAsync();
+                await using SqliteCommand corrupt = connection.CreateCommand();
+                corrupt.CommandText = "UPDATE hpd_base_semantic_activation_slots SET slot_generation=slot_generation+1 WHERE state=3;";
+                (await corrupt.ExecuteNonQueryAsync()).Should().Be(1);
+            }
+
+            RecordMutationExecutionResult rotated = await store.ExecuteMaintenanceAsync(
+                new BaseSubjectAuthorityMaintenanceProcessor(), SemanticRotationRequest(store, "semantic-absence-rotation"));
+            if (corruptSlotRow)
+            {
+                rotated.Outcome.Should().Be(RecordMutationExecutionOutcome.RollbackConfirmed);
+                return;
+            }
+            rotated.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed, rotated.Error?.Code ?? rotated.Processing?.Error?.Code);
+            ImmutableArray<byte> next = await ReadAbsenceChecksumAsync(path);
+            next.Should().NotEqual(prior);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            foreach (string suffix in new[] { "", "-wal", "-shm" }) if (File.Exists(path + suffix)) File.Delete(path + suffix);
+        }
+    }
+
+    private static async Task ConvertRetiredToAbsenceForRotationAsync(string path)
+    {
+        await using var connection = new SqliteConnection($"Data Source={path};Pooling=False"); await connection.OpenAsync();
+        await using SqliteCommand read = connection.CreateCommand();
+        read.CommandText = "SELECT authority_json FROM hpd_base_semantic_activation_slots WHERE state=2;";
+        BaseSemanticActivationRetirementAuthority retired = JsonSerializer.Deserialize(
+            (byte[])(await read.ExecuteScalarAsync())!, HPDBaseJsonSerializerContext.Default.BaseSemanticActivationRetirementAuthority)!;
+        var absent = new BaseSemanticActivationAbsenceAuthority
+        {
+            Key = retired.KeyDigest, Definition = new BaseSemanticActivationDefinitionIdentity
+            {
+                Id = retired.Definition.Id, Version = retired.Definition.Version, Checksum = retired.Definition.Checksum,
+                OwnerGeneration = 1, OwningModuleId = "test", RetirementOperation = new()
+                {
+                    OperationId = "semantic.retire", OperationVersion = 1,
+                    OperationChecksum = Convert.ToHexStringLower(retired.CompletionOperationChecksum.ToArray()),
+                },
+            },
+            ScopeBindingId = retired.SubjectLifetime?.ScopeBindingId ?? SHA256.HashData("runtime-proposed-binding:absence-rotation-ensure"u8).ToImmutableArray(),
+            SubjectLifetime = retired.SubjectLifetime, FinalSlotGeneration = retired.SlotGeneration,
+            AbsenceFloorGeneration = 1, RetirementPosition = retired.RetirementPosition,
+            StoreAuthority = retired.StoreAuthority, Checksum = [],
+        };
+        absent = absent with { Checksum = BaseSemanticActivationEvidenceContract.AbsenceChecksum(absent) };
+        byte[] json = JsonSerializer.SerializeToUtf8Bytes(absent, HPDBaseJsonSerializerContext.Default.BaseSemanticActivationAbsenceAuthority);
+        await using SqliteCommand update = connection.CreateCommand();
+        update.CommandText = """
+UPDATE hpd_base_semantic_activation_slots SET state=3,authority_json=$authority WHERE state=2;
+INSERT INTO hpd_base_semantic_activation_recovery_floors(definition_id,binding_id,key_digest,state,slot_generation,authority_json)
+SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd_base_semantic_activation_slots WHERE state=3;
+""";
+        update.Parameters.Add("$authority", SqliteType.Blob).Value = json;
+        (await update.ExecuteNonQueryAsync()).Should().Be(2);
+    }
+
+    private static async Task<ImmutableArray<byte>> ReadAbsenceChecksumAsync(string path)
+    {
+        await using var connection = new SqliteConnection($"Data Source={path};Pooling=False"); await connection.OpenAsync();
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT authority_json FROM hpd_base_semantic_activation_slots WHERE state=3;";
+        return JsonSerializer.Deserialize((byte[])(await command.ExecuteScalarAsync())!,
+            HPDBaseJsonSerializerContext.Default.BaseSemanticActivationAbsenceAuthority)!.Checksum;
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Semantic_scope_rotation_resumes_verified_staging_and_rejects_corruption(bool corruptStage)
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-semantic-scope-resume-{Guid.NewGuid():N}.db");
+        try
+        {
+            var interruption = new SemanticRotationInterruption();
+            await using SqliteRecordStore store = SemanticStore(path, enableScopeRotationKey: true, administrationOperations: interruption);
+            BaseAtomicMutationExecutionLimits limits = ExecutionLimits();
+            BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync("activation-test", [], limits)).Value!;
+            (await store.ExecuteAtomicAsync(new SqliteSemanticEnsureProbe(authority, limits, "resume-parent"), ExecutionRequest()))
+                .Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+            BaseSemanticActivationScopeBinding prior = (await ReadSemanticRotationAuthorityAsync(path)).Binding;
+            BaseSubjectAuthorityMaintenanceExecutionRequest request = SemanticRotationRequest(store, "semantic-rotation-resume");
+            await FluentActions.Awaiting(async () => await store.ExecuteMaintenanceAsync(new BaseSubjectAuthorityMaintenanceProcessor(), request))
+                .Should().ThrowAsync<IOException>();
+            (await ReadSemanticRotationAuthorityAsync(path)).Binding.Checksum.Should().Equal(prior.Checksum);
+            if (corruptStage)
+            {
+                await using var connection = new SqliteConnection($"Data Source={path};Pooling=False"); await connection.OpenAsync();
+                await using SqliteCommand corrupt = connection.CreateCommand();
+                corrupt.CommandText = "UPDATE hpd_base_subject_lifecycle_scope_stage SET replacement_value=randomblob(length(replacement_value)) WHERE domain_ordinal=9;";
+                (await corrupt.ExecuteNonQueryAsync()).Should().Be(1);
+            }
+            RecordMutationExecutionResult resumed = await store.ExecuteMaintenanceAsync(new BaseSubjectAuthorityMaintenanceProcessor(), request);
+            if (corruptStage)
+            {
+                resumed.Outcome.Should().Be(RecordMutationExecutionOutcome.RollbackConfirmed);
+                resumed.Error?.Code.Should().Be(BaseSubjectErrorCodes.LifecycleProviderContractInvalid);
+                (await ReadSemanticRotationAuthorityAsync(path)).Binding.Checksum.Should().Equal(prior.Checksum);
+            }
+            else
+            {
+                resumed.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+                (await ReadSemanticRotationAuthorityAsync(path)).Binding.ProtectionKeyId.Should().Be("32");
+            }
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            foreach (string suffix in new[] { "", "-wal", "-shm" }) if (File.Exists(path + suffix)) File.Delete(path + suffix);
+        }
+    }
+
+    private static BaseSubjectAuthorityMaintenanceExecutionRequest SemanticRotationRequest(SqliteRecordStore store, string idempotencyKey)
+    {
+        var request = new BaseSubjectAuthorityMaintenanceExecutionRequest
+        {
+            Lifecycle = new() { Kind = BaseSubjectLifecycleMaintenanceKind.RotateScopeProtection, ExpectedDeliveryEpoch = 1, PlanChecksum = SHA256.HashData("semantic-rotation-plan"u8) },
+            Identity = BaseMutationRequestIdentity.Create("control-plane", "rotate-subject-scope-protection", idempotencyKey,
+                BaseMutationRequestFingerprint.Create(SHA256.HashData(Encoding.UTF8.GetBytes(idempotencyKey)))),
+            CombinedPlanChecksum = new byte[32], ExpectedStoreGeneration = store.VectorSchemaGeneration,
+            ExpectedSchemaGeneration = store.VectorSchemaGeneration, ExpectedRestoreEpoch = 0,
+            ExpectedScopeProtectionGeneration = 1, ExpectedScopeProtectionKeyId = "31", ReplacementScopeProtectionKeyId = "32",
+            ExpectedSemanticActivationAuthorityGeneration = 1,
+            ExpectedSemanticActivationDefinitionSetChecksum = SemanticDefinition().Checksum,
+            PageSize = 256, OperationTimeout = TimeSpan.FromSeconds(5), CommitCompletionTimeout = TimeSpan.FromSeconds(5),
+        };
+        return request with { CombinedPlanChecksum = BaseSubjectAuthorityMaintenanceProcessor.PlanChecksum(request) };
+    }
+
+    private sealed class SemanticRotationInterruption : ISqliteAdministrationOperationController
+    {
+        private int _remaining = 1;
+        public ValueTask BeforePhaseAsync(string phase, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (phase == "subjectLifecycleRotationAfterPage" && Interlocked.Exchange(ref _remaining, 0) == 1)
+                throw new IOException("Injected semantic rotation interruption.");
+            return ValueTask.CompletedTask;
+        }
+        public void DeleteFile(string path) => File.Delete(path);
+    }
+
+    [Theory]
+    [InlineData("binding-checksum")]
+    [InlineData("live-checksum")]
+    [InlineData("store-generation")]
+    [InlineData("store-application")]
+    [InlineData("store-logical")]
+    [InlineData("store-instance")]
+    [InlineData("store-restore")]
+    [InlineData("store-schema")]
+    [InlineData("definition-version")]
+    [InlineData("definition-checksum")]
+    [InlineData("activation-input")]
+    [InlineData("scope-row")]
+    [InlineData("live-row")]
+    public async Task Scope_rotation_rejects_corrupt_semantic_source_authority(string corruption)
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-semantic-source-{corruption}-{Guid.NewGuid():N}.db");
+        try
+        {
+            await using SqliteRecordStore store = SemanticStore(path, enableScopeRotationKey: true);
+            BaseAtomicMutationExecutionLimits limits = ExecutionLimits();
+            BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync("activation-test", [], limits)).Value!;
+            (await store.ExecuteAtomicAsync(new SqliteSemanticEnsureProbe(authority, limits, "source-corruption"), ExecutionRequest()))
+                .Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+            await CorruptSemanticRotationSourceAsync(path, corruption);
+            RecordMutationExecutionResult result = await store.ExecuteMaintenanceAsync(
+                new BaseSubjectAuthorityMaintenanceProcessor(), SemanticRotationRequest(store, "source-corruption-" + corruption));
+            result.Outcome.Should().Be(RecordMutationExecutionOutcome.RollbackConfirmed);
+            result.Error?.Code.Should().Be(BaseSubjectErrorCodes.LifecycleProviderContractInvalid);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            foreach (string suffix in new[] { "", "-wal", "-shm" }) if (File.Exists(path + suffix)) File.Delete(path + suffix);
+        }
+    }
+
+    private static async Task CorruptSemanticRotationSourceAsync(string path, string corruption)
+    {
+        await using var connection = new SqliteConnection($"Data Source={path};Pooling=False"); await connection.OpenAsync();
+        if (corruption == "activation-input")
+        {
+            await using SqliteCommand activation = connection.CreateCommand();
+            activation.CommandText = "UPDATE hpd_base_activations SET input_checksum=randomblob(32);";
+            (await activation.ExecuteNonQueryAsync()).Should().Be(1); return;
+        }
+        if (corruption == "scope-row" || corruption == "live-row")
+        {
+            await using SqliteCommand relational = connection.CreateCommand();
+            relational.CommandText = corruption == "scope-row"
+                ? "UPDATE hpd_base_semantic_activation_scopes SET scope_kind=1;"
+                : "UPDATE hpd_base_semantic_activation_slots SET slot_generation=slot_generation+1 WHERE state=1;";
+            (await relational.ExecuteNonQueryAsync()).Should().Be(1); return;
+        }
+        await using SqliteCommand read = connection.CreateCommand();
+        read.CommandText = "SELECT s.binding_json,l.authority_json FROM hpd_base_semantic_activation_scopes s JOIN hpd_base_semantic_activation_slots l ON l.binding_id=s.binding_id WHERE l.state=1;";
+        await using SqliteDataReader reader = await read.ExecuteReaderAsync(); (await reader.ReadAsync()).Should().BeTrue();
+        BaseSemanticActivationScopeBinding binding = JsonSerializer.Deserialize((byte[])reader[0], HPDBaseJsonSerializerContext.Default.BaseSemanticActivationScopeBinding)!;
+        BaseSemanticActivationLiveAuthority live = JsonSerializer.Deserialize((byte[])reader[1], HPDBaseJsonSerializerContext.Default.BaseSemanticActivationLiveAuthority)!;
+        await reader.DisposeAsync();
+        if (corruption == "binding-checksum")
+            binding = binding with { Checksum = Enumerable.Repeat((byte)0x91, 32).ToImmutableArray() };
+        else if (corruption == "live-checksum")
+            live = live with { Checksum = Enumerable.Repeat((byte)0x92, 32).ToImmutableArray() };
+        else if (corruption.StartsWith("store-", StringComparison.Ordinal))
+        {
+            BaseSemanticActivationStoreAuthorityRequirement requirement = live.StoreAuthority.Requirement;
+            requirement = corruption switch
+            {
+                "store-generation" => requirement with { SemanticAuthorityGeneration = 2 },
+                "store-application" => requirement with { ApplicationId = "substituted.application" },
+                "store-logical" => requirement with { LogicalStoreId = "substituted.logical" },
+                "store-instance" => requirement with { StoreInstanceId = "substituted.instance" },
+                "store-restore" => requirement with { RestoreEpoch = checked(requirement.RestoreEpoch + 1) },
+                "store-schema" => requirement with { SchemaGeneration = checked(requirement.SchemaGeneration + 1) },
+                _ => throw new InvalidOperationException(),
+            };
+            BaseSemanticActivationStoreAuthority storeAuthority = BaseSemanticActivationEvidenceContract.CreateStoreAuthority(
+                requirement);
+            live = live with { StoreAuthority = storeAuthority, Checksum = [] };
+            live = live with { Checksum = BaseSemanticActivationEvidenceContract.LiveChecksum(live) };
+        }
+        else
+        {
+            BaseSemanticActivationDefinitionIdentity definition = corruption == "definition-version"
+                ? live.Definition with { Version = checked(live.Definition.Version + 1) }
+                : live.Definition with { Checksum = SHA256.HashData("substituted-semantic-definition"u8).ToImmutableArray() };
+            live = live with { Definition = definition, Checksum = [] };
+            live = live with { Checksum = BaseSemanticActivationEvidenceContract.LiveChecksum(live) };
+        }
+        await using SqliteCommand update = connection.CreateCommand();
+        update.CommandText = "UPDATE hpd_base_semantic_activation_scopes SET binding_json=$binding; UPDATE hpd_base_semantic_activation_slots SET authority_json=$live WHERE state=1;";
+        update.Parameters.Add("$binding", SqliteType.Blob).Value = JsonSerializer.SerializeToUtf8Bytes(binding, HPDBaseJsonSerializerContext.Default.BaseSemanticActivationScopeBinding);
+        update.Parameters.Add("$live", SqliteType.Blob).Value = JsonSerializer.SerializeToUtf8Bytes(live, HPDBaseJsonSerializerContext.Default.BaseSemanticActivationLiveAuthority);
+        (await update.ExecuteNonQueryAsync()).Should().Be(2);
+    }
+
     [Fact]
     public async Task Semantic_runtime_finalizes_null_due_across_different_parents_and_restart()
     {
@@ -499,6 +935,75 @@ public sealed partial class SqliteModuleMutationTests
         finally { foreach (string suffix in new[] { "", "-wal", "-shm" }) if (File.Exists(path + suffix)) File.Delete(path + suffix); }
     }
 
+    [Theory]
+    [InlineData("hpd_base_semantic_activation_scopes", "AUTOINCREMENT", "")]
+    [InlineData("hpd_base_semantic_activation_scopes", ",\n  UNIQUE(scope_kind,seek_digest)", "")]
+    [InlineData("hpd_base_semantic_activation_slots", ",\n  UNIQUE(definition_id,binding_id,key_digest)", "")]
+    [InlineData("hpd_base_semantic_activation_recovery_floors", "AUTOINCREMENT", "")]
+    public async Task Semantic_schema_rejects_missing_rotation_and_logical_uniqueness_authority(
+        string table, string oldText, string newText)
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-l53-schema-authority-{Guid.NewGuid():N}.db");
+        try
+        {
+            await using (SqliteRecordStore initialized = SemanticStore(path)) { }
+            await using (var connection = new SqliteConnection($"Data Source={path};Pooling=False"))
+            {
+                await connection.OpenAsync();
+                await using SqliteCommand read = connection.CreateCommand();
+                read.CommandText = "SELECT sql FROM sqlite_master WHERE type='table' AND name=$table;";
+                read.Parameters.AddWithValue("$table", table);
+                string sql = (string)(await read.ExecuteScalarAsync())!;
+                string replacement = sql.Replace(oldText, newText, StringComparison.OrdinalIgnoreCase);
+                replacement.Should().NotBe(sql);
+                await using SqliteCommand rewrite = connection.CreateCommand();
+                rewrite.CommandText = $"DROP TABLE {table}; {replacement};";
+                await rewrite.ExecuteNonQueryAsync();
+            }
+            Action reopen = () => _ = SemanticStore(path);
+            reopen.Should().Throw<InvalidOperationException>();
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            foreach (string suffix in new[] { "", "-wal", "-shm" }) if (File.Exists(path + suffix)) File.Delete(path + suffix);
+        }
+    }
+
+    [Theory]
+    [InlineData("hpd_base_semantic_activation_scopes", ", CHECK(scope_kind>=0)")]
+    [InlineData("hpd_base_semantic_activation_slots", ", UNIQUE(definition_id)")]
+    [InlineData("hpd_base_semantic_activation_recovery_floors", ", CHECK(slot_generation<9223372036854775807)")]
+    public async Task Semantic_schema_rejects_additional_table_authority(string table, string additionalConstraint)
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-l53-extra-schema-authority-{Guid.NewGuid():N}.db");
+        try
+        {
+            await using (SqliteRecordStore initialized = SemanticStore(path)) { }
+            await using (var connection = new SqliteConnection($"Data Source={path};Pooling=False"))
+            {
+                await connection.OpenAsync();
+                await using SqliteCommand read = connection.CreateCommand();
+                read.CommandText = "SELECT sql FROM sqlite_master WHERE type='table' AND name=$table;";
+                read.Parameters.AddWithValue("$table", table);
+                string sql = (string)(await read.ExecuteScalarAsync())!;
+                int closing = sql.LastIndexOf(')');
+                closing.Should().BePositive();
+                string replacement = sql.Insert(closing, additionalConstraint);
+                await using SqliteCommand rewrite = connection.CreateCommand();
+                rewrite.CommandText = $"DROP TABLE {table}; {replacement};";
+                await rewrite.ExecuteNonQueryAsync();
+            }
+            Action reopen = () => _ = SemanticStore(path);
+            reopen.Should().Throw<InvalidOperationException>().WithMessage($"*table-sql:{table}*");
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            foreach (string suffix in new[] { "", "-wal", "-shm" }) if (File.Exists(path + suffix)) File.Delete(path + suffix);
+        }
+    }
+
     [Fact]
     public async Task Semantic_retirement_rejects_substituted_terminal_receipt_authority()
     {
@@ -627,7 +1132,7 @@ public sealed partial class SqliteModuleMutationTests
             await using (var before = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path};Pooling=False"))
             {
                 await before.OpenAsync(); await using var floor = before.CreateCommand();
-                floor.CommandText = "INSERT INTO hpd_base_semantic_activation_recovery_floors(definition_id,binding_id,key_digest,state,slot_generation,authority_json,receipt_scope,receipt_operation,receipt_key,receipt_fingerprint,receipt_structural_digest,receipt_result_json,receipt_authority_checksum) SELECT definition_id,binding_id,key_digest,state,slot_generation,authority_json,'semantic','retire','restore-retire',$fingerprint,$structural,$result,$authority FROM hpd_base_semantic_activation_slots WHERE state=2;";
+                floor.CommandText = "INSERT INTO hpd_base_semantic_activation_recovery_floors(definition_id,binding_id,key_digest,state,slot_generation,authority_json,receipt_scope,receipt_operation,receipt_key,receipt_fingerprint,receipt_structural_digest,receipt_result_json,receipt_authority_checksum,receipt_slot_authority_json) SELECT definition_id,binding_id,key_digest,state,slot_generation,authority_json,'semantic','retire','restore-retire',$fingerprint,$structural,$result,$authority,authority_json FROM hpd_base_semantic_activation_slots WHERE state=2;";
                 byte[] fingerprint = SHA256.HashData("restore-fingerprint"u8); byte[] structural = SHA256.HashData("restore-structural"u8);
                 floor.Parameters.Add("$fingerprint", Microsoft.Data.Sqlite.SqliteType.Blob).Value = fingerprint;
                 floor.Parameters.Add("$structural", Microsoft.Data.Sqlite.SqliteType.Blob).Value = structural;
@@ -692,7 +1197,9 @@ public sealed partial class SqliteModuleMutationTests
         ImmutableArray<byte> definitionSetChecksum = default,
         ImmutableArray<BaseSemanticActivationMigrationDefinition> migrations = default,
         bool administrationEnabled = false,
-        int maximumCanonicalKeyBytes = 256)
+        int maximumCanonicalKeyBytes = 256,
+        bool enableScopeRotationKey = false,
+        ISqliteAdministrationOperationController? administrationOperations = null)
     {
         BaseSemanticActivationKeyDefinition definition = installedDefinition ?? SemanticDefinition(maximumLiveSlots, maximumReceiptBytes, maximumCanonicalKeyBytes);
         var options = new HPDBaseSqliteOptions
@@ -710,8 +1217,12 @@ public sealed partial class SqliteModuleMutationTests
         var protector = new BaseOpaqueTokenProtector(Options.Create(new HPDBaseTokenProtectionOptions
         {
             ActiveKey = new BaseOpaqueTokenKey { Id = 31, Key = Enumerable.Repeat((byte)0x31, 32).ToArray(), IssueNotBefore = DateTimeOffset.UnixEpoch },
+            DecryptionKeys = enableScopeRotationKey
+                ? [new BaseOpaqueTokenKey { Id = 32, Key = Enumerable.Repeat((byte)0x32, 32).ToArray(), IssueNotBefore = DateTimeOffset.UnixEpoch }]
+                : [],
         }));
-        var store = new SqliteRecordStore(options, NullLoggerFactory.Instance, TimeProvider.System, tokenProtector: protector);
+        var store = new SqliteRecordStore(options, NullLoggerFactory.Instance, TimeProvider.System,
+            tokenProtector: protector, administrationOperations: administrationOperations);
         store.InitializeUnacceptedSchemaForTestsAsync().AsTask().GetAwaiter().GetResult();
         if (administrationEnabled)
         {
@@ -906,12 +1417,7 @@ public sealed partial class SqliteModuleMutationTests
                     Definition = definition, CanonicalKey = canonicalKey.ToImmutableArray(), KeyPreimageChecksum = SHA256.HashData(canonicalKey).ToImmutableArray(),
                     Scope = scope, ProposedScopeBindingId = binding.ToImmutableArray(), Operation = retire
                         ? BaseSemanticActivationOperationKind.Retire : BaseSemanticActivationOperationKind.Ensure,
-                    StoreAuthority = new()
-                    {
-                        ApplicationId = authority.ApplicationId, LogicalStoreId = authority.StoreInstanceId, StoreInstanceId = authority.StoreInstanceId,
-                        RestoreEpoch = authority.RestoreEpoch, SchemaGeneration = authority.SchemaGeneration, SemanticAuthorityGeneration = 1,
-                        DefinitionSetChecksum = definitionChecksum.ToImmutableArray(),
-                    },
+                    StoreAuthority = authority.SemanticActivation!,
                     Limits = CreateLimits(), AcceptedTime = AcceptedTime(retire ? 30 : 1),
                 },
                 Operation = operation,

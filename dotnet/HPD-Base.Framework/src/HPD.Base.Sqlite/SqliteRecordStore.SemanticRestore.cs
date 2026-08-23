@@ -28,7 +28,8 @@ public sealed partial class SqliteRecordStore
         byte[]? ReceiptFingerprint,
         byte[]? ReceiptStructuralDigest,
         byte[]? ReceiptResultJson,
-        byte[]? ReceiptAuthorityChecksum);
+        byte[]? ReceiptAuthorityChecksum,
+        byte[]? ReceiptSlotAuthorityJson);
 
     private sealed record SemanticSlotRow(string DefinitionId, byte[] BindingId, byte[] KeyDigest,
         int State, long SlotGeneration, byte[] AuthorityJson);
@@ -107,7 +108,7 @@ public sealed partial class SqliteRecordStore
             else
             {
                 var row = new SemanticRecoveryRow(definition, binding, key, state, slotGeneration, authority,
-                    null, null, null, null, null, null, null);
+                    null, null, null, null, null, null, null, null);
                 ValidateSemanticRecoveryRow(row, artifactGeneration, definitionSet, artifactRestoreEpoch, resultingSchemaGeneration);
                 replacement = RebindSemanticRecoveryRow(row, resultingGeneration, definitionSet, restoreEpoch, resultingSchemaGeneration).AuthorityJson;
             }
@@ -573,11 +574,11 @@ SELECT
         }
         bool allReceiptNull = row.ReceiptScope is null && row.ReceiptOperation is null && row.ReceiptKey is null
             && row.ReceiptFingerprint is null && row.ReceiptStructuralDigest is null && row.ReceiptResultJson is null
-            && row.ReceiptAuthorityChecksum is null;
+            && row.ReceiptAuthorityChecksum is null && row.ReceiptSlotAuthorityJson is null;
         bool allReceiptPresent = !string.IsNullOrWhiteSpace(row.ReceiptScope) && !string.IsNullOrWhiteSpace(row.ReceiptOperation)
             && !string.IsNullOrWhiteSpace(row.ReceiptKey) && row.ReceiptFingerprint?.Length == 32
             && row.ReceiptStructuralDigest?.Length == 32 && row.ReceiptResultJson is { Length: > 0 }
-            && row.ReceiptAuthorityChecksum?.Length == 32;
+            && row.ReceiptAuthorityChecksum?.Length == 32 && row.ReceiptSlotAuthorityJson is { Length: > 0 };
         if (row.State == (int)BaseSemanticActivationSlotState.Retired && !allReceiptPresent
             || row.State == (int)BaseSemanticActivationSlotState.CompactedAbsent && !allReceiptNull && !allReceiptPresent)
             throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
@@ -594,16 +595,57 @@ SELECT
             BaseSemanticActivationReceiptEvidence? semantic;
             try { semantic = wire?.Materialize().ModuleMutation?.SemanticActivation; }
             catch (InvalidOperationException exception) { throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt, exception); }
+            ImmutableArray<byte> historicalSlotChecksum = HistoricalSlotAuthorityChecksum(row, definition);
             if (semantic is null || semantic.DefinitionId != definition.Id || semantic.DefinitionVersion != definition.Version
                 || !semantic.DefinitionChecksum.AsSpan().SequenceEqual(definition.Checksum.AsSpan())
                 || !KeyBytes(semantic.Key).AsSpan().SequenceEqual(row.KeyDigest)
                 || semantic.State != (BaseSemanticActivationSlotState)row.State || semantic.SlotGeneration != row.SlotGeneration
-                || !semantic.SlotChecksum.AsSpan().SequenceEqual(expectedSlotChecksum.AsSpan())
+                || !semantic.SlotChecksum.AsSpan().SequenceEqual(historicalSlotChecksum.AsSpan())
                 || row.State == (int)BaseSemanticActivationSlotState.Retired && semantic.Operation != BaseSemanticActivationOperationKind.Retire
                 || !ValidRecoveredSemanticReceipt(semantic))
                 throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
         }
         _ = embeddedBinding;
+        _ = expectedSlotChecksum;
+    }
+
+    private static ImmutableArray<byte> HistoricalSlotAuthorityChecksum(
+        SemanticRecoveryRow row, BaseSemanticActivationDefinitionKey definition)
+    {
+        if (row.ReceiptSlotAuthorityJson is null)
+            throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+        try
+        {
+            if (row.State == (int)BaseSemanticActivationSlotState.Retired)
+            {
+                BaseSemanticActivationRetirementAuthority historical = JsonSerializer.Deserialize(row.ReceiptSlotAuthorityJson,
+                    HPDBaseJsonSerializerContext.Default.BaseSemanticActivationRetirementAuthority)
+                    ?? throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+                if (historical.Definition.Id != definition.Id || historical.Definition.Version != definition.Version
+                    || !historical.Definition.Checksum.AsSpan().SequenceEqual(definition.Checksum.AsSpan())
+                    || historical.SlotGeneration != row.SlotGeneration
+                    || !KeyBytes(historical.KeyDigest).AsSpan().SequenceEqual(row.KeyDigest)
+                    || !CryptographicOperations.FixedTimeEquals(historical.Checksum.AsSpan(),
+                        BaseSemanticActivationEvidenceContract.RetirementChecksum(historical).AsSpan()))
+                    throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+                return historical.Checksum;
+            }
+            BaseSemanticActivationAbsenceAuthority absent = JsonSerializer.Deserialize(row.ReceiptSlotAuthorityJson,
+                HPDBaseJsonSerializerContext.Default.BaseSemanticActivationAbsenceAuthority)
+                ?? throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+            if (absent.Definition.Id != definition.Id || absent.Definition.Version != definition.Version
+                || !absent.Definition.Checksum.AsSpan().SequenceEqual(definition.Checksum.AsSpan())
+                || absent.FinalSlotGeneration != row.SlotGeneration
+                || !KeyBytes(absent.Key).AsSpan().SequenceEqual(row.KeyDigest)
+                || !CryptographicOperations.FixedTimeEquals(absent.Checksum.AsSpan(),
+                    BaseSemanticActivationEvidenceContract.AbsenceChecksum(absent).AsSpan()))
+                throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+            return absent.Checksum;
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt, exception);
+        }
     }
 
     private static bool ValidRecoveredSemanticReceipt(BaseSemanticActivationReceiptEvidence value)
@@ -645,7 +687,7 @@ SELECT
             {
                 command.Transaction = transaction;
                 command.CommandText = $"""
-SELECT definition_id,binding_id,key_digest,state,slot_generation,authority_json,receipt_scope,receipt_operation,receipt_key,receipt_fingerprint,receipt_structural_digest,receipt_result_json,receipt_authority_checksum
+SELECT definition_id,binding_id,key_digest,state,slot_generation,authority_json,receipt_scope,receipt_operation,receipt_key,receipt_fingerprint,receipt_structural_digest,receipt_result_json,receipt_authority_checksum,receipt_slot_authority_json
 FROM {_names.SemanticActivationRecoveryFloors}
 WHERE $afterDefinition IS NULL OR (definition_id,binding_id,key_digest)>($afterDefinition,$afterBinding,$afterKey)
 ORDER BY definition_id,binding_id,key_digest LIMIT 256;
@@ -659,7 +701,8 @@ ORDER BY definition_id,binding_id,key_digest LIMIT 256;
                         reader.GetInt64(4), (byte[])reader[5], reader.IsDBNull(6) ? null : reader.GetString(6),
                         reader.IsDBNull(7) ? null : reader.GetString(7), reader.IsDBNull(8) ? null : reader.GetString(8),
                         reader.IsDBNull(9) ? null : (byte[])reader[9], reader.IsDBNull(10) ? null : (byte[])reader[10],
-                        reader.IsDBNull(11) ? null : (byte[])reader[11], reader.IsDBNull(12) ? null : (byte[])reader[12]));
+                        reader.IsDBNull(11) ? null : (byte[])reader[11], reader.IsDBNull(12) ? null : (byte[])reader[12],
+                        reader.IsDBNull(13) ? null : (byte[])reader[13]));
             }
             if (page.Count == 0) yield break;
             foreach (SemanticRecoveryRow row in page) yield return row;
@@ -680,6 +723,7 @@ ORDER BY definition_id,binding_id,key_digest LIMIT 256;
         Bytes(System.Text.Encoding.UTF8.GetBytes(row.ReceiptKey ?? string.Empty));
         Bytes(row.ReceiptFingerprint ?? []); Bytes(row.ReceiptStructuralDigest ?? []); Bytes(row.ReceiptResultJson ?? []);
         Bytes(row.ReceiptAuthorityChecksum ?? []);
+        Bytes(row.ReceiptSlotAuthorityJson ?? []);
         return hash.GetHashAndReset();
     }
 
@@ -732,7 +776,7 @@ ORDER BY definition_id,binding_id,key_digest LIMIT 256;
     }
 
     private async ValueTask RequireLiveActivationCorrespondenceAsync(SqliteConnection connection, SqliteTransaction transaction,
-        BaseSemanticActivationLiveAuthority live, CancellationToken cancellationToken)
+        BaseSemanticActivationLiveAuthority live, CancellationToken cancellationToken, bool requireCurrentScopeBinding = true)
     {
         await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction;
         command.CommandText = $"SELECT definition_id,definition_version,definition_checksum,canonical_input,input_checksum,scope_kind,scope_value,scope_digest,payload_checksum,fingerprint,state,generation,requested_due_at,effective_due_at,occurrence_id,priority,overlap_key,overlap_policy,eligible,control_checksum FROM {_names.Activations} WHERE activation_id=$id;";
@@ -752,11 +796,14 @@ ORDER BY definition_id,binding_id,key_digest LIMIT 256;
             || !reader.IsDBNull(14) || reader.GetInt32(15) != 0 || !reader.IsDBNull(16) || reader.GetInt32(17) != 0
             || !((byte[])reader[19]).AsSpan().SequenceEqual(ActivationControlChecksum(live.ActivationId, reader.GetInt64(11), (BaseActivationState)reader.GetInt32(10))))
             throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
-        BaseSemanticActivationScopeBinding binding = await ReadScopeBindingAsync(connection, transaction,
-            live.ScopeBinding.BindingId, cancellationToken).ConfigureAwait(false);
-        if (!ScopeBindingsEqual(binding, live.ScopeBinding) || _subjectScopes is null || !_subjectScopes.Matches(new BaseProtectedSubjectScope
-            { Kind = binding.Kind, IndexDigest = binding.SeekDigest.ToArray(), ProtectedCanonicalValue = binding.ProtectedCanonicalScope.ToArray() }, live.Scope))
-            throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+        if (requireCurrentScopeBinding)
+        {
+            BaseSemanticActivationScopeBinding binding = await ReadScopeBindingAsync(connection, transaction,
+                live.ScopeBinding.BindingId, cancellationToken).ConfigureAwait(false);
+            if (!ScopeBindingsEqual(binding, live.ScopeBinding) || _subjectScopes is null || !_subjectScopes.Matches(new BaseProtectedSubjectScope
+                { Kind = binding.Kind, IndexDigest = binding.SeekDigest.ToArray(), ProtectedCanonicalValue = binding.ProtectedCanonicalScope.ToArray() }, live.Scope))
+                throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+        }
     }
 
     private void ValidateSemanticRecoveryRow(SemanticRecoveryRow row, long generation, byte[] definitionSet,
@@ -812,11 +859,12 @@ ORDER BY definition_id,binding_id,key_digest LIMIT 256;
     {
         await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction;
         command.CommandText = $"""
-INSERT INTO {_names.SemanticActivationRecoveryFloors}(definition_id,binding_id,key_digest,state,slot_generation,authority_json,receipt_scope,receipt_operation,receipt_key,receipt_fingerprint,receipt_structural_digest,receipt_result_json,receipt_authority_checksum)
-VALUES($definition,$binding,$key,$state,$generation,$authority,$scope,$operation,$receiptKey,$fingerprint,$structural,$result,$receiptAuthority)
+INSERT INTO {_names.SemanticActivationRecoveryFloors}(definition_id,binding_id,key_digest,state,slot_generation,authority_json,receipt_scope,receipt_operation,receipt_key,receipt_fingerprint,receipt_structural_digest,receipt_result_json,receipt_authority_checksum,receipt_slot_authority_json)
+VALUES($definition,$binding,$key,$state,$generation,$authority,$scope,$operation,$receiptKey,$fingerprint,$structural,$result,$receiptAuthority,$receiptSlotAuthority)
 ON CONFLICT(definition_id,binding_id,key_digest) DO UPDATE SET state=excluded.state,slot_generation=excluded.slot_generation,authority_json=excluded.authority_json,
  receipt_scope=excluded.receipt_scope,receipt_operation=excluded.receipt_operation,receipt_key=excluded.receipt_key,receipt_fingerprint=excluded.receipt_fingerprint,
- receipt_structural_digest=excluded.receipt_structural_digest,receipt_result_json=excluded.receipt_result_json,receipt_authority_checksum=excluded.receipt_authority_checksum
+ receipt_structural_digest=excluded.receipt_structural_digest,receipt_result_json=excluded.receipt_result_json,receipt_authority_checksum=excluded.receipt_authority_checksum,
+ receipt_slot_authority_json=excluded.receipt_slot_authority_json
 WHERE (excluded.state=3 AND {_names.SemanticActivationRecoveryFloors}.state<>3) OR excluded.slot_generation>={_names.SemanticActivationRecoveryFloors}.slot_generation;
 INSERT INTO {_names.SemanticActivationSlots}(definition_id,binding_id,key_digest,state,slot_generation,activation_id,authority_json)
 VALUES($definition,$binding,$key,$state,$generation,NULL,$authority)
@@ -830,6 +878,7 @@ WHERE (excluded.state=3 AND {_names.SemanticActivationSlots}.state<>3) OR exclud
         command.Parameters.AddWithValue("$receiptKey", (object?)row.ReceiptKey ?? DBNull.Value); command.Parameters.Add("$fingerprint", SqliteType.Blob).Value = (object?)row.ReceiptFingerprint ?? DBNull.Value;
         command.Parameters.Add("$structural", SqliteType.Blob).Value = (object?)row.ReceiptStructuralDigest ?? DBNull.Value; command.Parameters.Add("$result", SqliteType.Blob).Value = (object?)row.ReceiptResultJson ?? DBNull.Value;
         command.Parameters.Add("$receiptAuthority", SqliteType.Blob).Value = (object?)row.ReceiptAuthorityChecksum ?? DBNull.Value;
+        command.Parameters.Add("$receiptSlotAuthority", SqliteType.Blob).Value = (object?)row.ReceiptSlotAuthorityJson ?? DBNull.Value;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -1013,7 +1062,8 @@ ON CONFLICT(activation_id) DO UPDATE SET definition_id=excluded.definition_id,de
         var row = new SemanticRecoveryRow(publication.Entry.Definition.Id, binding.BindingId.ToArray(), key,
             (int)BaseSemanticActivationSlotState.Retired, retired.SlotGeneration, authorityJson,
             envelope.Identity.Scope, envelope.Identity.Operation, envelope.Identity.IdempotencyKey,
-            envelope.Identity.Fingerprint.ToArray(), envelope.StructuralDigest.ToArray(), envelope.ReceiptBytes.ToArray(), receiptAuthority);
+            envelope.Identity.Fingerprint.ToArray(), envelope.StructuralDigest.ToArray(), envelope.ReceiptBytes.ToArray(), receiptAuthority,
+            publication.Entry.AuthorityBytes.ToArray());
         await UpsertRestoredSemanticRecoveryRowAsync(connection, transaction, row, cancellationToken).ConfigureAwait(false);
 
         if (envelope.ExpiresAt.ToUnixTimeMilliseconds() > acceptedNow)

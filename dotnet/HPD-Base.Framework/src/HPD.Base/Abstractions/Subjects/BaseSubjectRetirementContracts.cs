@@ -912,6 +912,10 @@ public sealed record BaseSubjectAuthorityMaintenanceExecutionRequest
     public required string ExpectedScopeProtectionKeyId { get; init; }
 /// <summary>Defines ReplacementScopeProtectionKeyId for coordinated subject retirement.</summary>
     public string? ReplacementScopeProtectionKeyId { get; init; }
+/// <summary>Gets the exact L53 authority generation when semantic authority participates in scope rotation.</summary>
+    public long? ExpectedSemanticActivationAuthorityGeneration { get; init; }
+/// <summary>Gets the exact L53 installed definition-set checksum when semantic authority participates in scope rotation.</summary>
+    public ImmutableArray<byte> ExpectedSemanticActivationDefinitionSetChecksum { get; init; }
 /// <summary>Defines PageSize for coordinated subject retirement.</summary>
     public required int PageSize { get; init; }
 /// <summary>Defines OperationTimeout for coordinated subject retirement.</summary>
