@@ -285,7 +285,7 @@ public static class BaseSemanticActivationEvidenceContract
     {
         Span<byte> key = stackalloc byte[BaseSemanticActivationKeyDigest.Length]; value.KeyDigest.CopyTo(key);
         return Hash("base.semanticActivation.retired.v1\0", System.Text.Encoding.UTF8.GetBytes(value.Definition.Id),
-            Int64(value.Definition.Version), value.Definition.Checksum.ToArray(), key.ToArray(), Lifetime(value.SubjectLifetime),
+            Int64(value.Definition.Version), value.Definition.Checksum.ToArray(), key.ToArray(), value.ScopeBindingId.ToArray(), Lifetime(value.SubjectLifetime),
             System.Text.Encoding.UTF8.GetBytes(value.ActivationId), [(byte)value.TerminalState], Int64(value.TerminalActivationGeneration),
             value.TerminalActivationChecksum.ToArray(), value.CompletionOperationChecksum.ToArray(), value.CompletionReceiptChecksum.ToArray(),
             Int64(value.RetirementPosition), Int64(value.SlotGeneration), value.StoreAuthority.Checksum.ToArray());
@@ -314,6 +314,8 @@ public static class BaseSemanticActivationEvidenceContract
             new byte[] { value.ActivationState is null ? (byte)0 : (byte)value.ActivationState.Value },
             value.AcceptedTime.Checksum.ToArray(),
         };
+        foreach (BaseSemanticActivationDefinitionMigrationAuthority migration in value.DefinitionMigrationChain)
+            fields.Add(migration.Checksum.ToArray());
         foreach (BaseAtomicReadIntervalEvidence interval in value.ReadIntervals)
         {
             fields.Add(System.Text.Encoding.UTF8.GetBytes(interval.LogicalAccessPathId)); fields.Add(interval.CanonicalLowerBound.ToArray());
@@ -900,6 +902,8 @@ public sealed record BaseSemanticActivationRetirementAuthority
     public required BaseSemanticActivationDefinitionKey Definition { get; init; }
     /// <summary>Gets semantic key.</summary>
     public required BaseSemanticActivationKeyDigest KeyDigest { get; init; }
+    /// <summary>Gets the stable logical-scope binding ID.</summary>
+    public required ImmutableArray<byte> ScopeBindingId { get; init; }
     /// <summary>Gets optional subject lifetime.</summary>
     public BaseSemanticActivationSubjectLifetimeBinding? SubjectLifetime { get; init; }
     /// <summary>Gets terminal activation ID.</summary>
@@ -1001,6 +1005,8 @@ public sealed record BaseCapturedSemanticActivationEvidence
     public ImmutableArray<byte> ActivationChecksum { get; init; }
     /// <summary>Gets the mapped activation terminal receipt checksum when the live mapping is terminal.</summary>
     public ImmutableArray<byte> ActivationTerminalReceiptChecksum { get; init; }
+    /// <summary>Gets the exact contiguous published migration chain used only for old-version terminal authority.</summary>
+    public ImmutableArray<BaseSemanticActivationDefinitionMigrationAuthority> DefinitionMigrationChain { get; init; } = [];
     /// <summary>Gets normalized nonempty read intervals.</summary>
     public required ImmutableArray<BaseAtomicReadIntervalEvidence> ReadIntervals { get; init; }
     /// <summary>Gets exact capture accounting.</summary>

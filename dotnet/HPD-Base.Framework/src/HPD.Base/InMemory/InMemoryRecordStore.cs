@@ -4749,7 +4749,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 var retired = new BaseSemanticActivationRetirementAuthority
                 {
                     Definition = new BaseSemanticActivationDefinitionKey { Id = retire.Definition.Id, Version = retire.Definition.Version, Checksum = retire.Definition.Checksum },
-                    KeyDigest = retire.Key, SubjectLifetime = retire.SubjectLifetime, ActivationId = row.Payload.ActivationId,
+                    KeyDigest = retire.Key, ScopeBindingId = prior.ScopeBinding.BindingId,
+                    SubjectLifetime = retire.SubjectLifetime, ActivationId = row.Payload.ActivationId,
                     TerminalState = row.State, TerminalActivationGeneration = row.Generation, TerminalActivationChecksum = row.ControlChecksum.ToImmutableArray(),
                     CompletionOperationChecksum = Convert.FromHexString(retire.CompletionOperation.OperationChecksum).ToImmutableArray(),
                     CompletionReceiptChecksum = receiptChecksum.ToImmutableArray(), RetirementPosition = position,

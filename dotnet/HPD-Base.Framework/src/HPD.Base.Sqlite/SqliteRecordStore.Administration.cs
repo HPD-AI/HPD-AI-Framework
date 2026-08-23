@@ -511,7 +511,7 @@ public sealed partial class SqliteRecordStore
                     "The restored store state is indeterminate and unavailable.",
                     BaseRestoreFailureDisposition.IndeterminateUnavailable);
         }
-        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
             bool recovered = await RecoverOriginalAsync(activePath, recovery, originalMoved, replacementInstalled).ConfigureAwait(false);
             return RestoreStoreError(

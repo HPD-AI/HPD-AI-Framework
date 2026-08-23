@@ -106,6 +106,27 @@ public interface IHPDBaseAdministration
     ValueTask<BaseResult<BaseSemanticRecoveryQuarantineRecoveryResult>> RecoverSemanticRecoveryQuarantineAsync(
         BaseSemanticRecoveryQuarantineRecoveryRequest request,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Reads one exact-definition sanitized semantic activation inspection page.</summary>
+    ValueTask<BaseResult<BaseSemanticActivationInspectionPage>> InspectSemanticActivationsAsync(
+        string storeId,
+        PrincipalContext principal,
+        BaseSemanticActivationInspectionRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Executes or resumes one graph-authorized semantic activation maintenance operation.</summary>
+    ValueTask<BaseResult<BaseSemanticActivationMaintenanceResult>> ExecuteSemanticActivationMaintenanceAsync(
+        string storeId,
+        PrincipalContext principal,
+        BaseSemanticActivationMaintenanceRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Resolves one indeterminate semantic activation maintenance operation.</summary>
+    ValueTask<BaseResult<BaseSemanticActivationMaintenanceResult>> ResolveSemanticActivationMaintenanceAsync(
+        string storeId,
+        PrincipalContext principal,
+        BaseSemanticActivationMaintenanceResolutionRequest request,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>Requests sanitized lifecycle authority inspection after exact ControlPlane authorization.</summary>

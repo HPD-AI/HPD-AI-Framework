@@ -1533,6 +1533,13 @@ WHERE excluded.slot_generation>=slot_generation;
                 + scopeInterval.CanonicalLowerBound.Length + slotInterval.CanonicalLowerBound.Length + 128);
             BaseSemanticActivationAccounting accounting = EmptySemanticAccounting(canonicalKey.Length, scopeDirectoryBytes,
                 slotAuthorityBytes, activationBytes, live is null ? 0 : 1, receiptBytes, evidenceBytes);
+            ImmutableArray<BaseSemanticActivationDefinitionMigrationAuthority> migrationChain = state is BaseSemanticActivationCapturedState.Retired or BaseSemanticActivationCapturedState.CompactedAbsent
+                ? await _owner.ReadSemanticMigrationChainAsync(_connection, _transaction,
+                    retired?.Definition ?? new BaseSemanticActivationDefinitionKey
+                    {
+                        Id = absent!.Definition.Id, Version = absent.Definition.Version, Checksum = absent.Definition.Checksum,
+                    }, new BaseSemanticActivationDefinitionKey { Id = definition.Id, Version = definition.Version, Checksum = definition.Checksum }, cancellationToken).ConfigureAwait(false)
+                : [];
             if (!SemanticAccountingWithin(accounting, capture.Limits)
                 || !SemanticAccountingWithin(accounting, installedDefinition.Limits.Execution))
                 return SubjectFailure<BaseCapturedSemanticActivationEvidence?>(BaseSubjectErrorCodes.BudgetExceeded, OperationStatus.ValidationFailed, ErrorCategory.Validation);
@@ -1548,6 +1555,7 @@ WHERE excluded.slot_generation>=slot_generation;
                 State = state, ScopeDirectory = scopeCapture, Missing = missing, Live = live, Retired = retired, Absent = absent,
                 ActivationGeneration = activationGeneration, ActivationState = activationState, ActivationChecksum = activationChecksum,
                 ActivationTerminalReceiptChecksum = (_capturedSemanticTerminalReceiptChecksum ?? []).ToImmutableArray(),
+                DefinitionMigrationChain = migrationChain,
                 ReadIntervals = [scopeInterval, slotInterval], Accounting = accounting,
                 AcceptedTime = capture.AcceptedTime, Checksum = [],
             };
@@ -3162,7 +3170,8 @@ WHERE excluded.slot_generation>=slot_generation;
                 var retired = new BaseSemanticActivationRetirementAuthority
                 {
                     Definition = new() { Id = retire.Definition.Id, Version = retire.Definition.Version, Checksum = retire.Definition.Checksum },
-                    KeyDigest = retire.Key, SubjectLifetime = retire.SubjectLifetime, ActivationId = prepared.ResultingActivationId!,
+                    KeyDigest = retire.Key, ScopeBindingId = prior.ScopeBinding.BindingId,
+                    SubjectLifetime = retire.SubjectLifetime, ActivationId = prepared.ResultingActivationId!,
                     TerminalState = _capturedMutation.SemanticActivation.ActivationState!.Value,
                     TerminalActivationGeneration = activationGeneration
                         ?? throw new InvalidOperationException("base.semanticActivation.activationNotTerminal"),

@@ -404,7 +404,25 @@ CREATE TABLE IF NOT EXISTS {_names.SemanticActivationMigrations} (
   live_count INTEGER NOT NULL CHECK(live_count>=0), retired_count INTEGER NOT NULL CHECK(retired_count>=0), absence_count INTEGER NOT NULL CHECK(absence_count>=0),
   negative_checksum BLOB NOT NULL CHECK(length(negative_checksum)=32), publication_generation INTEGER NOT NULL CHECK(publication_generation>0),
   receipt_checksum BLOB NOT NULL CHECK(length(receipt_checksum)=32), authority_checksum BLOB NOT NULL CHECK(length(authority_checksum)=32),
-  PRIMARY KEY(migration_id,migration_version)
+  PRIMARY KEY(migration_id,migration_version),
+  UNIQUE(from_definition_id,from_version,from_checksum)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.SemanticActivationRemovedDefinitions} (
+  definition_id TEXT NOT NULL, definition_version INTEGER NOT NULL CHECK(definition_version>0), definition_checksum BLOB NOT NULL CHECK(length(definition_checksum)=32),
+  removal_id TEXT NOT NULL, removal_version INTEGER NOT NULL CHECK(removal_version>0), removal_authority_json BLOB NOT NULL,
+  absence_count INTEGER NOT NULL CHECK(absence_count>=0), absence_checksum BLOB NOT NULL CHECK(length(absence_checksum)=32),
+  publication_generation INTEGER NOT NULL CHECK(publication_generation>0), receipt_checksum BLOB NOT NULL CHECK(length(receipt_checksum)=32), authority_checksum BLOB NOT NULL CHECK(length(authority_checksum)=32),
+  PRIMARY KEY(definition_id,definition_version)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.SemanticActivationMigrationHistory} (
+  migration_id TEXT NOT NULL, migration_version INTEGER NOT NULL CHECK(migration_version>0), binding_id BLOB NOT NULL CHECK(length(binding_id)=32),
+  key_digest BLOB NOT NULL CHECK(length(key_digest)=32), state INTEGER NOT NULL CHECK(state IN (2,3)), authority_json BLOB NOT NULL,
+  PRIMARY KEY(migration_id,migration_version,binding_id,key_digest)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.SemanticActivationRemovedDefinitionHistory} (
+  definition_id TEXT NOT NULL, definition_version INTEGER NOT NULL CHECK(definition_version>0), binding_id BLOB NOT NULL CHECK(length(binding_id)=32),
+  key_digest BLOB NOT NULL CHECK(length(key_digest)=32), authority_json BLOB NOT NULL,
+  PRIMARY KEY(definition_id,definition_version,binding_id,key_digest)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.SemanticActivationRecoveryFloors} (
   rotation_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -868,7 +886,25 @@ CREATE TABLE IF NOT EXISTS {_names.SemanticActivationMigrations} (
   live_count INTEGER NOT NULL CHECK(live_count>=0), retired_count INTEGER NOT NULL CHECK(retired_count>=0), absence_count INTEGER NOT NULL CHECK(absence_count>=0),
   negative_checksum BLOB NOT NULL CHECK(length(negative_checksum)=32), publication_generation INTEGER NOT NULL CHECK(publication_generation>0),
   receipt_checksum BLOB NOT NULL CHECK(length(receipt_checksum)=32), authority_checksum BLOB NOT NULL CHECK(length(authority_checksum)=32),
-  PRIMARY KEY(migration_id,migration_version)
+  PRIMARY KEY(migration_id,migration_version),
+  UNIQUE(from_definition_id,from_version,from_checksum)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.SemanticActivationRemovedDefinitions} (
+  definition_id TEXT NOT NULL, definition_version INTEGER NOT NULL CHECK(definition_version>0), definition_checksum BLOB NOT NULL CHECK(length(definition_checksum)=32),
+  removal_id TEXT NOT NULL, removal_version INTEGER NOT NULL CHECK(removal_version>0), removal_authority_json BLOB NOT NULL,
+  absence_count INTEGER NOT NULL CHECK(absence_count>=0), absence_checksum BLOB NOT NULL CHECK(length(absence_checksum)=32),
+  publication_generation INTEGER NOT NULL CHECK(publication_generation>0), receipt_checksum BLOB NOT NULL CHECK(length(receipt_checksum)=32), authority_checksum BLOB NOT NULL CHECK(length(authority_checksum)=32),
+  PRIMARY KEY(definition_id,definition_version)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.SemanticActivationMigrationHistory} (
+  migration_id TEXT NOT NULL, migration_version INTEGER NOT NULL CHECK(migration_version>0), binding_id BLOB NOT NULL CHECK(length(binding_id)=32),
+  key_digest BLOB NOT NULL CHECK(length(key_digest)=32), state INTEGER NOT NULL CHECK(state IN (2,3)), authority_json BLOB NOT NULL,
+  PRIMARY KEY(migration_id,migration_version,binding_id,key_digest)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.SemanticActivationRemovedDefinitionHistory} (
+  definition_id TEXT NOT NULL, definition_version INTEGER NOT NULL CHECK(definition_version>0), binding_id BLOB NOT NULL CHECK(length(binding_id)=32),
+  key_digest BLOB NOT NULL CHECK(length(key_digest)=32), authority_json BLOB NOT NULL,
+  PRIMARY KEY(definition_id,definition_version,binding_id,key_digest)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.SemanticActivationRecoveryFloors} (
   rotation_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1072,7 +1108,7 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
     public async ValueTask<string[]> GetMissingSchemaPartsAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         var missing = new List<string>();
-        foreach (var table in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.OperationReceipts, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease, _names.SubjectContracts, _names.SubjectLifetimes, _names.SubjectTerminalLifetimes, _names.SubjectLifecycleFacts, _names.SubjectLifecycleMemberships, _names.SubjectLifecycleConsumers, _names.SubjectLifecycleCheckpoints, _names.SubjectLifecycleMaintenance, _names.SubjectLifecycleScopeStage, _names.SubjectLifecycleMembershipStage, _names.SubjectRetirementBarriers, _names.SubjectRetirementAcknowledgements, _names.SubjectRetirementTerminals, _names.SubjectRetirementPublications, _names.SubjectMaintenance, _names.SubjectRewriteStage, _names.ModuleGenerations, _names.ModuleMutationDefinitions, _names.ModuleGenerationDefinitions, _names.SemanticActivationDefinitions, _names.SemanticActivationScopes, _names.SemanticActivationSlots, _names.SemanticActivationMaintenance, _names.SemanticActivationMigrations, _names.SemanticActivationRecoveryFloors, _names.SemanticActivationRewriteStage, _names.Activations, _names.ActivationPruneFloors }
+        foreach (var table in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.OperationReceipts, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease, _names.SubjectContracts, _names.SubjectLifetimes, _names.SubjectTerminalLifetimes, _names.SubjectLifecycleFacts, _names.SubjectLifecycleMemberships, _names.SubjectLifecycleConsumers, _names.SubjectLifecycleCheckpoints, _names.SubjectLifecycleMaintenance, _names.SubjectLifecycleScopeStage, _names.SubjectLifecycleMembershipStage, _names.SubjectRetirementBarriers, _names.SubjectRetirementAcknowledgements, _names.SubjectRetirementTerminals, _names.SubjectRetirementPublications, _names.SubjectMaintenance, _names.SubjectRewriteStage, _names.ModuleGenerations, _names.ModuleMutationDefinitions, _names.ModuleGenerationDefinitions, _names.SemanticActivationDefinitions, _names.SemanticActivationScopes, _names.SemanticActivationSlots, _names.SemanticActivationMaintenance, _names.SemanticActivationMigrations, _names.SemanticActivationMigrationHistory, _names.SemanticActivationRemovedDefinitions, _names.SemanticActivationRemovedDefinitionHistory, _names.SemanticActivationRecoveryFloors, _names.SemanticActivationRewriteStage, _names.Activations, _names.ActivationPruneFloors }
             .Concat(_physical.Collections.Select(static collection => collection.Table))
             .Concat(_physical.Relations.Select(static relation => relation.Table))
             .Concat(_projectionSchemaTables))
@@ -1249,6 +1285,23 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
             ("live_count","INTEGER",true,false),("retired_count","INTEGER",true,false),("absence_count","INTEGER",true,false),("negative_checksum","BLOB",true,false),
             ("publication_generation","INTEGER",true,false),("receipt_checksum","BLOB",true,false),("authority_checksum","BLOB",true,false),
         ], ["migration_id","migration_version"]);
+        await Exact(_names.SemanticActivationRemovedDefinitions,
+        [
+            ("definition_id","TEXT",true,true),("definition_version","INTEGER",true,true),("definition_checksum","BLOB",true,false),
+            ("removal_id","TEXT",true,false),("removal_version","INTEGER",true,false),("removal_authority_json","BLOB",true,false),
+            ("absence_count","INTEGER",true,false),("absence_checksum","BLOB",true,false),("publication_generation","INTEGER",true,false),
+            ("receipt_checksum","BLOB",true,false),("authority_checksum","BLOB",true,false),
+        ], ["definition_id","definition_version"]);
+        await Exact(_names.SemanticActivationMigrationHistory,
+        [
+            ("migration_id","TEXT",true,true),("migration_version","INTEGER",true,true),("binding_id","BLOB",true,true),
+            ("key_digest","BLOB",true,true),("state","INTEGER",true,false),("authority_json","BLOB",true,false),
+        ], ["migration_id","migration_version","binding_id","key_digest"]);
+        await Exact(_names.SemanticActivationRemovedDefinitionHistory,
+        [
+            ("definition_id","TEXT",true,true),("definition_version","INTEGER",true,true),("binding_id","BLOB",true,true),
+            ("key_digest","BLOB",true,true),("authority_json","BLOB",true,false),
+        ], ["definition_id","definition_version","binding_id","key_digest"]);
         await Exact(_names.SemanticActivationRecoveryFloors,
         [
             ("rotation_id","INTEGER",false,true),("definition_id","TEXT",true,false),("binding_id","BLOB",true,false),("key_digest","BLOB",true,false),("state","INTEGER",true,false),
@@ -1291,6 +1344,18 @@ CREATE TABLE {_names.SemanticActivationSlots} (
   authority_json BLOB NOT NULL,
   UNIQUE(definition_id,binding_id,key_digest)
 )
+""");
+        await RequireExactSql(_names.SemanticActivationMigrations, $"""
+CREATE TABLE {_names.SemanticActivationMigrations} (
+  migration_id TEXT NOT NULL, migration_version INTEGER NOT NULL CHECK(migration_version>0),
+  from_definition_id TEXT NOT NULL, from_version INTEGER NOT NULL CHECK(from_version>0), from_checksum BLOB NOT NULL CHECK(length(from_checksum)=32),
+  to_definition_id TEXT NOT NULL, to_version INTEGER NOT NULL CHECK(to_version>0), to_checksum BLOB NOT NULL CHECK(length(to_checksum)=32),
+  live_count INTEGER NOT NULL CHECK(live_count>=0), retired_count INTEGER NOT NULL CHECK(retired_count>=0), absence_count INTEGER NOT NULL CHECK(absence_count>=0),
+  negative_checksum BLOB NOT NULL CHECK(length(negative_checksum)=32), publication_generation INTEGER NOT NULL CHECK(publication_generation>0),
+  receipt_checksum BLOB NOT NULL CHECK(length(receipt_checksum)=32), authority_checksum BLOB NOT NULL CHECK(length(authority_checksum)=32),
+  PRIMARY KEY(migration_id,migration_version),
+  UNIQUE(from_definition_id,from_version,from_checksum)
+) WITHOUT ROWID
 """);
         await RequireExactSql(_names.SemanticActivationRecoveryFloors, $"""
 CREATE TABLE {_names.SemanticActivationRecoveryFloors} (

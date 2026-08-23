@@ -220,6 +220,7 @@ public sealed partial class SqliteRecordStore :
             MaxArtifactBytes = administration ? _options.MaxBackupArtifactBytes : 0,
         };
         _activationDescriptor = CreateActivationDescriptor(administration, _options);
+        _semanticActivationCapability = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true);
         Capabilities = CreateCapabilities(_options, _queryCursors is not null, AdministrationCapability);
     }
 

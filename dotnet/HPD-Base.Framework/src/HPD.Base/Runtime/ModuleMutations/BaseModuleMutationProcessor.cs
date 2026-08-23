@@ -775,8 +775,8 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             {
                 BaseSemanticActivationCapturedState.Missing => !MissingMatches(captured.Missing, key, capture.StoreAuthority, captured.ReadIntervals[1]),
                 BaseSemanticActivationCapturedState.Live => !LiveMatches(captured.Live, key, requested, binding, captured),
-                BaseSemanticActivationCapturedState.Retired => !RetiredMatches(captured.Retired, key, requested, binding),
-                BaseSemanticActivationCapturedState.CompactedAbsent => !AbsentMatches(captured.Absent, key, requested, binding),
+                BaseSemanticActivationCapturedState.Retired => !RetiredMatches(captured.Retired, key, requested, binding, captured.DefinitionMigrationChain),
+                BaseSemanticActivationCapturedState.CompactedAbsent => !AbsentMatches(captured.Absent, key, requested, binding, captured.DefinitionMigrationChain),
                 _ => true,
             }) return false;
         if (capture.RecoveryPreflight is { } preflight
@@ -864,9 +864,13 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         && CryptographicOperations.FixedTimeEquals(value.Checksum.AsSpan(), BaseSemanticActivationEvidenceContract.RetirementChecksum(value).AsSpan());
 
     private static bool RetiredMatches(BaseSemanticActivationRetirementAuthority? value, BaseSemanticActivationKeyDigest key,
-        BaseAtomicSemanticActivationExtension requested, BaseSemanticActivationScopeBinding binding)
+        BaseAtomicSemanticActivationExtension requested, BaseSemanticActivationScopeBinding binding,
+        ImmutableArray<BaseSemanticActivationDefinitionMigrationAuthority> migrationChain)
     {
-        if (!RetiredMatches(value, key, requested.Capture) || value is null) return false;
+        if (value is null || !KeyEqual(value.KeyDigest, key) || value.SlotGeneration <= 0
+            || !DefinitionOrMigrationMatches(value.Definition, requested.Capture.Definition, migrationChain)
+            || !StoreMatches(value.StoreAuthority, requested.Capture.StoreAuthority)
+            || !CryptographicOperations.FixedTimeEquals(value.Checksum.AsSpan(), BaseSemanticActivationEvidenceContract.RetirementChecksum(value).AsSpan())) return false;
         if (!SemanticTerminalStateAllowed(value.TerminalState))
             return false;
         byte[] expectedTerminalChecksum = SHA256.HashData(Encoding.UTF8.GetBytes(
@@ -887,6 +891,26 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         if (!LifetimeEqual(value.SubjectLifetime, requestedLifetime)) return false;
         return requested.Operation is not BaseSemanticActivationRetireIntent retirement
             || retirement.CompletionOperation == requested.Capture.Definition.RetirementOperation;
+    }
+
+    private static bool DefinitionOrMigrationMatches(BaseSemanticActivationDefinitionKey source,
+        BaseSemanticActivationDefinitionIdentity target, ImmutableArray<BaseSemanticActivationDefinitionMigrationAuthority> chain)
+    {
+        if (source.Id == target.Id && source.Version == target.Version
+            && source.Checksum.AsSpan().SequenceEqual(target.Checksum.AsSpan())) return chain.IsDefaultOrEmpty;
+        BaseSemanticActivationDefinitionKey cursor = source;
+        if (chain.IsDefaultOrEmpty) return false;
+        foreach (BaseSemanticActivationDefinitionMigrationAuthority authority in chain)
+        {
+            if (!CryptographicOperations.FixedTimeEquals(authority.Checksum.AsSpan(),
+                    BaseSemanticActivationMigrationAuthorityContract.Checksum(authority).AsSpan())
+                || !DefinitionEqual(cursor, authority.From)) return false;
+            cursor = authority.To;
+        }
+        return cursor.Id == target.Id && cursor.Version == target.Version
+            && cursor.Checksum.AsSpan().SequenceEqual(target.Checksum.AsSpan());
+        static bool DefinitionEqual(BaseSemanticActivationDefinitionKey left, BaseSemanticActivationDefinitionKey right) =>
+            left.Id == right.Id && left.Version == right.Version && left.Checksum.AsSpan().SequenceEqual(right.Checksum.AsSpan());
     }
 
     private static bool ExactInterval(BaseAtomicReadIntervalEvidence value, string path, ReadOnlySpan<byte> bound) =>
@@ -927,7 +951,8 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
     }
 
     private static bool AbsentMatches(BaseSemanticActivationAbsenceAuthority? value, BaseSemanticActivationKeyDigest key,
-        BaseAtomicSemanticActivationExtension requested, BaseSemanticActivationScopeBinding binding)
+        BaseAtomicSemanticActivationExtension requested, BaseSemanticActivationScopeBinding binding,
+        ImmutableArray<BaseSemanticActivationDefinitionMigrationAuthority> migrationChain)
     {
         BaseSemanticActivationCaptureRequest capture = requested.Capture;
         BaseSemanticActivationSubjectLifetimeBinding? requestedLifetime = requested.Operation switch
@@ -937,8 +962,8 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             _ => null,
         };
         return value is not null && KeyEqual(value.Key, key)
-        && value.Definition.Id == capture.Definition.Id && value.Definition.Version == capture.Definition.Version
-        && value.Definition.OwnerGeneration == capture.Definition.OwnerGeneration
+        && DefinitionOrMigrationMatches(new BaseSemanticActivationDefinitionKey
+            { Id = value.Definition.Id, Version = value.Definition.Version, Checksum = value.Definition.Checksum }, capture.Definition, migrationChain)
         && value.Definition.OwningModuleId == capture.Definition.OwningModuleId
         && value.Definition.Checksum.AsSpan().SequenceEqual(capture.Definition.Checksum.AsSpan())
         && value.ScopeBindingId.AsSpan().SequenceEqual(binding.BindingId.AsSpan())
@@ -1323,7 +1348,8 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
                 {
                     Id = retire.Definition.Id, Version = retire.Definition.Version, Checksum = retire.Definition.Checksum,
                 },
-                KeyDigest = retire.Key, SubjectLifetime = retire.SubjectLifetime, ActivationId = applied.ActivationId!,
+                KeyDigest = retire.Key, ScopeBindingId = captured.Live.ScopeBinding.BindingId,
+                SubjectLifetime = retire.SubjectLifetime, ActivationId = applied.ActivationId!,
                 TerminalState = terminalState, TerminalActivationGeneration = terminalGeneration,
                 TerminalActivationChecksum = captured.ActivationChecksum,
                 CompletionOperationChecksum = Convert.FromHexString(retire.CompletionOperation.OperationChecksum).ToImmutableArray(),
@@ -1426,7 +1452,8 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         var retired = new BaseSemanticActivationRetirementAuthority
         {
             Definition = new BaseSemanticActivationDefinitionKey { Id = retire.Definition.Id, Version = retire.Definition.Version, Checksum = retire.Definition.Checksum },
-            KeyDigest = retire.Key, SubjectLifetime = retire.SubjectLifetime, ActivationId = live.ActivationId,
+            KeyDigest = retire.Key, ScopeBindingId = live.ScopeBinding.BindingId,
+            SubjectLifetime = retire.SubjectLifetime, ActivationId = live.ActivationId,
             TerminalState = terminal, TerminalActivationGeneration = generation,
             TerminalActivationChecksum = captured.ActivationChecksum,
             CompletionOperationChecksum = Convert.FromHexString(retire.CompletionOperation.OperationChecksum).ToImmutableArray(),

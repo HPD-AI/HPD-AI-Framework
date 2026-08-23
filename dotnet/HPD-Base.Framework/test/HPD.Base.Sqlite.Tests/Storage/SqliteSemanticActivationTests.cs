@@ -1038,14 +1038,31 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
         try
         {
             BaseSemanticActivationKeyDefinition sourceDefinition = SemanticDefinition();
+            BaseSemanticActivationKeyDefinition unrelatedDefinition = sourceDefinition with
+            {
+                Id = "test.semantic.unrelated",
+                Checksum = SHA256.HashData("semantic-definition-unrelated"u8).ToImmutableArray(),
+            };
+            ImmutableArray<byte> initialSet = SHA256.HashData("semantic-set-initial"u8).ToImmutableArray();
             BaseAtomicMutationExecutionLimits limits = ExecutionLimits();
-            await using (SqliteRecordStore initial = SemanticStore(path, installedDefinition: sourceDefinition))
+            await using (SqliteRecordStore initial = SemanticStore(path, installedDefinition: sourceDefinition,
+                additionalDefinitions: [unrelatedDefinition], definitionSetChecksum: initialSet))
             {
                 BaseAtomicMutationAuthorityRequirement authority = (await initial.CaptureAtomicMutationAuthorityRequirementAsync("activation-test", [], limits)).Value!;
                 (await initial.ExecuteAtomicAsync(new SqliteSemanticEnsureProbe(authority, limits, "migration-parent"), ExecutionRequest()))
                     .Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
                 (await initial.ExecuteAtomicAsync(new SqliteSemanticEnsureProbe(authority, limits, "migration-parent-2", "auth-user-43"), ExecutionRequest()))
                     .Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+                (await initial.ExecuteAtomicAsync(new SqliteSemanticEnsureProbe(authority, limits, "migration-parent-3", "auth-user-44"), ExecutionRequest()))
+                    .Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+                (await initial.ExecuteAtomicAsync(new SqliteSemanticEnsureProbe(authority, limits, "migration-unrelated",
+                    "auth-user-unrelated", semanticDefinition: unrelatedDefinition), ExecutionRequest()))
+                    .Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+                await DisposeSemanticActivationAsync(initial, "migration-terminal");
+                authority = (await initial.CaptureAtomicMutationAuthorityRequirementAsync("activation-test", [], limits)).Value!;
+                var migrationRetire = new SqliteSemanticEnsureProbe(authority, limits, "migration-retire", retire: true);
+                (await initial.ExecuteAtomicAsync(migrationRetire, ExecutionRequest())).Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+                await InsertRetiredRecoveryFloorAsync(path, migrationRetire.RecoveryReceiptJson!);
             }
             BaseSemanticActivationKeyDefinition to = sourceDefinition with
             {
@@ -1058,36 +1075,331 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
                 From = new() { Id = sourceDefinition.Id, Version = sourceDefinition.Version, Checksum = sourceDefinition.Checksum },
                 To = new() { Id = to.Id, Version = to.Version, Checksum = to.Checksum }, Checksum = [],
             });
+            ImmutableArray<byte> resultingSet = SHA256.HashData("semantic-set-resulting"u8).ToImmutableArray();
             BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create("semantic-maintenance", "migrate", "migration-1",
                 BaseMutationRequestFingerprint.Create(SHA256.HashData("migration-request"u8)));
             BaseSemanticActivationMigrateRequest request = new()
             {
                 Identity = identity, Definition = migration.From, ExpectedSemanticAuthorityGeneration = 1,
-                Migration = migration, Limits = new() { PageSize = 1, MaximumPages = 2, MaximumRows = 2,
-                    MaximumBytes = 1_000_000, Deadline = TimeSpan.FromSeconds(5) },
+                Migration = migration, Limits = new() { PageSize = 1, MaximumPages = 20, MaximumRows = 100,
+                    MaximumBytes = 8_000_000, Deadline = TimeSpan.FromSeconds(5) },
             };
             await using (SqliteRecordStore first = SemanticStore(path, installedDefinition: to, ownerGeneration: 2,
-                definitionSetChecksum: to.Checksum, migrations: [migration]))
+                definitionSetChecksum: resultingSet, migrations: [migration], additionalDefinitions: [unrelatedDefinition]))
             {
                 BaseResult<BaseSemanticActivationMaintenanceResult> progress = await first.ExecuteAsync(request, default);
                 progress.RequireValue().Disposition.Should().Be(BaseSemanticActivationMaintenanceDisposition.InProgress);
                 progress.RequireValue().Checkpoint!.CompletedRows.Should().Be(1);
             }
             await using (SqliteRecordStore resumed = SemanticStore(path, installedDefinition: to, ownerGeneration: 2,
-                definitionSetChecksum: to.Checksum, migrations: [migration]))
+                definitionSetChecksum: resultingSet, migrations: [migration], additionalDefinitions: [unrelatedDefinition]))
             {
                 BaseResult<BaseSemanticActivationMaintenanceResult> completed = await resumed.ExecuteAsync(request, default);
                 completed.RequireValue().Disposition.Should().Be(BaseSemanticActivationMaintenanceDisposition.Completed);
                 completed.RequireValue().ResultingAuthorityGeneration.Should().Be(2);
-                completed.RequireValue().ChangedRows.Should().Be(2);
+                completed.RequireValue().ChangedRows.Should().Be(6);
                 (await resumed.ExecuteAsync(request, default)).RequireValue().Disposition
                     .Should().Be(BaseSemanticActivationMaintenanceDisposition.Duplicate);
                 BaseAtomicMutationAuthorityRequirement authority = (await resumed.CaptureAtomicMutationAuthorityRequirementAsync("activation-test", [], limits)).Value!;
                 authority.SemanticActivation!.SemanticAuthorityGeneration.Should().Be(2);
-                authority.SemanticActivation.DefinitionSetChecksum.Should().Equal(to.Checksum);
+                authority.SemanticActivation.DefinitionSetChecksum.Should().Equal(resultingSet);
+                var postMigration = new SqliteSemanticEnsureProbe(authority, limits, "migration-parent-after",
+                    "auth-user-43", semanticDefinition: to, semanticOwnerGeneration: 2, acceptedTimeSeconds: 40);
+                (await resumed.ExecuteAtomicAsync(postMigration, ExecutionRequest())).Outcome
+                    .Should().Be(RecordMutationExecutionOutcome.Committed, postMigration.RejectedCode);
+                postMigration.CapturedState.Should().Be(BaseSemanticActivationCapturedState.Live);
+                authority = (await resumed.CaptureAtomicMutationAuthorityRequirementAsync("activation-test", [], limits)).Value!;
+                var retiredAfter = new SqliteSemanticEnsureProbe(authority, limits, "migration-retired-after",
+                    semanticDefinition: to, semanticOwnerGeneration: 2, acceptedTimeSeconds: 40);
+                (await resumed.ExecuteAtomicAsync(retiredAfter, ExecutionRequest())).Outcome.Should().Be(RecordMutationExecutionOutcome.Committed, retiredAfter.RejectedCode);
+                retiredAfter.CapturedState.Should().Be(BaseSemanticActivationCapturedState.Retired);
+                retiredAfter.CapturedEvidence!.DefinitionMigrationChain.Should().ContainSingle();
+                postMigration.Provisional!.PriorState.Should().Be(BaseSemanticActivationCapturedState.Live);
+                var unrelatedAfter = new SqliteSemanticEnsureProbe(authority, limits, "migration-unrelated-after",
+                    "auth-user-unrelated", semanticDefinition: unrelatedDefinition, semanticOwnerGeneration: 2, acceptedTimeSeconds: 40);
+                (await resumed.ExecuteAtomicAsync(unrelatedAfter, ExecutionRequest())).Outcome
+                    .Should().Be(RecordMutationExecutionOutcome.Committed);
+                unrelatedAfter.CapturedState.Should().Be(BaseSemanticActivationCapturedState.Live);
             }
+            await using (var tamper = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path};Pooling=False"))
+            {
+                await tamper.OpenAsync(); await using var command = tamper.CreateCommand();
+                command.CommandText = "UPDATE hpd_base_semantic_activation_migration_history SET binding_id=randomblob(32) WHERE migration_id=(SELECT migration_id FROM hpd_base_semantic_activation_migration_history LIMIT 1) AND migration_version=(SELECT migration_version FROM hpd_base_semantic_activation_migration_history LIMIT 1) AND binding_id=(SELECT binding_id FROM hpd_base_semantic_activation_migration_history LIMIT 1) AND key_digest=(SELECT key_digest FROM hpd_base_semantic_activation_migration_history LIMIT 1);";
+                (await command.ExecuteNonQueryAsync()).Should().Be(1);
+            }
+            Func<Task> reopenCorrupt = async () =>
+            {
+                await using SqliteRecordStore ignored = SemanticStore(path, installedDefinition: to, ownerGeneration: 2,
+                    definitionSetChecksum: resultingSet, migrations: [migration], additionalDefinitions: [unrelatedDefinition]);
+            };
+            await reopenCorrupt.Should().ThrowAsync<InvalidOperationException>();
         }
         finally { foreach (string suffix in new[] { "", "-wal", "-shm" }) if (File.Exists(path + suffix)) File.Delete(path + suffix); }
+    }
+
+    [Fact]
+    public async Task Semantic_removal_is_graph_admitted_and_retains_nonprunable_definition_authority()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-l53-remove-{Guid.NewGuid():N}.db");
+        try
+        {
+            BaseSemanticActivationKeyDefinition removed = SemanticDefinition();
+            BaseSemanticActivationKeyDefinition retained = removed with
+            {
+                Id = "test.semantic.retained", Checksum = SHA256.HashData("semantic-definition-retained"u8).ToImmutableArray(),
+            };
+            ImmutableArray<byte> initialSet = SHA256.HashData("semantic-remove-initial"u8).ToImmutableArray();
+            ImmutableArray<byte> resultingSet = SHA256.HashData("semantic-remove-result"u8).ToImmutableArray();
+            BaseSemanticActivationRemovalAuthority removal = BaseSemanticActivationRemovalAuthorityContract.Seal(new()
+            {
+                Id = "test.semantic.remove", Version = 1, From = removed,
+                ResultingDefinitionSetChecksum = resultingSet, Checksum = [],
+            });
+            removed = removal.From;
+            var artifact = new MemoryStream(); BaseBackupManifest manifest;
+            byte[] expectedState; byte[] expectedAbsence; string artifactActivationId;
+            await using (SqliteRecordStore initial = SemanticStore(path, installedDefinition: removed,
+                additionalDefinitions: [retained], definitionSetChecksum: initialSet, administrationEnabled: true))
+            {
+                BaseAtomicMutationExecutionLimits execution = ExecutionLimits();
+                BaseAtomicMutationAuthorityRequirement authority = (await initial.CaptureAtomicMutationAuthorityRequirementAsync("activation-test", [], execution)).Value!;
+                var artifactEnsure = new SqliteSemanticEnsureProbe(authority, execution, "removal-live", semanticDefinition: removed);
+                (await initial.ExecuteAtomicAsync(artifactEnsure, ExecutionRequest())).Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+                artifactActivationId = artifactEnsure.Provisional!.ActivationId!;
+                OperationResult<BaseBackupManifest> created = await initial.CreateBackupAsync(artifact, new BaseBackupRequest
+                    { StoreId = "module-store", Principal = AdministrationPrincipal() });
+                created.IsSuccess().Should().BeTrue(created.Error?.Code); manifest = created.Value!;
+                await using var prepare = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path};Pooling=False");
+                await prepare.OpenAsync(); byte[] binding; byte[] key; long generation; BaseSemanticActivationLiveAuthority live;
+                await using (var read = prepare.CreateCommand())
+                {
+                    read.CommandText = "SELECT binding_id,key_digest,slot_generation,authority_json FROM hpd_base_semantic_activation_slots WHERE definition_id=$id;";
+                    read.Parameters.AddWithValue("$id", removed.Id); await using var row = await read.ExecuteReaderAsync();
+                    (await row.ReadAsync()).Should().BeTrue(); binding = (byte[])row[0]; key = (byte[])row[1]; generation = row.GetInt64(2);
+                    live = JsonSerializer.Deserialize((byte[])row[3], HPDBaseJsonSerializerContext.Default.BaseSemanticActivationLiveAuthority)!;
+                }
+                var absent = new BaseSemanticActivationAbsenceAuthority
+                {
+                    Key = live.KeyDigest, Definition = live.Definition, ScopeBindingId = binding.ToImmutableArray(), SubjectLifetime = live.SubjectLifetime,
+                    FinalSlotGeneration = checked(generation + 1), AbsenceFloorGeneration = 1, RetirementPosition = 1,
+                    StoreAuthority = live.StoreAuthority, Checksum = [],
+                };
+                absent = absent with { Checksum = BaseSemanticActivationEvidenceContract.AbsenceChecksum(absent) };
+                byte[] json = JsonSerializer.SerializeToUtf8Bytes(absent, HPDBaseJsonSerializerContext.Default.BaseSemanticActivationAbsenceAuthority);
+                await using (var write = prepare.CreateCommand())
+                {
+                    write.CommandText = "UPDATE hpd_base_semantic_activation_slots SET state=3,slot_generation=$generation,activation_id=NULL,authority_json=$authority WHERE definition_id=$id; INSERT INTO hpd_base_semantic_activation_recovery_floors(definition_id,binding_id,key_digest,state,slot_generation,authority_json) VALUES($id,$binding,$key,3,$generation,$authority);";
+                    write.Parameters.AddWithValue("$generation", absent.FinalSlotGeneration); write.Parameters.AddWithValue("$id", removed.Id);
+                    write.Parameters.Add("$binding", Microsoft.Data.Sqlite.SqliteType.Blob).Value = binding; write.Parameters.Add("$key", Microsoft.Data.Sqlite.SqliteType.Blob).Value = key;
+                    write.Parameters.Add("$authority", Microsoft.Data.Sqlite.SqliteType.Blob).Value = json; (await write.ExecuteNonQueryAsync()).Should().Be(2);
+                }
+                expectedState = SemanticDefinitionStateChecksum(binding, key, 3, absent.FinalSlotGeneration, json);
+                expectedAbsence = OrderedSemanticAuthoritiesChecksum([SemanticHistoricalNegativeRow(binding, key, 3, json)]);
+            }
+            await using SqliteRecordStore replacement = SemanticStore(path, installedDefinition: retained,
+                ownerGeneration: 2, definitionSetChecksum: resultingSet, removals: [removal], administrationEnabled: true);
+            BaseSemanticActivationRemoveRequest request = new()
+            {
+                Identity = BaseMutationRequestIdentity.Create("semantic-maintenance", "remove", "remove-1",
+                    BaseMutationRequestFingerprint.Create(SHA256.HashData("semantic-remove-request"u8))),
+                Definition = new() { Id = removed.Id, Version = removed.Version, Checksum = removed.Checksum },
+                RemovalAuthority = removal, ExpectedSemanticAuthorityGeneration = 1,
+                ExpectedLiveCount = 0, ExpectedRetiredCount = 0, ExpectedAbsenceCount = 1,
+                ExpectedDefinitionStateChecksum = expectedState.ToImmutableArray(),
+                ExpectedAbsenceAuthorityChecksum = expectedAbsence.ToImmutableArray(),
+                Limits = new() { PageSize = 1, MaximumPages = 1, MaximumRows = 1,
+                    MaximumBytes = 1_000_000, Deadline = TimeSpan.FromSeconds(5) },
+            };
+            BaseSemanticActivationMaintenanceResult completed = (await replacement.ExecuteAsync(request, default)).RequireValue();
+            completed.Disposition.Should().Be(BaseSemanticActivationMaintenanceDisposition.Completed);
+            (await replacement.ExecuteAsync(request, default)).RequireValue().Disposition.Should().Be(BaseSemanticActivationMaintenanceDisposition.Duplicate);
+            artifact.Position = 0;
+            OperationResult<BaseRestoreResult> removalRestore = await replacement.RestoreAsync(artifact, new BaseRestoreRequest
+            {
+                StoreId = "module-store", Principal = AdministrationPrincipal(),
+                ExpectedCurrentStoreIdentityDigest = manifest.StoreIdentityDigest,
+                ExpectedArtifactStoreIdentityDigest = manifest.StoreIdentityDigest,
+                IdentityMode = BaseRestoreIdentityMode.RequireCurrentStoreIdentity,
+                RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
+                ConfirmDestructiveReplacement = true, ScheduleRestoreDomain = BaseScheduleRestoreDomain.InPlaceRecovery,
+            });
+            removalRestore.IsSuccess().Should().BeTrue($"{removalRestore.Error?.Code}:{removalRestore.Error?.Message}:{removalRestore.Error?.Detail}");
+            await using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path};Pooling=False");
+            await connection.OpenAsync(); await using var command = connection.CreateCommand();
+            command.CommandText = "SELECT d.execution_enabled,r.removal_id,length(r.authority_checksum) FROM hpd_base_semantic_activation_definitions d JOIN hpd_base_semantic_activation_removed_definitions r USING(definition_id,definition_version) WHERE d.definition_id=$id;";
+            command.Parameters.AddWithValue("$id", removed.Id); await using var reader = await command.ExecuteReaderAsync();
+            (await reader.ReadAsync()).Should().BeTrue(); reader.GetInt32(0).Should().Be(0);
+            reader.GetString(1).Should().Be(removal.Id); reader.GetInt32(2).Should().Be(32);
+            await reader.DisposeAsync();
+            command.CommandText = "SELECT COUNT(*) FROM hpd_base_activations WHERE activation_id=$activation;";
+            command.Parameters.AddWithValue("$activation", artifactActivationId);
+            Convert.ToInt64(await command.ExecuteScalarAsync()).Should().Be(0);
+            await using SqliteRecordStore restarted = SemanticStore(path, installedDefinition: retained,
+                ownerGeneration: 2, definitionSetChecksum: resultingSet, removals: [removal]);
+        }
+        finally { foreach (string suffix in new[] { "", "-wal", "-shm" }) if (File.Exists(path + suffix)) File.Delete(path + suffix); }
+    }
+
+    [Fact]
+    public async Task Semantic_compaction_consumes_lifecycle_and_activation_floors_and_survives_restart()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-l53-compact-{Guid.NewGuid():N}.db");
+        byte[] contractChecksum = SHA256.HashData("subject-contract"u8);
+        BaseSemanticActivationKeyDefinition definition = SemanticDefinition() with
+        {
+            Compaction = new BaseSemanticActivationSubjectRetirementCompaction
+            {
+                SubjectContract = new()
+                {
+                    ContractId = "test.subject", ContractVersion = 1,
+                    ContractChecksum = contractChecksum.ToImmutableArray(),
+                },
+                SubjectReferenceRequestPropertyId = "request.subject",
+                LifecycleRetirementGrantId = "subject.retire",
+            },
+            Checksum = SHA256.HashData("semantic-definition-compaction"u8).ToImmutableArray(),
+        };
+        var lifetime = new BaseSemanticActivationSubjectLifetimeBinding
+        {
+            ContractId = "test.subject", ContractVersion = 1, ContractChecksum = contractChecksum.ToImmutableArray(),
+            SubjectId = BaseSubjectId.Create("subject-42", BaseSubjectIdKind.OrdinalString),
+            AuthorityEpoch = new BaseSubjectAuthorityEpoch(Enumerable.Repeat((byte)0x21, 16).ToArray()),
+            Incarnation = new BaseSubjectIncarnation(SemanticIncarnation(1)), ScopeBindingId = [], Checksum = [],
+        };
+        try
+        {
+            BaseAtomicMutationExecutionLimits limits = ExecutionLimits();
+            await using (SqliteRecordStore store = SemanticStore(path, installedDefinition: definition))
+            {
+                BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync(
+                    "activation-test", [], limits)).Value!;
+                var ensure = new SqliteSemanticEnsureProbe(authority, limits, "compact-ensure",
+                    semanticDefinition: definition, subjectLifetime: lifetime);
+                (await store.ExecuteAtomicAsync(ensure, ExecutionRequest())).Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+                await DisposeSemanticActivationAsync(store, "compact-terminal");
+                authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync("activation-test", [], limits)).Value!;
+                var retire = new SqliteSemanticEnsureProbe(authority, limits, "compact-retire", retire: true,
+                    semanticDefinition: definition, subjectLifetime: lifetime);
+                RecordMutationExecutionResult retirement = await store.ExecuteAtomicAsync(retire, ExecutionRequest());
+                retirement.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed,
+                    $"{retire.RejectedCode}; captured={retire.CapturedState}; lifetime={retire.CapturedEvidence?.Live?.SubjectLifetime is not null}; " +
+                    $"lifetimeValid={retire.CapturedEvidence?.Live?.SubjectLifetime is { } capturedLifetime && BaseSemanticActivationEvidenceContract.SubjectLifetimeChecksum(capturedLifetime).AsSpan().SequenceEqual(capturedLifetime.Checksum.AsSpan())}");
+                await InsertRetiredRecoveryFloorAsync(path, retire.RecoveryReceiptJson!);
+                OperationResult<BaseActivationPrunePage> pruned = await store.PruneAsync(new BaseActivationPruneRequest
+                {
+                    ApplicationId = "activation-test", Scope = ActivationScope(), Definition = ActivationDefinition(), Take = 1,
+                    AcceptedTime = AcceptedTime(30), Identity = ActivationIdentity("compact-prune"), Limits = ActivationLimits(),
+                });
+                pruned.IsSuccess().Should().BeTrue(pruned.Error?.Code);
+
+                BaseSemanticActivationRetirementAuthority retired = (await ReadRetiredRotationAuthorityAsync(path)).Slot;
+                await using (var dependency = new SqliteConnection($"Data Source={path};Pooling=False"))
+                {
+                    await dependency.OpenAsync(); await using SqliteCommand verify = dependency.CreateCommand();
+                    verify.CommandText = "SELECT terminal_generation,terminal_control_checksum,terminal_receipt_checksum FROM hpd_base_activation_prune_floors WHERE activation_id=$id;";
+                    verify.Parameters.AddWithValue("$id", retired.ActivationId); await using SqliteDataReader evidence = await verify.ExecuteReaderAsync();
+                    (await evidence.ReadAsync()).Should().BeTrue(); evidence.GetInt64(0).Should().Be(retired.TerminalActivationGeneration);
+                    ((byte[])evidence[1]).Should().Equal(retired.TerminalActivationChecksum);
+                    ((byte[])evidence[2]).Should().Equal(retired.CompletionReceiptChecksum);
+                }
+                await InsertTerminalSubjectLifetimeAsync(path, retired);
+                byte[] ordered = OrderedSemanticAuthoritiesChecksum([JsonSerializer.SerializeToUtf8Bytes(retired,
+                    HPDBaseJsonSerializerContext.Default.BaseSemanticActivationRetirementAuthority)]);
+                BaseSemanticActivationCompactRequest request = new()
+                {
+                    Identity = BaseMutationRequestIdentity.Create("semantic-maintenance", "compact", "compact-1",
+                        BaseMutationRequestFingerprint.Create(SHA256.HashData("compact-request"u8))),
+                    Definition = new() { Id = definition.Id, Version = definition.Version, Checksum = definition.Checksum },
+                    ExpectedSemanticAuthorityGeneration = 1, ExpectedRetiredCount = 1,
+                    ExpectedRetiredChecksum = ordered.ToImmutableArray(),
+                    Limits = new() { PageSize = 1, MaximumPages = 2, MaximumRows = 2,
+                        MaximumBytes = 1_000_000, Deadline = TimeSpan.FromSeconds(5) },
+                };
+                BaseResult<BaseSemanticActivationMaintenanceResult> compactResult = await store.ExecuteAsync(request, default);
+                compactResult.Should().BeOfType<BaseSuccess<BaseSemanticActivationMaintenanceResult>>(
+                    compactResult is BaseFailure<BaseSemanticActivationMaintenanceResult> failed ? $"{failed.Error.Code}:{failed.Error.Message}" : string.Empty);
+                BaseSemanticActivationMaintenanceResult compacted = ((BaseSuccess<BaseSemanticActivationMaintenanceResult>)compactResult).Value;
+                compacted.Disposition.Should().Be(BaseSemanticActivationMaintenanceDisposition.Completed);
+                compacted.ResultingAuthorityGeneration.Should().Be(2);
+            }
+            await using (SqliteRecordStore reopened = SemanticStore(path, installedDefinition: definition))
+            {
+                BaseAtomicMutationAuthorityRequirement authority = (await reopened.CaptureAtomicMutationAuthorityRequirementAsync(
+                    "activation-test", [], ExecutionLimits())).Value!;
+                var duplicate = new SqliteSemanticEnsureProbe(authority, ExecutionLimits(), "compact-duplicate", retire: true,
+                    semanticDefinition: definition, subjectLifetime: lifetime);
+                RecordMutationExecutionResult duplicateResult = await reopened.ExecuteAtomicAsync(duplicate, ExecutionRequest());
+                duplicateResult.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed,
+                    $"{duplicate.RejectedCode}:{duplicateResult.Error?.Code}:{duplicateResult.Error?.Message}");
+                duplicate.CapturedState.Should().Be(BaseSemanticActivationCapturedState.CompactedAbsent);
+            }
+            await using var check = new SqliteConnection($"Data Source={path};Pooling=False"); await check.OpenAsync();
+            await using SqliteCommand command = check.CreateCommand();
+            command.CommandText = "SELECT s.state,f.state,f.receipt_slot_authority_json FROM hpd_base_semantic_activation_slots s JOIN hpd_base_semantic_activation_recovery_floors f USING(definition_id,binding_id,key_digest);";
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(); (await reader.ReadAsync()).Should().BeTrue();
+            reader.GetInt32(0).Should().Be(3); reader.GetInt32(1).Should().Be(3); reader.IsDBNull(2).Should().BeTrue();
+        }
+        finally { SqliteConnection.ClearAllPools(); foreach (string suffix in new[] { "", "-wal", "-shm" }) if (File.Exists(path + suffix)) File.Delete(path + suffix); }
+    }
+
+    private static async Task InsertTerminalSubjectLifetimeAsync(string path, BaseSemanticActivationRetirementAuthority retired)
+    {
+        BaseSemanticActivationSubjectLifetimeBinding lifetime = retired.SubjectLifetime!;
+        await using var connection = new SqliteConnection($"Data Source={path};Pooling=False"); await connection.OpenAsync();
+        await using SqliteCommand bindingCommand = connection.CreateCommand();
+        bindingCommand.CommandText = "SELECT binding_json FROM hpd_base_semantic_activation_scopes WHERE binding_id=$binding;";
+        bindingCommand.Parameters.Add("$binding", SqliteType.Blob).Value = lifetime.ScopeBindingId.ToArray();
+        await using SqliteDataReader binding = await bindingCommand.ExecuteReaderAsync(); (await binding.ReadAsync()).Should().BeTrue();
+        BaseSemanticActivationScopeBinding scope = JsonSerializer.Deserialize((byte[])binding[0],
+            HPDBaseJsonSerializerContext.Default.BaseSemanticActivationScopeBinding)!;
+        int kind = (int)scope.Kind; byte[] seek = scope.SeekDigest.ToArray();
+        byte[] protectedScope = scope.ProtectedCanonicalScope.ToArray(); await binding.DisposeAsync();
+        await using SqliteCommand insert = connection.CreateCommand();
+        insert.CommandText = "INSERT INTO hpd_base_subject_terminal_lifetimes(contract_id,contract_version,subject_id,scope_kind,scope_index_digest,protected_scope_value,retired_authority_epoch,retired_incarnation,retired_lifetime_generation,retired_subject_sequence,retired_position,contract_state_generation,restore_epoch,receipt_checksum) VALUES($contract,$version,$subject,$kind,$scope,$protected,$epoch,$incarnation,$lifetime,1,$position,1,0,$receipt);";
+        insert.Parameters.AddWithValue("$contract", lifetime.ContractId); insert.Parameters.AddWithValue("$version", lifetime.ContractVersion);
+        insert.Parameters.AddWithValue("$subject", lifetime.SubjectId.Value); insert.Parameters.AddWithValue("$kind", kind);
+        insert.Parameters.Add("$scope", SqliteType.Blob).Value = seek; insert.Parameters.Add("$protected", SqliteType.Blob).Value = protectedScope;
+        insert.Parameters.Add("$epoch", SqliteType.Blob).Value = lifetime.AuthorityEpoch.ToArray();
+        insert.Parameters.Add("$incarnation", SqliteType.Blob).Value = lifetime.Incarnation.ToArray();
+        insert.Parameters.AddWithValue("$lifetime", lifetime.Incarnation.LifetimeGeneration);
+        insert.Parameters.AddWithValue("$position", retired.RetirementPosition);
+        insert.Parameters.AddWithValue("$receipt", Convert.ToHexStringLower(SHA256.HashData("subject-terminal"u8)));
+        (await insert.ExecuteNonQueryAsync()).Should().Be(1);
+    }
+
+    private static byte[] OrderedSemanticAuthoritiesChecksum(IEnumerable<byte[]> rows)
+    {
+        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData("base.semanticActivation.orderedRows.v1\0"u8); byte[] length = new byte[4];
+        foreach (byte[] row in rows) { BinaryPrimitives.WriteInt32BigEndian(length, row.Length); hash.AppendData(length); hash.AppendData(row); }
+        return hash.GetHashAndReset();
+    }
+
+    private static byte[] SemanticHistoricalNegativeRow(byte[] binding, byte[] key, int state, byte[] authority) =>
+        SemanticFramedHash("base.semanticActivation.historicalNegativeRow.v1\0", binding, key, Int64Bytes(state), authority);
+
+    private static byte[] SemanticDefinitionStateChecksum(byte[] binding, byte[] key, int state, long generation, byte[] authority)
+    {
+        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData("base.semanticActivation.definitionState.v1\0"u8); hash.AppendData(binding); hash.AppendData(key);
+        hash.AppendData([(byte)state]); hash.AppendData(Int64Bytes(generation)); hash.AppendData(authority); return hash.GetHashAndReset();
+    }
+
+    private static byte[] SemanticFramedHash(string purpose, params byte[][] values)
+    {
+        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256); hash.AppendData(Encoding.UTF8.GetBytes(purpose));
+        byte[] length = new byte[4]; foreach (byte[] value in values)
+        { BinaryPrimitives.WriteInt32BigEndian(length, value.Length); hash.AppendData(length); hash.AppendData(value); }
+        return hash.GetHashAndReset();
+    }
+
+    private static byte[] Int64Bytes(long value)
+    { byte[] bytes = new byte[8]; BinaryPrimitives.WriteInt64BigEndian(bytes, value); return bytes; }
+
+    private static byte[] SemanticIncarnation(long generation)
+    {
+        byte[] value = new byte[24]; BinaryPrimitives.WriteInt64BigEndian(value.AsSpan(0, 8), generation);
+        Enumerable.Repeat((byte)0x42, 16).ToArray().CopyTo(value, 8); return value;
     }
 
     [Theory]
@@ -1196,6 +1508,8 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
         long ownerGeneration = 1,
         ImmutableArray<byte> definitionSetChecksum = default,
         ImmutableArray<BaseSemanticActivationMigrationDefinition> migrations = default,
+        ImmutableArray<BaseSemanticActivationRemovalAuthority> removals = default,
+        ImmutableArray<BaseSemanticActivationKeyDefinition> additionalDefinitions = default,
         bool administrationEnabled = false,
         int maximumCanonicalKeyBytes = 256,
         bool enableScopeRotationKey = false,
@@ -1205,11 +1519,12 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
         var options = new HPDBaseSqliteOptions
         {
             StoreId = "module-store", DataSource = path, Collections = [],
-            SemanticActivations = [definition], SemanticActivationApplicationId = definition.OwningApplicationId,
+            SemanticActivations = additionalDefinitions.IsDefault ? [definition] : [definition, .. additionalDefinitions], SemanticActivationApplicationId = definition.OwningApplicationId,
             SemanticActivationOwnerGeneration = ownerGeneration,
             SemanticActivationDefinitionSetChecksum = definitionSetChecksum.IsDefaultOrEmpty
                 ? definition.Checksum.ToArray() : definitionSetChecksum.ToArray(),
             SemanticActivationMigrations = migrations.IsDefault ? [] : migrations.ToArray(),
+            SemanticActivationRemovals = removals.IsDefault ? [] : removals.ToArray(),
             ModuleMutations = [Definition()], ModuleGenerationCells = [Cell()],
             MaxPendingActivationRows = maximumPendingRows, MaxClaimedActivationRows = 100,
             AdministrationEnabled = administrationEnabled, MaxBackupArtifactBytes = 16 * 1024 * 1024,
@@ -1348,7 +1663,11 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
         bool retire = false,
         bool substituteFinalizedScope = false,
         string? finalizedSubstitution = null,
-        bool acceptedCurrentTime = false) : IAtomicMutationProcessor
+        bool acceptedCurrentTime = false,
+        BaseSemanticActivationKeyDefinition? semanticDefinition = null,
+        long semanticOwnerGeneration = 1,
+        BaseSemanticActivationSubjectLifetimeBinding? subjectLifetime = null,
+        long? acceptedTimeSeconds = null) : IAtomicMutationProcessor
     {
         public BaseSemanticActivationCapturedState? CapturedState { get; private set; }
         public BaseCapturedSemanticActivationEvidence? CapturedEvidence { get; private set; }
@@ -1365,22 +1684,25 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
 
         public async ValueTask<AtomicMutationProcessingResult> ProcessAsync(IAtomicRecordSession session, CancellationToken cancellationToken = default)
         {
-            byte[] definitionChecksum = SHA256.HashData("semantic-definition"u8);
+            BaseSemanticActivationKeyDefinition installedSemantic = semanticDefinition ?? SemanticDefinition();
+            byte[] definitionChecksum = installedSemantic.Checksum.ToArray();
             byte[] canonicalKey = Encoding.UTF8.GetBytes(semanticKey);
             byte[] binding = SHA256.HashData(Encoding.UTF8.GetBytes("runtime-proposed-binding:" + parentIdentity));
-            BaseSemanticActivationKeyDigest key = BaseSemanticActivationKeyDigest.Create(BoundHash("base.semanticActivation.key.v1\0", "test.semantic"u8.ToArray(), binding, canonicalKey));
+            BaseSemanticActivationKeyDigest key = BaseSemanticActivationKeyDigest.Create(BoundHash("base.semanticActivation.key.v1\0", Encoding.UTF8.GetBytes(installedSemantic.Id), binding, canonicalKey));
             Span<byte> keyBytes = stackalloc byte[32]; key.CopyTo(keyBytes);
             byte[] activationId = BoundHash("base.semanticActivation.activation.v1\0", Encoding.UTF8.GetBytes(authority.ApplicationId),
-                Encoding.UTF8.GetBytes(authority.StoreInstanceId), "test"u8.ToArray(), "test.semantic"u8.ToArray(), binding, canonicalKey);
+                Encoding.UTF8.GetBytes(authority.SemanticActivation!.LogicalStoreId), Encoding.UTF8.GetBytes(installedSemantic.OwningModuleId), Encoding.UTF8.GetBytes(installedSemantic.Id), binding, canonicalKey);
             var retirement = new BaseSemanticActivationModuleOperationIdentity
             {
-                OperationId = "semantic.retire", OperationVersion = 1,
-                OperationChecksum = Convert.ToHexStringLower(SHA256.HashData("completion-operation"u8)),
+                OperationId = installedSemantic.RetirementOperation.OperationId,
+                OperationVersion = installedSemantic.RetirementOperation.OperationVersion,
+                OperationChecksum = installedSemantic.RetirementOperation.OperationChecksum,
             };
             var definition = new BaseSemanticActivationDefinitionIdentity
             {
-                Id = "test.semantic", Version = 1, Checksum = definitionChecksum.ToImmutableArray(), OwnerGeneration = 1,
-                OwningModuleId = "test", RetirementOperation = retirement,
+                Id = installedSemantic.Id, Version = installedSemantic.Version, Checksum = definitionChecksum.ToImmutableArray(),
+                OwnerGeneration = semanticOwnerGeneration, OwningModuleId = installedSemantic.OwningModuleId,
+                RetirementOperation = retirement,
             };
             var scope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Global };
             var due = new BaseSemanticActivationDueAuthority
@@ -1391,9 +1713,10 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
             var ensure = new BaseSemanticActivationEnsureIntent
             {
                 Definition = definition, Key = key, CanonicalKey = canonicalKey.ToImmutableArray(), Scope = scope, Due = due,
+                SubjectLifetime = subjectLifetime,
                 Activation = new()
                 {
-                    Definition = ActivationDefinition(), CanonicalInput = "payload"u8.ToArray().ToImmutableArray(),
+                    Definition = installedSemantic.Activation, CanonicalInput = "payload"u8.ToArray().ToImmutableArray(),
                     InputChecksum = SHA256.HashData("payload"u8).ToImmutableArray(), Scope = scope, Due = due, Priority = 0, InitiallyEligible = true,
                     Limits = CreationLimits(), Identity = new()
                     {
@@ -1407,7 +1730,7 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
                 ? new BaseSemanticActivationRetireIntent
                 {
                     Definition = definition, Key = key, CanonicalKey = canonicalKey.ToImmutableArray(), Scope = scope,
-                    CompletionOperation = retirement,
+                    CompletionOperation = retirement, SubjectLifetime = subjectLifetime,
                 }
                 : ensure;
             var extension = new BaseAtomicSemanticActivationExtension
@@ -1418,7 +1741,7 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
                     Scope = scope, ProposedScopeBindingId = binding.ToImmutableArray(), Operation = retire
                         ? BaseSemanticActivationOperationKind.Retire : BaseSemanticActivationOperationKind.Ensure,
                     StoreAuthority = authority.SemanticActivation!,
-                    Limits = CreateLimits(), AcceptedTime = AcceptedTime(retire ? 30 : 1),
+                    Limits = CreateLimits(), AcceptedTime = AcceptedTime(acceptedTimeSeconds ?? (retire ? 30 : 1)),
                 },
                 Operation = operation,
                 StructuralDigest = BoundHash("base.semanticActivation.extension.v1\0", definitionChecksum, canonicalKey, binding, [retire ? (byte)2 : (byte)1]).ToImmutableArray(),
@@ -1427,12 +1750,14 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
             {
                 Kind = BaseAtomicMutationExecutionKind.ModuleMutation,
                 Intent = new() { IntentDigest = parentIdentity, Authority = authority, Items = [] },
-                Module = new() { OperationId = retire ? "semantic.retire" : "semantic.ensure", OperationVersion = 1,
-                    OperationChecksum = retire ? retirement.OperationChecksum : new string('a', 64), RequestDigest = parentIdentity, Records = [], RelationTargets = [], Generations = [] },
+                Module = new() { OperationId = retire ? retirement.OperationId : installedSemantic.EnsureOperation.OperationId,
+                    OperationVersion = retire ? retirement.OperationVersion : installedSemantic.EnsureOperation.OperationVersion,
+                    OperationChecksum = retire ? retirement.OperationChecksum : installedSemantic.EnsureOperation.OperationChecksum,
+                    RequestDigest = parentIdentity, Records = [], RelationTargets = [], Generations = [] },
                 SemanticActivation = extension, Limits = limits,
             };
             OperationResult<BaseCapturedAtomicExecution> captured = await session.CaptureAtomicExecutionAsync(request, cancellationToken);
-            if (!captured.IsSuccess() || captured.Value?.SemanticActivation is null) { RejectedCode = "capture:" + captured.Error?.Code; return Failure(captured.Error); }
+            if (!captured.IsSuccess() || captured.Value?.SemanticActivation is null) { RejectedCode = captured.Error?.Code ?? BaseSemanticActivationErrorCodes.ProviderContractInvalid; return Failure(captured.Error); }
             CapturedState = captured.Value.SemanticActivation.State;
             CapturedEvidence = captured.Value.SemanticActivation;
             BaseAtomicSemanticActivationExtension finalizedExtension = FinalizeExtension(extension, captured.Value.SemanticActivation, authority);
@@ -1471,8 +1796,10 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
                 Kind = request.Kind, PlanDigest = "plan-" + parentIdentity, IntentDigest = request.Intent.IntentDigest,
                 CaptureDigest = captured.Value.CaptureDigest, PolicyAuthorityDigest = BaseAtomicPolicyAuthorityDigest.Create(new byte[32]),
                 Authority = authority, Items = [], SubjectValidations = [], Limits = limits, SemanticActivation = finalizedExtension,
-                Module = new() { OperationId = retire ? "semantic.retire" : "semantic.ensure", OperationVersion = 1,
-                    OperationChecksum = retire ? retirement.OperationChecksum : new string('a', 64), Decisions = [], ItemBindings = [], RelationTargets = [], Comparisons = [], Increments = [], ResultProjectionDigest = parentIdentity },
+                Module = new() { OperationId = retire ? retirement.OperationId : installedSemantic.EnsureOperation.OperationId,
+                    OperationVersion = retire ? retirement.OperationVersion : installedSemantic.EnsureOperation.OperationVersion,
+                    OperationChecksum = retire ? retirement.OperationChecksum : installedSemantic.EnsureOperation.OperationChecksum,
+                    Decisions = [], ItemBindings = [], RelationTargets = [], Comparisons = [], Increments = [], ResultProjectionDigest = parentIdentity },
             };
             OperationResult<BasePreparedAtomicExecution> prepared = await session.PrepareAtomicExecutionAsync(captured.Value, plan, cancellationToken);
             if (!prepared.IsSuccess() || prepared.Value?.SemanticActivation is null) { RejectedCode = "prepare:" + prepared.Error?.Code; return Failure(prepared.Error); }
@@ -1491,7 +1818,13 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
                 Operation = BaseSemanticActivationOperationKind.Retire,
                 DefinitionId = definition.Id, DefinitionVersion = definition.Version, DefinitionChecksum = definition.Checksum,
                 Key = committedKey, State = provisional.ResultingState, SlotGeneration = provisional.ResultingSlotGeneration,
-                EnsureDisposition = null, RetirementDisposition = BaseSemanticActivationRetirementDisposition.RetiredNow,
+                EnsureDisposition = null, RetirementDisposition = provisional.PriorState switch
+                {
+                    BaseSemanticActivationCapturedState.Live => BaseSemanticActivationRetirementDisposition.RetiredNow,
+                    BaseSemanticActivationCapturedState.Retired => BaseSemanticActivationRetirementDisposition.AlreadyRetired,
+                    BaseSemanticActivationCapturedState.CompactedAbsent => BaseSemanticActivationRetirementDisposition.AlreadyCompacted,
+                    _ => throw new InvalidOperationException("base.semanticActivation.referenceInvalid"),
+                },
                 ActivationId = null, SlotChecksum = slotChecksum.ToImmutableArray(),
                 JournalPosition = provisional.CommitJournalPosition, CommitEvidenceChecksum = commitChecksum.ToImmutableArray(),
                 Checksum = BoundHash("base.semanticActivation.receipt.v1\0", definition.Checksum.ToArray(),
@@ -1581,10 +1914,7 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
         {
             if (value is null) return null;
             var bound = value with { ScopeBindingId = binding.ToArray().ToImmutableArray(), Checksum = [] };
-            byte[] checksum = BoundHash("base.semanticActivation.subjectLifetime.v1\0", Encoding.UTF8.GetBytes(bound.ContractId),
-                BitConverter.GetBytes(bound.ContractVersion).Reverse().ToArray(), bound.ContractChecksum.ToArray(), bound.SubjectId.ToUtf8Bytes(),
-                Encoding.UTF8.GetBytes(bound.AuthorityEpoch.ToBase64Url()), Encoding.UTF8.GetBytes(bound.Incarnation.ToBase64Url()), binding.ToArray());
-            return bound with { Checksum = checksum.ToImmutableArray() };
+            return bound with { Checksum = BaseSemanticActivationEvidenceContract.SubjectLifetimeChecksum(bound) };
         }
 
         internal static BaseSemanticActivationExecutionLimits CreateLimits() => new()

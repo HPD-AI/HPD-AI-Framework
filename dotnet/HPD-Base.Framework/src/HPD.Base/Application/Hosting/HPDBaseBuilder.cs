@@ -47,6 +47,7 @@ public sealed class HPDBaseBuilder
     private readonly Dictionary<(string Id, int Version), IBaseActivationRegistration> _activationRegistrations = [];
     private readonly Dictionary<(string Id, int Version), IBaseSemanticActivationRegistration> _semanticActivationRegistrations = [];
     private readonly Dictionary<(string Id, int Version), BaseSemanticActivationMigrationDefinition> _semanticActivationMigrations = [];
+    private readonly Dictionary<(string Id, int Version), BaseSemanticActivationRemovalAuthority> _semanticActivationRemovals = [];
     private readonly Dictionary<string, BaseSemanticActivationRestoreSelection> _semanticRestoreSelections = new(StringComparer.Ordinal);
     private readonly Dictionary<string, BaseSemanticRecoveryAuthorityRegistration> _semanticRecoveryAuthorities = new(StringComparer.Ordinal);
     private readonly Dictionary<(string Id, int Version), IBaseActivationMigrationRegistration> _activationMigrations = [];
@@ -399,6 +400,16 @@ public sealed class HPDBaseBuilder
         return this;
     }
 
+    /// <summary>Registers graph-replacement authority that retires an omitted semantic definition's executable surface.</summary>
+    public HPDBaseBuilder AddSemanticActivationRemoval(BaseSemanticActivationRemovalAuthority authority)
+    {
+        EnsureMutable();
+        BaseSemanticActivationRemovalAuthority installed = BaseSemanticActivationRemovalAuthorityContract.Seal(authority);
+        if (!_semanticActivationRemovals.TryAdd((installed.From.Id, installed.From.Version), installed))
+            throw new InvalidOperationException(BaseSemanticActivationErrorCodes.Invalid);
+        return this;
+    }
+
     /// <summary>Selects semantic restore authority for one logical store.</summary>
     public HPDBaseBuilder SetSemanticActivationRestoreSelection(BaseSemanticActivationRestoreSelection selection)
     {
@@ -630,6 +641,11 @@ public sealed class HPDBaseBuilder
         var moduleMutationRegistry = new BaseModuleMutationRegistry(_moduleMutations.Values, _moduleGenerationCells.Values, _moduleMutationRegistrations.Values);
         var activationRegistry = new BaseActivationRegistry(_activationRegistrations.Values);
         var semanticActivationRegistry = new BaseSemanticActivationRegistry(_semanticActivationRegistrations.Values);
+        var semanticActivationRemovalRegistry = new BaseSemanticActivationRemovalRegistry(_semanticActivationRemovals.Values);
+        foreach (BaseSemanticActivationRemovalAuthority removal in semanticActivationRemovalRegistry.Authorities)
+            if (semanticActivationRegistry.Find(removal.From.Id, removal.From.Version) is not null
+                || !CryptographicOperations.FixedTimeEquals(removal.ResultingDefinitionSetChecksum.AsSpan(), semanticActivationRegistry.DefinitionSetChecksum.AsSpan()))
+                throw new InvalidOperationException(BaseSemanticActivationErrorCodes.Invalid);
         BaseSemanticActivationRestoreSelection[] semanticRestoreSelections = [.. _semanticRestoreSelections.Values];
         BaseSemanticRecoveryAuthorityRegistration[] semanticRecoveryAuthorities = [.. _semanticRecoveryAuthorities.Values];
         ServiceDescriptor? timeDescriptor = _services.LastOrDefault(static descriptor => descriptor.ServiceType == typeof(TimeProvider));
@@ -781,6 +797,7 @@ public sealed class HPDBaseBuilder
         _services.AddSingleton(moduleMutationRegistry);
         _services.AddSingleton(activationRegistry);
         _services.AddSingleton(semanticActivationRegistry);
+        _services.AddSingleton(semanticActivationRemovalRegistry);
         _services.AddSingleton(activationMigrationRegistry);
         _services.AddSingleton(scheduleRegistry);
         _services.AddSingleton(timeZoneRegistry);
@@ -813,6 +830,7 @@ public sealed class HPDBaseBuilder
         _services.AddSingleton(Microsoft.Extensions.Options.Options.Create(subjectLifecycleOptions));
         _services.AddSingleton(new BaseTokenProtectionRegistration(_tokenProtection is not null));
         _services.TryAddSingleton<BaseOpaqueTokenProtector>();
+        _services.TryAddSingleton<BaseSemanticActivationInspectionTokenCodec>();
         _services.AddSingleton<IBaseSchemaPlanProtector, DefaultBaseSchemaPlanProtector>();
         _services.AddSingleton<IBaseSchemaManager, DefaultBaseSchemaManager>();
         _services.AddSingleton<BaseSchemaCommandHost>();
@@ -859,7 +877,8 @@ public sealed class HPDBaseBuilder
             lifecycleInspectionAuthorities.All.ToArray(),
             subjectRetirementRegistry.Consumers.Select(static value => value.Definition).ToArray(),
             subjectRetirementRegistry.Policies.Select(static value => value.Definition).ToArray(),
-            semanticActivationRegistry.Definitions.ToArray(), _semanticActivationMigrations.Values.ToArray(), logicalSchema.ApplicationId,
+            semanticActivationRegistry.Definitions.ToArray(), _semanticActivationMigrations.Values.ToArray(),
+            semanticActivationRemovalRegistry.Authorities.ToArray(), logicalSchema.ApplicationId,
             semanticActivationRegistry.OwnerGeneration, semanticActivationRegistry.DefinitionSetChecksum);
         HPDBaseStoreRegistrationReceipt receipt;
         try { receipt = provider.Installer.Configure(installation); }

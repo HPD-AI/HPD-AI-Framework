@@ -41,6 +41,9 @@ internal sealed class SqliteNames
         SemanticActivationSlots = Prefix + "semantic_activation_slots";
         SemanticActivationMaintenance = Prefix + "semantic_activation_maintenance";
         SemanticActivationMigrations = Prefix + "semantic_activation_migrations";
+        SemanticActivationMigrationHistory = Prefix + "semantic_activation_migration_history";
+        SemanticActivationRemovedDefinitions = Prefix + "semantic_activation_removed_definitions";
+        SemanticActivationRemovedDefinitionHistory = Prefix + "semantic_activation_removed_definition_history";
         SemanticActivationRecoveryFloors = Prefix + "semantic_activation_recovery_floors";
         SemanticActivationRewriteStage = Prefix + "semantic_activation_rewrite_stage";
         Activations = Prefix + "activations";
@@ -110,6 +113,12 @@ internal sealed class SqliteNames
     public string SemanticActivationMaintenance { get; }
     /// <summary>Gets immutable semantic definition migration authority.</summary>
     public string SemanticActivationMigrations { get; }
+    /// <summary>Gets byte-exact pre-migration negative authority history.</summary>
+    public string SemanticActivationMigrationHistory { get; }
+    /// <summary>Gets non-prunable semantic executable-authority removal tombstones.</summary>
+    public string SemanticActivationRemovedDefinitions { get; }
+    /// <summary>Gets byte-exact absence history retained by removed definitions.</summary>
+    public string SemanticActivationRemovedDefinitionHistory { get; }
     /// <summary>Gets non-prunable semantic negative recovery authority.</summary>
     public string SemanticActivationRecoveryFloors { get; }
     /// <summary>Gets bounded semantic restore and maintenance staging authority.</summary>

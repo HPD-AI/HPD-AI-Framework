@@ -47,6 +47,8 @@ public sealed record BaseSemanticActivationCapability
     public required long MaximumTransientBytes { get; init; }
     /// <summary>Gets the maximum maintenance page size.</summary>
     public required int MaximumMaintenancePageSize { get; init; }
+    /// <summary>Gets the maximum sanitized inspection items/read operations per page.</summary>
+    public required int MaximumInspectionSlotReads { get; init; }
     /// <summary>Gets the provider deadline envelope.</summary>
     public required BaseSemanticActivationDeadlineCapability Deadlines { get; init; }
     /// <summary>Gets supported whole-store backup modes.</summary>
@@ -71,7 +73,7 @@ public static class BaseSemanticActivationCapabilityContract
         MaximumAbsenceMarkers = 0, MaximumOperationsPerTransaction = 0, MaximumScopeDirectoryReads = 0,
         MaximumSlotReads = 0, MaximumActivationReads = 0, MaximumReadIntervals = 0, MaximumIndexOperations = 0,
         MaximumActivationBytes = 0, MaximumScopeDirectoryBytes = 0, MaximumEvidenceBytes = 0,
-        MaximumReceiptBytes = 0, MaximumTransientBytes = 0, MaximumMaintenancePageSize = 0,
+        MaximumReceiptBytes = 0, MaximumTransientBytes = 0, MaximumMaintenancePageSize = 0, MaximumInspectionSlotReads = 0,
         Deadlines = new BaseSemanticActivationDeadlineCapability
         {
             AcquisitionTimeout = TimeSpan.Zero, TransactionTimeout = TimeSpan.Zero,
@@ -105,7 +107,7 @@ public static class BaseSemanticActivationCapabilityContract
         MaximumIndexOperations = 8192, MaximumActivationBytes = 1_048_576,
         MaximumScopeDirectoryBytes = 65_536, MaximumEvidenceBytes = 1_048_576,
         MaximumReceiptBytes = 1_048_576, MaximumTransientBytes = 8_388_608,
-        MaximumMaintenancePageSize = durable ? 256 : 0,
+        MaximumMaintenancePageSize = durable ? 256 : 0, MaximumInspectionSlotReads = durable ? 256 : 0,
         Deadlines = new BaseSemanticActivationDeadlineCapability
         {
             AcquisitionTimeout = TimeSpan.FromSeconds(5), TransactionTimeout = TimeSpan.FromSeconds(30),
@@ -129,7 +131,7 @@ public static class BaseSemanticActivationCapabilityContract
         Int(value.MaximumDefinitions); Int(value.MaximumKeyBytes); Long(value.MaximumLiveSlots); Long(value.MaximumRetiredSlots); Long(value.MaximumAbsenceMarkers);
         Int(value.MaximumOperationsPerTransaction); Int(value.MaximumScopeDirectoryReads); Int(value.MaximumSlotReads); Int(value.MaximumActivationReads);
         Int(value.MaximumReadIntervals); Int(value.MaximumIndexOperations); Long(value.MaximumActivationBytes); Long(value.MaximumScopeDirectoryBytes);
-        Long(value.MaximumEvidenceBytes); Long(value.MaximumReceiptBytes); Long(value.MaximumTransientBytes); Int(value.MaximumMaintenancePageSize);
+        Long(value.MaximumEvidenceBytes); Long(value.MaximumReceiptBytes); Long(value.MaximumTransientBytes); Int(value.MaximumMaintenancePageSize); Int(value.MaximumInspectionSlotReads);
         Long(value.Deadlines.AcquisitionTimeout.Ticks); Long(value.Deadlines.TransactionTimeout.Ticks); Long(value.Deadlines.CommitObservationTimeout.Ticks);
         Long(value.Deadlines.ReceiptResolutionTimeout.Ticks); Long(value.Deadlines.MaintenanceTimeout.Ticks); Long(value.Deadlines.QuarantineRetentionTimeout.Ticks);
         Enums(value.BackupModes.Select(static item => (int)item)); Enums(value.RestoreModes.Select(static item => (int)item));
@@ -162,6 +164,8 @@ public static class BaseSemanticActivationCapabilityContract
         && value.MaximumTransientBytes is >= 1 and <= 8_388_608
         && (!value.MaintenanceSupported ? value.MaximumMaintenancePageSize == 0
             : value.MaximumMaintenancePageSize is >= 1 and <= 256)
+        && (!value.MaintenanceSupported ? value.MaximumInspectionSlotReads == 0
+            : value.MaximumInspectionSlotReads is >= 1 and <= 256)
         && ValidDeadlines(value.Deadlines)
         && value.BackupModes.Distinct().Count() == value.BackupModes.Length
         && value.BackupModes.All(Enum.IsDefined)
@@ -177,7 +181,8 @@ public static class BaseSemanticActivationCapabilityContract
         && value.MaximumSlotReads == 0 && value.MaximumActivationReads == 0 && value.MaximumReadIntervals == 0
         && value.MaximumIndexOperations == 0 && value.MaximumActivationBytes == 0 && value.MaximumScopeDirectoryBytes == 0
         && value.MaximumEvidenceBytes == 0 && value.MaximumReceiptBytes == 0 && value.MaximumTransientBytes == 0
-        && value.MaximumMaintenancePageSize == 0 && value.BackupModes.IsDefaultOrEmpty && value.RestoreModes.IsDefaultOrEmpty
+        && value.MaximumMaintenancePageSize == 0 && value.MaximumInspectionSlotReads == 0
+        && value.BackupModes.IsDefaultOrEmpty && value.RestoreModes.IsDefaultOrEmpty
         && value.Deadlines.AcquisitionTimeout == TimeSpan.Zero && value.Deadlines.TransactionTimeout == TimeSpan.Zero
         && value.Deadlines.CommitObservationTimeout == TimeSpan.Zero && value.Deadlines.ReceiptResolutionTimeout == TimeSpan.Zero
         && value.Deadlines.MaintenanceTimeout == TimeSpan.Zero && value.Deadlines.QuarantineRetentionTimeout == TimeSpan.Zero;

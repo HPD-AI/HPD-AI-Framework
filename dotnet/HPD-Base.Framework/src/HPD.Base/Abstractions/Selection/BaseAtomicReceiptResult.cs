@@ -33,6 +33,8 @@ public enum BaseAtomicReceiptResultKind
     ActivationCreation,
     /// <summary>One handler-free activation target and terminal transition committed together.</summary>
     ActivationTransactionalOperation,
+    /// <summary>One identified semantic-activation maintenance result.</summary>
+    SemanticActivationMaintenance,
 }
 
 /// <summary>Stores the closed durable result of atomic activation creation.</summary>
@@ -207,6 +209,8 @@ public sealed record BaseAtomicReceiptWire
     public BaseSubjectLifecycleCheckpointResult? SubjectLifecycleCheckpoint { get; init; }
     /// <summary>Gets the optional subject-lifecycle maintenance result.</summary>
     public BaseSubjectLifecycleMaintenanceResult? SubjectLifecycleMaintenance { get; init; }
+    /// <summary>Gets the semantic-activation maintenance result.</summary>
+    public BaseSemanticActivationMaintenanceResult? SemanticActivationMaintenance { get; init; }
     /// <summary>Gets the coordinated-retirement result.</summary>
     public BaseSubjectRetirementReceiptResult? SubjectRetirement { get; init; }
     /// <summary>Gets the optional activation-creation result.</summary>
@@ -249,6 +253,7 @@ public sealed record BaseAtomicReceiptWire
             SubjectLifecycleMaintenance = result.SubjectLifecycleMaintenance is null
                 ? null
                 : CloneMaintenance(result.SubjectLifecycleMaintenance),
+            SemanticActivationMaintenance = CloneSemanticMaintenance(result.SemanticActivationMaintenance),
             SubjectRetirement = result.SubjectRetirement is null ? null : CloneRetirement(result.SubjectRetirement),
             ActivationCreation = result.ActivationCreation is null ? null : new BaseActivationCreationReceiptResult
             { ActivationIds = result.ActivationCreation.ActivationIds.Select(static value => new string(value.AsSpan())).ToImmutableArray() },
@@ -286,6 +291,7 @@ public sealed record BaseAtomicReceiptWire
             SubjectLifecycleMaintenance = SubjectLifecycleMaintenance is null
                 ? null
                 : CloneMaintenance(SubjectLifecycleMaintenance),
+            SemanticActivationMaintenance = CloneSemanticMaintenance(SemanticActivationMaintenance),
             SubjectRetirement = SubjectRetirement is null ? null : CloneRetirement(SubjectRetirement),
             ActivationCreation = ActivationCreation is null ? null : new BaseActivationCreationReceiptResult
             { ActivationIds = ActivationCreation.ActivationIds.Select(static value => new string(value.AsSpan())).ToImmutableArray() },
@@ -346,15 +352,19 @@ public sealed record BaseAtomicReceiptWire
     {
         bool valid = result.Kind switch
         {
-            BaseAtomicReceiptResultKind.RecordMutations => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null && result.ActivationCreation is null && result.ActivationTransactionalOperation is null,
-            BaseAtomicReceiptResultKind.SelectionMutation => result.SelectionMutation is not null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null && result.ActivationCreation is null && result.ActivationTransactionalOperation is null,
-            BaseAtomicReceiptResultKind.ModuleMutation => result.SelectionMutation is null && result.ModuleMutation is not null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null && result.ActivationCreation is null && result.ActivationTransactionalOperation is null,
-            BaseAtomicReceiptResultKind.SubjectLifecycleCheckpoint => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is not null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null && result.ActivationCreation is null && result.ActivationTransactionalOperation is null,
-            BaseAtomicReceiptResultKind.SubjectLifecycleMaintenance => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is not null
+            BaseAtomicReceiptResultKind.RecordMutations => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SemanticActivationMaintenance is null && result.SubjectRetirement is null && result.ActivationCreation is null && result.ActivationTransactionalOperation is null,
+            BaseAtomicReceiptResultKind.SelectionMutation => result.SelectionMutation is not null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SemanticActivationMaintenance is null && result.SubjectRetirement is null && result.ActivationCreation is null && result.ActivationTransactionalOperation is null,
+            BaseAtomicReceiptResultKind.ModuleMutation => result.SelectionMutation is null && result.ModuleMutation is not null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SemanticActivationMaintenance is null && result.SubjectRetirement is null && result.ActivationCreation is null && result.ActivationTransactionalOperation is null,
+            BaseAtomicReceiptResultKind.SubjectLifecycleCheckpoint => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is not null && result.SubjectLifecycleMaintenance is null && result.SemanticActivationMaintenance is null && result.SubjectRetirement is null && result.ActivationCreation is null && result.ActivationTransactionalOperation is null,
+            BaseAtomicReceiptResultKind.SubjectLifecycleMaintenance => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is not null && result.SemanticActivationMaintenance is null
                 && (result.SubjectRetirement is null || result.SubjectRetirement.Operation == BaseSubjectRetirementReceiptOperation.Maintenance) && result.ActivationCreation is null && result.ActivationTransactionalOperation is null,
-            BaseAtomicReceiptResultKind.SubjectRetirement => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is not null && result.ActivationCreation is null && result.ActivationTransactionalOperation is null,
-            BaseAtomicReceiptResultKind.ActivationCreation => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null && result.ActivationCreation is not null && result.ActivationTransactionalOperation is null,
-            BaseAtomicReceiptResultKind.ActivationTransactionalOperation => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SubjectRetirement is null && result.ActivationCreation is null && result.ActivationTransactionalOperation is not null,
+            BaseAtomicReceiptResultKind.SubjectRetirement => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SemanticActivationMaintenance is null && result.SubjectRetirement is not null && result.ActivationCreation is null && result.ActivationTransactionalOperation is null,
+            BaseAtomicReceiptResultKind.ActivationCreation => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SemanticActivationMaintenance is null && result.SubjectRetirement is null && result.ActivationCreation is not null && result.ActivationTransactionalOperation is null,
+            BaseAtomicReceiptResultKind.ActivationTransactionalOperation => result.SelectionMutation is null && result.ModuleMutation is null && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null && result.SemanticActivationMaintenance is null && result.SubjectRetirement is null && result.ActivationCreation is null && result.ActivationTransactionalOperation is not null,
+            BaseAtomicReceiptResultKind.SemanticActivationMaintenance => result.SelectionMutation is null && result.ModuleMutation is null
+                && result.SubjectLifecycleCheckpoint is null && result.SubjectLifecycleMaintenance is null
+                && result.SemanticActivationMaintenance is not null && result.SubjectRetirement is null
+                && result.ActivationCreation is null && result.ActivationTransactionalOperation is null,
             _ => false,
         };
         if (valid && result.SubjectRetirement is { } retirement)
@@ -435,6 +445,24 @@ public sealed record BaseAtomicReceiptWire
     {
         RollingChecksum = new string(value.RollingChecksum.AsSpan()),
     };
+    private static BaseSemanticActivationMaintenanceResult? CloneSemanticMaintenance(BaseSemanticActivationMaintenanceResult? value) =>
+        value is null ? null : value with
+        {
+            ResultChecksum = value.ResultChecksum.ToArray().ToImmutableArray(),
+            AuthorityChecksum = value.AuthorityChecksum.ToArray().ToImmutableArray(),
+            CommitObservationChecksum = value.CommitObservationChecksum.ToArray().ToImmutableArray(),
+            Checkpoint = value.Checkpoint is null ? null : value.Checkpoint with
+            {
+                Definition = value.Checkpoint.Definition with { Checksum = value.Checkpoint.Definition.Checksum.ToArray().ToImmutableArray() },
+                After = value.Checkpoint.After is null ? null : value.Checkpoint.After with
+                {
+                    ScopeBindingId = value.Checkpoint.After.ScopeBindingId.ToArray().ToImmutableArray(),
+                },
+                RollingChecksum = value.Checkpoint.RollingChecksum.ToArray().ToImmutableArray(),
+                RequestFingerprint = value.Checkpoint.RequestFingerprint.ToArray().ToImmutableArray(),
+                Checksum = value.Checkpoint.Checksum.ToArray().ToImmutableArray(),
+            },
+        };
     private static BaseActivationTransactionalReceiptResult? CloneTransactional(BaseActivationTransactionalReceiptResult? value) =>
         value is null ? null : value with
         {
@@ -480,6 +508,8 @@ public sealed record BaseAtomicReceiptResult
     public BaseSubjectLifecycleCheckpointResult? SubjectLifecycleCheckpoint { get; init; }
     /// <summary>Gets the lifecycle maintenance result when <see cref="Kind"/> is maintenance.</summary>
     public BaseSubjectLifecycleMaintenanceResult? SubjectLifecycleMaintenance { get; init; }
+    /// <summary>Gets semantic-activation maintenance when <see cref="Kind"/> selects it.</summary>
+    public BaseSemanticActivationMaintenanceResult? SemanticActivationMaintenance { get; init; }
     /// <summary>Gets the subject-retirement result when <see cref="Kind"/> is retirement.</summary>
     public BaseSubjectRetirementReceiptResult? SubjectRetirement { get; init; }
     /// <summary>Gets the activation result when <see cref="Kind"/> is activation creation.</summary>
@@ -495,6 +525,7 @@ public sealed record BaseAtomicReceiptResult
         ModuleMutation = null,
         SubjectLifecycleCheckpoint = null,
         SubjectLifecycleMaintenance = null,
+        SemanticActivationMaintenance = null,
         SubjectRetirement = null,
         ActivationCreation = null,
         ActivationTransactionalOperation = null,

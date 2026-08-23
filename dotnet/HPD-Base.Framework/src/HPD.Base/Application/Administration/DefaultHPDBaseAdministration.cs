@@ -18,6 +18,10 @@ internal sealed class DefaultHPDBaseAdministration(
     BaseActivationAcceptedTimeAuthority activationTime,
     BaseActivationProviderExecutionGate activationProviderGate,
     BaseSemanticRecoveryAuthorityRegistry semanticRecovery,
+    BaseSemanticActivationRegistry semanticActivations,
+    BaseSemanticActivationRemovalRegistry semanticRemovals,
+    BaseModuleMutationRegistry moduleMutations,
+    BaseSemanticActivationInspectionTokenCodec semanticInspectionTokens,
     BaseSubjectControlOperationalState subjectControlState,
     HPDBaseInstalledFeatures features,
     TimeProvider timeProvider) : IHPDBaseAdministration
@@ -26,6 +30,194 @@ internal sealed class DefaultHPDBaseAdministration(
         stores.GetRegistrations().Select(static registration => registration.Store).OfType<IRecordStoreAdministration>().ToArray() is [{ } administration]
             ? administration.AdministrationCapability
             : UnavailableCapability;
+
+    public async ValueTask<BaseResult<BaseSemanticActivationInspectionPage>> InspectSemanticActivationsAsync(
+        string storeId, PrincipalContext principal, BaseSemanticActivationInspectionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        BaseSemanticActivationKeyDefinition? installed = semanticActivations.Find(request.Definition.Id, request.Definition.Version);
+        if (installed is null || !CryptographicOperations.FixedTimeEquals(installed.Checksum.AsSpan(), request.Definition.Checksum.AsSpan())
+            || !await AuthorizeSemanticAdministrationAsync(storeId, principal, installed, BaseOperationKind.AdminInspect, cancellationToken).ConfigureAwait(false))
+            return SemanticAdminFailure<BaseSemanticActivationInspectionPage>(OperationStatus.PolicyDenied,
+                BaseSemanticActivationErrorCodes.Unauthorized, ErrorCategory.Authorization);
+        if (request.Take is < 1 or > 256 || request.State is { } state && !Enum.IsDefined(state)
+            || !SemanticExecutionLimitsValid(request.Limits))
+            return SemanticAdminFailure<BaseSemanticActivationInspectionPage>(OperationStatus.ValidationFailed,
+                BaseSemanticActivationErrorCodes.Invalid, ErrorCategory.Validation);
+        RecordStoreRegistration? registration = stores.GetRegistration(storeId);
+        IAtomicRecordStore? atomic = registration?.AtomicExecutionStore ?? registration?.Store as IAtomicRecordStore;
+        if (registration?.Store is not IBaseSemanticActivationAdministration provider || atomic is null)
+            return SemanticAdminFailure<BaseSemanticActivationInspectionPage>(OperationStatus.CapabilityUnavailable,
+                BaseSemanticActivationErrorCodes.CapabilityUnavailable, ErrorCategory.Capability);
+        if (!BaseSemanticActivationCapabilityContract.IsValid(provider.SemanticActivationCapability)
+            || !provider.SemanticActivationCapability.MaintenanceSupported)
+            return SemanticAdminFailure<BaseSemanticActivationInspectionPage>(OperationStatus.CapabilityUnavailable,
+                BaseSemanticActivationErrorCodes.CapabilityUnavailable, ErrorCategory.Capability);
+        BaseSemanticActivationExecutionLimits effectiveInspectionLimits = EffectiveSemanticInspectionLimits(
+            request.Limits, installed.Limits.Execution, provider.SemanticActivationCapability);
+        BaseRegisteredModuleMutationDefinition? operation = moduleMutations.Find(installed.EnsureOperation.OperationId,
+            installed.EnsureOperation.OperationVersion);
+        if (operation is null) return SemanticAdminFailure<BaseSemanticActivationInspectionPage>(OperationStatus.CapabilityUnavailable,
+            BaseSemanticActivationErrorCodes.NotInstalled, ErrorCategory.Capability);
+        OperationResult<BaseAtomicMutationAuthorityRequirement> captured = await atomic.CaptureAtomicMutationAuthorityRequirementAsync(
+            features.LogicalSchema.ApplicationId, [], DefaultBaseModuleMutationRuntime.ResolveExecutionLimits(operation.Limits), cancellationToken).ConfigureAwait(false);
+        BaseSemanticActivationStoreAuthorityRequirement? authority = captured.Value?.SemanticActivation;
+        if (!captured.IsSuccess() || authority is null || authority.LogicalStoreId != storeId)
+            return SemanticAdminFailure<BaseSemanticActivationInspectionPage>(OperationStatus.Conflict,
+                BaseSemanticActivationErrorCodes.GraphChanged, ErrorCategory.Conflict);
+        BaseSemanticActivationProviderInspectionBoundary? after = null;
+        if (request.After is not null)
+        {
+            if (!semanticInspectionTokens.TryRead(request.After, features.LogicalSchema.ApplicationId, storeId,
+                    request.Definition, request.State, request.Take, out BaseSemanticActivationInspectionTokenPayload? payload)
+                || payload is null || payload.RestoreEpoch != authority.RestoreEpoch
+                || payload.Boundary.CapturedAuthorityGeneration != authority.SemanticAuthorityGeneration)
+                return SemanticAdminFailure<BaseSemanticActivationInspectionPage>(OperationStatus.ValidationFailed,
+                    BaseSemanticActivationErrorCodes.Invalid, ErrorCategory.Validation);
+            after = payload.Boundary;
+        }
+        var providerRequest = new BaseSemanticActivationProviderInspectionRequest
+        {
+            ApplicationId = features.LogicalSchema.ApplicationId, LogicalStoreId = storeId, RestoreEpoch = authority.RestoreEpoch,
+            Definition = request.Definition, State = request.State, After = after, Take = request.Take,
+            Limits = effectiveInspectionLimits, RuntimeRequestAuthorityChecksum = [],
+        };
+        providerRequest = providerRequest with { RuntimeRequestAuthorityChecksum = BaseSemanticActivationInspectionContract.RequestChecksum(providerRequest) };
+        BaseActivationProviderCallResult<BaseResult<BaseSemanticActivationProviderInspectionPage>> inspected =
+            await activationProviderGate.ExecuteAsync(token => provider.InspectAsync(providerRequest, token),
+                installed.Limits.Deadlines.AcquisitionTimeout, installed.Limits.Deadlines.MaintenanceTimeout,
+                cancellationToken).ConfigureAwait(false);
+        if (inspected.Outcome != BaseActivationProviderCallOutcome.Completed || inspected.Value is null)
+            return SemanticProviderCallFailure<BaseSemanticActivationInspectionPage>(inspected.Outcome);
+        BaseResult<BaseSemanticActivationProviderInspectionPage> result = inspected.Value;
+        if (result is BaseFailure<BaseSemanticActivationProviderInspectionPage> providerFailure)
+            return NormalizeSemanticInspectionProviderFailure(providerFailure);
+        if (result is not BaseSuccess<BaseSemanticActivationProviderInspectionPage> success
+            || !SemanticInspectionPageValid(providerRequest, success.Value, authority, installed))
+            return SemanticAdminFailure<BaseSemanticActivationInspectionPage>(OperationStatus.StoreError,
+                BaseSemanticActivationErrorCodes.ProviderContractInvalid,
+                ErrorCategory.Store);
+        BaseSemanticActivationProviderInspectionPage page = success.Value;
+        DateTimeOffset expiry = timeProvider.GetUtcNow().AddMinutes(15);
+        ImmutableArray<BaseSemanticActivationInspectionItem> items = page.Items.Select(item => new BaseSemanticActivationInspectionItem
+        {
+            State = item.State, SlotGeneration = item.SlotGeneration, RetirementPosition = item.RetirementPosition,
+            ItemToken = semanticInspectionTokens.Protect(new(features.LogicalSchema.ApplicationId, storeId, authority.RestoreEpoch,
+                request.Definition, request.State, request.Take, item.Boundary, expiry)),
+            SanitizedChecksum = SHA256.HashData(item.StateChecksum.AsSpan()).ToImmutableArray(),
+        }).ToImmutableArray();
+        BaseSemanticActivationInspectionToken? next = page.Next is null ? null : semanticInspectionTokens.Protect(new(
+            features.LogicalSchema.ApplicationId, storeId, authority.RestoreEpoch, request.Definition, request.State,
+            request.Take, page.Next, expiry));
+        byte[] sanitized = SHA256.HashData(page.Checksum.AsSpan());
+        return new BaseSuccess<BaseSemanticActivationInspectionPage>(new()
+        {
+            Items = items, Next = next, CapturedAuthorityGeneration = page.CapturedAuthorityGeneration,
+            ReadIntervals = page.ReadIntervals.Select(static value => value with
+            {
+                CanonicalLowerBound = value.CanonicalLowerBound.ToArray().ToImmutableArray(),
+                CanonicalUpperBound = value.CanonicalUpperBound.ToArray().ToImmutableArray(),
+            }).ToImmutableArray(), Accounting = page.Accounting with { }, Checksum = sanitized.ToImmutableArray(),
+        }, OperationStatus.Ok, null, null, null, null);
+    }
+
+    public async ValueTask<BaseResult<BaseSemanticActivationMaintenanceResult>> ExecuteSemanticActivationMaintenanceAsync(
+        string storeId, PrincipalContext principal, BaseSemanticActivationMaintenanceRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        BaseSemanticActivationKeyDefinition? installed = request is BaseSemanticActivationRemoveRequest removeRequest
+            ? semanticRemovals.Find(removeRequest.Definition)?.From
+            : semanticActivations.Find(request.Definition.Id, request.Definition.Version);
+        if (installed is null || !CryptographicOperations.FixedTimeEquals(installed.Checksum.AsSpan(), request.Definition.Checksum.AsSpan())
+            || !await AuthorizeSemanticAdministrationAsync(storeId, principal, installed,
+                BaseOperationKind.SemanticRecoveryMaintenance, cancellationToken).ConfigureAwait(false))
+            return SemanticAdminFailure<BaseSemanticActivationMaintenanceResult>(OperationStatus.PolicyDenied,
+                BaseSemanticActivationErrorCodes.Unauthorized, ErrorCategory.Authorization);
+        if (!SemanticMaintenanceRequestValid(request))
+            return SemanticAdminFailure<BaseSemanticActivationMaintenanceResult>(OperationStatus.ValidationFailed,
+                BaseSemanticActivationErrorCodes.Invalid, ErrorCategory.Validation);
+        if (request is BaseSemanticActivationRemoveRequest remove
+            && (semanticRemovals.Find(remove.Definition) is not { } authority
+                || !CryptographicOperations.FixedTimeEquals(authority.Checksum.AsSpan(), remove.RemovalAuthority.Checksum.AsSpan())
+                || !CryptographicOperations.FixedTimeEquals(authority.ResultingDefinitionSetChecksum.AsSpan(), semanticActivations.DefinitionSetChecksum.AsSpan())))
+            return SemanticAdminFailure<BaseSemanticActivationMaintenanceResult>(OperationStatus.Conflict,
+                BaseSemanticActivationErrorCodes.RemovalBlocked, ErrorCategory.Conflict);
+        if (stores.GetRegistration(storeId)?.Store is not IBaseSemanticActivationAdministration provider)
+            return SemanticAdminFailure<BaseSemanticActivationMaintenanceResult>(OperationStatus.CapabilityUnavailable,
+                BaseSemanticActivationErrorCodes.CapabilityUnavailable, ErrorCategory.Capability);
+        if (semanticRecovery.Selections.TryGetValue(storeId, out BaseSemanticActivationRestoreSelection? selection)
+            && selection.EnabledRestoreMode is not null
+            && request is BaseSemanticActivationMigrateRequest or BaseSemanticActivationRemoveRequest)
+            return SemanticAdminFailure<BaseSemanticActivationMaintenanceResult>(OperationStatus.Conflict,
+                request is BaseSemanticActivationMigrateRequest
+                    ? BaseSemanticActivationErrorCodes.MigrationBlocked
+                    : BaseSemanticActivationErrorCodes.RemovalBlocked,
+                ErrorCategory.Conflict);
+        if (request is BaseSemanticActivationRemoveRequest
+            && (semanticRecovery.HasExternalAuthority(storeId) || semanticRecovery.HasOperationalDependency(storeId)))
+            return SemanticAdminFailure<BaseSemanticActivationMaintenanceResult>(OperationStatus.Conflict,
+                BaseSemanticActivationErrorCodes.RemovalBlocked, ErrorCategory.Conflict);
+        if (!BaseSemanticActivationCapabilityContract.IsValid(provider.SemanticActivationCapability)
+            || !provider.SemanticActivationCapability.MaintenanceSupported)
+            return SemanticAdminFailure<BaseSemanticActivationMaintenanceResult>(OperationStatus.CapabilityUnavailable,
+                BaseSemanticActivationErrorCodes.CapabilityUnavailable, ErrorCategory.Capability);
+        request = WithEffectiveSemanticMaintenanceLimits(request, installed, semanticActivations.Definitions,
+            semanticRemovals.Authorities,
+            provider.SemanticActivationCapability);
+        BaseActivationProviderCallResult<BaseResult<BaseSemanticActivationMaintenanceResult>> executed =
+            await activationProviderGate.ExecuteAsync(token => provider.ExecuteAsync(request, token),
+                installed.Limits.Deadlines.AcquisitionTimeout,
+                request.Limits.Deadline < installed.Limits.Deadlines.MaintenanceTimeout
+                    ? request.Limits.Deadline : installed.Limits.Deadlines.MaintenanceTimeout,
+                cancellationToken).ConfigureAwait(false);
+        if (executed.Outcome != BaseActivationProviderCallOutcome.Completed || executed.Value is null)
+            return SemanticProviderCallFailure<BaseSemanticActivationMaintenanceResult>(executed.Outcome);
+        BaseResult<BaseSemanticActivationMaintenanceResult> result = executed.Value;
+        if (result is not BaseSuccess<BaseSemanticActivationMaintenanceResult> success
+            || !BaseSemanticActivationMaintenanceContract.IsValid(request, success.Value))
+            return result is BaseFailure<BaseSemanticActivationMaintenanceResult> failure ? NormalizeSemanticProviderFailure(failure)
+                : SemanticAdminFailure<BaseSemanticActivationMaintenanceResult>(OperationStatus.StoreError,
+                    BaseSemanticActivationErrorCodes.ProviderContractInvalid, ErrorCategory.Store);
+        return new BaseSuccess<BaseSemanticActivationMaintenanceResult>(CloneSemanticMaintenance(success.Value),
+            success.Status, success.Warnings, success.Revision, success.Events, success.Diagnostics);
+    }
+
+    public async ValueTask<BaseResult<BaseSemanticActivationMaintenanceResult>> ResolveSemanticActivationMaintenanceAsync(
+        string storeId, PrincipalContext principal, BaseSemanticActivationMaintenanceResolutionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        BaseSemanticActivationKeyDefinition? installed = semanticActivations.Find(request.Definition.Id, request.Definition.Version)
+            ?? semanticRemovals.Find(request.Definition)?.From;
+        if (installed is null || !CryptographicOperations.FixedTimeEquals(installed.Checksum.AsSpan(), request.Definition.Checksum.AsSpan())
+            || !await AuthorizeSemanticAdministrationAsync(storeId, principal, installed, BaseOperationKind.SemanticRecoveryMaintenance, cancellationToken).ConfigureAwait(false))
+            return SemanticAdminFailure<BaseSemanticActivationMaintenanceResult>(OperationStatus.PolicyDenied,
+                BaseSemanticActivationErrorCodes.Unauthorized, ErrorCategory.Authorization);
+        if (request.Identity is null || string.IsNullOrWhiteSpace(request.MaintenanceId)
+            || request.RequestFingerprint.Length != 32 || request.Deadline <= TimeSpan.Zero)
+            return SemanticAdminFailure<BaseSemanticActivationMaintenanceResult>(OperationStatus.ValidationFailed,
+                BaseSemanticActivationErrorCodes.Invalid, ErrorCategory.Validation);
+        if (stores.GetRegistration(storeId)?.Store is not IBaseSemanticActivationAdministration provider)
+            return SemanticAdminFailure<BaseSemanticActivationMaintenanceResult>(OperationStatus.CapabilityUnavailable,
+                BaseSemanticActivationErrorCodes.CapabilityUnavailable, ErrorCategory.Capability);
+        BaseActivationProviderCallResult<BaseResult<BaseSemanticActivationMaintenanceResult>> resolved =
+            await activationProviderGate.ExecuteAsync(token => provider.ResolveAsync(request, token),
+                installed.Limits.Deadlines.AcquisitionTimeout,
+                request.Deadline < installed.Limits.Deadlines.ReceiptResolutionTimeout
+                    ? request.Deadline : installed.Limits.Deadlines.ReceiptResolutionTimeout,
+                cancellationToken).ConfigureAwait(false);
+        if (resolved.Outcome != BaseActivationProviderCallOutcome.Completed || resolved.Value is null)
+            return SemanticProviderCallFailure<BaseSemanticActivationMaintenanceResult>(resolved.Outcome);
+        BaseResult<BaseSemanticActivationMaintenanceResult> result = resolved.Value;
+        if (result is not BaseSuccess<BaseSemanticActivationMaintenanceResult> success || !ResolvedSemanticMaintenanceValid(request, success.Value))
+            return result is BaseFailure<BaseSemanticActivationMaintenanceResult> failure ? NormalizeSemanticProviderFailure(failure)
+                : SemanticAdminFailure<BaseSemanticActivationMaintenanceResult>(OperationStatus.StoreError,
+                    BaseSemanticActivationErrorCodes.ProviderContractInvalid, ErrorCategory.Store);
+        return new BaseSuccess<BaseSemanticActivationMaintenanceResult>(CloneSemanticMaintenance(success.Value),
+            success.Status, success.Warnings, success.Revision, success.Events, success.Diagnostics);
+    }
 
     public async ValueTask<BaseResult<BaseBackupManifest>> CreateBackupAsync(Stream destination, BaseBackupRequest request, CancellationToken cancellationToken = default) =>
         await RouteAsync(request.StoreId, request.Principal, BaseOperationKind.AdminBackup,
@@ -1057,6 +1249,290 @@ internal sealed class DefaultHPDBaseAdministration(
             warnings: null,
             diagnostics: null));
     }
+
+    private async ValueTask<bool> AuthorizeSemanticAdministrationAsync(string storeId, PrincipalContext principal,
+        BaseSemanticActivationKeyDefinition definition, BaseOperationKind operationKind, CancellationToken cancellationToken)
+    {
+        var operation = new OperationContext
+        {
+            Operation = operationKind, CollectionId = definition.Id, Mode = OperationMode.System, Now = timeProvider.GetUtcNow(),
+        };
+        OperationResult<BasePolicyEvaluation> evaluation = await policy.EvaluateWriteAsync(new BasePolicyRequest
+        {
+            Principal = principal, Operation = operation,
+            Collection = new CollectionDefinition
+            {
+                Id = definition.Id, Name = "Semantic activation authority", Kind = BaseCollectionKinds.Custom,
+                System = true, SystemOwnerModuleId = definition.OwningModuleId, SchemaMode = SchemaMode.Strict,
+                UnknownFields = UnknownFieldPolicy.Reject, Store = new StoreAnnotation { StoreId = storeId },
+            },
+            ResourceKind = PolicyResourceKind.AdminMetadata,
+        }, cancellationToken).ConfigureAwait(false);
+        return BaseSystemCollectionGate.HasExactModuleGrant(evaluation, definition.MaintenanceGrantId,
+            definition.OwningModuleId, principal, operation);
+    }
+
+    private static bool SemanticInspectionPageValid(BaseSemanticActivationProviderInspectionRequest request,
+        BaseSemanticActivationProviderInspectionPage page, BaseSemanticActivationStoreAuthorityRequirement current,
+        BaseSemanticActivationKeyDefinition installed)
+    {
+        if (page.CapturedAuthorityGeneration != current.SemanticAuthorityGeneration || page.Items.Length > request.Take
+            || page.ReadIntervals.Length != 1 || page.Accounting.SlotReads != page.Items.Length
+            || page.Accounting.ReadIntervals != 1 || page.Accounting.IndexOperations != 1
+            || page.Accounting.KeyBytes != checked(page.Items.Length * 32L)
+            || page.Accounting.EvidenceBytes < 0 || page.Accounting.TransientBytes < page.Accounting.EvidenceBytes
+            || page.Accounting.SlotReads > request.Limits.MaximumSlotReads
+            || page.Accounting.EvidenceBytes > request.Limits.MaximumEvidenceBytes
+            || page.Accounting.TransientBytes > request.Limits.MaximumTransientBytes
+            || !CryptographicOperations.FixedTimeEquals(page.Checksum.AsSpan(),
+                BaseSemanticActivationInspectionContract.PageChecksum(request, page).AsSpan())) return false;
+        BaseSemanticActivationProviderInspectionBoundary? prior = request.After;
+        long exactEvidenceBytes = 0;
+        foreach (BaseSemanticActivationProviderInspectionItem item in page.Items)
+        {
+            if (!Enum.IsDefined(item.State) || request.State is not null && item.State != request.State.Value
+                || item.SlotGeneration <= 0 || item.StateChecksum.Length != 32 || item.CanonicalStateAuthority.IsDefaultOrEmpty
+                || item.Boundary.DefinitionId != request.Definition.Id
+                || item.Boundary.CapturedAuthorityGeneration != current.SemanticAuthorityGeneration
+                || item.Boundary.ScopeBindingId.Length != 32 || item.Boundary.RuntimeBoundaryChecksum.Length != 32
+                || !CryptographicOperations.FixedTimeEquals(item.Boundary.RuntimeBoundaryChecksum.AsSpan(),
+                    BaseSemanticActivationInspectionContract.BoundaryChecksum(request, item.Boundary.ScopeBindingId.AsSpan(),
+                        item.Boundary.Key, current.SemanticAuthorityGeneration).AsSpan())
+                || prior is not null && CompareBoundary(prior, item.Boundary) >= 0
+                || !InspectionAuthorityValid(item, current, installed)) return false;
+            exactEvidenceBytes = checked(exactEvidenceBytes + item.Boundary.ScopeBindingId.Length
+                + BaseSemanticActivationKeyDigest.Length + item.CanonicalStateAuthority.Length + item.StateChecksum.Length + 20);
+            prior = item.Boundary;
+        }
+        if (page.Accounting.EvidenceBytes != exactEvidenceBytes || page.Accounting.TransientBytes != exactEvidenceBytes) return false;
+        if (page.Next is null ? page.Items.Length == request.Take : page.Items.Length != request.Take
+            || page.Next is not null && (page.Items.IsDefaultOrEmpty || CompareBoundary(page.Items[^1].Boundary, page.Next) != 0)) return false;
+        BaseAtomicReadIntervalEvidence interval = page.ReadIntervals[0];
+        byte[] expectedLower = request.After is null ? Encoding.UTF8.GetBytes(request.Definition.Id) : request.After.RuntimeBoundaryChecksum.ToArray();
+        byte[] expectedUpper = page.Items.IsDefaultOrEmpty ? expectedLower : page.Items[^1].Boundary.RuntimeBoundaryChecksum.ToArray();
+        return interval.LogicalAccessPathId == "base.semanticActivation.inspection" && !interval.LowerInclusive && interval.UpperInclusive
+            && interval.CanonicalLowerBound.AsSpan().SequenceEqual(expectedLower)
+            && interval.CanonicalUpperBound.AsSpan().SequenceEqual(expectedUpper);
+    }
+
+    private static bool InspectionAuthorityValid(BaseSemanticActivationProviderInspectionItem item,
+        BaseSemanticActivationStoreAuthorityRequirement current, BaseSemanticActivationKeyDefinition installed)
+    {
+        try
+        {
+            BaseSemanticActivationStoreAuthority store; BaseSemanticActivationDefinitionKey definition;
+            BaseSemanticActivationKeyDigest key; long generation; ImmutableArray<byte> checksum;
+            if (item.State == BaseSemanticActivationSlotState.Live)
+            {
+                BaseSemanticActivationLiveAuthority value = JsonSerializer.Deserialize(item.CanonicalStateAuthority.AsSpan(),
+                    HPDBaseJsonSerializerContext.Default.BaseSemanticActivationLiveAuthority)!;
+                store = value.StoreAuthority; definition = new() { Id = value.Definition.Id, Version = value.Definition.Version, Checksum = value.Definition.Checksum };
+                key = value.KeyDigest; generation = value.SlotGeneration; checksum = value.Checksum;
+                if (!value.ScopeBinding.BindingId.AsSpan().SequenceEqual(item.Boundary.ScopeBindingId.AsSpan())
+                    || !CryptographicOperations.FixedTimeEquals(checksum.AsSpan(), BaseSemanticActivationEvidenceContract.LiveChecksum(value).AsSpan())) return false;
+            }
+            else if (item.State == BaseSemanticActivationSlotState.Retired)
+            {
+                BaseSemanticActivationRetirementAuthority value = JsonSerializer.Deserialize(item.CanonicalStateAuthority.AsSpan(),
+                    HPDBaseJsonSerializerContext.Default.BaseSemanticActivationRetirementAuthority)!;
+                store = value.StoreAuthority; definition = value.Definition; key = value.KeyDigest; generation = value.SlotGeneration; checksum = value.Checksum;
+                if (!CryptographicOperations.FixedTimeEquals(checksum.AsSpan(), BaseSemanticActivationEvidenceContract.RetirementChecksum(value).AsSpan())) return false;
+            }
+            else
+            {
+                BaseSemanticActivationAbsenceAuthority value = JsonSerializer.Deserialize(item.CanonicalStateAuthority.AsSpan(),
+                    HPDBaseJsonSerializerContext.Default.BaseSemanticActivationAbsenceAuthority)!;
+                store = value.StoreAuthority; definition = new() { Id = value.Definition.Id, Version = value.Definition.Version, Checksum = value.Definition.Checksum };
+                key = value.Key; generation = value.FinalSlotGeneration; checksum = value.Checksum;
+                if (!value.ScopeBindingId.AsSpan().SequenceEqual(item.Boundary.ScopeBindingId.AsSpan())
+                    || !CryptographicOperations.FixedTimeEquals(checksum.AsSpan(), BaseSemanticActivationEvidenceContract.AbsenceChecksum(value).AsSpan())) return false;
+            }
+            Span<byte> itemKey = stackalloc byte[32]; Span<byte> boundaryKey = stackalloc byte[32]; key.CopyTo(itemKey); item.Boundary.Key.CopyTo(boundaryKey);
+            return definition.Id == installed.Id && definition.Version == installed.Version
+                && CryptographicOperations.FixedTimeEquals(definition.Checksum.AsSpan(), installed.Checksum.AsSpan())
+                && generation == item.SlotGeneration && CryptographicOperations.FixedTimeEquals(itemKey, boundaryKey)
+                && CryptographicOperations.FixedTimeEquals(checksum.AsSpan(), item.StateChecksum.AsSpan())
+                && StoreAuthorityMatches(store.Requirement, current)
+                && CryptographicOperations.FixedTimeEquals(store.Checksum.AsSpan(), BaseSemanticActivationEvidenceContract.StoreAuthorityChecksum(current).AsSpan());
+        }
+        catch { return false; }
+    }
+
+    private static bool StoreAuthorityMatches(BaseSemanticActivationStoreAuthorityRequirement left,
+        BaseSemanticActivationStoreAuthorityRequirement right) =>
+        left.ApplicationId == right.ApplicationId
+        && left.LogicalStoreId == right.LogicalStoreId
+        && left.StoreInstanceId == right.StoreInstanceId
+        && left.RestoreEpoch == right.RestoreEpoch
+        && left.SchemaGeneration == right.SchemaGeneration
+        && left.SemanticAuthorityGeneration == right.SemanticAuthorityGeneration
+        && CryptographicOperations.FixedTimeEquals(left.DefinitionSetChecksum.AsSpan(), right.DefinitionSetChecksum.AsSpan());
+
+    private static int CompareBoundary(BaseSemanticActivationProviderInspectionBoundary left,
+        BaseSemanticActivationProviderInspectionBoundary right)
+    {
+        int binding = left.ScopeBindingId.AsSpan().SequenceCompareTo(right.ScopeBindingId.AsSpan());
+        if (binding != 0) return binding;
+        Span<byte> a = stackalloc byte[32]; Span<byte> b = stackalloc byte[32]; left.Key.CopyTo(a); right.Key.CopyTo(b);
+        return a.SequenceCompareTo(b);
+    }
+
+    private static bool ResolvedSemanticMaintenanceValid(BaseSemanticActivationMaintenanceResolutionRequest request,
+        BaseSemanticActivationMaintenanceResult result)
+    {
+        if (!Enum.IsDefined(result.Disposition) || result.PreviousAuthorityGeneration <= 0
+            || result.ResultingAuthorityGeneration < result.PreviousAuthorityGeneration || result.ExaminedRows < 0
+            || result.ChangedRows < 0 || result.ChangedRows > result.ExaminedRows || result.CanonicalBytes < 0) return false;
+        if (result.Disposition == BaseSemanticActivationMaintenanceDisposition.InProgress)
+        {
+            BaseSemanticActivationMaintenanceCheckpoint? checkpoint = result.Checkpoint;
+            return checkpoint is not null && checkpoint.MaintenanceId == request.MaintenanceId
+                && DefinitionAuthorityMatches(checkpoint.Definition, request.Definition)
+                && CryptographicOperations.FixedTimeEquals(checkpoint.RequestFingerprint.AsSpan(), request.RequestFingerprint.AsSpan())
+                && CryptographicOperations.FixedTimeEquals(checkpoint.Checksum.AsSpan(),
+                    BaseSemanticActivationMaintenanceContract.CheckpointChecksum(checkpoint).AsSpan());
+        }
+        return result.Checkpoint is null && result.AuthorityChecksum.Length == 32 && result.ResultChecksum.Length == 32
+            && result.CommitObservationChecksum.Length == 32
+            && CryptographicOperations.FixedTimeEquals(result.ResultChecksum.AsSpan(),
+                BaseSemanticActivationMaintenanceContract.ResultChecksum(result, result.AuthorityChecksum.AsSpan()).AsSpan())
+            && CryptographicOperations.FixedTimeEquals(result.CommitObservationChecksum.AsSpan(),
+                BaseSemanticActivationMaintenanceContract.CommitObservationChecksum(result.ResultChecksum.AsSpan()).AsSpan());
+    }
+
+    private static BaseSemanticActivationMaintenanceResult CloneSemanticMaintenance(BaseSemanticActivationMaintenanceResult value) => value with
+    {
+        AuthorityChecksum = value.AuthorityChecksum.ToArray().ToImmutableArray(),
+        ResultChecksum = value.ResultChecksum.ToArray().ToImmutableArray(),
+        CommitObservationChecksum = value.CommitObservationChecksum.ToArray().ToImmutableArray(),
+        Checkpoint = value.Checkpoint is null ? null : value.Checkpoint with
+        {
+            Definition = value.Checkpoint.Definition with { Checksum = value.Checkpoint.Definition.Checksum.ToArray().ToImmutableArray() },
+            After = value.Checkpoint.After is null ? null : value.Checkpoint.After with
+            {
+                ScopeBindingId = value.Checkpoint.After.ScopeBindingId.ToArray().ToImmutableArray(),
+            },
+            RollingChecksum = value.Checkpoint.RollingChecksum.ToArray().ToImmutableArray(),
+            RequestFingerprint = value.Checkpoint.RequestFingerprint.ToArray().ToImmutableArray(),
+            Checksum = value.Checkpoint.Checksum.ToArray().ToImmutableArray(),
+        },
+    };
+
+    private static bool DefinitionAuthorityMatches(BaseSemanticActivationDefinitionKey left,
+        BaseSemanticActivationDefinitionKey right) => left.Id == right.Id && left.Version == right.Version
+        && CryptographicOperations.FixedTimeEquals(left.Checksum.AsSpan(), right.Checksum.AsSpan());
+
+    private static BaseFailure<T> SemanticAdminFailure<T>(OperationStatus status, string code, ErrorCategory category) => new(
+        status, new BaseError { Code = code, Message = "The semantic activation administration request could not be completed.", Category = category }, null, null);
+
+    private static BaseFailure<T> SemanticProviderCallFailure<T>(BaseActivationProviderCallOutcome outcome) => outcome switch
+    {
+        BaseActivationProviderCallOutcome.TimedOut => SemanticAdminFailure<T>(OperationStatus.StoreError,
+            BaseSemanticActivationErrorCodes.MaintenanceTimeout, ErrorCategory.Store),
+        BaseActivationProviderCallOutcome.Cancelled => SemanticAdminFailure<T>(OperationStatus.StoreError,
+            BaseSemanticActivationErrorCodes.MaintenanceTimeout, ErrorCategory.Unexpected),
+        BaseActivationProviderCallOutcome.Capacity => SemanticAdminFailure<T>(OperationStatus.CapabilityUnavailable,
+            BaseSemanticActivationErrorCodes.CapacityUnavailable, ErrorCategory.Capability),
+        _ => SemanticAdminFailure<T>(OperationStatus.StoreError,
+            BaseSemanticActivationErrorCodes.ProviderContractInvalid, ErrorCategory.Store),
+    };
+
+    private static BaseSemanticActivationMaintenanceRequest WithEffectiveSemanticMaintenanceLimits(
+        BaseSemanticActivationMaintenanceRequest request, BaseSemanticActivationKeyDefinition definition,
+        IReadOnlyList<BaseSemanticActivationKeyDefinition> definitions,
+        IReadOnlyList<BaseSemanticActivationRemovalAuthority> removals, BaseSemanticActivationCapability capability)
+    {
+        BaseSemanticActivationKeyDefinition[] completeDefinitions = definitions.Concat(removals.Select(static value => value.From))
+            .GroupBy(static value => (value.Id, value.Version, Checksum: Convert.ToHexString(value.Checksum.AsSpan())))
+            .Select(static value => value.First()).ToArray();
+        long installedRows = completeDefinitions.Aggregate(0L, static (sum, item) => checked(sum
+            + item.Limits.MaximumLiveSlots + item.Limits.MaximumRetiredSlots + item.Limits.MaximumAbsenceMarkers));
+        long installedBytes = completeDefinitions.Aggregate(0L, static (sum, item) => checked(sum + item.Limits.Execution.MaximumTransientBytes));
+        var limits = request.Limits with
+        {
+            PageSize = Math.Min(request.Limits.PageSize, Math.Min(256, capability.MaximumMaintenancePageSize)),
+            MaximumRows = Math.Min(request.Limits.MaximumRows, Math.Min(installedRows,
+                checked(capability.MaximumLiveSlots + capability.MaximumRetiredSlots + capability.MaximumAbsenceMarkers))),
+            MaximumBytes = Math.Min(request.Limits.MaximumBytes, Math.Min(installedBytes, capability.MaximumTransientBytes)),
+            Deadline = request.Limits.Deadline < definition.Limits.Deadlines.MaintenanceTimeout
+                ? request.Limits.Deadline : definition.Limits.Deadlines.MaintenanceTimeout,
+        };
+        return request switch
+        {
+            BaseSemanticActivationCompactRequest value => value with { Limits = limits },
+            BaseSemanticActivationMigrateRequest value => value with { Limits = limits },
+            BaseSemanticActivationRemoveRequest value => value with { Limits = limits },
+            _ => throw new InvalidOperationException(BaseSemanticActivationErrorCodes.Invalid),
+        };
+    }
+
+    private static BaseSemanticActivationExecutionLimits EffectiveSemanticInspectionLimits(
+        BaseSemanticActivationExecutionLimits requested, BaseSemanticActivationExecutionLimits installed,
+        BaseSemanticActivationCapability provider) => new()
+    {
+        MaximumOperations = 1,
+        MaximumScopeDirectoryReads = Math.Min(requested.MaximumScopeDirectoryReads, Math.Min(installed.MaximumScopeDirectoryReads, provider.MaximumScopeDirectoryReads)),
+        MaximumSlotReads = Math.Min(requested.MaximumSlotReads, provider.MaximumInspectionSlotReads),
+        MaximumActivationReads = Math.Min(requested.MaximumActivationReads, Math.Min(installed.MaximumActivationReads, provider.MaximumActivationReads)),
+        MaximumReadIntervals = Math.Min(requested.MaximumReadIntervals, Math.Min(installed.MaximumReadIntervals, provider.MaximumReadIntervals)),
+        MaximumIndexOperations = Math.Min(requested.MaximumIndexOperations, Math.Min(installed.MaximumIndexOperations, provider.MaximumIndexOperations)),
+        MaximumActivationBytes = Math.Min(requested.MaximumActivationBytes, Math.Min(installed.MaximumActivationBytes, provider.MaximumActivationBytes)),
+        MaximumScopeDirectoryBytes = Math.Min(requested.MaximumScopeDirectoryBytes, Math.Min(installed.MaximumScopeDirectoryBytes, provider.MaximumScopeDirectoryBytes)),
+        MaximumEvidenceBytes = Math.Min(requested.MaximumEvidenceBytes, Math.Min(installed.MaximumEvidenceBytes, provider.MaximumEvidenceBytes)),
+        MaximumReceiptBytes = Math.Min(requested.MaximumReceiptBytes, Math.Min(installed.MaximumReceiptBytes, provider.MaximumReceiptBytes)),
+        MaximumTransientBytes = Math.Min(requested.MaximumTransientBytes, Math.Min(installed.MaximumTransientBytes, provider.MaximumTransientBytes)),
+    };
+
+    private static BaseFailure<BaseSemanticActivationMaintenanceResult> NormalizeSemanticProviderFailure(
+        BaseFailure<BaseSemanticActivationMaintenanceResult> failure) => failure.Error.Code switch
+    {
+        BaseSemanticActivationErrorCodes.Invalid => SemanticAdminFailure<BaseSemanticActivationMaintenanceResult>(OperationStatus.ValidationFailed, BaseSemanticActivationErrorCodes.Invalid, ErrorCategory.Validation),
+        BaseSemanticActivationErrorCodes.BudgetExceeded => SemanticAdminFailure<BaseSemanticActivationMaintenanceResult>(OperationStatus.Conflict, BaseSemanticActivationErrorCodes.BudgetExceeded, ErrorCategory.Conflict),
+        BaseSemanticActivationErrorCodes.GraphChanged or BaseSemanticActivationErrorCodes.FingerprintConflict
+            or BaseSemanticActivationErrorCodes.CompactionBlocked or BaseSemanticActivationErrorCodes.MigrationBlocked
+            or BaseSemanticActivationErrorCodes.RemovalBlocked => SemanticAdminFailure<BaseSemanticActivationMaintenanceResult>(OperationStatus.Conflict, failure.Error.Code, ErrorCategory.Conflict),
+        BaseSemanticActivationErrorCodes.CapabilityUnavailable or BaseSemanticActivationErrorCodes.CapacityUnavailable =>
+            SemanticAdminFailure<BaseSemanticActivationMaintenanceResult>(OperationStatus.CapabilityUnavailable, failure.Error.Code, ErrorCategory.Capability),
+        BaseSemanticActivationErrorCodes.MaintenanceTimeout or BaseSemanticActivationErrorCodes.MaintenanceIndeterminate
+            or BaseSemanticActivationErrorCodes.Corrupt => SemanticAdminFailure<BaseSemanticActivationMaintenanceResult>(OperationStatus.StoreError, failure.Error.Code, ErrorCategory.Store),
+        _ => SemanticAdminFailure<BaseSemanticActivationMaintenanceResult>(OperationStatus.StoreError,
+            BaseSemanticActivationErrorCodes.ProviderContractInvalid, ErrorCategory.Store),
+    };
+
+    private static BaseFailure<BaseSemanticActivationInspectionPage> NormalizeSemanticInspectionProviderFailure(
+        BaseFailure<BaseSemanticActivationProviderInspectionPage> failure) => failure.Error.Code switch
+    {
+        BaseSemanticActivationErrorCodes.Invalid => SemanticAdminFailure<BaseSemanticActivationInspectionPage>(OperationStatus.ValidationFailed, BaseSemanticActivationErrorCodes.Invalid, ErrorCategory.Validation),
+        BaseSemanticActivationErrorCodes.BudgetExceeded or BaseSemanticActivationErrorCodes.GraphChanged =>
+            SemanticAdminFailure<BaseSemanticActivationInspectionPage>(OperationStatus.Conflict, failure.Error.Code, ErrorCategory.Conflict),
+        BaseSemanticActivationErrorCodes.CapabilityUnavailable or BaseSemanticActivationErrorCodes.CapacityUnavailable =>
+            SemanticAdminFailure<BaseSemanticActivationInspectionPage>(OperationStatus.CapabilityUnavailable, failure.Error.Code, ErrorCategory.Capability),
+        BaseSemanticActivationErrorCodes.MaintenanceTimeout or BaseSemanticActivationErrorCodes.Corrupt =>
+            SemanticAdminFailure<BaseSemanticActivationInspectionPage>(OperationStatus.StoreError, failure.Error.Code, ErrorCategory.Store),
+        _ => SemanticAdminFailure<BaseSemanticActivationInspectionPage>(OperationStatus.StoreError,
+            BaseSemanticActivationErrorCodes.ProviderContractInvalid, ErrorCategory.Store),
+    };
+
+    private static bool SemanticMaintenanceRequestValid(BaseSemanticActivationMaintenanceRequest request) =>
+        request.Identity is not null && request.ExpectedSemanticAuthorityGeneration > 0
+        && request.Limits.PageSize is >= 1 and <= 256 && request.Limits.MaximumPages > 0
+        && request.Limits.MaximumRows > 0 && request.Limits.MaximumBytes > 0 && request.Limits.Deadline > TimeSpan.Zero
+        && request switch
+        {
+            BaseSemanticActivationCompactRequest value => value.ExpectedRetiredCount >= 0 && value.ExpectedRetiredChecksum.Length == 32,
+            BaseSemanticActivationMigrateRequest value => value.Migration is not null && value.Migration.Checksum.Length == 32,
+            BaseSemanticActivationRemoveRequest value => value.ExpectedLiveCount >= 0 && value.ExpectedRetiredCount >= 0
+                && value.ExpectedAbsenceCount >= 0 && value.ExpectedDefinitionStateChecksum.Length == 32
+                && value.ExpectedAbsenceAuthorityChecksum.Length == 32
+                && value.RemovalAuthority is not null && value.RemovalAuthority.Checksum.Length == 32,
+            _ => false,
+        };
+
+    private static bool SemanticExecutionLimitsValid(BaseSemanticActivationExecutionLimits value) =>
+        value.MaximumOperations == 1 && value.MaximumScopeDirectoryReads > 0 && value.MaximumSlotReads > 0
+        && value.MaximumActivationReads > 0 && value.MaximumReadIntervals > 0 && value.MaximumIndexOperations > 0
+        && value.MaximumActivationBytes > 0 && value.MaximumScopeDirectoryBytes > 0 && value.MaximumEvidenceBytes > 0
+        && value.MaximumReceiptBytes > 0 && value.MaximumTransientBytes > 0;
 
     private async ValueTask<BaseResult<T>> RouteAsync<T>(
         string storeId,

@@ -654,6 +654,21 @@ public sealed class BaseSemanticActivationRegistry
     }
 }
 
+internal sealed class BaseSemanticActivationRemovalRegistry
+{
+    private readonly Dictionary<(string Id, int Version), BaseSemanticActivationRemovalAuthority> _authorities;
+    internal BaseSemanticActivationRemovalRegistry(IEnumerable<BaseSemanticActivationRemovalAuthority> authorities) =>
+        _authorities = authorities.Select(BaseSemanticActivationRemovalAuthorityContract.Seal).ToDictionary(
+            static value => (value.From.Id, value.From.Version));
+    internal BaseSemanticActivationRemovalAuthority? Find(BaseSemanticActivationDefinitionKey definition) =>
+        _authorities.TryGetValue((definition.Id, definition.Version), out BaseSemanticActivationRemovalAuthority? value)
+        && CryptographicOperations.FixedTimeEquals(value.From.Checksum.AsSpan(), definition.Checksum.AsSpan())
+            ? BaseSemanticActivationRemovalAuthorityContract.Seal(value) : null;
+    internal IReadOnlyList<BaseSemanticActivationRemovalAuthority> Authorities => _authorities.Values
+        .OrderBy(static value => value.From.Id, StringComparer.Ordinal).ThenBy(static value => value.From.Version)
+        .Select(BaseSemanticActivationRemovalAuthorityContract.Seal).ToArray();
+}
+
 internal static class BaseSemanticActivationDefinitionContract
 {
     internal static BaseSemanticActivationKeyDefinition Seal(BaseSemanticActivationKeyDefinition source)

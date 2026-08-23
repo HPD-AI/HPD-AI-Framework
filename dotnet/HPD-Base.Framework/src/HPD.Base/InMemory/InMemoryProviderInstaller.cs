@@ -44,6 +44,7 @@ internal sealed class InMemoryProviderInstaller(Action<HPDBaseInMemoryStoreOptio
             options.ModuleGenerationCells = context.ModuleGenerationCells.ToArray();
             options.SemanticActivations = context.SemanticActivations.ToArray();
             options.SemanticActivationMigrations = context.SemanticActivationMigrations.ToArray();
+            options.SemanticActivationRemovals = context.SemanticActivationRemovals.ToArray();
             options.SemanticActivationApplicationId = context.ApplicationId;
             options.SemanticActivationOwnerGeneration = context.SemanticActivationOwnerGeneration;
             options.SemanticActivationDefinitionSetChecksum = context.SemanticActivationDefinitionSetChecksum.ToArray();

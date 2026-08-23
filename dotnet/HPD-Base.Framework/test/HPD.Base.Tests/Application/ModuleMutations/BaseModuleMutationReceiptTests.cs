@@ -6,6 +6,42 @@ namespace HPD.Base.Tests.Application.ModuleMutations;
 public sealed class BaseModuleMutationReceiptTests
 {
     [Fact]
+    public void Semantic_maintenance_receipt_round_trips_as_one_closed_l37_variant()
+    {
+        var initial = new BaseSemanticActivationMaintenanceResult
+        {
+            Disposition = BaseSemanticActivationMaintenanceDisposition.Completed,
+            PreviousAuthorityGeneration = 3, ResultingAuthorityGeneration = 4,
+            ExaminedRows = 2, ChangedRows = 2, CanonicalBytes = 128,
+            AuthorityChecksum = Enumerable.Repeat((byte)0x31, 32).ToImmutableArray(),
+            ResultChecksum = [], CommitObservationChecksum = [], Checkpoint = null,
+            ReceiptDisposition = BaseMutationRequestDisposition.Committed,
+        };
+        ImmutableArray<byte> resultChecksum = BaseSemanticActivationMaintenanceContract.ResultChecksum(
+            initial, initial.AuthorityChecksum.AsSpan());
+        BaseSemanticActivationMaintenanceResult result = initial with
+        {
+            ResultChecksum = resultChecksum,
+            CommitObservationChecksum = BaseSemanticActivationMaintenanceContract.CommitObservationChecksum(resultChecksum.AsSpan()),
+        };
+        var receipt = new BaseAtomicReceiptResult
+        {
+            Kind = BaseAtomicReceiptResultKind.SemanticActivationMaintenance,
+            Mutations = [], SemanticActivationMaintenance = result,
+        };
+
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(BaseAtomicReceiptWire.From(receipt),
+            HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire);
+        BaseAtomicReceiptResult restored = JsonSerializer.Deserialize(bytes,
+            HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire)!.Materialize();
+
+        restored.Kind.Should().Be(BaseAtomicReceiptResultKind.SemanticActivationMaintenance);
+        restored.SemanticActivationMaintenance.Should().BeEquivalentTo(result);
+        restored.ModuleMutation.Should().BeNull();
+        restored.SubjectLifecycleMaintenance.Should().BeNull();
+    }
+
+    [Fact]
     public void Transactional_activation_receipt_has_one_outer_replay_authority()
     {
         BaseAtomicReceiptResult receipt = new()

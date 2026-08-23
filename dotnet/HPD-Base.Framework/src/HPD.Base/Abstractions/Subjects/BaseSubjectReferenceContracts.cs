@@ -46,6 +46,7 @@ public enum BaseSubjectValidationGuarantee
 }
 
 /// <summary>Represents a deeply immutable canonical exported-subject identifier.</summary>
+[JsonConverter(typeof(BaseSubjectIdJsonConverter))]
 public readonly struct BaseSubjectId : IEquatable<BaseSubjectId>
 {
     private readonly string? _value;
@@ -121,6 +122,20 @@ public readonly struct BaseSubjectId : IEquatable<BaseSubjectId>
         if (!string.Equals(canonical, value, StringComparison.Ordinal)) throw new FormatException(BaseSubjectErrorCodes.ReferenceInvalid);
         return canonical;
     }
+}
+
+/// <summary>Encodes one canonical subject identifier as its exact JSON string.</summary>
+public sealed class BaseSubjectIdJsonConverter : JsonConverter<BaseSubjectId>
+{
+    /// <inheritdoc />
+    public override BaseSubjectId Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        reader.TokenType == JsonTokenType.String && reader.GetString() is { } value
+            ? BaseSubjectId.Create(value, BaseSubjectIdKind.OrdinalString)
+            : throw new JsonException(BaseSubjectErrorCodes.ReferenceInvalid);
+
+    /// <inheritdoc />
+    public override void Write(Utf8JsonWriter writer, BaseSubjectId value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(value.Value);
 }
 
 /// <summary>Represents one opaque 128-bit exported-subject authority epoch.</summary>

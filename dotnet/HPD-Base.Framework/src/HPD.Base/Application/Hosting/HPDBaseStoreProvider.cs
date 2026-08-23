@@ -266,6 +266,7 @@ public sealed class HPDBaseStoreInstallationContext
     private readonly BaseSubjectRetirementPolicy[] _retirementPolicies;
     private readonly BaseSemanticActivationKeyDefinition[] _semanticActivations;
     private readonly BaseSemanticActivationMigrationDefinition[] _semanticActivationMigrations;
+    private readonly BaseSemanticActivationRemovalAuthority[] _semanticActivationRemovals;
     private readonly string _applicationId;
     private readonly long _semanticActivationOwnerGeneration;
     private readonly byte[] _semanticActivationDefinitionSetChecksum;
@@ -283,6 +284,7 @@ public sealed class HPDBaseStoreInstallationContext
         BaseSubjectRetirementPolicy[]? retirementPolicies = null,
         BaseSemanticActivationKeyDefinition[]? semanticActivations = null,
         BaseSemanticActivationMigrationDefinition[]? semanticActivationMigrations = null,
+        BaseSemanticActivationRemovalAuthority[]? semanticActivationRemovals = null,
         string? applicationId = null,
         long semanticActivationOwnerGeneration = 0,
         ImmutableArray<byte> semanticActivationDefinitionSetChecksum = default)
@@ -299,6 +301,7 @@ public sealed class HPDBaseStoreInstallationContext
         _retirementPolicies = (retirementPolicies ?? []).Select(static value => BaseSubjectRetirementRegistry.NormalizePolicy(value)).ToArray();
         _semanticActivations = (semanticActivations ?? []).Select(BaseSemanticActivationDefinitionContract.Seal).ToArray();
         _semanticActivationMigrations = (semanticActivationMigrations ?? []).Select(BaseSemanticActivationMigrationContract.Seal).ToArray();
+        _semanticActivationRemovals = (semanticActivationRemovals ?? []).Select(BaseSemanticActivationRemovalAuthorityContract.Seal).ToArray();
         _applicationId = applicationId is null ? string.Empty : new string(applicationId.AsSpan());
         _semanticActivationOwnerGeneration = semanticActivationOwnerGeneration;
         _semanticActivationDefinitionSetChecksum = semanticActivationDefinitionSetChecksum.IsDefault
@@ -307,7 +310,7 @@ public sealed class HPDBaseStoreInstallationContext
             && (string.IsNullOrEmpty(_applicationId) || _semanticActivationOwnerGeneration <= 0
                 || _semanticActivationDefinitionSetChecksum.Length != 32))
             throw new InvalidOperationException("base.semanticActivation.contractInvalid");
-        _schemaDigest = ComputeSchemaDigest(_collections, _subjects, _moduleMutations, _moduleGenerationCells, _lifecycleConsumers, _lifecycleInspectionAuthorities, _retirementConsumers, _retirementPolicies, _semanticActivations, _semanticActivationMigrations);
+        _schemaDigest = ComputeSchemaDigest(_collections, _subjects, _moduleMutations, _moduleGenerationCells, _lifecycleConsumers, _lifecycleInspectionAuthorities, _retirementConsumers, _retirementPolicies, _semanticActivations, _semanticActivationMigrations, _semanticActivationRemovals);
     }
     /// <summary>Gets the host service collection during the installation call.</summary>
     public IServiceCollection Services { get { ThrowIfCompleted(); return _services; } }
@@ -333,6 +336,8 @@ public sealed class HPDBaseStoreInstallationContext
     public IReadOnlyList<BaseSemanticActivationKeyDefinition> SemanticActivations { get { ThrowIfCompleted(); return Array.AsReadOnly(_semanticActivations.Select(BaseSemanticActivationDefinitionContract.Seal).ToArray()); } }
     /// <summary>Gets exact graph-owned semantic definition migrations.</summary>
     public IReadOnlyList<BaseSemanticActivationMigrationDefinition> SemanticActivationMigrations { get { ThrowIfCompleted(); return Array.AsReadOnly(_semanticActivationMigrations.Select(BaseSemanticActivationMigrationContract.Seal).ToArray()); } }
+    /// <summary>Gets graph-replacement authorities that retire executable semantic definitions.</summary>
+    public IReadOnlyList<BaseSemanticActivationRemovalAuthority> SemanticActivationRemovals { get { ThrowIfCompleted(); return Array.AsReadOnly(_semanticActivationRemovals.Select(BaseSemanticActivationRemovalAuthorityContract.Seal).ToArray()); } }
     /// <summary>Gets the owning application identity for installed semantic activation authority.</summary>
     public string ApplicationId { get { ThrowIfCompleted(); return new string(_applicationId.AsSpan()); } }
     /// <summary>Gets the positive finalized semantic activation owner generation.</summary>
@@ -395,7 +400,8 @@ public sealed class HPDBaseStoreInstallationContext
         IEnumerable<BaseSubjectRetirementConsumerDefinition>? retirementConsumers = null,
         IEnumerable<BaseSubjectRetirementPolicy>? retirementPolicies = null,
         IEnumerable<BaseSemanticActivationKeyDefinition>? semanticActivations = null,
-        IEnumerable<BaseSemanticActivationMigrationDefinition>? semanticActivationMigrations = null)
+        IEnumerable<BaseSemanticActivationMigrationDefinition>? semanticActivationMigrations = null,
+        IEnumerable<BaseSemanticActivationRemovalAuthority>? semanticActivationRemovals = null)
     {
         var canonical = new StringBuilder();
         foreach (CollectionDefinition collection in collections.OrderBy(static value => value.Id, StringComparer.Ordinal))
@@ -439,6 +445,9 @@ public sealed class HPDBaseStoreInstallationContext
         foreach (BaseSemanticActivationMigrationDefinition migration in (semanticActivationMigrations ?? []).OrderBy(static value => value.Id, StringComparer.Ordinal).ThenBy(static value => value.Version))
             canonical.Append("sam:").Append(migration.Id).Append(':').Append(migration.Version).Append(':')
                 .Append(Convert.ToHexStringLower(migration.Checksum.AsSpan())).Append('\n');
+        foreach (BaseSemanticActivationRemovalAuthority removal in (semanticActivationRemovals ?? []).OrderBy(static value => value.Id, StringComparer.Ordinal).ThenBy(static value => value.Version))
+            canonical.Append("sar:").Append(removal.Id).Append(':').Append(removal.Version).Append(':')
+                .Append(Convert.ToHexStringLower(removal.Checksum.AsSpan())).Append('\n');
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString())));
     }
 

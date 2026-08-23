@@ -62,6 +62,12 @@ public sealed class BaseSemanticRecoveryAuthorityRegistry : IAsyncDisposable
 
     /// <summary>Gets the immutable selected restore authority by logical store.</summary>
     public ImmutableDictionary<string, BaseSemanticActivationRestoreSelection> Selections { get; }
+    internal bool HasExternalAuthority(string logicalStoreId) => _authorities.ContainsKey(logicalStoreId);
+    internal bool HasOperationalDependency(string logicalStoreId)
+    {
+        if (!_authorities.TryGetValue(logicalStoreId, out OwnedAuthority? authority)) return false;
+        lock (authority.Sync) return authority.ActiveCalls != 0 || authority.RetainedLateWork != 0 || authority.IsQuarantined;
+    }
 
     internal (BaseSemanticRecoveryAuthorityDefinition Definition, IBaseSemanticActivationRecoveryAuthority Instance)? Find(string logicalStoreId) =>
         _authorities.TryGetValue(logicalStoreId, out OwnedAuthority? value) ? (value.Registration.Definition, value.Instance) : null;
