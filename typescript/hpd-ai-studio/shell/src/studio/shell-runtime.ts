@@ -226,7 +226,7 @@ export function createStudioFrameworkTransport(authentication: StudioHostAuthent
     const controller = new AbortController(); const timeout = globalThis.setTimeout(() => controller.abort(), request.deadlineMilliseconds);
     request.signal.addEventListener('abort', () => controller.abort(), { once: true });
     try {
-      const response = await authentication.authorize(new URL(route.slice(1), document.baseURI), { method: request.method,
+      const response = await authentication.authorize(new URL(route.slice(1), new URL('.', globalThis.location.href)), { method: request.method,
         headers: { ...request.headers, 'X-HPD-Studio-Operation': request.operation, 'X-HPD-Studio-Snapshot': snapshotChecksum }, body: request.body, signal: controller.signal },
       request.purpose);
       requireStudioResponseAuthority(response, authorityChecksum);
@@ -261,7 +261,7 @@ function createTransport(authentication: StudioHostAuthentication, snapshotCheck
     const controller = new AbortController(); const deadline = Number(request.deadlineMilliseconds);
     const timeout = globalThis.setTimeout(() => controller.abort(), Math.min(deadline, 60_000));
     request.signal?.addEventListener('abort', () => controller.abort(), { once: true });
-    try { const response = await authentication.authorize(new URL(request.relativeRoute.replace(/^\//u, ''), document.baseURI), {
+    try { const response = await authentication.authorize(new URL(request.relativeRoute.replace(/^\//u, ''), new URL('.', globalThis.location.href)), {
       method: request.method, headers: { Accept: 'application/json', 'Content-Type': 'application/json',
         'X-HPD-Studio-Method': request.registeredMethodId, 'X-HPD-Studio-Snapshot': snapshotChecksum }, body: request.body, signal: controller.signal }, purpose(request.registeredKind));
       requireStudioResponseAuthority(response, responseAuthorityChecksum);

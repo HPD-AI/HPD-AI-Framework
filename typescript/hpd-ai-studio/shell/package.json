@@ -12,6 +12,7 @@
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
+    "@hpd-research/hpd-base-studio": "file:../modules/hpd-base-studio",
     "@hpd-research/hpd-studio-core": "file:../../hpd-studio-core",
     "@hpd-research/hpd-studio-design": "file:../packages/hpd-studio-design"
   },

@@ -1,15 +1,17 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { studioModuleDescriptor as baseStudioModule } from '@hpd-research/hpd-base-studio';
   import type { StudioPageProps } from '@hpd-research/hpd-studio-core';
   import type { StudioShellRuntime, StudioShellState } from './studio/shell-runtime.ts';
   import StudioShell from './studio/shell/StudioShell.svelte';
   import StudioUnavailable from './studio/shell/StudioUnavailable.svelte';
-  import BaseRegisteredPage from './studio/shell/BaseRegisteredPage.svelte';
 
   let { runtime }: { runtime: StudioShellRuntime } = $props();
   // svelte-ignore state_referenced_locally
   let state: StudioShellState = $state(runtime.current);
-  let Page = $derived(state.route?.component);
+  let Page = $derived(state.route?.route.page.moduleId === 'base'
+    ? baseStudioModule.pageComponents[state.route.route.page.pageId]?.component
+    : state.route?.component);
   let focusedPageId = '';
   let pageProps = $derived.by((): StudioPageProps | null => state.route ? Object.freeze({
     page: state.route.route.page,
@@ -39,10 +41,6 @@
       <main class="grid min-h-screen place-items-center p-6" aria-live="polite"><p>Loading authorized Studio workspace…</p></main>
     {:else if state.kind === 'failed'}
       <main class="grid min-h-screen place-items-center p-6"><StudioUnavailable /><p class="studio-text-safe text-xs">{state.failure}</p></main>
-    {:else if state.route?.route.page.moduleId === 'base' && pageProps}
-      {#key state.route.route.page.pageId}
-        <BaseRegisteredPage {...pageProps} />
-      {/key}
     {:else if Page && pageProps}
       {#key state.route?.route.page.pageId}
         <Page {...pageProps} />

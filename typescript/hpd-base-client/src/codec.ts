@@ -263,7 +263,19 @@ function floating(value: unknown, precision: "binary32" | "binary64"): number { 
 function canonicalFloat(value: number, precision: "binary32" | "binary64"): string { if (!Number.isFinite(value)) invalid(); if (Object.is(value, -0) || value === 0) return "0"; if (precision === "binary64") return value.toString(); const target = Math.fround(value); for (let digits = 1; digits <= 9; digits++) { const candidate = target.toPrecision(digits); if (Math.fround(Number(candidate)) === target) return Number(candidate).toString(); } invalid(); }
 function validateGeneralNumber(token: string): void { if (!numberGrammar(token)) invalid(); const numeric = Number(token); if (!Number.isFinite(numeric) || Object.is(numeric, -0)) invalid(); if (!token.includes(".") && !/[eE]/u.test(token) && !Number.isSafeInteger(numeric)) invalid(); if (numeric === 0 && /[1-9]/u.test(token.split(/[eE]/u)[0]!)) invalid(); }
 function numberGrammar(value: string): boolean { return /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/u.test(value); }
-function format(value: string, kind: string): boolean { if (/^(?:record-id|collection-id|field-id|revision|cursor|consistency-token|mutation-id|dependency-reference)$/u.test(kind)) return value.length > 0 && !/[\u0000-\u001f\u007f]/u.test(value); if (kind === "utc-instant") return !Number.isNaN(Date.parse(value)) && /(?:Z|[+-]\d\d:\d\d)$/u.test(value); return kind === "plain"; }
+function format(value: string, kind: string): boolean {
+  if (/^(?:record-id|collection-id|field-id|revision|cursor|consistency-token|mutation-id|dependency-reference)$/u.test(kind))
+    return value.length > 0 && !/[\u0000-\u001f\u007f]/u.test(value);
+  if (kind === "utc-instant") return !Number.isNaN(Date.parse(value)) && /(?:Z|[+-]\d\d:\d\d)$/u.test(value);
+  if (kind === "sha256") return /^[0-9a-f]{64}$/u.test(value);
+  if (kind === "optional-sha256") return value.length === 0 || /^[0-9a-f]{64}$/u.test(value);
+  if (kind === "nfc-text" || kind === "nfc-search" || kind === "studio-resource-summary")
+    return unicodeScalarText(value) && value.normalize("NFC") === value && !/[\p{Cc}]/u.test(value);
+  if (kind === "safe-error-code") return /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/u.test(value);
+  if (kind === "opaque-search-cursor" || kind === "studio-resource-token") return /^[A-Za-z0-9_-]*$/u.test(value);
+  if (kind === "forward-reference") return false;
+  return kind === "plain";
+}
 function base64(value: string): boolean { return value.length % 4 === 0 && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(value); }
 function decodeBytes(value: unknown, maximum: number, shape: "application" | "wire"): Uint8Array {
   if (shape === "application") {

@@ -12,6 +12,20 @@ const basicGraph = Object.freeze({
 });
 const schema = Object.freeze({ protocolMajor: 2, schemaGeneration: "1", digest: `sha256:${"0".repeat(64)}`, audience: "application", features: { files: false, realtime: true, batch: true, controlOperations: [] }, typeGraph: basicGraph, reads: {}, collections: { documents: collection({ id: "documents", recordTypeId: "record", createTypeId: "create", replaceTypeId: "replace", patchTypeId: "patch", fields: { title: field("stable-title", "stored_title", ["equal", "notEqual"], "title") }, operations: ["get", "query", "create", "patch", "replace", "batch", "watch", "realtime"], pagination: "seek", maxPageSize: 100, vectorIndexes: {}, textIndexes: {} }) } });
 
+test("dynamic Studio string formats remain closed and interoperable", () => {
+  const graph = Object.freeze({
+    checksum: { kind: "string", minLength: 64, maxLength: 64, format: "sha256" },
+    text: { kind: "string", minLength: 1, maxLength: 512, format: "nfc-text" },
+    code: { kind: "string", minLength: 1, maxLength: 128, format: "safe-error-code" },
+    token: { kind: "string", minLength: 1, maxLength: 512, format: "studio-resource-token" }
+  });
+  assert.equal(decodeBaseJson(`"${"a".repeat(64)}"`, "checksum", graph), "a".repeat(64));
+  assert.equal(decodeBaseJson('"hpd.cloud"', "text", graph), "hpd.cloud");
+  assert.equal(decodeBaseJson('"base.studio.failed"', "code", graph), "base.studio.failed");
+  assert.equal(decodeBaseJson('"opaque_123-ABC"', "token", graph), "opaque_123-ABC");
+  assert.throws(() => decodeBaseJson('"ABC"', "checksum", graph), /base\.client\.responseInvalid/);
+});
+
 test("query uses the canonical RecordQuery wire shape", async () => {
   let wire;
   const base = createBaseClient({ schema, url: "https://base.test/base/", fetch: async (_url, init) => { wire = JSON.parse(new TextDecoder().decode(init.body)); return Response.json({ items: [], page: { hasMore: false } }, { headers: { "X-Correlation-ID": "c" } }); } });

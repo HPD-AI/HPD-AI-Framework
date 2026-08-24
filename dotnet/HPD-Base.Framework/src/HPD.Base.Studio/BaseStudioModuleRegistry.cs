@@ -93,7 +93,7 @@ public static class BaseStudioModuleRegistry
 
     private static BaseStudioAssetManifest CreateAsset()
     {
-        const string assetPath = "base/53f8e0b4f2056ab2c410d456f4d3d4b3479c94ec2fc45df2f50d0b35f66be94f.js";
+        const string assetPath = "base/6c6d65420bde4c64faaaea95ec0a74b36c719d66c0edd2eec1aa7d7f461873e5.js";
         using Stream stream = typeof(BaseStudioModuleRegistry).Assembly.GetManifestResourceStream("HPD.Base.Studio.Assets.base.js")
             ?? throw new InvalidOperationException("The prebuilt BASE Studio module asset is absent.");
         using var content = new MemoryStream();

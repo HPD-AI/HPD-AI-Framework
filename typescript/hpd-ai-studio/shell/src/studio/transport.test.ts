@@ -6,15 +6,31 @@ describe('Studio bounded transport', () => {
     const snapshot = 'b'.repeat(64); const authority = 'a'.repeat(64); let request: RequestInit | undefined; let purpose: string | undefined;
     const authentication = { authorize: async (_url: URL, init: RequestInit, suppliedPurpose: string) => { request = init; purpose = suppliedPurpose;
       return new Response('{}', { status: 409, headers: { 'X-HPD-Studio-Response-Authority': authority } }); } };
-    const original = globalThis.document; Object.defineProperty(globalThis, 'document', { configurable: true, value: { baseURI: 'https://studio.example/' } });
+    const original = globalThis.location; Object.defineProperty(globalThis, 'location', { configurable: true, value: { href: 'https://studio.example/' } });
     const client = { endpointSurfaceId: 'gateway.admin.v1', limits: { maximumRequestBytes: '1024', maximumResponseBytes: '1024', operationDeadlineMilliseconds: '1000' },
       operations: [{ operationId: 'activate', method: 'POST', relativePathTemplate: 'activate', purpose: 'commandExecution', maximumRequestBytes: '1024',
         maximumResponseBytes: '1024', deadlineMilliseconds: '1000', requestMediaTypes: ['application/json'], requestHeaderNames: [] }] };
     try { const transport = createStudioFrameworkTransport(authentication as never, client as never, snapshot, authority);
       await transport.execute({ operation: 'activate', purpose: 'commandExecution', method: 'POST', relativePathAndQuery: '/activate', headers: { 'Content-Type': 'application/json' }, body: '{}',
         maximumResponseBytes: 1024, deadlineMilliseconds: 1000, signal: new AbortController().signal });
-    } finally { Object.defineProperty(globalThis, 'document', { configurable: true, value: original }); }
+    } finally { Object.defineProperty(globalThis, 'location', { configurable: true, value: original }); }
     expect(new Headers(request?.headers).get('X-HPD-Studio-Snapshot')).toBe(snapshot); expect(purpose).toBe('commandExecution');
+  });
+  it('resolves framework routes from the Studio directory without relying on document.baseURI', async () => {
+    let requestedUrl = ''; const originalLocation = globalThis.location;
+    Object.defineProperty(globalThis, 'location', { configurable: true, value: { href: 'https://studio.example/platform/studio/security' } });
+    const authentication = { authorize: async (url: URL) => { requestedUrl = url.href;
+      return new Response('{}', { status: 200, headers: { 'X-HPD-Studio-Response-Authority': 'a'.repeat(64) } }); } };
+    const client = { endpointSurfaceId: 'gateway.admin.v1', limits: { maximumRequestBytes: '1024', maximumResponseBytes: '1024', operationDeadlineMilliseconds: '1000' },
+      operations: [{ operationId: 'observe', method: 'POST', relativePathTemplate: 'observe', purpose: 'observation', maximumRequestBytes: '1024',
+        maximumResponseBytes: '1024', deadlineMilliseconds: '1000', requestMediaTypes: ['application/json'], requestHeaderNames: [] }] };
+    try {
+      const transport = createStudioFrameworkTransport(authentication as never, client as never, 'b'.repeat(64), 'a'.repeat(64));
+      await transport.execute({ operation: 'observe', purpose: 'observation', method: 'POST', relativePathAndQuery: '/observe',
+        headers: { 'Content-Type': 'application/json' }, body: '{}', maximumResponseBytes: 1024, deadlineMilliseconds: 1000,
+        signal: new AbortController().signal });
+    } finally { Object.defineProperty(globalThis, 'location', { configurable: true, value: originalLocation }); }
+    expect(requestedUrl).toBe('https://studio.example/platform/studio/base/studio/framework-clients/gateway.admin.v1/observe');
   });
   it('requires exact response authority on protected success and failure responses', () => {
     const authority = 'a'.repeat(64);

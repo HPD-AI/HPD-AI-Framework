@@ -322,7 +322,7 @@ public sealed class BaseStudioModuleRegistryTests
         using var bytes = new MemoryStream();
         stream.CopyTo(bytes);
 
-        Assert.Equal("base/53f8e0b4f2056ab2c410d456f4d3d4b3479c94ec2fc45df2f50d0b35f66be94f.js", asset.Path);
+        Assert.Equal("base/6c6d65420bde4c64faaaea95ec0a74b36c719d66c0edd2eec1aa7d7f461873e5.js", asset.Path);
         Assert.Equal(bytes.Length, asset.Length);
         Assert.Equal(asset.Digest.ToArray(), SHA256.HashData(bytes.GetBuffer().AsSpan(0, checked((int)bytes.Length))));
         Assert.Equal("d6fc224d5225b56bef0f1aaf4a9e1e2b68cf0ede72093d0bfb853797935af544",

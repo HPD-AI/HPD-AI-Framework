@@ -27,7 +27,7 @@
   <ItemGroup>
     <None Include="$(StudioBaseModuleRoot)**\*" Exclude="$(StudioBaseModuleRoot)node_modules\**\*;$(StudioBaseModuleRoot)dist\**\*;$(StudioBaseModuleRoot).DS_Store" Pack="true" PackagePath="clientapp-modules\hpd-base-studio\%(RecursiveDir)%(Filename)%(Extension)" />
     <EmbeddedResource Include="$(StudioBaseModuleRoot)dist\base.js" LogicalName="HPD.Base.Studio.Assets.base.js" />
-    <None Include="$(StudioBaseModuleRoot)dist\base.js" Pack="true" PackagePath="studio-assets\base\53f8e0b4f2056ab2c410d456f4d3d4b3479c94ec2fc45df2f50d0b35f66be94f.js" />
+    <None Include="$(StudioBaseModuleRoot)dist\base.js" Pack="true" PackagePath="studio-assets\base\6c6d65420bde4c64faaaea95ec0a74b36c719d66c0edd2eec1aa7d7f461873e5.js" />
   </ItemGroup>
 
 </Project>
