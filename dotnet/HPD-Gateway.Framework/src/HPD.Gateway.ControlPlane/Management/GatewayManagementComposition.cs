@@ -221,12 +221,20 @@ public static class GatewayControlPlaneServiceCollectionExtensions
                     schema.PlanProtectionKey = RandomNumberGenerator.GetBytes(32);
             });
             GatewayAuthoritySchema.AddTo(builder);
+            builder.AddPolicyAuthority(new BasePolicyAuthorityDefinition
+            {
+                Id = "hpd.gateway.management.internal",
+                Version = 1,
+                OwningModuleId = "hpd.gateway",
+                EvaluatorContractId = "hpd.gateway.management.internal-policy",
+                EvaluatorContractVersion = 1,
+                CompositionOrder = 0,
+            }, new GatewayManagementBasePolicy());
             if (configureBase is null)
                 builder.ConfigureInMemoryStore(store => store.AllowClientRequestedIds = true);
             else
                 configureBase(builder);
         });
-        services.Replace(ServiceDescriptor.Singleton<IPolicyEvaluator>(new GatewayManagementBasePolicy()));
         services.AddSingleton(new GatewayManagementRuntimeOptions(options));
         services.TryAddSingleton<GatewayAuthorityRuntime>();
         services.TryAddSingleton<IGatewayAuthorityRuntime>(static provider =>

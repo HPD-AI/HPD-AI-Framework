@@ -1,0 +1,11 @@
+{
+  "index.html": {
+    "file": "assets/hpd-studio-shell.js",
+    "name": "index",
+    "src": "index.html",
+    "isEntry": true,
+    "css": [
+      "assets/hpd-studio-shell.css"
+    ]
+  }
+}
