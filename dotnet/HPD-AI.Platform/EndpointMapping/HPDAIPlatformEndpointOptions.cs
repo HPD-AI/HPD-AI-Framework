@@ -2,29 +2,12 @@ using Microsoft.AspNetCore.Routing;
 
 namespace HPD.AI.Platform;
 
+/// <summary>Configures only host-owned Studio endpoint placement.</summary>
 public sealed class HPDAIPlatformEndpointOptions
 {
+    /// <summary>Gets or sets the non-root route prefix under which Studio is hosted.</summary>
     public string RoutePrefix { get; set; } = "/studio";
 
-    public string ApiBasePath { get; set; } = "/api/hpd";
-
-    public string ProductTitle { get; set; } = "HPD AI Platform";
-
-    public string Mode { get; set; } = "development";
-
-    public string AssetContractVersion { get; internal set; } = "1";
-
-    public IList<string> Capabilities { get; } = [];
-
-    public IList<HPDAIPlatformModuleOptions> Modules { get; } = [];
-
-    public ISet<string> SpaRoutes { get; } = new HashSet<string>(StringComparer.Ordinal);
-
+    /// <summary>Gets or sets an optional hook for additional host-owned endpoints.</summary>
     public Action<RouteGroupBuilder>? ConfigureRoutes { get; set; }
 }
-
-public sealed record HPDAIPlatformModuleOptions(
-    string Id,
-    string Label,
-    string Title,
-    string Status = "active");
