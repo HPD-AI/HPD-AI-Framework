@@ -1,1 +1,1 @@
-export { graphStudioModule } from './module';
+export { activateStudioModule, studioFrameworkClientActivators, studioModuleDescriptor } from './module';

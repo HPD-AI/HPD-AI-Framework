@@ -1,7 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks></TargetFrameworks>
     <RootNamespace>HPD.Graph.Studio</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -20,10 +21,13 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\HPD-AI.Platform\HPD-AI.Platform.csproj" />
+    <ProjectReference Include="..\..\..\HPD-Base.Framework\src\HPD.Base\HPD.Base.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <None Include="$(StudioGraphModuleRoot)**\*" Exclude="$(StudioGraphModuleRoot)node_modules\**\*;$(StudioGraphModuleRoot)dist\**\*" Pack="true" PackagePath="clientapp-modules\hpd-graph-studio\%(RecursiveDir)%(Filename)%(Extension)" />
+    <EmbeddedResource Include="$(StudioGraphModuleRoot)dist\graph.js" LogicalName="HPD.Graph.Studio.Assets.graph.js" />
+    <None Include="$(StudioGraphModuleRoot)dist\graph.js" Pack="true" PackagePath="studio-assets\graph\ad53192c6b4e30b967b69c210a14edef1bd80422f4ac5b0356ba808713e8a44a.js" />
   </ItemGroup>
 
 </Project>

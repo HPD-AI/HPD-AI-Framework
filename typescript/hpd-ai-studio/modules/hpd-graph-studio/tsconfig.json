@@ -1,0 +1,1 @@
+{"extends":"../../../hpd-studio-core/tsconfig.json","compilerOptions":{"allowJs":true},"include":["src/**/*.ts","src/**/*.svelte"]}
