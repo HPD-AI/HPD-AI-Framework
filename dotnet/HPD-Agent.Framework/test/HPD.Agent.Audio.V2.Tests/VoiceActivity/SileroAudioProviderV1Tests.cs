@@ -17,6 +17,49 @@ public sealed class SileroAudioProviderV1Tests
     private static readonly SessionAuthorityStampV1 Session = new(RuntimeGenerationId.Create(), LiveSessionId.Create());
 
     [Fact]
+    public void Builder_extension_configures_the_serializable_voice_activity_family()
+    {
+        var builder = new AgentBuilder();
+
+        var returned = builder.WithSileroVoiceActivity("/models/silero.onnx");
+
+        Assert.Same(builder, returned);
+        var configuration = Assert.IsType<VoiceActivityClientConfig>(builder.Config.Clients.VoiceActivity);
+        Assert.Equal(SileroAudioProvider.Key, configuration.ProviderKey);
+        Assert.Equal(SileroAudioProvider.DefaultModel, configuration.ModelName);
+        var options = Assert.IsType<SileroVadOptions>(configuration.ProviderConfig);
+        Assert.Equal("/models/silero.onnx", options.ModelPath);
+        Assert.Equal(SileroModelArtifactV1.OfficialSha256, options.ModelSha256);
+        Assert.Equal(1, options.IntraOpThreads);
+    }
+
+    [Fact]
+    public void Builder_extension_applies_explicit_model_digest_and_provider_options()
+    {
+        var digest = new string('a', 64);
+        var builder = new AgentBuilder()
+            .WithSileroVoiceActivity(
+                "/models/custom.onnx",
+                model: "custom-silero",
+                modelSha256: digest,
+                configure: options => options.IntraOpThreads = 4);
+
+        var configuration = Assert.IsType<VoiceActivityClientConfig>(builder.Config.Clients.VoiceActivity);
+        Assert.Equal("custom-silero", configuration.ModelName);
+        var options = Assert.IsType<SileroVadOptions>(configuration.ProviderConfig);
+        Assert.Equal(digest, options.ModelSha256);
+        Assert.Equal(4, options.IntraOpThreads);
+    }
+
+    [Fact]
+    public void Builder_extension_rejects_missing_builder_and_model_path()
+    {
+        AgentBuilder? builder = null;
+        Assert.Throws<ArgumentNullException>(() => builder!.WithSileroVoiceActivity("/models/silero.onnx"));
+        Assert.Throws<ArgumentException>(() => new AgentBuilder().WithSileroVoiceActivity("   "));
+    }
+
+    [Fact]
     public void Artifact_and_provider_metadata_are_exact_and_do_not_claim_implicit_download()
     {
         Assert.Equal("6.2", SileroModelArtifactV1.Version);

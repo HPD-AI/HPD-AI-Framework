@@ -16,6 +16,7 @@ namespace HPD.Agent.Providers.Audio.Silero;
 public sealed class SileroAudioProvider : IVoiceActivitySourceProviderV1, IDisposable
 {
     public const string Key = "silero";
+    public const string DefaultModel = "silero-vad-6.2";
     private readonly object _gate = new();
     private SileroModelHostV1? _host;
     private string? _hostIdentity;
@@ -64,8 +65,8 @@ public sealed class SileroAudioProvider : IVoiceActivitySourceProviderV1, IDispo
             {
                 Family = ProviderClientFamily.VoiceActivityDetection,
                 Lifetime = ProviderFamilyLifetime.StatefulPerAudioSession,
-                DefaultModelId = "silero-vad-6.2",
-                SupportedModels = ["silero-vad-6.2"],
+                DefaultModelId = DefaultModel,
+                SupportedModels = [DefaultModel],
                 Capabilities = new Dictionary<string, object?>
                 {
                     ["InputSampleRates"] = new[] { 8_000, 16_000 },
