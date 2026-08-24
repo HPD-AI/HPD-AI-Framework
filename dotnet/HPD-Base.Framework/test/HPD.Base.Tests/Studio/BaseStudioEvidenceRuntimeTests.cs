@@ -70,31 +70,29 @@ public sealed class BaseStudioEvidenceRuntimeTests
     }
 
     [Fact]
-    public async Task InMemory_scope_index_excludes_large_foreign_scope_from_tiny_budget()
+    public async Task InMemory_current_journal_scan_fails_closed_when_foreign_rows_exceed_budget()
     {
         var state = new InMemoryStoreState { GlobalMutationPosition = 1_001 };
-        for (long position = 1; position <= 1_000; position++) state.AddJournalEntry(Journal(position, "foreign", position.ToString()));
-        state.AddJournalEntry(Journal(1_001, "orders", "1"));
+        for (long position = 1; position <= 1_000; position++) state.MutationJournal.Add(position, Journal(position, "foreign", position.ToString()));
+        state.MutationJournal.Add(1_001, Journal(1_001, "orders", "1"));
         var store = new InMemoryRecordStore(new HPDBaseInMemoryStoreOptions { StoreId = "evidence" });
         typeof(InMemoryRecordStore).GetField("_publishedState", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
             .SetValue(store, state);
         BaseStudioEvidenceRequirement requirement = Requirement() with { Limits = Requirement().Limits with { MaximumRowsRead = 2 } };
         OperationResult<BaseStudioEvidencePage> result = await new DefaultBaseStudioEvidenceRuntime().ReadPageAsync(store, requirement,
             Scope(requirement), new BaseStudioEvidencePageRequest { Take = 1 });
-        Assert.True(result.IsSuccess()); Assert.Single(result.Value!.Items); Assert.Equal(1, result.Value.Accounting.RowsRead);
-        Assert.Single(state.StudioRecordEvidenceIndex[BaseStudioEvidenceContract.RecordIndexKey(requirement.Scope, "orders", new RecordId("1"))]);
+        Assert.Equal(OperationStatus.ValidationFailed, result.Status);
+        Assert.Equal("base.studio.evidence.budgetExceeded", result.Error?.Code);
     }
 
     [Theory]
     [InlineData(BaseSubjectScopeKind.Global, null, "global")]
     [InlineData(BaseSubjectScopeKind.Tenant, "tenant-a", "tenant")]
-    [InlineData(BaseSubjectScopeKind.Project, "project-a", "project")]
     public async Task InMemory_evidence_separates_exact_scope(BaseSubjectScopeKind kind, string? value, string expected)
     {
-        var state = new InMemoryStoreState { GlobalMutationPosition = 3 };
-        state.AddJournalEntry(Journal(1, "orders", "1", new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Global }, "global"));
-        state.AddJournalEntry(Journal(2, "orders", "1", new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Tenant, Value = "tenant-a" }, "tenant"));
-        state.AddJournalEntry(Journal(3, "orders", "1", new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Project, Value = "project-a" }, "project"));
+        var state = new InMemoryStoreState { GlobalMutationPosition = 2 };
+        state.MutationJournal.Add(1, Journal(1, "orders", "1", null, "global"));
+        state.MutationJournal.Add(2, Journal(2, "orders", "1", "tenant-a", "tenant"));
         var store = new InMemoryRecordStore(new HPDBaseInMemoryStoreOptions { StoreId = "evidence" });
         typeof(InMemoryRecordStore).GetField("_publishedState", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(store, state);
         BaseStudioEvidenceRequirement requirement = Requirement() with { Scope = new BaseOwnedSubjectScopeEvidence { Kind = kind, Value = value } };
@@ -117,11 +115,11 @@ public sealed class BaseStudioEvidenceRuntimeTests
     private static BaseOwnedScopeSeekAuthority Scope(BaseStudioEvidenceRequirement value) => new()
     { Kind = BaseSubjectScopeKind.Global, ProtectedIndexDigest = value.ProtectedScopeSeekChecksum };
     private static BaseMutationJournalEntry Journal(long position, string collection, string record,
-        BaseOwnedSubjectScopeEvidence? scope = null, string? evidenceId = null) => new()
+        string? tenantId = null, string? evidenceId = null) => new()
     {
         Kind = BaseMutationJournalEntryKind.RecordMutation, Position = new BaseMutationJournalPosition(position),
         RecordMutation = new BaseRecordMutationJournalEntry { EventId = evidenceId ?? "event-" + position, Type = "base.record.updated",
-            Scope = scope ?? new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Global },
+            TenantId = tenantId,
             SchemaVersion = "1", OccurredAt = DateTimeOffset.UnixEpoch.AddSeconds(position), Operation = BaseOperationKind.Patch,
             CollectionId = collection, RecordId = new RecordId(record) }
     };

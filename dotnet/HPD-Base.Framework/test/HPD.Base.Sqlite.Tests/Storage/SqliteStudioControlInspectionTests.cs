@@ -10,32 +10,6 @@ namespace HPD.Base.Sqlite.Tests.Storage;
 public sealed class SqliteStudioControlInspectionTests
 {
     [Fact]
-    public async Task Quarantine_is_durable_bounded_and_released_by_exact_checksum()
-    {
-        string database = Path.Combine(Path.GetTempPath(), $"hpd-base-quarantine-{Guid.NewGuid():N}.db");
-        try
-        {
-            await using var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = database,
-                Collections = [SqliteTestFactory.Collection()] });
-            var clock = new BaseActivationAcceptedTimeAuthority(TimeProvider.System); long started = clock.Capture("test.application").CapturedUtc;
-            var fact = new BaseActivationQuarantineFact { QuarantineId = BaseActivationQuarantineContract.Identity(
-                BaseActivationQuarantineKind.Handler, "test.application", "handler", "activation-1", 1, started),
-                Kind = BaseActivationQuarantineKind.Handler, ApplicationId = "test.application", ActivationId = "activation-1",
-                AttemptNumber = 1, OperationId = "handler", StartedAt = started, QuarantinedAt = started, Checksum = [] };
-            fact = fact with { Checksum = BaseActivationQuarantineContract.Checksum(fact) };
-            BaseActivationExecutionLimits limits = ActivationLimits();
-            (await store.RecordQuarantineAsync(new() { Fact = fact, AcceptedTime = clock.Capture("test.application"),
-                Identity = MutationIdentity("record"), Limits = limits })).IsSuccess().Should().BeTrue();
-            (await store.ReadQuarantineAsync(new() { ApplicationId = "test.application", Take = 8, Limits = limits }))
-                .Value!.Items.Should().ContainSingle(item => item.QuarantineId == fact.QuarantineId);
-            (await store.ReleaseQuarantineAsync(new() { QuarantineId = fact.QuarantineId, ExpectedChecksum = fact.Checksum,
-                AcceptedTime = clock.Capture("test.application"), Identity = MutationIdentity("release"), Limits = limits })).IsSuccess().Should().BeTrue();
-            (await store.ReadQuarantineAsync(new() { ApplicationId = "test.application", Take = 8, Limits = limits })).Value!.Items.Should().BeEmpty();
-        }
-        finally { File.Delete(database); }
-    }
-
-    [Fact]
     public async Task Activation_receipts_are_exact_bounded_and_canonically_paged()
     {
         string database = Path.Combine(Path.GetTempPath(), $"hpd-studio-{Guid.NewGuid():N}.db");
@@ -49,11 +23,10 @@ public sealed class SqliteStudioControlInspectionTests
                 for (int index = 1; index <= 3; index++)
                 {
                     await using SqliteCommand insert = connection.CreateCommand();
-                    insert.CommandText = "INSERT INTO hpd_base_activation_receipts(receipt_key,operation_kind,fingerprint,result_json,result_checksum,journal_sequence,committed_at,subject_kind,subject_identity) VALUES($key,$kind,$fingerprint,$result,$checksum,$sequence,$committed,'activation',$subject);";
+                    insert.CommandText = "INSERT INTO hpd_base_activation_receipts(receipt_key,operation_kind,fingerprint,result_json,result_checksum,activation_id) VALUES($key,$kind,$fingerprint,$result,$checksum,$subject);";
                     insert.Parameters.AddWithValue("$key", $"receipt-{index}"); insert.Parameters.AddWithValue("$kind", "activation-completed");
                     insert.Parameters.AddWithValue("$fingerprint", Enumerable.Repeat((byte)index, 32).ToArray());
                     insert.Parameters.AddWithValue("$result", Array.Empty<byte>()); insert.Parameters.AddWithValue("$checksum", Enumerable.Repeat((byte)(index + 3), 32).ToArray());
-                    insert.Parameters.AddWithValue("$sequence", index); insert.Parameters.AddWithValue("$committed", index * 1000L);
                     insert.Parameters.AddWithValue("$subject", $"activation-{index}");
                     await insert.ExecuteNonQueryAsync();
                 }
@@ -139,11 +112,4 @@ public sealed class SqliteStudioControlInspectionTests
     { ApplicationId = "sample.application", Kind = kind, Take = take, ProtectedScopeChecksum = Enumerable.Repeat((byte)7, 32).ToImmutableArray(), Limits = Limits() };
     private static BaseStudioControlInspectionLimits Limits() => new()
     { MaximumItems = 16, MaximumRowsRead = 17, MaximumEvidenceBytes = 65_536, MaximumTransientBytes = 65_536, Deadline = TimeSpan.FromSeconds(2) };
-    private static BaseMutationRequestIdentity MutationIdentity(string operation) => BaseMutationRequestIdentity.Create(
-        "quarantine-test", operation, operation, BaseMutationRequestFingerprint.Create(new byte[32]));
-    private static BaseActivationExecutionLimits ActivationLimits() => new()
-    { MaximumCandidates = 16, MaximumInputBytes = 4096, MaximumResultBytes = 4096, MaximumEvidenceBytes = 65_536,
-      MaximumTransientBytes = 65_536, MaximumReadIntervals = 16, MaximumIndexOperations = 32,
-      AcquisitionTimeout = TimeSpan.FromSeconds(2), TransactionTimeout = TimeSpan.FromSeconds(2),
-      CommitObservationTimeout = TimeSpan.FromSeconds(2), ReceiptResolutionTimeout = TimeSpan.FromSeconds(2) };
 }

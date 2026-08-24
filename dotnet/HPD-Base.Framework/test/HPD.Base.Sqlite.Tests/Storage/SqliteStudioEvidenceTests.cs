@@ -41,8 +41,8 @@ public sealed class SqliteStudioEvidenceTests
 
             await using var verify = new SqliteConnection($"Data Source={database}"); await verify.OpenAsync();
             await using SqliteCommand indexes = verify.CreateCommand();
-            indexes.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name IN ('ix_hpd_base_mutation_journal_scope_collection_position','ix_hpd_base_mutation_journal_scope_record_position');";
-            Convert.ToInt32(await indexes.ExecuteScalarAsync()).Should().Be(2);
+            indexes.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='ix_hpd_base_mutation_journal_scope_position';";
+            Convert.ToInt32(await indexes.ExecuteScalarAsync()).Should().Be(1);
         }
         finally { File.Delete(database); }
     }
@@ -80,9 +80,9 @@ public sealed class SqliteStudioEvidenceTests
         BaseSubjectScopeKind kind, string? value, string collection, string eventId)
     {
         await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction;
-        command.CommandText = "INSERT INTO hpd_base_mutation_journal(position,entry_kind,event_id,event_type,schema_version,occurred_at,scope_kind,scope_value,operation,visibility,collection_id,record_id) VALUES($position,0,$event,'base.record.updated','1',$at,$kind,$value,1,0,$collection,$record);";
+        command.CommandText = "INSERT INTO hpd_base_mutation_journal(position,entry_kind,event_id,event_type,schema_version,occurred_at,tenant_id,operation,visibility,collection_id,record_id) VALUES($position,0,$event,'base.record.updated','1',$at,$value,1,0,$collection,$record);";
         command.Parameters.AddWithValue("$position", position); command.Parameters.AddWithValue("$event", eventId);
-        command.Parameters.AddWithValue("$at", DateTimeOffset.UnixEpoch.AddSeconds(position).ToString("O")); command.Parameters.AddWithValue("$kind", (int)kind);
+        command.Parameters.AddWithValue("$at", DateTimeOffset.UnixEpoch.AddSeconds(position).ToString("O"));
         command.Parameters.AddWithValue("$value", (object?)value ?? DBNull.Value); command.Parameters.AddWithValue("$collection", collection);
         command.Parameters.AddWithValue("$record", "record-" + position); await command.ExecuteNonQueryAsync();
     }

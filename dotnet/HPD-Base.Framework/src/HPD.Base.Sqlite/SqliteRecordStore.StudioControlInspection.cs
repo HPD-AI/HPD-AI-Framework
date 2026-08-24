@@ -140,20 +140,20 @@ public sealed partial class SqliteRecordStore
         BaseStudioControlInspectionRequest request, CancellationToken cancellationToken)
     {
         await using SqliteCommand command = connection.CreateCommand();
-        string owner = request.SubjectKind is null ? "" : "subject_kind=$subjectKind AND subject_identity=$subjectIdentity";
+        string owner = request.SubjectKind is null ? "" : "activation_id=$subjectIdentity";
         string boundary = request.Identity is not null ? "receipt_key=$identity" : request.AfterIdentity is not null ? "receipt_key>$after" : "";
         string predicate = owner.Length == 0 && boundary.Length == 0 ? "" : "WHERE " + owner + (owner.Length > 0 && boundary.Length > 0 ? " AND " : "") + boundary + " ";
-        command.CommandText = $"SELECT receipt_key,operation_kind,fingerprint,result_checksum,journal_sequence,committed_at,subject_kind,subject_identity FROM {_names.ActivationReceipts} " + predicate +
+        command.CommandText = $"SELECT receipt_key,operation_kind,fingerprint,result_checksum,activation_id FROM {_names.ActivationReceipts} " + predicate +
             "ORDER BY receipt_key LIMIT $take;";
-        BindIdentity(command, request); if (request.SubjectKind is not null) { command.Parameters.AddWithValue("$subjectKind", request.SubjectKind); command.Parameters.AddWithValue("$subjectIdentity", request.SubjectIdentity!); }
+        BindIdentity(command, request); if (request.SubjectKind is not null) command.Parameters.AddWithValue("$subjectIdentity", request.SubjectIdentity!);
         command.Parameters.AddWithValue("$take", request.Identity is null ? request.Take + 1 : 1);
         var facts = new InspectedFacts();
         await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         { facts.RowsRead++;
             facts.Add(WithChecksum(new BaseStudioActivationReceiptFact { Identity = reader.GetString(0), TransitionKind = reader.GetString(1),
-                RequestFingerprint = [.. Blob32(reader, 2)], ResultDigest = [.. Blob32(reader, 3)], Sequence = reader.GetInt64(4),
-                CommittedAt = reader.GetInt64(5), SubjectKind = reader.GetString(6), SubjectIdentity = reader.GetString(7), FactChecksum = [] })); }
+                RequestFingerprint = [.. Blob32(reader, 2)], ResultDigest = [.. Blob32(reader, 3)],
+                ActivationId = reader.IsDBNull(4) ? null : reader.GetString(4), FactChecksum = [] })); }
         return facts;
     }
 

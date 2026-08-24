@@ -156,7 +156,7 @@ internal sealed partial class BaseStudioRuntimeContributionFactory
                 values["executorGeneration"] = value.ExecutorGeneration.ToString(CultureInfo.InvariantCulture); values["hostId"] = value.HostId;
                 values["processIncarnationId"] = value.ProcessIncarnationId; values["state"] = value.Retired ? "retired" : "active"; break;
             case (BaseStudioActivationReceiptFact value, _):
-                values["subjectIdentity"] = value.SubjectIdentity; values["transitionKind"] = value.TransitionKind; break;
+                values["activationId"] = value.ActivationId ?? string.Empty; values["transitionKind"] = value.TransitionKind; break;
             case (BaseStudioQuarantineFact value, _):
                 values["quarantineKind"] = value.Quarantine.Operation; values["subjectIdentity"] = value.Identity; break;
             default:
@@ -215,9 +215,9 @@ internal sealed partial class BaseStudioRuntimeContributionFactory
         BaseStudioApplicationResource => true,
         BaseStudioActivationResource activation => fact switch { BaseStudioActivationFact x => x.Identity == activation.ActivationId,
             BaseStudioOccurrenceFact x => x.ActivationId == activation.ActivationId, BaseStudioEffectFact x => x.ActivationId == activation.ActivationId,
-            BaseStudioActivationReceiptFact x => x.SubjectIdentity == activation.ActivationId, _ => false },
+            BaseStudioActivationReceiptFact x => x.ActivationId == activation.ActivationId, _ => false },
         BaseStudioScheduleResource schedule => fact switch { BaseStudioScheduleFact x => DecodeSchedule(x.Identity) == schedule.ScheduleId,
-            BaseStudioOccurrenceFact x => x.ScheduleId == schedule.ScheduleId, BaseStudioActivationReceiptFact x => x.SubjectIdentity == schedule.ScheduleId, _ => false },
+            BaseStudioOccurrenceFact x => x.ScheduleId == schedule.ScheduleId, _ => false },
         BaseStudioOccurrenceResource occurrence => fact.Identity == occurrence.OccurrenceId,
         BaseStudioEffectResource effect => fact is BaseStudioEffectFact x && x.ActivationId == effect.ActivationId,
         BaseStudioExecutorResource executor => fact is BaseStudioExecutorFact x && x.HostId == executor.HostId && x.ProcessIncarnationId == executor.ProcessIncarnationId,

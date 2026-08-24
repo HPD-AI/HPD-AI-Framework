@@ -109,14 +109,8 @@ public sealed record BaseStudioActivationReceiptFact : BaseStudioControlFact
     public required ImmutableArray<byte> RequestFingerprint { get; init; }
     /// <summary>Gets the canonical result digest.</summary>
     public required ImmutableArray<byte> ResultDigest { get; init; }
-    /// <summary>Gets the positive append-only transition sequence.</summary>
-    public required long Sequence { get; init; }
-    /// <summary>Gets the accepted store time at commit, in Unix milliseconds.</summary>
-    public required long CommittedAt { get; init; }
-    /// <summary>Gets the closed subject family.</summary>
-    public required string SubjectKind { get; init; }
-    /// <summary>Gets the canonical subject identity.</summary>
-    public required string SubjectIdentity { get; init; }
+    /// <summary>Gets the activation identity when the retained receipt is activation-bound.</summary>
+    public string? ActivationId { get; init; }
 }
 
 /// <summary>Projects current activation and attempt authority without input/result values or fences.</summary>
@@ -421,7 +415,7 @@ public static class BaseStudioControlInspectionContract
             fact switch
             {
                 BaseStudioAtomicReceiptFact x => $"{(int)x.ResultKind}|{Utc(x.ExpiresAtUtc)}|{Hex(x.RequestFingerprint)}|{Hex(x.StructuralDigest)}",
-                BaseStudioActivationReceiptFact x => $"{x.TransitionKind}|{Hex(x.RequestFingerprint)}|{Hex(x.ResultDigest)}|{x.Sequence}|{x.CommittedAt}|{x.SubjectKind}|{x.SubjectIdentity}",
+                BaseStudioActivationReceiptFact x => $"{x.TransitionKind}|{Hex(x.RequestFingerprint)}|{Hex(x.ResultDigest)}|{x.ActivationId}",
                 BaseStudioActivationFact x => $"{x.DefinitionId}|{x.DefinitionVersion}|{(int)x.State}|{x.Generation}|{x.AttemptNumber}|{x.ClaimEpoch}|{x.EffectiveDueAt}|{x.OccurrenceId}|{x.HasEffect}",
                 BaseStudioScheduleFact x => $"{x.Version}|{x.DefinitionGeneration}|{x.Enabled}|{x.ScheduleEpoch}|{x.NextNominal}",
                 BaseStudioOccurrenceFact x => $"{x.ScheduleId}|{x.ScheduleEpoch}|{x.NominalAt}|{x.EffectiveAt}|{x.Disposition}|{x.ActivationId}",
@@ -443,8 +437,7 @@ public static class BaseStudioControlInspectionContract
         {
             BaseStudioAtomicReceiptFact x => x.RequestFingerprint.Length + x.StructuralDigest.Length + 24,
             BaseStudioActivationReceiptFact x => x.RequestFingerprint.Length + x.ResultDigest.Length +
-                System.Text.Encoding.UTF8.GetByteCount(x.TransitionKind) + System.Text.Encoding.UTF8.GetByteCount(x.SubjectKind) +
-                System.Text.Encoding.UTF8.GetByteCount(x.SubjectIdentity) + 16,
+                System.Text.Encoding.UTF8.GetByteCount(x.TransitionKind) + System.Text.Encoding.UTF8.GetByteCount(x.ActivationId ?? "") + 8,
             BaseStudioActivationFact x => System.Text.Encoding.UTF8.GetByteCount(x.DefinitionId) + System.Text.Encoding.UTF8.GetByteCount(x.OccurrenceId ?? "") + 64,
             BaseStudioScheduleFact => 48,
             BaseStudioOccurrenceFact x => System.Text.Encoding.UTF8.GetByteCount(x.ScheduleId) + System.Text.Encoding.UTF8.GetByteCount(x.Disposition) + System.Text.Encoding.UTF8.GetByteCount(x.ActivationId ?? "") + 40,
@@ -471,8 +464,7 @@ public static class BaseStudioControlInspectionContract
         if (!IsValid(request) || page is null || page.Items.Length > request.Take || page.RowsRead < page.Items.Length ||
             page.RowsRead > request.Limits.MaximumRowsRead || page.EvidenceBytes > request.Limits.MaximumEvidenceBytes ||
             page.TransientBytes > request.Limits.MaximumTransientBytes || page.Items.Any(item => item.Kind != request.Kind ||
-                item is BaseStudioActivationReceiptFact receipt && (receipt.Sequence < 1 || receipt.CommittedAt < 0 ||
-                    !ValidId(receipt.SubjectKind) || !ValidId(receipt.SubjectIdentity)) ||
+                item is BaseStudioActivationReceiptFact receipt && !ValidId(receipt.ActivationId, optional: true) ||
                 item is BaseStudioSubjectContractFact contract && (contract.ContractVersion < 1 || contract.AuthorityEpoch.Length != 16 ||
                     contract.RestoreEpoch < 0 || contract.StateGeneration < 1 || contract.PublicationPosition < 1 ||
                     contract.ContractChecksum.Length != 64 || !Enum.IsDefined(contract.PublicationKind)) ||
@@ -488,8 +480,8 @@ public static class BaseStudioControlInspectionContract
                 (page.Items.Length > 1 || page.Items.Any(value => !StringComparer.Ordinal.Equals(value.Identity, request.Identity))) ||
             request.AfterIdentity is not null && page.Items.Any(value => StringComparer.Ordinal.Compare(value.Identity, request.AfterIdentity) <= 0) ||
             request.SubjectKind is not null && page.Items.Any(value => value is not BaseStudioActivationReceiptFact receipt ||
-                !StringComparer.Ordinal.Equals(receipt.SubjectKind, request.SubjectKind) ||
-                !StringComparer.Ordinal.Equals(receipt.SubjectIdentity, request.SubjectIdentity)) ||
+                !StringComparer.Ordinal.Equals(request.SubjectKind, "activation") ||
+                !StringComparer.Ordinal.Equals(receipt.ActivationId, request.SubjectIdentity)) ||
             page.NextIdentity is not null && (page.Items.IsEmpty || !StringComparer.Ordinal.Equals(page.NextIdentity, page.Items[^1].Identity))) return false;
         return page.PageChecksum.Length == 32 && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(page.PageChecksum.AsSpan(),
             PageChecksum(page.Items, page.NextIdentity, page.RowsRead, page.EvidenceBytes, page.TransientBytes).AsSpan());

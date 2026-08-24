@@ -17,7 +17,7 @@ internal sealed partial class InMemoryRecordStore
         {
             IEnumerable<BaseStudioControlFact> source = Facts(_publishedState, request.Kind);
             if (request.SubjectKind is not null) source = source.Where(value => value is BaseStudioActivationReceiptFact receipt &&
-                StringComparer.Ordinal.Equals(receipt.SubjectKind, request.SubjectKind) && StringComparer.Ordinal.Equals(receipt.SubjectIdentity, request.SubjectIdentity));
+                StringComparer.Ordinal.Equals(request.SubjectKind, "activation") && StringComparer.Ordinal.Equals(receipt.ActivationId, request.SubjectIdentity));
             if (request.Identity is not null) source = source.Where(value => StringComparer.Ordinal.Equals(value.Identity, request.Identity));
             else if (request.AfterIdentity is not null) source = source.Where(value => StringComparer.Ordinal.Compare(value.Identity, request.AfterIdentity) > 0);
             BaseStudioControlFact[] selected = source.OrderBy(static value => value.Identity, StringComparer.Ordinal)

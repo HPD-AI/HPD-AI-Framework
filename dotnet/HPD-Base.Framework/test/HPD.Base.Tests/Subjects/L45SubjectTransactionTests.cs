@@ -1800,6 +1800,8 @@ public sealed class L45SubjectTransactionTests
             Allow(cancellationToken);
         public ValueTask<OperationResult<BasePolicyEvaluation>> EvaluateWriteAsync(BasePolicyRequest request, CancellationToken cancellationToken = default) =>
             Allow(cancellationToken);
+        public ValueTask<OperationResult<BasePolicyEvaluation>> EvaluateStudioAsync(BaseStudioPolicyRequest request, CancellationToken cancellationToken = default) =>
+            Allow(cancellationToken);
         private static ValueTask<OperationResult<BasePolicyEvaluation>> Allow(CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
