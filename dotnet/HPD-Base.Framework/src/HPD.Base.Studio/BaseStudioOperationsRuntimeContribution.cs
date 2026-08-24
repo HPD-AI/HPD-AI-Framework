@@ -23,9 +23,12 @@ internal sealed partial class BaseStudioRuntimeContributionFactory
             P("operationId", text), P("operationKind", text), P("requestIdentity", text)));
         BaseStudioNamedTypeContract definitionItem = Type("base.studio.installed-definition.item",
             "{\"kind\":\"object\",\"properties\":[{\"name\":\"definitionChecksum\",\"wireName\":\"definitionChecksum\",\"typeId\":\"base.studio.sha256\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"},{\"name\":\"id\",\"wireName\":\"id\",\"typeId\":\"base.studio.text\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"},{\"name\":\"kind\",\"wireName\":\"kind\",\"typeId\":\"base.studio.text\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"},{\"name\":\"owningModuleId\",\"wireName\":\"owningModuleId\",\"typeId\":\"base.studio.text\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"},{\"name\":\"version\",\"wireName\":\"version\",\"typeId\":\"base.studio.nonnegative-long\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"}],\"additionalProperties\":false}");
+        BaseStudioNamedTypeContract semanticDefinitionItem = Type("base.studio.semantic-definition-inspection.item",
+            "{\"kind\":\"object\",\"properties\":[{\"name\":\"capturedAuthorityGeneration\",\"wireName\":\"capturedAuthorityGeneration\",\"typeId\":\"base.studio.nonnegative-long\",\"required\":true,\"nullable\":true,\"disclosureShape\":\"none\"},{\"name\":\"compactedCount\",\"wireName\":\"compactedCount\",\"typeId\":\"base.studio.nonnegative-long\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"},{\"name\":\"definitionChecksum\",\"wireName\":\"definitionChecksum\",\"typeId\":\"base.studio.sha256\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"},{\"name\":\"hasMore\",\"wireName\":\"hasMore\",\"typeId\":\"base.studio.text\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"},{\"name\":\"id\",\"wireName\":\"id\",\"typeId\":\"base.studio.text\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"},{\"name\":\"inspectionState\",\"wireName\":\"inspectionState\",\"typeId\":\"base.studio.text\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"},{\"name\":\"kind\",\"wireName\":\"kind\",\"typeId\":\"base.studio.text\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"},{\"name\":\"liveCount\",\"wireName\":\"liveCount\",\"typeId\":\"base.studio.nonnegative-long\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"},{\"name\":\"owningModuleId\",\"wireName\":\"owningModuleId\",\"typeId\":\"base.studio.text\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"},{\"name\":\"pageChecksum\",\"wireName\":\"pageChecksum\",\"typeId\":\"base.studio.sha256\",\"required\":true,\"nullable\":true,\"disclosureShape\":\"none\"},{\"name\":\"retiredCount\",\"wireName\":\"retiredCount\",\"typeId\":\"base.studio.nonnegative-long\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"},{\"name\":\"storeId\",\"wireName\":\"storeId\",\"typeId\":\"base.studio.text\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"},{\"name\":\"version\",\"wireName\":\"version\",\"typeId\":\"base.studio.nonnegative-long\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"}],\"additionalProperties\":false}");
         BaseStudioNamedTypeContract executionItem = Type("base.studio.atomic-execution.item",
             "{\"kind\":\"object\",\"properties\":[{\"name\":\"expiresAtUtc\",\"wireName\":\"expiresAtUtc\",\"typeId\":\"base.studio.text\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"},{\"name\":\"identity\",\"wireName\":\"identity\",\"typeId\":\"base.studio.text\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"},{\"name\":\"requestFingerprint\",\"wireName\":\"requestFingerprint\",\"typeId\":\"base.studio.sha256\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"},{\"name\":\"resultKind\",\"wireName\":\"resultKind\",\"typeId\":\"base.studio.text\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"},{\"name\":\"structuralDigest\",\"wireName\":\"structuralDigest\",\"typeId\":\"base.studio.sha256\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"}],\"additionalProperties\":false}");
         BaseStudioNamedTypeContract definitionItems = Type("base.studio.installed-definition.items", "{\"kind\":\"array\",\"elementTypeId\":\"base.studio.installed-definition.item\",\"minItems\":0,\"maxItems\":500}");
+        BaseStudioNamedTypeContract semanticDefinitionItems = Type("base.studio.semantic-definition-inspection.items", "{\"kind\":\"array\",\"elementTypeId\":\"base.studio.semantic-definition-inspection.item\",\"minItems\":0,\"maxItems\":500}");
         BaseStudioNamedTypeContract executionItems = Type("base.studio.atomic-execution.items", "{\"kind\":\"array\",\"elementTypeId\":\"base.studio.atomic-execution.item\",\"minItems\":0,\"maxItems\":500}");
         BaseStudioNamedTypeContract app = types.Single(static value => value.TypeId == "base.studio.resource.application");
         BaseStudioNamedTypeContract definitionRequest = Type("base.operations.definitions.request", Obj(P("resource", app)));
@@ -33,13 +36,17 @@ internal sealed partial class BaseStudioRuntimeContributionFactory
         BaseStudioNamedTypeContract definitionCurrent = Type("base.studio.installed-definition.current", Obj(P("accounting", accounting),
             P("evidence", emptyItems), P("kind", currentKind), P("links", emptyItems), P("observationAuthority", graphAuthority),
             P("resource", app), P("value", definitionItems)));
+        BaseStudioNamedTypeContract semanticDefinitionCurrent = Type("base.studio.semantic-definition-inspection.current", Obj(P("accounting", accounting),
+            P("evidence", emptyItems), P("kind", currentKind), P("links", emptyItems), P("observationAuthority", graphAuthority),
+            P("resource", app), P("value", semanticDefinitionItems)));
         BaseStudioNamedTypeContract executionCurrent = Type("base.studio.atomic-execution.current", Obj(P("accounting", accounting),
             P("evidence", emptyItems), P("kind", currentKind), P("links", emptyItems), P("observationAuthority", graphAuthority),
             P("resource", app), P("value", executionItems)));
         BaseStudioNamedTypeContract resolved = Type("base.studio.operationexecution-resolved", Obj(P("kind", resolvedKind),
             P("links", emptyItems), P("resource", operationResource), P("route", resourceRoute)));
-        types.AddRange([operationKind, operationResource, definitionItem, executionItem, definitionItems, executionItems,
-            definitionRequest, executionRequest, definitionCurrent, executionCurrent, resolved]);
+        types.AddRange([operationKind, operationResource, definitionItem, semanticDefinitionItem, executionItem, definitionItems,
+            semanticDefinitionItems, executionItems, definitionRequest, executionRequest, definitionCurrent,
+            semanticDefinitionCurrent, executionCurrent, resolved]);
 
         foreach ((string viewId, HPDBaseStudioDefinitionKind kind) in new[]
         {
@@ -47,11 +54,13 @@ internal sealed partial class BaseStudioRuntimeContributionFactory
             ("base.operations.definitions.selectionOperations.list", HPDBaseStudioDefinitionKind.SelectionMutation),
             ("base.operations.definitions.moduleMutations.list", HPDBaseStudioDefinitionKind.ModuleMutation),
             ("base.operations.definitions.semanticActivations.list", HPDBaseStudioDefinitionKind.SemanticActivation),
-            ("base.semanticActivations.definitions.list", HPDBaseStudioDefinitionKind.SemanticActivation),
         }) AddView(viewId, definitionRequest, definitionCurrent,
             new InstalledDefinitionProducer(_principals, _authorization,
-                module.Pages.Single(x => x.PageId == (viewId.StartsWith("base.semanticActivations.", StringComparison.Ordinal)
-                    ? "base.semanticActivations" : "base.operations")).Grants, _baseAuthority, kind));
+                module.Pages.Single(static x => x.PageId == "base.operations").Grants, _baseAuthority, kind, null, null));
+        AddView("base.semanticActivations.definitions.list", definitionRequest, semanticDefinitionCurrent,
+            new InstalledDefinitionProducer(_principals, _authorization,
+                module.Pages.Single(static x => x.PageId == "base.semanticActivations").Grants,
+                _baseAuthority, HPDBaseStudioDefinitionKind.SemanticActivation, _stores, _administration));
         AddView("base.operations.executions.list", executionRequest, executionCurrent,
             new AtomicExecutionProducer(_principals, _authorization, module.Pages.Single(static x => x.PageId == "base.operations").Grants, _control));
         AddView("base.operations.receipts.list", executionRequest, executionCurrent,
@@ -71,6 +80,7 @@ internal sealed partial class BaseStudioRuntimeContributionFactory
             BaseStudioViewRegistration view = module.Views.Single(x => x.ViewId == viewId);
             if (!BaseStudioSha256.FixedTimeEquals(view.RequestNodeChecksum, request.NodeChecksum) ||
                 !BaseStudioSha256.FixedTimeEquals(view.ItemNodeChecksum,
+                    viewId == "base.semanticActivations.definitions.list" ? semanticDefinitionItem.NodeChecksum :
                     viewId.Contains("definitions", StringComparison.Ordinal) ? definitionItem.NodeChecksum : executionItem.NodeChecksum))
                 throw new InvalidOperationException("The Operations view differs from its graph-owned L41 nodes.");
             string endpointId = "base.studio.view.page." + viewId;
@@ -90,21 +100,69 @@ internal sealed partial class BaseStudioRuntimeContributionFactory
     }
 
     private sealed class InstalledDefinitionProducer(IBaseStudioPrincipalContextResolver principals, BaseStudioAuthorization authorization,
-        ImmutableArray<BaseStudioGrantRequirement> grants, HPDBaseStudioAuthoritySnapshot authority, HPDBaseStudioDefinitionKind kind)
+        ImmutableArray<BaseStudioGrantRequirement> grants, HPDBaseStudioAuthoritySnapshot authority, HPDBaseStudioDefinitionKind kind,
+        IRecordStoreRegistry? stores, IHPDBaseAdministration? administration)
         : ProducerBase(principals, authorization, grants), IBaseStudioViewProducer
     {
         public async ValueTask<BaseStudioCanonicalJson?> ReadAsync(BaseStudioProducerInvocation invocation, CancellationToken cancellationToken)
         {
             if (!await AuthorizedAsync(invocation, cancellationToken).ConfigureAwait(false) ||
                 !RequestResource(invocation.Request, BaseStudioResourceKind.Application, out BaseStudioResourceIdentity? resource) || resource is null) return null;
+            (PrincipalContext Principal, OperationContext Operation)? context = await ContextAsync(invocation, cancellationToken).ConfigureAwait(false);
+            if (context is null) return null;
             var buffer = new ArrayBufferWriter<byte>(); using var writer = new Utf8JsonWriter(buffer); writer.WriteStartArray();
             foreach (HPDBaseStudioDefinitionAuthority item in authority.Definitions.Where(x => x.Kind == kind))
-            { writer.WriteStartObject(); writer.WriteString("definitionChecksum", Convert.ToHexString(item.DefinitionChecksum.AsSpan()).ToLowerInvariant());
-              writer.WriteString("id", item.Id); writer.WriteString("kind", item.Kind.ToString()); writer.WriteString("owningModuleId", item.OwningModuleId);
-              writer.WriteString("version", item.Version.ToString(CultureInfo.InvariantCulture)); writer.WriteEndObject(); }
+            {
+                if (stores is null || administration is null)
+                {
+                    writer.WriteStartObject(); writer.WriteString("definitionChecksum", Convert.ToHexString(item.DefinitionChecksum.AsSpan()).ToLowerInvariant());
+                    writer.WriteString("id", item.Id); writer.WriteString("kind", item.Kind.ToString()); writer.WriteString("owningModuleId", item.OwningModuleId);
+                    writer.WriteString("version", item.Version.ToString(CultureInfo.InvariantCulture)); writer.WriteEndObject(); continue;
+                }
+                RecordStoreRegistration[] registrations = stores?.GetRegistrations() ?? [];
+                if (registrations.Length == 0)
+                    WriteDefinition(writer, item, "unavailable", null, "unavailable");
+                else foreach (RecordStoreRegistration registration in registrations.Take(64))
+                {
+                    BaseResult<BaseSemanticActivationInspectionPage> inspected = await administration.InspectSemanticActivationsAsync(
+                        registration.StoreId, context.Value.Principal, new()
+                        {
+                            Definition = new() { Id = item.Id, Version = item.Version, Checksum = item.DefinitionChecksum },
+                            State = null, After = null, Take = 256, Limits = SemanticInspectionLimits(),
+                        }, cancellationToken).ConfigureAwait(false);
+                    WriteDefinition(writer, item, registration.StoreId,
+                        inspected.TryGetValue(out BaseSemanticActivationInspectionPage? page) ? page : null,
+                        inspected.TryGetValue(out _) ? "current" : "unavailable");
+                }
+            }
             writer.WriteEndArray(); writer.Flush(); BaseStudioCanonicalJson value = BaseStudioCanonicalJson.Create(buffer.WrittenSpan, 1_048_576);
             return BaseStudioObservationJson.Current(resource, BaseStudioGraphObservationAuthority.Create(invocation.Authority), value,
                 [], [], Accounting(value.ToArray().Length), 1_048_576);
+        }
+
+        private static BaseSemanticActivationExecutionLimits SemanticInspectionLimits() => new()
+        {
+            MaximumOperations = 1, MaximumScopeDirectoryReads = 256, MaximumSlotReads = 256,
+            MaximumActivationReads = 256, MaximumReadIntervals = 4, MaximumIndexOperations = 4,
+            MaximumActivationBytes = 1_048_576, MaximumScopeDirectoryBytes = 1_048_576,
+            MaximumEvidenceBytes = 4_194_304, MaximumReceiptBytes = 1_048_576,
+            MaximumTransientBytes = 8_388_608,
+        };
+
+        private static void WriteDefinition(Utf8JsonWriter writer, HPDBaseStudioDefinitionAuthority definition,
+            string storeId, BaseSemanticActivationInspectionPage? page, string inspectionState)
+        {
+            writer.WriteStartObject();
+            writer.WritePropertyName("capturedAuthorityGeneration"); if (page is null) writer.WriteNullValue(); else writer.WriteStringValue(page.CapturedAuthorityGeneration.ToString(CultureInfo.InvariantCulture));
+            writer.WriteString("compactedCount", (page?.Items.Count(static value => value.State == BaseSemanticActivationSlotState.CompactedAbsent) ?? 0).ToString(CultureInfo.InvariantCulture));
+            writer.WriteString("definitionChecksum", Convert.ToHexString(definition.DefinitionChecksum.AsSpan()).ToLowerInvariant());
+            writer.WriteString("hasMore", page?.Next is null ? "false" : "true"); writer.WriteString("id", definition.Id);
+            writer.WriteString("inspectionState", inspectionState); writer.WriteString("kind", definition.Kind.ToString());
+            writer.WriteString("liveCount", (page?.Items.Count(static value => value.State == BaseSemanticActivationSlotState.Live) ?? 0).ToString(CultureInfo.InvariantCulture));
+            writer.WriteString("owningModuleId", definition.OwningModuleId); writer.WritePropertyName("pageChecksum");
+            if (page is null) writer.WriteNullValue(); else writer.WriteStringValue(Convert.ToHexString(page.Checksum.AsSpan()).ToLowerInvariant());
+            writer.WriteString("retiredCount", (page?.Items.Count(static value => value.State == BaseSemanticActivationSlotState.Retired) ?? 0).ToString(CultureInfo.InvariantCulture));
+            writer.WriteString("storeId", storeId); writer.WriteString("version", definition.Version.ToString(CultureInfo.InvariantCulture)); writer.WriteEndObject();
         }
     }
 

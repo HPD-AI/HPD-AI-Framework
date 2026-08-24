@@ -1,4 +1,5 @@
 import BaseRegisteredPage from './BaseRegisteredPage.svelte';
+import BaseSemanticActivations from './BaseSemanticActivations.svelte';
 import {
   computeStudioFrontendAbiChecksum,
   defineStudioModuleDescriptor,
@@ -66,7 +67,7 @@ const pageComponents = Object.freeze(Object.fromEntries(pageIds.map(id => {
   const binding: StudioPageComponentBinding = Object.freeze({
     componentExportId: `component.${id}`,
     componentAbiChecksum,
-    component: BaseRegisteredPage
+    component: id === 'base.semanticActivations' ? BaseSemanticActivations : BaseRegisteredPage
   });
   return [pageId, binding] as const;
 }))) as Readonly<Record<StudioPageId, StudioPageComponentBinding>>;

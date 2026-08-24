@@ -458,6 +458,9 @@ public sealed class BaseStudioModuleRegistryTests
         Assert.Contains(runtime.Methods, static method => method.RegisteredMethodId == "base.studio.view.base.activation.detail.summary.detail");
         Assert.Contains(runtime.Methods, static method => method.RegisteredMethodId == "base.studio.resolve.activation");
         Assert.Contains(runtime.Methods, static method => method.RegisteredMethodId == "base.studio.view.base.semanticActivations.definitions.list");
+        BaseStudioViewRegistration semanticView = module.Views.Single(static view => view.ViewId == "base.semanticActivations.definitions.list");
+        Assert.Equal("base.studio.semantic-definition-inspection.item", semanticView.ItemNodeId);
+        Assert.Contains(runtime.Types, static type => type.TypeId == "base.studio.semantic-definition-inspection.current");
         Assert.All(module.Views.Where(static view => view.ViewId.StartsWith("base.automation", StringComparison.Ordinal) ||
             view.ViewId.StartsWith("base.activation.detail", StringComparison.Ordinal)), static view => Assert.EndsWith(".item", view.ItemNodeId));
     }

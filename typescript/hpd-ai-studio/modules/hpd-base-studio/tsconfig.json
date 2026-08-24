@@ -9,5 +9,5 @@
     "skipLibCheck": true,
     "types": ["svelte"]
   },
-  "include": ["src/index.ts", "src/module.ts", "src/BaseRegisteredPage.svelte", "src/vite-env.d.ts"]
+  "include": ["src/index.ts", "src/module.ts", "src/BaseRegisteredPage.svelte", "src/BaseSemanticActivations.svelte", "src/vite-env.d.ts"]
 }
