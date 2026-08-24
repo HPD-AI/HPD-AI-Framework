@@ -18,6 +18,7 @@
     <InternalsVisibleTo Include="HPD.Agent.Audio.V2.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.LiveAudio.Contracts.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.Audio.VoiceActivity.CompositionExample" />
+    <InternalsVisibleTo Include="HPD.Agent.Providers.Audio.ElevenLabs" />
   </ItemGroup>
 
   <ItemGroup>
