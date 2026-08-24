@@ -17,6 +17,20 @@ namespace HPD.Auth.ControlPlane.AspNetCore.Tests;
 public sealed class ControlPlaneRegistrationTests
 {
     [Fact]
+    public void Accepts_camel_case_capability_segments()
+    {
+        var services = new ServiceCollection();
+
+        Action register = () => services.AddHPDControlPlane(options =>
+        {
+            AddProfile(options);
+            options.MapCapability("base.subjectRetirement.barrier.inspect", "Readers");
+        });
+
+        register.Should().NotThrow();
+    }
+
+    [Fact]
     public void Registers_without_changing_authentication_defaults()
     {
         var services = new ServiceCollection();
