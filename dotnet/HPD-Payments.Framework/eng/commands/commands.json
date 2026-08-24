@@ -1,6 +1,6 @@
 {
   "schemaVersion": "hpd.payments.commands.v1",
-  "revision": 37,
+  "revision": 38,
   "productRoot": "/Users/ewoof/Desktop/Yes/HPD-OS/vendor/HPD-AI-Framework/dotnet/HPD-Payments.Framework",
   "commands": [
     {
@@ -1093,7 +1093,10 @@
       "argv": ["/usr/bin/python3", "eng/build/canonicalize_macho.py", "src/HPD.Payments.Tools.Conformance/bin/Release/net10.0/osx-arm64/publish/HPD.Payments.Tools.Conformance"],
       "prerequisites": ["publish-aot-conformance"],
       "timeoutSeconds": 900,
-      "outputs": ["src/HPD.Payments.Tools.Conformance/bin/Release/net10.0/osx-arm64/publish/HPD.Payments.Tools.Conformance"],
+      "outputs": [
+        "src/HPD.Payments.Tools.Conformance/bin/Release/net10.0/osx-arm64/publish/HPD.Payments.Tools.Conformance",
+        "src/HPD.Payments.Tools.Conformance/bin/Release/net10.0/osx-arm64/publish/HPD.Payments.Tools.Conformance.hpd-canonicalized.json"
+      ],
       "cleanup": [],
       "acceptedExitCodes": [0],
       "proofClass": "artifact-canonicalization"

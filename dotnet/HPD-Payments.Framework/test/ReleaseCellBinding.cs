@@ -109,20 +109,31 @@ internal static class ReleaseCellBinding
 
     private static string CaptureSource(string root)
     {
+        var dotnetRoot = Directory.GetParent(Path.GetFullPath(root))?.FullName ??
+            throw new InvalidDataException("Payments dotnet root is absent.");
         var paths = new SortedSet<string>(StringComparer.Ordinal);
-        foreach (var included in new[] { "src", "test", "perf", "eng/registry", "eng/commands" })
-            foreach (var path in Directory.EnumerateFiles(Path.Combine(root, included), "*", SearchOption.AllDirectories))
+        foreach (var included in new[]
+        {
+            "HPD-Payments.Framework/src", "HPD-Payments.Framework/test", "HPD-Payments.Framework/perf",
+            "HPD-Payments.Framework/eng/registry", "HPD-Payments.Framework/eng/commands",
+            "HPD-Payments.Framework/eng/build", "HPD-Base.Framework", "shared/src/HPD-Events",
+        })
+            foreach (var path in Directory.EnumerateFiles(Path.Combine(dotnetRoot, included), "*", SearchOption.AllDirectories))
             {
-                var relative = Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/');
+                var relative = Path.GetRelativePath(dotnetRoot, path).Replace(Path.DirectorySeparatorChar, '/');
                 if (relative.Split('/').Any(static x => x is "bin" or "obj")) continue;
                 paths.Add(path);
             }
-        foreach (var included in new[] { "Directory.Build.props", "Directory.Build.targets", "Directory.Packages.props", "HPD-Payments.slnx" })
-            paths.Add(Path.Combine(root, included));
+        foreach (var included in new[]
+        {
+            "HPD-Payments.Framework/Directory.Build.props", "HPD-Payments.Framework/Directory.Build.targets",
+            "HPD-Payments.Framework/Directory.Packages.props", "HPD-Payments.Framework/HPD-Payments.slnx",
+        })
+            paths.Add(Path.Combine(dotnetRoot, included));
         var entries = paths.Select(path =>
         {
             var bytes = File.ReadAllBytes(path);
-            var relative = Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/');
+            var relative = Path.GetRelativePath(dotnetRoot, path).Replace(Path.DirectorySeparatorChar, '/');
             return Join(relative, bytes.Length.ToString(System.Globalization.CultureInfo.InvariantCulture), Hex(bytes));
         }).ToArray();
         return "sha256:" + Hex(Join(entries));

@@ -183,7 +183,7 @@ var admittedProof = commandManifest.RequireEnabled("test-conformance-proof");
 var mismatchedProductRootRejected = false;
 try { commandManifest.RequireProductRoot(sourceSnapshotRoot); }
 catch (InvalidDataException) { mismatchedProductRootRejected = true; }
-Check(commandManifest.Revision == 37 && commandManifest.Commands.Count == 73 && admittedProof.Id == "test-conformance-proof" &&
+Check(commandManifest.Revision == 38 && commandManifest.Commands.Count == 73 && admittedProof.Id == "test-conformance-proof" &&
     mismatchedProductRootRejected && escapedCwdRejected && duplicatePrerequisiteRejected &&
     cyclicPrerequisiteRejected && escapedCleanupRejected,
     "command manifest inventory changed or disabled proof command was admitted");
@@ -194,6 +194,17 @@ try { SourceTreeSnapshotter.RequireStable(sourceBefore, sourceAfter); }
 catch (InvalidDataException) { sourceDriftRejected = true; }
 Check(sourceBefore.FileCount == 3 && sourceBefore.InventoryDigest.StartsWith("sha256:", StringComparison.Ordinal) &&
     sourceDriftRejected, "source tree snapshot did not reproduce or reject byte drift");
+Check(SourceInventoryPolicy.RequireCleanStatus(string.Empty) ==
+    "clean:sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855;entries=0",
+    "clean source status did not produce the canonical clean attestation");
+Check(SourceInventoryPolicy.IncludedPaths.Contains("HPD-Payments.Framework/eng/build", StringComparer.Ordinal) &&
+    SourceInventoryPolicy.IncludedPaths.Contains("HPD-Base.Framework", StringComparer.Ordinal) &&
+    SourceInventoryPolicy.IncludedPaths.Contains("shared/src/HPD-Events", StringComparer.Ordinal),
+    "artifact scripts or consumed Base/Events source escaped the release inventory");
+var stableDirtyRejected = false;
+try { _ = SourceInventoryPolicy.RequireCleanStatus("1 .M N... 100644 100644 100644 abc abc src/example.cs\n"); }
+catch (InvalidDataException) { stableDirtyRejected = true; }
+Check(stableDirtyRejected, "a stable dirty source closure was admitted");
 var driftedRunRejected = false;
 try { _ = ProofRunAdmission.Admit(admittedCandidate, sourceBefore, sourceAfter, admittedLocalCommand, cleanExecution,
     passingAssertions); }
@@ -210,6 +221,32 @@ catch (InvalidDataException) { skippedRunRejected = true; }
 Check(skippedRunRejected && malformedAssertionInventoryRejected,
     "skipped or malformed assertion evidence produced an admitted Executed receipt");
 Directory.Delete(sourceSnapshotRoot, recursive: true);
+var canonicalizationRoot = Path.Combine(Path.GetTempPath(), $"hpd-payments-canonicalization-{Environment.ProcessId}");
+Directory.CreateDirectory(canonicalizationRoot);
+var canonicalizationInput = Path.Combine(canonicalizationRoot, "already-canonical");
+await File.WriteAllBytesAsync(canonicalizationInput, [1, 2, 3, 4]).ConfigureAwait(false);
+await File.WriteAllTextAsync(canonicalizationInput + ".hpd-canonicalized.json", "{}\n").ConfigureAwait(false);
+var canonicalizationBytes = await File.ReadAllBytesAsync(canonicalizationInput).ConfigureAwait(false);
+var canonicalizationStart = new System.Diagnostics.ProcessStartInfo("/usr/bin/python3")
+{
+    WorkingDirectory = Directory.GetCurrentDirectory(), RedirectStandardOutput = true,
+    RedirectStandardError = true, UseShellExecute = false,
+};
+canonicalizationStart.ArgumentList.Add("eng/build/canonicalize_macho.py");
+canonicalizationStart.ArgumentList.Add(canonicalizationInput);
+using (var canonicalizationProcess = System.Diagnostics.Process.Start(canonicalizationStart) ??
+       throw new InvalidOperationException("Could not start canonicalization negative test."))
+{
+    var canonicalizationError = canonicalizationProcess.StandardError.ReadToEndAsync();
+    await canonicalizationProcess.WaitForExitAsync().ConfigureAwait(false);
+    var canonicalizationErrorText = await canonicalizationError.ConfigureAwait(false);
+    var canonicalizationBytesAfter = await File.ReadAllBytesAsync(canonicalizationInput).ConfigureAwait(false);
+    Check(canonicalizationProcess.ExitCode != 0 &&
+        canonicalizationErrorText.Contains("already canonicalized", StringComparison.Ordinal) &&
+        canonicalizationBytes.SequenceEqual(canonicalizationBytesAfter),
+        "double canonicalization did not fail before mutating the artifact");
+}
+Directory.Delete(canonicalizationRoot, recursive: true);
 var cleanupRoot = Path.Combine(Path.GetTempPath(), $"hpd-payments-cleanup-{Environment.ProcessId}");
 Directory.CreateDirectory(Path.Combine(cleanupRoot, "src", "sample", "bin", "Release"));
 await File.WriteAllBytesAsync(Path.Combine(cleanupRoot, "src", "sample", "bin", "Release", "retained.dll"), [1, 2, 3])

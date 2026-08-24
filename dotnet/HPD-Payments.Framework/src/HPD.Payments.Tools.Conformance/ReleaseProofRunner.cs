@@ -10,7 +10,7 @@ internal static class ReleaseProofRunner
         CommandManifestSnapshot commands, SourceTreeSnapshot source)
     {
         var adapter = SourceTreeSnapshotter.Capture(root, ["src/HPD.Payments.Adapters.InMemory"]);
-        var dirtyState = await CaptureDirtyStateAsync(root).ConfigureAwait(false);
+        var dirtyState = await RequireCleanSourceStateAsync(root).ConfigureAwait(false);
         var receipts = new List<ProofReceipt>(snapshot.Routes.Count);
         var dispositions = new List<RouteDisposition>(snapshot.Routes.Count);
         var executions = new List<CommandExecution>(snapshot.Routes.Count);
@@ -75,10 +75,9 @@ internal static class ReleaseProofRunner
                 $"fresh exact-cell execution through admitted {command.Id}", [cell]));
         }
 
-        var sourceAfter = SourceTreeSnapshotter.Capture(root,
-            ["src", "test", "perf", "eng/registry", "eng/commands", "Directory.Build.props", "Directory.Build.targets",
-                "Directory.Packages.props", "HPD-Payments.slnx"]);
+        var sourceAfter = SourceInventoryPolicy.Capture(root);
         SourceTreeSnapshotter.RequireStable(source, sourceAfter);
+        _ = await RequireCleanSourceStateAsync(root).ConfigureAwait(false);
 
         var evidence = ReleaseEvidenceValidator.Validate(snapshot, dispositions, receipts);
         if (!evidence.ReleaseReady) throw new InvalidDataException("Release evidence is incomplete: " +
@@ -160,18 +159,18 @@ internal static class ReleaseProofRunner
         return new($"release-{routeId}-{started:yyyyMMddTHHmmssfffffffZ}", started, ended, process.ExitCode, stdout, stderr, assertions);
     }
 
-    private static async Task<string> CaptureDirtyStateAsync(string root)
+    private static async Task<string> RequireCleanSourceStateAsync(string root)
     {
         var start = new ProcessStartInfo("git") { WorkingDirectory = root, RedirectStandardOutput = true,
             RedirectStandardError = true, UseShellExecute = false };
-        foreach (var argument in new[] { "status", "--porcelain=v1", "--", "src", "test", "perf", "eng/registry", "eng/commands",
-                     "Directory.Build.props", "Directory.Build.targets", "Directory.Packages.props", "HPD-Payments.slnx" })
+        foreach (var argument in new[] { "status", "--porcelain=v1", "--", ".", "../HPD-Base.Framework", "../shared/src/HPD-Events" })
             start.ArgumentList.Add(argument);
         using var process = Process.Start(start) ?? throw new InvalidOperationException("Could not inspect source dirty state.");
         var output = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
         await process.WaitForExitAsync().ConfigureAwait(false);
-        if (process.ExitCode != 0) throw new InvalidDataException("Source dirty-state inspection failed.");
-        return $"sha256:{HexDigest(output)};entries={output.Count(static character => character == '\n')}";
+        var error = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
+        if (process.ExitCode != 0) throw new InvalidDataException("Source dirty-state inspection failed: " + error);
+        return SourceInventoryPolicy.RequireCleanStatus(output);
     }
 
     private static async Task ValidateApprovalStorageAsync(ReleaseManifest manifest)

@@ -14,9 +14,7 @@ CommandManifestSnapshot commands = CommandManifestSnapshot.Load(
     await File.ReadAllBytesAsync(Path.Combine(root, "eng/commands/commands.json")).ConfigureAwait(false));
 commands.RequireProductRoot(root);
 ProofCommandDefinition proofCommand = commands.RequireEnabled("test-conformance-proof");
-SourceTreeSnapshot source = SourceTreeSnapshotter.Capture(root,
-    ["src", "test", "perf", "eng/registry", "eng/commands", "Directory.Build.props", "Directory.Build.targets",
-        "Directory.Packages.props", "HPD-Payments.slnx"]);
+SourceTreeSnapshot source = SourceInventoryPolicy.Capture(root);
 ReleaseProofResult release = await ReleaseProofRunner.RunAsync(root, snapshot, commands, source).ConfigureAwait(false);
 await Console.Out.WriteLineAsync($"PASS conformance proof inventory: routes={snapshot.Routes.Count} commands={commands.Commands.Count} " +
     $"command={proofCommand.Id} source={source.InventoryDigest} manifest={release.ManifestAddress} " +
