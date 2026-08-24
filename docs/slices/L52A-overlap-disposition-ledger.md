@@ -14,13 +14,13 @@ The overlap set is the sorted intersection of paths changed by `dcd6350b..660ae3
 | `dotnet/HPD-Graph.Framework/src/HPD-Graph.Hosting/Lifecycle/ExecutionManager.cs` | 1 | `main` | Main's deletion wins. The obsolete execution manager must not be resurrected. |
 | `typescript/hpd-base-client-generator/test/generator.test.mjs` | 1 | `main` | Current L53 generated-client contract authority wins. |
 | `typescript/hpd-base-client/test/client.test.mjs` | 1 | `main` | Current L53 client semantics and codecs win. |
-| `dotnet/HPD-Agent.Framework/src/HPD-Agent.Audio.LiveKit/**` and `dotnet/HPD-Agent.Framework/test/HPD-Agent.Audio.LiveKit.SourceGenerator.Tests/LiveKitRuntimeB4Tests.cs` | 3 | `Studio addition reapplied` | Selected later Audio work is reapplied onto main in its own reviewed commit; no BASE authority is imported with it. |
+| `dotnet/HPD-Agent.Framework/src/HPD-Agent.Audio.LiveKit/**` and `dotnet/HPD-Agent.Framework/test/HPD-Agent.Audio.LiveKit.SourceGenerator.Tests/LiveKitRuntimeB4Tests.cs` | 3 | `main` | Current main's later provider-neutral S2/voice-activity architecture supersedes the donor's removed live-session runtime. Reapplying those files would restore the obsolete authority path. |
 | `typescript/hpd-ai-studio/modules/hpd-base-studio/package.json` | 1 | `Studio addition reapplied` | Unified module package surface wins while its BASE client authority remains current main. |
 | `typescript/hpd-ai-studio/modules/hpd-base-studio/src/index.ts` and `src/module.ts` | 2 | `Studio addition reapplied` | Unified module activation and exact page bindings win, adapted to current L53. |
 | `typescript/hpd-ai-studio/shell/package.json`, `src/main.ts`, and `src/studio/composition.test.ts` | 3 | `Studio addition reapplied` | Unified shell source and composition tests win. |
 | `typescript/hpd-ai-studio/shell/package-lock.json` | 1 | `generated` | Regenerated from the resolved manifest; neither historical lock is manually merged. |
 
-Totals: `main` 109, `Studio addition reapplied` 9, `generated` 1, total 119.
+Totals: `main` 112, `Studio addition reapplied` 6, `generated` 1, total 119.
 
 ## Reproduction and completeness check
 
