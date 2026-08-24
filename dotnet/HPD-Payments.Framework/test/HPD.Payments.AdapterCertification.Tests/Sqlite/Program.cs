@@ -51,7 +51,7 @@ try
     var adminPrincipal = new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System };
     using var artifact = new MemoryStream();
     BaseBackupManifest manifest = (await administration.CreateBackupAsync(artifact,
-        new BaseBackupRequest { RequestIdentity = "payments-certification-backup", StoreId = "sqlite", Principal = adminPrincipal })).RequireValue();
+        new BaseBackupRequest { StoreId = "sqlite", Principal = adminPrincipal })).RequireValue();
 
     var afterBackupRequest = new OwnerAppendRequest<SqliteFact>(ambiguous.Owner, Digest("after-backup"), domain, new("after-backup", 30));
     Require((await port.CompareBindAppendAsync(afterBackupRequest)).Disposition == OwnerAppendDisposition.Appended, "Post-backup append failed.");
