@@ -11,6 +11,8 @@ public static class HPDGraphStudioBuilderExtensions
         ArgumentNullException.ThrowIfNull(builder);
 
         builder.AddStudioEditionModuleAsset(HPD.Graph.Studio.GraphStudioModuleRegistry.CreateEditionAssetContribution());
+        builder.Services.TryAddSingleton<HPD.Graph.Studio.IGraphStudioInspectionAuthority,
+            HPD.Graph.Studio.UnavailableGraphStudioInspectionAuthority>();
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseStudioFrameworkEndpointSurface, HPD.Graph.Studio.GraphStudioEndpointSurface>());
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseStudioModuleRuntimeContributionFactory, HPD.Graph.Studio.GraphStudioRuntimeContributionFactory>());
         return builder.AddStudioModule<HPD.Graph.Studio.GraphStudioModuleContribution>();

@@ -39,9 +39,11 @@ public sealed class BaseBinary : IEquatable<BaseBinary>
     internal ReadOnlySpan<byte> AsSpan() => _bytes;
 }
 
-internal sealed class BaseBinaryJsonConverter : JsonConverter<BaseBinary>
+/// <summary>Provides the canonical bounded Base64 wire contract for <see cref="BaseBinary"/>.</summary>
+public sealed class BaseBinaryJsonConverter : JsonConverter<BaseBinary>
 {
     private const int MaximumDecodedBytes = 1_048_576;
+    /// <inheritdoc />
     public override BaseBinary Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         if (reader.TokenType != JsonTokenType.String || reader.HasValueSequence)
@@ -69,6 +71,7 @@ internal sealed class BaseBinaryJsonConverter : JsonConverter<BaseBinary>
             throw new FormatException(BaseBinaryErrorCodes.EncodingInvalid);
         return BaseBinary.From(bytes);
     }
+    /// <inheritdoc />
     public override void Write(Utf8JsonWriter writer, BaseBinary value, JsonSerializerOptions options) =>
         writer.WriteBase64StringValue(value.AsSpan());
 }

@@ -327,8 +327,8 @@ internal sealed class GatewayManagementAdministration(
             BackupArtifactLabel = backupArtifactLabel,
             ExpectedGeneration = expectedGeneration,
             PurgeCollectionId = purgeCollectionId,
-            PurgeRecordIdsJson = purgeRecordIds is null ? null : JsonSerializer.SerializeToUtf8Bytes(
-                purgeRecordIds, GatewayManagementJsonContext.Default.StringArray),
+            PurgeRecordIdsJson = purgeRecordIds is null ? null : BaseBinary.From(JsonSerializer.SerializeToUtf8Bytes(
+                purgeRecordIds, GatewayManagementJsonContext.Default.StringArray)),
         };
         RecordId executionId = ExecutionId(namespaceId, id.Value);
         var execution = new GatewayAdministrativeExecutionState
@@ -342,7 +342,7 @@ internal sealed class GatewayManagementAdministration(
             actor.AuthenticationScheme, actor.AuthorizationPolicy, subjectDigest,
             expectedGeneration?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
             purgeCollectionId ?? string.Empty,
-            Convert.ToBase64String(value.PurgeRecordIdsJson ?? []))));
+            Convert.ToBase64String(value.PurgeRecordIdsJson?.ToArray() ?? []))));
         BaseSession session = Session(namespaceId);
         BaseBatchBuilder batch = session.Atomic(BaseMutationRequestIdentity.Create(
             $"gateway-administration:{namespaceId}", "gateway.create-administrative-intent",
@@ -382,7 +382,7 @@ internal sealed class GatewayManagementAdministration(
             !StringComparer.Ordinal.Equals(ensured.Value.BackupArtifactLabel, backupArtifactLabel) ||
             ensured.Value.ExpectedGeneration != expectedGeneration ||
             !StringComparer.Ordinal.Equals(ensured.Value.PurgeCollectionId, purgeCollectionId) ||
-            !OptionalBytesEqual(ensured.Value.PurgeRecordIdsJson,
+            !OptionalBytesEqual(ensured.Value.PurgeRecordIdsJson?.ToArray(),
                 purgeRecordIds is null ? null : JsonSerializer.SerializeToUtf8Bytes(
                     purgeRecordIds, GatewayManagementJsonContext.Default.StringArray)))
             throw new InvalidOperationException("The administrative idempotency key was reused with different semantics.");
@@ -643,7 +643,7 @@ internal sealed class GatewayManagementAdministration(
     {
         GatewayAdministrativeOperationIntent intent = prepared.Record!.Value;
         string[] ids = JsonSerializer.Deserialize(
-            intent.PurgeRecordIdsJson!, GatewayManagementJsonContext.Default.StringArray)
+            intent.PurgeRecordIdsJson!.ToArray(), GatewayManagementJsonContext.Default.StringArray)
             ?? throw new InvalidOperationException("The durable purge record set is invalid.");
         BaseResult<BasePurgeResult> executed = await administration.PurgeAsync(new BasePurgeRequest
         {
@@ -733,7 +733,7 @@ internal sealed class GatewayManagementAdministration(
             Kind = kind,
             ResultCode = code,
             ProviderGeneration = generation,
-            ResultJson = Encoding.UTF8.GetBytes($"{{\"code\":\"{code}\"}}"),
+            ResultJson = BaseBinary.From(Encoding.UTF8.GetBytes($"{{\"code\":\"{code}\"}}")),
         };
         BaseSession session = Session(namespaceId);
         RecordId executionId = ExecutionId(namespaceId, intentId);

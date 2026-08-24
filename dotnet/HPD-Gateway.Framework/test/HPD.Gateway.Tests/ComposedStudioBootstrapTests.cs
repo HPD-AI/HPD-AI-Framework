@@ -44,7 +44,7 @@ public sealed class ComposedStudioBootstrapTests
         Assert.Contains(snapshot.Pages, static value => value.PageId == "base.module.detail");
         Assert.Contains(snapshot.Pages, static value => value.PageId == "base.collection.records");
         BaseStudioVisiblePage operations = Assert.Single(snapshot.Pages.Where(static value => value.PageId == "base.operations"));
-        Assert.Equal(5, operations.Views.Length);
+        Assert.Equal(6, operations.Views.Length);
         Assert.Contains(operations.ObservationMethodIds,
             static value => value == "base.studio.view.base.operations.definitions.registeredReads.list");
         Assert.Equal(6, snapshot.Pages.Count(static value => value.ModuleId == "graph"));

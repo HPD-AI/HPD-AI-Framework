@@ -15,7 +15,7 @@ public sealed class GatewayManagementOptions
     public string ManagementAuthorityId { get; set; } = "local";
     public GatewayAuthorityDurability RequiredDurability { get; set; } = GatewayAuthorityDurability.ProcessLocal;
     public int MaximumTargets { get; set; } = 4_096;
-    public int MaximumCommandUtf8Bytes { get; set; } = 4 * 1024 * 1024;
+    public int MaximumCommandUtf8Bytes { get; set; } = 1_048_576;
     public int MaximumDeliveryAttempts { get; set; } = 8;
     public TimeSpan DeliveryClaimLease { get; set; } = TimeSpan.FromSeconds(30);
     public TimeSpan AdministrativeClaimLease { get; set; } = TimeSpan.FromSeconds(30);
@@ -258,7 +258,7 @@ public static class GatewayControlPlaneServiceCollectionExtensions
             throw new ArgumentOutOfRangeException(nameof(options));
         if (options.MaximumTargets is < 1 or > 65_536)
             throw new ArgumentOutOfRangeException(nameof(options.MaximumTargets));
-        if (options.MaximumCommandUtf8Bytes is < 1_024 or > 16 * 1024 * 1024)
+        if (options.MaximumCommandUtf8Bytes is < 1_024 or > 1_048_576)
             throw new ArgumentOutOfRangeException(nameof(options.MaximumCommandUtf8Bytes));
         if (options.MaximumDeliveryAttempts is < 1 or > 64)
             throw new ArgumentOutOfRangeException(nameof(options.MaximumDeliveryAttempts));

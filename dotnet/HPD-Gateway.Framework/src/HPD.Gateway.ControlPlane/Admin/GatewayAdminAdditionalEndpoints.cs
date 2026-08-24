@@ -51,7 +51,7 @@ internal static partial class GatewayAdminEndpointMapper
             ImmutableArray<GatewayAdminDiagnostic> diagnostics;
             try
             {
-                diagnostics = JsonSerializer.Deserialize(value.Value.DiagnosticsJson,
+                diagnostics = JsonSerializer.Deserialize(value.Value.DiagnosticsJson.ToArray(),
                     GatewayAdminJsonContext.Default.ImmutableArrayGatewayAdminDiagnostic);
                 if (diagnostics.IsDefault) diagnostics = [];
             }

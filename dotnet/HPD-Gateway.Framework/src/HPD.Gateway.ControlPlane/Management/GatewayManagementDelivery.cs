@@ -104,7 +104,7 @@ internal sealed class GatewayDeliveryCoordinator(
                     intent.Value.AuthorityId,
                     intent.Value.AuthorityEpoch,
                     checked((ulong)intent.Value.AuthorityVersion),
-                    ImmutableArray.Create(revision.Value.CanonicalConfigurationUtf8)), cancellationToken).ConfigureAwait(false);
+                    ImmutableArray.Create(revision.Value.CanonicalConfigurationUtf8.ToArray())), cancellationToken).ConfigureAwait(false);
 
                 GatewayNodeOutcomeKind kind = Map(node);
                 string code = node.Diagnostics.IsDefaultOrEmpty ? kind.ToString() : node.Diagnostics[0].Code;

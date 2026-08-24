@@ -101,13 +101,14 @@ public sealed class GatewayAuthoritySchemaTests
             TargetNodeId = "node",
             Operation = "submit",
             IdempotencyKey = "key",
-            Fingerprint = source,
+            Fingerprint = BaseBinary.From(source),
             StableResultCode = "accepted",
             StableOperationId = "revision",
         };
 
         source[0] = 9;
-        receipt.Fingerprint[1] = 9;
-        receipt.Fingerprint.Should().Equal(1, 2, 3);
+        byte[] copy = receipt.Fingerprint.ToArray();
+        copy[1] = 9;
+        receipt.Fingerprint.ToArray().Should().Equal(1, 2, 3);
     }
 }
