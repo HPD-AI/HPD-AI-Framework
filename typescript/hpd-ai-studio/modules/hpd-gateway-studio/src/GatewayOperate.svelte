@@ -1,12 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { useStudioModuleContext } from '@hpd-research/hpd-studio-core';
+  import { requireGatewayRuntimeContext } from './runtime-context.ts';
   import type { GatewayRevisionId } from '@hpd/gateway-client';
   import type { GatewayManagedWorkflowController, GatewayManagedWorkflowSnapshot } from './managed-workflows.ts';
   import type { GatewayOperationsController, GatewayOperationsSnapshot } from './operations.ts';
-  const moduleContext=useStudioModuleContext();
-  const controller=requireValue(moduleContext.get<GatewayManagedWorkflowController>('gateway-managed-workflow-controller'));
-  const operations=requireValue(moduleContext.get<GatewayOperationsController>('gateway-operations-controller'));
+  const moduleContext=requireGatewayRuntimeContext();
+  const controller:GatewayManagedWorkflowController=moduleContext.workflows;
+  const operations:GatewayOperationsController=moduleContext.operations;
   let managed:GatewayManagedWorkflowSnapshot=$state(controller.snapshot());
   let operating:GatewayOperationsSnapshot=$state(operations.snapshot());
   let description=$state('');

@@ -28,5 +28,7 @@
     <ProjectReference Include="../../../HPD-Auth.Framework/src/HPD.Auth.Audit/HPD.Auth.Audit.csproj" />
     <ProjectReference Include="../../src/HPD.Gateway.Standalone/HPD.Gateway.Standalone.csproj" />
     <ProjectReference Include="../../../HPD-Base.Framework/src/HPD.Base.Sqlite/HPD.Base.Sqlite.csproj" />
+    <ProjectReference Include="../../../HPD-Base.Framework/src/HPD.Base.Studio/HPD.Base.Studio.csproj" />
+    <ProjectReference Include="../../../HPD-Graph.Framework/src/HPD-Graph.Studio/HPD-Graph.Studio.csproj" />
   </ItemGroup>
 </Project>

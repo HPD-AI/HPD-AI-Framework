@@ -1,6 +1,6 @@
 <script lang="ts">
   import {onMount} from 'svelte';
-  import {useStudioModuleContext} from '@hpd-research/hpd-studio-core';
+  import {requireGatewayRuntimeContext} from './runtime-context.ts';
   import type {GatewayDeclarationController,GatewayDeclarationSnapshot} from './declaration-state.ts';
   import {diffGatewayDocuments,projectGatewayNavigator,searchGatewayNavigator} from './declaration-projections.ts';
   import type {GatewayStudioController,GatewayStudioSnapshot} from './state.ts';
@@ -8,7 +8,7 @@
   import {projectGatewayVisualFields,visualFieldNode,type GatewayVisualField} from './visual-fields.ts';
   import {applyGatewayStructureAction,projectGatewayStructureActions,type GatewayStructureAction} from './structural-editor.ts';
   import type {GatewayManagedWorkflowController,GatewayManagedWorkflowSnapshot} from './managed-workflows.ts';
-  const context=useStudioModuleContext();const declaration=requireValue(context.get<GatewayDeclarationController>('gateway-declaration-controller'));const overview=requireValue(context.get<GatewayStudioController>('gateway-controller'));const quick=requireValue(context.get<GatewayQuickRouteCoordinator>('gateway-quick-route-coordinator'));const workflows=requireValue(context.get<GatewayManagedWorkflowController>('gateway-managed-workflow-controller'));
+  const context=requireGatewayRuntimeContext();const declaration:GatewayDeclarationController=context.declaration;const overview:GatewayStudioController=context.controller;const quick:GatewayQuickRouteCoordinator=context.quickRoute;const workflows:GatewayManagedWorkflowController=context.workflows;
   let authored:GatewayDeclarationSnapshot=$state(declaration.snapshot());let remote:GatewayStudioSnapshot=$state(overview.snapshot());let managed:GatewayManagedWorkflowSnapshot=$state(workflows.snapshot());let raw=$state(declaration.snapshot().document.utf8Text);let tab=$state<'visual'|'raw'|'truth'>('visual');let search=$state('');let proposalStatus=$state('');let viewportWidth=$state(0);let quickStep=$state(1);let mutationDescription=$state('');
   let routeId=$state('route-1'),path=$state('/api/{**catch-all}'),methods=$state('GET'),hosts=$state(''),listenerId=$state(''),upstreamId=$state('upstream-1'),destinationId=$state('destination-1'),destinationAddress=$state('https://localhost:7001'),authorizationPolicy=$state(''),corsPolicy=$state(''),trafficAdmissionPolicy=$state(''),outputCachePolicy=$state('');
   onMount(()=>{const resize=()=>viewportWidth=globalThis.innerWidth;resize();globalThis.addEventListener('resize',resize);const a=declaration.subscribe(next=>{authored=next;if(raw!==next.document.utf8Text)raw=next.document.utf8Text;});const b=overview.subscribe(next=>remote=next);const c=workflows.subscribe(next=>managed=next);return()=>{globalThis.removeEventListener('resize',resize);a();b();c();};});

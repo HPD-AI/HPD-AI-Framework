@@ -134,7 +134,10 @@ interface TrackingFence {
 }
 
 export function createGatewayManagedWorkflowController(options: Options): GatewayManagedWorkflowController {
-  const randomValues = options.randomValues ?? ((buffer: Uint8Array) => crypto.getRandomValues(buffer));
+  const randomValues = options.randomValues ?? ((buffer: Uint8Array) => {
+    crypto.getRandomValues(buffer as Uint8Array<ArrayBuffer>);
+    return buffer;
+  });
   const listeners = new Set<(snapshot: GatewayManagedWorkflowSnapshot) => void>();
   const requests = new Set<AbortController>();
   const resourceRequests = new Map<string,AbortController>();
@@ -215,7 +218,7 @@ export function createGatewayManagedWorkflowController(options: Options): Gatewa
     const currentCapability = capabilityIdentity(studio);
     if (value.baseCapabilitySnapshotIdentity !== null && value.baseCapabilitySnapshotIdentity !== currentCapability) return false;
     if (value.desiredPrecondition !== null) {
-      const desired=desiredTruth(studio);if(desired===null)return false;
+      const desired=desiredTruth(studio,true);if(desired===null)return false;
       if(value.desiredPrecondition.kind==='create-only'&&desired.kind!=='absent')return false;
       if(value.desiredPrecondition.kind==='replace'&&(desired.kind!=='present'||desired.value.desiredStateToken!==value.desiredPrecondition.token))return false;
     }
@@ -371,7 +374,7 @@ export function createGatewayManagedWorkflowController(options: Options): Gatewa
 }
 
 function capabilityIdentity(value:GatewayStudioSnapshot):string|null{const host=value.observation?.hostCapabilities;return host?.state==='value'&&host.value!==undefined?`${host.value.snapshotAlgorithm}:${host.value.snapshotValue}`:null;}
-function desiredTruth(value:GatewayStudioSnapshot):{readonly kind:'present';readonly value:GatewayDesiredProjection}|{readonly kind:'absent'}|null{if(value.phase!=='ready'||value.stale||value.refreshing||value.observation===null)return null;const desired=value.observation.desired;if(desired.state==='value'&&desired.value!==undefined)return{kind:'present',value:desired.value};return desired.state==='not-observed'?{kind:'absent'}:null;}
+function desiredTruth(value:GatewayStudioSnapshot,retainDuringRefresh=false):{readonly kind:'present';readonly value:GatewayDesiredProjection}|{readonly kind:'absent'}|null{if(value.phase!=='ready'||value.stale||!retainDuringRefresh&&value.refreshing||value.observation===null)return null;const desired=value.observation.desired;if(desired.state==='value'&&desired.value!==undefined)return{kind:'present',value:desired.value};return desired.state==='not-observed'?{kind:'absent'}:null;}
 function normalizedDescription(value:string|undefined):string|null|undefined{if(value===undefined||value.length===0)return null;return value.length<=1_024?value:undefined;}
 function validResource(value:string):boolean{return value.length>0&&value.normalize('NFC')===value&&encoder.encode(value).byteLength<=128&&![...value].some(character=>/\p{Cc}/u.test(character));}
 function validImported(value:string):boolean{const parsed=parseGatewayJson(value);return parsed.ok&&validateGatewaySchema(parsed.graph).diagnostics.length===0;}

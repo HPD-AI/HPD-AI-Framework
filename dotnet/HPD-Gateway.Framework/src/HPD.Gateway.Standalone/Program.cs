@@ -125,13 +125,7 @@ builder.Services.AddHpdGatewayControlPlane(controlPlane => controlPlane
         options.CapabilityPolicies = GatewayAdminCapabilities.All.ToImmutableDictionary(
             static capability => capability, static _ => adminPolicy, StringComparer.Ordinal);
     })
-    .AddStudio(options =>
-    {
-        options.RoutePrefix = "/studio";
-        options.ApiBasePath = "/management/gateway/v1";
-        options.EndpointSurfaceId = "gateway-admin-v1";
-        options.RequireManagementListener = true;
-    })
+    .AddStudio()
     .AddHpdAuth(adminProfile));
 builder.Services.AddSingleton(new StandaloneManagedTarget(inputs.InitialCandidate.NamespaceId, inputs.InitialCandidate.TargetNodeId));
 builder.Services.AddHostedService<StandaloneManagementInitializer>();

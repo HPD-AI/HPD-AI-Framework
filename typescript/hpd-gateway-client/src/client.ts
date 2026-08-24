@@ -17,6 +17,35 @@ export interface GatewayClientOptions {
 export interface GatewayCallOptions { readonly signal?: AbortSignal; }
 export type GatewayClient = { readonly [K in keyof GatewayOperationTypes]: (input: GatewayOperationTypes[K]["input"], options?: GatewayCallOptions) => Promise<GatewayOperationTypes[K]["result"]> };
 
+/** Host-only request presented to the sealed Studio transport. It contains no origin or authentication material. */
+export interface GatewayStudioTransportRequest {
+  readonly operation: keyof GatewayOperationTypes;
+  readonly purpose: 'observation' | 'commandPreview' | 'commandExecution';
+  readonly method: string;
+  readonly relativePathAndQuery: string;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly body: string | undefined;
+  readonly maximumResponseBytes: number;
+  readonly deadlineMilliseconds: number;
+  readonly signal: AbortSignal;
+}
+/** Host-owned same-origin authenticated transport admitted by the Gateway generated contract. */
+export interface GatewayStudioTransport {
+  execute(request: GatewayStudioTransportRequest): Promise<Response>;
+}
+/** Immutable authority passed only to the Gateway static client activator by the Studio shell. */
+export interface GatewayStudioClientHostContext {
+  readonly endpointSurfaceId: string;
+  readonly principalGeneration: bigint;
+  readonly authenticationSessionChecksum: string;
+  readonly signal: AbortSignal;
+  readonly transport: GatewayStudioTransport;
+  readonly limits: Readonly<{ readonly maximumOperations: number; readonly maximumRequestBytes: number;
+    readonly maximumResponseBytes: number; readonly maximumConcurrentRequests: number;
+    readonly acquisitionDeadlineMilliseconds: number; readonly operationDeadlineMilliseconds: number;
+    readonly disposalDeadlineMilliseconds: number }>;
+}
+
 type Operation = (typeof gatewayOperations)[number];
 type PreparedInput = { readonly body: string | undefined; readonly parameters: ReadonlyMap<string, unknown> };
 const encoder = new TextEncoder();
@@ -35,6 +64,48 @@ export function createGatewayClient(options: GatewayClientOptions): GatewayClien
   const defaultSignal = options.defaultSignal;
   return Object.freeze(Object.fromEntries(gatewayOperations.map(operation => [operation.operation,
     (input: unknown, call?: GatewayCallOptions) => execute(baseUrl, apiBasePath, getAccessToken, fetchImplementation, defaultSignal, operation, input, call?.signal)]))) as GatewayClient;
+}
+
+/** Creates the generated client over shell-owned transport without disclosing fetch, URLs, or credentials. */
+export function createGatewayStudioClient(context: GatewayStudioClientHostContext): GatewayClient {
+  if (!context || context.endpointSurfaceId !== 'gateway.admin.v1' || context.principalGeneration < 1n ||
+      !/^[a-f0-9]{64}$/u.test(context.authenticationSessionChecksum) || context.signal.aborted ||
+      !context.transport || typeof context.transport.execute !== 'function' || !validStudioLimits(context.limits))
+    throw new TypeError('Gateway Studio client host authority is invalid.');
+  let concurrent = 0;
+  return Object.freeze(Object.fromEntries(gatewayOperations.map(operation => [operation.operation,
+    async (input: unknown, call?: GatewayCallOptions) => {
+      const signal = call?.signal ?? context.signal;
+      if (signal.aborted) return canceled();
+      if (concurrent >= context.limits.maximumConcurrentRequests) return transport();
+      if (!isRecord(input)) return protocol('schema-mismatch', null, null, {});
+      let prepared: PreparedInput;
+      try { prepared = validateInput(operation, input); }
+      catch (error) { return protocol(error instanceof RequestBodyBoundExceeded ? 'request-too-large' : 'schema-mismatch', null, null, {}); }
+      if (prepared.body !== undefined && encoder.encode(prepared.body).byteLength > context.limits.maximumRequestBytes)
+        return protocol('request-too-large', null, null, {});
+      let request: Omit<GatewayStudioTransportRequest, 'maximumResponseBytes' | 'deadlineMilliseconds' | 'signal'>;
+      try { request = buildStudioRequest(operation, prepared); }
+      catch { return protocol('schema-mismatch', null, null, {}); }
+      concurrent++;
+      try {
+        const response = await context.transport.execute(Object.freeze({ ...request,
+          maximumResponseBytes: context.limits.maximumResponseBytes,
+          deadlineMilliseconds: context.limits.operationDeadlineMilliseconds, signal }));
+        return await decodeResponse(operation, response, signal, context.limits.maximumResponseBytes);
+      } catch { return signal.aborted ? canceled() : transport(); }
+      finally { concurrent--; }
+    }]))) as GatewayClient;
+}
+
+function validStudioLimits(limits: GatewayStudioClientHostContext['limits']): boolean {
+  return !!limits && Number.isSafeInteger(limits.maximumOperations) && limits.maximumOperations >= gatewayOperations.length && limits.maximumOperations <= 4096 &&
+    Number.isSafeInteger(limits.maximumRequestBytes) && limits.maximumRequestBytes >= 1 && limits.maximumRequestBytes <= 67_108_864 &&
+    Number.isSafeInteger(limits.maximumResponseBytes) && limits.maximumResponseBytes >= 1 && limits.maximumResponseBytes <= 67_108_864 &&
+    Number.isSafeInteger(limits.maximumConcurrentRequests) && limits.maximumConcurrentRequests >= 1 && limits.maximumConcurrentRequests <= 256 &&
+    Number.isSafeInteger(limits.acquisitionDeadlineMilliseconds) && limits.acquisitionDeadlineMilliseconds >= 1 && limits.acquisitionDeadlineMilliseconds <= 30_000 &&
+    Number.isSafeInteger(limits.operationDeadlineMilliseconds) && limits.operationDeadlineMilliseconds >= 1 && limits.operationDeadlineMilliseconds <= 300_000 &&
+    Number.isSafeInteger(limits.disposalDeadlineMilliseconds) && limits.disposalDeadlineMilliseconds >= 1 && limits.disposalDeadlineMilliseconds <= 30_000;
 }
 
 async function execute(baseUrl: URL, apiBasePath: string, getAccessToken: GatewayAuthenticationProvider["getAccessToken"], fetchImplementation: typeof fetch,
@@ -64,13 +135,18 @@ async function execute(baseUrl: URL, apiBasePath: string, getAccessToken: Gatewa
   let response: Response;
   try { response = await fetchImplementation(request.url, request.init); }
   catch { return signal.aborted ? canceled() : transport(); }
+  return decodeResponse(operation, response, signal, maximumBodyBytes);
+}
+
+async function decodeResponse(operation: Operation, response: Response, signal: AbortSignal,
+  responseByteLimit: number): Promise<GatewayOperationResult<unknown, 200 | 201 | 202, number>> {
   const headerResult = responseHeaders(response.headers);
   if (!headerResult.ok) { cancelResponse(response); return protocol("response-too-large", response.status, null, {}); }
   const headers = headerResult.value;
   const mediaType = normalizedMediaType(response.headers.get("content-type"));
   if (mediaType === undefined) { cancelResponse(response); return protocol("unexpected-media-type", response.status, null, headers); }
   if (mediaType !== "application/json") { cancelResponse(response); return protocol("unexpected-media-type", response.status, mediaType, headers); }
-  const body = await readBody(response, signal);
+  const body = await readBody(response, signal, responseByteLimit);
   if (body.kind === "large") return protocol("response-too-large", response.status, mediaType, headers);
   if (body.kind === "canceled") return canceled();
   if (body.kind === "transport") return transport();
@@ -89,6 +165,38 @@ async function execute(baseUrl: URL, apiBasePath: string, getAccessToken: Gatewa
   const errorRef = "#/components/schemas/HPD_Gateway_Admin_GatewayAdminError";
   if (!validateWireValue(errorRef, value)) return protocol("error-envelope-invalid", response.status, mediaType, headers, correlationId);
   return { ok: false, kind: "http", status: response.status, error: value as GatewayAdminError, correlationId, headers };
+}
+
+function buildStudioRequest(operation: Operation, input: PreparedInput): Omit<GatewayStudioTransportRequest,
+  'maximumResponseBytes' | 'deadlineMilliseconds' | 'signal'> {
+  const contractBasePath = '/management/gateway/v1';
+  if (!operation.path.startsWith(`${contractBasePath}/`)) throw new TypeError('Operation path is outside the Gateway Admin contract.');
+  const path = operation.path.slice(contractBasePath.length).replace(/\{([^}]+)\}/gu, (_, key: string) => {
+    const value = input.parameters.get(parameterKey('path', key));
+    if (typeof value !== 'string') throw new TypeError('Missing path parameter.');
+    return encodeURIComponent(value);
+  });
+  const query = new URLSearchParams();
+  for (const constraint of operation.parameterConstraints) {
+    if (constraint.location !== 'query') continue;
+    const value = input.parameters.get(parameterKey('query', constraint.name));
+    if (value !== undefined) query.set(constraint.name, String(value));
+  }
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  const correlationId = input.parameters.get(parameterKey('header', 'X-Correlation-ID'));
+  const idempotencyKey = input.parameters.get(parameterKey('header', 'Idempotency-Key'));
+  const desiredPrecondition = input.parameters.get(parameterKey('header', 'If-Match'));
+  if (typeof correlationId === 'string') headers['X-Correlation-ID'] = correlationId;
+  if (typeof idempotencyKey === 'string') headers['Idempotency-Key'] = idempotencyKey;
+  if (isRecord(desiredPrecondition) && desiredPrecondition.kind === 'replace' && typeof desiredPrecondition.token === 'string')
+    headers['If-Match'] = `"${desiredPrecondition.token}"`;
+  if (input.body !== undefined) headers['Content-Type'] = (operation.requestBody.mediaTypes as readonly string[]).includes('application/json')
+    ? 'application/json' : operation.requestBody.mediaTypes[0] ?? 'application/json';
+  const queryText = query.toString();
+  const purpose = operation.mutation ? 'commandExecution' : operation.method === 'POST' ? 'commandPreview' : 'observation';
+  return Object.freeze({ operation: operation.operation, purpose, method: operation.method,
+    relativePathAndQuery: queryText.length === 0 ? path : `${path}?${queryText}`,
+    headers: Object.freeze(headers), body: input.body });
 }
 
 function validMutationResponse(kind: Operation["mutationResponse"], value: unknown): boolean {
@@ -198,9 +306,9 @@ function validateInput(operation: Operation, input: Record<string, unknown>): Pr
   return { body: serialized, parameters: parameterValues };
 }
 
-async function readBody(response: Response, signal: AbortSignal): Promise<{ kind: "value"; value: Uint8Array } | { kind: "large" } | { kind: "transport" } | { kind: "canceled" }> {
+async function readBody(response: Response, signal: AbortSignal, limit = maximumBodyBytes): Promise<{ kind: "value"; value: Uint8Array } | { kind: "large" } | { kind: "transport" } | { kind: "canceled" }> {
   const length = response.headers.get("content-length");
-  if (length !== null && /^\d+$/u.test(length) && Number(length) > maximumBodyBytes) { cancelResponse(response); return { kind: "large" }; }
+  if (length !== null && /^\d+$/u.test(length) && Number(length) > limit) { cancelResponse(response); return { kind: "large" }; }
   const reader = response.body?.getReader();
   if (!reader) return { kind: "value", value: new Uint8Array() };
   const chunks: Uint8Array[] = []; let total = 0;
@@ -208,7 +316,7 @@ async function readBody(response: Response, signal: AbortSignal): Promise<{ kind
     while (true) {
       const next = await reader.read(); if (next.done) break;
       total += next.value.byteLength;
-      if (total > maximumBodyBytes) { cancelReader(reader); return { kind: "large" }; }
+      if (total > limit) { cancelReader(reader); return { kind: "large" }; }
       chunks.push(next.value);
     }
   } catch { return { kind: signal.aborted ? "canceled" : "transport" }; }

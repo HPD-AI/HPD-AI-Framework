@@ -1,16 +1,16 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { useStudioModuleContext } from '@hpd-research/hpd-studio-core';
+  import { requireGatewayRuntimeContext } from './runtime-context.ts';
   import type { GatewayStudioController, GatewayStudioSnapshot } from './state.ts';
   import type { GatewayManagedWorkflowController, GatewayManagedWorkflowSnapshot } from './managed-workflows.ts';
   import type { GatewayOperationsController } from './operations.ts';
-  import type { GatewayObservabilityLink } from './module.ts';
+  import type { GatewayObservabilityLink } from './observability-links.ts';
   import { projectGatewayDiscovery, summarizeGatewayDiscovery } from './discovery-projection.ts';
-  const context=useStudioModuleContext();
-  const studio=requireValue(context.get<GatewayStudioController>('gateway-controller'));
-  const managedController=requireValue(context.get<GatewayManagedWorkflowController>('gateway-managed-workflow-controller'));
-  const operations=requireValue(context.get<GatewayOperationsController>('gateway-operations-controller'));
-  const links=context.get<readonly GatewayObservabilityLink[]>('gateway-observability-links')??[];
+  const context=requireGatewayRuntimeContext();
+  const studio:GatewayStudioController=context.controller;
+  const managedController:GatewayManagedWorkflowController=context.workflows;
+  const operations:GatewayOperationsController=context.operations;
+  const links:readonly GatewayObservabilityLink[]=context.observabilityLinks;
   let snapshot:GatewayStudioSnapshot=$state(studio.snapshot());
   let managed:GatewayManagedWorkflowSnapshot=$state(managedController.snapshot());
   let exportFailure=$state(false);

@@ -134,14 +134,13 @@ public sealed class GatewayControlPlaneBuilder
         return this;
     }
 
-    public GatewayControlPlaneBuilder AddStudio(Action<GatewayStudioEndpointOptions>? configure = null)
+    /// <summary>Adds Gateway's immutable Studio contribution to the shared HPD Studio graph.</summary>
+    public GatewayControlPlaneBuilder AddStudio()
     {
-        if (Registration.StudioOptions is not null)
+        if (Registration.StudioConfigured)
             throw new InvalidOperationException("Gateway Studio is already configured.");
-        var options = new GatewayStudioEndpointOptions();
-        configure?.Invoke(options);
         GatewayStudioComposition.AddGatewayStudioCore(Services.AddHPDAIPlatform());
-        Registration.StudioOptions = options.Snapshot();
+        Registration.StudioConfigured = true;
         return this;
     }
 }
@@ -173,16 +172,10 @@ public static class GatewayControlPlaneServiceCollectionExtensions
     {
         if (!registration.AuthorityConfigured)
             throw new InvalidOperationException("Select exactly one explicit Gateway control-plane authority.");
-        if (registration.StudioOptions is not { } studio)
+        if (!registration.StudioConfigured)
             return;
         if (registration.AdminOptions is not { } admin)
             throw new InvalidOperationException("Gateway Studio requires the Gateway Admin API.");
-        if (!StringComparer.Ordinal.Equals(admin.RoutePrefix, studio.ApiBasePath))
-            throw new InvalidOperationException("Gateway Studio ApiBasePath must exactly match the Gateway Admin RoutePrefix.");
-        if (!StringComparer.Ordinal.Equals(admin.EndpointSurfaceId, studio.EndpointSurfaceId))
-            throw new InvalidOperationException("Gateway Studio and the Gateway Admin API must use the same endpoint surface ID.");
-        if (admin.RequireManagementListener != studio.RequireManagementListener)
-            throw new InvalidOperationException("Gateway Studio and the Gateway Admin API must use the same management-listener requirement.");
     }
 
     private static void Commit(IServiceCollection destination, IServiceCollection staged)

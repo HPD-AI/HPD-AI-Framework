@@ -197,6 +197,7 @@ internal static partial class GatewayAdminEndpointMapper
         RequestDelegate handler)
     {
         GatewayAdminEndpointDescriptor descriptor = GatewayAdminEndpointLedger.V1.Single(value => value.Operation == operation);
+        ((IEndpointRouteBuilder)group).ServiceProvider.GetRequiredService<GatewayAdminHandlerCatalog>().Register(operation, handler);
         IEndpointConventionBuilder mapped = group.MapMethods(
                 descriptor.Pattern, [descriptor.Method], (RequestDelegate)Dispatch)
             .WithName("HpdGatewayAdmin." + descriptor.Operation)
@@ -213,6 +214,11 @@ internal static partial class GatewayAdminEndpointMapper
     {
         RequestDelegate handler = context.GetEndpoint()!.Metadata
             .GetRequiredMetadata<GatewayAdminHandlerMetadata>().Handler;
+        await ExecuteHandlerAsync(context, handler).ConfigureAwait(false);
+    }
+
+    internal static async Task ExecuteHandlerAsync(HttpContext context, RequestDelegate handler)
+    {
         try { await handler(context).ConfigureAwait(false); }
         catch (GatewayAdminRequestException exception) when (!context.Response.HasStarted)
         {

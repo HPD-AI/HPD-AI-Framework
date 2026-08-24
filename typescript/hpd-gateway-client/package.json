@@ -5,7 +5,10 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./studio-host": { "types": "./dist/studio-host.d.ts", "import": "./dist/studio-host.js" }
+  },
   "files": ["dist", "README.md"],
   "scripts": {
     "clean": "rm -rf dist",
