@@ -9,7 +9,7 @@ test("generation validates its digest, emits the complete surface, and typecheck
   const output = new URL("../test-output", import.meta.url).pathname;
   await rm(output, { recursive: true, force: true });
   const base = {
-    protocol: { protocolMajor: 2, protocolMinor: 1, minimumClientMinor: 0, snapshotSchemaVersion: 7, applicationId: "test", schemaGeneration: "1", endpointInventoryDigest: `sha256:${"1".repeat(64)}`, errorTaxonomyVersion: 1, realtimeProtocolVersion: 2, liveQueryProtocolVersion: 1, serializationProfile: "base-json-v1", generatedAt: "" },
+    protocol: { protocolMajor: 2, protocolMinor: 1, minimumClientMinor: 0, snapshotSchemaVersion: 8, applicationId: "test", schemaGeneration: "1", endpointInventoryDigest: `sha256:${"1".repeat(64)}`, errorTaxonomyVersion: 1, realtimeProtocolVersion: 2, liveQueryProtocolVersion: 1, serializationProfile: "base-json-v1", generatedAt: "" },
     application: { audience: "application", applicationId: "test", basePath: "/base" },
     schema: {
       generation: "1",
@@ -32,7 +32,7 @@ test("generation validates its digest, emits the complete surface, and typecheck
     },
     endpoints: [], capabilities: [],
     registeredReads: [{ id: "by-title", generatedName: "byTitle", endpointId: "base.reads.public.by-title", parameterTypeId: "read.by-title.parameters", rowTypeId: "read.by-title.row", maxPageSize: 100, watchable: false }],
-    dependencyTemplates: [], vectorIndexes: [{ collectionId: "documents", id: "semantic", generatedName: "semantic", dimensions: 2, measure: "cosineSimilarity", filterFieldIds: [] }], textIndexes: [{ collectionId: "documents", id: "documents.content", version: 1, generatedName: "content", analyzerId: "hpd.base.text.analyzer.unicode-case-folded.v1", scoringId: "hpd.base.text.scoring.candidate-local.v1", audience: "Application", fields: [{ id: "title", generatedName: "storedTitle", wireName: "stored_title", weight: 4 }], filterFields: [{ id: "title", generatedName: "storedTitle", wireName: "stored_title", valueKind: "String" }], maximumResults: 100, maximumQueryNodes: 64, maximumQueryDepth: 8, maximumPhraseTerms: 16, maximumQueryBytes: 8192, maximumFilterNodes: 64, maximumFilterDepth: 8, maximumFilterLiterals: 64, maximumInValues: 32, maximumSecondaryOrderFields: 8, maximumCursorBytes: 2048 }], selectionMutations: [{ id: "claim", version: 1, checksum: "sha256:test", collectionId: "documents", generatedName: "claimPending", mutationKind: "mergePatch", endpointId: "base.selection-mutations.claim.execute", route: "/base/selection-mutations/claim/execute", maximumSelectedRecords: 10, maximumRequestBodyBytes: 65536, requestTypeId: "selection.claim.request", resultTypeId: "base.selection.result" }], moduleMutations: [], subjectLifecycleConsumers: [], errors: []
+    dependencyTemplates: [], vectorIndexes: [{ collectionId: "documents", id: "semantic", generatedName: "semantic", dimensions: 2, measure: "cosineSimilarity", filterFieldIds: [] }], textIndexes: [{ collectionId: "documents", id: "documents.content", version: 1, generatedName: "content", analyzerId: "hpd.base.text.analyzer.unicode-case-folded.v1", scoringId: "hpd.base.text.scoring.candidate-local.v1", audience: "Application", fields: [{ id: "title", generatedName: "storedTitle", wireName: "stored_title", weight: 4 }], filterFields: [{ id: "title", generatedName: "storedTitle", wireName: "stored_title", valueKind: "String" }], maximumResults: 100, maximumQueryNodes: 64, maximumQueryDepth: 8, maximumPhraseTerms: 16, maximumQueryBytes: 8192, maximumFilterNodes: 64, maximumFilterDepth: 8, maximumFilterLiterals: 64, maximumInValues: 32, maximumSecondaryOrderFields: 8, maximumCursorBytes: 2048 }], selectionMutations: [{ id: "claim", version: 1, checksum: "sha256:test", collectionId: "documents", generatedName: "claimPending", mutationKind: "mergePatch", endpointId: "base.selection-mutations.claim.execute", route: "/base/selection-mutations/claim/execute", maximumSelectedRecords: 10, maximumRequestBodyBytes: 65536, requestTypeId: "selection.claim.request", resultTypeId: "base.selection.result" }], moduleMutations: [], subjectLifecycleConsumers: [], semanticActivations: [], errors: []
   };
   const snapshot = { ...base, protocol: { ...base.protocol, generatedAt: "2026-01-01T00:00:00Z" }, digest: structuralDigest(base) };
   await generate({ snapshot, out: output, expectedAudience: "application" });
@@ -60,7 +60,7 @@ test("generation validates its digest, emits the complete surface, and typecheck
 });
 
 test("type graph validation fails closed on malformed kinds, bounds, uniqueness, and union discriminators", () => {
-  const snapshot = types => { const base = { protocol: { protocolMajor: 2, protocolMinor: 1, minimumClientMinor: 0, snapshotSchemaVersion: 7, applicationId: "test", schemaGeneration: "1", endpointInventoryDigest: `sha256:${"1".repeat(64)}`, errorTaxonomyVersion: 1, realtimeProtocolVersion: 2, liveQueryProtocolVersion: 1, serializationProfile: "base-json-v1", generatedAt: "" }, application: { audience: "application", applicationId: "test", basePath: "/base" }, schema: { generation: "1", collections: [], types }, endpoints: [], capabilities: [], registeredReads: [], dependencyTemplates: [], vectorIndexes: [], textIndexes: [], selectionMutations: [], moduleMutations: [], subjectLifecycleConsumers: [], errors: [] }; return { ...base, digest: structuralDigest(base) }; };
+  const snapshot = types => { const base = { protocol: { protocolMajor: 2, protocolMinor: 1, minimumClientMinor: 0, snapshotSchemaVersion: 8, applicationId: "test", schemaGeneration: "1", endpointInventoryDigest: `sha256:${"1".repeat(64)}`, errorTaxonomyVersion: 1, realtimeProtocolVersion: 2, liveQueryProtocolVersion: 1, serializationProfile: "base-json-v1", generatedAt: "" }, application: { audience: "application", applicationId: "test", basePath: "/base" }, schema: { generation: "1", collections: [], types }, endpoints: [], capabilities: [], registeredReads: [], dependencyTemplates: [], vectorIndexes: [], textIndexes: [], selectionMutations: [], moduleMutations: [], subjectLifecycleConsumers: [], semanticActivations: [], errors: [] }; return { ...base, digest: structuralDigest(base) }; };
   assert.throws(() => validate(snapshot([{ id: "x", node: { kind: "unknown" } }])), /typeInvalid/);
   assert.throws(() => validate(snapshot([{ id: "x", node: { kind: "string", format: "plain", minLength: 2, maxLength: 1 } }])), /typeInvalid/);
   assert.throws(() => validate(snapshot([{ id: "x", node: { kind: "enum", values: ["a", "a"] } }])), /typeInvalid/);
@@ -77,7 +77,7 @@ test("service generation emits lifecycle workers while application generation re
   const output = new URL("../test-output-lifecycle", import.meta.url).pathname;
   await rm(output, { recursive: true, force: true });
   const base = {
-    protocol: { protocolMajor: 2, protocolMinor: 1, minimumClientMinor: 0, snapshotSchemaVersion: 7, applicationId: "test", schemaGeneration: "1", endpointInventoryDigest: `sha256:${"2".repeat(64)}`, errorTaxonomyVersion: 1, realtimeProtocolVersion: 2, liveQueryProtocolVersion: 1, serializationProfile: "base-json-v1", generatedAt: "" },
+    protocol: { protocolMajor: 2, protocolMinor: 1, minimumClientMinor: 0, snapshotSchemaVersion: 8, applicationId: "test", schemaGeneration: "1", endpointInventoryDigest: `sha256:${"2".repeat(64)}`, errorTaxonomyVersion: 1, realtimeProtocolVersion: 2, liveQueryProtocolVersion: 1, serializationProfile: "base-json-v1", generatedAt: "" },
     application: { audience: "service", applicationId: "test", basePath: "/base" }, schema: { generation: "1", collections: [], types: [
       { id: "base.subjectLifecycle.authorityEpoch", node: { kind: "subject-lifecycle-authority-epoch" } },
       { id: "base.subjectLifecycle.incarnation", node: { kind: "subject-lifecycle-incarnation" } },
@@ -86,7 +86,7 @@ test("service generation emits lifecycle workers while application generation re
       { id: "base.subjectLifecycle.fact", node: { kind: "object", properties: [], additionalProperties: false } },
       { id: "base.subjectLifecycle.page", node: { kind: "object", properties: [], additionalProperties: false } },
     ] }, endpoints: [], capabilities: [], registeredReads: [], dependencyTemplates: [], vectorIndexes: [], textIndexes: [], selectionMutations: [], moduleMutations: [],
-    subjectLifecycleConsumers: [{ id: "profiles.user-lifecycle", version: 1, checksum: "a".repeat(64), generatedName: "profilesUserLifecycle", audience: "service", contractId: "auth.user", contractVersion: 1, observedStates: ["inactive", "tombstoned", "retired"], readRoute: "/base/subject-lifecycle/feed/read", checkpointRoute: "/base/subject-lifecycle/feed/checkpoints", reconciliationRoute: null, retirementParticipation: "observeOnly", acknowledgementRoute: null, retirementChecksum: null, maximumFactsPerPage: 256, maximumResultBytes: 1048576 }], errors: []
+    subjectLifecycleConsumers: [{ id: "profiles.user-lifecycle", version: 1, checksum: "a".repeat(64), generatedName: "profilesUserLifecycle", audience: "service", contractId: "auth.user", contractVersion: 1, observedStates: ["inactive", "tombstoned", "retired"], readRoute: "/base/subject-lifecycle/feed/read", checkpointRoute: "/base/subject-lifecycle/feed/checkpoints", reconciliationRoute: null, retirementParticipation: "observeOnly", acknowledgementRoute: null, retirementChecksum: null, maximumFactsPerPage: 256, maximumResultBytes: 1048576 }], semanticActivations: [], errors: []
   };
   const snapshot = { ...base, digest: structuralDigest(base) };
   await generate({ snapshot, out: output, expectedAudience: "service" });
@@ -95,5 +95,34 @@ test("service generation emits lifecycle workers while application generation re
   assert.match(workers, /BaseSubjectLifecycleMutationIdentity/u);
   const browserBase = { ...base, application: { ...base.application, audience: "application" } };
   assert.throws(() => validate({ ...browserBase, digest: structuralDigest(browserBase) }), /audienceMismatch/u);
+  await rm(output, { recursive: true, force: true });
+});
+
+test("control generation binds semantic commands to graph definitions and omits them elsewhere", async () => {
+  const output = new URL("../test-output-semantic", import.meta.url).pathname;
+  await rm(output, { recursive: true, force: true });
+  const endpoint = (id, operation, route, requestTypeId, responseTypeId) => ({ id, method: "POST", route, audience: "controlPlane", operation, capability: "base.semanticActivation.maintenance", requestTypeId, responseTypeId, successStatuses: [200], errorCodes: ["base.semanticActivation.invalid"], maximumRequestBodyBytes: 1048576, responseMode: "json", replay: "none", resume: "none", cache: "none" });
+  const base = {
+    protocol: { protocolMajor: 2, protocolMinor: 1, minimumClientMinor: 0, snapshotSchemaVersion: 8, applicationId: "test", schemaGeneration: "1", endpointInventoryDigest: `sha256:${"3".repeat(64)}`, errorTaxonomyVersion: 1, realtimeProtocolVersion: 2, liveQueryProtocolVersion: 1, serializationProfile: "base-json-v1", generatedAt: "" },
+    application: { audience: "controlPlane", applicationId: "test", basePath: "/base" }, schema: { generation: "1", collections: [], types: [] },
+    endpoints: [
+      endpoint("base.semanticActivation.control.read", "SemanticActivationControlRead", "/base/control/stores/{storeId}/semantic-activations/{definitionId}/control", "base.semanticActivation.control.read.request", "base.semanticActivation.control.descriptor"),
+      endpoint("base.semanticActivation.compact", "SemanticActivationCompact", "/base/control/stores/{storeId}/semantic-activations:compact", "base.semanticActivation.control.command", "base.semanticActivation.control.result"),
+      endpoint("base.semanticActivation.maintenance.resume", "SemanticActivationMaintenanceResume", "/base/control/stores/{storeId}/semantic-activations/maintenance:resume", "base.semanticActivation.control.command", "base.semanticActivation.control.result"),
+      endpoint("base.semanticActivation.maintenance.resolve", "SemanticActivationMaintenanceResolve", "/base/control/stores/{storeId}/semantic-activations/maintenance:resolve", "base.semanticActivation.control.resolve.request", "base.semanticActivation.control.result"),
+      endpoint("base.semanticActivation.remove", "SemanticActivationRemove", "/base/control/stores/{storeId}/semantic-activations:remove", "base.semanticActivation.control.command", "base.semanticActivation.control.result")
+    ], capabilities: [{ id: "base.semanticActivation.maintenance", available: true }], registeredReads: [], dependencyTemplates: [], vectorIndexes: [], textIndexes: [], selectionMutations: [], moduleMutations: [], subjectLifecycleConsumers: [],
+    semanticActivations: [{ id: "auth.reconcile", version: 1, checksum: Buffer.alloc(32, 7).toString("base64"), generatedName: "authReconcile", compactable: true, removable: true }], errors: []
+  };
+  const snapshot = { ...base, digest: structuralDigest(base) };
+  await generate({ snapshot, out: output, expectedAudience: "controlPlane" });
+  const semantic = await readFile(`${output}/semantic-activations.ts`, "utf8");
+  assert.match(semantic, /authReconcile/u); assert.match(semantic, /semanticActivationDefinition/u);
+  await writeFile(`${output}/consumer.ts`, 'import { createBaseClient } from "@hpd/base-client"; import { schema } from "./schema.js"; const client = createBaseClient({ schema, url: "https://example.test/base" }); const handle = client.$control.semanticActivations.authReconcile; handle.read("primary"); handle.compact("primary", null as never, "request-1"); handle.remove("primary", null as never, "request-2"); handle.resume("primary", null as never, "request-3"); handle.resolve("primary", null as never); // @ts-expect-error raw maintenance DTOs are not client authority\nclient.$control.executeSemanticActivationMaintenance;\n');
+  await writeFile(`${output}/tsconfig.json`, JSON.stringify({ compilerOptions: { target: "ES2024", module: "NodeNext", moduleResolution: "NodeNext", strict: true, noUncheckedIndexedAccess: true, exactOptionalPropertyTypes: true, noEmit: true }, include: ["./*.ts"] }));
+  const typeScriptRoot = new URL("../node_modules/typescript/", import.meta.url).pathname;
+  await promisify(execFile)(process.execPath, [`${typeScriptRoot}bin/tsc`, "--project", `${output}/tsconfig.json`, "--noEmit", "--pretty", "false"]);
+  const application = { ...base, application: { ...base.application, audience: "application" } };
+  assert.throws(() => validate({ ...application, digest: structuralDigest(application) }), /audienceMismatch/u);
   await rm(output, { recursive: true, force: true });
 });

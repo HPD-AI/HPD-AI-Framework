@@ -15,10 +15,13 @@
     "README.md"
   ],
   "peerDependencies": {
+    "@hpd/base-client": "0.2.0",
     "@hpd-research/hpd-studio-core": "0.1.0",
     "svelte": "^5.0.0"
   },
   "devDependencies": {
+    "@hpd/base-client": "file:../../../hpd-base-client",
+    "@hpd-research/hpd-studio-core": "file:../../../hpd-studio-core",
     "svelte": "^5.0.0",
     "typescript": "^5.0.0"
   },

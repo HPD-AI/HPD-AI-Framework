@@ -2,7 +2,7 @@ import { mount } from 'svelte';
 import { composeStudio, type StudioModuleRegistration } from '@hpd-research/hpd-studio-core';
 import { agentStudioModule } from '@hpd-research/hpd-agent-studio';
 import { authStudioModule } from '@hpd-research/hpd-auth-studio';
-import { baseStudioModule } from '@hpd-research/hpd-base-studio';
+import { createBaseStudioModule } from '@hpd-research/hpd-base-studio';
 import { graphStudioModule } from '@hpd-research/hpd-graph-studio';
 import { createGatewayStudioModule } from '@hpd-research/hpd-gateway-studio';
 import { createGatewayClient } from '@hpd/gateway-client';
@@ -27,11 +27,10 @@ const gatewayClient = createGatewayClient({
     return value === null ? null : { value };
   } }
 });
-
 const modules: StudioModuleRegistration[] = [
   agentStudioModule,
   authStudioModule,
-  baseStudioModule,
+  createBaseStudioModule(),
   graphStudioModule,
   createGatewayStudioModule({ client: gatewayClient }),
   mlStudioModule,

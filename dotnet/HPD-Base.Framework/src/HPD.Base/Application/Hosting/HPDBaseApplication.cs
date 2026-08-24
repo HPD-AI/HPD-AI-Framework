@@ -166,7 +166,8 @@ internal sealed class DefaultBaseProviderBootstrap(
     HPDBaseInstalledFeatures features,
     IBaseApplicationLifetime lifetime,
     Microsoft.Extensions.Options.IOptions<HPDBaseTokenProtectionOptions> tokenOptions,
-    TimeProvider timeProvider) : IBaseProviderBootstrap
+    TimeProvider timeProvider,
+    BaseInstalledSemanticActivationProviderOwner semanticCertificationOwner) : IBaseProviderBootstrap
 {
     private readonly Lock _gate = new();
     private Task? _initialization;
@@ -235,6 +236,51 @@ internal sealed class DefaultBaseProviderBootstrap(
         await ValidateActivationDependenciesAsync(timeout.Token).ConfigureAwait(false);
     }
 
+    private async ValueTask ValidateSemanticActivationCertificationAsync(CancellationToken cancellationToken)
+    {
+        BaseSemanticActivationCertificationProfile profile = features.StoreProvider.SemanticActivationCertification;
+        BaseSemanticActivationRegistry semanticRegistry = services.GetRequiredService<BaseSemanticActivationRegistry>();
+        bool semanticAuthorityInstalled = semanticRegistry.Definitions.Count != 0
+            || features.SemanticActivationMigrations.Length != 0
+            || services.GetRequiredService<BaseSemanticActivationRemovalRegistry>().Authorities.Count != 0
+            || services.GetRequiredService<BaseSemanticRecoveryAuthorityRegistry>().Selections.Count != 0;
+        if (!profile.Supported)
+        {
+            if (semanticAuthorityInstalled || features.StoreProvider.SemanticActivations.Supported)
+                throw new InvalidOperationException("base.semanticActivation.certificationUnavailable");
+            return;
+        }
+        if (!features.StoreProvider.SemanticActivations.Supported)
+            throw new InvalidOperationException("base.semanticActivation.certificationInvalid");
+        RecordStoreRegistration? registration = services.GetRequiredService<IRecordStoreRegistry>()
+            .GetRegistration(features.StoreReceipt.RecordStoreRegistrationId);
+        if (registration?.Store is not IBaseActivationProvider activationProvider
+            || registration.Store is not IAtomicRecordStore atomic
+            || registration.Store is not IBaseSemanticActivationCapabilityProvider semanticProvider
+            || !BaseSemanticActivationCapabilityContract.IsValid(semanticProvider.SemanticActivationCapability)
+            || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                semanticProvider.SemanticActivationCapability.Checksum.AsSpan(), profile.SemanticCapabilityChecksum.AsSpan()))
+            throw new InvalidOperationException("base.semanticActivation.certificationUnavailable");
+        OperationResult<BaseAtomicMutationAuthorityRequirement> captured = await atomic.CaptureAtomicMutationAuthorityRequirementAsync(
+            features.LogicalSchema.ApplicationId, [], AuthorityAcquisitionLimits(), cancellationToken).ConfigureAwait(false);
+        BaseSemanticActivationStoreAuthorityRequirement? semantic = captured.Value?.SemanticActivation;
+        if (!captured.IsSuccess() || semantic is null)
+            throw new InvalidOperationException("base.semanticActivation.providerContractInvalid");
+        if (!BaseSemanticActivationCertificationContract.ValidateReadinessAuthority(
+                captured.Value, features.LogicalSchema.ApplicationId, features.StoreReceipt.RecordStoreRegistrationId,
+                semanticRegistry.DefinitionSetChecksum))
+            throw new InvalidOperationException("base.semanticActivation.providerContractInvalid");
+        ImmutableArray<byte> registrations = BaseSemanticActivationCertificationContract.StoreRegistrationSetChecksum(
+            features.StoreReceipt.Kind, features.StoreReceipt.ProtocolVersion, features.StoreReceipt.RecordStoreRegistrationId,
+            features.StoreReceipt.ContributorIds);
+        BaseInstalledSemanticActivationProviderDescriptor installed = BaseSemanticActivationCertificationContract.BindInstalled(
+            profile, activationProvider.Descriptor, semantic.LogicalStoreId, semantic.StoreInstanceId, registrations);
+        if (!BaseSemanticActivationCertificationContract.ValidateInstalled(installed, profile, activationProvider.Descriptor,
+                semantic.LogicalStoreId, semantic.StoreInstanceId, registrations))
+            throw new InvalidOperationException("base.semanticActivation.certificationInvalid");
+        semanticCertificationOwner.Publish(installed);
+    }
+
     private async ValueTask ValidateActivationDependenciesAsync(CancellationToken cancellationToken)
     {
         BaseActivationRegistry registry = services.GetRequiredService<BaseActivationRegistry>();
@@ -300,14 +346,17 @@ internal sealed class DefaultBaseProviderBootstrap(
     /// <inheritdoc />
     public async ValueTask EnsureSubjectReadinessAsync(CancellationToken cancellationToken = default)
     {
-        if (features.LogicalSchema.ExportedSubjects.Length == 0) return;
-        await ValidateSubjectPlanReceiptsAsync(requireDynamicAuthority: true, cancellationToken).ConfigureAwait(false);
-        await services.GetRequiredService<BaseSubjectControlDispatcher>()
-            .InitializeAsync(cancellationToken).ConfigureAwait(false);
-        BaseSubjectRetirementRegistry retirement=services.GetRequiredService<BaseSubjectRetirementRegistry>();
-        if(retirement.Consumers.Count!=0||retirement.Policies.Count!=0)
-            await services.GetRequiredService<BaseSubjectRetirementControlDispatcher>()
+        if (features.LogicalSchema.ExportedSubjects.Length != 0)
+        {
+            await ValidateSubjectPlanReceiptsAsync(requireDynamicAuthority: true, cancellationToken).ConfigureAwait(false);
+            await services.GetRequiredService<BaseSubjectControlDispatcher>()
                 .InitializeAsync(cancellationToken).ConfigureAwait(false);
+            BaseSubjectRetirementRegistry retirement=services.GetRequiredService<BaseSubjectRetirementRegistry>();
+            if(retirement.Consumers.Count!=0||retirement.Policies.Count!=0)
+                await services.GetRequiredService<BaseSubjectRetirementControlDispatcher>()
+                    .InitializeAsync(cancellationToken).ConfigureAwait(false);
+        }
+        await ValidateSemanticActivationCertificationAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private async ValueTask ValidateSubjectPlanReceiptsAsync(
@@ -350,7 +399,7 @@ internal sealed class DefaultBaseProviderBootstrap(
             if (!string.Equals(receipt.PlanId, plan.Id, StringComparison.Ordinal)
                 || receipt.PlanVersion != plan.Version
                 || !string.Equals(receipt.PlanChecksum, contracts[index].PlanChecksum, StringComparison.Ordinal)
-                || !string.Equals(receipt.StoreInstanceId, features.StoreReceipt.RecordStoreRegistrationId, StringComparison.Ordinal)
+                || string.IsNullOrWhiteSpace(receipt.StoreInstanceId)
                 || requireDynamicAuthority && (authority is null || !authority.IsSuccess() || authority.Value is null
                     || receipt.SchemaGeneration != authority.Value.SchemaGeneration
                     || !string.Equals(receipt.StoreInstanceId, authority.Value.StoreInstanceId, StringComparison.Ordinal))

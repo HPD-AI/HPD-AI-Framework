@@ -23,6 +23,18 @@ public static class BaseSemanticActivationErrorCodes
     public const string CapacityUnavailable = "base.semanticActivation.capacityUnavailable";
     /// <summary>An installed budget was exceeded.</summary>
     public const string BudgetExceeded = "base.semanticActivation.budgetExceeded";
+    /// <summary>Cancellation occurred before provider influence.</summary>
+    public const string CancelledBeforeInfluence = "base.semanticActivation.cancelledBeforeInfluence";
+    /// <summary>Cancellation produced a confirmed rollback.</summary>
+    public const string CancelledRolledBack = "base.semanticActivation.cancelledRolledBack";
+    /// <summary>Authority acquisition exceeded its deadline.</summary>
+    public const string AcquisitionTimeout = "base.semanticActivation.acquisitionTimeout";
+    /// <summary>The provider transaction timed out and rolled back.</summary>
+    public const string TransactionTimeout = "base.semanticActivation.transactionTimeout";
+    /// <summary>The commit outcome requires receipt reconciliation.</summary>
+    public const string CommitIndeterminate = "base.semanticActivation.commitIndeterminate";
+    /// <summary>Receipt resolution exceeded its deadline.</summary>
+    public const string ReceiptResolutionTimeout = "base.semanticActivation.receiptResolutionTimeout";
     /// <summary>Compaction preconditions are not satisfied.</summary>
     public const string CompactionBlocked = "base.semanticActivation.compactionBlocked";
     /// <summary>Migration preconditions are not satisfied.</summary>
@@ -42,7 +54,11 @@ public static class BaseSemanticActivationErrorCodes
     /// <summary>The external recovery publication remains durably pending after local commit.</summary>
     public const string ExternalPublicationPending = "base.semanticActivation.externalPublicationPending";
     /// <summary>The installed external recovery authority is unavailable.</summary>
-    public const string ExternalPublicationUnavailable = "base.semanticActivation.externalPublicationUnavailable";
+    public const string ExternalAuthorityUnavailable = "base.semanticActivation.externalAuthorityUnavailable";
     /// <summary>The authenticated external recovery proof is invalid.</summary>
     public const string RecoveryProofInvalid = "base.semanticActivation.recoveryProofInvalid";
+    /// <summary>The required external recovery proof is unavailable.</summary>
+    public const string RecoveryProofUnavailable = "base.semanticActivation.recoveryProofUnavailable";
+    /// <summary>Semantic authority is quarantined pending recovery.</summary>
+    public const string Quarantined = "base.semanticActivation.quarantined";
 }

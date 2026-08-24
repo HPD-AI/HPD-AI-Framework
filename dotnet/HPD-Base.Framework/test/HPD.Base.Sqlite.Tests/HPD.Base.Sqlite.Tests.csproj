@@ -12,6 +12,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The recovery-authority test fixture signs the exact Ed25519 recovery artifacts itself. -->
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.6.2" />
     <PackageReference Include="FluentAssertions" Version="$(FluentAssertionsVersion)" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.6.0" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.10" />

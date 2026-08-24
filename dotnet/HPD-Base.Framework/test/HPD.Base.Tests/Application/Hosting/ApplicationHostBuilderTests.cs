@@ -686,6 +686,71 @@ public sealed class ApplicationHostBuilderTests
     }
 
     [Fact]
+    public async Task ConfiguredActivationCeilingsProduceOneExactSelectedAndInstalledProviderAuthority()
+    {
+        int inMemoryConfigurationCalls = 0;
+        var inMemoryServices = new ServiceCollection();
+        inMemoryServices.AddHPDBase(builder => builder
+            .ConfigureInMemoryStore(options =>
+            {
+                inMemoryConfigurationCalls++;
+                options.MaxPendingActivationRows = 7;
+                options.MaxClaimedActivationRows = 8;
+                options.MaxTerminalActivationRows = 9;
+            })
+            .AddCollection(GeneratedProject.Collection));
+        await using ServiceProvider inMemory = inMemoryServices.BuildServiceProvider();
+        BaseActivationProviderCapability selectedInMemory = inMemory.GetRequiredService<HPDBaseInstalledFeatures>()
+            .StoreProvider.Activations;
+        BaseActivationProviderCapability installedInMemory = ((IBaseActivationProvider)inMemory
+            .GetRequiredService<InMemoryRecordStore>()).Descriptor.Capability;
+
+        inMemoryConfigurationCalls.Should().Be(1);
+        selectedInMemory.MaximumPendingRows.Should().Be(7);
+        selectedInMemory.MaximumClaimedRows.Should().Be(8);
+        selectedInMemory.MaximumTerminalRows.Should().Be(9);
+        BaseActivationCertificationReceiptContract.CapabilityChecksum(selectedInMemory)
+            .Should().Equal(BaseActivationCertificationReceiptContract.CapabilityChecksum(installedInMemory));
+
+        string path = Path.Combine(Path.GetTempPath(), "hpd-base-config-authority-" + Guid.NewGuid().ToString("N") + ".db");
+        int sqliteConfigurationCalls = 0;
+        try
+        {
+            HPDBaseStoreProvider sqliteProvider = SqliteStore.Configure(options =>
+            {
+                sqliteConfigurationCalls++;
+                options.DataSource = path;
+                options.MaxPendingActivationRows = 17;
+                options.MaxClaimedActivationRows = 18;
+                options.MaxTerminalActivationRows = 19;
+                options.AdministrationEnabled = true;
+            });
+            var sqliteServices = new ServiceCollection().AddLogging();
+            sqliteServices.AddHPDBase(builder => builder.UseStore(sqliteProvider).AddCollection(GeneratedProject.Collection));
+            await using ServiceProvider sqlite = sqliteServices.BuildServiceProvider();
+            BaseActivationProviderCapability selectedSqlite = sqlite.GetRequiredService<HPDBaseInstalledFeatures>()
+                .StoreProvider.Activations;
+            BaseActivationProviderCapability installedSqlite = ((IBaseActivationProvider)sqlite
+                .GetRequiredService<SqliteRecordStore>()).Descriptor.Capability;
+
+            sqliteConfigurationCalls.Should().Be(1);
+            selectedSqlite.MaximumPendingRows.Should().Be(17);
+            selectedSqlite.MaximumClaimedRows.Should().Be(18);
+            selectedSqlite.MaximumTerminalRows.Should().Be(19);
+            selectedSqlite.BackupModes.Should().ContainSingle().Which.Should().Be(BaseActivationBackupMode.WholeStoreAtomic);
+            installedSqlite.Should().BeEquivalentTo(selectedSqlite);
+            BaseActivationCertificationReceiptContract.CapabilityChecksum(selectedSqlite)
+                .Should().Equal(BaseActivationCertificationReceiptContract.CapabilityChecksum(installedSqlite));
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            foreach (string candidate in new[] { path, path + "-wal", path + "-shm" })
+                if (File.Exists(candidate)) File.Delete(candidate);
+        }
+    }
+
+    [Fact]
     public void InMemoryConfigurationCannotBeSilentlyIgnoredByExplicitProvider()
     {
         Action register = () => new ServiceCollection().AddHPDBase(builder => builder

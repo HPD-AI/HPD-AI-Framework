@@ -466,6 +466,37 @@ public sealed class SqliteAtomicMutationTests
     }
 
     [Fact]
+    public async Task Semantic_cleanup_quarantine_degrades_health_fences_admission_and_reopens_after_release()
+    {
+        var disposer = new BlockingResourceDisposer();
+        var options = new HPDBaseSqliteOptions
+        {
+            StoreId = $"semantic-quarantine-{Guid.NewGuid():N}", Collections = [Collection("items")],
+            QuarantinedMutationDrainTimeout = TimeSpan.FromSeconds(1),
+        };
+        await using var store = SqliteTestFactory.Create(options, transactionResourceDisposer: disposer);
+        CollectionDefinition collection = Collection("items");
+        var semantic = new SemanticProcessor(CreateProcessor(collection, "semantic-retained", "evt-semantic-retained"));
+
+        RecordMutationExecutionResult timedOut = await store.ExecuteAtomicAsync(semantic,
+            ExecutionRequest() with { CommitCompletionTimeout = TimeSpan.FromSeconds(1) });
+        timedOut.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+        await WaitForAsync(() => store.SemanticActivationOperationalStatus.Quarantined);
+        store.SemanticActivationOperationalStatus.Should().Match<BaseSemanticActivationOperationalStatus>(status =>
+            !status.Ready && status.ActiveOperations == 1 && status.RetainedOperations == 1
+            && status.RetainedOperations <= status.MaximumRetainedOperations);
+
+        RecordMutationExecutionResult fenced = await store.ExecuteAtomicAsync(
+            new SemanticProcessor(CreateProcessor(collection, "semantic-fenced", "evt-semantic-fenced")), ExecutionRequest());
+        fenced.Error!.Code.Should().Be(BaseSemanticActivationErrorCodes.Quarantined);
+
+        disposer.Release();
+        await WaitForAsync(() => store.SemanticActivationOperationalStatus.Ready);
+        store.SemanticActivationOperationalStatus.Should().Match<BaseSemanticActivationOperationalStatus>(status =>
+            !status.Quarantined && status.ActiveOperations == 0 && status.RetainedOperations == 0);
+    }
+
+    [Fact]
     public async Task RepeatedCleanupFailuresRemainCappedAndVisibleWithoutChangingCommits()
     {
         var disposer = new FaultingResourceDisposer();
@@ -1129,6 +1160,29 @@ public sealed class SqliteAtomicMutationTests
 
             _resources.Clear();
         }
+    }
+
+    private sealed class BlockingResourceDisposer : ISqliteTransactionResourceDisposer
+    {
+        private readonly TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public void Release() => release.TrySetResult();
+        public async ValueTask DisposeAsync(SqliteTransaction transaction, SqliteConnection connection)
+        {
+            await release.Task.ConfigureAwait(false);
+            await transaction.DisposeAsync().ConfigureAwait(false);
+            await connection.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    private sealed class SemanticProcessor(IAtomicMutationProcessor inner) : IAtomicSemanticActivationProcessor
+    {
+        public bool ContainsSemanticActivation => true;
+        public ValueTask<AtomicMutationProcessingResult> ProcessAsync(IAtomicRecordSession session, CancellationToken cancellationToken = default) =>
+            inner.ProcessAsync(session, cancellationToken);
+        public ValueTask<AtomicMutationProcessingResult> ResolveReceiptAsync(BaseRecordMutationFact[] committedMutations, CancellationToken cancellationToken = default) =>
+            inner.ResolveReceiptAsync(committedMutations, cancellationToken);
+        public ValueTask<AtomicMutationProcessingResult> ResolveReceiptAsync(BaseAtomicReceiptResult committedResult, CancellationToken cancellationToken = default) =>
+            inner.ResolveReceiptAsync(committedResult, cancellationToken);
     }
 
     private abstract class ProjectionBase : ISqliteAtomicMutationProjection, ISqliteAtomicMutationProjectionCatalog

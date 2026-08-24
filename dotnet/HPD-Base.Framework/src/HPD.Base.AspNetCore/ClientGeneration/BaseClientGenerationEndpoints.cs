@@ -65,6 +65,8 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
     BaseSubjectLifecycleRegistry? lifecycleConsumers = null,
     IBaseSubjectLifecycleRuntime? lifecycleRuntime = null,
     BaseSubjectRetirementRegistry? retirementConsumers = null,
+    BaseSemanticActivationRegistry? semanticActivations = null,
+    BaseSemanticActivationRemovalRegistry? semanticRemovals = null,
     IBaseSubjectRetirementRuntime? retirementRuntime = null,
     IBaseSessionFactory? sessions = null,
     IBaseHttpPrincipalContextFactory? principalFactory = null,
@@ -214,7 +216,25 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
             AcknowledgementRoute=retirement is null?null:basePath+"/subject-retirement/acknowledgements",RetirementChecksum=retirement?.Checksum,
             MaximumFactsPerPage=value.Definition.Limits.MaximumFactsPerPage,MaximumResultBytes=value.Definition.Limits.MaximumResultBytes,
         };})];
-        if (capabilities.Length > 256 || installedReads.Length > 256 || templates.Length > 512 || vectors.Length > 256 || textIndexes.Length > 256 || selectionMutations.Length > 256 || generatedModules.Length > 256)
+        var endpointIds = endpoints.Select(static value => value.Id).ToHashSet(StringComparer.Ordinal);
+        bool semanticControlInstalled = endpointIds.Contains("base.semanticActivation.control.read")
+            && endpointIds.Contains("base.semanticActivation.maintenance.resume")
+            && endpointIds.Contains("base.semanticActivation.maintenance.resolve");
+        BaseClientSemanticActivationDescriptor[] generatedSemantic = audience == "controlPlane" && semanticActivations is not null
+                && semanticControlInstalled
+            ? semanticActivations.Definitions.Concat(semanticRemovals?.Authorities.Select(static value => value.From) ?? [])
+                .GroupBy(static value => (value.Id, value.Version, Convert.ToBase64String(value.Checksum.AsSpan())), EqualityComparer<(string, int, string)>.Default)
+                .Select(static group => group.First()).OrderBy(static value => value.Id, StringComparer.Ordinal).ThenBy(static value => value.Version)
+                .Select(value => new BaseClientSemanticActivationDescriptor
+                {
+                    Id = value.Id, Version = value.Version, Checksum = Convert.ToBase64String(value.Checksum.AsSpan()),
+                    GeneratedName = GeneratedName(value.Id),
+                    Compactable = endpointIds.Contains("base.semanticActivation.compact") && value.Compaction is not BaseSemanticActivationNoCompaction,
+                    Removable = endpointIds.Contains("base.semanticActivation.remove")
+                        && semanticRemovals?.Find(new() { Id = value.Id, Version = value.Version, Checksum = value.Checksum }) is not null,
+                }).ToArray()
+            : [];
+        if (capabilities.Length > 256 || installedReads.Length > 256 || templates.Length > 512 || vectors.Length > 256 || textIndexes.Length > 256 || selectionMutations.Length > 256 || generatedModules.Length > 256 || generatedSemantic.Length > 4096)
             return Failure("base.clientGeneration.snapshotTooLarge");
         var generatedNames = new HashSet<string>(["reads", "files", "close", "collection", "connectivity", "$control", "$dynamic"], StringComparer.Ordinal);
         if (generatedCollections.Any(collection => !generatedNames.Add(collection.GeneratedName))
@@ -257,6 +277,7 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
             SelectionMutations = selectionMutations,
             ModuleMutations = generatedModules,
             SubjectLifecycleConsumers = generatedLifecycle,
+            SemanticActivations = generatedSemantic,
             Errors = ErrorTaxonomy(endpoints),
             Digest = string.Empty
         };
@@ -373,6 +394,10 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
                 "base.subjectLifecycle.feed.read" => new RouteDescriptor { OperationId = descriptor.EndpointId, Method = HttpMethodKind.Post, Path = endpoint.RoutePattern.RawText ?? "", RequestDtoId = "base.subjectLifecycle.feed.read.request", ResponseDtoId = "base.subjectLifecycle.page" },
                 "base.subjectLifecycle.feed.checkpoint" => new RouteDescriptor { OperationId = descriptor.EndpointId, Method = HttpMethodKind.Post, Path = endpoint.RoutePattern.RawText ?? "", RequestDtoId = "base.subjectLifecycle.feed.checkpoint.request", ResponseDtoId = "base.subjectLifecycle.checkpoint" },
                 "base.subjectLifecycle.reconciliation.read" => new RouteDescriptor { OperationId = descriptor.EndpointId, Method = HttpMethodKind.Post, Path = endpoint.RoutePattern.RawText ?? "", RequestDtoId = "base.subjectLifecycle.reconciliation.read.request", ResponseDtoId = "base.subjectLifecycle.reconciliation.page" },
+                "base.semanticActivation.inspect" => new RouteDescriptor { OperationId = descriptor.EndpointId, Method = HttpMethodKind.Post, Path = endpoint.RoutePattern.RawText ?? "", RequestDtoId = AspNetCoreDtoContractDescriptorFactory.SemanticActivationInspectionRequest, ResponseDtoId = AspNetCoreDtoContractDescriptorFactory.SemanticActivationInspectionPage },
+                "base.semanticActivation.control.read" => new RouteDescriptor { OperationId = descriptor.EndpointId, Method = HttpMethodKind.Post, Path = endpoint.RoutePattern.RawText ?? "", RequestDtoId = AspNetCoreDtoContractDescriptorFactory.SemanticActivationControlRead, ResponseDtoId = AspNetCoreDtoContractDescriptorFactory.SemanticActivationControlDescriptor },
+                "base.semanticActivation.compact" or "base.semanticActivation.remove" or "base.semanticActivation.maintenance.resume" => new RouteDescriptor { OperationId = descriptor.EndpointId, Method = HttpMethodKind.Post, Path = endpoint.RoutePattern.RawText ?? "", RequestDtoId = AspNetCoreDtoContractDescriptorFactory.SemanticActivationControlCommand, ResponseDtoId = AspNetCoreDtoContractDescriptorFactory.SemanticActivationControlResult },
+                "base.semanticActivation.maintenance.resolve" => new RouteDescriptor { OperationId = descriptor.EndpointId, Method = HttpMethodKind.Post, Path = endpoint.RoutePattern.RawText ?? "", RequestDtoId = AspNetCoreDtoContractDescriptorFactory.SemanticActivationControlResolution, ResponseDtoId = AspNetCoreDtoContractDescriptorFactory.SemanticActivationControlResult },
                 _ => null!
             };
             if (route is not null) goto ContractResolved;

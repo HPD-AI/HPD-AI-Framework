@@ -15,6 +15,14 @@ public sealed partial class SqliteRecordStore
         long RowCount,
         ImmutableArray<byte> OrderedChecksum);
 
+    internal sealed record SemanticRecoveryCertificationEvidence(
+        long AuthorityGeneration,
+        ImmutableArray<byte> DefinitionSetChecksum,
+        long RestoreEpoch,
+        long SchemaGeneration,
+        long RowCount,
+        ImmutableArray<byte> InvariantChecksum);
+
     private sealed record SemanticRecoveryRow(
         string DefinitionId,
         byte[] BindingId,
@@ -70,6 +78,88 @@ public sealed partial class SqliteRecordStore
         return new SemanticRecoverySnapshot(generation, definitionSet.ToImmutableArray(), restoreEpoch,
             capturedSchemaGeneration ?? Volatile.Read(ref _schemaGeneration),
             rowCount, rolling.GetHashAndReset().ToImmutableArray());
+    }
+
+    private async ValueTask<SemanticRecoveryCertificationEvidence?> CaptureSemanticRecoveryCertificationEvidenceAsync(
+        SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        SemanticRecoverySnapshot? authority = await CaptureSemanticRecoverySnapshotAsync(connection, cancellationToken).ConfigureAwait(false);
+        if (authority is null) return null;
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData("base.semanticActivation.recoveryCertificationInvariant.v1\0"u8);
+        await foreach (SemanticRecoveryRow row in ReadSemanticRecoveryRowsAsync(connection, null, cancellationToken))
+        {
+            AppendCertificationField(hash, row.DefinitionId);
+            AppendCertificationField(hash, row.BindingId);
+            AppendCertificationField(hash, row.KeyDigest);
+            AppendCertificationField(hash, row.State);
+            AppendCertificationField(hash, row.SlotGeneration);
+            AppendCertificationField(hash, NormalizeCertificationAuthority(row.AuthorityJson, row.State));
+            AppendCertificationField(hash, row.ReceiptScope);
+            AppendCertificationField(hash, row.ReceiptOperation);
+            AppendCertificationField(hash, row.ReceiptKey);
+            AppendCertificationField(hash, row.ReceiptFingerprint);
+            AppendCertificationField(hash, row.ReceiptStructuralDigest);
+            AppendCertificationField(hash, row.ReceiptResultJson);
+            AppendCertificationField(hash, row.ReceiptAuthorityChecksum);
+            // Historical receipt evidence is immutable across restore. Only the current
+            // floor authority above is rebound to the new store authority.
+            AppendCertificationField(hash, row.ReceiptSlotAuthorityJson);
+        }
+        return new(authority.AuthorityGeneration, authority.DefinitionSetChecksum, authority.RestoreEpoch,
+            authority.SchemaGeneration, authority.RowCount, hash.GetHashAndReset().ToImmutableArray());
+    }
+
+    private static byte[] NormalizeCertificationAuthority(byte[] json, int state)
+    {
+        BaseSemanticActivationStoreAuthority normalizedStore = new()
+        {
+            Requirement = new()
+            {
+                ApplicationId = string.Empty, LogicalStoreId = string.Empty, StoreInstanceId = string.Empty,
+                RestoreEpoch = 0, SchemaGeneration = 0, SemanticAuthorityGeneration = 0,
+                DefinitionSetChecksum = [],
+            },
+            Checksum = [],
+        };
+        if (state == (int)BaseSemanticActivationSlotState.Retired)
+        {
+            BaseSemanticActivationRetirementAuthority value = JsonSerializer.Deserialize(json,
+                HPDBaseJsonSerializerContext.Default.BaseSemanticActivationRetirementAuthority)
+                ?? throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+            return JsonSerializer.SerializeToUtf8Bytes(value with { StoreAuthority = normalizedStore, Checksum = [] },
+                HPDBaseJsonSerializerContext.Default.BaseSemanticActivationRetirementAuthority);
+        }
+        BaseSemanticActivationAbsenceAuthority absent = JsonSerializer.Deserialize(json,
+            HPDBaseJsonSerializerContext.Default.BaseSemanticActivationAbsenceAuthority)
+            ?? throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+        return JsonSerializer.SerializeToUtf8Bytes(absent with { StoreAuthority = normalizedStore, Checksum = [] },
+            HPDBaseJsonSerializerContext.Default.BaseSemanticActivationAbsenceAuthority);
+    }
+
+    private static void AppendCertificationField(IncrementalHash hash, string? value) =>
+        AppendCertificationField(hash, value is null ? null : System.Text.Encoding.UTF8.GetBytes(value));
+
+    private static void AppendCertificationField(IncrementalHash hash, int value)
+    {
+        Span<byte> bytes = stackalloc byte[4];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(bytes, value);
+        AppendCertificationField(hash, bytes.ToArray());
+    }
+
+    private static void AppendCertificationField(IncrementalHash hash, long value)
+    {
+        Span<byte> bytes = stackalloc byte[8];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt64BigEndian(bytes, value);
+        AppendCertificationField(hash, bytes.ToArray());
+    }
+
+    private static void AppendCertificationField(IncrementalHash hash, byte[]? value)
+    {
+        Span<byte> length = stackalloc byte[4];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(length, value?.Length ?? -1);
+        hash.AppendData(length);
+        if (value is not null) hash.AppendData(value);
     }
 
     private async ValueTask RebindCurrentSemanticSlotsAsync(SqliteConnection connection, SqliteTransaction transaction,
@@ -617,7 +707,7 @@ public sealed partial class SqliteRecordStore
     }
 
     private async ValueTask RequireArtifactNegativeCorrespondenceAsync(SqliteConnection connection,
-        SqliteTransaction transaction, CancellationToken cancellationToken)
+        SqliteTransaction? transaction, CancellationToken cancellationToken)
     {
         await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction;
         command.CommandText = $"""
@@ -887,7 +977,7 @@ ORDER BY definition_id,binding_id,key_digest LIMIT 256;
     {
         BaseSemanticActivationStoreAuthorityRequirement requirement = store.Requirement;
         if (requirement.ApplicationId != _options.SemanticActivationApplicationId
-            || requirement.LogicalStoreId != _options.StoreId || requirement.StoreInstanceId != _options.StoreId
+            || requirement.LogicalStoreId != _options.StoreId || requirement.StoreInstanceId != CurrentStoreInstanceId
             || requirement.SemanticAuthorityGeneration != generation || requirement.RestoreEpoch != restoreEpoch
             || requirement.SchemaGeneration != schemaGeneration
             || !requirement.DefinitionSetChecksum.AsSpan().SequenceEqual(definitionSet)
@@ -957,7 +1047,7 @@ ORDER BY definition_id,binding_id,key_digest LIMIT 256;
         BaseSemanticActivationStoreAuthorityRequirement requirement = store.Requirement;
         if (requirement.SemanticAuthorityGeneration != generation
             || requirement.ApplicationId != _options.SemanticActivationApplicationId
-            || requirement.LogicalStoreId != _options.StoreId || requirement.StoreInstanceId != _options.StoreId
+            || requirement.LogicalStoreId != _options.StoreId || requirement.StoreInstanceId != CurrentStoreInstanceId
             || requirement.RestoreEpoch != expectedRestoreEpoch
             || requirement.SchemaGeneration != expectedSchemaGeneration
             || !requirement.DefinitionSetChecksum.AsSpan().SequenceEqual(definitionSet)

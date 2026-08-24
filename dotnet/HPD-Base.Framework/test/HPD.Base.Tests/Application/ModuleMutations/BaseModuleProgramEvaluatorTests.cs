@@ -816,6 +816,81 @@ public sealed class BaseModuleProgramEvaluatorTests
     }
 
     [Fact]
+    public async Task Semantic_receipt_replay_reauthorizes_current_result_disclosure_without_changing_history()
+    {
+        BaseRegisteredModuleMutationDefinition definition = GenerationDefinition();
+        BaseGeneratedModuleMutationIdentity<GenerationRequest, GenerationResult> identity = GenerationIdentity();
+        var principal = new PrincipalContext
+        {
+            AuthenticationState = PrincipalAuthenticationState.System,
+            SubjectKind = AccessSubjectKind.System,
+            SubjectId = "system",
+        };
+        var operation = new OperationContext
+        {
+            ApplicationId = "module.application",
+            Audience = HPDBaseEndpointAudience.ControlPlane,
+            Operation = BaseOperationKind.ModuleMutation,
+            CollectionId = definition.Id,
+            Now = DateTimeOffset.UtcNow,
+        };
+        BaseSemanticActivationReceiptEvidence semantic = new()
+        {
+            Operation = BaseSemanticActivationOperationKind.Ensure,
+            DefinitionId = "module.semantic.v1",
+            DefinitionVersion = 1,
+            DefinitionChecksum = Enumerable.Repeat((byte)1, 32).ToImmutableArray(),
+            Key = BaseSemanticActivationKeyDigest.Create(Enumerable.Repeat((byte)2, 32).ToArray()),
+            State = BaseSemanticActivationSlotState.Live,
+            SlotGeneration = 1,
+            EnsureDisposition = BaseSemanticActivationEnsureDisposition.Created,
+            ActivationId = new string('a', 64),
+            SlotChecksum = Enumerable.Repeat((byte)3, 32).ToImmutableArray(),
+            JournalPosition = 7,
+            CommitEvidenceChecksum = Enumerable.Repeat((byte)4, 32).ToImmutableArray(),
+            Checksum = [],
+        };
+        semantic = semantic with { Checksum = BaseSemanticActivationEvidenceContract.ReceiptChecksum(semantic) };
+        BaseAtomicReceiptResult historical = new()
+        {
+            Kind = BaseAtomicReceiptResultKind.ModuleMutation,
+            Mutations = [],
+            ModuleMutation = new BaseModuleMutationReceiptResult
+            {
+                OperationId = definition.Id,
+                OperationVersion = definition.Version,
+                Disposition = BaseMutationRequestDisposition.Committed,
+                Outcome = BaseModuleMutationOutcome.Committed,
+                Generations = [],
+                CanonicalResultBytes = JsonSerializer.SerializeToUtf8Bytes(
+                    new GenerationResult { Generation = "1" }, identity.ResultTypeInfo).ToImmutableArray(),
+                SemanticActivation = semantic,
+            },
+        };
+
+        var denied = new BaseModuleMutationReceiptResolver<GenerationResult>(
+            definition, identity.ResultTypeInfo, identity.ResultBindings, principal, operation,
+            PolicyWithReadMask(new FieldMask { Mode = FieldMaskMode.DenyAll }));
+        AtomicMutationProcessingResult deniedResult = await denied.ResolveReceiptAsync(historical);
+
+        deniedResult.Outcome.Should().Be(AtomicMutationProcessingOutcome.Failed);
+        deniedResult.Error!.Code.Should().Be(BaseModuleMutationErrorCodes.ReceiptUnavailable);
+        denied.Result.Should().BeNull();
+        denied.SemanticReceipt.Should().BeNull();
+
+        var allowed = new BaseModuleMutationReceiptResolver<GenerationResult>(
+            definition, identity.ResultTypeInfo, identity.ResultBindings, principal, operation,
+            Policy("module.increment"));
+        AtomicMutationProcessingResult allowedResult = await allowed.ResolveReceiptAsync(historical);
+
+        allowedResult.Outcome.Should().Be(AtomicMutationProcessingOutcome.ReadyToCommit);
+        allowed.Result!.Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
+        allowed.Result.Result.Generation.Should().Be("1");
+        allowed.SemanticReceipt.Should().Be(semantic);
+        allowedResult.Receipt.Should().BeSameAs(historical);
+    }
+
+    [Fact]
     public async Task Transactional_activation_commits_target_and_terminal_state_in_one_in_memory_transaction()
     {
         var store = new InMemoryRecordStore(new HPDBaseInMemoryStoreOptions { StoreId = "module-store", Collections = [] });
@@ -1273,6 +1348,28 @@ public sealed class BaseModuleProgramEvaluatorTests
                     : new ResourceScope { Kind = ResourceScopeKind.Runtime },
             });
         }
+        return new DefaultBasePolicyOrchestrator(builder.Freeze("module.application"));
+    }
+
+    private static DefaultBasePolicyOrchestrator PolicyWithReadMask(FieldMask mask)
+    {
+        var builder = new BasePolicyAuthorityBuilder();
+        builder.AddPolicy(new BasePolicyAuthorityDefinition
+        {
+            Id = "module.policy", Version = 1, OwningModuleId = "module",
+            EvaluatorContractId = "module.policy.evaluator", EvaluatorContractVersion = 1, CompositionOrder = 0,
+        }, new ConstrainedPolicyEvaluator(readMask: mask));
+        builder.AddStaticGrant(new BaseGrantAuthorityDefinition
+        {
+            Id = "module.increment", Version = 1, OwningModuleId = "module",
+            SourceContractId = "module.grants", SourceContractVersion = 1,
+        }, new AccessGrant
+        {
+            Id = "module.increment", ApplicationId = "module.application", ModuleId = "module",
+            Audience = HPDBaseEndpointAudience.ControlPlane,
+            Subject = new AccessSubject { Kind = AccessSubjectKind.System, Id = "system" },
+            Action = "module.increment", Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime },
+        });
         return new DefaultBasePolicyOrchestrator(builder.Freeze("module.application"));
     }
 

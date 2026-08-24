@@ -174,6 +174,8 @@ public sealed class ControlPlaneCompositionTests
         HPDBaseCapabilities.ActivationRepairExecute,
         HPDBaseCapabilities.ActivationScheduleRead,
         HPDBaseCapabilities.ActivationScheduleMutate,
+        HPDBaseCapabilities.SemanticActivationInspect,
+        HPDBaseCapabilities.SemanticActivationMaintenance,
         HPDBaseCapabilities.PolicyExplain
     ];
 

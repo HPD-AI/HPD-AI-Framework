@@ -36,7 +36,15 @@ public sealed partial class SqliteRecordStore
         await using SqliteConnection connection = await _connections.OpenAsync(token).ConfigureAwait(false);
         await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, token).ConfigureAwait(false);
         long restoreEpoch = await ReadSemanticPreflightRestoreEpochAsync(connection, transaction, token).ConfigureAwait(false);
-        string storeInstance = _options.StoreId;
+        string storeInstance;
+        await using (SqliteCommand identity = connection.CreateCommand())
+        {
+            identity.Transaction = transaction;
+            identity.CommandText = $"SELECT store_instance_id FROM {_names.SchemaIdentity} WHERE singleton=1;";
+            storeInstance = (string?)await identity.ExecuteScalarAsync(token).ConfigureAwait(false)
+                ?? throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+        }
+        Volatile.Write(ref _currentStoreInstanceId, storeInstance);
         long schemaGeneration = Volatile.Read(ref _schemaGeneration);
         (long semanticGeneration, byte[] definitionSet) = await ReadSemanticPreflightAuthorityAsync(connection, transaction, token).ConfigureAwait(false);
         if (request.StoreAuthority.ApplicationId != _options.SemanticActivationApplicationId

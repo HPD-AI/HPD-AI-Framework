@@ -99,7 +99,7 @@ export type BaseClient<TSchema extends BaseGeneratedSchema> = BaseClientCommon &
   & (TSchema["audience"] extends "controlPlane" ? { readonly moduleMutations: { readonly [K in keyof NonNullable<TSchema["moduleMutations"]>]: NonNullable<TSchema["moduleMutations"]>[K] extends BaseModuleMutationDefinition<infer TRequest, infer TResult> ? (request: TRequest, options: BaseModuleMutationOptions) => Promise<BaseResult<BaseModuleMutationResult<TResult>>> : never } } : {})
   & (TSchema["features"]["files"] extends true ? { readonly files: BaseFilesClient } : {})
   & (TSchema["features"]["batch"] extends true ? { readonly batch: BaseBatchClient<TSchema> } : {})
-  & (TSchema["audience"] extends "controlPlane" ? { readonly $control: BaseControlPlaneClient<TSchema["features"]["controlOperations"]> } : {});
+  & (TSchema["audience"] extends "controlPlane" ? { readonly $control: BaseControlPlaneClient<TSchema["features"]["controlOperations"], NonNullable<TSchema["semanticActivations"]>> } : {});
 
 type CollectionName<TSchema extends BaseGeneratedSchema> = Extract<keyof TSchema["collections"], string>;
 export type BaseBatchOperation<TSchema extends BaseGeneratedSchema> = { [K in CollectionName<TSchema>]:
@@ -173,7 +173,6 @@ class BaseClientRuntime implements BaseQueryExecutor<unknown> {
 
   public close(): void { this.#closed = true; this.#realtime?.close(); this.#collections.clear(); this.#indeterminate.clear(); }
   public selectionTransport(): BaseHttpTransport { this.ensureOpen(); return this.#transport; }
-  public controlClient<const TOperations extends readonly string[]>(operations: TOperations): BaseControlPlaneClient<TOperations> { this.ensureOpen(); return createControlPlaneClient(this.#transport, operations); }
   public async resolveMutation(mutationId: MutationId, signal?: AbortSignal): Promise<BaseResult<unknown>> { this.ensureOpen(); const pending = this.#indeterminate.get(mutationId); if (pending === undefined) throw new TypeError("base.client.mutationNotIndeterminate"); const result = normalizeIdentifiedFailure(await this.#transport.jsonDocument("POST", "records/batch", pending.bytes, signal, mutationId, pending.correlationId)); const projected = projectMutation<unknown>(result, pending.kind); if (projected.ok) { this.#indeterminate.delete(mutationId); const authoritative = pending.kind === "delete" ? undefined : pending.kind === "upsert" && isObject(projected.value) && "record" in projected.value ? this.fromWireRecord(pending.collectionId, projected.value.record) : this.fromWireRecord(pending.collectionId, projected.value); const value = pending.kind === "upsert" && isObject(projected.value) ? { ...projected.value, record: authoritative } : authoritative; if (pending.optimisticId !== undefined) this.#realtime?.reconcile(mutationId, pending.collectionId, authoritative); return { ...projected, value }; } if (projected.error.code !== "base.runtime.batch.indeterminate") { this.#indeterminate.delete(mutationId); if (pending.optimisticId !== undefined) this.#realtime?.reject(mutationId, pending.collectionId); } return projected; }
   public filesClient(): BaseFilesClient { this.ensureOpen(); return this.#files; }
   public async executeBatch(mode: "orderedIndependent" | "orderedStopOnFailure" | "atomic", operations: readonly BaseBatchOperation<BaseGeneratedSchema>[], options: { readonly mutationId?: MutationId; readonly signal?: AbortSignal } = {}): Promise<BaseResult<BaseBatchResult>> {
@@ -354,7 +353,7 @@ export function createBaseClient<TSchema extends BaseGeneratedSchema>(options: B
     const modules = Object.fromEntries(Object.entries(schema.moduleMutations ?? {}).map(([name, definition]) => [name, (request: unknown, moduleOptions: BaseModuleMutationOptions) => executeModuleMutation(runtime.selectionTransport(), definition, request, moduleOptions)]));
     Object.defineProperty(target, "moduleMutations", { value: Object.freeze(modules), enumerable: true, configurable: false, writable: false });
   }
-  if (schema.audience === "controlPlane") Object.defineProperty(target, "$control", { value: runtime.controlClient(schema.features.controlOperations), enumerable: true, configurable: false, writable: false });
+  if (schema.audience === "controlPlane") Object.defineProperty(target, "$control", { value: createControlPlaneClient(runtime.selectionTransport(), schema.features.controlOperations, schema.semanticActivations ?? {}), enumerable: true, configurable: false, writable: false });
   return target;
 }
 

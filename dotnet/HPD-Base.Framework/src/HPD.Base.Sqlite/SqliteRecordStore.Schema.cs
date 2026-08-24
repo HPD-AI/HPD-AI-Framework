@@ -836,6 +836,7 @@ INSERT OR IGNORE INTO {_names.ProviderState}(key,value) VALUES('subject_scope_pr
             }
             string instanceId = await ReadStoreInstanceIdAsync(connection, cancellationToken).ConfigureAwait(false)
                 ?? throw new InvalidOperationException("SQLite did not persist its physical store identity.");
+            Volatile.Write(ref _currentStoreInstanceId, instanceId);
             await ExecuteStoreIdentityCommandAsync(connection, "COMMIT;", CancellationToken.None).ConfigureAwait(false);
             transaction = false;
             return instanceId;

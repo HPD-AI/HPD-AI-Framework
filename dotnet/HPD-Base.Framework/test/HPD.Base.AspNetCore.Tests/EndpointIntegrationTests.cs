@@ -258,6 +258,34 @@ public sealed class EndpointIntegrationTests
             "/base/control/stores/primary/semantic-activations/query",
             new StringContent(SemanticInspection(257), System.Text.Encoding.UTF8, "application/json"));
         excessiveSemantic.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        HttpResponseMessage malformedSemantic = await client.PostAsync(
+            "/base/control/stores/primary/semantic-activations/query",
+            new StringContent(SemanticInspection(1).Replace("auth.reconcile", "test.malformed-tuple", StringComparison.Ordinal),
+                System.Text.Encoding.UTF8, "application/json"));
+        malformedSemantic.StatusCode.Should().Be((HttpStatusCode)424);
+        using (JsonDocument malformedBody = JsonDocument.Parse(await malformedSemantic.Content.ReadAsByteArrayAsync()))
+        {
+            malformedBody.RootElement.GetProperty("title").GetString()
+                .Should().Be("The semantic activation provider returned invalid evidence.");
+            malformedBody.RootElement.GetProperty("code").GetString()
+                .Should().Be(BaseSemanticActivationErrorCodes.ProviderContractInvalid);
+        }
+        HttpResponseMessage semanticControl = await client.PostAsync(
+            "/base/control/stores/primary/semantic-activations/auth.reconcile/control",
+            new StringContent("""{"definitionVersion":1,"definitionChecksum":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}""", System.Text.Encoding.UTF8, "application/json"));
+        semanticControl.StatusCode.Should().Be(HttpStatusCode.OK);
+        using JsonDocument semanticControlBody = JsonDocument.Parse(await semanticControl.Content.ReadAsByteArrayAsync());
+        semanticControlBody.RootElement.GetProperty("authorityGeneration").GetString().Should().Be("4");
+        string compactToken = semanticControlBody.RootElement.GetProperty("compactToken").GetString()!;
+        HttpResponseMessage compact = await client.PostAsync(
+            "/base/control/stores/primary/semantic-activations:compact",
+            new StringContent($$"""{"commandToken":"{{compactToken}}","idempotencyKey":"compact-1","confirmation":"compact-retired-semantic-authority"}""", System.Text.Encoding.UTF8, "application/json"));
+        compact.StatusCode.Should().Be(HttpStatusCode.OK);
+        using JsonDocument compactBody = JsonDocument.Parse(await compact.Content.ReadAsByteArrayAsync());
+        compactBody.RootElement.GetProperty("disposition").GetString().Should().Be("Completed");
+        compactBody.RootElement.TryGetProperty("checkpoint", out _).Should().BeFalse();
+        compactBody.RootElement.TryGetProperty("requestFingerprint", out _).Should().BeFalse();
+        compactBody.RootElement.TryGetProperty("maintenanceId", out _).Should().BeFalse();
 
         using var invalidSchedule = new HttpRequestMessage(HttpMethod.Post, "/base/control/schedules/mutate")
         {
@@ -329,6 +357,11 @@ public sealed class EndpointIntegrationTests
         public ValueTask<BaseResult<BaseSemanticActivationInspectionPage>> InspectSemanticActivationsAsync(string storeId, PrincipalContext principal, BaseSemanticActivationInspectionRequest request, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (string.Equals(request.Definition.Id, "test.malformed-tuple", StringComparison.Ordinal))
+                return ValueTask.FromResult<BaseResult<BaseSemanticActivationInspectionPage>>(new BaseFailure<BaseSemanticActivationInspectionPage>(
+                    OperationStatus.PolicyDenied,
+                    new BaseError { Code = BaseSemanticActivationErrorCodes.Unauthorized, Category = ErrorCategory.Store, Message = "hostile internal message" },
+                    null, null));
             if (request.Take is < 1 or > 256)
                 return ValueTask.FromResult<BaseResult<BaseSemanticActivationInspectionPage>>(new BaseFailure<BaseSemanticActivationInspectionPage>(
                     OperationStatus.ValidationFailed, new BaseError { Code = BaseSemanticActivationErrorCodes.Invalid, Category = ErrorCategory.Validation, Message = "Invalid semantic activation inspection request." }, null, null));
@@ -362,8 +395,25 @@ public sealed class EndpointIntegrationTests
                 }),
             }, OperationStatus.Ok, null, null, null, null));
         }
-        public ValueTask<BaseResult<BaseSemanticActivationMaintenanceResult>> ExecuteSemanticActivationMaintenanceAsync(string storeId, PrincipalContext principal, BaseSemanticActivationMaintenanceRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public ValueTask<BaseResult<BaseSemanticActivationMaintenanceResult>> ResolveSemanticActivationMaintenanceAsync(string storeId, PrincipalContext principal, BaseSemanticActivationMaintenanceResolutionRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<BaseResult<BaseSemanticActivationControlDescriptor>> ReadSemanticActivationControlAsync(string storeId, PrincipalContext principal, BaseSemanticActivationDefinitionKey definition, CancellationToken cancellationToken = default) => ValueTask.FromResult<BaseResult<BaseSemanticActivationControlDescriptor>>(new BaseSuccess<BaseSemanticActivationControlDescriptor>(new()
+        {
+            DefinitionId = definition.Id, DefinitionVersion = definition.Version, AuthorityGeneration = 4,
+            LiveCount = 0, RetiredCount = 1, AbsenceCount = 2, Ready = true, Quarantined = false,
+            Compact = new BaseSemanticActivationControlToken("compact_token"), Remove = null,
+        }, OperationStatus.Ok, null, null, null, null));
+        public ValueTask<BaseResult<BaseSemanticActivationControlResult>> ExecuteSemanticActivationControlAsync(string storeId, PrincipalContext principal, BaseSemanticActivationControlCommand command, CancellationToken cancellationToken = default)
+        {
+            command.Token.Value.Should().Be("compact_token"); command.IdempotencyKey.Should().Be("compact-1");
+            command.Confirmation.Should().Be("compact-retired-semantic-authority");
+            return ValueTask.FromResult<BaseResult<BaseSemanticActivationControlResult>>(new BaseSuccess<BaseSemanticActivationControlResult>(new()
+            {
+                Disposition = BaseSemanticActivationMaintenanceDisposition.Completed, AuthorityGeneration = 5,
+                ExaminedRows = 1, ChangedRows = 1, CanonicalBytes = 64,
+                ReceiptDisposition = BaseMutationRequestDisposition.Committed, Resume = null, Resolution = null,
+                SanitizedChecksum = new byte[32].ToImmutableArray(),
+            }, OperationStatus.Ok, null, null, null, null));
+        }
+        public ValueTask<BaseResult<BaseSemanticActivationControlResult>> ResolveSemanticActivationControlAsync(string storeId, PrincipalContext principal, BaseSemanticActivationControlResolution resolution, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseSemanticRecoveryQuarantineRecoveryResult>> RecoverSemanticRecoveryQuarantineAsync(BaseSemanticRecoveryQuarantineRecoveryRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseActivationTransitionResult>> CancelActivationAsync(BaseActivationAdministrationCancelRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<BaseResult<BaseActivationTransitionResult>> RetryActivationAsync(BaseActivationAdministrationRetryRequest request, CancellationToken cancellationToken = default)

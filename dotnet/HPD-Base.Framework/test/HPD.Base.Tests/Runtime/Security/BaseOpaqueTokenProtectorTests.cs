@@ -35,6 +35,17 @@ public sealed class BaseOpaqueTokenProtectorTests
     }
 
     [Fact]
+    public void Noncanonical_base64url_alias_is_rejected()
+    {
+        using var protector = Create(Key(9, 0x19));
+        string token = protector.Protect("query", 1, [1], new byte[32]);
+        string alias = NoncanonicalAlias(token);
+
+        Decode(alias).Should().Equal(Decode(token));
+        protector.Unprotect("query", 1, alias, 1, new byte[32]).Status.Should().Be(BaseOpaqueTokenStatus.Invalid);
+    }
+
+    [Fact]
     public void DuplicateOrMalformedKeysAreRejected()
     {
         Action duplicate = () => Create(Key(1, 0x11), Key(1, 0x22));
@@ -104,5 +115,19 @@ public sealed class BaseOpaqueTokenProtectorTests
     {
         string text = value.Replace('-', '+').Replace('_', '/');
         return Convert.FromBase64String(text.PadRight(text.Length + ((4 - text.Length % 4) % 4), '='));
+    }
+
+    private static string NoncanonicalAlias(string value)
+    {
+        const string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        byte[] expected = Decode(value); int index = value.Length - 1;
+        foreach (char candidate in alphabet)
+        {
+            if (candidate == value[index]) continue;
+            string alias = value[..index] + candidate;
+            try { if (Decode(alias).AsSpan().SequenceEqual(expected)) return alias; }
+            catch (FormatException) { }
+        }
+        throw new InvalidOperationException("The fixture did not contain aliasable trailing bits.");
     }
 }

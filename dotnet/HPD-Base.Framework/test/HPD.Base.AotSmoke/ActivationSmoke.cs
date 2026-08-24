@@ -108,11 +108,40 @@ internal sealed record ActivationSmokeResult
 
 internal sealed class ActivationSmokeHandler : IBaseActivationHandler<ActivationSmokeInput, ActivationSmokeResult>
 {
-    public ValueTask<BaseActivationHandlerResult<ActivationSmokeResult>> ExecuteAsync(
+    public async ValueTask<BaseActivationHandlerResult<ActivationSmokeResult>> ExecuteAsync(
         BaseActivationContext context, ActivationSmokeInput input, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(new BaseActivationHandlerResult<ActivationSmokeResult>
-        { Result = new ActivationSmokeResult { Value = input.Value } });
+        int separator = input.Value.IndexOf(':');
+        if (separator > 0 && input.Value[..separator] is "ensure" or "retire")
+        {
+            string operation = input.Value[..separator];
+            var request = new SemanticMutationSmokeRequest { Marker = input.Value[(separator + 1)..] };
+            BaseMutationRequestFingerprint fingerprint = BaseMutationRequestFingerprint.Create(
+                System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(input.Value)));
+            BaseSemanticActivationKey<SemanticActivationSmokeMarker> key = context.CreateSemanticActivationKey(
+                SemanticActivationSmoke.Identity, request);
+            BaseModuleMutationExecutionOptions options = operation == "ensure"
+                ? context.GuardModuleMutationAndEnsureActivation(
+                    "semantic-ensure", 1, fingerprint, ActivationSmoke.Registration.Identity,
+                    new ActivationSmokeInput { Value = "semantic-child:" + request.Marker }, null, key)
+                : context.GuardModuleMutationAndRetireSemanticActivation("semantic-retire", 1, fingerprint, key);
+            BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create(
+                "aot-semantic", operation, context.Claim.ActivationId + ":" + operation + ":" + request.Marker, fingerprint);
+            BaseResult<BaseModuleMutationExecutionResult<SemanticEnsureSmokeResult>>? ensureResult = operation == "ensure"
+                ? await context.ExecuteModuleMutationAsync(SemanticEnsureMutationSmoke.Identity, request, identity, options, cancellationToken)
+                : null;
+            BaseResult<BaseModuleMutationExecutionResult<SemanticRetireSmokeResult>>? retireResult = operation == "retire"
+                ? await context.ExecuteModuleMutationAsync(SemanticRetirementMutationSmoke.Identity, request, identity, options, cancellationToken)
+                : null;
+            BaseError? error = ensureResult is BaseFailure<BaseModuleMutationExecutionResult<SemanticEnsureSmokeResult>> ensureFailure
+                ? ensureFailure.Error
+                : retireResult is BaseFailure<BaseModuleMutationExecutionResult<SemanticRetireSmokeResult>> retireFailure
+                    ? retireFailure.Error : null;
+            if (error is not null)
+                return new BaseActivationHandlerResult<ActivationSmokeResult> { FailureCode = error.Code, Retryable = false };
+        }
+        return new BaseActivationHandlerResult<ActivationSmokeResult>
+        { Result = new ActivationSmokeResult { Value = input.Value } };
     }
 }

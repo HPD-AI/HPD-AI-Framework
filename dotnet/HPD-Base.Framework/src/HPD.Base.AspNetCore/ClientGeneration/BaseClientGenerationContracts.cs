@@ -29,10 +29,29 @@ public sealed record BaseClientGenerationSnapshotV2
     public required BaseClientModuleMutationDescriptor[] ModuleMutations { get; init; }
     /// <summary>Gets generated Service/System durable lifecycle consumers; interactive snapshots always contain an empty array.</summary>
     public required BaseClientSubjectLifecycleConsumerDescriptor[] SubjectLifecycleConsumers { get; init; }
+    /// <summary>Gets generated ControlPlane-only semantic activation definitions.</summary>
+    public required BaseClientSemanticActivationDescriptor[] SemanticActivations { get; init; }
     /// <summary>Gets the stable error taxonomy.</summary>
     public required BaseClientErrorDescriptor[] Errors { get; init; }
     /// <summary>Gets the canonical structural SHA-256 digest.</summary>
     public required string Digest { get; init; }
+}
+
+/// <summary>Describes one graph-owned ControlPlane semantic activation operation set.</summary>
+public sealed record BaseClientSemanticActivationDescriptor
+{
+    /// <summary>Gets the stable definition identifier.</summary>
+    public required string Id { get; init; }
+    /// <summary>Gets its positive version.</summary>
+    public required int Version { get; init; }
+    /// <summary>Gets the exact definition checksum as canonical base64.</summary>
+    public required string Checksum { get; init; }
+    /// <summary>Gets the deterministic generated member name.</summary>
+    public required string GeneratedName { get; init; }
+    /// <summary>Gets whether compaction authority is installed.</summary>
+    public required bool Compactable { get; init; }
+    /// <summary>Gets whether removal authority is installed.</summary>
+    public required bool Removable { get; init; }
 }
 
 /// <summary>Describes one generated non-browser durable lifecycle worker.</summary>
@@ -132,7 +151,7 @@ public sealed record BaseClientProtocolDescriptor
     /// <summary>Gets the minimum compatible client minor.</summary>
     public int MinimumClientMinor { get; init; }
     /// <summary>Gets the snapshot schema version.</summary>
-    public int SnapshotSchemaVersion { get; init; } = 7;
+    public int SnapshotSchemaVersion { get; init; } = 8;
     /// <summary>Gets the application identifier.</summary>
     public required string ApplicationId { get; init; }
     /// <summary>Gets the logical schema generation.</summary>

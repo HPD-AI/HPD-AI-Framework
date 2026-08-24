@@ -104,11 +104,36 @@ public static class BaseSemanticActivationMigrationAuthorityContract
     }
 }
 
-/// <summary>Executes provider-owned semantic maintenance and private inspection.</summary>
-public interface IBaseSemanticActivationAdministration
+/// <summary>Exposes the semantic capability implemented by one exact production store instance.</summary>
+public interface IBaseSemanticActivationCapabilityProvider
 {
-    /// <summary>Gets the immutable certified semantic activation capability implemented by this administration seam.</summary>
+    /// <summary>Gets the immutable implemented semantic activation capability.</summary>
     BaseSemanticActivationCapability SemanticActivationCapability { get; }
+    /// <summary>Gets the current provider-owned semantic publication health.</summary>
+    BaseSemanticActivationOperationalStatus SemanticActivationOperationalStatus { get; }
+}
+
+/// <summary>Describes current bounded semantic provider work and admission state.</summary>
+public sealed record BaseSemanticActivationOperationalStatus
+{
+    /// <summary>Gets whether new semantic publications are admitted.</summary>
+    public required bool Ready { get; init; }
+    /// <summary>Gets whether semantic authority is quarantined pending retained-work resolution.</summary>
+    public required bool Quarantined { get; init; }
+    /// <summary>Gets the number of admitted provider operations.</summary>
+    public required int ActiveOperations { get; init; }
+    /// <summary>Gets the number of retained non-cooperative operations.</summary>
+    public required int RetainedOperations { get; init; }
+    /// <summary>Gets the immutable provider admission ceiling.</summary>
+    public required int MaximumRetainedOperations { get; init; }
+}
+
+/// <summary>Executes provider-owned semantic maintenance and private inspection.</summary>
+public interface IBaseSemanticActivationAdministration : IBaseSemanticActivationCapabilityProvider
+{
+    /// <summary>Reads one exact provider-private definition maintenance authority.</summary>
+    ValueTask<BaseResult<BaseSemanticActivationMaintenanceAuthority>> InspectMaintenanceAuthorityAsync(
+        BaseSemanticActivationMaintenanceAuthorityRequest request, CancellationToken cancellationToken);
     /// <summary>Reads one bounded provider-private inspection page.</summary>
     ValueTask<BaseResult<BaseSemanticActivationProviderInspectionPage>> InspectAsync(
         BaseSemanticActivationProviderInspectionRequest request, CancellationToken cancellationToken);
@@ -118,6 +143,85 @@ public interface IBaseSemanticActivationAdministration
     /// <summary>Resolves an indeterminate identified maintenance operation.</summary>
     ValueTask<BaseResult<BaseSemanticActivationMaintenanceResult>> ResolveAsync(
         BaseSemanticActivationMaintenanceResolutionRequest request, CancellationToken cancellationToken);
+}
+
+/// <summary>Requests exact private authority used to mint sanitized ControlPlane commands.</summary>
+public sealed record BaseSemanticActivationMaintenanceAuthorityRequest
+{
+    /// <summary>Gets the exact application authority.</summary>
+    public required string ApplicationId { get; init; }
+    /// <summary>Gets the exact logical store.</summary>
+    public required string LogicalStoreId { get; init; }
+    /// <summary>Gets the captured restore epoch.</summary>
+    public required long RestoreEpoch { get; init; }
+    /// <summary>Gets the installed definition.</summary>
+    public required BaseSemanticActivationDefinitionKey Definition { get; init; }
+    /// <summary>Gets the captured semantic authority generation.</summary>
+    public required long SemanticAuthorityGeneration { get; init; }
+    /// <summary>Gets the maximum rows that may be examined.</summary>
+    public required long MaximumRows { get; init; }
+    /// <summary>Gets the maximum canonical bytes that may be examined.</summary>
+    public required long MaximumBytes { get; init; }
+    /// <summary>Gets the Runtime-authored request checksum.</summary>
+    public required ImmutableArray<byte> RuntimeRequestChecksum { get; init; }
+}
+
+/// <summary>Contains provider-private aggregate authority for one installed definition.</summary>
+public sealed record BaseSemanticActivationMaintenanceAuthority
+{
+    /// <summary>Gets the captured semantic authority generation.</summary>
+    public required long SemanticAuthorityGeneration { get; init; }
+    /// <summary>Gets the exact live slot count.</summary>
+    public required long LiveCount { get; init; }
+    /// <summary>Gets the exact retired slot count.</summary>
+    public required long RetiredCount { get; init; }
+    /// <summary>Gets the exact compacted-absence count.</summary>
+    public required long AbsenceCount { get; init; }
+    /// <summary>Gets the ordered retired-authority checksum.</summary>
+    public required ImmutableArray<byte> RetiredAuthorityChecksum { get; init; }
+    /// <summary>Gets the complete ordered definition-state checksum.</summary>
+    public required ImmutableArray<byte> DefinitionStateChecksum { get; init; }
+    /// <summary>Gets the ordered retained-negative-authority checksum.</summary>
+    public required ImmutableArray<byte> AbsenceAuthorityChecksum { get; init; }
+    /// <summary>Gets examined rows.</summary>
+    public required long ExaminedRows { get; init; }
+    /// <summary>Gets examined canonical bytes.</summary>
+    public required long CanonicalBytes { get; init; }
+    /// <summary>Gets the exact response checksum.</summary>
+    public required ImmutableArray<byte> Checksum { get; init; }
+}
+
+/// <summary>Owns canonical maintenance-authority request and response checksums.</summary>
+public static class BaseSemanticActivationMaintenanceAuthorityContract
+{
+    /// <summary>Computes the Runtime request checksum.</summary>
+    public static ImmutableArray<byte> RequestChecksum(BaseSemanticActivationMaintenanceAuthorityRequest value)
+    {
+        using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+        hash.AppendData("base.semanticActivation.maintenanceAuthorityRequest.v1\0"u8);
+        Add(value.ApplicationId); Add(value.LogicalStoreId); Add(value.Definition.Id); I32(value.Definition.Version);
+        Bytes(value.Definition.Checksum.AsSpan()); I64(value.RestoreEpoch); I64(value.SemanticAuthorityGeneration);
+        I64(value.MaximumRows); I64(value.MaximumBytes); return hash.GetHashAndReset().ToImmutableArray();
+        void Add(string text) => Bytes(System.Text.Encoding.UTF8.GetBytes(text));
+        void Bytes(ReadOnlySpan<byte> bytes) { Span<byte> length = stackalloc byte[4]; System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(length, bytes.Length); hash.AppendData(length); hash.AppendData(bytes); }
+        void I32(int number) { Span<byte> bytes = stackalloc byte[4]; System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(bytes, number); hash.AppendData(bytes); }
+        void I64(long number) { Span<byte> bytes = stackalloc byte[8]; System.Buffers.Binary.BinaryPrimitives.WriteInt64BigEndian(bytes, number); hash.AppendData(bytes); }
+    }
+
+    /// <summary>Computes the provider response checksum.</summary>
+    public static ImmutableArray<byte> Checksum(BaseSemanticActivationMaintenanceAuthorityRequest request,
+        BaseSemanticActivationMaintenanceAuthority value)
+    {
+        using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+        hash.AppendData("base.semanticActivation.maintenanceAuthority.v1\0"u8);
+        hash.AppendData(request.RuntimeRequestChecksum.AsSpan()); I64(value.SemanticAuthorityGeneration);
+        I64(value.LiveCount); I64(value.RetiredCount); I64(value.AbsenceCount);
+        Bytes(value.RetiredAuthorityChecksum.AsSpan()); Bytes(value.DefinitionStateChecksum.AsSpan());
+        Bytes(value.AbsenceAuthorityChecksum.AsSpan()); I64(value.ExaminedRows); I64(value.CanonicalBytes);
+        return hash.GetHashAndReset().ToImmutableArray();
+        void Bytes(ReadOnlySpan<byte> bytes) { Span<byte> length = stackalloc byte[4]; System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(length, bytes.Length); hash.AppendData(length); hash.AppendData(bytes); }
+        void I64(long number) { Span<byte> bytes = stackalloc byte[8]; System.Buffers.Binary.BinaryPrimitives.WriteInt64BigEndian(bytes, number); hash.AppendData(bytes); }
+    }
 }
 
 /// <summary>Base type for the closed semantic maintenance request union.</summary>
@@ -386,9 +490,11 @@ public static class BaseSemanticActivationMaintenanceContract
     /// <summary>Validates one provider result against the exact request authority.</summary>
     public static bool IsValid(BaseSemanticActivationMaintenanceRequest request, BaseSemanticActivationMaintenanceResult result)
     {
-        if (!Enum.IsDefined(result.Disposition) || result.PreviousAuthorityGeneration != request.ExpectedSemanticAuthorityGeneration
+        if (!Enum.IsDefined(result.Disposition) || result.Disposition == BaseSemanticActivationMaintenanceDisposition.Indeterminate
+            || result.PreviousAuthorityGeneration != request.ExpectedSemanticAuthorityGeneration
             || result.ResultingAuthorityGeneration < result.PreviousAuthorityGeneration || result.ExaminedRows < 0
             || result.ChangedRows < 0 || result.ChangedRows > result.ExaminedRows || result.CanonicalBytes < 0
+            || !ReceiptDispositionIsValid(result.Disposition, result.ReceiptDisposition)
             || result.ExaminedRows > request.Limits.MaximumRows || result.CanonicalBytes > request.Limits.MaximumBytes) return false;
         if (result.Disposition == BaseSemanticActivationMaintenanceDisposition.InProgress)
         {
@@ -403,6 +509,20 @@ public static class BaseSemanticActivationMaintenanceContract
             && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(result.ResultChecksum.AsSpan(), ResultChecksum(result, result.AuthorityChecksum.AsSpan()).AsSpan())
             && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(result.CommitObservationChecksum.AsSpan(), CommitObservationChecksum(result.ResultChecksum.AsSpan()).AsSpan());
     }
+
+    /// <summary>Validates the exact receipt disposition required by a maintenance outcome.</summary>
+    public static bool ReceiptDispositionIsValid(
+        BaseSemanticActivationMaintenanceDisposition disposition,
+        BaseMutationRequestDisposition? receiptDisposition) => disposition switch
+    {
+        BaseSemanticActivationMaintenanceDisposition.Completed or BaseSemanticActivationMaintenanceDisposition.InProgress
+            => receiptDisposition == BaseMutationRequestDisposition.Committed,
+        BaseSemanticActivationMaintenanceDisposition.Duplicate
+            => receiptDisposition == BaseMutationRequestDisposition.Duplicate,
+        BaseSemanticActivationMaintenanceDisposition.ConfirmedRolledBack or BaseSemanticActivationMaintenanceDisposition.Indeterminate
+            => receiptDisposition is null,
+        _ => false,
+    };
 
     private sealed class CanonicalWriter : IDisposable
     {

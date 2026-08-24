@@ -114,19 +114,102 @@ public interface IHPDBaseAdministration
         BaseSemanticActivationInspectionRequest request,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Executes or resumes one graph-authorized semantic activation maintenance operation.</summary>
-    ValueTask<BaseResult<BaseSemanticActivationMaintenanceResult>> ExecuteSemanticActivationMaintenanceAsync(
-        string storeId,
-        PrincipalContext principal,
-        BaseSemanticActivationMaintenanceRequest request,
+    /// <summary>Reads sanitized semantic definition health and Runtime-minted command authority.</summary>
+    ValueTask<BaseResult<BaseSemanticActivationControlDescriptor>> ReadSemanticActivationControlAsync(
+        string storeId, PrincipalContext principal, BaseSemanticActivationDefinitionKey definition,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Resolves one indeterminate semantic activation maintenance operation.</summary>
-    ValueTask<BaseResult<BaseSemanticActivationMaintenanceResult>> ResolveSemanticActivationMaintenanceAsync(
-        string storeId,
-        PrincipalContext principal,
-        BaseSemanticActivationMaintenanceResolutionRequest request,
+    /// <summary>Executes one Runtime-minted semantic maintenance command.</summary>
+    ValueTask<BaseResult<BaseSemanticActivationControlResult>> ExecuteSemanticActivationControlAsync(
+        string storeId, PrincipalContext principal, BaseSemanticActivationControlCommand command,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Resolves one Runtime-minted indeterminate semantic maintenance command.</summary>
+    ValueTask<BaseResult<BaseSemanticActivationControlResult>> ResolveSemanticActivationControlAsync(
+        string storeId, PrincipalContext principal, BaseSemanticActivationControlResolution resolution,
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>Opaque Runtime-minted semantic maintenance authority.</summary>
+public sealed class BaseSemanticActivationControlToken
+{
+    internal BaseSemanticActivationControlToken(string value) => Value = value;
+    internal static BaseSemanticActivationControlToken FromWire(string value)
+    {
+        if (value.Length is < 1 or > 4096 || value.Any(static character =>
+                character is not (>= 'A' and <= 'Z') and not (>= 'a' and <= 'z')
+                    and not (>= '0' and <= '9') and not '-' and not '_'))
+            throw new FormatException(BaseSemanticActivationErrorCodes.Invalid);
+        return new(new string(value.AsSpan()));
+    }
+    /// <summary>Gets canonical unpadded base64url token text.</summary>
+    public string Value { get; }
+}
+
+/// <summary>Contains sanitized health and available exact maintenance commands.</summary>
+public sealed record BaseSemanticActivationControlDescriptor
+{
+    /// <summary>Gets the stable definition identifier.</summary>
+    public required string DefinitionId { get; init; }
+    /// <summary>Gets its installed positive version.</summary>
+    public required int DefinitionVersion { get; init; }
+    /// <summary>Gets the current semantic authority generation, or null while authority is unavailable.</summary>
+    public required long? AuthorityGeneration { get; init; }
+    /// <summary>Gets the current live count, or null while authority is unavailable.</summary>
+    public required long? LiveCount { get; init; }
+    /// <summary>Gets the current retired count, or null while authority is unavailable.</summary>
+    public required long? RetiredCount { get; init; }
+    /// <summary>Gets the current compacted-absence count, or null while authority is unavailable.</summary>
+    public required long? AbsenceCount { get; init; }
+    /// <summary>Gets current provider readiness.</summary>
+    public required bool Ready { get; init; }
+    /// <summary>Gets current provider quarantine state.</summary>
+    public required bool Quarantined { get; init; }
+    /// <summary>Gets compact command authority when currently eligible.</summary>
+    public BaseSemanticActivationControlToken? Compact { get; init; }
+    /// <summary>Gets removal command authority when currently eligible.</summary>
+    public BaseSemanticActivationControlToken? Remove { get; init; }
+}
+
+/// <summary>Executes or resumes one opaque semantic maintenance command.</summary>
+public sealed record BaseSemanticActivationControlCommand
+{
+    /// <summary>Gets opaque Runtime-minted authority.</summary>
+    public required BaseSemanticActivationControlToken Token { get; init; }
+    /// <summary>Gets the normalized caller idempotency key.</summary>
+    public required string IdempotencyKey { get; init; }
+    /// <summary>Gets the exact destructive confirmation literal.</summary>
+    public required string Confirmation { get; init; }
+}
+
+/// <summary>Resolves one opaque indeterminate semantic maintenance command.</summary>
+public sealed record BaseSemanticActivationControlResolution
+{
+    /// <summary>Gets opaque Runtime-minted resolution authority.</summary>
+    public required BaseSemanticActivationControlToken Token { get; init; }
+}
+
+/// <summary>Contains only sanitized semantic maintenance outcome authority.</summary>
+public sealed record BaseSemanticActivationControlResult
+{
+    /// <summary>Gets the closed maintenance disposition.</summary>
+    public required BaseSemanticActivationMaintenanceDisposition Disposition { get; init; }
+    /// <summary>Gets the published semantic authority generation.</summary>
+    public required long AuthorityGeneration { get; init; }
+    /// <summary>Gets examined rows.</summary>
+    public required long ExaminedRows { get; init; }
+    /// <summary>Gets changed rows.</summary>
+    public required long ChangedRows { get; init; }
+    /// <summary>Gets examined canonical bytes.</summary>
+    public required long CanonicalBytes { get; init; }
+    /// <summary>Gets receipt disposition when an outcome was confirmed.</summary>
+    public required BaseMutationRequestDisposition? ReceiptDisposition { get; init; }
+    /// <summary>Gets an opaque resume command when bounded work remains.</summary>
+    public BaseSemanticActivationControlToken? Resume { get; init; }
+    /// <summary>Gets an opaque resolution command when commit observation is indeterminate.</summary>
+    public BaseSemanticActivationControlToken? Resolution { get; init; }
+    /// <summary>Gets a sanitized Runtime-authored outcome checksum.</summary>
+    public required ImmutableArray<byte> SanitizedChecksum { get; init; }
 }
 
 /// <summary>Requests sanitized lifecycle authority inspection after exact ControlPlane authorization.</summary>

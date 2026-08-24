@@ -87,9 +87,12 @@ public sealed record BaseMutationRequestIdentity
         {
             Scope = Normalize(scope, 128, nameof(scope)),
             Operation = Normalize(operation, 128, nameof(operation)),
-            IdempotencyKey = Normalize(idempotencyKey, 256, nameof(idempotencyKey)),
+            IdempotencyKey = NormalizeIdempotencyKey(idempotencyKey),
             Fingerprint = fingerprint ?? throw new ArgumentNullException(nameof(fingerprint)),
         };
+
+    internal static string NormalizeIdempotencyKey(string value) =>
+        Normalize(value, 256, nameof(value));
 
     private static string Normalize(string value, int maximumUtf8Bytes, string parameterName)
     {

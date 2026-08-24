@@ -2,12 +2,12 @@ using System.Text.Json.Serialization;
 
 namespace HPD.Base.AotSmoke;
 
-[BaseRegisteredModuleMutation("hpd.base.aot.module.increment", typeof(ModuleMutationSmokeJsonContext), typeof(ModuleMutationSmokeRequest), typeof(ModuleMutationSmokeResult), Version = 1, OwningModuleId = "hpd.base.aot.module", GrantId = "hpd.base.aot.module.increment")]
+[BaseRegisteredModuleMutation("hpd.base.aot.module.increment", typeof(ModuleMutationSmokeJsonContext), typeof(ModuleMutationSmokeRequest), typeof(ModuleMutationSmokeResult), Version = 1, OwningModuleId = "hpd.base.aot", GrantId = "hpd.base.aot.module.increment")]
 public static partial class ModuleMutationSmoke
 {
     internal static BaseRegisteredModuleMutationDefinition Definition { get; } = BaseModuleMutationContract.Seal(new()
     {
-        Id = "hpd.base.aot.module.increment", Version = 1, OwningModuleId = "hpd.base.aot.module", GrantId = "hpd.base.aot.module.increment",
+        Id = "hpd.base.aot.module.increment", Version = 1, OwningModuleId = "hpd.base.aot", GrantId = "hpd.base.aot.module.increment",
         Audience = BaseModuleMutationAudience.Service, RequestTypeId = "hpd.base.aot.module.request", ResultTypeId = "hpd.base.aot.module.result",
         SystemCollectionIds = [], SystemSourceGrants = [], GenerationCellIds = ["hpd.base.aot.module.generation"], ImportedSubjectContractIds = [],
         Template = new BaseModuleMutationTemplate
@@ -28,7 +28,7 @@ public static partial class ModuleMutationSmoke
 
     internal static BaseModuleGenerationCellDefinition Cell { get; } = new()
     {
-        Id = "hpd.base.aot.module.generation", Version = 1, OwningModuleId = "hpd.base.aot.module", Scope = BaseModuleGenerationScope.Application,
+        Id = "hpd.base.aot.module.generation", Version = 1, OwningModuleId = "hpd.base.aot", Scope = BaseModuleGenerationScope.Application,
         MaximumKeyUtf8Bytes = 32, MaximumCellsPerOperation = 1,
     };
 

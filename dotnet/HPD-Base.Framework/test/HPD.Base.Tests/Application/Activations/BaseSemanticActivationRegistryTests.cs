@@ -5,6 +5,61 @@ namespace HPD.Base.Tests.Application.Activations;
 public sealed class BaseSemanticActivationRegistryTests
 {
     [Fact]
+    public void Certification_profile_and_installed_receipt_bind_every_provider_layer()
+    {
+        BaseSemanticActivationCapability semantic = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true);
+        BaseModuleMutationCapability module = ModuleCapability();
+        BaseActivationProviderCapability activationCapability = BaseActivationCapabilityContract.BuiltIn("tests.semantic.activation.v2");
+        BaseSemanticActivationCertificationSubject subject = BaseSemanticActivationCertificationContract.CreateSubject(
+            "tests.semantic", "1", "sqlite", HPDBaseStoreProviderFactory.ProtocolVersion, semantic, module,
+            activationCapability, "native:a", "native:b");
+        BaseSemanticActivationCertificationReport report = BaseSemanticActivationBuiltInCertification.LoadFrozenExecutedReport(subject, semantic);
+        BaseSemanticActivationCertificationProfile profile = BaseSemanticActivationCertificationContract.SealSuccessfulReport(
+            report, semantic, module, activationCapability);
+        BaseActivationProviderDescriptor activation = BaseActivationCertificationReceiptContract.FromSuccessfulReport(
+            "tests.activation", "1", activationCapability, Bytes(8));
+        ImmutableArray<byte> registrations = BaseSemanticActivationCertificationContract.StoreRegistrationSetChecksum(
+            "sqlite", HPDBaseStoreProviderFactory.ProtocolVersion, "primary", ["sqlite.records", "sqlite.vector"]);
+
+        BaseInstalledSemanticActivationProviderDescriptor installed = BaseSemanticActivationCertificationContract.BindInstalled(
+            profile, activation, "primary", "sqlite-physical", registrations);
+
+        BaseSemanticActivationCertificationContract.ValidateProfile(profile).Should().BeTrue();
+        BaseSemanticActivationCertificationContract.ValidateInstalled(installed, profile, activation, "primary", "sqlite-physical", registrations).Should().BeTrue();
+        BaseInstalledSemanticActivationProviderDescriptor rebound = BaseSemanticActivationCertificationContract.RebindInstalled(
+            installed, "sqlite-restored-physical");
+        BaseSemanticActivationCertificationContract.ValidateInstalled(rebound, profile, activation,
+            "primary", "sqlite-restored-physical", registrations).Should().BeTrue();
+        rebound.Receipt.Should().NotEqual(installed.Receipt);
+        BaseSemanticActivationCertificationContract.ValidateProfile(profile with { StoreProviderKind = "inmemory" }).Should().BeFalse();
+        BaseSemanticActivationCertificationContract.ValidateInstalled(installed, profile, activation, "other", "sqlite-physical", registrations).Should().BeFalse();
+        BaseSemanticActivationCertificationContract.ValidateInstalled(installed with
+        {
+            InstalledActivationCertificationReceipt = Bytes(9), Receipt = installed.Receipt,
+        }, profile, activation, "primary", "sqlite-physical", registrations).Should().BeFalse();
+        BaseSemanticActivationCertificationContract.StoreRegistrationSetChecksum(
+            "sqlite", 1, "primary", ["sqlite.vector", "sqlite.records"]).Should().Equal(registrations);
+        Action duplicate = () => BaseSemanticActivationCertificationContract.StoreRegistrationSetChecksum(
+            "sqlite", 1, "primary", ["sqlite.records", "sqlite.records"]);
+        duplicate.Should().Throw<ArgumentException>();
+        BaseSemanticActivationCertificationProfile unsupported = BaseSemanticActivationCertificationContract.Unsupported(
+            "external", 1, module, activationCapability);
+        BaseSemanticActivationCertificationContract.ValidateProfile(unsupported).Should().BeTrue();
+        BaseSemanticActivationCertificationContract.ValidateProfile(unsupported with { Supported = true }).Should().BeFalse();
+        BaseSemanticActivationCertificationContract.ValidateProfile(profile with { ExecutedReportChecksum = [] }).Should().BeFalse();
+        Action arbitrary = () => BaseSemanticActivationCertificationContract.SealSuccessfulReport(
+            report with { Checksum = Bytes(7) }, semantic, module, activationCapability);
+        arbitrary.Should().Throw<ArgumentException>();
+        BaseSemanticActivationCertificationCaseResult firstCase = report.Cases[0];
+        BaseSemanticActivationCertificationReport reordered = BaseSemanticActivationCertificationContract.CreateReport(
+            subject, report.Cases.SetItem(0, report.Cases[1]).SetItem(1, firstCase));
+        BaseSemanticActivationCertificationContract.ValidateReport(reordered).Should().BeFalse();
+        BaseSemanticActivationCertificationReport substitutedOutcome = BaseSemanticActivationCertificationContract.CreateReport(
+            subject, report.Cases.SetItem(14, report.Cases[14] with { ObservedErrorCode = BaseSemanticActivationErrorCodes.Corrupt }));
+        BaseSemanticActivationCertificationContract.ValidateReport(substitutedOutcome).Should().BeFalse();
+    }
+
+    [Fact]
     public void Capability_checksum_binds_maintenance_authority_and_page_limit()
     {
         BaseSemanticActivationCapability identityOnly = BaseSemanticActivationCapabilityContract.BuiltIn(durable: false);
@@ -260,6 +315,11 @@ public sealed class BaseSemanticActivationRegistryTests
     };
 
     private static ImmutableArray<byte> Bytes(byte value) => Enumerable.Repeat(value, 32).ToImmutableArray();
+    private static BaseModuleMutationCapability ModuleCapability() => new()
+    {
+        Supported = true, SerializableExecution = true, DurableReceipts = true, GenerationCells = true,
+        AtomicRecordAndGenerationCommit = true, MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
+    };
     private sealed record Request(string Value);
     private sealed class Marker;
 }

@@ -41,17 +41,27 @@ public sealed partial class SqliteRecordStore :
         CollectionDefinition[] ordered = [.. collections.OrderBy(static value => value.Id, StringComparer.Ordinal)];
         if (ordered.Select(static value => value.Id).Distinct(StringComparer.Ordinal).Count() != ordered.Length)
             throw new ArgumentException("Collection authority requests must be unique.", nameof(collections));
+        string storeInstanceId = await GetOrCreateStoreInstanceIdAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         long restoreEpoch;
         await using (SqliteCommand epoch = connection.CreateCommand())
         {
-            epoch.CommandText = $"SELECT COALESCE((SELECT CAST(value AS INTEGER) FROM {_names.ProviderState} WHERE key='restore_epoch'),0);";
-            restoreEpoch = Convert.ToInt64(await epoch.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
+            epoch.Transaction = transaction;
+            epoch.CommandText = $"SELECT i.store_instance_id,COALESCE((SELECT CAST(value AS INTEGER) FROM {_names.ProviderState} WHERE key='restore_epoch'),0) FROM {_names.SchemaIdentity} i WHERE i.singleton=1;";
+            await using SqliteDataReader identity = await epoch.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (!await identity.ReadAsync(cancellationToken).ConfigureAwait(false) || identity.IsDBNull(0) || identity.IsDBNull(1))
+                throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+            if (!string.Equals(identity.GetString(0), storeInstanceId, StringComparison.Ordinal))
+                throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
+            restoreEpoch = identity.GetInt64(1);
+            Volatile.Write(ref _currentStoreInstanceId, storeInstanceId);
         }
         BaseSemanticActivationStoreAuthorityRequirement? semanticAuthority = null;
         if (_options.SemanticActivationOwnerGeneration > 0)
         {
             await using SqliteCommand semantic = connection.CreateCommand();
+            semantic.Transaction = transaction;
             semantic.CommandText = $"SELECT CAST((SELECT value FROM {_names.ProviderState} WHERE key='semantic_activation_authority_generation') AS INTEGER),(SELECT value FROM {_names.ProviderState} WHERE key='semantic_activation_definition_set_checksum');";
             await using SqliteDataReader reader = await semantic.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false) || reader.IsDBNull(0) || reader.IsDBNull(1)
@@ -61,7 +71,7 @@ public sealed partial class SqliteRecordStore :
             semanticAuthority = new BaseSemanticActivationStoreAuthorityRequirement
             {
                 ApplicationId = new string(applicationId.AsSpan()), LogicalStoreId = new string(_options.StoreId.AsSpan()),
-                StoreInstanceId = new string(_options.StoreId.AsSpan()), RestoreEpoch = restoreEpoch,
+                StoreInstanceId = new string(storeInstanceId.AsSpan()), RestoreEpoch = restoreEpoch,
                 SchemaGeneration = Volatile.Read(ref _schemaGeneration), SemanticAuthorityGeneration = reader.GetInt64(0),
                 DefinitionSetChecksum = definitionSetChecksum.ToImmutableArray(),
             };
@@ -70,6 +80,7 @@ public sealed partial class SqliteRecordStore :
         foreach (CollectionDefinition collection in ordered)
         {
             await using SqliteCommand command = connection.CreateCommand();
+            command.Transaction = transaction;
             command.CommandText = $"SELECT purge_generation FROM {_names.Collections} WHERE collection_id=$collection;";
             command.Parameters.AddWithValue("$collection", collection.Id);
             object? value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
@@ -87,7 +98,7 @@ public sealed partial class SqliteRecordStore :
         return OperationResults.Ok(new BaseAtomicMutationAuthorityRequirement
         {
             ApplicationId = new string(applicationId.AsSpan()),
-            StoreInstanceId = new string(_options.StoreId.AsSpan()),
+            StoreInstanceId = new string(storeInstanceId.AsSpan()),
             RestoreEpoch = restoreEpoch,
             SchemaGeneration = Volatile.Read(ref _schemaGeneration),
             Collections = generations.MoveToImmutable(),
@@ -99,6 +110,7 @@ public sealed partial class SqliteRecordStore :
     internal SqliteNames VectorNames => _names;
     internal SqlitePhysicalModel VectorPhysicalModel => _physical;
     internal string VectorStoreId => _options.StoreId;
+    internal string CurrentStoreInstanceId => Volatile.Read(ref _currentStoreInstanceId);
     internal long VectorSchemaGeneration => Volatile.Read(ref _schemaGeneration);
     internal int VectorCommandTimeoutSeconds => TimeoutSeconds();
     internal ValueTask<IAsyncDisposable> AcquireVectorGenerationExclusiveAsync(CancellationToken cancellationToken) => _schemaGenerationGate.AcquireExclusiveAsync(cancellationToken);
@@ -121,17 +133,35 @@ public sealed partial class SqliteRecordStore :
     private readonly ISqliteSchemaCommandController _schemaCommands;
     private readonly ISqliteAdministrationOperationController _administrationOperations;
     internal ValueTask BeforeTextAdministrationPhaseAsync(string phase, CancellationToken cancellationToken) => _administrationOperations.BeforePhaseAsync(phase, cancellationToken);
+    private async ValueTask AwaitSemanticAdministrationPhaseAsync(string phase, CancellationToken cancellationToken)
+    {
+        Task work = _administrationOperations.BeforePhaseAsync(phase, CancellationToken.None).AsTask();
+        try { await work.WaitAsync(cancellationToken).ConfigureAwait(false); }
+        catch when (!work.IsCompleted)
+        {
+            TrackQuarantinedSemanticAdministration(work);
+            throw;
+        }
+    }
     private readonly ISqliteAtomicMutationProjection[] _mutationProjectionContributors;
     private readonly SemaphoreSlim _keepAliveGate = new(1, 1);
     private readonly SemaphoreSlim _mutationExecutionSlots;
+    private readonly SemaphoreSlim _semanticMutationExecutionSlots;
     private readonly SemaphoreSlim _administrationExecutionSlots;
     private readonly ConcurrentDictionary<long, Task> _quarantinedAdministration = new();
     private readonly SqliteSchemaGenerationGate _schemaGenerationGate = new();
     private readonly ConcurrentDictionary<long, QuarantinedMutation> _quarantinedMutations = new();
+    private int _semanticMutationActive;
+    private int _semanticMutationRetained;
+    private int _semanticMutationQuarantined;
+    private int _semanticMutationReleased;
+    private int _semanticRejectedLateCompletions;
     private SqliteConnection? _keepAliveConnection;
     private long _nextQuarantinedMutationId;
     private long _nextQuarantinedAdministrationId;
     private long _schemaGeneration;
+    private string _currentStoreInstanceId;
+    private readonly BaseInstalledSemanticActivationProviderOwner? _semanticCertificationOwner;
     private int _restoreInstallationActive;
     private int _restoreRecoveryIndeterminate;
     private int _disposed;
@@ -158,12 +188,15 @@ public sealed partial class SqliteRecordStore :
         ISqliteSchemaCommandController? schemaCommands = null,
         ISqliteAdministrationOperationController? administrationOperations = null,
         BaseOpaqueTokenProtector? tokenProtector = null,
-        IEnumerable<ISqliteAtomicMutationProjection>? mutationProjectionContributors = null)
+        IEnumerable<ISqliteAtomicMutationProjection>? mutationProjectionContributors = null,
+        BaseInstalledSemanticActivationProviderOwner? semanticCertificationOwner = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(loggerFactory);
         ArgumentNullException.ThrowIfNull(timeProvider);
         _options = options;
+        _currentStoreInstanceId = options.StoreId;
+        _semanticCertificationOwner = semanticCertificationOwner;
         ValidateOptions(_options);
         _logger = loggerFactory.CreateLogger<SqliteRecordStore>();
         _timeProvider = timeProvider;
@@ -199,6 +232,7 @@ public sealed partial class SqliteRecordStore :
         _mutationExecutionSlots = new SemaphoreSlim(
             _options.MaxTrackedMutationExecutions,
             _options.MaxTrackedMutationExecutions);
+        _semanticMutationExecutionSlots = new SemaphoreSlim(8, 8);
         _administrationExecutionSlots = new SemaphoreSlim(
             _options.MaxQuarantinedAdministrationExecutions,
             _options.MaxQuarantinedAdministrationExecutions);
@@ -219,7 +253,7 @@ public sealed partial class SqliteRecordStore :
             Durable = true,
             MaxArtifactBytes = administration ? _options.MaxBackupArtifactBytes : 0,
         };
-        _activationDescriptor = CreateActivationDescriptor(administration, _options);
+        _activationDescriptor = CreateActivationDescriptor(DurableActivationRecoveryConfigured(_options), _options);
         _semanticActivationCapability = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true);
         Capabilities = CreateCapabilities(_options, _queryCursors is not null, AdministrationCapability);
     }
@@ -460,7 +494,10 @@ WHERE entry_kind = 0 AND event_id = $eventId
 
         _keepAliveGate.Dispose();
         if (acquiredSlots == _options.MaxTrackedMutationExecutions)
+        {
             _mutationExecutionSlots.Dispose();
+            _semanticMutationExecutionSlots.Dispose();
+        }
         else if (acquiredSlots != 0)
             _mutationExecutionSlots.Release(acquiredSlots);
         if (acquiredAdministrationSlots == _options.MaxQuarantinedAdministrationExecutions)
@@ -472,10 +509,16 @@ WHERE entry_kind = 0 AND event_id = $eventId
     private void TrackQuarantinedMutation(
         Task<bool> cleanup,
         object resourceOwner,
-        string? requestIdentity)
+        string? requestIdentity,
+        bool semanticActivation)
     {
         var id = Interlocked.Increment(ref _nextQuarantinedMutationId);
-        _quarantinedMutations[id] = new QuarantinedMutation(cleanup, resourceOwner, requestIdentity);
+        if (semanticActivation)
+        {
+            Interlocked.Increment(ref _semanticMutationRetained);
+            Interlocked.Increment(ref _semanticMutationQuarantined);
+        }
+        _quarantinedMutations[id] = new QuarantinedMutation(cleanup, resourceOwner, requestIdentity, semanticActivation);
         _ = cleanup.ContinueWith(
             completed =>
             {
@@ -484,6 +527,13 @@ WHERE entry_kind = 0 AND event_id = $eventId
                     && completed.Result)
                 {
                     _quarantinedMutations.TryRemove(id, out var ignored);
+                    if (semanticActivation)
+                    {
+                        Interlocked.Decrement(ref _semanticMutationRetained);
+                        Interlocked.Decrement(ref _semanticMutationQuarantined);
+                        Interlocked.Increment(ref _semanticMutationReleased);
+                        Interlocked.Increment(ref _semanticRejectedLateCompletions);
+                    }
                     _ = ignored;
                 }
             },
@@ -492,10 +542,45 @@ WHERE entry_kind = 0 AND event_id = $eventId
             TaskScheduler.Default);
     }
 
+    private void TrackQuarantinedSemanticProcessor(Task operation, string? requestIdentity)
+    {
+        Interlocked.Increment(ref _semanticMutationActive);
+        async Task<bool> ObserveLateCompletionAsync()
+        {
+            try { await operation.ConfigureAwait(false); }
+            catch { _ = operation.Exception; }
+            finally { Interlocked.Decrement(ref _semanticMutationActive); }
+            return true;
+        }
+        TrackQuarantinedMutation(ObserveLateCompletionAsync(), operation, requestIdentity, semanticActivation: true);
+    }
+
+    private void TrackQuarantinedSemanticAdministration(Task operation)
+    {
+        Interlocked.Increment(ref _semanticMutationActive);
+        Interlocked.Increment(ref _semanticMutationRetained);
+        Interlocked.Increment(ref _semanticMutationQuarantined);
+        TrackAdministrationCompletion(ObserveLateCompletionAsync(), "semanticActivation");
+        async Task ObserveLateCompletionAsync()
+        {
+            try { await operation.ConfigureAwait(false); }
+            catch { _ = operation.Exception; }
+            finally
+            {
+                Interlocked.Decrement(ref _semanticMutationActive);
+                Interlocked.Decrement(ref _semanticMutationRetained);
+                Interlocked.Decrement(ref _semanticMutationQuarantined);
+                Interlocked.Increment(ref _semanticMutationReleased);
+                Interlocked.Increment(ref _semanticRejectedLateCompletions);
+            }
+        }
+    }
+
     private sealed record QuarantinedMutation(
         Task<bool> Cleanup,
         object ResourceOwner,
-        string? RequestIdentity);
+        string? RequestIdentity,
+        bool SemanticActivation);
 
     /// <inheritdoc />
     public ValueTask<OperationResult<RecordPage>> ListAsync(CollectionDefinition collection, RecordQuery query, OperationContext context, CancellationToken cancellationToken = default) =>
@@ -1100,6 +1185,9 @@ FROM {_names.MutationJournal};
     }
 
     private static DateTimeOffset Now(OperationContext context) => context.Now == default ? DateTimeOffset.UtcNow : context.Now;
+
+    internal static bool DurableActivationRecoveryConfigured(HPDBaseSqliteOptions options) =>
+        options.AdministrationEnabled && IsFileBacked(options);
 
     private static bool IsFileBacked(HPDBaseSqliteOptions options)
     {

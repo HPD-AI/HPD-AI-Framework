@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { composeStudio, type StudioAuthenticationService, type StudioModule, type StudioModuleRegistration } from '@hpd-research/hpd-studio-core';
 import { agentStudioModule } from '@hpd-research/hpd-agent-studio';
 import { authStudioModule } from '@hpd-research/hpd-auth-studio';
-import { baseStudioModule } from '@hpd-research/hpd-base-studio';
+import { createBaseStudioModule, type BaseSemanticStudioController } from '@hpd-research/hpd-base-studio';
 import { graphStudioModule } from '@hpd-research/hpd-graph-studio';
 import { createGatewayStudioModule } from '@hpd-research/hpd-gateway-studio';
 import { createGatewayClient } from '@hpd/gateway-client';
@@ -10,6 +10,7 @@ import { mlStudioModule } from '@hpd-research/hpd-ml-studio';
 import { ragStudioModule } from '@hpd-research/hpd-rag-studio';
 import { resolveModuleContext } from '../../../../hpd-studio-core/src/context-internal.ts';
 
+const baseStudioModule = createBaseStudioModule();
 const modules: readonly StudioModule[] = [
   agentStudioModule,
   authStudioModule,
@@ -78,5 +79,25 @@ describe('placeholder module composition fixtures', () => {
     expect(context.get('gateway-controller')).toBeDefined();
     await runtime.dispose();
     expect(() => resolveModuleContext(runtime.routes[0]!.context)).toThrow();
+  });
+
+  it('registers semantic inspection only when an authorized generated client is injected', async () => {
+    const withoutAuthority = await compose([createBaseStudioModule()]);
+    expect(withoutAuthority.routes.some((route) => route.path === '/base/semantic-activations')).toBe(false);
+    await withoutAuthority.dispose();
+    let requested: unknown;
+    const client = { inspectSemanticActivations: async (request: unknown) => { requested = request; return { ok: false as const, error: { code: 'base.semanticActivation.unauthorized', category: 'authorization' as const, message: 'unavailable' }, retry: 'never' as const }; } };
+    const semanticDefinitions = { reconcileOwner: { id: 'payments.owner.reconcile', version: 1,
+      checksum: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=', compactable: false, removable: false } } as const;
+    const withAuthority = await compose([createBaseStudioModule({ client, semanticDefinitions })]);
+    expect(withAuthority.routes.some((route) => route.path === '/base/semantic-activations')).toBe(true);
+    const route = withAuthority.routes.find((candidate) => candidate.path === '/base/semantic-activations')!;
+    const controller = resolveModuleContext(route.context).get<BaseSemanticStudioController>('base-semantic-controller')!;
+    expect(controller.definitions.map((value) => value.generatedName)).toEqual(['reconcileOwner']);
+    await controller.inspect('primary', 'reconcileOwner');
+    expect(requested).toEqual({ storeId: 'primary', definitionId: 'payments.owner.reconcile', definitionVersion: 1,
+      definitionChecksum: semanticDefinitions.reconcileOwner.checksum, state: null, after: null, take: 256 });
+    expect(() => controller.inspect('primary', 'foreign')).toThrow('base.studio.contextInvalid');
+    await withAuthority.dispose();
   });
 });

@@ -1,11 +1,17 @@
 using Microsoft.Extensions.DependencyInjection;
+using System.Collections.Immutable;
 
 namespace HPD.Base;
 
-internal sealed class InMemoryProviderInstaller(Action<HPDBaseInMemoryStoreOptions>? configure) : IHPDBaseStoreInstaller
+internal sealed class InMemoryProviderInstaller(HPDBaseInMemoryStoreOptions configured) : IHPDBaseStoreInstaller
 {
-    internal static HPDBaseStoreProvider Create(Action<HPDBaseInMemoryStoreOptions>? configure) =>
-        HPDBaseStoreProviderFactory.Create(new BaseStoreProviderDescriptor
+    internal static HPDBaseStoreProvider Create(Action<HPDBaseInMemoryStoreOptions>? configure)
+    {
+        var configured = new HPDBaseInMemoryStoreOptions();
+        configure?.Invoke(configured);
+        HPDBaseInMemoryStoreOptions owned = HPDBaseInMemoryServiceCollectionExtensions.Clone(configured);
+        BaseActivationProviderCapability activation = InMemoryRecordStore.CreateActivationCapability(owned);
+        return HPDBaseStoreProviderFactory.Create(new BaseStoreProviderDescriptor
         {
             Kind = "inmemory",
             ProtocolVersion = HPDBaseStoreProviderFactory.ProtocolVersion,
@@ -25,18 +31,40 @@ internal sealed class InMemoryProviderInstaller(Action<HPDBaseInMemoryStoreOptio
                 MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
             },
             TextSearch = BaseTextPlatform.ProviderCapability(BaseTextProviderClass.CoLocatedTransactional),
-            Activations = BaseActivationCapabilityContract.BuiltIn("hpd.base.inMemory.activations.v2"),
+            Activations = activation,
             SemanticActivations = BaseSemanticActivationCapabilityContract.BuiltIn(durable: false),
-        }, new InMemoryProviderInstaller(configure));
+            SemanticActivationCertification = SemanticCertificationProfile(activation),
+        }, new InMemoryProviderInstaller(owned));
+    }
+
+    private static BaseSemanticActivationCertificationProfile SemanticCertificationProfile(BaseActivationProviderCapability activation) =>
+        SealSemanticCertification("hpd.base.inMemory.semanticActivations", "1", "inmemory",
+            BaseSemanticActivationCapabilityContract.BuiltIn(durable: false), ModuleCapability(),
+            activation);
+
+    private static BaseSemanticActivationCertificationProfile SealSemanticCertification(
+        string providerId, string providerVersion, string kind, BaseSemanticActivationCapability semantic,
+        BaseModuleMutationCapability module, BaseActivationProviderCapability activation)
+    {
+        BaseSemanticActivationCertificationSubject subject = BaseSemanticActivationCertificationContract.CreateSubject(
+            providerId, providerVersion, kind, HPDBaseStoreProviderFactory.ProtocolVersion, semantic, module, activation);
+        return BaseSemanticActivationCertificationContract.SealSuccessfulReport(
+            BaseSemanticActivationBuiltInCertification.LoadFrozenExecutedReport(subject, semantic), semantic, module, activation);
+    }
+
+    private static BaseModuleMutationCapability ModuleCapability() => new()
+    {
+        Supported = true, SerializableExecution = true, DurableReceipts = true, GenerationCells = true,
+        AtomicRecordAndGenerationCommit = true, MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
+    };
 
     public HPDBaseStoreRegistrationReceipt Configure(HPDBaseStoreInstallationContext context)
     {
         bool hasVectors = context.Collections.SelectMany(static item => item.VectorIndexes ?? []).Any();
         bool hasText = context.Collections.SelectMany(static item => item.TextIndexes ?? []).Any();
         string? storeId = null;
-        context.Services.AddHPDBaseInMemoryStore(options =>
+        HPDBaseInMemoryStoreOptions options = HPDBaseInMemoryServiceCollectionExtensions.Clone(configured);
         {
-            configure?.Invoke(options);
             options.CollectionIds = context.Collections.Select(static item => item.Id).ToArray();
             options.Collections = context.Collections.ToArray();
             options.ExportedSubjects = context.ExportedSubjects.ToArray();
@@ -53,7 +81,8 @@ internal sealed class InMemoryProviderInstaller(Action<HPDBaseInMemoryStoreOptio
             options.SubjectRetirementConsumers = context.SubjectRetirementConsumers.ToArray();
             options.SubjectRetirementPolicies = context.SubjectRetirementPolicies.ToArray();
             storeId = options.StoreId;
-        });
+        }
+        context.Services.AddHPDBaseInMemoryStore(options);
         if (hasVectors && !context.Services.Any(static descriptor => descriptor.ServiceType == typeof(BaseExplicitVectorProviderRegistration)))
         {
             context.Services.AddSingleton<InMemoryVectorProvider>();

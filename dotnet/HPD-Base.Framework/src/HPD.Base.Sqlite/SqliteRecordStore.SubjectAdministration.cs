@@ -23,7 +23,7 @@ public sealed partial class SqliteRecordStore
                 PlanId = new string(value.ValidationPlan.Id.AsSpan()),
                 PlanVersion = value.ValidationPlan.Version,
                 PlanChecksum = BaseSubjectContractNormalizer.NormalizePlan(value.ValidationPlan).Checksum,
-                StoreInstanceId = new string(_options.StoreId.AsSpan()),
+                StoreInstanceId = new string(CurrentStoreInstanceId.AsSpan()),
                 SchemaGeneration = schemaGeneration,
                 Access = value.ValidationPlan.Access,
                 LoweringFormatVersion = 1,

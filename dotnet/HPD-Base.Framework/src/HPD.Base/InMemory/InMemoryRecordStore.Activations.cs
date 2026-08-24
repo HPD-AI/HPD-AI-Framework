@@ -49,7 +49,10 @@ internal sealed partial class InMemoryRecordStore
 
     private static BaseActivationProviderDescriptor CreateActivationDescriptor(HPDBaseInMemoryStoreOptions options) =>
         BaseActivationCertificationReceiptContract.FromSuccessfulReport(
-            "hpd.base.inMemory.activations", "1", new BaseActivationProviderCapability
+            "hpd.base.inMemory.activations", "1", CreateActivationCapability(options),
+            ImmutableArray.CreateRange(Convert.FromHexString("d4319506e983adbbbe294e19340b198042a065be4675c28a46b963c98813e5ca")));
+
+    internal static BaseActivationProviderCapability CreateActivationCapability(HPDBaseInMemoryStoreOptions options) => new()
         {
             AtomicCreationSupported = true,
             SelectionTargetSupported = true,
@@ -94,7 +97,7 @@ internal sealed partial class InMemoryRecordStore
             BackupModes = [],
             RestoreModes = [],
             CanonicalChecksum = ImmutableArray.CreateRange(SHA256.HashData("hpd.base.inMemory.activations.v2"u8)),
-        }, ImmutableArray.CreateRange(Convert.FromHexString("d4319506e983adbbbe294e19340b198042a065be4675c28a46b963c98813e5ca")));
+        };
 
     /// <inheritdoc />
     public async ValueTask<OperationResult<BaseActivationDependencyResult>> ReadDependenciesAsync(

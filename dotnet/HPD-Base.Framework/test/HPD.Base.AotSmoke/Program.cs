@@ -3,9 +3,22 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Base;
 using HPD.Base.AotSmoke;
+using HPD.Base.Testing;
 using Microsoft.Extensions.DependencyInjection;
 
 var collection = AotProject.Collection;
+BaseSemanticActivationCertificationReport semanticCertification =
+    await BaseSemanticActivationProviderCertification.RunAsync(
+        new BaseInMemorySemanticActivationCertificationFixtureFactory(), TimeSpan.FromSeconds(10));
+if (!semanticCertification.Passed
+    || !BaseSemanticActivationCertificationContract.ValidateReport(semanticCertification)
+    || !semanticCertification.Cases.Any(static item =>
+        string.Equals(item.Id, "different-parent-race", StringComparison.Ordinal)
+        && item.Status == OperationStatus.Ok)
+    || !semanticCertification.Cases.Any(static item =>
+        string.Equals(item.Id, "terminal-retirement", StringComparison.Ordinal)
+        && item.Status == OperationStatus.Ok))
+    throw new InvalidOperationException("InMemory Native AOT semantic activation certification failed.");
 var value = new AotProject
 {
     OrganizationId = "org_aot",
@@ -53,6 +66,7 @@ if (AotProject.Fields.OrganizationId.Id != "organization-id" ||
 
 var services = new ServiceCollection();
 services.AddLogging();
+services.AddSingleton<TimeProvider>(TimeProvider.System);
 services.AddHPDBase(hpd =>
 {
     hpd.ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey
@@ -65,11 +79,21 @@ services.AddHPDBase(hpd =>
         Id = "hpd.base.aot.allow", Version = 1, OwningModuleId = "hpd.base.aot",
         EvaluatorContractId = "hpd.base.aot.policy", EvaluatorContractVersion = 1, CompositionOrder = 0,
     }, new AotAllowPolicyEvaluator());
-    foreach (string grantId in new[] { "hpd.base.aot.subject.private", "hpd.base.aot.subject.acquire", "hpd.base.aot.subject.validate", "hpd.base.aot.subject.rotate", "hpd.base.aot.subject.lifecycle.read", "base.subjectLifecycle.feed.read", "base.subjectLifecycle.feed.checkpoint", "hpd.base.aot.module.increment" }.Concat(ActivationSmoke.GrantIds))
+    foreach (string grantId in new[] { "hpd.base.aot.subject.private", "hpd.base.aot.subject.acquire", "hpd.base.aot.subject.validate", "hpd.base.aot.subject.rotate", "hpd.base.aot.subject.lifecycle.read", "base.subjectLifecycle.feed.read", "base.subjectLifecycle.feed.checkpoint", "hpd.base.aot.module.increment", "hpd.base.aot.semantic.ensure-operation", "hpd.base.aot.semantic.retire-operation", SemanticActivationSmoke.EnsureGrant, SemanticActivationSmoke.RetireGrant, SemanticActivationSmoke.MaintainGrant }.Concat(ActivationSmoke.GrantIds))
         hpd.AddStaticGrantAuthority(GrantDefinition(grantId, "hpd.base.aot"), Grant(grantId, "aot"));
     hpd.AddActivation(ActivationSmoke.Registration);
     hpd.AddModuleGenerationCell(ModuleMutationSmoke.Cell);
     hpd.AddModuleMutation(ModuleMutationSmoke.Definition, ModuleMutationSmoke.Identity);
+    hpd.AddModuleMutation(SemanticEnsureMutationSmoke.Definition, SemanticEnsureMutationSmoke.Identity);
+    hpd.AddModuleMutation(SemanticRetirementMutationSmoke.Definition, SemanticRetirementMutationSmoke.Identity);
+    hpd.AddSemanticActivation(SemanticActivationSmoke.Registration);
+    hpd.SetSemanticActivationRestoreSelection(new BaseSemanticActivationRestoreSelection
+    {
+        LogicalStoreId = HPDBaseInMemoryDefaults.DefaultStoreId, EnabledRestoreMode = null, SelectionGeneration = 1,
+        Identity = BaseMutationRequestIdentity.Create("aot", "semantic-restore-selection", "semantic-restore-selection-1",
+            BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("aot-semantic-restore-selection"u8))),
+        Checksum = [],
+    });
     hpd.AddCollection(collection);
     hpd.AddCollection(AotPrivateSubjectRecord.Collection);
     hpd.AddCollection(AotSubjectConsumerRecord.Collection);
@@ -90,8 +114,9 @@ services.AddHPDBase(hpd =>
 });
 await using var provider = services.BuildServiceProvider(
     new ServiceProviderOptions { ValidateOnBuild = true });
-if (!(await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess())
-    throw new InvalidOperationException("InMemory application initialization failed.");
+OperationResult<BaseApplicationReadiness> initialized = await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync();
+if (!initialized.IsSuccess())
+    throw new InvalidOperationException("InMemory application initialization failed: " + initialized.Error?.Code);
 var session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
 {
     AuthenticationState = PrincipalAuthenticationState.Service,
@@ -128,6 +153,27 @@ OperationResult<BaseActivationTransitionResult> activationCompleted = await acti
         BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("aot-activation-complete"u8))));
 if (!activationCompleted.IsSuccess() || activationCompleted.Value?.State != BaseActivationState.Succeeded)
     throw new InvalidOperationException("Native AOT durable activation completion failed: " + activationCompleted.Error?.Code);
+
+async ValueTask EnqueueSemanticParent(string value, string requestId)
+{
+    OperationResult<BaseActivationEnqueueResult> enqueued = await activation.EnqueueAsync(
+        new ActivationSmokeInput { Value = value },
+        BaseMutationRequestIdentity.Create("aot-semantic-parent", "enqueue", requestId,
+            BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(requestId)))));
+    if (!enqueued.IsSuccess()) throw new InvalidOperationException("Native AOT semantic parent enqueue failed: " + enqueued.Error?.Code);
+}
+await EnqueueSemanticParent("ensure:logical-subject", "ensure-parent-1");
+await EnqueueSemanticParent("ensure:logical-subject", "ensure-parent-2");
+foreach (string phase in new[] { "first ensure parent", "second ensure parent", "semantic child" })
+{
+    OperationResult<BaseActivationDispatchResult> dispatched = await activationWorker.RunOneAsync();
+    if (!dispatched.IsSuccess() || dispatched.Value is not { Empty: false, State: BaseActivationState.Succeeded })
+        throw new InvalidOperationException($"InMemory Native AOT {phase} failed: {dispatched.Error?.Code}");
+}
+await EnqueueSemanticParent("retire:logical-subject", "retire-parent-1");
+OperationResult<BaseActivationDispatchResult> retiredSemantic = await activationWorker.RunOneAsync();
+if (!retiredSemantic.IsSuccess() || retiredSemantic.Value is not { Empty: false, State: BaseActivationState.Succeeded })
+    throw new InvalidOperationException("InMemory Native AOT semantic retirement failed: " + retiredSemantic.Error?.Code);
 BaseMutationRequestIdentity moduleIdentity = BaseMutationRequestIdentity.Create(
     "aot", "module-increment", "module-request-1",
     BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("aot-module-request"u8)));
@@ -274,10 +320,12 @@ static BaseGrantAuthorityDefinition GrantDefinition(string id, string owner) => 
 
 static AccessGrant Grant(string id, string subjectId) => new()
 {
-    Id = id, ApplicationId = "hpd.base.application", ModuleId = id == "hpd.base.aot.module.increment" ? "hpd.base.aot.module" : id.Contains("subjectLifecycle", StringComparison.Ordinal) || id.Contains("subject.lifecycle", StringComparison.Ordinal) ? "hpd.base.aot.consumer" : "hpd.base.aot",
+    Id = id, ApplicationId = "hpd.base.application", ModuleId = id.Contains("subjectLifecycle", StringComparison.Ordinal) || id.Contains("subject.lifecycle", StringComparison.Ordinal) ? "hpd.base.aot.consumer" : "hpd.base.aot",
     Audience = HPDBaseEndpointAudience.Application,
     Subject = new AccessSubject { Kind = AccessSubjectKind.ServicePrincipal, Id = subjectId, TenantId = "tenant-a" },
-    Action = id.StartsWith("hpd.base.aot.activation.", StringComparison.Ordinal)
+    Action = id is SemanticActivationSmoke.EnsureGrant or SemanticActivationSmoke.RetireGrant or SemanticActivationSmoke.MaintainGrant
+        ? SemanticActivationSmoke.DefinitionId
+        : id.StartsWith("hpd.base.aot.activation.", StringComparison.Ordinal)
         ? "hpd.base.aot.activation"
         : id == "hpd.base.aot.subject.lifecycle.read" ? "hpd.base.aot.subject.lifecycle" : id,
     Scope = id.Contains("subjectLifecycle", StringComparison.Ordinal) || id.Contains("subject.lifecycle", StringComparison.Ordinal)

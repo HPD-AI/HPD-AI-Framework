@@ -25,8 +25,10 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
     BaseSubjectContractRegistry subjects,
     BaseSubjectLifecycleRegistry lifecycleConsumers,
     BaseSubjectRetirementRegistry retirement,
-    BaseTransactionalActivationCandidate? transactionalActivation = null) : IAtomicMutationProcessor
+    BaseSemanticActivationMigrationRegistry semanticMigrations,
+    BaseTransactionalActivationCandidate? transactionalActivation = null) : IAtomicSemanticActivationProcessor
 {
+    public bool ContainsSemanticActivation => semanticActivation is not null;
     internal BaseModuleMutationExecutionResult<TResult>? Result { get; private set; }
     internal BaseSemanticActivationReceiptEvidence? SemanticReceipt { get; private set; }
     internal ImmutableArray<byte> OuterReceiptChecksum { get; private set; }
@@ -56,7 +58,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             || (semanticActivation is null) != (evidence.SemanticActivation is null))
             return Failed(Error("base.moduleMutation.captureEvidenceInvalid", ErrorCategory.Store));
         BaseAtomicSemanticActivationExtension? finalizedSemantic;
-        try { finalizedSemantic = FinalizeSemantic(semanticActivation, evidence.SemanticActivation); }
+        try { finalizedSemantic = FinalizeSemantic(semanticActivation, evidence.SemanticActivation, semanticMigrations); }
         catch { return Failed(Error("base.semanticActivation.captureEvidenceInvalid", ErrorCategory.Store)); }
 
         var evaluator = new BaseModuleProgramEvaluator<TRequest, TResult>(definition, identity, request, evidence, collections);
@@ -684,12 +686,13 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         return true;
     }
 
-    private static BaseAtomicSemanticActivationExtension? FinalizeSemantic(
+    internal static BaseAtomicSemanticActivationExtension? FinalizeSemantic(
         BaseAtomicSemanticActivationExtension? requested,
-        BaseCapturedSemanticActivationEvidence? captured)
+        BaseCapturedSemanticActivationEvidence? captured,
+        BaseSemanticActivationMigrationRegistry? installedMigrations = null)
     {
         if (requested is null) return captured is null ? null : throw new InvalidOperationException();
-        if (captured is null || !CapturedSemanticMatches(requested, captured))
+        if (captured is null || !CapturedSemanticMatches(requested, captured, installedMigrations))
             throw new InvalidOperationException();
         BaseSemanticActivationScopeBinding binding = captured.ScopeDirectory.ResultingBinding;
         BaseSemanticActivationOperation operation = requested.Operation;
@@ -735,10 +738,12 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         };
     }
 
-    private static bool CapturedSemanticMatches(
+    internal static bool CapturedSemanticMatches(
         BaseAtomicSemanticActivationExtension requested,
-        BaseCapturedSemanticActivationEvidence captured)
+        BaseCapturedSemanticActivationEvidence captured,
+        BaseSemanticActivationMigrationRegistry? installedMigrations = null)
     {
+        BaseSemanticActivationMigrationRegistry migrations = installedMigrations ?? new([]);
         BaseSemanticActivationCaptureRequest capture = requested.Capture;
         BaseSemanticActivationScopeBinding binding = captured.ScopeDirectory.ResultingBinding;
         if (binding.BindingId.Length != 32 || binding.Checksum.Length != 32 || binding.SeekDigest.Length != 32
@@ -775,8 +780,8 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             {
                 BaseSemanticActivationCapturedState.Missing => !MissingMatches(captured.Missing, key, capture.StoreAuthority, captured.ReadIntervals[1]),
                 BaseSemanticActivationCapturedState.Live => !LiveMatches(captured.Live, key, requested, binding, captured),
-                BaseSemanticActivationCapturedState.Retired => !RetiredMatches(captured.Retired, key, requested, binding, captured.DefinitionMigrationChain),
-                BaseSemanticActivationCapturedState.CompactedAbsent => !AbsentMatches(captured.Absent, key, requested, binding, captured.DefinitionMigrationChain),
+                BaseSemanticActivationCapturedState.Retired => !RetiredMatches(captured.Retired, key, requested, binding, captured.DefinitionMigrationChain, migrations),
+                BaseSemanticActivationCapturedState.CompactedAbsent => !AbsentMatches(captured.Absent, key, requested, binding, captured.DefinitionMigrationChain, migrations),
                 _ => true,
             }) return false;
         if (capture.RecoveryPreflight is { } preflight
@@ -865,10 +870,11 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
 
     private static bool RetiredMatches(BaseSemanticActivationRetirementAuthority? value, BaseSemanticActivationKeyDigest key,
         BaseAtomicSemanticActivationExtension requested, BaseSemanticActivationScopeBinding binding,
-        ImmutableArray<BaseSemanticActivationDefinitionMigrationAuthority> migrationChain)
+        ImmutableArray<BaseSemanticActivationDefinitionMigrationAuthority> migrationChain,
+        BaseSemanticActivationMigrationRegistry semanticMigrations)
     {
         if (value is null || !KeyEqual(value.KeyDigest, key) || value.SlotGeneration <= 0
-            || !DefinitionOrMigrationMatches(value.Definition, requested.Capture.Definition, migrationChain)
+            || !DefinitionOrMigrationMatches(value.Definition, requested.Capture.Definition, migrationChain, semanticMigrations)
             || !StoreMatches(value.StoreAuthority, requested.Capture.StoreAuthority)
             || !CryptographicOperations.FixedTimeEquals(value.Checksum.AsSpan(), BaseSemanticActivationEvidenceContract.RetirementChecksum(value).AsSpan())) return false;
         if (!SemanticTerminalStateAllowed(value.TerminalState))
@@ -894,24 +900,8 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
     }
 
     private static bool DefinitionOrMigrationMatches(BaseSemanticActivationDefinitionKey source,
-        BaseSemanticActivationDefinitionIdentity target, ImmutableArray<BaseSemanticActivationDefinitionMigrationAuthority> chain)
-    {
-        if (source.Id == target.Id && source.Version == target.Version
-            && source.Checksum.AsSpan().SequenceEqual(target.Checksum.AsSpan())) return chain.IsDefaultOrEmpty;
-        BaseSemanticActivationDefinitionKey cursor = source;
-        if (chain.IsDefaultOrEmpty) return false;
-        foreach (BaseSemanticActivationDefinitionMigrationAuthority authority in chain)
-        {
-            if (!CryptographicOperations.FixedTimeEquals(authority.Checksum.AsSpan(),
-                    BaseSemanticActivationMigrationAuthorityContract.Checksum(authority).AsSpan())
-                || !DefinitionEqual(cursor, authority.From)) return false;
-            cursor = authority.To;
-        }
-        return cursor.Id == target.Id && cursor.Version == target.Version
-            && cursor.Checksum.AsSpan().SequenceEqual(target.Checksum.AsSpan());
-        static bool DefinitionEqual(BaseSemanticActivationDefinitionKey left, BaseSemanticActivationDefinitionKey right) =>
-            left.Id == right.Id && left.Version == right.Version && left.Checksum.AsSpan().SequenceEqual(right.Checksum.AsSpan());
-    }
+        BaseSemanticActivationDefinitionIdentity target, ImmutableArray<BaseSemanticActivationDefinitionMigrationAuthority> chain,
+        BaseSemanticActivationMigrationRegistry installed) => installed.MatchesInstalledChain(source, target, chain);
 
     private static bool ExactInterval(BaseAtomicReadIntervalEvidence value, string path, ReadOnlySpan<byte> bound) =>
         string.Equals(value.LogicalAccessPathId, path, StringComparison.Ordinal)
@@ -952,7 +942,8 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
 
     private static bool AbsentMatches(BaseSemanticActivationAbsenceAuthority? value, BaseSemanticActivationKeyDigest key,
         BaseAtomicSemanticActivationExtension requested, BaseSemanticActivationScopeBinding binding,
-        ImmutableArray<BaseSemanticActivationDefinitionMigrationAuthority> migrationChain)
+        ImmutableArray<BaseSemanticActivationDefinitionMigrationAuthority> migrationChain,
+        BaseSemanticActivationMigrationRegistry semanticMigrations)
     {
         BaseSemanticActivationCaptureRequest capture = requested.Capture;
         BaseSemanticActivationSubjectLifetimeBinding? requestedLifetime = requested.Operation switch
@@ -963,7 +954,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         };
         return value is not null && KeyEqual(value.Key, key)
         && DefinitionOrMigrationMatches(new BaseSemanticActivationDefinitionKey
-            { Id = value.Definition.Id, Version = value.Definition.Version, Checksum = value.Definition.Checksum }, capture.Definition, migrationChain)
+            { Id = value.Definition.Id, Version = value.Definition.Version, Checksum = value.Definition.Checksum }, capture.Definition, migrationChain, semanticMigrations)
         && value.Definition.OwningModuleId == capture.Definition.OwningModuleId
         && value.Definition.Checksum.AsSpan().SequenceEqual(capture.Definition.Checksum.AsSpan())
         && value.ScopeBindingId.AsSpan().SequenceEqual(binding.BindingId.AsSpan())
@@ -1394,7 +1385,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         && value.ReceiptBytes <= limits.MaximumReceiptBytes
         && value.TransientBytes <= limits.MaximumTransientBytes;
 
-    private static BaseSemanticActivationReceiptEvidence? CreateSemanticReceipt(
+    internal static BaseSemanticActivationReceiptEvidence? CreateSemanticReceipt(
         BaseAtomicSemanticActivationExtension? extension,
         BaseCapturedSemanticActivationEvidence? captured,
         BaseProvisionalSemanticActivation? applied)

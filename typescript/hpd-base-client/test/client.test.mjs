@@ -177,7 +177,8 @@ test("configured control client validates and canonically sends subject epoch ro
     route = url; wire = new TextDecoder().decode(init.body);
     return Response.json({ contractId: "hpd.auth.user-subject", contractVersion: 1, previousStateGeneration: "1", publishedStateGeneration: "2", publicationPosition: "9", examinedRecords: "4", rewrittenReferences: "3" }, { headers: { "X-Correlation-ID": "c" } });
   } });
-  const control = base.controlClient(["base.admin.subject.epoch.rotate"]);
+  assert.equal("controlClient" in base, false);
+  const control = base.$control;
   const result = await control.rotateSubjectEpoch({ storeId: "primary", contractId: "hpd.auth.user-subject", contractVersion: 1, expectedStateGeneration: "1", destructiveIntent: "rotate-subject-authority-epoch" });
   assert.equal(result.ok, true); assert.match(String(route), /administration\/subjects:rotate-epoch$/u);
   assert.equal(wire, '{"storeId":"primary","contractId":"hpd.auth.user-subject","contractVersion":1,"expectedStateGeneration":"1","destructiveIntent":"rotate-subject-authority-epoch"}');
@@ -236,6 +237,79 @@ test("control-plane semantic inspection keeps continuations opaque and is absent
   const alias = `${checksum.slice(0, significant)}${alphabet[aliasIndex]}=`;
   assert.equal(atob(alias), atob(checksum)); assert.notEqual(alias, checksum);
   await assert.rejects(() => client.$control.inspectSemanticActivations({ storeId: "primary", definitionId: "auth.reconcile", definitionVersion: 1, definitionChecksum: alias, take: 1 }), /requestInvalid/u);
+});
+
+test("generated semantic controls use opaque operation-specific authority and sanitized results", async () => {
+  const checksum = btoa("s".repeat(32)); const routes = []; const bodies = [];
+  const operations = ["base.semanticActivation.control.read", "base.semanticActivation.compact", "base.semanticActivation.maintenance.resume", "base.semanticActivation.maintenance.resolve", "base.semanticActivation.remove"];
+  const controlSchema = { ...schema, audience: "controlPlane", semanticActivations: { authReconcile: { id: "auth.reconcile", version: 2, checksum, compactable: true, removable: true } }, features: { ...schema.features, controlOperations: operations } };
+  const client = createBaseClient({ schema: controlSchema, url: "https://base.test/base/", fetch: async (url, init) => {
+    routes.push(String(url)); bodies.push(JSON.parse(new TextDecoder().decode(init.body)));
+    if (String(url).endsWith("/control")) return Response.json({ definitionId: "auth.reconcile", definitionVersion: 2, authorityGeneration: "7", liveCount: "0", retiredCount: "1", absenceCount: "2", ready: true, quarantined: false, compactToken: "compact_token", removeToken: null });
+    return Response.json({ disposition: "Completed", authorityGeneration: "8", examinedRows: "1", changedRows: "1", canonicalBytes: "64", receiptDisposition: "Committed", resumeToken: null, resolutionToken: null, sanitizedChecksum: checksum });
+  } });
+  const handle = client.$control.semanticActivations.authReconcile;
+  const health = await handle.read("primary"); assert.equal(health.ok, true); assert.equal(health.value.compactToken, "compact_token");
+  const compact = await handle.compact("primary", health.value.compactToken, "compact-1"); assert.equal(compact.ok, true);
+  await handle.resume("primary", "resume_token", "compact-1"); await handle.resolve("primary", "resolution_token"); await handle.remove("primary", "remove_token", "remove-1");
+  assert.match(routes[0], /semantic-activations\/auth\.reconcile\/control$/u); assert.match(routes[1], /semantic-activations:compact$/u); assert.match(routes[2], /maintenance:resume$/u); assert.match(routes[3], /maintenance:resolve$/u); assert.match(routes[4], /semantic-activations:remove$/u);
+  assert.deepEqual(bodies[0], { definitionVersion: 2, definitionChecksum: checksum });
+  assert.deepEqual(bodies[1], { commandToken: "compact_token", idempotencyKey: "compact-1", confirmation: "compact-retired-semantic-authority" });
+  assert.deepEqual(bodies[2], { commandToken: "resume_token", idempotencyKey: "compact-1", confirmation: "resume-semantic-maintenance" });
+  assert.deepEqual(bodies[3], { resolutionToken: "resolution_token" });
+  assert.deepEqual(bodies[4], { commandToken: "remove_token", idempotencyKey: "remove-1", confirmation: "remove-semantic-definition" });
+  await assert.rejects(() => handle.compact("primary", "bad token", "x"), /requestInvalid/u);
+  await handle.compact("primary", "compact_token", " compact-1 ");
+  assert.equal(bodies.at(-1).idempotencyKey, " compact-1 ");
+  await handle.compact("primary", "compact_token", "ope\u0301ration-1");
+  assert.equal(bodies.at(-1).idempotencyKey, "ope\u0301ration-1");
+  await handle.compact("primary", "compact_token", "\uFEFFcompact-1\uFEFF");
+  assert.equal(bodies.at(-1).idempotencyKey, "\uFEFFcompact-1\uFEFF");
+  await handle.compact("primary", "compact_token", "\u0085compact-1\u0085");
+  assert.equal(bodies.at(-1).idempotencyKey, "\u0085compact-1\u0085");
+  const longEquivalent = `${" ".repeat(2048)}compact-1${" ".repeat(2048)}`;
+  await handle.compact("primary", "compact_token", longEquivalent);
+  assert.equal(bodies.at(-1).idempotencyKey, longEquivalent);
+  assert.equal(Object.hasOwn(createBaseClient({ schema, url: "https://base.test/base/" }), "$control"), false);
+});
+
+test("semantic control results reject substituted disposition authority", async () => {
+  const checksum = btoa("r".repeat(32));
+  const operations = ["base.semanticActivation.control.read", "base.semanticActivation.compact", "base.semanticActivation.maintenance.resume", "base.semanticActivation.maintenance.resolve"];
+  const controlSchema = { ...schema, audience: "controlPlane", semanticActivations: { reconcile: { id: "auth.reconcile", version: 1, checksum, compactable: true, removable: false } }, features: { ...schema.features, controlOperations: operations } };
+  const valid = { disposition: "Completed", authorityGeneration: "8", examinedRows: "1", changedRows: "1", canonicalBytes: "64", receiptDisposition: "Committed", resumeToken: null, resolutionToken: null, sanitizedChecksum: checksum };
+  for (const substituted of [
+    { ...valid, disposition: "Completed", receiptDisposition: "Duplicate" },
+    { ...valid, disposition: "Duplicate", receiptDisposition: "Committed" },
+    { ...valid, disposition: "InProgress", resumeToken: null },
+    { ...valid, disposition: "InProgress", resumeToken: "resume_token", resolutionToken: "resolution_token" },
+    { ...valid, disposition: "ConfirmedRolledBack", receiptDisposition: "Committed" },
+    { ...valid, disposition: "Indeterminate", receiptDisposition: null, resolutionToken: null },
+    { ...valid, disposition: "Indeterminate", receiptDisposition: null, resolutionToken: "resolution_token", resumeToken: "resume_token" },
+  ]) {
+    const client = createBaseClient({ schema: controlSchema, url: "https://base.test/base/", fetch: async () => Response.json(substituted) });
+    const rejected = await client.$control.semanticActivations.reconcile.compact("primary", "compact_token", "compact-1");
+    assert.equal(rejected.ok, false); assert.equal(rejected.error.code, "base.client.responseInvalid");
+  }
+});
+
+test("generated semantic controls disclose quarantined health without stale counts or commands", async () => {
+  const checksum = btoa("q".repeat(32));
+  const controlSchema = { ...schema, audience: "controlPlane", semanticActivations: { reconcile: { id: "auth.reconcile", version: 1, checksum, compactable: true, removable: false } }, features: { ...schema.features, controlOperations: ["base.semanticActivation.control.read", "base.semanticActivation.compact", "base.semanticActivation.maintenance.resume", "base.semanticActivation.maintenance.resolve"] } };
+  const unavailable = { definitionId: "auth.reconcile", definitionVersion: 1, authorityGeneration: null, liveCount: null, retiredCount: null, absenceCount: null, ready: false, quarantined: true, compactToken: null, removeToken: null };
+  const client = createBaseClient({ schema: controlSchema, url: "https://base.test/base/", fetch: async () => Response.json(unavailable) });
+  const result = await client.$control.semanticActivations.reconcile.read("primary");
+  assert.equal(result.ok, true); assert.equal(result.value.quarantined, true); assert.equal(result.value.authorityGeneration, null); assert.equal(result.value.compactToken, null);
+  for (const substituted of [
+    { ...unavailable, authorityGeneration: "7", liveCount: "0", retiredCount: "0", absenceCount: "0" },
+    { ...unavailable, ready: true, quarantined: false },
+    { ...unavailable, compactToken: "stale_token" },
+    { ...unavailable, ready: true, authorityGeneration: "7", liveCount: "0", retiredCount: "0", absenceCount: "0", quarantined: true }
+  ]) {
+    const hostile = createBaseClient({ schema: controlSchema, url: "https://base.test/base/", fetch: async () => Response.json(substituted) });
+    const rejected = await hostile.$control.semanticActivations.reconcile.read("primary");
+    assert.equal(rejected.ok, false); assert.equal(rejected.error.code, "base.client.responseInvalid");
+  }
 });
 
 test("vector search preserves binary32 inputs and validates disclosed dot-product measures", async () => {

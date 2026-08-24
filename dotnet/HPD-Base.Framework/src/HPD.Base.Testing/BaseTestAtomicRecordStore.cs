@@ -40,6 +40,7 @@ internal class BaseTestAtomicRecordStore(
     IAtomicRecordStore inner,
     BaseTestFaults faults) : IAtomicRecordStore
 {
+    protected IAtomicRecordStore Inner => inner;
     /// <summary>Gets the capabilities.</summary>
     public StoreCapabilityDescriptor Capabilities => inner.Capabilities;
 
@@ -66,7 +67,7 @@ internal class BaseTestAtomicRecordStore(
         CancellationToken cancellationToken = default) =>
         inner.CaptureAtomicMutationAuthorityRequirementAsync(applicationId, collections, limits, cancellationToken);
 
-    public ValueTask<RecordMutationExecutionResult> ResolveAtomicReceiptAsync(
+    public virtual ValueTask<RecordMutationExecutionResult> ResolveAtomicReceiptAsync(
         IAtomicMutationProcessor processor,
         BaseMutationRequestIdentity identity,
         TimeSpan resolutionTimeout,
@@ -81,7 +82,7 @@ internal class BaseTestAtomicRecordStore(
         inner.ExecuteSingleAsync(processor, request, cancellationToken);
 
     /// <summary>Executes the execute atomic async operation.</summary>
-    public async ValueTask<RecordMutationExecutionResult> ExecuteAtomicAsync(
+    public virtual async ValueTask<RecordMutationExecutionResult> ExecuteAtomicAsync(
         IAtomicMutationProcessor processor,
         RecordMutationExecutionRequest request,
         CancellationToken cancellationToken = default)

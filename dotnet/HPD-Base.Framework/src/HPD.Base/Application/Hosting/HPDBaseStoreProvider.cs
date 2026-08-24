@@ -61,6 +61,8 @@ public sealed class BaseStoreProviderDescriptor
     public required BaseActivationProviderCapability Activations { get; init; }
     /// <summary>Gets the provider's certified semantic-activation envelope.</summary>
     public required BaseSemanticActivationCapability SemanticActivations { get; init; }
+    /// <summary>Gets the frozen semantic-activation provider-certification profile.</summary>
+    public required BaseSemanticActivationCertificationProfile SemanticActivationCertification { get; init; }
 }
 
 /// <summary>Represents one validated immutable authoritative store selection.</summary>
@@ -90,6 +92,7 @@ public sealed class HPDBaseStoreProvider
             CanonicalChecksum = descriptor.Activations.CanonicalChecksum.ToArray().ToImmutableArray(),
         };
         SemanticActivations = BaseSemanticActivationCapabilityContract.Clone(descriptor.SemanticActivations);
+        SemanticActivationCertification = BaseSemanticActivationCertificationContract.Clone(descriptor.SemanticActivationCertification);
         Installer = installer;
     }
 
@@ -117,6 +120,8 @@ public sealed class HPDBaseStoreProvider
     public BaseActivationProviderCapability Activations { get; }
     /// <summary>Gets the provider's certified semantic-activation envelope.</summary>
     public BaseSemanticActivationCapability SemanticActivations { get; }
+    /// <summary>Gets the frozen semantic-activation provider-certification profile.</summary>
+    public BaseSemanticActivationCertificationProfile SemanticActivationCertification { get; }
     internal IHPDBaseStoreInstaller Installer { get; }
 }
 
@@ -139,7 +144,17 @@ public static class HPDBaseStoreProviderFactory
             || descriptor.Capabilities.HasFlag(BaseStoreProviderCapabilities.CoLocatedTextSearch) != (descriptor.TextSearch is not null)
             || descriptor.TextSearch is not null && !ValidTextCapability(descriptor.TextSearch)
             || !BaseActivationCapabilityContract.IsValid(descriptor.Activations)
-            || !BaseSemanticActivationCapabilityContract.IsValid(descriptor.SemanticActivations))
+            || !BaseSemanticActivationCapabilityContract.IsValid(descriptor.SemanticActivations)
+            || !BaseSemanticActivationCertificationContract.ValidateProfile(descriptor.SemanticActivationCertification)
+            || descriptor.SemanticActivationCertification.Supported != descriptor.SemanticActivations.Supported
+            || !string.Equals(descriptor.SemanticActivationCertification.StoreProviderKind, descriptor.Kind, StringComparison.Ordinal)
+            || descriptor.SemanticActivationCertification.StoreProviderProtocolVersion != descriptor.ProtocolVersion
+            || !CryptographicOperations.FixedTimeEquals(descriptor.SemanticActivationCertification.SemanticCapabilityChecksum.AsSpan(),
+                BaseSemanticActivationCapabilityContract.Checksum(descriptor.SemanticActivations).AsSpan())
+            || !CryptographicOperations.FixedTimeEquals(descriptor.SemanticActivationCertification.ActivationCapabilityChecksum.AsSpan(),
+                BaseActivationCertificationReceiptContract.CapabilityChecksum(descriptor.Activations).AsSpan())
+            || !CryptographicOperations.FixedTimeEquals(descriptor.SemanticActivationCertification.ModuleMutationCapabilityChecksum.AsSpan(),
+                BaseSemanticActivationCertificationContract.ModuleMutationCapabilityChecksum(descriptor.ModuleMutations).AsSpan()))
             throw new InvalidOperationException("base.store.providerInvalid");
         const BaseStoreProviderCapabilities known = BaseStoreProviderCapabilities.Records | BaseStoreProviderCapabilities.AtomicMutations |
             BaseStoreProviderCapabilities.RequiredIndexes | BaseStoreProviderCapabilities.RelationalExecution |
@@ -179,6 +194,7 @@ public static class HPDBaseStoreProviderFactory
                 CanonicalChecksum = descriptor.Activations.CanonicalChecksum.ToArray().ToImmutableArray(),
             },
             SemanticActivations = BaseSemanticActivationCapabilityContract.Clone(descriptor.SemanticActivations),
+            SemanticActivationCertification = BaseSemanticActivationCertificationContract.Clone(descriptor.SemanticActivationCertification),
         }, installer);
     }
 

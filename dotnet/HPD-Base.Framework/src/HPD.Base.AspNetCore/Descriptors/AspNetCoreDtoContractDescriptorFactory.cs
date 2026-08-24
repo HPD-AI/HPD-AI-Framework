@@ -38,6 +38,13 @@ internal static class AspNetCoreDtoContractDescriptorFactory
     public const string BackupValidationRequest = "base.admin.backup.validate.request";
     public const string RestoreRequest = "base.admin.backup.restore.request";
     public const string SubjectEpochRotationRequest = "base.admin.subject.epoch.rotate.request";
+    public const string SemanticActivationInspectionRequest = "base.semanticActivation.inspect.request";
+    public const string SemanticActivationInspectionPage = "base.semanticActivation.inspect.page";
+    public const string SemanticActivationControlRead = "base.semanticActivation.control.read.request";
+    public const string SemanticActivationControlDescriptor = "base.semanticActivation.control.descriptor";
+    public const string SemanticActivationControlCommand = "base.semanticActivation.control.command";
+    public const string SemanticActivationControlResolution = "base.semanticActivation.control.resolve.request";
+    public const string SemanticActivationControlResult = "base.semanticActivation.control.result";
 
     /// <summary>Executes the create operation.</summary>
     public static DtoContractDescriptor[] Create() =>
@@ -70,7 +77,11 @@ internal static class AspNetCoreDtoContractDescriptorFactory
         Dto(ProblemDetails)
         ,Dto(ClientGenerationSnapshotV2), Dto(PurgeRequest, VisibilityLevel.Admin), Dto(BackupCreateRequest, VisibilityLevel.Admin),
         Dto(BackupValidationRequest, VisibilityLevel.Admin), Dto(RestoreRequest, VisibilityLevel.Admin), Dto(SubjectEpochRotationRequest, VisibilityLevel.Admin),
-        Dto("base.admin.purge.result", VisibilityLevel.Admin), Dto("base.admin.backup.manifest", VisibilityLevel.Admin), Dto("base.admin.backup.restore.result", VisibilityLevel.Admin), Dto("base.admin.subject.epoch.rotate.result", VisibilityLevel.Admin)
+        Dto("base.admin.purge.result", VisibilityLevel.Admin), Dto("base.admin.backup.manifest", VisibilityLevel.Admin), Dto("base.admin.backup.restore.result", VisibilityLevel.Admin), Dto("base.admin.subject.epoch.rotate.result", VisibilityLevel.Admin),
+        Dto(SemanticActivationInspectionRequest, VisibilityLevel.Admin), Dto(SemanticActivationInspectionPage, VisibilityLevel.Admin),
+        Dto(SemanticActivationControlRead, VisibilityLevel.Admin), Dto(SemanticActivationControlDescriptor, VisibilityLevel.Admin),
+        Dto(SemanticActivationControlCommand, VisibilityLevel.Admin), Dto(SemanticActivationControlResolution, VisibilityLevel.Admin),
+        Dto(SemanticActivationControlResult, VisibilityLevel.Admin)
     ];
 
     private static DtoContractDescriptor Dto(string id, VisibilityLevel visibility = VisibilityLevel.Public) => new()

@@ -27,6 +27,7 @@ internal sealed class BaseActivationProviderExecutionGate : IDisposable, IAsyncD
         _state = state ?? new BaseActivationOperationalState();
 
     internal int RetainedCount => _retained.Count;
+    internal bool IsQuarantined => !_retained.IsEmpty;
 
     internal async ValueTask<BaseActivationProviderCallResult<T>> ExecuteAsync<T>(
         Func<CancellationToken, ValueTask<T>> execute,

@@ -5,6 +5,26 @@ namespace HPD.Base.Tests.Application.ModuleMutations;
 
 public sealed class BaseModuleMutationReceiptTests
 {
+    [Theory]
+    [InlineData(BaseSemanticActivationMaintenanceDisposition.Completed, BaseMutationRequestDisposition.Committed, true)]
+    [InlineData(BaseSemanticActivationMaintenanceDisposition.Completed, BaseMutationRequestDisposition.Duplicate, false)]
+    [InlineData(BaseSemanticActivationMaintenanceDisposition.Duplicate, BaseMutationRequestDisposition.Duplicate, true)]
+    [InlineData(BaseSemanticActivationMaintenanceDisposition.Duplicate, BaseMutationRequestDisposition.Committed, false)]
+    [InlineData(BaseSemanticActivationMaintenanceDisposition.InProgress, BaseMutationRequestDisposition.Committed, true)]
+    [InlineData(BaseSemanticActivationMaintenanceDisposition.InProgress, null, false)]
+    [InlineData(BaseSemanticActivationMaintenanceDisposition.ConfirmedRolledBack, null, true)]
+    [InlineData(BaseSemanticActivationMaintenanceDisposition.ConfirmedRolledBack, BaseMutationRequestDisposition.Committed, false)]
+    [InlineData(BaseSemanticActivationMaintenanceDisposition.Indeterminate, null, true)]
+    [InlineData(BaseSemanticActivationMaintenanceDisposition.Indeterminate, BaseMutationRequestDisposition.Duplicate, false)]
+    public void Semantic_maintenance_dispositions_close_receipt_authority(
+        BaseSemanticActivationMaintenanceDisposition disposition,
+        BaseMutationRequestDisposition? receiptDisposition,
+        bool expected)
+    {
+        BaseSemanticActivationMaintenanceContract.ReceiptDispositionIsValid(disposition, receiptDisposition)
+            .Should().Be(expected);
+    }
+
     [Fact]
     public void Semantic_maintenance_receipt_round_trips_as_one_closed_l37_variant()
     {

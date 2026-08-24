@@ -12,8 +12,87 @@ namespace HPD.Base;
 /// <summary>
 /// Process-local, thread-safe, non-durable HPD.BASE record store implementation.
 /// </summary>
-internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreamingRecordStore, IRelationalReadStore, IConsistentRecordIncludeStore, IInMemoryProjectionAuthority, ITransactionalMutationJournalStore, IBaseSubjectAdministration, IBaseSubjectPublicationStore, IBaseSubjectValidationPlanReceiptStore, IBaseSubjectLifecycleStore, IBaseSubjectRetirementStore, IBaseSubjectAuthorityMaintenanceStore, IBaseActivationProvider
+internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreamingRecordStore, IRelationalReadStore, IConsistentRecordIncludeStore, IInMemoryProjectionAuthority, ITransactionalMutationJournalStore, IBaseSubjectAdministration, IBaseSubjectPublicationStore, IBaseSubjectValidationPlanReceiptStore, IBaseSubjectLifecycleStore, IBaseSubjectRetirementStore, IBaseSubjectAuthorityMaintenanceStore, IBaseActivationProvider, IBaseSemanticActivationCapabilityProvider
 {
+    public BaseSemanticActivationCapability SemanticActivationCapability => BaseSemanticActivationCapabilityContract.BuiltIn(durable: false);
+    public BaseSemanticActivationOperationalStatus SemanticActivationOperationalStatus => new()
+    {
+        Ready = Volatile.Read(ref _atomicLateWorkQuarantined) == 0,
+        Quarantined = Volatile.Read(ref _atomicLateWorkQuarantined) != 0,
+        ActiveOperations = Volatile.Read(ref _atomicAdmittedOperations),
+        RetainedOperations = Volatile.Read(ref _atomicLateWorkActive),
+        MaximumRetainedOperations = SemanticActivationCapability.MaximumQuarantinedOperations,
+    };
+
+    internal async ValueTask<(long Live, long Retired, long Absent, long Activations, long Receipts)>
+        ObserveSemanticActivationCertificationStateAsync(CancellationToken cancellationToken)
+    {
+        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            InMemoryStoreState state = Volatile.Read(ref _publishedState);
+            return (state.SemanticActivationSlots.LongCount(static item => item.Value.Live is not null),
+                state.SemanticActivationSlots.LongCount(static item => item.Value.Retired is not null),
+                state.SemanticActivationSlots.LongCount(static item => item.Value.Absent is not null),
+                state.Activations.Count, state.Receipts.Count);
+        }
+        finally { _stateGate.Release(); }
+    }
+
+    internal async ValueTask<ImmutableArray<byte>> ReadSemanticActivationCertificationAuthorityAsync(
+        CancellationToken cancellationToken)
+    {
+        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            InMemorySemanticActivationSlot slot = Volatile.Read(ref _publishedState).SemanticActivationSlots.Single().Value;
+            return (slot.Live?.Checksum ?? slot.Retired?.Checksum ?? slot.Absent?.Checksum
+                ?? throw new InvalidOperationException("base.semanticActivation.certificationInvalid")).ToArray().ToImmutableArray();
+        }
+        finally { _stateGate.Release(); }
+    }
+
+    internal (int Active, int Quarantined, int Released, int RejectedLateCompletions)
+        ObserveAtomicLateWorkCertificationState() =>
+        (Volatile.Read(ref _atomicLateWorkActive), Volatile.Read(ref _atomicLateWorkQuarantined),
+            Volatile.Read(ref _atomicLateWorkReleased), Volatile.Read(ref _atomicRejectedLateCompletions));
+
+    internal async ValueTask CorruptSemanticActivationCertificationStateAsync(
+        bool compactedAbsence, BaseSemanticActivationDefinitionIdentity definition,
+        CancellationToken cancellationToken)
+    {
+        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            InMemoryStoreState working = Volatile.Read(ref _publishedState).Clone();
+            KeyValuePair<string, InMemorySemanticActivationSlot> pair = working.SemanticActivationSlots
+                .Single(static item => item.Value.Retired is not null);
+            BaseSemanticActivationRetirementAuthority retired = pair.Value.Retired!;
+            if (compactedAbsence)
+            {
+                var absent = new BaseSemanticActivationAbsenceAuthority
+                {
+                    Key = BaseSemanticActivationKeyDigest.Create(retired.KeyDigest.ToArray()),
+                    Definition = definition,
+                    ScopeBindingId = retired.ScopeBindingId,
+                    SubjectLifetime = retired.SubjectLifetime,
+                    FinalSlotGeneration = retired.SlotGeneration,
+                    AbsenceFloorGeneration = retired.SlotGeneration,
+                    RetirementPosition = retired.RetirementPosition,
+                    StoreAuthority = retired.StoreAuthority,
+                    Checksum = new byte[32].ToImmutableArray(),
+                };
+                pair = new(pair.Key, pair.Value with { Retired = null, Absent = absent });
+            }
+            else
+                pair = new(pair.Key, pair.Value with
+                { Retired = retired with { Checksum = new byte[32].ToImmutableArray() } });
+            working.SemanticActivationSlots[pair.Key] = pair.Value;
+            Volatile.Write(ref _publishedState, working);
+            _generation = checked(_generation + 1);
+        }
+        finally { _stateGate.Release(); }
+    }
     /// <inheritdoc />
     public ValueTask<OperationResult<BaseSubjectValidationPlanReceipt[]>> ReadSubjectValidationPlanReceiptsAsync(
         CancellationToken cancellationToken = default)
@@ -461,6 +540,12 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
     private long _acceptedActivationUtc;
     private readonly IInMemoryAtomicMutationProjection? _mutationProjection;
     private readonly SemaphoreSlim _stateGate = new(1, 1);
+    private readonly SemaphoreSlim _atomicExecutionGate = new(8, 8);
+    private int _atomicAdmittedOperations;
+    private int _atomicLateWorkActive;
+    private int _atomicLateWorkQuarantined;
+    private int _atomicLateWorkReleased;
+    private int _atomicRejectedLateCompletions;
     private readonly Lock _vectorLeaseGate = new();
     private readonly Dictionary<InMemoryStoreState, int> _retainedVectorRoots = new(ReferenceEqualityComparer.Instance);
     private InMemoryStoreState _publishedState = new();
@@ -636,7 +721,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         {
             ActiveKey = new BaseOpaqueTokenKey
             {
-                Id = 0,
+                Id = 1,
                 Key = RandomNumberGenerator.GetBytes(32),
                 IssueNotBefore = DateTimeOffset.UnixEpoch
             }
@@ -807,8 +892,19 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         ArgumentNullException.ThrowIfNull(processor);
         ArgumentNullException.ThrowIfNull(identity);
         if (resolutionTimeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(resolutionTimeout));
+        if (Volatile.Read(ref _atomicLateWorkQuarantined) != 0)
+            return Rollback(BaseSemanticActivationErrorCodes.Quarantined,
+                "Semantic activation authority is quarantined pending late-work recovery.");
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         lifetime.CancelAfter(resolutionTimeout);
+        AtomicExecutionLease? acquired = await AcquireAtomicExecutionAsync(lifetime.Token).ConfigureAwait(false);
+        if (acquired is null)
+            return Rollback(BaseSemanticActivationErrorCodes.ReceiptResolutionTimeout,
+                "Receipt resolution could not acquire its bounded provider slot.");
+        await using AtomicExecutionLease execution = acquired;
+        if (Volatile.Read(ref _atomicLateWorkQuarantined) != 0)
+            return Rollback(BaseSemanticActivationErrorCodes.Quarantined,
+                "Semantic activation authority is quarantined pending late-work recovery.");
         InMemoryMutationReceipt? receipt;
         await _stateGate.WaitAsync(lifetime.Token).ConfigureAwait(false);
         try
@@ -822,7 +918,19 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         if (receipt is null)
             return Rollback(BaseMutationRequestErrorCodes.ReceiptUnavailable, "The stored mutation receipt cannot be resolved.") with
             { ReceiptResolution = BaseAtomicReceiptResolutionDisposition.ConfirmedMissing };
-        AtomicMutationProcessingResult resolved = await processor.ResolveReceiptAsync(receipt.Result, lifetime.Token).ConfigureAwait(false);
+        AtomicMutationProcessingResult resolved;
+        Task<AtomicMutationProcessingResult> resolution = processor.ResolveReceiptAsync(receipt.Result, lifetime.Token).AsTask();
+        try
+        {
+            resolved = await resolution.WaitAsync(lifetime.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            if (!resolution.IsCompleted) RetainLateAtomicWork(resolution, execution);
+            return Rollback(BaseSemanticActivationErrorCodes.ReceiptResolutionTimeout,
+                "The receipt authorization exceeded its bounded lifetime.") with
+            { ReceiptResolution = BaseAtomicReceiptResolutionDisposition.Unavailable };
+        }
         return resolved.Outcome == AtomicMutationProcessingOutcome.ReadyToCommit
             ? new RecordMutationExecutionResult(RecordMutationExecutionOutcome.Committed, resolved)
               { RequestDisposition = BaseMutationRequestDisposition.Duplicate, ReceiptResolution = BaseAtomicReceiptResolutionDisposition.Found,
@@ -839,6 +947,22 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         ArgumentNullException.ThrowIfNull(processor);
         ArgumentNullException.ThrowIfNull(request);
         ValidateExecutionRequest(request);
+
+        if (Volatile.Read(ref _atomicLateWorkQuarantined) != 0)
+            return Rollback(BaseSemanticActivationErrorCodes.Quarantined,
+                "Semantic activation authority is quarantined pending late-work recovery.");
+        using var executionLifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        executionLifetime.CancelAfter(request.AcquisitionTimeout);
+        AtomicExecutionLease? acquired = await AcquireAtomicExecutionAsync(executionLifetime.Token).ConfigureAwait(false);
+        if (acquired is null)
+            return cancellationToken.IsCancellationRequested
+                ? CancelledRollback("The mutation was cancelled before its provider slot was acquired.")
+                : Rollback(BaseMutationErrorCodes.TransactionTimeout,
+                    "The mutation provider slot could not be acquired in time.");
+        await using AtomicExecutionLease execution = acquired;
+        if (Volatile.Read(ref _atomicLateWorkQuarantined) != 0)
+            return Rollback(BaseSemanticActivationErrorCodes.Quarantined,
+                "Semantic activation authority is quarantined pending late-work recovery.");
 
         InMemoryStoreState working;
         long capturedGeneration;
@@ -904,6 +1028,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 return new RecordMutationExecutionResult(RecordMutationExecutionOutcome.Committed, resolved)
                 {
                     RequestDisposition = BaseMutationRequestDisposition.Duplicate,
+                    ReceiptAuthority = ReceiptAuthority(receipt),
                 };
             }
         }
@@ -925,7 +1050,10 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             }
             catch
             {
-                ObserveCompletion(processingTask);
+                if (!processingTask.IsCompleted)
+                    RetainLateAtomicWork(processingTask, execution);
+                else
+                    ObserveCompletion(processingTask);
                 throw;
             }
         }
@@ -1174,6 +1302,80 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
+
+    private async ValueTask<AtomicExecutionLease?> AcquireAtomicExecutionAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _atomicExecutionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            Interlocked.Increment(ref _atomicAdmittedOperations);
+            return new AtomicExecutionLease(_atomicExecutionGate, () => Interlocked.Decrement(ref _atomicAdmittedOperations));
+        }
+        catch (OperationCanceledException) { return null; }
+    }
+
+    private void RetainLateAtomicWork(Task task, AtomicExecutionLease execution)
+    {
+        execution.Transfer();
+        ImmutableArray<byte> publicationBefore = AtomicPublicationDigest(Volatile.Read(ref _publishedState));
+        Interlocked.Increment(ref _atomicLateWorkActive);
+        Interlocked.Increment(ref _atomicLateWorkQuarantined);
+        _ = task.ContinueWith(
+            completed =>
+            {
+                _ = completed.Exception;
+                Interlocked.Decrement(ref _atomicLateWorkActive);
+                Interlocked.Decrement(ref _atomicLateWorkQuarantined);
+                Interlocked.Increment(ref _atomicLateWorkReleased);
+                if (CryptographicOperations.FixedTimeEquals(
+                    publicationBefore.AsSpan(), AtomicPublicationDigest(Volatile.Read(ref _publishedState)).AsSpan()))
+                    Interlocked.Increment(ref _atomicRejectedLateCompletions);
+                execution.ReleaseTransferred();
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private sealed class AtomicExecutionLease(SemaphoreSlim gate, Action released) : IAsyncDisposable
+    {
+        private int ownership = 1;
+        internal void Transfer() => Interlocked.CompareExchange(ref ownership, 2, 1);
+        internal void ReleaseTransferred()
+        {
+            if (Interlocked.CompareExchange(ref ownership, 0, 2) == 2) { released(); gate.Release(); }
+        }
+        public ValueTask DisposeAsync()
+        {
+            if (Interlocked.CompareExchange(ref ownership, 0, 1) == 1) { released(); gate.Release(); }
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private static ImmutableArray<byte> AtomicPublicationDigest(InMemoryStoreState state)
+    {
+        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData("base.inMemory.atomicPublication.v1\0"u8);
+        Span<byte> position = stackalloc byte[8];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt64BigEndian(position, state.GlobalMutationPosition);
+        hash.AppendData(position);
+        foreach ((string key, InMemorySemanticActivationSlot slot) in state.SemanticActivationSlots.OrderBy(static item => item.Key, StringComparer.Ordinal))
+        {
+            hash.AppendData(Encoding.UTF8.GetBytes(key));
+            hash.AppendData((slot.Live?.Checksum ?? slot.Retired?.Checksum ?? slot.Absent?.Checksum ?? []).AsSpan());
+        }
+        foreach ((string key, InMemoryActivationRow row) in state.Activations.OrderBy(static item => item.Key, StringComparer.Ordinal))
+        {
+            hash.AppendData(Encoding.UTF8.GetBytes(key)); hash.AppendData(row.ControlChecksum);
+            hash.AppendData(row.TerminalReceiptChecksum ?? []);
+        }
+        foreach ((string key, InMemoryMutationReceipt receipt) in state.Receipts.OrderBy(static item => item.Key, StringComparer.Ordinal))
+        {
+            hash.AppendData(Encoding.UTF8.GetBytes(key)); hash.AppendData(receipt.Fingerprint);
+            hash.AppendData(receipt.StructuralDigest); hash.AppendData(receipt.ReceiptBytes);
+        }
+        return hash.GetHashAndReset().ToImmutableArray();
+    }
 
     private ValueTask<OperationResult<RecordEnvelope>> CreateCoreAsync(
         InMemoryStoreState working,
@@ -3272,6 +3474,18 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             BaseSemanticActivationKeyDigest keyDigest = BaseSemanticActivationKeyDigest.Create(keyBytes);
             string slotKey = $"{definition.Id}\n{Convert.ToHexString(binding.BindingId.AsSpan())}\n{Convert.ToHexString(keyBytes)}";
             _working.SemanticActivationSlots.TryGetValue(slotKey, out InMemorySemanticActivationSlot? slot);
+            if (slot?.Retired is { } storedRetirement
+                && !CryptographicOperations.FixedTimeEquals(
+                    storedRetirement.Checksum.AsSpan(),
+                    BaseSemanticActivationEvidenceContract.RetirementChecksum(storedRetirement).AsSpan()))
+                return SubjectFailure<BaseCapturedSemanticActivationEvidence?>(
+                    BaseSemanticActivationErrorCodes.Corrupt, OperationStatus.StoreError, ErrorCategory.Store);
+            if (slot?.Absent is { } storedAbsence
+                && !CryptographicOperations.FixedTimeEquals(
+                    storedAbsence.Checksum.AsSpan(),
+                    BaseSemanticActivationEvidenceContract.AbsenceChecksum(storedAbsence).AsSpan()))
+                return SubjectFailure<BaseCapturedSemanticActivationEvidence?>(
+                    BaseSemanticActivationErrorCodes.Corrupt, OperationStatus.StoreError, ErrorCategory.Store);
             BaseSemanticActivationStoreAuthority storeAuthority = SemanticStoreAuthority(capture.StoreAuthority);
             BaseAtomicReadIntervalEvidence scopeInterval = ExactInterval("base.semanticActivation.scope", Encoding.UTF8.GetBytes(scopeKey));
             BaseAtomicReadIntervalEvidence slotInterval = ExactInterval("base.semanticActivation.slot", Encoding.UTF8.GetBytes(slotKey));
@@ -3280,7 +3494,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             long bytes = checked(canonicalKey.Length + binding.BindingId.Length + 64);
             BaseSemanticActivationAccounting accounting = SemanticAccounting(canonicalKey.Length, bytes, semanticIntervals.Length);
             if (!SemanticAccountingWithin(accounting, capture.Limits))
-                return SubjectFailure<BaseCapturedSemanticActivationEvidence?>(BaseSubjectErrorCodes.BudgetExceeded);
+                return SubjectFailure<BaseCapturedSemanticActivationEvidence?>(BaseSemanticActivationErrorCodes.BudgetExceeded);
             var scopeCapture = new BaseSemanticActivationScopeDirectoryCapture
             {
                 State = scopeExists ? BaseSemanticActivationScopeDirectoryState.Existing : BaseSemanticActivationScopeDirectoryState.Missing,
@@ -3452,7 +3666,14 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     Checksum = activationDigest.GetHashAndReset().ToImmutableArray(),
                 };
             }
-            BasePreparedSemanticActivation? preparedSemantic = PrepareSemantic(plan.SemanticActivation, captured.SemanticActivation, plan.Limits);
+            BasePreparedSemanticActivation? preparedSemantic;
+            try { preparedSemantic = PrepareSemantic(plan.SemanticActivation, captured.SemanticActivation, plan.Limits); }
+            catch (InvalidOperationException exception) when (
+                exception.Message == BaseSemanticActivationErrorCodes.BudgetExceeded)
+            {
+                return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>(
+                    BaseSemanticActivationErrorCodes.BudgetExceeded, OperationStatus.ValidationFailed, ErrorCategory.Validation));
+            }
             if ((plan.SemanticActivation is null) != (preparedSemantic is null))
                 return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
             if (plan.Kind == BaseAtomicMutationExecutionKind.ModuleMutation)
@@ -3946,7 +4167,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 ActivationCreation = activationAccounting,
             };
             if (!SemanticAccountingWithin(accounting, extension.Capture.Limits))
-                throw new InvalidOperationException(BaseSubjectErrorCodes.BudgetExceeded);
+                throw new InvalidOperationException(BaseSemanticActivationErrorCodes.BudgetExceeded);
             var writeInterval = new BaseSemanticActivationWriteIntervalEvidence
             {
                 AccessPathId = "base.semanticActivation.slot", Lower = Encoding.UTF8.GetBytes(_capturedSemanticSlotKey).ToImmutableArray(),

@@ -88,6 +88,11 @@ public sealed partial class SqliteRecordStore
         {
             return AdminStoreError<BaseBackupManifest>(BaseAdministrationErrorCodes.BackupBusy, "The SQLite store remained busy during backup.");
         }
+        catch (SemanticRecoveryProofException)
+        {
+            return AdminStoreError<BaseBackupManifest>(BaseSemanticActivationErrorCodes.RecoveryProofInvalid,
+                "Semantic activation recovery authority is invalid.");
+        }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
             return AdminStoreError<BaseBackupManifest>(BaseAdministrationErrorCodes.BackupFailed, "The backup failed before producing a confirmed artifact.");
@@ -205,7 +210,9 @@ public sealed partial class SqliteRecordStore
         {
             TrackAdministrationCompletion(work, "restore");
             return RestoreStoreError(
-                BaseAdministrationErrorCodes.RestoreIndeterminate,
+                _options.SemanticActivationOwnerGeneration > 0
+                    ? BaseSemanticActivationErrorCodes.MaintenanceTimeout
+                    : BaseAdministrationErrorCodes.RestoreIndeterminate,
                 "Restore completion is indeterminate and the store remains under maintenance.",
                 BaseRestoreFailureDisposition.IndeterminateUnavailable);
         }
@@ -279,7 +286,9 @@ public sealed partial class SqliteRecordStore
                 staging = null;
                 administrationSlot = false;
                 return RestoreStoreError(
-                    BaseAdministrationErrorCodes.RestoreTimeout,
+                    _options.SemanticActivationOwnerGeneration > 0
+                        ? BaseSemanticActivationErrorCodes.MaintenanceTimeout
+                        : BaseAdministrationErrorCodes.RestoreTimeout,
                     "Restore artifact staging exceeded its bounded lifetime.",
                     BaseRestoreFailureDisposition.RejectedBeforeChange);
             }
@@ -436,6 +445,7 @@ public sealed partial class SqliteRecordStore
             await ValidateDatabaseFileAsync(activePath, manifest, cancellationToken).ConfigureAwait(false);
 
             long epoch = checked(Math.Max(PreRestoreEpoch, manifest.RestoreEpoch) + 1);
+            string installedStoreInstanceId;
             await using (SqliteConnection installed = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false))
             {
                 await TransformRestoredSubjectAuthoritiesAsync(
@@ -448,6 +458,8 @@ public sealed partial class SqliteRecordStore
                     preRestoreActivationGeneration, selectedScheduleRecoveryFloors,
                     preRestoreSemanticRecovery, request.SemanticRecoveryAuthority, recovery,
                     consumedScheduleRecoveryNonces, consumedScheduleRecoveryNonce, cancellationToken).ConfigureAwait(false);
+                installedStoreInstanceId = await ReadStoreInstanceIdAsync(installed, cancellationToken).ConfigureAwait(false)
+                    ?? throw new InvalidDataException(BaseSemanticActivationErrorCodes.Corrupt);
             }
             Volatile.Write(ref _schemaGeneration, manifest.SchemaGeneration);
             WriteRestoreMarker("ReplacementValidated", stagingPath, recovery, ActiveIdentity, manifest.StoreIdentityDigest);
@@ -466,6 +478,8 @@ public sealed partial class SqliteRecordStore
             DeleteRequiredFile(RestoreMarkerPath());
             SqliteAdministrationDurability.FlushDirectory(Path.GetDirectoryName(activePath)!);
             await EnsureKeepAliveAsync(CancellationToken.None).ConfigureAwait(false);
+            _semanticCertificationOwner?.Rebind(CurrentStoreInstanceId, installedStoreInstanceId);
+            Volatile.Write(ref _currentStoreInstanceId, installedStoreInstanceId);
             return OperationResults.Ok(new BaseRestoreResult
             {
                 StoreId = _options.StoreId,
@@ -511,7 +525,28 @@ public sealed partial class SqliteRecordStore
                     "The restored store state is indeterminate and unavailable.",
                     BaseRestoreFailureDisposition.IndeterminateUnavailable);
         }
-        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        catch (InvalidDataException exception) when (
+            _options.SemanticActivationOwnerGeneration > 0
+            && exception.Message == BaseSemanticActivationErrorCodes.MaintenanceIndeterminate)
+        {
+            _ = await RecoverOriginalAsync(activePath, recovery, originalMoved, replacementInstalled).ConfigureAwait(false);
+            return RestoreStoreError(BaseSemanticActivationErrorCodes.MaintenanceIndeterminate,
+                "Semantic activation restore publication was interrupted.",
+                originalMoved ? BaseRestoreFailureDisposition.IndeterminateUnavailable : BaseRestoreFailureDisposition.OriginalPreserved);
+        }
+        catch (InvalidDataException exception) when (
+            _options.SemanticActivationOwnerGeneration > 0
+            && exception.Message is BaseSemanticActivationErrorCodes.Corrupt
+                or BaseSemanticActivationErrorCodes.RecoveryProofInvalid)
+        {
+            bool recovered = await RecoverOriginalAsync(activePath, recovery, originalMoved, replacementInstalled).ConfigureAwait(false);
+            return RestoreStoreError(BaseSemanticActivationErrorCodes.RecoveryProofInvalid,
+                "Semantic activation recovery authority is invalid.",
+                !originalMoved ? BaseRestoreFailureDisposition.OriginalPreserved
+                    : recovered ? BaseRestoreFailureDisposition.RecoveryRestoredOriginal
+                    : BaseRestoreFailureDisposition.IndeterminateUnavailable);
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
             bool recovered = await RecoverOriginalAsync(activePath, recovery, originalMoved, replacementInstalled).ConfigureAwait(false);
             return RestoreStoreError(
@@ -559,6 +594,13 @@ public sealed partial class SqliteRecordStore
     private void QuarantineAdministration(Task work, IAsyncDisposable? lease, string staging, string operationKind)
     {
         HPDBaseSqliteLog.AdministrationQuarantined(_logger, operationKind);
+        bool semanticActivation = _options.SemanticActivationOwnerGeneration > 0;
+        if (semanticActivation)
+        {
+            Interlocked.Increment(ref _semanticMutationActive);
+            Interlocked.Increment(ref _semanticMutationRetained);
+            Interlocked.Increment(ref _semanticMutationQuarantined);
+        }
         long id = Interlocked.Increment(ref _nextQuarantinedAdministrationId);
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _quarantinedAdministration[id] = completion.Task;
@@ -573,6 +615,14 @@ public sealed partial class SqliteRecordStore
                     throw new IOException("SQLite administration staging cleanup could not be confirmed.");
                 _administrationExecutionSlots.Release();
                 _quarantinedAdministration.TryRemove(id, out _);
+                if (semanticActivation)
+                {
+                    Interlocked.Decrement(ref _semanticMutationActive);
+                    Interlocked.Decrement(ref _semanticMutationRetained);
+                    Interlocked.Decrement(ref _semanticMutationQuarantined);
+                    Interlocked.Increment(ref _semanticMutationReleased);
+                    Interlocked.Increment(ref _semanticRejectedLateCompletions);
+                }
                 completion.TrySetResult();
             }
             catch (Exception exception)
@@ -618,6 +668,19 @@ public sealed partial class SqliteRecordStore
         long restoreEpoch = reader.GetInt64(4);
         string sqliteVersion = reader.GetString(5);
         await reader.DisposeAsync().ConfigureAwait(false);
+        if (_options.SemanticActivationOwnerGeneration > 0)
+        {
+            try
+            {
+                _ = await CaptureSemanticRecoverySnapshotAsync(connection, cancellationToken).ConfigureAwait(false);
+                await RequireArtifactNegativeCorrespondenceAsync(connection, null, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is InvalidDataException or InvalidOperationException
+                or JsonException or FormatException or OverflowException)
+            {
+                throw new SemanticRecoveryProofException(exception);
+            }
+        }
         (long semanticSequence, ImmutableArray<byte> semanticChecksum) =
             await ReadSemanticTerminalPublicationAuthorityAsync(connection, cancellationToken).ConfigureAwait(false);
         return new BaseBackupManifest
@@ -645,6 +708,9 @@ public sealed partial class SqliteRecordStore
             ExternalKeyReferenceKind = null,
         };
     }
+
+    private sealed class SemanticRecoveryProofException(Exception innerException)
+        : Exception(BaseSemanticActivationErrorCodes.RecoveryProofInvalid, innerException);
 
     private async ValueTask<(long Sequence, ImmutableArray<byte> Checksum)> ReadSemanticTerminalPublicationAuthorityAsync(
         SqliteConnection connection, CancellationToken cancellationToken)
@@ -829,7 +895,9 @@ public sealed partial class SqliteRecordStore
         command.CommandText = $"SELECT i.store_instance_id, COALESCE((SELECT CAST(value AS INTEGER) FROM {_names.ProviderState} WHERE key='restore_epoch'),0) FROM {_names.SchemaIdentity} i LIMIT 1;";
         await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) throw new InvalidDataException();
-        return (HexDigest(reader.GetString(0)), reader.GetInt64(1));
+        string storeInstanceId = reader.GetString(0);
+        Volatile.Write(ref _currentStoreInstanceId, storeInstanceId);
+        return (HexDigest(storeInstanceId), reader.GetInt64(1));
     }
 
     private async ValueTask CloseKeepAliveForMaintenanceAsync()

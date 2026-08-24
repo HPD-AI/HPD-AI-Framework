@@ -161,7 +161,7 @@ public sealed class AtomicExecutionTests
         RecordMutationExecutionResult result = await store.ExecuteAtomicAsync(probe, ExecutionRequest);
 
         result.Outcome.Should().Be(RecordMutationExecutionOutcome.RollbackConfirmed);
-        probe.RejectedCode.Should().Be(BaseSubjectErrorCodes.BudgetExceeded);
+        probe.RejectedCode.Should().Be(BaseSemanticActivationErrorCodes.BudgetExceeded);
         var retry = new SemanticEnsureProbe(authority, limits, "exact");
         (await store.ExecuteAtomicAsync(retry, ExecutionRequest)).Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
         retry.CapturedState.Should().Be(BaseSemanticActivationCapturedState.Missing);

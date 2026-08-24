@@ -69,7 +69,8 @@ export interface BaseGeneratedSchema<
   TCollections extends Readonly<Record<string, BaseCollectionDefinition>> = Readonly<Record<string, BaseCollectionDefinition>>,
   TReads extends Readonly<Record<string, BaseReadDefinition>> = Readonly<Record<string, BaseReadDefinition>>,
   TSelections extends Readonly<Record<string, import("./selection.js").BaseSelectionMutationDefinition>> = Readonly<Record<string, import("./selection.js").BaseSelectionMutationDefinition>>,
-  TModules extends Readonly<Record<string, import("./module-mutations.js").BaseModuleMutationDefinition>> = Readonly<Record<string, import("./module-mutations.js").BaseModuleMutationDefinition>>
+  TModules extends Readonly<Record<string, import("./module-mutations.js").BaseModuleMutationDefinition>> = Readonly<Record<string, import("./module-mutations.js").BaseModuleMutationDefinition>>,
+  TSemantic extends Readonly<Record<string, BaseSemanticActivationDefinition>> = Readonly<Record<string, BaseSemanticActivationDefinition>>
 > {
   readonly protocolMajor: 2;
   readonly schemaGeneration: string;
@@ -81,7 +82,11 @@ export interface BaseGeneratedSchema<
   readonly reads: TReads;
   readonly selectionMutations?: TSelections;
   readonly moduleMutations?: TModules;
+  readonly semanticActivations?: TSemantic;
 }
+
+export interface BaseSemanticActivationDefinition { readonly id: string; readonly version: number; readonly checksum: string; readonly compactable: boolean; readonly removable: boolean; }
+export function semanticActivationDefinition<const T extends BaseSemanticActivationDefinition>(definition: T): T { return deepFreeze(definition); }
 
 export interface BaseReadDefinition<TParameters = unknown, TRow = unknown, TWatchable extends boolean = boolean> {
   readonly id: string;

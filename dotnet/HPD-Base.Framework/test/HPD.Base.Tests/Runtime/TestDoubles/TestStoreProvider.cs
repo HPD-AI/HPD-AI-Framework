@@ -27,7 +27,15 @@ internal static class TestStoreProvider
                 MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
             },
             Activations = BaseActivationCapabilityContract.BuiltIn("hpd.base.test.activations.v2"),
-            SemanticActivations = BaseSemanticActivationCapabilityContract.BuiltIn(durable: false),
+            SemanticActivations = BaseSemanticActivationCapabilityContract.Unsupported(),
+            SemanticActivationCertification = BaseSemanticActivationCertificationContract.Unsupported(
+                store.Capabilities.StoreId, HPDBaseStoreProviderFactory.ProtocolVersion,
+                new BaseModuleMutationCapability
+                {
+                    Supported = true, SerializableExecution = true, DurableReceipts = true,
+                    GenerationCells = true, AtomicRecordAndGenerationCommit = true,
+                    MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
+                }, BaseActivationCapabilityContract.BuiltIn("hpd.base.test.activations.v2")),
         }, new Installer(store, schema));
 
     private sealed class Installer(FakeRecordStore store, bool schema) : IHPDBaseStoreInstaller

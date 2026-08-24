@@ -539,3 +539,10 @@ public interface IAtomicMutationProcessor
         CancellationToken cancellationToken = default) =>
         ResolveReceiptAsync(committedResult.MaterializeFacts(), cancellationToken);
 }
+
+/// <summary>Marks an atomic processor whose finalized program contains semantic activation authority.</summary>
+public interface IAtomicSemanticActivationProcessor : IAtomicMutationProcessor
+{
+    /// <summary>Gets whether this exact execution contains a semantic activation operation.</summary>
+    bool ContainsSemanticActivation { get; }
+}

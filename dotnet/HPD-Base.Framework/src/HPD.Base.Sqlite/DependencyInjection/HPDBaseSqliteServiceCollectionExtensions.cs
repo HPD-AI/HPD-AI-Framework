@@ -17,11 +17,18 @@ public static class HPDBaseSqliteServiceCollectionExtensions
     public static IServiceCollection AddHPDBaseSqliteStore(this IServiceCollection services, Action<HPDBaseSqliteOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(services);
-        if (services.Any(static descriptor => descriptor.ServiceType == typeof(HPDBaseSqliteOptions) || descriptor.ServiceType == typeof(IOptions<HPDBaseSqliteOptions>)))
-            throw new InvalidOperationException("base.store.authorityAmbiguous");
         var options = new HPDBaseSqliteOptions();
         configure?.Invoke(options);
-        options = Clone(options);
+        return services.AddHPDBaseSqliteStore(options);
+    }
+
+    internal static IServiceCollection AddHPDBaseSqliteStore(this IServiceCollection services, HPDBaseSqliteOptions configured)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configured);
+        if (services.Any(static descriptor => descriptor.ServiceType == typeof(HPDBaseSqliteOptions) || descriptor.ServiceType == typeof(IOptions<HPDBaseSqliteOptions>)))
+            throw new InvalidOperationException("base.store.authorityAmbiguous");
+        HPDBaseSqliteOptions options = Clone(configured);
 
         services.AddOptions();
         services.TryAddSingleton(options);
@@ -37,7 +44,8 @@ public static class HPDBaseSqliteServiceCollectionExtensions
                 tokenProtector: tokenRegistration?.ExplicitlyConfigured == true
                     ? provider.GetRequiredService<BaseOpaqueTokenProtector>()
                     : null,
-                mutationProjectionContributors: provider.GetServices<ISqliteAtomicMutationProjection>());
+                mutationProjectionContributors: provider.GetServices<ISqliteAtomicMutationProjection>(),
+                semanticCertificationOwner: provider.GetService<BaseInstalledSemanticActivationProviderOwner>());
         });
         services.TryAddSingleton<IRecordStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
         services.TryAddSingleton<IRecordMutationStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
@@ -70,7 +78,7 @@ public static class HPDBaseSqliteServiceCollectionExtensions
         return services;
     }
 
-    private static HPDBaseSqliteOptions Clone(HPDBaseSqliteOptions value) => new()
+    internal static HPDBaseSqliteOptions Clone(HPDBaseSqliteOptions value) => new()
     {
         StoreId = new string(value.StoreId.AsSpan()), ModuleId = new string(value.ModuleId.AsSpan()),
         ModuleName = new string(value.ModuleName.AsSpan()), StoreVersion = new string(value.StoreVersion.AsSpan()),
@@ -91,9 +99,18 @@ public static class HPDBaseSqliteServiceCollectionExtensions
         MaxBackupArtifactBytes = value.MaxBackupArtifactBytes, AdministrationAcquisitionTimeout = value.AdministrationAcquisitionTimeout,
         NativeBackupCompletionWait = value.NativeBackupCompletionWait, RestoreStagingTimeout = value.RestoreStagingTimeout,
         IntegrityCheckTimeout = value.IntegrityCheckTimeout, MaxQuarantinedAdministrationExecutions = value.MaxQuarantinedAdministrationExecutions,
+        MaxPendingActivationRows = value.MaxPendingActivationRows,
+        MaxClaimedActivationRows = value.MaxClaimedActivationRows,
+        MaxTerminalActivationRows = value.MaxTerminalActivationRows,
         HealthRefId = new string(value.HealthRefId.AsSpan()), DiagnosticRefId = new string(value.DiagnosticRefId.AsSpan()),
         Collections = value.Collections.ToArray(), ExportedSubjects = value.ExportedSubjects.ToArray(),
         ModuleMutations = value.ModuleMutations.ToArray(), ModuleGenerationCells = value.ModuleGenerationCells.ToArray(),
+        SemanticActivations = value.SemanticActivations.ToArray(),
+        SemanticActivationMigrations = value.SemanticActivationMigrations.ToArray(),
+        SemanticActivationRemovals = value.SemanticActivationRemovals.ToArray(),
+        SemanticActivationApplicationId = value.SemanticActivationApplicationId,
+        SemanticActivationOwnerGeneration = value.SemanticActivationOwnerGeneration,
+        SemanticActivationDefinitionSetChecksum = value.SemanticActivationDefinitionSetChecksum.ToArray(),
         SubjectLifecycleConsumers = value.SubjectLifecycleConsumers.Select(static item => BaseSubjectLifecycleRegistry.Normalize(item)).ToArray(),
         SubjectRetirementConsumers = value.SubjectRetirementConsumers.Select(static item => BaseSubjectRetirementRegistry.Normalize(item)).ToArray(),
         SubjectRetirementPolicies = value.SubjectRetirementPolicies.Select(static item => BaseSubjectRetirementRegistry.NormalizePolicy(item)).ToArray(),

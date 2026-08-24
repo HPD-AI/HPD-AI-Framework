@@ -29,13 +29,21 @@ internal static class HPDBaseInMemoryServiceCollectionExtensions
         Action<HPDBaseInMemoryStoreOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(services);
-        if (services.Any(static descriptor => descriptor.ServiceType == typeof(HPDBaseInMemoryStoreOptions) || descriptor.ServiceType == typeof(IOptions<HPDBaseInMemoryStoreOptions>)))
-            throw new InvalidOperationException("base.store.authorityAmbiguous");
-
         var options = new HPDBaseInMemoryStoreOptions();
         configure?.Invoke(options);
+        return services.AddHPDBaseInMemoryStore(options);
+    }
+
+    internal static IServiceCollection AddHPDBaseInMemoryStore(
+        this IServiceCollection services,
+        HPDBaseInMemoryStoreOptions configured)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configured);
+        if (services.Any(static descriptor => descriptor.ServiceType == typeof(HPDBaseInMemoryStoreOptions) || descriptor.ServiceType == typeof(IOptions<HPDBaseInMemoryStoreOptions>)))
+            throw new InvalidOperationException("base.store.authorityAmbiguous");
+        HPDBaseInMemoryStoreOptions options = Clone(configured);
         Validate(options);
-        options = Clone(options);
 
         services.AddOptions();
         services.TryAddSingleton(options);
@@ -91,12 +99,20 @@ internal static class HPDBaseInMemoryServiceCollectionExtensions
             throw new ArgumentOutOfRangeException(nameof(options.MaxVectorSourceRecordsPerCollection));
     }
 
-    private static HPDBaseInMemoryStoreOptions Clone(HPDBaseInMemoryStoreOptions value) => new()
+    internal static HPDBaseInMemoryStoreOptions Clone(HPDBaseInMemoryStoreOptions value) => new()
     {
         StoreId = value.StoreId, ModuleId = value.ModuleId, ModuleName = value.ModuleName,
         StoreVersion = value.StoreVersion, CollectionIds = value.CollectionIds.ToArray(),
         Collections = value.Collections?.ToArray(), ExportedSubjects = value.ExportedSubjects.ToArray(),
         ModuleMutations = value.ModuleMutations.ToArray(), ModuleGenerationCells = value.ModuleGenerationCells.ToArray(),
+        SemanticActivations = value.SemanticActivations.ToArray(),
+        SemanticActivationMigrations = value.SemanticActivationMigrations.ToArray(),
+        SemanticActivationRemovals = value.SemanticActivationRemovals.ToArray(),
+        SemanticActivationApplicationId = value.SemanticActivationApplicationId,
+        SemanticActivationOwnerGeneration = value.SemanticActivationOwnerGeneration,
+        SemanticActivationDefinitionSetChecksum = value.SemanticActivationDefinitionSetChecksum.ToArray(),
+        ActivationMaximumDueCandidates = value.ActivationMaximumDueCandidates,
+        ActivationMaximumReadIntervals = value.ActivationMaximumReadIntervals,
         SubjectLifecycleConsumers = value.SubjectLifecycleConsumers.Select(static item => BaseSubjectLifecycleRegistry.Normalize(item)).ToArray(),
         SubjectLifecycleInspectionAuthorities = value.SubjectLifecycleInspectionAuthorities.Select(static item => item with { }).ToArray(),
         SubjectRetirementConsumers = value.SubjectRetirementConsumers.Select(static item => BaseSubjectRetirementRegistry.Normalize(item)).ToArray(),
@@ -109,6 +125,9 @@ internal static class HPDBaseInMemoryServiceCollectionExtensions
         AllowClientRequestedIds = value.AllowClientRequestedIds,
         EnableStreamingCapability = value.EnableStreamingCapability,
         MaxVectorIndexedRecords = value.MaxVectorIndexedRecords, MaxVectorBytes = value.MaxVectorBytes,
+        MaxPendingActivationRows = value.MaxPendingActivationRows,
+        MaxClaimedActivationRows = value.MaxClaimedActivationRows,
+        MaxTerminalActivationRows = value.MaxTerminalActivationRows,
         MaxVectorSourceRecordsPerCollection = value.MaxVectorSourceRecordsPerCollection,
         ContributeModuleDescriptor = value.ContributeModuleDescriptor,
         ContributeCapabilities = value.ContributeCapabilities, ContributeHealth = value.ContributeHealth,

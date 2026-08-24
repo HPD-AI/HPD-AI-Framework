@@ -37,6 +37,7 @@ try
     ];
     var services = new ServiceCollection();
     services.AddLogging();
+    services.AddSingleton<TimeProvider>(TimeProvider.System);
     services.AddHPDBase(builder =>
     {
         builder.ConfigureSchema(options =>
@@ -80,17 +81,30 @@ try
             Id = "hpd.base.sqlite.aot.allow", Version = 1, OwningModuleId = "hpd.base.sqlite.aot",
             EvaluatorContractId = "hpd.base.sqlite.aot.policy", EvaluatorContractVersion = 1, CompositionOrder = 0,
         });
-        foreach (string grantId in new[] { "hpd.base.sqlite.aot.subject.private", "hpd.base.sqlite.aot.subject.acquire", "hpd.base.sqlite.aot.subject.validate", "hpd.base.sqlite.aot.subject.rotate", "hpd.base.sqlite.aot.subject.lifecycle.read", "base.subjectLifecycle.feed.read", "base.subjectLifecycle.feed.checkpoint", "hpd.base.sqlite.aot.module.increment" })
+        foreach (string grantId in new[] { "hpd.base.sqlite.aot.subject.private", "hpd.base.sqlite.aot.subject.acquire", "hpd.base.sqlite.aot.subject.validate", "hpd.base.sqlite.aot.subject.rotate", "hpd.base.sqlite.aot.subject.lifecycle.read", "base.subjectLifecycle.feed.read", "base.subjectLifecycle.feed.checkpoint", "hpd.base.sqlite.aot.module.increment", "hpd.base.sqlite.aot.semantic.ensure-operation", "hpd.base.sqlite.aot.semantic.retire-operation", SemanticActivationSmoke.EnsureGrant, SemanticActivationSmoke.RetireGrant, SemanticActivationSmoke.MaintainGrant }.Concat(ActivationSmoke.GrantIds))
             builder.AddStaticGrantAuthority(GrantDefinition(grantId, "hpd.base.sqlite.aot"), Grant(grantId, "sqlite-aot-service"));
+        builder.AddActivation(ActivationSmoke.Registration);
         builder.AddModuleGenerationCell(ModuleMutationSmoke.Cell);
         builder.AddModuleMutation(ModuleMutationSmoke.Definition, ModuleMutationSmoke.Identity);
+        builder.AddModuleMutation(SemanticEnsureMutationSmoke.Definition, SemanticEnsureMutationSmoke.Identity);
+        builder.AddModuleMutation(SemanticRetirementMutationSmoke.Definition, SemanticRetirementMutationSmoke.Identity);
+        builder.AddSemanticActivation(SemanticActivationSmoke.Registration);
+        builder.SetSemanticActivationRestoreSelection(new BaseSemanticActivationRestoreSelection
+        {
+            LogicalStoreId = "smoke.sqlite", EnabledRestoreMode = BaseActivationRestoreMode.InPlaceRecovery,
+            SelectionGeneration = 1,
+            Identity = BaseMutationRequestIdentity.Create("sqlite-aot", "semantic-restore-selection", "semantic-restore-selection-1",
+                BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("sqlite-aot-semantic-restore-selection"u8))),
+            Checksum = [],
+        });
     });
 
     await using var provider = services.BuildServiceProvider();
     IBaseSchemaManager schemas = provider.GetRequiredService<IBaseSchemaManager>();
     BaseSchemaPlan plan = (await schemas.PlanAsync(new BaseSchemaPlanRequest { StoreId = "smoke.sqlite" })).Value!;
     Require((await schemas.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = plan.ProtectedArtifact })).IsSuccess(), "Schema apply failed.");
-    Require((await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess(), "Application initialization failed.");
+    OperationResult<BaseApplicationReadiness> readiness = await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync();
+    Require(readiness.IsSuccess(), "Application initialization failed: " + readiness.Error?.Code);
 
     var runtime = provider.GetRequiredService<IBaseRecordRuntime>();
     var principal = new PrincipalContext
@@ -119,6 +133,26 @@ try
     Require(list.Status == OperationStatus.Ok && list.Value!.Count!.Total == 1, "List/count failed.");
 
     BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(principal);
+    BaseInstalledActivationHandle<ActivationSmokeInput, ActivationSmokeResult> semanticActivation =
+        session.Activations.Get(ActivationSmoke.Registration.Identity);
+    BaseInstalledActivationWorkerHandle<ActivationSmokeInput, ActivationSmokeResult> semanticWorker =
+        session.Activations.GetWorker(ActivationSmoke.Registration.Identity);
+    async ValueTask EnqueueSemanticParent(string value, string requestId)
+    {
+        OperationResult<BaseActivationEnqueueResult> enqueued = await semanticActivation.EnqueueAsync(
+            new ActivationSmokeInput { Value = value },
+            BaseMutationRequestIdentity.Create("sqlite-aot-semantic-parent", "enqueue", requestId,
+                BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(requestId)))));
+        Require(enqueued.IsSuccess(), "SQLite Native AOT semantic parent enqueue failed: " + enqueued.Error?.Code);
+    }
+    await EnqueueSemanticParent("ensure:logical-subject", "ensure-parent-1");
+    await EnqueueSemanticParent("ensure:logical-subject", "ensure-parent-2");
+    foreach (string phase in new[] { "first ensure parent", "second ensure parent", "semantic child" })
+    {
+        OperationResult<BaseActivationDispatchResult> dispatched = await semanticWorker.RunOneAsync();
+        Require(dispatched.IsSuccess() && dispatched.Value is { Empty: false, State: BaseActivationState.Succeeded },
+            $"SQLite Native AOT {phase} failed: {dispatched.Error?.Code}");
+    }
     BaseMutationRequestIdentity moduleIdentity = BaseMutationRequestIdentity.Create(
         "aot", "module-increment", "module-request-1",
         BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("sqlite-aot-module-request"u8)));
@@ -298,6 +332,10 @@ try
         artifact,
         new BaseBackupRequest { StoreId = "smoke.sqlite", Principal = principal })).RequireValue();
     Require(manifest.NativeSqliteVersion == "3.53.4", "Unexpected native SQLite dependency graph.");
+    await EnqueueSemanticParent("retire:logical-subject", "retire-parent-1");
+    OperationResult<BaseActivationDispatchResult> retiredSemantic = await semanticWorker.RunOneAsync();
+    Require(retiredSemantic.IsSuccess() && retiredSemantic.Value is { Empty: false, State: BaseActivationState.Succeeded },
+        "SQLite Native AOT semantic retirement failed: " + retiredSemantic.Error?.Code);
     artifact.Position = 0;
     Require((await application.Administration.ValidateBackupAsync(
         artifact,
@@ -329,6 +367,12 @@ try
         restoredReceipt is BaseSuccess<BaseBatchResult> restoredDuplicate
         && restoredDuplicate.Value.RequestDisposition == BaseMutationRequestDisposition.Duplicate,
         "Restore did not preserve the durable atomic receipt.");
+    await EnqueueSemanticParent("ensure:logical-subject", "ensure-after-restore");
+    OperationResult<BaseActivationDispatchResult> postRestoreEnsure = await semanticWorker.RunOneAsync();
+    OperationResult<BaseActivationDispatchResult> noRematerializedChild = await semanticWorker.RunOneAsync();
+    Require(postRestoreEnsure.IsSuccess() && postRestoreEnsure.Value is { Empty: false, State: BaseActivationState.Succeeded }
+        && noRematerializedChild.IsSuccess() && noRematerializedChild.Value is { Empty: true },
+        $"SQLite restore rematerialized a retired semantic activation: parent={postRestoreEnsure.Status}/{postRestoreEnsure.Value?.State}/{postRestoreEnsure.Value?.Empty}, next={noRematerializedChild.Status}/{noRematerializedChild.Value?.State}/{noRematerializedChild.Value?.Empty}.");
 
     var relational = provider.GetRequiredService<IRelationalMetadataProvider>();
     var descriptor = await relational.GetStoreAsync(Operation(BaseOperationKind.List), VisibilityLevel.Admin);
@@ -369,7 +413,11 @@ static AccessGrant Grant(string id, string subjectId) => new()
     Id = id, ApplicationId = "hpd.base.sqlite.aot", ModuleId = id == "hpd.base.sqlite.aot.module.increment" ? "hpd.base.sqlite.aot.module" : id.Contains("subjectLifecycle", StringComparison.Ordinal) || id.Contains("subject.lifecycle", StringComparison.Ordinal) ? "hpd.base.sqlite.aot.consumer" : "hpd.base.sqlite.aot",
     Audience = HPDBaseEndpointAudience.Application,
     Subject = new AccessSubject { Kind = AccessSubjectKind.ServicePrincipal, Id = subjectId, TenantId = "tenant-a" },
-    Action = id == "hpd.base.sqlite.aot.subject.lifecycle.read" ? "hpd.base.sqlite.aot.subject.lifecycle" : id,
+    Action = id is SemanticActivationSmoke.EnsureGrant or SemanticActivationSmoke.RetireGrant or SemanticActivationSmoke.MaintainGrant
+        ? SemanticActivationSmoke.DefinitionId
+        : id.StartsWith("hpd.base.sqlite.aot.activation.", StringComparison.Ordinal)
+        ? "hpd.base.sqlite.aot.activation"
+        : id == "hpd.base.sqlite.aot.subject.lifecycle.read" ? "hpd.base.sqlite.aot.subject.lifecycle" : id,
     Scope = id.Contains("subjectLifecycle", StringComparison.Ordinal) || id.Contains("subject.lifecycle", StringComparison.Ordinal)
         ? new ResourceScope { Kind = ResourceScopeKind.SubjectContract, SubjectContractId = "hpd.base.sqlite.aot.subject", SubjectContractVersion = 1, TenantId = "tenant-a" }
         : new ResourceScope { Kind = ResourceScopeKind.Runtime, TenantId = "tenant-a" },
@@ -583,3 +631,8 @@ internal sealed partial class SmokeSubjectJsonContext : System.Text.Json.Seriali
 [System.Text.Json.Serialization.JsonSourceGenerationOptions(PropertyNamingPolicy = System.Text.Json.Serialization.JsonKnownNamingPolicy.CamelCase)]
 [System.Text.Json.Serialization.JsonSerializable(typeof(SmokeRecord))]
 internal sealed partial class SmokeJsonContext : System.Text.Json.Serialization.JsonSerializerContext;
+
+[System.Text.Json.Serialization.JsonSourceGenerationOptions(PropertyNamingPolicy = System.Text.Json.Serialization.JsonKnownNamingPolicy.CamelCase)]
+[System.Text.Json.Serialization.JsonSerializable(typeof(ActivationSmokeInput))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(ActivationSmokeResult))]
+internal sealed partial class SemanticSmokeJsonContext : System.Text.Json.Serialization.JsonSerializerContext;

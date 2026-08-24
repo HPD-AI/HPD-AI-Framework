@@ -124,10 +124,16 @@ public enum HPDBaseEndpointOperation
     ActivationScheduleMutate,
     /// <summary>Reads sanitized semantic-activation authority.</summary>
     SemanticActivationInspect,
-    /// <summary>Executes bounded semantic-activation maintenance.</summary>
-    SemanticActivationMaintenanceExecute,
-    /// <summary>Resolves identified semantic-activation maintenance.</summary>
-    SemanticActivationMaintenanceResolve
+    /// <summary>Reads sanitized definition health and command authority.</summary>
+    SemanticActivationControlRead,
+    /// <summary>Compacts eligible retired semantic authority.</summary>
+    SemanticActivationCompact,
+    /// <summary>Resumes bounded semantic maintenance.</summary>
+    SemanticActivationMaintenanceResume,
+    /// <summary>Resolves identified semantic maintenance.</summary>
+    SemanticActivationMaintenanceResolve,
+    /// <summary>Removes one eligible semantic definition.</summary>
+    SemanticActivationRemove
 }
 
 /// <summary>Describes one exact BASE HTTP endpoint.</summary>
@@ -265,7 +271,7 @@ public static class HPDBaseCapabilities
     /// <summary>Mutates installed durable schedule authority.</summary>
     public const string ActivationScheduleMutate = "base.activation.schedule.mutate";
     /// <summary>Reads sanitized semantic-activation state.</summary>
-    public const string SemanticActivationInspect = "base.semanticActivation.inspect";
+    public const string SemanticActivationInspect = "base.semantic-activation.inspect";
     /// <summary>Executes and resolves semantic-activation maintenance.</summary>
-    public const string SemanticActivationMaintenance = "base.semanticActivation.maintenance";
+    public const string SemanticActivationMaintenance = "base.semantic-activation.maintenance";
 }

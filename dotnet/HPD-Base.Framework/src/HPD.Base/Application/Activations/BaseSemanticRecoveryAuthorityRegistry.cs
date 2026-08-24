@@ -77,11 +77,11 @@ public sealed class BaseSemanticRecoveryAuthorityRegistry : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         if (!_authorities.TryGetValue(logicalStoreId, out OwnedAuthority? authority))
-            throw new InvalidOperationException(BaseSemanticActivationErrorCodes.ExternalPublicationUnavailable);
+            throw new InvalidOperationException(BaseSemanticActivationErrorCodes.ExternalAuthorityUnavailable);
         lock (authority.Sync)
         {
             if (Volatile.Read(ref _disposing) != 0 || authority.IsQuarantined || authority.DisposeWhenDrained)
-                throw new InvalidOperationException(BaseSemanticActivationErrorCodes.ExternalPublicationUnavailable);
+                throw new InvalidOperationException(BaseSemanticActivationErrorCodes.ExternalAuthorityUnavailable);
             authority.ActiveCalls++;
         }
         using var acquisition = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -126,7 +126,7 @@ public sealed class BaseSemanticRecoveryAuthorityRegistry : IAsyncDisposable
     {
         BaseSemanticRecoveryOperationLimits limits = _authorities.TryGetValue(logicalStoreId, out OwnedAuthority? owned)
             ? owned.Registration.Definition.Limits
-            : throw new InvalidOperationException(BaseSemanticActivationErrorCodes.ExternalPublicationUnavailable);
+            : throw new InvalidOperationException(BaseSemanticActivationErrorCodes.ExternalAuthorityUnavailable);
         byte[] requestBytes = JsonSerializer.SerializeToUtf8Bytes(request, requestType);
         if (requestBytes.LongLength > limits.MaximumRequestBytes || requestBytes.LongLength > limits.MaximumTransientBytes)
             throw new InvalidOperationException(BaseSubjectErrorCodes.BudgetExceeded);
@@ -165,7 +165,7 @@ public sealed class BaseSemanticRecoveryAuthorityRegistry : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(request); ArgumentNullException.ThrowIfNull(request.Identity);
         if (!_authorities.TryGetValue(request.LogicalStoreId, out OwnedAuthority? authority))
             return new BaseFailure<BaseSemanticRecoveryQuarantineRecoveryResult>(OperationStatus.NotFound,
-                new BaseError { Code = BaseSemanticActivationErrorCodes.ExternalPublicationUnavailable,
+                new BaseError { Code = BaseSemanticActivationErrorCodes.ExternalAuthorityUnavailable,
                     Message = "Semantic recovery authority is unavailable.", Category = ErrorCategory.NotFound }, null, null);
         lock (authority.Sync)
         {

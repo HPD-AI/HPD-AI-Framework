@@ -259,7 +259,12 @@ public sealed partial class SqliteRecordStore
 
     private static BaseActivationProviderDescriptor CreateActivationDescriptor(bool durableRecovery, HPDBaseSqliteOptions options) =>
         BaseActivationCertificationReceiptContract.FromSuccessfulReport(
-            "hpd.base.sqlite.activations", "1", new BaseActivationProviderCapability
+            "hpd.base.sqlite.activations", "1", CreateActivationCapability(durableRecovery, options),
+            ImmutableArray.CreateRange(Convert.FromHexString(durableRecovery
+                ? "76ec60b6e206e167343e6266e73c80e9eac7300927dafa7a039c5a7993247c13"
+                : "76ec60b6e206e167343e6266e73c80e9eac7300927dafa7a039c5a7993247c13")), "Microsoft.Data.Sqlite");
+
+    internal static BaseActivationProviderCapability CreateActivationCapability(bool durableRecovery, HPDBaseSqliteOptions options) => new()
         {
             AtomicCreationSupported = true,
             SelectionTargetSupported = true,
@@ -306,9 +311,7 @@ public sealed partial class SqliteRecordStore
                 ? [BaseActivationRestoreMode.InPlaceRecovery, BaseActivationRestoreMode.NewDisasterDomain]
                 : [],
             CanonicalChecksum = ImmutableArray.CreateRange(SHA256.HashData("hpd.base.sqlite.activations.v2"u8)),
-        }, ImmutableArray.CreateRange(Convert.FromHexString(durableRecovery
-            ? "76ec60b6e206e167343e6266e73c80e9eac7300927dafa7a039c5a7993247c13"
-            : "76ec60b6e206e167343e6266e73c80e9eac7300927dafa7a039c5a7993247c13")), "Microsoft.Data.Sqlite");
+        };
 
     BaseActivationProviderDescriptor IBaseActivationProvider.Descriptor =>
         _activationDescriptor ?? throw new InvalidOperationException("base.activation.providerUnavailable");
@@ -772,7 +775,7 @@ WHERE a.activation_id=$id AND a.state=$disposed
         {
             ActivationId = row.ActivationId, AttemptNumber = attempt, ClaimEpoch = claimEpoch,
             FencingToken = fence.ToImmutableArray(), WorkerIdentity = request.Worker.WorkerIdentity,
-            CancellationGeneration = 0, StoreInstanceId = _options.StoreId, RestoreEpoch = restoreEpoch,
+            CancellationGeneration = 0, StoreInstanceId = CurrentStoreInstanceId, RestoreEpoch = restoreEpoch,
             DefinitionChecksum = row.DefinitionChecksum.ToImmutableArray(),
         };
         var lease = new BaseActivationLeaseObservation
@@ -1193,11 +1196,11 @@ WHERE a.activation_id=$id AND a.state=$disposed
             generation = Convert.ToInt64(await maximum.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture);
         }
         (_, long restoreEpoch) = await ReadActivationAuthorityAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
-        byte[] authorityChecksum = ActivationHash($"base.activation.executor.v2\0{request.ApplicationId}\n{request.HostId}\n{request.ProcessIncarnationId}\n{generation}\n{_options.StoreId}\n{restoreEpoch}\n{Convert.ToHexString(request.WorkerDefinitionSetChecksum.AsSpan())}");
+        byte[] authorityChecksum = ActivationHash($"base.activation.executor.v2\0{request.ApplicationId}\n{request.HostId}\n{request.ProcessIncarnationId}\n{generation}\n{CurrentStoreInstanceId}\n{restoreEpoch}\n{Convert.ToHexString(request.WorkerDefinitionSetChecksum.AsSpan())}");
         var authority = new BaseExecutorIncarnationAuthority
         {
             ApplicationId = request.ApplicationId, HostId = request.HostId, ProcessIncarnationId = request.ProcessIncarnationId,
-            ExecutorGeneration = generation, StoreInstanceId = _options.StoreId, RestoreEpoch = restoreEpoch,
+            ExecutorGeneration = generation, StoreInstanceId = CurrentStoreInstanceId, RestoreEpoch = restoreEpoch,
             WorkerDefinitionSetChecksum = request.WorkerDefinitionSetChecksum.ToArray().ToImmutableArray(), Checksum = authorityChecksum.ToImmutableArray(),
         };
         BaseExecutorHeartbeatObservation heartbeat = ExecutorHeartbeat(authority, 1, checked(request.AcceptedTime.CapturedUtc + request.RequestedHeartbeatMilliseconds));

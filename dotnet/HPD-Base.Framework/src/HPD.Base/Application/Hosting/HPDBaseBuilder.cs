@@ -797,6 +797,7 @@ public sealed class HPDBaseBuilder
         _services.AddSingleton(moduleMutationRegistry);
         _services.AddSingleton(activationRegistry);
         _services.AddSingleton(semanticActivationRegistry);
+        _services.AddSingleton(new BaseSemanticActivationMigrationRegistry(_semanticActivationMigrations.Values));
         _services.AddSingleton(semanticActivationRemovalRegistry);
         _services.AddSingleton(activationMigrationRegistry);
         _services.AddSingleton(scheduleRegistry);
@@ -831,6 +832,7 @@ public sealed class HPDBaseBuilder
         _services.AddSingleton(new BaseTokenProtectionRegistration(_tokenProtection is not null));
         _services.TryAddSingleton<BaseOpaqueTokenProtector>();
         _services.TryAddSingleton<BaseSemanticActivationInspectionTokenCodec>();
+        _services.TryAddSingleton<BaseSemanticActivationControlTokenCodec>();
         _services.AddSingleton<IBaseSchemaPlanProtector, DefaultBaseSchemaPlanProtector>();
         _services.AddSingleton<IBaseSchemaManager, DefaultBaseSchemaManager>();
         _services.AddSingleton<BaseSchemaCommandHost>();
@@ -896,9 +898,10 @@ public sealed class HPDBaseBuilder
             throw new InvalidOperationException("base.store.providerInvalid");
         ConfigureVectorRuntime(collections);
         ConfigureTextRuntime(collections, provider);
-        _services.AddSingleton(new HPDBaseInstalledFeatures { Provider = provider.Kind, StoreProvider = provider, StoreReceipt = receipt, CollectionIds = collections.Select(static item => item.Id).ToArray(), CollectionDefinitions = collections, ReadIds = _reads.Keys.ToArray(), Files = _files is not null, Dependencies = _dependencies is not null, Realtime = _realtime is not null, LiveQueries = _liveQueries is not null, ExtensionIds = installedExtensions.Select(static item => item.Id).ToArray(), Extensions = installedExtensions, LogicalSchema = logicalSchema });
+        _services.AddSingleton(new HPDBaseInstalledFeatures { Provider = provider.Kind, StoreProvider = provider, StoreReceipt = receipt, CollectionIds = collections.Select(static item => item.Id).ToArray(), CollectionDefinitions = collections, ReadIds = _reads.Keys.ToArray(), Files = _files is not null, Dependencies = _dependencies is not null, Realtime = _realtime is not null, LiveQueries = _liveQueries is not null, ExtensionIds = installedExtensions.Select(static item => item.Id).ToArray(), Extensions = installedExtensions, LogicalSchema = logicalSchema, SemanticActivationMigrations = _semanticActivationMigrations.Values.Select(BaseSemanticActivationMigrationContract.Seal).ToArray() });
         _services.AddSingleton(scheduleRecoveryKeys);
         _services.TryAddSingleton<IHPDBaseApplication, DefaultHPDBaseApplication>();
+        _services.TryAddSingleton<BaseInstalledSemanticActivationProviderOwner>();
         _services.TryAddSingleton<IHPDBaseAdministration, DefaultHPDBaseAdministration>();
         _services.TryAddSingleton(_ =>
         {
@@ -911,6 +914,11 @@ public sealed class HPDBaseBuilder
         _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseHealthContributor, BaseApplicationHealthContributor>());
         _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseHealthContributor, BaseSubjectControlHealthContributor>());
         _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDiagnosticContributor, BaseSubjectControlHealthContributor>());
+        if (provider.SemanticActivations.Supported)
+        {
+            _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseHealthContributor, BaseSemanticActivationProviderHealthContributor>());
+            _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDiagnosticContributor, BaseSemanticActivationProviderHealthContributor>());
+        }
         if (subjectLifecycleRegistry.All.Count != 0)
         {
             _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseHealthContributor, BaseSubjectLifecycleHealthContributor>());
@@ -1474,6 +1482,7 @@ public sealed record HPDBaseInstalledFeatures
     internal HPDBaseStoreProvider StoreProvider { get; init; } = null!;
     internal HPDBaseStoreRegistrationReceipt StoreReceipt { get; init; } = null!;
     internal BaseLogicalSchema LogicalSchema { get; init; } = null!;
+    internal BaseSemanticActivationMigrationDefinition[] SemanticActivationMigrations { get; init; } = [];
 }
 
 /// <summary>Defines validated application dependency-template handles.</summary>

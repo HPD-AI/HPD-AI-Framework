@@ -20,11 +20,13 @@ internal sealed class DefaultBaseModuleMutationRuntime(
     BaseSemanticActivationRegistry? semanticRegistry = null,
     BaseActivationRegistry? activationRegistry = null,
     BaseActivationAcceptedTimeAuthority? acceptedTimeAuthority = null,
-    BaseSemanticRecoveryAuthorityRegistry? semanticRecoveryRegistry = null) : IBaseModuleMutationRuntime
+    BaseSemanticRecoveryAuthorityRegistry? semanticRecoveryRegistry = null,
+    BaseSemanticActivationMigrationRegistry? semanticMigrationRegistry = null) : IBaseModuleMutationRuntime
 {
     private readonly BaseSubjectLifecycleRegistry lifecycleConsumers = lifecycleRegistry ?? new([], subjects);
     private readonly BaseSubjectRetirementRegistry retirement = retirementRegistry ?? new([], [], lifecycleRegistry ?? new([], subjects));
     private readonly BaseActivationAcceptedTimeAuthority acceptedTimes = acceptedTimeAuthority ?? new(timeProvider);
+    private readonly BaseSemanticActivationMigrationRegistry semanticMigrations = semanticMigrationRegistry ?? new([]);
     public ValueTask<BaseResult<BaseModuleMutationExecutionResult<TResult>>> ExecuteAsync<TRequest, TResult>(
         BaseSession session,
         BaseRegisteredModuleMutationDefinition definition,
@@ -179,7 +181,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             definition, generatedIdentity, request, intent, extension, options?.ActivationGuard,
             options?.ActivationCreation, semantic, limits, installed,
             session.Principal, moduleOperation, operationPolicy.Value,
-            schemaValidator, policy, normalizer, subjects, lifecycleConsumers, retirement, transactionalActivation);
+            schemaValidator, policy, normalizer, subjects, lifecycleConsumers, retirement, semanticMigrations, transactionalActivation);
         var executionRequest = new RecordMutationExecutionRequest
         {
             AcquisitionTimeout = definition.Limits.Deadlines.AcquisitionTimeout,
@@ -313,7 +315,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             return new BaseSuccess<SemanticRecoveryExecution?>(null, OperationStatus.Ok, null, null, null, null);
         var owned = semanticRecoveryRegistry.Find(semantic.Capture.StoreAuthority.LogicalStoreId);
         if (owned is null || atomicStore is not IBaseSemanticActivationPreflightStore preflightStore)
-            return RecoveryFailure(BaseSemanticActivationErrorCodes.ExternalPublicationUnavailable, OperationStatus.Unsupported);
+            return RecoveryFailure(BaseSemanticActivationErrorCodes.ExternalAuthorityUnavailable, OperationStatus.Unsupported);
         BaseSemanticRecoveryAuthorityDefinition authorityDefinition = owned.Value.Definition;
         BaseSemanticRecoveryOperationLimits externalLimits = BaseSemanticRecoveryAuthorityContract.OperationLimits(authorityDefinition);
         TimeSpan preflightDeadline = Min(installedDefinition.Limits.Deadlines.AcquisitionTimeout, externalLimits.AcquisitionDeadline);
@@ -339,7 +341,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             deadline.CancelAfter(preflightDeadline);
             preflight = await preflightStore.PreflightSemanticRecoveryAsync(preflightRequest, deadline.Token).ConfigureAwait(false);
         }
-        catch { return RecoveryFailure(BaseSemanticActivationErrorCodes.ExternalPublicationUnavailable, OperationStatus.StoreError); }
+        catch { return RecoveryFailure(BaseSemanticActivationErrorCodes.ExternalAuthorityUnavailable, OperationStatus.StoreError); }
         if (!preflight.IsSuccess() || preflight.Value is null
             || !BaseSemanticActivationEvidenceContract.RecoveryPreflightIsValid(preflightRequest, preflight.Value))
             return RecoveryFailure(preflight.Error?.Code ?? BaseSemanticActivationErrorCodes.ActivationNotTerminal,
@@ -373,7 +375,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             if (resolved is not BaseSuccess<BaseSemanticRecoveryPendingResolution> resolution
                 || !BaseSemanticRecoveryAuthorityContract.PendingResolutionIsValid(
                     authorityDefinition, resolveRequest, resolution.Value, timeProvider.GetUtcNow()))
-                return RecoveryFailure(BaseSemanticActivationErrorCodes.ExternalPublicationUnavailable, OperationStatus.StoreError);
+                return RecoveryFailure(BaseSemanticActivationErrorCodes.ExternalAuthorityUnavailable, OperationStatus.StoreError);
             disposition = resolution.Value.Disposition;
             resolvedPending = resolution.Value.Pending;
             if (disposition == BaseSemanticRecoveryPendingResolutionDisposition.Missing)
@@ -406,7 +408,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
                         || recovered.Value.Disposition != BaseSemanticRecoveryPendingResolutionDisposition.Pending
                         || !BaseSemanticRecoveryAuthorityContract.PendingResolutionIsValid(
                             authorityDefinition, resolveRequest, recovered.Value, timeProvider.GetUtcNow()))
-                        return RecoveryFailure(BaseSemanticActivationErrorCodes.ExternalPublicationUnavailable, OperationStatus.StoreError);
+                        return RecoveryFailure(BaseSemanticActivationErrorCodes.ExternalAuthorityUnavailable, OperationStatus.StoreError);
                     resolvedPending = recovered.Value.Pending;
                 }
             }
@@ -414,11 +416,11 @@ internal sealed class DefaultBaseModuleMutationRuntime(
                 or BaseSemanticRecoveryPendingResolutionDisposition.Finalized)
                 return RecoveryFailure(BaseSemanticActivationErrorCodes.ExternalPublicationPending, OperationStatus.Conflict);
         }
-        catch { return RecoveryFailure(BaseSemanticActivationErrorCodes.ExternalPublicationUnavailable, OperationStatus.StoreError); }
+        catch { return RecoveryFailure(BaseSemanticActivationErrorCodes.ExternalAuthorityUnavailable, OperationStatus.StoreError); }
         if (resolvedPending is not { } pendingValue
             || !BaseSemanticRecoveryAuthorityContract.PendingIsValid(
                 authorityDefinition, intent, pendingValue, timeProvider.GetUtcNow()))
-            return RecoveryFailure(BaseSemanticActivationErrorCodes.ExternalPublicationUnavailable, OperationStatus.StoreError);
+            return RecoveryFailure(BaseSemanticActivationErrorCodes.ExternalAuthorityUnavailable, OperationStatus.StoreError);
         var pendingAuthority = new BaseSemanticRecoveryPendingCommitAuthority
         {
             ApplicationId = semantic.Capture.StoreAuthority.ApplicationId,

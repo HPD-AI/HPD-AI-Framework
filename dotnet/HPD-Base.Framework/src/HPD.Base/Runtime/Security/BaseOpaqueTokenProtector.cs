@@ -144,5 +144,16 @@ internal sealed class BaseOpaqueTokenProtector : IDisposable
     }
     private static byte[] Associated(string purpose, byte version, ReadOnlySpan<byte> scope) => [.. Encoding.UTF8.GetBytes(purpose), 0, version, .. scope];
     private static string Encode(byte[] value) => Convert.ToBase64String(value).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-    private static byte[] Decode(string value) { string text = value.Replace('-', '+').Replace('_', '/'); int remainder = text.Length % 4; if (remainder != 0) text = text.PadRight(text.Length + 4 - remainder, '='); return Convert.FromBase64String(text); }
+    private static byte[] Decode(string value)
+    {
+        if (value.Length == 0 || value.Any(static character => character is not (>= 'A' and <= 'Z')
+                and not (>= 'a' and <= 'z') and not (>= '0' and <= '9') and not '-' and not '_'))
+            throw new FormatException();
+        string text = value.Replace('-', '+').Replace('_', '/'); int remainder = text.Length % 4;
+        if (remainder == 1) throw new FormatException();
+        if (remainder != 0) text = text.PadRight(text.Length + 4 - remainder, '=');
+        byte[] decoded = Convert.FromBase64String(text);
+        if (!string.Equals(Encode(decoded), value, StringComparison.Ordinal)) throw new FormatException();
+        return decoded;
+    }
 }

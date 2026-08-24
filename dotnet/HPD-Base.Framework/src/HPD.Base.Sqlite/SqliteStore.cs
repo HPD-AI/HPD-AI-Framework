@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Collections.Immutable;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -10,8 +11,14 @@ public static class SqliteStore
     /// <summary>Creates a validated SQLite store descriptor.</summary>
     /// <param name="configure">Optional SQLite provider configuration.</param>
     /// <returns>The immutable provider descriptor selected with <see cref="HPDBaseBuilder.UseStore"/>.</returns>
-    public static HPDBaseStoreProvider Configure(Action<HPDBaseSqliteOptions>? configure = null) =>
-        HPDBaseStoreProviderFactory.Create(new BaseStoreProviderDescriptor
+    public static HPDBaseStoreProvider Configure(Action<HPDBaseSqliteOptions>? configure = null)
+    {
+        var configured = new HPDBaseSqliteOptions();
+        configure?.Invoke(configured);
+        HPDBaseSqliteOptions owned = HPDBaseSqliteServiceCollectionExtensions.Clone(configured);
+        BaseActivationProviderCapability activation = SqliteRecordStore.CreateActivationCapability(
+            SqliteRecordStore.DurableActivationRecoveryConfigured(owned), owned);
+        return HPDBaseStoreProviderFactory.Create(new BaseStoreProviderDescriptor
         {
             Kind = "sqlite",
             ProtocolVersion = HPDBaseStoreProviderFactory.ProtocolVersion,
@@ -35,11 +42,41 @@ public static class SqliteStore
                 MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
             },
             TextSearch = BaseTextPlatform.ProviderCapability(BaseTextProviderClass.CoLocatedTransactional),
-            Activations = BaseActivationCapabilityContract.BuiltIn("hpd.base.sqlite.activations.v2"),
+            Activations = activation,
             SemanticActivations = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true),
-        }, new Installer(configure));
+            SemanticActivationCertification = SemanticCertificationProfile(activation),
+        }, new Installer(owned));
+    }
 
-    private sealed class Installer(Action<HPDBaseSqliteOptions>? configure) : IHPDBaseStoreInstaller
+    private static BaseSemanticActivationCertificationProfile SemanticCertificationProfile(BaseActivationProviderCapability activation) =>
+        SealSemanticCertification(activation);
+
+    private static BaseSemanticActivationCertificationProfile SealSemanticCertification(BaseActivationProviderCapability activation)
+    {
+        BaseSemanticActivationCapability semantic = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true);
+        BaseModuleMutationCapability module = ModuleCapability();
+        BaseSemanticActivationCertificationSubject subject = CreateSemanticCertificationSubject(semantic, module, activation);
+        return BaseSemanticActivationCertificationContract.SealSuccessfulReport(
+            BaseSemanticActivationBuiltInCertification.LoadFrozenExecutedReport(subject, semantic), semantic, module, activation);
+    }
+
+    internal static BaseSemanticActivationCertificationSubject CreateSemanticCertificationSubject(
+        BaseSemanticActivationCapability semantic,
+        BaseModuleMutationCapability module,
+        BaseActivationProviderCapability activation) =>
+        BaseSemanticActivationCertificationContract.CreateSubject(
+            "hpd.base.sqlite.semanticActivations", "1", "sqlite", HPDBaseStoreProviderFactory.ProtocolVersion,
+            semantic, module, activation,
+            $"microsoft.data.sqlite:{typeof(SqliteConnection).Assembly.GetName().Version}",
+            $"runtime:{RuntimeInformation.FrameworkDescription}");
+
+    private static BaseModuleMutationCapability ModuleCapability() => new()
+    {
+        Supported = true, SerializableExecution = true, DurableReceipts = true, GenerationCells = true,
+        AtomicRecordAndGenerationCommit = true, MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
+    };
+
+    private sealed class Installer(HPDBaseSqliteOptions configured) : IHPDBaseStoreInstaller
     {
         private bool _hasVectors;
         private bool _hasText;
@@ -48,9 +85,8 @@ public static class SqliteStore
         {
             CollectionDefinition[] collections = context.Collections.ToArray();
             string? storeId = null;
-            context.Services.AddHPDBaseSqliteStore(options =>
+            HPDBaseSqliteOptions options = HPDBaseSqliteServiceCollectionExtensions.Clone(configured);
             {
-                configure?.Invoke(options);
                 options.Collections = collections;
                 options.ExportedSubjects = context.ExportedSubjects.ToArray();
                 options.ModuleMutations = context.ModuleMutations.ToArray();
@@ -66,7 +102,8 @@ public static class SqliteStore
                 options.SubjectRetirementPolicies = context.SubjectRetirementPolicies.ToArray();
                 options.SubjectLifecycleInspectionAuthorities = context.SubjectLifecycleInspectionAuthorities.ToArray();
                 storeId = options.StoreId;
-            });
+            }
+            context.Services.AddHPDBaseSqliteStore(options);
             _hasVectors = collections.SelectMany(static item => item.VectorIndexes ?? []).Any();
             _hasText = collections.SelectMany(static item => item.TextIndexes ?? []).Any();
             if (_hasVectors)
