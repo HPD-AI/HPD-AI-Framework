@@ -1025,7 +1025,7 @@ internal sealed class DefaultBaseMutationProcessor(
                 || actual.AcceptedConsumerSetChecksum != expected.AcceptedConsumerSetChecksum
                 || actual.CurrentSubjectSequence < 1 || !Enum.IsDefined(actual.CurrentState)
                 || actual.ProtectedScope.IndexDigest is not { Length: 32 }
-                || actual.ProtectedScope.ProtectedCanonicalValue.Length == 0)
+                || actual.ProtectedScope.Kind != BaseSubjectScopeKind.Global && actual.ProtectedScope.ProtectedCanonicalValue.Length == 0)
                 return false;
             byte[] key = RetirementCaptureKey(actual);
             digest.AppendData(key);

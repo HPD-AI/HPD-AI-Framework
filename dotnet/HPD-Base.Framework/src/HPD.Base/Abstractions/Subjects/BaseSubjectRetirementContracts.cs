@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace HPD.Base;
 
@@ -1038,12 +1040,27 @@ public sealed record BaseSubjectFinalPurgeResult
 }
 
 /// <summary>Identifies one durable retirement publication position.</summary>
+[JsonConverter(typeof(BaseSubjectRetirementPositionJsonConverter))]
 public readonly record struct BaseSubjectRetirementPosition
 {
 /// <summary>Defines BaseSubjectRetirementPosition for coordinated subject retirement.</summary>
     public BaseSubjectRetirementPosition(long value) { ArgumentOutOfRangeException.ThrowIfLessThan(value, 1); Value = value; }
 /// <summary>Defines Value for coordinated subject retirement.</summary>
     public long Value { get; }
+}
+
+/// <summary>Encodes retirement publication positions as their positive canonical integer.</summary>
+public sealed class BaseSubjectRetirementPositionJsonConverter : JsonConverter<BaseSubjectRetirementPosition>
+{
+    /// <inheritdoc />
+    public override BaseSubjectRetirementPosition Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        reader.TokenType == JsonTokenType.Number && reader.TryGetInt64(out long value)
+            ? new BaseSubjectRetirementPosition(value)
+            : throw new JsonException("A retirement publication position must be a positive integer.");
+
+    /// <inheritdoc />
+    public override void Write(Utf8JsonWriter writer, BaseSubjectRetirementPosition value, JsonSerializerOptions options) =>
+        writer.WriteNumberValue(value.Value);
 }
 
 /// <summary>Classifies one sanitized coordinated-retirement control publication.</summary>

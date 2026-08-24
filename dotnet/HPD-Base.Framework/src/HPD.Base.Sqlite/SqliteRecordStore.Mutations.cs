@@ -3781,6 +3781,8 @@ WHERE excluded.slot_generation>=slot_generation;
             command.Parameters.Add("$scopeDigest", SqliteType.Blob).Value = scope.IndexDigest;
             if (command.CommandText.Contains("$scopeCiphertext", StringComparison.Ordinal))
                 command.Parameters.Add("$scopeCiphertext", SqliteType.Blob).Value = scope.ProtectedCanonicalValue;
+            if (command.CommandText.Contains("$scopeValue", StringComparison.Ordinal))
+                command.Parameters.Add("$scopeValue", SqliteType.Blob).Value = scope.ProtectedCanonicalValue;
         }
 
         private static BaseOwnedSubjectScopeEvidence ScopeForItem(BaseAtomicMutationPlanItem item, BaseExportedSubjectDefinition definition)

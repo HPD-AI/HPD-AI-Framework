@@ -507,13 +507,7 @@ public sealed class BaseStudioRetirementHttpTests
                 Create = new()
                 {
                     RequestedId = new RecordId("subject-1"),
-                    Payload = new()
-                    {
-                        Kind = RecordPayloadKind.Json,
-                        Json = JsonSerializer.SerializeToElement(
-                            new RetirementPrivateRecord { Active = true, Tombstoned = false, Tenant = "tenant-a" },
-                            RetirementHttpJsonContext.Default.RetirementPrivateRecord),
-                    },
+                    Payload = Payload(("active", true), ("tombstoned", false), ("tenant", "tenant-a")),
                 },
             }],
         }, principal, Operation(BaseOperationKind.Create), CancellationToken.None);
