@@ -3,5 +3,6 @@
     <Error Condition="'$(TargetFramework)' != 'net10.0'" Text="HPD.Payments requires net10.0." />
     <Error Condition="'$(LangVersion)' != '14.0'" Text="HPD.Payments requires C# 14.0." />
     <Error Condition="'$(RestorePackagesWithLockFile)' != 'true'" Text="Lock files are mandatory." />
+    <Error Condition="'$(MSBuildProjectName)' != 'HPD.Payments.Generators' and '$(MSBuildProjectName)' != 'HPD.Payments.Analyzers' and '$(RuntimeIdentifiers)' != 'osx-arm64'" Text="Runtime projects must include the selected osx-arm64 lock graph." />
   </Target>
 </Project>

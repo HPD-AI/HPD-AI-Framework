@@ -48,9 +48,9 @@ for c in cells:
     if c["expectedProofState"] not in PROOF_STATES: fail(c["cellId"] + " proof state")
     for field in ("profile","lane","adapter","provider","graph","rid","toolchain","path","workload","requiredNegativeCell","applicability","rationale"):
         if field not in c: fail(c["cellId"] + " missing " + field)
-blocked = [c for c in cells if c.get("res009Status") == "BlockedPendingExplicitAcceptance"]
-if not blocked or any(c["expectedProofState"] != "Untested" for c in blocked): fail("RES-009 block")
+accepted_res009 = [c for c in cells if c.get("res009Status") == "AcceptedPendingImplementation"]
+if len(accepted_res009) != 28 or any(c["expectedProofState"] != "Untested" or c["applicability"] != "ApplicablePendingSelection" for c in accepted_res009): fail("RES-009 accepted disposition")
 if claims.get("canonicalRegistryDigest") != canonical["contentDigest"]: fail("cross digest")
-print(f"PASS canonical=179 unique=179 prefixes=33 owners=17 workflows=20 TEST=6 claims=179 duplicates=0 orphans=0 res009Blocked={len(blocked)}")
+print(f"PASS canonical=179 unique=179 prefixes=33 owners=17 workflows=20 TEST=6 claims=179 duplicates=0 orphans=0 res009Accepted={len(accepted_res009)}")
 print(f"canonicalDigest={canonical['contentDigest']}")
 print(f"claimMatrixDigest={claims['contentDigest']}")

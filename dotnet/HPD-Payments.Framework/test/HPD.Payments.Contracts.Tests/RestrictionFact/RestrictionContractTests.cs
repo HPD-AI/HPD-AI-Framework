@@ -1,4 +1,5 @@
 using HPD.Payments.Contracts.RestrictionFact;
+using HPD.Payments.Contracts.Tests.RestrictionFact.QuotaPolicy;
 using HPD.Payments.Primitives.Identity;
 using HPD.Payments.Primitives.Results;
 using HPD.Payments.Primitives.Time;
@@ -11,6 +12,7 @@ public static class RestrictionContractTests
     /// <summary>Checks owner-only release, independent dimensions, intervals, generations, closed results, and default-invalid behavior.</summary>
     public static void Run()
     {
+        QuotaRestrictionBindingTests.Run();
         var scope = ScopeId.Create("tenant-a", "live", "restriction");
         var subject = Id(scope, "subjects", "account", "a1");
         var debtOwner = Id(scope, "restriction-owners", "owner", "collections");

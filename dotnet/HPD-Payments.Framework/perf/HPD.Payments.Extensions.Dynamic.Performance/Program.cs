@@ -17,7 +17,7 @@ var unsignedLane = new DynamicExtensionLane([new Loopback(new DynamicExtensionMa
 var payload = Enumerable.Range(0, 256).Select(static x => (byte)x).ToArray();
 
 DynamicExtensionRequest Request(string id, SemanticId extension, ContractVersion contract, Revision config) =>
-    new(Id("invocation", id), extension, contract, config, payload);
+    new(Id("invocation", id), extension, contract, manifest.CodeRevision, config, manifest.ArtifactDigest, payload);
 var valid = Request("valid", manifest.ExtensionId, version, manifest.ConfigurationRevision);
 var skew = Request("skew", manifest.ExtensionId, ContractVersion.Create(2, 0), manifest.ConfigurationRevision);
 var stale = Request("stale", manifest.ExtensionId, version, Revision.Create("config", 2));

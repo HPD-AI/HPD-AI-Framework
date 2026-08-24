@@ -29,6 +29,8 @@ internal static class SourceTreeSnapshotter
                 {
                     if (IsLink(path)) throw new IOException("Source inventory contains a linked file.");
                     ValidateComponents(root, path);
+                    var relative = Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/');
+                    if (IsGeneratedBuildOutput(relative)) continue;
                     paths.Add(path);
                     if (paths.Count > 100_000) throw new InvalidDataException("Source inventory contains too many files.");
                 }
@@ -64,6 +66,9 @@ internal static class SourceTreeSnapshotter
         OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
     private static bool IsLink(string path) => (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
+
+    private static bool IsGeneratedBuildOutput(string relativePath) =>
+        relativePath.Split('/').Any(static segment => segment is "bin" or "obj");
 
     private static void ValidateComponents(string root, string candidate)
     {

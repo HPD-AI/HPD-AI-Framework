@@ -1,5 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><IsTestProject>false</IsTestProject><OutputType>Exe</OutputType><NoWarn>$(NoWarn);CA2007</NoWarn></PropertyGroup>
+  <PropertyGroup>
+    <IsTestProject>false</IsTestProject><OutputType>Exe</OutputType><NoWarn>$(NoWarn);CA2007;CA1303</NoWarn>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <PublishAot>true</PublishAot><PublishTrimmed>true</PublishTrimmed><SelfContained>true</SelfContained><IsAotCompatible>true</IsAotCompatible>
+    <InvariantGlobalization>true</InvariantGlobalization><EnableTrimAnalyzer>true</EnableTrimAnalyzer><JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+  </PropertyGroup>
   <ItemGroup><ProjectReference Include="../../src/HPD.Payments.Adapters.InMemory/HPD.Payments.Adapters.InMemory.csproj" /></ItemGroup>
-  <ItemGroup><ProjectReference Include="../../src/HPD.Payments.Runtime/HPD.Payments.Runtime.csproj" /></ItemGroup>
+  <ItemGroup><ProjectReference Include="../../src/HPD.Payments.Runtime/HPD.Payments.Runtime.csproj" /><ProjectReference Include="../../src/HPD.Payments.Profiles.Distributed/HPD.Payments.Profiles.Distributed.csproj" /></ItemGroup>
+  <ItemGroup><Compile Include="../HPD.Payments.BaseIntegration.Tests/Program.cs" Link="Program.cs" /></ItemGroup>
 </Project>

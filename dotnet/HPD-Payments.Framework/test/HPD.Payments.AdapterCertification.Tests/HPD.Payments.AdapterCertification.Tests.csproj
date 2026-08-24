@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsTestProject>false</IsTestProject>
+    <OutputType>Exe</OutputType>
+    <NoWarn>$(NoWarn);CA2007;CA1303</NoWarn>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/HPD.Payments.Adapters.InMemory/HPD.Payments.Adapters.InMemory.csproj" />
+    <ProjectReference Include="../../src/HPD.Payments.Runtime/HPD.Payments.Runtime.csproj" />
+    <ProjectReference Include="../../../HPD-Base.Framework/src/HPD.Base.Testing/HPD.Base.Testing.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="InMemory/Program.cs" />
+  </ItemGroup>
+</Project>

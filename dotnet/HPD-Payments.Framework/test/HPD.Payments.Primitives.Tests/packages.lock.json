@@ -5,6 +5,7 @@
       "hpd.payments.primitives": {
         "type": "Project"
       }
-    }
+    },
+    "net10.0/osx-arm64": {}
   }
 }

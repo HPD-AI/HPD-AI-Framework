@@ -25,6 +25,14 @@ internal static class CustodyProtocolProofs
         Check(!held.Observe(Instance(2, CustodyState.Requested)).Accepted, "held instance admitted deletion request");
         var eligible = CustodyProtocol.Create(Instance(1, CustodyState.Eligible));
         Check(!eligible.Observe(Instance(3, CustodyState.Requested)).Accepted, "custody generation skipped");
+        var drifted = new CustodyInstance(Id("instance", "backup-one"), owner, Id("controller", "backup"), OwnerGeneration.Create(2), mark,
+            Revision.Create("policy", 2), Revision.Create("hold", 1), CustodyState.Requested,
+            NamedTime.Create(TimeKind.Observed, DateTimeOffset.UnixEpoch.AddSeconds(2)));
+        Check(!eligible.Observe(drifted).Accepted, "policy drift admitted deletion without reclassification");
+        var nonmonotone = new CustodyInstance(Id("instance", "backup-one"), owner, Id("controller", "backup"), OwnerGeneration.Create(2), mark,
+            Revision.Create("policy", 1), Revision.Create("hold", 1), CustodyState.Requested,
+            NamedTime.Create(TimeKind.Observed, DateTimeOffset.UnixEpoch.AddSeconds(1)));
+        Check(!eligible.Observe(nonmonotone).Accepted, "nonmonotone custody observation admitted");
         var requested = eligible.Observe(Instance(2, CustodyState.Requested));
         var absent = requested.Protocol.Observe(Instance(3, CustodyState.VerifiedAbsent, TimeKind.Verify));
         Check(absent.Accepted && absent.Protocol.MaySweep(OwnerGeneration.Create(3)), "verified absence was not sweepable at exact cut");

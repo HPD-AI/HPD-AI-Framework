@@ -1,8 +1,8 @@
 {
   "schemaVersion": "hpd.payments.claim-matrix.v1",
-  "status": "PARTIALLY ADMITTED — RES-009 BLOCK ACTIVE",
+  "status": "ADMITTED — RES-009 ACCEPTED; IMPLEMENTATION PROOF PENDING",
   "canonicalRegistryDigest": "sha256:3c623b0dfbf040f34e30dfdc15a20629ada211e5b9493495fbde5300b2326ca9",
-  "contentDigest": "sha256:cedc98a64435e912c6a8e434d8e76c1e0cce80bcd85a9e28764bc270a8c0bce5",
+  "contentDigest": "sha256:e2ba5f55f9fe10b0ef13f422d15640057d1c4eda0610d1a7ef67a212fe1b1a05",
   "claims": [
     {
       "cellId": "BASELINE-ANA-001",
@@ -494,10 +494,10 @@
       "path": "Unselected",
       "workload": "Unselected",
       "requiredNegativeCell": "Required-Unexecuted",
-      "applicability": "Blocked",
+      "applicability": "ApplicablePendingSelection",
       "expectedProofState": "Untested",
-      "res009Status": "BlockedPendingExplicitAcceptance",
-      "rationale": "RES-009 ProposedPendingExplicitAcceptance blocks this quota/wallet or transitive workflow-17 cell; no default policy is operative and no proof may be claimed."
+      "res009Status": "AcceptedPendingImplementation",
+      "rationale": "RES-009 is explicitly accepted and materialized; this quota/wallet or transitive workflow-17 cell remains Untested pending implementation and exact proof selection."
     },
     {
       "cellId": "BASELINE-BILL-010",
@@ -527,10 +527,10 @@
       "path": "Unselected",
       "workload": "Unselected",
       "requiredNegativeCell": "Required-Unexecuted",
-      "applicability": "Blocked",
+      "applicability": "ApplicablePendingSelection",
       "expectedProofState": "Untested",
-      "res009Status": "BlockedPendingExplicitAcceptance",
-      "rationale": "RES-009 ProposedPendingExplicitAcceptance blocks this quota/wallet or transitive workflow-17 cell; no default policy is operative and no proof may be claimed."
+      "res009Status": "AcceptedPendingImplementation",
+      "rationale": "RES-009 is explicitly accepted and materialized; this quota/wallet or transitive workflow-17 cell remains Untested pending implementation and exact proof selection."
     },
     {
       "cellId": "BASELINE-BILL-011",
@@ -560,10 +560,10 @@
       "path": "Unselected",
       "workload": "Unselected",
       "requiredNegativeCell": "Required-Unexecuted",
-      "applicability": "Blocked",
+      "applicability": "ApplicablePendingSelection",
       "expectedProofState": "Untested",
-      "res009Status": "BlockedPendingExplicitAcceptance",
-      "rationale": "RES-009 ProposedPendingExplicitAcceptance blocks this quota/wallet or transitive workflow-17 cell; no default policy is operative and no proof may be claimed."
+      "res009Status": "AcceptedPendingImplementation",
+      "rationale": "RES-009 is explicitly accepted and materialized; this quota/wallet or transitive workflow-17 cell remains Untested pending implementation and exact proof selection."
     },
     {
       "cellId": "BASELINE-BILL-012",
@@ -2111,10 +2111,10 @@
       "path": "Unselected",
       "workload": "Unselected",
       "requiredNegativeCell": "Required-Unexecuted",
-      "applicability": "Blocked",
+      "applicability": "ApplicablePendingSelection",
       "expectedProofState": "Untested",
-      "res009Status": "BlockedPendingExplicitAcceptance",
-      "rationale": "RES-009 ProposedPendingExplicitAcceptance blocks this quota/wallet or transitive workflow-17 cell; no default policy is operative and no proof may be claimed."
+      "res009Status": "AcceptedPendingImplementation",
+      "rationale": "RES-009 is explicitly accepted and materialized; this quota/wallet or transitive workflow-17 cell remains Untested pending implementation and exact proof selection."
     },
     {
       "cellId": "BASELINE-ENT-002",
@@ -2144,10 +2144,10 @@
       "path": "Unselected",
       "workload": "Unselected",
       "requiredNegativeCell": "Required-Unexecuted",
-      "applicability": "Blocked",
+      "applicability": "ApplicablePendingSelection",
       "expectedProofState": "Untested",
-      "res009Status": "BlockedPendingExplicitAcceptance",
-      "rationale": "RES-009 ProposedPendingExplicitAcceptance blocks this quota/wallet or transitive workflow-17 cell; no default policy is operative and no proof may be claimed."
+      "res009Status": "AcceptedPendingImplementation",
+      "rationale": "RES-009 is explicitly accepted and materialized; this quota/wallet or transitive workflow-17 cell remains Untested pending implementation and exact proof selection."
     },
     {
       "cellId": "BASELINE-ENT-003",
@@ -2177,10 +2177,10 @@
       "path": "Unselected",
       "workload": "Unselected",
       "requiredNegativeCell": "Required-Unexecuted",
-      "applicability": "Blocked",
+      "applicability": "ApplicablePendingSelection",
       "expectedProofState": "Untested",
-      "res009Status": "BlockedPendingExplicitAcceptance",
-      "rationale": "RES-009 ProposedPendingExplicitAcceptance blocks this quota/wallet or transitive workflow-17 cell; no default policy is operative and no proof may be claimed."
+      "res009Status": "AcceptedPendingImplementation",
+      "rationale": "RES-009 is explicitly accepted and materialized; this quota/wallet or transitive workflow-17 cell remains Untested pending implementation and exact proof selection."
     },
     {
       "cellId": "BASELINE-EVT-001",
@@ -3992,10 +3992,10 @@
       "path": "Unselected",
       "workload": "Unselected",
       "requiredNegativeCell": "Required-Unexecuted",
-      "applicability": "Blocked",
+      "applicability": "ApplicablePendingSelection",
       "expectedProofState": "Untested",
-      "res009Status": "BlockedPendingExplicitAcceptance",
-      "rationale": "RES-009 ProposedPendingExplicitAcceptance blocks this quota/wallet or transitive workflow-17 cell; no default policy is operative and no proof may be claimed."
+      "res009Status": "AcceptedPendingImplementation",
+      "rationale": "RES-009 is explicitly accepted and materialized; this quota/wallet or transitive workflow-17 cell remains Untested pending implementation and exact proof selection."
     },
     {
       "cellId": "BASELINE-RATE-001",
@@ -4982,10 +4982,10 @@
       "path": "Unselected",
       "workload": "Unselected",
       "requiredNegativeCell": "Required-Unexecuted",
-      "applicability": "Blocked",
+      "applicability": "ApplicablePendingSelection",
       "expectedProofState": "Untested",
-      "res009Status": "BlockedPendingExplicitAcceptance",
-      "rationale": "RES-009 ProposedPendingExplicitAcceptance blocks this quota/wallet or transitive workflow-17 cell; no default policy is operative and no proof may be claimed."
+      "res009Status": "AcceptedPendingImplementation",
+      "rationale": "RES-009 is explicitly accepted and materialized; this quota/wallet or transitive workflow-17 cell remains Untested pending implementation and exact proof selection."
     },
     {
       "cellId": "BASELINE-TEST-002",
@@ -5015,10 +5015,10 @@
       "path": "Unselected",
       "workload": "Unselected",
       "requiredNegativeCell": "Required-Unexecuted",
-      "applicability": "Blocked",
+      "applicability": "ApplicablePendingSelection",
       "expectedProofState": "Untested",
-      "res009Status": "BlockedPendingExplicitAcceptance",
-      "rationale": "RES-009 ProposedPendingExplicitAcceptance blocks this quota/wallet or transitive workflow-17 cell; no default policy is operative and no proof may be claimed."
+      "res009Status": "AcceptedPendingImplementation",
+      "rationale": "RES-009 is explicitly accepted and materialized; this quota/wallet or transitive workflow-17 cell remains Untested pending implementation and exact proof selection."
     },
     {
       "cellId": "BASELINE-TEST-003",
@@ -5048,10 +5048,10 @@
       "path": "Unselected",
       "workload": "Unselected",
       "requiredNegativeCell": "Required-Unexecuted",
-      "applicability": "Blocked",
+      "applicability": "ApplicablePendingSelection",
       "expectedProofState": "Untested",
-      "res009Status": "BlockedPendingExplicitAcceptance",
-      "rationale": "RES-009 ProposedPendingExplicitAcceptance blocks this quota/wallet or transitive workflow-17 cell; no default policy is operative and no proof may be claimed."
+      "res009Status": "AcceptedPendingImplementation",
+      "rationale": "RES-009 is explicitly accepted and materialized; this quota/wallet or transitive workflow-17 cell remains Untested pending implementation and exact proof selection."
     },
     {
       "cellId": "BASELINE-TEST-004",
@@ -5081,10 +5081,10 @@
       "path": "Unselected",
       "workload": "Unselected",
       "requiredNegativeCell": "Required-Unexecuted",
-      "applicability": "Blocked",
+      "applicability": "ApplicablePendingSelection",
       "expectedProofState": "Untested",
-      "res009Status": "BlockedPendingExplicitAcceptance",
-      "rationale": "RES-009 ProposedPendingExplicitAcceptance blocks this quota/wallet or transitive workflow-17 cell; no default policy is operative and no proof may be claimed."
+      "res009Status": "AcceptedPendingImplementation",
+      "rationale": "RES-009 is explicitly accepted and materialized; this quota/wallet or transitive workflow-17 cell remains Untested pending implementation and exact proof selection."
     },
     {
       "cellId": "BASELINE-TEST-005",
@@ -5114,10 +5114,10 @@
       "path": "Unselected",
       "workload": "Unselected",
       "requiredNegativeCell": "Required-Unexecuted",
-      "applicability": "Blocked",
+      "applicability": "ApplicablePendingSelection",
       "expectedProofState": "Untested",
-      "res009Status": "BlockedPendingExplicitAcceptance",
-      "rationale": "RES-009 ProposedPendingExplicitAcceptance blocks this quota/wallet or transitive workflow-17 cell; no default policy is operative and no proof may be claimed."
+      "res009Status": "AcceptedPendingImplementation",
+      "rationale": "RES-009 is explicitly accepted and materialized; this quota/wallet or transitive workflow-17 cell remains Untested pending implementation and exact proof selection."
     },
     {
       "cellId": "BASELINE-TEST-006",
@@ -5147,10 +5147,10 @@
       "path": "Unselected",
       "workload": "Unselected",
       "requiredNegativeCell": "Required-Unexecuted",
-      "applicability": "Blocked",
+      "applicability": "ApplicablePendingSelection",
       "expectedProofState": "Untested",
-      "res009Status": "BlockedPendingExplicitAcceptance",
-      "rationale": "RES-009 ProposedPendingExplicitAcceptance blocks this quota/wallet or transitive workflow-17 cell; no default policy is operative and no proof may be claimed."
+      "res009Status": "AcceptedPendingImplementation",
+      "rationale": "RES-009 is explicitly accepted and materialized; this quota/wallet or transitive workflow-17 cell remains Untested pending implementation and exact proof selection."
     },
     {
       "cellId": "BASELINE-USE-001",
@@ -5180,10 +5180,10 @@
       "path": "Unselected",
       "workload": "Unselected",
       "requiredNegativeCell": "Required-Unexecuted",
-      "applicability": "Blocked",
+      "applicability": "ApplicablePendingSelection",
       "expectedProofState": "Untested",
-      "res009Status": "BlockedPendingExplicitAcceptance",
-      "rationale": "RES-009 ProposedPendingExplicitAcceptance blocks this quota/wallet or transitive workflow-17 cell; no default policy is operative and no proof may be claimed."
+      "res009Status": "AcceptedPendingImplementation",
+      "rationale": "RES-009 is explicitly accepted and materialized; this quota/wallet or transitive workflow-17 cell remains Untested pending implementation and exact proof selection."
     },
     {
       "cellId": "BASELINE-USE-002",
@@ -5213,10 +5213,10 @@
       "path": "Unselected",
       "workload": "Unselected",
       "requiredNegativeCell": "Required-Unexecuted",
-      "applicability": "Blocked",
+      "applicability": "ApplicablePendingSelection",
       "expectedProofState": "Untested",
-      "res009Status": "BlockedPendingExplicitAcceptance",
-      "rationale": "RES-009 ProposedPendingExplicitAcceptance blocks this quota/wallet or transitive workflow-17 cell; no default policy is operative and no proof may be claimed."
+      "res009Status": "AcceptedPendingImplementation",
+      "rationale": "RES-009 is explicitly accepted and materialized; this quota/wallet or transitive workflow-17 cell remains Untested pending implementation and exact proof selection."
     },
     {
       "cellId": "BASELINE-USE-003",
@@ -5246,10 +5246,10 @@
       "path": "Unselected",
       "workload": "Unselected",
       "requiredNegativeCell": "Required-Unexecuted",
-      "applicability": "Blocked",
+      "applicability": "ApplicablePendingSelection",
       "expectedProofState": "Untested",
-      "res009Status": "BlockedPendingExplicitAcceptance",
-      "rationale": "RES-009 ProposedPendingExplicitAcceptance blocks this quota/wallet or transitive workflow-17 cell; no default policy is operative and no proof may be claimed."
+      "res009Status": "AcceptedPendingImplementation",
+      "rationale": "RES-009 is explicitly accepted and materialized; this quota/wallet or transitive workflow-17 cell remains Untested pending implementation and exact proof selection."
     },
     {
       "cellId": "BASELINE-USE-004",
@@ -5279,10 +5279,10 @@
       "path": "Unselected",
       "workload": "Unselected",
       "requiredNegativeCell": "Required-Unexecuted",
-      "applicability": "Blocked",
+      "applicability": "ApplicablePendingSelection",
       "expectedProofState": "Untested",
-      "res009Status": "BlockedPendingExplicitAcceptance",
-      "rationale": "RES-009 ProposedPendingExplicitAcceptance blocks this quota/wallet or transitive workflow-17 cell; no default policy is operative and no proof may be claimed."
+      "res009Status": "AcceptedPendingImplementation",
+      "rationale": "RES-009 is explicitly accepted and materialized; this quota/wallet or transitive workflow-17 cell remains Untested pending implementation and exact proof selection."
     },
     {
       "cellId": "BASELINE-USE-005",
@@ -5312,10 +5312,10 @@
       "path": "Unselected",
       "workload": "Unselected",
       "requiredNegativeCell": "Required-Unexecuted",
-      "applicability": "Blocked",
+      "applicability": "ApplicablePendingSelection",
       "expectedProofState": "Untested",
-      "res009Status": "BlockedPendingExplicitAcceptance",
-      "rationale": "RES-009 ProposedPendingExplicitAcceptance blocks this quota/wallet or transitive workflow-17 cell; no default policy is operative and no proof may be claimed."
+      "res009Status": "AcceptedPendingImplementation",
+      "rationale": "RES-009 is explicitly accepted and materialized; this quota/wallet or transitive workflow-17 cell remains Untested pending implementation and exact proof selection."
     },
     {
       "cellId": "BASELINE-USE-006",
@@ -5345,10 +5345,10 @@
       "path": "Unselected",
       "workload": "Unselected",
       "requiredNegativeCell": "Required-Unexecuted",
-      "applicability": "Blocked",
+      "applicability": "ApplicablePendingSelection",
       "expectedProofState": "Untested",
-      "res009Status": "BlockedPendingExplicitAcceptance",
-      "rationale": "RES-009 ProposedPendingExplicitAcceptance blocks this quota/wallet or transitive workflow-17 cell; no default policy is operative and no proof may be claimed."
+      "res009Status": "AcceptedPendingImplementation",
+      "rationale": "RES-009 is explicitly accepted and materialized; this quota/wallet or transitive workflow-17 cell remains Untested pending implementation and exact proof selection."
     },
     {
       "cellId": "BASELINE-USE-007",
@@ -5378,10 +5378,10 @@
       "path": "Unselected",
       "workload": "Unselected",
       "requiredNegativeCell": "Required-Unexecuted",
-      "applicability": "Blocked",
+      "applicability": "ApplicablePendingSelection",
       "expectedProofState": "Untested",
-      "res009Status": "BlockedPendingExplicitAcceptance",
-      "rationale": "RES-009 ProposedPendingExplicitAcceptance blocks this quota/wallet or transitive workflow-17 cell; no default policy is operative and no proof may be claimed."
+      "res009Status": "AcceptedPendingImplementation",
+      "rationale": "RES-009 is explicitly accepted and materialized; this quota/wallet or transitive workflow-17 cell remains Untested pending implementation and exact proof selection."
     },
     {
       "cellId": "BASELINE-USE-008",
@@ -5411,10 +5411,10 @@
       "path": "Unselected",
       "workload": "Unselected",
       "requiredNegativeCell": "Required-Unexecuted",
-      "applicability": "Blocked",
+      "applicability": "ApplicablePendingSelection",
       "expectedProofState": "Untested",
-      "res009Status": "BlockedPendingExplicitAcceptance",
-      "rationale": "RES-009 ProposedPendingExplicitAcceptance blocks this quota/wallet or transitive workflow-17 cell; no default policy is operative and no proof may be claimed."
+      "res009Status": "AcceptedPendingImplementation",
+      "rationale": "RES-009 is explicitly accepted and materialized; this quota/wallet or transitive workflow-17 cell remains Untested pending implementation and exact proof selection."
     },
     {
       "cellId": "BASELINE-USE-009",
@@ -5444,10 +5444,10 @@
       "path": "Unselected",
       "workload": "Unselected",
       "requiredNegativeCell": "Required-Unexecuted",
-      "applicability": "Blocked",
+      "applicability": "ApplicablePendingSelection",
       "expectedProofState": "Untested",
-      "res009Status": "BlockedPendingExplicitAcceptance",
-      "rationale": "RES-009 ProposedPendingExplicitAcceptance blocks this quota/wallet or transitive workflow-17 cell; no default policy is operative and no proof may be claimed."
+      "res009Status": "AcceptedPendingImplementation",
+      "rationale": "RES-009 is explicitly accepted and materialized; this quota/wallet or transitive workflow-17 cell remains Untested pending implementation and exact proof selection."
     },
     {
       "cellId": "BASELINE-USE-010",
@@ -5477,10 +5477,10 @@
       "path": "Unselected",
       "workload": "Unselected",
       "requiredNegativeCell": "Required-Unexecuted",
-      "applicability": "Blocked",
+      "applicability": "ApplicablePendingSelection",
       "expectedProofState": "Untested",
-      "res009Status": "BlockedPendingExplicitAcceptance",
-      "rationale": "RES-009 ProposedPendingExplicitAcceptance blocks this quota/wallet or transitive workflow-17 cell; no default policy is operative and no proof may be claimed."
+      "res009Status": "AcceptedPendingImplementation",
+      "rationale": "RES-009 is explicitly accepted and materialized; this quota/wallet or transitive workflow-17 cell remains Untested pending implementation and exact proof selection."
     },
     {
       "cellId": "BASELINE-USE-011",
@@ -5510,10 +5510,10 @@
       "path": "Unselected",
       "workload": "Unselected",
       "requiredNegativeCell": "Required-Unexecuted",
-      "applicability": "Blocked",
+      "applicability": "ApplicablePendingSelection",
       "expectedProofState": "Untested",
-      "res009Status": "BlockedPendingExplicitAcceptance",
-      "rationale": "RES-009 ProposedPendingExplicitAcceptance blocks this quota/wallet or transitive workflow-17 cell; no default policy is operative and no proof may be claimed."
+      "res009Status": "AcceptedPendingImplementation",
+      "rationale": "RES-009 is explicitly accepted and materialized; this quota/wallet or transitive workflow-17 cell remains Untested pending implementation and exact proof selection."
     },
     {
       "cellId": "BASELINE-USE-012",
@@ -5543,10 +5543,10 @@
       "path": "Unselected",
       "workload": "Unselected",
       "requiredNegativeCell": "Required-Unexecuted",
-      "applicability": "Blocked",
+      "applicability": "ApplicablePendingSelection",
       "expectedProofState": "Untested",
-      "res009Status": "BlockedPendingExplicitAcceptance",
-      "rationale": "RES-009 ProposedPendingExplicitAcceptance blocks this quota/wallet or transitive workflow-17 cell; no default policy is operative and no proof may be claimed."
+      "res009Status": "AcceptedPendingImplementation",
+      "rationale": "RES-009 is explicitly accepted and materialized; this quota/wallet or transitive workflow-17 cell remains Untested pending implementation and exact proof selection."
     },
     {
       "cellId": "BASELINE-USE-013",
@@ -5576,10 +5576,10 @@
       "path": "Unselected",
       "workload": "Unselected",
       "requiredNegativeCell": "Required-Unexecuted",
-      "applicability": "Blocked",
+      "applicability": "ApplicablePendingSelection",
       "expectedProofState": "Untested",
-      "res009Status": "BlockedPendingExplicitAcceptance",
-      "rationale": "RES-009 ProposedPendingExplicitAcceptance blocks this quota/wallet or transitive workflow-17 cell; no default policy is operative and no proof may be claimed."
+      "res009Status": "AcceptedPendingImplementation",
+      "rationale": "RES-009 is explicitly accepted and materialized; this quota/wallet or transitive workflow-17 cell remains Untested pending implementation and exact proof selection."
     },
     {
       "cellId": "BASELINE-USE-014",
@@ -5609,10 +5609,10 @@
       "path": "Unselected",
       "workload": "Unselected",
       "requiredNegativeCell": "Required-Unexecuted",
-      "applicability": "Blocked",
+      "applicability": "ApplicablePendingSelection",
       "expectedProofState": "Untested",
-      "res009Status": "BlockedPendingExplicitAcceptance",
-      "rationale": "RES-009 ProposedPendingExplicitAcceptance blocks this quota/wallet or transitive workflow-17 cell; no default policy is operative and no proof may be claimed."
+      "res009Status": "AcceptedPendingImplementation",
+      "rationale": "RES-009 is explicitly accepted and materialized; this quota/wallet or transitive workflow-17 cell remains Untested pending implementation and exact proof selection."
     },
     {
       "cellId": "BASELINE-USE-015",
@@ -5642,10 +5642,10 @@
       "path": "Unselected",
       "workload": "Unselected",
       "requiredNegativeCell": "Required-Unexecuted",
-      "applicability": "Blocked",
+      "applicability": "ApplicablePendingSelection",
       "expectedProofState": "Untested",
-      "res009Status": "BlockedPendingExplicitAcceptance",
-      "rationale": "RES-009 ProposedPendingExplicitAcceptance blocks this quota/wallet or transitive workflow-17 cell; no default policy is operative and no proof may be claimed."
+      "res009Status": "AcceptedPendingImplementation",
+      "rationale": "RES-009 is explicitly accepted and materialized; this quota/wallet or transitive workflow-17 cell remains Untested pending implementation and exact proof selection."
     },
     {
       "cellId": "BASELINE-VAL-001",

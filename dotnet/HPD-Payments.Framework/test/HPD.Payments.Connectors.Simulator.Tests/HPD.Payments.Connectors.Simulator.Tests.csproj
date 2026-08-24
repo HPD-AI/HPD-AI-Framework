@@ -1,4 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><IsTestProject>false</IsTestProject><OutputType>Exe</OutputType><NoWarn>$(NoWarn);CA1515</NoWarn></PropertyGroup>
-  <ItemGroup><ProjectReference Include="../../src/HPD.Payments.Connectors.Simulator/HPD.Payments.Connectors.Simulator.csproj" /></ItemGroup>
+  <ItemGroup><ProjectReference Include="../../src/HPD.Payments.Connectors.Simulator/HPD.Payments.Connectors.Simulator.csproj" /><Compile Include="../ReleaseCellBinding.cs" Link="ReleaseCellBinding.cs" /></ItemGroup>
 </Project>

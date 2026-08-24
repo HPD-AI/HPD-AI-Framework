@@ -1,0 +1,155 @@
+{
+  "schemaVersion": 1,
+  "policyId": "res-009.wallet-quota",
+  "policyRevision": "1.0.0-proposed",
+  "status": "ProposedPendingExplicitAcceptance",
+  "effectiveFrom": null,
+  "semanticOwners": {
+    "quotaCapacity": "Held Position",
+    "quotaConsumptionFact": "named action or Measured Fact owner",
+    "walletCapacity": "Held Position",
+    "walletMovement": "Value Movement",
+    "walletLotConsumption": "supporting relation"
+  },
+  "separationLaw": "Quota and wallet are distinct typed families. Neither is a scalar balance or a universal Held Position algebra.",
+  "quota": {
+    "schemaVersion": 1,
+    "unitLaw": "A policy binds one bounded featureCode and one indivisible unitCode; quantities are non-negative checked int64 quanta. Currency codes are forbidden.",
+    "identity": ["tenantId", "environmentId", "subjectId", "featureCode", "windowId", "unitCode", "policyRevision", "capacityGeneration"],
+    "variants": [
+      {
+        "id": "quota.fixed-window.strict.v1",
+        "window": {"kind": "FixedUtc", "anchor": "UnixEpoch", "duration": "policy-defined positive whole seconds", "identity": "[startInclusive,endExclusive) plus policyRevision"},
+        "rollover": "None",
+        "reset": "Append WindowOpened for the successor window; never mutate or erase the predecessor",
+        "admissionPoint": "ReserveThenConsume",
+        "reservationOrder": "Compare-bind exact capacityGeneration; append reservation before returning Accepted",
+        "consumeOrder": "Consume exactly one active reservation with the same semantic operation identity",
+        "releaseOrder": "Release only an active reservation after non-occurrence is proven or the caller explicitly abandons before any possible external effect",
+        "contention": "Serializable compare-bind per subject/feature/window/unit/policy generation; insufficient remainder admits at most one contender",
+        "failMode": "FailClosed",
+        "uncertainty": "Return Indeterminate with durable residue; retain the exact reservation",
+        "correction": "Append typed CapacityAdjustment or Restitution in the original window; a closed-window adjustment never rewrites history and never silently carries forward",
+        "overage": "Rejected"
+      },
+      {
+        "id": "quota.fixed-window-carry-forward.strict.v1",
+        "window": {"kind": "FixedUtc", "anchor": "UnixEpoch", "duration": "policy-defined positive whole seconds", "identity": "[startInclusive,endExclusive) plus policyRevision"},
+        "rollover": "At successor WindowOpened, append a non-negative CarryForward adjustment capped by carryForwardCap; source-window remainder and target adjustment are lineage-linked",
+        "reset": "Successor generation only",
+        "admissionPoint": "ReserveThenConsume",
+        "reservationOrder": "Compare-bind exact capacityGeneration",
+        "consumeOrder": "Consume named active reservation",
+        "releaseOrder": "Non-occurrence or pre-effect abandonment only",
+        "contention": "Serializable compare-bind",
+        "failMode": "FailClosed",
+        "uncertainty": "Indeterminate with retained reservation and residue",
+        "correction": "Append source correction; if carry-forward was already derived, append a lineage-linked successor correction in the target window",
+        "overage": "Rejected"
+      },
+      {
+        "id": "quota.rolling-window.strict.v1",
+        "window": {"kind": "Rolling", "duration": "policy-defined positive whole seconds", "bucketSize": "policy-defined divisor of duration", "identity": "evaluationInstant plus ordered contributing bucket generations"},
+        "rollover": "NotApplicable",
+        "reset": "Capacity expires only as contributing buckets leave the window; expiration is appended",
+        "admissionPoint": "ReserveThenConsume",
+        "reservationOrder": "Compare-bind the complete contributing-bucket generation vector",
+        "consumeOrder": "Consume named active reservation",
+        "releaseOrder": "Non-occurrence or pre-effect abandonment only",
+        "contention": "Serializable compare-bind over subject/feature/unit and contributing buckets",
+        "failMode": "FailClosed",
+        "uncertainty": "Indeterminate with retained reservation and residue",
+        "correction": "Append to the original event bucket; recompute later projections without rewriting prior decisions",
+        "overage": "Rejected"
+      }
+    ],
+    "profileDefaults": {
+      "embedded": "quota.fixed-window.strict.v1",
+      "distributed": "quota.fixed-window.strict.v1"
+    }
+  },
+  "wallet": {
+    "schemaVersion": 1,
+    "quantityLaw": "A wallet and every lot bind exactly one unit kind. Monetary wallets bind one ISO-4217 currency and integer minor-unit exponent; non-monetary wallets bind one bounded unitCode and forbid currency. Cross-unit or cross-currency arithmetic is rejected.",
+    "identity": ["tenantId", "environmentId", "customerId", "walletId", "unitKind", "unitCodeOrCurrency", "policyRevision", "walletGeneration", "lotId", "lotGeneration"],
+    "eligibilityOrder": ["target and restriction eligibility", "not expired at reservation effective time", "variant ordering", "lotId ordinal tie-break"],
+    "variants": [
+      {
+        "id": "wallet.expiry-first-origin-oldest.v1",
+        "lotOrdering": ["earliest expiry; no-expiry sorts last", "oldest origin effective time", "lotId ordinal"],
+        "expiry": "Reservation pins eligibility. A reservation accepted before expiry is grandfathered through its bounded reservation deadline; unused remainder expires by appended LotExpired after the deadline.",
+        "partialConsumption": "Allowed; plan contains deterministic positive source slices whose sum equals requested quantity and preserves remainder per lot",
+        "correction": "Append a typed correction referencing the consumption and exact source slices; never edit or negate the original",
+        "recredit": "Append new origin-linked lots, one per corrected source provenance class, preserving paid/promotional, target, restriction and unit attributes; recredit time is new origin time and expiry is recalculated by explicit reason policy",
+        "transfer": "Append paired source consumption and destination origin lots with one transferId; same unit/currency only; both endpoint guards required or durable prepare/fence with Indeterminate residue",
+        "residue": "Ineligible/expired/unknown lots, insufficient eligible quantity, partial transfer, and uncertain external effect remain explicit; no scalar remainder hides them"
+      },
+      {
+        "id": "wallet.origin-oldest-expiry-tiebreak.v1",
+        "lotOrdering": ["oldest origin effective time", "earliest expiry; no-expiry sorts last", "lotId ordinal"],
+        "expiry": "Accepted reservation is grandfathered through its bounded deadline; otherwise expired lots are ineligible and LotExpired is appended",
+        "partialConsumption": "Allowed with deterministic source slices",
+        "correction": "Append typed source-slice correction",
+        "recredit": "Append provenance-preserving origin-linked lots",
+        "transfer": "Same-unit paired endpoint protocol only",
+        "residue": "Explicit per lot and endpoint"
+      },
+      {
+        "id": "wallet.expiry-first-force-replan.v1",
+        "lotOrdering": ["earliest expiry; no-expiry sorts last", "oldest origin effective time", "lotId ordinal"],
+        "expiry": "Any source lot crossing expiry before consumption invalidates the whole plan with ReplanRequired; append expiries, release only proven-unused reservations, and compute a new plan",
+        "partialConsumption": "Allowed only within one admitted plan; no partial admission after a stale plan is detected",
+        "correction": "Append typed source-slice correction",
+        "recredit": "Append provenance-preserving origin-linked lots",
+        "transfer": "Same-unit paired endpoint protocol only",
+        "residue": "Uncertain possible-send reservations remain held; stale plan is visible"
+      }
+    ],
+    "profileDefaults": {
+      "embedded": "wallet.expiry-first-origin-oldest.v1",
+      "distributed": "wallet.expiry-first-origin-oldest.v1"
+    }
+  },
+  "invalidCombinations": [
+    {"id": "INV-001", "rule": "quota unit is currency", "outcome": "Rejected"},
+    {"id": "INV-002", "rule": "wallet monetary lots have different currency or minor-unit exponent", "outcome": "Rejected"},
+    {"id": "INV-003", "rule": "wallet non-monetary lots have different unitCode", "outcome": "Rejected"},
+    {"id": "INV-004", "rule": "quota rollover is enabled for rolling windows", "outcome": "Rejected"},
+    {"id": "INV-005", "rule": "fail-open quota admission or projection/alert used as consumption", "outcome": "Unsupported"},
+    {"id": "INV-006", "rule": "wallet policy mixes grandfather and force-replan expiry within one reservation", "outcome": "Rejected"},
+    {"id": "INV-007", "rule": "wallet transfer changes unit/currency or omits either endpoint guard", "outcome": "RejectedOrIndeterminate"},
+    {"id": "INV-008", "rule": "unknown policy revision or discriminator is defaulted", "outcome": "UnsupportedOrIndeterminateAndQuarantine"},
+    {"id": "INV-009", "rule": "negative quantity, unchecked overflow, saturation, or lossy conversion", "outcome": "RejectedBeforeAppend"},
+    {"id": "INV-010", "rule": "quota and wallet share one balance, reservation, correction, or persistence discriminator", "outcome": "Forbidden"}
+  ],
+  "migration": {
+    "readerRule": "Readers accept only an explicitly declared compatible schema and policy revision range; unknown variants are preserved and quarantined.",
+    "representationEquivalent": "Requires golden byte/canonical-vector evidence and retains original bytes and digest.",
+    "semanticChange": "Creates a successor policy revision and generation with typed lineage; existing reservations and facts remain governed by their pinned revision.",
+    "inFlight": "Never reinterpret. Complete under the pinned revision, or append a governed replan/replacement that references the original and retains residue.",
+    "legacyWalletBalance": "Import only as explicit opening lots with known provenance; irreconstructible composition becomes bounded migration residue and cannot be claimed as lots.",
+    "legacyQuota": "Import an explicit opening window/capacity generation and source evidence; ambiguous window consumption remains residue."
+  },
+  "canonicalTestVectors": [
+    {"id": "Q-001", "policy": "quota.fixed-window.strict.v1", "given": {"capacity": 10, "consumed": 7, "activeReservations": 0, "requests": [3, 3]}, "expect": {"acceptedCount": 1, "rejectedCount": 1, "remaining": 0}},
+    {"id": "Q-002", "policy": "quota.fixed-window.strict.v1", "given": {"capacity": 10, "reservation": 4, "outcome": "Indeterminate"}, "expect": {"reservationRetained": 4, "available": 6, "residue": true}},
+    {"id": "Q-003", "policy": "quota.fixed-window.strict.v1", "given": {"previousWindowRemaining": 4, "nextWindowCapacity": 10}, "expect": {"nextWindowEffectiveCapacity": 10, "carryForward": 0}},
+    {"id": "Q-004", "policy": "quota.fixed-window-carry-forward.strict.v1", "given": {"previousWindowRemaining": 7, "carryForwardCap": 5, "nextWindowCapacity": 10}, "expect": {"carryForward": 5, "nextWindowEffectiveCapacity": 15, "lineageRequired": true}},
+    {"id": "Q-005", "policy": "quota.rolling-window.strict.v1", "given": {"capacity": 10, "contributingConsumption": 8, "request": 3}, "expect": {"outcome": "Rejected", "remaining": 2}},
+    {"id": "Q-006", "policy": "quota.fixed-window.strict.v1", "given": {"entitlementEvidence": "stale", "request": 1}, "expect": {"outcome": "StalePolicyOrRejected", "admitted": 0}},
+    {"id": "W-001", "policy": "wallet.expiry-first-origin-oldest.v1", "given": {"lots": [{"id": "A", "remaining": 5, "expiry": "2026-09-01"}, {"id": "B", "remaining": 8, "expiry": "2026-08-20"}], "consume": 10}, "expect": {"slices": [{"lot": "B", "quantity": 8}, {"lot": "A", "quantity": 2}], "remainders": {"A": 3, "B": 0}}},
+    {"id": "W-002", "policy": "wallet.expiry-first-origin-oldest.v1", "given": {"reservationBeforeExpiry": 4, "consumeBeforeReservationDeadline": 4, "expiryCrossed": true}, "expect": {"grandfatheredConsumption": 4}},
+    {"id": "W-003", "policy": "wallet.expiry-first-force-replan.v1", "given": {"planned": 5, "sourceExpiredBeforeConsume": true}, "expect": {"outcome": "ReplanRequired", "consumed": 0}},
+    {"id": "W-004", "policy": "wallet.expiry-first-origin-oldest.v1", "given": {"consumptionSlices": [{"lot": "paid-A", "quantity": 3}, {"lot": "promo-B", "quantity": 2}], "correction": 5}, "expect": {"newLots": [{"origin": "paid-A", "quantity": 3}, {"origin": "promo-B", "quantity": 2}], "originalUnchanged": true}},
+    {"id": "W-005", "policy": "wallet.expiry-first-origin-oldest.v1", "given": {"sourceCurrency": "USD", "destinationCurrency": "EUR", "quantity": 5}, "expect": {"outcome": "Rejected", "movementFacts": 0}},
+    {"id": "W-006", "policy": "wallet.expiry-first-origin-oldest.v1", "given": {"transfer": 5, "sourcePrepared": true, "destinationUnknown": true}, "expect": {"outcome": "Indeterminate", "sourceReusable": false, "residue": true}}
+  ],
+  "acceptance": {
+    "required": true,
+    "acceptedBy": null,
+    "acceptedAtUtc": null,
+    "proposalJsonSha256": null,
+    "rationaleMarkdownSha256": null,
+    "note": "Acceptance is external to this self-digesting file and must record exact artifact digests."
+  }
+}

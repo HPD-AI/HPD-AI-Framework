@@ -3,6 +3,9 @@ using System.Text;
 using HPD.Payments.Connectors.Stripe;
 using HPD.Payments.Primitives.Identity;
 using HPD.Payments.Runtime.ExternalEffects;
+using HPD.Payments.Contracts.CapabilityEvidence;
+using HPD.Payments.Contracts.ExternalEffect;
+using HPD.Payments.Primitives.Time;
 
 var failures = new List<string>();
 void Check(bool value, string message) { if (!value) failures.Add(message); }
@@ -59,6 +62,37 @@ var quarantined = settlementResult.Adjudicator.Admit(StripeEvidenceMapper.MapOcc
     ProviderEvidenceChannel.Poll, "pi-123", "succeeded", evidence.PayloadDigest, 13, now.AddSeconds(3), false, true));
 Check(quarantined.Disposition == EvidenceClaimDisposition.Quarantined,
     "unauthenticated poll evidence was admitted");
+
+var capabilityScope = ScopeId.Create("tenant", "construction", "stripe-probe");
+var account = SemanticId.Create(capabilityScope, "connector", "account", "unselected", "stripe", "test");
+var capabilityContext = new CapabilityContext(account, "capture", "2024-01-01", Revision.Create("code", 1),
+    configuration, credential, "static", "osx-arm64");
+SemanticId CapabilityId(string local) => SemanticId.Create(capabilityScope, "connector", "capability-evidence", local);
+var verified = NamedTime.Create(TimeKind.Verify, now);
+var validUntil = NamedTime.Create(TimeKind.Expiry, now.AddHours(1));
+var unsupported = new CapabilityEvidenceFact(CapabilityId("unsupported"), capabilityContext, CapabilityDisposition.Negative,
+    "tuple-not-selected", verified, validUntil, capture1.RequestDigest);
+Check(!unsupported.EstablishesSupport(now), "unselected Stripe tuple established support");
+foreach (CapabilityDisposition disposition in new[] { CapabilityDisposition.Conditional, CapabilityDisposition.Expired,
+    CapabilityDisposition.Withdrawn, CapabilityDisposition.Conflicted })
+{
+    SemanticId? predecessor = disposition is CapabilityDisposition.Expired or CapabilityDisposition.Withdrawn or CapabilityDisposition.Conflicted
+        ? unsupported.EvidenceId : null;
+    var fact = new CapabilityEvidenceFact(CapabilityId($"disposition-{(int)disposition}"), capabilityContext, disposition,
+        "nonpositive-probe", verified, validUntil, rotated.RequestDigest, predecessor);
+    Check(!fact.EstablishesSupport(now), $"{disposition} Stripe evidence established support");
+}
+Check(StripeRetryPolicy.Evaluate(capture1, ExternalEffectState.PossibleDispatch, credential, configuration, api,
+    idempotencyRetentionProven: false, accountFailoverRequested: false) == StripeRetryDisposition.SynchronizeRequired,
+    "unsafe Stripe retry was admitted");
+Check(StripeRetryPolicy.Evaluate(capture1, ExternalEffectState.PossibleDispatch, credential, configuration, api,
+    idempotencyRetentionProven: true, accountFailoverRequested: false) == StripeRetryDisposition.SafeSameIdentity,
+    "proven same-identity Stripe retry was rejected");
+Check(StripeRetryPolicy.Evaluate(capture1, ExternalEffectState.NotDispatched, credential, configuration, api,
+    idempotencyRetentionProven: false, accountFailoverRequested: true) == StripeRetryDisposition.SynchronizeRequired,
+    "side-effecting Stripe account failover was admitted");
+Check(StripeRetryPolicy.Evaluate(capture1, ExternalEffectState.NotDispatched, Revision.Create("credential", 2),
+    configuration, api, false, false) == StripeRetryDisposition.RejectStale, "stale Stripe credential was admitted");
 
 if (failures.Count != 0) { foreach (var failure in failures) await Console.Error.WriteLineAsync(failure).ConfigureAwait(false); return 1; }
 var message = "PASS Stripe probe: deterministic requests, revision pins, signature-before-parse, poll precedence, settlement separation";

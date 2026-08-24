@@ -48,6 +48,13 @@ var processCrash = await ExchangeWithChildAsync(
 Check(processCrash.State == OutOfProcessTransportState.PossibleDispatch && processCrash.Response is null &&
     processCrash.Code == "child-exited-after-request-read",
     "child crash after completed IPC write was flattened into definite-not-sent or completion");
+var productionScope = ScopeId.Create("hpd-payments", "outproc", "loopback-v1");
+var productionRequest = OutOfProcessProtocol.Create(version, OutOfProcessFrameKind.Request,
+    SemanticId.Create(productionScope, "extensions", "request", "production-one"), 5, [10, 11], key);
+var productionResult = await ExchangeWithProductionHostAsync(productionRequest, key).ConfigureAwait(false);
+Check(productionResult.State == OutOfProcessTransportState.ResponseReceived &&
+    productionResult.Response is { } productionFrame && OutOfProcessProtocol.Authenticate(productionFrame, key) &&
+    productionFrame.CopyPayload().SequenceEqual(new byte[] { 10, 11 }), "production stdio host exchange failed");
 
 if (failures.Count != 0) { foreach (var failure in failures) await Console.Error.WriteLineAsync(failure).ConfigureAwait(false); return 1; }
 var message = "PASS outproc host: auth/version/replay, real stdio process exchange, crash-after-read possible dispatch";
@@ -119,6 +126,41 @@ static async Task<OutOfProcessTransportResult> ExchangeWithChildAsync(OutOfProce
     return process.ExitCode == 0
         ? new(OutOfProcessTransportState.ResponseReceived, response, "response")
         : new(OutOfProcessTransportState.PossibleDispatch, null, "child-exit-nonzero");
+}
+
+static async Task<OutOfProcessTransportResult> ExchangeWithProductionHostAsync(OutOfProcessFrame request, byte[] key)
+{
+    string? nativeHost = Environment.GetEnvironmentVariable("HPD_PAYMENTS_PRODUCTION_HOST_PATH");
+    string hostAssembly = Path.Combine(AppContext.BaseDirectory, "HPD.Payments.Extensions.OutOfProcess.Host.dll");
+    var start = new ProcessStartInfo(nativeHost ?? "/usr/local/share/dotnet/dotnet")
+    {
+        RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
+        UseShellExecute = false, CreateNoWindow = true,
+    };
+    if (nativeHost is null) start.ArgumentList.Add(hostAssembly);
+    start.ArgumentList.Add("--stdio-loopback");
+    start.Environment["HPD_PAYMENTS_OUTPROC_KEY_HEX"] = Convert.ToHexString(key);
+    using Process process = Process.Start(start) ?? throw new InvalidOperationException("Production host did not start.");
+    byte[] wire = OutOfProcessProtocol.Encode(request);
+    var lengthBytes = new byte[4]; BinaryPrimitives.WriteInt32BigEndian(lengthBytes, wire.Length);
+    await process.StandardInput.BaseStream.WriteAsync(lengthBytes).ConfigureAwait(false);
+    await process.StandardInput.BaseStream.WriteAsync(wire).ConfigureAwait(false);
+    await process.StandardInput.BaseStream.FlushAsync().ConfigureAwait(false);
+    process.StandardInput.Close();
+    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+    if (!await ReadExactAsync(process.StandardOutput.BaseStream, lengthBytes).ConfigureAwait(false))
+        return new(OutOfProcessTransportState.PossibleDispatch, null, "production-response-missing");
+    int responseLength = BinaryPrimitives.ReadInt32BigEndian(lengthBytes);
+    if (responseLength is < 1 or > OutOfProcessFrame.MaximumPayloadBytes + 4096)
+        return new(OutOfProcessTransportState.PossibleDispatch, null, "production-response-over-bound");
+    var responseWire = new byte[responseLength];
+    if (!await ReadExactAsync(process.StandardOutput.BaseStream, responseWire).ConfigureAwait(false) ||
+        !OutOfProcessProtocol.TryDecode(responseWire, out OutOfProcessFrame? response) || response is null)
+        return new(OutOfProcessTransportState.PossibleDispatch, null, "production-response-invalid");
+    await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
+    return process.ExitCode == 0
+        ? new(OutOfProcessTransportState.ResponseReceived, response, "response")
+        : new(OutOfProcessTransportState.PossibleDispatch, null, "production-exit-nonzero");
 }
 
 static async Task<bool> ReadExactAsync(Stream stream, Memory<byte> destination)

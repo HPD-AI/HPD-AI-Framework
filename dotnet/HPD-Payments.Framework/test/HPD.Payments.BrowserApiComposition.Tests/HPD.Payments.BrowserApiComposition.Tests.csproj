@@ -1,1 +1,11 @@
-<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><IsTestProject>false</IsTestProject></PropertyGroup><ItemGroup><ProjectReference Include="../../src/HPD.Payments.Host.Api/HPD.Payments.Host.Api.csproj" /></ItemGroup></Project>
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsTestProject>false</IsTestProject>
+    <NoWarn>$(NoWarn);CA1303</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/HPD.Payments.Host.Api/HPD.Payments.Host.Api.csproj" />
+    <ProjectReference Include="../../src/HPD.Payments.Worker/HPD.Payments.Worker.csproj" />
+  </ItemGroup>
+</Project>

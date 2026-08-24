@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><IsTestProject>false</IsTestProject><OutputType>Exe</OutputType><NoWarn>$(NoWarn);CA2007;CA1303</NoWarn><RuntimeIdentifier>osx-arm64</RuntimeIdentifier></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../src/HPD.Payments.Adapters.Sqlite/HPD.Payments.Adapters.Sqlite.csproj" />
+    <ProjectReference Include="../../../src/HPD.Payments.Runtime/HPD.Payments.Runtime.csproj" />
+    <ProjectReference Include="../../../../HPD-Base.Framework/src/HPD.Base.Testing/HPD.Base.Testing.csproj" />
+    <ProjectReference Include="../../../../HPD-Base.Framework/src/HPD.Base.Sqlite/HPD.Base.Sqlite.csproj" />
+  </ItemGroup>
+</Project>

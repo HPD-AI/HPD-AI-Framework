@@ -2,10 +2,11 @@ using HPD.Payments.Tools.Conformance;
 using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 
+if (!ReleaseCellBinding.ValidateAndExecute("validate-proof")) return 1;
 var failures = new List<string>();
 void Check(bool value, string message) { if (!value) failures.Add(message); }
 const string CanonicalRegistryDigest = "sha256:3c623b0dfbf040f34e30dfdc15a20629ada211e5b9493495fbde5300b2326ca9";
-const string ClaimMatrixDigest = "sha256:cedc98a64435e912c6a8e434d8e76c1e0cce80bcd85a9e28764bc270a8c0bce5";
+const string ClaimMatrixDigest = "sha256:e2ba5f55f9fe10b0ef13f422d15640057d1c4eda0610d1a7ef67a212fe1b1a05";
 var cell = new ProofCellKey("TEST-001", "scoped-identity", "identity-conformance", "OWN-01", "EXT-DET-01",
     "temp", "static", "inmemory-temp", "simulator", "local", "dev", "v1", "graph-1", "osx-arm64",
     "macos", "arm64", "10.0.301", "10.0", "csharp-14", "illink", "true", "happy", "seed-1");
@@ -137,9 +138,17 @@ if (Directory.Exists(sourceSnapshotRoot)) Directory.Delete(sourceSnapshotRoot, r
 Directory.CreateDirectory(Path.Combine(sourceSnapshotRoot, "src"));
 await File.WriteAllTextAsync(Path.Combine(sourceSnapshotRoot, "src", "a.cs"), "sealed class A {}\n").ConfigureAwait(false);
 await File.WriteAllTextAsync(Path.Combine(sourceSnapshotRoot, "src", "b.cs"), "sealed class B {}\n").ConfigureAwait(false);
+await File.WriteAllTextAsync(Path.Combine(sourceSnapshotRoot, "src", "packages.lock.json"), "{}\n").ConfigureAwait(false);
+Directory.CreateDirectory(Path.Combine(sourceSnapshotRoot, "src", "bin", "Debug"));
+Directory.CreateDirectory(Path.Combine(sourceSnapshotRoot, "src", "obj"));
+await File.WriteAllTextAsync(Path.Combine(sourceSnapshotRoot, "src", "bin", "Debug", "generated.dll"), "one").ConfigureAwait(false);
+await File.WriteAllTextAsync(Path.Combine(sourceSnapshotRoot, "src", "obj", "generated.cache"), "one").ConfigureAwait(false);
 var sourceBefore = SourceTreeSnapshotter.Capture(sourceSnapshotRoot, ["src"]);
 var sourceReplay = SourceTreeSnapshotter.Capture(sourceSnapshotRoot, ["src"]);
 SourceTreeSnapshotter.RequireStable(sourceBefore, sourceReplay);
+await File.WriteAllTextAsync(Path.Combine(sourceSnapshotRoot, "src", "bin", "Debug", "generated.dll"), "two").ConfigureAwait(false);
+await File.WriteAllTextAsync(Path.Combine(sourceSnapshotRoot, "src", "obj", "generated.cache"), "two").ConfigureAwait(false);
+SourceTreeSnapshotter.RequireStable(sourceBefore, SourceTreeSnapshotter.Capture(sourceSnapshotRoot, ["src"]));
 var commandManifestBytes = await File.ReadAllBytesAsync("eng/commands/commands.json").ConfigureAwait(false);
 var commandManifest = CommandManifestSnapshot.Load(commandManifestBytes);
 commandManifest.RequireProductRoot(Directory.GetCurrentDirectory());
@@ -170,15 +179,12 @@ var admittedCandidate = Make() with { WholeTreeDigest = sourceBefore.InventoryDi
     AssertionsDigest = passingAssertions.EvidenceDigest };
 _ = ProofRunAdmission.Admit(admittedCandidate, sourceBefore, sourceReplay, admittedLocalCommand, cleanExecution,
     passingAssertions);
-var disabledProofRejected = false;
-try { _ = commandManifest.RequireEnabled("test-conformance-proof"); }
-catch (InvalidOperationException) { disabledProofRejected = true; }
+var admittedProof = commandManifest.RequireEnabled("test-conformance-proof");
 var mismatchedProductRootRejected = false;
 try { commandManifest.RequireProductRoot(sourceSnapshotRoot); }
 catch (InvalidDataException) { mismatchedProductRootRejected = true; }
-Check(commandManifest.Commands.Count == 37 &&
-    commandManifest.ManifestDigest == "sha256:5d4e66ee1c86851c952ac137ab5ddf70447d52ab92e76ee17c8d8ef8ac99e05a" &&
-    disabledProofRejected && mismatchedProductRootRejected && escapedCwdRejected && duplicatePrerequisiteRejected &&
+Check(commandManifest.Revision == 37 && commandManifest.Commands.Count == 73 && admittedProof.Id == "test-conformance-proof" &&
+    mismatchedProductRootRejected && escapedCwdRejected && duplicatePrerequisiteRejected &&
     cyclicPrerequisiteRejected && escapedCleanupRejected,
     "command manifest inventory changed or disabled proof command was admitted");
 await File.AppendAllTextAsync(Path.Combine(sourceSnapshotRoot, "src", "a.cs"), "// changed\n").ConfigureAwait(false);
@@ -186,7 +192,7 @@ var sourceAfter = SourceTreeSnapshotter.Capture(sourceSnapshotRoot, ["src"]);
 var sourceDriftRejected = false;
 try { SourceTreeSnapshotter.RequireStable(sourceBefore, sourceAfter); }
 catch (InvalidDataException) { sourceDriftRejected = true; }
-Check(sourceBefore.FileCount == 2 && sourceBefore.InventoryDigest.StartsWith("sha256:", StringComparison.Ordinal) &&
+Check(sourceBefore.FileCount == 3 && sourceBefore.InventoryDigest.StartsWith("sha256:", StringComparison.Ordinal) &&
     sourceDriftRejected, "source tree snapshot did not reproduce or reject byte drift");
 var driftedRunRejected = false;
 try { _ = ProofRunAdmission.Admit(admittedCandidate, sourceBefore, sourceAfter, admittedLocalCommand, cleanExecution,
@@ -289,9 +295,9 @@ Check(snapshot.Routes.Count == 179 && snapshot.Claims.Count == 179 &&
     snapshot.Routes.Select(static x => x.Prefix).Distinct(StringComparer.Ordinal).Count() == 33 &&
     snapshot.Routes.SelectMany(static x => x.AuthorityOwners).Distinct(StringComparer.Ordinal).Count() == 17 &&
     snapshot.Routes.SelectMany(static x => x.Workflows).Distinct().Count() == 20 &&
-    snapshot.Claims.Count(static x => x.Applicability == "Blocked") == 28 &&
+    snapshot.Claims.Count(static x => x.Res009Status == "AcceptedPendingImplementation") == 28 &&
     snapshot.CanonicalDigest == "sha256:3c623b0dfbf040f34e30dfdc15a20629ada211e5b9493495fbde5300b2326ca9" &&
-    snapshot.ClaimMatrixDigest == "sha256:cedc98a64435e912c6a8e434d8e76c1e0cce80bcd85a9e28764bc270a8c0bce5",
+    snapshot.ClaimMatrixDigest == "sha256:e2ba5f55f9fe10b0ef13f422d15640057d1c4eda0610d1a7ef67a212fe1b1a05",
     "cold-path C# registry snapshot did not reproduce the frozen 179-row baseline");
 var tamperedClaims = System.Text.Encoding.UTF8.GetBytes(System.Text.Encoding.UTF8.GetString(claimMatrixBytes)
     .Replace("ApplicablePendingSelection", "ApplicableTamperedSelection", StringComparison.Ordinal));
@@ -460,11 +466,10 @@ malformedSelection[0] = new(malformedSelection[0].CanonicalId, RouteDispositionK
 var malformedResult = ReleaseSelectionValidator.Validate(snapshot, malformedSelection);
 Check(!malformedResult.InventoryValid && malformedResult.Errors.Contains("non-concrete-selected-cell"),
     "wildcard selected release cell was admitted");
-var promotedBlocked = currentDispositions.ToArray();
-var blockedIndex = Array.FindIndex(promotedBlocked, static x => x.Kind == RouteDispositionKind.Blocked);
-promotedBlocked[blockedIndex] = promotedBlocked[blockedIndex] with { Kind = RouteDispositionKind.Untested };
-Check(ReleaseSelectionValidator.Validate(snapshot, promotedBlocked).Errors.Contains("blocked-route-promoted"),
-    "RES-009 blocked route was promoted by release selection");
+var inventedBlocked = currentDispositions.ToArray();
+inventedBlocked[0] = inventedBlocked[0] with { Kind = RouteDispositionKind.Blocked };
+Check(ReleaseSelectionValidator.Validate(snapshot, inventedBlocked).Errors.Contains("invented-route-block"),
+    "accepted current route was reblocked by release selection");
 var unsupportedWithoutEvidence = currentDispositions.ToArray();
 var unsupportedIndex = Array.FindIndex(unsupportedWithoutEvidence, static x => x.Kind == RouteDispositionKind.Untested);
 unsupportedWithoutEvidence[unsupportedIndex] = unsupportedWithoutEvidence[unsupportedIndex] with

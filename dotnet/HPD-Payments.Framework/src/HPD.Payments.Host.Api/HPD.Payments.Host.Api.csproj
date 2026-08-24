@@ -3,6 +3,9 @@
     <AssemblyName>HPD.Payments.Host.Api</AssemblyName>
     <RootNamespace>HPD.Payments.Host_Api</RootNamespace>
     <OutputType>Exe</OutputType>
+    <NoWarn>$(NoWarn);CA1515;CA1303</NoWarn>
+    <PublishAot>true</PublishAot>
+    <PublishTrimmed>true</PublishTrimmed>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../HPD.Payments.Profiles.Embedded/HPD.Payments.Profiles.Embedded.csproj" />
