@@ -93,7 +93,7 @@ public static class BaseStudioModuleRegistry
 
     private static BaseStudioAssetManifest CreateAsset()
     {
-        const string assetPath = "base/59da5a5de65d8a64968197311adce2cf8591c7bf97de19c6da7c33334299c0ba.js";
+        const string assetPath = "base/53f8e0b4f2056ab2c410d456f4d3d4b3479c94ec2fc45df2f50d0b35f66be94f.js";
         using Stream stream = typeof(BaseStudioModuleRegistry).Assembly.GetManifestResourceStream("HPD.Base.Studio.Assets.base.js")
             ?? throw new InvalidOperationException("The prebuilt BASE Studio module asset is absent.");
         using var content = new MemoryStream();
@@ -128,7 +128,8 @@ public static class BaseStudioModuleRegistry
             : id.StartsWith("base.overview.", StringComparison.Ordinal)
             ? BaseStudioNamedTypeContract.Create("base.studio.overview.value",
                 "{\"kind\":\"object\",\"properties\":[{\"name\":\"applicationId\",\"wireName\":\"applicationId\",\"typeId\":\"base.studio.text\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"},{\"name\":\"contractVersion\",\"wireName\":\"contractVersion\",\"typeId\":\"base.studio.text\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"},{\"name\":\"diagnosticCount\",\"wireName\":\"diagnosticCount\",\"typeId\":\"base.studio.nonnegative-long\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"},{\"name\":\"refreshedAtUtc\",\"wireName\":\"refreshedAtUtc\",\"typeId\":\"base.studio.optional-text\",\"required\":true,\"nullable\":true,\"disclosureShape\":\"none\"},{\"name\":\"runtimeId\",\"wireName\":\"runtimeId\",\"typeId\":\"base.studio.text\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"},{\"name\":\"viewId\",\"wireName\":\"viewId\",\"typeId\":\"base.studio.text\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"}],\"additionalProperties\":false}"u8)
-            : id.StartsWith("base.operations.definitions.", StringComparison.Ordinal)
+            : id.StartsWith("base.operations.definitions.", StringComparison.Ordinal) ||
+              id == "base.semanticActivations.definitions.list"
             ? BaseStudioNamedTypeContract.Create("base.studio.installed-definition.item",
                 "{\"kind\":\"object\",\"properties\":[{\"name\":\"definitionChecksum\",\"wireName\":\"definitionChecksum\",\"typeId\":\"base.studio.sha256\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"},{\"name\":\"id\",\"wireName\":\"id\",\"typeId\":\"base.studio.text\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"},{\"name\":\"kind\",\"wireName\":\"kind\",\"typeId\":\"base.studio.text\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"},{\"name\":\"owningModuleId\",\"wireName\":\"owningModuleId\",\"typeId\":\"base.studio.text\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"},{\"name\":\"version\",\"wireName\":\"version\",\"typeId\":\"base.studio.nonnegative-long\",\"required\":true,\"nullable\":false,\"disclosureShape\":\"none\"}],\"additionalProperties\":false}"u8)
             : id is "base.operations.executions.list" or "base.operations.receipts.list"
@@ -365,8 +366,12 @@ public static class BaseStudioModuleRegistry
                 new("base.operations.definitions.registeredReads.list", BaseStudioResourceKind.RegisteredRead),
                 new("base.operations.definitions.selectionOperations.list", BaseStudioResourceKind.SelectionOperation),
                 new("base.operations.definitions.moduleMutations.list", BaseStudioResourceKind.ModuleMutation),
+                new("base.operations.definitions.semanticActivations.list", BaseStudioResourceKind.Application),
             ];
         }
+
+        if (page.Id == "base.semanticActivations" && section == "definitions")
+            return [new("base.semanticActivations.definitions.list", BaseStudioResourceKind.Application)];
 
         BaseStudioResourceKind resource = (page.Id, section) switch
         {
@@ -547,6 +552,7 @@ public static class BaseStudioModuleRegistry
         P("base.operation.execution", BaseStudioArea.Operations, "operations/executions/:resource", BaseStudioPageKind.Timeline, false, BaseStudioResourceKind.OperationExecution, "outcome", "facts", "result", "decisions", "accounting", "timeline"),
         P("base.receipt.detail", BaseStudioArea.Operations, "operations/receipts/:resource", BaseStudioPageKind.Timeline, false, BaseStudioResourceKind.Receipt, "outcome", "facts", "result", "disclosure", "accounting", "timeline"),
         P("base.automation", BaseStudioArea.Automations, "automations", BaseStudioPageKind.Overview, true, BaseStudioResourceKind.Activation, "attention", "activations", "schedules", "effects", "executors", "quarantine"),
+        P("base.semanticActivations", BaseStudioArea.Automations, "automations/semantic-activations", BaseStudioPageKind.ResourceList, false, BaseStudioResourceKind.Application, "definitions"),
         P("base.activation.detail", BaseStudioArea.Automations, "automations/activations/:resource", BaseStudioPageKind.Timeline, false, BaseStudioResourceKind.Activation, "summary", "inputResult", "occurrence", "attempts", "claim", "children", "effect", "receipts", "timeline", "evidence"),
         P("base.schedule.detail", BaseStudioArea.Automations, "automations/schedules/:resource", BaseStudioPageKind.ResourceDetail, false, BaseStudioResourceKind.Schedule, "summary", "recurrence", "timeAuthority", "misfireOverlap", "occurrences", "work", "history", "dependencies"),
         P("base.occurrence.detail", BaseStudioArea.Automations, "automations/occurrences/:resource", BaseStudioPageKind.Timeline, false, BaseStudioResourceKind.Occurrence, "summary", "disposition", "activation", "timeline", "evidence"),

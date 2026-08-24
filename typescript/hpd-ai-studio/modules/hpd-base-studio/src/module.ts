@@ -52,6 +52,7 @@ const pageIds = [
   'base.search',
   'base.search.query',
   'base.security',
+  'base.semanticActivations',
   'base.store.detail',
   'base.subject.detail',
   'base.subjectContract.detail',

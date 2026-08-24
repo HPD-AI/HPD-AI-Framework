@@ -187,13 +187,14 @@ public sealed class BaseStudioModuleRegistryTests
 
         Assert.Equal("base", module.Identity.ModuleId);
         Assert.Equal(BaseStudioModuleClass.Base, module.ModuleClass);
-        Assert.Equal(43, module.Pages.Length);
+        Assert.Equal(44, module.Pages.Length);
         Assert.Equal(9, module.Pages.Count(static page => page.Presentation.NavigationRole == BaseStudioNavigationRole.AreaLanding));
         Assert.True(module.Resources.Length >= 30);
         Assert.Equal(3, module.Commands.Length);
         Assert.Equal(module.Pages.Sum(static page => page.Presentation.Sections.Sum(static section => section.ViewIds.Length)), module.Views.Length);
         Assert.True(module.Links.Length >= 25);
         Assert.Contains(module.Pages, static page => page.PageId == "base.automation");
+        Assert.Contains(module.Pages, static page => page.PageId == "base.semanticActivations");
         Assert.Contains(module.Pages, static page => page.PageId == "base.subjects");
         Assert.Contains(module.Pages, static page => page.PageId == "base.search");
         Assert.Contains(module.Resources, static resource => resource.Kind == BaseStudioResourceKind.RetirementBarrier);
@@ -321,10 +322,10 @@ public sealed class BaseStudioModuleRegistryTests
         using var bytes = new MemoryStream();
         stream.CopyTo(bytes);
 
-        Assert.Equal("base/59da5a5de65d8a64968197311adce2cf8591c7bf97de19c6da7c33334299c0ba.js", asset.Path);
+        Assert.Equal("base/53f8e0b4f2056ab2c410d456f4d3d4b3479c94ec2fc45df2f50d0b35f66be94f.js", asset.Path);
         Assert.Equal(bytes.Length, asset.Length);
         Assert.Equal(asset.Digest.ToArray(), SHA256.HashData(bytes.GetBuffer().AsSpan(0, checked((int)bytes.Length))));
-        Assert.Equal("216bb4b2d9f604c9e22c8995c4e0f7e4de1dccab50534c3988b47c38fbd6e4c9",
+        Assert.Equal("d6fc224d5225b56bef0f1aaf4a9e1e2b68cf0ede72093d0bfb853797935af544",
             Convert.ToHexString(module.Frontend.FrontendAbiChecksum.ToArray()).ToLowerInvariant());
         Assert.Equal(module.Pages.Select(static page => page.PageId),
             module.Frontend.Components.Select(static component => component.PageId));
@@ -451,11 +452,12 @@ public sealed class BaseStudioModuleRegistryTests
         BaseStudioApplicationGraph graph = provider.GetRequiredService<BaseStudioApplicationGraphProvider>().GetRequiredGraph();
         BaseStudioModuleRegistration module = Assert.Single(graph.Modules);
         BaseStudioModuleRuntimeContribution runtime = Assert.Single(provider.GetRequiredService<BaseStudioRuntimeCatalog>().Contributions);
-        Assert.Equal(6, module.Pages.Count(static page => page.Area == BaseStudioArea.Automations));
+        Assert.Equal(7, module.Pages.Count(static page => page.Area == BaseStudioArea.Automations));
         Assert.DoesNotContain(module.Views, static view => view.ItemNodeId == "base.studio.automation-fact.item");
         Assert.Contains(runtime.Methods, static method => method.RegisteredMethodId == "base.studio.view.base.automation.activations.list");
         Assert.Contains(runtime.Methods, static method => method.RegisteredMethodId == "base.studio.view.base.activation.detail.summary.detail");
         Assert.Contains(runtime.Methods, static method => method.RegisteredMethodId == "base.studio.resolve.activation");
+        Assert.Contains(runtime.Methods, static method => method.RegisteredMethodId == "base.studio.view.base.semanticActivations.definitions.list");
         Assert.All(module.Views.Where(static view => view.ViewId.StartsWith("base.automation", StringComparison.Ordinal) ||
             view.ViewId.StartsWith("base.activation.detail", StringComparison.Ordinal)), static view => Assert.EndsWith(".item", view.ItemNodeId));
     }

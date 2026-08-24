@@ -46,8 +46,12 @@ internal sealed partial class BaseStudioRuntimeContributionFactory
             ("base.operations.definitions.registeredReads.list", HPDBaseStudioDefinitionKind.RegisteredRead),
             ("base.operations.definitions.selectionOperations.list", HPDBaseStudioDefinitionKind.SelectionMutation),
             ("base.operations.definitions.moduleMutations.list", HPDBaseStudioDefinitionKind.ModuleMutation),
+            ("base.operations.definitions.semanticActivations.list", HPDBaseStudioDefinitionKind.SemanticActivation),
+            ("base.semanticActivations.definitions.list", HPDBaseStudioDefinitionKind.SemanticActivation),
         }) AddView(viewId, definitionRequest, definitionCurrent,
-            new InstalledDefinitionProducer(_principals, _authorization, module.Pages.Single(static x => x.PageId == "base.operations").Grants, _baseAuthority, kind));
+            new InstalledDefinitionProducer(_principals, _authorization,
+                module.Pages.Single(x => x.PageId == (viewId.StartsWith("base.semanticActivations.", StringComparison.Ordinal)
+                    ? "base.semanticActivations" : "base.operations")).Grants, _baseAuthority, kind));
         AddView("base.operations.executions.list", executionRequest, executionCurrent,
             new AtomicExecutionProducer(_principals, _authorization, module.Pages.Single(static x => x.PageId == "base.operations").Grants, _control));
         AddView("base.operations.receipts.list", executionRequest, executionCurrent,
@@ -72,7 +76,8 @@ internal sealed partial class BaseStudioRuntimeContributionFactory
             string endpointId = "base.studio.view.page." + viewId;
             string methodId = "base.studio.view." + viewId;
             endpoints.Add(Endpoint(endpointId, "/base/studio/views/" + viewId, request, result));
-            methods.Add(BaseStudioMethodBinding.Create(methodId, BaseStudioMethodKind.Page, "base", "base.operations",
+            methods.Add(BaseStudioMethodBinding.Create(methodId, BaseStudioMethodKind.Page, "base",
+                viewId.StartsWith("base.semanticActivations.", StringComparison.Ordinal) ? "base.semanticActivations" : "base.operations",
                 endpointId, request.TypeId, result.TypeId));
             producers.Add(new BaseStudioViewProducerBinding(methodId, producer));
         }
