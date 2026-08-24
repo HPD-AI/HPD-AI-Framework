@@ -9,7 +9,7 @@ public sealed record PolicyEvaluationRequest
     /// <summary>Gets or sets the principal.</summary>
     public required PrincipalContext Principal { get; init; }
     /// <summary>Gets or sets the collection.</summary>
-    public required CollectionDefinition Collection { get; init; }
+    public CollectionDefinition? Collection { get; init; }
     /// <summary>Gets or sets the resource.</summary>
     public required PolicyResource Resource { get; init; }
     /// <summary>Gets or sets the grants.</summary>
@@ -45,4 +45,12 @@ public sealed record PolicyResource
     public string? SubjectContractId { get; init; }
     /// <summary>Gets the positive exported logical-subject contract version.</summary>
     public int? SubjectContractVersion { get; init; }
+    /// <summary>Gets the exact fixed Studio operation identity.</summary>
+    public string? StudioOperationId { get; init; }
+    /// <summary>Gets the owning Studio module identity.</summary>
+    public string? StudioModuleId { get; init; }
+    /// <summary>Gets the closed Studio resource-kind discriminator.</summary>
+    public string? StudioResourceKind { get; init; }
+    /// <summary>Gets the exact opaque Studio resource identity.</summary>
+    public string? StudioResourceIdentity { get; init; }
 }

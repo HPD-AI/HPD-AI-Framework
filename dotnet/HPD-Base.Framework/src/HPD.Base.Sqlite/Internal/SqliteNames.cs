@@ -54,6 +54,8 @@ internal sealed class SqliteNames
         ActivationScheduleCancellations = Prefix + "activation_schedule_cancellations";
         ActivationReceipts = Prefix + "activation_receipts";
         ActivationPruneFloors = Prefix + "activation_prune_floors";
+        StudioInfrastructureInventory = Prefix + "studio_infrastructure_inventory";
+        StudioInfrastructureKindSequenceIndex = "ix_" + Prefix + "studio_infrastructure_inventory_kind_sequence";
         MutationJournalScopeIndex = "ix_" + Prefix + "mutation_journal_scope_position";
     }
 
@@ -139,6 +141,10 @@ internal sealed class SqliteNames
     public string ActivationReceipts { get; }
     /// <summary>Gets non-prunable per-activation L51 prune authority.</summary>
     public string ActivationPruneFloors { get; }
+    /// <summary>Gets the provider-owned Studio infrastructure inventory.</summary>
+    public string StudioInfrastructureInventory { get; }
+    /// <summary>Gets the infrastructure kind/sequence access path.</summary>
+    public string StudioInfrastructureKindSequenceIndex { get; }
     /// <summary>Gets the mutation journal scope index.</summary>
     public string MutationJournalScopeIndex { get; }
 }

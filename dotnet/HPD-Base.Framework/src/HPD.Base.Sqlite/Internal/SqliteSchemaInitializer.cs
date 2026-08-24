@@ -489,6 +489,24 @@ CREATE INDEX IF NOT EXISTS "{_names.OperationReceipts}_module_retirement" ON {_n
             statements.Add($"CREATE INDEX IF NOT EXISTS {relation.TargetIndex} ON {relation.Table}(target_record_id, source_record_id);");
         }
         statements.Add($"CREATE INDEX IF NOT EXISTS {_names.MutationJournalScopeIndex} ON {_names.MutationJournal}(tenant_id, collection_id, record_id, position);");
+        statements.Add($"""
+CREATE TABLE IF NOT EXISTS {_names.StudioInfrastructureInventory} (
+  sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind INTEGER NOT NULL CHECK(kind BETWEEN 1 AND 5),
+  restore_epoch INTEGER NOT NULL CHECK(restore_epoch >= 0),
+  schema_generation INTEGER NOT NULL CHECK(schema_generation >= 0),
+  observed_at TEXT NOT NULL,
+  state INTEGER NOT NULL CHECK(state BETWEEN 1 AND 6),
+  identity TEXT NOT NULL,
+  secondary_identity TEXT NULL,
+  checksum_a BLOB NULL CHECK(checksum_a IS NULL OR length(checksum_a)=32),
+  number_a INTEGER NOT NULL DEFAULT 0,
+  number_b INTEGER NOT NULL DEFAULT 0,
+  flag_a INTEGER NOT NULL DEFAULT 0 CHECK(flag_a IN (0,1))
+);
+CREATE INDEX IF NOT EXISTS {_names.StudioInfrastructureKindSequenceIndex}
+ON {_names.StudioInfrastructureInventory}(kind, sequence);
+""");
         statements.AddRange(_projectionSchemaStatements);
         return statements.ToArray();
     }

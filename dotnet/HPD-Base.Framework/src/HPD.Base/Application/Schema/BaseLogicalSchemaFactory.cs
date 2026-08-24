@@ -180,6 +180,21 @@ internal static class BaseLogicalSchemaFactory
         yield return value.TemporaryFiles; yield return value.AuthoritativeBackups; yield return value.AdministrativeExports; yield return value.OrdinaryExports; yield return value.ExternalFilesAndBlobs;
     }
 
+    internal static byte[] InstalledCollectionChecksum(BaseLogicalSchema schema, string collectionId)
+    {
+        ArgumentNullException.ThrowIfNull(schema); ArgumentException.ThrowIfNullOrWhiteSpace(collectionId);
+        BaseLogicalCollection collection = schema.Collections.SingleOrDefault(value => StringComparer.Ordinal.Equals(value.Id, collectionId))
+            ?? throw new ArgumentException("The installed collection is absent.", nameof(collectionId));
+        var writer = new ArrayBufferWriter<byte>();
+        Write(writer, "hpd.base.studio.installed-collection.v2"); Write(writer, schema.ApplicationId); Write(writer, schema.ContractVersion);
+        Write(writer, collection.Id); Write(writer, collection.Name); Write(writer, collection.System); Write(writer, collection.SystemOwnerModuleId); Write(writer, collection.SerializerContractChecksum);
+        foreach (BaseLogicalField value in schema.Fields.Where(value => StringComparer.Ordinal.Equals(value.CollectionId, collectionId))) { Write(writer, value.Id); Write(writer, value.StoredName); Write(writer, value.Type); Write(writer, value.Required); Write(writer, value.Nullable); Write(writer, (int)value.Confidentiality); }
+        foreach (BaseLogicalIndex value in schema.Indexes.Where(value => StringComparer.Ordinal.Equals(value.CollectionId, collectionId))) { Write(writer, value.Id); foreach (string field in value.FieldIds) Write(writer, field); Write(writer, value.Unique); }
+        foreach (BaseLogicalVectorIndex value in schema.VectorIndexes.Where(value => StringComparer.Ordinal.Equals(value.CollectionId, collectionId))) { Write(writer, value.Id); Write(writer, value.VectorFieldId); Write(writer, value.VectorSpaceId); Write(writer, value.Dimensions); }
+        foreach (BaseLogicalTextIndex value in schema.TextIndexes.Where(value => StringComparer.Ordinal.Equals(value.CollectionId, collectionId))) { Write(writer, value.Id); Write(writer, value.Version); Write(writer, Convert.ToHexStringLower(value.DefinitionChecksum)); }
+        return SHA256.HashData(writer.WrittenSpan);
+    }
+
     private static void Write(ArrayBufferWriter<byte> writer, string? value)
     {
         if (value is null) { Write(writer, -1); return; }

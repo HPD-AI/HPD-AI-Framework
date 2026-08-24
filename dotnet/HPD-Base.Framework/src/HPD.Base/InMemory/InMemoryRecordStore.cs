@@ -12,8 +12,29 @@ namespace HPD.Base;
 /// <summary>
 /// Process-local, thread-safe, non-durable HPD.BASE record store implementation.
 /// </summary>
-internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreamingRecordStore, IRelationalReadStore, IConsistentRecordIncludeStore, IInMemoryProjectionAuthority, ITransactionalMutationJournalStore, IBaseSubjectAdministration, IBaseSubjectPublicationStore, IBaseSubjectValidationPlanReceiptStore, IBaseSubjectLifecycleStore, IBaseSubjectRetirementStore, IBaseSubjectAuthorityMaintenanceStore, IBaseActivationProvider, IBaseSemanticActivationCapabilityProvider
+internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreamingRecordStore, IRelationalReadStore, IConsistentRecordIncludeStore, IInMemoryProjectionAuthority, ITransactionalMutationJournalStore, IBaseSubjectAdministration, IBaseSubjectPublicationStore, IBaseSubjectValidationPlanReceiptStore, IBaseSubjectLifecycleStore, IBaseSubjectRetirementStore, IBaseSubjectAuthorityMaintenanceStore, IBaseActivationProvider, IBaseSemanticActivationCapabilityProvider, IBaseStudioDynamicStoreAuthoritySource, IBaseStudioControlInspectionStore
 {
+    /// <inheritdoc />
+    public ValueTask<OperationResult<BaseStudioDynamicStoreAuthority>> CaptureStudioDynamicStoreAuthorityAsync(
+        BaseStudioDynamicStoreAuthorityRequest request, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ArgumentNullException.ThrowIfNull(request);
+        if (!BaseStudioDynamicStoreAuthorityContract.IsValid(request))
+            throw new ArgumentException("Studio authority bounds are invalid.", nameof(request));
+        BaseStudioDynamicStoreAuthority value = BaseStudioDynamicStoreAuthorityContract.Create(
+            request.ApplicationId, _options.StoreId, 0, 1);
+        return ValueTask.FromResult(value.Accounting.EvidenceBytes <= request.MaximumEvidenceBytes
+            && value.Accounting.TransientBytes <= request.MaximumTransientBytes
+            ? OperationResults.Ok(value)
+            : OperationResults.ValidationFailed<BaseStudioDynamicStoreAuthority>(new BaseError
+            {
+                Code = "base.studio.storeAuthorityLimitExceeded",
+                Message = "The store authority exceeded its bound.",
+                Category = ErrorCategory.Validation,
+            }));
+    }
+
     public BaseSemanticActivationCapability SemanticActivationCapability => BaseSemanticActivationCapabilityContract.BuiltIn(durable: false);
     public BaseSemanticActivationOperationalStatus SemanticActivationOperationalStatus => new()
     {

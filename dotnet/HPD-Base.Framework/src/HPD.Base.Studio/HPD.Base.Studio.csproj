@@ -21,10 +21,13 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\HPD-AI.Platform\HPD-AI.Platform.csproj" />
+    <ProjectReference Include="..\HPD.Base\HPD.Base.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="$(StudioBaseModuleRoot)**\*" Exclude="$(StudioBaseModuleRoot)node_modules\**\*;$(StudioBaseModuleRoot)dist\**\*" Pack="true" PackagePath="clientapp-modules\hpd-base-studio\%(RecursiveDir)%(Filename)%(Extension)" />
+    <None Include="$(StudioBaseModuleRoot)**\*" Exclude="$(StudioBaseModuleRoot)node_modules\**\*;$(StudioBaseModuleRoot)dist\**\*;$(StudioBaseModuleRoot).DS_Store" Pack="true" PackagePath="clientapp-modules\hpd-base-studio\%(RecursiveDir)%(Filename)%(Extension)" />
+    <EmbeddedResource Include="$(StudioBaseModuleRoot)dist\base.js" LogicalName="HPD.Base.Studio.Assets.base.js" />
+    <None Include="$(StudioBaseModuleRoot)dist\base.js" Pack="true" PackagePath="studio-assets\base\59da5a5de65d8a64968197311adce2cf8591c7bf97de19c6da7c33334299c0ba.js" />
   </ItemGroup>
 
 </Project>

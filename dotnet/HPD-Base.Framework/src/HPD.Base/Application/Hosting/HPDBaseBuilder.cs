@@ -786,6 +786,27 @@ public sealed class HPDBaseBuilder
                 throw new InvalidOperationException("base.semanticActivation.contractInvalid");
         var lifecycleInspectionAuthorities = new BaseSubjectLifecycleInspectionAuthorityRegistry(
             logicalSchema.ApplicationId, subjectRegistry.All, policyAuthorityOwner);
+        var studioOperations = new List<string> { "schema.apply", "schema.plan", "schema.verify" };
+        if (collections.Length != 0)
+            studioOperations.AddRange(["record.create", "record.delete", "record.patch", "record.replace", "record.upsert"]);
+        if (_selectionProfiles.Count != 0) studioOperations.Add("registeredSelection.execute");
+        if (_moduleMutations.Count != 0) studioOperations.Add("moduleMutation.execute");
+        if (_files is not null) studioOperations.AddRange(["file.delete", "file.upload"]);
+        if (subjectRegistry.All.Count != 0)
+            studioOperations.AddRange(["subject.epoch.rotate", "subject.maintenance.advance"]);
+        if (subjectRetirementRegistry.Policies.Count != 0 && provider.SubjectRetirement.TransactionalBarrierSupported)
+            studioOperations.AddRange(["retirement.override", "retirement.timeout"]);
+        if (subjectRetirementRegistry.Policies.Count != 0 && provider.SubjectRetirement.TransactionalFinalPurgeSupported)
+            studioOperations.Add("retirement.purge");
+        if (subjectRetirementRegistry.Policies.Count != 0 && subjectRetirementRegistry.Consumers.Count != 0
+            && provider.SubjectRetirement.TransactionalBarrierSupported)
+            studioOperations.Add("retirement.consumer.remove");
+        if (_activationRegistrations.Count != 0)
+            studioOperations.AddRange(["activation.cancel", "activation.dispose", "activation.maintenance.advance",
+                "activation.migrate", "activation.reconcile", "activation.removal.advance", "activation.repair", "activation.retry"]);
+        if (_activationSchedules.Count != 0)
+            studioOperations.AddRange(["schedule.disable", "schedule.enable", "schedule.remove", "schedule.update"]);
+        if (_vector is not null) studioOperations.Add("vectorIndex.rebuild");
         ValidateIndexCapabilities(collections, provider);
         _services.AddSingleton(new BaseReadRegistry(new Dictionary<string, IBaseReadRegistration>(_reads, StringComparer.Ordinal)));
         _services.AddSingleton(new BaseCollectionRegistry(collections.ToDictionary(static collection => collection.Id, StringComparer.Ordinal)));
@@ -896,6 +917,54 @@ public sealed class HPDBaseBuilder
                 semanticActivationRegistry.Definitions, _semanticActivationMigrations.Values), StringComparison.Ordinal) ||
             !receipt.ContributorIds.SequenceEqual(provider.RegistrationIds, StringComparer.Ordinal))
             throw new InvalidOperationException("base.store.providerInvalid");
+        HPDBaseStudioDefinitionAuthority[] studioDefinitions =
+        [
+            .. _reads.Values.Select(value => new HPDBaseStudioDefinitionAuthority
+            {
+                Kind = HPDBaseStudioDefinitionKind.RegisteredRead, Id = value.Id, Version = 1,
+                OwningModuleId = logicalSchema.ApplicationId,
+                DefinitionChecksum = [.. System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
+                    string.Concat(value.Id, "\0", value.ParameterSerializerContractChecksum, "\0", value.RowSerializerContractChecksum)))],
+            }),
+            .. _selectionProfiles.Select(static value => new HPDBaseStudioDefinitionAuthority
+            {
+                Kind = HPDBaseStudioDefinitionKind.SelectionMutation, Id = value.Id, Version = value.Version,
+                OwningModuleId = value.ApplicationId, DefinitionChecksum = [.. Convert.FromHexString(BaseSelectionProfileChecksum.Compute(value))],
+            }),
+            .. _moduleMutations.Values.Select(static value => new HPDBaseStudioDefinitionAuthority
+            {
+                Kind = HPDBaseStudioDefinitionKind.ModuleMutation, Id = value.Id, Version = value.Version,
+                OwningModuleId = value.OwningModuleId, DefinitionChecksum = [.. value.Checksum.ToArray()],
+            }),
+            .. activationRegistry.Definitions.Select(static value => new HPDBaseStudioDefinitionAuthority
+            {
+                Kind = HPDBaseStudioDefinitionKind.Activation, Id = value.Id, Version = value.Version,
+                OwningModuleId = value.OwningModuleId, DefinitionChecksum = [.. value.Checksum],
+            }),
+            .. _activationSchedules.Values.Select(static value => new HPDBaseStudioDefinitionAuthority
+            {
+                Kind = HPDBaseStudioDefinitionKind.Schedule, Id = value.Id, Version = value.Version,
+                OwningModuleId = value.OwningModuleId, DefinitionChecksum = [.. value.Checksum],
+            }),
+            .. semanticActivationRegistry.Definitions.Select(static value => new HPDBaseStudioDefinitionAuthority
+            {
+                Kind = HPDBaseStudioDefinitionKind.SemanticActivation, Id = value.Id, Version = value.Version,
+                OwningModuleId = value.OwningModuleId, DefinitionChecksum = [.. value.Checksum],
+            }),
+        ];
+        var studioAuthority = new HPDBaseStudioAuthoritySnapshot(logicalSchema.ApplicationId,
+            policyAuthorityOwner.Generation, policyAuthorityOwner.Checksum, logicalSchema, studioOperations,
+            policyAuthorityOwner.Policies.Select(static value => new HPDBaseStudioPolicyAuthority
+            {
+                Id = value.Definition.Id, Version = value.Definition.Version, OwningModuleId = value.Definition.OwningModuleId,
+                EvaluatorContractId = value.Definition.EvaluatorContractId,
+                EvaluatorContractVersion = value.Definition.EvaluatorContractVersion,
+                CompositionOrder = value.Definition.CompositionOrder,
+                RegistrationChecksum = [.. BasePolicyAuthorityCanonicalizer.HashPolicyDefinition(value.Definition)],
+            }),
+            policyAuthorityOwner.Grants.Select(static value => new HPDBaseStudioGrantAuthority(value)),
+            studioDefinitions, provider, receipt);
+        _services.AddSingleton(studioAuthority);
         ConfigureVectorRuntime(collections);
         ConfigureTextRuntime(collections, provider);
         _services.AddSingleton(new HPDBaseInstalledFeatures { Provider = provider.Kind, StoreProvider = provider, StoreReceipt = receipt, CollectionIds = collections.Select(static item => item.Id).ToArray(), CollectionDefinitions = collections, ReadIds = _reads.Keys.ToArray(), Files = _files is not null, Dependencies = _dependencies is not null, Realtime = _realtime is not null, LiveQueries = _liveQueries is not null, ExtensionIds = installedExtensions.Select(static item => item.Id).ToArray(), Extensions = installedExtensions, LogicalSchema = logicalSchema, SemanticActivationMigrations = _semanticActivationMigrations.Values.Select(BaseSemanticActivationMigrationContract.Seal).ToArray() });

@@ -28,8 +28,39 @@ public sealed partial class SqliteRecordStore :
     IBaseActivationProvider,
     IBaseSemanticActivationPreflightStore,
     IBaseSemanticActivationAdministration,
+    IBaseStudioDynamicStoreAuthoritySource,
+    IBaseStudioControlInspectionStore,
     IAsyncDisposable
 {
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseStudioDynamicStoreAuthority>> CaptureStudioDynamicStoreAuthorityAsync(
+        BaseStudioDynamicStoreAuthorityRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!BaseStudioDynamicStoreAuthorityContract.IsValid(request))
+            throw new ArgumentException("Studio authority bounds are invalid.", nameof(request));
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(request.Deadline);
+        await using SqliteConnection connection = await _connections.OpenAsync(deadline.Token).ConfigureAwait(false);
+        long restore;
+        await using (SqliteCommand command = connection.CreateCommand())
+        {
+            command.CommandText = $"SELECT COALESCE((SELECT CAST(value AS INTEGER) FROM {_names.ProviderState} WHERE key='restore_epoch'),0);";
+            restore = Convert.ToInt64(await command.ExecuteScalarAsync(deadline.Token).ConfigureAwait(false), CultureInfo.InvariantCulture);
+        }
+        BaseStudioDynamicStoreAuthority value = BaseStudioDynamicStoreAuthorityContract.Create(
+            request.ApplicationId, _options.StoreId, restore, Volatile.Read(ref _schemaGeneration));
+        return value.Accounting.EvidenceBytes <= request.MaximumEvidenceBytes
+            && value.Accounting.TransientBytes <= request.MaximumTransientBytes
+            ? OperationResults.Ok(value)
+            : OperationResults.ValidationFailed<BaseStudioDynamicStoreAuthority>(new BaseError
+            {
+                Code = "base.studio.storeAuthorityLimitExceeded",
+                Message = "The store authority exceeded its bound.",
+                Category = ErrorCategory.Validation,
+            });
+    }
+
     /// <inheritdoc />
     public async ValueTask<OperationResult<BaseAtomicMutationAuthorityRequirement>> CaptureAtomicMutationAuthorityRequirementAsync(
         string applicationId,

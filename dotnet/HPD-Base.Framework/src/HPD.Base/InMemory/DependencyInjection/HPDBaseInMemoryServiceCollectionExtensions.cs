@@ -40,6 +40,10 @@ internal static class HPDBaseInMemoryServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configured);
+        if (services.Any(static descriptor => descriptor.ServiceType == typeof(IRecordStore)
+                || descriptor.ServiceType == typeof(IRecordMutationStore)
+                || descriptor.ServiceType == typeof(IAtomicRecordStore)))
+            throw new InvalidOperationException("base.store.authorityAmbiguous");
         if (services.Any(static descriptor => descriptor.ServiceType == typeof(HPDBaseInMemoryStoreOptions) || descriptor.ServiceType == typeof(IOptions<HPDBaseInMemoryStoreOptions>)))
             throw new InvalidOperationException("base.store.authorityAmbiguous");
         HPDBaseInMemoryStoreOptions options = Clone(configured);
@@ -70,6 +74,10 @@ internal static class HPDBaseInMemoryServiceCollectionExtensions
         services.TryAddSingleton<IAtomicRecordStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
         services.TryAddSingleton<IBaseSubjectLifecycleStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
         services.TryAddSingleton<IStreamingRecordStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
+        services.TryAddSingleton<IBaseStudioDynamicStoreAuthoritySource>(provider => provider.GetRequiredService<InMemoryRecordStore>());
+        services.TryAddSingleton<IBaseStudioControlInspectionStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
+        services.TryAddSingleton<IBaseStudioEvidenceStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
+        services.TryAddSingleton<IBaseStudioInfrastructureInventoryStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
 
         if (options.ContributeModuleDescriptor || options.ContributeCapabilities || options.Collections is not null)
         {

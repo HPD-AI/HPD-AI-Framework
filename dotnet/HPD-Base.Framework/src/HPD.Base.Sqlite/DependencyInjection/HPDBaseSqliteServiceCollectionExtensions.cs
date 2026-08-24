@@ -26,6 +26,10 @@ public static class HPDBaseSqliteServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configured);
+        if (services.Any(static descriptor => descriptor.ServiceType == typeof(IRecordStore)
+                || descriptor.ServiceType == typeof(IRecordMutationStore)
+                || descriptor.ServiceType == typeof(IAtomicRecordStore)))
+            throw new InvalidOperationException("base.store.authorityAmbiguous");
         if (services.Any(static descriptor => descriptor.ServiceType == typeof(HPDBaseSqliteOptions) || descriptor.ServiceType == typeof(IOptions<HPDBaseSqliteOptions>)))
             throw new InvalidOperationException("base.store.authorityAmbiguous");
         HPDBaseSqliteOptions options = Clone(configured);
@@ -52,6 +56,10 @@ public static class HPDBaseSqliteServiceCollectionExtensions
         services.TryAddSingleton<IAtomicRecordStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
         services.TryAddSingleton<IBaseSubjectLifecycleStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
         services.TryAddSingleton<ITransactionalMutationJournalStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
+        services.TryAddSingleton<IBaseStudioDynamicStoreAuthoritySource>(provider => provider.GetRequiredService<SqliteRecordStore>());
+        services.TryAddSingleton<IBaseStudioControlInspectionStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
+        services.TryAddSingleton<IBaseStudioEvidenceStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
+        services.TryAddSingleton<IBaseStudioInfrastructureInventoryStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
         if (options.ContributeRelationalDescriptors)
         {
             services.TryAddSingleton<SqliteRelationalDescriptorProvider>();

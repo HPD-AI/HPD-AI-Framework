@@ -93,6 +93,7 @@ public sealed class HPDBaseStoreProvider
         };
         SemanticActivations = BaseSemanticActivationCapabilityContract.Clone(descriptor.SemanticActivations);
         SemanticActivationCertification = BaseSemanticActivationCertificationContract.Clone(descriptor.SemanticActivationCertification);
+        StudioCapabilityChecksum = ComputeStudioCapabilityChecksum();
         Installer = installer;
     }
 
@@ -122,7 +123,25 @@ public sealed class HPDBaseStoreProvider
     public BaseSemanticActivationCapability SemanticActivations { get; }
     /// <summary>Gets the frozen semantic-activation provider-certification profile.</summary>
     public BaseSemanticActivationCertificationProfile SemanticActivationCertification { get; }
+    internal byte[] StudioCapabilityChecksum { get; }
     internal IHPDBaseStoreInstaller Installer { get; }
+
+    private byte[] ComputeStudioCapabilityChecksum()
+    {
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        static byte[] Utf8(string value) => Encoding.UTF8.GetBytes(value);
+        hash.AppendData(Utf8("base.studio.provider-capability.v2"));
+        Span<byte> integer = stackalloc byte[4];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(integer, ProtocolVersion);
+        hash.AppendData(Utf8(Kind)); hash.AppendData(integer);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(integer, (int)Capabilities); hash.AppendData(integer);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(integer, MaximumBinaryFieldBytes); hash.AppendData(integer);
+        foreach (string id in _registrationIds.Order(StringComparer.Ordinal)) hash.AppendData(Utf8(id));
+        hash.AppendData(Activations.CanonicalChecksum.AsSpan());
+        hash.AppendData(BaseSemanticActivationCapabilityContract.Checksum(SemanticActivations).AsSpan());
+        hash.AppendData(SemanticActivationCertification.Checksum.AsSpan());
+        return hash.GetHashAndReset();
+    }
 }
 
 /// <summary>Creates validated immutable store-provider descriptors for provider packages.</summary>
