@@ -1,18 +1,34 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import { provideStudioShell, type StudioRouteObservation, type StudioRuntime } from '@hpd-research/hpd-studio-core';
+  import type { StudioShellRuntime, StudioShellState } from '../shell-runtime.ts';
   import Sidebar from './Sidebar.svelte';
-
-  let { studio, observation, main }: { studio: StudioRuntime; observation: StudioRouteObservation; main?: Snippet } = $props();
-  provideStudioShell(Object.freeze({
-    get configuration() { return studio.configuration; },
-    get authentication() { return studio.authentication; },
-    currentModuleId: () => observation.route?.moduleId ?? null,
-    navigate: (path: string) => { globalThis.location.hash = path; }
-  }));
+  let { runtime, state, main }: { runtime: StudioShellRuntime; state: StudioShellState; main?: Snippet } = $props();
 </script>
 
-<div class="grid min-h-screen grid-cols-1 bg-studio-bg text-studio-ink lg:grid-cols-[var(--spacing-studio-sidebar)_minmax(0,1fr)]">
-  <Sidebar {studio} {observation} />
-  <section class="grid min-h-0 min-w-0 lg:min-h-screen">{@render main?.()}</section>
+<div class="studio-shell-layout bg-studio-bg text-studio-ink">
+  <a class="studio-skip-link" href="#studio-main">Skip to workspace</a>
+  {#if state.kind === 'ready'}<Sidebar {runtime} {state} />{/if}
+  <section id="studio-main" tabindex="-1" class="studio-shell-main">{@render main?.()}</section>
 </div>
+
+<style>
+  .studio-shell-layout {
+    display: grid;
+    grid-template-columns: minmax(10rem, 12.5rem) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    min-block-size: 100dvh;
+  }
+
+  .studio-shell-main {
+    display: grid;
+    min-block-size: 100dvh;
+    min-inline-size: 0;
+  }
+
+  @media (min-width: 64rem) {
+    .studio-shell-layout {
+      grid-template-columns: var(--spacing-studio-sidebar) minmax(0, 1fr);
+      grid-template-rows: minmax(0, 1fr);
+    }
+  }
+</style>

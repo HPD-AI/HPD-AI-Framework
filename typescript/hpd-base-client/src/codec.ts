@@ -22,6 +22,62 @@ export type BaseTypeNode =
 /** Maps stable DTO type IDs to closed graph nodes. */
 export type BaseTypeGraph = Readonly<Record<string, BaseTypeNode>>;
 
+/** Constructs one deeply owned closed dynamic L41 graph for Studio/runtime interpretation. */
+export function createBaseTypeGraph(types: readonly Readonly<{ readonly id: string; readonly node: BaseTypeNode }>[],
+  maximumNodes = 2_048, maximumDepth = 32): BaseTypeGraph {
+  if (!Array.isArray(types) || types.length < 1 || types.length > maximumNodes) invalid();
+  const result: Record<string, BaseTypeNode> = {}; let previous = "";
+  for (const entry of types) {
+    exactTypeNode(entry, ["id", "node"]); if (!dynamicTypeId(entry.id) || entry.id <= previous) invalid(); previous = entry.id;
+    result[entry.id] = ownTypeNode(entry.node);
+  }
+  const graph = Object.freeze(result); const visiting = new Set<string>(); const complete = new Set<string>();
+  const visit = (id: string, depth: number): void => {
+    if (depth > maximumDepth || graph[id] === undefined) invalid(); if (complete.has(id)) return; if (visiting.has(id)) invalid(); visiting.add(id);
+    const node = graph[id]!; for (const child of referencedTypes(node)) visit(child, depth + 1); visiting.delete(id); complete.add(id);
+  };
+  for (const id of Object.keys(graph)) visit(id, 1); return graph;
+}
+
+function ownTypeNode(node: BaseTypeNode): BaseTypeNode {
+  if (!object(node) || typeof node.kind !== "string") invalid();
+  const own = <T extends object>(keys: readonly string[], value: T = node as T): T => { exactTypeNode(value, keys); return Object.freeze(value); };
+  switch (node.kind) {
+    case "selection-query": if (![node.maximumNodes, node.maximumDepth, node.maximumLiterals, node.maximumTake].every(positiveInt)) invalid(); return own(["kind", "maximumNodes", "maximumDepth", "maximumLiterals", "maximumTake"], { ...node });
+    case "selection-previous-state": if (!positiveInt(node.maximumFields)) invalid(); return own(["kind", "maximumFields"], { ...node });
+    case "selection-identity": case "module-generation": case "boolean": case "decimal": case "redacted": return own(["kind"], { ...node });
+    case "selection-patch": if (!dynamicTypeId(node.patchTypeId)) invalid(); return own(["kind", "patchTypeId"], { ...node });
+    case "string": if (!nonnegativeInt(node.minLength) || !nonnegativeInt(node.maxLength) || node.minLength > node.maxLength || !boundedText(node.format, 128)) invalid(); return own(["kind", "minLength", "maxLength", "format"], { ...node });
+    case "integer": if (!integerText(node.minimum) || !integerText(node.maximum) || BigInt(node.minimum) > BigInt(node.maximum) || !["number", "decimal-string"].includes(node.wire)) invalid(); return own(["kind", "minimum", "maximum", "wire"], { ...node });
+    case "floating": if (!["binary32", "binary64"].includes(node.precision) || node.finiteOnly !== true) invalid(); return own(["kind", "precision", "finiteOnly"], { ...node });
+    case "bytes": if (node.wire !== "base64" || !positiveInt(node.maxBytes)) invalid(); return own(["kind", "wire", "maxBytes"], { ...node });
+    case "subjectReference": if (!dynamicTypeId(node.contractId) || !positiveInt(node.contractVersion) || !["ordinalString", "guid", "uint64"].includes(node.subjectIdKind) || !positiveInt(node.maximumSubjectIdUtf8Bytes) || node.authorityEpochBytes !== 16 || node.incarnationBytes !== 24) invalid(); return own(["kind", "contractId", "contractVersion", "subjectIdKind", "maximumSubjectIdUtf8Bytes", "authorityEpochBytes", "incarnationBytes"], { ...node });
+    case "literal": if (node.value !== null && typeof node.value !== "string" && typeof node.value !== "boolean") invalid(); return own(["kind", "value"], { ...node });
+    case "enum": if (!Array.isArray(node.values) || node.values.length < 1 || node.values.length > 256 || node.values.some(value => !boundedText(value, 256)) || !canonicalStrings(node.values)) invalid(); return own(["kind", "values"], { ...node, values: Object.freeze([...node.values]) });
+    case "array": if (!dynamicTypeId(node.elementTypeId) || !nonnegativeInt(node.minItems) || !nonnegativeInt(node.maxItems) || node.minItems > node.maxItems) invalid(); return own(["kind", "elementTypeId", "minItems", "maxItems"], { ...node });
+    case "object": {
+      if (node.additionalProperties !== false || !Array.isArray(node.properties) || node.properties.length > 256) invalid();
+      const properties = node.properties.map(property => { if (!boundedText(property.name, 128) || !boundedText(property.wireName, 128) || !dynamicTypeId(property.typeId) || typeof property.required !== "boolean" || typeof property.nullable !== "boolean" || !["none", "omission", "fixed-marker"].includes(property.disclosureShape)) invalid(); return own(["name", "wireName", "typeId", "required", "nullable", "disclosureShape"], { ...property }); });
+      if (!canonicalStrings(properties.map(property => property.name)) || new Set(properties.map(property => property.wireName)).size !== properties.length) invalid();
+      return own(["kind", "properties", "additionalProperties"], { ...node, properties: Object.freeze(properties) });
+    }
+    case "union": {
+      if (!boundedText(node.discriminator, 128) || !Array.isArray(node.variants) || node.variants.length < 1 || node.variants.length > 64) invalid();
+      const variants = node.variants.map(variant => { if (!boundedText(variant.tag, 128) || !dynamicTypeId(variant.typeId)) invalid(); return own(["tag", "typeId"], { ...variant }); });
+      if (!canonicalStrings(variants.map(variant => variant.tag))) invalid(); return own(["kind", "discriminator", "variants"], { ...node, variants: Object.freeze(variants) });
+    }
+    default: return invalid();
+  }
+}
+
+function positiveInt(value: unknown): value is number { return Number.isInteger(value) && (value as number) > 0 && (value as number) <= 2_147_483_647; }
+function nonnegativeInt(value: unknown): value is number { return Number.isInteger(value) && (value as number) >= 0 && (value as number) <= 2_147_483_647; }
+function integerText(value: unknown): value is string { return typeof value === "string" && /^-?(?:0|[1-9][0-9]*)$/u.test(value) && value !== "-0"; }
+function dynamicTypeId(value: unknown): value is string { return typeof value === "string" && new TextEncoder().encode(value).length <= 128 && /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/u.test(value); }
+function canonicalStrings(values: readonly string[]): boolean { return new Set(values).size === values.length && values.every((value, index) => index === 0 || values[index - 1]! < value); }
+function referencedTypes(node: BaseTypeNode): readonly string[] { switch (node.kind) { case "selection-patch": return [node.patchTypeId]; case "array": return [node.elementTypeId]; case "object": return node.properties.map(property => property.typeId); case "union": return node.variants.map(variant => variant.typeId); default: return []; } }
+function exactTypeNode(value: unknown, keys: readonly string[]): void { if (!object(value)) invalid(); const actual = Object.keys(value).sort(); const expected = [...keys].sort(); if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) invalid(); }
+
 /** The sole structural value emitted for fixed-marker disclosure. */
 export interface BaseRedacted { readonly $base: "redacted"; }
 /** The frozen canonical redaction marker. */

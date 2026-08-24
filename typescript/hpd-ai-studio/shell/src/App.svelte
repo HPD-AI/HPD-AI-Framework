@@ -1,39 +1,51 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import StudioModuleBoundary from '@hpd-research/hpd-studio-core/boundary';
-  import type { StudioRouteObservation, StudioRuntime } from '@hpd-research/hpd-studio-core';
+  import type { StudioPageProps } from '@hpd-research/hpd-studio-core';
+  import type { StudioShellRuntime, StudioShellState } from './studio/shell-runtime.ts';
   import StudioShell from './studio/shell/StudioShell.svelte';
   import StudioUnavailable from './studio/shell/StudioUnavailable.svelte';
+  import BaseRegisteredPage from './studio/shell/BaseRegisteredPage.svelte';
 
-  let { studio }: { studio: StudioRuntime } = $props();
+  let { runtime }: { runtime: StudioShellRuntime } = $props();
   // svelte-ignore state_referenced_locally
-  let observation: StudioRouteObservation = $state(studio.current);
-  let Page = $derived(observation.route?.component);
-
-  function syncRouteFromLocation() {
-    const hash = globalThis.location?.hash.replace(/^#/, '') ?? '';
-    observation = studio.navigate(hash || studio.routes[0]?.path || '/');
-  }
+  let state: StudioShellState = $state(runtime.current);
+  let Page = $derived(state.route?.component);
+  let focusedPageId = '';
+  let pageProps = $derived.by((): StudioPageProps | null => state.route ? Object.freeze({
+    page: state.route.route.page,
+    route: state.route.route.match, resource: state.route.runtime.resource,
+    observation: state.route.runtime.snapshot(), navigation: state.route.runtime.navigation, commands: state.route.runtime.commands
+  }) : null);
 
   onMount(() => {
-    const unsubscribe = studio.subscribe((value) => observation = value);
-    syncRouteFromLocation();
-    return () => {
-      unsubscribe();
-      void studio.dispose();
-    };
+    const unsubscribe = runtime.subscribe(value => state = value);
+    return () => { unsubscribe(); void runtime.dispose(); };
   });
+  $effect(() => { const pageId = state.route?.route.page.pageId ?? ''; if (!pageId || pageId === focusedPageId) return;
+    focusedPageId = pageId; queueMicrotask(() => document.getElementById('studio-main')?.focus()); });
 </script>
 
-<svelte:window onhashchange={syncRouteFromLocation} />
-
-<StudioShell {studio} {observation}>
+<StudioShell {runtime} {state}>
   {#snippet main()}
-    {#if Page && observation.route}
-      {#key observation.route.context}
-        <StudioModuleBoundary context={observation.route.context}>
-          <Page />
-        </StudioModuleBoundary>
+    {#if state.kind === 'authenticationRequired'}
+      <main class="grid min-h-screen place-items-center p-6">
+        <section class="studio-panel grid max-w-lg gap-4 p-8" aria-labelledby="sign-in-title">
+          <p class="studio-label">HPD BASE Studio</p><h1 id="sign-in-title" class="text-2xl font-extrabold">Sign in to continue</h1>
+          <p class="text-sm text-studio-muted">Authentication is managed by this application. Studio never receives or stores your credential.</p>
+          <button class="studio-button-primary" type="button" onclick={() => runtime.authentication.beginSignIn(location.pathname + location.search)}>Sign in</button>
+        </section>
+      </main>
+    {:else if state.kind === 'loading'}
+      <main class="grid min-h-screen place-items-center p-6" aria-live="polite"><p>Loading authorized Studio workspace…</p></main>
+    {:else if state.kind === 'failed'}
+      <main class="grid min-h-screen place-items-center p-6"><StudioUnavailable /><p class="studio-text-safe text-xs">{state.failure}</p></main>
+    {:else if state.route?.route.page.moduleId === 'base' && pageProps}
+      {#key state.route.route.page.pageId}
+        <BaseRegisteredPage {...pageProps} />
+      {/key}
+    {:else if Page && pageProps}
+      {#key state.route?.route.page.pageId}
+        <Page {...pageProps} />
       {/key}
     {:else}
       <StudioUnavailable />

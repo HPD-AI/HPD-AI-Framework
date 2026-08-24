@@ -1,47 +1,19 @@
 import { mount } from 'svelte';
-import { composeStudio, type StudioModuleRegistration } from '@hpd-research/hpd-studio-core';
-import { agentStudioModule } from '@hpd-research/hpd-agent-studio';
-import { authStudioModule } from '@hpd-research/hpd-auth-studio';
-import { createBaseStudioModule } from '@hpd-research/hpd-base-studio';
-import { graphStudioModule } from '@hpd-research/hpd-graph-studio';
-import { createGatewayStudioModule } from '@hpd-research/hpd-gateway-studio';
-import { createGatewayClient } from '@hpd/gateway-client';
-import { mlStudioModule } from '@hpd-research/hpd-ml-studio';
-import { ragStudioModule } from '@hpd-research/hpd-rag-studio';
 import App from './App.svelte';
-import { readRuntimeConfig, readRuntimeModuleIds } from './studio/config/runtimeConfig';
-import { createMemoryBearerAuthentication } from './studio/services/authentication';
+import { readStudioHostContract } from './studio/host-contract.ts';
+import { StudioShellRuntime } from './studio/shell-runtime.ts';
 import './styles.css';
 
 const target = document.getElementById('app');
-if (!target) throw new Error('HPD Studio mount target was not found.');
+if (!target) throw new Error('base.studio.mountTargetMissing');
 
-const configuration = readRuntimeConfig();
-const installedModuleIds = readRuntimeModuleIds();
-const authentication = createMemoryBearerAuthentication();
-const gatewayClient = createGatewayClient({
-  baseUrl: globalThis.location.origin,
-  apiBasePath: configuration.apiBasePath,
-  authentication: { getAccessToken: () => {
-    const value = authentication.getAccessToken();
-    return value === null ? null : { value };
-  } }
-});
-const modules: StudioModuleRegistration[] = [
-  agentStudioModule,
-  authStudioModule,
-  createBaseStudioModule(),
-  graphStudioModule,
-  createGatewayStudioModule({ client: gatewayClient }),
-  mlStudioModule,
-  ragStudioModule
-].filter((module) => installedModuleIds === null || installedModuleIds.has(module.id))
-  .map((module) => ({ module, requirement: 'optional' }));
+const host = await readStudioHostContract();
+const runtime = new StudioShellRuntime(host);
+const isFreshAuthenticationCallback = runtime.authentication.consumeFreshAuthenticationCallback();
+const mounted = isFreshAuthenticationCallback ? null : mount(App, { target, props: { runtime } });
+if (isFreshAuthenticationCallback) {
+  target.textContent = 'Authentication complete. This window can be closed.';
+  globalThis.close();
+} else await runtime.start();
 
-const studio = await composeStudio({
-  configuration,
-  authentication,
-  modules
-});
-
-export default mount(App, { target, props: { studio } });
+export default mounted;
