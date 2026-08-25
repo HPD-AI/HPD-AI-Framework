@@ -1,4 +1,6 @@
+using System.Buffers.Binary;
 using System.Globalization;
+using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -22,20 +24,35 @@ internal sealed class SqlitePhysicalModel
             FieldModel[] fields = (definition.Fields ?? []).Select(field =>
             {
                 string column = Native("f_", field.Id);
-                string? presence = field.Required && !field.Nullable ? null : Native("p_", field.Id);
+                string? presence = field.Presence == BaseFieldPresence.Required && field.Nullability == BaseFieldNullability.NonNullable ? null : Native("p_", field.Id);
                 Claim(nativeNames, column, field.Id);
                 if (presence is not null) Claim(nativeNames, presence, field.Id + ":presence");
                 return new FieldModel(field, column, presence);
             }).ToArray();
             IndexModel[] indexes = (definition.Indexes ?? []).Select(index =>
             {
-                string name = Native("b_i_", index.Id);
-                Claim(nativeNames, name, index.Id);
-                FieldModel[] parts = (index.Parts ?? []).Select(part => fields.Single(field =>
-                    part.Kind == IndexPartKind.Field && string.Equals(field.Definition.Id, part.FieldId, StringComparison.Ordinal))).ToArray();
-                return new IndexModel(index, name, parts);
+                FieldDefinition[] ordered = (definition.Fields ?? []).OrderBy(static field => field.Id, StringComparer.Ordinal).ToArray();
+                index = BaseSchemaContract.SealIndex(index, ordered);
+                string id = index.Id.ToString();
+                string name = Native("b_i_", id);
+                Claim(nativeNames, name, id);
+                string? equalityColumn = index.Unique ? Native("k_", id) : null;
+                if (equalityColumn is not null) Claim(nativeNames, equalityColumn, id + ":equality");
+                FieldModel[] parts = index.Parts.Select(part => fields.Single(field => string.Equals(field.Definition.Id, ordered[part.FieldOrdinal].Id, StringComparison.Ordinal))).ToArray();
+                bool orderable = index.Parts.All(part => ordered[part.FieldOrdinal].ScalarCodec is { OrderingVersion: not null, OrderingChecksum: not null });
+                OrderingPartModel[] ordering = !orderable ? [] : index.Parts.Select((part, ordinal) =>
+                {
+                    FieldModel field = fields.Single(candidate => string.Equals(candidate.Definition.Id, ordered[part.FieldOrdinal].Id, StringComparison.Ordinal));
+                    string rank = Native("r_", id + ":" + ordinal.ToString(CultureInfo.InvariantCulture));
+                    string value = Native("o_", id + ":" + ordinal.ToString(CultureInfo.InvariantCulture));
+                    Claim(nativeNames, rank, id + ":rank:" + ordinal); Claim(nativeNames, value, id + ":value:" + ordinal);
+                    return new OrderingPartModel(part, field, rank, value);
+                }).ToArray();
+                FieldModel[] predicateFields = ordered.Select(field => fields.Single(model => model.Definition.Id == field.Id)).ToArray();
+                return new IndexModel(index, name, equalityColumn, parts, ordering, predicateFields);
             }).ToArray();
-            if (!_collections.TryAdd(definition.Id, new CollectionModel(definition, table, fields, indexes)))
+            CollectionDefinition physicalDefinition = definition with { Indexes = indexes.Select(static model => model.Definition).ToArray() };
+            if (!_collections.TryAdd(definition.Id, new CollectionModel(physicalDefinition, table, fields, indexes)))
                 throw new InvalidOperationException("SQLite collection identity is duplicated.");
         }
         _relations = options.Collections.SelectMany(static collection => collection.Fields ?? [])
@@ -75,10 +92,16 @@ internal sealed class CollectionModel
             .Concat(Fields.SelectMany(static item => item.PresenceColumn is null ? [item.Column] : new[] { item.PresenceColumn, item.Column }))
             .Concat(HasExtensionJson ? Enumerable.Repeat("extension_json", 1) : Enumerable.Empty<string>()));
         internal string PayloadColumns => string.Join(", ", Fields.SelectMany((item, index) => item.PresenceColumn is null ? [item.Column] : new[] { item.PresenceColumn, item.Column })
+            .Concat(Indexes.Where(static index => index.EqualityColumn is not null).Select(static index => index.EqualityColumn!))
+            .Concat(Indexes.SelectMany(static index => index.OrderingParts.SelectMany(static part => new[] { part.StateColumn, part.ValueColumn })))
             .Concat(HasExtensionJson ? Enumerable.Repeat("extension_json", 1) : Enumerable.Empty<string>()));
         internal string PayloadParameters => string.Join(", ", Fields.SelectMany((item, index) => item.PresenceColumn is null ? ["$f" + index] : new[] { "$p" + index, "$f" + index })
+            .Concat(Indexes.Where(static index => index.EqualityColumn is not null).Select((_, index) => "$k" + index))
+            .Concat(Indexes.SelectMany((index, indexOrdinal) => index.OrderingParts.SelectMany((_, partOrdinal) => new[] { $"$r{indexOrdinal}_{partOrdinal}", $"$o{indexOrdinal}_{partOrdinal}" })))
             .Concat(HasExtensionJson ? Enumerable.Repeat("$extension", 1) : Enumerable.Empty<string>()));
         internal string PayloadAssignments => string.Join(", ", Fields.SelectMany((item, index) => item.PresenceColumn is null ? [item.Column + " = $f" + index] : new[] { item.PresenceColumn + " = $p" + index, item.Column + " = $f" + index })
+            .Concat(Indexes.Where(static index => index.EqualityColumn is not null).Select((item, index) => item.EqualityColumn + " = $k" + index))
+            .Concat(Indexes.SelectMany((index, indexOrdinal) => index.OrderingParts.SelectMany((part, partOrdinal) => new[] { part.StateColumn + $" = $r{indexOrdinal}_{partOrdinal}", part.ValueColumn + $" = $o{indexOrdinal}_{partOrdinal}" })))
             .Concat(HasExtensionJson ? Enumerable.Repeat("extension_json = $extension", 1) : Enumerable.Empty<string>()));
         internal string PayloadColumnClause => PayloadColumns.Length == 0 ? "" : ", " + PayloadColumns;
         internal string PayloadParameterClause => PayloadParameters.Length == 0 ? "" : ", " + PayloadParameters;
@@ -101,6 +124,13 @@ internal sealed class CollectionModel
                 if (field.PresenceColumn is not null) columns.Add(field.PresenceColumn + " INTEGER NOT NULL DEFAULT 0 CHECK (" + field.PresenceColumn + " IN (0,1))");
                 columns.Add(field.Column + " " + field.SqlType + (field.PresenceColumn is null ? " NOT NULL" : ""));
             }
+            foreach (IndexModel index in Indexes.Where(static index => index.EqualityColumn is not null))
+                columns.Add(index.EqualityColumn + " BLOB NULL");
+            foreach (OrderingPartModel part in Indexes.SelectMany(static index => index.OrderingParts))
+            {
+                columns.Add(part.StateColumn + " INTEGER NOT NULL");
+                columns.Add(part.ValueColumn + " " + part.SqlType + " NOT NULL");
+            }
             if (HasExtensionJson) columns.Add("extension_json TEXT NULL");
             return $"CREATE TABLE IF NOT EXISTS {table} (\n  {string.Join(",\n  ", columns)}\n);";
         }
@@ -115,6 +145,25 @@ internal sealed class CollectionModel
                 bool present = values.TryGetValue(field.Definition.WireName, out JsonElement value);
                 if (field.PresenceColumn is not null) command.Parameters.AddWithValue("$p" + index, present ? 1 : 0);
                 command.Parameters.AddWithValue("$f" + index, present ? field.Encode(value) : DBNull.Value);
+            }
+            int equalityOrdinal = 0;
+            var normalized = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = values };
+            foreach (IndexModel index in Indexes.Where(static index => index.EqualityColumn is not null))
+            {
+                object key = BaseLogicalIndexEvaluator.Includes(Definition, index.Definition, normalized)
+                    ? BaseLogicalIndexEvaluator.Key(Definition, index.Definition, normalized)
+                    : DBNull.Value;
+                command.Parameters.AddWithValue("$k" + equalityOrdinal++, key);
+            }
+            for (int indexOrdinal = 0; indexOrdinal < Indexes.Length; indexOrdinal++)
+            {
+                IndexModel index = Indexes[indexOrdinal];
+                for (int partOrdinal = 0; partOrdinal < index.OrderingParts.Length; partOrdinal++)
+                {
+                    (long rank, object shadow) = index.OrderingParts[partOrdinal].Encode(values);
+                    command.Parameters.AddWithValue($"$r{indexOrdinal}_{partOrdinal}", rank);
+                    command.Parameters.AddWithValue($"$o{indexOrdinal}_{partOrdinal}", shadow);
+                }
             }
             if (HasExtensionJson && includeExtensions)
             {
@@ -157,18 +206,73 @@ internal sealed class CollectionModel
 
 internal sealed class IndexModel
     {
-        internal IndexModel(IndexDefinition definition, string name, FieldModel[] parts)
-        { Definition = definition; Name = name; Parts = parts; }
-        internal IndexDefinition Definition { get; }
+        private readonly FieldModel[] _fields;
+        internal IndexModel(BaseLogicalIndexDefinition definition, string name, string? equalityColumn, FieldModel[] parts, OrderingPartModel[] orderingParts, FieldModel[] fields)
+        { Definition = definition; Name = name; EqualityColumn = equalityColumn; Parts = parts; OrderingParts = orderingParts; _fields = fields; }
+        internal BaseLogicalIndexDefinition Definition { get; }
         internal string Name { get; }
+        internal string? EqualityColumn { get; }
         internal FieldModel[] Parts { get; }
+        internal OrderingPartModel[] OrderingParts { get; }
+        internal bool HasOrdering => OrderingParts.Length != 0;
+        internal string? UniqueName => EqualityColumn is null ? null : HasOrdering ? Name + "_u" : Name;
         internal string CreateSql(CollectionModel collection)
+            => !HasOrdering ? UniqueSql(collection) + ";" : EqualityColumn is null ? OrderingSql(collection) + ";" : OrderingSql(collection) + ";" + Environment.NewLine + UniqueSql(collection) + ";";
+        internal string OrderingSql(CollectionModel collection)
         {
-            string unique = Definition.Unique || Definition.Kind == IndexKind.Unique ? "UNIQUE " : "";
-            string columns = string.Join(", ", Parts.Select((field, index) => field.Column +
-                (Definition.Parts![index].Direction == IndexSortDirection.Desc ? " DESC" : " ASC")));
-            return $"CREATE {unique}INDEX IF NOT EXISTS {Name} ON {collection.Table}({columns});";
+            if (!HasOrdering) throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid);
+            string columns = string.Join(", ", OrderingParts.SelectMany(part => new[]
+            {
+                part.StateColumn + (part.Definition.Direction == BaseIndexSortDirection.Descending ? " DESC" : " ASC"),
+                part.ValueColumn + (part.SqlType == "TEXT" ? " COLLATE BINARY" : "") + (part.Definition.Direction == BaseIndexSortDirection.Descending ? " DESC" : " ASC"),
+            }).Concat(["record_id ASC"]));
+            string predicate = Predicate(Definition.MembershipPredicate.Root, Definition.MembershipPredicate.Nodes.ToDictionary(static node => node.Id));
+            return $"CREATE INDEX IF NOT EXISTS {Name} ON {collection.Table}({columns}) WHERE {predicate}";
         }
+        internal string UniqueSql(CollectionModel collection) => EqualityColumn is null
+            ? throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid)
+            : $"CREATE UNIQUE INDEX IF NOT EXISTS {UniqueName} ON {collection.Table}({EqualityColumn}) WHERE ({PredicateSql}) AND {EqualityColumn} IS NOT NULL";
+        internal string PredicateSql => Predicate(Definition.MembershipPredicate.Root, Definition.MembershipPredicate.Nodes.ToDictionary(static node => node.Id));
+
+        private string Predicate(BaseIndexPredicateId id, Dictionary<BaseIndexPredicateId, BaseIndexPredicateNode> nodes)
+        {
+            BaseIndexPredicateNode node = nodes[id]; FieldModel? field = node.FieldOrdinal is { } ordinal ? _fields[ordinal] : null;
+            return node.Kind switch
+            {
+                BaseIndexPredicateNodeKind.True => "1=1",
+                BaseIndexPredicateNodeKind.False => "1=0",
+                BaseIndexPredicateNodeKind.IsDefined => field!.PresenceColumn is null ? "1=1" : field.PresenceColumn + "=1",
+                BaseIndexPredicateNodeKind.IsMissing => field!.PresenceColumn is null ? "1=0" : field.PresenceColumn + "=0",
+                BaseIndexPredicateNodeKind.IsNull => field!.PresenceColumn is null ? field.Column + " IS NULL" : $"({field.PresenceColumn}=1 AND {field.Column} IS NULL)",
+                BaseIndexPredicateNodeKind.IsNotNull => field!.PresenceColumn is null ? field.Column + " IS NOT NULL" : $"({field.PresenceColumn}=1 AND {field.Column} IS NOT NULL)",
+                BaseIndexPredicateNodeKind.Equal => $"({(field!.PresenceColumn is null ? "" : field.PresenceColumn + "=1 AND ")}{field.Column}={Literal(node.Literal!)})",
+                BaseIndexPredicateNodeKind.And => "(" + string.Join(" AND ", node.Children.Select(child => Predicate(child, nodes))) + ")",
+                BaseIndexPredicateNodeKind.Or => "(" + string.Join(" OR ", node.Children.Select(child => Predicate(child, nodes))) + ")",
+                BaseIndexPredicateNodeKind.Not => "NOT (" + Predicate(node.Children[0], nodes) + ")",
+                _ => throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid),
+            };
+        }
+
+        private static string Literal(BaseCanonicalScalarLiteral literal)
+        {
+            ReadOnlySpan<byte> bytes = literal.CanonicalBytes.AsSpan();
+            return literal.Kind switch
+            {
+                BaseScalarKind.String or BaseScalarKind.ClosedEnum => "'" + StrictUtf8(bytes).Replace("'", "''", StringComparison.Ordinal) + "'",
+                BaseScalarKind.Guid when bytes.Length == 16 => "'" + new Guid(bytes, bigEndian: true).ToString("D") + "'",
+                BaseScalarKind.UtcDateTime when bytes.Length == 8 => "'" + new DateTimeOffset(BinaryPrimitives.ReadInt64BigEndian(bytes), TimeSpan.Zero).ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", CultureInfo.InvariantCulture) + "'",
+                BaseScalarKind.Int32 => BinaryPrimitives.ReadInt32BigEndian(bytes).ToString(CultureInfo.InvariantCulture),
+                BaseScalarKind.Int64 => BinaryPrimitives.ReadInt64BigEndian(bytes).ToString(CultureInfo.InvariantCulture),
+                BaseScalarKind.UInt32 => BinaryPrimitives.ReadUInt32BigEndian(bytes).ToString(CultureInfo.InvariantCulture),
+                BaseScalarKind.UInt64 => "'" + BinaryPrimitives.ReadUInt64BigEndian(bytes).ToString(CultureInfo.InvariantCulture) + "'",
+                BaseScalarKind.Decimal when bytes.Length == 17 => "'" + BaseScalarCanonical.DecimalText(new BaseDecimalValue(BinaryPrimitives.ReadInt128BigEndian(bytes[..16]), bytes[16])) + "'",
+                BaseScalarKind.Boolean => bytes[0] == 0 ? "0" : "1",
+                BaseScalarKind.Binary => "X'" + Convert.ToHexString(bytes) + "'",
+                _ => throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid),
+            };
+        }
+
+        private static string StrictUtf8(ReadOnlySpan<byte> bytes) => new UTF8Encoding(false, true).GetString(bytes);
     }
 
 internal sealed class RelationModel
@@ -191,6 +295,67 @@ CREATE TABLE IF NOT EXISTS {Table} (
         internal string TargetIndex => "ix_" + Table + "_target";
     }
 
+internal sealed class OrderingPartModel
+    {
+        internal OrderingPartModel(BaseLogicalIndexPart definition, FieldModel field, string stateColumn, string valueColumn)
+        { Definition = definition; Field = field; StateColumn = stateColumn; ValueColumn = valueColumn; }
+        internal BaseLogicalIndexPart Definition { get; }
+        internal FieldModel Field { get; }
+        internal string StateColumn { get; }
+        internal string ValueColumn { get; }
+        internal string SqlType => Field.Definition.ScalarKind switch
+        {
+            BaseScalarKind.Binary or BaseScalarKind.Guid => "BLOB",
+            BaseScalarKind.Int32 or BaseScalarKind.Int64 or BaseScalarKind.UInt32 or BaseScalarKind.Boolean or BaseScalarKind.UtcDateTime or BaseScalarKind.ClosedEnum => "INTEGER",
+            BaseScalarKind.String or BaseScalarKind.UInt64 or BaseScalarKind.Decimal => "TEXT",
+            _ => throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid),
+        };
+
+        internal (long Rank, object Shadow) Encode(Dictionary<string, JsonElement> values)
+        {
+            bool present = values.TryGetValue(Field.Definition.WireName, out JsonElement value); bool nonNull = present && value.ValueKind != JsonValueKind.Null;
+            long rank = Definition.NullOrder switch
+            {
+                BaseIndexNullOrder.MissingThenNullThenValue => !present ? 0 : nonNull ? 2 : 1,
+                BaseIndexNullOrder.ValueThenNullThenMissing => nonNull ? 0 : present ? 1 : 2,
+                _ => throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid),
+            };
+            return (rank, nonNull ? Value(value) : Neutral());
+        }
+
+        private object Value(JsonElement value) => Field.Definition.ScalarKind switch
+        {
+            BaseScalarKind.String => value.GetString()!,
+            BaseScalarKind.Binary => BaseBinary.FromBase64(value.GetString()!).ToArray(),
+            BaseScalarKind.Int32 => (long)value.GetInt32(), BaseScalarKind.Int64 => value.GetInt64(), BaseScalarKind.UInt32 => (long)value.GetUInt32(),
+            BaseScalarKind.UInt64 => value.GetUInt64().ToString("D20", CultureInfo.InvariantCulture),
+            BaseScalarKind.Decimal when BaseScalarCanonical.TryParseDecimal(value.GetRawText(), out BaseDecimalValue item) => SortableDecimal(item),
+            BaseScalarKind.Boolean => value.GetBoolean() ? 1L : 0L,
+            BaseScalarKind.Guid when Guid.TryParseExact(value.GetString(), "D", out Guid item) => GuidBytes(item),
+            BaseScalarKind.UtcDateTime => value.GetDateTimeOffset().Ticks,
+            BaseScalarKind.ClosedEnum => EnumOrdinal(value.GetString()!),
+            _ => throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid),
+        };
+
+        private object Neutral() => SqlType switch { "BLOB" => Array.Empty<byte>(), "INTEGER" => 0L, _ => string.Empty };
+        private long EnumOrdinal(string value)
+        {
+            ImmutableArray<string> literals = Field.Definition.ScalarConstraints?.AllowedEnumLiterals ?? [];
+            int ordinal = literals.BinarySearch(value, StringComparer.Ordinal);
+            return ordinal >= 0 ? ordinal : throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid);
+        }
+        private static byte[] GuidBytes(Guid value) { byte[] bytes = new byte[16]; value.TryWriteBytes(bytes, bigEndian: true, out _); return bytes; }
+        private static string SortableDecimal(BaseDecimalValue value)
+        {
+            if (value.Coefficient == 0) return "1" + new string('0', 41);
+            bool negative = value.Coefficient < 0; string digits = value.Coefficient.ToString(CultureInfo.InvariantCulture).TrimStart('-');
+            int biasedExponent = digits.Length - value.Scale + 27; string padded = digits.PadRight(39, '0');
+            if (!negative) return "2" + biasedExponent.ToString("D2", CultureInfo.InvariantCulture) + padded;
+            char[] inverted = padded.Select(static character => (char)('9' - (character - '0'))).ToArray();
+            return "0" + (99 - biasedExponent).ToString("D2", CultureInfo.InvariantCulture) + new string(inverted);
+        }
+    }
+
 internal sealed class FieldModel
     {
         internal FieldModel(FieldDefinition definition, string column, string? presenceColumn)
@@ -198,14 +363,21 @@ internal sealed class FieldModel
         internal FieldDefinition Definition { get; }
         internal string Column { get; }
         internal string? PresenceColumn { get; }
-        internal string SqlType => Definition.Format == "base64" ? "BLOB" : Definition.Type switch
-        { "boolean" or "integer" => "INTEGER", "number" => "REAL", _ => "TEXT" };
+        internal string SqlType => Definition.Format == "base64" ? "BLOB" : Definition.ScalarKind switch
+        {
+            BaseScalarKind.Decimal or BaseScalarKind.UInt64 => "TEXT",
+            BaseScalarKind.Int32 or BaseScalarKind.Int64 or BaseScalarKind.UInt32 or BaseScalarKind.Boolean => "INTEGER",
+            _ => Definition.Type == "number" ? "REAL" : "TEXT",
+        };
 
         internal object Encode(JsonElement value)
         {
             if (value.ValueKind == JsonValueKind.Null) return DBNull.Value;
             if (Definition.Format == "date-time")
-                return value.GetDateTimeOffset().ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
+            {
+                _ = BaseScalarCanonical.Encode(BaseScalarKind.UtcDateTime, value);
+                return value.GetString()!;
+            }
             if (Definition.Format == "base64")
             {
                 BaseBinary binary = BaseBinary.FromBase64(value.GetString()!);
@@ -213,6 +385,13 @@ internal sealed class FieldModel
                     throw new InvalidOperationException(BaseBinaryErrorCodes.ValueTooLarge);
                 return binary.ToArray();
             }
+            if (Definition.ScalarKind == BaseScalarKind.Decimal)
+            {
+                if (!BaseScalarCanonical.TryParseDecimal(value.GetRawText(), out BaseDecimalValue parsed)) throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid);
+                return BaseScalarCanonical.DecimalText(parsed);
+            }
+            if (Definition.ScalarKind == BaseScalarKind.UInt64)
+                return value.TryGetUInt64(out _) ? value.GetRawText() : throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid);
             return Definition.Type switch
             {
                 "boolean" => value.GetBoolean() ? 1L : 0L,
@@ -228,6 +407,7 @@ internal sealed class FieldModel
         {
             _ when Definition.Format == "date-time" => Parse("\"" + JsonEncodedText.Encode(Convert.ToString(value, CultureInfo.InvariantCulture)!).ToString() + "\""),
             _ when Definition.Format == "base64" => Parse("\"" + Convert.ToBase64String((byte[])value) + "\""),
+            _ when Definition.ScalarKind is BaseScalarKind.Decimal or BaseScalarKind.UInt64 => Parse(Convert.ToString(value, CultureInfo.InvariantCulture)!),
             "boolean" => Parse(Convert.ToInt64(value, CultureInfo.InvariantCulture) == 0 ? "false" : "true"),
             "integer" => Parse(Convert.ToInt64(value, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture)),
             "number" => Parse(Convert.ToDouble(value, CultureInfo.InvariantCulture).ToString("R", CultureInfo.InvariantCulture)),

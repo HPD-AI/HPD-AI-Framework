@@ -5,8 +5,7 @@ namespace HPD.Base;
 /// </summary>
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
 public sealed class BaseIndexAttribute(
-    string id,
-    params string[] fields) : Attribute
+    string id) : Attribute
 {
     /// <summary>
     /// Gets the stable index identifier.
@@ -14,9 +13,9 @@ public sealed class BaseIndexAttribute(
     public string Id { get; } = id;
 
     /// <summary>
-    /// Gets the CLR property names included in the index, in order.
+    /// Gets the positive logical index version.
     /// </summary>
-    public IReadOnlyList<string> Fields { get; } = fields;
+    public long Version { get; set; } = 1;
 
     /// <summary>
     /// Gets or sets whether the index enforces uniqueness.
@@ -26,5 +25,6 @@ public sealed class BaseIndexAttribute(
     /// <summary>
     /// Gets or sets whether provider enforcement is required.
     /// </summary>
-    public bool Required { get; set; } = true;
+    public bool StoreRequired { get; set; } = true;
+
 }

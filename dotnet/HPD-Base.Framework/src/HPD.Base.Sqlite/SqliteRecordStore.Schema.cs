@@ -146,7 +146,7 @@ public sealed partial class SqliteRecordStore
     {
         BaseSchemaObservedAsset prior = request.ObservedState.Assets.Single(asset => asset.LogicalId == operation.LogicalId);
         string[] summary = (prior.SafeSummary ?? "").Split('\u001f');
-        bool hadPresence = summary.Length == 4 && !(summary[2] == "1" && summary[3] == "0");
+        bool hadPresence = summary.Length >= 4 && !(summary[2] == "0" && summary[3] == "0");
         string table = NativeSchemaName("b_c_", parts[1]);
         string predicate = hadPresence ? NativeSchemaName("p_", parts[2]) + " = 1" : "1 = 1";
         return $"SELECT EXISTS(SELECT 1 FROM {table} WHERE {predicate} LIMIT 1);";
@@ -870,7 +870,7 @@ INSERT OR IGNORE INTO {_names.ProviderState}(key,value) VALUES('subject_scope_pr
     private async ValueTask<string[]> GetAcceptedDriftAsync(SqliteConnection connection, BaseSchemaObservedAsset[] assets, CancellationToken cancellationToken)
     {
         var missing = new List<string>();
-        foreach (string core in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.OperationReceipts, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease })
+        foreach (string core in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.OperationReceipts, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.LogicalIndexes, _names.SchemaHistory, _names.SchemaLease })
             if (!await SchemaObjectExistsAsync(connection, "table", core, cancellationToken).ConfigureAwait(false)) missing.Add("table:" + core);
         foreach (BaseSchemaObservedAsset asset in assets)
         {
@@ -880,7 +880,7 @@ INSERT OR IGNORE INTO {_names.ProviderState}(key,value) VALUES('subject_scope_pr
             {
                 string table = NativeSchemaName("b_c_", id[1]);
                 if (!await SchemaColumnExistsAsync(connection, table, NativeSchemaName("f_", id[2]), cancellationToken).ConfigureAwait(false)) missing.Add("asset:" + asset.LogicalId);
-                string[] summary = (asset.SafeSummary ?? "").Split('\u001f'); bool presence = summary.Length == 4 && !(summary[2] == "1" && summary[3] == "0");
+                string[] summary = (asset.SafeSummary ?? "").Split('\u001f'); bool presence = summary.Length >= 4 && !(summary[2] == "0" && summary[3] == "0");
                 if (presence && !await SchemaColumnExistsAsync(connection, table, NativeSchemaName("p_", id[2]), cancellationToken).ConfigureAwait(false)) missing.Add("asset:" + asset.LogicalId + ":presence");
             }
             else if (id[0] == "i" && !await SchemaObjectExistsAsync(connection, "index", NativeSchemaName("b_i_", id[2]), cancellationToken).ConfigureAwait(false)) missing.Add("asset:" + asset.LogicalId);
@@ -935,10 +935,11 @@ INSERT OR IGNORE INTO {_names.ProviderState}(key,value) VALUES('subject_scope_pr
         foreach (CollectionDefinition collection in _options.Collections)
         {
             assets.Add(new SchemaAssetValue("c:" + collection.Id, collection.Name));
-            foreach (FieldDefinition field in collection.Fields ?? []) assets.Add(new SchemaAssetValue($"f:{collection.Id}:{field.Id}", string.Join('\u001f', field.WireName, field.Type, field.Required ? "1" : "0", field.Nullable ? "1" : "0")));
+            foreach (FieldDefinition field in collection.Fields ?? []) assets.Add(new SchemaAssetValue($"f:{collection.Id}:{field.Id}", string.Join('\u001f', field.WireName, field.Type, (int)field.Presence, (int)field.Nullability, field.ScalarKind is null ? "" : ((int)field.ScalarKind.Value).ToString(CultureInfo.InvariantCulture), field.ScalarCodec?.CodecChecksum.ToString() ?? "", field.ScalarConstraintChecksum?.ToString() ?? "")));
             foreach (RelationDefinition relation in (collection.Fields ?? []).Select(static field => field.Relation).Where(static relation => relation is not null).Cast<RelationDefinition>())
                 assets.Add(new SchemaAssetValue("r:" + relation.Id, string.Join('\u001f', relation.SourceCollectionId, relation.SourceFieldId, relation.TargetCollectionId, relation.TargetFieldId, relation.OwningSide, relation.LocalMultiplicity, relation.InverseMultiplicity, relation.Required, relation.Ordered, relation.DeleteBehavior)));
-            foreach (IndexDefinition index in collection.Indexes ?? []) assets.Add(new SchemaAssetValue($"i:{collection.Id}:{index.Id}", string.Join('\u001f', index.Unique ? "1" : "0", string.Join('\u001e', (index.Parts ?? []).Select(static part => part.FieldId)))));
+            FieldDefinition[] orderedFields = (collection.Fields ?? []).OrderBy(static field => field.Id, StringComparer.Ordinal).ToArray();
+            foreach (BaseLogicalIndexDefinition index in collection.Indexes ?? []) assets.Add(new SchemaAssetValue($"i:{collection.Id}:{index.Id}", string.Join('\u001f', index.Unique ? "1" : "0", string.Join('\u001e', index.Parts.Select(part => orderedFields[part.FieldOrdinal].Id)), index.Version.ToString(CultureInfo.InvariantCulture), index.StoreRequired ? "1" : "0", index.MembershipPredicate.Checksum.ToString(), index.Checksum.ToString(), string.Join('\u001e', index.Parts.Select(static part => $"{part.FieldOrdinal}:{(int)part.Direction}:{(int)part.Collation}:{(int)part.NullOrder}")))));
         }
         return assets.OrderBy(static asset => asset.LogicalId, StringComparer.Ordinal).ToArray();
     }
@@ -1039,12 +1040,12 @@ INSERT OR IGNORE INTO {_names.ProviderState}(key,value) VALUES('subject_scope_pr
                 case BaseSchemaOperationKind.AddIndex when !createdCollections.Contains(parts[1]):
                 {
                     SqlitePhysicalModel.CollectionModel collection = _physical.Collection(parts[1]);
-                    statements.Add(collection.Indexes.Single(item => item.Definition.Id == parts[2]).CreateSql(collection));
+                    statements.Add(collection.Indexes.Single(item => item.Definition.Id.ToString() == parts[2]).CreateSql(collection));
                     break;
                 }
                 case BaseSchemaOperationKind.AlterIndex:
                 {
-                    SqlitePhysicalModel.CollectionModel collection = _physical.Collection(parts[1]); SqlitePhysicalModel.IndexModel index = collection.Indexes.Single(item => item.Definition.Id == parts[2]);
+                    SqlitePhysicalModel.CollectionModel collection = _physical.Collection(parts[1]); SqlitePhysicalModel.IndexModel index = collection.Indexes.Single(item => item.Definition.Id.ToString() == parts[2]);
                     statements.Add($"DROP INDEX IF EXISTS {index.Name};"); statements.Add(index.CreateSql(collection)); break;
                 }
                 case BaseSchemaOperationKind.RemoveIndex: statements.Add($"DROP INDEX IF EXISTS {NativeSchemaName("b_i_", parts[2])};"); break;

@@ -9,7 +9,7 @@ public sealed class BaseCollectionSchemaBuilder<T>
     private readonly string _id;
     private readonly JsonTypeInfo<T> _jsonTypeInfo;
     private readonly Dictionary<string, FieldEntry> _fields = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, IndexEntry> _indexes = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, BaseLogicalIndexBuilder<T>> _logicalIndexes = new(StringComparer.Ordinal);
     private readonly Dictionary<string, BaseTextIndexSchemaBuilder<T>> _textIndexes = new(StringComparer.Ordinal);
     private SchemaMode _schemaMode = SchemaMode.Strict;
     private UnknownFieldPolicy _unknownFields = UnknownFieldPolicy.Reject;
@@ -79,12 +79,20 @@ public sealed class BaseCollectionSchemaBuilder<T>
     public BaseSchemaFieldBuilder<T, int> Integer(string fieldId, string applicationName, BaseJsonProperty<T, int> property) => Field(fieldId, applicationName, property, "integer");
     /// <summary>Performs long.</summary>
     public BaseSchemaFieldBuilder<T, long> Long(string fieldId, string applicationName, BaseJsonProperty<T, long> property) => Field(fieldId, applicationName, property, "integer");
+    /// <summary>Declares one unsigned 32-bit integer field.</summary>
+    public BaseSchemaFieldBuilder<T, uint> UInt32(string fieldId, string applicationName, BaseJsonProperty<T, uint> property) => Field(fieldId, applicationName, property, "integer");
+    /// <summary>Declares one unsigned 64-bit integer field.</summary>
+    public BaseSchemaFieldBuilder<T, ulong> UInt64(string fieldId, string applicationName, BaseJsonProperty<T, ulong> property) => Field(fieldId, applicationName, property, "integer");
     /// <summary>Performs number.</summary>
     public BaseSchemaFieldBuilder<T, double> Number(string fieldId, string applicationName, BaseJsonProperty<T, double> property) => Field(fieldId, applicationName, property, "number");
     /// <summary>Performs decimal.</summary>
     public BaseSchemaFieldBuilder<T, decimal> Decimal(string fieldId, string applicationName, BaseJsonProperty<T, decimal> property) => Field(fieldId, applicationName, property, "number", "decimal");
     /// <summary>Performs date Time.</summary>
     public BaseSchemaFieldBuilder<T, DateTimeOffset> DateTime(string fieldId, string applicationName, BaseJsonProperty<T, DateTimeOffset> property) => Field(fieldId, applicationName, property, "string", "date-time");
+    /// <summary>Declares one canonical lowercase-D GUID field.</summary>
+    public BaseSchemaFieldBuilder<T, Guid> Guid(string fieldId, string applicationName, BaseJsonProperty<T, Guid> property) => Field(fieldId, applicationName, property, "string", "uuid");
+    /// <summary>Declares one bounded canonical BASE JSON field.</summary>
+    public BaseSchemaFieldBuilder<T, BaseCanonicalJson> CanonicalJson(string fieldId, string applicationName, BaseJsonProperty<T, BaseCanonicalJson> property) => Field(fieldId, applicationName, property, "object", "base-json-v1");
     /// <summary>Performs enum.</summary>
     public BaseSchemaFieldBuilder<T, TEnum> Enum<TEnum>(string fieldId, string applicationName, BaseJsonProperty<T, TEnum> property)
         where TEnum : struct, Enum => Field(fieldId, applicationName, property, "string", "enum");
@@ -155,37 +163,18 @@ public sealed class BaseCollectionSchemaBuilder<T>
         return new BaseRelationSchemaBuilder<T, TTarget>(entry, manyValued: true);
     }
 
-    /// <summary>Declares a validated index over known stored fields.</summary>
-    public BaseSchemaIndexBuilder<T> Index(string id, params ReadOnlySpan<string> fields)
+    /// <summary>Declares one exact provider-neutral logical index.</summary>
+    public BaseCollectionSchemaBuilder<T> Index(string id, long version, Action<BaseLogicalIndexBuilder<T>> configure)
     {
         BaseApplicationId.Validate(id, nameof(id));
-        if (_indexes.Count >= MaximumIndexes)
-        {
-            throw new InvalidOperationException($"A collection may declare at most {MaximumIndexes} indexes.");
-        }
-
-        if (_indexes.ContainsKey(id))
-        {
-            throw new InvalidOperationException($"Index '{id}' is already declared.");
-        }
-
-        if (fields.Length == 0)
-        {
-            throw new ArgumentException("An index must contain at least one field.", nameof(fields));
-        }
-
-        string[] fieldIds = fields.ToArray();
-        foreach (string fieldId in fieldIds)
-        {
-            if (!_fields.ContainsKey(fieldId))
-            {
-                throw new InvalidOperationException($"Index '{id}' references unknown field '{fieldId}'.");
-            }
-        }
-
-        var entry = new IndexEntry(id, fieldIds);
-        _indexes.Add(id, entry);
-        return new BaseSchemaIndexBuilder<T>(entry);
+        ArgumentOutOfRangeException.ThrowIfLessThan(version, 1);
+        ArgumentNullException.ThrowIfNull(configure);
+        if (_logicalIndexes.Count >= MaximumIndexes || _logicalIndexes.ContainsKey(id))
+            throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid);
+        var builder = new BaseLogicalIndexBuilder<T>(_id, BaseLogicalIndexId.Create(id), version, ResolveOrdinal);
+        configure(builder);
+        _logicalIndexes.Add(id, builder);
+        return this;
     }
 
     /// <summary>Declares one provider-neutral lexical index using serializer-owned property handles.</summary>
@@ -199,8 +188,11 @@ public sealed class BaseCollectionSchemaBuilder<T>
     /// <summary>Performs build.</summary>
     internal BaseCollection<T> Build()
     {
+        int canonicalOrdinal = 0;
+        foreach (FieldEntry entry in _fields.Values.OrderBy(static value => value.Id, StringComparer.Ordinal)) entry.Ordinal = canonicalOrdinal++;
         FieldDefinition[] fields = _fields.Values.Select(static entry => entry.Definition()).ToArray();
-        IndexDefinition[] indexes = _indexes.Values.Select(entry => entry.Definition(_id)).ToArray();
+        FieldDefinition[] orderedFields = fields.OrderBy(static value => value.Id, StringComparer.Ordinal).ToArray();
+        BaseLogicalIndexDefinition[] logicalIndexes = _logicalIndexes.Values.OrderBy(static value => value.Id).Select(value => value.Build(orderedFields)).ToArray();
         var definition = new CollectionDefinition
         {
             Id = _id,
@@ -213,7 +205,7 @@ public sealed class BaseCollectionSchemaBuilder<T>
             SchemaMode = _schemaMode,
             UnknownFields = _unknownFields,
             Fields = fields,
-            Indexes = indexes,
+            Indexes = logicalIndexes.Length == 0 ? null : logicalIndexes,
             TextIndexes = _textIndexes.Count == 0 ? null : _textIndexes.Values.OrderBy(static value => value.Id, StringComparer.Ordinal).Select(static value => value.Build()).ToArray(),
             Source = new SchemaSourceDescriptor
             {
@@ -257,27 +249,63 @@ public sealed class BaseCollectionSchemaBuilder<T>
             throw new InvalidOperationException("A field application or wire name is already declared.");
         }
 
-        var entry = new FieldEntry<TValue>(fieldId, applicationName, property.WireName, type, format);
+        int ordinal = _fields.Count;
+        var entry = new FieldEntry<TValue>(_id, fieldId, applicationName, property.WireName, type, format, ordinal, ScalarKind(typeof(TValue), type, format));
         _fields.Add(fieldId, entry);
         return new BaseSchemaFieldBuilder<T, TValue>(entry);
+    }
+
+    private int ResolveOrdinal(string wireName)
+    {
+        FieldEntry[] fields = _fields.Values.OrderBy(static value => value.Id, StringComparer.Ordinal).ToArray();
+        int ordinal = System.Array.FindIndex(fields, value => string.Equals(value.WireName, wireName, StringComparison.Ordinal));
+        return ordinal >= 0 ? ordinal : throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid);
+    }
+
+    private static BaseScalarKind? ScalarKind(Type valueType, string type, string? format)
+    {
+        Type actual = Nullable.GetUnderlyingType(valueType) ?? valueType;
+        if (type == "string" && format is "record-id" or "file-reference") return BaseScalarKind.String;
+        if (actual == typeof(string)) return BaseScalarKind.String;
+        if (actual == typeof(BaseBinary)) return BaseScalarKind.Binary;
+        if (actual == typeof(BaseCanonicalJson)) return BaseScalarKind.CanonicalJson;
+        if (actual == typeof(int)) return BaseScalarKind.Int32;
+        if (actual == typeof(long)) return BaseScalarKind.Int64;
+        if (actual == typeof(uint)) return BaseScalarKind.UInt32;
+        if (actual == typeof(ulong)) return BaseScalarKind.UInt64;
+        if (actual == typeof(decimal)) return BaseScalarKind.Decimal;
+        if (actual == typeof(bool)) return BaseScalarKind.Boolean;
+        if (actual == typeof(Guid)) return BaseScalarKind.Guid;
+        if (actual == typeof(DateTimeOffset)) return BaseScalarKind.UtcDateTime;
+        if (actual.IsEnum) return BaseScalarKind.ClosedEnum;
+        if (actual.IsArray || type == "array") return BaseScalarKind.FrozenArray;
+        return null;
     }
 
 internal abstract class FieldEntry
     {
         /// <summary>Initializes a new instance.</summary>
-        protected FieldEntry(string id, string applicationName, string wireName, string type, string? format)
+        protected FieldEntry(string collectionId, string id, string applicationName, string wireName, string type, string? format, int ordinal, BaseScalarKind? scalarKind)
         {
+            CollectionId = collectionId;
             Id = id;
             ApplicationName = applicationName;
             WireName = wireName;
             Type = type;
             Format = format;
+            Ordinal = ordinal;
+            ScalarKind = scalarKind;
         }
 
         /// <summary>Gets id.</summary>
         internal string Id { get; }
+        internal string CollectionId { get; }
         internal string ApplicationName { get; }
         internal string WireName { get; }
+        internal int Ordinal { get; set; }
+        internal BaseScalarKind? ScalarKind { get; }
+        internal BaseScalarConstraintSet ScalarConstraints { get; set; } = new();
+        internal bool ScalarConstraintsAssigned { get; set; }
         /// <summary>Gets type.</summary>
         internal string Type { get; }
         /// <summary>Gets format.</summary>
@@ -297,18 +325,32 @@ internal abstract class FieldEntry
         internal abstract void AddTo(BaseCollectionFields<T> declarations);
     }
 
-internal sealed class FieldEntry<TValue>(string id, string applicationName, string wireName, string type, string? format) : FieldEntry(id, applicationName, wireName, type, format)
+internal sealed class FieldEntry<TValue>(string collectionId, string id, string applicationName, string wireName, string type, string? format, int ordinal, BaseScalarKind? scalarKind) : FieldEntry(collectionId, id, applicationName, wireName, type, format, ordinal, scalarKind)
     {
         /// <summary>Performs definition.</summary>
-        internal override FieldDefinition Definition() => new()
+        internal override FieldDefinition Definition()
         {
+            BaseFieldPresence presence = IsRequired ? BaseFieldPresence.Required : BaseFieldPresence.Optional;
+            BaseFieldNullability nullability = IsNullable ? BaseFieldNullability.Nullable : BaseFieldNullability.NonNullable;
+            BaseScalarConstraintSet constraints = MaximumBytes is null ? ScalarConstraints : ScalarConstraints with { MaximumBinaryBytes = MaximumBytes };
+            BaseScalarCodecAuthority? codec = ScalarKind is null ? null : ScalarKind == BaseScalarKind.ClosedEnum
+                ? BaseSchemaContract.Codec(ScalarKind.Value, BaseSchemaContract.EnumQualifier(System.Enum.GetNames(Nullable.GetUnderlyingType(typeof(TValue)) ?? typeof(TValue))))
+                : BaseSchemaContract.Codec(ScalarKind.Value);
+            BaseScalarConstraintChecksum? checksum = codec is null ? null : BaseSchemaContract.SealConstraints(CollectionId, Id, presence, nullability, codec, constraints);
+            if (codec is null && ScalarConstraintsAssigned) throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid);
+            return new()
+            {
             Id = Id,
             ApplicationName = ApplicationName,
             WireName = WireName,
             Type = Type,
             Format = Format,
-            Required = IsRequired,
-            Nullable = IsNullable,
+            Presence = presence,
+            Nullability = nullability,
+            ScalarKind = ScalarKind,
+            ScalarCodec = codec,
+            ScalarConstraints = codec is null ? null : constraints with { AllowedEnumLiterals = [.. constraints.AllowedEnumLiterals] },
+            ScalarConstraintChecksum = checksum,
             Relation = Relation is null ? null : Relation with
             {
                 Required = IsRequired
@@ -316,29 +358,12 @@ internal sealed class FieldEntry<TValue>(string id, string applicationName, stri
             Confidentiality = Confidentiality,
             Disclosure = BaseConfidentialityPolicy.Normalize(Confidentiality, Disclosure),
             MaximumBytes = MaximumBytes,
-        };
+            };
+        }
         /// <summary>Performs add To.</summary>
         internal override void AddTo(BaseCollectionFields<T> declarations) => declarations.Add<TValue>(Id, ApplicationName, WireName, IsNullable);
     }
 
-internal sealed class IndexEntry(string id, string[] fields)
-    {
-        internal bool Required { get; set; }
-        internal bool Unique { get; set; }
-
-        /// <summary>Performs definition.</summary>
-        internal IndexDefinition Definition(string collectionId) => new()
-        {
-            Id = id,
-            Name = id,
-            CollectionId = collectionId,
-            Kind = Unique ? IndexKind.Unique : IndexKind.Key,
-            Unique = Unique,
-            Status = IndexStatus.Unknown,
-            Enforcement = Required ? EnforcementOwner.Store : EnforcementOwner.Advisory,
-            Parts = fields.Select(static field => new IndexPart { Kind = IndexPartKind.Field, FieldId = field, }).ToArray(),
-        };
-    }
 }
 
 /// <summary>Configures one canonical typed relation declaration.</summary>
@@ -461,6 +486,34 @@ public sealed class BaseSchemaFieldBuilder<TRecord, TValue>
         return this;
     }
 
+    /// <summary>Declares an optional field that rejects an explicit null value.</summary>
+    public BaseSchemaFieldBuilder<TRecord, TValue> OptionalNonNullable()
+    {
+        _entry.IsRequired = false;
+        _entry.IsNullable = false;
+        return this;
+    }
+
+    /// <summary>Declares a required field that permits an explicit null value.</summary>
+    public BaseSchemaFieldBuilder<TRecord, TValue> RequiredNullable()
+    {
+        _entry.IsRequired = true;
+        _entry.IsNullable = true;
+        return this;
+    }
+
+    /// <summary>Configures closed scalar constraints for this field exactly once.</summary>
+    public BaseSchemaFieldBuilder<TRecord, TValue> Constraints(Action<BaseScalarConstraintBuilder<TValue>> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        if (_entry.ScalarConstraintsAssigned) throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid);
+        var builder = new BaseScalarConstraintBuilder<TValue>();
+        configure(builder);
+        _entry.ScalarConstraints = builder.Build();
+        _entry.ScalarConstraintsAssigned = true;
+        return this;
+    }
+
     /// <summary>Assigns the field confidentiality class exactly once.</summary>
     public BaseSchemaFieldBuilder<TRecord, TValue> Confidentiality(BaseFieldConfidentiality confidentiality)
     {
@@ -488,33 +541,6 @@ public sealed class BaseSchemaFieldBuilder<TRecord, TValue>
         if (typeof(TValue) != typeof(BaseBinary) || maximumBytes is < 1 or > 1_048_576 || _entry.MaximumBytes is not null)
             throw new InvalidOperationException(BaseConfidentialityErrorCodes.ContractInvalid);
         _entry.MaximumBytes = maximumBytes;
-        return this;
-    }
-}
-
-/// <summary>Declares whether an index is a required physical capability or advisory.</summary>
-public sealed class BaseSchemaIndexBuilder<T>
-{
-    private readonly BaseCollectionSchemaBuilder<T>.IndexEntry _entry;
-    internal BaseSchemaIndexBuilder(BaseCollectionSchemaBuilder<T>.IndexEntry entry) => _entry = entry;
-    /// <summary>Performs required.</summary>
-    public BaseSchemaIndexBuilder<T> Required()
-    {
-        _entry.Required = true;
-        return this;
-    }
-
-    /// <summary>Performs advisory.</summary>
-    public BaseSchemaIndexBuilder<T> Advisory()
-    {
-        _entry.Required = false;
-        return this;
-    }
-
-    /// <summary>Performs unique.</summary>
-    public BaseSchemaIndexBuilder<T> Unique()
-    {
-        _entry.Unique = true;
         return this;
     }
 }

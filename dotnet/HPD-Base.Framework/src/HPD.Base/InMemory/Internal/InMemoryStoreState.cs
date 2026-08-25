@@ -19,6 +19,7 @@ internal sealed class InMemoryStoreState
     public Dictionary<string, InMemoryVectorProjectionState> VectorProjections { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, InMemoryTextProjectionState> TextProjections { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, InMemoryTextRebuildReceipt> TextRebuildReceipts { get; } = new(StringComparer.Ordinal);
+    public Dictionary<string, InMemoryLogicalIndexAuthority> LogicalIndexes { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets current exported-subject contract authority by canonical contract key.</summary>
     public Dictionary<string, InMemorySubjectContractState> SubjectContracts { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets current exported-subject lifetimes by canonical subject key.</summary>
@@ -96,6 +97,8 @@ internal sealed class InMemoryStoreState
             clone.TextProjections.Add(id, projection.Clone());
         foreach (var (id, receipt) in TextRebuildReceipts)
             clone.TextRebuildReceipts.Add(id, receipt with { Fingerprint = [.. receipt.Fingerprint], Result = receipt.Result with { PublicationChecksum = ImmutableArray.Create(receipt.Result.PublicationChecksum.ToArray()) } });
+        foreach (var (id, authority) in LogicalIndexes)
+            clone.LogicalIndexes.Add(id, authority with { PublicationChecksum = BaseSchemaAuthorityChecksum.Create(authority.PublicationChecksum.ToArray()) });
         foreach (var (id, subject) in SubjectContracts)
             clone.SubjectContracts.Add(id, subject with { });
         foreach (var (id, lifetime) in SubjectLifetimes)
@@ -232,6 +235,13 @@ internal sealed class InMemoryStoreState
         Payload = snapshot.Payload is null ? null : RecordCloneHelpers.ClonePayload(snapshot.Payload),
         Metadata = snapshot.Metadata is null ? null : RecordCloneHelpers.CloneMetadata(snapshot.Metadata),
     };
+}
+
+internal sealed record InMemoryLogicalIndexAuthority
+{
+    public required long Generation { get; init; }
+    public required BaseLogicalIndexGenerationState State { get; init; }
+    public required BaseSchemaAuthorityChecksum PublicationChecksum { get; init; }
 }
 
 internal sealed record InMemorySemanticActivationSlot

@@ -42,8 +42,8 @@ public sealed class SchemaValidatorTests
                     Id = "title",
                     ApplicationName = "title", WireName = "title",
                     Type = BaseFieldTypes.String,
-                    Required = true,
-                    Nullable = false,
+                    Presence = BaseFieldPresence.Required,
+                    Nullability = BaseFieldNullability.NonNullable,
                     Default = new DefaultValueDescriptor
                     {
                         Kind = DefaultValueKind.Literal,
@@ -67,7 +67,7 @@ public sealed class SchemaValidatorTests
             JsonPayload("""{"title":"ok"}"""),
             fields:
             [
-                new FieldDefinition { Id = "title", ApplicationName = "title", WireName = "title", Type = BaseFieldTypes.String, Required = true, Nullable = false },
+                new FieldDefinition { Id = "title", ApplicationName = "title", WireName = "title", Type = BaseFieldTypes.String, Presence = BaseFieldPresence.Required, Nullability = BaseFieldNullability.NonNullable },
                 new FieldDefinition
                 {
                     Id = "createdAt",
@@ -112,6 +112,73 @@ public sealed class SchemaValidatorTests
         Assert.Equal("base.runtime.payload.nonNullable", result.Error!.Code);
     }
 
+    [Theory]
+    [InlineData("é", 2, true)]
+    [InlineData("é", 1, false)]
+    [InlineData("e\u0301", 3, false)]
+    public async Task ScalarStringConstraintsUseStrictUtf8AndRequireCanonicalNfc(string value, int maximumBytes, bool accepted)
+    {
+        using var provider = Provider();
+        FieldDefinition field = ScalarField(BaseScalarKind.String, new BaseScalarConstraintSet
+        {
+            MaximumUtf8Bytes = maximumBytes,
+            StringNormalization = BaseStringNormalizationRequirement.RequireNfc
+        });
+
+        OperationResult<BaseValidatedPayload> result = await provider.GetRequiredService<IBaseSchemaValidator>()
+            .ValidateCreateAsync(Request(JsonPayload(JsonSerializer.Serialize(new Dictionary<string, string> { ["value"] = value })), fields: [field]));
+
+        Assert.Equal(accepted ? OperationStatus.Ok : OperationStatus.ValidationFailed, result.Status);
+        if (!accepted) Assert.Equal(BaseSchemaErrorCodes.ScalarConstraintViolated, result.Error!.Code);
+    }
+
+    [Theory]
+    [InlineData("0", true)]
+    [InlineData("10", true)]
+    [InlineData("11", false)]
+    [InlineData("1.0", false)]
+    public async Task Int64ConstraintsRejectCoercionAndOutOfRangeValues(string literal, bool accepted)
+    {
+        using var provider = Provider();
+        FieldDefinition field = ScalarField(BaseScalarKind.Int64, new BaseScalarConstraintSet { MinimumInt64 = 0, MaximumInt64 = 10 });
+        OperationResult<BaseValidatedPayload> result = await provider.GetRequiredService<IBaseSchemaValidator>()
+            .ValidateCreateAsync(Request(JsonPayload($$"""{"value":{{literal}}}"""), fields: [field]));
+        Assert.Equal(accepted ? OperationStatus.Ok : OperationStatus.ValidationFailed, result.Status);
+    }
+
+    [Theory]
+    [InlineData("1", true)]
+    [InlineData("0.1", true)]
+    [InlineData("1.0", false)]
+    [InlineData("0.10", false)]
+    [InlineData("-0", false)]
+    public async Task DecimalConstraintsRequireTheReducedCanonicalWireSpelling(string literal, bool accepted)
+    {
+        using var provider = Provider();
+        FieldDefinition field = ScalarField(BaseScalarKind.Decimal, new BaseScalarConstraintSet());
+        OperationResult<BaseValidatedPayload> result = await provider.GetRequiredService<IBaseSchemaValidator>()
+            .ValidateCreateAsync(Request(JsonPayload($$"""{"value":{{literal}}}"""), fields: [field]));
+        Assert.Equal(accepted ? OperationStatus.Ok : OperationStatus.ValidationFailed, result.Status);
+    }
+
+    [Fact]
+    public async Task CollectionConstraintCountsCanonicalArrayItems()
+    {
+        using var provider = Provider();
+        FieldDefinition field = ScalarField(BaseScalarKind.FrozenArray, new BaseScalarConstraintSet { MaximumCollectionItems = 2 });
+        OperationResult<BaseValidatedPayload> result = await provider.GetRequiredService<IBaseSchemaValidator>()
+            .ValidateCreateAsync(Request(JsonPayload("""{"value":[1,2,3]}"""), fields: [field]));
+        Assert.Equal(OperationStatus.ValidationFailed, result.Status);
+        Assert.Equal(BaseSchemaErrorCodes.ScalarConstraintViolated, result.Error!.Code);
+    }
+
+    private static FieldDefinition ScalarField(BaseScalarKind kind, BaseScalarConstraintSet constraints) => new()
+    {
+        Id = "value", ApplicationName = "value", WireName = "value", Type = kind.ToString(),
+        Presence = BaseFieldPresence.Required, Nullability = BaseFieldNullability.NonNullable,
+        ScalarKind = kind, ScalarCodec = BaseGeneratedSchemaRegistration.ScalarCodec(kind), ScalarConstraints = constraints
+    };
+
     private static ServiceProvider Provider()
     {
         var services = new ServiceCollection();
@@ -138,8 +205,8 @@ public sealed class SchemaValidatorTests
                     Id = "title",
                     ApplicationName = "title", WireName = "title",
                     Type = BaseFieldTypes.String,
-                    Required = true,
-                    Nullable = false
+                    Presence = BaseFieldPresence.Required,
+                    Nullability = BaseFieldNullability.NonNullable
                 },
                 new FieldDefinition
                 {

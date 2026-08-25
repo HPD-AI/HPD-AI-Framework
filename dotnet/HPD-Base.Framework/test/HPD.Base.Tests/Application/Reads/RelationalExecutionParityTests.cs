@@ -160,19 +160,19 @@ public sealed class RelationalExecutionParityTests
         }
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
         BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System });
-        foreach ((string id, DateTime time) in new[]
+        foreach ((string id, DateTimeOffset time) in new[]
         {
-            ("late", new DateTime(2026, 8, 2, 18, 0, 0, DateTimeKind.Utc)),
-            ("early", new DateTime(2026, 8, 2, 9, 0, 0, DateTimeKind.Utc)),
-            ("middle", new DateTime(2026, 8, 2, 12, 0, 0, DateTimeKind.Utc)),
+            ("late", new DateTimeOffset(2026, 8, 2, 18, 0, 0, TimeSpan.Zero)),
+            ("early", new DateTimeOffset(2026, 8, 2, 9, 0, 0, TimeSpan.Zero)),
+            ("middle", new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.Zero)),
         })
             (await session.Collection(DateTimeParityRecord.Collection).CreateAsync(new RecordId(id), new DateTimeParityRecord { OccurredAt = time })).Should().BeOfType<BaseSuccess<BaseRecord<DateTimeParityRecord>>>();
 
         BasePage<DateTimeParityRead.Row> result = (await session.Reads.ExecuteAsync(
             DateTimeParityRead.Handle,
-            new DateTimeParityRead { After = new DateTime(2026, 8, 2, 8, 0, 0, DateTimeKind.Utc) },
+            new DateTimeParityRead { After = new DateTimeOffset(2026, 8, 2, 8, 0, 0, TimeSpan.Zero) },
             BaseReadPageRequest.Create(1, 10))).RequireValue();
-        result.Items.Select(static row => row.OccurredAt.Kind).Should().OnlyContain(kind => kind == DateTimeKind.Utc);
+        result.Items.Select(static row => row.OccurredAt.Offset).Should().OnlyContain(offset => offset == TimeSpan.Zero);
         return result.Items.Select(static row => row.Id.Value.Value).ToArray();
     }
 
@@ -502,7 +502,8 @@ internal sealed partial class NullableParityJsonContext : JsonSerializerContext;
 internal sealed partial record DateTimeParityRecord
 {
     [BaseField("datetime.occurred-at")]
-    public required DateTime OccurredAt { get; init; }
+    [JsonConverter(typeof(BaseUtcDateTimeJsonConverter))]
+    public required DateTimeOffset OccurredAt { get; init; }
 }
 
 [JsonSerializable(typeof(DateTimeParityRecord))]
@@ -514,7 +515,8 @@ internal sealed partial class DateTimeParityJsonContext : JsonSerializerContext;
 internal sealed partial record DateTimeParityRead
 {
     [BaseReadParameter("datetime.after")]
-    public required DateTime After { get; init; }
+    [JsonConverter(typeof(BaseUtcDateTimeJsonConverter))]
+    public required DateTimeOffset After { get; init; }
 
     public sealed partial record Row
     {
@@ -522,7 +524,8 @@ internal sealed partial record DateTimeParityRead
         public required BaseRecordId<DateTimeParityRecord> Id { get; init; }
 
         [BaseReadField("datetime.row.occurred-at")]
-        public required DateTime OccurredAt { get; init; }
+        [JsonConverter(typeof(BaseUtcDateTimeJsonConverter))]
+        public required DateTimeOffset OccurredAt { get; init; }
     }
 
     public static void Configure(BaseReadDefinitionBuilder<DateTimeParityRead, Row> read)

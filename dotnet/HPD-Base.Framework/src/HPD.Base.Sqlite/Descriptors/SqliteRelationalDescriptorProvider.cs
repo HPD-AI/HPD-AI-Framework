@@ -202,11 +202,11 @@ internal sealed class SqliteRelationalDescriptorProvider :
     private RelationalIndexDescriptor DeclaredIndex(SqlitePhysicalModel.CollectionModel model, SqlitePhysicalModel.IndexModel index, VisibilityLevel visibility) => new()
     {
         Id = DeclaredIndexRef(index), StoreId = _options.StoreId, ParentObjectRef = TableRef(model), NativeName = index.Name,
-        Unique = index.Definition.Unique || index.Definition.Kind == IndexKind.Unique,
+        Unique = index.Definition.Unique,
         Parts = index.Parts.Select((field, ordinal) => new RelationalIndexPartDescriptor
         {
             Id = DeclaredIndexRef(index) + ".part." + ordinal, Ordinal = ordinal, ColumnRef = ColumnRef(model, field.Column),
-            SortDirection = index.Definition.Parts![ordinal].Direction == IndexSortDirection.Desc ? "desc" : "asc",
+            SortDirection = index.Definition.Parts[ordinal].Direction == BaseIndexSortDirection.Descending ? "desc" : "asc",
             Visibility = visibility, PublicSafe = visibility == VisibilityLevel.Public
         }).ToArray(),
         Visibility = visibility, PublicSafe = visibility == VisibilityLevel.Public

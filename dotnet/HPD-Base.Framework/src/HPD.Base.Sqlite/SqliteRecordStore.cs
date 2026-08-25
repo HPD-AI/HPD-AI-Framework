@@ -75,6 +75,9 @@ public sealed partial class SqliteRecordStore :
         string storeInstanceId = await GetOrCreateStoreInstanceIdAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        BaseSchemaAuthorityChecksum logicalSchemaChecksum = BaseSchemaAuthorityChecksum.Create(
+            SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
+                HPDBaseStoreInstallationContext.ComputeSchemaDigest(ordered))));
         long restoreEpoch;
         await using (SqliteCommand epoch = connection.CreateCommand())
         {
@@ -132,6 +135,7 @@ public sealed partial class SqliteRecordStore :
             StoreInstanceId = new string(storeInstanceId.AsSpan()),
             RestoreEpoch = restoreEpoch,
             SchemaGeneration = Volatile.Read(ref _schemaGeneration),
+            LogicalSchemaChecksum = logicalSchemaChecksum,
             Collections = generations.MoveToImmutable(),
             SemanticActivation = semanticAuthority,
         });
@@ -1189,7 +1193,7 @@ FROM {_names.MutationJournal};
                 collectionId);
     }
 
-    private OperationResult<T>? ValidatePayload<T>(RecordPayload payload)
+    private OperationResult<T>? ValidatePayload<T>(CollectionDefinition collection, RecordPayload payload)
     {
         try
         {
@@ -1205,6 +1209,10 @@ FROM {_names.MutationJournal};
                 {
                     return fieldError;
                 }
+                FieldDefinition? definition = collection.Fields?.SingleOrDefault(candidate =>
+                    string.Equals(candidate.WireName, field.Key, StringComparison.Ordinal));
+                if (definition is not null && BaseCanonicalRecordValidator.Validate(definition, field.Value) is { } scalarError)
+                    return SqliteResultFactory.Validation<T>(scalarError.Code, scalarError.Message, scalarError.Target);
             }
 
             return null;

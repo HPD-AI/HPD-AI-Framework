@@ -128,6 +128,8 @@ public sealed record BaseAtomicExecutionRequest
     public BaseActivationGuard? ActivationGuard { get; init; }
     /// <summary>Gets the optional L53 semantic activation operation.</summary>
     public BaseAtomicSemanticActivationExtension? SemanticActivation { get; init; }
+    /// <summary>Gets the graph-owned L54 schema capture extension when schema authority applies.</summary>
+    public BaseAtomicSchemaCaptureRequest? Schema { get; init; }
     /// <summary>Gets the sole complete safety envelope.</summary>
     public required BaseAtomicMutationExecutionLimits Limits { get; init; }
 }
@@ -320,6 +322,8 @@ public sealed record BaseCapturedAtomicExecution
     public BaseCapturedActivationGuardEvidence? ActivationGuard { get; init; }
     /// <summary>Gets captured L53 semantic activation authority.</summary>
     public BaseCapturedSemanticActivationEvidence? SemanticActivation { get; init; }
+    /// <summary>Gets captured L54 schema authority and originals.</summary>
+    public BaseAtomicSchemaCaptureExtension? Schema { get; init; }
     /// <summary>Gets normalized transaction read intervals.</summary>
     public required ImmutableArray<BaseAtomicReadIntervalEvidence> ReadIntervals { get; init; }
     /// <summary>Gets exact capture accounting.</summary>
@@ -569,6 +573,8 @@ public sealed record BaseFinalizedAtomicExecutionPlan
     public BaseActivationGuard? ActivationGuard { get; init; }
     /// <summary>Gets the Runtime-finalized L53 semantic activation operation.</summary>
     public BaseAtomicSemanticActivationExtension? SemanticActivation { get; init; }
+    /// <summary>Gets the Runtime-finalized L54 schema evidence.</summary>
+    public BaseAtomicSchemaFinalizedExtension? Schema { get; init; }
     /// <summary>Gets the complete immutable execution limits.</summary>
     public required BaseAtomicMutationExecutionLimits Limits { get; init; }
 }
@@ -696,6 +702,8 @@ public sealed record BaseModuleGenerationIncrement
 /// <summary>Contains the complete L45 transaction execution safety envelope.</summary>
 public sealed record BaseAtomicMutationExecutionLimits
 {
+    /// <summary>Gets the sole effective L54 schema limits when schema authority applies.</summary>
+    public BaseSchemaExecutionLimits? Schema { get; init; }
     /// <summary>Gets the maximum mutation item count.</summary>
     public required int MaximumItems { get; init; }
     /// <summary>Gets the maximum canonical query-node count.</summary>
@@ -902,6 +910,8 @@ public sealed record BasePreparedAtomicExecution
     public BaseCapturedActivationGuardEvidence? ActivationGuard { get; init; }
     /// <summary>Gets prepared L53 semantic activation evidence.</summary>
     public BasePreparedSemanticActivation? SemanticActivation { get; init; }
+    /// <summary>Gets the session-bound L54 schema preparation.</summary>
+    public BaseAtomicSchemaPreparedExtension? Schema { get; init; }
     /// <summary>Gets provider-prepared retirement evidence.</summary>
     public BaseSubjectRetirementPreparedEvidence? SubjectRetirement { get; init; }
     /// <summary>Gets provider-prepared text projection evidence.</summary>
@@ -1002,6 +1012,8 @@ public sealed record BaseProvisionalAtomicExecution
     public BaseCapturedActivationGuardEvidence? ActivationGuard { get; init; }
     /// <summary>Gets provisional L53 semantic activation evidence.</summary>
     public BaseProvisionalSemanticActivation? SemanticActivation { get; init; }
+    /// <summary>Gets provisional L54 schema evidence.</summary>
+    public BaseAtomicSchemaProvisionalExtension? Schema { get; init; }
     /// <summary>Gets applied retirement evidence.</summary>
     public BaseSubjectRetirementProvisionalEvidence? SubjectRetirement { get; init; }
     /// <summary>Gets applied text projection evidence.</summary>
@@ -1021,6 +1033,8 @@ public sealed record BaseAtomicMutationCommitFinalization
     public required ImmutableArray<byte> CanonicalResultBytes { get; init; }
     /// <summary>Gets exact final aggregate accounting.</summary>
     public required BaseAtomicCommitAccounting Accounting { get; init; }
+    /// <summary>Gets Runtime-owned committed L54 schema evidence.</summary>
+    public BaseAtomicSchemaCommittedEvidence? Schema { get; init; }
 }
 
 /// <summary>Contains exact accounting after Runtime adds result and receipt artifacts.</summary>

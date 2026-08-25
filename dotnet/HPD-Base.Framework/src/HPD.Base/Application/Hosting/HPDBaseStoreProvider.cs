@@ -444,7 +444,7 @@ public sealed class HPDBaseStoreInstallationContext
             canonical.Append(collection.Id).Append('\n');
             foreach (FieldDefinition field in (collection.Fields ?? []).OrderBy(static value => value.Id, StringComparer.Ordinal))
                 canonical.Append("f:").Append(field.Id).Append(':').Append(field.Type).Append('\n');
-            foreach (IndexDefinition index in (collection.Indexes ?? []).OrderBy(static value => value.Id, StringComparer.Ordinal))
+            foreach (BaseLogicalIndexDefinition index in (collection.Indexes ?? []).OrderBy(static value => value.Id))
                 canonical.Append("i:").Append(index.Id).Append('\n');
             foreach (VectorIndexDefinition index in (collection.VectorIndexes ?? []).OrderBy(static value => value.Id, StringComparer.Ordinal))
                 canonical.Append("v:").Append(index.Id).Append(':').Append(index.Dimensions).Append(':').Append((int)index.Function).Append('\n');
@@ -505,11 +505,7 @@ public sealed class HPDBaseStoreInstallationContext
             RequiredCapabilities = field.RequiredCapabilities?.ToArray(),
             Extensions = CloneExtensions(field.Extensions),
         }).ToArray(),
-        Indexes = value.Indexes?.Select(static index => index with
-        {
-            Parts = index.Parts?.Select(static part => part with { Extensions = CloneExtensions(part.Extensions) }).ToArray(),
-            Extensions = CloneExtensions(index.Extensions),
-        }).ToArray(),
+        Indexes = value.Indexes?.Select(BaseSchemaContract.Clone).ToArray(),
         VectorIndexes = value.VectorIndexes?.Select(static index => index with { FilterFieldIds = index.FilterFieldIds.ToArray() }).ToArray(),
         TextIndexes = value.TextIndexes?.Select(BaseTextIndexContract.Seal).ToArray(),
         PolicyRefs = value.PolicyRefs?.ToArray(),

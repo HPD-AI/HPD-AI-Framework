@@ -134,10 +134,14 @@ public sealed class BaseCollection<T> : IBaseSerializerMetadataSource
         new(definition, _jsonTypeInfo, _fields, Registration, _serializerDeclarations);
 
     /// <summary>Performs snapshot.</summary>
-    private static CollectionDefinition Snapshot(CollectionDefinition definition) => definition with
+    private static CollectionDefinition Snapshot(CollectionDefinition definition)
     {
-        Fields = definition.Fields?.Select(static field => field with { Disclosure = field.Disclosure is null ? null : BaseConfidentialityPolicy.Clone(field.Disclosure), RequiredCapabilities = field.RequiredCapabilities?.ToArray(), Extensions = field.Extensions is null ? null : new Dictionary<string, System.Text.Json.JsonElement>(field.Extensions, StringComparer.Ordinal), }).ToArray(),
-        Indexes = definition.Indexes?.Select(static index => index with { Parts = index.Parts?.Select(static part => part with { Extensions = part.Extensions is null ? null : new Dictionary<string, System.Text.Json.JsonElement>(part.Extensions, StringComparer.Ordinal), }).ToArray(), Extensions = index.Extensions is null ? null : new Dictionary<string, System.Text.Json.JsonElement>(index.Extensions, StringComparer.Ordinal), }).ToArray(),
+        FieldDefinition[]? fields = definition.Fields?.Select(static field => field with { Disclosure = field.Disclosure is null ? null : BaseConfidentialityPolicy.Clone(field.Disclosure), ScalarConstraints = field.ScalarConstraints is null ? null : field.ScalarConstraints with { AllowedEnumLiterals = [.. field.ScalarConstraints.AllowedEnumLiterals] }, ScalarCodec = field.ScalarCodec is null ? null : field.ScalarCodec with { AllowedConstraints = [.. field.ScalarCodec.AllowedConstraints] }, RequiredCapabilities = field.RequiredCapabilities?.ToArray(), Extensions = field.Extensions is null ? null : new Dictionary<string, System.Text.Json.JsonElement>(field.Extensions, StringComparer.Ordinal), }).ToArray();
+        FieldDefinition[] orderedFields = (fields ?? []).OrderBy(static field => field.Id, StringComparer.Ordinal).ToArray();
+        return definition with
+        {
+        Fields = fields,
+        Indexes = definition.Indexes?.Select(index => BaseSchemaContract.SealIndex(index, orderedFields)).ToArray(),
         VectorIndexes = definition.VectorIndexes?.Select(static index => index with { FilterFieldIds = index.FilterFieldIds.ToArray() }).ToArray(),
         TextIndexes = definition.TextIndexes?.Select(BaseTextIndexContract.Seal).ToArray(),
         PolicyRefs = definition.PolicyRefs?.ToArray(),
@@ -145,5 +149,6 @@ public sealed class BaseCollection<T> : IBaseSerializerMetadataSource
         Diagnostics = definition.Diagnostics?.ToArray(),
         Extensions = definition.Extensions is null ? null : new Dictionary<string, System.Text.Json.JsonElement>(definition.Extensions, StringComparer.Ordinal),
         StorageProtectionRequirements = definition.StorageProtectionRequirements?.Select(BaseStorageProtectionContract.Clone).ToArray(),
-    };
+        };
+    }
 }

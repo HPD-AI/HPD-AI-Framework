@@ -24,15 +24,18 @@ internal static class BaseLogicalSchemaFactory
             SystemOwnerModuleId = collection.SystemOwnerModuleId,
             SerializerContractChecksum = collection.SerializerContractChecksum,
         }).ToArray();
-        BaseLogicalField[] fields = sourceCollections.SelectMany(static collection => (collection.Fields ?? []).Select(field => new BaseLogicalField
+        BaseLogicalField[] fields = sourceCollections.SelectMany(static collection => (collection.Fields ?? []).Select((field, ordinal) => new BaseLogicalField
         {
             CollectionId = collection.Id,
             Id = field.Id,
             ApplicationName = field.ApplicationName,
             StoredName = field.WireName,
             Type = field.Type,
-            Required = field.Required,
-            Nullable = field.Nullable,
+            Presence = field.Presence,
+            Nullability = field.Nullability,
+            ScalarKind = field.ScalarKind,
+            ScalarCodecChecksum = field.ScalarCodec?.CodecChecksum,
+            ScalarConstraintChecksum = field.ScalarConstraintChecksum,
             Confidentiality = field.Confidentiality,
             Disclosure = BaseConfidentialityPolicy.Clone(field.Disclosure ?? BaseConfidentialityPolicy.Default(field.Confidentiality)),
             MaximumBytes = field.MaximumBytes,
@@ -41,13 +44,24 @@ internal static class BaseLogicalSchemaFactory
         RelationDefinition[] relations = sourceCollections.SelectMany(static collection => collection.Fields ?? [])
             .Select(static field => field.Relation).Where(static relation => relation is not null).Cast<RelationDefinition>()
             .OrderBy(static relation => relation.Id, StringComparer.Ordinal).ToArray();
-        BaseLogicalIndex[] indexes = sourceCollections.SelectMany(static collection => collection.Indexes ?? []).Select(static index => new BaseLogicalIndex
+        BaseLogicalIndex[] indexes = sourceCollections.SelectMany(static collection => (collection.Indexes ?? []).Select(index => (Collection: collection, Index: index))).Select(static item =>
         {
-            CollectionId = index.CollectionId,
-            Id = index.Id,
-            FieldIds = (index.Parts ?? []).Select(static part => part.FieldId!).ToArray(),
-            Unique = index.Unique,
-        }).OrderBy(static value => value.Id, StringComparer.Ordinal).ToArray();
+            FieldDefinition[] collectionFields = (item.Collection.Fields ?? []).OrderBy(static field => field.Id, StringComparer.Ordinal).ToArray();
+            BaseLogicalIndexDefinition sealedIndex = BaseSchemaContract.SealIndex(item.Index, collectionFields);
+            return new BaseLogicalIndex
+            {
+                CollectionId = sealedIndex.CollectionId,
+                Id = sealedIndex.Id.ToString(),
+                FieldIds = [.. sealedIndex.Parts.Select(part => part.FieldOrdinal >= 0 && part.FieldOrdinal < collectionFields.Length ? collectionFields[part.FieldOrdinal].Id : throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid))],
+                Unique = sealedIndex.Unique,
+                Version = sealedIndex.Version,
+                StoreRequired = sealedIndex.StoreRequired,
+                Parts = [.. sealedIndex.Parts.Select(static part => part with { })],
+                PredicateChecksum = sealedIndex.MembershipPredicate.Checksum,
+                Checksum = sealedIndex.Checksum,
+            };
+        }).OrderBy(static value => value.CollectionId, StringComparer.Ordinal)
+            .ThenBy(static value => value.Id, StringComparer.Ordinal).ToArray();
         BaseLogicalVectorIndex[] vectorIndexes = sourceCollections
             .SelectMany(static collection => collection.VectorIndexes ?? [])
             .Select(static index => new BaseLogicalVectorIndex
@@ -123,7 +137,9 @@ internal static class BaseLogicalSchemaFactory
         foreach (BaseLogicalCollection value in collections) { Write(writer, "collection"); Write(writer, value.Id); Write(writer, value.Name); Write(writer, value.System); Write(writer, value.SystemOwnerModuleId); Write(writer, value.SerializerContractChecksum); }
         foreach (BaseLogicalField value in fields)
         {
-            Write(writer, "field"); Write(writer, value.CollectionId); Write(writer, value.Id); Write(writer, value.ApplicationName); Write(writer, value.StoredName); Write(writer, value.Type); Write(writer, value.Required); Write(writer, value.Nullable);
+            Write(writer, "field"); Write(writer, value.CollectionId); Write(writer, value.Id); Write(writer, value.ApplicationName); Write(writer, value.StoredName); Write(writer, value.Type);
+            Write(writer, (int)value.Presence); Write(writer, (int)value.Nullability); Write(writer, value.ScalarKind is null ? -1 : (int)value.ScalarKind.Value);
+            Write(writer, value.ScalarCodecChecksum?.ToString()); Write(writer, value.ScalarConstraintChecksum?.ToString());
             Write(writer, (int)value.Confidentiality); Write(writer, (int)value.Disclosure.RecordRead); Write(writer, (int)value.Disclosure.AuthoritativeHistory);
             Write(writer, (int)value.Disclosure.Event); Write(writer, (int)value.Disclosure.Realtime); Write(writer, (int)value.Disclosure.Diagnostic);
             Write(writer, (int)value.Disclosure.AuthoritativeBackup); Write(writer, (int)value.Disclosure.AdministrativeDataExport);
@@ -143,7 +159,13 @@ internal static class BaseLogicalSchemaFactory
             Write(writer, (int)value.LocalMultiplicity); Write(writer, (int)value.InverseMultiplicity); Write(writer, value.Required);
             Write(writer, value.Ordered); Write(writer, value.InverseNavigationId); Write(writer, (int)value.DeleteBehavior);
         }
-        foreach (BaseLogicalIndex value in indexes) { Write(writer, "index"); Write(writer, value.CollectionId); Write(writer, value.Id); foreach (string field in value.FieldIds) Write(writer, field); Write(writer, value.Unique); }
+        foreach (BaseLogicalIndex value in indexes)
+        {
+            Write(writer, "index"); Write(writer, value.CollectionId); Write(writer, value.Id); foreach (string field in value.FieldIds) Write(writer, field); Write(writer, value.Unique);
+            Write(writer, value.Version); Write(writer, value.StoreRequired); Write(writer, value.Parts?.Length ?? 0);
+            foreach (BaseLogicalIndexPart part in value.Parts ?? []) { Write(writer, part.FieldOrdinal); Write(writer, (int)part.Direction); Write(writer, (int)part.Collation); Write(writer, (int)part.NullOrder); }
+            Write(writer, value.PredicateChecksum?.ToString()); Write(writer, value.Checksum?.ToString());
+        }
         foreach (BaseLogicalVectorIndex value in vectorIndexes)
         {
             Write(writer, "vector-index"); Write(writer, value.CollectionId); Write(writer, value.Id);
@@ -204,4 +226,6 @@ internal static class BaseLogicalSchemaFactory
     private static void Write(ArrayBufferWriter<byte> writer, bool value) => Write(writer, value ? 1 : 0);
     private static void Write(ArrayBufferWriter<byte> writer, int value)
     { Span<byte> span = writer.GetSpan(sizeof(int)); BinaryPrimitives.WriteInt32BigEndian(span, value); writer.Advance(sizeof(int)); }
+    private static void Write(ArrayBufferWriter<byte> writer, long value)
+    { Span<byte> span = writer.GetSpan(sizeof(long)); BinaryPrimitives.WriteInt64BigEndian(span, value); writer.Advance(sizeof(long)); }
 }

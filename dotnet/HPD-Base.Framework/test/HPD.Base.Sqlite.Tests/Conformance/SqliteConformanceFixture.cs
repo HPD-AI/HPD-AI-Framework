@@ -42,7 +42,7 @@ public sealed class SqliteConformanceFixture : IConfigurableRuntimeStoreConforma
             new FieldDefinition { Id = "enabled", ApplicationName = "enabled", WireName = "enabled", Type = BaseFieldTypes.Boolean },
             new FieldDefinition { Id = "tags", ApplicationName = "tags", WireName = "tags", Type = BaseFieldTypes.Array },
             new FieldDefinition { Id = "profile", ApplicationName = "profile", WireName = "profile", Type = BaseFieldTypes.Object },
-            new FieldDefinition { Id = "nullable", ApplicationName = "nullable", WireName = "nullable", Type = BaseFieldTypes.String, Nullable = true }
+            new FieldDefinition { Id = "nullable", ApplicationName = "nullable", WireName = "nullable", Type = BaseFieldTypes.String, Nullability = BaseFieldNullability.Nullable }
         ],
         MutationMode = BaseCollectionMutationMode.Mutable
     };

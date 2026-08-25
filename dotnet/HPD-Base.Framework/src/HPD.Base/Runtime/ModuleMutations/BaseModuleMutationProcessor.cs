@@ -37,6 +37,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         IAtomicRecordSession provider,
         CancellationToken cancellationToken = default)
     {
+        limits = BaseAtomicSchemaContract.AttachLimits(limits, collections.Values);
         var captureRequest = new BaseAtomicExecutionRequest
         {
             Kind = BaseAtomicMutationExecutionKind.ModuleMutation,
@@ -46,6 +47,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             SemanticActivation = semanticActivation,
             ActivationGuard = activationGuard,
             SubjectRetirement = CreateRetirementCapture(extension),
+            Schema = BaseAtomicSchemaContract.CaptureRequest(intent.Authority, collections.Values, limits),
             Limits = limits,
         };
         OperationResult<BaseCapturedAtomicExecution> captured = await provider
@@ -55,6 +57,8 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         BaseCapturedAtomicExecution evidence = captured.Value;
         if (!CapturedMatches(intent, extension, activationCreation, limits, evidence)
             || !ActivationCapturedMatches(activationCreation, evidence.Activations)
+            || !BaseAtomicSchemaContract.CapturedMatches(captureRequest.Schema, evidence.Schema, evidence.Authority,
+                collections.Values, BaseAtomicSchemaContract.ModuleItems(evidence.ModuleRecords))
             || (semanticActivation is null) != (evidence.SemanticActivation is null))
             return Failed(Error("base.moduleMutation.captureEvidenceInvalid", ErrorCategory.Store));
         BaseAtomicSemanticActivationExtension? finalizedSemantic;
@@ -135,6 +139,9 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             intent.IntentDigest, evidence.CaptureDigest, recordPlan.Value.Items, recordPlan.Value.SubjectValidations), policyDigest);
         BaseSubjectRetirementProjectionPlan? retirementPlan = recordPlanner.BuildRetirementPlan(recordPlan.Value.Items, retirement);
         BaseFinalizedTextMutationExtension? textPlan = BaseTextAtomicMutationContract.Finalize(recordPlan.Value.Items);
+        BaseAtomicSchemaFinalizedExtension? schemaPlan;
+        try { schemaPlan = BaseAtomicSchemaContract.Finalize(evidence.Schema, recordPlan.Value.Items); }
+        catch (InvalidOperationException exception) { return Failed(Error(exception.Message, exception.Message == BaseSchemaErrorCodes.ScalarConstraintViolated ? ErrorCategory.Validation : ErrorCategory.Store)); }
         string planDigest = Digest(recordPlanDigest, extension.RequestDigest, evidence.CaptureDigest,
             string.Join(';', evaluator.Decisions.Select(static value => $"{value.EvaluationOrdinal}:{value.Kind}:{value.DecisionId}:{value.SelectedTrue}")),
             string.Join(';', orderedIncrements.Select(static value => $"{value.CaptureOrdinal}:{value.CreateIfAbsent}")),
@@ -158,6 +165,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             Activations = activationCreation,
             SemanticActivation = finalizedSemantic,
             ActivationGuard = activationGuard,
+            Schema = schemaPlan,
             Module = new BaseFinalizedModuleMutationExtension
             {
                 OperationId = definition.Id, OperationVersion = definition.Version,
@@ -254,6 +262,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         var finalization = new BaseAtomicMutationCommitFinalization
         {
             PlanDigest = retainedPlan.PlanDigest, Receipt = receipt, CanonicalResultBytes = resultBytes,
+            Schema = BaseAtomicSchemaContract.Commit(retainedPlan.Schema, applied.Value.Schema),
             Accounting = new BaseAtomicCommitAccounting
             {
                 WrittenBytes = prior.WrittenBytes, GenerationBytes = prior.GenerationBytes, FactBytes = prior.FactBytes,
@@ -558,6 +567,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             || value.Authority.StoreInstanceId != intent.Authority.StoreInstanceId
             || value.Authority.RestoreEpoch != intent.Authority.RestoreEpoch
             || value.Authority.SchemaGeneration != intent.Authority.SchemaGeneration
+            || value.Authority.LogicalSchemaChecksum != intent.Authority.LogicalSchemaChecksum
             || !value.Authority.Collections.SequenceEqual(intent.Authority.Collections)
             || !Enum.IsDefined(value.Authority.Isolation)
             || value.Authority.TransactionEvidenceToken.IsDefaultOrEmpty)
@@ -1073,7 +1083,8 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             || !PreparedActivationMatches(plan.Activations, captured.Activations, prepared.Activations)
             || !PreparedSemanticMatches(plan.SemanticActivation, captured.SemanticActivation, prepared.SemanticActivation)
             || !DefaultBaseMutationProcessor.RetirementEvidenceMatches(plan.SubjectRetirement, prepared.SubjectRetirement)
-            || !BaseTextAtomicMutationContract.PreparedMatches(plan.Text, prepared.Text))
+            || !BaseTextAtomicMutationContract.PreparedMatches(plan.Text, prepared.Text)
+            || !BaseAtomicSchemaContract.PreparedMatches(plan.Schema, prepared.Schema))
             return false;
         HashSet<int> incremented = module.Increments.Select(static value => value.CaptureOrdinal).ToHashSet();
         for (int index = 0; index < captured.Generations.Length; index++)
@@ -1230,6 +1241,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         && left.StoreInstanceId == right.StoreInstanceId
         && left.RestoreEpoch == right.RestoreEpoch
         && left.SchemaGeneration == right.SchemaGeneration
+        && left.LogicalSchemaChecksum == right.LogicalSchemaChecksum
         && left.Isolation == right.Isolation
         && left.Collections.Length == right.Collections.Length
         && left.Collections.Zip(right.Collections).All(static pair =>
@@ -1251,7 +1263,8 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             || !DefaultBaseMutationProcessor.RetirementEvidenceMatches(plan.SubjectRetirement, applied.SubjectRetirement)
             || !AppliedActivationMatches(plan.Activations, prepared.Activations, applied.Activations)
             || !AppliedSemanticMatches(plan.SemanticActivation, captured.SemanticActivation, prepared.SemanticActivation, applied.SemanticActivation)
-            || !BaseTextAtomicMutationContract.AppliedMatches(plan.Text, prepared.Text, applied.Text, applied.Facts))
+            || !BaseTextAtomicMutationContract.AppliedMatches(plan.Text, prepared.Text, applied.Text, applied.Facts)
+            || !BaseAtomicSchemaContract.ProvisionalMatches(plan.Schema, applied.Schema))
             return false;
         for (int index = 0; index < applied.Generations.Length; index++)
         {

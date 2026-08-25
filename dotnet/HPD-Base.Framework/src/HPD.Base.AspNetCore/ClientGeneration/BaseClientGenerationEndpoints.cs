@@ -633,7 +633,7 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
                     Name = field.ApplicationName, WireName = field.WireName,
                     TypeId = $"field.{collection.Id}.{field.Id}",
                     Required = output || requiredMutable,
-                    Nullable = field.Nullable,
+                    Nullable = field.Nullability == BaseFieldNullability.Nullable,
                     DisclosureShape = output
                         ? DisclosureShape(field.Disclosure?.RecordRead ?? BaseFieldDisclosurePolicies.For(field.Confidentiality).RecordRead, field.Visibility is not null)
                         : "none"

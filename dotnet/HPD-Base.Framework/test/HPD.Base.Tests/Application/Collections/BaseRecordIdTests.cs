@@ -1206,7 +1206,7 @@ internal sealed partial record TypedIdOwner
 [BaseCollection("typed-id-many-documents", typeof(TypedIdJsonContext))]
 internal sealed partial record TypedIdManyDocument
 {
-    [BaseField("typed-id-many-document.members")]
+    [BaseField("typed-id-many-document.members", MaximumCollectionItems = 4_096)]
     [BaseRelation(
         "typed-id-many-document.members",
         typeof(TypedIdOwner),

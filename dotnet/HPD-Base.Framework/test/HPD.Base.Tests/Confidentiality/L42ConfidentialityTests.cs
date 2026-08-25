@@ -234,7 +234,7 @@ public sealed class L42ConfidentialityTests
         BaseFieldDisclosurePolicy policy = BaseFieldDisclosurePolicies.For(confidentiality) with { RecordRead = recordRead };
         return new FieldDefinition
         {
-            Id = "field." + name, ApplicationName = name, WireName = name, Type = "string", Required = true,
+            Id = "field." + name, ApplicationName = name, WireName = name, Type = "string", Presence = BaseFieldPresence.Required,
             Confidentiality = confidentiality, Disclosure = policy,
         };
     }

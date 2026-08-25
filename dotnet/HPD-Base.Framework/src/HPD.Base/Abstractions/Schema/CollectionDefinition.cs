@@ -36,7 +36,7 @@ public sealed record CollectionDefinition
     /// <summary>Gets or sets the fields.</summary>
     public FieldDefinition[]? Fields { get; init; }
     /// <summary>Gets or sets the indexes.</summary>
-    public IndexDefinition[]? Indexes { get; init; }
+    public BaseLogicalIndexDefinition[]? Indexes { get; init; }
     /// <summary>Gets the first-class logical vector indexes.</summary>
     public VectorIndexDefinition[]? VectorIndexes { get; init; }
     /// <summary>Gets the first-class policy-safe lexical indexes.</summary>

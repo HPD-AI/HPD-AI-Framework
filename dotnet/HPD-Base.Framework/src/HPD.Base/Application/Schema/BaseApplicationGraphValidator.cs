@@ -39,7 +39,8 @@ internal static class BaseApplicationGraphValidator
                 bool binary = string.Equals(field.Format, "base64", StringComparison.Ordinal);
                 if (binary != (field.MaximumBytes is not null) || binary && field.MaximumBytes is < 1 or > 1_048_576)
                     throw Invalid($"Field '{field.Id}' has an invalid binary contract.");
-                if (disclosure.Indexing == BaseIndexDisclosure.Forbidden && (collection.Indexes ?? []).Any(index => (index.Parts ?? []).Any(part => part.FieldId == field.Id)))
+                int fieldOrdinal = Array.FindIndex(fields, candidate => string.Equals(candidate.Id, field.Id, StringComparison.Ordinal));
+                if (disclosure.Indexing == BaseIndexDisclosure.Forbidden && (collection.Indexes ?? []).Any(index => index.Parts.Any(part => part.FieldOrdinal == fieldOrdinal)))
                     throw Invalid($"Field '{field.Id}' cannot influence an index.");
                 if (!globalFieldIds.Add(field.Id))
                     throw Invalid($"Stable field identifier '{field.Id}' is duplicated across the application graph.");
@@ -49,14 +50,12 @@ internal static class BaseApplicationGraphValidator
                     ValidateRelation(collection, field, relation, collectionById, globalRelationIds);
             }
 
-            foreach (IndexDefinition index in collection.Indexes ?? [])
+            foreach (BaseLogicalIndexDefinition index in collection.Indexes ?? [])
             {
-                if (!globalIndexIds.Add(index.Id))
+                if (!globalIndexIds.Add(index.Id.ToString()))
                     throw Invalid($"Stable index identifier '{index.Id}' is duplicated across the application graph.");
                 if (!string.Equals(index.CollectionId, collection.Id, StringComparison.Ordinal) ||
-                    index.Parts is null || index.Parts.Length == 0 ||
-                    index.Parts.Any(component => component.Kind != IndexPartKind.Field ||
-                        component.FieldId is null || !fieldById.ContainsKey(component.FieldId)))
+                    index.Parts.IsDefaultOrEmpty || index.Parts.Any(component => component.FieldOrdinal < 0 || component.FieldOrdinal >= fields.Length))
                     throw Invalid($"Index '{index.Id}' has an invalid collection or field reference.");
             }
         }
@@ -83,7 +82,7 @@ internal static class BaseApplicationGraphValidator
             relation.DeleteBehavior != BaseRelationDeleteBehavior.Restrict ||
             relation.ExistenceEnforcement != EnforcementOwner.Runtime)
             throw Invalid($"Relation '{relation.Id}' is not a valid executable L35 relation.");
-        if (relation.Required != field.Required || (relation.Required && field.Nullable) ||
+        if (relation.Required != (field.Presence == BaseFieldPresence.Required) || (relation.Required && field.Nullability == BaseFieldNullability.Nullable) ||
             relation.LocalMultiplicity == BaseRelationMultiplicity.ExactlyOne && !relation.Required ||
             relation.LocalMultiplicity == BaseRelationMultiplicity.ZeroOrOne && relation.Required ||
             relation.LocalMultiplicity != BaseRelationMultiplicity.Many && (relation.MinimumCount is not null || relation.MaximumCount is not null) ||

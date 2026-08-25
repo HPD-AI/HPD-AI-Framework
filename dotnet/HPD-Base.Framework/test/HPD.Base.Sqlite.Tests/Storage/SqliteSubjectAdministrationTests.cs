@@ -1043,8 +1043,8 @@ VALUES ('subject-restore','subject-restore-instance','baseline-1','checksum-1',1
                 ApplicationName = "owner",
                 WireName = "owner",
                 Type = BaseFieldTypes.Object,
-                Required = true,
-                Nullable = false,
+                Presence = BaseFieldPresence.Required,
+                Nullability = BaseFieldNullability.NonNullable,
                 SubjectReference = new BaseSubjectReferenceDefinition
                 {
                     ContractId = "example.subject",

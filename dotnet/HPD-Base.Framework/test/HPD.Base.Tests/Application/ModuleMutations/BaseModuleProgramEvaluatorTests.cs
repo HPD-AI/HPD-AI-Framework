@@ -262,7 +262,7 @@ public sealed class BaseModuleProgramEvaluatorTests
     private static BaseAtomicMutationAuthorityRequirement AuthorityRequirement() => new()
     {
         ApplicationId = "module.application", StoreInstanceId = "module-store", RestoreEpoch = 1,
-        SchemaGeneration = 1, Collections = [],
+        SchemaGeneration = 1, LogicalSchemaChecksum = BaseSchemaAuthorityChecksum.Create(new byte[32]), Collections = [],
     };
 
     private static BaseCapturedAtomicExecution RelationEvidence(
@@ -285,6 +285,7 @@ public sealed class BaseModuleProgramEvaluatorTests
             {
                 ApplicationId = requirement.ApplicationId, StoreInstanceId = requirement.StoreInstanceId,
                 RestoreEpoch = requirement.RestoreEpoch, SchemaGeneration = requirement.SchemaGeneration,
+                LogicalSchemaChecksum = requirement.LogicalSchemaChecksum,
                 Collections = requirement.Collections, Isolation = BaseAtomicSelectionIsolationClass.NativeSerializable,
                 TransactionEvidenceToken = [1],
             },
@@ -1320,7 +1321,7 @@ public sealed class BaseModuleProgramEvaluatorTests
         Id = "module-records", Name = "module-records", Kind = BaseCollectionKinds.Document,
         SchemaMode = SchemaMode.Strict, UnknownFields = UnknownFieldPolicy.Reject, MutationMode = BaseCollectionMutationMode.Mutable,
         System = true, SystemOwnerModuleId = "module",
-        Fields = [new FieldDefinition { Id = "field.name", ApplicationName = "Name", WireName = "name", Type = "string", Required = true }],
+        Fields = [new FieldDefinition { Id = "field.name", ApplicationName = "Name", WireName = "name", Type = "string", Presence = BaseFieldPresence.Required }],
     };
 
     private static DefaultBasePolicyOrchestrator Policy(params string[] grantIds)

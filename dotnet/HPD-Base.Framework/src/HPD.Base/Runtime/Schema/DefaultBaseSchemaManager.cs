@@ -315,7 +315,7 @@ internal sealed class DefaultBaseSchemaManager(
                 string[] before = (prior.SafeSummary ?? "").Split('\u001f');
                 string[] after = summary.Split('\u001f');
                 bool rename = id.StartsWith("c:", StringComparison.Ordinal) ||
-                    id.StartsWith("f:", StringComparison.Ordinal) && before.Length == 4 && after.Length == 4 && before[1..].SequenceEqual(after[1..], StringComparer.Ordinal);
+                    id.StartsWith("f:", StringComparison.Ordinal) && before.Length >= 4 && before.Length == after.Length && before[1..].SequenceEqual(after[1..], StringComparer.Ordinal);
                 operations.Add(rename
                     ? new BaseSchemaLogicalOperation { Kind = id.StartsWith("c:", StringComparison.Ordinal) ? BaseSchemaOperationKind.RenameCollection : BaseSchemaOperationKind.RenameField, LogicalId = id, PreviousName = before[0], TargetName = after[0] }
                     : Operation(ChangeKind(id), id, destructive: id.StartsWith("f:", StringComparison.Ordinal) || id.StartsWith("r:", StringComparison.Ordinal)));
@@ -329,9 +329,9 @@ internal sealed class DefaultBaseSchemaManager(
     {
         var assets = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (BaseLogicalCollection value in logicalSchema.Collections) assets["c:" + value.Id] = value.Name;
-        foreach (BaseLogicalField value in logicalSchema.Fields) assets[$"f:{value.CollectionId}:{value.Id}"] = string.Join('\u001f', value.StoredName, value.Type, value.Required ? "1" : "0", value.Nullable ? "1" : "0");
+        foreach (BaseLogicalField value in logicalSchema.Fields) assets[$"f:{value.CollectionId}:{value.Id}"] = string.Join('\u001f', value.StoredName, value.Type, (int)value.Presence, (int)value.Nullability, value.ScalarKind is null ? "" : ((int)value.ScalarKind.Value).ToString(System.Globalization.CultureInfo.InvariantCulture), value.ScalarCodecChecksum?.ToString() ?? "", value.ScalarConstraintChecksum?.ToString() ?? "");
         foreach (RelationDefinition value in logicalSchema.Relations) assets["r:" + value.Id] = string.Join('\u001f', value.SourceCollectionId, value.SourceFieldId, value.TargetCollectionId, value.TargetFieldId, value.OwningSide, value.LocalMultiplicity, value.InverseMultiplicity, value.Required, value.Ordered, value.DeleteBehavior);
-        foreach (BaseLogicalIndex value in logicalSchema.Indexes) assets[$"i:{value.CollectionId}:{value.Id}"] = string.Join('\u001f', value.Unique ? "1" : "0", string.Join('\u001e', value.FieldIds));
+        foreach (BaseLogicalIndex value in logicalSchema.Indexes) assets[$"i:{value.CollectionId}:{value.Id}"] = string.Join('\u001f', value.Unique ? "1" : "0", string.Join('\u001e', value.FieldIds), value.Version.ToString(System.Globalization.CultureInfo.InvariantCulture), value.StoreRequired ? "1" : "0", value.PredicateChecksum?.ToString() ?? "", value.Checksum?.ToString() ?? "", string.Join('\u001e', (value.Parts ?? []).Select(static part => $"{part.FieldOrdinal}:{(int)part.Direction}:{(int)part.Collation}:{(int)part.NullOrder}")));
         foreach (BaseLogicalRead value in logicalSchema.ReadDefinitions) assets["q:" + value.Id] = string.Join('\u001f', string.Join('\u001e', value.SourceIds), string.Join('\u001e', value.ProjectionFieldIds));
         return assets;
     }
@@ -345,7 +345,7 @@ internal sealed class DefaultBaseSchemaManager(
             {
                 string[] parts = operation.LogicalId.Split(':');
                 BaseLogicalField field = logicalSchema.Fields.Single(value => value.CollectionId == parts[1] && value.Id == parts[2]);
-                return field.Required && !field.Nullable;
+                return field.Presence == BaseFieldPresence.Required && field.Nullability == BaseFieldNullability.NonNullable;
             })) return BaseSchemaPlanClassification.DataMigrationRequired;
         return delta.Any(static operation => operation.Destructive) ? BaseSchemaPlanClassification.Destructive : BaseSchemaPlanClassification.SafeStructural;
     }

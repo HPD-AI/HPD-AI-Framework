@@ -251,8 +251,8 @@ public sealed class DescriptorContributionTests
                 ],
                 Indexes =
                 [
-                    Index("title_idx", "titleIndex", "title"),
-                    Index("title_idx_2", "titleIndex", "title")
+                    Index("title_idx", 0),
+                    Index("title_idx", 0)
                 ]
             });
         }
@@ -272,7 +272,7 @@ public sealed class DescriptorContributionTests
                 ],
                 Indexes =
                 [
-                    Index("missing_idx", "missingIndex", "missing")
+                    Index("missing_idx", 4)
                 ]
             });
         }
@@ -410,20 +410,16 @@ public sealed class DescriptorContributionTests
         UnknownFields = UnknownFieldPolicy.Preserve
     };
 
-    private static IndexDefinition Index(string id, string name, string fieldPath) => new()
+    private static BaseLogicalIndexDefinition Index(string id, int fieldOrdinal) => new()
     {
-        Id = id,
-        Name = name,
+        Id = BaseLogicalIndexId.Create(id),
+        Version = 1,
         CollectionId = "items",
-        Kind = IndexKind.Key,
-        Parts =
-        [
-            new IndexPart
-            {
-                Kind = IndexPartKind.Field,
-                FieldId = fieldPath
-            }
-        ]
+        Unique = false,
+        StoreRequired = false,
+        Parts = [new BaseLogicalIndexPart { FieldOrdinal = fieldOrdinal, Direction = BaseIndexSortDirection.Ascending, Collation = BaseIndexCollation.OrdinalBinary, NullOrder = BaseIndexNullOrder.MissingThenNullThenValue }],
+        MembershipPredicate = new BaseIndexPredicateRegistry { Root = BaseIndexPredicateId.Create("root"), Nodes = [new BaseIndexPredicateNode { Id = BaseIndexPredicateId.Create("root"), Kind = BaseIndexPredicateNodeKind.True }], Checksum = default },
+        Checksum = default,
     };
 
     private static CapabilityFeatureDescriptor Feature(string id) => new()

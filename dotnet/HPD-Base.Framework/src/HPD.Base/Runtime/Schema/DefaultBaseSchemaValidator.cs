@@ -147,7 +147,7 @@ internal sealed class DefaultBaseSchemaValidator : IBaseSchemaValidator
         {
             foreach (var field in fields.Values)
             {
-                if (field.Required && !fieldValues.ContainsKey(field.WireName))
+                if (field.Presence == BaseFieldPresence.Required && !fieldValues.ContainsKey(field.WireName))
                 {
                     return ValidationError("base.runtime.payload.requiredField", $"Required field '{field.WireName}' is missing.", field.WireName);
                 }
@@ -163,9 +163,15 @@ internal sealed class DefaultBaseSchemaValidator : IBaseSchemaValidator
                 continue;
             }
 
-            if (!field.Nullable && value.ValueKind == JsonValueKind.Null)
+            if (field.Nullability == BaseFieldNullability.NonNullable && value.ValueKind == JsonValueKind.Null)
             {
                 return ValidationError("base.runtime.payload.nonNullable", $"Field '{name}' cannot be null.", name);
+            }
+
+            BaseError? scalarError = BaseCanonicalRecordValidator.Validate(field, value);
+            if (scalarError is not null)
+            {
+                return scalarError;
             }
 
             if (field.Type == "vector" && value.ValueKind != JsonValueKind.Null)

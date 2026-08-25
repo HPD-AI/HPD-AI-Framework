@@ -66,6 +66,7 @@ internal static class BaseAtomicMutationOwnership
             ProjectionDigest = ImmutableArray.Create(value.Text.ProjectionDigest.ToArray()),
             Facts = value.Text.Facts.Select(FreezeTextFact).ToImmutableArray(),
         },
+        Schema = BaseAtomicSchemaContract.Freeze(value.Schema),
         Activations = value.Activations is null ? null : new BaseActivationCreationExtension
         {
             StructuralDigest = ImmutableArray.Create(value.Activations.StructuralDigest.ToArray()),
@@ -334,24 +335,7 @@ internal static class BaseAtomicMutationOwnership
                 ContractChecksum = new string(field.SubjectReference.ContractChecksum.AsSpan()),
             },
         }).ToArray(),
-        Indexes = value.Indexes?.Select(static index => index with
-        {
-            Parts = index.Parts?.Select(static part => part with
-            {
-                FieldId = part.FieldId is null ? null : new string(part.FieldId.AsSpan()),
-                Expression = part.Expression is null ? null : new string(part.Expression.AsSpan()),
-                Collation = part.Collation is null ? null : new string(part.Collation.AsSpan()),
-                OperatorClass = part.OperatorClass is null ? null : new string(part.OperatorClass.AsSpan()),
-                Extensions = part.Extensions?.ToDictionary(
-                    static pair => new string(pair.Key.AsSpan()),
-                    static pair => pair.Value.Clone(),
-                    StringComparer.Ordinal),
-            }).ToArray(),
-            Extensions = index.Extensions?.ToDictionary(
-                static pair => new string(pair.Key.AsSpan()),
-                static pair => pair.Value.Clone(),
-                StringComparer.Ordinal),
-        }).ToArray(),
+        Indexes = value.Indexes?.Select(BaseSchemaContract.Clone).ToArray(),
         VectorIndexes = value.VectorIndexes?.Select(static index => index with
         {
             FilterFieldIds = index.FilterFieldIds.Select(static field => new string(field.AsSpan())).ToArray(),

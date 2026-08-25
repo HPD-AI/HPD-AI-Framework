@@ -506,15 +506,22 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
                 if (converterAttribute is not null)
                 {
                     INamedTypeSymbol converter = ConstructorType(converterAttribute, 0);
+                    bool closedEnum = converter is { IsGenericType: true } &&
+                        converter.ConstructedFrom.ToDisplayString() == "HPD.Base.BaseClosedEnumJsonConverter<TEnum>" &&
+                        property.Type.TypeKind == TypeKind.Enum &&
+                        SymbolEqualityComparer.Default.Equals(converter.TypeArguments[0], property.Type);
+                    bool utcDateTime = converter?.ToDisplayString() == "HPD.Base.BaseUtcDateTimeJsonConverter" &&
+                        (property.Type.ToDisplayString() == "System.DateTimeOffset" || property.Type is INamedTypeSymbol nullableInstant && nullableInstant.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T && nullableInstant.TypeArguments[0].ToDisplayString() == "System.DateTimeOffset");
                     AttributeData contract = converter is null ? null : Find(converter, BaseSerializerConverterAttribute);
                     string contractId = ConstructorString(contract, 0);
                     int version = contract?.ConstructorArguments.Length > 1 && contract.ConstructorArguments[1].Value is int selected ? selected : 0;
-                    if (!ValidConverter(converter, contractId, version))
+                    if (!closedEnum && !utcDateTime && !ValidConverter(converter, contractId, version))
                     {
                         Unsupported(property, "the explicit converter does not satisfy the closed converter contract");
                         continue;
                     }
-                    converterIdentity = "explicit:" + contractId + ":" + version.ToString(CultureInfo.InvariantCulture);
+                    converterIdentity = utcDateTime ? "explicit:hpd.base.utc-date-time-json:1" : "explicit:" + contractId + ":" + version.ToString(CultureInfo.InvariantCulture) +
+                        (closedEnum ? ":" + property.Type.ToDisplayString() : string.Empty);
                     if (converterTypes.TryGetValue(converterIdentity, out INamedTypeSymbol existing) &&
                         !SymbolEqualityComparer.Default.Equals(existing, converter))
                     {

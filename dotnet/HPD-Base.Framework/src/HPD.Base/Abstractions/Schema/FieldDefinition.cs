@@ -18,10 +18,18 @@ public sealed record FieldDefinition
     public string? Format { get; init; }
     /// <summary>Gets or sets cardinality.</summary>
     public CardinalityDescriptor? Cardinality { get; init; }
-    /// <summary>Gets or sets required.</summary>
-    public bool Required { get; init; }
-    /// <summary>Gets or sets nullable.</summary>
-    public bool Nullable { get; init; } = true;
+    /// <summary>Gets the independent canonical field-presence contract.</summary>
+    public BaseFieldPresence Presence { get; init; } = BaseFieldPresence.Optional;
+    /// <summary>Gets the independent canonical explicit-null contract.</summary>
+    public BaseFieldNullability Nullability { get; init; } = BaseFieldNullability.Nullable;
+    /// <summary>Gets the closed scalar kind when the field participates in L54 authority.</summary>
+    public BaseScalarKind? ScalarKind { get; init; }
+    /// <summary>Gets the graph-owned scalar codec authority.</summary>
+    public BaseScalarCodecAuthority? ScalarCodec { get; init; }
+    /// <summary>Gets the complete canonical scalar constraints.</summary>
+    public BaseScalarConstraintSet? ScalarConstraints { get; init; }
+    /// <summary>Gets the purpose-bound scalar-constraint checksum.</summary>
+    public BaseScalarConstraintChecksum? ScalarConstraintChecksum { get; init; }
     /// <summary>Gets or sets system.</summary>
     public bool System { get; init; }
     /// <summary>Gets or sets hidden.</summary>
@@ -38,10 +46,6 @@ public sealed record FieldDefinition
     public DefaultValueDescriptor? Default { get; init; }
     /// <summary>Gets or sets generated.</summary>
     public GenerationDescriptor? Generated { get; init; }
-    /// <summary>Gets or sets constraints.</summary>
-    public ConstraintAnnotations? Constraints { get; init; }
-    /// <summary>Gets or sets validation.</summary>
-    public ValidationAnnotations? Validation { get; init; }
     /// <summary>Gets or sets relation.</summary>
     public RelationDefinition? Relation { get; init; }
     /// <summary>Gets the scalar exported-subject reference contract, when declared.</summary>

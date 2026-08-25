@@ -823,7 +823,7 @@ public sealed class ApplicationHostBuilderTests
             schema =>
             {
                 schema.String("organization-id", "OrganizationId", ProjectProperty("organizationId")).Required();
-                schema.Index("organization", "organization-id").Required();
+                schema.Index("organization", 1, index => index.Part(ProjectProperty("organizationId")).StoreRequired());
             });
 
         Action register = () => new ServiceCollection().AddHPDBase(

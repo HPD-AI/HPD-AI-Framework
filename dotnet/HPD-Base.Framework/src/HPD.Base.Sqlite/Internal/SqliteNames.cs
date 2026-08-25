@@ -15,6 +15,7 @@ internal sealed class SqliteNames
         SchemaIdentity = Prefix + "schema_identity";
         SchemaBaseline = Prefix + "schema_baseline";
         SchemaAssets = Prefix + "schema_assets";
+        LogicalIndexes = Prefix + "logical_indexes";
         SchemaHistory = Prefix + "schema_history";
         SchemaLease = Prefix + "schema_lease";
         SubjectContracts = Prefix + "subject_contracts";
@@ -75,6 +76,7 @@ internal sealed class SqliteNames
     public string SchemaBaseline { get; }
     /// <summary>Gets the schema assets.</summary>
     public string SchemaAssets { get; }
+    public string LogicalIndexes { get; }
     /// <summary>Gets the schema history.</summary>
     public string SchemaHistory { get; }
     /// <summary>Gets the schema lease.</summary>

@@ -640,11 +640,12 @@ public sealed class BaseCollectionGeneratorTests
     }
 
     [Theory]
-    [InlineData("""[BaseIndex("", nameof(Name))]""")]
+    [InlineData("""[BaseIndex("")]""")]
     [InlineData("""[BaseIndex("empty")]""")]
     [InlineData("""
-        [BaseIndex("same", nameof(Name))]
-        [BaseIndex("same", nameof(Name))]
+        [BaseIndex("same")]
+        [BaseIndexPart("same", 0, nameof(Name))]
+        [BaseIndex("same")]
         """)]
     public void InvalidIndexesReportAtTheDeclaration(string declaration)
     {
@@ -671,6 +672,127 @@ public sealed class BaseCollectionGeneratorTests
             .Subject;
         diagnostic.Location.IsInSource.Should().BeTrue();
         result.GeneratedSource.Should().Contain("Collection => null!").And.NotContain("CreateGenerated");
+    }
+
+    [Theory]
+    [InlineData("int", "MaximumUtf8Bytes = 10", "HPDBASE5401")]
+    [InlineData("string", "MaximumUtf8Bytes = -1", "HPDBASE5402")]
+    [InlineData("string", "MinimumUtf8Bytes = 11, MaximumUtf8Bytes = 10", "HPDBASE5403")]
+    [InlineData("int", "Nullability = BaseFieldNullability.Nullable", "HPDBASE5404")]
+    [InlineData("string[]", "", "HPDBASE5405")]
+    [InlineData("int", "MinimumInt32 = 0", "HPDBASE5402")]
+    [InlineData("int", "HasMinimumInt32 = true", "HPDBASE5402")]
+    [InlineData("ulong", "MaximumUInt64 = 10, HasMaximumUInt64 = false", "HPDBASE5402")]
+    public void ScalarConstraintDiagnosticsAreStable(string type, string members, string expected)
+    {
+        string separator = members.Length == 0 ? string.Empty : ", ";
+        string source = $$"""
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseCollection("items", typeof(AppJsonContext))]
+            public partial record Item
+            {
+                [BaseField("item.value"{{separator}}{{members}})] public required {{type}} Value { get; init; }
+            }
+            [JsonSerializable(typeof(Item))] public partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        Run(source).Diagnostics.Should().ContainSingle(item => item.Id == expected);
+    }
+
+    [Fact]
+    public void NumericAttributeBoundsRequireAndHonorExplicitPresence()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseCollection("items", typeof(AppJsonContext))]
+            public partial record Item
+            {
+                [BaseField("item.count", MinimumInt32 = 0, HasMinimumInt32 = true)]
+                public required int Count { get; init; }
+            }
+            [JsonSerializable(typeof(Item))] public partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        GeneratorResult result = Run(source);
+        result.Diagnostics.Should().BeEmpty();
+        result.GeneratedSource.Should().Contain("MinimumInt32 = 0");
+    }
+
+    [Fact]
+    public void DecimalAttributeBoundsEmitExactReducedAuthority()
+    {
+        const string source = """
+            using HPD.Base; using System.Text.Json.Serialization;
+            [BaseCollection("items", typeof(AppJsonContext))] public partial record Item
+            { [BaseField("item.amount", MinimumDecimal = "-170141183460469231731687303715884105728", MaximumDecimal = "0.1")] public required decimal Amount { get; init; } }
+            [JsonSerializable(typeof(Item))] public partial class AppJsonContext : JsonSerializerContext;
+            """;
+        GeneratorResult result = Run(source);
+        result.Diagnostics.Should().BeEmpty();
+        result.GeneratedSource.Should().Contain("BaseGeneratedSchemaRegistration.Decimal(\"0.1\")");
+    }
+
+    [Theory]
+    [InlineData("string", "plain")]
+    [InlineData("int", "01")]
+    [InlineData("int", "\\\"1\\\"")]
+    [InlineData("decimal", "1.0")]
+    [InlineData("bool", "True")]
+    public void GeneratedEqualityPredicatesRejectNoncanonicalOrIncompatibleLiterals(string type, string literal)
+    {
+        string source = $$"""
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseIndex("item.by-value")]
+            [BaseIndexPart("item.by-value", 0, nameof(Item.Value))]
+            [BaseIndexPredicate("item.by-value", "root", BaseIndexPredicateNodeKind.Equal, Field = nameof(Item.Value), Literal = "{{literal}}")]
+            [BaseCollection("items", typeof(AppJsonContext))]
+            public partial record Item { [BaseField("item.value")] public required {{type}} Value { get; init; } }
+            [JsonSerializable(typeof(Item))] public partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        Run(source).Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE5411");
+    }
+
+    [Fact]
+    public void GeneratedUtcInstantsRequireTheBaseOwnedExactConverter()
+    {
+        const string invalid = """
+            using HPD.Base; using System; using System.Text.Json.Serialization;
+            [BaseCollection("items", typeof(AppJsonContext))] public partial record Item
+            { [BaseField("item.at")] public required DateTimeOffset At { get; init; } }
+            [JsonSerializable(typeof(Item))] public partial class AppJsonContext : JsonSerializerContext;
+            """;
+        Run(invalid).Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE5401");
+
+        const string valid = """
+            using HPD.Base; using System; using System.Text.Json.Serialization;
+            [BaseCollection("items", typeof(AppJsonContext))] public partial record Item
+            { [BaseField("item.at"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset At { get; init; } }
+            [JsonSerializable(typeof(Item))] public partial class AppJsonContext : JsonSerializerContext;
+            """;
+        Run(valid).Diagnostics.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ClosedEnumRequiresTheExactBaseOwnedStringConverter()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            public enum State { Active, Disabled }
+            [BaseCollection("items", typeof(AppJsonContext))]
+            public partial record Item
+            {
+                [BaseField("item.state", AllowedEnumLiterals = new[] { "Active", "Disabled" })]
+                public required State State { get; init; }
+            }
+            [JsonSerializable(typeof(Item))] public partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        Run(source).Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE5401");
     }
 
     [Fact]
@@ -773,7 +895,7 @@ public sealed class BaseCollectionGeneratorTests
             [BaseCollection("teams", typeof(AppJsonContext))]
             public partial record Team
             {
-                [BaseField("team.members")]
+                [BaseField("team.members", MaximumCollectionItems = 4)]
                 [BaseRelation("team.members", typeof(Owner), LocalMultiplicity = BaseRelationMultiplicity.Many, MinimumCount = 1, MaximumCount = 4, IncludeAllowed = true, IncludeFilterAllowed = true, IncludeSortAllowed = true, IncludeMaximumDepth = 2)]
                 public required BaseRecordId<Owner>[] Members { get; init; }
             }
@@ -796,6 +918,7 @@ public sealed class BaseCollectionGeneratorTests
     [InlineData("BaseRecordId<Owner>[]", "BaseRelationMultiplicity.ExactlyOne")]
     public void RelationMultiplicityMustMatchTheTypedRecordIdShape(string propertyType, string multiplicity)
     {
+        string collectionLimit = propertyType.EndsWith("[]", StringComparison.Ordinal) ? ", MaximumCollectionItems = 4" : "";
         string source = $$"""
             using HPD.Base;
             using System.Text.Json.Serialization;
@@ -804,7 +927,7 @@ public sealed class BaseCollectionGeneratorTests
             [BaseCollection("teams", typeof(AppJsonContext))]
             public partial record Team
             {
-                [BaseField("team.members")]
+                [BaseField("team.members"{{collectionLimit}})]
                 [BaseRelation("team.members", typeof(Owner), LocalMultiplicity = {{multiplicity}})]
                 public required {{propertyType}} Members { get; init; }
             }
@@ -869,7 +992,8 @@ public sealed class BaseCollectionGeneratorTests
             using HPD.Base;
             using System.Text.Json.Serialization;
             [BaseCollection("documents", typeof(AppJsonContext))]
-            [BaseIndex("document.embedding.index", nameof(Embedding))]
+            [BaseIndex("document.embedding.index")]
+            [BaseIndexPart("document.embedding.index", 0, nameof(Embedding))]
             public partial record Document
             {
                 [BaseField("document.embedding", Operators = BaseFieldOperator.Equality)] public required BaseVector Embedding { get; init; }

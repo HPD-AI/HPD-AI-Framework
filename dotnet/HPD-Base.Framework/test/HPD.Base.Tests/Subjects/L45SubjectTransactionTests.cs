@@ -1569,9 +1569,9 @@ public sealed class L45SubjectTransactionTests
         MutationMode = BaseCollectionMutationMode.Mutable,
         Fields =
         [
-            new FieldDefinition { Id = "user.active", ApplicationName = "active", WireName = "active", Type = BaseFieldTypes.Boolean, Required = true, Nullable = false },
-            new FieldDefinition { Id = "user.tombstoned", ApplicationName = "tombstoned", WireName = "tombstoned", Type = BaseFieldTypes.Boolean, Required = true, Nullable = false },
-            new FieldDefinition { Id = "user.tenant", ApplicationName = "tenant", WireName = "tenant", Type = BaseFieldTypes.String, Required = true, Nullable = false },
+            new FieldDefinition { Id = "user.active", ApplicationName = "active", WireName = "active", Type = BaseFieldTypes.Boolean, Presence = BaseFieldPresence.Required, Nullability = BaseFieldNullability.NonNullable },
+            new FieldDefinition { Id = "user.tombstoned", ApplicationName = "tombstoned", WireName = "tombstoned", Type = BaseFieldTypes.Boolean, Presence = BaseFieldPresence.Required, Nullability = BaseFieldNullability.NonNullable },
+            new FieldDefinition { Id = "user.tenant", ApplicationName = "tenant", WireName = "tenant", Type = BaseFieldTypes.String, Presence = BaseFieldPresence.Required, Nullability = BaseFieldNullability.NonNullable },
         ],
     };
 
@@ -1584,7 +1584,7 @@ public sealed class L45SubjectTransactionTests
         [
             new FieldDefinition
             {
-                Id = "profile.owner", ApplicationName = "owner", WireName = "owner", Type = BaseFieldTypes.Object, Required = true, Nullable = false,
+                Id = "profile.owner", ApplicationName = "owner", WireName = "owner", Type = BaseFieldTypes.Object, Presence = BaseFieldPresence.Required, Nullability = BaseFieldNullability.NonNullable,
                 SubjectReference = new BaseSubjectReferenceDefinition
                 {
                     ContractId = "example.user", ContractVersion = 1, ContractChecksum = new string('0', 64),

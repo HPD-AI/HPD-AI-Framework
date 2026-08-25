@@ -182,10 +182,16 @@ public sealed record BaseLogicalField
     public required string StoredName { get; init; }
     /// <summary>Gets or sets type.</summary>
     public required string Type { get; init; }
-    /// <summary>Gets or sets required.</summary>
-    public bool Required { get; init; }
-    /// <summary>Gets or sets nullable.</summary>
-    public bool Nullable { get; init; }
+    /// <summary>Gets the independent canonical field-presence contract.</summary>
+    public BaseFieldPresence Presence { get; init; }
+    /// <summary>Gets the independent canonical explicit-null contract.</summary>
+    public BaseFieldNullability Nullability { get; init; }
+    /// <summary>Gets the closed scalar kind.</summary>
+    public BaseScalarKind? ScalarKind { get; init; }
+    /// <summary>Gets the scalar codec checksum.</summary>
+    public BaseSchemaAuthorityChecksum? ScalarCodecChecksum { get; init; }
+    /// <summary>Gets the scalar constraint checksum.</summary>
+    public BaseScalarConstraintChecksum? ScalarConstraintChecksum { get; init; }
     /// <summary>Gets the normalized confidentiality class.</summary>
     public BaseFieldConfidentiality Confidentiality { get; init; }
     /// <summary>Gets the normalized complete disclosure policy.</summary>
@@ -207,6 +213,16 @@ public sealed record BaseLogicalIndex
     public required string[] FieldIds { get; init; }
     /// <summary>Gets or sets unique.</summary>
     public bool Unique { get; init; }
+    /// <summary>Gets the positive logical-index contract version.</summary>
+    public long Version { get; init; }
+    /// <summary>Gets whether exact provider enforcement is required.</summary>
+    public bool StoreRequired { get; init; }
+    /// <summary>Gets the ordered exact index parts.</summary>
+    public BaseLogicalIndexPart[]? Parts { get; init; }
+    /// <summary>Gets the index-owned membership predicate checksum.</summary>
+    public BaseSchemaAuthorityChecksum? PredicateChecksum { get; init; }
+    /// <summary>Gets the complete logical-index checksum.</summary>
+    public BaseLogicalIndexChecksum? Checksum { get; init; }
 }
 
 /// <summary>Contains one canonical logical vector-index asset.</summary>
@@ -736,6 +752,22 @@ public interface IBaseSchemaManager
 /// <summary>Stable schema lifecycle error identifiers.</summary>
 public static class BaseSchemaErrorCodes
 {
+    /// <summary>Identifies an invalid L54 schema contract.</summary>
+    public const string ContractInvalid = "base.schema.contractInvalid";
+    /// <summary>Identifies an authoritative scalar constraint violation.</summary>
+    public const string ScalarConstraintViolated = "base.schema.scalarConstraintViolated";
+    /// <summary>Identifies an authoritative logical uniqueness violation.</summary>
+    public const string UniqueConstraintViolated = "base.schema.uniqueConstraintViolated";
+    /// <summary>Identifies unavailable exact schema capability.</summary>
+    public const string CapabilityUnavailable = "base.schema.capabilityUnavailable";
+    /// <summary>Identifies exhausted bounded schema work.</summary>
+    public const string BudgetExceeded = "base.schema.budgetExceeded";
+    /// <summary>Identifies a confirmed logical-index transaction conflict.</summary>
+    public const string TransactionConflict = "base.schema.transactionConflict";
+    /// <summary>Identifies a logical index that cannot serve authoritative work until rebuilt.</summary>
+    public const string RebuildRequired = "base.schema.rebuildRequired";
+    /// <summary>Identifies hostile or malformed provider schema evidence.</summary>
+    public const string ProviderEvidenceInvalid = "base.schema.providerEvidenceInvalid";
     /// <summary>Provides invalid.</summary>
     public const string Invalid = "base.schema.invalid";
     /// <summary>Provides baseline Missing.</summary>

@@ -534,7 +534,8 @@ internal sealed class BaseSelectionMutationProcessor(
         IAtomicRecordSession session,
         CancellationToken cancellationToken = default)
     {
-        BaseAtomicMutationExecutionLimits captureLimits = DefaultBaseSelectionMutationRuntime.CreateExecutionLimits(profile.Limits);
+        BaseAtomicMutationExecutionLimits captureLimits = BaseAtomicSchemaContract.AttachLimits(
+            DefaultBaseSelectionMutationRuntime.CreateExecutionLimits(profile.Limits), [collection]);
         string intentDigest = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
             System.Text.Encoding.UTF8.GetBytes($"base.selection.capture.v1\0{profile.ApplicationId}\0{profile.Id}\0{profile.Version}\0{BaseSelectionProfileChecksum.Compute(profile)}")));
         OperationResult<BaseCapturedAtomicExecution> capture = await session.CaptureAtomicExecutionAsync(new BaseAtomicExecutionRequest
@@ -559,6 +560,7 @@ internal sealed class BaseSelectionMutationProcessor(
                 },
             },
             Limits = captureLimits,
+            Schema = BaseAtomicSchemaContract.CaptureRequest(authority, [collection], captureLimits),
             ActivationGuard = activationGuard,
         }, cancellationToken).ConfigureAwait(false);
         if (!capture.IsSuccess() || capture.Value?.Selection is null)
@@ -578,6 +580,10 @@ internal sealed class BaseSelectionMutationProcessor(
             return Failed("base.runtime.store.error", ErrorCategory.Store);
         if (!SelectionCaptureMatches(selected, captured))
             return Failed(BaseSubjectErrorCodes.ProviderContractInvalid, ErrorCategory.Store);
+        if (!BaseAtomicSchemaContract.CapturedMatches(
+            BaseAtomicSchemaContract.CaptureRequest(authority, [collection], captureLimits), captured.Schema,
+            captured.Authority, [collection], captured.Items))
+            return Failed(BaseSchemaErrorCodes.ProviderEvidenceInvalid, ErrorCategory.Store);
         var planItems = ImmutableArray.CreateBuilder<BaseAtomicMutationPlanItem>(selected.Records.Length);
         var policies = new List<BasePolicyEvaluation>(selected.Records.Length + 1) { operationPolicy };
         foreach (BaseOwnedSelectedRecord owned in selected.Records)
@@ -719,6 +725,7 @@ internal sealed class BaseSelectionMutationProcessor(
                 ReceiptResolutionTimeout = executionTimeout,
             },
         };
+        limits = BaseAtomicSchemaContract.AttachLimits(limits, [collection]);
         if (!BaseAtomicPolicyAuthority.IsAdmissible(policies))
             return Failed(new BaseError
             {
@@ -729,6 +736,9 @@ internal sealed class BaseSelectionMutationProcessor(
         BaseAtomicPolicyAuthorityDigest policyDigest = BaseAtomicPolicyAuthority.Compute(
             authority.ApplicationId, $"{profile.Id}:{profile.Version}", policies);
         BaseFinalizedTextMutationExtension? textPlan = BaseTextAtomicMutationContract.Finalize(finalized);
+        BaseAtomicSchemaFinalizedExtension? schemaPlan;
+        try { schemaPlan = BaseAtomicSchemaContract.Finalize(captured.Schema, finalized); }
+        catch (InvalidOperationException exception) { return Failed(exception.Message, exception.Message == BaseSchemaErrorCodes.ScalarConstraintViolated ? ErrorCategory.Validation : ErrorCategory.Store); }
         string selectionPlanDigest = BaseAtomicPolicyAuthority.BindPlanDigest(
             SelectionPlanDigest(captured, finalized, subjectPlan.Value.Validations), policyDigest);
         if (textPlan is not null)
@@ -745,12 +755,14 @@ internal sealed class BaseSelectionMutationProcessor(
                 StoreInstanceId = authority.StoreInstanceId,
                 RestoreEpoch = authority.RestoreEpoch,
                 SchemaGeneration = authority.SchemaGeneration,
+                LogicalSchemaChecksum = authority.LogicalSchemaChecksum,
                 Collections = authority.Collections,
             },
             Items = finalized,
             SubjectValidations = subjectPlan.Value.Validations,
             Text = textPlan,
             ActivationGuard = activationGuard,
+            Schema = schemaPlan,
             Limits = limits,
             PlanDigest = selectionPlanDigest,
         };
@@ -869,6 +881,7 @@ internal sealed class BaseSelectionMutationProcessor(
             PlanDigest = retainedPlan.PlanDigest,
             Receipt = receipt,
             CanonicalResultBytes = resultBytes,
+            Schema = BaseAtomicSchemaContract.Commit(retainedPlan.Schema, applied.Value.Schema),
             Accounting = new BaseAtomicCommitAccounting
             {
                 WrittenBytes = prior.WrittenBytes,
@@ -902,6 +915,7 @@ internal sealed class BaseSelectionMutationProcessor(
             || !string.Equals(captured.Authority.StoreInstanceId, selection.Authority.StoreInstanceId, StringComparison.Ordinal)
             || captured.Authority.RestoreEpoch != selection.Authority.RestoreEpoch
             || captured.Authority.SchemaGeneration != selection.Authority.SchemaGeneration
+            || captured.Authority.LogicalSchemaChecksum != selection.Authority.LogicalSchemaChecksum
             || captured.Authority.Collections.Length != 1
             || selection.Authority.Collections.Length != 1
             || captured.Authority.Collections[0].CollectionGeneration != selection.Authority.Collections[0].CollectionGeneration)
@@ -1146,8 +1160,10 @@ internal sealed class BaseSelectionMutationProcessor(
         && prepared.Authority.StoreInstanceId == captured.Authority.StoreInstanceId
         && prepared.Authority.RestoreEpoch == captured.Authority.RestoreEpoch
         && prepared.Authority.SchemaGeneration == captured.Authority.SchemaGeneration
+        && prepared.Authority.LogicalSchemaChecksum == captured.Authority.LogicalSchemaChecksum
         && prepared.Authority.Collections.SequenceEqual(captured.Authority.Collections)
         && BaseTextAtomicMutationContract.PreparedMatches(plan.Text, prepared.Text)
+        && BaseAtomicSchemaContract.PreparedMatches(plan.Schema, prepared.Schema)
         && (!HasSubjectWork(plan) || prepared.Authority.Isolation == captured.Authority.Isolation
             && prepared.Authority.TransactionEvidenceToken.AsSpan().SequenceEqual(captured.Authority.TransactionEvidenceToken.AsSpan())
             && captured.ReadIntervals.All(expected => prepared.ReadIntervals.Any(actual => IntervalEquals(expected, actual))))
@@ -1265,7 +1281,8 @@ internal sealed class BaseSelectionMutationProcessor(
     {
         bool strict = HasSubjectWork(plan);
         if (!string.Equals(plan.PlanDigest, applied.PlanDigest, StringComparison.Ordinal) || applied.Facts.Length != plan.Items.Length
-            || !BaseTextAtomicMutationContract.AppliedMatches(plan.Text, prepared.Text, applied.Text, applied.Facts))
+            || !BaseTextAtomicMutationContract.AppliedMatches(plan.Text, prepared.Text, applied.Text, applied.Facts)
+            || !BaseAtomicSchemaContract.ProvisionalMatches(plan.Schema, applied.Schema))
             return false;
         for (int index = 0; index < plan.Items.Length; index++)
         {

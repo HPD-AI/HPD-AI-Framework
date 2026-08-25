@@ -257,6 +257,8 @@ public sealed record BaseAtomicMutationAuthorityRequirement
     public required long RestoreEpoch { get; init; }
     /// <summary>Gets the positive schema generation.</summary>
     public required long SchemaGeneration { get; init; }
+    /// <summary>Gets the exact accepted logical-schema checksum.</summary>
+    public required BaseSchemaAuthorityChecksum LogicalSchemaChecksum { get; init; }
     /// <summary>Gets exact collection generations in ordinal collection-ID order.</summary>
     public required ImmutableArray<BaseCollectionGenerationRequirement> Collections { get; init; }
     /// <summary>Gets current provider-owned semantic activation authority when installed.</summary>
@@ -274,6 +276,8 @@ public sealed record BaseAtomicMutationAuthorityEvidence
     public required long RestoreEpoch { get; init; }
     /// <summary>Gets the positive schema generation.</summary>
     public required long SchemaGeneration { get; init; }
+    /// <summary>Gets the transaction-captured logical-schema checksum.</summary>
+    public required BaseSchemaAuthorityChecksum LogicalSchemaChecksum { get; init; }
     /// <summary>Gets exact collection generations in ordinal collection-ID order.</summary>
     public required ImmutableArray<BaseCollectionGenerationRequirement> Collections { get; init; }
     /// <summary>Gets the certified transaction isolation.</summary>

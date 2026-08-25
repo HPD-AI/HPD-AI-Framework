@@ -203,6 +203,8 @@ internal sealed class DefaultBaseMutationProcessor(
         ArgumentNullException.ThrowIfNull(session);
         if (_attempts.Count != 0)
             return Failed(Error("base.runtime.batch.invalid", "A mutation processor can only be invoked once.", ErrorCategory.Unexpected));
+        HashSet<string> authorizedSchemaCollections = authority.Collections.Select(static value => value.CollectionId).ToHashSet(StringComparer.Ordinal);
+        executionLimits = BaseAtomicSchemaContract.AttachLimits(executionLimits, _collections.Values.Where(collection => authorizedSchemaCollections.Contains(collection.Id)));
         _deadline = Stopwatch.GetTimestamp() + (long)(executionLimits.Deadlines.TransactionTimeout.TotalSeconds * Stopwatch.Frequency);
 
         BaseAtomicMutationIntent intent = CreateIntent(commands, authority, _collections);
@@ -224,6 +226,7 @@ internal sealed class DefaultBaseMutationProcessor(
                 })],
             SubjectRetirement = CreateRetirementCapture(commands, subjects, retirement),
             ActivationGuard = activationGuard,
+            Schema = BaseAtomicSchemaContract.CaptureRequest(authority, _collections.Values, executionLimits),
         };
         OperationResult<BaseCapturedAtomicExecution> capture = await session.CaptureAtomicExecutionAsync(captureRequest, cancellationToken).ConfigureAwait(false);
         if (!capture.IsSuccess() || capture.Value is null)
@@ -236,7 +239,8 @@ internal sealed class DefaultBaseMutationProcessor(
         {
             return Failed(Error(BaseSubjectErrorCodes.ProviderContractInvalid, "The provider authority capture was invalid.", ErrorCategory.Store));
         }
-        bool capturedValid = ValidateCaptured(intent, captureRequest.LifecycleConsumerProjections, captureRequest.SubjectRetirement, capturedEvidence, executionLimits);
+        bool capturedValid = ValidateCaptured(intent, captureRequest.LifecycleConsumerProjections, captureRequest.SubjectRetirement,
+            captureRequest.Schema, _collections.Values, capturedEvidence, executionLimits);
         if (!capturedValid)
             return Failed(Error(BaseSubjectErrorCodes.ProviderContractInvalid, "The provider authority capture was invalid.", ErrorCategory.Store));
         _capturedLifecycleConsumers = capturedEvidence.LifecycleConsumerProjections.ToDictionary(
@@ -249,6 +253,14 @@ internal sealed class DefaultBaseMutationProcessor(
         if (!BaseAtomicPolicyAuthority.IsAdmissible(finalizedPlan.Value.PolicyEvaluations))
             return Failed(Error(BasePolicyAuthorityErrorCodes.Invalid, "The mutation policy authority is invalid.", ErrorCategory.Authorization));
         ImmutableArray<BaseAtomicMutationPlanItem> finalizedItems = finalizedPlan.Value.Items;
+        BaseAtomicSchemaFinalizedExtension? schemaPlan;
+        try { schemaPlan = BaseAtomicSchemaContract.Finalize(capturedEvidence.Schema, finalizedItems); }
+        catch (InvalidOperationException exception)
+        {
+            bool validation = exception.Message is BaseSchemaErrorCodes.ScalarConstraintViolated or BaseSchemaErrorCodes.UniqueConstraintViolated;
+            return Failed(Error(validation ? exception.Message : BaseSchemaErrorCodes.ProviderEvidenceInvalid,
+                "The finalized schema overlay is invalid.", validation ? ErrorCategory.Validation : ErrorCategory.Store));
+        }
         BaseFinalizedTextMutationExtension? textPlan = BaseTextAtomicMutationContract.Finalize(finalizedItems);
         BaseAtomicPolicyAuthorityDigest policyDigest = BaseAtomicPolicyAuthority.Compute(
             authority.ApplicationId, "base.l30.recordMutations", finalizedPlan.Value.PolicyEvaluations);
@@ -271,6 +283,7 @@ internal sealed class DefaultBaseMutationProcessor(
             SubjectRetirement = retirementPlan,
             Text = textPlan,
             ActivationGuard = activationGuard,
+            Schema = schemaPlan,
             Limits = executionLimits with { },
             PlanDigest = planDigest,
         };
@@ -281,11 +294,15 @@ internal sealed class DefaultBaseMutationProcessor(
             providerPlan,
             cancellationToken).ConfigureAwait(false);
         if (!prepared.IsSuccess() || prepared.Value is null)
+        {
             return HasSubjectWork(retainedPlan)
                 ? FailedProvider(prepared.Status, prepared.Error)
                 : Failed(prepared.Error ?? Error("base.runtime.store.error", "The mutation preparation failed.", ErrorCategory.Store));
+        }
         if (!ValidatePrepared(retainedPlan, capturedEvidence, prepared.Value))
+        {
             return Failed(Error(BaseSubjectErrorCodes.ProviderContractInvalid, "The mutation preparation was invalid.", ErrorCategory.Store));
+        }
         if (prepared.Value.SubjectValidations.Any(static validation => validation.State == BaseSubjectValidationState.Invalid))
             return Failed(Error(BaseSubjectErrorCodes.ReferenceInvalid, "The subject reference is invalid.", ErrorCategory.Validation));
 
@@ -293,11 +310,13 @@ internal sealed class DefaultBaseMutationProcessor(
             prepared.Value,
             cancellationToken).ConfigureAwait(false);
         if (!applied.IsSuccess() || applied.Value is null || !ValidateApplied(retainedPlan, prepared.Value, applied.Value))
+        {
             return !applied.IsSuccess() || applied.Value is null
                 ? HasSubjectWork(retainedPlan)
                     ? FailedProvider(applied.Status, applied.Error)
                     : Failed(applied.Error ?? Error("base.runtime.store.error", "The mutation application failed.", ErrorCategory.Store))
                 : Failed(Error(BaseSubjectErrorCodes.ProviderContractInvalid, "The applied mutation evidence was invalid.", ErrorCategory.Store));
+        }
 
         BaseRecordMutationFact[] mutations;
         try { mutations = applied.Value.Facts.Select(static fact => fact.MaterializeOwned()).ToArray(); }
@@ -381,6 +400,7 @@ internal sealed class DefaultBaseMutationProcessor(
             ContractId = new string(projection.ContractId.AsSpan()),
         }).ToImmutableArray(),
         SubjectRetirement=value.SubjectRetirement.Select(static value=>value with{ContractId=new string(value.ContractId.AsSpan()),ContractChecksum=new string(value.ContractChecksum.AsSpan()),RetirementPolicyChecksum=new string(value.RetirementPolicyChecksum.AsSpan()),AcceptedConsumerSetChecksum=new string(value.AcceptedConsumerSetChecksum.AsSpan()),ProtectedScope=value.ProtectedScope with{IndexDigest=value.ProtectedScope.IndexDigest.ToArray(),ProtectedCanonicalValue=value.ProtectedScope.ProtectedCanonicalValue.ToArray()},CurrentBarrier=value.CurrentBarrier is null?null:value.CurrentBarrier with{BarrierChecksum=new string(value.CurrentBarrier.BarrierChecksum.AsSpan()),RequiredConsumerSetChecksum=new string(value.CurrentBarrier.RequiredConsumerSetChecksum.AsSpan())}}).ToImmutableArray(),
+        Schema = BaseAtomicSchemaContract.Freeze(value.Schema),
         ReadIntervals = value.ReadIntervals.Select(static interval => interval with
         {
             LogicalAccessPathId = new string(interval.LogicalAccessPathId.AsSpan()),
@@ -931,6 +951,8 @@ internal sealed class DefaultBaseMutationProcessor(
         BaseAtomicMutationIntent intent,
         ImmutableArray<BaseSubjectLifecycleConsumerProjectionCaptureRequest> lifecycleProjections,
         BaseSubjectRetirementCaptureExtension? retirement,
+        BaseAtomicSchemaCaptureRequest? schema,
+        IEnumerable<CollectionDefinition> collections,
         BaseCapturedAtomicExecution captured,
         BaseAtomicMutationExecutionLimits limits)
     {
@@ -941,10 +963,12 @@ internal sealed class DefaultBaseMutationProcessor(
             || captured.Authority.StoreInstanceId != intent.Authority.StoreInstanceId
             || captured.Authority.RestoreEpoch != intent.Authority.RestoreEpoch
             || captured.Authority.SchemaGeneration != intent.Authority.SchemaGeneration
+            || captured.Authority.LogicalSchemaChecksum != intent.Authority.LogicalSchemaChecksum
             || !captured.Authority.Collections.SequenceEqual(intent.Authority.Collections)
             || !Enum.IsDefined(captured.Authority.Isolation)
             || captured.Authority.TransactionEvidenceToken.IsDefaultOrEmpty)
             return false;
+        if (!BaseAtomicSchemaContract.CapturedMatches(schema, captured.Schema, captured.Authority, collections, captured.Items)) return false;
         if (captured.LifecycleConsumerProjections.Length != lifecycleProjections.Length)
             return false;
         for (int index = 0; index < lifecycleProjections.Length; index++)
@@ -1150,6 +1174,7 @@ internal sealed class DefaultBaseMutationProcessor(
         && prepared.Accounting.RetirementEvidenceBytes <= plan.Limits.MaximumRetirementEvidenceBytes
         && RetirementEvidenceMatches(plan.SubjectRetirement, prepared.SubjectRetirement)
         && BaseTextAtomicMutationContract.PreparedMatches(plan.Text, prepared.Text)
+        && BaseAtomicSchemaContract.PreparedMatches(plan.Schema, prepared.Schema)
         && ValidateSubjectAuthorityEvidence(plan, prepared)
         && prepared.SubjectValidations.Select((validation, index) =>
             validation.Ordinal == index
@@ -1159,6 +1184,7 @@ internal sealed class DefaultBaseMutationProcessor(
         && string.Equals(prepared.Authority.StoreInstanceId, captured.Authority.StoreInstanceId, StringComparison.Ordinal)
         && prepared.Authority.RestoreEpoch == captured.Authority.RestoreEpoch
         && prepared.Authority.SchemaGeneration == captured.Authority.SchemaGeneration
+        && prepared.Authority.LogicalSchemaChecksum == captured.Authority.LogicalSchemaChecksum
         && prepared.Authority.Collections.SequenceEqual(captured.Authority.Collections)
         && (!HasSubjectWork(plan) || prepared.Authority.Isolation == captured.Authority.Isolation
             && prepared.Authority.TransactionEvidenceToken.AsSpan().SequenceEqual(captured.Authority.TransactionEvidenceToken.AsSpan()));
@@ -1313,6 +1339,7 @@ internal sealed class DefaultBaseMutationProcessor(
         if (!string.Equals(applied.PlanDigest, plan.PlanDigest, StringComparison.Ordinal)
             || !RetirementEvidenceMatches(plan.SubjectRetirement, applied.SubjectRetirement)
             || !BaseTextAtomicMutationContract.AppliedMatches(plan.Text, prepared.Text, applied.Text, applied.Facts)
+            || !BaseAtomicSchemaContract.ProvisionalMatches(plan.Schema, applied.Schema)
             || applied.Facts.Length != plan.Items.Length
             || applied.Accounting.RetirementBarrierReads != prepared.Accounting.RetirementBarrierReads
             || applied.Accounting.RetirementAcknowledgementReads != prepared.Accounting.RetirementAcknowledgementReads

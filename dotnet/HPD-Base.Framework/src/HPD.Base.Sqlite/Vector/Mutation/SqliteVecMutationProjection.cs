@@ -55,7 +55,7 @@ internal sealed class SqliteVecMutationProjection : ISqliteAtomicMutationProject
                 if (vectorField is null || vectorField.Value.Value.Kind == BaseAtomicProjectionValueKind.Null)
                 {
                     FieldDefinition declared = (index.Collection.Fields ?? []).Single(field => field.Id == index.Definition.VectorFieldId);
-                    if (declared.Required && !declared.Nullable) return Failed("A required vector projection field is unavailable.");
+                    if (declared.Presence == BaseFieldPresence.Required && declared.Nullability == BaseFieldNullability.NonNullable) return Failed("A required vector projection field is unavailable.");
                     OperationResult<int> removed = await context.ExecuteAsync(DeleteId(index), [SqliteProjectionValue.Text("record", mutation.After.Id.Value)], cancellationToken).ConfigureAwait(false);
                     if (!removed.Status.IsSuccess()) return Copy(removed);
                     OperationResult<int> optionalAdvanced = await context.ExecuteAsync(AdvanceId(index), [SqliteProjectionValue.Integer("position", mutation.JournalPosition.Value)], cancellationToken).ConfigureAwait(false);

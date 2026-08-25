@@ -1422,7 +1422,7 @@ public sealed class HPDBaseBuilder
 
     private static void ValidateIndexCapabilities(CollectionDefinition[] collections, HPDBaseStoreProvider provider)
     {
-        IndexDefinition? required = collections.SelectMany(static collection => collection.Indexes ?? []).FirstOrDefault(static index => index.Enforcement != EnforcementOwner.Advisory);
+        BaseLogicalIndexDefinition? required = collections.SelectMany(static collection => collection.Indexes ?? []).FirstOrDefault(static index => index.StoreRequired);
         if (required is not null && !provider.Capabilities.HasFlag(BaseStoreProviderCapabilities.RequiredIndexes))
             throw new InvalidOperationException($"Required physical index '{required.CollectionId}/{required.Id}' cannot be installed by the selected provider '{provider.Kind}'. Mark it Advisory or select a capable provider.");
     }
@@ -1441,14 +1441,14 @@ public sealed class HPDBaseBuilder
                 throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
             var fields = (source.Fields ?? []).ToDictionary(static field => field.Id, StringComparer.Ordinal);
             if (plan.Active.Kind == BaseSubjectActiveBindingKind.RequiredBooleanField &&
-                (!fields.TryGetValue(plan.Active.FieldId!, out FieldDefinition? active) || active.Type != "boolean" || !active.Required || active.Nullable))
+                (!fields.TryGetValue(plan.Active.FieldId!, out FieldDefinition? active) || active.Type != "boolean" || active.Presence != BaseFieldPresence.Required || active.Nullability != BaseFieldNullability.NonNullable))
                 throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
             if (plan.Active.Kind != BaseSubjectActiveBindingKind.RequiredBooleanField ||
-                !fields.TryGetValue(contract.TombstoneFieldId, out FieldDefinition? tombstone) || tombstone.Type != "boolean" || !tombstone.Required || tombstone.Nullable ||
+                !fields.TryGetValue(contract.TombstoneFieldId, out FieldDefinition? tombstone) || tombstone.Type != "boolean" || tombstone.Presence != BaseFieldPresence.Required || tombstone.Nullability != BaseFieldNullability.NonNullable ||
                 string.Equals(plan.Active.FieldId, contract.TombstoneFieldId, StringComparison.Ordinal))
                 throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
             if (plan.Scope.Kind != BaseSubjectScopeBindingKind.Global &&
-                (!fields.TryGetValue(plan.Scope.FieldId!, out FieldDefinition? scope) || scope.Type != "string" || !scope.Required || scope.Nullable))
+                (!fields.TryGetValue(plan.Scope.FieldId!, out FieldDefinition? scope) || scope.Type != "string" || scope.Presence != BaseFieldPresence.Required || scope.Nullability != BaseFieldNullability.NonNullable))
                 throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
             if (contract.Scope switch
                 {

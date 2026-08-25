@@ -283,7 +283,7 @@ public sealed class SqliteCursorPaginationTests
                 Id = "title",
                 ApplicationName = "title", WireName = "title",
                 Type = BaseFieldTypes.String,
-                Required = true
+                Presence = BaseFieldPresence.Required
             }
         ]
     };

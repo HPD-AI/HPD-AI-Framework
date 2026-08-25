@@ -14,7 +14,7 @@ public sealed class SqliteRelationStorageTests
         var path = Path.Combine(Path.GetTempPath(), "hpd-base-sqlite-relations-" + Guid.NewGuid().ToString("N") + ".db");
         CollectionDefinition target = Collection("users") with
         {
-            Fields = [new FieldDefinition { Id = "user.name", ApplicationName = "name", WireName = "name", Type = BaseFieldTypes.String, Required = true, Nullable = false }]
+            Fields = [new FieldDefinition { Id = "user.name", ApplicationName = "name", WireName = "name", Type = BaseFieldTypes.String, Presence = BaseFieldPresence.Required, Nullability = BaseFieldNullability.NonNullable }]
         };
         CollectionDefinition source = Collection("projects") with
         {
@@ -65,7 +65,7 @@ public sealed class SqliteRelationStorageTests
         string path = Path.Combine(Path.GetTempPath(), "hpd-base-sqlite-relation-rollback-" + Guid.NewGuid().ToString("N") + ".db");
         CollectionDefinition target = Collection("users") with
         {
-            Fields = [new FieldDefinition { Id = "user.name", ApplicationName = "name", WireName = "name", Type = BaseFieldTypes.String, Required = true, Nullable = false }],
+            Fields = [new FieldDefinition { Id = "user.name", ApplicationName = "name", WireName = "name", Type = BaseFieldTypes.String, Presence = BaseFieldPresence.Required, Nullability = BaseFieldNullability.NonNullable }],
         };
         CollectionDefinition source = Collection("projects") with
         {

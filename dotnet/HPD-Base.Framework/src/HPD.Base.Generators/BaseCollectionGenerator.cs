@@ -23,6 +23,8 @@ internal static class BaseCollectionGenerator
     private const string StorageProtectionAttribute = "HPD.Base.BaseCollectionStorageProtectionAttribute";
     private const string IndexAttribute =
         "HPD.Base.BaseIndexAttribute";
+    private const string IndexPartAttribute = "HPD.Base.BaseIndexPartAttribute";
+    private const string IndexPredicateAttribute = "HPD.Base.BaseIndexPredicateAttribute";
     private const string RelationAttribute =
         "HPD.Base.BaseRelationAttribute";
     private const string SubjectReferenceAttribute =
@@ -38,6 +40,8 @@ internal static class BaseCollectionGenerator
     private const string JsonOptionsAttribute =
         "System.Text.Json.Serialization.JsonSourceGenerationOptionsAttribute";
     private const string JsonIgnoreAttribute = "System.Text.Json.Serialization.JsonIgnoreAttribute";
+    private const string JsonConverterAttribute = "System.Text.Json.Serialization.JsonConverterAttribute";
+    private const string JsonStringEnumMemberNameAttribute = "System.Text.Json.Serialization.JsonStringEnumMemberNameAttribute";
 
     private static readonly DiagnosticDescriptor TypeMustBePartial = new DiagnosticDescriptor(
         "HPDBASE001",
@@ -110,6 +114,19 @@ internal static class BaseCollectionGenerator
         "HPD.Base.Generation",
         DiagnosticSeverity.Error,
         true);
+
+    private static readonly DiagnosticDescriptor IncompatibleScalarConstraint = new(
+        "HPDBASE5401", "Incompatible BASE scalar constraint", "Collection '{0}' field '{1}' applies a constraint incompatible with its exact scalar codec", "HPD.Base.Generation", DiagnosticSeverity.Error, true);
+    private static readonly DiagnosticDescriptor InvalidScalarBound = new(
+        "HPDBASE5402", "Invalid BASE scalar bound", "Collection '{0}' field '{1}' declares an invalid scalar bound", "HPD.Base.Generation", DiagnosticSeverity.Error, true);
+    private static readonly DiagnosticDescriptor ContradictoryScalarRange = new(
+        "HPDBASE5403", "Contradictory BASE scalar range", "Collection '{0}' field '{1}' declares a minimum greater than its maximum", "HPD.Base.Generation", DiagnosticSeverity.Error, true);
+    private static readonly DiagnosticDescriptor AmbiguousPresenceNullability = new(
+        "HPDBASE5404", "Ambiguous BASE presence or nullability", "Collection '{0}' field '{1}' contradicts its frozen serializer contract", "HPD.Base.Generation", DiagnosticSeverity.Error, true);
+    private static readonly DiagnosticDescriptor MissingMandatoryScalarCeiling = new(
+        "HPDBASE5405", "Missing mandatory BASE scalar ceiling", "Collection '{0}' field '{1}' omits a mandatory canonical JSON or collection ceiling", "HPD.Base.Generation", DiagnosticSeverity.Error, true);
+    private static readonly DiagnosticDescriptor IncompatibleIndexLiteral = new(
+        "HPDBASE5411", "Incompatible BASE index literal", "Collection '{0}' index '{1}' declares a noncanonical or incompatible equality literal", "HPD.Base.Generation", DiagnosticSeverity.Error, true);
 
     private static readonly DiagnosticDescriptor MissingFieldIdentity = new DiagnosticDescriptor(
         "HPDBASE010",
@@ -506,6 +523,96 @@ internal static class BaseCollectionGenerator
                 Required = property.IsRequired || !IsNullable(property),
                 Operators = operators,
             };
+            if (HasNamed(fieldAttribute, "Presence"))
+            {
+                long presence = GetNamedInt64(fieldAttribute, "Presence", -1);
+                if (presence is < 0 or > 1) { context.ReportDiagnostic(Diagnostic.Create(InvalidField, GetLocation(property), collectionId, property.Name, "presence is invalid")); return null; }
+                field.Required = presence == 0;
+            }
+            if (HasNamed(fieldAttribute, "Nullability"))
+            {
+                long nullability = GetNamedInt64(fieldAttribute, "Nullability", -1);
+                if (nullability is < 0 or > 1) { context.ReportDiagnostic(Diagnostic.Create(InvalidField, GetLocation(property), collectionId, property.Name, "nullability is invalid")); return null; }
+                field.Nullable = nullability == 1;
+            }
+            if (field.Nullable && property.Type.IsValueType && property.Type.NullableAnnotation != NullableAnnotation.Annotated)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(AmbiguousPresenceNullability, GetLocation(property), collectionId, property.Name)); return null;
+            }
+            field.MinimumUtf8Bytes = NamedInt32(fieldAttribute, "MinimumUtf8Bytes");
+            field.MaximumUtf8Bytes = NamedInt32(fieldAttribute, "MaximumUtf8Bytes");
+            field.StringNormalization = HasNamed(fieldAttribute, "StringNormalization") ? (int?)GetNamedInt64(fieldAttribute, "StringNormalization", -1) : null;
+            string[] numericBounds = { "MinimumInt64", "MaximumInt64", "MinimumInt32", "MaximumInt32", "MinimumUInt32", "MaximumUInt32", "MinimumUInt64", "MaximumUInt64" };
+            foreach (string bound in numericBounds)
+            {
+                string presence = "Has" + bound;
+                bool hasValue = HasNamed(fieldAttribute, bound), hasPresence = HasNamed(fieldAttribute, presence), admitted = GetNamedBoolean(fieldAttribute, presence, false);
+                if (hasValue != hasPresence || hasPresence && !admitted)
+                { context.ReportDiagnostic(Diagnostic.Create(InvalidScalarBound, GetLocation(property), collectionId, property.Name)); return null; }
+            }
+            field.MinimumInt64 = GetNamedBoolean(fieldAttribute, "HasMinimumInt64", false) ? (long?)GetNamedInt64(fieldAttribute, "MinimumInt64", long.MinValue) : null;
+            field.MaximumInt64 = GetNamedBoolean(fieldAttribute, "HasMaximumInt64", false) ? (long?)GetNamedInt64(fieldAttribute, "MaximumInt64", long.MinValue) : null;
+            field.MinimumInt32 = GetNamedBoolean(fieldAttribute, "HasMinimumInt32", false) ? NamedInt32(fieldAttribute, "MinimumInt32") : null;
+            field.MaximumInt32 = GetNamedBoolean(fieldAttribute, "HasMaximumInt32", false) ? NamedInt32(fieldAttribute, "MaximumInt32") : null;
+            field.MinimumUInt32 = GetNamedBoolean(fieldAttribute, "HasMinimumUInt32", false) ? NamedUInt32(fieldAttribute, "MinimumUInt32") : null;
+            field.MaximumUInt32 = GetNamedBoolean(fieldAttribute, "HasMaximumUInt32", false) ? NamedUInt32(fieldAttribute, "MaximumUInt32") : null;
+            field.MinimumUInt64 = GetNamedBoolean(fieldAttribute, "HasMinimumUInt64", false) ? NamedUInt64(fieldAttribute, "MinimumUInt64") : null;
+            field.MaximumUInt64 = GetNamedBoolean(fieldAttribute, "HasMaximumUInt64", false) ? NamedUInt64(fieldAttribute, "MaximumUInt64") : null;
+            field.MinimumDecimal = GetNamedString(fieldAttribute, "MinimumDecimal"); field.MaximumDecimal = GetNamedString(fieldAttribute, "MaximumDecimal");
+            field.AllowedEnumLiterals = GetNamedStrings(fieldAttribute, "AllowedEnumLiterals");
+            field.MinimumCollectionItems = NamedInt32(fieldAttribute, "MinimumCollectionItems");
+            field.MaximumCollectionItems = NamedInt32(fieldAttribute, "MaximumCollectionItems");
+            field.MaximumCanonicalJsonBytes = NamedInt32(fieldAttribute, "MaximumCanonicalJsonBytes");
+            field.JsonShape = HasNamed(fieldAttribute, "JsonShape") ? (int?)GetNamedInt64(fieldAttribute, "JsonShape", -1) : null;
+            field.MaximumJsonDepth = NamedInt32(fieldAttribute, "MaximumJsonDepth");
+            field.MaximumJsonArrayItems = NamedInt32(fieldAttribute, "MaximumJsonArrayItems");
+            field.MaximumJsonObjectProperties = NamedInt32(fieldAttribute, "MaximumJsonObjectProperties");
+            field.MaximumJsonTotalNodes = NamedInt32(fieldAttribute, "MaximumJsonTotalNodes");
+            field.MaximumJsonTotalStringUtf8Bytes = NamedInt32(fieldAttribute, "MaximumJsonTotalStringUtf8Bytes");
+            field.MaximumJsonTotalNameUtf8Bytes = NamedInt32(fieldAttribute, "MaximumJsonTotalNameUtf8Bytes");
+            string inferredKind = ScalarKind(field);
+            if (inferredKind == "ClosedEnum")
+            {
+                ITypeSymbol enumType = property.Type is INamedTypeSymbol nullableEnum && nullableEnum.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T ? nullableEnum.TypeArguments[0] : property.Type;
+                AttributeData converterAttribute = FindAttribute(property, JsonConverterAttribute);
+                INamedTypeSymbol converter = converterAttribute?.ConstructorArguments.Length > 0 ? converterAttribute.ConstructorArguments[0].Value as INamedTypeSymbol : null;
+                bool exactConverter = converter is { IsGenericType: true } && converter.ConstructedFrom.ToDisplayString() == "HPD.Base.BaseClosedEnumJsonConverter<TEnum>" && SymbolEqualityComparer.Default.Equals(converter.TypeArguments[0], enumType);
+                bool renamed = enumType.GetMembers().OfType<IFieldSymbol>().Any(member => !member.IsImplicitlyDeclared && FindAttribute(member, JsonStringEnumMemberNameAttribute) is not null);
+                if (!exactConverter || renamed)
+                { context.ReportDiagnostic(Diagnostic.Create(IncompatibleScalarConstraint, GetLocation(property), collectionId, property.Name)); return null; }
+                field.EnumCodecLiterals = EnumLiterals(property.Type);
+            }
+            if (inferredKind == "UtcDateTime")
+            {
+                AttributeData converterAttribute = FindAttribute(property, JsonConverterAttribute);
+                INamedTypeSymbol converter = converterAttribute?.ConstructorArguments.Length > 0 ? converterAttribute.ConstructorArguments[0].Value as INamedTypeSymbol : null;
+                bool exactType = field.TypeName is "global::System.DateTimeOffset" or "global::System.DateTimeOffset?";
+                if (!exactType || converter?.ToDisplayString() != "HPD.Base.BaseUtcDateTimeJsonConverter")
+                { context.ReportDiagnostic(Diagnostic.Create(IncompatibleScalarConstraint, GetLocation(property), collectionId, property.Name)); return null; }
+            }
+            bool stringConstraints = field.MinimumUtf8Bytes is not null || field.MaximumUtf8Bytes is not null || field.StringNormalization is not null;
+            bool integerConstraints = field.MinimumInt64 is not null || field.MaximumInt64 is not null;
+            bool int32Constraints = field.MinimumInt32 is not null || field.MaximumInt32 is not null;
+            bool uint32Constraints = field.MinimumUInt32 is not null || field.MaximumUInt32 is not null;
+            bool uint64Constraints = field.MinimumUInt64 is not null || field.MaximumUInt64 is not null;
+            bool decimalConstraints = field.MinimumDecimal is not null || field.MaximumDecimal is not null;
+            bool enumConstraints = field.AllowedEnumLiterals.Length != 0;
+            bool collectionConstraints = field.MinimumCollectionItems is not null || field.MaximumCollectionItems is not null;
+            bool jsonConstraints = field.MaximumCanonicalJsonBytes is not null || field.JsonShape is not null || field.MaximumJsonDepth is not null || field.MaximumJsonArrayItems is not null || field.MaximumJsonObjectProperties is not null || field.MaximumJsonTotalNodes is not null || field.MaximumJsonTotalStringUtf8Bytes is not null || field.MaximumJsonTotalNameUtf8Bytes is not null;
+            if (stringConstraints && inferredKind != "String" || integerConstraints && inferredKind != "Int64" || int32Constraints && inferredKind != "Int32" || uint32Constraints && inferredKind != "UInt32" || uint64Constraints && inferredKind != "UInt64" || decimalConstraints && inferredKind != "Decimal" || enumConstraints && inferredKind != "ClosedEnum" || collectionConstraints && inferredKind != "FrozenArray" || jsonConstraints && inferredKind != "CanonicalJson")
+            { context.ReportDiagnostic(Diagnostic.Create(IncompatibleScalarConstraint, GetLocation(property), collectionId, property.Name)); return null; }
+            if (AnyNegative(field.MinimumUtf8Bytes, field.MaximumUtf8Bytes, field.MinimumCollectionItems, field.MaximumCollectionItems, field.MaximumCanonicalJsonBytes, field.MaximumJsonDepth, field.MaximumJsonArrayItems, field.MaximumJsonObjectProperties, field.MaximumJsonTotalNodes, field.MaximumJsonTotalStringUtf8Bytes, field.MaximumJsonTotalNameUtf8Bytes) || field.StringNormalization is < 0 or > 0 || field.JsonShape is < 0 or > 2)
+            { context.ReportDiagnostic(Diagnostic.Create(InvalidScalarBound, GetLocation(property), collectionId, property.Name)); return null; }
+            if (field.MinimumDecimal is not null && !ValidCanonicalDecimal(field.MinimumDecimal) || field.MaximumDecimal is not null && !ValidCanonicalDecimal(field.MaximumDecimal))
+            { context.ReportDiagnostic(Diagnostic.Create(InvalidScalarBound, GetLocation(property), collectionId, property.Name)); return null; }
+            if (InvalidRange(field.MinimumUtf8Bytes, field.MaximumUtf8Bytes) || InvalidRange(field.MinimumInt32, field.MaximumInt32) || InvalidRange(field.MinimumInt64, field.MaximumInt64) || InvalidRange(field.MinimumUInt32, field.MaximumUInt32) || InvalidRange(field.MinimumUInt64, field.MaximumUInt64) || InvalidRange(field.MinimumCollectionItems, field.MaximumCollectionItems) || field.AllowedEnumLiterals.Distinct(StringComparer.Ordinal).Count() != field.AllowedEnumLiterals.Length || !field.AllowedEnumLiterals.SequenceEqual(field.AllowedEnumLiterals.OrderBy(static value => value, StringComparer.Ordinal)))
+            { context.ReportDiagnostic(Diagnostic.Create(ContradictoryScalarRange, GetLocation(property), collectionId, property.Name)); return null; }
+            if (field.MinimumDecimal is not null && field.MaximumDecimal is not null && CompareCanonicalDecimal(field.MinimumDecimal, field.MaximumDecimal) > 0)
+            { context.ReportDiagnostic(Diagnostic.Create(ContradictoryScalarRange, GetLocation(property), collectionId, property.Name)); return null; }
+            if (enumConstraints && !field.AllowedEnumLiterals.SequenceEqual(EnumLiterals(property.Type), StringComparer.Ordinal))
+            { context.ReportDiagnostic(Diagnostic.Create(IncompatibleScalarConstraint, GetLocation(property), collectionId, property.Name)); return null; }
+            if (inferredKind == "CanonicalJson" && (field.MaximumCanonicalJsonBytes is not > 0 || field.MaximumJsonDepth is not > 0 || field.MaximumJsonArrayItems is not > 0 || field.MaximumJsonObjectProperties is not > 0 || field.MaximumJsonTotalNodes is not > 0 || field.MaximumJsonTotalStringUtf8Bytes is not > 0 || field.MaximumJsonTotalNameUtf8Bytes is not > 0) || inferredKind == "FrozenArray" && field.MaximumCollectionItems is not > 0)
+            { context.ReportDiagnostic(Diagnostic.Create(MissingMandatoryScalarCeiling, GetLocation(property), collectionId, property.Name)); return null; }
             AttributeData subjectReferenceAttribute = FindAttribute(property, SubjectReferenceAttribute);
             if (subjectReferenceAttribute is not null)
             {
@@ -688,29 +795,27 @@ internal static class BaseCollectionGenerator
                 return null;
             }
 
-            ImmutableArray<TypedConstant> fieldConstants =
-                indexAttribute.ConstructorArguments.Length > 1 &&
-                indexAttribute.ConstructorArguments[1].Kind == TypedConstantKind.Array
-                    ? indexAttribute.ConstructorArguments[1].Values
-                    : ImmutableArray<TypedConstant>.Empty;
-            if (fieldConstants.IsDefaultOrEmpty)
+            long version = GetNamedInt64(indexAttribute, "Version", 1);
+            AttributeData[] partAttributes = symbol.GetAttributes().Where(attribute => attribute.AttributeClass?.ToDisplayString() == IndexPartAttribute && GetConstructorString(attribute, 0) == indexId).ToArray();
+            if (version < 1 || partAttributes.Length == 0)
             {
                 context.ReportDiagnostic(Diagnostic.Create(
                     InvalidIndex,
                     indexLocation,
                     collectionId,
                     indexId,
-                    "at least one field is required"));
+                    version < 1 ? "the version must be positive" : "at least one BaseIndexPart is required"));
                 return null;
             }
 
-            var indexFields = new List<FieldModel>();
+            var indexParts = new List<IndexPartModel>();
             var indexedProperties = new HashSet<string>(StringComparer.Ordinal);
-            foreach (TypedConstant fieldConstant in fieldConstants)
+            foreach (AttributeData partAttribute in partAttributes.OrderBy(static value => GetConstructorInt32(value, 1)))
             {
-                string propertyName = fieldConstant.Value as string;
+                int ordinal = GetConstructorInt32(partAttribute, 1);
+                string propertyName = GetConstructorString(partAttribute, 2);
                 FieldModel field;
-                if (propertyName == null || !propertyFields.TryGetValue(propertyName, out field))
+                if (ordinal != indexParts.Count || propertyName == null || !propertyFields.TryGetValue(propertyName, out field))
                 {
                     context.ReportDiagnostic(Diagnostic.Create(
                         InvalidIndexField,
@@ -743,15 +848,49 @@ internal static class BaseCollectionGenerator
                     return null;
                 }
 
-                indexFields.Add(field);
+                int direction = (int)GetNamedInt64(partAttribute, "Direction", 0), collation = (int)GetNamedInt64(partAttribute, "Collation", 0), nullOrder = (int)GetNamedInt64(partAttribute, "NullOrder", 0);
+                if (direction is < 0 or > 1 || collation != 0 || nullOrder is < 0 or > 1)
+                { context.ReportDiagnostic(Diagnostic.Create(InvalidIndex, GetLocation(partAttribute, symbol), collectionId, indexId, "a part has invalid direction, collation, or null ordering")); return null; }
+                indexParts.Add(new IndexPartModel { Field = field, Direction = direction, Collation = collation, NullOrder = nullOrder });
+            }
+
+            var predicateNodes = new List<IndexPredicateModel>();
+            foreach (AttributeData predicateAttribute in symbol.GetAttributes().Where(attribute => attribute.AttributeClass?.ToDisplayString() == IndexPredicateAttribute && GetConstructorString(attribute, 0) == indexId))
+            {
+                string nodeId = GetConstructorString(predicateAttribute, 1); int kind = GetConstructorInt32(predicateAttribute, 2);
+                string predicateFieldName = GetNamedString(predicateAttribute, "Field"); string[] children = GetNamedStrings(predicateAttribute, "Children");
+                string literal = GetNamedString(predicateAttribute, "Literal");
+                FieldModel predicateField = null;
+                if (predicateFieldName is not null && !propertyFields.TryGetValue(predicateFieldName, out predicateField))
+                { context.ReportDiagnostic(Diagnostic.Create(InvalidIndex, GetLocation(predicateAttribute, symbol), collectionId, indexId, "a predicate references an unknown field")); return null; }
+                bool fieldNode = kind is >= 2 and <= 6; bool equalNode = kind == 6; bool booleanNode = kind is 7 or 8; bool notNode = kind == 9;
+                if (!IsValidId(nodeId) || kind is < 0 or > 9 || fieldNode != (predicateField is not null) || equalNode != (literal is not null) || (!equalNode && literal is not null) || (booleanNode && children.Length < 2) || (notNode && children.Length != 1) || (!booleanNode && !notNode && children.Length != 0))
+                { context.ReportDiagnostic(Diagnostic.Create(InvalidIndex, GetLocation(predicateAttribute, symbol), collectionId, indexId, "a predicate node has incompatible members")); return null; }
+                if (equalNode && !ValidPredicateLiteral(predicateField, literal))
+                { context.ReportDiagnostic(Diagnostic.Create(IncompatibleIndexLiteral, GetLocation(predicateAttribute, symbol), collectionId, indexId)); return null; }
+                predicateNodes.Add(new IndexPredicateModel { Id = nodeId, Kind = kind, Field = predicateField, Children = children, Literal = literal });
+            }
+            string predicateRoot = "root";
+            if (predicateNodes.Count != 0)
+            {
+                if (predicateNodes.Select(static node => node.Id).Distinct(StringComparer.Ordinal).Count() != predicateNodes.Count)
+                { context.ReportDiagnostic(Diagnostic.Create(InvalidIndex, indexLocation, collectionId, indexId, "predicate node identities are duplicated")); return null; }
+                var referenced = new HashSet<string>(predicateNodes.SelectMany(static node => node.Children), StringComparer.Ordinal);
+                string[] roots = predicateNodes.Where(node => !referenced.Contains(node.Id)).Select(static node => node.Id).ToArray();
+                if (roots.Length != 1 || predicateNodes.SelectMany(static node => node.Children).Any(child => predicateNodes.All(node => node.Id != child)))
+                { context.ReportDiagnostic(Diagnostic.Create(InvalidIndex, indexLocation, collectionId, indexId, "the predicate must be one closed connected tree")); return null; }
+                predicateRoot = roots[0];
             }
 
             indexes.Add(new IndexModel
             {
                 Id = indexId,
+                Version = version,
                 Unique = GetNamedBoolean(indexAttribute, "Unique", false),
-                Required = GetNamedBoolean(indexAttribute, "Required", true),
-                Fields = indexFields,
+                Required = GetNamedBoolean(indexAttribute, "StoreRequired", true),
+                Parts = indexParts,
+                PredicateRoot = predicateRoot,
+                PredicateNodes = predicateNodes,
             });
         }
 
@@ -1176,8 +1315,9 @@ internal static class BaseCollectionGenerator
         IReadOnlyList<FieldModel> fields = model.Fields;
         source.AppendLine("                Fields =");
         source.AppendLine("                [");
-        foreach (FieldModel field in fields)
+        for (int fieldOrdinal = 0; fieldOrdinal < fields.Count; fieldOrdinal++)
         {
+            FieldModel field = fields[fieldOrdinal];
             source.AppendLine("                    new global::HPD.Base.FieldDefinition");
             source.AppendLine("                    {");
             source.Append("                        Id = ").Append(Literal(field.Id)).AppendLine(",");
@@ -1189,10 +1329,25 @@ internal static class BaseCollectionGenerator
                 source.Append("                        Format = ")
                     .Append(Literal(field.SchemaFormat)).AppendLine(",");
             }
-            source.Append("                        Required = ")
-                .Append(field.Required ? "true" : "false").AppendLine(",");
-            source.Append("                        Nullable = ")
-                .Append(field.Nullable ? "true" : "false").AppendLine(",");
+            source.Append("                        Presence = global::HPD.Base.BaseFieldPresence.").Append(field.Required ? "Required" : "Optional").AppendLine(",");
+            source.Append("                        Nullability = global::HPD.Base.BaseFieldNullability.").Append(field.Nullable ? "Nullable" : "NonNullable").AppendLine(",");
+            string scalarKind = ScalarKind(field);
+            if (scalarKind is not null)
+            {
+                source.Append("                        ScalarKind = global::HPD.Base.BaseScalarKind.").Append(scalarKind).AppendLine(",");
+                source.Append("                        ScalarCodec = ").Append(CodecExpression(field, scalarKind)).AppendLine(",");
+                source.AppendLine("                        ScalarConstraints = new global::HPD.Base.BaseScalarConstraintSet");
+                source.AppendLine("                        {");
+                RenderScalarConstraints(source, field, "                            ");
+                source.AppendLine("                        },");
+                source.Append("                        ScalarConstraintChecksum = global::HPD.Base.BaseGeneratedSchemaRegistration.ScalarConstraintChecksum(")
+                    .Append(Literal(model.CollectionId)).Append(", ").Append(Literal(field.Id)).Append(", global::HPD.Base.BaseFieldPresence.").Append(field.Required ? "Required" : "Optional")
+                    .Append(", global::HPD.Base.BaseFieldNullability.").Append(field.Nullable ? "Nullable" : "NonNullable")
+                    .Append(", ").Append(CodecExpression(field, scalarKind)).AppendLine(", new global::HPD.Base.BaseScalarConstraintSet")
+                    .AppendLine("                        {");
+                RenderScalarConstraints(source, field, "                            ");
+                source.AppendLine("                        }),");
+            }
             source.Append("                        Confidentiality = (global::HPD.Base.BaseFieldConfidentiality)").Append(field.Confidentiality).AppendLine(",");
             if (field.Disclosure is not null)
             {
@@ -1255,6 +1410,52 @@ internal static class BaseCollectionGenerator
         source.AppendLine("                ],");
     }
 
+    private static void RenderScalarConstraints(StringBuilder source, FieldModel field, string indent)
+    {
+        void Optional(string name, object value) { if (value is not null) source.Append(indent).Append(name).Append(" = ").Append(Convert.ToString(value, CultureInfo.InvariantCulture)).AppendLine(","); }
+        if (field.MaximumBytes > 0) Optional("MaximumBinaryBytes", field.MaximumBytes);
+        Optional("MinimumUtf8Bytes", field.MinimumUtf8Bytes); Optional("MaximumUtf8Bytes", field.MaximumUtf8Bytes);
+        if (field.StringNormalization is not null) source.Append(indent).Append("StringNormalization = (global::HPD.Base.BaseStringNormalizationRequirement)").Append(field.StringNormalization.Value).AppendLine(",");
+        Optional("MinimumInt64", field.MinimumInt64); Optional("MaximumInt64", field.MaximumInt64);
+        Optional("MinimumInt32", field.MinimumInt32); Optional("MaximumInt32", field.MaximumInt32);
+        Optional("MinimumUInt32", field.MinimumUInt32); Optional("MaximumUInt32", field.MaximumUInt32);
+        Optional("MinimumUInt64", field.MinimumUInt64); Optional("MaximumUInt64", field.MaximumUInt64);
+        if (field.MinimumDecimal is not null) source.Append(indent).Append("MinimumDecimal = global::HPD.Base.BaseGeneratedSchemaRegistration.Decimal(").Append(Literal(field.MinimumDecimal)).AppendLine("),");
+        if (field.MaximumDecimal is not null) source.Append(indent).Append("MaximumDecimal = global::HPD.Base.BaseGeneratedSchemaRegistration.Decimal(").Append(Literal(field.MaximumDecimal)).AppendLine("),");
+        if (field.AllowedEnumLiterals.Length != 0) source.Append(indent).Append("AllowedEnumLiterals = [").Append(string.Join(", ", field.AllowedEnumLiterals.Select(Literal))).AppendLine("],");
+        Optional("MinimumCollectionItems", field.MinimumCollectionItems); Optional("MaximumCollectionItems", field.MaximumCollectionItems);
+        Optional("MaximumCanonicalJsonBytes", field.MaximumCanonicalJsonBytes);
+        if (field.JsonShape is not null) source.Append(indent).Append("JsonShape = (global::HPD.Base.BaseJsonShape)").Append(field.JsonShape.Value).AppendLine(",");
+        Optional("MaximumJsonDepth", field.MaximumJsonDepth); Optional("MaximumJsonArrayItems", field.MaximumJsonArrayItems);
+        Optional("MaximumJsonObjectProperties", field.MaximumJsonObjectProperties); Optional("MaximumJsonTotalNodes", field.MaximumJsonTotalNodes);
+        Optional("MaximumJsonTotalStringUtf8Bytes", field.MaximumJsonTotalStringUtf8Bytes); Optional("MaximumJsonTotalNameUtf8Bytes", field.MaximumJsonTotalNameUtf8Bytes);
+    }
+
+    private static string CodecExpression(FieldModel field, string scalarKind)
+    {
+        string prefix = "global::HPD.Base.BaseGeneratedSchemaRegistration.ScalarCodec(global::HPD.Base.BaseScalarKind." + scalarKind;
+        return scalarKind == "ClosedEnum"
+            ? prefix + ", global::HPD.Base.BaseGeneratedSchemaRegistration.EnumQualifier(" + string.Join(", ", field.EnumCodecLiterals.Select(Literal)) + "))"
+            : prefix + ")";
+    }
+
+    private static string ScalarKind(FieldModel field)
+    {
+        if (field.TypeName == "global::HPD.Base.BaseCanonicalJson") return "CanonicalJson";
+        if (field.SchemaType == "string")
+        {
+            if (field.SchemaFormat == "date-time") return "UtcDateTime";
+            if (field.SchemaFormat == "base64") return "Binary";
+            if (field.SchemaFormat == "enum") return "ClosedEnum";
+            return "String";
+        }
+        if (field.SchemaType == "boolean") return "Boolean";
+        if (field.SchemaType == "integer") return field.TypeName switch { "int" or "global::System.Int32" => "Int32", "uint" or "global::System.UInt32" => "UInt32", "ulong" or "global::System.UInt64" => "UInt64", _ => "Int64" };
+        if (field.SchemaType == "decimal" || field.SchemaType == "number" && field.SchemaFormat == "decimal") return "Decimal";
+        if (field.SchemaType == "array") return "FrozenArray";
+        return null;
+    }
+
     private static void RenderIndexes(StringBuilder source, CollectionModel model)
     {
         if (model.Indexes.Count == 0)
@@ -1267,29 +1468,54 @@ internal static class BaseCollectionGenerator
         source.AppendLine("                [");
         foreach (IndexModel index in model.Indexes)
         {
-            source.AppendLine("                    new global::HPD.Base.IndexDefinition");
+            source.AppendLine("                    new global::HPD.Base.BaseLogicalIndexDefinition");
             source.AppendLine("                    {");
-            source.Append("                        Id = ").Append(Literal(index.Id)).AppendLine(",");
-            source.Append("                        Name = ").Append(Literal(index.Id)).AppendLine(",");
+            source.Append("                        Id = global::HPD.Base.BaseLogicalIndexId.Create(").Append(Literal(index.Id)).AppendLine("),");
+            source.Append("                        Version = ").Append(index.Version).AppendLine("L,");
             source.Append("                        CollectionId = ")
                 .Append(Literal(model.CollectionId)).AppendLine(",");
-            source.AppendLine("                        Kind = global::HPD.Base.IndexKind.Key,");
             source.Append("                        Unique = ")
                 .Append(index.Unique ? "true" : "false").AppendLine(",");
-            source.Append("                        Enforcement = global::HPD.Base.EnforcementOwner.")
-                .Append(index.Required ? "Store" : "Advisory").AppendLine(",");
+            source.Append("                        StoreRequired = ").Append(index.Required || index.Unique ? "true" : "false").AppendLine(",");
             source.AppendLine("                        Parts =");
             source.AppendLine("                        [");
-            foreach (FieldModel field in index.Fields)
+            foreach (IndexPartModel part in index.Parts)
             {
-                source.AppendLine("                            new global::HPD.Base.IndexPart");
+                source.AppendLine("                            new global::HPD.Base.BaseLogicalIndexPart");
                 source.AppendLine("                            {");
-                source.AppendLine("                                Kind = global::HPD.Base.IndexPartKind.Field,");
-                source.Append("                                FieldId = ")
-                    .Append(Literal(field.Id)).AppendLine(",");
+                source.Append("                                FieldOrdinal = ").Append(model.Fields.IndexOf(part.Field)).AppendLine(",");
+                source.Append("                                Direction = (global::HPD.Base.BaseIndexSortDirection)").Append(part.Direction).AppendLine(",");
+                source.Append("                                Collation = (global::HPD.Base.BaseIndexCollation)").Append(part.Collation).AppendLine(",");
+                source.Append("                                NullOrder = (global::HPD.Base.BaseIndexNullOrder)").Append(part.NullOrder).AppendLine(",");
                 source.AppendLine("                            },");
             }
             source.AppendLine("                        ],");
+            source.AppendLine("                        MembershipPredicate = new global::HPD.Base.BaseIndexPredicateRegistry");
+            source.AppendLine("                        {");
+            source.Append("                            Root = global::HPD.Base.BaseIndexPredicateId.Create(").Append(Literal(index.PredicateRoot)).AppendLine("),");
+            source.AppendLine("                            Nodes =");
+            source.AppendLine("                            [");
+            if (index.PredicateNodes.Count == 0)
+                source.AppendLine("                                new global::HPD.Base.BaseIndexPredicateNode { Id = global::HPD.Base.BaseIndexPredicateId.Create(\"root\"), Kind = global::HPD.Base.BaseIndexPredicateNodeKind.True },");
+            foreach (IndexPredicateModel node in index.PredicateNodes)
+            {
+                source.AppendLine("                                new global::HPD.Base.BaseIndexPredicateNode"); source.AppendLine("                                {");
+                source.Append("                                    Id = global::HPD.Base.BaseIndexPredicateId.Create(").Append(Literal(node.Id)).AppendLine("),");
+                source.Append("                                    Kind = (global::HPD.Base.BaseIndexPredicateNodeKind)").Append(node.Kind).AppendLine(",");
+                if (node.Field is not null) source.Append("                                    FieldOrdinal = ").Append(model.Fields.IndexOf(node.Field)).AppendLine(",");
+                if (node.Literal is not null)
+                {
+                    string scalarKind = ScalarKind(node.Field);
+                    source.Append("                                    Literal = global::HPD.Base.BaseGeneratedSchemaRegistration.ScalarLiteral(global::HPD.Base.BaseScalarKind.").Append(scalarKind).Append(", ")
+                        .Append(CodecExpression(node.Field, scalarKind)).Append(", ").Append(Literal(node.Literal)).AppendLine("),");
+                }
+                source.Append("                                    Children = [").Append(string.Join(", ", node.Children.Select(static child => "global::HPD.Base.BaseIndexPredicateId.Create(" + Literal(child) + ")"))).AppendLine("],");
+                source.AppendLine("                                },");
+            }
+            source.AppendLine("                            ],");
+            source.AppendLine("                            Checksum = default,");
+            source.AppendLine("                        },");
+            source.AppendLine("                        Checksum = default,");
             source.AppendLine("                    },");
         }
         source.AppendLine("                ],");
@@ -1463,6 +1689,9 @@ internal static class BaseCollectionGenerator
         attribute.ConstructorArguments.Length > index
             ? attribute.ConstructorArguments[index].Value as string
             : null;
+    private static int GetConstructorInt32(AttributeData attribute, int index) =>
+        attribute != null && attribute.ConstructorArguments.Length > index && attribute.ConstructorArguments[index].Value is object value
+            ? Convert.ToInt32(value, CultureInfo.InvariantCulture) : -1;
 
     private static INamedTypeSymbol GetConstructorType(AttributeData attribute, int index) =>
         attribute != null &&
@@ -1495,6 +1724,98 @@ internal static class BaseCollectionGenerator
         return false;
     }
 
+    private static bool HasNamed(AttributeData attribute, string name) => attribute.NamedArguments.Any(argument => argument.Key == name);
+    private static bool ValidPredicateLiteral(FieldModel field, string literal)
+    {
+        string kind = ScalarKind(field);
+        if (kind is "CanonicalJson" or "FrozenArray") return false;
+        if (kind is "String" or "Binary" or "Guid" or "UtcDateTime" or "ClosedEnum")
+        {
+            if (!TryCanonicalJsonString(literal, out string value)) return false;
+            if (kind == "Guid") return Guid.TryParseExact(value, "D", out Guid guid) && value == guid.ToString("D");
+            if (kind == "UtcDateTime") return DateTimeOffset.TryParseExact(value, "yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out DateTimeOffset instant) && instant.Offset == TimeSpan.Zero;
+            if (kind == "ClosedEnum") return field.EnumCodecLiterals.Contains(value, StringComparer.Ordinal);
+            if (kind == "Binary") { try { return Convert.ToBase64String(Convert.FromBase64String(value)) == value; } catch (FormatException) { return false; } }
+            return true;
+        }
+        if (kind == "Boolean") return literal is "true" or "false";
+        if (kind == "Int32") return int.TryParse(literal, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out int signed32) && signed32.ToString(CultureInfo.InvariantCulture) == literal;
+        if (kind == "Int64") return long.TryParse(literal, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out long signed64) && signed64.ToString(CultureInfo.InvariantCulture) == literal;
+        if (kind == "UInt32") return uint.TryParse(literal, NumberStyles.None, CultureInfo.InvariantCulture, out uint unsigned32) && unsigned32.ToString(CultureInfo.InvariantCulture) == literal;
+        if (kind == "UInt64") return ulong.TryParse(literal, NumberStyles.None, CultureInfo.InvariantCulture, out ulong unsigned64) && unsigned64.ToString(CultureInfo.InvariantCulture) == literal;
+        return kind == "Decimal" && ValidCanonicalDecimal(literal);
+    }
+
+    private static bool TryCanonicalJsonString(string token, out string value)
+    {
+        value = null;
+        if (token == null || token.Length < 2 || token[0] != '"' || token[token.Length - 1] != '"') return false;
+        var result = new StringBuilder(token.Length - 2);
+        for (int index = 1; index < token.Length - 1; index++)
+        {
+            char current = token[index];
+            if (current == '"' || current < ' ') return false;
+            if (current != '\\')
+            {
+                if (char.IsHighSurrogate(current)) { if (++index >= token.Length - 1 || !char.IsLowSurrogate(token[index])) return false; result.Append(current).Append(token[index]); }
+                else { if (char.IsLowSurrogate(current)) return false; result.Append(current); }
+                continue;
+            }
+            if (++index >= token.Length - 1) return false;
+            char escape = token[index];
+            if (escape == '"' || escape == '\\') result.Append(escape);
+            else if (escape == 'b') result.Append('\b'); else if (escape == 'f') result.Append('\f'); else if (escape == 'n') result.Append('\n'); else if (escape == 'r') result.Append('\r'); else if (escape == 't') result.Append('\t');
+            else if (escape == 'u' && index + 4 < token.Length - 1)
+            {
+                string hex = token.Substring(index + 1, 4);
+                if (hex.Length != 4 || hex[0] != '0' || hex[1] != '0' || !int.TryParse(hex, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out int scalar) || scalar > 0x1f || scalar is 8 or 9 or 10 or 12 or 13 || hex.Any(static character => character is >= 'A' and <= 'F')) return false;
+                result.Append((char)scalar); index += 4;
+            }
+            else return false;
+        }
+        value = result.ToString(); return true;
+    }
+
+    private static bool ValidCanonicalDecimal(string text)
+    {
+        if (string.IsNullOrEmpty(text) || text.IndexOf('e') >= 0 || text.IndexOf('E') >= 0 || text[0] == '+') return false;
+        bool negative = text[0] == '-'; int start = negative ? 1 : 0, dot = text.IndexOf('.', start);
+        string whole = dot < 0 ? text.Substring(start) : text.Substring(start, dot - start);
+        string fraction = dot < 0 ? string.Empty : text.Substring(dot + 1);
+        if (whole.Length == 0 || whole.Length > 1 && whole[0] == '0' || fraction.Length > 28 || dot >= 0 && (fraction.Length == 0 || fraction[fraction.Length - 1] == '0') || whole.Any(static value => value < '0' || value > '9') || fraction.Any(static value => value < '0' || value > '9')) return false;
+        string digits = (whole + fraction).TrimStart('0');
+        if (digits.Length == 0) return !negative && text == "0";
+        string limit = negative ? "170141183460469231731687303715884105728" : "170141183460469231731687303715884105727";
+        return digits.Length < limit.Length || digits.Length == limit.Length && string.CompareOrdinal(digits, limit) <= 0;
+    }
+
+    private static int CompareCanonicalDecimal(string left, string right)
+    {
+        bool leftNegative = left[0] == '-', rightNegative = right[0] == '-';
+        if (leftNegative != rightNegative) return leftNegative ? -1 : 1;
+        string leftMagnitude = left.TrimStart('-'), rightMagnitude = right.TrimStart('-');
+        int leftDot = leftMagnitude.IndexOf('.'), rightDot = rightMagnitude.IndexOf('.');
+        int leftWhole = leftDot < 0 ? leftMagnitude.Length : leftDot, rightWhole = rightDot < 0 ? rightMagnitude.Length : rightDot;
+        int comparison = leftWhole.CompareTo(rightWhole);
+        if (comparison == 0)
+        {
+            string leftDigits = leftMagnitude.Replace(".", string.Empty), rightDigits = rightMagnitude.Replace(".", string.Empty);
+            int length = Math.Max(leftDigits.Length, rightDigits.Length);
+            comparison = string.CompareOrdinal(leftDigits.PadRight(length, '0'), rightDigits.PadRight(length, '0'));
+        }
+        return leftNegative ? -comparison : comparison;
+    }
+    private static string[] EnumLiterals(ITypeSymbol type)
+    {
+        if (type is INamedTypeSymbol nullable && nullable.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T) type = nullable.TypeArguments[0];
+        return type.GetMembers().OfType<IFieldSymbol>().Where(static field => field.HasConstantValue).Select(static field => field.Name).OrderBy(static value => value, StringComparer.Ordinal).ToArray();
+    }
+    private static int? NamedInt32(AttributeData attribute, string name) => HasNamed(attribute, name) ? checked((int)GetNamedInt64(attribute, name, 0)) : (int?)null;
+    private static uint? NamedUInt32(AttributeData attribute, string name) => HasNamed(attribute, name) ? Convert.ToUInt32(attribute.NamedArguments.Single(argument => argument.Key == name).Value.Value, CultureInfo.InvariantCulture) : (uint?)null;
+    private static ulong? NamedUInt64(AttributeData attribute, string name) => HasNamed(attribute, name) ? Convert.ToUInt64(attribute.NamedArguments.Single(argument => argument.Key == name).Value.Value, CultureInfo.InvariantCulture) : (ulong?)null;
+    private static bool AnyNegative(params int?[] values) => values.Any(static value => value < 0);
+    private static bool InvalidRange<T>(T? minimum, T? maximum) where T : struct, IComparable<T> => minimum is { } min && maximum is { } max && min.CompareTo(max) > 0;
+
     private static string GetNamedString(AttributeData attribute, string name)
     {
         if (attribute == null)
@@ -1511,6 +1832,14 @@ internal static class BaseCollectionGenerator
         }
 
         return null;
+    }
+
+    private static string[] GetNamedStrings(AttributeData attribute, string name)
+    {
+        foreach (KeyValuePair<string, TypedConstant> argument in attribute.NamedArguments)
+            if (argument.Key == name && argument.Value.Kind == TypedConstantKind.Array)
+                return argument.Value.Values.Select(static value => value.Value as string).Where(static value => value is not null).ToArray();
+        return Array.Empty<string>();
     }
 
     private static ImmutableArray<TypedConstant> GetNamedArray(AttributeData attribute, string name)
@@ -1701,6 +2030,7 @@ internal static class BaseCollectionGenerator
     private static string GetSchemaType(ITypeSymbol type)
     {
         if (type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::HPD.Base.BaseBinary") return "string";
+        if (type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::HPD.Base.BaseCanonicalJson") return "object";
         if (IsBaseVector(type))
         {
             return "vector";
@@ -1759,8 +2089,14 @@ internal static class BaseCollectionGenerator
 
     private static string GetSchemaFormat(ITypeSymbol type)
     {
+        if (type is INamedTypeSymbol nullable && nullable.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T)
+        {
+            type = nullable.TypeArguments[0];
+        }
+        if (type.TypeKind == TypeKind.Enum) return "enum";
         string name = type.ToDisplayString();
         if (type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::HPD.Base.BaseBinary") return "base64";
+        if (type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::HPD.Base.BaseCanonicalJson") return "base-json-v1";
         if (IsBaseVector(type))
         {
             return "float32";
@@ -1945,6 +2281,31 @@ internal static class BaseCollectionGenerator
         public int[] Disclosure;
         /// <summary>Provides the binary maximum.</summary>
         public int MaximumBytes;
+        public int? MinimumUtf8Bytes;
+        public int? MaximumUtf8Bytes;
+        public int? StringNormalization;
+        public long? MinimumInt64;
+        public long? MaximumInt64;
+        public int? MinimumInt32;
+        public int? MaximumInt32;
+        public uint? MinimumUInt32;
+        public uint? MaximumUInt32;
+        public ulong? MinimumUInt64;
+        public ulong? MaximumUInt64;
+        public string MinimumDecimal;
+        public string MaximumDecimal;
+        public string[] AllowedEnumLiterals = Array.Empty<string>();
+        public string[] EnumCodecLiterals = Array.Empty<string>();
+        public int? MinimumCollectionItems;
+        public int? MaximumCollectionItems;
+        public int? MaximumCanonicalJsonBytes;
+        public int? JsonShape;
+        public int? MaximumJsonDepth;
+        public int? MaximumJsonArrayItems;
+        public int? MaximumJsonObjectProperties;
+        public int? MaximumJsonTotalNodes;
+        public int? MaximumJsonTotalStringUtf8Bytes;
+        public int? MaximumJsonTotalNameUtf8Bytes;
         /// <summary>Provides the relation value.</summary>
         public RelationModel Relation;
         public SubjectReferenceModel SubjectReference;
@@ -2005,12 +2366,32 @@ internal static class BaseCollectionGenerator
     {
         /// <summary>Provides the ID value.</summary>
         public string Id;
+        public long Version;
         /// <summary>Provides the unique value.</summary>
         public bool Unique;
         /// <summary>Provides the required value.</summary>
         public bool Required;
         /// <summary>Provides the fields value.</summary>
-        public List<FieldModel> Fields;
+        public List<IndexPartModel> Parts;
+        public string PredicateRoot;
+        public List<IndexPredicateModel> PredicateNodes;
+    }
+
+    private sealed class IndexPredicateModel
+    {
+        public string Id;
+        public int Kind;
+        public FieldModel Field;
+        public string[] Children;
+        public string Literal;
+    }
+
+    private sealed class IndexPartModel
+    {
+        public FieldModel Field;
+        public int Direction;
+        public int Collation;
+        public int NullOrder;
     }
 
     private sealed class VectorIndexModel

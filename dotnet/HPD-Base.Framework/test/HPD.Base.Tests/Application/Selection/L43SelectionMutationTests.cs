@@ -17,8 +17,10 @@ public sealed class L43SelectionMutationTests
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
         var session = provider.GetRequiredService<IBaseSessionFactory>().For(Admin());
         BaseCollectionSession<GeneratedProject> collection = session.Collection(GeneratedProject.Collection);
-        await collection.CreateAsync(new RecordId("one"), new GeneratedProject { OrganizationId = "org", Name = "a" });
-        await collection.CreateAsync(new RecordId("two"), new GeneratedProject { OrganizationId = "org", Name = "b" });
+        BaseResult<BaseRecord<GeneratedProject>> createdOne = await collection.CreateAsync(new RecordId("one"), new GeneratedProject { OrganizationId = "org", Name = "a" });
+        BaseResult<BaseRecord<GeneratedProject>> createdTwo = await collection.CreateAsync(new RecordId("two"), new GeneratedProject { OrganizationId = "org", Name = "b" });
+        createdOne.Should().BeOfType<BaseSuccess<BaseRecord<GeneratedProject>>>(createdOne is BaseFailure<BaseRecord<GeneratedProject>> firstFailure ? firstFailure.Error.Code : string.Empty);
+        createdTwo.Should().BeOfType<BaseSuccess<BaseRecord<GeneratedProject>>>(createdTwo is BaseFailure<BaseRecord<GeneratedProject>> secondFailure ? secondFailure.Error.Code : string.Empty);
         BaseMergePatchSelectionProfile<GeneratedProject> profile = collection.GetMergePatchSelectionProfile(PatchIdentity());
 
         BaseResult<BaseSelectionMutationResult> result = await collection.Query()
@@ -94,9 +96,9 @@ public sealed class L43SelectionMutationTests
     }
 
     [Theory]
-    [InlineData(false, "base.constraint.unique")]
-    [InlineData(true, "base.constraint.attributionUnavailable")]
-    public async Task SqliteConstraintAttributionIsLogicalAndAmbiguitySafe(bool ambiguous, string expectedCode)
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SqliteConstraintAttributionUsesTheStableNonEnumeratingL54Failure(bool ambiguous)
     {
         string path = Path.Combine(Path.GetTempPath(), $"hpd-l43-constraint-{Guid.NewGuid():N}.db");
         try
@@ -107,8 +109,8 @@ public sealed class L43SelectionMutationTests
             (await schemas.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = planned.Value!.ProtectedArtifact })).IsSuccess().Should().BeTrue();
             (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
             BaseCollectionSession<L43UniqueItem> collection = provider.GetRequiredService<IBaseSessionFactory>().For(Admin()).Collection(L43UniqueItem.Collection);
-            await collection.CreateAsync(new RecordId("existing"), new L43UniqueItem { Group = "keep", Name = "taken", Code = "used" });
-            await collection.CreateAsync(new RecordId("selected"), new L43UniqueItem { Group = "change", Name = "free", Code = "unused" });
+            (await collection.CreateAsync(new RecordId("existing"), new L43UniqueItem { Group = "keep", Name = "taken", Code = "used" })).RequireValue();
+            (await collection.CreateAsync(new RecordId("selected"), new L43UniqueItem { Group = "change", Name = "free", Code = "unused" })).RequireValue();
             BaseSelectionOperationProfile installed = Profile("unique-patch", BaseSelectionMutationKind.MergePatch) with { CollectionId = "l43-unique" };
             BaseMergePatchSelectionProfile<L43UniqueItem> profile = collection.GetMergePatchSelectionProfile(Identity(installed));
             string nameWire = L43UniqueItem.Collection.Definition.Fields!.Single(field => field.Id == "unique-name").WireName;
@@ -120,7 +122,7 @@ public sealed class L43SelectionMutationTests
                 .PatchSelectedAsync(profile, new RecordPatchRequest { Patch = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = fields } }, BasePreviousStateRequirement.None);
 
             BaseFailure<BaseSelectionMutationResult> failure = result.Should().BeOfType<BaseFailure<BaseSelectionMutationResult>>().Subject;
-            failure.Error.Code.Should().Be(expectedCode);
+            failure.Error.Code.Should().Be(BaseSchemaErrorCodes.UniqueConstraintViolated);
             (await collection.GetAsync(new RecordId("selected"))).RequireValue().Value.Name.Should().Be("free");
         }
         finally { if (File.Exists(path)) File.Delete(path); }
@@ -204,6 +206,7 @@ public sealed class L43SelectionMutationTests
             StoreInstanceId = "authority",
             RestoreEpoch = 0,
             SchemaGeneration = 1,
+            LogicalSchemaChecksum = BaseSchemaAuthorityChecksum.Create(new byte[32]),
             Collections = [new BaseCollectionGenerationRequirement { CollectionId = collection.Id, CollectionGeneration = 0 }],
         };
         RecordQuery query = new()
@@ -232,7 +235,7 @@ public sealed class L43SelectionMutationTests
         BaseValidatedSelection baseline = new()
         {
             MutationCapture = null!,
-            Authority = new BaseAtomicMutationAuthorityEvidence { ApplicationId = profile.ApplicationId, StoreInstanceId = "authority", RestoreEpoch = 0, SchemaGeneration = 1, Collections = [new BaseCollectionGenerationRequirement { CollectionId = collection.Id, CollectionGeneration = 0 }], Isolation = BaseAtomicSelectionIsolationClass.WriteOwningSerializable, TransactionEvidenceToken = [1] },
+            Authority = new BaseAtomicMutationAuthorityEvidence { ApplicationId = profile.ApplicationId, StoreInstanceId = "authority", RestoreEpoch = 0, SchemaGeneration = 1, LogicalSchemaChecksum = authority.LogicalSchemaChecksum, Collections = [new BaseCollectionGenerationRequirement { CollectionId = collection.Id, CollectionGeneration = 0 }], Isolation = BaseAtomicSelectionIsolationClass.WriteOwningSerializable, TransactionEvidenceToken = [1] },
             Records = [first, second], ReadIntervals = intervals, CanonicalOrderBoundary = reportedBoundary.ToImmutableArray(),
             Accounting = new BaseAtomicSelectionAccounting { SelectedRecords = 2, SelectedBytes = first.CanonicalBytes + second.CanonicalBytes, ReadIntervals = intervals.Length, EvidenceBytes = intervals.Sum(interval => (long)interval.CanonicalLowerBound.Length + interval.CanonicalUpperBound.Length) },
         };
@@ -406,8 +409,10 @@ public sealed class L43SelectionMutationTests
 }
 
 [BaseCollection("l43-unique", typeof(L43SelectionJsonContext))]
-[BaseIndex("unique-name", nameof(L43UniqueItem.Name), Unique = true)]
-[BaseIndex("unique-code", nameof(L43UniqueItem.Code), Unique = true)]
+[BaseIndex("unique-name", Unique = true)]
+[BaseIndexPart("unique-name", 0, nameof(L43UniqueItem.Name))]
+[BaseIndex("unique-code", Unique = true)]
+[BaseIndexPart("unique-code", 0, nameof(L43UniqueItem.Code))]
 internal sealed partial record L43UniqueItem
 {
     [BaseField("unique-group", Operators = BaseFieldOperator.Equal)] public required string Group { get; init; }

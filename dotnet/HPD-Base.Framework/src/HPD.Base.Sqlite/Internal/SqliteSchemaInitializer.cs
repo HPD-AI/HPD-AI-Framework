@@ -77,6 +77,14 @@ CREATE TABLE IF NOT EXISTS {_names.SchemaAssets} (
   state INTEGER NOT NULL,
   PRIMARY KEY(application_id, logical_id)
 );
+CREATE TABLE IF NOT EXISTS {_names.LogicalIndexes} (
+  collection_id TEXT NOT NULL COLLATE BINARY,
+  index_checksum BLOB NOT NULL CHECK(length(index_checksum)=32),
+  generation INTEGER NOT NULL CHECK(generation > 0),
+  state INTEGER NOT NULL,
+  publication_checksum BLOB NOT NULL CHECK(length(publication_checksum)=32),
+  PRIMARY KEY(collection_id,index_checksum)
+);
 CREATE TABLE IF NOT EXISTS {_names.SchemaHistory} (
   application_id TEXT NOT NULL,
   generation INTEGER NOT NULL,
@@ -483,6 +491,14 @@ CREATE INDEX IF NOT EXISTS "{_names.OperationReceipts}_module_retirement" ON {_n
             statements.Add($"CREATE INDEX IF NOT EXISTS ix_{collection.Table}_updated ON {collection.Table}(updated_at, record_id);");
             statements.AddRange(collection.Indexes.Select(index => index.CreateSql(collection)));
         }
+        BaseSchemaAuthorityChecksum logicalSchema = BaseSchemaAuthorityChecksum.Create(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(HPDBaseStoreInstallationContext.ComputeSchemaDigest(_options.Collections))));
+        foreach (SqlitePhysicalModel.CollectionModel collection in _physical.Collections)
+            foreach (SqlitePhysicalModel.IndexModel index in collection.Indexes)
+            {
+                BaseSchemaAuthorityChecksum publication = BaseAtomicSchemaContract.InitialPublication(logicalSchema, collection.Definition.Id, index.Definition.Checksum, 0);
+                statements.Add($"INSERT OR IGNORE INTO {_names.LogicalIndexes}(collection_id,index_checksum,generation,state,publication_checksum) VALUES ('{collection.Definition.Id.Replace("'", "''", StringComparison.Ordinal)}',X'{Convert.ToHexString(index.Definition.Checksum.ToArray())}',1,{(int)BaseLogicalIndexGenerationState.Ready},X'{Convert.ToHexString(publication.ToArray())}');");
+            }
         foreach (SqlitePhysicalModel.RelationModel relation in _physical.Relations)
         {
             statements.Add($"CREATE INDEX IF NOT EXISTS {relation.SourceIndex} ON {relation.Table}(source_record_id, ordinal);");
@@ -574,6 +590,14 @@ CREATE TABLE IF NOT EXISTS {_names.SchemaAssets} (
   state INTEGER NOT NULL,
   PRIMARY KEY(application_id, logical_id)
 );
+CREATE TABLE IF NOT EXISTS {_names.LogicalIndexes} (
+  collection_id TEXT NOT NULL COLLATE BINARY,
+  index_checksum BLOB NOT NULL CHECK(length(index_checksum)=32),
+  generation INTEGER NOT NULL CHECK(generation > 0),
+  state INTEGER NOT NULL,
+  publication_checksum BLOB NOT NULL CHECK(length(publication_checksum)=32),
+  PRIMARY KEY(collection_id,index_checksum)
+);
 CREATE TABLE IF NOT EXISTS {_names.SchemaHistory} (
   application_id TEXT NOT NULL,
   generation INTEGER NOT NULL,
@@ -598,6 +622,15 @@ CREATE TABLE IF NOT EXISTS {_names.SchemaLease} (
   acquired_at TEXT NULL
 );
 """, cancellationToken).ConfigureAwait(false);
+
+        BaseSchemaAuthorityChecksum logicalSchema = BaseSchemaAuthorityChecksum.Create(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(HPDBaseStoreInstallationContext.ComputeSchemaDigest(_options.Collections))));
+        foreach (SqlitePhysicalModel.CollectionModel collection in _physical.Collections)
+            foreach (SqlitePhysicalModel.IndexModel index in collection.Indexes)
+            {
+                BaseSchemaAuthorityChecksum publication = BaseAtomicSchemaContract.InitialPublication(logicalSchema, collection.Definition.Id, index.Definition.Checksum, 0);
+                await ExecuteAsync(connection, $"INSERT OR IGNORE INTO {_names.LogicalIndexes}(collection_id,index_checksum,generation,state,publication_checksum) VALUES ('{collection.Definition.Id.Replace("'", "''", StringComparison.Ordinal)}',X'{Convert.ToHexString(index.Definition.Checksum.ToArray())}',1,{(int)BaseLogicalIndexGenerationState.Ready},X'{Convert.ToHexString(publication.ToArray())}');", cancellationToken).ConfigureAwait(false);
+            }
 
         await ExecuteAsync(connection, $"""
 CREATE TABLE IF NOT EXISTS {_names.SubjectContracts} (
@@ -1142,6 +1175,8 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
     public async ValueTask<string[]> GetMissingSchemaPartsAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         var missing = new List<string>();
+        if (!await ObjectExistsAsync(connection, "table", _names.LogicalIndexes, cancellationToken).ConfigureAwait(false))
+            missing.Add(_names.LogicalIndexes);
         foreach (var table in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.OperationReceipts, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease, _names.SubjectContracts, _names.SubjectLifetimes, _names.SubjectTerminalLifetimes, _names.SubjectLifecycleFacts, _names.SubjectLifecycleMemberships, _names.SubjectLifecycleConsumers, _names.SubjectLifecycleCheckpoints, _names.SubjectLifecycleMaintenance, _names.SubjectLifecycleScopeStage, _names.SubjectLifecycleMembershipStage, _names.SubjectRetirementBarriers, _names.SubjectRetirementAcknowledgements, _names.SubjectRetirementTerminals, _names.SubjectRetirementPublications, _names.SubjectMaintenance, _names.SubjectRewriteStage, _names.ModuleGenerations, _names.ModuleMutationDefinitions, _names.ModuleGenerationDefinitions, _names.SemanticActivationDefinitions, _names.SemanticActivationScopes, _names.SemanticActivationSlots, _names.SemanticActivationMaintenance, _names.SemanticActivationMigrations, _names.SemanticActivationMigrationHistory, _names.SemanticActivationRemovedDefinitions, _names.SemanticActivationRemovedDefinitionHistory, _names.SemanticActivationRecoveryFloors, _names.SemanticActivationRewriteStage, _names.Activations, _names.ActivationPruneFloors }
             .Concat(_physical.Collections.Select(static collection => collection.Table))
             .Concat(_physical.Relations.Select(static relation => relation.Table))
@@ -1182,10 +1217,22 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
                 else if (!await IndexMatchesAsync(connection, $"ix_{collection.Table}_updated", false, ["updated_at", "record_id"], [false, false], cancellationToken).ConfigureAwait(false))
                     missing.Add("index-shape:ix_" + collection.Table + "_updated");
                 foreach (SqlitePhysicalModel.IndexModel index in collection.Indexes)
-                    if (!await ObjectExistsAsync(connection, "index", index.Name, cancellationToken).ConfigureAwait(false))
-                        missing.Add("index:" + index.Name);
-                    else if (!await IndexMatchesAsync(connection, index.Name, index.Definition.Unique || index.Definition.Kind == IndexKind.Unique, index.Parts.Select(static part => part.Column).ToArray(), index.Definition.Parts!.Select(static part => part.Direction == IndexSortDirection.Desc).ToArray(), cancellationToken).ConfigureAwait(false))
-                        missing.Add("index-shape:" + index.Name);
+                {
+                    if (index.HasOrdering)
+                    {
+                        if (!await ObjectExistsAsync(connection, "index", index.Name, cancellationToken).ConfigureAwait(false)) missing.Add("index:" + index.Name);
+                        else if (!await IndexMatchesAsync(connection, index.Name, false,
+                            index.OrderingParts.SelectMany(static part => new[] { part.StateColumn, part.ValueColumn }).Concat(["record_id"]).ToArray(),
+                            index.OrderingParts.SelectMany(part => new[] { part.Definition.Direction == BaseIndexSortDirection.Descending, part.Definition.Direction == BaseIndexSortDirection.Descending }).Concat([false]).ToArray(), cancellationToken).ConfigureAwait(false)) missing.Add("index-shape:" + index.Name);
+                        else if (!await IndexSqlMatchesAsync(connection, index.Name, index.OrderingSql(collection), cancellationToken).ConfigureAwait(false)) missing.Add("index-contract:" + index.Name);
+                    }
+                    if (index.UniqueName is not null)
+                    {
+                        if (!await ObjectExistsAsync(connection, "index", index.UniqueName, cancellationToken).ConfigureAwait(false)) missing.Add("index:" + index.UniqueName);
+                        else if (!await IndexMatchesAsync(connection, index.UniqueName, true, [index.EqualityColumn!], [false], cancellationToken).ConfigureAwait(false)) missing.Add("index-shape:" + index.UniqueName);
+                        else if (!await IndexSqlMatchesAsync(connection, index.UniqueName, index.UniqueSql(collection), cancellationToken).ConfigureAwait(false)) missing.Add("index-contract:" + index.UniqueName);
+                    }
+                }
             }
             foreach (SqlitePhysicalModel.RelationModel relation in _physical.Relations)
             {
@@ -1551,6 +1598,20 @@ CREATE TABLE {_names.SemanticActivationRecoveryFloors} (
             actual.Select(static item => item.Descending).SequenceEqual(descending);
     }
 
+    private async ValueTask<bool> IndexSqlMatchesAsync(SqliteConnection connection, string index, string expected, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT [sql] FROM sqlite_master WHERE type = 'index' AND name = $name;";
+        command.CommandTimeout = TimeoutSeconds(); command.Parameters.AddWithValue("$name", index);
+        string? actual = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as string;
+        return actual is not null && string.Equals(NormalizeIndexSql(actual), NormalizeIndexSql(expected), StringComparison.Ordinal);
+    }
+
+    private static string NormalizeIndexSql(string value)
+    {
+        return value.Trim().TrimEnd(';').Replace(" IF NOT EXISTS ", " ", StringComparison.Ordinal);
+    }
+
     private async ValueTask<string[]> GetMalformedRecordColumnsAsync(SqliteConnection connection, SqlitePhysicalModel.CollectionModel collection, CancellationToken cancellationToken)
     {
         Dictionary<string, ColumnShape> shapes = await GetColumnShapesAsync(connection, collection.Table, cancellationToken).ConfigureAwait(false);
@@ -1565,6 +1626,13 @@ CREATE TABLE {_names.SemanticActivationRecoveryFloors} (
         {
             if (field.PresenceColumn is not null) Check(shapes, malformed, collection.Table, field.PresenceColumn, "INTEGER", true, false);
             Check(shapes, malformed, collection.Table, field.Column, field.SqlType, field.PresenceColumn is null, false);
+        }
+        foreach (SqlitePhysicalModel.IndexModel index in collection.Indexes.Where(static index => index.EqualityColumn is not null))
+            Check(shapes, malformed, collection.Table, index.EqualityColumn!, "BLOB", false, false);
+        foreach (SqlitePhysicalModel.OrderingPartModel part in collection.Indexes.SelectMany(static index => index.OrderingParts))
+        {
+            Check(shapes, malformed, collection.Table, part.StateColumn, "INTEGER", true, false);
+            Check(shapes, malformed, collection.Table, part.ValueColumn, part.SqlType, true, false);
         }
         if (collection.HasExtensionJson) Check(shapes, malformed, collection.Table, "extension_json", "TEXT", false, false);
         return malformed.ToArray();
@@ -1605,6 +1673,8 @@ CREATE TABLE {_names.SemanticActivationRecoveryFloors} (
         var missing = new List<string>();
         IEnumerable<string> columns = new[] { "record_id", "revision", "created_at", "updated_at", "append_position" }
             .Concat(collection.Fields.SelectMany(static field => field.PresenceColumn is null ? [field.Column] : new[] { field.PresenceColumn, field.Column }))
+            .Concat(collection.Indexes.Where(static index => index.EqualityColumn is not null).Select(static index => index.EqualityColumn!))
+            .Concat(collection.Indexes.SelectMany(static index => index.OrderingParts.SelectMany(static part => new[] { part.StateColumn, part.ValueColumn })))
             .Concat(collection.HasExtensionJson ? ["extension_json"] : []);
         foreach (var column in columns)
         {

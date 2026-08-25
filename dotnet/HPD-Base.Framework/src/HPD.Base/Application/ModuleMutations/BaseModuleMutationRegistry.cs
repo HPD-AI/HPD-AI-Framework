@@ -539,7 +539,7 @@ internal static class BaseModuleMutationContractValidator
                 || !payload.Properties.Select(static property => property.StablePropertyId).SequenceEqual(expectedOrder, StringComparer.Ordinal)
                 || payload.Properties.Any(property => !collection.Fields.Any(field => field.Id == property.StablePropertyId
                     && !field.ReadOnly && field.Type == property.Value.ResultTypeId))
-                || complete && collection.Fields.Any(field => field.Required && !field.ReadOnly && !supplied.Contains(field.Id)))
+                || complete && collection.Fields.Any(field => field.Presence == BaseFieldPresence.Required && !field.ReadOnly && !supplied.Contains(field.Id)))
                 throw new InvalidOperationException("base.moduleMutation.invalid");
         }
 

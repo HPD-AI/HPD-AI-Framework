@@ -132,6 +132,7 @@ internal class FakeRecordStore : IAtomicRecordStore
             StoreInstanceId = Capabilities.StoreId,
             RestoreEpoch = 0,
             SchemaGeneration = 1,
+            LogicalSchemaChecksum = BaseSchemaAuthorityChecksum.Create(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(HPDBaseStoreInstallationContext.ComputeSchemaDigest(collections)))),
             Collections = collections.OrderBy(static value => value.Id, StringComparer.Ordinal)
                 .Select(static value => new BaseCollectionGenerationRequirement
                 {
@@ -419,6 +420,7 @@ internal class FakeRecordStore : IAtomicRecordStore
                     StoreInstanceId = owner.Capabilities.StoreId,
                     RestoreEpoch = intent.Authority.RestoreEpoch,
                     SchemaGeneration = 1,
+                    LogicalSchemaChecksum = intent.Authority.LogicalSchemaChecksum,
                     Collections = intent.Authority.Collections,
                     Isolation = BaseAtomicSelectionIsolationClass.WriteOwningSerializable,
                     TransactionEvidenceToken = [1],
@@ -438,6 +440,15 @@ internal class FakeRecordStore : IAtomicRecordStore
                     RetirementBarrierReads=0,RetirementAcknowledgementReads=0,RetirementProjections=0,RetirementPublications=0,RetirementEvidenceBytes=0,RetirementPublicationBytes=0,
                 },
             };
+            if ((request.Schema is null) != (request.Limits.Schema is null))
+                return ValueTask.FromResult(OperationResults.StoreError<BaseCapturedAtomicExecution>(new BaseError { Code = BaseSchemaErrorCodes.ProviderEvidenceInvalid, Message = "Invalid schema capture request.", Category = ErrorCategory.Store }));
+            if (request.Schema is not null)
+            {
+                CollectionDefinition[] collections = intent.Items.Select(static item => item.Collection)
+                    .Concat(intent.Items.SelectMany(static item => item.RelationTargets).Select(static relation => relation.TargetCollection))
+                    .DistinctBy(static collection => collection.Id).ToArray();
+                _captured = _captured with { Schema = BaseAtomicSchemaContract.Capture(request.Schema, _captured.Authority, collections, items) };
+            }
             return ValueTask.FromResult(OperationResults.Ok(_captured));
 
             static BaseAtomicReadIntervalEvidence Interval(string path, RecordId id)
@@ -461,6 +472,9 @@ internal class FakeRecordStore : IAtomicRecordStore
             if (!ReferenceEquals(captured, _captured) || _prepared is not null)
                 return ValueTask.FromResult(OperationResults.StoreError<BasePreparedAtomicExecution>(new BaseError { Code = BaseSubjectErrorCodes.ProviderContractInvalid, Message = "Invalid preparation.", Category = ErrorCategory.Store }));
             _plan = plan;
+            BaseAtomicSchemaPreparedExtension? preparedSchema;
+            try { preparedSchema = BaseAtomicSchemaContract.Prepare(this, captured.Schema, plan.Schema, plan.Items); }
+            catch (InvalidOperationException exception) { return ValueTask.FromResult(OperationResults.StoreError<BasePreparedAtomicExecution>(new BaseError { Code = exception.Message, Message = "Invalid schema preparation.", Category = ErrorCategory.Store })); }
             _prepared = new BasePreparedAtomicExecution
             {
                 Kind = plan.Kind,
@@ -471,6 +485,7 @@ internal class FakeRecordStore : IAtomicRecordStore
                 Generations = [],
                 SubjectOverlay = [],
                 SubjectValidations = [],
+                Schema = preparedSchema,
                 ReadIntervals = captured.ReadIntervals,
                 Accounting = new BasePreparedAtomicMutationAccounting
                 {
@@ -496,6 +511,9 @@ internal class FakeRecordStore : IAtomicRecordStore
             EnsureActive();
             if (!ReferenceEquals(prepared, _prepared) || _plan is null)
                 return OperationResults.StoreError<BaseProvisionalAtomicExecution>(new BaseError { Code = BaseSubjectErrorCodes.ProviderContractInvalid, Message = "Invalid apply.", Category = ErrorCategory.Store });
+            BaseAtomicSchemaProvisionalExtension? provisionalSchema;
+            try { provisionalSchema = BaseAtomicSchemaContract.Apply(this, prepared.Schema, _plan.Schema); }
+            catch (InvalidOperationException exception) { return OperationResults.StoreError<BaseProvisionalAtomicExecution>(new BaseError { Code = exception.Message, Message = "Invalid schema application.", Category = ErrorCategory.Store }); }
             _prepared = null;
             var facts = ImmutableArray.CreateBuilder<BaseOwnedMutationFact>(_plan.Items.Length);
             foreach (BaseAtomicMutationPlanItem item in _plan.Items)
@@ -530,6 +548,7 @@ internal class FakeRecordStore : IAtomicRecordStore
                 Authority = prepared.Authority,
                 Facts = facts.MoveToImmutable(),
                 Generations = [],
+                Schema = provisionalSchema,
                 Accounting = new BaseProvisionalAtomicMutationAccounting
                 {
                     WrittenBytes = bytes,
