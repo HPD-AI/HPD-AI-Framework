@@ -270,7 +270,7 @@ internal sealed partial class BaseStudioRuntimeContributionFactory
                     return !page.IsSuccess() || page.Value is null ? null : page.Value.Items.Select(static value => value.Id.Value).ToArray();
                 }
                 if (viewId.EndsWith(".relations.list", StringComparison.Ordinal)) return (definition.Fields ?? []).Where(static value => value.Relation is not null).Select(static value => value.Id).ToArray();
-                if (viewId.EndsWith(".indexes.list", StringComparison.Ordinal)) return (definition.Indexes ?? []).Select(static value => value.Id).Concat((definition.VectorIndexes ?? []).Select(static value => value.Id)).ToArray();
+                if (viewId.EndsWith(".indexes.list", StringComparison.Ordinal)) return (definition.Indexes ?? []).Select(static value => value.Id.ToString()).Concat((definition.VectorIndexes ?? []).Select(static value => value.Id)).ToArray();
                 if (viewId.EndsWith(".operations.list", StringComparison.Ordinal)) return OperationNames(definition);
                 if (viewId.EndsWith(".history.list", StringComparison.Ordinal)) return [];
                 if (viewId.EndsWith(".filters.list", StringComparison.Ordinal)) return ["installed filters only"];
