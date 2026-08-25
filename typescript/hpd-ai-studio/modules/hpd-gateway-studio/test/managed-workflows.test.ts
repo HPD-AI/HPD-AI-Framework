@@ -50,6 +50,14 @@ describe('Gateway managed workflows',()=>{
     h.edit();expect(h.controller.snapshot().workflow?.phase).toBe('Stale');expect(h.controller.requestConfirmation()).toBe(false);
   });
 
+  it('retains a frozen review during refresh and invalidates it only when refreshed authority changes',()=>{
+    const h=harness();expect(h.controller.openSubmit('submit-and-activate')).toBe(true);
+    h.setStudio({...studioSnapshot(),refreshing:true});expect(h.controller.snapshot().workflow?.phase).toBe('Reviewing');
+    h.setStudio(studioSnapshot());expect(h.controller.requestConfirmation()).toBe(true);
+    const changed=studioSnapshot();h.setStudio({...changed,observation:{...changed.observation!,desired:{state:'value',value:{...changed.observation!.desired.value!,desiredStateToken:'changed-token' as never}}}});
+    expect(h.controller.snapshot().workflow?.phase).toBe('Stale');expect(h.controller.requestConfirmation()).toBe(false);
+  });
+
   it('permits create-only only from current authoritative desired absence',()=>{
     for(const desiredState of ['denied','failed'] as const){const h=harness();const current=studioSnapshot();h.setStudio({...current,observation:{...current.observation!,desired:{state:desiredState}}});expect(h.controller.openSubmit('submit-and-activate')).toBe(false);}
     const stale=harness();stale.setStudio({...studioSnapshot(),stale:true});expect(stale.controller.openSubmit('submit-and-activate')).toBe(false);
