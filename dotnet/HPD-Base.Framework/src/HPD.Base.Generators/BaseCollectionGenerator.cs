@@ -880,6 +880,21 @@ internal static class BaseCollectionGenerator
                 if (roots.Length != 1 || predicateNodes.SelectMany(static node => node.Children).Any(child => predicateNodes.All(node => node.Id != child)))
                 { context.ReportDiagnostic(Diagnostic.Create(InvalidIndex, indexLocation, collectionId, indexId, "the predicate must be one closed connected tree")); return null; }
                 predicateRoot = roots[0];
+                var nodesById = predicateNodes.ToDictionary(static node => node.Id, StringComparer.Ordinal);
+                var visiting = new HashSet<string>(StringComparer.Ordinal);
+                var visited = new HashSet<string>(StringComparer.Ordinal);
+                bool Visit(string nodeId)
+                {
+                    if (!visiting.Add(nodeId)) return false;
+                    if (visited.Contains(nodeId)) { visiting.Remove(nodeId); return true; }
+                    foreach (string child in nodesById[nodeId].Children)
+                        if (!Visit(child)) return false;
+                    visiting.Remove(nodeId);
+                    visited.Add(nodeId);
+                    return true;
+                }
+                if (!Visit(predicateRoot) || visited.Count != predicateNodes.Count)
+                { context.ReportDiagnostic(Diagnostic.Create(InvalidIndex, indexLocation, collectionId, indexId, "the predicate must be one closed connected tree")); return null; }
             }
 
             indexes.Add(new IndexModel
@@ -1447,6 +1462,7 @@ internal static class BaseCollectionGenerator
             if (field.SchemaFormat == "date-time") return "UtcDateTime";
             if (field.SchemaFormat == "base64") return "Binary";
             if (field.SchemaFormat == "enum") return "ClosedEnum";
+            if (field.SchemaFormat == "uuid") return "Guid";
             return "String";
         }
         if (field.SchemaType == "boolean") return "Boolean";

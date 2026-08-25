@@ -103,6 +103,9 @@ internal sealed class CollectionModel
             .Concat(Indexes.Where(static index => index.EqualityColumn is not null).Select((item, index) => item.EqualityColumn + " = $k" + index))
             .Concat(Indexes.SelectMany((index, indexOrdinal) => index.OrderingParts.SelectMany((part, partOrdinal) => new[] { part.StateColumn + $" = $r{indexOrdinal}_{partOrdinal}", part.ValueColumn + $" = $o{indexOrdinal}_{partOrdinal}" })))
             .Concat(HasExtensionJson ? Enumerable.Repeat("extension_json = $extension", 1) : Enumerable.Empty<string>()));
+        internal string IndexPayloadAssignments => string.Join(", ",
+            Indexes.Where(static index => index.EqualityColumn is not null).Select((item, index) => item.EqualityColumn + " = $k" + index)
+                .Concat(Indexes.SelectMany((index, indexOrdinal) => index.OrderingParts.SelectMany((part, partOrdinal) => new[] { part.StateColumn + $" = $r{indexOrdinal}_{partOrdinal}", part.ValueColumn + $" = $o{indexOrdinal}_{partOrdinal}" }))));
         internal string PayloadColumnClause => PayloadColumns.Length == 0 ? "" : ", " + PayloadColumns;
         internal string PayloadParameterClause => PayloadParameters.Length == 0 ? "" : ", " + PayloadParameters;
         internal string PayloadAssignmentClause => PayloadAssignments.Length == 0 ? "" : ", " + PayloadAssignments;
@@ -170,6 +173,27 @@ internal sealed class CollectionModel
                 var extensions = values.Where(pair => !known.Contains(pair.Key)).ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal);
                 command.Parameters.AddWithValue("$extension", extensions.Count == 0 ? DBNull.Value : SqliteRecordSerializer.Serialize(new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = extensions }));
             }
+        }
+
+        internal void AddIndexPayloadParameters(SqliteCommand command, RecordPayload payload)
+        {
+            Dictionary<string, JsonElement> values = SqliteRecordSerializer.NormalizeObjectPayload(payload).Fields ?? [];
+            int equalityOrdinal = 0;
+            var normalized = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = values };
+            foreach (IndexModel index in Indexes.Where(static index => index.EqualityColumn is not null))
+            {
+                object key = BaseLogicalIndexEvaluator.Includes(Definition, index.Definition, normalized)
+                    ? BaseLogicalIndexEvaluator.Key(Definition, index.Definition, normalized)
+                    : DBNull.Value;
+                command.Parameters.AddWithValue("$k" + equalityOrdinal++, key);
+            }
+            for (int indexOrdinal = 0; indexOrdinal < Indexes.Length; indexOrdinal++)
+                for (int partOrdinal = 0; partOrdinal < Indexes[indexOrdinal].OrderingParts.Length; partOrdinal++)
+                {
+                    (long rank, object shadow) = Indexes[indexOrdinal].OrderingParts[partOrdinal].Encode(values);
+                    command.Parameters.AddWithValue($"$r{indexOrdinal}_{partOrdinal}", rank);
+                    command.Parameters.AddWithValue($"$o{indexOrdinal}_{partOrdinal}", shadow);
+                }
         }
 
         internal RecordEnvelope ReadEnvelope(SqliteDataReader reader, string storeId) =>

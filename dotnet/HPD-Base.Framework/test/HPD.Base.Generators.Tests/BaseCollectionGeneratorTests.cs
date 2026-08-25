@@ -721,6 +721,41 @@ public sealed class BaseCollectionGeneratorTests
     }
 
     [Fact]
+    public void GeneratedGuidFieldsUseTheExactGuidScalarCodec()
+    {
+        const string source = """
+            using HPD.Base; using System; using System.Text.Json.Serialization;
+            [BaseCollection("items", typeof(AppJsonContext))] public partial record Item
+            { [BaseField("item.id")] public required Guid Id { get; init; } }
+            [JsonSerializable(typeof(Item))] public partial class AppJsonContext : JsonSerializerContext;
+            """;
+        GeneratorResult result = Run(source);
+        result.Diagnostics.Should().BeEmpty();
+        result.GeneratedSource.Should().Contain("BaseScalarKind.Guid");
+    }
+
+    [Theory]
+    [InlineData("cycle-a", "cycle-b")]
+    [InlineData("self", "self")]
+    public void GeneratedPredicatesRejectDisconnectedAndSelfCycles(string node, string child)
+    {
+        string second = node == "self" ? string.Empty :
+            "[BaseIndexPredicate(\"item.by-value\", \"cycle-b\", BaseIndexPredicateNodeKind.Not, Children = [\"cycle-a\"])]";
+        string source = $$"""
+            using HPD.Base; using System.Text.Json.Serialization;
+            [BaseIndex("item.by-value")]
+            [BaseIndexPart("item.by-value", 0, nameof(Item.Value))]
+            [BaseIndexPredicate("item.by-value", "root", BaseIndexPredicateNodeKind.True)]
+            [BaseIndexPredicate("item.by-value", "{{node}}", BaseIndexPredicateNodeKind.Not, Children = ["{{child}}"]) ]
+            {{second}}
+            [BaseCollection("items", typeof(AppJsonContext))] public partial record Item
+            { [BaseField("item.value")] public required string Value { get; init; } }
+            [JsonSerializable(typeof(Item))] public partial class AppJsonContext : JsonSerializerContext;
+            """;
+        Run(source).Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE009");
+    }
+
+    [Fact]
     public void DecimalAttributeBoundsEmitExactReducedAuthority()
     {
         const string source = """

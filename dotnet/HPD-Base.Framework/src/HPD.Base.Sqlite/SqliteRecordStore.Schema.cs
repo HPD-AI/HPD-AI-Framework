@@ -224,7 +224,13 @@ public sealed partial class SqliteRecordStore
             }
 
             foreach (string statement in artifact.ExecutionStatements)
-                await ExecuteSchemaCommandAsync(connection, statement, request.ApplyTimeout, cancellationToken).ConfigureAwait(false);
+            {
+                const string rebuildIndexes = "-- hpd-base-rebuild-indexes:";
+                if (statement.StartsWith(rebuildIndexes, StringComparison.Ordinal))
+                    await RebuildLogicalIndexesAsync(connection, statement[rebuildIndexes.Length..], request.ApplyTimeout, cancellationToken).ConfigureAwait(false);
+                else
+                    await ExecuteSchemaCommandAsync(connection, statement, request.ApplyTimeout, cancellationToken).ConfigureAwait(false);
+            }
             await InitializeSubjectScopeProtectionAuthorityAsync(connection, cancellationToken).ConfigureAwait(false);
             if (!await AcquirePersistedSchemaLeaseAsync(connection, artifact.ApplicationId, request.ExpectedGeneration, envelope.PlanId, cancellationToken).ConfigureAwait(false))
             {
@@ -939,7 +945,11 @@ INSERT OR IGNORE INTO {_names.ProviderState}(key,value) VALUES('subject_scope_pr
             foreach (RelationDefinition relation in (collection.Fields ?? []).Select(static field => field.Relation).Where(static relation => relation is not null).Cast<RelationDefinition>())
                 assets.Add(new SchemaAssetValue("r:" + relation.Id, string.Join('\u001f', relation.SourceCollectionId, relation.SourceFieldId, relation.TargetCollectionId, relation.TargetFieldId, relation.OwningSide, relation.LocalMultiplicity, relation.InverseMultiplicity, relation.Required, relation.Ordered, relation.DeleteBehavior)));
             FieldDefinition[] orderedFields = (collection.Fields ?? []).OrderBy(static field => field.Id, StringComparer.Ordinal).ToArray();
-            foreach (BaseLogicalIndexDefinition index in collection.Indexes ?? []) assets.Add(new SchemaAssetValue($"i:{collection.Id}:{index.Id}", string.Join('\u001f', index.Unique ? "1" : "0", string.Join('\u001e', index.Parts.Select(part => orderedFields[part.FieldOrdinal].Id)), index.Version.ToString(CultureInfo.InvariantCulture), index.StoreRequired ? "1" : "0", index.MembershipPredicate.Checksum.ToString(), index.Checksum.ToString(), string.Join('\u001e', index.Parts.Select(static part => $"{part.FieldOrdinal}:{(int)part.Direction}:{(int)part.Collation}:{(int)part.NullOrder}")))));
+            foreach (BaseLogicalIndexDefinition declaredIndex in collection.Indexes ?? [])
+            {
+                BaseLogicalIndexDefinition index = BaseSchemaContract.SealIndex(declaredIndex, orderedFields);
+                assets.Add(new SchemaAssetValue($"i:{collection.Id}:{index.Id}", string.Join('\u001f', index.Unique ? "1" : "0", string.Join('\u001e', index.Parts.Select(part => orderedFields[part.FieldOrdinal].Id)), index.Version.ToString(CultureInfo.InvariantCulture), index.StoreRequired ? "1" : "0", index.MembershipPredicate.Checksum.ToString(), index.Checksum.ToString(), string.Join('\u001e', index.Parts.Select(static part => $"{part.FieldOrdinal}:{(int)part.Direction}:{(int)part.Collation}:{(int)part.NullOrder}")))));
+            }
         }
         return assets.OrderBy(static asset => asset.LogicalId, StringComparer.Ordinal).ToArray();
     }
@@ -1014,6 +1024,13 @@ INSERT OR IGNORE INTO {_names.ProviderState}(key,value) VALUES('subject_scope_pr
             .ToHashSet(StringComparer.Ordinal);
         foreach (string collectionId in rebuiltCollections.Order(StringComparer.Ordinal))
             statements.AddRange(PrepareCollectionRebuild(request, collectionId));
+        HashSet<string> reindexedCollections = request.LogicalDelta
+            .Where(static operation => operation.Kind is BaseSchemaOperationKind.AddIndex or BaseSchemaOperationKind.AlterIndex or BaseSchemaOperationKind.RemoveIndex)
+            .Select(static operation => operation.LogicalId.Split(':')[1])
+            .Where(collectionId => !createdCollections.Contains(collectionId) && !rebuiltCollections.Contains(collectionId))
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (string collectionId in reindexedCollections.Order(StringComparer.Ordinal))
+            statements.Add("-- hpd-base-rebuild-indexes:" + collectionId);
         foreach (BaseSchemaLogicalOperation operation in request.LogicalDelta)
         {
             string[] parts = operation.LogicalId.Split(':');
@@ -1038,17 +1055,10 @@ INSERT OR IGNORE INTO {_names.ProviderState}(key,value) VALUES('subject_scope_pr
                 case BaseSchemaOperationKind.RemoveField:
                     break;
                 case BaseSchemaOperationKind.AddIndex when !createdCollections.Contains(parts[1]):
-                {
-                    SqlitePhysicalModel.CollectionModel collection = _physical.Collection(parts[1]);
-                    statements.Add(collection.Indexes.Single(item => item.Definition.Id.ToString() == parts[2]).CreateSql(collection));
                     break;
-                }
                 case BaseSchemaOperationKind.AlterIndex:
-                {
-                    SqlitePhysicalModel.CollectionModel collection = _physical.Collection(parts[1]); SqlitePhysicalModel.IndexModel index = collection.Indexes.Single(item => item.Definition.Id.ToString() == parts[2]);
-                    statements.Add($"DROP INDEX IF EXISTS {index.Name};"); statements.Add(index.CreateSql(collection)); break;
-                }
-                case BaseSchemaOperationKind.RemoveIndex: statements.Add($"DROP INDEX IF EXISTS {NativeSchemaName("b_i_", parts[2])};"); break;
+                case BaseSchemaOperationKind.RemoveIndex:
+                    break;
                 case BaseSchemaOperationKind.AddRelation:
                 {
                     SqlitePhysicalModel.RelationModel? relation = _physical.Relations.SingleOrDefault(item => item.Definition.Id == parts[1]);
@@ -1133,6 +1143,74 @@ INSERT OR IGNORE INTO {_names.ProviderState}(key,value) VALUES('subject_scope_pr
         yield return $"CREATE INDEX IF NOT EXISTS ix_{collection.Table}_updated ON {collection.Table}(updated_at, record_id);";
         foreach (SqlitePhysicalModel.IndexModel index in collection.Indexes)
             yield return index.CreateSql(collection);
+    }
+
+    private async ValueTask RebuildLogicalIndexesAsync(
+        SqliteConnection connection,
+        string collectionId,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        SqlitePhysicalModel.CollectionModel collection = _physical.Collection(collectionId);
+        var indexNames = new List<string>();
+        await using (SqliteCommand indexes = connection.CreateCommand())
+        {
+            indexes.CommandTimeout = Math.Max(1, (int)Math.Ceiling(timeout.TotalSeconds));
+            indexes.CommandText = "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name=$table AND name LIKE 'b_i_%';";
+            indexes.Parameters.AddWithValue("$table", collection.Table);
+            await using SqliteDataReader reader = await indexes.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) indexNames.Add(reader.GetString(0));
+        }
+        foreach (string indexName in indexNames)
+            await ExecuteSchemaCommandAsync(connection, $"DROP INDEX IF EXISTS {indexName};", timeout, cancellationToken).ConfigureAwait(false);
+
+        var existingColumns = new HashSet<string>(StringComparer.Ordinal);
+        await using (SqliteCommand columns = connection.CreateCommand())
+        {
+            columns.CommandTimeout = Math.Max(1, (int)Math.Ceiling(timeout.TotalSeconds));
+            columns.CommandText = $"PRAGMA table_info({collection.Table});";
+            await using SqliteDataReader reader = await columns.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) existingColumns.Add(reader.GetString(1));
+        }
+        foreach (SqlitePhysicalModel.IndexModel index in collection.Indexes)
+        {
+            if (index.EqualityColumn is not null && existingColumns.Add(index.EqualityColumn))
+                await ExecuteSchemaCommandAsync(connection, $"ALTER TABLE {collection.Table} ADD COLUMN {index.EqualityColumn} BLOB NULL;", timeout, cancellationToken).ConfigureAwait(false);
+            foreach (SqlitePhysicalModel.OrderingPartModel part in index.OrderingParts)
+            {
+                if (existingColumns.Add(part.StateColumn))
+                    await ExecuteSchemaCommandAsync(connection, $"ALTER TABLE {collection.Table} ADD COLUMN {part.StateColumn} INTEGER NOT NULL DEFAULT 0;", timeout, cancellationToken).ConfigureAwait(false);
+                if (existingColumns.Add(part.ValueColumn))
+                {
+                    string fallback = part.SqlType switch { "BLOB" => "X''", "INTEGER" => "0", _ => "''" };
+                    await ExecuteSchemaCommandAsync(connection, $"ALTER TABLE {collection.Table} ADD COLUMN {part.ValueColumn} {part.SqlType} NOT NULL DEFAULT {fallback};", timeout, cancellationToken).ConfigureAwait(false);
+                }
+            }
+        }
+
+        var records = new List<RecordEnvelope>();
+        if (collection.Indexes.Length != 0)
+        {
+            await using (SqliteCommand read = connection.CreateCommand())
+            {
+                read.CommandTimeout = Math.Max(1, (int)Math.Ceiling(timeout.TotalSeconds));
+                read.CommandText = $"SELECT {collection.SelectList} FROM {collection.Table} ORDER BY record_id COLLATE BINARY;";
+                await using SqliteDataReader reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                    records.Add(collection.ReadEnvelope(reader, _options.StoreId));
+            }
+        }
+        foreach (RecordEnvelope record in records)
+        {
+            await using SqliteCommand update = connection.CreateCommand();
+            update.CommandTimeout = Math.Max(1, (int)Math.Ceiling(timeout.TotalSeconds));
+            update.CommandText = $"UPDATE {collection.Table} SET {collection.IndexPayloadAssignments} WHERE record_id=$record;";
+            collection.AddIndexPayloadParameters(update, record.Payload);
+            update.Parameters.AddWithValue("$record", record.Id.Value);
+            await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        foreach (SqlitePhysicalModel.IndexModel index in collection.Indexes)
+            await ExecuteSchemaCommandAsync(connection, index.CreateSql(collection), timeout, cancellationToken).ConfigureAwait(false);
     }
 
     private static string NativeSchemaName(string prefix, string id) => prefix + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(id))).Substring(0, 32);
