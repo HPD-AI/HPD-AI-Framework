@@ -23,11 +23,11 @@ V9 continued after the selected Studio donor with six Audio commits:
 | Donor commit | Disposition | Integration rule |
 | --- | --- | --- |
 | `437a037c` retained ElevenLabs STT participant | Already forward-ported | L52A commit `4eaa597e` carries the resulting provider contract, protocol, socket, participant, and tests. Keep the L52A versions. |
-| `0765c2c2` retained streaming STT transport foundation | Selective design donor | Recover provider-neutral readiness, endpoint-plan, fanout, and streaming-STT concepts only where they can be expressed through current S2 media and voice-activity authority. Do not restore the deleted managed-session runtime. |
-| `6d639b6a` transcript observation normalization | Candidate forward-port | Adapt the provider-neutral normalization laws and regression tests to the current observation authority. |
-| `1f7944e4` persistent managed streaming STT endpoint | Selective design donor | Preserve persistent endpoint behavior, committed-input semantics, and handoff evidence, but implement them on current S2 ownership and current Agent dispatch. Do not copy obsolete lifecycle, endpoint reducer, or semantic-handoff implementations wholesale. |
-| `6c9712f7` retained streaming STT lifecycle completion | Selective design donor | Recover cleanup, cancellation, telemetry, and required-branch laws through current retained authorities. Do not reintroduce `AudioSessionInputRuntime`, `AudioTransportRuntimeBridge`, or `ProductionAudioSessionLifecycleBackend`. |
-| `dfcf2882` OpenAI retained streaming transcription | Candidate forward-port | Port the OpenAI participant, socket, options, provider registration, tests, and documentation after the shared current-authority streaming contract exists. |
+| `0765c2c2` retained streaming STT transport foundation | Selectively forward-ported | The provider-neutral participant configuration, contribution-safety declaration, operation-identified updates, fingerprints, and closed outcomes were carried. V9 readiness, endpoint-plan, fanout, and deleted managed-session types remain excluded because current S2 owns those concerns. |
+| `6d639b6a` transcript observation normalization | Forward-ported and adapted | `StreamingTranscriptObservationNormalizerV1` now lowers provider observations directly into the current closed `TranscriptObservationV1` union and current `ExpectedAuthorityVectorV1`; obsolete transport-readiness and settled-range wrappers were removed. |
+| `1f7944e4` persistent managed streaming STT endpoint | Excluded as superseded | The implementation depends on deleted process-local lifecycle, endpoint-reducer, Agent-input, and semantic-handoff authority. Current S2 work execution, current endpoint observations, and current Agent dispatch remain authoritative. |
+| `6c9712f7` retained streaming STT lifecycle completion | Excluded as superseded | Its cleanup, telemetry, and required-branch implementation is inseparable from the deleted managed-session host. Current retained S2 work/cleanup authority is preserved; no parallel host was restored. |
+| `dfcf2882` OpenAI retained streaming transcription | Forward-ported and adapted | The OpenAI participant, bounded socket, options, provider/client contribution, capability metadata, and regression tests were carried. The donor README example was not carried because it names the superseded managed-input configuration surface. |
 
 The ten paths changed by L52A's Silero and ElevenLabs commits are compatible at the selected donor point, but they are not all byte-identical to the V9 tip. V9 later changed eight of them as part of its retained-STT lifecycle and older runtime composition. Only the ElevenLabs protocol and socket remain unchanged. In particular, V9 extends the shared participant factory with configuration and contribution-safety declarations, adds update operation identity and fingerprints, and expands update outcomes. Those contract changes are design input that must be reconciled with current S2 authority rather than copied automatically. L52A's Silero builder convenience remains authoritative even though V9 does not contain it.
 
@@ -57,3 +57,17 @@ Therefore the integration is not a V9 merge, a six-commit cherry-pick, or recons
 - Focused tests pass after every contract, lifecycle, provider, and cleanup layer.
 - Silero, ElevenLabs, OpenAI, LiveKit, Audio V2, core Agent, serialization/AOT, and current Graph integration tests pass in the final tree.
 - A final path audit proves that the Audio series changed no Base, Payments, Graph, Gateway, or Studio authority.
+
+## Completion evidence
+
+The retained-provider forward-port is commit `cb558c8e` on
+`codex/l52a-v9-audio-forward-port`.
+
+- Release compilation succeeds for the Audio V2 closure on .NET 8, .NET 9, and .NET 10 with zero errors.
+- OpenAI retained-STT, ElevenLabs retained-STT, and transcript-normalization focus: 33 passed and two credentialed live tests skipped per target framework.
+- Complete Audio V2 suite excluding the external Silero model fixture: 369 passed and three credentialed live tests skipped per target framework.
+- The ten Silero model tests remain an environmental baseline prerequisite and require `eng/fetch-silero-vad-v6.2.sh` or `HPD_SILERO_VAD_MODEL_PATH`; no failure was introduced by this forward-port.
+- The implementation changes only `dotnet/HPD-Agent.Framework/**`; it changes no Base, Payments, Graph, Gateway, or Studio path.
+- Added-line audit contains none of `AudioSessionInputRuntime`, `AudioTransportRuntimeBridge`, `ProductionAudioSessionLifecycleBackend`, or `ExecutionManager`.
+
+This completes the V9 retained-STT disposition. Provider transports and current-authority normalization are retained; the obsolete process-local lifecycle is rejected rather than recreated.
