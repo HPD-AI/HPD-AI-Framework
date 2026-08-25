@@ -31,6 +31,14 @@ public sealed class SqliteSchemaApplyAdversarialTests
                 }, OperationContext(BaseOperationKind.Create))).IsSuccess().Should().BeTrue();
             }
 
+            await using (var unrelatedConnection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString()))
+            {
+                await unrelatedConnection.OpenAsync();
+                await using SqliteCommand unrelated = unrelatedConnection.CreateCommand();
+                unrelated.CommandText = $"CREATE INDEX bXiZ ON {PhysicalTable("items")}(record_id);";
+                await unrelated.ExecuteNonQueryAsync();
+            }
+
             BaseLogicalIndexDefinition addedIndex = Index(unique: true, equalLiteral: null);
             CollectionDefinition withIndex = IndexedCollection([addedIndex]);
             await ApplyEvolutionAsync(path, applicationId, withIndex, BaseSchemaOperationKind.AddIndex, 1, "target", "target-2");
@@ -44,8 +52,10 @@ public sealed class SqliteSchemaApplyAdversarialTests
             await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString());
             await connection.OpenAsync();
             await using SqliteCommand command = connection.CreateCommand();
-            command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name LIKE 'b_i_%';";
+            command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name GLOB 'b_i_*';";
             Convert.ToInt32(await command.ExecuteScalarAsync()).Should().Be(0);
+            command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='bXiZ';";
+            Convert.ToInt32(await command.ExecuteScalarAsync()).Should().Be(1);
         }
         finally
         {
@@ -329,4 +339,7 @@ public sealed class SqliteSchemaApplyAdversarialTests
     {
         Operation = kind, CollectionId = "items", Now = DateTimeOffset.UnixEpoch,
     };
+
+    private static string PhysicalTable(string collectionId) => "b_c_" + Convert.ToHexStringLower(
+        System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(collectionId)))[..32];
 }

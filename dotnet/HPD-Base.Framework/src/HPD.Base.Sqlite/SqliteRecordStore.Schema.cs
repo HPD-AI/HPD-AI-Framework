@@ -1156,7 +1156,7 @@ INSERT OR IGNORE INTO {_names.ProviderState}(key,value) VALUES('subject_scope_pr
         await using (SqliteCommand indexes = connection.CreateCommand())
         {
             indexes.CommandTimeout = Math.Max(1, (int)Math.Ceiling(timeout.TotalSeconds));
-            indexes.CommandText = "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name=$table AND name LIKE 'b_i_%';";
+            indexes.CommandText = "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name=$table AND name GLOB 'b_i_*';";
             indexes.Parameters.AddWithValue("$table", collection.Table);
             await using SqliteDataReader reader = await indexes.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) indexNames.Add(reader.GetString(0));

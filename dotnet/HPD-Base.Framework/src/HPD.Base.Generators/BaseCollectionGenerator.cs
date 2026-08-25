@@ -881,6 +881,11 @@ internal static class BaseCollectionGenerator
                 { context.ReportDiagnostic(Diagnostic.Create(InvalidIndex, indexLocation, collectionId, indexId, "the predicate must be one closed connected tree")); return null; }
                 predicateRoot = roots[0];
                 var nodesById = predicateNodes.ToDictionary(static node => node.Id, StringComparer.Ordinal);
+                var parentCounts = predicateNodes.SelectMany(static node => node.Children)
+                    .GroupBy(static child => child, StringComparer.Ordinal)
+                    .ToDictionary(static group => group.Key, static group => group.Count(), StringComparer.Ordinal);
+                if (predicateNodes.Any(node => node.Id != predicateRoot && (!parentCounts.TryGetValue(node.Id, out int count) || count != 1)))
+                { context.ReportDiagnostic(Diagnostic.Create(InvalidIndex, indexLocation, collectionId, indexId, "the predicate must be one closed connected tree")); return null; }
                 var visiting = new HashSet<string>(StringComparer.Ordinal);
                 var visited = new HashSet<string>(StringComparer.Ordinal);
                 bool Visit(string nodeId)

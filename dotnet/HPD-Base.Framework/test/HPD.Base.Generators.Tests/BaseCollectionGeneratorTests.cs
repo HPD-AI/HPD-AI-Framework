@@ -756,6 +756,24 @@ public sealed class BaseCollectionGeneratorTests
     }
 
     [Fact]
+    public void GeneratedPredicatesRejectSharedChildren()
+    {
+        const string source = """
+            using HPD.Base; using System.Text.Json.Serialization;
+            [BaseIndex("item.by-value")]
+            [BaseIndexPart("item.by-value", 0, nameof(Item.Value))]
+            [BaseIndexPredicate("item.by-value", "root", BaseIndexPredicateNodeKind.And, Children = ["left", "right"])]
+            [BaseIndexPredicate("item.by-value", "left", BaseIndexPredicateNodeKind.Not, Children = ["leaf"])]
+            [BaseIndexPredicate("item.by-value", "right", BaseIndexPredicateNodeKind.Not, Children = ["leaf"])]
+            [BaseIndexPredicate("item.by-value", "leaf", BaseIndexPredicateNodeKind.True)]
+            [BaseCollection("items", typeof(AppJsonContext))] public partial record Item
+            { [BaseField("item.value")] public required string Value { get; init; } }
+            [JsonSerializable(typeof(Item))] public partial class AppJsonContext : JsonSerializerContext;
+            """;
+        Run(source).Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE009");
+    }
+
+    [Fact]
     public void DecimalAttributeBoundsEmitExactReducedAuthority()
     {
         const string source = """
