@@ -29,6 +29,7 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
 {
     public const string Key = "openai";
     public const string DefaultSpeechToTextModel = "whisper-1";
+    public const string DefaultRealtimeSpeechToTextModel = "gpt-live-transcribe";
     public const string DefaultTextToSpeechModel = "tts-1";
     public const string DefaultTextToSpeechVoice = "nova";
     public const string DefaultTextToSpeechOutputFormat = "mp3";
@@ -46,12 +47,20 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
 
         var providerOptions = (config as SpeechToTextClientConfig)?.ProviderOptions as OpenAISttOptions
             ?? new OpenAISttOptions();
+        var familyConfig = config as SpeechToTextClientConfig;
         var modelName = FirstNonWhiteSpace(config.ModelName, DefaultSpeechToTextModel)!;
         var openAIClient = CreateOpenAIClient(config, services, "speech-to-text");
+        var secrets = services?.GetService(typeof(ISecretResolver)) as ISecretResolver;
+        var apiKey = ResolveApiKey(config, secrets, "speech-to-text");
+        var endpoint = new Uri(FirstNonWhiteSpace(ResolveEndpoint(config, secrets),
+            "https://api.openai.com/v1")!, UriKind.Absolute);
 
         return new OpenAIConfiguringSpeechToTextClient(
             openAIClient.GetAudioClient(modelName).AsISpeechToTextClient(),
-            providerOptions);
+            providerOptions, apiKey, endpoint,
+            string.IsNullOrWhiteSpace(config.ModelName) ? DefaultRealtimeSpeechToTextModel : modelName,
+            familyConfig?.SpeechLanguage,
+            config.CustomHeaders);
     }
 
     public ITextToSpeechClient CreateTextToSpeechClient(
@@ -103,11 +112,15 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
                 [
                     DefaultSpeechToTextModel,
                     "gpt-4o-transcribe",
-                    "gpt-4o-mini-transcribe"
+                    "gpt-4o-mini-transcribe",
+                    DefaultRealtimeSpeechToTextModel,
+                    "gpt-transcribe"
                 ],
                 Capabilities = new Dictionary<string, object?>
                 {
-                    ["SupportsAudio"] = true
+                    ["SupportsAudio"] = true,
+                    ["SupportsRetainedStreamingTranscription"] = true,
+                    ["RetainedStreamingSampleRateHz"] = 24000
                 }
             },
             [ProviderClientFamily.TextToSpeech] = new()

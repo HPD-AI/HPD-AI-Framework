@@ -4,7 +4,11 @@ using HPD.Agent;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
 using HPD.Agent.Providers.Audio.OpenAI;
+using HPD.Agent.Audio.Interaction;
+using HPD.Agent.Audio.Media;
+using HPD.Agent.Audio.Providers;
 using Microsoft.Extensions.AI;
+using System.Threading.Channels;
 
 namespace HPD.Agent.Audio.V2.Tests;
 
@@ -72,7 +76,214 @@ public sealed class OpenAIAudioProviderTests
         Assert.Equal(ProviderClientFamily.SpeechToText, family.Family);
         Assert.Equal(OpenAIAudioProvider.DefaultSpeechToTextModel, family.DefaultModelId);
         Assert.True((bool)Assert.Contains("SupportsAudio", family.Capabilities!)!);
+        Assert.True((bool)Assert.Contains("SupportsRetainedStreamingTranscription", family.Capabilities)!);
     }
+
+    [Fact]
+    public async Task RetainedParticipant_UsesManualRealtimeTranscriptionProtocol()
+    {
+        var socket = new ScriptedOpenAISocket();
+        socket.Enqueue("""{"type":"session.created","session":{"id":"sess_1"}}""");
+        socket.Enqueue(ReadySession("gpt-live-transcribe",
+            "\"languages\":[\"en\"],\"prompt\":\"HPD voice agent\",\"keywords\":[\"HPD\"],\"delay\":\"low\""));
+        var participant = new OpenAIRealtimeSpeechToTextParticipant("sk-test",
+            new Uri("https://api.openai.com/v1"), new OpenAISttOptions
+            { Prompt = "HPD voice agent", Keywords = ["HPD"], RealtimeDelay = "low" },
+            socketFactory: () => socket);
+        await using (participant.ConfigureAwait(false))
+        {
+            var ready = await participant.ConnectAsync(new()
+            {
+                ModelId = "gpt-live-transcribe",
+                AudioFormat = new() { SampleRateHz = 48_000, ChannelCount = 1, BitsPerSample = 16 },
+                CommitStrategy = StreamingSpeechToTextCommitStrategy.Manual,
+                LanguageCode = "en",
+                Keyterms = ["HPD"]
+            });
+            Assert.Equal("sess_1", ready.ProviderSessionId);
+            await participant.WriteAudioAsync(new(1, new byte[] { 1, 0, 2, 0 }));
+            var dispatch = await participant.CommitAsync(new() { OperationId = "commit-1" });
+            Assert.Equal((ulong)1, dispatch.DispatchSequence);
+
+            socket.Enqueue("""{"type":"input_audio_buffer.committed","item_id":"item_1"}""");
+            socket.Enqueue("""{"type":"conversation.item.input_audio_transcription.delta","item_id":"item_1","content_index":0,"delta":"Hello"}""");
+            socket.Enqueue("""{"type":"conversation.item.input_audio_transcription.delta","item_id":"item_1","content_index":0,"delta":" HPD"}""");
+            socket.Enqueue("""{"type":"conversation.item.input_audio_transcription.completed","item_id":"item_1","content_index":0,"transcript":"Hello HPD"}""");
+            await using var observations = participant.ReadObservationsAsync().GetAsyncEnumerator();
+            Assert.True(await observations.MoveNextAsync());
+            Assert.Equal(StreamingSpeechToTextObservationKind.PartialTranscript, observations.Current.Kind);
+            Assert.True(await observations.MoveNextAsync());
+            Assert.Equal("Hello HPD", observations.Current.Text);
+            Assert.True(await observations.MoveNextAsync());
+            Assert.Equal(StreamingSpeechToTextObservationKind.CommittedTranscript, observations.Current.Kind);
+            Assert.Equal("Hello HPD", observations.Current.Text);
+
+            var sent = socket.Sent.Select(static value => JsonDocument.Parse(value)).ToArray();
+            try
+            {
+                Assert.Equal("session.update", sent[0].RootElement.GetProperty("type").GetString());
+                Assert.Equal("transcription", sent[0].RootElement.GetProperty("session").GetProperty("type").GetString());
+                Assert.Equal(24_000, sent[0].RootElement.GetProperty("session").GetProperty("audio")
+                    .GetProperty("input").GetProperty("format").GetProperty("rate").GetInt32());
+                Assert.Equal("input_audio_buffer.append", sent[1].RootElement.GetProperty("type").GetString());
+                Assert.Equal(2, sent[1].RootElement.GetProperty("audio").GetBytesFromBase64().Length);
+                Assert.Equal("input_audio_buffer.commit", sent[2].RootElement.GetProperty("type").GetString());
+            }
+            finally { foreach (var document in sent) document.Dispose(); }
+            await participant.StopAsync();
+        }
+    }
+
+    [Fact]
+    public async Task RetainedParticipant_RejectsUnsupportedChannelLayoutBeforeProviderEffect()
+    {
+        var socket = new ScriptedOpenAISocket();
+        await using var participant = new OpenAIRealtimeSpeechToTextParticipant("sk-test",
+            new Uri("https://api.openai.com/v1"), new OpenAISttOptions(), socketFactory: () => socket);
+        await Assert.ThrowsAsync<NotSupportedException>(async () => await participant.ConnectAsync(new()
+        {
+            ModelId = "gpt-live-transcribe",
+            AudioFormat = new() { SampleRateHz = 48_000, ChannelCount = 2, BitsPerSample = 16 },
+            CommitStrategy = StreamingSpeechToTextCommitStrategy.Manual
+        }));
+        Assert.Empty(socket.Sent);
+    }
+
+    [Theory]
+    [InlineData("gpt-live-transcribe", "\"languages\":[\"en\"]", "languages")]
+    [InlineData("gpt-transcribe", "\"language\":\"en\"", "language")]
+    public async Task RetainedParticipant_UsesModelSpecificLanguageSchema(
+        string model, string echoedLanguage, string expectedProperty)
+    {
+        var socket = new ScriptedOpenAISocket();
+        socket.Enqueue("""{"type":"session.created","session":{"id":"sess_1"}}""");
+        socket.Enqueue(ReadySession(model, echoedLanguage));
+        await using var participant = new OpenAIRealtimeSpeechToTextParticipant("sk-test",
+            new Uri("https://api.openai.com/v1"), new OpenAISttOptions(), socketFactory: () => socket);
+        await participant.ConnectAsync(ConnectRequest(model));
+
+        using var sent = JsonDocument.Parse(Assert.Single(socket.Sent));
+        var transcription = sent.RootElement.GetProperty("session").GetProperty("audio")
+            .GetProperty("input").GetProperty("transcription");
+        Assert.True(transcription.TryGetProperty(expectedProperty, out _));
+        Assert.False(transcription.TryGetProperty(expectedProperty == "language" ? "languages" : "language", out _));
+    }
+
+    [Fact]
+    public async Task RetainedParticipant_FailsClosedForMismatchedCommitItem()
+    {
+        var socket = new ScriptedOpenAISocket();
+        socket.Enqueue("""{"type":"session.created","session":{"id":"sess_1"}}""");
+        socket.Enqueue(ReadySession("gpt-live-transcribe", "\"languages\":[\"en\"]"));
+        await using var participant = new OpenAIRealtimeSpeechToTextParticipant("sk-test",
+            new Uri("https://api.openai.com/v1"), new OpenAISttOptions(), socketFactory: () => socket);
+        await participant.ConnectAsync(ConnectRequest("gpt-live-transcribe"));
+        await participant.CommitAsync(new() { OperationId = "commit-1" });
+        socket.Enqueue("""{"type":"input_audio_buffer.committed","item_id":"item_1"}""");
+        socket.Enqueue("""{"type":"conversation.item.input_audio_transcription.completed","item_id":"stale_item","content_index":0,"transcript":"stale"}""");
+
+        await using var observations = participant.ReadObservationsAsync().GetAsyncEnumerator();
+        await Assert.ThrowsAsync<InvalidDataException>(async () => await observations.MoveNextAsync().AsTask());
+    }
+
+    [Theory]
+    [InlineData("item_1", 1)]
+    [InlineData("stale_item", 0)]
+    public async Task RetainedParticipant_FailsClosedForInvalidCompletion(string itemId, int contentIndex)
+    {
+        var socket = new ScriptedOpenAISocket();
+        socket.Enqueue("""{"type":"session.created","session":{"id":"sess_1"}}""");
+        socket.Enqueue(ReadySession("gpt-live-transcribe", "\"languages\":[\"en\"]"));
+        await using var participant = new OpenAIRealtimeSpeechToTextParticipant("sk-test",
+            new Uri("https://api.openai.com/v1"), new OpenAISttOptions(), socketFactory: () => socket);
+        await participant.ConnectAsync(ConnectRequest("gpt-live-transcribe"));
+        await participant.CommitAsync(new() { OperationId = "commit-1" });
+        socket.Enqueue("""{"type":"input_audio_buffer.committed","item_id":"item_1"}""");
+        socket.Enqueue($$"""{"type":"conversation.item.input_audio_transcription.completed","item_id":"{{itemId}}","content_index":{{contentIndex}},"transcript":"text"}""");
+        await using var observations = participant.ReadObservationsAsync().GetAsyncEnumerator();
+        await Assert.ThrowsAsync<InvalidDataException>(async () => await observations.MoveNextAsync().AsTask());
+    }
+
+    [Fact]
+    public async Task RetainedParticipant_RejectsReadinessMismatch()
+    {
+        var socket = new ScriptedOpenAISocket();
+        socket.Enqueue("""{"type":"session.created","session":{"id":"sess_1"}}""");
+        socket.Enqueue(ReadySession("wrong-model", "\"languages\":[\"en\"]"));
+        await using var participant = new OpenAIRealtimeSpeechToTextParticipant("sk-test",
+            new Uri("https://api.openai.com/v1"), new OpenAISttOptions(), socketFactory: () => socket);
+        await Assert.ThrowsAsync<InvalidDataException>(async () =>
+            await participant.ConnectAsync(ConnectRequest("gpt-live-transcribe")));
+    }
+
+    [Fact]
+    public async Task RetainedParticipant_RejectsDuplicateCompletion()
+    {
+        var socket = new ScriptedOpenAISocket();
+        socket.Enqueue("""{"type":"session.created","session":{"id":"sess_1"}}""");
+        socket.Enqueue(ReadySession("gpt-live-transcribe", "\"languages\":[\"en\"]"));
+        await using var participant = new OpenAIRealtimeSpeechToTextParticipant("sk-test",
+            new Uri("https://api.openai.com/v1"), new OpenAISttOptions(), socketFactory: () => socket);
+        await participant.ConnectAsync(ConnectRequest("gpt-live-transcribe"));
+        await participant.CommitAsync(new() { OperationId = "commit-1" });
+        socket.Enqueue("""{"type":"input_audio_buffer.committed","item_id":"item_1"}""");
+        socket.Enqueue("""{"type":"conversation.item.input_audio_transcription.completed","item_id":"item_1","content_index":0,"transcript":"first"}""");
+        socket.Enqueue("""{"type":"conversation.item.input_audio_transcription.completed","item_id":"item_1","content_index":0,"transcript":"duplicate"}""");
+        await using var observations = participant.ReadObservationsAsync().GetAsyncEnumerator();
+        Assert.True(await observations.MoveNextAsync());
+        Assert.Equal("first", observations.Current.Text);
+        await Assert.ThrowsAsync<InvalidDataException>(async () => await observations.MoveNextAsync().AsTask());
+    }
+
+    [Fact]
+    public async Task RetainedParticipant_ReportsMalformedAndOversizedEventsWithoutText()
+    {
+        var socket = new ScriptedOpenAISocket();
+        socket.Enqueue("""{"type":"session.created","session":{"id":"sess_1"}}""");
+        socket.Enqueue(ReadySession("gpt-live-transcribe", "\"languages\":[\"en\"]"));
+        await using var participant = new OpenAIRealtimeSpeechToTextParticipant("sk-test",
+            new Uri("https://api.openai.com/v1"), new OpenAISttOptions(), socketFactory: () => socket);
+        await participant.ConnectAsync(ConnectRequest("gpt-live-transcribe"));
+        socket.Enqueue("{");
+        socket.EnqueueCapacityExceeded("digest");
+        await using var observations = participant.ReadObservationsAsync().GetAsyncEnumerator();
+        Assert.True(await observations.MoveNextAsync());
+        Assert.Equal("malformed-provider-message", observations.Current.SafeCode);
+        Assert.Null(observations.Current.Text);
+        Assert.True(await observations.MoveNextAsync());
+        Assert.Equal("provider-message-capacity-exceeded", observations.Current.SafeCode);
+        Assert.Null(observations.Current.Text);
+    }
+
+    [Fact]
+    public async Task RetainedParticipant_StopCancelsReaderAndClosesSession()
+    {
+        var socket = new ScriptedOpenAISocket();
+        socket.Enqueue("""{"type":"session.created","session":{"id":"sess_1"}}""");
+        socket.Enqueue(ReadySession("gpt-live-transcribe", "\"languages\":[\"en\"]"));
+        await using var participant = new OpenAIRealtimeSpeechToTextParticipant("sk-test",
+            new Uri("https://api.openai.com/v1"), new OpenAISttOptions(), socketFactory: () => socket);
+        await participant.ConnectAsync(ConnectRequest("gpt-live-transcribe"));
+        await using var observations = participant.ReadObservationsAsync().GetAsyncEnumerator();
+        var next = observations.MoveNextAsync().AsTask();
+        await participant.StopAsync();
+        Assert.True(await next);
+        Assert.Equal(StreamingSpeechToTextObservationKind.SessionClosed, observations.Current.Kind);
+        Assert.Equal(StreamingSpeechToTextParticipantState.Stopped, participant.State);
+    }
+
+    private static StreamingSpeechToTextConnectRequest ConnectRequest(string model) => new()
+    {
+        ModelId = model,
+        AudioFormat = new() { SampleRateHz = 48_000, ChannelCount = 1, BitsPerSample = 16 },
+        CommitStrategy = StreamingSpeechToTextCommitStrategy.Manual,
+        LanguageCode = "en"
+    };
+
+    private static string ReadySession(string model, string language) =>
+        "{\"type\":\"session.updated\",\"session\":{\"id\":\"sess_1\",\"type\":\"transcription\"," +
+        "\"audio\":{\"input\":{\"format\":{\"type\":\"audio/pcm\",\"rate\":24000}," +
+        $"\"transcription\":{{\"model\":\"{model}\",{language}}},\"turn_detection\":null}}}}}}}}";
 
     [Fact]
     public void ValidateConfiguration_MissingApiKeyFails()
@@ -116,6 +327,27 @@ public sealed class OpenAIAudioProviderTests
         registry.Register(provider);
 
         Assert.Same(provider, registry.GetProvider<ISpeechToTextClientProvider>("openai"));
+    }
+
+    [Fact]
+    public void SpeechToTextClient_ExposesRetainedParticipantFactoryWithoutSecondClient()
+    {
+        var provider = new OpenAIAudioProvider();
+        using var client = provider.CreateSpeechToTextClient(new SpeechToTextClientConfig
+        {
+            ProviderKey = "openai",
+            ApiKey = "sk-test",
+            ModelName = "gpt-live-transcribe",
+            SpeechLanguage = "en",
+            ProviderOptions = new OpenAISttOptions { Keywords = ["HPD"] }
+        });
+
+        var factory = Assert.IsAssignableFrom<IStreamingSpeechToTextParticipantFactory>(
+            client.GetService(typeof(IStreamingSpeechToTextParticipantFactory)));
+        Assert.Equal("gpt-live-transcribe", factory.Configuration.ModelId);
+        Assert.Equal("en", factory.Configuration.LanguageCode);
+        Assert.Equal(["HPD"], factory.Configuration.Keyterms);
+        Assert.False(factory.Configuration.IncludeTimestamps);
     }
 
     [Fact]
@@ -290,6 +522,23 @@ public sealed class OpenAIAudioProviderTests
             client.GetService(typeof(SpeechToTextClientMetadata)));
         Assert.Equal("openai", metadata.ProviderName);
         Assert.Equal("whisper-1", metadata.DefaultModelId);
+
+        var normalizer = Assert.IsAssignableFrom<ISpeechToTextEvidenceNormalizer>(
+            client.GetService(typeof(ISpeechToTextEvidenceNormalizer)));
+        Assert.True(normalizer.Capabilities.Supports(
+            SpeechToTextEvidenceCapability.TranscriptText));
+        Assert.True(normalizer.Capabilities.Supports(
+            SpeechToTextEvidenceCapability.WordTiming));
+        Assert.True(normalizer.Capabilities.Supports(
+            SpeechToTextEvidenceCapability.SegmentTiming));
+        Assert.False(normalizer.Capabilities.Supports(
+            SpeechToTextEvidenceCapability.ExplicitSpeechClassification));
+
+        var evidence = normalizer.Normalize(
+            new SpeechToTextResponse("ordinary transcript"),
+            new InputContentId("openai-batch"));
+        Assert.Equal(SpeechContentEvidenceKind.Unobservable, evidence.Kind);
+        Assert.Equal(OpenAIAudioProvider.Key, evidence.ProviderKey);
     }
 
     [Fact]
@@ -408,6 +657,27 @@ public sealed class OpenAIAudioProviderTests
         {
             agent.Dispose();
         }
+    }
+
+    private sealed class ScriptedOpenAISocket : IOpenAIRealtimeSttSocket
+    {
+        private readonly Channel<OpenAIRealtimeSttSocketMessage> _messages = Channel.CreateUnbounded<OpenAIRealtimeSttSocketMessage>();
+        internal List<byte[]> Sent { get; } = [];
+        public bool IsOpen { get; private set; }
+        internal void Enqueue(string json) => _messages.Writer.TryWrite(new(false,
+            System.Text.Encoding.UTF8.GetBytes(json)));
+        internal void EnqueueCapacityExceeded(string digest) =>
+            _messages.Writer.TryWrite(new(false, ReadOnlyMemory<byte>.Empty, true, digest));
+        public ValueTask ConnectAsync(Uri uri, string apiKey, IReadOnlyDictionary<string, string>? headers,
+            CancellationToken cancellationToken)
+        { IsOpen = true; return ValueTask.CompletedTask; }
+        public ValueTask SendTextAsync(ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
+        { Sent.Add(payload.ToArray()); return ValueTask.CompletedTask; }
+        public async ValueTask<OpenAIRealtimeSttSocketMessage> ReceiveAsync(CancellationToken cancellationToken) =>
+            await _messages.Reader.ReadAsync(cancellationToken);
+        public ValueTask CloseAsync(CancellationToken cancellationToken)
+        { IsOpen = false; _messages.Writer.TryComplete(); return ValueTask.CompletedTask; }
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }
 

@@ -33,8 +33,31 @@ internal interface IStreamingSpeechToTextParticipant : IAsyncDisposable
 
 internal interface IStreamingSpeechToTextParticipantFactory
 {
+    StreamingSpeechToTextParticipantConfiguration Configuration { get; }
+
     ValueTask<IStreamingSpeechToTextParticipant> CreateAsync(
         CancellationToken cancellationToken = default);
+}
+
+internal sealed record StreamingSpeechToTextParticipantConfiguration
+{
+    public required string ProviderKey { get; init; }
+    public required string ModelId { get; init; }
+    public required StreamingSpeechToTextContributionSafety Safety { get; init; }
+    public string? LanguageCode { get; init; }
+    public IReadOnlyList<string> Keyterms { get; init; } = Array.Empty<string>();
+    public bool IncludeTimestamps { get; init; } = true;
+    public bool IncludeLanguageDetection { get; init; } = true;
+}
+
+[Flags]
+internal enum StreamingSpeechToTextContributionSafety
+{
+    None = 0,
+    RetainedLiveSession = 1,
+    BoundedTelemetry = 2,
+    PrivacySafeByDefault = 4,
+    Complete = RetainedLiveSession | BoundedTelemetry | PrivacySafeByDefault
 }
 
 internal enum StreamingSpeechToTextParticipantState
@@ -181,6 +204,10 @@ internal sealed record StreamingSpeechToTextWordTiming
 
 internal sealed record StreamingSpeechToTextUpdateRequest
 {
+    public required string OperationId { get; init; }
+
+    public required ReadOnlyMemory<byte> Fingerprint { get; init; }
+
     public string? LanguageCode { get; init; }
 
     public IReadOnlyList<string>? Keyterms { get; init; }
@@ -189,6 +216,8 @@ internal sealed record StreamingSpeechToTextUpdateRequest
 internal enum StreamingSpeechToTextUpdateDisposition
 {
     Unchanged = 0,
-    ReconnectRequired = 1,
-    Rejected = 2
+    Applied = 1,
+    ReconnectRequired = 2,
+    Rejected = 3,
+    OutcomeUnknown = 4
 }

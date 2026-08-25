@@ -5,6 +5,32 @@ using HPD.Agent.Audio.Providers;
 
 namespace HPD.Agent.Providers.Audio.ElevenLabs;
 
+internal sealed class ElevenLabsRealtimeSpeechToTextParticipantFactory(
+    string apiKey,
+    ElevenLabsSttRuntimeSettings settings) : IStreamingSpeechToTextParticipantFactory
+{
+    public StreamingSpeechToTextParticipantConfiguration Configuration { get; } = new()
+    {
+        ProviderKey = "ElevenLabs",
+        Safety = StreamingSpeechToTextContributionSafety.Complete,
+        ModelId = string.IsNullOrWhiteSpace(settings.RealtimeModelId)
+            ? ElevenLabsAudioProvider.DefaultRealtimeSpeechToTextModel
+            : settings.RealtimeModelId,
+        LanguageCode = settings.LanguageCode,
+        Keyterms = settings.Keyterms ?? [],
+        IncludeTimestamps = settings.IncludeTimestamps ?? true,
+        IncludeLanguageDetection = settings.IncludeLanguageDetection ?? true
+    };
+
+    public ValueTask<IStreamingSpeechToTextParticipant> CreateAsync(
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult<IStreamingSpeechToTextParticipant>(
+            new ElevenLabsRealtimeSpeechToTextParticipant(apiKey, settings));
+    }
+}
+
 internal sealed class ElevenLabsRealtimeSpeechToTextParticipant : IStreamingSpeechToTextParticipant
 {
     private const int MaximumProviderMessageBytes = 256 * 1024;

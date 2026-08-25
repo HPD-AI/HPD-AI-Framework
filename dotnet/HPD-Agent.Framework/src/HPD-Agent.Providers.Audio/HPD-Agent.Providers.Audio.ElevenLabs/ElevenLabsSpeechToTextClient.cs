@@ -8,6 +8,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using HPD.Agent.Audio.Providers;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Providers.Audio.ElevenLabs;
@@ -177,6 +178,9 @@ public sealed class ElevenLabsSpeechToTextClient : ISpeechToTextClient
                 ElevenLabsAudioProvider.Key,
                 new Uri("https://elevenlabs.io/docs/api-reference/speech-to-text/convert"),
                 _defaultModelId);
+
+        if (serviceKey is null && serviceType == typeof(IStreamingSpeechToTextParticipantFactory))
+            return new ElevenLabsRealtimeSpeechToTextParticipantFactory(_apiKey, _providerConfig);
 
         return null;
     }

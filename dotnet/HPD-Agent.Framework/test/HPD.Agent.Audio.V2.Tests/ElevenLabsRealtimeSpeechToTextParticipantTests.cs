@@ -9,6 +9,18 @@ namespace HPD.Agent.Audio.V2.Tests;
 public sealed class ElevenLabsRealtimeSpeechToTextParticipantTests
 {
     [Fact]
+    public async Task SpeechClient_ContributesRetainedParticipantFactoryWithoutCreatingAnotherClient()
+    {
+        using var client = new ElevenLabsSpeechToTextClient("secret", new ElevenLabsSttRuntimeSettings());
+
+        var factory = Assert.IsAssignableFrom<IStreamingSpeechToTextParticipantFactory>(
+            client.GetService(typeof(IStreamingSpeechToTextParticipantFactory)));
+        await using var participant = await factory.CreateAsync();
+
+        Assert.Equal(StreamingSpeechToTextParticipantState.Created, participant.State);
+    }
+
+    [Fact]
     public async Task Connect_WaitsForSessionStartedAndFreezesEffectiveFormat()
     {
         var socket = new ScriptedSocket();
@@ -168,7 +180,10 @@ public sealed class ElevenLabsRealtimeSpeechToTextParticipantTests
             participant.CommitAsync(new() { OperationId = "not-allowed" }).AsTask());
         Assert.Equal(
             StreamingSpeechToTextUpdateDisposition.ReconnectRequired,
-            await participant.UpdateAsync(new() { LanguageCode = "fr" }));
+            await participant.UpdateAsync(new()
+            {
+                OperationId = "update-fr", Fingerprint = new byte[32], LanguageCode = "fr"
+            }));
     }
 
     [Fact]
