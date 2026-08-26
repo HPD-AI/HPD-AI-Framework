@@ -127,7 +127,7 @@ public sealed class InMemoryConformanceFixture :
     {
         var request = new RecordCreateRequest
         {
-            RequestedId = new RecordId(id),
+            RequestedId = RecordId.Create(id),
             Payload = new RecordPayload
             {
                 Kind = RecordPayloadKind.FieldMap,
@@ -139,7 +139,7 @@ public sealed class InMemoryConformanceFixture :
             (IRecordMutationStore)store,
             collection,
             request,
-            Operation(BaseOperationKind.Create, new RecordId(id)));
+            Operation(BaseOperationKind.Create, RecordId.Create(id)));
         result.Status.Should().Be(OperationStatus.Created);
         return result.Value!;
     }

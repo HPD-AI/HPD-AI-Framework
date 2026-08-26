@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 
 namespace HPD.Base;
@@ -70,6 +71,16 @@ internal static class BaseQueryValue
             {
                 Kind = QueryValueKind.Id,
                 Id = id.Value,
+            },
+            BaseModuleGeneration generation => new QueryValue
+            {
+                Kind = QueryValueKind.String,
+                String = generation.ToCanonicalString(),
+            },
+            BaseCanonicalJson canonicalJson when canonicalJson.IsValid => new QueryValue
+            {
+                Kind = QueryValueKind.CanonicalJson,
+                CanonicalJsonUtf8 = ImmutableArray.Create(canonicalJson.Utf8.Span.ToArray()),
             },
             _ when boxed.GetType().IsEnum => new QueryValue
             {

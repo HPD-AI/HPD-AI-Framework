@@ -148,10 +148,7 @@ internal static class BaseAtomicSchemaContract
             .GroupBy(static value => value.Id, StringComparer.Ordinal).Select(static group => group.Single())
             .OrderBy(static value => value.Id, StringComparer.Ordinal).ToArray();
         if (relevant.Length == 0)
-        {
-            if (limits.Schema is not null) throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid);
             return null;
-        }
         BaseSchemaExecutionLimits schemaLimits = limits.Schema ?? throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid);
         ValidateLimits(schemaLimits);
         ImmutableArray<BaseCollectionSchemaRequirement> requirements = [.. relevant.Select(collection => new BaseCollectionSchemaRequirement

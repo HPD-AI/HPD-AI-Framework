@@ -27,7 +27,7 @@ public abstract class RuntimeStoreRegistrationConformanceTests<TFixture> : Recor
 
         var services = await Fixture.CreateRuntimeServicesAsync();
         var runtime = Required<IBaseRecordRuntime>(services);
-        var id = new RecordId("runtime-roundtrip");
+        var id = RecordId.Create("runtime-roundtrip");
 
         var create = await runtime.CreateAsync(
             Collection.Id,

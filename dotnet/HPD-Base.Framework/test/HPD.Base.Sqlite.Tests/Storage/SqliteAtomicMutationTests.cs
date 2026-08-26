@@ -33,7 +33,7 @@ public sealed class SqliteAtomicMutationTests
             {
                 OperationResult<RecordMutationSessionResult> created = await session.CreateAsync(
                     collection,
-                    new RecordCreateRequest { RequestedId = new RecordId("one"), Payload = Payload("one") },
+                    new RecordCreateRequest { RequestedId = RecordId.Create("one"), Payload = Payload("one") },
                     MutationContext(BaseRecordMutationKind.Create, "event-one", collection.Id),
                     cancellationToken);
                 BaseRecordMutationFact mutation = created.Value!.Mutation;
@@ -63,7 +63,7 @@ public sealed class SqliteAtomicMutationTests
                 first,
                 new RecordCreateRequest
                 {
-                    RequestedId = new RecordId("one"),
+                    RequestedId = RecordId.Create("one"),
                     Payload = Payload("created")
                 },
                 MutationContext(BaseRecordMutationKind.Create, "evt-create", first.Id),
@@ -73,14 +73,14 @@ public sealed class SqliteAtomicMutationTests
 
             var transactionRead = await session.GetAsync(
                 first,
-                new RecordId("one"),
+                RecordId.Create("one"),
                 Operation(BaseOperationKind.Get, first.Id),
                 cancellationToken);
             transactionRead.Status.Should().Be(OperationStatus.Ok);
 
             var patched = await session.PatchAsync(
                 first,
-                new RecordId("one"),
+                RecordId.Create("one"),
                 new RecordPatchRequest
                 {
                     Patch = Payload("patched"),
@@ -95,7 +95,7 @@ public sealed class SqliteAtomicMutationTests
                 second,
                 new RecordCreateRequest
                 {
-                    RequestedId = new RecordId("two"),
+                    RequestedId = RecordId.Create("two"),
                     Payload = Payload("other")
                 },
                 MutationContext(BaseRecordMutationKind.Create, "evt-other", second.Id),
@@ -111,9 +111,9 @@ public sealed class SqliteAtomicMutationTests
         execution.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
         execution.Processing!.Mutations.Select(mutation => mutation.Event.EventId)
             .Should().Equal("evt-create", "evt-patch", "evt-other");
-        (await store.GetAsync(first, new RecordId("one"), Operation(BaseOperationKind.Get, first.Id)))
+        (await store.GetAsync(first, RecordId.Create("one"), Operation(BaseOperationKind.Get, first.Id)))
             .Value!.Payload.Fields!["value"].GetString().Should().Be("patched");
-        (await store.GetAsync(second, new RecordId("two"), Operation(BaseOperationKind.Get, second.Id)))
+        (await store.GetAsync(second, RecordId.Create("two"), Operation(BaseOperationKind.Get, second.Id)))
             .Status.Should().Be(OperationStatus.Ok);
 
         var journal = await store.ReadMutationJournalAsync(
@@ -133,7 +133,7 @@ public sealed class SqliteAtomicMutationTests
                 collection,
                 new RecordCreateRequest
                 {
-                    RequestedId = new RecordId("provisional"),
+                    RequestedId = RecordId.Create("provisional"),
                     Payload = Payload("provisional")
                 },
                 MutationContext(BaseRecordMutationKind.Create, "evt-provisional", collection.Id),
@@ -150,7 +150,7 @@ public sealed class SqliteAtomicMutationTests
         execution.Outcome.Should().Be(RecordMutationExecutionOutcome.RollbackConfirmed);
         (await store.GetAsync(
             collection,
-            new RecordId("provisional"),
+            RecordId.Create("provisional"),
             Operation(BaseOperationKind.Get, collection.Id))).Status.Should().Be(OperationStatus.NotFound);
         (await store.ReadMutationJournalAsync(
             new HPD.Base.BaseMutationJournalReadRequest { Limit = 10 }))
@@ -170,7 +170,7 @@ public sealed class SqliteAtomicMutationTests
                 collection,
                 new RecordCreateRequest
                 {
-                    RequestedId = new RecordId("timed-out"),
+                    RequestedId = RecordId.Create("timed-out"),
                     Payload = Payload("timed-out")
                 },
                 MutationContext(BaseRecordMutationKind.Create, "evt-timeout", collection.Id),
@@ -195,7 +195,7 @@ public sealed class SqliteAtomicMutationTests
         execution.Processing!.Error!.Code.Should().Be(BaseMutationErrorCodes.TransactionTimeout);
         (await store.GetAsync(
             collection,
-            new RecordId("timed-out"),
+            RecordId.Create("timed-out"),
             Operation(BaseOperationKind.Get, collection.Id))).Status.Should().Be(OperationStatus.NotFound);
         (await store.ReadMutationJournalAsync(
             new HPD.Base.BaseMutationJournalReadRequest { Limit = 10 }))
@@ -203,7 +203,7 @@ public sealed class SqliteAtomicMutationTests
 
         var escapedCall = await retained!.GetAsync(
             collection,
-            new RecordId("timed-out"),
+            RecordId.Create("timed-out"),
             Operation(BaseOperationKind.Get, collection.Id));
         escapedCall.Status.Should().Be(OperationStatus.StoreError);
         escapedCall.Error!.Code.Should().Be("sqlite.mutation.sessionClosed");
@@ -226,7 +226,7 @@ public sealed class SqliteAtomicMutationTests
         execution.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
         var escapedCall = await retained!.GetAsync(
             collection,
-            new RecordId("missing"),
+            RecordId.Create("missing"),
             Operation(BaseOperationKind.Get, collection.Id));
         escapedCall.Status.Should().Be(OperationStatus.StoreError);
         escapedCall.Error!.Code.Should().Be("sqlite.mutation.sessionClosed");
@@ -243,7 +243,7 @@ public sealed class SqliteAtomicMutationTests
                 collection,
                 new RecordCreateRequest
                 {
-                    RequestedId = new RecordId("changed-fields"),
+                    RequestedId = RecordId.Create("changed-fields"),
                     Payload = Payload("value")
                 },
                 MutationContext(
@@ -282,7 +282,7 @@ public sealed class SqliteAtomicMutationTests
                 collection,
                 new RecordCreateRequest
                 {
-                    RequestedId = new RecordId("first"),
+                    RequestedId = RecordId.Create("first"),
                     Payload = Payload("first")
                 },
                 MutationContext(BaseRecordMutationKind.Create, "evt-first", collection.Id),
@@ -291,7 +291,7 @@ public sealed class SqliteAtomicMutationTests
                 collection,
                 new RecordCreateRequest
                 {
-                    RequestedId = new RecordId("second"),
+                    RequestedId = RecordId.Create("second"),
                     Payload = Payload("second")
                 },
                 MutationContext(BaseRecordMutationKind.Create, "evt-second", collection.Id),
@@ -367,7 +367,7 @@ public sealed class SqliteAtomicMutationTests
         transactions.RollbackCalls.Should().Be(1);
         (await store.GetAsync(
             collection,
-            new RecordId("commit-failure"),
+            RecordId.Create("commit-failure"),
             Operation(BaseOperationKind.Get, collection.Id))).Status.Should().Be(OperationStatus.NotFound);
         (await store.ReadMutationJournalAsync(
             new HPD.Base.BaseMutationJournalReadRequest { Limit = 10 }))
@@ -609,7 +609,7 @@ public sealed class SqliteAtomicMutationTests
         {
             _ = await session.GetAsync(
                 collection,
-                new RecordId("blocked"),
+                RecordId.Create("blocked"),
                 Operation(BaseOperationKind.Get, collection.Id),
                 cancellationToken);
             return Ready([]);
@@ -807,7 +807,7 @@ public sealed class SqliteAtomicMutationTests
                 collection,
                 new RecordCreateRequest
                 {
-                    RequestedId = new RecordId("concurrent-receipt"),
+                    RequestedId = RecordId.Create("concurrent-receipt"),
                     Payload = Payload("concurrent"),
                 },
                 MutationContext(BaseRecordMutationKind.Create, "evt-concurrent-receipt", collection.Id),
@@ -916,7 +916,7 @@ public sealed class SqliteAtomicMutationTests
                 collection,
                 new RecordCreateRequest
                 {
-                    RequestedId = new RecordId(id),
+                    RequestedId = RecordId.Create(id),
                     Payload = Payload(id)
                 },
                 MutationContext(BaseRecordMutationKind.Create, eventId, collection.Id),

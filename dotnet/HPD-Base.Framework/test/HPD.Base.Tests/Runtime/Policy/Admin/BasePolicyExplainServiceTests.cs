@@ -533,7 +533,7 @@ public sealed class BasePolicyExplainServiceTests
     private static RecordEnvelope ExistingRecord(string id, params (string Name, string Value)[] fields) => new()
     {
         CollectionId = "items",
-        Id = new RecordId(id),
+        Id = RecordId.Create(id),
         Payload = FieldMapPayload(fields),
         Metadata = new RecordMetadata()
     };

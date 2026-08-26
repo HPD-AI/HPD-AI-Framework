@@ -760,7 +760,7 @@ internal sealed class DefaultBasePolicyExplainService : IBasePolicyExplainServic
         failure = default!;
         if (!string.IsNullOrWhiteSpace(value))
         {
-            id = new RecordId(value);
+            id = RecordId.Create(value);
             return true;
         }
 

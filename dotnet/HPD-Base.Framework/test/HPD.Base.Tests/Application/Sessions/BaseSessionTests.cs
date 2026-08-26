@@ -34,7 +34,7 @@ public sealed class BaseSessionTests
         });
 
         var result = await session.Collection(GeneratedProject.Collection).CreateAsync(
-            new RecordId("record_1"),
+            RecordId.Create("record_1"),
             new GeneratedProject
             {
                 OrganizationId = "org_1",
@@ -56,7 +56,7 @@ public sealed class BaseSessionTests
             CorrelationId = "corr_1",
             Now = time.GetUtcNow(),
         });
-        runtime.CreateRequest!.RequestedId.Should().Be(new RecordId("record_1"));
+        runtime.CreateRequest!.RequestedId.Should().Be(RecordId.Create("record_1"));
         JsonSerializer.Deserialize(
             runtime.CreateRequest.Payload.Json,
             GeneratedApplicationJsonContext.Default.GeneratedProject)!.Name.Should().Be("created");
@@ -82,7 +82,7 @@ public sealed class BaseSessionTests
         var session = services.GetRequiredService<IBaseSessionFactory>().For(Principal());
 
         var result = await session.Collection(GeneratedProject.Collection)
-            .GetAsync(new RecordId("missing"));
+            .GetAsync(RecordId.Create("missing"));
 
         var failure = result.Should().BeOfType<BaseFailure<BaseRecord<GeneratedProject>>>()
             .Subject;
@@ -100,7 +100,7 @@ public sealed class BaseSessionTests
             GetResult = Success(new RecordEnvelope
             {
                 CollectionId = "projects",
-                Id = new RecordId("record_1"),
+                Id = RecordId.Create("record_1"),
                 Payload = new RecordPayload
                 {
                     Kind = RecordPayloadKind.FieldMap,
@@ -118,7 +118,7 @@ public sealed class BaseSessionTests
         var session = services.GetRequiredService<IBaseSessionFactory>().For(Principal());
 
         var record = (await session.Collection(GeneratedProject.Collection)
-            .GetAsync(new RecordId("record_1"))).RequireValue();
+            .GetAsync(RecordId.Create("record_1"))).RequireValue();
 
         record.Value.Name.Should().Be("visible");
         record.Redacted.Should().BeTrue();
@@ -247,7 +247,7 @@ public sealed class BaseSessionTests
                                 Name = $"project_{index}",
                             }) with
                             {
-                                Id = new RecordId($"record_{index}"),
+                                Id = RecordId.Create($"record_{index}"),
                             })
                             .ToArray(),
                         Page = new PageInfo
@@ -300,7 +300,7 @@ public sealed class BaseSessionTests
                             {
                                 OrganizationId = "org_1",
                                 Name = $"project_{index}"
-                            }) with { Id = new RecordId($"record_{index}") })
+                            }) with { Id = RecordId.Create($"record_{index}") })
                             .ToArray(),
                         Page = new PageInfo
                         {
@@ -356,7 +356,7 @@ public sealed class BaseSessionTests
             .Collection(GeneratedProject.Collection);
 
         var ensured = (await collection.EnsureAsync(
-            new RecordId("record_1"),
+            RecordId.Create("record_1"),
             new GeneratedProject
             {
                 OrganizationId = "org_1",
@@ -379,16 +379,16 @@ public sealed class BaseSessionTests
         BaseCollection<GeneratedProject> readOnly = Collection(BaseCollectionMutationMode.ReadOnly);
         var value = new GeneratedProject { OrganizationId = "org_1", Name = "history" };
 
-        (await session.Collection(appendOnly).ReplaceAsync(new RecordId("record_1"), value))
+        (await session.Collection(appendOnly).ReplaceAsync(RecordId.Create("record_1"), value))
             .Should().BeOfType<BaseFailure<BaseRecord<GeneratedProject>>>()
             .Which.Error.Code.Should().Be(BaseCollectionErrorCodes.AppendOnlyUpdateForbidden);
-        (await session.Collection(appendOnly).DeleteAsync(new RecordId("record_1")))
+        (await session.Collection(appendOnly).DeleteAsync(RecordId.Create("record_1")))
             .Should().BeOfType<BaseFailure<DeleteResult>>()
             .Which.Error.Code.Should().Be(BaseCollectionErrorCodes.AppendOnlyDeleteForbidden);
-        (await session.Collection(appendOnly).UpsertAsync(new RecordId("record_1"), value, value))
+        (await session.Collection(appendOnly).UpsertAsync(RecordId.Create("record_1"), value, value))
             .Should().BeOfType<BaseFailure<BaseUpsertResult<GeneratedProject>>>()
             .Which.Error.Code.Should().Be(BaseCollectionErrorCodes.AppendOnlyUpdateForbidden);
-        (await session.Collection(readOnly).CreateAsync(new RecordId("record_1"), value))
+        (await session.Collection(readOnly).CreateAsync(RecordId.Create("record_1"), value))
             .Should().BeOfType<BaseFailure<BaseRecord<GeneratedProject>>>()
             .Which.Error.Code.Should().Be(BaseCollectionErrorCodes.ReadOnlyMutationForbidden);
 
@@ -404,11 +404,11 @@ public sealed class BaseSessionTests
         BaseCollection<GeneratedProject> appendOnly = Collection(BaseCollectionMutationMode.AppendOnly);
         var value = new GeneratedProject { OrganizationId = "org_1", Name = "history" };
 
-        Action replace = () => session.Atomic().Replace(appendOnly, new RecordId("record_1"), value);
-        Action unsafeUpsert = () => session.Atomic().Upsert(appendOnly, new RecordId("record_1"), value, value);
+        Action replace = () => session.Atomic().Replace(appendOnly, RecordId.Create("record_1"), value);
+        Action unsafeUpsert = () => session.Atomic().Upsert(appendOnly, RecordId.Create("record_1"), value, value);
         Action createOnlyUpsert = () => session.Atomic().Upsert(
             appendOnly,
-            new RecordId("record_1"),
+            RecordId.Create("record_1"),
             value,
             value,
             RecordUpsertExistenceCondition.CreateOnly);
@@ -435,7 +435,7 @@ public sealed class BaseSessionTests
             Name = "second",
         }) with
         {
-            Id = new RecordId("record_2"),
+            Id = RecordId.Create("record_2"),
         };
         var runtime = new RecordingRuntime
         {
@@ -474,11 +474,11 @@ public sealed class BaseSessionTests
         var batch = session.Atomic();
         var first = batch.Create(
             GeneratedProject.Collection,
-            new RecordId("record_1"),
+            RecordId.Create("record_1"),
             new GeneratedProject { OrganizationId = "org_1", Name = "first" });
         batch.Create(
             GeneratedProject.Collection,
-            new RecordId("record_2"),
+            RecordId.Create("record_2"),
             new GeneratedProject { OrganizationId = "org_1", Name = "second" });
 
         BaseCommittedBatch committed =
@@ -555,7 +555,7 @@ public sealed class BaseSessionTests
         new()
         {
             CollectionId = "projects",
-            Id = new RecordId("record_1"),
+            Id = RecordId.Create("record_1"),
             Payload = new RecordPayload
             {
                 Kind = RecordPayloadKind.Json,

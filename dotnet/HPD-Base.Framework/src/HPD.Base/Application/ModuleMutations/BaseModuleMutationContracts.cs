@@ -250,62 +250,71 @@ public sealed record BaseModuleMutationTemplate
     public required BaseModuleResultProjection Result { get; init; }
 }
 
-public abstract record BaseModuleCapture { public required string Id { get; init; } }
+public abstract record BaseModuleCapture { internal BaseModuleCapture() { } internal string Id { get; init; } = ""; }
 public sealed record BaseModuleRecordCapture : BaseModuleCapture
 {
-    public required string CollectionId { get; init; }
-    public required BaseModuleValueExpression RecordId { get; init; }
-    public required BaseModuleCapturePresence Presence { get; init; }
+    internal BaseModuleRecordCapture() { }
+    internal string CollectionId { get; init; } = "";
+    internal BaseModuleValueExpression RecordId { get; init; } = null!;
+    internal BaseModuleCapturePresence Presence { get; init; }
 }
 public sealed record BaseModuleGenerationCapture : BaseModuleCapture
 {
-    public required string CellId { get; init; }
-    public BaseModuleValueExpression? Key { get; init; }
-    public required BaseModuleGenerationAbsenceBehavior Absence { get; init; }
+    internal BaseModuleGenerationCapture() { }
+    internal string CellId { get; init; } = "";
+    internal BaseModuleValueExpression? Key { get; init; }
+    internal BaseModuleGenerationAbsenceBehavior Absence { get; init; }
 }
 
-public abstract record BaseModuleGuard { public required string Id { get; init; } }
+public abstract record BaseModuleGuard { internal BaseModuleGuard() { } internal string Id { get; init; } = ""; }
 public sealed record BaseModuleRecordPresenceGuard : BaseModuleGuard
 {
-    public required string CaptureId { get; init; }
-    public required bool MustBePresent { get; init; }
+    internal BaseModuleRecordPresenceGuard() { }
+    internal string CaptureId { get; init; } = "";
+    internal bool MustBePresent { get; init; }
 }
 public sealed record BaseModuleRevisionEqualsGuard : BaseModuleGuard
 {
-    public required string CaptureId { get; init; }
-    public required BaseModuleValueExpression Expected { get; init; }
+    internal BaseModuleRevisionEqualsGuard() { }
+    internal string CaptureId { get; init; } = "";
+    internal BaseModuleValueExpression Expected { get; init; } = null!;
 }
 public sealed record BaseModuleFieldEqualsGuard : BaseModuleGuard
 {
-    public required BaseModuleCapturedFieldReference Field { get; init; }
-    public required BaseModuleValueExpression Expected { get; init; }
+    internal BaseModuleFieldEqualsGuard() { }
+    internal BaseModuleCapturedFieldReference Field { get; init; } = null!;
+    internal BaseModuleValueExpression Expected { get; init; } = null!;
 }
 /// <summary>Compares one captured non-null ordered scalar with an exact-type expression.</summary>
 public sealed record BaseModuleFieldComparisonGuard : BaseModuleGuard
 {
+    internal BaseModuleFieldComparisonGuard() { }
     /// <summary>Gets the captured field.</summary>
-    public required BaseModuleCapturedFieldReference Field { get; init; }
+    internal BaseModuleCapturedFieldReference Field { get; init; } = null!;
     /// <summary>Gets the required ordering relation.</summary>
-    public required BaseModuleOrderedComparisonKind Comparison { get; init; }
+    internal BaseModuleOrderedComparisonKind Comparison { get; init; }
     /// <summary>Gets the exact-type expected value.</summary>
-    public required BaseModuleValueExpression Expected { get; init; }
+    internal BaseModuleValueExpression Expected { get; init; } = null!;
 }
 public sealed record BaseModuleFieldPresenceGuard : BaseModuleGuard
 {
-    public required BaseModuleCapturedFieldReference Field { get; init; }
-    public required BaseModuleFieldPresenceTest Test { get; init; }
+    internal BaseModuleFieldPresenceGuard() { }
+    internal BaseModuleCapturedFieldReference Field { get; init; } = null!;
+    internal BaseModuleFieldPresenceTest Test { get; init; }
 }
 public sealed record BaseModuleGenerationGuard : BaseModuleGuard
 {
-    public required string CaptureId { get; init; }
-    public required BaseModuleGenerationComparisonKind Comparison { get; init; }
-    public BaseModuleValueExpression? Expected { get; init; }
+    internal BaseModuleGenerationGuard() { }
+    internal string CaptureId { get; init; } = "";
+    internal BaseModuleGenerationComparisonKind Comparison { get; init; }
+    internal BaseModuleValueExpression? Expected { get; init; }
 }
 /// <summary>Tests the captured semantic slot state for an installed ensure or retirement operation.</summary>
 public sealed record BaseModuleSemanticActivationStateGuard : BaseModuleGuard
 {
+    internal BaseModuleSemanticActivationStateGuard() { }
     /// <summary>Gets the required captured semantic state.</summary>
-    public required BaseModuleSemanticActivationStateTest Test { get; init; }
+    internal BaseModuleSemanticActivationStateTest Test { get; init; }
 }
 /// <summary>Classifies closed semantic-state guard tests.</summary>
 public enum BaseModuleSemanticActivationStateTest
@@ -321,116 +330,135 @@ public enum BaseModuleSemanticActivationStateTest
 }
 public sealed record BaseModuleLogicalGuard : BaseModuleGuard
 {
-    public required BaseModuleLogicalGuardKind Kind { get; init; }
-    public required ImmutableArray<string> ChildGuardIds { get; init; }
+    internal BaseModuleLogicalGuard() { }
+    internal BaseModuleLogicalGuardKind Kind { get; init; }
+    internal ImmutableArray<string> ChildGuardIds { get; init; }
 }
 
 public sealed record BaseModuleMutationBlock { public required ImmutableArray<BaseModuleStatement> Statements { get; init; } }
-public abstract record BaseModuleStatement { public required string Id { get; init; } }
+public abstract record BaseModuleStatement { internal BaseModuleStatement() { } internal string Id { get; init; } = ""; }
 public sealed record BaseModuleCreateStatement : BaseModuleStatement
 {
-    public required string CollectionId { get; init; }
-    public required BaseModuleValueExpression RecordId { get; init; }
-    public required BaseModuleObjectExpression Payload { get; init; }
+    internal BaseModuleCreateStatement() { }
+    internal string CollectionId { get; init; } = "";
+    internal BaseModuleValueExpression RecordId { get; init; } = null!;
+    internal BaseModuleObjectExpression Payload { get; init; } = null!;
 }
 public sealed record BaseModulePatchStatement : BaseModuleStatement
 {
-    public required string CollectionId { get; init; }
-    public required BaseModuleValueExpression RecordId { get; init; }
-    public required BaseModuleObjectExpression Patch { get; init; }
-    public BaseModuleValueExpression? ExpectedRevision { get; init; }
+    internal BaseModulePatchStatement() { }
+    internal string CollectionId { get; init; } = "";
+    internal BaseModuleValueExpression RecordId { get; init; } = null!;
+    internal BaseModuleObjectExpression Patch { get; init; } = null!;
+    internal BaseModuleValueExpression? ExpectedRevision { get; init; }
 }
 public sealed record BaseModuleReplaceStatement : BaseModuleStatement
 {
-    public required string CollectionId { get; init; }
-    public required BaseModuleValueExpression RecordId { get; init; }
-    public required BaseModuleObjectExpression Payload { get; init; }
-    public BaseModuleValueExpression? ExpectedRevision { get; init; }
+    internal BaseModuleReplaceStatement() { }
+    internal string CollectionId { get; init; } = "";
+    internal BaseModuleValueExpression RecordId { get; init; } = null!;
+    internal BaseModuleObjectExpression Payload { get; init; } = null!;
+    internal BaseModuleValueExpression? ExpectedRevision { get; init; }
 }
 public sealed record BaseModuleDeleteStatement : BaseModuleStatement
 {
-    public required string CollectionId { get; init; }
-    public required BaseModuleValueExpression RecordId { get; init; }
-    public BaseModuleValueExpression? ExpectedRevision { get; init; }
+    internal BaseModuleDeleteStatement() { }
+    internal string CollectionId { get; init; } = "";
+    internal BaseModuleValueExpression RecordId { get; init; } = null!;
+    internal BaseModuleValueExpression? ExpectedRevision { get; init; }
 }
 public sealed record BaseModuleUpsertStatement : BaseModuleStatement
 {
-    public required string CollectionId { get; init; }
-    public required BaseModuleValueExpression RecordId { get; init; }
-    public required BaseModuleObjectExpression Create { get; init; }
-    public required BaseModuleObjectExpression Update { get; init; }
-    public required RecordUpsertUpdateMode UpdateMode { get; init; }
-    public BaseModuleValueExpression? ExpectedRevision { get; init; }
+    internal BaseModuleUpsertStatement() { }
+    internal string CollectionId { get; init; } = "";
+    internal BaseModuleValueExpression RecordId { get; init; } = null!;
+    internal BaseModuleObjectExpression Create { get; init; } = null!;
+    internal BaseModuleObjectExpression Update { get; init; } = null!;
+    internal RecordUpsertUpdateMode UpdateMode { get; init; }
+    internal BaseModuleValueExpression? ExpectedRevision { get; init; }
 }
 public sealed record BaseModuleIncrementGenerationStatement : BaseModuleStatement
 {
-    public required string CaptureId { get; init; }
-    public required bool CreateIfAbsent { get; init; }
+    internal BaseModuleIncrementGenerationStatement() { }
+    internal string CaptureId { get; init; } = "";
+    internal bool CreateIfAbsent { get; init; }
 }
 public sealed record BaseModuleIfStatement : BaseModuleStatement
 {
-    public required string GuardId { get; init; }
-    public required BaseModuleMutationBlock WhenTrue { get; init; }
-    public required BaseModuleMutationBlock WhenFalse { get; init; }
+    internal BaseModuleIfStatement() { }
+    internal string GuardId { get; init; } = "";
+    internal BaseModuleMutationBlock WhenTrue { get; init; } = null!;
+    internal BaseModuleMutationBlock WhenFalse { get; init; } = null!;
 }
 public sealed record BaseModuleRequireStatement : BaseModuleStatement
 {
-    public required string GuardId { get; init; }
-    public required string RequirementId { get; init; }
+    internal BaseModuleRequireStatement() { }
+    internal string GuardId { get; init; } = "";
+    internal string RequirementId { get; init; } = "";
 }
 
 public sealed record BaseModuleRequestPropertyReference
 {
+    internal BaseModuleRequestPropertyReference() { }
     public required ImmutableArray<string> StablePropertyPath { get; init; }
-    public required string DeclaredTypeId { get; init; }
+    public required BaseModuleDtoScalarAuthority Authority { get; init; }
 }
 public sealed record BaseModuleCapturedFieldReference
 {
+    internal BaseModuleCapturedFieldReference() { }
     public required string CaptureId { get; init; }
     public required string StableFieldId { get; init; }
-    public required string DeclaredTypeId { get; init; }
+    public required BaseModuleValueType Authority { get; init; }
 }
 
 public abstract record BaseModuleValueExpression
 {
+    internal BaseModuleValueExpression() { }
     public required string Id { get; init; }
-    public required string ResultTypeId { get; init; }
+    public BaseModuleValueType? ResultType { get; init; }
 }
-public sealed record BaseModuleRequestPropertyExpression : BaseModuleValueExpression { public required BaseModuleRequestPropertyReference Property { get; init; } }
-public sealed record BaseModuleConstantExpression : BaseModuleValueExpression { public required ImmutableArray<byte> CanonicalBaseJson { get; init; } }
-public sealed record BaseModuleCapturedRecordIdExpression : BaseModuleValueExpression { public required string CaptureId { get; init; } }
-public sealed record BaseModuleCapturedRevisionExpression : BaseModuleValueExpression { public required string CaptureId { get; init; } }
-public sealed record BaseModuleCapturedFieldExpression : BaseModuleValueExpression { public required BaseModuleCapturedFieldReference Field { get; init; } }
-public sealed record BaseModuleCapturedGenerationExpression : BaseModuleValueExpression { public required string CaptureId { get; init; } }
-public sealed record BaseModuleCommittedRecordIdExpression : BaseModuleValueExpression { public required string StatementId { get; init; } }
-public sealed record BaseModuleCommittedRevisionExpression : BaseModuleValueExpression { public required string StatementId { get; init; } }
-public sealed record BaseModuleCommittedUpsertDispositionExpression : BaseModuleValueExpression { public required string StatementId { get; init; } }
-public sealed record BaseModuleResultingGenerationExpression : BaseModuleValueExpression { public required string CaptureId { get; init; } }
+public sealed record BaseModuleRequestPropertyExpression : BaseModuleValueExpression { internal BaseModuleRequestPropertyExpression() { } public required BaseModuleRequestPropertyReference Property { get; init; } }
+public sealed record BaseModuleConstantExpression : BaseModuleValueExpression { internal BaseModuleConstantExpression() { } public required ImmutableArray<byte> CanonicalBaseJson { get; init; } }
+public sealed record BaseModuleCapturedRecordIdExpression : BaseModuleValueExpression { internal BaseModuleCapturedRecordIdExpression() { } public required string CaptureId { get; init; } }
+public sealed record BaseModuleCapturedRevisionExpression : BaseModuleValueExpression { internal BaseModuleCapturedRevisionExpression() { } public required string CaptureId { get; init; } }
+public sealed record BaseModuleCapturedFieldExpression : BaseModuleValueExpression { internal BaseModuleCapturedFieldExpression() { } public required BaseModuleCapturedFieldReference Field { get; init; } }
+public sealed record BaseModuleCapturedGenerationExpression : BaseModuleValueExpression { internal BaseModuleCapturedGenerationExpression() { } public required string CaptureId { get; init; } }
+public sealed record BaseModuleCommittedRecordIdExpression : BaseModuleValueExpression { internal BaseModuleCommittedRecordIdExpression() { } public required string StatementId { get; init; } }
+public sealed record BaseModuleCommittedRevisionExpression : BaseModuleValueExpression { internal BaseModuleCommittedRevisionExpression() { } public required string StatementId { get; init; } }
+public sealed record BaseModuleCommittedUpsertDispositionExpression : BaseModuleValueExpression { internal BaseModuleCommittedUpsertDispositionExpression() { } public required string StatementId { get; init; } }
+public sealed record BaseModuleResultingGenerationExpression : BaseModuleValueExpression { internal BaseModuleResultingGenerationExpression() { } public required string CaptureId { get; init; } }
 /// <summary>Projects the closed ensure disposition.</summary>
-public sealed record BaseModuleSemanticActivationDispositionExpression : BaseModuleValueExpression;
+public sealed record BaseModuleSemanticActivationDispositionExpression : BaseModuleValueExpression { internal BaseModuleSemanticActivationDispositionExpression() { } }
 /// <summary>Projects the live semantic activation ID.</summary>
-public sealed record BaseModuleSemanticActivationIdExpression : BaseModuleValueExpression;
+public sealed record BaseModuleSemanticActivationIdExpression : BaseModuleValueExpression { internal BaseModuleSemanticActivationIdExpression() { } }
 /// <summary>Projects whether ensure materialized a new activation.</summary>
-public sealed record BaseModuleSemanticActivationWasMaterializedExpression : BaseModuleValueExpression;
+public sealed record BaseModuleSemanticActivationWasMaterializedExpression : BaseModuleValueExpression { internal BaseModuleSemanticActivationWasMaterializedExpression() { } }
 /// <summary>Projects the closed retirement disposition.</summary>
-public sealed record BaseModuleSemanticActivationRetirementDispositionExpression : BaseModuleValueExpression;
-public sealed record BaseModuleCoalesceExpression : BaseModuleValueExpression { public required ImmutableArray<BaseModuleValueExpression> Values { get; init; } }
+public sealed record BaseModuleSemanticActivationRetirementDispositionExpression : BaseModuleValueExpression { internal BaseModuleSemanticActivationRetirementDispositionExpression() { } }
+public sealed record BaseModuleCoalesceExpression : BaseModuleValueExpression { internal BaseModuleCoalesceExpression() { } public required ImmutableArray<BaseModuleValueExpression> Values { get; init; } }
 public sealed record BaseModuleConditionalExpression : BaseModuleValueExpression
 {
+    internal BaseModuleConditionalExpression() { }
     public required string GuardId { get; init; }
     public required BaseModuleValueExpression WhenTrue { get; init; }
     public required BaseModuleValueExpression WhenFalse { get; init; }
 }
 public sealed record BaseModuleBinaryNumericExpression : BaseModuleValueExpression
 {
+    internal BaseModuleBinaryNumericExpression() { }
     public required BaseModuleNumericOperator Operator { get; init; }
     public required BaseModuleValueExpression Left { get; init; }
     public required BaseModuleValueExpression Right { get; init; }
     public BaseModuleDecimalContext? Decimal { get; init; }
 }
-public sealed record BaseModuleObjectExpression : BaseModuleValueExpression { public required ImmutableArray<BaseModuleObjectPropertyExpression> Properties { get; init; } }
+public sealed record BaseModuleObjectExpression : BaseModuleValueExpression
+{
+    internal BaseModuleObjectExpression() { }
+    public required ImmutableArray<BaseModuleObjectPropertyExpression> Properties { get; init; }
+}
 public sealed record BaseModuleObjectPropertyExpression
 {
+    internal BaseModuleObjectPropertyExpression() { }
     public required string StablePropertyId { get; init; }
     public required BaseModuleValueExpression Value { get; init; }
 }
@@ -440,7 +468,11 @@ public sealed record BaseModuleDecimalContext
     public required int Scale { get; init; }
     public required BaseModuleDecimalRounding Rounding { get; init; }
 }
-public sealed record BaseModuleResultProjection { public required BaseModuleObjectExpression Value { get; init; } }
+public sealed record BaseModuleResultProjection
+{
+    internal BaseModuleResultProjection() { }
+    internal BaseModuleObjectExpression Value { get; init; } = null!;
+}
 
 /// <summary>Caller-narrowable module-mutation execution options.</summary>
 public sealed record BaseModuleMutationExecutionOptions

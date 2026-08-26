@@ -149,12 +149,12 @@ public sealed class PatchReplaceRevisionTests
 
         var patch = await InMemoryMutationTestDriver.PatchAsync(store,
             collection,
-            new RecordId("missing"),
+            RecordId.Create("missing"),
             new RecordPatchRequest { Patch = InMemoryTestData.Patch("title", "new") },
             InMemoryTestData.Operation(BaseOperationKind.Patch));
         var replace = await InMemoryMutationTestDriver.ReplaceAsync(store,
             collection,
-            new RecordId("missing"),
+            RecordId.Create("missing"),
             new RecordReplaceRequest { Payload = InMemoryTestData.Payload(("title", "new")) },
             InMemoryTestData.Operation(BaseOperationKind.Replace));
 

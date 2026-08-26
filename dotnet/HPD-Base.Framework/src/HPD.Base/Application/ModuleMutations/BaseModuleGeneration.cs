@@ -22,7 +22,7 @@ public sealed class BaseModuleGeneration : IEquatable<BaseModuleGeneration>
         if (!long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out long parsed)
             || parsed < 1
             || !string.Equals(value, parsed.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal))
-            throw new InvalidOperationException("base.moduleMutation.receiptInvalid");
+            throw new FormatException(BaseSchemaErrorCodes.ScalarConstraintViolated);
         return new(parsed);
     }
     internal BaseModuleGeneration Increment() => new(checked(_value + 1));
@@ -48,7 +48,7 @@ public sealed class BaseModuleGenerationJsonConverter : JsonConverter<BaseModule
         if (reader.TokenType != JsonTokenType.String || reader.GetString() is not { } value)
             throw new JsonException("A module generation must be a canonical JSON string.");
         try { return BaseModuleGeneration.ParseCanonical(value); }
-        catch (InvalidOperationException exception) { throw new JsonException("A module generation is invalid.", exception); }
+        catch (FormatException exception) { throw new JsonException("A module generation must be a canonical JSON string.", exception); }
     }
 
     /// <inheritdoc />

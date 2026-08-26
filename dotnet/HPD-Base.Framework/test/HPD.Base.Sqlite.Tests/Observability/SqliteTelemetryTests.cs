@@ -27,7 +27,7 @@ public sealed class SqliteTelemetryTests
             Collection(),
             new RecordCreateRequest
             {
-                RequestedId = new RecordId("rec_secret"),
+                RequestedId = RecordId.Create("rec_secret"),
                 Payload = Payload("payload-secret")
             },
             Operation(BaseOperationKind.Create, "rec_secret"));
@@ -103,7 +103,7 @@ public sealed class SqliteTelemetryTests
                 Collection(),
                 new RecordCreateRequest
                 {
-                    RequestedId = new RecordId("rec_no_listener"),
+                    RequestedId = RecordId.Create("rec_no_listener"),
                     Payload = Payload("no-listener")
                 },
                 Operation(BaseOperationKind.Create, "rec_no_listener"));

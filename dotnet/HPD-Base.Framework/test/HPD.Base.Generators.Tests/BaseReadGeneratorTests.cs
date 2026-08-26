@@ -11,6 +11,34 @@ namespace HPD.Base.Generators.Tests;
 public sealed class BaseReadGeneratorTests
 {
     [Fact]
+    public void GeneratedReadSupportsOwnedBinaryAndExactLimits()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseRead("binary.read", typeof(AppJsonContext), RequiredGrantId = "binary.read")]
+            internal partial record BinaryRead
+            {
+                [BaseReadParameter("binary.read.id")] public required string Id { get; init; }
+                public sealed partial record Row
+                {
+                    [BaseReadField("binary.read.payload")] public required BaseBinary Payload { get; init; }
+                }
+                public static void Configure(BaseReadDefinitionBuilder<BinaryRead, Row> read) { }
+            }
+            [JsonSerializable(typeof(BinaryRead), TypeInfoPropertyName = "BinaryRead")]
+            [JsonSerializable(typeof(BinaryRead.Row), TypeInfoPropertyName = "BinaryReadRow")]
+            internal partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        var result = Run(source);
+
+        result.Diagnostics.Should().BeEmpty();
+        result.Source.Should().Contain("BaseBinary.FromBase64")
+            .And.Contain("QueryValueKind.String");
+    }
+
+    [Fact]
     public void GenerationIsDeterministicAndProducesOnlyTypedHandles()
     {
         const string source = """
@@ -198,6 +226,123 @@ public sealed class BaseReadGeneratorTests
         result.Diagnostics.Should().BeEmpty();
         result.Source.Should().Contain("BaseReadGeneratedContract.Value(parameters.After)");
         result.Source.Should().Contain("BaseReadGeneratedContract.Read<global::System.DateTimeOffset>");
+    }
+
+    [Fact]
+    public void CanonicalJsonProjectionUsesTheSourceBoundReadCodec()
+    {
+        const string source = """
+            using System.Text.Json.Serialization;
+            using HPD.Base;
+            namespace Demo;
+            [BaseRead("json-read", typeof(JsonContext), RequiredGrantId = "json.read")]
+            internal sealed partial record JsonRead
+            {
+                public sealed partial record Row
+                {
+                    [BaseReadField("json-read.value")]
+                    public required BaseCanonicalJson Value { get; init; }
+                }
+                public static void Configure(BaseReadDefinitionBuilder<JsonRead, Row> read) { }
+            }
+            [JsonSerializable(typeof(JsonRead))]
+            [JsonSerializable(typeof(JsonRead.Row), TypeInfoPropertyName = "JsonReadRow")]
+            internal sealed partial class JsonContext : JsonSerializerContext;
+            """;
+
+        Result result = Run(source);
+
+        result.Diagnostics.Should().BeEmpty();
+        result.Source.Should().Contain("BaseReadGeneratedContract.ReadCanonicalJson");
+        result.Source.Should().Contain("QueryValueKind.CanonicalJson");
+    }
+
+    [Fact]
+    public void CanonicalJsonParametersAndRowsAreGeneratedFromABaseNestedNamespace()
+    {
+        const string source = """
+            using System.Text.Json.Serialization;
+            namespace HPD.Base.Tests;
+            [global::HPD.Base.BaseRead("json-read", typeof(JsonContext), RequiredGrantId = "json.read")]
+            internal sealed partial record JsonRead
+            {
+                [global::HPD.Base.BaseReadParameter("json-read.parameter")]
+                public global::HPD.Base.BaseCanonicalJson? Parameter { get; init; }
+                public sealed partial record Row
+                {
+                    [global::HPD.Base.BaseReadField("json-read.value")]
+                    public required global::HPD.Base.BaseCanonicalJson Value { get; init; }
+                }
+                public static void Configure(global::HPD.Base.BaseReadDefinitionBuilder<JsonRead, Row> read) { }
+            }
+            [JsonSerializable(typeof(JsonRead))]
+            [JsonSerializable(typeof(JsonRead.Row), TypeInfoPropertyName = "JsonReadRow")]
+            internal sealed partial class JsonContext : JsonSerializerContext;
+            """;
+
+        Result result = Run(source);
+
+        result.Diagnostics.Should().BeEmpty();
+        result.Source.Should().Contain("BaseReadGeneratedContract.Value(__Parameter)");
+        result.Source.Should().Contain("BaseReadGeneratedContract.ReadCanonicalJson");
+    }
+
+    [Fact]
+    public void ClosedEnumParametersAndRowsUseExactDeclaredWireLiterals()
+    {
+        const string source = """
+            using System.Text.Json.Serialization;
+            using HPD.Base;
+            namespace Demo;
+            internal enum Mode { [JsonStringEnumMemberName("exact-wire")] Exact }
+            [BaseRead("enum-read", typeof(JsonContext), RequiredGrantId = "enum.read")]
+            internal sealed partial record EnumRead
+            {
+                [BaseReadParameter("enum-read.mode")] public required Mode Mode { get; init; }
+                public sealed partial record Row
+                {
+                    [BaseReadField("enum-read.row.mode")] public required Mode Mode { get; init; }
+                }
+                public static void Configure(BaseReadDefinitionBuilder<EnumRead, Row> read) { }
+            }
+            [JsonSerializable(typeof(EnumRead))]
+            [JsonSerializable(typeof(EnumRead.Row), TypeInfoPropertyName = "EnumReadRow")]
+            internal sealed partial class JsonContext : JsonSerializerContext;
+            """;
+
+        Result result = Run(source);
+
+        result.Diagnostics.Should().NotContain(diagnostic => diagnostic.Severity == Microsoft.CodeAnalysis.DiagnosticSeverity.Error);
+        result.Source.Should().Contain("global::Demo.Mode.Exact => \"exact-wire\"");
+        result.Source.Should().Contain("\"exact-wire\" => global::Demo.Mode.Exact");
+    }
+
+    [Theory]
+    [InlineData("[System.Flags] internal enum Mode { A = 1, B = 2 }")]
+    [InlineData("internal enum Mode { A = 1, Alias = 1 }")]
+    [InlineData("internal enum Mode { [JsonStringEnumMemberName(\"same\")] A = 1, [JsonStringEnumMemberName(\"same\")] B = 2 }")]
+    [InlineData("internal enum Mode : ulong { TooLarge = 18446744073709551615UL }")]
+    [InlineData("internal enum Mode { [JsonStringEnumMemberName(\"\")] Empty = 1 }")]
+    public void InvalidClosedEnumVocabulariesAreRejected(string declaration)
+    {
+        string source = $$"""
+            using System.Text.Json.Serialization;
+            using HPD.Base;
+            namespace Demo;
+            {{declaration}}
+            [BaseRead("enum-read", typeof(JsonContext), RequiredGrantId = "enum.read")]
+            internal sealed partial record EnumRead
+            {
+                [BaseReadParameter("enum-read.mode")] public required Mode Mode { get; init; }
+                public sealed partial record Row { [BaseReadField("enum-read.row.mode")] public required Mode Mode { get; init; } }
+                public static void Configure(BaseReadDefinitionBuilder<EnumRead, Row> read) { }
+            }
+            [JsonSerializable(typeof(EnumRead))]
+            [JsonSerializable(typeof(EnumRead.Row), TypeInfoPropertyName = "EnumReadRow")]
+            internal sealed partial class JsonContext : JsonSerializerContext;
+            """;
+
+        Run(source).Diagnostics.Should().Contain(diagnostic => diagnostic.Id == "HPDBASE023");
     }
 
     [Fact]

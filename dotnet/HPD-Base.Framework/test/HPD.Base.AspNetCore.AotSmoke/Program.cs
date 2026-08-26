@@ -86,7 +86,7 @@ static async Task VerifyProjectionAsync(WebApplication app, bool verifySelection
                 "Client generation snapshot was invalid.");
         }
 
-        var upsertId = new RecordId("aot-upsert");
+        var upsertId = RecordId.Create("aot-upsert");
         var upsertResponse = await client.PutAsync(
             $"/base/collections/items/records/{upsertId.Value}:upsert",
             JsonContent.Create(
@@ -144,7 +144,7 @@ static async Task VerifyProjectionAsync(WebApplication app, bool verifySelection
                             Kind = BaseRecordMutationKind.Create,
                             Create = new RecordCreateRequest
                             {
-                                RequestedId = new RecordId("aot-batch"),
+                                RequestedId = RecordId.Create("aot-batch"),
                                 Payload = Payload("before")
                             }
                         },
@@ -153,7 +153,7 @@ static async Task VerifyProjectionAsync(WebApplication app, bool verifySelection
                             ItemId = "patch",
                             CollectionId = "items",
                             Kind = BaseRecordMutationKind.Patch,
-                            RecordId = new RecordId("aot-batch"),
+                            RecordId = RecordId.Create("aot-batch"),
                             Patch = new RecordPatchRequest { Patch = Patch("after") }
                         }
                     ]

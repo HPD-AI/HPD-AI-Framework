@@ -977,7 +977,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
                 records.Add(new BaseModuleRecordCaptureRequest
                 {
                     Ordinal = records.Count, CaptureId = record.Id, Collection = collections[record.CollectionId],
-                    RecordId = new RecordId(id.Value.GetString() ?? throw new InvalidOperationException()), Presence = record.Presence,
+                    RecordId = RecordId.Create(id.Value.GetString() ?? throw new InvalidOperationException()), Presence = record.Presence,
                 });
             }
             else if (capture is BaseModuleGenerationCapture generation)
@@ -1032,11 +1032,11 @@ internal sealed class DefaultBaseModuleMutationRuntime(
                     if (relations.Any(value => string.Equals(value.SourceStatementId, statement.Id, StringComparison.Ordinal)
                         && string.Equals(value.SourceFieldId, field.Id, StringComparison.Ordinal)
                         && string.Equals(value.TargetCollection.Id, relation.TargetCollectionId, StringComparison.Ordinal)
-                        && value.TargetRecordId == new RecordId(id))) continue;
+                        && value.TargetRecordId == RecordId.Create(id))) continue;
                     relations.Add(new BaseModuleRelationTargetCaptureRequest
                     {
                         Ordinal = relations.Count, SourceStatementId = statement.Id, SourceFieldId = field.Id,
-                        TargetCollection = collections[relation.TargetCollectionId], TargetRecordId = new RecordId(id),
+                        TargetCollection = collections[relation.TargetCollectionId], TargetRecordId = RecordId.Create(id),
                     });
                 }
             }
@@ -1096,7 +1096,10 @@ internal sealed class DefaultBaseModuleMutationRuntime(
         Failure<TResult>(status, Error(code, category));
     private static BaseFailure<BaseModuleMutationExecutionResult<TResult>> Failure<TResult>(OperationStatus status, BaseError error) =>
         new(status, error, null, null);
-    private static BaseError Error(string code, ErrorCategory category) => new() { Code = code, Message = "The registered module mutation could not be completed.", Category = category };
+    private static BaseError Error(string code, ErrorCategory category) => new() { Code = code,
+        Message = code == BaseModuleMutationErrorCodes.ProviderContractInvalid
+            ? "The module mutation provider returned invalid evidence."
+            : "The registered module mutation could not be completed.", Category = category };
     private static string Digest(params string[] values) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\0', values)))).ToLowerInvariant();
 }
 
@@ -1130,6 +1133,8 @@ internal sealed class BaseModuleMutationReceiptResolver<TResult>(
             return Failed();
         try
         {
+            BaseModuleProgramEvaluator<object, TResult>.ValidateDto(
+                module.CanonicalResultBytes.AsSpan(), resultBindings, providerInfluenced: true);
             TResult? typed = JsonSerializer.Deserialize(module.CanonicalResultBytes.AsSpan(), resultTypeInfo);
             if (typed is null) return Failed();
             Result = new BaseModuleMutationExecutionResult<TResult>
@@ -1143,17 +1148,21 @@ internal sealed class BaseModuleMutationReceiptResolver<TResult>(
                 BaseAtomicReceiptWire.From(committedResult), HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire)).ToImmutableArray();
             return new AtomicMutationProcessingResult(AtomicMutationProcessingOutcome.ReadyToCommit, committedResult);
         }
+        catch (BaseModuleScalarContractException) { return Failed(BaseModuleMutationErrorCodes.ProviderContractInvalid, ErrorCategory.Store); }
         catch { return Failed(); }
     }
 
-    private static AtomicMutationProcessingResult Failed() => new(
+    private static AtomicMutationProcessingResult Failed() => Failed(BaseModuleMutationErrorCodes.ReceiptUnavailable, ErrorCategory.Authorization);
+    private static AtomicMutationProcessingResult Failed(string code, ErrorCategory category) => new(
         AtomicMutationProcessingOutcome.Failed,
         [],
         new BaseError
         {
-            Code = BaseModuleMutationErrorCodes.ReceiptUnavailable,
-            Message = "The stored module mutation receipt cannot be resolved.",
-            Category = ErrorCategory.Authorization,
+            Code = code,
+            Message = code == BaseModuleMutationErrorCodes.ProviderContractInvalid
+                ? "The module mutation provider returned invalid evidence."
+                : "The stored module mutation receipt cannot be resolved.",
+            Category = category,
         });
 }
 

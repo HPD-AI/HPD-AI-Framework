@@ -19,7 +19,7 @@ public sealed class L45SubjectTransactionTests
         IBaseRecordRuntime records=fixture.Services.GetRequiredService<IBaseRecordRuntime>();PrincipalContext principal=Principal();
         OperationResult<RecordEnvelope> created=await records.CreateAsync(Private.Id,Create("retirement-user",("active",true),("tenant","tenant-a")),principal,Operation(BaseOperationKind.Create,Private.Id));Assert.True(created.IsSuccess(),created.Error?.Code);
         JsonElement encoded=await fixture.AcquireAsync("retirement-user");var reference=new BaseSubjectReference<UserSubject>(BaseSubjectId.Create(encoded.GetProperty("subjectId").GetString()!,BaseSubjectIdKind.OrdinalString),BaseSubjectAuthorityEpoch.Parse(encoded.GetProperty("authorityEpoch").GetString()!),BaseSubjectIncarnation.Parse(encoded.GetProperty("incarnation").GetString()!));
-        RecordEnvelope current=(await records.GetAsync(Private.Id,new RecordId("retirement-user"),principal,Operation(BaseOperationKind.Get,Private.Id))).Value!;
+        RecordEnvelope current=(await records.GetAsync(Private.Id,RecordId.Create("retirement-user"),principal,Operation(BaseOperationKind.Get,Private.Id))).Value!;
         BaseSession session=fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);BaseExportedSubjectContract<UserSubject> exporter=session.GetExportedSubjectContract<UserSubject>(fixture.Registration);
         BaseResult<BaseSubjectLifecycleFact<UserSubject>> tombstoned=await exporter.TombstoneAsync(new(){Subject=reference,ExpectedPrivateRevision=current.Metadata.Revision!.Value,Identity=BaseMutationRequestIdentity.Create("l48-tests","tombstone","barrier-create",BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("l48-barrier-create"u8)))});
         Assert.True(tombstoned is BaseSuccess<BaseSubjectLifecycleFact<UserSubject>>,tombstoned is BaseFailure<BaseSubjectLifecycleFact<UserSubject>> failed?$"{failed.Error.Code}: {failed.Error.Message}":null);
@@ -35,7 +35,7 @@ public sealed class L45SubjectTransactionTests
     {
         var observer=new RetirementObserver();await using SubjectFixture fixture=Build(retirement:true,retirementObserver:observer);PrincipalContext principal=Principal();IBaseRecordRuntime records=fixture.Services.GetRequiredService<IBaseRecordRuntime>();
         Assert.True((await records.CreateAsync(Private.Id,Create("ack-user",("active",true),("tenant","tenant-a")),principal,Operation(BaseOperationKind.Create,Private.Id))).IsSuccess());
-        JsonElement encoded=await fixture.AcquireAsync("ack-user");var reference=new BaseSubjectReference<UserSubject>(BaseSubjectId.Create(encoded.GetProperty("subjectId").GetString()!,BaseSubjectIdKind.OrdinalString),BaseSubjectAuthorityEpoch.Parse(encoded.GetProperty("authorityEpoch").GetString()!),BaseSubjectIncarnation.Parse(encoded.GetProperty("incarnation").GetString()!));RecordEnvelope current=(await records.GetAsync(Private.Id,new("ack-user"),principal,Operation(BaseOperationKind.Get,Private.Id))).Value!;
+        JsonElement encoded=await fixture.AcquireAsync("ack-user");var reference=new BaseSubjectReference<UserSubject>(BaseSubjectId.Create(encoded.GetProperty("subjectId").GetString()!,BaseSubjectIdKind.OrdinalString),BaseSubjectAuthorityEpoch.Parse(encoded.GetProperty("authorityEpoch").GetString()!),BaseSubjectIncarnation.Parse(encoded.GetProperty("incarnation").GetString()!));RecordEnvelope current=(await records.GetAsync(Private.Id,RecordId.Create("ack-user"),principal,Operation(BaseOperationKind.Get,Private.Id))).Value!;
         BaseSession session=fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);BaseExportedSubjectContract<UserSubject> exporter=session.GetExportedSubjectContract<UserSubject>(fixture.Registration);BaseResult<BaseSubjectLifecycleFact<UserSubject>> tombstone=await exporter.TombstoneAsync(new(){Subject=reference,ExpectedPrivateRevision=current.Metadata.Revision!.Value,Identity=Identity("ack-tombstone")});Assert.IsType<BaseSuccess<BaseSubjectLifecycleFact<UserSubject>>>(tombstone);
         BaseSubjectLifecycleConsumerDefinition lifecycle=LifecycleConsumer();var lifecycleIdentity=BaseGeneratedSubjectLifecycleConsumers.Register<UserSubject>(lifecycle,fixture.Registration);BaseSubjectRetirementConsumerDefinition retirement=RetirementConsumer(BaseSubjectLifecycleRegistry.Checksum(BaseSubjectLifecycleRegistry.Normalize(lifecycle),fixture.Registration.Checksum));var retirementIdentity=BaseGeneratedSubjectRetirementConsumers.Register(lifecycleIdentity,retirement);BaseInstalledSubjectRetirementConsumer<UserSubject> consumer=session.SubjectRetirements.Get(retirementIdentity);
         await fixture.Services.GetRequiredService<BaseSubjectRetirementControlDispatcher>().InitializeAsync(CancellationToken.None);
@@ -69,24 +69,24 @@ public sealed class L45SubjectTransactionTests
     [Fact]
     public async Task L48_required_evidence_denial_precedes_retirement_provider_influence()
     {
-        int inspections=0;await using SubjectFixture fixture=Build(retirement:true,retirementAcknowledgementAuthority:false,retirementInspectionStarted:()=>Interlocked.Increment(ref inspections));PrincipalContext principal=Principal();IBaseRecordRuntime records=fixture.Services.GetRequiredService<IBaseRecordRuntime>();Assert.True((await records.CreateAsync(Private.Id,Create("denied-ack",("active",true),("tenant","tenant-a")),principal,Operation(BaseOperationKind.Create,Private.Id))).IsSuccess());JsonElement encoded=await fixture.AcquireAsync("denied-ack");var reference=new BaseSubjectReference<UserSubject>(BaseSubjectId.Create(encoded.GetProperty("subjectId").GetString()!,BaseSubjectIdKind.OrdinalString),BaseSubjectAuthorityEpoch.Parse(encoded.GetProperty("authorityEpoch").GetString()!),BaseSubjectIncarnation.Parse(encoded.GetProperty("incarnation").GetString()!));RecordEnvelope current=(await records.GetAsync(Private.Id,new("denied-ack"),principal,Operation(BaseOperationKind.Get,Private.Id))).Value!;BaseSession session=fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);BaseExportedSubjectContract<UserSubject> exporter=session.GetExportedSubjectContract<UserSubject>(fixture.Registration);Assert.IsType<BaseSuccess<BaseSubjectLifecycleFact<UserSubject>>>(await exporter.TombstoneAsync(new(){Subject=reference,ExpectedPrivateRevision=current.Metadata.Revision!.Value,Identity=Identity("denied-tombstone")}));BaseSubjectLifecycleConsumerDefinition lifecycle=LifecycleConsumer();var lifecycleIdentity=BaseGeneratedSubjectLifecycleConsumers.Register<UserSubject>(lifecycle,fixture.Registration);BaseSubjectRetirementConsumerDefinition retirement=RetirementConsumer(BaseSubjectLifecycleRegistry.Checksum(BaseSubjectLifecycleRegistry.Normalize(lifecycle),fixture.Registration.Checksum));var retirementIdentity=BaseGeneratedSubjectRetirementConsumers.Register(lifecycleIdentity,retirement);BaseInstalledSubjectRetirementConsumer<UserSubject> consumer=session.SubjectRetirements.Get(retirementIdentity);await using IAsyncEnumerator<BaseSubjectRequiredLifecycleDelivery<UserSubject>> deliveries=consumer.ReadRequiredAsync().GetAsyncEnumerator();BaseOperationException denied=await Assert.ThrowsAsync<BaseOperationException>(async()=>await deliveries.MoveNextAsync().AsTask());Assert.Equal(BaseSubjectRetirementErrorCodes.Unauthorized,denied.Error.Code);Assert.Equal(0,Volatile.Read(ref inspections));
+        int inspections=0;await using SubjectFixture fixture=Build(retirement:true,retirementAcknowledgementAuthority:false,retirementInspectionStarted:()=>Interlocked.Increment(ref inspections));PrincipalContext principal=Principal();IBaseRecordRuntime records=fixture.Services.GetRequiredService<IBaseRecordRuntime>();Assert.True((await records.CreateAsync(Private.Id,Create("denied-ack",("active",true),("tenant","tenant-a")),principal,Operation(BaseOperationKind.Create,Private.Id))).IsSuccess());JsonElement encoded=await fixture.AcquireAsync("denied-ack");var reference=new BaseSubjectReference<UserSubject>(BaseSubjectId.Create(encoded.GetProperty("subjectId").GetString()!,BaseSubjectIdKind.OrdinalString),BaseSubjectAuthorityEpoch.Parse(encoded.GetProperty("authorityEpoch").GetString()!),BaseSubjectIncarnation.Parse(encoded.GetProperty("incarnation").GetString()!));RecordEnvelope current=(await records.GetAsync(Private.Id,RecordId.Create("denied-ack"),principal,Operation(BaseOperationKind.Get,Private.Id))).Value!;BaseSession session=fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);BaseExportedSubjectContract<UserSubject> exporter=session.GetExportedSubjectContract<UserSubject>(fixture.Registration);Assert.IsType<BaseSuccess<BaseSubjectLifecycleFact<UserSubject>>>(await exporter.TombstoneAsync(new(){Subject=reference,ExpectedPrivateRevision=current.Metadata.Revision!.Value,Identity=Identity("denied-tombstone")}));BaseSubjectLifecycleConsumerDefinition lifecycle=LifecycleConsumer();var lifecycleIdentity=BaseGeneratedSubjectLifecycleConsumers.Register<UserSubject>(lifecycle,fixture.Registration);BaseSubjectRetirementConsumerDefinition retirement=RetirementConsumer(BaseSubjectLifecycleRegistry.Checksum(BaseSubjectLifecycleRegistry.Normalize(lifecycle),fixture.Registration.Checksum));var retirementIdentity=BaseGeneratedSubjectRetirementConsumers.Register(lifecycleIdentity,retirement);BaseInstalledSubjectRetirementConsumer<UserSubject> consumer=session.SubjectRetirements.Get(retirementIdentity);await using IAsyncEnumerator<BaseSubjectRequiredLifecycleDelivery<UserSubject>> deliveries=consumer.ReadRequiredAsync().GetAsyncEnumerator();BaseOperationException denied=await Assert.ThrowsAsync<BaseOperationException>(async()=>await deliveries.MoveNextAsync().AsTask());Assert.Equal(BaseSubjectRetirementErrorCodes.Unauthorized,denied.Error.Code);Assert.Equal(0,Volatile.Read(ref inspections));
     }
 
     [Fact]
     public async Task L48_startup_reconciliation_retries_only_the_incomplete_observer()
     {
-        await using SubjectFixture fixture=Build(retirement:true);PrincipalContext principal=Principal();IBaseRecordRuntime records=fixture.Services.GetRequiredService<IBaseRecordRuntime>();Assert.True((await records.CreateAsync(Private.Id,Create("startup-control",("active",true),("tenant","tenant-a")),principal,Operation(BaseOperationKind.Create,Private.Id))).IsSuccess());JsonElement encoded=await fixture.AcquireAsync("startup-control");var reference=new BaseSubjectReference<UserSubject>(BaseSubjectId.Create(encoded.GetProperty("subjectId").GetString()!,BaseSubjectIdKind.OrdinalString),BaseSubjectAuthorityEpoch.Parse(encoded.GetProperty("authorityEpoch").GetString()!),BaseSubjectIncarnation.Parse(encoded.GetProperty("incarnation").GetString()!));RecordEnvelope current=(await records.GetAsync(Private.Id,new("startup-control"),principal,Operation(BaseOperationKind.Get,Private.Id))).Value!;BaseSession session=fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);BaseExportedSubjectContract<UserSubject> exporter=session.GetExportedSubjectContract<UserSubject>(fixture.Registration);Assert.IsType<BaseSuccess<BaseSubjectLifecycleFact<UserSubject>>>(await exporter.TombstoneAsync(new(){Subject=reference,ExpectedPrivateRevision=current.Metadata.Revision!.Value,Identity=Identity("startup-control")}));
+        await using SubjectFixture fixture=Build(retirement:true);PrincipalContext principal=Principal();IBaseRecordRuntime records=fixture.Services.GetRequiredService<IBaseRecordRuntime>();Assert.True((await records.CreateAsync(Private.Id,Create("startup-control",("active",true),("tenant","tenant-a")),principal,Operation(BaseOperationKind.Create,Private.Id))).IsSuccess());JsonElement encoded=await fixture.AcquireAsync("startup-control");var reference=new BaseSubjectReference<UserSubject>(BaseSubjectId.Create(encoded.GetProperty("subjectId").GetString()!,BaseSubjectIdKind.OrdinalString),BaseSubjectAuthorityEpoch.Parse(encoded.GetProperty("authorityEpoch").GetString()!),BaseSubjectIncarnation.Parse(encoded.GetProperty("incarnation").GetString()!));RecordEnvelope current=(await records.GetAsync(Private.Id,RecordId.Create("startup-control"),principal,Operation(BaseOperationKind.Get,Private.Id))).Value!;BaseSession session=fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);BaseExportedSubjectContract<UserSubject> exporter=session.GetExportedSubjectContract<UserSubject>(fixture.Registration);Assert.IsType<BaseSuccess<BaseSubjectLifecycleFact<UserSubject>>>(await exporter.TombstoneAsync(new(){Subject=reference,ExpectedPrivateRevision=current.Metadata.Revision!.Value,Identity=Identity("startup-control")}));
         var completed=new RetirementObserver();var late=new FailOnceRetirementObserver();await using var dispatcher=new BaseSubjectRetirementControlDispatcher(fixture.Services.GetRequiredService<IRecordStoreRegistry>(),[completed,late]);await Assert.ThrowsAsync<InvalidOperationException>(async()=>await dispatcher.InitializeAsync(CancellationToken.None));await dispatcher.ReconcileAsync(CancellationToken.None);Assert.Single(completed.Notices);Assert.Single(late.Notices);Assert.Equal(2,late.Attempts);
     }
 
     [Fact]
     public async Task L48_timeout_quarantines_and_identified_override_advances_once()
     {
-        var clock=new LifecycleTimeProvider(new DateTimeOffset(2030,1,1,0,0,0,TimeSpan.Zero));await using SubjectFixture fixture=Build(retirement:true,timeProvider:clock);PrincipalContext principal=Principal();IBaseRecordRuntime records=fixture.Services.GetRequiredService<IBaseRecordRuntime>();Assert.True((await records.CreateAsync(Private.Id,Create("timeout-user",("active",true),("tenant","tenant-a")),principal,Operation(BaseOperationKind.Create,Private.Id))).IsSuccess());JsonElement encoded=await fixture.AcquireAsync("timeout-user");var reference=new BaseSubjectReference<UserSubject>(BaseSubjectId.Create(encoded.GetProperty("subjectId").GetString()!,BaseSubjectIdKind.OrdinalString),BaseSubjectAuthorityEpoch.Parse(encoded.GetProperty("authorityEpoch").GetString()!),BaseSubjectIncarnation.Parse(encoded.GetProperty("incarnation").GetString()!));RecordEnvelope current=(await records.GetAsync(Private.Id,new("timeout-user"),principal,Operation(BaseOperationKind.Get,Private.Id))).Value!;BaseSession session=fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);Assert.IsType<BaseSuccess<BaseSubjectLifecycleFact<UserSubject>>>(await session.GetExportedSubjectContract<UserSubject>(fixture.Registration).TombstoneAsync(new(){Subject=reference,ExpectedPrivateRevision=current.Metadata.Revision!.Value,Identity=Identity("timeout-tombstone")}));
+        var clock=new LifecycleTimeProvider(new DateTimeOffset(2030,1,1,0,0,0,TimeSpan.Zero));await using SubjectFixture fixture=Build(retirement:true,timeProvider:clock);PrincipalContext principal=Principal();IBaseRecordRuntime records=fixture.Services.GetRequiredService<IBaseRecordRuntime>();Assert.True((await records.CreateAsync(Private.Id,Create("timeout-user",("active",true),("tenant","tenant-a")),principal,Operation(BaseOperationKind.Create,Private.Id))).IsSuccess());JsonElement encoded=await fixture.AcquireAsync("timeout-user");var reference=new BaseSubjectReference<UserSubject>(BaseSubjectId.Create(encoded.GetProperty("subjectId").GetString()!,BaseSubjectIdKind.OrdinalString),BaseSubjectAuthorityEpoch.Parse(encoded.GetProperty("authorityEpoch").GetString()!),BaseSubjectIncarnation.Parse(encoded.GetProperty("incarnation").GetString()!));RecordEnvelope current=(await records.GetAsync(Private.Id,RecordId.Create("timeout-user"),principal,Operation(BaseOperationKind.Get,Private.Id))).Value!;BaseSession session=fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);Assert.IsType<BaseSuccess<BaseSubjectLifecycleFact<UserSubject>>>(await session.GetExportedSubjectContract<UserSubject>(fixture.Registration).TombstoneAsync(new(){Subject=reference,ExpectedPrivateRevision=current.Metadata.Revision!.Value,Identity=Identity("timeout-tombstone")}));
         BaseSubjectRetirementBarrier barrier=Assert.Single((await fixture.Store.ReadBarriersAsync(new(){ApplicationId="test.application",ContractId="example.user",ContractVersion=1,ScopeAuthority=new(){Mode=BaseSubjectScopeQueryMode.ExactScope,ExactScope=new(){Kind=BaseSubjectScopeKind.Tenant,Value="tenant-a"},InstalledAuthorityDigest=fixture.Registration.Checksum},Take=4,MaximumResultBytes=65_536,DeadlineUtc=clock.GetUtcNow().AddMinutes(1)})).Value!.Barriers).Barrier;clock.Advance(TimeSpan.FromHours(1)+TimeSpan.FromTicks(1));BaseSubjectRetirementPolicy policy=fixture.Services.GetRequiredService<BaseSubjectRetirementRegistry>().Policies.Single().Definition;
         var timeoutRequest=new BaseSubjectRetirementTimeoutRequest{ContractId="example.user",ContractVersion=1,SubjectId=reference.SubjectId,AuthorityEpoch=reference.AuthorityEpoch,Incarnation=reference.Incarnation,ExpectedBarrierGeneration=barrier.Generation,ExpectedBarrierChecksum=barrier.BarrierChecksum,Identity=Identity("timeout")};var timeoutProcessor=new BaseSubjectRetirementTimeoutProcessor(new(){Request=timeoutRequest,Scope=new(){Kind=BaseSubjectScopeKind.Tenant,Value="tenant-a"},RetirementPolicyChecksum=policy.PolicyChecksum,ObservedAtUtc=clock.GetUtcNow()});RecordMutationExecutionResult timeout=await fixture.Store.ExecuteAsync(timeoutProcessor,Execution(timeoutRequest.Identity,"timeout",clock));Assert.Equal(RecordMutationExecutionOutcome.Committed,timeout.Outcome);Assert.Equal(BaseSubjectRetirementBarrierState.Quarantined,timeoutProcessor.Result!.State);Assert.Equal(2,timeoutProcessor.Result.Generation);
         var overrideRequest=new BaseSubjectRetirementOverrideRequest{ContractId="example.user",ContractVersion=1,SubjectId=reference.SubjectId,AuthorityEpoch=reference.AuthorityEpoch,Incarnation=reference.Incarnation,ExpectedTombstoneSequence=barrier.TombstoneSequence,ExpectedBarrierGeneration=timeoutProcessor.Result.Generation,ExpectedBarrierChecksum=timeoutProcessor.Result.BarrierChecksum,Intent="override-subject-retirement-barrier",ChangeReference="CHG-42",Identity=Identity("override")};var overrideProcessor=new BaseSubjectRetirementOverrideProcessor(new(){Request=overrideRequest,Scope=new(){Kind=BaseSubjectScopeKind.Tenant,Value="tenant-a"},RetirementPolicyChecksum=policy.PolicyChecksum,ObservedAtUtc=clock.GetUtcNow()});RecordMutationExecutionResult overridden=await fixture.Store.ExecuteAsync(overrideProcessor,Execution(overrideRequest.Identity,"override",clock));Assert.Equal(RecordMutationExecutionOutcome.Committed,overridden.Outcome);Assert.Equal(3,overrideProcessor.Result!.Generation);
-        RecordEnvelope tombstoned=(await records.GetAsync(Private.Id,new("timeout-user"),principal,Operation(BaseOperationKind.Get,Private.Id))).Value!;var purgeRequest=new BaseSubjectFinalPurgeRequest{ContractId="example.user",ContractVersion=1,SubjectId=reference.SubjectId,AuthorityEpoch=reference.AuthorityEpoch,Incarnation=reference.Incarnation,ExpectedTombstoneSequence=barrier.TombstoneSequence,ExpectedPrivateRevision=tombstoned.Metadata.Revision!.Value,ExpectedBarrierGeneration=overrideProcessor.Result.Generation,ExpectedBarrierChecksum=overrideProcessor.Result.BarrierChecksum,Identity=Identity("purge")};var purgeProcessor=new BaseSubjectRetirementPurgeProcessor(new(){Request=purgeRequest,Scope=new(){Kind=BaseSubjectScopeKind.Tenant,Value="tenant-a"},ContractChecksum=fixture.Registration.Checksum,RetirementPolicyChecksum=policy.PolicyChecksum,MinimumTombstoneAge=TimeSpan.Zero,ObservedAtUtc=clock.GetUtcNow(),Operation=Operation(BaseOperationKind.SubjectRetirementPurge,Private.Id)});RecordMutationExecutionResult purged=await fixture.Store.ExecuteAsync(purgeProcessor,Execution(purgeRequest.Identity,"purge",clock));Assert.Equal(RecordMutationExecutionOutcome.Committed,purged.Outcome);Assert.NotNull(purgeProcessor.Result);Assert.Equal(OperationStatus.NotFound,(await records.GetAsync(Private.Id,new("timeout-user"),principal,Operation(BaseOperationKind.Get,Private.Id))).Status);OperationResult<BaseSubjectRetirementInspection> terminal=await ((IBaseSubjectRetirementStore)fixture.Store).InspectAsync(new(){ContractId="example.user",ContractVersion=1,SubjectId=reference.SubjectId,AuthorityEpoch=reference.AuthorityEpoch,Incarnation=reference.Incarnation,ScopeAuthority=new(){Mode=BaseSubjectScopeQueryMode.ExactScope,ExactScope=new(){Kind=BaseSubjectScopeKind.Tenant,Value="tenant-a"},InstalledAuthorityDigest=fixture.Registration.Checksum},IncludeTerminalSummary=true,MaximumResultBytes=65_536,DeadlineUtc=clock.GetUtcNow().AddMinutes(1)});Assert.NotNull(terminal.Value!.TerminalSummary);Assert.Null(terminal.Value.CurrentBarrier);
+        RecordEnvelope tombstoned=(await records.GetAsync(Private.Id,RecordId.Create("timeout-user"),principal,Operation(BaseOperationKind.Get,Private.Id))).Value!;var purgeRequest=new BaseSubjectFinalPurgeRequest{ContractId="example.user",ContractVersion=1,SubjectId=reference.SubjectId,AuthorityEpoch=reference.AuthorityEpoch,Incarnation=reference.Incarnation,ExpectedTombstoneSequence=barrier.TombstoneSequence,ExpectedPrivateRevision=tombstoned.Metadata.Revision!.Value,ExpectedBarrierGeneration=overrideProcessor.Result.Generation,ExpectedBarrierChecksum=overrideProcessor.Result.BarrierChecksum,Identity=Identity("purge")};var purgeProcessor=new BaseSubjectRetirementPurgeProcessor(new(){Request=purgeRequest,Scope=new(){Kind=BaseSubjectScopeKind.Tenant,Value="tenant-a"},ContractChecksum=fixture.Registration.Checksum,RetirementPolicyChecksum=policy.PolicyChecksum,MinimumTombstoneAge=TimeSpan.Zero,ObservedAtUtc=clock.GetUtcNow(),Operation=Operation(BaseOperationKind.SubjectRetirementPurge,Private.Id)});RecordMutationExecutionResult purged=await fixture.Store.ExecuteAsync(purgeProcessor,Execution(purgeRequest.Identity,"purge",clock));Assert.Equal(RecordMutationExecutionOutcome.Committed,purged.Outcome);Assert.NotNull(purgeProcessor.Result);Assert.Equal(OperationStatus.NotFound,(await records.GetAsync(Private.Id,RecordId.Create("timeout-user"),principal,Operation(BaseOperationKind.Get,Private.Id))).Status);OperationResult<BaseSubjectRetirementInspection> terminal=await ((IBaseSubjectRetirementStore)fixture.Store).InspectAsync(new(){ContractId="example.user",ContractVersion=1,SubjectId=reference.SubjectId,AuthorityEpoch=reference.AuthorityEpoch,Incarnation=reference.Incarnation,ScopeAuthority=new(){Mode=BaseSubjectScopeQueryMode.ExactScope,ExactScope=new(){Kind=BaseSubjectScopeKind.Tenant,Value="tenant-a"},InstalledAuthorityDigest=fixture.Registration.Checksum},IncludeTerminalSummary=true,MaximumResultBytes=65_536,DeadlineUtc=clock.GetUtcNow().AddMinutes(1)});Assert.NotNull(terminal.Value!.TerminalSummary);Assert.Null(terminal.Value.CurrentBarrier);
     }
 
     private static BaseMutationRequestIdentity Identity(string value){byte[] digest=System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(value));return BaseMutationRequestIdentity.Create("l48-tests","subject-retirement",value,BaseMutationRequestFingerprint.Create(digest));}
@@ -135,14 +135,14 @@ public sealed class L45SubjectTransactionTests
         int factCount = state.SubjectLifecycleFacts.Count;
 
         OperationResult<RecordEnvelope> result = await runtime.PatchAsync(
-            Private.Id, new RecordId("overflow-user"), Patch(("active", false)), principal,
+            Private.Id, RecordId.Create("overflow-user"), Patch(("active", false)), principal,
             Operation(BaseOperationKind.Patch, Private.Id));
 
         Assert.Equal(OperationStatus.Conflict, result.Status);
         Assert.Equal(BaseSubjectErrorCodes.SequenceExhausted, result.Error?.Code);
         Assert.Equal(factCount, fixture.Store.CaptureVectorRoot().SubjectLifecycleFacts.Count);
         RecordEnvelope current = (await runtime.GetAsync(
-            Private.Id, new RecordId("overflow-user"), principal,
+            Private.Id, RecordId.Create("overflow-user"), principal,
             Operation(BaseOperationKind.Get, Private.Id))).Value!;
         Assert.True(current.Payload.Fields!["active"].GetBoolean());
     }
@@ -162,7 +162,7 @@ public sealed class L45SubjectTransactionTests
             .AddExportedSubject(L45SqliteUserSubject.HPDBaseSubjectRegistration));
         await using ServiceProvider provider = services.BuildServiceProvider();
         OperationResult<BaseApplicationReadiness> readiness = await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync();
-        Assert.True(readiness.IsSuccess(), readiness.Error?.Code);
+        Assert.True(readiness.IsSuccess(), $"{readiness.Error?.Code}: {readiness.Error?.Message}");
         string storeId = provider.GetRequiredService<IRecordStoreRegistry>().GetRegistrations().Single().Store.Capabilities.StoreId;
         BaseResult<BaseSubjectLifecycleInspectionResult> result = await provider.GetRequiredService<IHPDBaseAdministration>().InspectSubjectLifecycleAsync(
             storeId,
@@ -197,13 +197,13 @@ public sealed class L45SubjectTransactionTests
             Operation(BaseOperationKind.Create, Private.Id));
         OperationResult<RecordEnvelope> missingPatch = await runtime.PatchAsync(
             Private.Id,
-            new RecordId("missing"),
+            RecordId.Create("missing"),
             Patch(("active", false)),
             principal,
             Operation(BaseOperationKind.Patch, Private.Id));
         OperationResult<DeleteResult> missingDelete = await runtime.DeleteAsync(
             Private.Id,
-            new RecordId("missing"),
+            RecordId.Create("missing"),
             new RecordDeleteRequest(),
             principal,
             Operation(BaseOperationKind.Delete, Private.Id));
@@ -239,7 +239,7 @@ public sealed class L45SubjectTransactionTests
         Assert.Equal(OperationStatus.ValidationFailed, wrongTenant.Status);
 
         OperationResult<RecordEnvelope> deactivated = await runtime.PatchAsync(
-            Private.Id, new RecordId("user-1"), Patch(("active", false)), principal, Operation(BaseOperationKind.Patch, Private.Id));
+            Private.Id, RecordId.Create("user-1"), Patch(("active", false)), principal, Operation(BaseOperationKind.Patch, Private.Id));
         Assert.True(deactivated.IsSuccess(), deactivated.Error?.Code);
         OperationResult<RecordEnvelope> inactive = await runtime.CreateAsync(
             Consumer.Id, Create("profile-2", ("owner", firstReference)), principal, Operation(BaseOperationKind.Create, Consumer.Id));
@@ -252,13 +252,13 @@ public sealed class L45SubjectTransactionTests
             BaseSubjectIncarnation.Parse(firstReference.GetProperty("incarnation").GetString()!));
         BaseSession lifecycleSession = fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);
         BaseExportedSubjectContract<UserSubject> exporter = lifecycleSession.GetExportedSubjectContract<UserSubject>(fixture.Registration);
-        RecordEnvelope beforeTombstone = (await runtime.GetAsync(Private.Id, new RecordId("user-1"), principal, Operation(BaseOperationKind.Get, Private.Id))).Value!;
+        RecordEnvelope beforeTombstone = (await runtime.GetAsync(Private.Id, RecordId.Create("user-1"), principal, Operation(BaseOperationKind.Get, Private.Id))).Value!;
         BaseSubjectLifecycleFact<UserSubject> tombstone = (await exporter.TombstoneAsync(new()
         {
             Subject = typedFirstReference, ExpectedPrivateRevision = beforeTombstone.Metadata.Revision!.Value,
             Identity = BaseMutationRequestIdentity.Create("l47-tests", "tombstone", "stale-user-1", BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("stale-tombstone-user-1"u8))),
         })).RequireValue();
-        RecordEnvelope beforeRetirement = (await runtime.GetAsync(Private.Id, new RecordId("user-1"), principal, Operation(BaseOperationKind.Get, Private.Id))).Value!;
+        RecordEnvelope beforeRetirement = (await runtime.GetAsync(Private.Id, RecordId.Create("user-1"), principal, Operation(BaseOperationKind.Get, Private.Id))).Value!;
         BaseResult<BaseSubjectFinalRetirementResult<UserSubject>> retirement = await exporter.FinalizeRetirementAsync(new()
         {
             Subject = typedFirstReference, ExpectedTombstoneSequence = tombstone.Fact.SubjectSequence,
@@ -324,17 +324,17 @@ public sealed class L45SubjectTransactionTests
             "deactivate" => new BaseRecordBatchItem
             {
                 ItemId = "deactivate", CollectionId = Private.Id, Kind = BaseRecordMutationKind.Patch,
-                RecordId = new RecordId("user-1"), Patch = Patch(("active", false)),
+                RecordId = RecordId.Create("user-1"), Patch = Patch(("active", false)),
             },
             "rescope" => new BaseRecordBatchItem
             {
                 ItemId = "rescope", CollectionId = Private.Id, Kind = BaseRecordMutationKind.Patch,
-                RecordId = new RecordId("user-1"), Patch = Patch(("tenant", "tenant-b")),
+                RecordId = RecordId.Create("user-1"), Patch = Patch(("tenant", "tenant-b")),
             },
             "delete" => new BaseRecordBatchItem
             {
                 ItemId = "tombstone", CollectionId = Private.Id, Kind = BaseRecordMutationKind.Patch,
-                RecordId = new RecordId("user-1"), Patch = Patch(("active", false), ("tombstoned", true)),
+                RecordId = RecordId.Create("user-1"), Patch = Patch(("active", false), ("tombstoned", true)),
             },
             _ => throw new ArgumentOutOfRangeException(nameof(lifecycle)),
         };
@@ -348,8 +348,8 @@ public sealed class L45SubjectTransactionTests
         Assert.Contains(result.Value!.Items, item => item.Error?.Code == (lifecycle == "delete"
             ? BaseSubjectErrorCodes.LifecycleUnauthorized
             : BaseSubjectErrorCodes.ReferenceInvalid));
-        Assert.Equal(OperationStatus.NotFound, (await runtime.GetAsync(Consumer.Id, new RecordId("profile"), principal, Operation(BaseOperationKind.Get, Consumer.Id))).Status);
-        RecordEnvelope current = (await runtime.GetAsync(Private.Id, new RecordId("user-1"), principal, Operation(BaseOperationKind.Get, Private.Id))).Value!;
+        Assert.Equal(OperationStatus.NotFound, (await runtime.GetAsync(Consumer.Id, RecordId.Create("profile"), principal, Operation(BaseOperationKind.Get, Consumer.Id))).Status);
+        RecordEnvelope current = (await runtime.GetAsync(Private.Id, RecordId.Create("user-1"), principal, Operation(BaseOperationKind.Get, Private.Id))).Value!;
         Assert.True(current.Payload.Fields!["active"].GetBoolean());
         Assert.Equal("tenant-a", current.Payload.Fields["tenant"].GetString());
         BaseSubjectLifecycleOrderingBoundary? lifecycleHighWaterAfter = (await fixture.Store.InspectAsync(new()
@@ -384,14 +384,14 @@ public sealed class L45SubjectTransactionTests
             Private.Id, Create("user-1", ("active", true), ("tenant", "tenant-a")), principal,
             Operation(BaseOperationKind.Create, Private.Id));
         Assert.True(created.IsSuccess(), created.Error?.Code);
-        Assert.True((await runtime.PatchAsync(Private.Id, new RecordId("user-1"), Patch(("active", false)), principal,
+        Assert.True((await runtime.PatchAsync(Private.Id, RecordId.Create("user-1"), Patch(("active", false)), principal,
             Operation(BaseOperationKind.Patch, Private.Id))).IsSuccess());
         JsonElement encodedReference = await fixture.AcquireAsync("user-1");
         BaseSubjectReference<UserSubject> subjectReference = new(
             BaseSubjectId.Create(encodedReference.GetProperty("subjectId").GetString()!, BaseSubjectIdKind.OrdinalString),
             BaseSubjectAuthorityEpoch.Parse(encodedReference.GetProperty("authorityEpoch").GetString()!),
             BaseSubjectIncarnation.Parse(encodedReference.GetProperty("incarnation").GetString()!));
-        RecordEnvelope beforeTombstone = (await runtime.GetAsync(Private.Id, new RecordId("user-1"), principal,
+        RecordEnvelope beforeTombstone = (await runtime.GetAsync(Private.Id, RecordId.Create("user-1"), principal,
             Operation(BaseOperationKind.Get, Private.Id))).Value!;
         BaseSession session = fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);
         BaseExportedSubjectContract<UserSubject> exporter = session.GetExportedSubjectContract<UserSubject>(fixture.Registration);
@@ -497,7 +497,7 @@ public sealed class L45SubjectTransactionTests
         Assert.Equal(RecordMutationExecutionOutcome.RollbackConfirmed, interrupted.Outcome);
         Assert.Equal(BaseSubjectErrorCodes.Timeout, interrupted.Error?.Code ?? interrupted.Processing?.Error?.Code);
         Assert.Equal(1, completedMaintenancePages);
-        OperationResult<RecordEnvelope> closed = await fixture.Store.GetAsync(Private, new RecordId("user-1"), Operation(BaseOperationKind.Get, Private.Id));
+        OperationResult<RecordEnvelope> closed = await fixture.Store.GetAsync(Private, RecordId.Create("user-1"), Operation(BaseOperationKind.Get, Private.Id));
         Assert.Equal(OperationStatus.CapabilityUnavailable, closed.Status);
         Assert.Equal(BaseSubjectErrorCodes.MaintenanceRequired, closed.Error?.Code);
 
@@ -690,7 +690,7 @@ public sealed class L45SubjectTransactionTests
         IBaseRecordRuntime records = fixture.Services.GetRequiredService<IBaseRecordRuntime>();
         Assert.True((await records.CreateAsync(Private.Id, Create("split-user", ("active", true), ("tenant", "tenant-a")),
             Principal(), Operation(BaseOperationKind.Create, Private.Id))).IsSuccess());
-        Assert.True((await records.PatchAsync(Private.Id, new RecordId("split-user"), Patch(("active", false)),
+        Assert.True((await records.PatchAsync(Private.Id, RecordId.Create("split-user"), Patch(("active", false)),
             Principal(), Operation(BaseOperationKind.Patch, Private.Id))).IsSuccess());
 
         OperationResult<BaseSubjectLifecycleProviderPage> activePage = await Read(active);
@@ -769,7 +769,7 @@ public sealed class L45SubjectTransactionTests
         IBaseRecordRuntime records = fixture.Services.GetRequiredService<IBaseRecordRuntime>();
         PrincipalContext principal = Principal();
         Assert.True((await records.CreateAsync(Private.Id, Create("rotation-user", ("active", true), ("tenant", "tenant-a")), principal, Operation(BaseOperationKind.Create, Private.Id))).IsSuccess());
-        Assert.True((await records.PatchAsync(Private.Id, new RecordId("rotation-user"), Patch(("active", false)), principal, Operation(BaseOperationKind.Patch, Private.Id))).IsSuccess());
+        Assert.True((await records.PatchAsync(Private.Id, RecordId.Create("rotation-user"), Patch(("active", false)), principal, Operation(BaseOperationKind.Patch, Private.Id))).IsSuccess());
         BaseInstalledSubjectLifecycleConsumer installed = fixture.Services.GetRequiredService<BaseSubjectLifecycleRegistry>().All.Single();
         IBaseSubjectLifecycleRuntime lifecycle = fixture.Services.GetRequiredService<IBaseSubjectLifecycleRuntime>();
         BaseSession session = fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);
@@ -957,12 +957,12 @@ public sealed class L45SubjectTransactionTests
                     new BaseRecordBatchItem
                     {
                         ItemId = "tombstone", CollectionId = Private.Id, Kind = BaseRecordMutationKind.Patch,
-                        RecordId = new RecordId("user-1"), Patch = Patch(("active", false), ("tombstoned", true)),
+                        RecordId = RecordId.Create("user-1"), Patch = Patch(("active", false), ("tombstoned", true)),
                     },
                     new BaseRecordBatchItem
                     {
                         ItemId = "retire", CollectionId = Private.Id, Kind = BaseRecordMutationKind.Delete,
-                        RecordId = new RecordId("user-1"), Delete = new RecordDeleteRequest(),
+                        RecordId = RecordId.Create("user-1"), Delete = new RecordDeleteRequest(),
                     },
                     new BaseRecordBatchItem
                     {
@@ -982,7 +982,7 @@ public sealed class L45SubjectTransactionTests
             stillCurrent.GetProperty("incarnation").GetString());
         Assert.Equal(OperationStatus.NotFound, (await runtime.GetAsync(
             Consumer.Id,
-            new RecordId("profile"),
+            RecordId.Create("profile"),
             principal,
             Operation(BaseOperationKind.Get, Consumer.Id))).Status);
     }
@@ -1018,7 +1018,7 @@ public sealed class L45SubjectTransactionTests
         Assert.Equal(1, rotation.Value!.RewrittenReferences);
         RecordEnvelope rewritten = (await runtime.GetAsync(
             Consumer.Id,
-            new RecordId("profile-1"),
+            RecordId.Create("profile-1"),
             principal,
             Operation(BaseOperationKind.Get, Consumer.Id))).Value!;
         Assert.NotEqual(
@@ -1079,7 +1079,7 @@ public sealed class L45SubjectTransactionTests
         Assert.Equal(BaseMutationRequestDisposition.Committed, committed.Value?.RequestDisposition);
         Assert.True((await runtime.PatchAsync(
             Private.Id,
-            new RecordId("user-1"),
+            RecordId.Create("user-1"),
             Patch(("active", false)),
             principal,
             Operation(BaseOperationKind.Patch, Private.Id))).IsSuccess());
@@ -1106,6 +1106,7 @@ public sealed class L45SubjectTransactionTests
                 .AddTestStaticGrant("system.private")
                 .AddTestStaticGrant("example.user.validate")
                 .AddTestStaticGrant("example.user.acquire")
+                .AddTestStaticGrant("example.profile.read")
                 .AddTestSubjectLifecycleGrant("example.sqlite-profile.lifecycle.read", "l45.sqlite.application", "example.profiles", "example.sqlite-profile.lifecycle", "example.sqlite-user", 1)
                 .AddTestSubjectLifecycleGrant("base.subjectLifecycle.feed.read", "l45.sqlite.application", "example.profiles", "base.subjectLifecycle.feed.read", "example.sqlite-user", 1)
                 .AddTestSubjectLifecycleGrant("base.subjectLifecycle.feed.checkpoint", "l45.sqlite.application", "example.profiles", "base.subjectLifecycle.feed.checkpoint", "example.sqlite-user", 1)
@@ -1125,6 +1126,7 @@ public sealed class L45SubjectTransactionTests
                     Id = 47, Key = Enumerable.Repeat((byte)0x47, 32).ToArray(), IssueNotBefore = DateTimeOffset.UnixEpoch,
                 })
                 .AddRead(L45AcquireSqliteUser.Definition)
+                .AddRead(L45ReadStoredSqliteUser.Definition)
                 .AddSubjectAcquisition(new BaseSubjectAcquisitionDefinition
                 {
                     Id = "example.sqlite-user.acquire.v1",
@@ -1175,19 +1177,25 @@ public sealed class L45SubjectTransactionTests
                 Create("profile-1", ("owner", reference)), principal,
                 Operation(BaseOperationKind.Create, L45SqliteProfile.Collection.Id));
             Assert.True(accepted.IsSuccess(), accepted.Error?.Code);
+            L45ReadStoredSqliteUser.Row stored = Assert.Single((await session.Reads.ToArrayAsync(
+                L45ReadStoredSqliteUser.Handle,
+                new L45ReadStoredSqliteUser { ProfileId = BaseRecordId<L45SqliteProfile>.Create("profile-1") })).RequireValue());
+            Assert.Equal(typedReference.SubjectId, stored.Reference.SubjectId);
+            Assert.Equal(typedReference.AuthorityEpoch, stored.Reference.AuthorityEpoch);
+            Assert.Equal(typedReference.Incarnation, stored.Reference.Incarnation);
 
-            Assert.True((await runtime.PatchAsync(privateCollection.Id, new RecordId("user-1"), Patch(("active", false)),
+            Assert.True((await runtime.PatchAsync(privateCollection.Id, RecordId.Create("user-1"), Patch(("active", false)),
                 principal, Operation(BaseOperationKind.Patch, privateCollection.Id))).IsSuccess());
             OperationResult<RecordEnvelope> rejected = await runtime.CreateAsync(L45SqliteProfile.Collection.Id,
                 Create("profile-2", ("owner", reference)), principal,
                 Operation(BaseOperationKind.Create, L45SqliteProfile.Collection.Id));
             Assert.Equal(BaseSubjectErrorCodes.ReferenceInvalid, rejected.Error?.Code);
             Assert.Equal(OperationStatus.NotFound, (await runtime.GetAsync(L45SqliteProfile.Collection.Id,
-                new RecordId("profile-2"), principal, Operation(BaseOperationKind.Get, L45SqliteProfile.Collection.Id))).Status);
+                RecordId.Create("profile-2"), principal, Operation(BaseOperationKind.Get, L45SqliteProfile.Collection.Id))).Status);
 
             Assert.True((await runtime.PatchAsync(
                 privateCollection.Id,
-                new RecordId("user-1"),
+                RecordId.Create("user-1"),
                 Patch(("active", true)),
                 principal,
                 Operation(BaseOperationKind.Patch, privateCollection.Id))).IsSuccess());
@@ -1206,13 +1214,13 @@ public sealed class L45SubjectTransactionTests
                         new BaseRecordBatchItem
                         {
                             ItemId = "tombstone", CollectionId = privateCollection.Id,
-                            Kind = BaseRecordMutationKind.Patch, RecordId = new RecordId("user-1"),
+                            Kind = BaseRecordMutationKind.Patch, RecordId = RecordId.Create("user-1"),
                             Patch = Patch(("active", false), ("tombstoned", true)),
                         },
                         new BaseRecordBatchItem
                         {
                             ItemId = "retire", CollectionId = privateCollection.Id,
-                            Kind = BaseRecordMutationKind.Delete, RecordId = new RecordId("user-1"),
+                            Kind = BaseRecordMutationKind.Delete, RecordId = RecordId.Create("user-1"),
                             Delete = new RecordDeleteRequest(),
                         },
                         new BaseRecordBatchItem
@@ -1229,11 +1237,11 @@ public sealed class L45SubjectTransactionTests
             Assert.Contains(recreate.Value!.Items, item => item.Error?.Code == BaseSubjectErrorCodes.LifecycleUnauthorized);
             Assert.Equal(OperationStatus.NotFound, (await runtime.GetAsync(
                 L45SqliteProfile.Collection.Id,
-                new RecordId("profile-3"),
+                RecordId.Create("profile-3"),
                 principal,
                 Operation(BaseOperationKind.Get, L45SqliteProfile.Collection.Id))).Status);
 
-            RecordEnvelope beforeTombstone = (await runtime.GetAsync(privateCollection.Id, new RecordId("user-1"), principal,
+            RecordEnvelope beforeTombstone = (await runtime.GetAsync(privateCollection.Id, RecordId.Create("user-1"), principal,
                 Operation(BaseOperationKind.Get, privateCollection.Id))).Value!;
             BaseMutationRequestIdentity tombstoneIdentity = BaseMutationRequestIdentity.Create("l47-sqlite", "tombstone", "user-1", BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("l47-sqlite-tombstone"u8)));
             BaseExportedSubjectContract<L45SqliteUserSubject> exporter = L45SqliteUserSubject.Contract(session);
@@ -1252,7 +1260,7 @@ public sealed class L45SubjectTransactionTests
             });
             Assert.Equal(tombstoned.RequireValue().Fact.SubjectSequence, tombstoneReplay.RequireValue().Fact.SubjectSequence);
 
-            RecordEnvelope beforeRetirement = (await runtime.GetAsync(privateCollection.Id, new RecordId("user-1"), principal,
+            RecordEnvelope beforeRetirement = (await runtime.GetAsync(privateCollection.Id, RecordId.Create("user-1"), principal,
                 Operation(BaseOperationKind.Get, privateCollection.Id))).Value!;
             BaseMutationRequestIdentity retirementIdentity = BaseMutationRequestIdentity.Create("l47-sqlite", "retire", "user-1", BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("l47-sqlite-retire"u8)));
             BaseResult<BaseSubjectFinalRetirementResult<L45SqliteUserSubject>> retired = await exporter.FinalizeRetirementAsync(new()
@@ -1292,6 +1300,17 @@ public sealed class L45SubjectTransactionTests
             Assert.Equal(typedReference.AuthorityEpoch, terminal.Value!.TerminalReceipt!.RetiredAuthorityEpoch);
             Assert.Equal(typedReference.Incarnation, terminal.Value.TerminalReceipt.RetiredIncarnation);
             Assert.Equal(retired.RequireValue().RetiredSubjectSequence, terminal.Value.TerminalReceipt.RetiredSubjectSequence);
+
+            L45ReadStoredSqliteUser.Row retainedAfterRetirement = Assert.Single(
+                (await session.Reads.ToArrayAsync(
+                    L45ReadStoredSqliteUser.Handle,
+                    new L45ReadStoredSqliteUser
+                    {
+                        ProfileId = BaseRecordId<L45SqliteProfile>.Create("profile-1"),
+                    })).RequireValue());
+            Assert.Equal(typedReference.SubjectId, retainedAfterRetirement.Reference.SubjectId);
+            Assert.Equal(typedReference.AuthorityEpoch, retainedAfterRetirement.Reference.AuthorityEpoch);
+            Assert.Equal(typedReference.Incarnation, retainedAfterRetirement.Reference.Incarnation);
 
             OperationResult<RecordEnvelope> recreatedSubject = await runtime.CreateAsync(privateCollection.Id,
                 Create("user-1", ("active", true), ("tenant", "tenant-a")), principal,
@@ -1374,6 +1393,418 @@ public sealed class L45SubjectTransactionTests
             if (File.Exists(database)) File.Delete(database);
             if (File.Exists(database + "-wal")) File.Delete(database + "-wal");
             if (File.Exists(database + "-shm")) File.Delete(database + "-shm");
+        }
+    }
+
+    [Fact]
+    public async Task InMemory_projects_the_stored_subject_authority_without_reacquiring_current_lifecycle()
+    {
+        var services = new ServiceCollection().AddLogging();
+        services.AddHPDBase(builder => builder
+            .AddTestPolicyAuthority<GrantingPolicy>()
+            .AddTestStaticGrant("system.private")
+            .AddTestStaticGrant("example.user.validate")
+            .AddTestStaticGrant("example.user.acquire")
+            .AddTestStaticGrant("example.profile.read")
+            .ConfigureSchema(options =>
+            {
+                options.ApplicationId = "l59.inmemory.application";
+                options.PlanProtectionKey = Enumerable.Repeat((byte)0x59, 32).ToArray();
+            })
+            .AddCollection(L45SqlitePrivateUser.Collection)
+            .AddCollection(L45SqliteProfile.Collection)
+            .AddCollection(L59OptionalProfile.Collection)
+            .AddExportedSubject(L45SqliteUserSubject.HPDBaseSubjectRegistration)
+            .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey
+            {
+                Id = 59,
+                Key = Enumerable.Repeat((byte)0x59, 32).ToArray(),
+                IssueNotBefore = DateTimeOffset.UnixEpoch,
+            })
+            .AddRead(L45AcquireSqliteUser.Definition)
+            .AddRead(L45ReadStoredSqliteUser.Definition)
+            .AddRead(L59ReadOptionalStoredUser.Definition)
+            .AddSubjectAcquisition(new BaseSubjectAcquisitionDefinition
+            {
+                Id = "example.sqlite-user.acquire.v1",
+                Version = 1,
+                ContractId = "example.sqlite-user",
+                ContractVersion = 1,
+                RegisteredReadId = "example.sqlite-user.acquire",
+                RequiredGrantId = "example.user.acquire",
+                Audience = HPDBaseEndpointAudience.Application,
+                MaximumResults = 1,
+            }));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        OperationResult<BaseApplicationReadiness> readiness =
+            await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync();
+        Assert.True(readiness.IsSuccess(), readiness.Error?.Code);
+
+        IBaseRecordRuntime runtime = provider.GetRequiredService<IBaseRecordRuntime>();
+        PrincipalContext principal = Principal();
+        Assert.True((await runtime.CreateAsync(
+            L45SqlitePrivateUser.Collection.Id,
+            Create("user-memory", ("active", true), ("tenant", "tenant-a")),
+            principal,
+            Operation(BaseOperationKind.Create, L45SqlitePrivateUser.Collection.Id))).IsSuccess());
+
+        BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(principal);
+        BaseSubjectReference<L45SqliteUserSubject> acquired = Assert.Single(
+            (await session.Reads.ToArrayAsync(
+                L45AcquireSqliteUser.Handle,
+                new L45AcquireSqliteUser
+                {
+                    UserId = BaseRecordId<L45SqlitePrivateUser>.Create("user-memory"),
+                })).RequireValue()).Reference;
+        Assert.True((await runtime.CreateAsync(
+            L45SqliteProfile.Collection.Id,
+            Create("profile-memory", ("owner", JsonSerializer.SerializeToElement(acquired))),
+            principal,
+            Operation(BaseOperationKind.Create, L45SqliteProfile.Collection.Id))).IsSuccess());
+        Assert.True((await runtime.CreateAsync(
+            L59OptionalProfile.Collection.Id,
+            Create("optional-present", ("name", "present"), ("owner", JsonSerializer.SerializeToElement(acquired))),
+            principal,
+            Operation(BaseOperationKind.Create, L59OptionalProfile.Collection.Id))).IsSuccess());
+
+        Assert.True((await runtime.PatchAsync(
+            L45SqlitePrivateUser.Collection.Id,
+            RecordId.Create("user-memory"),
+            Patch(("active", false)),
+            principal,
+            Operation(BaseOperationKind.Patch, L45SqlitePrivateUser.Collection.Id))).IsSuccess());
+
+        L45ReadStoredSqliteUser.Row projected = Assert.Single(
+            (await session.Reads.ToArrayAsync(
+                L45ReadStoredSqliteUser.Handle,
+                new L45ReadStoredSqliteUser
+                {
+                    ProfileId = BaseRecordId<L45SqliteProfile>.Create("profile-memory"),
+                })).RequireValue());
+        Assert.Equal(acquired.SubjectId, projected.Reference.SubjectId);
+        Assert.Equal(acquired.AuthorityEpoch, projected.Reference.AuthorityEpoch);
+        Assert.Equal(acquired.Incarnation, projected.Reference.Incarnation);
+
+        Assert.True((await runtime.CreateAsync(
+            L59OptionalProfile.Collection.Id,
+            Create("optional-missing", ("name", "missing")),
+            principal,
+            Operation(BaseOperationKind.Create, L59OptionalProfile.Collection.Id))).IsSuccess());
+        Assert.True((await runtime.CreateAsync(
+            L59OptionalProfile.Collection.Id,
+            Create("optional-null", ("name", "null"), ("owner", (object)null!)),
+            principal,
+            Operation(BaseOperationKind.Create, L59OptionalProfile.Collection.Id))).IsSuccess());
+        L59ReadOptionalStoredUser.Row[] optionalRows = (await session.Reads.ToArrayAsync(
+            L59ReadOptionalStoredUser.Handle, new L59ReadOptionalStoredUser())).RequireValue();
+        Assert.Null(optionalRows.Single(row => row.Name == "missing").Reference);
+        Assert.Null(optionalRows.Single(row => row.Name == "null").Reference);
+        Assert.Equal(acquired, optionalRows.Single(row => row.Name == "present").Reference);
+    }
+
+    [Fact]
+    public async Task Hostile_relational_provider_cannot_inject_a_malformed_stored_subject_reference()
+    {
+        var store = new HostileStoredSubjectReferenceStore();
+        var services = new ServiceCollection().AddLogging();
+        services.AddHPDBase(builder => builder
+            .AddTestPolicyAuthority<GrantingPolicy>()
+            .AddTestStaticGrant("system.private")
+            .AddTestStaticGrant("example.profile.read")
+            .ConfigureSchema(options => options.ApplicationId = "l59.hostile.application")
+            .AddCollection(L45SqlitePrivateUser.Collection)
+            .AddCollection(L45SqliteProfile.Collection)
+            .AddExportedSubject(L45SqliteUserSubject.HPDBaseSubjectRegistration)
+            .AddRead(L45ReadStoredSqliteUser.Definition)
+            .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey
+            {
+                Id = 59,
+                Key = Enumerable.Repeat((byte)0x59, 32).ToArray(),
+                IssueNotBefore = DateTimeOffset.UnixEpoch,
+            })
+            .UseStore(TestStoreProvider.Create(store, relational: true)));
+
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        provider.GetRequiredService<IRecordStoreRegistry>().Add(new RecordStoreRegistration
+        {
+            StoreId = store.Capabilities.StoreId,
+            Store = store,
+            CollectionIds = [L45SqlitePrivateUser.Collection.Id, L45SqliteProfile.Collection.Id],
+        });
+        await using ServiceProvider isolatedServices = new ServiceCollection().BuildServiceProvider();
+        var runtime = new DefaultBaseRegisteredReadRuntime(
+            provider.GetRequiredService<BaseReadRegistry>(),
+            provider.GetRequiredService<BaseCollectionRegistry>(),
+            provider.GetRequiredService<IRecordStoreRegistry>(),
+            provider.GetRequiredService<IBasePolicyOrchestrator>(),
+            isolatedServices,
+            provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<HPDBaseRelationalOptions>>(),
+            provider.GetRequiredService<BaseSubjectContractRegistry>(),
+            provider.GetRequiredService<HPDBaseInstalledFeatures>());
+
+        OperationResult<BaseRegisteredReadEvaluation<L45ReadStoredSqliteUser.Row>> result = await runtime.ExecuteAsync(
+            L45ReadStoredSqliteUser.Definition,
+            new L45ReadStoredSqliteUser
+            {
+                ProfileId = BaseRecordId<L45SqliteProfile>.Create("profile-1"),
+            },
+            new BaseRegisteredReadWindow { Kind = BaseRegisteredReadWindowKind.Page, Page = 1, PerPage = 1 },
+            Principal(),
+            Operation(BaseOperationKind.Query, L45SqliteProfile.Collection.Id));
+
+        Assert.False(result.IsSuccess());
+        Assert.Equal("base.relational.read.resultInvalid", result.Error?.Code);
+    }
+
+    [Fact]
+    public async Task SQLite_restore_rewrites_and_projects_the_new_authority_for_a_stored_subject_reference()
+    {
+        string database = Path.Combine(Path.GetTempPath(), $"hpd-base-l59-restore-{Guid.NewGuid():N}.db");
+        try
+        {
+            var services = new ServiceCollection().AddLogging();
+            services.AddHPDBase(builder => builder
+                .AddTestPolicyAuthority<GrantingPolicy>()
+                .AddTestStaticGrant("system.private")
+                .AddTestStaticGrant("example.user.validate")
+                .AddTestStaticGrant("example.user.acquire")
+                .AddTestStaticGrant("example.profile.read")
+                .ConfigureSchema(options =>
+                {
+                    options.ApplicationId = "l59.restore.application";
+                    options.PlanProtectionKey = Enumerable.Repeat((byte)0x59, 32).ToArray();
+                })
+                .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey
+                {
+                    Id = 59,
+                    Key = Enumerable.Repeat((byte)0x59, 32).ToArray(),
+                    IssueNotBefore = DateTimeOffset.UnixEpoch,
+                })
+                .AddCollection(L45SqlitePrivateUser.Collection)
+                .AddCollection(L45SqliteProfile.Collection)
+                .AddExportedSubject(L45SqliteUserSubject.HPDBaseSubjectRegistration)
+                .AddRead(L45AcquireSqliteUser.Definition)
+                .AddRead(L45ReadStoredSqliteUser.Definition)
+                .AddSubjectAcquisition(new BaseSubjectAcquisitionDefinition
+                {
+                    Id = "example.sqlite-user.acquire.v1",
+                    Version = 1,
+                    ContractId = "example.sqlite-user",
+                    ContractVersion = 1,
+                    RegisteredReadId = "example.sqlite-user.acquire",
+                    RequiredGrantId = "example.user.acquire",
+                    Audience = HPDBaseEndpointAudience.Application,
+                    MaximumResults = 1,
+                })
+                .UseStore(SqliteStore.Configure(options =>
+                {
+                    options.StoreId = "l59-restore";
+                    options.DataSource = database;
+                    options.AdministrationEnabled = true;
+                })));
+
+            await using ServiceProvider provider = services.BuildServiceProvider();
+            IBaseSchemaManager schemas = provider.GetRequiredService<IBaseSchemaManager>();
+            BaseSchemaPlan plan = (await schemas.PlanAsync(new BaseSchemaPlanRequest { StoreId = "l59-restore" })).Value!;
+            Assert.True((await schemas.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = plan.ProtectedArtifact })).IsSuccess());
+            IHPDBaseApplication application = provider.GetRequiredService<IHPDBaseApplication>();
+            OperationResult<BaseApplicationReadiness> readiness = await application.InitializeAsync();
+            Assert.True(readiness.IsSuccess(), readiness.Error?.Code);
+
+            PrincipalContext principal = Principal();
+            IBaseRecordRuntime records = provider.GetRequiredService<IBaseRecordRuntime>();
+            Assert.True((await records.CreateAsync(
+                L45SqlitePrivateUser.Collection.Id,
+                Create("restore-user", ("active", true), ("tenant", "tenant-a")),
+                principal,
+                Operation(BaseOperationKind.Create, L45SqlitePrivateUser.Collection.Id))).IsSuccess());
+            BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(principal);
+            BaseSubjectReference<L45SqliteUserSubject> before = Assert.Single((await session.Reads.ToArrayAsync(
+                L45AcquireSqliteUser.Handle,
+                new L45AcquireSqliteUser
+                {
+                    UserId = BaseRecordId<L45SqlitePrivateUser>.Create("restore-user"),
+                })).RequireValue()).Reference;
+            Assert.True((await records.CreateAsync(
+                L45SqliteProfile.Collection.Id,
+                Create("restore-profile", ("owner", JsonSerializer.SerializeToElement(before))),
+                principal,
+                Operation(BaseOperationKind.Create, L45SqliteProfile.Collection.Id))).IsSuccess());
+
+            var artifact = new MemoryStream();
+            PrincipalContext administrator = new() { AuthenticationState = PrincipalAuthenticationState.System };
+            BaseBackupManifest manifest = (await application.Administration.CreateBackupAsync(
+                artifact,
+                new BaseBackupRequest { StoreId = "l59-restore", Principal = administrator })).RequireValue();
+            artifact.Position = 0;
+            BaseRestoreResult restored = (await application.Administration.RestoreAsync(
+                artifact,
+                new BaseRestoreRequest
+                {
+                    StoreId = "l59-restore",
+                    Principal = administrator,
+                    ExpectedCurrentStoreIdentityDigest = manifest.StoreIdentityDigest,
+                    ExpectedArtifactStoreIdentityDigest = manifest.StoreIdentityDigest,
+                    IdentityMode = BaseRestoreIdentityMode.RequireCurrentStoreIdentity,
+                    RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
+                    ConfirmDestructiveReplacement = true,
+                    ScheduleRestoreDomain = BaseScheduleRestoreDomain.InPlaceRecovery,
+                })).RequireValue();
+            Assert.Equal(manifest.RestoreEpoch + 1, restored.RestoreEpoch);
+
+            L45ReadStoredSqliteUser.Row after = Assert.Single((await session.Reads.ToArrayAsync(
+                L45ReadStoredSqliteUser.Handle,
+                new L45ReadStoredSqliteUser
+                {
+                    ProfileId = BaseRecordId<L45SqliteProfile>.Create("restore-profile"),
+                })).RequireValue());
+            Assert.Equal(before.SubjectId, after.Reference.SubjectId);
+            Assert.Equal(before.Incarnation, after.Reference.Incarnation);
+            Assert.NotEqual(before.AuthorityEpoch, after.Reference.AuthorityEpoch);
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (File.Exists(database)) File.Delete(database);
+            if (File.Exists(database + "-wal")) File.Delete(database + "-wal");
+            if (File.Exists(database + "-shm")) File.Delete(database + "-shm");
+        }
+    }
+
+    [Theory]
+    [InlineData("join")]
+    [InlineData("predicate")]
+    [InlineData("group")]
+    [InlineData("aggregate")]
+    [InlineData("having")]
+    [InlineData("sort")]
+    public void Stored_subject_reference_operand_is_rejected_outside_its_exact_projection_position(string position)
+    {
+        BaseReadDefinition<L45ReadStoredSqliteUser, L45ReadStoredSqliteUser.Row> original =
+            L45ReadStoredSqliteUser.Definition;
+        BaseRelationalReadPlan plan = original.Plan;
+        BaseRelationalOperand stored = plan.Projection.Single().Operand;
+        BaseRelationalOperand recordId = new()
+        {
+            Kind = BaseRelationalOperandKind.RecordId,
+            SourceId = "profiles",
+            FieldId = "base.recordId",
+        };
+        BaseRelationalPredicate comparison = new()
+        {
+            Kind = FilterNodeKind.Compare,
+            Operator = FilterOperator.Equal,
+            Left = stored,
+            Right = recordId,
+        };
+
+        plan = position switch
+        {
+            "join" => plan with
+            {
+                Sources = [.. plan.Sources, new BaseRelationalReadSource { Id = "other", CollectionId = L45SqliteProfile.Collection.Id }],
+                Joins = [new BaseRelationalReadJoin
+                {
+                    Kind = BaseJoinKind.Inner,
+                    Left = stored,
+                    Right = recordId with { SourceId = "other" },
+                }],
+            },
+            "predicate" => plan with { Predicate = comparison },
+            "group" => plan with { GroupKeys = [stored] },
+            "aggregate" => plan with
+            {
+                Aggregates = [new BaseRelationalReadAggregate { Id = "stored.aggregate", Kind = BaseAggregateKind.CountDistinct, Operand = stored }],
+            },
+            "having" => plan with { Having = comparison },
+            "sort" => plan with { Sort = [new BaseRelationalReadSort { Operand = stored, Direction = QuerySortDirection.Asc }] },
+            _ => throw new ArgumentOutOfRangeException(nameof(position)),
+        };
+        var invalid = new BaseReadDefinition<L45ReadStoredSqliteUser, L45ReadStoredSqliteUser.Row>(
+            plan,
+            parameterJsonTypeInfo: null,
+            rowJsonTypeInfo: null,
+            original.ParameterCodec,
+            original.RowCodec,
+            original.ClientContract)
+        {
+            RequiredGrantId = original.RequiredGrantId,
+        };
+
+        Action validate = () => BaseApplicationGraphValidator.Validate(
+            [L45SqliteProfile.Collection.Definition],
+            [invalid],
+            new BaseSubjectContractRegistry([L45SqliteUserSubject.HPDBaseSubjectRegistration]),
+            new HPDBaseRelationalOptions(),
+            new HPDBaseSchemaOptions());
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(validate);
+        Assert.Contains("invalid operand reference", exception.Message, StringComparison.Ordinal);
+    }
+
+    private sealed class HostileStoredSubjectReferenceStore()
+        : FakeRecordStore("l59-hostile-stored-subject"), IRelationalReadStore
+    {
+        public RelationalReadCapability RelationalReads { get; } = new()
+        {
+            Supported = true,
+            JoinKinds = [BaseJoinKind.Inner],
+            AggregateKinds = [BaseAggregateKind.Count],
+            ComparisonOperators = [FilterOperator.Equal],
+            ValueKinds = [QueryValueKind.String, QueryValueKind.Id, QueryValueKind.SubjectReference],
+            MaxSources = 1,
+            MaxJoins = 0,
+            MaxPredicateNodes = 8,
+            MaxGroupKeys = 1,
+            MaxAggregates = 8,
+            MaxProjectionFields = 8,
+            MaxSortFields = 8,
+            MaxResultRows = 1_000,
+            MaxResultBytes = 4 * 1024 * 1024,
+            SnapshotConsistency = true,
+            CompleteDependencyEvidence = true,
+        };
+
+        public ValueTask<OperationResult<BaseRelationalReadExecutionResult>> ExecuteReadAsync(
+            BaseRelationalReadExecutionRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(OperationResults.Ok(new BaseRelationalReadExecutionResult
+            {
+                Result = new BaseRelationalReadResult
+                {
+                    Rows =
+                    [
+                        new BaseRelationalRow
+                        {
+                            Fields =
+                            [
+                                new BaseRelationalFieldValue
+                                {
+                                    FieldId = "example.sqlite-profile.stored-subject.reference",
+                                    Value = new QueryValue
+                                    {
+                                        Kind = QueryValueKind.SubjectReference,
+                                        SubjectId = "user-1",
+                                        SubjectIdKind = BaseSubjectIdKind.OrdinalString,
+                                        SubjectIdMaximumUtf8Bytes = 128,
+                                        SubjectAuthorityEpoch = "not-canonical-base64url",
+                                        SubjectIncarnation = "not-canonical-base64url",
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                    Page = new PageInfo { Page = 1, PerPage = 1, Limit = 1 },
+                    Count = 1,
+                    SchemaGeneration = request.Plan.SchemaGeneration,
+                },
+                DependencyEvidence =
+                [
+                    new BaseReadDependencyEvidence { CollectionId = L45SqliteProfile.Collection.Id },
+                ],
+            }));
         }
     }
 
@@ -1618,7 +2049,7 @@ public sealed class L45SubjectTransactionTests
     {
         if (fields.Any(static field => field.Name == "active") && fields.All(static field => field.Name != "tombstoned"))
             fields = [.. fields, ("tombstoned", false)];
-        return new() { RequestedId = new RecordId(id), Payload = Payload(fields) };
+        return new() { RequestedId = RecordId.Create(id), Payload = Payload(fields) };
     }
 
     private static RecordPatchRequest Patch(params (string Name, object Value)[] fields) => new() { Patch = Payload(fields) };
@@ -1633,7 +2064,8 @@ public sealed class L45SubjectTransactionTests
         {
             Plan = new BaseRelationalReadPlan
             {
-                Id = "test.acquire", SchemaGeneration = 1,
+                Id = "test.acquire", Topology = BaseRelationalReadTopology.Ordinary, SchemaGeneration = 1,
+                Pagination = new BaseRegisteredReadPaginationAuthority { Mode = BaseRegisteredReadPaginationMode.PageOnly, MaximumOffset = 0 },
                 Sources = [new BaseRelationalReadSource { Id = "subjects", CollectionId = privateCollectionId }],
                 Predicate = new BaseRelationalPredicate
                 {
@@ -1651,7 +2083,7 @@ public sealed class L45SubjectTransactionTests
                     },
                 }],
                 Parameters = [],
-                Budgets = new BaseRelationalReadBudgets { MaxResultRows = 1, MaxResultBytes = 4096, MaxOperations = 16 },
+                Budgets = new BaseRelationalReadBudgets { MaxResultRows = 1, MaxResultBytes = 4096, MaxOperations = 16, MaxExecutionMilliseconds = 2_000, MaxCompoundBranches = 0, MaxCompoundOperations = 0 },
             },
             ParameterValues = [],
             SourcePolicies = [new BaseRelationalReadSourcePolicy { SourceId = "subjects", CollectionId = privateCollectionId }],
@@ -1843,7 +2275,8 @@ public sealed class L45SubjectTransactionTests
             {
                 Plan = new BaseRelationalReadPlan
                 {
-                    Id = "test.acquire", SchemaGeneration = 1,
+                    Id = "test.acquire", Topology = BaseRelationalReadTopology.Ordinary, SchemaGeneration = 1,
+                    Pagination = new BaseRegisteredReadPaginationAuthority { Mode = BaseRegisteredReadPaginationMode.PageOnly, MaximumOffset = 0 },
                     Sources = [new BaseRelationalReadSource { Id = "subjects", CollectionId = Private.Id }],
                     Predicate = new BaseRelationalPredicate
                     {
@@ -1853,7 +2286,7 @@ public sealed class L45SubjectTransactionTests
                     },
                     Projection = [new BaseRelationalReadProjection { FieldId = "reference", Operand = operand }],
                     Parameters = [],
-                    Budgets = new BaseRelationalReadBudgets { MaxResultRows = 1, MaxResultBytes = 4096, MaxOperations = 16 },
+                    Budgets = new BaseRelationalReadBudgets { MaxResultRows = 1, MaxResultBytes = 4096, MaxOperations = 16, MaxExecutionMilliseconds = 2_000, MaxCompoundBranches = 0, MaxCompoundOperations = 0 },
                 },
                 ParameterValues = [], SourcePolicies = [new BaseRelationalReadSourcePolicy { SourceId = "subjects", CollectionId = Private.Id }],
                 Operation = Operation(BaseOperationKind.SubjectAcquire, Private.Id),
@@ -1898,6 +2331,17 @@ internal sealed partial record L45SqliteProfile
     public required BaseSubjectReference<L45SqliteUserSubject> Owner { get; init; }
 }
 
+[BaseCollection("l59.optional-profiles", typeof(L45SqliteJsonContext))]
+internal sealed partial record L59OptionalProfile
+{
+    [BaseField("name")]
+    public required string Name { get; init; }
+
+    [BaseField("owner", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.Nullable)]
+    [BaseSubjectReference(typeof(L45SqliteUserSubject), Requirement = BaseSubjectReferenceRequirement.Active)]
+    public BaseSubjectReference<L45SqliteUserSubject>? Owner { get; init; }
+}
+
 [BaseRead("example.sqlite-user.acquire", typeof(L45SqliteJsonContext),
     SourceAuthority = BaseRegisteredReadSourceAuthority.System,
     Disclosure = BaseRegisteredReadDisclosure.ConfidentialProjection,
@@ -1922,9 +2366,65 @@ internal sealed partial record L45AcquireSqliteUser
     }
 }
 
+[BaseRead("example.sqlite-profile.stored-subject", typeof(L45SqliteJsonContext),
+    RequiredGrantId = "example.profile.read")]
+internal sealed partial record L45ReadStoredSqliteUser
+{
+    [BaseReadParameter("example.sqlite-profile.stored-subject.profile-id")]
+    public required BaseRecordId<L45SqliteProfile> ProfileId { get; init; }
+
+    public sealed partial record Row
+    {
+        [BaseReadField("example.sqlite-profile.stored-subject.reference")]
+        public required BaseSubjectReference<L45SqliteUserSubject> Reference { get; init; }
+    }
+
+    public static void Configure(BaseReadDefinitionBuilder<L45ReadStoredSqliteUser, Row> read)
+    {
+        read.From(L45SqliteProfile.Collection, "profiles", out BaseReadSource<L45SqliteProfile> profile)
+            .Where(profile.RecordId.Equal(read.Parameter(Parameters.ProfileId)))
+            .ProjectStoredSubjectReference(
+                Row.Fields.Reference,
+                profile,
+                L45SqliteProfile.Fields.Owner,
+                L45SqliteUserSubject.HPDBaseSubjectRegistration);
+    }
+}
+
+[BaseRead("l59.optional-profile.stored-subject", typeof(L45SqliteJsonContext),
+    RequiredGrantId = "example.profile.read")]
+internal sealed partial record L59ReadOptionalStoredUser
+{
+    public sealed partial record Row
+    {
+        [BaseReadField("l59.optional-profile.stored-subject.name")]
+        public required string Name { get; init; }
+
+        [BaseReadField("l59.optional-profile.stored-subject.reference")]
+        public BaseSubjectReference<L45SqliteUserSubject>? Reference { get; init; }
+    }
+
+    public static void Configure(BaseReadDefinitionBuilder<L59ReadOptionalStoredUser, Row> read)
+    {
+        read.From(L59OptionalProfile.Collection, "profiles", out BaseReadSource<L59OptionalProfile> profile)
+            .Project(Row.Fields.Name, profile.Field(L59OptionalProfile.Fields.Name))
+            .ProjectStoredSubjectReference(
+                Row.Fields.Reference,
+                profile,
+                L59OptionalProfile.Fields.Owner,
+                L45SqliteUserSubject.HPDBaseSubjectRegistration)
+            .OrderBy(profile.RecordId);
+    }
+}
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(L45SqlitePrivateUser))]
 [JsonSerializable(typeof(L45SqliteProfile))]
+[JsonSerializable(typeof(L59OptionalProfile))]
 [JsonSerializable(typeof(L45AcquireSqliteUser))]
 [JsonSerializable(typeof(L45AcquireSqliteUser.Row), TypeInfoPropertyName = "L45AcquireSqliteUserRow")]
+[JsonSerializable(typeof(L45ReadStoredSqliteUser))]
+[JsonSerializable(typeof(L45ReadStoredSqliteUser.Row), TypeInfoPropertyName = "L45ReadStoredSqliteUserRow")]
+[JsonSerializable(typeof(L59ReadOptionalStoredUser))]
+[JsonSerializable(typeof(L59ReadOptionalStoredUser.Row), TypeInfoPropertyName = "L59ReadOptionalStoredUserRow")]
 internal sealed partial class L45SqliteJsonContext : JsonSerializerContext;

@@ -64,37 +64,37 @@ public static partial class SemanticEnsureMutationSmoke
 
     private static BaseModuleObjectExpression EnsureResult() => new()
     {
-        Id = "semantic-ensure-result", ResultTypeId = "hpd.base.aot.semantic.ensure-result",
+        Id = "semantic-ensure-result",
         Properties =
         [
             new BaseModuleObjectPropertyExpression { StablePropertyId = "hpd.base.aot.semantic.result.activation-id", Value = new BaseModuleConditionalExpression
             {
-                Id = "semantic-id-retired", ResultTypeId = "string?", GuardId = "semantic-retired",
+                Id = "semantic-id-retired", ResultType = ResultProperties.ActivationId.Authority.ValueType, GuardId = "semantic-retired",
                 WhenTrue = Null("semantic-id-retired-null"),
                 WhenFalse = new BaseModuleConditionalExpression
                 {
-                    Id = "semantic-id-absent", ResultTypeId = "string?", GuardId = "semantic-absent",
+                    Id = "semantic-id-absent", ResultType = ResultProperties.ActivationId.Authority.ValueType, GuardId = "semantic-absent",
                     WhenTrue = Null("semantic-id-absent-null"),
-                    WhenFalse = new BaseModuleSemanticActivationIdExpression { Id = "semantic-id", ResultTypeId = "string?" },
+                    WhenFalse = new BaseModuleSemanticActivationIdExpression { Id = "semantic-id", ResultType = ResultProperties.ActivationId.Authority.ValueType },
                 },
             } },
-            new BaseModuleObjectPropertyExpression { StablePropertyId = "hpd.base.aot.semantic.result.disposition", Value = new BaseModuleSemanticActivationDispositionExpression { Id = "semantic-disposition", ResultTypeId = "string" } },
-            new BaseModuleObjectPropertyExpression { StablePropertyId = "hpd.base.aot.semantic.result.materialized", Value = new BaseModuleSemanticActivationWasMaterializedExpression { Id = "semantic-materialized", ResultTypeId = "boolean" } },
+            new BaseModuleObjectPropertyExpression { StablePropertyId = "hpd.base.aot.semantic.result.disposition", Value = new BaseModuleSemanticActivationDispositionExpression { Id = "semantic-disposition", ResultType = ResultProperties.Disposition.Authority.ValueType } },
+            new BaseModuleObjectPropertyExpression { StablePropertyId = "hpd.base.aot.semantic.result.materialized", Value = new BaseModuleSemanticActivationWasMaterializedExpression { Id = "semantic-materialized", ResultType = ResultProperties.WasMaterialized.Authority.ValueType } },
         ],
     };
 
     private static BaseModuleObjectExpression RetireResult() => new()
     {
-        Id = "semantic-retire-result", ResultTypeId = "hpd.base.aot.semantic.retire-result",
+        Id = "semantic-retire-result",
         Properties = [new BaseModuleObjectPropertyExpression
         {
             StablePropertyId = "hpd.base.aot.semantic.result.retirement-disposition",
-            Value = new BaseModuleSemanticActivationRetirementDispositionExpression { Id = "semantic-retirement-disposition", ResultTypeId = "string" },
+            Value = new BaseModuleSemanticActivationRetirementDispositionExpression { Id = "semantic-retirement-disposition", ResultType = SemanticRetirementMutationSmoke.ResultProperties.Disposition.Authority.ValueType },
         }],
     };
 
     private static BaseModuleConstantExpression Null(string id) => new()
-    { Id = id, ResultTypeId = "string?", CanonicalBaseJson = "null"u8.ToArray().ToImmutableArray() };
+    { Id = id, ResultType = ResultProperties.ActivationId.Authority.ValueType, CanonicalBaseJson = "null"u8.ToArray().ToImmutableArray() };
 }
 
 [BaseRegisteredModuleMutation("hpd.base.aot.semantic.retire-operation", typeof(SemanticMutationSmokeJsonContext), typeof(SemanticMutationSmokeRequest), typeof(SemanticRetireSmokeResult), Version = 1, OwningModuleId = "hpd.base.aot", GrantId = "hpd.base.aot.semantic.retire-operation")]

@@ -71,13 +71,13 @@ internal static class TestRealtimeApp
         {
             Kind = EventResourceKind.Record,
             CollectionId = "items",
-            RecordId = new RecordId("one")
+            RecordId = RecordId.Create("one")
         },
         Operation = BaseOperationKind.Create,
         After = new RecordSnapshot
         {
             CollectionId = "items",
-            Id = new RecordId("one"),
+            Id = RecordId.Create("one"),
             Payload = Payload(("title", "hello")),
             Metadata = new RecordMetadata()
         }

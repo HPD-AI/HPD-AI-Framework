@@ -68,7 +68,7 @@ public sealed class ReceiptSchemaProjectionTests
             After = new RecordEnvelope
             {
                 CollectionId = collection.Id,
-                Id = new RecordId("record"),
+                Id = RecordId.Create("record"),
                 Payload = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = fields },
                 Metadata = new RecordMetadata(),
             },

@@ -71,7 +71,7 @@ public sealed class BaseReadDefinition<TParameters, TRow> : IBaseReadRegistratio
     /// <summary>Gets the exact declared system source collection identifiers.</summary>
     public IReadOnlyList<string> SystemSourceIds { get; internal init; } = Array.Empty<string>();
 
-    internal BaseRelationalReadPlan Plan { get; }
+    internal BaseRelationalReadPlan Plan { get; private set; }
 
     /// <summary>Gets source-generated request metadata.</summary>
     private JsonTypeInfo<TParameters>? _parameterJsonTypeInfo;
@@ -97,6 +97,7 @@ public sealed class BaseReadDefinition<TParameters, TRow> : IBaseReadRegistratio
     JsonTypeInfo IBaseReadRegistration.ParameterJsonTypeInfo => ParameterJsonTypeInfo;
     JsonTypeInfo IBaseReadRegistration.RowJsonTypeInfo => RowJsonTypeInfo;
     BaseRelationalReadPlan IBaseReadRegistration.Plan => Plan;
+    void IBaseReadRegistration.BindPlan(BaseRelationalReadPlan plan) => Plan = plan ?? throw new ArgumentNullException(nameof(plan));
     Type IBaseReadRegistration.ResponseType => typeof(BasePage<TRow>);
     BaseReadExposure IBaseReadRegistration.Exposure => Exposure;
     BaseReadAuthorization IBaseReadRegistration.Authorization => Authorization;
@@ -139,7 +140,12 @@ public sealed class BaseReadDefinition<TParameters, TRow> : IBaseReadRegistratio
     {
         if (parameters is not TParameters typed)
             return new BaseUntypedRegisteredReadResult { Status = OperationStatus.ValidationFailed, Error = new BaseError { Code = "base.relational.read.invalid", Message = "Registered read parameters are invalid.", Category = ErrorCategory.Validation } };
-        OperationResult<BaseRegisteredReadEvaluation<TRow>> result = await runtime.ExecuteAsync(this, typed, page, principal, operation, cancellationToken).ConfigureAwait(false);
+        OperationResult<BaseRegisteredReadEvaluation<TRow>> result = await runtime.ExecuteAsync(this, typed, new BaseRegisteredReadWindow
+        {
+            Kind = BaseRegisteredReadWindowKind.Page,
+            Page = page.Page,
+            PerPage = page.PerPage,
+        }, principal, operation, cancellationToken).ConfigureAwait(false);
         return result.Value is null
             ? new BaseUntypedRegisteredReadResult { Status = result.Status, Error = result.Error }
             : new BaseUntypedRegisteredReadResult { Status = result.Status, Items = result.Value.Page.Items.Cast<object>().ToArray(), Page = result.Value.Page.Page, Count = result.Value.Page.Count, Dependencies = result.Value.Dependencies };
@@ -166,6 +172,7 @@ internal interface IBaseReadRegistration : IBaseSerializerMetadataSource
     string Id { get; }
     /// <summary>Gets the plan.</summary>
     BaseRelationalReadPlan Plan { get; }
+    void BindPlan(BaseRelationalReadPlan plan);
     /// <summary>Gets the parameter JSON type info.</summary>
     JsonTypeInfo ParameterJsonTypeInfo { get; }
     /// <summary>Gets the row JSON type info.</summary>
@@ -275,6 +282,20 @@ public readonly record struct BaseReadPageRequest(int Page, int PerPage)
         ArgumentOutOfRangeException.ThrowIfLessThan(page, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(perPage, 1);
         return new BaseReadPageRequest(page, perPage);
+    }
+}
+
+/// <summary>Defines a bounded arbitrary-offset request for an offset-enabled registered read.</summary>
+/// <param name="Offset">The zero-based row offset.</param>
+/// <param name="Limit">The positive result limit.</param>
+public readonly record struct BaseReadOffsetRequest(int Offset, int Limit)
+{
+    /// <summary>Creates and validates an arbitrary-offset request.</summary>
+    public static BaseReadOffsetRequest Create(int offset, int limit)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(offset);
+        ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1);
+        return new BaseReadOffsetRequest(offset, limit);
     }
 }
 
@@ -441,6 +462,7 @@ public static class BaseReadGeneratedContract
             : typeof(TValue) == typeof(decimal) ? QueryValueKind.Decimal
             : typeof(TValue) == typeof(DateTimeOffset) || typeof(TValue) == typeof(DateTime) ? QueryValueKind.DateTime
             : typeof(TValue) == typeof(Guid) || typeof(TValue) == typeof(RecordId) ? QueryValueKind.Id
+            : typeof(TValue) == typeof(RevisionToken) ? QueryValueKind.String
             : throw new InvalidOperationException("The registered-read projection type is unsupported.");
         if (value.Kind != expected)
             throw new InvalidOperationException("The provider returned a registered-read projection value with the wrong type.");
@@ -453,6 +475,7 @@ public static class BaseReadGeneratedContract
             : typeof(TValue) == typeof(DateTimeOffset) ? value.DateTime!.Value
             : typeof(TValue) == typeof(DateTime) ? value.DateTime!.Value.UtcDateTime
             : typeof(TValue) == typeof(Guid) ? Guid.Parse(value.Id!)
+            : typeof(TValue) == typeof(RevisionToken) ? new RevisionToken(value.String!)
             : RecordId.Create(value.Id!);
         return (TValue)decoded;
     }
@@ -461,6 +484,31 @@ public static class BaseReadGeneratedContract
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static TValue? ReadNullable<TValue>(BaseRelationalRow row, string fieldId)
         where TValue : struct => IsNull(row, fieldId) ? null : Read<TValue>(row, fieldId);
+
+    /// <summary>Decodes one opaque module generation projected by a certified relational provider.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static BaseModuleGeneration ReadModuleGeneration(BaseRelationalRow row, string fieldId) =>
+        BaseModuleGeneration.ParseCanonical(Read<string>(row, fieldId));
+
+    /// <summary>Materializes canonical JSON after Runtime has validated its installed source-field authority.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static BaseCanonicalJson ReadCanonicalJson(BaseRelationalRow row, string fieldId)
+    {
+        QueryValue value = row.Fields.SingleOrDefault(field => string.Equals(field.FieldId, fieldId, StringComparison.Ordinal))?.Value
+            ?? throw new InvalidOperationException("The provider omitted a required registered-read projection field.");
+        if (value.Kind != QueryValueKind.CanonicalJson || value.CanonicalJsonUtf8.IsDefaultOrEmpty)
+            throw new InvalidOperationException("The provider returned a registered-read projection value with the wrong type.");
+        return BaseCanonicalJson.ParseAndValidate(value.CanonicalJsonUtf8.AsSpan(), new BaseCanonicalJsonLimits
+        {
+            MaximumCanonicalBytes = 1_048_576,
+            MaximumDepth = 64,
+            MaximumArrayItemsPerContainer = 16_384,
+            MaximumObjectPropertiesPerContainer = 16_384,
+            MaximumTotalNodes = 65_536,
+            MaximumTotalStringUtf8Bytes = 1_048_576,
+            MaximumTotalNameUtf8Bytes = 1_048_576,
+        });
+    }
 
     /// <summary>Returns whether one exact generated projection value is canonical null.</summary>
     [EditorBrowsable(EditorBrowsableState.Never)]

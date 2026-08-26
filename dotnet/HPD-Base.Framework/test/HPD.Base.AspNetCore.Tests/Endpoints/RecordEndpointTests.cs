@@ -124,7 +124,7 @@ public sealed class RecordEndpointTests
     {
         await using var app = await TestBaseApp.CreateAsync();
         var client = app.GetTestClient();
-        var upsertId = new RecordId("upsert-route");
+        var upsertId = RecordId.Create("upsert-route");
 
         var upsertResponse = await client.PutAsync(
             $"/base/collections/items/records/{upsertId.Value}:upsert",
@@ -159,7 +159,7 @@ public sealed class RecordEndpointTests
                             Kind = BaseRecordMutationKind.Create,
                             Create = new RecordCreateRequest
                             {
-                                RequestedId = new RecordId("batch-route"),
+                                RequestedId = RecordId.Create("batch-route"),
                                 Payload = TestBaseApp.Payload(("title", "one"))
                             }
                         },
@@ -168,7 +168,7 @@ public sealed class RecordEndpointTests
                             ItemId = "second",
                             CollectionId = "items",
                             Kind = BaseRecordMutationKind.Patch,
-                            RecordId = new RecordId("batch-route"),
+                            RecordId = RecordId.Create("batch-route"),
                             Patch = new RecordPatchRequest
                             {
                                 Patch = TestBaseApp.Patch("title", "two")
@@ -193,7 +193,7 @@ public sealed class RecordEndpointTests
             JsonContent.Create(
                 new RecordUpsertRequest
                 {
-                    Id = new RecordId("body-id"),
+                    Id = RecordId.Create("body-id"),
                     CreatePayload = TestBaseApp.Payload(("title", "created")),
                     UpdatePayload = TestBaseApp.Patch("title", "updated"),
                     UpdateMode = RecordUpsertUpdateMode.Patch,

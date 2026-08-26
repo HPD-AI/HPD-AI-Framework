@@ -30,6 +30,8 @@ public sealed record FieldDefinition
     public BaseScalarConstraintSet? ScalarConstraints { get; init; }
     /// <summary>Gets the purpose-bound scalar-constraint checksum.</summary>
     public BaseScalarConstraintChecksum? ScalarConstraintChecksum { get; init; }
+    /// <summary>Gets the exact target collection for a typed record-ID scalar.</summary>
+    public string? RecordTargetCollectionId { get; init; }
     /// <summary>Gets or sets system.</summary>
     public bool System { get; init; }
     /// <summary>Gets or sets hidden.</summary>

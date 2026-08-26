@@ -118,13 +118,11 @@ public static partial class ModuleIncrement
             {
                 Captures = [new BaseModuleGenerationCapture { Id = "generation", CellId = "module.generation", Absence = BaseModuleGenerationAbsenceBehavior.AllowEither }],
                 Guards = [], Body = new BaseModuleMutationBlock { Statements = [new BaseModuleIncrementGenerationStatement { Id = "increment", CaptureId = "generation", CreateIfAbsent = true }] },
-                Result = new BaseModuleResultProjection { Value = new BaseModuleObjectExpression
-                {
-                    Id = "result", ResultTypeId = "module.increment.result", Properties = [new BaseModuleObjectPropertyExpression
-                    {
-                        StablePropertyId = "module.result.generation", Value = new BaseModuleResultingGenerationExpression { Id = "result-generation", ResultTypeId = "string", CaptureId = "generation" },
-                    }],
-                } },
+                Result = BaseModuleMutationTemplateBuilder.Result(
+                    BaseModuleMutationTemplateBuilder.ResultObject<ModuleIncrementResult>("result",
+                        BaseModuleMutationTemplateBuilder.Property(
+                            ResultProperties.Generation,
+                            BaseModuleMutationTemplateBuilder.ResultingGeneration("result-generation", "generation")))),
             },
             Limits = ModuleMutationEndpointFixture.Limits(), ReceiptPolicy = new BaseModuleMutationReceiptPolicy { FormatVersion = 1, Lifetime = TimeSpan.FromDays(1) },
             Checksum = BaseModuleMutationChecksum.Create(new byte[32]),
@@ -132,7 +130,7 @@ public static partial class ModuleIncrement
 }
 
 public sealed record ModuleIncrementRequest { [BaseField("module.request.marker")] public string? Marker { get; init; } }
-public sealed record ModuleIncrementResult { [BaseField("module.result.generation")] public required string Generation { get; init; } }
+public sealed record ModuleIncrementResult { [BaseField("module.result.generation")] public required BaseModuleGeneration Generation { get; init; } }
 [JsonSerializable(typeof(ModuleIncrementRequest))]
 [JsonSerializable(typeof(ModuleIncrementResult))]
 public sealed partial class ModuleMutationJsonContext : JsonSerializerContext;

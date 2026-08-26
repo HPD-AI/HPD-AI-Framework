@@ -19,6 +19,7 @@
   <Folder Name="/src/" />
   <Folder Name="/test/">
     <Project Path="test/HPD.Base.AotSmoke/HPD.Base.AotSmoke.csproj" />
+    <Project Path="test/HPD.Base.Enum.AotSmoke/HPD.Base.Enum.AotSmoke.csproj" />
     <Project Path="test/HPD.Base.Auth.AotSmoke/HPD.Base.Auth.AotSmoke.csproj" />
     <Project Path="test/HPD.Base.Auth.Tests/HPD.Base.Auth.Tests.csproj" />
     <Project Path="test/HPD.Base.Generators.Tests/HPD.Base.Generators.Tests.csproj" />

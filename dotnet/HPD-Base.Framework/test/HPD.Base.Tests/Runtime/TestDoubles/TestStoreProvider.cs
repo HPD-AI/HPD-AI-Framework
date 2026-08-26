@@ -17,6 +17,9 @@ internal static class TestStoreProvider
                 (requiredIndexes || schema ? BaseStoreProviderCapabilities.RequiredIndexes : 0) |
                 (relational ? BaseStoreProviderCapabilities.RelationalExecution : 0),
             RegistrationIds = [store.Capabilities.StoreId + ".records"],
+            RelationalReads = relational && store is IRelationalReadStore relationalStore
+                ? BaseRelationalReadCapabilityContract.Clone(relationalStore.RelationalReads)
+                : BaseRelationalReadCapabilityContract.Unsupported(),
             SubjectReferences = BaseSubjectProviderCapabilities.BuiltIn,
             SubjectLifecycle = BaseSubjectLifecycleProviderCapabilities.BuiltIn,
             SubjectRetirement = BaseSubjectRetirementProviderCapabilities.BuiltIn,

@@ -14,13 +14,12 @@ public static partial class ModuleMutationSmoke
         {
             Captures = [new BaseModuleGenerationCapture { Id = "generation", CellId = "hpd.base.sqlite.aot.module.generation", Absence = BaseModuleGenerationAbsenceBehavior.AllowEither }],
             Guards = [], Body = new BaseModuleMutationBlock { Statements = [new BaseModuleIncrementGenerationStatement { Id = "increment", CaptureId = "generation", CreateIfAbsent = true }] },
-            Result = new BaseModuleResultProjection { Value = new BaseModuleObjectExpression
-            {
-                Id = "result", ResultTypeId = "hpd.base.sqlite.aot.module.result", Properties = [new BaseModuleObjectPropertyExpression
-                {
-                    StablePropertyId = "hpd.base.sqlite.aot.module.result.generation", Value = new BaseModuleResultingGenerationExpression { Id = "result-generation", ResultTypeId = "string", CaptureId = "generation" },
-                }],
-            } },
+            Result = BaseModuleMutationTemplateBuilder.Result(BaseModuleMutationTemplateBuilder.ResultObject("result",
+                BaseModuleMutationTemplateBuilder.Property(ResultProperties.Generation, BaseModuleMutationTemplateBuilder.ResultingGeneration("result-generation", "generation")),
+                BaseModuleMutationTemplateBuilder.Property(ResultProperties.Id, BaseModuleMutationTemplateBuilder.Request("result-id", RequestProperties.Id)),
+                BaseModuleMutationTemplateBuilder.Property(ResultProperties.Metadata, BaseModuleMutationTemplateBuilder.Request("result-metadata", RequestProperties.Metadata)),
+                BaseModuleMutationTemplateBuilder.Property(ResultProperties.Mode, BaseModuleMutationTemplateBuilder.Request("result-mode", RequestProperties.Mode)),
+                BaseModuleMutationTemplateBuilder.Property(ResultProperties.Payload, BaseModuleMutationTemplateBuilder.Request("result-payload", RequestProperties.Payload)))),
         },
         Limits = Limits(), ReceiptPolicy = new BaseModuleMutationReceiptPolicy { FormatVersion = 1, Lifetime = TimeSpan.FromDays(1) },
         Checksum = BaseModuleMutationChecksum.Create(System.Security.Cryptography.SHA256.HashData("hpd.base.sqlite.aot.module.increment.v1"u8)),
@@ -44,8 +43,22 @@ public static partial class ModuleMutationSmoke
     };
 }
 
-public sealed record ModuleMutationSmokeRequest { [BaseField("hpd.base.sqlite.aot.module.request.marker")] public string? Marker { get; init; } }
-public sealed record ModuleMutationSmokeResult { [BaseField("hpd.base.sqlite.aot.module.result.generation")] public required string Generation { get; init; } }
+public enum AotModuleMode { [JsonStringEnumMemberName("ready")] Ready = 0, [JsonStringEnumMemberName("done")] Done = 1 }
+public sealed record ModuleMutationSmokeRequest
+{
+    [BaseField("hpd.base.sqlite.aot.module.request.id")][JsonConverter(typeof(BaseCanonicalGuidJsonConverter))] public required Guid Id { get; init; }
+    [BaseField("hpd.base.sqlite.aot.module.request.payload", MaximumBytes = 32)] public required BaseBinary Payload { get; init; }
+    [BaseField("hpd.base.sqlite.aot.module.request.metadata", MaximumCanonicalJsonBytes = 256, JsonShape = BaseJsonShape.Object, MaximumJsonDepth = 4, MaximumJsonArrayItems = 8, MaximumJsonObjectProperties = 8, MaximumJsonTotalNodes = 16, MaximumJsonTotalStringUtf8Bytes = 64, MaximumJsonTotalNameUtf8Bytes = 64)] public required BaseCanonicalJson Metadata { get; init; }
+    [BaseField("hpd.base.sqlite.aot.module.request.mode", AllowedEnumLiterals = ["ready", "done"])][JsonConverter(typeof(BaseClosedEnumJsonConverter<AotModuleMode>))] public required AotModuleMode Mode { get; init; }
+}
+public sealed record ModuleMutationSmokeResult
+{
+    [BaseField("hpd.base.sqlite.aot.module.result.generation")] public required BaseModuleGeneration Generation { get; init; }
+    [BaseField("hpd.base.sqlite.aot.module.result.id")][JsonConverter(typeof(BaseCanonicalGuidJsonConverter))] public required Guid Id { get; init; }
+    [BaseField("hpd.base.sqlite.aot.module.result.payload", MaximumBytes = 32)] public required BaseBinary Payload { get; init; }
+    [BaseField("hpd.base.sqlite.aot.module.result.metadata", MaximumCanonicalJsonBytes = 256, JsonShape = BaseJsonShape.Object, MaximumJsonDepth = 4, MaximumJsonArrayItems = 8, MaximumJsonObjectProperties = 8, MaximumJsonTotalNodes = 16, MaximumJsonTotalStringUtf8Bytes = 64, MaximumJsonTotalNameUtf8Bytes = 64)] public required BaseCanonicalJson Metadata { get; init; }
+    [BaseField("hpd.base.sqlite.aot.module.result.mode", AllowedEnumLiterals = ["ready", "done"])][JsonConverter(typeof(BaseClosedEnumJsonConverter<AotModuleMode>))] public required AotModuleMode Mode { get; init; }
+}
 [JsonSerializable(typeof(ModuleMutationSmokeRequest))]
 [JsonSerializable(typeof(ModuleMutationSmokeResult))]
 public sealed partial class ModuleMutationSmokeJsonContext : JsonSerializerContext;

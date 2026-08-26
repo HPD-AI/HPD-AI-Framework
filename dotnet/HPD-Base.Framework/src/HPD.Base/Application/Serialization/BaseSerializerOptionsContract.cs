@@ -9,8 +9,13 @@ namespace HPD.Base;
 public static class BaseSerializerGeneratedContract
 {
     /// <summary>Creates the exact locked serializer options for generated metadata.</summary>
+    /// <param name="namingPolicy">The admitted generated naming policy.</param>
+    /// <param name="defaultIgnoreCondition">The admitted generated null-omission policy.</param>
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
-    public static JsonSerializerOptions CreateOptions(JsonNamingPolicy? namingPolicy) => BaseSerializerOptionsContract.Create(namingPolicy);
+    public static JsonSerializerOptions CreateOptions(
+        JsonNamingPolicy? namingPolicy,
+        JsonIgnoreCondition defaultIgnoreCondition = JsonIgnoreCondition.Never) =>
+        BaseSerializerOptionsContract.Create(namingPolicy, defaultIgnoreCondition);
 
     /// <summary>Creates an opaque factory registration for one generated context.</summary>
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
@@ -71,14 +76,20 @@ public sealed class BaseSerializerContextRegistration
 
 internal static class BaseSerializerOptionsContract
 {
-    internal static JsonSerializerOptions Create(JsonNamingPolicy? namingPolicy) => new()
+    internal static JsonSerializerOptions Create(
+        JsonNamingPolicy? namingPolicy,
+        JsonIgnoreCondition defaultIgnoreCondition = JsonIgnoreCondition.Never)
     {
+        if (defaultIgnoreCondition is not (JsonIgnoreCondition.Never or JsonIgnoreCondition.WhenWritingNull))
+            throw new InvalidOperationException("base.schema.serializer.optionsMismatch");
+        return new()
+        {
         PropertyNamingPolicy = namingPolicy,
         PropertyNameCaseInsensitive = false,
         NumberHandling = JsonNumberHandling.Strict,
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
         MaxDepth = 64,
-        DefaultIgnoreCondition = JsonIgnoreCondition.Never,
+        DefaultIgnoreCondition = defaultIgnoreCondition,
         IgnoreReadOnlyProperties = false,
         IgnoreReadOnlyFields = false,
         IncludeFields = false,
@@ -91,7 +102,8 @@ internal static class BaseSerializerOptionsContract
         AllowDuplicateProperties = false,
         AllowOutOfOrderMetadataProperties = false,
         DefaultBufferSize = 16_384,
-    };
+        };
+    }
 
     internal static void Validate(JsonSerializerOptions options)
     {
@@ -99,7 +111,8 @@ internal static class BaseSerializerOptionsContract
         if (options.DictionaryKeyPolicy is not null || options.Converters.Count != 0 ||
             options.PropertyNameCaseInsensitive || options.NumberHandling != JsonNumberHandling.Strict ||
             options.UnmappedMemberHandling != JsonUnmappedMemberHandling.Disallow || options.ReferenceHandler is not null ||
-            options.MaxDepth != 64 || options.Encoder is not null || options.DefaultIgnoreCondition != JsonIgnoreCondition.Never ||
+            options.MaxDepth != 64 || options.Encoder is not null ||
+            options.DefaultIgnoreCondition is not (JsonIgnoreCondition.Never or JsonIgnoreCondition.WhenWritingNull) ||
             options.IgnoreReadOnlyProperties || options.IgnoreReadOnlyFields || options.IncludeFields || options.WriteIndented ||
             !options.RespectNullableAnnotations || !options.RespectRequiredConstructorParameters || options.AllowTrailingCommas ||
             options.ReadCommentHandling != JsonCommentHandling.Disallow || options.PreferredObjectCreationHandling != JsonObjectCreationHandling.Replace ||
@@ -116,6 +129,7 @@ internal static class BaseSerializerOptionsContract
             ReferenceEquals(options.PropertyNamingPolicy, JsonNamingPolicy.KebabCaseLower) ? "kebab-lower" :
             ReferenceEquals(options.PropertyNamingPolicy, JsonNamingPolicy.KebabCaseUpper) ? "kebab-upper" :
             options.PropertyNamingPolicy is null ? "none" : throw new InvalidOperationException("base.schema.serializer.optionsMismatch");
-        return $"options-v1:{naming}:strict:disallow:64:never:replace:16384";
+        string omission = options.DefaultIgnoreCondition == JsonIgnoreCondition.WhenWritingNull ? "when-writing-null" : "never";
+        return $"options-v1:{naming}:strict:disallow:64:{omission}:replace:16384";
     }
 }

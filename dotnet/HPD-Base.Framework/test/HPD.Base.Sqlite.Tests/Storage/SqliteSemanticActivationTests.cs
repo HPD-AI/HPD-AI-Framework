@@ -568,7 +568,7 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
             var serializer = new Json(BaseSerializerGeneratedContract.CreateOptions(null));
             var moduleIdentity = new BaseGeneratedModuleMutationIdentity<Request, Result>(
                 module.Id, module.Version, module.Checksum.ToArray(), serializer.Request, serializer.Result, [],
-                [BaseModuleDtoPropertyBinding.Create<Result, string>("result.generation", nameof(Result.Generation))]);
+                [BaseModuleDtoPropertyBinding.Create<Result, string>("result.generation", nameof(Result.Generation), BaseGeneratedModuleScalarManifest.Primitive<string>())]);
             BaseTransactionalActivationRegistration<Request, Result> activation = RuntimeActivation(module);
             BaseSemanticActivationKeyExpression expression = new BaseSemanticActivationKeyConstantExpression
             {
@@ -1725,7 +1725,7 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
             },
             Checksum = [],
         }, Json.Default.Request, Json.Default.Result, [],
-        [BaseModuleDtoPropertyBinding.Create<Result, string>("result.generation", nameof(Result.Generation))]);
+        [BaseModuleDtoPropertyBinding.Create<Result, string>("result.generation", nameof(Result.Generation), BaseGeneratedModuleScalarManifest.Primitive<string>())]);
 
     private static DefaultBaseModuleMutationRuntime RuntimeSemantic(
         SqliteRecordStore store,

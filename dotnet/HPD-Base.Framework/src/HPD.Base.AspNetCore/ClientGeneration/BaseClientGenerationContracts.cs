@@ -147,7 +147,7 @@ public sealed record BaseClientProtocolDescriptor
     /// <summary>Gets the protocol major version.</summary>
     public int ProtocolMajor { get; init; } = 2;
     /// <summary>Gets the protocol minor version.</summary>
-    public int ProtocolMinor { get; init; } = 1;
+    public int ProtocolMinor { get; init; } = 3;
     /// <summary>Gets the minimum compatible client minor.</summary>
     public int MinimumClientMinor { get; init; }
     /// <summary>Gets the snapshot schema version.</summary>
@@ -308,10 +308,35 @@ public sealed record BaseClientTypeNode
     public int? AuthorityEpochBytes { get; init; }
     /// <summary>Gets the fixed incarnation byte count.</summary>
     public int? IncarnationBytes { get; init; }
+    /// <summary>Gets the bounded public canonical-JSON shape, only for a canonicalJson node.</summary>
+    public BaseClientCanonicalJsonShape? CanonicalJsonShape { get; init; }
     /// <summary>Gets object properties.</summary>
     public BaseClientPropertyDescriptor[]? Properties { get; init; }
     /// <summary>Gets whether unknown properties are accepted.</summary>
     public bool? AdditionalProperties { get; init; }
+}
+
+/// <summary>Describes the bounded public shape of one canonical-JSON client value.</summary>
+public sealed record BaseClientCanonicalJsonShape
+{
+    /// <summary>Gets the admitted top-level JSON shape.</summary>
+    public required BaseJsonShape JsonShape { get; init; }
+    /// <summary>Gets the maximum canonical UTF-8 byte count.</summary>
+    public required int MaximumCanonicalJsonBytes { get; init; }
+    /// <summary>Gets the maximum nesting depth.</summary>
+    public required int MaximumJsonDepth { get; init; }
+    /// <summary>Gets the maximum items in each array.</summary>
+    public required int MaximumJsonArrayItems { get; init; }
+    /// <summary>Gets the maximum properties in each object.</summary>
+    public required int MaximumJsonObjectProperties { get; init; }
+    /// <summary>Gets the maximum total node count.</summary>
+    public required int MaximumJsonTotalNodes { get; init; }
+    /// <summary>Gets the maximum aggregate UTF-8 string-value bytes.</summary>
+    public required int MaximumJsonTotalStringUtf8Bytes { get; init; }
+    /// <summary>Gets the maximum aggregate UTF-8 property-name bytes.</summary>
+    public required int MaximumJsonTotalNameUtf8Bytes { get; init; }
+    /// <summary>Gets the lowercase SHA-256 checksum of this public shape.</summary>
+    public required string Checksum { get; init; }
 }
 
 /// <summary>Describes one closed discriminated-union variant.</summary>
@@ -399,6 +424,10 @@ public sealed record BaseClientReadDescriptor
     public required string RowTypeId { get; init; }
     /// <summary>Gets the maximum page size.</summary>
     public required int MaxPageSize { get; init; }
+    /// <summary>Gets whether invocation always returns one fixed complete result.</summary>
+    public required bool FixedCompleteResult { get; init; }
+    /// <summary>Gets the ordered, public discriminator inventory for a fixed compound result.</summary>
+    public required string[] FixedDiscriminators { get; init; }
     /// <summary>Gets whether a complete live replacement is supported.</summary>
     public required bool Watchable { get; init; }
 }

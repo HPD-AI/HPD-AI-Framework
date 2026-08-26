@@ -102,6 +102,25 @@ public sealed class RelationalExecutionParityTests
     }
 
     [Fact]
+    public async Task DeclaredArbitraryOffsetMatchesAcrossProviders()
+    {
+        BasePage<GroupedPageRead.Row> inMemoryPage = await ExecuteGroupedPageAsync(sqlitePath: null, offset: true);
+        string path = Path.Combine(Path.GetTempPath(), "hpd-base-relational-offset-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            BasePage<GroupedPageRead.Row> sqlitePage = await ExecuteGroupedPageAsync(path, offset: true);
+            sqlitePage.Should().BeEquivalentTo(inMemoryPage);
+            inMemoryPage.Items.Should().ContainSingle().Which.Should().BeEquivalentTo(new { Category = "B", Total = 8L });
+            inMemoryPage.Page.Should().BeEquivalentTo(new PageInfo { Offset = 1, Limit = 1, HasMore = true });
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            foreach (string candidate in new[] { path, path + "-wal", path + "-shm" }) if (File.Exists(candidate)) File.Delete(candidate);
+        }
+    }
+
+    [Fact]
     public async Task NullAndMissingPredicatesHaveExactPortableSemantics()
     {
         Dictionary<string, string[]> inMemoryResults = await ExecuteNullPredicatesAsync(sqlitePath: null);
@@ -166,13 +185,14 @@ public sealed class RelationalExecutionParityTests
             ("early", new DateTimeOffset(2026, 8, 2, 9, 0, 0, TimeSpan.Zero)),
             ("middle", new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.Zero)),
         })
-            (await session.Collection(DateTimeParityRecord.Collection).CreateAsync(new RecordId(id), new DateTimeParityRecord { OccurredAt = time })).Should().BeOfType<BaseSuccess<BaseRecord<DateTimeParityRecord>>>();
+            (await session.Collection(DateTimeParityRecord.Collection).CreateAsync(RecordId.Create(id), new DateTimeParityRecord { OccurredAt = time })).Should().BeOfType<BaseSuccess<BaseRecord<DateTimeParityRecord>>>();
 
         BasePage<DateTimeParityRead.Row> result = (await session.Reads.ExecuteAsync(
             DateTimeParityRead.Handle,
             new DateTimeParityRead { After = new DateTimeOffset(2026, 8, 2, 8, 0, 0, TimeSpan.Zero) },
             BaseReadPageRequest.Create(1, 10))).RequireValue();
         result.Items.Select(static row => row.OccurredAt.Offset).Should().OnlyContain(offset => offset == TimeSpan.Zero);
+        result.Items.Select(static row => row.Revision.Value).Should().OnlyContain(static value => !string.IsNullOrWhiteSpace(value));
         return result.Items.Select(static row => row.Id.Value.Value).ToArray();
     }
 
@@ -201,7 +221,7 @@ public sealed class RelationalExecutionParityTests
             using JsonDocument document = JsonDocument.Parse(json);
             OperationResult<RecordEnvelope> created = await store.CreateAsync(
                 NullableParityRecord.Collection.Definition,
-                new RecordCreateRequest { RequestedId = new RecordId(prefix + id), Payload = new RecordPayload { Kind = RecordPayloadKind.Json, Json = document.RootElement.Clone() } },
+                new RecordCreateRequest { RequestedId = RecordId.Create(prefix + id), Payload = new RecordPayload { Kind = RecordPayloadKind.Json, Json = document.RootElement.Clone() } },
                 new OperationContext { Operation = BaseOperationKind.Create, CollectionId = NullableParityRecord.Collection.Id, RecordId = prefix + id });
             created.IsSuccess().Should().BeTrue(id + ":" + created.Error?.Code);
         }
@@ -221,12 +241,13 @@ public sealed class RelationalExecutionParityTests
         {
             var plan = new BaseRelationalReadPlan
             {
-                Id = "null-" + name, SchemaGeneration = generation,
+                Id = "null-" + name, Topology = BaseRelationalReadTopology.Ordinary, SchemaGeneration = generation,
                 Sources = [new BaseRelationalReadSource { Id = "values", CollectionId = NullableParityRecord.Collection.Id }],
                 Predicate = predicate,
                 Projection = [new BaseRelationalReadProjection { FieldId = "id", Operand = new BaseRelationalOperand { Kind = BaseRelationalOperandKind.RecordId, SourceId = "values", FieldId = "base.recordId" } }],
                 Sort = [new BaseRelationalReadSort { Operand = new BaseRelationalOperand { Kind = BaseRelationalOperandKind.RecordId, SourceId = "values", FieldId = "base.recordId" } }],
-                Parameters = [], Budgets = new BaseRelationalReadBudgets { MaxResultRows = 10, MaxResultBytes = 10_000, MaxOperations = 20 },
+                Parameters = [], Budgets = new BaseRelationalReadBudgets { MaxResultRows = 10, MaxResultBytes = 10_000, MaxOperations = 20, MaxExecutionMilliseconds = 2_000, MaxCompoundBranches = 0, MaxCompoundOperations = 0 },
+                Pagination = new BaseRegisteredReadPaginationAuthority { Mode = BaseRegisteredReadPaginationMode.PageOnly, MaximumOffset = 0 },
             };
             OperationResult<BaseRelationalReadExecutionResult> result = await ((IRelationalReadStore)store).ExecuteReadAsync(new BaseRelationalReadExecutionRequest
             {
@@ -240,7 +261,7 @@ public sealed class RelationalExecutionParityTests
         return results;
     }
 
-    private static async Task<BasePage<GroupedPageRead.Row>> ExecuteGroupedPageAsync(string? sqlitePath)
+    private static async Task<BasePage<GroupedPageRead.Row>> ExecuteGroupedPageAsync(string? sqlitePath, bool offset = false)
     {
         var services = new ServiceCollection().AddLogging();
         services.AddHPDBase(builder =>
@@ -261,12 +282,12 @@ public sealed class RelationalExecutionParityTests
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
         BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System });
         foreach ((string id, string category, int amount) in new[] { ("a1", "A", 2), ("a2", "A", 4), ("b", "B", 8), ("c", "C", 10) })
-            (await session.Collection(GroupedPageRecord.Collection).CreateAsync(new RecordId(id), new GroupedPageRecord { Category = category, Amount = amount })).Should().BeOfType<BaseSuccess<BaseRecord<GroupedPageRecord>>>();
+            (await session.Collection(GroupedPageRecord.Collection).CreateAsync(RecordId.Create(id), new GroupedPageRecord { Category = category, Amount = amount })).Should().BeOfType<BaseSuccess<BaseRecord<GroupedPageRecord>>>();
 
-        return (await session.Reads.ExecuteAsync(
-            GroupedPageRead.Handle,
-            new GroupedPageRead { Amounts = [2, 4, 8, 10] },
-            BaseReadPageRequest.Create(2, 1))).RequireValue();
+        var parameters = new GroupedPageRead { Amounts = [2, 4, 8, 10] };
+        return offset
+            ? (await session.Reads.ExecuteOffsetAsync(GroupedPageRead.Handle, parameters, BaseReadOffsetRequest.Create(1, 1))).RequireValue()
+            : (await session.Reads.ExecuteAsync(GroupedPageRead.Handle, parameters, BaseReadPageRequest.Create(2, 1))).RequireValue();
     }
 
     private static async Task<BaseRelationalFieldValue[]> ExecuteAsync(string? sqlitePath, bool seed)
@@ -290,8 +311,8 @@ public sealed class RelationalExecutionParityTests
         BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System });
         if (seed)
         {
-            (await session.Collection(AggregateRecord.Collection).CreateAsync(new RecordId("one"), new AggregateRecord { Rank = 2, Price = 2m, Flag = true })).Should().BeOfType<BaseSuccess<BaseRecord<AggregateRecord>>>();
-            (await session.Collection(AggregateRecord.Collection).CreateAsync(new RecordId("two"), new AggregateRecord { Rank = 10, Price = 10m, Flag = null })).Should().BeOfType<BaseSuccess<BaseRecord<AggregateRecord>>>();
+            (await session.Collection(AggregateRecord.Collection).CreateAsync(RecordId.Create("one"), new AggregateRecord { Rank = 2, Price = 2m, Flag = true })).Should().BeOfType<BaseSuccess<BaseRecord<AggregateRecord>>>();
+            (await session.Collection(AggregateRecord.Collection).CreateAsync(RecordId.Create("two"), new AggregateRecord { Rank = 10, Price = 10m, Flag = null })).Should().BeOfType<BaseSuccess<BaseRecord<AggregateRecord>>>();
         }
 
         IRelationalReadStore store = (IRelationalReadStore)provider.GetRequiredService<IRecordStoreRegistry>().GetStoreForCollection(AggregateRecord.Collection.Id)!;
@@ -331,10 +352,10 @@ public sealed class RelationalExecutionParityTests
         }
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
         BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System });
-        (await session.Collection(JoinLeft.Collection).CreateAsync(new RecordId("left-1"), new JoinLeft { Key = "shared" })).Should().BeOfType<BaseSuccess<BaseRecord<JoinLeft>>>();
-        (await session.Collection(JoinLeft.Collection).CreateAsync(new RecordId("left-2"), new JoinLeft { Key = "missing" })).Should().BeOfType<BaseSuccess<BaseRecord<JoinLeft>>>();
-        (await session.Collection(JoinRight.Collection).CreateAsync(new RecordId("right-2"), new JoinRight { Key = "shared" })).Should().BeOfType<BaseSuccess<BaseRecord<JoinRight>>>();
-        (await session.Collection(JoinRight.Collection).CreateAsync(new RecordId("right-1"), new JoinRight { Key = "shared" })).Should().BeOfType<BaseSuccess<BaseRecord<JoinRight>>>();
+        (await session.Collection(JoinLeft.Collection).CreateAsync(RecordId.Create("left-1"), new JoinLeft { Key = "shared" })).Should().BeOfType<BaseSuccess<BaseRecord<JoinLeft>>>();
+        (await session.Collection(JoinLeft.Collection).CreateAsync(RecordId.Create("left-2"), new JoinLeft { Key = "missing" })).Should().BeOfType<BaseSuccess<BaseRecord<JoinLeft>>>();
+        (await session.Collection(JoinRight.Collection).CreateAsync(RecordId.Create("right-2"), new JoinRight { Key = "shared" })).Should().BeOfType<BaseSuccess<BaseRecord<JoinRight>>>();
+        (await session.Collection(JoinRight.Collection).CreateAsync(RecordId.Create("right-1"), new JoinRight { Key = "shared" })).Should().BeOfType<BaseSuccess<BaseRecord<JoinRight>>>();
 
         IRelationalReadStore store = (IRelationalReadStore)provider.GetRequiredService<IRecordStoreRegistry>().GetStoreForCollection(JoinLeft.Collection.Id)!;
         long generation = provider.GetRequiredService<IHPDBaseApplication>().CurrentReadiness.SchemaGeneration ?? 0;
@@ -345,7 +366,7 @@ public sealed class RelationalExecutionParityTests
             : [new() { FieldId = "left", Operand = leftId }, new() { FieldId = "right", Operand = rightId }];
         var plan = new BaseRelationalReadPlan
         {
-            Id = "join-" + kind, SchemaGeneration = generation,
+            Id = "join-" + kind, Topology = BaseRelationalReadTopology.Ordinary, SchemaGeneration = generation,
             Sources = [new() { Id = "left", CollectionId = JoinLeft.Collection.Id }, new() { Id = "right", CollectionId = JoinRight.Collection.Id }],
             Joins = [new()
             {
@@ -356,7 +377,8 @@ public sealed class RelationalExecutionParityTests
             Projection = projection,
             Sort = [new() { Operand = leftId }, .. (kind is BaseJoinKind.Semi or BaseJoinKind.Anti ? [] : new[] { new BaseRelationalReadSort { Operand = rightId } })],
             Parameters = [],
-            Budgets = new() { MaxResultRows = 20, MaxResultBytes = 10_000, MaxOperations = 100 },
+            Budgets = new() { MaxResultRows = 20, MaxResultBytes = 10_000, MaxOperations = 100, MaxExecutionMilliseconds = 2_000, MaxCompoundBranches = 0, MaxCompoundOperations = 0 },
+            Pagination = new() { Mode = BaseRegisteredReadPaginationMode.PageOnly, MaximumOffset = 0 },
         };
         OperationResult<BaseRelationalReadExecutionResult> result = await store.ExecuteReadAsync(new BaseRelationalReadExecutionRequest
         {
@@ -393,7 +415,7 @@ public sealed class RelationalExecutionParityTests
         ];
         return new BaseRelationalReadPlan
         {
-            Id = "aggregate-parity", SchemaGeneration = generation,
+            Id = "aggregate-parity", Topology = BaseRelationalReadTopology.Ordinary, SchemaGeneration = generation,
             Sources = [new BaseRelationalReadSource { Id = "values", CollectionId = AggregateRecord.Collection.Id }],
             Aggregates = aggregates,
             Projection = aggregates.Select(item => new BaseRelationalReadProjection
@@ -402,7 +424,8 @@ public sealed class RelationalExecutionParityTests
                 Operand = new BaseRelationalOperand { Kind = BaseRelationalOperandKind.Aggregate, AggregateId = item.Id }
             }).ToArray(),
             Parameters = [],
-            Budgets = new BaseRelationalReadBudgets { MaxResultRows = 10, MaxResultBytes = 10_000, MaxOperations = 100 },
+            Pagination = new() { Mode = BaseRegisteredReadPaginationMode.PageOnly, MaximumOffset = 0 },
+            Budgets = new BaseRelationalReadBudgets { MaxResultRows = 10, MaxResultBytes = 10_000, MaxOperations = 100, MaxExecutionMilliseconds = 2_000, MaxCompoundBranches = 0, MaxCompoundOperations = 0 },
         };
     }
 }
@@ -475,7 +498,8 @@ internal sealed partial record GroupedPageRead
             .Aggregate(Row.Fields.Total, BaseAggregate.Sum(value.Field(GroupedPageRecord.Fields.Amount)), out var total)
             .Having(total.GreaterThan(read.Literal(5L)))
             .Distinct()
-            .OrderBy(total, QuerySortDirection.Desc);
+            .OrderBy(total, QuerySortDirection.Desc)
+            .AllowOffsetPagination(100_000);
     }
 }
 
@@ -526,6 +550,9 @@ internal sealed partial record DateTimeParityRead
         [BaseReadField("datetime.row.occurred-at")]
         [JsonConverter(typeof(BaseUtcDateTimeJsonConverter))]
         public required DateTimeOffset OccurredAt { get; init; }
+
+        [BaseReadField("datetime.row.revision")]
+        public required RevisionToken Revision { get; init; }
     }
 
     public static void Configure(BaseReadDefinitionBuilder<DateTimeParityRead, Row> read)
@@ -534,6 +561,7 @@ internal sealed partial record DateTimeParityRead
             .Where(events.Field(DateTimeParityRecord.Fields.OccurredAt).GreaterThan(read.Parameter(Parameters.After)))
             .Project(Row.Fields.Id, events.RecordId)
             .Project(Row.Fields.OccurredAt, events.Field(DateTimeParityRecord.Fields.OccurredAt))
+            .Project(Row.Fields.Revision, events.Revision)
             .OrderBy(events.Field(DateTimeParityRecord.Fields.OccurredAt));
     }
 }

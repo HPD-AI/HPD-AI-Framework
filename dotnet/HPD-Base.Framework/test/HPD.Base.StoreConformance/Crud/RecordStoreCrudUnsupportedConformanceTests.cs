@@ -7,7 +7,7 @@ public abstract class RecordStoreCrudUnsupportedConformanceTests<TFixture> : Rec
     public async Task CrudMethodsAdvertisedUnsupportedFailClosed()
     {
         var store = await CreateStoreAsync();
-        var id = new RecordId("unsupported-crud");
+        var id = RecordId.Create("unsupported-crud");
 
         if (!Capabilities.Read.List)
         {

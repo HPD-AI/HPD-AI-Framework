@@ -105,7 +105,7 @@ internal static class BaseTextAtomicMutationContract
         var value = new BaseTextProjectionFact
         {
             MutationOrdinal = ordinal, CollectionId = Copy(collection.Id), TextIndexId = Copy(index.Id), TextIndexVersion = index.Version,
-            TextIndexChecksum = Copy(index.DefinitionChecksum), RecordId = new(Copy(recordId.Value)), Before = prior, After = next,
+            TextIndexChecksum = Copy(index.DefinitionChecksum), RecordId = RecordId.Create(Copy(recordId.Value)), Before = prior, After = next,
             Disposition = next is null ? BaseTextProjectionDisposition.Remove : BaseTextProjectionDisposition.Upsert,
             FactChecksum = [],
         };

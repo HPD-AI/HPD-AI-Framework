@@ -21,7 +21,7 @@ public sealed class SqliteConnectionSourceTests
                 Collections = [Collection()]
             });
 
-            var create = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("one"), Payload = Payload("data-source") }, Operation(BaseOperationKind.Create));
+            var create = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = RecordId.Create("one"), Payload = Payload("data-source") }, Operation(BaseOperationKind.Create));
 
             create.Status.Should().Be(OperationStatus.Created);
             File.Exists(dataSource).Should().BeTrue();
@@ -53,7 +53,7 @@ public sealed class SqliteConnectionSourceTests
                 Collections = [Collection()]
             });
 
-            var create = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("one"), Payload = Payload("connection-string") }, Operation(BaseOperationKind.Create));
+            var create = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = RecordId.Create("one"), Payload = Payload("connection-string") }, Operation(BaseOperationKind.Create));
 
             create.Status.Should().Be(OperationStatus.Created);
             File.Exists(connectionStringDataSource).Should().BeTrue();
@@ -86,8 +86,8 @@ public sealed class SqliteConnectionSourceTests
                 Collections = [Collection()]
             });
 
-            var create = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("one"), Payload = Payload("aspire") }, Operation(BaseOperationKind.Create));
-            var get = await store.GetAsync(Collection(), new RecordId("one"), Operation(BaseOperationKind.Get));
+            var create = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = RecordId.Create("one"), Payload = Payload("aspire") }, Operation(BaseOperationKind.Create));
+            var get = await store.GetAsync(Collection(), RecordId.Create("one"), Operation(BaseOperationKind.Get));
 
             create.Status.Should().Be(OperationStatus.Created);
             get.Status.Should().Be(OperationStatus.Ok);

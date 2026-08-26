@@ -17,12 +17,12 @@ public abstract class RecordStoreMutationModeConformanceTests<TFixture>
             RecordMutationSessionContext context = Context(BaseRecordMutationKind.Replace);
             OperationResult<RecordMutationSessionResult> replace = await session.ReplaceAsync(
                 collection,
-                new RecordId("record-1"),
+                RecordId.Create("record-1"),
                 new RecordReplaceRequest { Payload = Payload() },
                 context);
             OperationResult<RecordMutationSessionResult> delete = await session.DeleteAsync(
                 collection,
-                new RecordId("record-1"),
+                RecordId.Create("record-1"),
                 new RecordDeleteRequest(),
                 Context(BaseRecordMutationKind.Delete));
             errors.Add(replace.Error!.Code);
@@ -52,7 +52,7 @@ public abstract class RecordStoreMutationModeConformanceTests<TFixture>
         {
             OperationResult<RecordMutationSessionResult> created = await session.CreateAsync(
                 collection,
-                new RecordCreateRequest { RequestedId = new RecordId("record-1"), Payload = Payload() },
+                new RecordCreateRequest { RequestedId = RecordId.Create("record-1"), Payload = Payload() },
                 Context(BaseRecordMutationKind.Create));
             observed = created.Error;
             return Failed(created.Error!);

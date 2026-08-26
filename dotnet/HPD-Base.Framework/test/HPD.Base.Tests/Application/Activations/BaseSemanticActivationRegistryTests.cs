@@ -84,7 +84,8 @@ public sealed class BaseSemanticActivationRegistryTests
         };
         var binding = new BaseModuleDtoPropertyBinding(
             ["value"], typeof(Request), typeof(string), BaseFieldConfidentiality.Public,
-            BaseRecordDisclosure.Include, nullable: false, applicationName: nameof(Request.Value));
+            BaseRecordDisclosure.Include, BaseGeneratedModuleScalarManifest.Primitive<string>(),
+            applicationName: nameof(Request.Value));
         var module = new BaseGeneratedModuleMutationIdentity<Request, object>(
             "test.ensure", 1, new byte[32],
             (System.Text.Json.Serialization.Metadata.JsonTypeInfo<Request>)options.GetTypeInfo(typeof(Request)),
@@ -103,7 +104,7 @@ public sealed class BaseSemanticActivationRegistryTests
                 {
                     Property = new BaseModuleRequestPropertyReference
                     {
-                        StablePropertyPath = ["value"], DeclaredTypeId = "string",
+                        StablePropertyPath = ["value"], Authority = binding.ScalarAuthority,
                     },
                     ScalarKind = BaseSemanticActivationKeyScalarKind.String, MaximumValueBytes = 64, AllowNull = false,
                 },

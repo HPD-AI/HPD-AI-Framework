@@ -7,6 +7,26 @@ namespace HPD.Base.Tests.Schema;
 public sealed class SchemaValidatorTests
 {
     [Fact]
+    public async Task OptionalNonNullableFieldRejectsAnExplicitNullPayloadValue()
+    {
+        using var provider = Provider();
+        FieldDefinition field = new()
+        {
+            Id = "label", ApplicationName = "label", WireName = "label", Type = BaseFieldTypes.String,
+            Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable,
+        };
+
+        OperationResult<BaseValidatedPayload> missing = await provider.GetRequiredService<IBaseSchemaValidator>()
+            .ValidateCreateAsync(Request(JsonPayload("{}"), fields: [field]));
+        OperationResult<BaseValidatedPayload> explicitNull = await provider.GetRequiredService<IBaseSchemaValidator>()
+            .ValidateCreateAsync(Request(JsonPayload("{\"label\":null}"), fields: [field]));
+
+        Assert.Equal(OperationStatus.Ok, missing.Status);
+        Assert.Equal(OperationStatus.ValidationFailed, explicitNull.Status);
+        Assert.Equal("base.runtime.payload.nonNullable", explicitNull.Error!.Code);
+    }
+
+    [Fact]
     public async Task CreateRejectsMissingRequiredField()
     {
         using var provider = Provider();

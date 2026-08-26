@@ -125,14 +125,18 @@ internal sealed class CollectionModel
             foreach (FieldModel field in Fields)
             {
                 if (field.PresenceColumn is not null) columns.Add(field.PresenceColumn + " INTEGER NOT NULL DEFAULT 0 CHECK (" + field.PresenceColumn + " IN (0,1))");
-                columns.Add(field.Column + " " + field.SqlType + (field.PresenceColumn is null ? " NOT NULL" : ""));
+                columns.Add(field.Column + " " + field.SqlType +
+                    (field.Definition.ScalarKind is BaseScalarKind.RecordId or BaseScalarKind.ModuleGeneration ? " COLLATE BINARY" : "") +
+                    (field.PresenceColumn is null ? " NOT NULL" : ""));
             }
             foreach (IndexModel index in Indexes.Where(static index => index.EqualityColumn is not null))
                 columns.Add(index.EqualityColumn + " BLOB NULL");
             foreach (OrderingPartModel part in Indexes.SelectMany(static index => index.OrderingParts))
             {
                 columns.Add(part.StateColumn + " INTEGER NOT NULL");
-                columns.Add(part.ValueColumn + " " + part.SqlType + " NOT NULL");
+                columns.Add(part.ValueColumn + " " + part.SqlType +
+                    (part.Field.Definition.ScalarKind is BaseScalarKind.RecordId or BaseScalarKind.ModuleGeneration ? " COLLATE BINARY" : "") +
+                    " NOT NULL");
             }
             if (HasExtensionJson) columns.Add("extension_json TEXT NULL");
             return $"CREATE TABLE IF NOT EXISTS {table} (\n  {string.Join(",\n  ", columns)}\n);";
@@ -219,7 +223,7 @@ internal sealed class CollectionModel
             return new RecordEnvelope
             {
                 CollectionId = Definition.Id,
-                Id = new RecordId(recordId),
+                Id = RecordId.Create(recordId),
                 Payload = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = payload },
                 Metadata = SqliteRecordMapper.Metadata(revision, created, updated, storeId),
             };
@@ -282,7 +286,7 @@ internal sealed class IndexModel
             ReadOnlySpan<byte> bytes = literal.CanonicalBytes.AsSpan();
             return literal.Kind switch
             {
-                BaseScalarKind.String or BaseScalarKind.ClosedEnum => "'" + StrictUtf8(bytes).Replace("'", "''", StringComparison.Ordinal) + "'",
+                BaseScalarKind.String or BaseScalarKind.RecordId or BaseScalarKind.ModuleGeneration or BaseScalarKind.ClosedEnum => "'" + StrictUtf8(bytes).Replace("'", "''", StringComparison.Ordinal) + "'",
                 BaseScalarKind.Guid when bytes.Length == 16 => "'" + new Guid(bytes, bigEndian: true).ToString("D") + "'",
                 BaseScalarKind.UtcDateTime when bytes.Length == 8 => "'" + new DateTimeOffset(BinaryPrimitives.ReadInt64BigEndian(bytes), TimeSpan.Zero).ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", CultureInfo.InvariantCulture) + "'",
                 BaseScalarKind.Int32 => BinaryPrimitives.ReadInt32BigEndian(bytes).ToString(CultureInfo.InvariantCulture),
@@ -331,7 +335,8 @@ internal sealed class OrderingPartModel
         {
             BaseScalarKind.Binary or BaseScalarKind.Guid => "BLOB",
             BaseScalarKind.Int32 or BaseScalarKind.Int64 or BaseScalarKind.UInt32 or BaseScalarKind.Boolean or BaseScalarKind.UtcDateTime or BaseScalarKind.ClosedEnum => "INTEGER",
-            BaseScalarKind.String or BaseScalarKind.UInt64 or BaseScalarKind.Decimal => "TEXT",
+            BaseScalarKind.RecordId => "TEXT",
+            BaseScalarKind.String or BaseScalarKind.ModuleGeneration or BaseScalarKind.UInt64 or BaseScalarKind.Decimal => "TEXT",
             _ => throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid),
         };
 
@@ -349,7 +354,7 @@ internal sealed class OrderingPartModel
 
         private object Value(JsonElement value) => Field.Definition.ScalarKind switch
         {
-            BaseScalarKind.String => value.GetString()!,
+            BaseScalarKind.String or BaseScalarKind.RecordId or BaseScalarKind.ModuleGeneration => value.GetString()!,
             BaseScalarKind.Binary => BaseBinary.FromBase64(value.GetString()!).ToArray(),
             BaseScalarKind.Int32 => (long)value.GetInt32(), BaseScalarKind.Int64 => value.GetInt64(), BaseScalarKind.UInt32 => (long)value.GetUInt32(),
             BaseScalarKind.UInt64 => value.GetUInt64().ToString("D20", CultureInfo.InvariantCulture),
@@ -389,6 +394,7 @@ internal sealed class FieldModel
         internal string? PresenceColumn { get; }
         internal string SqlType => Definition.Format == "base64" ? "BLOB" : Definition.ScalarKind switch
         {
+            BaseScalarKind.RecordId or BaseScalarKind.ModuleGeneration => "TEXT",
             BaseScalarKind.Decimal or BaseScalarKind.UInt64 => "TEXT",
             BaseScalarKind.Int32 or BaseScalarKind.Int64 or BaseScalarKind.UInt32 or BaseScalarKind.Boolean => "INTEGER",
             _ => Definition.Type == "number" ? "REAL" : "TEXT",
@@ -416,6 +422,8 @@ internal sealed class FieldModel
             }
             if (Definition.ScalarKind == BaseScalarKind.UInt64)
                 return value.TryGetUInt64(out _) ? value.GetRawText() : throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid);
+            if (Definition.ScalarKind == BaseScalarKind.ModuleGeneration)
+                return BaseModuleGeneration.ParseCanonical(value.GetString()!).ToCanonicalString();
             return Definition.Type switch
             {
                 "boolean" => value.GetBoolean() ? 1L : 0L,
@@ -432,6 +440,7 @@ internal sealed class FieldModel
             _ when Definition.Format == "date-time" => Parse("\"" + JsonEncodedText.Encode(Convert.ToString(value, CultureInfo.InvariantCulture)!).ToString() + "\""),
             _ when Definition.Format == "base64" => Parse("\"" + Convert.ToBase64String((byte[])value) + "\""),
             _ when Definition.ScalarKind is BaseScalarKind.Decimal or BaseScalarKind.UInt64 => Parse(Convert.ToString(value, CultureInfo.InvariantCulture)!),
+            _ when Definition.ScalarKind == BaseScalarKind.ModuleGeneration => Parse("\"" + Convert.ToString(value, CultureInfo.InvariantCulture) + "\""),
             "boolean" => Parse(Convert.ToInt64(value, CultureInfo.InvariantCulture) == 0 ? "false" : "true"),
             "integer" => Parse(Convert.ToInt64(value, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture)),
             "number" => Parse(Convert.ToDouble(value, CultureInfo.InvariantCulture).ToString("R", CultureInfo.InvariantCulture)),

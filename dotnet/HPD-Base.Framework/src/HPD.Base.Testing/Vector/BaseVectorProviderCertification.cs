@@ -246,8 +246,8 @@ public static class BaseVectorProviderCertification
         {
             BaseSession session = host.Sessions.For(new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.Admin, SubjectId = "certification-runner" });
             BaseCollectionSession<BaseVectorCertificationSchemaRecord> collection = session.Collection(BaseVectorCertificationSchemaRecord.Collection);
-            _ = (await collection.CreateAsync(new RecordId("fault-a"), new BaseVectorCertificationSchemaRecord { Tenant = "tenant-a", Active = true, Priority = 1, Optional = null, Secret = null, Embedding = BaseVector.Create([1, 0]) }, cancellationToken).ConfigureAwait(false)).RequireValue();
-            _ = (await collection.CreateAsync(new RecordId("fault-b"), new BaseVectorCertificationSchemaRecord { Tenant = "tenant-a", Active = true, Priority = 2, Optional = "present", Secret = null, Embedding = BaseVector.Create([0, 1]) }, cancellationToken).ConfigureAwait(false)).RequireValue();
+            _ = (await collection.CreateAsync(RecordId.Create("fault-a"), new BaseVectorCertificationSchemaRecord { Tenant = "tenant-a", Active = true, Priority = 1, Optional = null, Secret = null, Embedding = BaseVector.Create([1, 0]) }, cancellationToken).ConfigureAwait(false)).RequireValue();
+            _ = (await collection.CreateAsync(RecordId.Create("fault-b"), new BaseVectorCertificationSchemaRecord { Tenant = "tenant-a", Active = true, Priority = 2, Optional = "present", Secret = null, Embedding = BaseVector.Create([0, 1]) }, cancellationToken).ConfigureAwait(false)).RequireValue();
             if (providerClass == BaseVectorCertificationProviderClass.DerivedJournal)
             {
                 OperationResult<BaseVectorCertificationAuthorityHead> captured = await host.Authority.CaptureHeadAsync(cancellationToken).ConfigureAwait(false);
@@ -368,20 +368,20 @@ public static class BaseVectorProviderCertification
         BaseVectorCertificationSchema schema = BaseVectorCertificationSchema.Version1;
         BaseSession session = host.Sessions.For(new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.Admin, SubjectId = "certification-runner" });
         BaseCollectionSession<BaseVectorCertificationSchemaRecord> collection = session.Collection(BaseVectorCertificationSchemaRecord.Collection);
-        BaseRecord<BaseVectorCertificationSchemaRecord> createdA = (await collection.CreateAsync(new RecordId("record-a"), Record("tenant-a", true, 10, null, "secret-a", [1, 0]), cancellationToken).ConfigureAwait(false)).RequireValue();
-        _ = (await collection.CreateAsync(new RecordId("record-b"), Record("tenant-b", false, 20, "present", "secret-b", [0, 1]), cancellationToken).ConfigureAwait(false)).RequireValue();
-        _ = (await collection.CreateAsync(new RecordId("record-c"), Record("tenant-a", true, 30, "present", "secret-c", [0.75f, 0.25f]), cancellationToken).ConfigureAwait(false)).RequireValue();
-        BaseRecord<BaseVectorCertificationSchemaRecord> replacedA = (await collection.ReplaceAsync(new RecordId("record-a"), Record("tenant-a", true, 10, null, "secret-a-v2", [0.75f, 0.25f]), cancellationToken: cancellationToken).ConfigureAwait(false)).RequireValue();
+        BaseRecord<BaseVectorCertificationSchemaRecord> createdA = (await collection.CreateAsync(RecordId.Create("record-a"), Record("tenant-a", true, 10, null, "secret-a", [1, 0]), cancellationToken).ConfigureAwait(false)).RequireValue();
+        _ = (await collection.CreateAsync(RecordId.Create("record-b"), Record("tenant-b", false, 20, "present", "secret-b", [0, 1]), cancellationToken).ConfigureAwait(false)).RequireValue();
+        _ = (await collection.CreateAsync(RecordId.Create("record-c"), Record("tenant-a", true, 30, "present", "secret-c", [0.75f, 0.25f]), cancellationToken).ConfigureAwait(false)).RequireValue();
+        BaseRecord<BaseVectorCertificationSchemaRecord> replacedA = (await collection.ReplaceAsync(RecordId.Create("record-a"), Record("tenant-a", true, 10, null, "secret-a-v2", [0.75f, 0.25f]), cancellationToken: cancellationToken).ConfigureAwait(false)).RequireValue();
         if (createdA.Revision is null || replacedA.Revision is null || createdA.Revision == replacedA.Revision)
             return Failed(caseId, "base.testing.vector.revisionInvalid", "Canonical mutation revisions were not authoritative.");
 
         if (caseId.Contains("atomicity", StringComparison.Ordinal))
         {
             BaseBatchBuilder batch = session.Atomic();
-            batch.Create(BaseVectorCertificationSchemaRecord.Collection, new RecordId("rollback-probe"), Record("tenant-a", true, 1, null, null, [1, 0]));
-            batch.Create(BaseVectorCertificationSchemaRecord.Collection, new RecordId("record-a"), Record("tenant-a", true, 1, null, null, [1, 0]));
+            batch.Create(BaseVectorCertificationSchemaRecord.Collection, RecordId.Create("rollback-probe"), Record("tenant-a", true, 1, null, null, [1, 0]));
+            batch.Create(BaseVectorCertificationSchemaRecord.Collection, RecordId.Create("record-a"), Record("tenant-a", true, 1, null, null, [1, 0]));
             BaseBatchResult rolledBack = (await batch.CommitAsync(cancellationToken).ConfigureAwait(false)).RequireValue();
-            if (rolledBack.Outcome != BaseRecordBatchOutcome.RolledBack || (await collection.GetAsync(new RecordId("rollback-probe"), cancellationToken).ConfigureAwait(false)) is BaseSuccess<BaseRecord<BaseVectorCertificationSchemaRecord>>)
+            if (rolledBack.Outcome != BaseRecordBatchOutcome.RolledBack || (await collection.GetAsync(RecordId.Create("rollback-probe"), cancellationToken).ConfigureAwait(false)) is BaseSuccess<BaseRecord<BaseVectorCertificationSchemaRecord>>)
                 return Failed(caseId, "base.testing.vector.atomicityInvalid", "The canonical failed batch was not fully rolled back.");
         }
 
@@ -474,7 +474,7 @@ public static class BaseVectorProviderCertification
         if (current is not BaseSuccess<BaseVectorResult<BaseVectorCertificationSchemaRecord>> currentSuccess) return null;
         RevisionToken historicalRevision = currentSuccess.Value.Matches.Single(static match => match.Record.Id.Value == "record-a").Record.Revision!.Value;
         RevisionToken historicalBRevision = currentSuccess.Value.Matches.Single(static match => match.Record.Id.Value == "record-b").Record.Revision!.Value;
-        BaseRecord<BaseVectorCertificationSchemaRecord> newerA = (await collection.ReplaceAsync(new RecordId("record-a"), new BaseVectorCertificationSchemaRecord { Tenant = "tenant-a", Active = true, Priority = 10, Optional = null, Secret = "secret-a-v2", Embedding = BaseVector.Create([0.75f, 0.25f]) }, cancellationToken: cancellationToken).ConfigureAwait(false)).RequireValue();
+        BaseRecord<BaseVectorCertificationSchemaRecord> newerA = (await collection.ReplaceAsync(RecordId.Create("record-a"), new BaseVectorCertificationSchemaRecord { Tenant = "tenant-a", Active = true, Priority = 10, Optional = null, Secret = "secret-a-v2", Embedding = BaseVector.Create([0.75f, 0.25f]) }, cancellationToken: cancellationToken).ConfigureAwait(false)).RequireValue();
         BaseResult<BaseVectorResult<BaseVectorCertificationSchemaRecord>> atLeast = await query.WithConsistency(new BaseVectorConsistencyRequirement.AtLeast(currentSuccess.Value.ConsistencyToken)).Take(3).ExecuteAsync(cancellationToken).ConfigureAwait(false);
         BaseResult<BaseVectorResult<BaseVectorCertificationSchemaRecord>> bounded = await query.WithConsistency(new BaseVectorConsistencyRequirement.BoundedStaleness(TimeSpan.FromMinutes(5))).Take(3).ExecuteAsync(cancellationToken).ConfigureAwait(false);
         if (atLeast is not BaseSuccess<BaseVectorResult<BaseVectorCertificationSchemaRecord>> atLeastSuccess || bounded is not BaseSuccess<BaseVectorResult<BaseVectorCertificationSchemaRecord>> boundedSuccess ||
@@ -488,7 +488,7 @@ public static class BaseVectorProviderCertification
         Task<BaseResult<BaseVectorResult<BaseVectorCertificationSchemaRecord>>> waitingCurrent = query.WithConsistency(new BaseVectorConsistencyRequirement.Current()).Take(3).ExecuteAsync(cancellationToken).AsTask();
         await Task.Delay(TimeSpan.FromMilliseconds(40), cancellationToken).ConfigureAwait(false);
         if (waitingCurrent.IsCompleted) return null;
-        _ = (await collection.ReplaceAsync(new RecordId("record-b"), new BaseVectorCertificationSchemaRecord { Tenant = "tenant-b", Active = false, Priority = 20, Optional = "present", Secret = "secret-b", Embedding = BaseVector.Create([0, 1]) }, cancellationToken: cancellationToken).ConfigureAwait(false)).RequireValue();
+        _ = (await collection.ReplaceAsync(RecordId.Create("record-b"), new BaseVectorCertificationSchemaRecord { Tenant = "tenant-b", Active = false, Priority = 20, Optional = "present", Secret = "secret-b", Embedding = BaseVector.Create([0, 1]) }, cancellationToken: cancellationToken).ConfigureAwait(false)).RequireValue();
         OperationResult<BaseVectorCertificationAuthorityHead> moving = await host.Authority.CaptureHeadAsync(cancellationToken).ConfigureAwait(false);
         if (!moving.IsSuccess() || moving.Value is null || moving.Value.HighWaterPosition <= finite.Value.HighWaterPosition) return null;
         if (!(await host.Provider.AdvanceAsync(BaseVectorCertificationAdvanceRequest.Create(finite.Value.HighWaterPosition), cancellationToken).ConfigureAwait(false)).IsSuccess() ||

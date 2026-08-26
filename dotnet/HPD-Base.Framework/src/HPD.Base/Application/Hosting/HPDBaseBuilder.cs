@@ -767,12 +767,15 @@ public sealed class HPDBaseBuilder
         var schemaOptions = new HPDBaseSchemaOptions();
         _schema?.Invoke(schemaOptions);
         schemaOptions.Validate();
-        BaseApplicationGraphValidator.Validate(collections, _reads.Values, relationalOptions, schemaOptions);
         BaseStorageProtectionGraph storageProtection = BaseStorageProtectionContract.FinalizeGraph(
             _applicationStorageRequirements.Values,
             collections,
             _featureStorageRequirements,
             provider.StorageProtectionCapabilities.Concat(_extensionStorageCapabilities.Values));
+        BaseLogicalSchema provisionalLogicalSchema = BaseLogicalSchemaFactory.Create(
+            schemaOptions, collections, _reads.Values, storageProtection, subjectRegistry);
+        BaseCompoundReadAuthority.Bind(_reads.Values, provisionalLogicalSchema);
+        BaseApplicationGraphValidator.Validate(collections, _reads.Values, subjectRegistry, relationalOptions, schemaOptions);
         int requiredBinaryMaximum = _collections.Values.SelectMany(static collection => collection.Fields ?? [])
             .Where(static field => string.Equals(field.Format, "base64", StringComparison.Ordinal))
             .Select(static field => field.MaximumBytes ?? 0).DefaultIfEmpty().Max();
@@ -1246,7 +1249,7 @@ public sealed class HPDBaseBuilder
             return propertyType?.IsGenericType == true
                 && propertyType.GetGenericTypeDefinition() == typeof(BaseSubjectReference<>)
                 && propertyType.GenericTypeArguments[0] == contracts[0].MarkerType
-                && !bindings[0].Nullable;
+                && bindings[0].Nullability == BaseFieldNullability.NonNullable;
         }
         if (!Matches(ensure) || !Matches(retire))
             throw new InvalidOperationException("base.semanticActivation.contractInvalid");

@@ -18,6 +18,8 @@ public static class BaseCanonicalRecordValidator
             bool admitted = field.ScalarKind switch
             {
                 BaseScalarKind.String => String(value, constraints),
+                BaseScalarKind.RecordId => RecordIdentifier(value, constraints),
+                BaseScalarKind.ModuleGeneration => ModuleGeneration(value, constraints),
                 BaseScalarKind.Binary => Binary(value, constraints),
                 BaseScalarKind.Int32 => Int32(value, constraints),
                 BaseScalarKind.Int64 => Int64(value, constraints),
@@ -47,6 +49,16 @@ public static class BaseCanonicalRecordValidator
         int bytes = BaseStrictUtf8.GetByteCount(text);
         if (constraints.MinimumUtf8Bytes is { } minimum && bytes < minimum || constraints.MaximumUtf8Bytes is { } maximum && bytes > maximum) return false;
         return constraints.StringNormalization is null || BaseUnicode17Nfc.IsNormalized(text);
+    }
+
+    private static bool RecordIdentifier(JsonElement value, BaseScalarConstraintSet constraints) =>
+        String(value, constraints) && RecordId.TryParse(value.GetString(), out _);
+
+    private static bool ModuleGeneration(JsonElement value, BaseScalarConstraintSet constraints)
+    {
+        if (!String(value, constraints)) return false;
+        _ = BaseModuleGeneration.ParseCanonical(value.GetString()!);
+        return true;
     }
 
     private static bool Binary(JsonElement value, BaseScalarConstraintSet constraints)

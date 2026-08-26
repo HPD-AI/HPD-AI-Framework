@@ -500,7 +500,7 @@ public sealed class ApplicationHostBuilderTests
             SubjectId = "subject_1",
         });
         BaseResult<BaseRecord<GeneratedProject>> result = await session
-            .Collection(GeneratedProject.Collection).GetAsync(new RecordId("record_1"));
+            .Collection(GeneratedProject.Collection).GetAsync(RecordId.Create("record_1"));
 
         application.CurrentReadiness.State.Should().Be(BaseApplicationReadinessState.NotStarted);
         result.Should().BeOfType<BaseFailure<BaseRecord<GeneratedProject>>>()
@@ -558,8 +558,8 @@ public sealed class ApplicationHostBuilderTests
             (await application.InitializeAsync()).IsSuccess().Should().BeTrue();
             var administrator = new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System };
             BaseCollectionSession<GeneratedProject> collection = provider.GetRequiredService<IBaseSessionFactory>().For(administrator).Collection(GeneratedProject.Collection);
-            BaseRecord<GeneratedProject> created = (await collection.CreateAsync(new RecordId("project-1"), new GeneratedProject { OrganizationId = "org", Name = "before" })).RequireValue();
-            _ = (await collection.CreateAsync(new RecordId("project-2"), new GeneratedProject { OrganizationId = "org", Name = "second" })).RequireValue();
+            BaseRecord<GeneratedProject> created = (await collection.CreateAsync(RecordId.Create("project-1"), new GeneratedProject { OrganizationId = "org", Name = "before" })).RequireValue();
+            _ = (await collection.CreateAsync(RecordId.Create("project-2"), new GeneratedProject { OrganizationId = "org", Name = "second" })).RequireValue();
 
             var rawStore = (SqliteRecordStore)provider.GetRequiredService<IRecordStoreRegistry>().GetStore("sqlite")!;
             var firstPageQuery = new RecordQuery

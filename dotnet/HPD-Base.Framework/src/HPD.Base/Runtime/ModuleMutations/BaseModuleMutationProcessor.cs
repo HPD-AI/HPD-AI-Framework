@@ -37,7 +37,10 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         IAtomicRecordSession provider,
         CancellationToken cancellationToken = default)
     {
-        limits = BaseAtomicSchemaContract.AttachLimits(limits, collections.Values);
+        HashSet<string> authorityCollectionIds = intent.Authority.Collections
+            .Select(static value => value.CollectionId).ToHashSet(StringComparer.Ordinal);
+        limits = BaseAtomicSchemaContract.AttachLimits(limits,
+            collections.Values.Where(collection => authorityCollectionIds.Contains(collection.Id)));
         var captureRequest = new BaseAtomicExecutionRequest
         {
             Kind = BaseAtomicMutationExecutionKind.ModuleMutation,
@@ -81,6 +84,8 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             if (!EvaluateBlock(definition.Template.Body, evaluator, increments, selectedStatements, out BaseError? programError))
                 return Failed(programError!);
         }
+        catch (BaseModuleScalarContractException exception) when (exception.ProviderInfluenced)
+        { return Failed(Error(BaseModuleMutationErrorCodes.ProviderContractInvalid, ErrorCategory.Store)); }
         catch (OverflowException) { return Failed(Error(BaseModuleMutationErrorCodes.LimitExceeded, ErrorCategory.Validation)); }
         catch { return Failed(Error("base.moduleMutation.programInvalid", ErrorCategory.Validation)); }
 
@@ -198,7 +203,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         BaseSemanticActivationReceiptEvidence? semanticReceipt = CreateSemanticReceipt(finalizedSemantic, evidence.SemanticActivation, applied.Value.SemanticActivation);
         SemanticReceipt = semanticReceipt;
         try { typed = evaluator.ProjectResult(definition.Template.Result, committedStatements, committedGenerations, semanticReceipt, out resultBytes); }
-        catch { return Failed(Error("base.moduleMutation.resultInvalid", ErrorCategory.Validation)); }
+        catch { return Failed(Error(BaseModuleMutationErrorCodes.ProviderContractInvalid, ErrorCategory.Store)); }
         BaseTransactionalActivationCommitEvidence? activationCommit = null;
         if (transactionalActivation is not null)
         {
@@ -409,7 +414,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             };
             string? idText = evaluator.Evaluate(idExpression).Value.GetString();
             if (string.IsNullOrEmpty(idText)) return InvalidCommands();
-            var recordId = new RecordId(idText);
+            var recordId = RecordId.Create(idText);
             BaseCapturedModuleRecord capture = evidence.ModuleRecords.SingleOrDefault(value =>
                 string.Equals(value.CollectionId, collectionId, StringComparison.Ordinal) && value.RecordId == recordId)
                 ?? throw new InvalidOperationException("Every selected record write must bind one declared capture.");
@@ -1512,7 +1517,9 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         AtomicMutationProcessingOutcome.Failed, [], error);
     private static BaseError Error(string code, ErrorCategory category) => new()
     {
-        Code = code, Message = "The registered module mutation could not be completed.", Category = category,
+        Code = code, Message = code == BaseModuleMutationErrorCodes.ProviderContractInvalid
+            ? "The module mutation provider returned invalid evidence."
+            : "The registered module mutation could not be completed.", Category = category,
     };
     private static string Digest(params string[] values) => Convert.ToHexString(
         SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\0', values)))).ToLowerInvariant();

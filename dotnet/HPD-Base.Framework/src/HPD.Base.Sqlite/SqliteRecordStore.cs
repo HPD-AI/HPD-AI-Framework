@@ -789,7 +789,7 @@ WHERE entry_kind = 0 AND event_id = $eventId
         ArgumentNullException.ThrowIfNull(collection);
         if (SqliteValidation.ValidateCollectionId<RecordEnvelope>(collection.Id) is { } collectionError) return collectionError;
         if (ValidateRegisteredCollection<RecordEnvelope>(collection.Id) is { } registrationError) return registrationError;
-        if (SqliteValidation.ValidateRecordId<RecordEnvelope>(id.Value) is { } idError) return idError;
+        if (SqliteValidation.ValidateRecordId<RecordEnvelope>(id) is { } idError) return idError;
 
         try
         {
@@ -953,7 +953,7 @@ WHERE position <= (
                     Operation = (BaseOperationKind)reader.GetInt32(7),
                     Visibility = (VisibilityLevel)reader.GetInt32(8),
                     CollectionId = reader.GetString(9),
-                    RecordId = new RecordId(reader.GetString(10)),
+                    RecordId = RecordId.Create(reader.GetString(10)),
                     Before = DeserializeSnapshot(reader, 11),
                     After = DeserializeSnapshot(reader, 12),
                 },

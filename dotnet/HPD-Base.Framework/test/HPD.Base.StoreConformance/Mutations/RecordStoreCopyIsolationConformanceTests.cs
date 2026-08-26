@@ -19,14 +19,14 @@ public abstract class RecordStoreCopyIsolationConformanceTests<TFixture> : Recor
                 Collection,
                 new RecordCreateRequest
                 {
-                    RequestedId = new RecordId("copy-create"),
+                    RequestedId = RecordId.Create("copy-create"),
                     Payload = new RecordPayload
                     {
                         Kind = RecordPayloadKind.Json,
                         Json = document.RootElement
                     }
                 },
-                Operation(BaseOperationKind.Create, new RecordId("copy-create")));
+                Operation(BaseOperationKind.Create, RecordId.Create("copy-create")));
             RecordStoreConformanceAssertions.Success(create, OperationStatus.Created);
             id = create.Value!.Id;
         }

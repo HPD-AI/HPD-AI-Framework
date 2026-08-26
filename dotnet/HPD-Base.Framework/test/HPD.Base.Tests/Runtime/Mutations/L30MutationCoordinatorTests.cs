@@ -464,19 +464,19 @@ public sealed class L30MutationCoordinatorTests
         ItemId = itemId,
         CollectionId = "items",
         Kind = BaseRecordMutationKind.Patch,
-        RecordId = new RecordId(recordId),
+        RecordId = RecordId.Create(recordId),
         Patch = new RecordPatchRequest { Patch = Payload(("title", title)) }
     };
 
     private static RecordCreateRequest Create(string requestedId) => new()
     {
-        RequestedId = new RecordId(requestedId),
+        RequestedId = RecordId.Create(requestedId),
         Payload = Payload(("title", requestedId))
     };
 
     private static RecordUpsertRequest Upsert(string id) => new()
     {
-        Id = new RecordId(id),
+        Id = RecordId.Create(id),
         CreatePayload = Payload(("title", "created")),
         UpdatePayload = Payload(("title", "updated")),
         UpdateMode = RecordUpsertUpdateMode.Patch,
@@ -486,7 +486,7 @@ public sealed class L30MutationCoordinatorTests
     private static RecordEnvelope Record(string id, string title) => new()
     {
         CollectionId = "items",
-        Id = new RecordId(id),
+        Id = RecordId.Create(id),
         Payload = Payload(("title", title)),
         Metadata = new RecordMetadata { Revision = new RevisionToken("rev_1") }
     };

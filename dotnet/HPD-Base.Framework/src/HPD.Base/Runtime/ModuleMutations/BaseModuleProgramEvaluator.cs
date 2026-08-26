@@ -1,9 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
-using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.Json.Serialization.Metadata;
 using System.Text;
 using System.Buffers;
 
@@ -53,8 +51,10 @@ internal sealed class BaseModuleProgramEvaluator<TRequest, TResult>
     internal void RecordIfDecision(string statementId, bool selected) =>
         RecordDecision(BaseModuleDecisionKind.IfStatement, statementId, selected);
 
-    internal BaseModuleProgramValue Evaluate(BaseModuleValueExpression expression) => expression switch
+    internal BaseModuleProgramValue Evaluate(BaseModuleValueExpression expression)
     {
+        BaseModuleProgramValue value = expression switch
+        {
         BaseModuleRequestPropertyExpression request => RequestProperty(request.Property),
         BaseModuleConstantExpression constant => Parse(constant.CanonicalBaseJson.AsSpan()),
         BaseModuleCapturedRecordIdExpression record => Record(record.CaptureId, static value => JsonValue(value.Current?.Id.Value)),
@@ -64,12 +64,13 @@ internal sealed class BaseModuleProgramEvaluator<TRequest, TResult>
         BaseModuleCoalesceExpression coalesce => Coalesce(coalesce),
         BaseModuleConditionalExpression conditional => Conditional(conditional),
         BaseModuleBinaryNumericExpression numeric => Numeric(numeric),
-        BaseModuleObjectExpression value => Object(value, null),
         BaseModuleCommittedRecordIdExpression or BaseModuleCommittedRevisionExpression
             or BaseModuleCommittedUpsertDispositionExpression or BaseModuleResultingGenerationExpression =>
             throw new InvalidOperationException("base.moduleMutation.resultAuthorityRequired"),
-        _ => throw new InvalidOperationException("base.moduleMutation.invalid"),
-    };
+            _ => throw new InvalidOperationException("base.moduleMutation.invalid"),
+        };
+        return Validate(expression.ResultType!, value, _records.Count != 0);
+    }
 
     internal bool Guard(string id)
     {
@@ -85,7 +86,7 @@ internal sealed class BaseModuleProgramEvaluator<TRequest, TResult>
                 Evaluate(revision.Expected)),
             BaseModuleFieldEqualsGuard field => Equal(CapturedField(field.Field), Evaluate(field.Expected)),
             BaseModuleFieldComparisonGuard field => OrderedCompare(
-                CapturedField(field.Field), Evaluate(field.Expected), field.Field.DeclaredTypeId, field.Comparison),
+                CapturedField(field.Field), Evaluate(field.Expected), field.Field.Authority.Kind, field.Comparison),
             BaseModuleFieldPresenceGuard field => Presence(CapturedField(field.Field), field.Test),
             BaseModuleGenerationGuard generation => CompareGeneration(generation),
             BaseModuleSemanticActivationStateGuard semantic => _semanticState == semantic.Test switch
@@ -107,16 +108,16 @@ internal sealed class BaseModuleProgramEvaluator<TRequest, TResult>
     private static bool OrderedCompare(
         BaseModuleProgramValue left,
         BaseModuleProgramValue right,
-        string typeId,
+        BaseModuleValueKind kind,
         BaseModuleOrderedComparisonKind comparison)
     {
         if (!left.Present || !right.Present || left.IsNull || right.IsNull)
             return false;
-        int order = typeId switch
+        int order = kind switch
         {
-            "int64" => left.Value.GetInt64().CompareTo(right.Value.GetInt64()),
-            "decimal" => left.Value.GetDecimal().CompareTo(right.Value.GetDecimal()),
-            "dateTime" => CompareDateTime(left.Value, right.Value),
+            BaseModuleValueKind.Int64 => left.Value.GetInt64().CompareTo(right.Value.GetInt64()),
+            BaseModuleValueKind.Decimal => left.Value.GetDecimal().CompareTo(right.Value.GetDecimal()),
+            BaseModuleValueKind.UtcDateTime => CompareDateTime(left.Value, right.Value),
             _ => throw new InvalidOperationException("base.moduleMutation.invalid"),
         };
         return comparison switch
@@ -167,13 +168,15 @@ internal sealed class BaseModuleProgramEvaluator<TRequest, TResult>
         BaseSemanticActivationReceiptEvidence? semantic,
         out ImmutableArray<byte> canonicalBytes)
     {
-        BaseModuleProgramValue EvaluateResult(BaseModuleValueExpression expression) => expression switch
+        BaseModuleProgramValue EvaluateResult(BaseModuleValueExpression expression)
         {
+            BaseModuleProgramValue value = expression switch
+            {
             BaseModuleCommittedRecordIdExpression record => Committed(record.StatementId, static fact => JsonValue((fact.After ?? fact.Before)?.Id.Value), committed),
             BaseModuleCommittedRevisionExpression revision => Committed(revision.StatementId, static fact => JsonValue(fact.After?.Metadata.Revision?.Value), committed),
             BaseModuleCommittedUpsertDispositionExpression upsert => Committed(upsert.StatementId, static fact => JsonValue(fact.UpsertOutcome?.ToString()), committed),
-            BaseModuleResultingGenerationExpression generation => generations.TryGetValue(generation.CaptureId, out BaseModuleCommittedGeneration? value)
-                ? JsonValue(value.Resulting.ToCanonicalString()) : BaseModuleProgramValue.Missing,
+            BaseModuleResultingGenerationExpression generation => generations.TryGetValue(generation.CaptureId, out BaseModuleCommittedGeneration? committedGeneration)
+                ? JsonValue(committedGeneration.Resulting.ToCanonicalString()) : BaseModuleProgramValue.Missing,
             BaseModuleSemanticActivationDispositionExpression => semantic?.EnsureDisposition is { } ensure
                 ? JsonValue(ensure.ToString()) : BaseModuleProgramValue.Missing,
             BaseModuleSemanticActivationIdExpression => semantic?.ActivationId is { } activationId
@@ -182,17 +185,43 @@ internal sealed class BaseModuleProgramEvaluator<TRequest, TResult>
                 ? JsonValue(materialized == BaseSemanticActivationEnsureDisposition.Created) : BaseModuleProgramValue.Missing,
             BaseModuleSemanticActivationRetirementDispositionExpression => semantic?.RetirementDisposition is { } retirement
                 ? JsonValue(retirement.ToString()) : BaseModuleProgramValue.Missing,
-            BaseModuleObjectExpression objectExpression => ResultObject(objectExpression, EvaluateResult),
             BaseModuleCoalesceExpression coalesce => coalesce.Values.Select(EvaluateResult).FirstOrDefault(static value => value.Present),
             BaseModuleConditionalExpression conditional => ResultConditional(conditional, EvaluateResult),
-            _ => Evaluate(expression),
-        };
+                _ => Evaluate(expression),
+            };
+            return Validate(expression.ResultType!, value, providerInfluenced: true);
+        }
         BaseModuleProgramValue result = ResultObject(projection.Value, EvaluateResult);
         if (!result.Present) throw new InvalidOperationException("base.moduleMutation.resultInvalid");
         TResult? typed = JsonSerializer.Deserialize(result.Value.GetRawText(), _identity.ResultTypeInfo);
         if (typed is null) throw new InvalidOperationException("base.moduleMutation.resultInvalid");
         canonicalBytes = JsonSerializer.SerializeToUtf8Bytes(typed, _identity.ResultTypeInfo).ToImmutableArray();
+        ValidateDto(canonicalBytes.AsSpan(), _identity.ResultBindings, providerInfluenced: true);
         return typed;
+    }
+
+    internal static void ValidateDto(
+        ReadOnlySpan<byte> canonicalBytes,
+        IReadOnlyDictionary<string, BaseModuleDtoPropertyBinding> bindings,
+        bool providerInfluenced)
+    {
+        using JsonDocument document = JsonDocument.Parse(canonicalBytes.ToArray());
+        foreach (BaseModuleDtoPropertyBinding binding in bindings.Values)
+        {
+            JsonElement current = document.RootElement;
+            bool present = true;
+            foreach (string wire in binding.WirePropertyPath)
+            {
+                if (current.ValueKind != JsonValueKind.Object || !current.TryGetProperty(wire, out current))
+                {
+                    present = false;
+                    break;
+                }
+            }
+            Validate(binding.ScalarAuthority.ValueType,
+                present ? new BaseModuleProgramValue(true, current) : BaseModuleProgramValue.Missing,
+                providerInfluenced);
+        }
     }
 
     private BaseModuleProgramValue ResultObject(
@@ -221,32 +250,55 @@ internal sealed class BaseModuleProgramEvaluator<TRequest, TResult>
     private BaseModuleProgramValue RequestProperty(BaseModuleRequestPropertyReference reference)
     {
         JsonElement current = _request;
-        JsonTypeInfo type = _identity.RequestTypeInfo;
         var path = new List<string>();
         foreach (string stableId in reference.StablePropertyPath)
         {
             path.Add(stableId);
             if (!_identity.RequestBindings.TryGetValue(string.Join('\0', path), out BaseModuleDtoPropertyBinding? binding))
                 throw new InvalidOperationException("base.moduleMutation.invalid");
-            JsonPropertyInfo property = type.Properties.Single(value =>
-                value.AttributeProvider is MemberInfo member
-                && string.Equals(member.Name, binding.ApplicationName, StringComparison.Ordinal));
-            if (current.ValueKind != JsonValueKind.Object || !current.TryGetProperty(property.Name, out current))
+            string wireName = binding.WirePropertyPath[^1];
+            if (current.ValueKind != JsonValueKind.Object || !current.TryGetProperty(wireName, out current))
                 return BaseModuleProgramValue.Missing;
-            type = type.Options.GetTypeInfo(property.PropertyType);
         }
         return new(true, current.Clone());
+    }
+
+    private static BaseModuleProgramValue Validate(BaseModuleValueType authority, BaseModuleProgramValue value, bool providerInfluenced)
+    {
+        bool valid = !value.Present
+            ? authority.Presence == BaseFieldPresence.Optional
+            : value.IsNull
+                ? authority.Nullability == BaseFieldNullability.Nullable
+                : ScalarValid(authority, value.Value);
+        if (!valid) throw new BaseModuleScalarContractException(providerInfluenced);
+        return value;
+    }
+
+    private static bool ScalarValid(BaseModuleValueType authority, JsonElement value)
+    {
+        if (authority.Kind == BaseModuleValueKind.Revision)
+        {
+            if (value.ValueKind != JsonValueKind.String) return false;
+            try { return new RevisionToken(value.GetString()!).IsValid; }
+            catch (ArgumentException) { return false; }
+        }
+        var field = new FieldDefinition
+        {
+            Id = "value", ApplicationName = "value", WireName = "value", Type = "scalar",
+            Presence = authority.Presence, Nullability = authority.Nullability,
+            ScalarKind = (BaseScalarKind)(int)authority.Kind, ScalarCodec = authority.Codec,
+            ScalarConstraints = authority.Constraints, ScalarConstraintChecksum = authority.ConstraintChecksum,
+        };
+        return BaseCanonicalRecordValidator.Validate(field, value) is null;
     }
 
     private string ResultWireName(string stableId)
     {
         if (!_identity.ResultBindings.TryGetValue(stableId, out BaseModuleDtoPropertyBinding? binding))
             throw new InvalidOperationException("base.moduleMutation.invalid");
-        JsonPropertyInfo property = _identity.ResultTypeInfo.Properties.Single(value =>
-            value.AttributeProvider is MemberInfo member
-            && member.DeclaringType == binding.DeclaringType
-            && string.Equals(member.Name, binding.ApplicationName, StringComparison.Ordinal));
-        return property.Name;
+        if (binding.WirePropertyPath.Count != 1)
+            throw new InvalidOperationException("base.moduleMutation.invalid");
+        return binding.WirePropertyPath[0];
     }
 
     private BaseModuleProgramValue CapturedField(BaseModuleCapturedFieldReference reference)
@@ -392,4 +444,9 @@ internal sealed class BaseModuleProgramEvaluator<TRequest, TResult>
         }
         return Parse(buffer.WrittenSpan);
     }
+}
+
+internal sealed class BaseModuleScalarContractException(bool providerInfluenced) : Exception
+{
+    internal bool ProviderInfluenced { get; } = providerInfluenced;
 }

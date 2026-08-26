@@ -16,7 +16,7 @@ internal static class SemanticActivationSmoke
         Property = new BaseModuleRequestPropertyReference
         {
             StablePropertyPath = ["hpd.base.sqlite.aot.semantic.request.marker"],
-            DeclaredTypeId = "hpd.base.sqlite.aot.semantic.request",
+            Authority = SemanticEnsureMutationSmoke.RequestProperties.Marker.Authority,
         },
         ScalarKind = BaseSemanticActivationKeyScalarKind.String,
         MaximumValueBytes = 128,

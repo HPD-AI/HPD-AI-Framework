@@ -886,7 +886,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             return ValueTask.FromResult(collectionError);
         }
 
-        if (InMemoryValidation.ValidateRecordId<RecordEnvelope>(id.Value) is { } idError)
+        if (InMemoryValidation.ValidateRecordId<RecordEnvelope>(id) is { } idError)
         {
             return ValueTask.FromResult(idError);
         }
@@ -1443,7 +1443,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             }
         }
 
-        var id = request.RequestedId ?? new RecordId(NextRecordId(working));
+        var id = request.RequestedId ?? RecordId.Create(NextRecordId(working));
         if (request.RequestedId is not null && !runtimeAssignedId && !_options.AllowClientRequestedIds)
         {
             return ValueTask.FromResult(InMemoryResultFactory.Unsupported<RecordEnvelope>(
@@ -1452,7 +1452,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 id.Value));
         }
 
-        if (InMemoryValidation.ValidateRecordId<RecordEnvelope>(id.Value) is { } idError)
+        if (InMemoryValidation.ValidateRecordId<RecordEnvelope>(id) is { } idError)
             return ValueTask.FromResult(idError);
 
         var state = GetOrCreateCollection(working, collection.Id);
@@ -1501,7 +1501,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             return ValueTask.FromResult(collectionError);
         }
 
-        if (InMemoryValidation.ValidateRecordId<DeleteResult>(id.Value) is { } idError)
+        if (InMemoryValidation.ValidateRecordId<DeleteResult>(id) is { } idError)
         {
             return ValueTask.FromResult(idError);
         }
@@ -1644,7 +1644,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             return ValueTask.FromResult(collectionError);
         }
 
-        if (InMemoryValidation.ValidateRecordId<RecordEnvelope>(id.Value) is { } idError)
+        if (InMemoryValidation.ValidateRecordId<RecordEnvelope>(id) is { } idError)
         {
             return ValueTask.FromResult(idError);
         }
@@ -1716,7 +1716,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             return ValueTask.FromResult(collectionError);
         }
 
-        if (InMemoryValidation.ValidateRecordId<RecordEnvelope>(id.Value) is { } idError)
+        if (InMemoryValidation.ValidateRecordId<RecordEnvelope>(id) is { } idError)
         {
             return ValueTask.FromResult(idError);
         }
@@ -5465,7 +5465,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 {
                     Ordinal = index,
                     CollectionId = request.Collection.Id,
-                    RecordId = new RecordId(record.RecordId),
+                    RecordId = RecordId.Create(record.RecordId),
                     Disposition = BaseCapturedMutationDisposition.Update,
                     Current = record.MaterializeOwned(),
                     RelationTargets = [],

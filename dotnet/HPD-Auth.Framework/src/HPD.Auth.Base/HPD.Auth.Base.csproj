@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks></TargetFrameworks>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>HPD.Auth.Base</RootNamespace>
+    <AssemblyName>HPD.Auth.Base</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Auth-Base</PackageId>
+    <Description>Generated HPD Base declarations for HPD Auth.</Description>
+    <PackageTags>auth;identity;base;aot;hpd</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(UsePublishedHpdDependencies)' != 'true'">
+    <ProjectReference Include="../../../HPD-Base.Framework/src/HPD.Base/HPD.Base.csproj" />
+    <ProjectReference Include="../../../HPD-Base.Framework/src/HPD.Base.Generators/HPD.Base.Generators.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false"
+                      GlobalPropertiesToRemove="PublishAot;RuntimeIdentifier;SelfContained" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(UsePublishedHpdDependencies)' == 'true'">
+    <PackageReference Include="HPD.Base" Version="$(HPDBaseVersion)" />
+  </ItemGroup>
+
+</Project>

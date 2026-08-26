@@ -269,7 +269,7 @@ internal static class BaseAtomicMutationOwnership
     private static BaseTextProjectionFact FreezeTextFact(BaseTextProjectionFact value) => value with
     {
         CollectionId = new(value.CollectionId.AsSpan()), TextIndexId = new(value.TextIndexId.AsSpan()),
-        TextIndexChecksum = ImmutableArray.Create(value.TextIndexChecksum.ToArray()), RecordId = new(new string(value.RecordId.Value.AsSpan())),
+        TextIndexChecksum = ImmutableArray.Create(value.TextIndexChecksum.ToArray()), RecordId = RecordId.Create(new string(value.RecordId.Value.AsSpan())),
         Before = FreezeTextState(value.Before), After = FreezeTextState(value.After), FactChecksum = ImmutableArray.Create(value.FactChecksum.ToArray()),
     };
 

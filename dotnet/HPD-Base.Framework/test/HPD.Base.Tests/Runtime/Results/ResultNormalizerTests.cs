@@ -41,7 +41,7 @@ public sealed class ResultNormalizerTests
         var leaked = new RecordEnvelope
         {
             CollectionId = "items",
-            Id = new RecordId("rec_1"),
+            Id = RecordId.Create("rec_1"),
             Payload = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = [] },
             Metadata = new RecordMetadata()
         };

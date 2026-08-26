@@ -11,6 +11,61 @@ namespace HPD.Base.Tests.Application.Collections;
 
 public sealed class BaseRecordIdTests
 {
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("line\nbreak")]
+    [InlineData("e\u0301")]
+    public void RecordIdentifierRejectsNoncanonicalInput(string? input)
+    {
+        RecordId.TryParse(input, out RecordId parsed).Should().BeFalse();
+        parsed.IsValid.Should().BeFalse();
+    }
+
+    [Fact]
+    public void RecordIdentifierOwnsCanonicalNfcUtf8WithinTheExactBound()
+    {
+        string maximum = new('é', 128);
+        RecordId value = RecordId.Create(maximum);
+
+        value.Value.Should().Be(maximum);
+        RecordId.TryParse(maximum + "a", out _).Should().BeFalse();
+        RecordId.Create(" owner ").Value.Should().Be(" owner ");
+        FluentActions.Invoking(static () => _ = default(RecordId).Value)
+            .Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void RecordIdentifierJsonRejectsInvalidReadsAndDefaultWrites()
+    {
+        Action invalidRead = () => JsonSerializer.Deserialize("\"e\\u0301\"", HPDBaseJsonSerializerContext.Default.RecordId);
+        Action invalidWrite = () => JsonSerializer.Serialize(default(RecordId), HPDBaseJsonSerializerContext.Default.RecordId);
+
+        invalidRead.Should().Throw<JsonException>().WithMessage("RecordId must be a canonical JSON string.*");
+        invalidWrite.Should().Throw<JsonException>().WithMessage("RecordId must be a canonical JSON string.*");
+    }
+
+    [Fact]
+    public void TypedRecordIdentifierUsesExactSafeConstructionAndJsonFailures()
+    {
+        Action invalidPrimitive = () => RecordId.Create("");
+        Action invalidTyped = () => _ = new BaseRecordId<TypedIdOwner>(default);
+        Action invalidRead = () => JsonSerializer.Deserialize(
+            "\"e\\u0301\"", TypedIdJsonContext.Default.BaseRecordIdTypedIdOwner);
+        Action invalidWrite = () => JsonSerializer.Serialize(
+            default(BaseRecordId<TypedIdOwner>), TypedIdJsonContext.Default.BaseRecordIdTypedIdOwner);
+
+        invalidPrimitive.Should().Throw<ArgumentException>()
+            .WithMessage("The record identifier is invalid.");
+        invalidTyped.Should().Throw<ArgumentException>()
+            .WithMessage("The record identifier is invalid.");
+        invalidRead.Should().Throw<JsonException>()
+            .WithMessage("RecordId must be a canonical JSON string.*");
+        invalidWrite.Should().Throw<JsonException>()
+            .WithMessage("RecordId must be a canonical JSON string.*");
+    }
+
     [Fact]
     public void GeneratedTypedRecordIdSerializesAsTheUnderlyingString()
     {
@@ -45,7 +100,7 @@ public sealed class BaseRecordIdTests
         var metadata = new TypedIdJsonContext(
             BaseSerializerGeneratedContract.CreateOptions(System.Text.Json.JsonNamingPolicy.CamelCase)).TypedIdDocument;
         var manual = HPD.Base.BaseCollection.Define(
-            "manual-typed-id-documents",
+            "typed-id-documents",
             metadata,
             schema => schema.Relation(
                     "typed-id-document.owner",
@@ -59,7 +114,7 @@ public sealed class BaseRecordIdTests
 
         RelationDefinition relation = manual.Definition.Fields![0].Relation!;
         relation.Id.Should().Be("typed-id-document.owner");
-        relation.SourceCollectionId.Should().Be("manual-typed-id-documents");
+        relation.SourceCollectionId.Should().Be("typed-id-documents");
         relation.SourceFieldId.Should().Be("typed-id-document.owner");
         relation.TargetCollectionId.Should().Be("typed-id-owners");
         relation.LocalMultiplicity.Should().Be(BaseRelationMultiplicity.ExactlyOne);
@@ -69,6 +124,12 @@ public sealed class BaseRecordIdTests
             Allowed = true,
             MaxDepth = 2,
         });
+        FieldDefinition generatedField = TypedIdDocument.Collection.Definition.Fields!.Single();
+        FieldDefinition manualField = manual.Definition.Fields!.Single();
+        generatedField.ScalarKind.Should().Be(BaseScalarKind.RecordId);
+        generatedField.ScalarCodec.Should().BeEquivalentTo(manualField.ScalarCodec);
+        generatedField.ScalarConstraints.Should().BeEquivalentTo(manualField.ScalarConstraints);
+        generatedField.ScalarConstraintChecksum.Should().Be(manualField.ScalarConstraintChecksum);
     }
 
     [Fact]
@@ -86,16 +147,17 @@ public sealed class BaseRecordIdTests
             await using ServiceProvider provider = services.BuildServiceProvider();
             IBaseSchemaManager schemas = provider.GetRequiredService<IBaseSchemaManager>();
             BaseSchemaPlan plan = (await schemas.PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite" })).Value!;
-            (await schemas.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = plan.ProtectedArtifact })).IsSuccess().Should().BeTrue();
+            OperationResult<BaseSchemaApplyResult> applied = await schemas.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = plan.ProtectedArtifact });
+            applied.IsSuccess().Should().BeTrue(applied.Error?.Code + ":" + applied.Error?.Message);
             (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
             var principal = new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.Authenticated, SubjectId = "include-user" };
             BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(principal);
             var ownerId = BaseRecordId<TypedIdOwner>.Create("owner_1");
-            BaseResult<BaseRecord<TypedIdDocument>> unavailable = await session.Collection(TypedIdDocument.Collection).CreateAsync(new RecordId("document_1"), new TypedIdDocument { OwnerId = ownerId });
+            BaseResult<BaseRecord<TypedIdDocument>> unavailable = await session.Collection(TypedIdDocument.Collection).CreateAsync(RecordId.Create("document_1"), new TypedIdDocument { OwnerId = ownerId });
             unavailable.Should().BeOfType<BaseFailure<BaseRecord<TypedIdDocument>>>().Which.Error.Code.Should().Be("base.relation.targetUnavailable");
             BaseResult<BaseRecord<TypedIdOwner>> ownerCreated = await session.Collection(TypedIdOwner.Collection).CreateAsync(ownerId.Value, new TypedIdOwner { Name = "Owner" });
             ownerCreated.Should().BeOfType<BaseSuccess<BaseRecord<TypedIdOwner>>>(ownerCreated is BaseFailure<BaseRecord<TypedIdOwner>> failure ? failure.Error.Code : "unexpected result");
-            (await session.Collection(TypedIdDocument.Collection).CreateAsync(new RecordId("document_1"), new TypedIdDocument { OwnerId = ownerId })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdDocument>>>();
+            (await session.Collection(TypedIdDocument.Collection).CreateAsync(RecordId.Create("document_1"), new TypedIdDocument { OwnerId = ownerId })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdDocument>>>();
 
             OperationResult<RecordPage> result = await provider.GetRequiredService<IBaseRecordRuntime>().ListAsync(
                 TypedIdDocument.Collection.Id,
@@ -130,7 +192,7 @@ public sealed class BaseRecordIdTests
         BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(principal);
         var ownerId = BaseRecordId<TypedIdOwner>.Create("owner_1");
         (await session.Collection(TypedIdOwner.Collection).CreateAsync(ownerId.Value, new TypedIdOwner { Name = "Owner" })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdOwner>>>();
-        (await session.Collection(TypedIdDocument.Collection).CreateAsync(new RecordId("document_1"), new TypedIdDocument { OwnerId = ownerId })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdDocument>>>();
+        (await session.Collection(TypedIdDocument.Collection).CreateAsync(RecordId.Create("document_1"), new TypedIdDocument { OwnerId = ownerId })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdDocument>>>();
 
         OperationResult<RecordPage> result = await provider.GetRequiredService<IBaseRecordRuntime>().ListAsync(
             TypedIdDocument.Collection.Id,
@@ -155,7 +217,7 @@ public sealed class BaseRecordIdTests
         {
             var ownerId = BaseRecordId<TypedIdOwner>.Create("owner_" + suffix);
             (await session.Collection(TypedIdOwner.Collection).CreateAsync(ownerId.Value, new TypedIdOwner { Name = "Owner " + suffix })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdOwner>>>();
-            (await session.Collection(TypedIdDocument.Collection).CreateAsync(new RecordId("document_" + suffix), new TypedIdDocument { OwnerId = ownerId })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdDocument>>>();
+            (await session.Collection(TypedIdDocument.Collection).CreateAsync(RecordId.Create("document_" + suffix), new TypedIdDocument { OwnerId = ownerId })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdDocument>>>();
         }
         RecordInclude[] plan =
         [
@@ -201,11 +263,11 @@ public sealed class BaseRecordIdTests
         BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.Authenticated, SubjectId = "relation-user" });
         var ownerId = BaseRecordId<TypedIdOwner>.Create("owner_1");
 
-        BaseResult<BaseRecord<TypedIdDocument>> unavailable = await session.Collection(TypedIdDocument.Collection).CreateAsync(new RecordId("document_1"), new TypedIdDocument { OwnerId = ownerId });
+        BaseResult<BaseRecord<TypedIdDocument>> unavailable = await session.Collection(TypedIdDocument.Collection).CreateAsync(RecordId.Create("document_1"), new TypedIdDocument { OwnerId = ownerId });
         unavailable.Should().BeOfType<BaseFailure<BaseRecord<TypedIdDocument>>>().Which.Error.Code.Should().Be("base.relation.targetUnavailable");
 
         (await session.Collection(TypedIdOwner.Collection).CreateAsync(ownerId.Value, new TypedIdOwner { Name = "Owner" })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdOwner>>>();
-        (await session.Collection(TypedIdDocument.Collection).CreateAsync(new RecordId("document_1"), new TypedIdDocument { OwnerId = ownerId })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdDocument>>>();
+        (await session.Collection(TypedIdDocument.Collection).CreateAsync(RecordId.Create("document_1"), new TypedIdDocument { OwnerId = ownerId })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdDocument>>>();
 
         BaseResult<DeleteResult> restricted = await session.Collection(TypedIdOwner.Collection).DeleteAsync(ownerId.Value);
         restricted.Should().BeOfType<BaseFailure<DeleteResult>>().Which.Error.Code.Should().Be("base.relation.deleteRestricted");
@@ -222,7 +284,7 @@ public sealed class BaseRecordIdTests
         var ownerId = BaseRecordId<TypedIdOwner>.Create("owner_1");
         BaseBatchBuilder batch = session.Atomic();
         batch.Create(TypedIdOwner.Collection, ownerId.Value, new TypedIdOwner { Name = "Owner" });
-        batch.Create(TypedIdDocument.Collection, new RecordId("document_1"), new TypedIdDocument { OwnerId = ownerId });
+        batch.Create(TypedIdDocument.Collection, RecordId.Create("document_1"), new TypedIdDocument { OwnerId = ownerId });
 
         BaseResult<BaseBatchResult> result = await batch.CommitAsync();
 
@@ -248,9 +310,9 @@ public sealed class BaseRecordIdTests
             BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("request_1"u8)));
 
         BaseBatchBuilder first = session.Atomic(identity);
-        first.Create(TypedIdOwner.Collection, new RecordId("owner_1"), new TypedIdOwner { Name = "Owner" });
+        first.Create(TypedIdOwner.Collection, RecordId.Create("owner_1"), new TypedIdOwner { Name = "Owner" });
         BaseBatchBuilder retry = session.Atomic(identity);
-        retry.Create(TypedIdOwner.Collection, new RecordId("owner_1"), new TypedIdOwner { Name = "Owner" });
+        retry.Create(TypedIdOwner.Collection, RecordId.Create("owner_1"), new TypedIdOwner { Name = "Owner" });
 
         BaseSuccess<BaseBatchResult> committed = (BaseSuccess<BaseBatchResult>)await first.CommitAsync();
         BaseSuccess<BaseBatchResult> duplicate = (BaseSuccess<BaseBatchResult>)await retry.CommitAsync();
@@ -261,7 +323,7 @@ public sealed class BaseRecordIdTests
         observer.Count.Should().Be(1);
 
         BaseBatchBuilder structuralConflict = session.Atomic(identity);
-        structuralConflict.Create(TypedIdOwner.Collection, new RecordId("owner_2"), new TypedIdOwner { Name = "Different" });
+        structuralConflict.Create(TypedIdOwner.Collection, RecordId.Create("owner_2"), new TypedIdOwner { Name = "Different" });
         ((BaseFailure<BaseBatchResult>)await structuralConflict.CommitAsync()).Error.Code
             .Should().Be(BaseMutationRequestErrorCodes.FingerprintConflict);
 
@@ -269,7 +331,7 @@ public sealed class BaseRecordIdTests
             "tenant_1", "create-owner", "request_1",
             BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("different"u8)));
         BaseBatchBuilder conflict = session.Atomic(conflictingIdentity);
-        conflict.Create(TypedIdOwner.Collection, new RecordId("owner_2"), new TypedIdOwner { Name = "Different" });
+        conflict.Create(TypedIdOwner.Collection, RecordId.Create("owner_2"), new TypedIdOwner { Name = "Different" });
         BaseFailure<BaseBatchResult> conflictResult = (BaseFailure<BaseBatchResult>)await conflict.CommitAsync();
         conflictResult.Error.Code.Should().Be(BaseMutationRequestErrorCodes.FingerprintConflict);
     }
@@ -315,11 +377,11 @@ public sealed class BaseRecordIdTests
             SubjectId = "receipt-user",
         });
         BaseBatchBuilder oversized = session.Atomic(identity);
-        oversized.Create(TypedIdOwner.Collection, new RecordId("owner_1"), new TypedIdOwner { Name = new string('x', 8_192) });
+        oversized.Create(TypedIdOwner.Collection, RecordId.Create("owner_1"), new TypedIdOwner { Name = new string('x', 8_192) });
 
         BaseFailure<BaseBatchResult> rejected = (BaseFailure<BaseBatchResult>)await oversized.CommitAsync();
         BaseBatchBuilder retry = session.Atomic(identity);
-        retry.Create(TypedIdOwner.Collection, new RecordId("owner_1"), new TypedIdOwner { Name = "Owner" });
+        retry.Create(TypedIdOwner.Collection, RecordId.Create("owner_1"), new TypedIdOwner { Name = "Owner" });
         BaseSuccess<BaseBatchResult> committed = (BaseSuccess<BaseBatchResult>)await retry.CommitAsync();
 
         rejected.Error.Code.Should().Be(BaseMutationRequestErrorCodes.ReceiptTooLarge);
@@ -346,7 +408,7 @@ public sealed class BaseRecordIdTests
         BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create(
             "tenant_1", "create-owner", "request_1", fingerprint);
         BaseBatchBuilder initial = session.Atomic(identity);
-        initial.Create(TypedIdOwner.Collection, new RecordId("owner_1"), new TypedIdOwner { Name = "Owner" });
+        initial.Create(TypedIdOwner.Collection, RecordId.Create("owner_1"), new TypedIdOwner { Name = "Owner" });
         (await initial.CommitAsync()).Should().BeOfType<BaseSuccess<BaseBatchResult>>();
 
         policy.Allow = false;
@@ -356,12 +418,12 @@ public sealed class BaseRecordIdTests
             SubjectId = "denied-receipt-user",
         });
         BaseBatchBuilder matching = deniedSession.Atomic(identity);
-        matching.Create(TypedIdOwner.Collection, new RecordId("owner_1"), new TypedIdOwner { Name = "Owner" });
+        matching.Create(TypedIdOwner.Collection, RecordId.Create("owner_1"), new TypedIdOwner { Name = "Owner" });
         BaseMutationRequestIdentity differentFingerprint = BaseMutationRequestIdentity.Create(
             "tenant_1", "create-owner", "request_1",
             BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("different"u8)));
         BaseBatchBuilder conflicting = deniedSession.Atomic(differentFingerprint);
-        conflicting.Create(TypedIdOwner.Collection, new RecordId("owner_2"), new TypedIdOwner { Name = "Different" });
+        conflicting.Create(TypedIdOwner.Collection, RecordId.Create("owner_2"), new TypedIdOwner { Name = "Different" });
 
         BaseResult<BaseBatchResult> matchingResult = await matching.CommitAsync();
         policy.DenyCalls.Should().BeGreaterThan(0);
@@ -465,7 +527,7 @@ public sealed class BaseRecordIdTests
                 SubjectId = "receipt-user",
             });
             BaseBatchBuilder oversized = session.Atomic(identity);
-            oversized.Create(TypedIdOwner.Collection, new RecordId("owner_1"), new TypedIdOwner { Name = new string('x', 8_192) });
+            oversized.Create(TypedIdOwner.Collection, RecordId.Create("owner_1"), new TypedIdOwner { Name = new string('x', 8_192) });
 
             BaseFailure<BaseBatchResult> rejected = (BaseFailure<BaseBatchResult>)await oversized.CommitAsync();
             BaseSuccess<BaseBatchResult> committed = (BaseSuccess<BaseBatchResult>)await ReceiptBatch(provider, identity).CommitAsync();
@@ -508,7 +570,7 @@ public sealed class BaseRecordIdTests
             SubjectId = "receipt-user",
         });
         BaseBatchBuilder batch = session.Atomic(identity);
-        batch.Create(TypedIdOwner.Collection, new RecordId("owner_1"), new TypedIdOwner { Name = "Owner" });
+        batch.Create(TypedIdOwner.Collection, RecordId.Create("owner_1"), new TypedIdOwner { Name = "Owner" });
         return batch;
     }
 
@@ -530,10 +592,10 @@ public sealed class BaseRecordIdTests
         var ownerId = BaseRecordId<TypedIdOwner>.Create("owner_1");
         (await session.Collection(TypedIdOwner.Collection).CreateAsync(ownerId.Value, new TypedIdOwner { Name = "Owner" })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdOwner>>>();
 
-        BaseResult<BaseRecord<TypedIdDocument>> denied = await session.Collection(TypedIdDocument.Collection).CreateAsync(new RecordId("document_1"), new TypedIdDocument { OwnerId = ownerId });
+        BaseResult<BaseRecord<TypedIdDocument>> denied = await session.Collection(TypedIdDocument.Collection).CreateAsync(RecordId.Create("document_1"), new TypedIdDocument { OwnerId = ownerId });
 
         denied.Should().BeOfType<BaseFailure<BaseRecord<TypedIdDocument>>>().Which.Error.Code.Should().Be("base.relation.targetUnavailable");
-        (await session.Collection(TypedIdDocument.Collection).GetAsync(new RecordId("document_1"))).Should().BeOfType<BaseFailure<BaseRecord<TypedIdDocument>>>();
+        (await session.Collection(TypedIdDocument.Collection).GetAsync(RecordId.Create("document_1"))).Should().BeOfType<BaseFailure<BaseRecord<TypedIdDocument>>>();
     }
 
     [Fact]
@@ -551,10 +613,10 @@ public sealed class BaseRecordIdTests
         var ownerId = BaseRecordId<TypedIdOwner>.Create("owner_1");
         (await session.Collection(TypedIdOwner.Collection).CreateAsync(ownerId.Value, new TypedIdOwner { Name = "Owner" })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdOwner>>>();
 
-        BaseResult<BaseRecord<TypedIdDocument>> timedOut = await session.Collection(TypedIdDocument.Collection).CreateAsync(new RecordId("document_1"), new TypedIdDocument { OwnerId = ownerId });
+        BaseResult<BaseRecord<TypedIdDocument>> timedOut = await session.Collection(TypedIdDocument.Collection).CreateAsync(RecordId.Create("document_1"), new TypedIdDocument { OwnerId = ownerId });
 
         timedOut.Should().BeOfType<BaseFailure<BaseRecord<TypedIdDocument>>>().Which.Error.Code.Should().Be("base.relation.policyTimeout");
-        (await session.Collection(TypedIdDocument.Collection).GetAsync(new RecordId("document_1"))).Should().BeOfType<BaseFailure<BaseRecord<TypedIdDocument>>>();
+        (await session.Collection(TypedIdDocument.Collection).GetAsync(RecordId.Create("document_1"))).Should().BeOfType<BaseFailure<BaseRecord<TypedIdDocument>>>();
     }
 
     [Fact]
@@ -578,7 +640,7 @@ public sealed class BaseRecordIdTests
             (await session.Collection(TypedIdOwner.Collection).CreateAsync(id.Value, new TypedIdOwner { Name = name })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdOwner>>>();
 
         BaseResult<BaseRecord<TypedIdManyDocument>> created = await session.Collection(TypedIdManyDocument.Collection).CreateAsync(
-            new RecordId("ordered"), new TypedIdManyDocument { Members = [second, first] });
+            RecordId.Create("ordered"), new TypedIdManyDocument { Members = [second, first] });
         created.Should().BeOfType<BaseSuccess<BaseRecord<TypedIdManyDocument>>>();
         OperationResult<RecordPage> listed = await provider.GetRequiredService<IBaseRecordRuntime>().ListAsync(
             TypedIdManyDocument.Collection.Id,
@@ -593,13 +655,13 @@ public sealed class BaseRecordIdTests
             .Should().Equal("owner_2", "owner_1");
 
         BaseResult<BaseRecord<TypedIdManyDocument>> duplicate = await session.Collection(TypedIdManyDocument.Collection).CreateAsync(
-            new RecordId("duplicate"), new TypedIdManyDocument { Members = [first, first] });
+            RecordId.Create("duplicate"), new TypedIdManyDocument { Members = [first, first] });
         duplicate.Should().BeOfType<BaseFailure<BaseRecord<TypedIdManyDocument>>>().Which.Error.Code.Should().Be("base.relation.cardinalityInvalid");
         BaseResult<BaseRecord<TypedIdManyDocument>> tooMany = await session.Collection(TypedIdManyDocument.Collection).CreateAsync(
-            new RecordId("too-many"), new TypedIdManyDocument { Members = [first, second, third] });
+            RecordId.Create("too-many"), new TypedIdManyDocument { Members = [first, second, third] });
         tooMany.Should().BeOfType<BaseFailure<BaseRecord<TypedIdManyDocument>>>().Which.Error.Code.Should().Be("base.relation.cardinalityInvalid");
         BaseResult<BaseRecord<TypedIdManyDocument>> tooFew = await session.Collection(TypedIdManyDocument.Collection).CreateAsync(
-            new RecordId("too-few"), new TypedIdManyDocument { Members = [] });
+            RecordId.Create("too-few"), new TypedIdManyDocument { Members = [] });
         tooFew.Should().BeOfType<BaseFailure<BaseRecord<TypedIdManyDocument>>>().Which.Error.Code.Should().Be("base.relation.cardinalityInvalid");
 
         OperationResult<RecordPage> shaped = await provider.GetRequiredService<IBaseRecordRuntime>().ListAsync(
@@ -674,8 +736,8 @@ public sealed class BaseRecordIdTests
             var second = BaseRecordId<TypedIdOwner>.Create("owner_2");
             (await session.Collection(TypedIdOwner.Collection).CreateAsync(first.Value, new TypedIdOwner { Name = "First" })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdOwner>>>();
             (await session.Collection(TypedIdOwner.Collection).CreateAsync(second.Value, new TypedIdOwner { Name = "Second" })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdOwner>>>();
-            (await session.Collection(TypedIdManyDocument.Collection).CreateAsync(new RecordId("document"), new TypedIdManyDocument { Members = [first, second] })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdManyDocument>>>();
-            (await session.Collection(TypedIdManyDocument.Collection).CreateAsync(new RecordId("document-2"), new TypedIdManyDocument { Members = [second] })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdManyDocument>>>();
+            (await session.Collection(TypedIdManyDocument.Collection).CreateAsync(RecordId.Create("document"), new TypedIdManyDocument { Members = [first, second] })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdManyDocument>>>();
+            (await session.Collection(TypedIdManyDocument.Collection).CreateAsync(RecordId.Create("document-2"), new TypedIdManyDocument { Members = [second] })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdManyDocument>>>();
 
             OperationResult<RecordPage> result = await provider.GetRequiredService<IBaseRecordRuntime>().ListAsync(
                 TypedIdManyDocument.Collection.Id,
@@ -724,7 +786,12 @@ public sealed class BaseRecordIdTests
         var store = new HostileIncludeStore();
         var services = new ServiceCollection().AddLogging();
                 services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>()
-            .ConfigureRelational(options => options.MaxIncludedRecords = 1)
+            .ConfigureRelational(options =>
+            {
+                options.MaxIncludedRecords = 1;
+                options.MaxRegisteredReadResultBytes = 16_777_216;
+                options.MaxIncludeResultBytes = 1_024;
+            })
             .AddCollection(TypedIdOwner.Collection)
             .AddCollection(TypedIdManyDocument.Collection)
             .UseStore(TestStoreProvider.Create(store)));
@@ -742,6 +809,21 @@ public sealed class BaseRecordIdTests
             [new() { CollectionId = TypedIdManyDocument.Collection.Id }, new() { CollectionId = TypedIdOwner.Collection.Id }]);
         OperationResult<RecordPage> oversized = await ExecuteAsync();
         Assert.Equal("base.include.limitExceeded", oversized.Error!.Code);
+
+        store.Response = Response([Child("one") with
+        {
+            Payload = new RecordPayload
+            {
+                Kind = RecordPayloadKind.FieldMap,
+                Fields = new Dictionary<string, JsonElement>
+                {
+                    ["name"] = JsonSerializer.SerializeToElement(new string('x', 2_000)),
+                },
+            },
+        }], [new() { CollectionId = TypedIdManyDocument.Collection.Id }, new() { CollectionId = TypedIdOwner.Collection.Id }]);
+        OperationResult<RecordPage> includeBytes = await ExecuteAsync();
+        includeBytes.Error!.Code.Should().Be("base.include.limitExceeded",
+            "the raised registered-read ceiling must not widen include capacity");
 
         store.Response = Response([Child("one")],
             [new() { CollectionId = TypedIdManyDocument.Collection.Id }, new() { CollectionId = "unknown" }]);
@@ -792,7 +874,7 @@ public sealed class BaseRecordIdTests
             new OperationContext { Operation = BaseOperationKind.List, CollectionId = TypedIdManyDocument.Collection.Id });
         static RecordEnvelope Child(string id) => new()
         {
-            CollectionId = TypedIdOwner.Collection.Id, Id = new RecordId(id),
+            CollectionId = TypedIdOwner.Collection.Id, Id = RecordId.Create(id),
             Payload = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = [] }, Metadata = new RecordMetadata(),
         };
         static RecordIncludeExecutionResult Response(RecordEnvelope[] children, BaseReadDependencyEvidence[] evidence) => new()
@@ -801,7 +883,7 @@ public sealed class BaseRecordIdTests
             {
                 Items = [new RecordEnvelope
                 {
-                    CollectionId = TypedIdManyDocument.Collection.Id, Id = new RecordId("root"),
+                    CollectionId = TypedIdManyDocument.Collection.Id, Id = RecordId.Create("root"),
                     Payload = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = [] }, Metadata = new RecordMetadata(),
                     Includes = [new RecordIncludeResult { NavigationId = "typed-id-many-document.members", Kind = RecordIncludeKind.Many, Records = children }],
                 }],
@@ -841,8 +923,8 @@ public sealed class BaseRecordIdTests
         BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(principal);
         BaseRecordId<TypedIdOwner> owner = BaseRecordId<TypedIdOwner>.Create("secret-owner");
         (await session.Collection(TypedIdOwner.Collection).CreateAsync(owner.Value, new TypedIdOwner { Name = "Secret" })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdOwner>>>();
-        (await session.Collection(TypedIdDocument.Collection).CreateAsync(new RecordId("document"), new TypedIdDocument { OwnerId = owner })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdDocument>>>();
-        (await session.Collection(TypedIdManyDocument.Collection).CreateAsync(new RecordId("many-document"), new TypedIdManyDocument { Members = [owner] })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdManyDocument>>>();
+        (await session.Collection(TypedIdDocument.Collection).CreateAsync(RecordId.Create("document"), new TypedIdDocument { OwnerId = owner })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdDocument>>>();
+        (await session.Collection(TypedIdManyDocument.Collection).CreateAsync(RecordId.Create("many-document"), new TypedIdManyDocument { Members = [owner] })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdManyDocument>>>();
 
         OperationResult<RecordPage> result = await provider.GetRequiredService<IBaseRecordRuntime>().ListAsync(
             TypedIdDocument.Collection.Id,
@@ -921,7 +1003,7 @@ public sealed class BaseRecordIdTests
             BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(principal);
             BaseRecordId<TypedIdOwner> owner = BaseRecordId<TypedIdOwner>.Create("owner");
             (await session.Collection(TypedIdOwner.Collection).CreateAsync(owner.Value, new TypedIdOwner { Name = "Secret" })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdOwner>>>();
-            (await session.Collection(TypedIdDocument.Collection).CreateAsync(new RecordId("document"), new TypedIdDocument { OwnerId = owner })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdDocument>>>();
+            (await session.Collection(TypedIdDocument.Collection).CreateAsync(RecordId.Create("document"), new TypedIdDocument { OwnerId = owner })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdDocument>>>();
 
             OperationResult<RecordPage> result = await provider.GetRequiredService<IBaseRecordRuntime>().ListAsync(
                 TypedIdDocument.Collection.Id,
@@ -989,7 +1071,7 @@ public sealed class BaseRecordIdTests
             BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(administrator);
             BaseRecordId<TypedIdOwner> ownerId = BaseRecordId<TypedIdOwner>.Create("owner-hidden");
             (await session.Collection(hiddenOwner).CreateAsync(ownerId.Value, new TypedIdOwner { Name = "must-not-leak" })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdOwner>>>();
-            (await session.Collection(TypedIdDocument.Collection).CreateAsync(new RecordId("document"), new TypedIdDocument { OwnerId = ownerId })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdDocument>>>();
+            (await session.Collection(TypedIdDocument.Collection).CreateAsync(RecordId.Create("document"), new TypedIdDocument { OwnerId = ownerId })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdDocument>>>();
 
             OperationResult<RecordPage> result = await provider.GetRequiredService<IBaseRecordRuntime>().ListAsync(
                 TypedIdDocument.Collection.Id,
@@ -1056,8 +1138,8 @@ public sealed class BaseRecordIdTests
         BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(administrator);
         BaseRecordId<TypedIdOwner> owner = BaseRecordId<TypedIdOwner>.Create("owner");
         (await session.Collection(TypedIdOwner.Collection).CreateAsync(owner.Value, new TypedIdOwner { Name = "Owner" })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdOwner>>>();
-        (await session.Collection(hiddenDocument).CreateAsync(new RecordId("hidden-document"), new TypedIdDocument { OwnerId = owner })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdDocument>>>();
-        (await session.Collection(TypedIdManyDocument.Collection).CreateAsync(new RecordId("root"), new TypedIdManyDocument { Members = [owner] })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdManyDocument>>>();
+        (await session.Collection(hiddenDocument).CreateAsync(RecordId.Create("hidden-document"), new TypedIdDocument { OwnerId = owner })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdDocument>>>();
+        (await session.Collection(TypedIdManyDocument.Collection).CreateAsync(RecordId.Create("root"), new TypedIdManyDocument { Members = [owner] })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdManyDocument>>>();
 
         PrincipalContext principal = new() { AuthenticationState = PrincipalAuthenticationState.Authenticated, SubjectId = "inverse-user" };
         OperationResult<RecordPage> result = await provider.GetRequiredService<IBaseRecordRuntime>().ListAsync(
@@ -1178,12 +1260,14 @@ internal sealed class HangingRelationTargetPolicyEvaluator : IPolicyEvaluator
 internal sealed class DenyOwnerIncludePolicyEvaluator : IPolicyEvaluator
 {
     public ValueTask<PolicyDecision> EvaluateAsync(PolicyEvaluationRequest request, CancellationToken cancellationToken = default) =>
-        ValueTask.FromResult(request.Collection.Id == TypedIdOwner.Collection.Id && request.Resource.Kind == PolicyResourceKind.Query
+        ValueTask.FromResult(request.Collection?.Id == TypedIdOwner.Collection.Id && request.Resource.Kind == PolicyResourceKind.Query
             ? PolicyDecision.Deny("secret.policy.code", "secret policy message")
             : PolicyDecision.Allow());
 }
 
 [BaseCollection("typed-id-documents", typeof(TypedIdJsonContext))]
+[BaseIndex("typed-id-document.by-owner", StoreRequired = false)]
+[BaseIndexPart("typed-id-document.by-owner", 0, nameof(TypedIdDocument.OwnerId))]
 internal sealed partial record TypedIdDocument
 {
     [BaseField("typed-id-document.owner")]

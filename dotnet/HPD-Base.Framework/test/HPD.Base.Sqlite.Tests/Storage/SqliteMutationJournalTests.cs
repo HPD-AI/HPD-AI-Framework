@@ -17,7 +17,7 @@ public sealed class SqliteMutationJournalTests
     {
         await using var store = CreateStore();
         var collection = Collection();
-        var id = new RecordId("one");
+        var id = RecordId.Create("one");
 
         var create = await store.CreateAsync(
             collection,
@@ -72,7 +72,7 @@ public sealed class SqliteMutationJournalTests
     {
         await using var store = CreateStore();
         var collection = Collection();
-        var id = new RecordId("one");
+        var id = RecordId.Create("one");
         await store.CreateAsync(
             collection,
             new RecordCreateRequest { RequestedId = id, Payload = Payload("created") },
@@ -99,7 +99,7 @@ public sealed class SqliteMutationJournalTests
                 collection,
                 new RecordCreateRequest
                 {
-                    RequestedId = new RecordId($"record-{index}"),
+                    RequestedId = RecordId.Create($"record-{index}"),
                     Payload = Payload($"value-{index}")
                 },
                 Operation(BaseOperationKind.Create, index));
@@ -131,7 +131,7 @@ public sealed class SqliteMutationJournalTests
                 collection,
                 new RecordCreateRequest
                 {
-                    RequestedId = new RecordId($"record-{index}"),
+                    RequestedId = RecordId.Create($"record-{index}"),
                     Payload = Payload($"value-{index}")
                 },
                 Operation(BaseOperationKind.Create, index));
@@ -164,7 +164,7 @@ public sealed class SqliteMutationJournalTests
                 Collection(),
                 new RecordCreateRequest
                 {
-                    RequestedId = new RecordId("old"),
+                    RequestedId = RecordId.Create("old"),
                     Payload = Payload("old")
                 },
                 Operation(BaseOperationKind.Create, 1));
@@ -215,7 +215,7 @@ public sealed class SqliteMutationJournalTests
     {
         await using var store = CreateStore();
         var collection = Collection();
-        var id = new RecordId("one");
+        var id = RecordId.Create("one");
         await store.CreateAsync(
             collection,
             new RecordCreateRequest { RequestedId = id, Payload = Payload("created") },
@@ -246,7 +246,7 @@ public sealed class SqliteMutationJournalTests
             Collection(),
             new RecordCreateRequest
             {
-                RequestedId = new RecordId("cancelled"),
+                RequestedId = RecordId.Create("cancelled"),
                 Payload = Payload("cancelled")
             },
             Operation(BaseOperationKind.Create, 1),
@@ -267,7 +267,7 @@ public sealed class SqliteMutationJournalTests
                 collection,
                 new RecordCreateRequest
                 {
-                    RequestedId = new RecordId($"concurrent-{index}"),
+                    RequestedId = RecordId.Create($"concurrent-{index}"),
                     Payload = Payload($"value-{index}")
                 },
                 Operation(BaseOperationKind.Create, index)).AsTask()));

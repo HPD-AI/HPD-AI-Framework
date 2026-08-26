@@ -17,6 +17,7 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
     private const string ReadAttribute = "HPD.Base.BaseReadAttribute";
     private const string ExportedSubjectAttribute = "HPD.Base.BaseExportedSubjectAttribute";
     private const string ModuleMutationAttribute = "HPD.Base.BaseRegisteredModuleMutationAttribute";
+    private const string BaseFieldAttribute = "HPD.Base.BaseFieldAttribute";
     private const string JsonOptionsAttribute = "System.Text.Json.Serialization.JsonSourceGenerationOptionsAttribute";
     private const string JsonIgnoreAttribute = "System.Text.Json.Serialization.JsonIgnoreAttribute";
     private const string JsonConverterAttribute = "System.Text.Json.Serialization.JsonConverterAttribute";
@@ -141,8 +142,10 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
                     defects.Add(new ContextValidationDefect(diagnostic.Id, option.Key, Normalize(option.Value)));
                 }
             }
+            bool omitOptionalNonNullableNulls = options is not null && options.NamedArguments.Any(static option =>
+                option.Key == "DefaultIgnoreCondition" && TryInt64(option.Value, out long selected) && selected == 3);
             ContextUnionGraphResult unionGraph = defects.Count == 0
-                ? ValidateUnionGraph(context, serializerContext, pair.Value, contextIdentity, defects)
+                ? ValidateUnionGraph(context, serializerContext, pair.Value, contextIdentity, defects, omitOptionalNonNullableNulls)
                 : ContextUnionGraphResult.Empty;
             results.Add(serializerContext, new ContextValidationResult(
                 serializerContext,
@@ -275,7 +278,8 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
             "IgnoreReadOnlyProperties" or "WriteIndented" or "AllowDuplicateProperties" or
             "AllowOutOfOrderMetadataProperties" or "AllowTrailingCommas" or
             "PropertyNameCaseInsensitive") return selected == 0;
-        if (name is "NumberHandling" or "DefaultIgnoreCondition" or "DictionaryKeyPolicy" or
+        if (name == "DefaultIgnoreCondition") return selected is 0 or 3;
+        if (name is "NumberHandling" or "DictionaryKeyPolicy" or
             "PreferredObjectCreationHandling" or "ReadCommentHandling" or "ReferenceHandler" or
             "UnknownTypeHandling" or "NewLine") return selected == 0;
         if (name == "UnmappedMemberHandling") return selected == 1;
@@ -362,7 +366,8 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
         INamedTypeSymbol serializerContext,
         HashSet<INamedTypeSymbol> owners,
         string contextIdentity,
-        ImmutableArray<ContextValidationDefect>.Builder defects)
+        ImmutableArray<ContextValidationDefect>.Builder defects,
+        bool omitOptionalNonNullableNulls)
     {
         var graphRoots = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
         foreach (INamedTypeSymbol owner in owners)
@@ -500,28 +505,53 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
                     Unsupported(property, "active properties require public getters and setters without extension data or JsonInclude");
                     continue;
                 }
+                if (omitOptionalNonNullableNulls && IsNullable(property))
+                {
+                    AttributeData field = Find(property, BaseFieldAttribute);
+                    bool optionalNonNullable = field is not null &&
+                        NamedInt64(field, "Presence", -1) == 1 &&
+                        NamedInt64(field, "Nullability", -1) == 0;
+                    if (!optionalNonNullable)
+                    {
+                        Unsupported(property, "DefaultIgnoreCondition.WhenWritingNull requires every nullable authoritative member to declare BaseField Presence=Optional and Nullability=NonNullable");
+                        continue;
+                    }
+                }
                 string converterIdentity = "stj-built-in";
                 string converterType = null;
                 AttributeData converterAttribute = Find(property, JsonConverterAttribute);
                 if (converterAttribute is not null)
                 {
                     INamedTypeSymbol converter = ConstructorType(converterAttribute, 0);
+                    ITypeSymbol converterTarget = property.Type is INamedTypeSymbol nullableProperty &&
+                        nullableProperty.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T
+                            ? nullableProperty.TypeArguments[0]
+                            : property.Type;
                     bool closedEnum = converter is { IsGenericType: true } &&
                         converter.ConstructedFrom.ToDisplayString() == "HPD.Base.BaseClosedEnumJsonConverter<TEnum>" &&
-                        property.Type.TypeKind == TypeKind.Enum &&
-                        SymbolEqualityComparer.Default.Equals(converter.TypeArguments[0], property.Type);
+                        converterTarget.TypeKind == TypeKind.Enum &&
+                        SymbolEqualityComparer.Default.Equals(converter.TypeArguments[0], converterTarget);
                     bool utcDateTime = converter?.ToDisplayString() == "HPD.Base.BaseUtcDateTimeJsonConverter" &&
                         (property.Type.ToDisplayString() == "System.DateTimeOffset" || property.Type is INamedTypeSymbol nullableInstant && nullableInstant.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T && nullableInstant.TypeArguments[0].ToDisplayString() == "System.DateTimeOffset");
+                    bool canonicalGuid = converter?.ToDisplayString() == "HPD.Base.BaseCanonicalGuidJsonConverter"
+                        && property.Type.ToDisplayString() == "System.Guid";
+                    bool canonicalNullableGuid = converter?.ToDisplayString() == "HPD.Base.BaseCanonicalNullableGuidJsonConverter"
+                        && property.Type is INamedTypeSymbol nullableGuid
+                        && nullableGuid.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T
+                        && nullableGuid.TypeArguments[0].ToDisplayString() == "System.Guid";
                     AttributeData contract = converter is null ? null : Find(converter, BaseSerializerConverterAttribute);
                     string contractId = ConstructorString(contract, 0);
                     int version = contract?.ConstructorArguments.Length > 1 && contract.ConstructorArguments[1].Value is int selected ? selected : 0;
-                    if (!closedEnum && !utcDateTime && !ValidConverter(converter, contractId, version))
+                    if (!closedEnum && !utcDateTime && !canonicalGuid && !canonicalNullableGuid && !ValidConverter(converter, contractId, version))
                     {
                         Unsupported(property, "the explicit converter does not satisfy the closed converter contract");
                         continue;
                     }
-                    converterIdentity = utcDateTime ? "explicit:hpd.base.utc-date-time-json:1" : "explicit:" + contractId + ":" + version.ToString(CultureInfo.InvariantCulture) +
-                        (closedEnum ? ":" + property.Type.ToDisplayString() : string.Empty);
+                    converterIdentity = utcDateTime ? "explicit:hpd.base.utc-date-time-json:1" :
+                        canonicalGuid ? "explicit:hpd.base.canonical-guid-json:1" :
+                        canonicalNullableGuid ? "explicit:hpd.base.canonical-nullable-guid-json:1" :
+                        "explicit:" + contractId + ":" + version.ToString(CultureInfo.InvariantCulture) +
+                            (closedEnum ? ":" + property.Type.ToDisplayString() : string.Empty);
                     if (converterTypes.TryGetValue(converterIdentity, out INamedTypeSymbol existing) &&
                         !SymbolEqualityComparer.Default.Equals(existing, converter))
                     {
@@ -614,14 +644,14 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
         SpecialType.System_Int16 or SpecialType.System_UInt16 or SpecialType.System_Int32 or SpecialType.System_UInt32 or
         SpecialType.System_Int64 or SpecialType.System_UInt64 or SpecialType.System_Single or SpecialType.System_Double or
         SpecialType.System_Decimal || type.WithNullableAnnotation(NullableAnnotation.None).ToDisplayString() is "System.Guid" or "System.DateTime" or "System.DateTimeOffset" or
-        "HPD.Base.BaseBinary" or "HPD.Base.BaseVector" or "HPD.Base.RecordId" or "HPD.Base.BaseModuleGeneration" ||
+        "HPD.Base.BaseBinary" or "HPD.Base.BaseVector" or "HPD.Base.RecordId" or "HPD.Base.RevisionToken" or "HPD.Base.BaseModuleGeneration" ||
         type is INamedTypeSymbol named &&
         (BaseOwnedScalarConverter(named) || named.IsGenericType && named.ConstructedFrom.ToDisplayString() is
             "HPD.Base.BaseRecordId<TRecord>" or "HPD.Base.BaseSubjectReference<TSubject>");
 
     private static bool BaseOwnedScalarConverter(INamedTypeSymbol type) =>
-        type.Name == "BaseModuleGeneration" &&
-        type.ContainingNamespace.ToDisplayString() == "HPD.Base";
+        type.ContainingNamespace.ToDisplayString() == "HPD.Base" &&
+        type.Name is "BaseCanonicalJson" or "BaseModuleGeneration" or "RevisionToken";
 
     private static IEnumerable<IPropertySymbol> SerializableProperties(INamedTypeSymbol type)
     {

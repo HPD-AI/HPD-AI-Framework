@@ -10,6 +10,36 @@ namespace HPD.Base.Tests.Application.Serialization;
 
 public sealed partial class SerializerContractTests
 {
+    [Theory]
+    [InlineData("\"AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA\"")]
+    [InlineData("\"{aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa}\"")]
+    [InlineData("\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"")]
+    [InlineData("\" aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\"")]
+    [InlineData("1")]
+    public void Canonical_guid_converter_rejects_every_noncanonical_wire_form(string json)
+    {
+        var options = new JsonSerializerOptions();
+        options.Converters.Add(new BaseCanonicalGuidJsonConverter());
+
+        Action deserialize = () => JsonSerializer.Deserialize<Guid>(json, options);
+
+        deserialize.Should().Throw<JsonException>();
+    }
+
+    [Fact]
+    public void Canonical_guid_converters_round_trip_value_and_nullable_null()
+    {
+        Guid value = Guid.ParseExact("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "D");
+        var options = new JsonSerializerOptions();
+        options.Converters.Add(new BaseCanonicalGuidJsonConverter());
+        options.Converters.Add(new BaseCanonicalNullableGuidJsonConverter());
+
+        JsonSerializer.Serialize(value, options).Should().Be("\"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\"");
+        JsonSerializer.Deserialize<Guid>("\"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\"", options).Should().Be(value);
+        JsonSerializer.Deserialize<Guid?>("null", options).Should().BeNull();
+        JsonSerializer.Serialize<Guid?>(null, options).Should().Be("null");
+    }
+
     [Fact]
     public void ManualMetadataMustUseTheLockedOptionReceipt()
     {

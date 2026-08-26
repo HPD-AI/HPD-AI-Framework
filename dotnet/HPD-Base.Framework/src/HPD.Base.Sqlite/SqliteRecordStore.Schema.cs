@@ -941,7 +941,7 @@ INSERT OR IGNORE INTO {_names.ProviderState}(key,value) VALUES('subject_scope_pr
         foreach (CollectionDefinition collection in _options.Collections)
         {
             assets.Add(new SchemaAssetValue("c:" + collection.Id, collection.Name));
-            foreach (FieldDefinition field in collection.Fields ?? []) assets.Add(new SchemaAssetValue($"f:{collection.Id}:{field.Id}", string.Join('\u001f', field.WireName, field.Type, (int)field.Presence, (int)field.Nullability, field.ScalarKind is null ? "" : ((int)field.ScalarKind.Value).ToString(CultureInfo.InvariantCulture), field.ScalarCodec?.CodecChecksum.ToString() ?? "", field.ScalarConstraintChecksum?.ToString() ?? "")));
+            foreach (FieldDefinition field in collection.Fields ?? []) assets.Add(new SchemaAssetValue($"f:{collection.Id}:{field.Id}", string.Join('\u001f', field.WireName, field.Type, (int)field.Presence, (int)field.Nullability, field.ScalarKind is null ? "" : ((int)field.ScalarKind.Value).ToString(CultureInfo.InvariantCulture), field.ScalarCodec?.CodecChecksum.ToString() ?? "", field.ScalarConstraintChecksum?.ToString() ?? "", field.RecordTargetCollectionId ?? "")));
             foreach (RelationDefinition relation in (collection.Fields ?? []).Select(static field => field.Relation).Where(static relation => relation is not null).Cast<RelationDefinition>())
                 assets.Add(new SchemaAssetValue("r:" + relation.Id, string.Join('\u001f', relation.SourceCollectionId, relation.SourceFieldId, relation.TargetCollectionId, relation.TargetFieldId, relation.OwningSide, relation.LocalMultiplicity, relation.InverseMultiplicity, relation.Required, relation.Ordered, relation.DeleteBehavior)));
             FieldDefinition[] orderedFields = (collection.Fields ?? []).OrderBy(static field => field.Id, StringComparer.Ordinal).ToArray();
@@ -1049,7 +1049,7 @@ INSERT OR IGNORE INTO {_names.ProviderState}(key,value) VALUES('subject_scope_pr
                     SqlitePhysicalModel.FieldModel field = _physical.Collection(parts[1]).Fields.Single(item => item.Definition.Id == parts[2]);
                     if (field.PresenceColumn is null) throw new InvalidOperationException();
                     statements.Add($"ALTER TABLE {_physical.Collection(parts[1]).Table} ADD COLUMN {field.PresenceColumn} INTEGER NOT NULL DEFAULT 0 CHECK ({field.PresenceColumn} IN (0,1));");
-                    statements.Add($"ALTER TABLE {_physical.Collection(parts[1]).Table} ADD COLUMN {field.Column} {field.SqlType} NULL;");
+                    statements.Add($"ALTER TABLE {_physical.Collection(parts[1]).Table} ADD COLUMN {field.Column} {field.SqlType}{(field.Definition.ScalarKind == BaseScalarKind.RecordId ? " COLLATE BINARY" : "")} NULL;");
                     break;
                 }
                 case BaseSchemaOperationKind.RemoveField:

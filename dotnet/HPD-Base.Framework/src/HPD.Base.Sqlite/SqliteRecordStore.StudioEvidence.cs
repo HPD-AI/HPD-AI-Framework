@@ -122,7 +122,7 @@ public sealed partial class SqliteRecordStore : IBaseStudioEvidenceStore
                 var item = new BaseStudioRecordMutationEvidenceItem { Kind = BaseStudioEvidenceKind.RecordMutation,
                     OrderingTuple = BaseStudioEvidenceContract.Tuple(position), ObservedAtUtc = observed.ToUniversalTime(),
                     SemanticKind = Enum.IsDefined(typeof(BaseOperationKind), operation) ? Semantic((BaseOperationKind)operation) : BaseStudioEvidenceSemanticKind.Transition,
-                    CollectionId = collection, RecordId = new RecordId(recordId), Revision = null, EvidenceId = eventId, EvidenceChecksum = [] };
+                    CollectionId = collection, RecordId = RecordId.Create(recordId), Revision = null, EvidenceId = eventId, EvidenceChecksum = [] };
                 items.Add(item with { EvidenceChecksum = BaseStudioEvidenceContract.ItemChecksum(item) });
             }
             long rowsRead = items.Count; if (rowsRead > authority.Request.Limits.MaximumRowsRead)

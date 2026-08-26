@@ -244,7 +244,8 @@ public sealed partial class ActivationRuntimeTests
         OperationResult<BaseActivationReceiptResolution> disclosureDenied = await worker.ResolveReceiptAsync(
             session, registration.Definition,
             [BaseModuleDtoPropertyBinding.Create<Result, string>(
-                "test.result.value", "value", BaseFieldConfidentiality.Confidential, BaseRecordDisclosure.Omit)],
+                "test.result.value", "value", BaseGeneratedModuleScalarManifest.Primitive<string>(),
+                BaseFieldConfidentiality.Confidential, BaseRecordDisclosure.Omit)],
             completionIdentity, default);
         BaseActivationTransitionResult resolvedTransition = System.Text.Json.JsonSerializer.Deserialize(
             resolved.Value!.CanonicalResult.AsSpan(), HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult)!;
@@ -467,10 +468,10 @@ public sealed partial class ActivationRuntimeTests
         }, Json.Default.Input, Json.Default.Result, InputBindings(), ResultBindings(), static _ => new Handler());
 
     private static IReadOnlyList<BaseModuleDtoPropertyBinding> InputBindings() =>
-        [BaseModuleDtoPropertyBinding.Create<Input, string>("test.input.value", "value")];
+        [BaseModuleDtoPropertyBinding.Create<Input, string>("test.input.value", "value", BaseGeneratedModuleScalarManifest.Primitive<string>())];
 
     private static IReadOnlyList<BaseModuleDtoPropertyBinding> ResultBindings() =>
-        [BaseModuleDtoPropertyBinding.Create<Result, string>("test.result.value", "value")];
+        [BaseModuleDtoPropertyBinding.Create<Result, string>("test.result.value", "value", BaseGeneratedModuleScalarManifest.Primitive<string>())];
 
     private static BaseSession Session() => new(null!, TimeProvider.System,
         new PrincipalContext

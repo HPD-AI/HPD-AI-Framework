@@ -16,10 +16,10 @@ public abstract class RecordStoreRevisionConformanceTests<TFixture> : RecordStor
             Collection,
             new RecordCreateRequest
             {
-                RequestedId = new RecordId("revision-target"),
+                RequestedId = RecordId.Create("revision-target"),
                 Payload = RecordStoreConformanceData.Payload(("title", "old"))
             },
-            Operation(BaseOperationKind.Create, new RecordId("revision-target")));
+            Operation(BaseOperationKind.Create, RecordId.Create("revision-target")));
         RecordStoreConformanceAssertions.Success(create, OperationStatus.Created);
         Assert.NotNull(create.Value!.Metadata.Revision);
 

@@ -242,7 +242,7 @@ public sealed class DependencyReferenceTests
         {
             Kind = EventResourceKind.Record,
             CollectionId = "items",
-            RecordId = new RecordId("record-secret")
+            RecordId = RecordId.Create("record-secret")
         },
         Operation = BaseOperationKind.Create
     };

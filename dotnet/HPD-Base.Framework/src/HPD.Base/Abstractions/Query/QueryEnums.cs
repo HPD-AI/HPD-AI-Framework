@@ -38,7 +38,8 @@ Decimal, /// <summary>Identifies date time.</summary>
 DateTime, /// <summary>Identifies ID.</summary>
 Id, /// <summary>Identifies array.</summary>
 Array, /// <summary>Identifies one closed exported-subject reference projection.</summary>
-SubjectReference }
+SubjectReference, /// <summary>Identifies source-bound canonical JSON.</summary>
+CanonicalJson }
 /// <summary>Defines the query sort direction contract.</summary>
 public enum QuerySortDirection { /// <summary>Identifies asc.</summary>
 Asc, /// <summary>Identifies desc.</summary>

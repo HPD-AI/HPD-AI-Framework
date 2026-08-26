@@ -18,7 +18,7 @@ internal sealed class DefaultBaseSubjectLifecycleExporterRuntime(
 
     public async ValueTask<BaseResult<BaseSubjectLifecycleFact<TSubject>>> TombstoneAsync<TSubject>(BaseSession session, BaseGeneratedSubjectRegistration registration, BaseSubjectTombstoneRequest<TSubject> request, CancellationToken cancellationToken)
     {
-        OperationContext operation = session.Operation(BaseOperationKind.SubjectLifecycleTombstone, registration.Definition.Id, new RecordId(request.Subject.SubjectId.Value));
+        OperationContext operation = session.Operation(BaseOperationKind.SubjectLifecycleTombstone, registration.Definition.Id, RecordId.Create(request.Subject.SubjectId.Value));
         if (!await AuthorizedAsync(session, registration, operation, TombstoneGrant, cancellationToken).ConfigureAwait(false))
             return Failure<BaseSubjectLifecycleFact<TSubject>>(OperationStatus.PolicyDenied, BaseSubjectErrorCodes.LifecycleUnauthorized, ErrorCategory.Authorization);
         if (!TryCollection(registration, out CollectionDefinition? collection, out FieldDefinition? tombstone, out FieldDefinition? active))
@@ -30,7 +30,7 @@ internal sealed class DefaultBaseSubjectLifecycleExporterRuntime(
         OperationResult<BaseRecordBatchResult> execution = await ExecuteAsync(session, operation, request.Identity, new BaseRecordBatchItem
         {
             ItemId = "subject-lifecycle-tombstone", CollectionId = selectedCollection.Id, Kind = BaseRecordMutationKind.Patch,
-            RecordId = new RecordId(request.Subject.SubjectId.Value),
+            RecordId = RecordId.Create(request.Subject.SubjectId.Value),
             Patch = new RecordPatchRequest { Patch = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = fields }, ExpectedRevision = request.ExpectedPrivateRevision },
             OperationOverride = BaseOperationKind.SubjectLifecycleTombstone,
             SubjectLifecycleTransition = Transition(request.Subject, null, BaseSubjectLifecycleState.Tombstoned),
@@ -45,7 +45,7 @@ internal sealed class DefaultBaseSubjectLifecycleExporterRuntime(
 
     public async ValueTask<BaseResult<BaseSubjectFinalRetirementResult<TSubject>>> FinalizeRetirementAsync<TSubject>(BaseSession session, BaseGeneratedSubjectRegistration registration, BaseSubjectFinalRetirementRequest<TSubject> request, CancellationToken cancellationToken)
     {
-        OperationContext operation = session.Operation(BaseOperationKind.SubjectLifecycleFinalizeRetirement, registration.Definition.Id, new RecordId(request.Subject.SubjectId.Value));
+        OperationContext operation = session.Operation(BaseOperationKind.SubjectLifecycleFinalizeRetirement, registration.Definition.Id, RecordId.Create(request.Subject.SubjectId.Value));
         if (!await AuthorizedAsync(session, registration, operation, FinalizeGrant, cancellationToken).ConfigureAwait(false))
             return Failure<BaseSubjectFinalRetirementResult<TSubject>>(OperationStatus.PolicyDenied, BaseSubjectErrorCodes.LifecycleUnauthorized, ErrorCategory.Authorization);
         if (!TryCollection(registration, out CollectionDefinition? collection, out _, out _))
@@ -54,7 +54,7 @@ internal sealed class DefaultBaseSubjectLifecycleExporterRuntime(
         OperationResult<BaseRecordBatchResult> execution = await ExecuteAsync(session, operation, request.Identity, new BaseRecordBatchItem
         {
             ItemId = "subject-lifecycle-finalize", CollectionId = selectedCollection.Id, Kind = BaseRecordMutationKind.Delete,
-            RecordId = new RecordId(request.Subject.SubjectId.Value), Delete = new RecordDeleteRequest { ExpectedRevision = request.ExpectedPrivateRevision, ReturnPrevious = false },
+            RecordId = RecordId.Create(request.Subject.SubjectId.Value), Delete = new RecordDeleteRequest { ExpectedRevision = request.ExpectedPrivateRevision, ReturnPrevious = false },
             OperationOverride = BaseOperationKind.SubjectLifecycleFinalizeRetirement,
             SubjectLifecycleTransition = Transition(request.Subject, request.ExpectedTombstoneSequence, BaseSubjectLifecycleState.Retired),
         }, cancellationToken).ConfigureAwait(false);

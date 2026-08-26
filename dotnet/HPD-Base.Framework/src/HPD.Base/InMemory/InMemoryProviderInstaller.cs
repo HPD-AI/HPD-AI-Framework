@@ -21,6 +21,7 @@ internal sealed class InMemoryProviderInstaller(HPDBaseInMemoryStoreOptions conf
                 BaseStoreProviderCapabilities.CoLocatedVectors |
                 BaseStoreProviderCapabilities.CoLocatedTextSearch,
             RegistrationIds = ["inmemory.records"],
+            RelationalReads = InMemoryRecordStore.CreateRelationalCapability(),
             SubjectReferences = BaseSubjectProviderCapabilities.BuiltIn,
             SubjectLifecycle = BaseSubjectLifecycleProviderCapabilities.BuiltIn,
             SubjectRetirement = BaseSubjectRetirementProviderCapabilities.BuiltIn,

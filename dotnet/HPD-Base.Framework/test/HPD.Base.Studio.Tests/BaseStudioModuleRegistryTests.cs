@@ -138,7 +138,8 @@ public sealed class BaseStudioModuleRegistryTests
         {
             Kind = original.Kind, ProtocolVersion = original.ProtocolVersion, Capabilities = original.Capabilities,
             RegistrationIds = original.RegistrationIds.ToArray(), StorageProtectionCapabilities = original.StorageProtectionCapabilities.ToArray(),
-            MaximumBinaryFieldBytes = original.MaximumBinaryFieldBytes - 1, SubjectReferences = original.SubjectReferences,
+            MaximumBinaryFieldBytes = original.MaximumBinaryFieldBytes - 1, RelationalReads = original.RelationalReads,
+            SubjectReferences = original.SubjectReferences,
             SubjectLifecycle = original.SubjectLifecycle, SubjectRetirement = original.SubjectRetirement,
             ModuleMutations = original.ModuleMutations,
             Activations = original.Activations, TextSearch = original.TextSearch,
@@ -146,6 +147,40 @@ public sealed class BaseStudioModuleRegistryTests
             SemanticActivationCertification = original.SemanticActivationCertification,
         };
         HPDBaseStoreProvider substituted = HPDBaseStoreProviderFactory.Create(descriptor, original.Installer);
+        Assert.False(System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+            original.StudioCapabilityChecksum, substituted.StudioCapabilityChecksum));
+    }
+
+    /// <summary>Proves every L63 relational capability member participates in provider authority.</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void Provider_capability_checksum_binds_compound_read_authority(int member)
+    {
+        HPDBaseStoreProvider original = InMemoryProviderInstaller.Create(null);
+        RelationalReadCapability relational = original.RelationalReads with
+        {
+            IndependentAggregateBranches = member == 0 ? !original.RelationalReads.IndependentAggregateBranches : original.RelationalReads.IndependentAggregateBranches,
+            SingleSnapshotCompoundReads = member == 1 ? !original.RelationalReads.SingleSnapshotCompoundReads : original.RelationalReads.SingleSnapshotCompoundReads,
+            MaxCompoundBranches = member == 2 ? original.RelationalReads.MaxCompoundBranches - 1 : original.RelationalReads.MaxCompoundBranches,
+            MaxCompoundOperations = member == 3 ? original.RelationalReads.MaxCompoundOperations - 1 : original.RelationalReads.MaxCompoundOperations,
+        };
+        var descriptor = new BaseStoreProviderDescriptor
+        {
+            Kind = original.Kind, ProtocolVersion = original.ProtocolVersion, Capabilities = original.Capabilities,
+            RegistrationIds = original.RegistrationIds.ToArray(), StorageProtectionCapabilities = original.StorageProtectionCapabilities.ToArray(),
+            MaximumBinaryFieldBytes = original.MaximumBinaryFieldBytes, RelationalReads = relational,
+            SubjectReferences = original.SubjectReferences, SubjectLifecycle = original.SubjectLifecycle,
+            SubjectRetirement = original.SubjectRetirement, ModuleMutations = original.ModuleMutations,
+            Activations = original.Activations, TextSearch = original.TextSearch,
+            SemanticActivations = original.SemanticActivations,
+            SemanticActivationCertification = original.SemanticActivationCertification,
+        };
+
+        HPDBaseStoreProvider substituted = HPDBaseStoreProviderFactory.Create(descriptor, original.Installer);
+
         Assert.False(System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
             original.StudioCapabilityChecksum, substituted.StudioCapabilityChecksum));
     }

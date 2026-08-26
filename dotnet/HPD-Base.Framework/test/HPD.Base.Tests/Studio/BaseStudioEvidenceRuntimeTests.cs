@@ -106,7 +106,7 @@ public sealed class BaseStudioEvidenceRuntimeTests
     {
         ApplicationId = "app", Kind = BaseStudioEvidenceKind.RecordMutation,
         Scope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Global },
-        Parent = new BaseStudioRecordEvidenceSubject { CollectionId = "orders", InstalledCollectionChecksum = ImmutableArray.CreateRange(new byte[32]), RecordId = new RecordId("1") },
+        Parent = new BaseStudioRecordEvidenceSubject { CollectionId = "orders", InstalledCollectionChecksum = ImmutableArray.CreateRange(new byte[32]), RecordId = RecordId.Create("1") },
         ProtectedScopeSeekChecksum = ImmutableArray.CreateRange(Enumerable.Repeat((byte)1, 32)),
         Limits = new BaseStudioEvidenceLimits { MaximumItems = 2, MaximumRowsRead = 3, MaximumIntervals = 1,
             MaximumEvidenceBytes = 1024, MaximumTransientBytes = 1024, AcquisitionDeadline = TimeSpan.FromSeconds(1),
@@ -121,7 +121,7 @@ public sealed class BaseStudioEvidenceRuntimeTests
         RecordMutation = new BaseRecordMutationJournalEntry { EventId = evidenceId ?? "event-" + position, Type = "base.record.updated",
             TenantId = tenantId,
             SchemaVersion = "1", OccurredAt = DateTimeOffset.UnixEpoch.AddSeconds(position), Operation = BaseOperationKind.Patch,
-            CollectionId = collection, RecordId = new RecordId(record) }
+            CollectionId = collection, RecordId = RecordId.Create(record) }
     };
 
     private sealed class HostileProvider : IBaseStudioEvidenceStore

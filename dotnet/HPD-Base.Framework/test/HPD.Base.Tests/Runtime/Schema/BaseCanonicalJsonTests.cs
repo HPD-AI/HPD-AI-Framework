@@ -2,6 +2,7 @@ using System.Text;
 using HPD.Base;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Collections.Immutable;
 
 namespace HPD.Base.Tests.Schema;
 
@@ -57,6 +58,24 @@ public sealed class BaseCanonicalJsonTests
         Assert.Equal(value, JsonSerializer.Deserialize(encoded, CanonicalJsonTestContext.Default.BaseCanonicalJson));
     }
 
+    [Fact]
+    public void QueryValueProtocolUsesOneCanonicalPaddedBase64Spelling()
+    {
+        QueryValue value = new()
+        {
+            Kind = QueryValueKind.CanonicalJson,
+            CanonicalJsonUtf8 = ImmutableArray.Create("{\"a\":1}"u8.ToArray()),
+        };
+        byte[] encoded = JsonSerializer.SerializeToUtf8Bytes(value, HPDBaseJsonSerializerContext.Default.QueryValue);
+        string json = Encoding.UTF8.GetString(encoded);
+        Assert.Contains("\"canonicalJsonUtf8\":\"eyJhIjoxfQ==\"", json, StringComparison.Ordinal);
+        QueryValue decoded = JsonSerializer.Deserialize(encoded, HPDBaseJsonSerializerContext.Default.QueryValue)!;
+        Assert.True(decoded.CanonicalJsonUtf8.AsSpan().SequenceEqual("{\"a\":1}"u8));
+
+        byte[] missingPadding = Encoding.UTF8.GetBytes(json.Replace("eyJhIjoxfQ==", "eyJhIjoxfQ", StringComparison.Ordinal));
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize(missingPadding, HPDBaseJsonSerializerContext.Default.QueryValue));
+    }
+
     [Theory]
     [InlineData(null, "76fdc0cb498fb680ba9697f90d1ff72270a776730beb689f1b2b8a5c89b419df")]
     [InlineData("null", "4443abd8553872a114eec8682742e5dcf20a1e78b2363ed0a6bcad631c8b8f62")]
@@ -99,8 +118,8 @@ public sealed class BaseCanonicalJsonTests
         };
         var values = new List<(RecordId Id, RecordPayload Payload)>
         {
-            (new("same-b"), Payload("1")), (new("null"), Payload("null")), (new("negative"), Payload("-170141183460469231731687303715884105728")),
-            (new("missing"), Payload(null)), (new("same-a"), Payload("1")), (new("positive"), Payload("170141183460469231731687303715884105727")),
+            (RecordId.Create("same-b"), Payload("1")), (RecordId.Create("null"), Payload("null")), (RecordId.Create("negative"), Payload("-170141183460469231731687303715884105728")),
+            (RecordId.Create("missing"), Payload(null)), (RecordId.Create("same-a"), Payload("1")), (RecordId.Create("positive"), Payload("170141183460469231731687303715884105727")),
         };
 
         values.Sort((left, right) => BaseLogicalIndexEvaluator.Compare(collection, index, left.Payload, left.Id, right.Payload, right.Id));

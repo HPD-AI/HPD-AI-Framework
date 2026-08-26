@@ -28,13 +28,13 @@ public sealed class SqliteVecEndToEndTests
             (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
             var principal = new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System, SubjectId = "administrator" };
             BaseCollectionSession<PurgeVectorDocument> collection = provider.GetRequiredService<IBaseSessionFactory>().For(principal).Collection(PurgeVectorDocument.Collection);
-            (await collection.CreateAsync(new RecordId("purged"), new PurgeVectorDocument { Title = "Purged", Embedding = BaseVector.Create([1, 0]) })).RequireValue();
-            (await collection.CreateAsync(new RecordId("survivor"), new PurgeVectorDocument { Title = "Survivor", Embedding = BaseVector.Create([0, 1]) })).RequireValue();
+            (await collection.CreateAsync(RecordId.Create("purged"), new PurgeVectorDocument { Title = "Purged", Embedding = BaseVector.Create([1, 0]) })).RequireValue();
+            (await collection.CreateAsync(RecordId.Create("survivor"), new PurgeVectorDocument { Title = "Survivor", Embedding = BaseVector.Create([0, 1]) })).RequireValue();
 
             BasePurgeResult purge = (await provider.GetRequiredService<IHPDBaseAdministration>().PurgeAsync(new BasePurgeRequest
             {
                 CollectionId = PurgeVectorDocument.Collection.Id,
-                RecordIds = [new RecordId("purged")],
+                RecordIds = [RecordId.Create("purged")],
                 Principal = principal,
                 ReasonCode = "retention",
                 AuditReference = "vector-purge-test",
@@ -87,7 +87,7 @@ public sealed class SqliteVecEndToEndTests
             (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
             var principal = new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System, SubjectId = "administrator" };
             BaseCollectionSession<VectorDocument> collection = provider.GetRequiredService<IBaseSessionFactory>().For(principal).Collection(VectorDocument.Collection);
-            (await collection.CreateAsync(new RecordId("a"), new VectorDocument { Title = "Before", Tenant = "one", Embedding = BaseVector.Create([1, 0]) })).RequireValue();
+            (await collection.CreateAsync(RecordId.Create("a"), new VectorDocument { Title = "Before", Tenant = "one", Embedding = BaseVector.Create([1, 0]) })).RequireValue();
             BaseVectorConsistencyToken oldToken = (await collection.Vector(VectorDocument.VectorIndexes.Semantic).CaptureConsistencyAsync()).RequireValue();
 
             IHPDBaseAdministration administration = provider.GetRequiredService<IHPDBaseAdministration>();
@@ -95,7 +95,7 @@ public sealed class SqliteVecEndToEndTests
             BaseBackupManifest manifest = (await administration.CreateBackupAsync(artifact, new BaseBackupRequest { StoreId = "sqlite", Principal = principal })).RequireValue();
             artifact.Position = 0;
             (await administration.ValidateBackupAsync(artifact, new BaseBackupValidationRequest { StoreId = "sqlite", Principal = principal, ExpectedArtifactStoreIdentityDigest = manifest.StoreIdentityDigest })).RequireValue();
-            (await collection.ReplaceAsync(new RecordId("a"), new VectorDocument { Title = "After", Tenant = "one", Embedding = BaseVector.Create([0, 1]) })).RequireValue();
+            (await collection.ReplaceAsync(RecordId.Create("a"), new VectorDocument { Title = "After", Tenant = "one", Embedding = BaseVector.Create([0, 1]) })).RequireValue();
             artifact.Position = 0;
             (await administration.RestoreAsync(artifact, new BaseRestoreRequest
             {
@@ -159,11 +159,11 @@ public sealed class SqliteVecEndToEndTests
             var principal = new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.Admin, SubjectId = "tester" };
             BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(principal);
 
-            (await session.Collection(VectorDocument.Collection).CreateAsync(new RecordId("a"), new VectorDocument { Title = "A", Tenant = "one", Embedding = BaseVector.Create([1, 0]) })).RequireValue();
-            (await session.Collection(VectorDocument.Collection).CreateAsync(new RecordId("b"), new VectorDocument { Title = "B", Tenant = "two", Embedding = BaseVector.Create([0, 1]) })).RequireValue();
-            (await session.Collection(VectorDocument.Collection).CreateAsync(new RecordId("c"), new VectorDocument { Title = "C", Tenant = "one", Embedding = BaseVector.Create([0.8f, 0.2f]) })).RequireValue();
-            (await session.Collection(VectorDocument.Collection).CreateAsync(new RecordId("e"), new VectorDocument { Title = "E", Tenant = "tie", Embedding = BaseVector.Create([0, 1]) })).RequireValue();
-            (await session.Collection(VectorDocument.Collection).CreateAsync(new RecordId("d"), new VectorDocument { Title = "D", Tenant = "tie", Embedding = BaseVector.Create([0, 1]) })).RequireValue();
+            (await session.Collection(VectorDocument.Collection).CreateAsync(RecordId.Create("a"), new VectorDocument { Title = "A", Tenant = "one", Embedding = BaseVector.Create([1, 0]) })).RequireValue();
+            (await session.Collection(VectorDocument.Collection).CreateAsync(RecordId.Create("b"), new VectorDocument { Title = "B", Tenant = "two", Embedding = BaseVector.Create([0, 1]) })).RequireValue();
+            (await session.Collection(VectorDocument.Collection).CreateAsync(RecordId.Create("c"), new VectorDocument { Title = "C", Tenant = "one", Embedding = BaseVector.Create([0.8f, 0.2f]) })).RequireValue();
+            (await session.Collection(VectorDocument.Collection).CreateAsync(RecordId.Create("e"), new VectorDocument { Title = "E", Tenant = "tie", Embedding = BaseVector.Create([0, 1]) })).RequireValue();
+            (await session.Collection(VectorDocument.Collection).CreateAsync(RecordId.Create("d"), new VectorDocument { Title = "D", Tenant = "tie", Embedding = BaseVector.Create([0, 1]) })).RequireValue();
 
             BaseVectorConsistencyToken consistency = (await session.Collection(VectorDocument.Collection).Vector(VectorDocument.VectorIndexes.Semantic).CaptureConsistencyAsync()).RequireValue();
 
@@ -216,9 +216,9 @@ public sealed class SqliteVecEndToEndTests
                 values.Select(static value => value.Position).Should().OnlyHaveUniqueItems();
             }
 
-            BaseResult<BaseRecord<VectorDocument>> rejected = await session.Collection(VectorDocument.Collection).CreateAsync(new RecordId("zero"), new VectorDocument { Title = "Zero", Tenant = "one", Embedding = BaseVector.Create([0, 0]) });
+            BaseResult<BaseRecord<VectorDocument>> rejected = await session.Collection(VectorDocument.Collection).CreateAsync(RecordId.Create("zero"), new VectorDocument { Title = "Zero", Tenant = "one", Embedding = BaseVector.Create([0, 0]) });
             rejected.Status.Should().Be(OperationStatus.ValidationFailed);
-            (await session.Collection(VectorDocument.Collection).GetAsync(new RecordId("zero"))).Status.Should().Be(OperationStatus.NotFound);
+            (await session.Collection(VectorDocument.Collection).GetAsync(RecordId.Create("zero"))).Status.Should().Be(OperationStatus.NotFound);
 
             await using (var drift = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
             {

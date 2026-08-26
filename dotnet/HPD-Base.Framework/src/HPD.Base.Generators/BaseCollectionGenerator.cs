@@ -42,6 +42,7 @@ internal static class BaseCollectionGenerator
     private const string JsonIgnoreAttribute = "System.Text.Json.Serialization.JsonIgnoreAttribute";
     private const string JsonConverterAttribute = "System.Text.Json.Serialization.JsonConverterAttribute";
     private const string JsonStringEnumMemberNameAttribute = "System.Text.Json.Serialization.JsonStringEnumMemberNameAttribute";
+    private const string BaseSerializerConverterAttribute = "HPD.Base.BaseSerializerConverterAttribute";
 
     private static readonly DiagnosticDescriptor TypeMustBePartial = new DiagnosticDescriptor(
         "HPDBASE001",
@@ -517,6 +518,7 @@ internal static class BaseCollectionGenerator
                 ExplicitWireName = GetJsonPropertyName(property) is not null,
                 TypeName = property.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                 TypedRecordIdTarget = TypedRecordIdTarget(property.Type),
+                TypedRecordIdCollectionId = TypedRecordIdCollectionId(property.Type),
                 SchemaType = GetSchemaType(property.Type),
                 SchemaFormat = GetSchemaFormat(property.Type),
                 Nullable = IsNullable(property),
@@ -574,13 +576,14 @@ internal static class BaseCollectionGenerator
             if (inferredKind == "ClosedEnum")
             {
                 ITypeSymbol enumType = property.Type is INamedTypeSymbol nullableEnum && nullableEnum.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T ? nullableEnum.TypeArguments[0] : property.Type;
+                if (enumType is not INamedTypeSymbol namedEnum || !ValidClosedEnum(namedEnum))
+                { context.ReportDiagnostic(Diagnostic.Create(IncompatibleScalarConstraint, GetLocation(property), collectionId, property.Name)); return null; }
                 AttributeData converterAttribute = FindAttribute(property, JsonConverterAttribute);
                 INamedTypeSymbol converter = converterAttribute?.ConstructorArguments.Length > 0 ? converterAttribute.ConstructorArguments[0].Value as INamedTypeSymbol : null;
                 bool exactConverter = converter is { IsGenericType: true } && converter.ConstructedFrom.ToDisplayString() == "HPD.Base.BaseClosedEnumJsonConverter<TEnum>" && SymbolEqualityComparer.Default.Equals(converter.TypeArguments[0], enumType);
-                bool renamed = enumType.GetMembers().OfType<IFieldSymbol>().Any(member => !member.IsImplicitlyDeclared && FindAttribute(member, JsonStringEnumMemberNameAttribute) is not null);
-                if (!exactConverter || renamed)
+                if (!exactConverter)
                 { context.ReportDiagnostic(Diagnostic.Create(IncompatibleScalarConstraint, GetLocation(property), collectionId, property.Name)); return null; }
-                field.EnumCodecLiterals = EnumLiterals(property.Type);
+                (field.EnumCodecMembers, field.EnumCodecLiterals) = EnumAuthority(property.Type);
             }
             if (inferredKind == "UtcDateTime")
             {
@@ -1103,6 +1106,7 @@ internal static class BaseCollectionGenerator
             TextIndexes = textIndexes,
             StorageRequirements = storageRequirements,
             JsonNamingPolicy = jsonNamingPolicy,
+            OmitNullValues = GetDefaultIgnoreCondition(jsonContext) == 3,
             SerializerProperties = serializerProperties,
             ContextTypeName =
                 jsonContext.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
@@ -1128,6 +1132,22 @@ internal static class BaseCollectionGenerator
             .Append(model.TypeName)
             .AppendLine();
         source.AppendLine("{");
+        source.AppendLine("    [global::System.Runtime.CompilerServices.ModuleInitializer]");
+        source.Append("    internal static void RegisterHPDBaseRecordType() => global::HPD.Base.BaseGeneratedRecordTypeContract.Register<")
+            .Append(model.FullTypeName).Append(">(").Append(Literal(model.CollectionId)).AppendLine(");");
+        source.AppendLine();
+        foreach (FieldModel field in model.Fields.Where(static field => field.EnumCodecMembers.Length != 0)
+            .GroupBy(static field => field.TypeName.TrimEnd('?'), StringComparer.Ordinal).Select(static group => group.First()))
+        {
+            string enumType = field.TypeName.TrimEnd('?');
+            source.AppendLine("    [global::System.Runtime.CompilerServices.ModuleInitializer]");
+            source.Append("    internal static void RegisterHPDBaseClosedEnum_").Append(Sanitize(enumType))
+                .Append("() => global::HPD.Base.BaseClosedEnumGeneratedContract.Register<").Append(enumType).Append(">(")
+                .Append("new ").Append(enumType).Append("[] { ")
+                .Append(string.Join(", ", field.EnumCodecMembers.Select(member => enumType + "." + EscapeIdentifier(member))))
+                .Append(" }, new string[] { ").Append(string.Join(", ", field.EnumCodecLiterals.Select(Literal))).AppendLine(" });");
+            source.AppendLine();
+        }
         foreach (string target in model.Fields
             .Select(static field => field.TypedRecordIdTarget)
             .Where(static target => target != null)
@@ -1286,6 +1306,7 @@ internal static class BaseCollectionGenerator
 
         foreach (FieldModel field in model.Fields)
         {
+            string moduleScalarKind = ScalarKind(field);
             source.Append("                Fields.Set")
                 .Append(EscapeIdentifier(field.PropertyName)).Append("(fields.Add<")
                 .Append(field.TypeName).Append(">(")
@@ -1296,6 +1317,20 @@ internal static class BaseCollectionGenerator
                 .Append(", operators: (global::HPD.Base.BaseFieldOperator)")
                 .Append(field.Operators.ToString(CultureInfo.InvariantCulture))
                 .AppendLine("));");
+            if (moduleScalarKind is not null && moduleScalarKind != "FrozenArray")
+            {
+                source.Append("                new global::HPD.Base.BaseGeneratedModuleScalarManifest(global::HPD.Base.BaseModuleValueKind.")
+                    .Append(moduleScalarKind).Append(", global::HPD.Base.BaseFieldPresence.").Append(field.Required ? "Required" : "Optional")
+                    .Append(", global::HPD.Base.BaseFieldNullability.").Append(field.Nullable ? "Nullable" : "NonNullable")
+                    .AppendLine(", new global::HPD.Base.BaseScalarConstraintSet")
+                    .AppendLine("                {");
+                RenderScalarConstraints(source, field, "                    ");
+                source.Append("                }, ")
+                    .Append(moduleScalarKind == "ClosedEnum" ? "global::HPD.Base.BaseGeneratedSchemaRegistration.EnumQualifier(" + string.Join(", ", field.EnumCodecLiterals.Select(Literal)) + ")" : "null")
+                    .Append(", ").Append(moduleScalarKind == "RecordId" ? Literal(field.TypedRecordIdCollectionId) : "null")
+                    .Append(").BindField(Fields.").Append(EscapeIdentifier(field.PropertyName)).Append(", ")
+                    .Append(Literal(model.CollectionId)).Append(", ").Append(Literal(field.Id)).AppendLine(");");
+            }
         }
 
         source.AppendLine("            },");
@@ -1322,7 +1357,10 @@ internal static class BaseCollectionGenerator
         source.AppendLine("        [global::System.CodeDom.Compiler.GeneratedCode(\"HPD.Base.Generators\", \"44\")]");
         source.Append("        internal static ").Append(model.ContextTypeName).Append(" Create() => new(")
             .Append("global::HPD.Base.BaseSerializerGeneratedContract.CreateOptions(")
-            .Append(model.JsonNamingPolicy == null ? "null" : "global::System.Text.Json.JsonNamingPolicy." + model.JsonNamingPolicy).AppendLine("));");
+            .Append(model.JsonNamingPolicy == null ? "null" : "global::System.Text.Json.JsonNamingPolicy." + model.JsonNamingPolicy)
+            .Append(", ").Append(model.OmitNullValues
+                ? "global::System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull"
+                : "global::System.Text.Json.Serialization.JsonIgnoreCondition.Never").AppendLine("));");
         source.AppendLine("    }");
         source.AppendLine("}");
         return source.ToString();
@@ -1367,6 +1405,8 @@ internal static class BaseCollectionGenerator
                     .AppendLine("                        {");
                 RenderScalarConstraints(source, field, "                            ");
                 source.AppendLine("                        }),");
+                if (scalarKind == "RecordId")
+                    source.Append("                        RecordTargetCollectionId = ").Append(Literal(field.TypedRecordIdCollectionId)).AppendLine(",");
             }
             source.Append("                        Confidentiality = (global::HPD.Base.BaseFieldConfidentiality)").Append(field.Confidentiality).AppendLine(",");
             if (field.Disclosure is not null)
@@ -1434,8 +1474,11 @@ internal static class BaseCollectionGenerator
     {
         void Optional(string name, object value) { if (value is not null) source.Append(indent).Append(name).Append(" = ").Append(Convert.ToString(value, CultureInfo.InvariantCulture)).AppendLine(","); }
         if (field.MaximumBytes > 0) Optional("MaximumBinaryBytes", field.MaximumBytes);
-        Optional("MinimumUtf8Bytes", field.MinimumUtf8Bytes); Optional("MaximumUtf8Bytes", field.MaximumUtf8Bytes);
-        if (field.StringNormalization is not null) source.Append(indent).Append("StringNormalization = (global::HPD.Base.BaseStringNormalizationRequirement)").Append(field.StringNormalization.Value).AppendLine(",");
+        bool moduleGeneration = ScalarKind(field) == "ModuleGeneration";
+        Optional("MinimumUtf8Bytes", field.SchemaType == "id" || moduleGeneration ? 1 : field.MinimumUtf8Bytes);
+        Optional("MaximumUtf8Bytes", field.SchemaType == "id" ? 256 : moduleGeneration ? 19 : field.MaximumUtf8Bytes);
+        if (field.SchemaType == "id") source.Append(indent).AppendLine("StringNormalization = global::HPD.Base.BaseStringNormalizationRequirement.RequireNfc,");
+        else if (field.StringNormalization is not null) source.Append(indent).Append("StringNormalization = (global::HPD.Base.BaseStringNormalizationRequirement)").Append(field.StringNormalization.Value).AppendLine(",");
         Optional("MinimumInt64", field.MinimumInt64); Optional("MaximumInt64", field.MaximumInt64);
         Optional("MinimumInt32", field.MinimumInt32); Optional("MaximumInt32", field.MaximumInt32);
         Optional("MinimumUInt32", field.MinimumUInt32); Optional("MaximumUInt32", field.MaximumUInt32);
@@ -1461,7 +1504,12 @@ internal static class BaseCollectionGenerator
 
     private static string ScalarKind(FieldModel field)
     {
-        if (field.TypeName == "global::HPD.Base.BaseCanonicalJson") return "CanonicalJson";
+        string typeName = field.TypeName.EndsWith("?", StringComparison.Ordinal)
+            ? field.TypeName.Substring(0, field.TypeName.Length - 1)
+            : field.TypeName;
+        if (typeName == "global::HPD.Base.BaseCanonicalJson") return "CanonicalJson";
+        if (typeName == "global::HPD.Base.BaseModuleGeneration") return "ModuleGeneration";
+        if (field.SchemaType == "id") return "RecordId";
         if (field.SchemaType == "string")
         {
             if (field.SchemaFormat == "date-time") return "UtcDateTime";
@@ -1471,7 +1519,7 @@ internal static class BaseCollectionGenerator
             return "String";
         }
         if (field.SchemaType == "boolean") return "Boolean";
-        if (field.SchemaType == "integer") return field.TypeName switch { "int" or "global::System.Int32" => "Int32", "uint" or "global::System.UInt32" => "UInt32", "ulong" or "global::System.UInt64" => "UInt64", _ => "Int64" };
+        if (field.SchemaType == "integer") return typeName switch { "int" or "global::System.Int32" => "Int32", "uint" or "global::System.UInt32" => "UInt32", "ulong" or "global::System.UInt64" => "UInt64", _ => "Int64" };
         if (field.SchemaType == "decimal" || field.SchemaType == "number" && field.SchemaFormat == "decimal") return "Decimal";
         if (field.SchemaType == "array") return "FrozenArray";
         return null;
@@ -1829,7 +1877,35 @@ internal static class BaseCollectionGenerator
     private static string[] EnumLiterals(ITypeSymbol type)
     {
         if (type is INamedTypeSymbol nullable && nullable.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T) type = nullable.TypeArguments[0];
-        return type.GetMembers().OfType<IFieldSymbol>().Where(static field => field.HasConstantValue).Select(static field => field.Name).OrderBy(static value => value, StringComparer.Ordinal).ToArray();
+        return type.GetMembers().OfType<IFieldSymbol>().Where(static field => field.HasConstantValue)
+            .Select(field => GetConstructorString(FindAttribute(field, JsonStringEnumMemberNameAttribute), 0) ?? field.Name)
+            .OrderBy(static value => value, StringComparer.Ordinal).ToArray();
+    }
+    private static (string[] Members, string[] Wires) EnumAuthority(ITypeSymbol type)
+    {
+        if (type is INamedTypeSymbol nullable && nullable.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T) type = nullable.TypeArguments[0];
+        var values = type.GetMembers().OfType<IFieldSymbol>().Where(static field => field.HasConstantValue)
+            .Select(field => (Member: field.Name, Wire: GetConstructorString(FindAttribute(field, JsonStringEnumMemberNameAttribute), 0) ?? field.Name))
+            .OrderBy(static value => value.Wire, StringComparer.Ordinal).ToArray();
+        return (values.Select(static value => value.Member).ToArray(), values.Select(static value => value.Wire).ToArray());
+    }
+    private static bool ValidClosedEnum(INamedTypeSymbol type)
+    {
+        if (type.GetAttributes().Any(static attribute => attribute.AttributeClass?.ToDisplayString() == "System.FlagsAttribute")) return false;
+        IFieldSymbol[] fields = type.GetMembers().OfType<IFieldSymbol>().Where(static field => field.HasConstantValue).ToArray();
+        if (fields.Length is < 1 or > 256) return false;
+        var values = new HashSet<long>();
+        var wires = new HashSet<string>(StringComparer.Ordinal);
+        foreach (IFieldSymbol field in fields)
+        {
+            long value;
+            try { value = Convert.ToInt64(field.ConstantValue, CultureInfo.InvariantCulture); }
+            catch (Exception exception) when (exception is OverflowException or InvalidCastException) { return false; }
+            string wire = GetConstructorString(FindAttribute(field, JsonStringEnumMemberNameAttribute), 0) ?? field.Name;
+            if (!values.Add(value) || string.IsNullOrEmpty(wire) || wire.Length > 128 || !wires.Add(wire) ||
+                !wire.IsNormalized(NormalizationForm.FormC) || wire.Any(static character => char.IsControl(character) || char.IsSurrogate(character))) return false;
+        }
+        return true;
     }
     private static int? NamedInt32(AttributeData attribute, string name) => HasNamed(attribute, name) ? checked((int)GetNamedInt64(attribute, name, 0)) : (int?)null;
     private static uint? NamedUInt32(AttributeData attribute, string name) => HasNamed(attribute, name) ? Convert.ToUInt32(attribute.NamedArguments.Single(argument => argument.Key == name).Value.Value, CultureInfo.InvariantCulture) : (uint?)null;
@@ -1995,6 +2071,14 @@ internal static class BaseCollectionGenerator
         return null;
     }
 
+    private static long GetDefaultIgnoreCondition(INamedTypeSymbol jsonContext)
+    {
+        AttributeData options = FindAttribute(jsonContext, JsonOptionsAttribute);
+        TypedConstant selected = options?.NamedArguments
+            .FirstOrDefault(static argument => argument.Key == "DefaultIgnoreCondition").Value ?? default;
+        return selected.Value is null ? 0 : Convert.ToInt64(selected.Value, CultureInfo.InvariantCulture);
+    }
+
     private static bool IsNullable(IPropertySymbol property)
     {
         INamedTypeSymbol named = property.Type as INamedTypeSymbol;
@@ -2010,6 +2094,9 @@ internal static class BaseCollectionGenerator
 
     private static string TypedRecordIdTarget(ITypeSymbol type)
     {
+        if (type is INamedTypeSymbol nullable && nullable.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T)
+            return TypedRecordIdTarget(nullable.TypeArguments[0]);
+
         if (type is IArrayTypeSymbol array && array.Rank == 1)
             return TypedRecordIdTarget(array.ElementType);
 
@@ -2023,6 +2110,16 @@ internal static class BaseCollectionGenerator
             return named.TypeArguments[0].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         }
 
+        return null;
+    }
+
+    private static string TypedRecordIdCollectionId(ITypeSymbol type)
+    {
+        if (type is INamedTypeSymbol nullable && nullable.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T)
+            return TypedRecordIdCollectionId(nullable.TypeArguments[0]);
+        if (type is INamedTypeSymbol named && named.IsGenericType
+            && named.ConstructedFrom.ToDisplayString() == "HPD.Base.BaseRecordId<TRecord>")
+            return FindAttribute(named.TypeArguments[0], "HPD.Base.BaseCollectionAttribute")?.ConstructorArguments.ElementAtOrDefault(0).Value as string;
         return null;
     }
 
@@ -2050,6 +2147,7 @@ internal static class BaseCollectionGenerator
 
     private static string GetSchemaType(ITypeSymbol type)
     {
+        if (type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::HPD.Base.BaseModuleGeneration") return "string";
         if (type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::HPD.Base.BaseBinary") return "string";
         if (type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::HPD.Base.BaseCanonicalJson") return "object";
         if (IsBaseVector(type))
@@ -2116,6 +2214,7 @@ internal static class BaseCollectionGenerator
         }
         if (type.TypeKind == TypeKind.Enum) return "enum";
         string name = type.ToDisplayString();
+        if (type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::HPD.Base.BaseModuleGeneration") return "base-module-generation";
         if (type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::HPD.Base.BaseBinary") return "base64";
         if (type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::HPD.Base.BaseCanonicalJson") return "base-json-v1";
         if (IsBaseVector(type))
@@ -2253,6 +2352,8 @@ internal static class BaseCollectionGenerator
         public string ContextTypeName;
         /// <summary>Gets the serializer-owned built-in naming-policy property.</summary>
         public string JsonNamingPolicy;
+        /// <summary>Whether the generated owner omits optional non-nullable null containers.</summary>
+        public bool OmitNullValues;
         public List<SerializerPropertyModel> SerializerProperties;
         /// <summary>Provides the hint name value.</summary>
         public string HintName;
@@ -2286,6 +2387,7 @@ internal static class BaseCollectionGenerator
         public string TypeName;
         /// <summary>Provides the typed record ID target value.</summary>
         public string TypedRecordIdTarget;
+        public string TypedRecordIdCollectionId;
         /// <summary>Provides the schema type value.</summary>
         public string SchemaType;
         /// <summary>Provides the schema format value.</summary>
@@ -2316,6 +2418,7 @@ internal static class BaseCollectionGenerator
         public string MinimumDecimal;
         public string MaximumDecimal;
         public string[] AllowedEnumLiterals = Array.Empty<string>();
+        public string[] EnumCodecMembers = Array.Empty<string>();
         public string[] EnumCodecLiterals = Array.Empty<string>();
         public int? MinimumCollectionItems;
         public int? MaximumCollectionItems;

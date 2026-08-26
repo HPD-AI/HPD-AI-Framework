@@ -36,7 +36,7 @@ public sealed class RealtimeTelemetryTests
             After = new RecordSnapshot
             {
                 CollectionId = "items",
-                Id = new RecordId("record-secret"),
+                Id = RecordId.Create("record-secret"),
                 Payload = TestServices.Payload(("title", "payload-secret")),
                 Metadata = new RecordMetadata()
             }

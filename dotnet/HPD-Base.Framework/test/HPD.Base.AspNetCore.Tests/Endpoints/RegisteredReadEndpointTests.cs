@@ -150,10 +150,31 @@ public sealed class RegisteredReadEndpointTests
         body.Should().NotContain("JsonException");
     }
 
+    [Fact]
+    public async Task CompoundReadRejectsCallerPagingAndUsesItsFixedCompletePage()
+    {
+        var registration = new TestReadRegistration(id: "compound-read", compound: true);
+        await using WebApplication app = await TestBaseApp.CreateAsync(configureServices: services =>
+        {
+            services.AddSingleton(new BaseReadRegistry(new Dictionary<string, IBaseReadRegistration> { [registration.Id] = registration }));
+            services.AddSingleton<IBaseRegisteredReadRuntime, UnusedReadRuntime>();
+        });
+
+        HttpResponseMessage rejected = await app.GetTestClient().PostAsync(
+            "/base/reads/compound-read?page=1", JsonContent.Create(new TestReadParameters { Search = "x" }, TestReadJsonContext.Default.TestReadParameters));
+        rejected.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        HttpResponseMessage accepted = await app.GetTestClient().PostAsync(
+            "/base/reads/compound-read", JsonContent.Create(new TestReadParameters { Search = "x" }, TestReadJsonContext.Default.TestReadParameters));
+        accepted.StatusCode.Should().Be(HttpStatusCode.OK);
+        registration.RequestedPage.Should().Be(new BaseReadPageRequest(1, 2));
+    }
+
     private sealed class TestReadRegistration(
         string id = "test-read",
         BaseReadExposure exposure = BaseReadExposure.Public,
-        BaseReadAuthorization authorization = BaseReadAuthorization.Authenticated) : IBaseReadRegistration
+        BaseReadAuthorization authorization = BaseReadAuthorization.Authenticated,
+        bool compound = false) : IBaseReadRegistration
     {
         public string Id => id;
         public BaseReadExposure Exposure => exposure;
@@ -165,11 +186,26 @@ public sealed class RegisteredReadEndpointTests
         public IReadOnlyList<string> ConfidentialOutputFieldIds => [];
         public IReadOnlyList<string> SecretOutputFieldIds => [];
         public IReadOnlyList<string> SystemSourceIds => [];
-        public BaseRelationalReadPlan Plan { get; } = new()
+        public BaseRelationalReadPlan Plan { get; private set; } = compound ? new()
         {
-            Id = id, Sources = [], Projection = [], Parameters = [],
-            Budgets = new BaseRelationalReadBudgets { MaxResultRows = 10, MaxResultBytes = 1024, MaxOperations = 10 }
+            Id = id, Topology = BaseRelationalReadTopology.CompoundCount,
+            Sources = [new() { Id = "one.source", CollectionId = "one" }, new() { Id = "two.source", CollectionId = "two" }],
+            CompoundCountBranches =
+            [
+                new() { Id = "one", Source = new() { Id = "one.source", CollectionId = "one" }, Discriminator = "first", DiscriminatorOutputFieldId = "kind", CountOutputFieldId = "count", BranchChecksum = BaseSchemaAuthorityChecksum.Create(Enumerable.Repeat((byte)1, 32).ToArray()) },
+                new() { Id = "two", Source = new() { Id = "two.source", CollectionId = "two" }, Discriminator = "second", DiscriminatorOutputFieldId = "kind", CountOutputFieldId = "count", BranchChecksum = BaseSchemaAuthorityChecksum.Create(Enumerable.Repeat((byte)2, 32).ToArray()) },
+            ],
+            CompoundChecksum = BaseSchemaAuthorityChecksum.Create(Enumerable.Repeat((byte)3, 32).ToArray()),
+            Projection = [], Parameters = [],
+            Pagination = new() { Mode = BaseRegisteredReadPaginationMode.PageOnly, MaximumOffset = 0 },
+            Budgets = new BaseRelationalReadBudgets { MaxResultRows = 2, MaxResultBytes = 1024, MaxOperations = 10, MaxExecutionMilliseconds = 2_000, MaxCompoundBranches = 2, MaxCompoundOperations = 10 }
+        } : new()
+        {
+            Id = id, Topology = BaseRelationalReadTopology.Ordinary, Sources = [], Projection = [], Parameters = [],
+            Pagination = new() { Mode = BaseRegisteredReadPaginationMode.PageOnly, MaximumOffset = 0 },
+            Budgets = new BaseRelationalReadBudgets { MaxResultRows = 10, MaxResultBytes = 1024, MaxOperations = 10, MaxExecutionMilliseconds = 2_000, MaxCompoundBranches = 0, MaxCompoundOperations = 0 }
         };
+        public void BindPlan(BaseRelationalReadPlan plan) => Plan = plan;
         public JsonTypeInfo ParameterJsonTypeInfo => TestReadJsonContext.Default.TestReadParameters;
         public JsonTypeInfo RowJsonTypeInfo => TestReadJsonContext.Default.TestReadRow;
         public Type ResponseType => typeof(BasePage<TestReadRow>);
@@ -197,7 +233,7 @@ public sealed class RegisteredReadEndpointTests
 
     private sealed class UnusedReadRuntime : IBaseRegisteredReadRuntime
     {
-        public ValueTask<OperationResult<BaseRegisteredReadEvaluation<TRow>>> ExecuteAsync<TParameters, TRow>(BaseReadDefinition<TParameters, TRow> definition, TParameters parameters, BaseReadPageRequest? page, PrincipalContext principal, OperationContext operation, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<OperationResult<BaseRegisteredReadEvaluation<TRow>>> ExecuteAsync<TParameters, TRow>(BaseReadDefinition<TParameters, TRow> definition, TParameters parameters, BaseRegisteredReadWindow? window, PrincipalContext principal, OperationContext operation, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }
 

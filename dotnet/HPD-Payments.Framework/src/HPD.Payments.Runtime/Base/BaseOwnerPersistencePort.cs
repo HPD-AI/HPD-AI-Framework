@@ -155,7 +155,7 @@ public sealed class BaseOwnerPersistencePort<TFact> : IOwnerPersistencePort<TFac
     private async ValueTask<OwnerGeneration> ReadObservedGenerationAsync(string ownerKey, OwnerGeneration fallback, CancellationToken cancellationToken)
     {
         BaseResult<BaseRecord<PaymentsOwnerFactHead>> result = await _session.Collection(PaymentsOwnerFactHead.Collection)
-            .GetAsync(new RecordId(ownerKey), cancellationToken).ConfigureAwait(false);
+            .GetAsync(RecordId.Create(ownerKey), cancellationToken).ConfigureAwait(false);
         return result is BaseSuccess<BaseRecord<PaymentsOwnerFactHead>> success
             ? OwnerGeneration.Create(ParseGeneration(success.Value.Value.Generation)) : fallback;
     }

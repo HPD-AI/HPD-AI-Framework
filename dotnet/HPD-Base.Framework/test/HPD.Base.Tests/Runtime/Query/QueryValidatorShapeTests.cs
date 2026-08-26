@@ -102,6 +102,74 @@ public sealed class QueryValidatorShapeTests
         Assert.Equal("base.runtime.query.value.invalidBranch", result.Error!.Code);
     }
 
+    [Theory]
+    [InlineData("0")]
+    [InlineData("01")]
+    [InlineData("+1")]
+    [InlineData("9223372036854775808")]
+    public async Task ModuleGenerationQueryValueMustBeCanonical(string value)
+    {
+        using var provider = Provider();
+        FieldDefinition generation = SpecialScalarRecord.Collection.Definition.Fields!
+            .Single(field => field.Id == "generation");
+
+        OperationResult<ValidatedRecordQuery> result = await Validate(
+            provider,
+            new RecordQuery { Filter = Compare("generation", value) },
+            Capability(),
+            CollectionWithFields(generation));
+
+        Assert.Equal(OperationStatus.ValidationFailed, result.Status);
+        Assert.Equal("base.runtime.query.value.nonCanonical", result.Error!.Code);
+        Assert.Equal("The query value is not canonical for its field.", result.Error.Message);
+    }
+
+    [Fact]
+    public async Task ModuleGenerationAllowsCanonicalEqualityAndMembershipButRejectsOrderingAndSort()
+    {
+        using var provider = Provider();
+        FieldDefinition generation = SpecialScalarRecord.Collection.Definition.Fields!
+            .Single(field => field.Id == "generation");
+        CollectionDefinition collection = CollectionWithFields(generation);
+
+        OperationResult<ValidatedRecordQuery> equal = await Validate(
+            provider, new RecordQuery { Filter = Compare("generation", "7") }, Capability(), collection);
+        OperationResult<ValidatedRecordQuery> membership = await Validate(
+            provider,
+            new RecordQuery
+            {
+                Filter = new FilterExpression
+                {
+                    Kind = FilterNodeKind.In,
+                    Field = "generation",
+                    Values =
+                    [
+                        new QueryValue { Kind = QueryValueKind.String, String = "1" },
+                        new QueryValue { Kind = QueryValueKind.String, String = "7" },
+                    ],
+                },
+            }, Capability(), collection);
+        OperationResult<ValidatedRecordQuery> ordered = await Validate(
+            provider,
+            new RecordQuery
+            {
+                Filter = new FilterExpression
+                {
+                    Kind = FilterNodeKind.Compare,
+                    Field = "generation",
+                    Operator = FilterOperator.LessThan,
+                    Value = new QueryValue { Kind = QueryValueKind.String, String = "7" },
+                },
+            }, Capability(filterOperators: [FilterOperator.Equal, FilterOperator.LessThan]), collection);
+        OperationResult<ValidatedRecordQuery> sorted = await Validate(
+            provider, new RecordQuery { Sort = [new QuerySort("generation")] }, Capability(), collection);
+
+        equal.IsSuccess().Should().BeTrue(equal.Error?.Code);
+        membership.IsSuccess().Should().BeTrue(membership.Error?.Code);
+        ordered.IsSuccess().Should().BeFalse();
+        sorted.IsSuccess().Should().BeFalse();
+    }
+
     [Fact]
     public async Task DeclaredSchemaRejectsUnknownFilterField()
     {
@@ -297,12 +365,13 @@ public sealed class QueryValidatorShapeTests
     private static QueryCapability Capability(
         bool filterSupported = true,
         bool sortSupported = true,
-        QueryOperatorDescriptor[]? operators = null) => new()
+        QueryOperatorDescriptor[]? operators = null,
+        FilterOperator[]? filterOperators = null) => new()
     {
         Filter = new FilterCapability
         {
             Supported = filterSupported,
-            Operators = [FilterOperator.Equal]
+            Operators = filterOperators ?? [FilterOperator.Equal]
         },
         Sort = new SortCapability { Supported = sortSupported },
         Pagination = new PaginationCapability { Page = true, Offset = true, Cursor = QueryCursorGuarantee.Seek, MaxLimit = 100 },

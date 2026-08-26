@@ -19,7 +19,7 @@ public sealed class BaseVectorQueryDxTests
         await using ServiceProvider provider = services.BuildServiceProvider();
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
         BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(Admin());
-        (await session.Collection(VectorDxDocument.Collection).CreateAsync(new RecordId("automatic"), new VectorDxDocument
+        (await session.Collection(VectorDxDocument.Collection).CreateAsync(RecordId.Create("automatic"), new VectorDxDocument
         {
             Title = "Automatic",
             Tenant = "tenant-a",
@@ -72,18 +72,18 @@ public sealed class BaseVectorQueryDxTests
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
         BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(Admin());
         BaseCollectionSession<VectorDxDocument> collection = session.Collection(VectorDxDocument.Collection);
-        (await collection.CreateAsync(new RecordId("kept"), new VectorDxDocument
+        (await collection.CreateAsync(RecordId.Create("kept"), new VectorDxDocument
         {
             Title = "Kept", Tenant = "tenant-a", Embedding = BaseVector.Create([1, 0]),
         })).Should().BeOfType<BaseSuccess<BaseRecord<VectorDxDocument>>>();
 
-        BaseResult<BaseRecord<VectorDxDocument>> rejected = await collection.CreateAsync(new RecordId("rolled-back"), new VectorDxDocument
+        BaseResult<BaseRecord<VectorDxDocument>> rejected = await collection.CreateAsync(RecordId.Create("rolled-back"), new VectorDxDocument
         {
             Title = "Rejected", Tenant = "tenant-a", Embedding = BaseVector.Create([0, 1]),
         });
 
         ((BaseFailure<BaseRecord<VectorDxDocument>>)rejected).Error.Code.Should().Be("base.vector.inMemory.capacityExceeded");
-        (await collection.GetAsync(new RecordId("rolled-back"))).Should().BeOfType<BaseFailure<BaseRecord<VectorDxDocument>>>();
+        (await collection.GetAsync(RecordId.Create("rolled-back"))).Should().BeOfType<BaseFailure<BaseRecord<VectorDxDocument>>>();
         BaseVectorResult<VectorDxDocument> vectors = (await collection.Vector(VectorDxDocument.VectorIndexes.Cosine)
             .Nearest(BaseVector.Create([1, 0])).Take(10).ExecuteAsync()).RequireValue();
         vectors.Matches.Should().ContainSingle().Which.Record.Id.Value.Should().Be("kept");
@@ -100,13 +100,13 @@ public sealed class BaseVectorQueryDxTests
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
         BaseCollectionSession<VectorDxDocument> collection = provider.GetRequiredService<IBaseSessionFactory>().For(Admin()).Collection(VectorDxDocument.Collection);
 
-        BaseResult<BaseRecord<VectorDxDocument>> rejected = await collection.CreateAsync(new RecordId("zero"), new VectorDxDocument
+        BaseResult<BaseRecord<VectorDxDocument>> rejected = await collection.CreateAsync(RecordId.Create("zero"), new VectorDxDocument
         {
             Title = "Zero", Tenant = "tenant-a", Embedding = BaseVector.Create([0, 0]),
         });
 
         ((BaseFailure<BaseRecord<VectorDxDocument>>)rejected).Error.Code.Should().Be("base.vector.zeroNorm");
-        (await collection.GetAsync(new RecordId("zero"))).Should().BeOfType<BaseFailure<BaseRecord<VectorDxDocument>>>();
+        (await collection.GetAsync(RecordId.Create("zero"))).Should().BeOfType<BaseFailure<BaseRecord<VectorDxDocument>>>();
     }
 
     [Fact]
@@ -120,18 +120,18 @@ public sealed class BaseVectorQueryDxTests
         await using ServiceProvider provider = services.BuildServiceProvider();
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
         BaseCollectionSession<VectorDxDocument> collection = provider.GetRequiredService<IBaseSessionFactory>().For(Admin()).Collection(VectorDxDocument.Collection);
-        (await collection.CreateAsync(new RecordId("first"), new VectorDxDocument
+        (await collection.CreateAsync(RecordId.Create("first"), new VectorDxDocument
         {
             Title = "First", Tenant = "tenant-a", Embedding = BaseVector.Create([1, 0]),
         })).Should().BeOfType<BaseSuccess<BaseRecord<VectorDxDocument>>>();
 
-        BaseResult<BaseRecord<VectorDxDocument>> rejected = await collection.CreateAsync(new RecordId("overflow"), new VectorDxDocument
+        BaseResult<BaseRecord<VectorDxDocument>> rejected = await collection.CreateAsync(RecordId.Create("overflow"), new VectorDxDocument
         {
             Title = "Overflow", Tenant = "tenant-a", Embedding = BaseVector.Create([0, 1]),
         });
 
         ((BaseFailure<BaseRecord<VectorDxDocument>>)rejected).Error.Code.Should().Be("base.vector.inMemory.sourceCapacityExceeded");
-        (await collection.GetAsync(new RecordId("overflow"))).Should().BeOfType<BaseFailure<BaseRecord<VectorDxDocument>>>();
+        (await collection.GetAsync(RecordId.Create("overflow"))).Should().BeOfType<BaseFailure<BaseRecord<VectorDxDocument>>>();
     }
 
     [Fact]
@@ -145,7 +145,7 @@ public sealed class BaseVectorQueryDxTests
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
         BaseCollectionSession<VectorDxDocument> collection = provider.GetRequiredService<IBaseSessionFactory>().For(Admin()).Collection(VectorDxDocument.Collection);
         foreach (string id in new[] { "c", "a", "b" })
-            (await collection.CreateAsync(new RecordId(id), new VectorDxDocument
+            (await collection.CreateAsync(RecordId.Create(id), new VectorDxDocument
             {
                 Title = id, Tenant = "tenant-a", Embedding = BaseVector.Create([1, 0]),
             })).Should().BeOfType<BaseSuccess<BaseRecord<VectorDxDocument>>>();
@@ -178,7 +178,7 @@ public sealed class BaseVectorQueryDxTests
         await using ServiceProvider provider = services.BuildServiceProvider();
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
         BaseCollectionSession<VectorDxDocument> collection = provider.GetRequiredService<IBaseSessionFactory>().For(Admin()).Collection(VectorDxDocument.Collection);
-        (await collection.CreateAsync(new RecordId("before"), new VectorDxDocument
+        (await collection.CreateAsync(RecordId.Create("before"), new VectorDxDocument
         {
             Title = "Before", Tenant = "tenant-a", Embedding = BaseVector.Create([1, 0]),
         })).Should().BeOfType<BaseSuccess<BaseRecord<VectorDxDocument>>>();
@@ -194,7 +194,7 @@ public sealed class BaseVectorQueryDxTests
         foreach (BaseInMemoryProjectionSourceRecord record in source.Records) replacement.Writer.SetCarrier(handle, record);
         replacement.Writer.AdvanceAppliedPosition(handle, session.ProjectionSnapshot.GlobalMutationHighWater);
 
-        (await collection.CreateAsync(new RecordId("concurrent"), new VectorDxDocument
+        (await collection.CreateAsync(RecordId.Create("concurrent"), new VectorDxDocument
         {
             Title = "Concurrent", Tenant = "tenant-a", Embedding = BaseVector.Create([0, 1]),
         })).Should().BeOfType<BaseSuccess<BaseRecord<VectorDxDocument>>>();
@@ -216,11 +216,11 @@ public sealed class BaseVectorQueryDxTests
         await using ServiceProvider provider = services.BuildServiceProvider();
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
         BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(Admin());
-        (await session.Collection(VectorDxDocument.Collection).CreateAsync(new RecordId("vector"), new VectorDxDocument
+        (await session.Collection(VectorDxDocument.Collection).CreateAsync(RecordId.Create("vector"), new VectorDxDocument
         {
             Title = "Vector", Tenant = "tenant-a", Embedding = BaseVector.Create([1, 0]),
         })).Should().BeOfType<BaseSuccess<BaseRecord<VectorDxDocument>>>();
-        (await session.Collection(VectorOtherDocument.Collection).CreateAsync(new RecordId("unrelated"), new VectorOtherDocument
+        (await session.Collection(VectorOtherDocument.Collection).CreateAsync(RecordId.Create("unrelated"), new VectorOtherDocument
         {
             Name = "Unrelated",
         })).Should().BeOfType<BaseSuccess<BaseRecord<VectorOtherDocument>>>();
@@ -519,7 +519,7 @@ public sealed class BaseVectorQueryDxTests
         Record = new RecordEnvelope
         {
             CollectionId = VectorDxDocument.Collection.Id,
-            Id = new RecordId(id),
+            Id = RecordId.Create(id),
             Payload = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
             {
                 [nameof(VectorDxDocument.Title)] = JsonSerializer.SerializeToElement(id),

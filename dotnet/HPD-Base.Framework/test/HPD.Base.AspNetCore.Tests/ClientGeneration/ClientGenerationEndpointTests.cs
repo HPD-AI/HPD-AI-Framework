@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.TestHost;
 
 namespace HPD.Base.AspNetCore.Tests.ClientGeneration;
@@ -14,7 +15,7 @@ public sealed class ClientGenerationEndpointTests
             Mode = BaseRecordBatchExecutionMode.Atomic,
             Operations = [new BaseRecordBatchItem
             {
-                ItemId = "mutation", CollectionId = "documents", Kind = BaseRecordMutationKind.Patch, RecordId = new RecordId("d1"),
+                ItemId = "mutation", CollectionId = "documents", Kind = BaseRecordMutationKind.Patch, RecordId = RecordId.Create("d1"),
                 Patch = new RecordPatchRequest { Patch = new RecordPayload { Kind = RecordPayloadKind.Json, Json = payload.RootElement.Clone() } }
             }]
         };
@@ -45,7 +46,9 @@ public sealed class ClientGenerationEndpointTests
         builder.Services.AddHPDBase(hpd => hpd
             .ConfigureSchema(options => options.ApplicationId = "client-generation-tests")
             .AddAspNetCore()
-            .AddCollection(items));
+            .AddCollection(items)
+            .AddCollection(ClientCompoundRecord.Collection)
+            .AddRead(ClientCompoundRead.Definition));
 
         await using WebApplication app = builder.Build();
         app.UseAuthorization();
@@ -53,7 +56,7 @@ public sealed class ClientGenerationEndpointTests
         {
             AuthorizationPolicy = "application",
             MapRecords = true,
-            MapRegisteredReads = false,
+            MapRegisteredReads = true,
             MapClientGeneration = true
         });
         await app.StartAsync();
@@ -76,6 +79,45 @@ public sealed class ClientGenerationEndpointTests
         JsonElement record = types.EnumerateArray().Single(item => item.GetProperty("id").GetString() == "collection.items.record").GetProperty("node");
         JsonElement title = record.GetProperty("properties").EnumerateArray().Single(item => item.GetProperty("wireName").GetString() == "stored_title");
         title.GetProperty("name").GetString().Should().Be("storedTitle");
+        JsonElement compound = document.RootElement.GetProperty("registeredReads").EnumerateArray()
+            .Single(item => item.GetProperty("id").GetString() == "client-compound-read");
+        compound.GetProperty("fixedCompleteResult").GetBoolean().Should().BeTrue();
+        compound.GetProperty("fixedDiscriminators").EnumerateArray().Select(static value => value.GetString())
+            .Should().Equal("disabled", "enabled");
+        JsonElement discriminator = types.EnumerateArray().Single(item =>
+            item.GetProperty("id").GetString()!.EndsWith(".client.compound.kind", StringComparison.Ordinal)).GetProperty("node");
+        discriminator.GetProperty("kind").GetString().Should().Be("enum");
+        discriminator.GetProperty("values").EnumerateArray().Select(static value => value.GetString())
+            .Should().Equal("disabled", "enabled");
         document.RootElement.GetProperty("digest").GetString().Should().MatchRegex("^sha256:[0-9a-f]{64}$");
     }
 }
+
+[BaseCollection("client-compound-records", typeof(ClientCompoundJsonContext))]
+internal sealed partial record ClientCompoundRecord
+{
+    [BaseField("client.compound.enabled")] public required bool Enabled { get; init; }
+}
+
+[BaseRead("client-compound-read", typeof(ClientCompoundJsonContext), Exposure = BaseReadExposure.Public, RequiredGrantId = "client.compound.read")]
+internal sealed partial record ClientCompoundRead
+{
+    [BaseReadParameter("client.compound.enabled")] public required bool Enabled { get; init; }
+    public sealed partial record Row
+    {
+        [BaseReadField("client.compound.kind")] public required string Kind { get; init; }
+        [BaseReadField("client.compound.count")] public required long Count { get; init; }
+    }
+
+    public static void Configure(BaseReadDefinitionBuilder<ClientCompoundRead, Row> read) => read
+        .CountBranch("enabled-branch", Row.Fields.Kind, "enabled", ClientCompoundRecord.Collection, Row.Fields.Count,
+            branch => branch.Where(branch.Field(ClientCompoundRecord.Fields.Enabled).Equal(branch.Parameter(Parameters.Enabled))))
+        .CountBranch("disabled-branch", Row.Fields.Kind, "disabled", ClientCompoundRecord.Collection, Row.Fields.Count,
+            branch => branch.Where(branch.Field(ClientCompoundRecord.Fields.Enabled).Equal(branch.Parameter(Parameters.Enabled))))
+        .CompoundLimits(4_096, 16, 2_000, 2, 8);
+}
+
+[JsonSerializable(typeof(ClientCompoundRecord))]
+[JsonSerializable(typeof(ClientCompoundRead))]
+[JsonSerializable(typeof(ClientCompoundRead.Row), TypeInfoPropertyName = "ClientCompoundReadRow")]
+internal sealed partial class ClientCompoundJsonContext : JsonSerializerContext;

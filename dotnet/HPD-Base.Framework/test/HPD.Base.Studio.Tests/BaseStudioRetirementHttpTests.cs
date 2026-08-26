@@ -94,7 +94,7 @@ public sealed class BaseStudioRetirementHttpTests
         BaseResult<BasePurgeResult> result = await app.Services.GetRequiredService<IHPDBaseAdministration>().PurgeAsync(new()
         {
             CollectionId = RetirementPrivateRecord.Collection.Id,
-            RecordIds = [new RecordId("subject-1")],
+            RecordIds = [RecordId.Create("subject-1")],
             Principal = FixturePrincipal(),
             ReasonCode = "retirement-bypass",
             AuditReference = "retirement-http-regression",
@@ -506,7 +506,7 @@ public sealed class BaseStudioRetirementHttpTests
                 ItemId = "create-subject", CollectionId = RetirementPrivateRecord.Collection.Id, Kind = BaseRecordMutationKind.Create,
                 Create = new()
                 {
-                    RequestedId = new RecordId("subject-1"),
+                    RequestedId = RecordId.Create("subject-1"),
                     Payload = Payload(("active", true), ("tombstoned", false), ("tenant", "tenant-a")),
                 },
             }],
@@ -558,7 +558,7 @@ public sealed class BaseStudioRetirementHttpTests
         });
         Assert.Equal(actualBarrier, inspected.RequireValue().CurrentBarrier);
         OperationResult<RecordEnvelope> privateRecord = await app.Services.GetRequiredService<IBaseRecordRuntime>().GetAsync(
-            RetirementPrivateRecord.Collection.Id, new RecordId("subject-1"), principal,
+            RetirementPrivateRecord.Collection.Id, RecordId.Create("subject-1"), principal,
             Operation(BaseOperationKind.Get) with { RecordId = "subject-1" });
         Assert.True(privateRecord.IsSuccess(), privateRecord.Error?.Code);
         return new(tombstoneFact.Fact, actualBarrier, privateRecord.Value!.Metadata.Revision!.Value);

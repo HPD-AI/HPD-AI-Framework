@@ -23,7 +23,19 @@ var value = new AotProject
 {
     OrganizationId = "org_aot",
     Name = "AOT",
+    State = AotProjectState.Active,
 };
+byte[] enumWire = JsonSerializer.SerializeToUtf8Bytes(value, AotApplicationJsonContext.Default.AotProject);
+var wireRoundTrip = JsonSerializer.Deserialize(enumWire, AotApplicationJsonContext.Default.AotProject);
+if (!System.Text.Encoding.UTF8.GetString(enumWire).Contains("\"state\":\"active-wire\"", StringComparison.Ordinal) ||
+    wireRoundTrip?.State != AotProjectState.Active)
+    throw new InvalidOperationException("Generated closed enum authority failed under Native AOT.");
+try
+{
+    _ = JsonSerializer.Deserialize("{\"organizationId\":\"org\",\"name\":\"bad\",\"state\":0}", AotApplicationJsonContext.Default.AotProject);
+    throw new InvalidOperationException("Numeric closed enum input was admitted under Native AOT.");
+}
+catch (JsonException) { }
 byte[] recoverySeed = System.Security.Cryptography.SHA256.HashData("hpd-base-aot-recovery-key"u8);
 BaseScheduleRecoveryVerificationKey recoveryKey = BaseScheduleRecoveryManifestContract.CreateVerificationKeyFromPrivateSeed(
     "aot-recovery", 1, recoverySeed, 1, 10_000);
@@ -168,7 +180,7 @@ foreach (string phase in new[] { "first ensure parent", "second ensure parent", 
 {
     OperationResult<BaseActivationDispatchResult> dispatched = await activationWorker.RunOneAsync();
     if (!dispatched.IsSuccess() || dispatched.Value is not { Empty: false, State: BaseActivationState.Succeeded })
-        throw new InvalidOperationException($"InMemory Native AOT {phase} failed: {dispatched.Error?.Code}");
+        throw new InvalidOperationException($"InMemory Native AOT {phase} failed: {dispatched.Error?.Code}; state={dispatched.Value?.State}; empty={dispatched.Value?.Empty}");
 }
 await EnqueueSemanticParent("retire:logical-subject", "retire-parent-1");
 OperationResult<BaseActivationDispatchResult> retiredSemantic = await activationWorker.RunOneAsync();
@@ -179,12 +191,18 @@ BaseMutationRequestIdentity moduleIdentity = BaseMutationRequestIdentity.Create(
     BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("aot-module-request"u8)));
 BaseInstalledModuleMutationHandle<ModuleMutationSmokeRequest, ModuleMutationSmokeResult> module =
     session.ModuleMutations.Get(ModuleMutationSmoke.Identity);
+Guid moduleGuid = Guid.Parse("0f9a4bc4-f95f-4d9e-840c-35d6d81bed52");
+BaseBinary modulePayload = BaseBinary.From([1, 2, 3, 4]);
+BaseCanonicalJson moduleMetadata = BaseCanonicalJson.ParseAndValidate("{\"a\":1}"u8, new BaseCanonicalJsonLimits
+{ MaximumCanonicalBytes = 256, MaximumDepth = 4, MaximumArrayItemsPerContainer = 8, MaximumObjectPropertiesPerContainer = 8, MaximumTotalNodes = 16, MaximumTotalStringUtf8Bytes = 64, MaximumTotalNameUtf8Bytes = 64 });
 BaseModuleMutationExecutionResult<ModuleMutationSmokeResult> moduleCommitted =
-    (await module.ExecuteAsync(new ModuleMutationSmokeRequest { Marker = "aot" }, moduleIdentity)).RequireValue();
+    (await module.ExecuteAsync(new ModuleMutationSmokeRequest { Id = moduleGuid, Payload = modulePayload, Metadata = moduleMetadata, Mode = AotModuleMode.Ready }, moduleIdentity)).RequireValue();
 BaseModuleMutationExecutionResult<ModuleMutationSmokeResult> moduleDuplicate =
-    (await module.ExecuteAsync(new ModuleMutationSmokeRequest { Marker = "aot" }, moduleIdentity)).RequireValue();
-if (moduleCommitted.Result.Generation != "1" || moduleCommitted.Disposition != BaseMutationRequestDisposition.Committed
-    || moduleDuplicate.Result.Generation != "1" || moduleDuplicate.Disposition != BaseMutationRequestDisposition.Duplicate)
+    (await module.ExecuteAsync(new ModuleMutationSmokeRequest { Id = moduleGuid, Payload = modulePayload, Metadata = moduleMetadata, Mode = AotModuleMode.Ready }, moduleIdentity)).RequireValue();
+if (moduleCommitted.Result.Generation.ToCanonicalString() != "1" || moduleCommitted.Result.Id != moduleGuid
+    || moduleCommitted.Result.Mode != AotModuleMode.Ready || !moduleCommitted.Result.Payload.Equals(modulePayload)
+    || moduleCommitted.Disposition != BaseMutationRequestDisposition.Committed
+    || moduleDuplicate.Result.Generation.ToCanonicalString() != "1" || moduleDuplicate.Disposition != BaseMutationRequestDisposition.Duplicate)
     throw new InvalidOperationException("InMemory L50 generation commit or receipt replay failed.");
 if (provider.GetRequiredService<HPDBaseInstalledFeatures>().Provider != "inmemory"
     || provider.GetRequiredService<IRecordStore>().Capabilities.StoreKind != BaseStoreKinds.InMemory)
@@ -197,9 +215,9 @@ BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create(
     "aot", "create-project", "request-1",
     BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("aot-request"u8)));
 BaseBatchBuilder initial = session.Atomic(identity);
-initial.Create(collection, new RecordId("project-1"), value);
+initial.Create(collection, RecordId.Create("project-1"), value);
 BaseBatchBuilder retry = session.Atomic(identity);
-retry.Create(collection, new RecordId("project-1"), value);
+retry.Create(collection, RecordId.Create("project-1"), value);
 BaseResult<BaseBatchResult> committed = await initial.CommitAsync();
 BaseResult<BaseBatchResult> duplicate = await retry.CommitAsync();
 if (committed is not BaseSuccess<BaseBatchResult> committedSuccess
@@ -209,7 +227,7 @@ if (committed is not BaseSuccess<BaseBatchResult> committedSuccess
 {
     throw new InvalidOperationException("InMemory identified request replay failed.");
 }
-_ = (await projects.CreateAsync(new RecordId("project-2"), value with { Name = "AOT 2" })).RequireValue();
+_ = (await projects.CreateAsync(RecordId.Create("project-2"), value with { Name = "AOT 2" })).RequireValue();
 BasePage<BaseRecord<AotProject>> firstPage = (await projects.Query()
     .OrderBy(AotProject.Fields.Name)
     .Take(1)
@@ -229,7 +247,7 @@ OperationResult<RecordEnvelope> subjectCreate = await runtime.CreateAsync(
     AotPrivateSubjectRecord.Collection.Id,
     new RecordCreateRequest
     {
-        RequestedId = new RecordId("subject-1"),
+        RequestedId = RecordId.Create("subject-1"),
         Payload = JsonPayload("""{"active":true,"tombstoned":false,"tenant":"tenant-a"}"""),
     },
     principal,
@@ -248,7 +266,7 @@ OperationResult<RecordEnvelope> referenceCreate = await runtime.CreateAsync(
     AotSubjectConsumerRecord.Collection.Id,
     new RecordCreateRequest
     {
-        RequestedId = new RecordId("consumer-1"),
+        RequestedId = RecordId.Create("consumer-1"),
         Payload = new RecordPayload
         {
             Kind = RecordPayloadKind.Json,
@@ -264,7 +282,7 @@ if (!referenceCreate.IsSuccess())
 
 OperationResult<RecordEnvelope> deactivate = await runtime.PatchAsync(
     AotPrivateSubjectRecord.Collection.Id,
-    new RecordId("subject-1"),
+    RecordId.Create("subject-1"),
     new RecordPatchRequest { Patch = FieldPatch("active", false) },
     principal,
     Operation(BaseOperationKind.Patch, AotPrivateSubjectRecord.Collection.Id));
@@ -291,7 +309,7 @@ OperationResult<RecordEnvelope> invalidReference = await runtime.CreateAsync(
     AotSubjectConsumerRecord.Collection.Id,
     new RecordCreateRequest
     {
-        RequestedId = new RecordId("consumer-2"),
+        RequestedId = RecordId.Create("consumer-2"),
         Payload = new RecordPayload
         {
             Kind = RecordPayloadKind.Json,
@@ -362,6 +380,16 @@ namespace HPD.Base.AotSmoke
 
         [BaseField("name", Operators = BaseFieldOperator.Equal | BaseFieldOperator.Order)]
         public required string Name { get; init; }
+
+        [BaseField("state", AllowedEnumLiterals = ["active-wire", "disabled-wire"])]
+        [JsonConverter(typeof(BaseClosedEnumJsonConverter<AotProjectState>))]
+        public required AotProjectState State { get; init; }
+    }
+
+    internal enum AotProjectState
+    {
+        [JsonStringEnumMemberName("active-wire")] Active,
+        [JsonStringEnumMemberName("disabled-wire")] Disabled,
     }
 
     [JsonSerializable(typeof(AotProject))]

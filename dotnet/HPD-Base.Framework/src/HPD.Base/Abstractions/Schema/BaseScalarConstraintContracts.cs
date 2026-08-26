@@ -16,7 +16,7 @@ public enum BaseScalarKind
 {
     String = 0, Binary = 1, Int32 = 2, Int64 = 3, UInt32 = 4, UInt64 = 5,
     Decimal = 6, Boolean = 7, Guid = 8, UtcDateTime = 9, ClosedEnum = 10,
-    CanonicalJson = 11, FrozenArray = 12,
+    CanonicalJson = 11, FrozenArray = 12, RecordId = 13, ModuleGeneration = 14,
 }
 
 /// <summary>Identifies one closed scalar constraint family.</summary>

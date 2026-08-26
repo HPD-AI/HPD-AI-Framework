@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Text;
 using Microsoft.Data.Sqlite;
@@ -76,7 +77,14 @@ internal sealed class SqliteRelationalReadCompiler(
         string count = "SELECT COUNT(*) FROM (" + core + ") counted";
         string page = core + order + " LIMIT $__limit OFFSET $__offset";
         return new CompiledRead(count, page, _bound.ToArray(), plan.Projection.Select(item => Kind(item.Operand, plan)).ToArray(),
-            plan.Projection.Select(item => item.Operand.Kind == BaseRelationalOperandKind.SubjectReference ? _subjectJoins[item.Operand].Definition : null).ToArray(),
+            plan.Projection.Select(item => item.Operand.Kind switch
+            {
+                BaseRelationalOperandKind.SubjectReference => _subjectJoins[item.Operand].Definition,
+                BaseRelationalOperandKind.StoredSubjectReference => subjects.Single(subject =>
+                    string.Equals(subject.Id, item.Operand.SubjectContractId, StringComparison.Ordinal)
+                    && subject.Version == item.Operand.SubjectContractVersion),
+                _ => null,
+            }).ToArray(),
             plan.Projection.Select(static item => item.FieldId).ToArray());
     }
 
@@ -175,11 +183,13 @@ internal sealed class SqliteRelationalReadCompiler(
     private string Operand(BaseRelationalOperand operand, BaseRelationalReadPlan plan) => operand.Kind switch
     {
         BaseRelationalOperandKind.RecordId => _sources[Required(operand.SourceId)].Alias + ".record_id",
+        BaseRelationalOperandKind.RecordRevision => "('sqlite:' || CAST(" + _sources[Required(operand.SourceId)].Alias + ".revision AS TEXT))",
         BaseRelationalOperandKind.SourceField => Field(_sources[Required(operand.SourceId)], Required(operand.FieldId)),
         BaseRelationalOperandKind.Parameter => Bind(_parameters[Required(operand.ParameterId)].Value),
         BaseRelationalOperandKind.Literal => Bind(Required(operand.Literal)),
         BaseRelationalOperandKind.Aggregate => Aggregate(plan.Aggregates.Single(item => item.Id == operand.AggregateId), plan),
         BaseRelationalOperandKind.SubjectReference => SubjectReference(_subjectJoins[operand], _sources[Required(operand.SourceId)]),
+        BaseRelationalOperandKind.StoredSubjectReference => Field(_sources[Required(operand.SourceId)], Required(operand.FieldId)),
         _ => throw new InvalidOperationException(),
     };
 
@@ -206,11 +216,13 @@ internal sealed class SqliteRelationalReadCompiler(
     private QueryValueKind Kind(BaseRelationalOperand operand, BaseRelationalReadPlan plan) => operand.Kind switch
     {
         BaseRelationalOperandKind.RecordId => QueryValueKind.Id,
+        BaseRelationalOperandKind.RecordRevision => QueryValueKind.String,
         BaseRelationalOperandKind.SourceField => FieldKind(_sources[Required(operand.SourceId)].Collection.Fields.Single(item => item.Definition.Id == operand.FieldId).Definition),
         BaseRelationalOperandKind.Parameter => _parameters[Required(operand.ParameterId)].Value.Kind,
         BaseRelationalOperandKind.Literal => Required(operand.Literal).Kind,
         BaseRelationalOperandKind.Aggregate => AggregateKind(plan.Aggregates.Single(item => item.Id == operand.AggregateId), plan),
         BaseRelationalOperandKind.SubjectReference => QueryValueKind.SubjectReference,
+        BaseRelationalOperandKind.StoredSubjectReference => QueryValueKind.SubjectReference,
         _ => throw new InvalidOperationException(),
     };
 
@@ -230,7 +242,13 @@ internal sealed class SqliteRelationalReadCompiler(
         _ => Kind(Required(aggregate.Operand), plan),
     };
 
-    private static QueryValueKind FieldKind(FieldDefinition field) => field.Format == "date-time"
+    private static QueryValueKind FieldKind(FieldDefinition field) => field.ScalarKind is BaseScalarKind.Guid or BaseScalarKind.RecordId
+        ? QueryValueKind.Id
+        : field.ScalarKind == BaseScalarKind.CanonicalJson
+        ? QueryValueKind.CanonicalJson
+        : field.ScalarKind == BaseScalarKind.ModuleGeneration
+        ? QueryValueKind.String
+        : field.Format == "date-time"
         ? QueryValueKind.DateTime
         : field.Type switch
     {
@@ -265,6 +283,7 @@ internal sealed class SqliteRelationalReadCompiler(
     {
         BaseRelationalOperandKind.SourceField => FieldPresent(_sources[Required(operand.SourceId)], Required(operand.FieldId)),
         BaseRelationalOperandKind.RecordId => _sources[Required(operand.SourceId)].Alias + ".record_id IS NOT NULL",
+        BaseRelationalOperandKind.RecordRevision => _sources[Required(operand.SourceId)].Alias + ".revision IS NOT NULL",
         _ => "1=1",
     };
     private string Bind(QueryValue value) { string name = "$r" + _bound.Count.ToString(CultureInfo.InvariantCulture); _bound.Add((name, value)); return name; }
@@ -302,7 +321,16 @@ internal sealed record CompiledRead(
         }
     }
 
-    internal static int EstimateBytes(BaseRelationalRow row) => row.Fields.Sum(field => field.FieldId.Length * 2 + ValueText(field.Value).Length * 2 + 16);
+    internal static long EstimateBytes(BaseRelationalRow row)
+    {
+        long bytes = 0;
+        foreach (BaseRelationalFieldValue field in row.Fields)
+            bytes = checked(bytes + (long)field.FieldId.Length * 2 +
+                (field.Value.Kind == QueryValueKind.CanonicalJson
+                    ? field.Value.CanonicalJsonUtf8.Length
+                    : (long)ValueText(field.Value).Length * 2) + 16);
+        return bytes;
+    }
     private static object Native(QueryValue value) => value.Kind switch
     {
         QueryValueKind.Null => DBNull.Value,
@@ -313,6 +341,7 @@ internal sealed record CompiledRead(
         QueryValueKind.Number => value.Number!.Value,
         QueryValueKind.Decimal => value.Decimal!,
         QueryValueKind.DateTime => value.DateTime!.Value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
+        QueryValueKind.CanonicalJson => new UTF8Encoding(false, true).GetString(value.CanonicalJsonUtf8.AsSpan()),
         _ => throw new InvalidOperationException(),
     };
     private static BaseRelationalReadExecutionResult Never() => throw new InvalidOperationException();
@@ -328,6 +357,11 @@ internal sealed record CompiledRead(
             QueryValueKind.DateTime => new QueryValue { Kind = kind, DateTime = DateTimeOffset.Parse(Convert.ToString(reader.GetValue(ordinal), CultureInfo.InvariantCulture)!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind) },
             QueryValueKind.Id => new QueryValue { Kind = kind, Id = Convert.ToString(reader.GetValue(ordinal), CultureInfo.InvariantCulture) },
             QueryValueKind.SubjectReference => ReadSubjectReference(Convert.ToString(reader.GetValue(ordinal), CultureInfo.InvariantCulture)!, subject!),
+            QueryValueKind.CanonicalJson => new QueryValue
+            {
+                Kind = kind,
+                CanonicalJsonUtf8 = ImmutableArray.Create(BaseStrictUtf8.Encode(Convert.ToString(reader.GetValue(ordinal), CultureInfo.InvariantCulture)!)),
+            },
             _ => new QueryValue { Kind = QueryValueKind.String, String = Convert.ToString(reader.GetValue(ordinal), CultureInfo.InvariantCulture) },
         };
     }
@@ -335,18 +369,28 @@ internal sealed record CompiledRead(
     {
         using System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(json);
         System.Text.Json.JsonElement root = document.RootElement;
-        byte[] epoch = Convert.FromHexString(root.GetProperty("authorityEpochHex").GetString()!);
-        byte[] incarnation = Convert.FromHexString(root.GetProperty("incarnationHex").GetString()!);
+        string epoch = root.TryGetProperty("authorityEpochHex", out System.Text.Json.JsonElement epochHex)
+            ? BaseSubjectReferenceEncoding.Encode(Convert.FromHexString(epochHex.GetString()!))
+            : root.GetProperty("authorityEpoch").GetString()!;
+        string incarnation = root.TryGetProperty("incarnationHex", out System.Text.Json.JsonElement incarnationHex)
+            ? BaseSubjectReferenceEncoding.Encode(Convert.FromHexString(incarnationHex.GetString()!))
+            : root.GetProperty("incarnation").GetString()!;
+        BaseSubjectId subjectId = BaseSubjectId.Create(
+            root.GetProperty("subjectId").GetString()!, definition.SubjectIdKind, definition.MaximumSubjectIdUtf8Bytes);
+        BaseSubjectAuthorityEpoch authorityEpoch = BaseSubjectAuthorityEpoch.Parse(epoch);
+        BaseSubjectIncarnation subjectIncarnation = BaseSubjectIncarnation.Parse(incarnation);
+        if (root.EnumerateObject().Count() != 3)
+            throw new InvalidOperationException(BaseSubjectErrorCodes.ReferenceInvalid);
         return new QueryValue
         {
             Kind = QueryValueKind.SubjectReference,
-            SubjectId = root.GetProperty("subjectId").GetString(),
+            SubjectId = new string(subjectId.Value.AsSpan()),
             SubjectIdKind = definition.SubjectIdKind,
             SubjectIdMaximumUtf8Bytes = definition.MaximumSubjectIdUtf8Bytes,
-            SubjectAuthorityEpoch = BaseSubjectReferenceEncoding.Encode(epoch),
-            SubjectIncarnation = BaseSubjectReferenceEncoding.Encode(incarnation),
+            SubjectAuthorityEpoch = authorityEpoch.ToBase64Url(),
+            SubjectIncarnation = subjectIncarnation.ToBase64Url(),
         };
     }
     private static string ValueText(QueryValue value) => value.Kind switch
-    { QueryValueKind.Null => "", QueryValueKind.String => value.String ?? "", QueryValueKind.Id => value.Id ?? "", QueryValueKind.Boolean => value.Boolean?.ToString() ?? "", QueryValueKind.Integer => value.Integer?.ToString(CultureInfo.InvariantCulture) ?? "", QueryValueKind.Number => value.Number?.ToString("R", CultureInfo.InvariantCulture) ?? "", QueryValueKind.Decimal => value.Decimal ?? "", QueryValueKind.DateTime => value.DateTime?.ToString("O", CultureInfo.InvariantCulture) ?? "", _ => "" };
+    { QueryValueKind.Null => "", QueryValueKind.String => value.String ?? "", QueryValueKind.Id => value.Id ?? "", QueryValueKind.Boolean => value.Boolean?.ToString() ?? "", QueryValueKind.Integer => value.Integer?.ToString(CultureInfo.InvariantCulture) ?? "", QueryValueKind.Number => value.Number?.ToString("R", CultureInfo.InvariantCulture) ?? "", QueryValueKind.Decimal => value.Decimal ?? "", QueryValueKind.DateTime => value.DateTime?.ToString("O", CultureInfo.InvariantCulture) ?? "", QueryValueKind.CanonicalJson => value.CanonicalJsonUtf8.IsDefault ? "" : Convert.ToBase64String(value.CanonicalJsonUtf8.AsSpan()), _ => "" };
 }

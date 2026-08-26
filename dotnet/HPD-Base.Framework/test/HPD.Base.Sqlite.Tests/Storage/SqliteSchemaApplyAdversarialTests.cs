@@ -27,7 +27,7 @@ public sealed class SqliteSchemaApplyAdversarialTests
                 (await ApplyAsync(initial, prepared, applicationId)).IsSuccess().Should().BeTrue();
                 (await initial.CreateAsync(withoutIndex, new RecordCreateRequest
                 {
-                    RequestedId = new RecordId("seed"), Payload = Payload("alpha"),
+                    RequestedId = RecordId.Create("seed"), Payload = Payload("alpha"),
                 }, OperationContext(BaseOperationKind.Create))).IsSuccess().Should().BeTrue();
             }
 
@@ -283,7 +283,7 @@ public sealed class SqliteSchemaApplyAdversarialTests
             LeaseTimeout = TimeSpan.FromSeconds(5), ApplyTimeout = TimeSpan.FromSeconds(5), CommitCompletionTimeout = TimeSpan.FromSeconds(5),
         });
         applied.IsSuccess().Should().BeTrue(applied.Error?.Code + ":" + applied.Error?.Message);
-        (await store.GetAsync(collection, new RecordId("seed"), OperationContext(BaseOperationKind.Get))).IsSuccess().Should().BeTrue();
+        (await store.GetAsync(collection, RecordId.Create("seed"), OperationContext(BaseOperationKind.Get))).IsSuccess().Should().BeTrue();
     }
 
     private static CollectionDefinition IndexedCollection(BaseLogicalIndexDefinition[] indexes)

@@ -158,20 +158,26 @@ try
         BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("sqlite-aot-module-request"u8)));
     BaseInstalledModuleMutationHandle<ModuleMutationSmokeRequest, ModuleMutationSmokeResult> module =
         session.ModuleMutations.Get(ModuleMutationSmoke.Identity);
+    Guid moduleGuid = Guid.Parse("0f9a4bc4-f95f-4d9e-840c-35d6d81bed52");
+    BaseBinary modulePayload = BaseBinary.From([1, 2, 3, 4]);
+    BaseCanonicalJson moduleMetadata = BaseCanonicalJson.ParseAndValidate("{\"a\":1}"u8, new BaseCanonicalJsonLimits
+    { MaximumCanonicalBytes = 256, MaximumDepth = 4, MaximumArrayItemsPerContainer = 8, MaximumObjectPropertiesPerContainer = 8, MaximumTotalNodes = 16, MaximumTotalStringUtf8Bytes = 64, MaximumTotalNameUtf8Bytes = 64 });
     BaseModuleMutationExecutionResult<ModuleMutationSmokeResult> moduleCommitted =
-        (await module.ExecuteAsync(new ModuleMutationSmokeRequest { Marker = "aot" }, moduleIdentity)).RequireValue();
+        (await module.ExecuteAsync(new ModuleMutationSmokeRequest { Id = moduleGuid, Payload = modulePayload, Metadata = moduleMetadata, Mode = AotModuleMode.Ready }, moduleIdentity)).RequireValue();
     BaseModuleMutationExecutionResult<ModuleMutationSmokeResult> moduleDuplicate =
-        (await module.ExecuteAsync(new ModuleMutationSmokeRequest { Marker = "aot" }, moduleIdentity)).RequireValue();
-    Require(moduleCommitted.Result.Generation == "1" && moduleCommitted.Disposition == BaseMutationRequestDisposition.Committed
-        && moduleDuplicate.Result.Generation == "1" && moduleDuplicate.Disposition == BaseMutationRequestDisposition.Duplicate,
+        (await module.ExecuteAsync(new ModuleMutationSmokeRequest { Id = moduleGuid, Payload = modulePayload, Metadata = moduleMetadata, Mode = AotModuleMode.Ready }, moduleIdentity)).RequireValue();
+    Require(moduleCommitted.Result.Generation.ToCanonicalString() == "1" && moduleCommitted.Result.Id == moduleGuid
+        && moduleCommitted.Result.Mode == AotModuleMode.Ready && moduleCommitted.Result.Payload.Equals(modulePayload)
+        && moduleCommitted.Disposition == BaseMutationRequestDisposition.Committed
+        && moduleDuplicate.Result.Generation.ToCanonicalString() == "1" && moduleDuplicate.Disposition == BaseMutationRequestDisposition.Duplicate,
         "SQLite L50 generation commit or receipt replay failed.");
     BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create(
         "aot", "create-item", "request-1",
         BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("aot-request"u8)));
     BaseBatchBuilder firstRequest = session.Atomic(identity);
-    firstRequest.Create(items, new RecordId("receipt-item"), new SmokeRecord("receipt"));
+    firstRequest.Create(items, RecordId.Create("receipt-item"), new SmokeRecord("receipt"));
     BaseBatchBuilder duplicateRequest = session.Atomic(identity);
-    duplicateRequest.Create(items, new RecordId("receipt-item"), new SmokeRecord("receipt"));
+    duplicateRequest.Create(items, RecordId.Create("receipt-item"), new SmokeRecord("receipt"));
     BaseResult<BaseBatchResult> committedResult = await firstRequest.CommitAsync();
     BaseResult<BaseBatchResult> duplicateResult = await duplicateRequest.CommitAsync();
     Require(committedResult is BaseSuccess<BaseBatchResult>,
@@ -187,7 +193,7 @@ try
         privateSubjects.Id,
         new RecordCreateRequest
         {
-            RequestedId = new RecordId("subject-1"),
+            RequestedId = RecordId.Create("subject-1"),
             Payload = JsonObjectPayload(("active", "true"), ("tombstoned", "false"), ("tenant", "\"tenant-a\"")),
         },
         principal,
@@ -202,7 +208,7 @@ try
         SmokeSubjectConsumerRecord.Collection.Id,
         new RecordCreateRequest
         {
-            RequestedId = new RecordId("consumer-1"),
+            RequestedId = RecordId.Create("consumer-1"),
             Payload = new RecordPayload
             {
                 Kind = RecordPayloadKind.Json,
@@ -217,7 +223,7 @@ try
 
     OperationResult<RecordEnvelope> deactivatedSubject = await runtime.PatchAsync(
         privateSubjects.Id,
-        new RecordId("subject-1"),
+        RecordId.Create("subject-1"),
         new RecordPatchRequest { Patch = FieldPatch("active", false) },
         principal,
         Operation(BaseOperationKind.Patch, privateSubjects.Id));
@@ -241,7 +247,7 @@ try
         SmokeSubjectConsumerRecord.Collection.Id,
         new RecordCreateRequest
         {
-            RequestedId = new RecordId("consumer-2"),
+            RequestedId = RecordId.Create("consumer-2"),
             Payload = new RecordPayload
             {
                 Kind = RecordPayloadKind.Json,
@@ -294,7 +300,7 @@ try
 
     OperationResult<RecordEnvelope> desired = await runtime.CreateAsync(
         "authority.desired",
-        new RecordCreateRequest { RequestedId = new RecordId("desired"), Payload = JsonPayload("generation", "1") },
+        new RecordCreateRequest { RequestedId = RecordId.Create("desired"), Payload = JsonPayload("generation", "1") },
         principal,
         Operation(BaseOperationKind.Create, "authority.desired"));
     Require(desired.Status == OperationStatus.Created, "Authority desired-state seed failed.");
@@ -361,7 +367,7 @@ try
         })).RequireValue();
     Require(restored.RestoreEpoch == manifest.RestoreEpoch + 1, "Restore epoch did not advance.");
     BaseBatchBuilder postRestoreRetry = session.Atomic(identity);
-    postRestoreRetry.Create(items, new RecordId("receipt-item"), new SmokeRecord("receipt"));
+    postRestoreRetry.Create(items, RecordId.Create("receipt-item"), new SmokeRecord("receipt"));
     BaseResult<BaseBatchResult> restoredReceipt = await postRestoreRetry.CommitAsync();
     Require(
         restoredReceipt is BaseSuccess<BaseBatchResult> restoredDuplicate
@@ -454,7 +460,7 @@ static BaseRecordBatchRequest AuthorityRequest(
                 ItemId = "desired",
                 CollectionId = "authority.desired",
                 Kind = BaseRecordMutationKind.Replace,
-                RecordId = new RecordId("desired"),
+                RecordId = RecordId.Create("desired"),
                 Replace = new RecordReplaceRequest
                 {
                     ExpectedRevision = desiredRevision,
@@ -474,7 +480,7 @@ static BaseRecordBatchItem AuthorityCreate(
         ItemId = itemId,
         CollectionId = collectionId,
         Kind = BaseRecordMutationKind.Create,
-        Create = new RecordCreateRequest { RequestedId = new RecordId(recordId), Payload = payload },
+        Create = new RecordCreateRequest { RequestedId = RecordId.Create(recordId), Payload = payload },
     };
 
 static RecordPayload JsonPayload(string name, string jsonValue)

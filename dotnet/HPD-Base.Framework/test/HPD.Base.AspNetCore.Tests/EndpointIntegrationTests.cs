@@ -110,7 +110,7 @@ public sealed class EndpointIntegrationTests
                 new BaseRecordBatchItem
                 {
                     ItemId = "create-1", CollectionId = "items", Kind = BaseRecordMutationKind.Create,
-                    Create = new RecordCreateRequest { RequestedId = new RecordId("atomic-http-1"), Payload = TestBaseApp.Payload(("title", "once")) },
+                    Create = new RecordCreateRequest { RequestedId = RecordId.Create("atomic-http-1"), Payload = TestBaseApp.Payload(("title", "once")) },
                 }
             ],
         };

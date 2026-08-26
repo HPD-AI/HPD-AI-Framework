@@ -9,6 +9,8 @@ internal static class BaseScalarCanonical
     internal static byte[] Encode(BaseScalarKind kind, JsonElement value) => kind switch
     {
         BaseScalarKind.String when value.ValueKind == JsonValueKind.String => BaseStrictUtf8.Encode(value.GetString()!),
+        BaseScalarKind.RecordId when value.ValueKind == JsonValueKind.String && RecordId.TryParse(value.GetString(), out RecordId item) => BaseStrictUtf8.Encode(item.Value),
+        BaseScalarKind.ModuleGeneration when value.ValueKind == JsonValueKind.String => ModuleGeneration(value.GetString()!),
         BaseScalarKind.Binary when value.ValueKind == JsonValueKind.String => BaseBinary.FromBase64(value.GetString()!).ToArray(),
         BaseScalarKind.Int32 when value.TryGetInt32(out int item) => Number(4, span => BinaryPrimitives.WriteInt32BigEndian(span, item)),
         BaseScalarKind.Int64 when value.TryGetInt64(out long item) => Number(8, span => BinaryPrimitives.WriteInt64BigEndian(span, item)),
@@ -23,6 +25,12 @@ internal static class BaseScalarCanonical
         BaseScalarKind.FrozenArray => throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid),
         _ => throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid),
     };
+
+    private static byte[] ModuleGeneration(string value)
+    {
+        _ = BaseModuleGeneration.ParseCanonical(value);
+        return BaseStrictUtf8.Encode(value);
+    }
 
     internal static bool TryParseDecimal(string text, out BaseDecimalValue value)
     {

@@ -58,7 +58,7 @@ public sealed class RealtimeBackpressureV2Tests
     private static async IAsyncEnumerable<BaseRealtimeEvent> ReadAsync(ChannelReader<BaseRealtimeEvent> reader, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     { await foreach (BaseRealtimeEvent item in reader.ReadAllAsync(cancellationToken)) yield return item; }
 
-    private static BaseRealtimeEvent Event(string id) => new() { EventId = id, Type = "record.created", SchemaVersion = "1", OccurredAt = DateTimeOffset.UnixEpoch, Resource = new BaseRealtimeRecordResource { CollectionId = "items", RecordId = new RecordId(id) }, Operation = BaseOperationKind.Create };
+    private static BaseRealtimeEvent Event(string id) => new() { EventId = id, Type = "record.created", SchemaVersion = "1", OccurredAt = DateTimeOffset.UnixEpoch, Resource = new BaseRealtimeRecordResource { CollectionId = "items", RecordId = RecordId.Create(id) }, Operation = BaseOperationKind.Create };
 
     private sealed class ManualTimestampProvider : TimeProvider
     {

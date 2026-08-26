@@ -12,6 +12,7 @@
     <PackageTags>auth;authentication;identity;aspnetcore;hpd</PackageTags>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../HPD.Auth.Base/HPD.Auth.Base.csproj" />
     <ProjectReference Include="../HPD.Auth.Core/HPD.Auth.Core.csproj" />
     <ProjectReference Include="../HPD.Auth.Infrastructure/HPD.Auth.Infrastructure.csproj" />
     <ProjectReference Include="../../../shared/src/HPD-Events/HPD-Events.csproj" />

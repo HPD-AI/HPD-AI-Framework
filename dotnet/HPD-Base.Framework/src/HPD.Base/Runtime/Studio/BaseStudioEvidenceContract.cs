@@ -146,7 +146,7 @@ internal static class BaseStudioEvidenceContract
         Parent = value.Parent switch
         {
             BaseStudioCollectionEvidenceSubject collection => collection with { CollectionId = new string(collection.CollectionId.AsSpan()), InstalledCollectionChecksum = [.. collection.InstalledCollectionChecksum] },
-            BaseStudioRecordEvidenceSubject record => record with { CollectionId = new string(record.CollectionId.AsSpan()), InstalledCollectionChecksum = [.. record.InstalledCollectionChecksum], RecordId = new RecordId(new string(record.RecordId.Value.AsSpan())) },
+            BaseStudioRecordEvidenceSubject record => record with { CollectionId = new string(record.CollectionId.AsSpan()), InstalledCollectionChecksum = [.. record.InstalledCollectionChecksum], RecordId = RecordId.Create(new string(record.RecordId.Value.AsSpan())) },
             _ => throw new InvalidOperationException("The evidence subject is invalid."),
         },
         Limits = value.Limits with { },

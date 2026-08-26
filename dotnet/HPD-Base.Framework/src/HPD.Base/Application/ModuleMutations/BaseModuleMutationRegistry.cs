@@ -236,12 +236,122 @@ public sealed class BaseGeneratedModuleMutationIdentity<TRequest, TResult> : IBa
                     binding.PropertyType,
                     binding.Confidentiality,
                     binding.RecordDisclosure,
-                    binding.Nullable,
+                    binding.Manifest,
                     new string(binding.ApplicationName.AsSpan()),
                     binding.WirePropertyPath)))
                 throw new InvalidOperationException("base.moduleMutation.invalid");
         }
         return result;
+    }
+}
+
+/// <summary>Contains generator-emitted inert scalar metadata that Base seals into opaque module authority.</summary>
+[System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+public sealed class BaseGeneratedModuleScalarManifest
+{
+    /// <summary>Binds one generated collection field to its exact persisted scalar authority.</summary>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public BaseField<TRecord, TValue> BindField<TRecord, TValue>(
+        BaseField<TRecord, TValue> field, string collectionId, string fieldId)
+    {
+        ArgumentNullException.ThrowIfNull(field);
+        if (Kind is BaseModuleValueKind.Revision or BaseModuleValueKind.FrozenArray)
+            throw new InvalidOperationException("base.moduleMutation.invalid");
+        BaseScalarKind scalarKind = (BaseScalarKind)(int)Kind;
+        BaseScalarCodecAuthority codec = CodecQualifier is null
+            ? BaseGeneratedSchemaRegistration.ScalarCodec(scalarKind)
+            : BaseGeneratedSchemaRegistration.ScalarCodec(scalarKind, CodecQualifier);
+        BaseScalarConstraintChecksum checksum = BaseGeneratedSchemaRegistration.ScalarConstraintChecksum(
+            collectionId, fieldId, Presence, Nullability, codec, Constraints);
+        field.BindModuleMutation(BaseModuleValueAuthorityContract.Create(
+            Kind, Presence, Nullability, codec, Constraints, checksum, RecordTargetCollectionId));
+        return field;
+    }
+    /// <summary>Creates one generated request-property handle from this inert manifest.</summary>
+    /// <typeparam name="TRequest">The generated request type.</typeparam>
+    /// <typeparam name="TValue">The exact generated property type.</typeparam>
+    /// <param name="stablePropertyPath">The generator-owned stable property path.</param>
+    /// <returns>An opaque request-property handle.</returns>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public BaseModuleRequestProperty<TRequest, TValue> RequestProperty<TRequest, TValue>(params string[] stablePropertyPath) =>
+        new(Seal(stablePropertyPath));
+
+    /// <summary>Creates one generated result-property handle from this inert manifest.</summary>
+    /// <typeparam name="TResult">The generated result type.</typeparam>
+    /// <typeparam name="TValue">The exact generated property type.</typeparam>
+    /// <param name="stablePropertyPath">The generator-owned stable property path.</param>
+    /// <returns>An opaque result-property handle.</returns>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public BaseModuleResultProperty<TResult, TValue> ResultProperty<TResult, TValue>(params string[] stablePropertyPath) =>
+        new(Seal(stablePropertyPath));
+
+    /// <summary>Creates exact unbounded built-in scalar metadata for a trusted manual proving declaration.</summary>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public static BaseGeneratedModuleScalarManifest Primitive<TValue>(
+        BaseFieldPresence presence = BaseFieldPresence.Required,
+        BaseFieldNullability nullability = BaseFieldNullability.NonNullable)
+    {
+        Type actual = Nullable.GetUnderlyingType(typeof(TValue)) ?? typeof(TValue);
+        BaseModuleValueKind kind = actual == typeof(string) ? BaseModuleValueKind.String
+            : actual == typeof(bool) ? BaseModuleValueKind.Boolean
+            : actual == typeof(int) ? BaseModuleValueKind.Int32
+            : actual == typeof(long) ? BaseModuleValueKind.Int64
+            : actual == typeof(uint) ? BaseModuleValueKind.UInt32
+            : actual == typeof(ulong) ? BaseModuleValueKind.UInt64
+            : actual == typeof(decimal) ? BaseModuleValueKind.Decimal
+            : actual == typeof(Guid) ? BaseModuleValueKind.Guid
+            : actual == typeof(DateTimeOffset) ? BaseModuleValueKind.UtcDateTime
+            : actual == typeof(BaseModuleGeneration) ? BaseModuleValueKind.ModuleGeneration
+            : actual == typeof(RevisionToken) ? BaseModuleValueKind.Revision
+            : throw new InvalidOperationException("base.moduleMutation.invalid");
+        return new(kind, presence, nullability, new BaseScalarConstraintSet());
+    }
+
+    /// <summary>Initializes generator-emitted scalar metadata.</summary>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public BaseGeneratedModuleScalarManifest(
+        BaseModuleValueKind kind,
+        BaseFieldPresence presence,
+        BaseFieldNullability nullability,
+        BaseScalarConstraintSet constraints,
+        string? codecQualifier = null,
+        string? recordTargetCollectionId = null)
+    {
+        Kind = kind;
+        Presence = presence;
+        Nullability = nullability;
+        Constraints = BaseModuleValueAuthorityContract.Clone(constraints ?? throw new ArgumentNullException(nameof(constraints)));
+        CodecQualifier = codecQualifier is null ? null : new string(codecQualifier.AsSpan());
+        RecordTargetCollectionId = recordTargetCollectionId is null ? null : new string(recordTargetCollectionId.AsSpan());
+    }
+
+    internal BaseModuleValueKind Kind { get; }
+    internal BaseFieldPresence Presence { get; }
+    internal BaseFieldNullability Nullability { get; }
+    internal BaseScalarConstraintSet Constraints { get; }
+    internal string? CodecQualifier { get; }
+    internal string? RecordTargetCollectionId { get; }
+
+    internal BaseModuleDtoScalarAuthority Seal(IReadOnlyList<string> stablePropertyPath)
+    {
+        if (Kind == BaseModuleValueKind.Revision)
+        {
+            BaseModuleValueType revision = BaseModuleValueAuthorityContract.Create(
+                Kind, Presence, Nullability, null, null, null);
+            return BaseModuleValueAuthorityContract.CreateDto(stablePropertyPath, revision);
+        }
+        if (Kind == BaseModuleValueKind.FrozenArray || (int)Kind is < 0 or > (int)BaseModuleValueKind.ModuleGeneration)
+            throw new InvalidOperationException("base.moduleMutation.invalid");
+        BaseScalarKind scalarKind = (BaseScalarKind)(int)Kind;
+        BaseScalarCodecAuthority codec = CodecQualifier is null
+            ? BaseGeneratedSchemaRegistration.ScalarCodec(scalarKind)
+            : BaseGeneratedSchemaRegistration.ScalarCodec(scalarKind, CodecQualifier);
+        string fieldId = stablePropertyPath[^1];
+        BaseScalarConstraintChecksum checksum = BaseGeneratedSchemaRegistration.ScalarConstraintChecksum(
+            "hpd.base.module.dto", fieldId, Presence, Nullability, codec, Constraints);
+        BaseModuleValueType value = BaseModuleValueAuthorityContract.Create(
+            Kind, Presence, Nullability, codec, Constraints, checksum, RecordTargetCollectionId);
+        return BaseModuleValueAuthorityContract.CreateDto(stablePropertyPath, value);
     }
 }
 
@@ -254,7 +364,7 @@ public sealed class BaseModuleDtoPropertyBinding
         [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)] Type? propertyType,
         BaseFieldConfidentiality confidentiality,
         BaseRecordDisclosure recordDisclosure,
-        bool nullable,
+        BaseGeneratedModuleScalarManifest manifest,
         string applicationName,
         IReadOnlyList<string>? wirePropertyPath = null)
     {
@@ -263,7 +373,8 @@ public sealed class BaseModuleDtoPropertyBinding
         PropertyType = propertyType;
         Confidentiality = confidentiality;
         RecordDisclosure = recordDisclosure;
-        Nullable = nullable;
+        Manifest = manifest ?? throw new ArgumentNullException(nameof(manifest));
+        ScalarAuthority = Manifest.Seal(StablePropertyPath);
         ApplicationName = applicationName;
         WirePropertyPath = (wirePropertyPath ?? [applicationName]).Select(static edge => new string(edge.AsSpan())).ToArray();
         if (WirePropertyPath.Count != StablePropertyPath.Count || WirePropertyPath.Any(string.IsNullOrWhiteSpace))
@@ -282,8 +393,13 @@ public sealed class BaseModuleDtoPropertyBinding
     public BaseFieldConfidentiality Confidentiality { get; }
     /// <summary>Gets the exact installed L42 ordinary-record disclosure for this edge.</summary>
     public BaseRecordDisclosure RecordDisclosure { get; }
-    /// <summary>Gets whether the exact L44 property node permits null.</summary>
-    public bool Nullable { get; }
+    internal BaseGeneratedModuleScalarManifest Manifest { get; }
+    /// <summary>Gets the exact sealed scalar authority for this property.</summary>
+    public BaseModuleDtoScalarAuthority ScalarAuthority { get; }
+    /// <summary>Gets whether an explicitly present property may contain null.</summary>
+    public BaseFieldNullability Nullability => ScalarAuthority.ValueType.Nullability;
+    /// <summary>Gets whether the property may be absent.</summary>
+    public BaseFieldPresence Presence => ScalarAuthority.ValueType.Presence;
     /// <summary>Gets the exact application property identity.</summary>
     public string ApplicationName { get; }
     /// <summary>Gets the exact frozen L44 wire-property path.</summary>
@@ -295,10 +411,10 @@ public sealed class BaseModuleDtoPropertyBinding
         [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)] TProperty>(
         string stablePropertyId,
         string applicationName,
+        BaseGeneratedModuleScalarManifest manifest,
         BaseFieldConfidentiality confidentiality = BaseFieldConfidentiality.Public,
-        BaseRecordDisclosure recordDisclosure = BaseRecordDisclosure.Include,
-        bool nullable = false) =>
-        new([stablePropertyId], typeof(TDeclaring), typeof(TProperty), confidentiality, recordDisclosure, nullable, applicationName, [applicationName]);
+        BaseRecordDisclosure recordDisclosure = BaseRecordDisclosure.Include) =>
+        new([stablePropertyId], typeof(TDeclaring), typeof(TProperty), confidentiality, recordDisclosure, manifest, applicationName, [applicationName]);
 
     /// <summary>Creates a generated binding with its exact frozen L44 wire name.</summary>
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
@@ -306,9 +422,10 @@ public sealed class BaseModuleDtoPropertyBinding
         [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)] TDeclaring,
         [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)] TProperty>(
         string stablePropertyId, string applicationName, string wireName,
+        BaseGeneratedModuleScalarManifest manifest,
         BaseFieldConfidentiality confidentiality = BaseFieldConfidentiality.Public,
-        BaseRecordDisclosure recordDisclosure = BaseRecordDisclosure.Include, bool nullable = false) =>
-        new([stablePropertyId], typeof(TDeclaring), typeof(TProperty), confidentiality, recordDisclosure, nullable, applicationName, [wireName]);
+        BaseRecordDisclosure recordDisclosure = BaseRecordDisclosure.Include) =>
+        new([stablePropertyId], typeof(TDeclaring), typeof(TProperty), confidentiality, recordDisclosure, manifest, applicationName, [wireName]);
 
     /// <summary>Creates an exact opaque binding to one generated nested DTO property path.</summary>
     public static BaseModuleDtoPropertyBinding CreatePath<
@@ -316,10 +433,10 @@ public sealed class BaseModuleDtoPropertyBinding
         [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)] TProperty>(
         IReadOnlyList<string> stablePropertyPath,
         string applicationName,
+        BaseGeneratedModuleScalarManifest manifest,
         BaseFieldConfidentiality confidentiality = BaseFieldConfidentiality.Public,
-        BaseRecordDisclosure recordDisclosure = BaseRecordDisclosure.Include,
-        bool nullable = false) =>
-        new(stablePropertyPath, typeof(TDeclaring), typeof(TProperty), confidentiality, recordDisclosure, nullable, applicationName, stablePropertyPath);
+        BaseRecordDisclosure recordDisclosure = BaseRecordDisclosure.Include) =>
+        new(stablePropertyPath, typeof(TDeclaring), typeof(TProperty), confidentiality, recordDisclosure, manifest, applicationName, stablePropertyPath);
 
     /// <summary>Creates a generated nested binding with its exact frozen L44 wire path.</summary>
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
@@ -327,9 +444,10 @@ public sealed class BaseModuleDtoPropertyBinding
         [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)] TDeclaring,
         [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)] TProperty>(
         IReadOnlyList<string> stablePropertyPath, string applicationName, IReadOnlyList<string> wirePropertyPath,
+        BaseGeneratedModuleScalarManifest manifest,
         BaseFieldConfidentiality confidentiality = BaseFieldConfidentiality.Public,
-        BaseRecordDisclosure recordDisclosure = BaseRecordDisclosure.Include, bool nullable = false) =>
-        new(stablePropertyPath, typeof(TDeclaring), typeof(TProperty), confidentiality, recordDisclosure, nullable, applicationName, wirePropertyPath);
+        BaseRecordDisclosure recordDisclosure = BaseRecordDisclosure.Include) =>
+        new(stablePropertyPath, typeof(TDeclaring), typeof(TProperty), confidentiality, recordDisclosure, manifest, applicationName, wirePropertyPath);
 }
 
 /// <summary>Infrastructure-only factory used by generated module mutation declarations.</summary>
@@ -444,9 +562,10 @@ internal static class BaseModuleMutationContractValidator
                 string pathKey = string.Join('\0', request.Property.StablePropertyPath);
                 if (!registration.RequestBindings.TryGetValue(pathKey, out BaseModuleDtoPropertyBinding? binding)
                     || request.Property.StablePropertyPath.Length is < 1 or > 16
-                    || request.Property.DeclaredTypeId != expression.ResultTypeId
+                    || !request.Property.Authority.AuthorityChecksum.Equals(binding.ScalarAuthority.AuthorityChecksum)
+                    || !BaseModuleValueAuthorityContract.StructurallyEquals(request.Property.Authority.ValueType, expression.ResultType)
                     || string.IsNullOrWhiteSpace(binding.ApplicationName)
-                    || binding.PropertyType is null || !TypeMatches(binding.PropertyType, binding.Nullable, expression.ResultTypeId))
+                    || binding.PropertyType is null || !TypeMatches(binding.PropertyType, binding.ScalarAuthority.ValueType))
                     throw new InvalidOperationException("base.moduleMutation.invalid");
             }
             if (expression is BaseModuleCapturedFieldExpression captured)
@@ -460,16 +579,16 @@ internal static class BaseModuleMutationContractValidator
                     || numeric.Decimal is { Scale: < 0 } decimalContext && decimalContext.Scale > decimalContext.Precision
                     || numeric.Decimal is not null && !Enum.IsDefined(numeric.Decimal.Rounding))
                     throw new InvalidOperationException("base.moduleMutation.invalid");
-                if (!string.Equals(numeric.Left.ResultTypeId, numeric.Right.ResultTypeId, StringComparison.Ordinal)
-                    || !string.Equals(numeric.ResultTypeId, numeric.Left.ResultTypeId, StringComparison.Ordinal))
+                if (!BaseModuleValueAuthorityContract.StructurallyEquals(numeric.Left.ResultType, numeric.Right.ResultType)
+                    || !BaseModuleValueAuthorityContract.StructurallyEquals(numeric.ResultType, numeric.Left.ResultType))
                     throw new InvalidOperationException("base.moduleMutation.invalid");
             }
             if (expression is BaseModuleConditionalExpression conditional
-                && (!string.Equals(conditional.ResultTypeId, conditional.WhenTrue.ResultTypeId, StringComparison.Ordinal)
-                    || !string.Equals(conditional.ResultTypeId, conditional.WhenFalse.ResultTypeId, StringComparison.Ordinal)))
+                && (!BaseModuleValueAuthorityContract.StructurallyEquals(conditional.ResultType, conditional.WhenTrue.ResultType)
+                    || !BaseModuleValueAuthorityContract.StructurallyEquals(conditional.ResultType, conditional.WhenFalse.ResultType)))
                 throw new InvalidOperationException("base.moduleMutation.invalid");
             if (expression is BaseModuleCoalesceExpression coalesce
-                && coalesce.Values.Any(value => !SameUnderlyingType(coalesce.ResultTypeId, value.ResultTypeId)))
+                && coalesce.Values.Any(value => !SameUnderlyingType(coalesce.ResultType, value.ResultType)))
                 throw new InvalidOperationException("base.moduleMutation.invalid");
             if (expression is BaseModuleConstantExpression constant && !ConstantCanonicalMatches(constant))
                 throw new InvalidOperationException("base.moduleMutation.invalid");
@@ -481,7 +600,8 @@ internal static class BaseModuleMutationContractValidator
             throw new InvalidOperationException("base.moduleMutation.invalid");
         foreach (BaseModuleObjectPropertyExpression property in template.Result.Value.Properties)
             if (!registration.ResultBindings.TryGetValue(property.StablePropertyId, out BaseModuleDtoPropertyBinding? resultBinding)
-                || resultBinding.PropertyType is not null && !TypeMatches(resultBinding.PropertyType, resultBinding.Nullable, property.Value.ResultTypeId))
+                || resultBinding.PropertyType is not null && (!TypeMatches(resultBinding.PropertyType, resultBinding.ScalarAuthority.ValueType)
+                    || !BaseModuleValueAuthorityContract.ValueCompatible(property.Value.ResultType, resultBinding.ScalarAuthority.ValueType)))
                 throw new InvalidOperationException("base.moduleMutation.invalid");
 
         var statements = new List<BaseModuleStatement>();
@@ -505,8 +625,8 @@ internal static class BaseModuleMutationContractValidator
                 BaseModuleUpsertStatement value => value.ExpectedRevision,
                 _ => null,
             };
-            if ((recordId is not null && recordId.ResultTypeId is not ("id" or "string"))
-                || (revision is not null && revision.ResultTypeId != "revision"))
+            if ((recordId is not null && recordId.ResultType?.Kind is not (BaseModuleValueKind.RecordId or BaseModuleValueKind.String))
+                || (revision is not null && revision.ResultType?.Kind != BaseModuleValueKind.Revision))
                 throw new InvalidOperationException("base.moduleMutation.invalid");
             switch (statement)
             {
@@ -525,7 +645,7 @@ internal static class BaseModuleMutationContractValidator
             if (!recordCaptures.TryGetValue(reference.CaptureId, out BaseModuleRecordCapture? capture)
                 || !collections.TryGetValue(capture.CollectionId, out CollectionDefinition? collection)
                 || collection.Fields?.SingleOrDefault(field => field.Id == reference.StableFieldId) is not { } field
-                || field.Type != reference.DeclaredTypeId)
+                || !BaseModuleValueAuthorityContract.StructurallyEquals(BaseModuleValueAuthorityContract.FromField(field), reference.Authority))
                 throw new InvalidOperationException("base.moduleMutation.invalid");
         }
 
@@ -538,33 +658,44 @@ internal static class BaseModuleMutationContractValidator
             if (supplied.Count != payload.Properties.Length
                 || !payload.Properties.Select(static property => property.StablePropertyId).SequenceEqual(expectedOrder, StringComparer.Ordinal)
                 || payload.Properties.Any(property => !collection.Fields.Any(field => field.Id == property.StablePropertyId
-                    && !field.ReadOnly && field.Type == property.Value.ResultTypeId))
+                    && !field.ReadOnly && BaseModuleValueAuthorityContract.ValueCompatible(
+                        property.Value.ResultType, BaseModuleValueAuthorityContract.FromField(field))))
                 || complete && collection.Fields.Any(field => field.Presence == BaseFieldPresence.Required && !field.ReadOnly && !supplied.Contains(field.Id)))
                 throw new InvalidOperationException("base.moduleMutation.invalid");
         }
 
-        static bool TypeMatches(Type type, bool nullableNode, string typeId)
+        static bool TypeMatches(Type type, BaseModuleValueType authority)
         {
             Type? nullable = Nullable.GetUnderlyingType(type);
             Type actual = nullable ?? type;
-            bool declaredNullable = typeId.EndsWith("?", StringComparison.Ordinal);
-            string node = declaredNullable ? typeId[..^1] : typeId;
-            if (declaredNullable != nullableNode || actual.IsValueType && nullableNode != (nullable is not null)) return false;
-            if (actual == typeof(string)) return node == "string";
-            if (actual == typeof(bool)) return node == "boolean";
-            if (actual == typeof(long) || actual == typeof(int) || actual == typeof(short) || actual == typeof(byte))
-                return node == "int64";
-            if (actual == typeof(decimal)) return node == "decimal";
-            if (actual == typeof(DateTimeOffset)) return node == "dateTime";
-            if (actual == typeof(BaseModuleGeneration)) return node == "base.moduleGeneration";
-            if (actual == typeof(RevisionToken)) return node == "revision";
-            if (actual == typeof(RecordId) || actual.IsGenericType && actual.GetGenericTypeDefinition() == typeof(BaseRecordId<>))
-                return node == "id";
-            return false;
+            if ((nullable is not null) != (authority.Nullability == BaseFieldNullability.Nullable) && actual.IsValueType) return false;
+            return authority.Kind switch
+            {
+                BaseModuleValueKind.String => actual == typeof(string),
+                BaseModuleValueKind.Boolean => actual == typeof(bool),
+                BaseModuleValueKind.Int32 => actual == typeof(int),
+                BaseModuleValueKind.Int64 => actual == typeof(long),
+                BaseModuleValueKind.UInt32 => actual == typeof(uint),
+                BaseModuleValueKind.UInt64 => actual == typeof(ulong),
+                BaseModuleValueKind.Decimal => actual == typeof(decimal),
+                BaseModuleValueKind.Guid => actual == typeof(Guid),
+                BaseModuleValueKind.UtcDateTime => actual == typeof(DateTimeOffset),
+                BaseModuleValueKind.Binary => actual == typeof(BaseBinary),
+                BaseModuleValueKind.CanonicalJson => actual == typeof(BaseCanonicalJson),
+                BaseModuleValueKind.ClosedEnum => actual.IsEnum,
+                BaseModuleValueKind.ModuleGeneration => actual == typeof(BaseModuleGeneration),
+                BaseModuleValueKind.Revision => actual == typeof(RevisionToken),
+                BaseModuleValueKind.RecordId => actual == typeof(RecordId)
+                    || actual.IsGenericType && actual.GetGenericTypeDefinition() == typeof(BaseRecordId<>),
+                _ => false,
+            };
         }
 
-        static bool SameUnderlyingType(string left, string right) =>
-            string.Equals(left.TrimEnd('?'), right.TrimEnd('?'), StringComparison.Ordinal);
+        static bool SameUnderlyingType(BaseModuleValueType? left, BaseModuleValueType? right) =>
+            left is not null && right is not null && left.Kind == right.Kind
+            && left.RecordTargetCollectionId == right.RecordTargetCollectionId
+            && left.Codec?.CodecChecksum.Equals(right.Codec?.CodecChecksum) == true
+            && left.ConstraintChecksum?.Equals(right.ConstraintChecksum) == true;
 
     }
 
@@ -573,26 +704,36 @@ internal static class BaseModuleMutationContractValidator
         try
         {
             using System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(value.CanonicalBaseJson.ToArray());
-            string node = value.ResultTypeId.TrimEnd('?');
-            return document.RootElement.ValueKind switch
+            if (value.ResultType is not { } authority) return false;
+            if (document.RootElement.ValueKind == System.Text.Json.JsonValueKind.Null)
+                return authority.Nullability == BaseFieldNullability.Nullable;
+            if (authority.Kind == BaseModuleValueKind.Revision)
+                return document.RootElement.ValueKind == System.Text.Json.JsonValueKind.String
+                    && TryRevision(document.RootElement.GetString());
+            if (authority.Kind == BaseModuleValueKind.ModuleGeneration)
+                return document.RootElement.ValueKind == System.Text.Json.JsonValueKind.String
+                    && TryGeneration(document.RootElement.GetString());
+            var field = new FieldDefinition
             {
-                System.Text.Json.JsonValueKind.Null => value.ResultTypeId.EndsWith("?", StringComparison.Ordinal),
-                System.Text.Json.JsonValueKind.String when node == "base.moduleGeneration" =>
-                    TryGeneration(document.RootElement.GetString()),
-                System.Text.Json.JsonValueKind.String when node == "dateTime" =>
-                    BaseModuleDateTimeContract.TryRead(document.RootElement, out _),
-                System.Text.Json.JsonValueKind.String => node is "string" or "id" or "revision",
-                System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False => node == "boolean",
-                System.Text.Json.JsonValueKind.Number when node == "int64" => document.RootElement.TryGetInt64(out _),
-                System.Text.Json.JsonValueKind.Number when node == "decimal" => document.RootElement.TryGetDecimal(out _),
-                _ => false,
+                Id = "value", ApplicationName = "value", WireName = "value", Type = "value",
+                Presence = authority.Presence, Nullability = authority.Nullability,
+                ScalarKind = (BaseScalarKind)(int)authority.Kind,
+                ScalarCodec = authority.Codec, ScalarConstraints = authority.Constraints,
+                ScalarConstraintChecksum = authority.ConstraintChecksum,
             };
+            return BaseCanonicalRecordValidator.Validate(field, document.RootElement) is null;
         }
         catch { return false; }
 
         static bool TryGeneration(string? text)
         {
             try { _ = BaseModuleGeneration.ParseCanonical(text ?? string.Empty); return true; }
+            catch { return false; }
+        }
+
+        static bool TryRevision(string? text)
+        {
+            try { _ = new RevisionToken(text ?? string.Empty); return true; }
             catch { return false; }
         }
     }
@@ -610,8 +751,8 @@ internal static class BaseModuleMutationContractValidator
             foreach (BaseModuleValueExpression value in guard switch
             {
                 BaseModuleRevisionEqualsGuard item => Walk(item.Expected),
-                BaseModuleFieldEqualsGuard item => Walk(item.Expected).Prepend(new BaseModuleCapturedFieldExpression { Id = item.Id + ".field", ResultTypeId = item.Field.DeclaredTypeId, Field = item.Field }),
-                BaseModuleFieldComparisonGuard item => Walk(item.Expected).Prepend(new BaseModuleCapturedFieldExpression { Id = item.Id + ".field", ResultTypeId = item.Field.DeclaredTypeId, Field = item.Field }),
+                BaseModuleFieldEqualsGuard item => Walk(item.Expected).Prepend(new BaseModuleCapturedFieldExpression { Id = item.Id + ".field", ResultType = item.Field.Authority, Field = item.Field }),
+                BaseModuleFieldComparisonGuard item => Walk(item.Expected).Prepend(new BaseModuleCapturedFieldExpression { Id = item.Id + ".field", ResultType = item.Field.Authority, Field = item.Field }),
                 BaseModuleGenerationGuard { Expected: { } expected } => Walk(expected),
                 _ => [],
             }) yield return value;
@@ -737,8 +878,8 @@ internal static class BaseModuleMutationContractValidator
                     ValidateExpression(value.Expected, captures, guards, false, false, 1, limits, new()); break;
                 case BaseModuleFieldComparisonGuard value when recordCaptures.Contains(value.Field.CaptureId)
                     && Enum.IsDefined(value.Comparison)
-                    && OrderedScalar(value.Field.DeclaredTypeId)
-                    && string.Equals(value.Field.DeclaredTypeId, value.Expected.ResultTypeId, StringComparison.Ordinal):
+                    && OrderedScalar(value.Field.Authority.Kind)
+                    && BaseModuleValueAuthorityContract.StructurallyEquals(value.Field.Authority, value.Expected.ResultType):
                     ValidateExpression(value.Expected, captures, guards, false, false, 1, limits, new()); break;
                 case BaseModuleFieldPresenceGuard value when recordCaptures.Contains(value.Field.CaptureId) && Enum.IsDefined(value.Test): break;
                 case BaseModuleGenerationGuard value when generationCaptures.Contains(value.CaptureId) && Enum.IsDefined(value.Comparison):
@@ -894,7 +1035,8 @@ internal static class BaseModuleMutationContractValidator
         }
     }
 
-    private static bool OrderedScalar(string typeId) => typeId is "int64" or "decimal" or "dateTime";
+    private static bool OrderedScalar(BaseModuleValueKind kind) => kind is BaseModuleValueKind.Int64
+        or BaseModuleValueKind.Decimal or BaseModuleValueKind.UtcDateTime;
 
     private static void ValidateGuardCycles(ImmutableArray<BaseModuleGuard> values, HashSet<string> ids, int maximumDepth)
     {
@@ -921,7 +1063,9 @@ internal static class BaseModuleMutationContractValidator
         HashSet<string>? definiteStatements = null,
         HashSet<string>? definiteGenerations = null)
     {
-        if (value is null || depth > limits.MaximumGuardDepth || string.IsNullOrWhiteSpace(value.ResultTypeId))
+        if (value is null || depth > limits.MaximumGuardDepth
+            || value is not BaseModuleObjectExpression && value.ResultType is null
+            || value is BaseModuleObjectExpression && value.ResultType is not null)
             throw new InvalidOperationException("base.moduleMutation.invalid");
         BaseApplicationId.Validate(value.Id, nameof(value));
         if (!expressionIds.Add(value.Id)) throw new InvalidOperationException("base.moduleMutation.invalid");
@@ -936,8 +1080,7 @@ internal static class BaseModuleMutationContractValidator
         {
             case BaseModuleRequestPropertyExpression request when !request.Property.StablePropertyPath.IsDefaultOrEmpty: break;
             case BaseModuleConstantExpression constant when !constant.CanonicalBaseJson.IsDefault
-                && (!string.Equals(constant.ResultTypeId.TrimEnd('?'), "dateTime", StringComparison.Ordinal)
-                    || ConstantCanonicalMatches(constant)): break;
+                && ConstantCanonicalMatches(constant): break;
             case BaseModuleCapturedRecordIdExpression captured when captures.Contains(captured.CaptureId): break;
             case BaseModuleCapturedRevisionExpression captured when captures.Contains(captured.CaptureId): break;
             case BaseModuleCapturedFieldExpression captured when captures.Contains(captured.Field.CaptureId): break;

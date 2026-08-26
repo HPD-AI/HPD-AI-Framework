@@ -116,7 +116,9 @@ public sealed class BaseIndexPredicateBuilder<TRecord>
         if (actual == typeof(string)) return BaseScalarKind.String; if (actual == typeof(BaseBinary)) return BaseScalarKind.Binary; if (actual == typeof(int)) return BaseScalarKind.Int32; if (actual == typeof(long)) return BaseScalarKind.Int64;
         if (actual == typeof(uint)) return BaseScalarKind.UInt32; if (actual == typeof(ulong)) return BaseScalarKind.UInt64; if (actual == typeof(decimal)) return BaseScalarKind.Decimal;
         if (actual == typeof(bool)) return BaseScalarKind.Boolean; if (actual == typeof(Guid)) return BaseScalarKind.Guid; if (actual == typeof(DateTimeOffset)) return BaseScalarKind.UtcDateTime; if (actual.IsEnum) return BaseScalarKind.ClosedEnum;
-        if (actual == typeof(BaseCanonicalJson)) return BaseScalarKind.CanonicalJson; if (actual.IsArray) return BaseScalarKind.FrozenArray;
+        if (actual == typeof(BaseCanonicalJson)) return BaseScalarKind.CanonicalJson;
+        if (actual == typeof(BaseModuleGeneration)) return BaseScalarKind.ModuleGeneration;
+        if (actual.IsArray) return BaseScalarKind.FrozenArray;
         throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid);
     }
 }

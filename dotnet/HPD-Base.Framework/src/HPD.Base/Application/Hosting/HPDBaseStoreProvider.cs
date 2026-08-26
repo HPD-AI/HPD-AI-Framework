@@ -47,6 +47,8 @@ public sealed class BaseStoreProviderDescriptor
     public BaseStorageProtectionCapability[] StorageProtectionCapabilities { get; init; } = [];
     /// <summary>Gets or initializes the maximum decoded binary field size supported by the provider.</summary>
     public int MaximumBinaryFieldBytes { get; init; } = 1_048_576;
+    /// <summary>Gets the provider's frozen relational-read capability authority.</summary>
+    public required RelationalReadCapability RelationalReads { get; init; }
     /// <summary>Gets the provider's certified exported-subject validation envelope.</summary>
     public required BaseSubjectReferenceCapability SubjectReferences { get; init; }
     /// <summary>Gets the provider's certified exported-subject lifecycle envelope.</summary>
@@ -70,6 +72,7 @@ public sealed class HPDBaseStoreProvider
 {
     private readonly string[] _registrationIds;
     private readonly BaseStorageProtectionCapability[] _storageProtectionCapabilities;
+    private readonly RelationalReadCapability _relationalReads;
     internal HPDBaseStoreProvider(BaseStoreProviderDescriptor descriptor, IHPDBaseStoreInstaller installer)
     {
         Kind = descriptor.Kind;
@@ -78,6 +81,8 @@ public sealed class HPDBaseStoreProvider
         _registrationIds = descriptor.RegistrationIds.ToArray();
         _storageProtectionCapabilities = descriptor.StorageProtectionCapabilities.Select(BaseStorageProtectionContract.Clone).ToArray();
         MaximumBinaryFieldBytes = descriptor.MaximumBinaryFieldBytes;
+        _relationalReads = BaseRelationalReadCapabilityContract.Clone(descriptor.RelationalReads);
+        RelationalReadCapabilityChecksum = BaseRelationalReadCapabilityContract.Checksum(_relationalReads).ToArray();
         SubjectReferences = descriptor.SubjectReferences with { };
         SubjectLifecycle = descriptor.SubjectLifecycle with { };
         SubjectRetirement = descriptor.SubjectRetirement with { };
@@ -107,6 +112,8 @@ public sealed class HPDBaseStoreProvider
     internal IReadOnlyList<BaseStorageProtectionCapability> StorageProtectionCapabilities => _storageProtectionCapabilities;
     /// <summary>Gets the provider's certified maximum decoded binary-field size.</summary>
     public int MaximumBinaryFieldBytes { get; }
+    /// <summary>Gets the provider's frozen relational-read capability authority.</summary>
+    public RelationalReadCapability RelationalReads => BaseRelationalReadCapabilityContract.Clone(_relationalReads);
     /// <summary>Gets the provider's certified exported-subject validation envelope.</summary>
     public BaseSubjectReferenceCapability SubjectReferences { get; }
     /// <summary>Gets the provider's certified exported-subject lifecycle envelope.</summary>
@@ -124,18 +131,20 @@ public sealed class HPDBaseStoreProvider
     /// <summary>Gets the frozen semantic-activation provider-certification profile.</summary>
     public BaseSemanticActivationCertificationProfile SemanticActivationCertification { get; }
     internal byte[] StudioCapabilityChecksum { get; }
+    internal byte[] RelationalReadCapabilityChecksum { get; }
     internal IHPDBaseStoreInstaller Installer { get; }
 
     private byte[] ComputeStudioCapabilityChecksum()
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         static byte[] Utf8(string value) => Encoding.UTF8.GetBytes(value);
-        hash.AppendData(Utf8("base.studio.provider-capability.v2"));
+        hash.AppendData(Utf8("base.studio.provider-capability.v3"));
         Span<byte> integer = stackalloc byte[4];
         System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(integer, ProtocolVersion);
         hash.AppendData(Utf8(Kind)); hash.AppendData(integer);
         System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(integer, (int)Capabilities); hash.AppendData(integer);
         System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(integer, MaximumBinaryFieldBytes); hash.AppendData(integer);
+        hash.AppendData(RelationalReadCapabilityChecksum.AsSpan());
         foreach (string id in _registrationIds.Order(StringComparer.Ordinal)) hash.AppendData(Utf8(id));
         hash.AppendData(Activations.CanonicalChecksum.AsSpan());
         hash.AppendData(BaseSemanticActivationCapabilityContract.Checksum(SemanticActivations).AsSpan());
@@ -156,6 +165,8 @@ public static class HPDBaseStoreProviderFactory
         ArgumentNullException.ThrowIfNull(descriptor);
         ArgumentNullException.ThrowIfNull(installer);
         if (descriptor.ProtocolVersion != ProtocolVersion || !ValidIdentifier(descriptor.Kind) || descriptor.MaximumBinaryFieldBytes is < 1 or > 1_048_576 ||
+            !BaseRelationalReadCapabilityContract.IsValid(descriptor.RelationalReads) ||
+            descriptor.Capabilities.HasFlag(BaseStoreProviderCapabilities.RelationalExecution) != descriptor.RelationalReads.Supported ||
             !ValidSubjectCapability(descriptor.SubjectReferences)
             || !ValidLifecycleCapability(descriptor.SubjectLifecycle)
             || !ValidRetirementCapability(descriptor.SubjectRetirement)
@@ -197,6 +208,7 @@ public static class HPDBaseStoreProviderFactory
             Kind = new string(descriptor.Kind.AsSpan()), ProtocolVersion = descriptor.ProtocolVersion,
             Capabilities = descriptor.Capabilities, RegistrationIds = ids, StorageProtectionCapabilities = protection,
             MaximumBinaryFieldBytes = descriptor.MaximumBinaryFieldBytes,
+            RelationalReads = BaseRelationalReadCapabilityContract.Clone(descriptor.RelationalReads),
             SubjectReferences = descriptor.SubjectReferences with { },
             SubjectLifecycle = descriptor.SubjectLifecycle with { },
             SubjectRetirement = descriptor.SubjectRetirement with { },

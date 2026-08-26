@@ -39,10 +39,10 @@ public abstract class RecordStoreConformanceTestBase<TFixture> : IAsyncLifetime
             Collection,
             new RecordCreateRequest
             {
-                RequestedId = new RecordId(id),
+                RequestedId = RecordId.Create(id),
                 Payload = RecordStoreConformanceData.Payload(fields)
             },
-            Operation(BaseOperationKind.Create, new RecordId(id)));
+            Operation(BaseOperationKind.Create, RecordId.Create(id)));
 
         RecordStoreConformanceAssertions.Success(result, OperationStatus.Created);
         return result.Value!;
@@ -62,10 +62,10 @@ public abstract class RecordStoreConformanceTestBase<TFixture> : IAsyncLifetime
             Collection,
             new RecordCreateRequest
             {
-                RequestedId = new RecordId(id),
+                RequestedId = RecordId.Create(id),
                 Payload = RecordStoreConformanceData.Patch(fields)
             },
-            Operation(BaseOperationKind.Create, new RecordId(id)));
+            Operation(BaseOperationKind.Create, RecordId.Create(id)));
 
         RecordStoreConformanceAssertions.Success(result, OperationStatus.Created);
         return result.Value!;

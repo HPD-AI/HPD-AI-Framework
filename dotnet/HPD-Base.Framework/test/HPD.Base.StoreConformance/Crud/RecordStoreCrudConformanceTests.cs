@@ -16,10 +16,10 @@ public abstract class RecordStoreCrudConformanceTests<TFixture> : RecordStoreCon
             Collection,
             new RecordCreateRequest
             {
-                RequestedId = new RecordId("crud-roundtrip"),
+                RequestedId = RecordId.Create("crud-roundtrip"),
                 Payload = RecordStoreConformanceData.Payload(("title", "hello"))
             },
-            Operation(BaseOperationKind.Create, new RecordId("crud-roundtrip")));
+            Operation(BaseOperationKind.Create, RecordId.Create("crud-roundtrip")));
 
         RecordStoreConformanceAssertions.Success(create, OperationStatus.Created);
         RecordStoreConformanceAssertions.EnvelopeShape(create.Value!, Collection);
@@ -92,10 +92,10 @@ public abstract class RecordStoreCrudConformanceTests<TFixture> : RecordStoreCon
 
         if (Capabilities.Read.Get)
         {
-            var missing = await store.GetAsync(Collection, new RecordId("missing"), Operation(BaseOperationKind.Get, new RecordId("missing")));
+            var missing = await store.GetAsync(Collection, RecordId.Create("missing"), Operation(BaseOperationKind.Get, RecordId.Create("missing")));
             RecordStoreConformanceAssertions.Failure(missing, OperationStatus.NotFound);
 
-            var invalid = await store.GetAsync(Collection, new RecordId(" "), Operation(BaseOperationKind.Get, new RecordId(" ")));
+            var invalid = await store.GetAsync(Collection, default, Operation(BaseOperationKind.Get));
             RecordStoreConformanceAssertions.Failure(invalid, OperationStatus.ValidationFailed);
         }
 
@@ -103,9 +103,9 @@ public abstract class RecordStoreCrudConformanceTests<TFixture> : RecordStoreCon
         {
             var delete = await store.DeleteAsync(
                 Collection,
-                new RecordId("missing"),
+                RecordId.Create("missing"),
                 new RecordDeleteRequest(),
-                Operation(BaseOperationKind.Delete, new RecordId("missing")));
+                Operation(BaseOperationKind.Delete, RecordId.Create("missing")));
             RecordStoreConformanceAssertions.Failure(delete, OperationStatus.NotFound);
         }
     }
@@ -120,7 +120,7 @@ public abstract class RecordStoreCrudConformanceTests<TFixture> : RecordStoreCon
         }
 
         var store = await CreateStoreAsync();
-        var id = new RecordId("duplicate-id");
+        var id = RecordId.Create("duplicate-id");
         var first = await store.CreateAsync(
             Collection,
             new RecordCreateRequest { RequestedId = id, Payload = RecordStoreConformanceData.Payload(("title", "one")) },
@@ -161,10 +161,10 @@ public abstract class RecordStoreCrudConformanceTests<TFixture> : RecordStoreCon
             Collection,
             new RecordCreateRequest
             {
-                RequestedId = new RecordId(" "),
+                RequestedId = (RecordId?)default(RecordId),
                 Payload = RecordStoreConformanceData.Payload(("title", "bad"))
             },
-            Operation(BaseOperationKind.Create, new RecordId(" ")));
+            Operation(BaseOperationKind.Create));
 
         RecordStoreConformanceAssertions.Failure(invalidId, OperationStatus.ValidationFailed, OperationStatus.Unsupported);
     }

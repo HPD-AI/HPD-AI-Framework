@@ -464,7 +464,7 @@ internal sealed class DefaultBaseMutationCoordinator(
                 continue;
             }
 
-            var runtimeId = new RecordId("base:" + Guid.NewGuid().ToString("N"));
+            var runtimeId = RecordId.Create("base:" + Guid.NewGuid().ToString("N"));
             RecordCreateRequest create = command.Create!;
             commands[index] = command with
             {
@@ -905,9 +905,15 @@ internal sealed class DefaultBaseMutationCoordinator(
         var mutation = store.Store.Capabilities.Mutation;
         if (item.Create is { } create)
         {
-            if (create.RequestedId is { } requestedId
-                && (string.IsNullOrWhiteSpace(requestedId.Value)
-                    || mutation.IdAuthority is not (IdAuthority.Client or IdAuthority.Hybrid)))
+            if (create.RequestedId is { } invalidId && !invalidId.IsValid)
+            {
+                return OperationResults.ValidationFailed<BaseMutationCommand>(Error(
+                    "base.runtime.recordId.invalid",
+                    "Record id is invalid.",
+                    ErrorCategory.Validation));
+            }
+            if (create.RequestedId is not null
+                && mutation.IdAuthority is not (IdAuthority.Client or IdAuthority.Hybrid))
             {
                 return OperationResults.Unsupported<BaseMutationCommand>(Error(
                     "base.runtime.create.requestedIdUnsupported",

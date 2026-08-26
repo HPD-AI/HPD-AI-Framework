@@ -405,7 +405,7 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
         Type = "base.subjectAuthority.changed",
         SchemaVersion = "1",
         OccurredAt = DateTimeOffset.UnixEpoch,
-        Resource = new BaseRealtimeRecordResource { CollectionId = string.Empty, RecordId = new RecordId("subject-authority") },
+        Resource = new BaseRealtimeRecordResource { CollectionId = string.Empty, RecordId = RecordId.Create("subject-authority") },
         Operation = BaseOperationKind.Query,
         SubjectAuthorityPublication = publication with { },
     };

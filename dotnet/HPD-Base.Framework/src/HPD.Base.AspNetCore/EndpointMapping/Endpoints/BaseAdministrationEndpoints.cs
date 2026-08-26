@@ -43,7 +43,7 @@ internal static class BaseAdministrationEndpoints
         BaseResult<BasePurgeResult> result = await context.RequestServices.GetRequiredService<IHPDBaseAdministration>().PurgeAsync(new BasePurgeRequest
         {
             CollectionId = request.CollectionId,
-            RecordIds = request.RecordIds.Select(static id => new RecordId(id)).ToArray(),
+            RecordIds = request.RecordIds.Select(static id => RecordId.Create(id)).ToArray(),
             Principal = principal,
             ReasonCode = request.ReasonCode,
             AuditReference = request.AuditReference,

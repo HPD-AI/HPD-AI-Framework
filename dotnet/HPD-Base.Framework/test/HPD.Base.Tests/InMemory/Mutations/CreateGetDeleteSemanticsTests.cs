@@ -46,7 +46,7 @@ public sealed class CreateGetDeleteSemanticsTests
     public async Task SameRequestedIdCanExistInDifferentCollections()
     {
         var store = new InMemoryRecordStore();
-        var id = new RecordId("shared");
+        var id = RecordId.Create("shared");
 
         var first = await InMemoryMutationTestDriver.CreateAsync(store,
             InMemoryTestData.Collection("a"),
@@ -68,7 +68,7 @@ public sealed class CreateGetDeleteSemanticsTests
         var collection = InMemoryTestData.Collection();
         var request = new RecordCreateRequest
         {
-            RequestedId = new RecordId("same"),
+            RequestedId = RecordId.Create("same"),
             Payload = InMemoryTestData.Payload(("title", "one"))
         };
 
@@ -79,11 +79,8 @@ public sealed class CreateGetDeleteSemanticsTests
         duplicate.Error.Should().NotBeNull();
     }
 
-    [Theory]
-    [InlineData("")]
-    [InlineData(" ")]
-    [InlineData("bad\u0001id")]
-    public async Task InvalidRequestedIdsAreRejected(string value)
+    [Fact]
+    public async Task DefaultRequestedIdIsRejected()
     {
         var store = new InMemoryRecordStore();
 
@@ -91,7 +88,7 @@ public sealed class CreateGetDeleteSemanticsTests
             InMemoryTestData.Collection(),
             new RecordCreateRequest
             {
-                RequestedId = new RecordId(value),
+                RequestedId = (RecordId?)default(RecordId),
                 Payload = InMemoryTestData.Payload(("title", "one"))
             },
             InMemoryTestData.Operation(BaseOperationKind.Create));
@@ -107,7 +104,7 @@ public sealed class CreateGetDeleteSemanticsTests
 
         var result = await InMemoryMutationTestDriver.DeleteAsync(store,
             InMemoryTestData.Collection(),
-            new RecordId("missing"),
+            RecordId.Create("missing"),
             new RecordDeleteRequest(),
             InMemoryTestData.Operation(BaseOperationKind.Delete));
 

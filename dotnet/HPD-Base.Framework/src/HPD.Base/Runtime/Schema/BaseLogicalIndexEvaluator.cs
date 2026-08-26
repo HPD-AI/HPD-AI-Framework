@@ -86,7 +86,7 @@ internal static class BaseLogicalIndexEvaluator
         BaseScalarKind kind = field.ScalarKind ?? throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid);
         return kind switch
         {
-            BaseScalarKind.String or BaseScalarKind.Binary or BaseScalarKind.Guid => BaseScalarCanonical.Encode(kind, left).AsSpan().SequenceCompareTo(BaseScalarCanonical.Encode(kind, right)),
+            BaseScalarKind.String or BaseScalarKind.RecordId or BaseScalarKind.Binary or BaseScalarKind.Guid => BaseScalarCanonical.Encode(kind, left).AsSpan().SequenceCompareTo(BaseScalarCanonical.Encode(kind, right)),
             BaseScalarKind.Int32 => left.GetInt32().CompareTo(right.GetInt32()),
             BaseScalarKind.Int64 => left.GetInt64().CompareTo(right.GetInt64()),
             BaseScalarKind.UInt32 => left.GetUInt32().CompareTo(right.GetUInt32()),

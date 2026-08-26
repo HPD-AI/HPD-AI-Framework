@@ -571,7 +571,7 @@ public sealed class AtomicExecutionTests
         processor.InvocationCount.Should().Be(1);
         var read = await store.GetAsync(
             collection,
-            new RecordId("one"),
+            RecordId.Create("one"),
             InMemoryTestData.Operation(BaseOperationKind.Get));
         read.Status.Should().Be(OperationStatus.Ok);
     }
@@ -593,14 +593,14 @@ public sealed class AtomicExecutionTests
 
             var observed = await session.GetAsync(
                 firstCollection,
-                new RecordId("shared"),
+                RecordId.Create("shared"),
                 InMemoryTestData.Operation(BaseOperationKind.Get, "first"),
                 token);
             observed.Value!.Payload.Fields!["title"].GetString().Should().Be("before");
 
             var patched = await session.PatchAsync(
                 firstCollection,
-                new RecordId("shared"),
+                RecordId.Create("shared"),
                 new RecordPatchRequest { Patch = InMemoryTestData.Patch("title", "after") },
                 Context(BaseRecordMutationKind.Patch, "patch"),
                 token);
@@ -619,11 +619,11 @@ public sealed class AtomicExecutionTests
         execution.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
         var first = await store.GetAsync(
             firstCollection,
-            new RecordId("shared"),
+            RecordId.Create("shared"),
             InMemoryTestData.Operation(BaseOperationKind.Get, "first"));
         var second = await store.GetAsync(
             secondCollection,
-            new RecordId("other"),
+            RecordId.Create("other"),
             InMemoryTestData.Operation(BaseOperationKind.Get, "second"));
         first.Value!.Payload.Fields!["title"].GetString().Should().Be("after");
         second.Status.Should().Be(OperationStatus.Ok);
@@ -703,11 +703,11 @@ public sealed class AtomicExecutionTests
         losingProcessor.InvocationCount.Should().Be(1);
         (await store.GetAsync(
             collection,
-            new RecordId("winner"),
+            RecordId.Create("winner"),
             InMemoryTestData.Operation(BaseOperationKind.Get))).Status.Should().Be(OperationStatus.Ok);
         (await store.GetAsync(
             collection,
-            new RecordId("loser"),
+            RecordId.Create("loser"),
             InMemoryTestData.Operation(BaseOperationKind.Get))).Status.Should().Be(OperationStatus.NotFound);
     }
 
@@ -731,7 +731,7 @@ public sealed class AtomicExecutionTests
         var execution = await store.ExecuteSingleAsync(processor, ExecutionRequest);
         var escapedUse = await retained!.GetAsync(
             collection,
-            new RecordId("one"),
+            RecordId.Create("one"),
             InMemoryTestData.Operation(BaseOperationKind.Get));
 
         execution.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
@@ -842,7 +842,7 @@ public sealed class AtomicExecutionTests
 
     private static RecordCreateRequest Create(string id, string title) => new()
     {
-        RequestedId = new RecordId(id),
+        RequestedId = RecordId.Create(id),
         Payload = InMemoryTestData.Payload(("title", title))
     };
 

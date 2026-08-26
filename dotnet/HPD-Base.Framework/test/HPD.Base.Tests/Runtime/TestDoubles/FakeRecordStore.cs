@@ -595,7 +595,7 @@ internal class FakeRecordStore : IAtomicRecordStore
             EnsureActive();
             owner.CreateCalls++;
             owner.LastCreateRequest = request;
-            var id = request.RequestedId ?? new RecordId($"rec_{owner.CreateCalls}");
+            var id = request.RequestedId ?? RecordId.Create($"rec_{owner.CreateCalls}");
             if (records.ContainsKey(id.Value))
                 return ValueTask.FromResult(Conflict());
             var record = Envelope(collection, id, request.Payload);

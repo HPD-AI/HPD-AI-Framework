@@ -494,7 +494,7 @@ public sealed class LiveQueryCoordinatorTests
         {
             Kind = EventResourceKind.Record,
             CollectionId = "items",
-            RecordId = new RecordId("record-one")
+            RecordId = RecordId.Create("record-one")
         },
         Operation = BaseOperationKind.Create
     };

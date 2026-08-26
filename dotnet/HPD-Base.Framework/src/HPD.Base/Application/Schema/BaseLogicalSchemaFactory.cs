@@ -36,6 +36,7 @@ internal static class BaseLogicalSchemaFactory
             ScalarKind = field.ScalarKind,
             ScalarCodecChecksum = field.ScalarCodec?.CodecChecksum,
             ScalarConstraintChecksum = field.ScalarConstraintChecksum,
+            RecordTargetCollectionId = field.RecordTargetCollectionId,
             Confidentiality = field.Confidentiality,
             Disclosure = BaseConfidentialityPolicy.Clone(field.Disclosure ?? BaseConfidentialityPolicy.Default(field.Confidentiality)),
             MaximumBytes = field.MaximumBytes,
@@ -92,10 +93,23 @@ internal static class BaseLogicalSchemaFactory
         BaseLogicalRead[] reads = sourceReads.Select(static read => new BaseLogicalRead
         {
             Id = read.Id,
+            Topology = read.Plan.Topology,
+            CompoundChecksum = read.Plan.CompoundChecksum?.ToString(),
             SourceIds = read.Plan.Sources.Select(static source => source.CollectionId).ToArray(),
             ProjectionFieldIds = read.Plan.Projection.Select(static projection => projection.FieldId).ToArray(),
             ParameterSerializerContractChecksum = read.ParameterSerializerContractChecksum,
             RowSerializerContractChecksum = read.RowSerializerContractChecksum,
+            MaximumExecutionMilliseconds = read.Plan.Budgets.MaxExecutionMilliseconds,
+            PaginationMode = read.Plan.Pagination.Mode,
+            MaximumOffset = read.Plan.Pagination.MaximumOffset,
+            CanonicalJsonAuthorityChecksums = read.Plan.Parameters
+                .Where(static value => value.CanonicalJsonAuthority is not null)
+                .OrderBy(static value => value.Id, StringComparer.Ordinal)
+                .Select(static value => value.CanonicalJsonAuthority!.AuthorityChecksum.ToString())
+                .Concat(read.Plan.Projection.Where(static value => value.CanonicalJsonAuthority is not null)
+                    .OrderBy(static value => value.FieldId, StringComparer.Ordinal)
+                    .Select(static value => value.CanonicalJsonAuthority!.AuthorityChecksum.ToString()))
+                .ToArray(),
         }).ToArray();
         BaseLogicalExportedSubject[] subjects = subjectContracts.All.OrderBy(static value => value.Definition.Id, StringComparer.Ordinal)
             .ThenBy(static value => value.Definition.Version).Select(static value => new BaseLogicalExportedSubject
@@ -139,7 +153,7 @@ internal static class BaseLogicalSchemaFactory
         {
             Write(writer, "field"); Write(writer, value.CollectionId); Write(writer, value.Id); Write(writer, value.ApplicationName); Write(writer, value.StoredName); Write(writer, value.Type);
             Write(writer, (int)value.Presence); Write(writer, (int)value.Nullability); Write(writer, value.ScalarKind is null ? -1 : (int)value.ScalarKind.Value);
-            Write(writer, value.ScalarCodecChecksum?.ToString()); Write(writer, value.ScalarConstraintChecksum?.ToString());
+            Write(writer, value.ScalarCodecChecksum?.ToString()); Write(writer, value.ScalarConstraintChecksum?.ToString()); Write(writer, value.RecordTargetCollectionId);
             Write(writer, (int)value.Confidentiality); Write(writer, (int)value.Disclosure.RecordRead); Write(writer, (int)value.Disclosure.AuthoritativeHistory);
             Write(writer, (int)value.Disclosure.Event); Write(writer, (int)value.Disclosure.Realtime); Write(writer, (int)value.Disclosure.Diagnostic);
             Write(writer, (int)value.Disclosure.AuthoritativeBackup); Write(writer, (int)value.Disclosure.AdministrativeDataExport);
@@ -177,7 +191,7 @@ internal static class BaseLogicalSchemaFactory
             Write(writer, "text-index"); Write(writer, value.CollectionId); Write(writer, value.Id); Write(writer, value.Version);
             Write(writer, value.AnalyzerContractId); Write(writer, value.ScoringContractId); Write(writer, Convert.ToHexStringLower(value.DefinitionChecksum));
         }
-        foreach (BaseLogicalRead value in reads) { Write(writer, "read"); Write(writer, value.Id); Write(writer, value.ParameterSerializerContractChecksum); Write(writer, value.RowSerializerContractChecksum); foreach (string source in value.SourceIds) Write(writer, source); foreach (string field in value.ProjectionFieldIds) Write(writer, field); }
+        foreach (BaseLogicalRead value in reads) { Write(writer, "read"); Write(writer, value.Id); Write(writer, value.ParameterSerializerContractChecksum); Write(writer, value.RowSerializerContractChecksum); Write(writer, value.MaximumExecutionMilliseconds); Write(writer, (int)value.PaginationMode); Write(writer, value.MaximumOffset); Write(writer, (int)value.Topology); Write(writer, value.CompoundChecksum); foreach (string source in value.SourceIds) Write(writer, source); foreach (string field in value.ProjectionFieldIds) Write(writer, field); foreach (string authority in value.CanonicalJsonAuthorityChecksums) Write(writer, authority); }
         foreach (BaseLogicalExportedSubject value in subjects)
         {
             Write(writer, "exported-subject"); Write(writer, value.Id); Write(writer, value.Version); Write(writer, value.OwningModuleId);
@@ -214,7 +228,7 @@ internal static class BaseLogicalSchemaFactory
         {
             Write(writer, value.Id); Write(writer, value.ApplicationName); Write(writer, value.StoredName); Write(writer, value.Type);
             Write(writer, (int)value.Presence); Write(writer, (int)value.Nullability); Write(writer, value.ScalarKind is null ? -1 : (int)value.ScalarKind.Value);
-            Write(writer, value.ScalarCodecChecksum?.ToString()); Write(writer, value.ScalarConstraintChecksum?.ToString()); Write(writer, (int)value.Confidentiality);
+            Write(writer, value.ScalarCodecChecksum?.ToString()); Write(writer, value.ScalarConstraintChecksum?.ToString()); Write(writer, value.RecordTargetCollectionId); Write(writer, (int)value.Confidentiality);
         }
         foreach (BaseLogicalIndex value in schema.Indexes.Where(value => StringComparer.Ordinal.Equals(value.CollectionId, collectionId)))
         {

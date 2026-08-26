@@ -115,4 +115,5 @@ internal static class BaseModuleMutationErrorCodes
     internal const string ReceiptUnavailable = "base.moduleMutation.receiptUnavailable";
     internal const string Cancelled = "base.moduleMutation.cancelled";
     internal const string StoreError = "base.moduleMutation.storeError";
+    internal const string ProviderContractInvalid = "base.moduleMutation.providerContractInvalid";
 }

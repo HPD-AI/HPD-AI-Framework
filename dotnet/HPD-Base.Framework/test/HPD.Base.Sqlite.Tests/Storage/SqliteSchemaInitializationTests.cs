@@ -40,7 +40,7 @@ public sealed class SqliteSchemaInitializationTests
             (await store.ListAsync(collection, new RecordQuery(), Operation(BaseOperationKind.List))).Status.Should().Be(OperationStatus.Ok);
             OperationResult<RecordEnvelope> created = await store.CreateAsync(collection, new RecordCreateRequest
             {
-                RequestedId = new RecordId("binary"),
+                RequestedId = RecordId.Create("binary"),
                 Payload = Payload("{\"title\":\"schema\",\"blob\":\"AQID\"}")
             }, Operation(BaseOperationKind.Create));
             created.Status.Should().Be(OperationStatus.Created);
@@ -88,7 +88,7 @@ public sealed class SqliteSchemaInitializationTests
             }
 
             var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path, SchemaPrefix = "l21_" });
-            var create = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("one"), Payload = Payload() }, Operation(BaseOperationKind.Create));
+            var create = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = RecordId.Create("one"), Payload = Payload() }, Operation(BaseOperationKind.Create));
             create.Status.Should().Be(OperationStatus.Created);
 
             await using var verify = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString());
@@ -115,7 +115,7 @@ public sealed class SqliteSchemaInitializationTests
         try
         {
             var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path }, initializeSchema: false);
-            var result = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("one"), Payload = Payload() }, Operation(BaseOperationKind.Create));
+            var result = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = RecordId.Create("one"), Payload = Payload() }, Operation(BaseOperationKind.Create));
 
             result.Status.Should().Be(OperationStatus.StoreError);
             result.Error!.Code.Should().Be("sqlite.schema.missing");
@@ -149,7 +149,7 @@ public sealed class SqliteSchemaInitializationTests
             }
 
             var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path }, initializeSchema: false);
-            var result = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("one"), Payload = Payload() }, Operation(BaseOperationKind.Create));
+            var result = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = RecordId.Create("one"), Payload = Payload() }, Operation(BaseOperationKind.Create));
 
             result.Status.Should().Be(OperationStatus.StoreError);
             result.Error!.Code.Should().Be("sqlite.schema.missing");
@@ -175,7 +175,7 @@ public sealed class SqliteSchemaInitializationTests
                     Collection(),
                     new RecordCreateRequest
                     {
-                        RequestedId = new RecordId("seed"),
+                        RequestedId = RecordId.Create("seed"),
                         Payload = Payload()
                     },
                     Operation(BaseOperationKind.Create));
@@ -197,7 +197,7 @@ public sealed class SqliteSchemaInitializationTests
                 Collection(),
                 new RecordCreateRequest
                 {
-                    RequestedId = new RecordId("after-corruption"),
+                    RequestedId = RecordId.Create("after-corruption"),
                     Payload = Payload()
                 },
                 Operation(BaseOperationKind.Create));
@@ -317,10 +317,10 @@ public sealed class SqliteSchemaInitializationTests
             await using SqliteRecordStore store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path, Collections = [collection] });
             foreach ((string id, string json) in new[] { ("m1", "{\"tenant\":\"t\"}"), ("m2", "{\"tenant\":\"t\"}"), ("n1", "{\"tenant\":\"t\",\"normalized\":null}"), ("n2", "{\"tenant\":\"t\",\"normalized\":null}"), ("v1", "{\"tenant\":\"t\",\"normalized\":\"name\"}") })
             {
-                OperationResult<RecordEnvelope> created = await store.CreateAsync(collection, new RecordCreateRequest { RequestedId = new RecordId(id), Payload = Payload(json) }, Operation(BaseOperationKind.Create));
+                OperationResult<RecordEnvelope> created = await store.CreateAsync(collection, new RecordCreateRequest { RequestedId = RecordId.Create(id), Payload = Payload(json) }, Operation(BaseOperationKind.Create));
                 created.IsSuccess().Should().BeTrue(created.Error?.Code + ": " + created.Error?.Message);
             }
-            OperationResult<RecordEnvelope> duplicate = await store.CreateAsync(collection, new RecordCreateRequest { RequestedId = new RecordId("v2"), Payload = Payload("{\"tenant\":\"t\",\"normalized\":\"name\"}") }, Operation(BaseOperationKind.Create));
+            OperationResult<RecordEnvelope> duplicate = await store.CreateAsync(collection, new RecordCreateRequest { RequestedId = RecordId.Create("v2"), Payload = Payload("{\"tenant\":\"t\",\"normalized\":\"name\"}") }, Operation(BaseOperationKind.Create));
             duplicate.Status.Should().Be(OperationStatus.Conflict);
             duplicate.Error!.Code.Should().Be(BaseSchemaErrorCodes.UniqueConstraintViolated);
 
@@ -356,8 +356,8 @@ public sealed class SqliteSchemaInitializationTests
         try
         {
             await using SqliteRecordStore store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path, Collections = [collection] });
-            (await store.CreateAsync(collection, new RecordCreateRequest { RequestedId = new("a"), Payload = Payload("{\"document\":{\"a\":1}}") }, Operation(BaseOperationKind.Create))).IsSuccess().Should().BeTrue();
-            OperationResult<RecordEnvelope> duplicate = await store.CreateAsync(collection, new RecordCreateRequest { RequestedId = new("b"), Payload = Payload("{\"document\":{\"a\":1}}") }, Operation(BaseOperationKind.Create));
+            (await store.CreateAsync(collection, new RecordCreateRequest { RequestedId = RecordId.Create("a"), Payload = Payload("{\"document\":{\"a\":1}}") }, Operation(BaseOperationKind.Create))).IsSuccess().Should().BeTrue();
+            OperationResult<RecordEnvelope> duplicate = await store.CreateAsync(collection, new RecordCreateRequest { RequestedId = RecordId.Create("b"), Payload = Payload("{\"document\":{\"a\":1}}") }, Operation(BaseOperationKind.Create));
             duplicate.Status.Should().Be(OperationStatus.Conflict); duplicate.Error!.Code.Should().Be(BaseSchemaErrorCodes.UniqueConstraintViolated);
             await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString()); await connection.OpenAsync();
             await using SqliteCommand columns = connection.CreateCommand(); columns.CommandText = $"PRAGMA table_info({PhysicalTable("items")});";
@@ -396,9 +396,9 @@ public sealed class SqliteSchemaInitializationTests
         try
         {
             await using SqliteRecordStore store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path, Collections = [collection] });
-            OperationResult<RecordEnvelope> first = await store.CreateAsync(collection, new RecordCreateRequest { RequestedId = new RecordId("first"), Payload = Payload(json) }, Operation(BaseOperationKind.Create));
+            OperationResult<RecordEnvelope> first = await store.CreateAsync(collection, new RecordCreateRequest { RequestedId = RecordId.Create("first"), Payload = Payload(json) }, Operation(BaseOperationKind.Create));
             first.IsSuccess().Should().BeTrue(first.Error?.Code + ": " + first.Error?.Message);
-            OperationResult<RecordEnvelope> duplicate = await store.CreateAsync(collection, new RecordCreateRequest { RequestedId = new RecordId("second"), Payload = Payload(json) }, Operation(BaseOperationKind.Create));
+            OperationResult<RecordEnvelope> duplicate = await store.CreateAsync(collection, new RecordCreateRequest { RequestedId = RecordId.Create("second"), Payload = Payload(json) }, Operation(BaseOperationKind.Create));
             duplicate.Status.Should().Be(OperationStatus.Conflict);
             duplicate.Error!.Code.Should().Be(BaseSchemaErrorCodes.UniqueConstraintViolated);
         }
@@ -424,14 +424,14 @@ public sealed class SqliteSchemaInitializationTests
             await using SqliteRecordStore store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path, Collections = [collection] });
             OperationResult<RecordEnvelope> noncanonical = await store.CreateAsync(collection, new RecordCreateRequest
             {
-                RequestedId = new RecordId("noncanonical"),
+                RequestedId = RecordId.Create("noncanonical"),
                 Payload = Payload("{\"amount\":1.0,\"sequence\":1,\"instant\":\"2026-08-24T12:34:56.1234567Z\"}")
             }, Operation(BaseOperationKind.Create));
             noncanonical.Status.Should().Be(OperationStatus.ValidationFailed, noncanonical.Error?.Code + ": " + noncanonical.Error?.Message);
             noncanonical.Error!.Code.Should().Be(BaseSchemaErrorCodes.ScalarConstraintViolated);
-            OperationResult<RecordEnvelope> created = await store.CreateAsync(collection, new RecordCreateRequest { RequestedId = new RecordId("exact"), Payload = Payload(json) }, Operation(BaseOperationKind.Create));
+            OperationResult<RecordEnvelope> created = await store.CreateAsync(collection, new RecordCreateRequest { RequestedId = RecordId.Create("exact"), Payload = Payload(json) }, Operation(BaseOperationKind.Create));
             created.IsSuccess().Should().BeTrue(created.Error?.Code + ": " + created.Error?.Message);
-            OperationResult<RecordEnvelope> read = await store.GetAsync(collection, new RecordId("exact"), Operation(BaseOperationKind.Get));
+            OperationResult<RecordEnvelope> read = await store.GetAsync(collection, RecordId.Create("exact"), Operation(BaseOperationKind.Get));
             Dictionary<string, JsonElement> values = SqliteRecordSerializer.NormalizeObjectPayload(read.Value!.Payload).Fields!;
             values["amount"].GetRawText().Should().Be("170141183460469231731687303715884105727");
             values["sequence"].GetRawText().Should().Be("18446744073709551615");
@@ -473,14 +473,14 @@ public sealed class SqliteSchemaInitializationTests
             await using SqliteRecordStore store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path, Collections = [collection] });
             foreach ((string id, string json) in rows)
             {
-                OperationResult<RecordEnvelope> created = await store.CreateAsync(collection, new RecordCreateRequest { RequestedId = new RecordId(id), Payload = Payload(json) }, Operation(BaseOperationKind.Create));
+                OperationResult<RecordEnvelope> created = await store.CreateAsync(collection, new RecordCreateRequest { RequestedId = RecordId.Create(id), Payload = Payload(json) }, Operation(BaseOperationKind.Create));
                 created.IsSuccess().Should().BeTrue(id + ":" + created.Error?.Code + ":" + created.Error?.Message);
             }
             await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString()); await connection.OpenAsync();
             await using SqliteCommand command = connection.CreateCommand();
             command.CommandText = $"SELECT record_id FROM {PhysicalTable("items")} ORDER BY {PhysicalRank("item.amount-order", 0)}, {PhysicalOrder("item.amount-order", 0)} COLLATE BINARY, record_id;";
             var actual = new List<string>(); await using SqliteDataReader reader = await command.ExecuteReaderAsync(); while (await reader.ReadAsync()) actual.Add(reader.GetString(0));
-            string[] expected = rows.Select(row => (Id: new RecordId(row.Id), Payload: SqliteRecordSerializer.NormalizeObjectPayload(Payload(row.Json))))
+            string[] expected = rows.Select(row => (Id: RecordId.Create(row.Id), Payload: SqliteRecordSerializer.NormalizeObjectPayload(Payload(row.Json))))
                 .OrderBy(static value => value, Comparer<(RecordId Id, RecordPayload Payload)>.Create((left, right) => BaseLogicalIndexEvaluator.Compare(collection, collection.Indexes[0], left.Payload, left.Id, right.Payload, right.Id)))
                 .Select(static value => value.Id.Value).ToArray();
             actual.Should().Equal(expected);

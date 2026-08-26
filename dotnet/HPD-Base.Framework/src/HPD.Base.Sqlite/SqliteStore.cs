@@ -32,6 +32,7 @@ public static class SqliteStore
                 BaseStoreProviderCapabilities.CoLocatedVectors |
                 BaseStoreProviderCapabilities.CoLocatedTextSearch,
             RegistrationIds = ["sqlite.records", "sqlite.vector"],
+            RelationalReads = SqliteRecordStore.CreateRelationalCapability(),
             SubjectReferences = BaseSubjectProviderCapabilities.BuiltIn,
             SubjectLifecycle = BaseSubjectLifecycleProviderCapabilities.BuiltIn,
             SubjectRetirement = BaseSubjectRetirementProviderCapabilities.BuiltIn,

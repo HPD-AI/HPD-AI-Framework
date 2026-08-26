@@ -19,24 +19,162 @@ public sealed class BaseModuleMutationTemplateBuilder
         return new(definition);
     }
 
+    /// <summary>Creates a typed request-property expression from generated scalar authority.</summary>
+    public static BaseModuleValue<TValue> Request<TRequest, TValue>(string nodeId, BaseModuleRequestProperty<TRequest, TValue> property)
+    {
+        ArgumentNullException.ThrowIfNull(property);
+        return new(new BaseModuleRequestPropertyExpression
+        {
+            Id = nodeId,
+            ResultType = property.Authority.ValueType,
+            Property = new BaseModuleRequestPropertyReference { StablePropertyPath = [.. property.Authority.StablePropertyPath], Authority = property.Authority },
+        });
+    }
+
+    /// <summary>Creates a typed captured-field expression from one generated collection field.</summary>
+    public static BaseModuleValue<TValue> Captured<TRecord, TValue>(string nodeId, string captureId, BaseModuleCapturedField<TRecord, TValue> field)
+    {
+        ArgumentNullException.ThrowIfNull(field);
+        var reference = new BaseModuleCapturedFieldReference { CaptureId = captureId, StableFieldId = field.Field.Id, Authority = field.Authority };
+        return new(new BaseModuleCapturedFieldExpression { Id = nodeId, ResultType = field.Authority, Field = reference });
+    }
+
+    /// <summary>Creates a typed canonical constant using graph-owned scalar authority.</summary>
+    public static BaseModuleValue<TValue> Constant<TValue>(string nodeId, BaseModuleConstantAuthority<TValue> authority, TValue value)
+    {
+        ArgumentNullException.ThrowIfNull(authority);
+        return new(new BaseModuleConstantExpression
+        {
+            Id = nodeId, ResultType = authority.ValueType,
+            CanonicalBaseJson = BaseModuleConstantEncoder.Encode(authority.ValueType, value).ToImmutableArray(),
+        });
+    }
+
+    /// <summary>Creates a typed conditional expression whose branches have identical scalar authority.</summary>
+    public static BaseModuleValue<TValue> Conditional<TValue>(string nodeId, string guardId, BaseModuleValue<TValue> whenTrue, BaseModuleValue<TValue> whenFalse)
+    {
+        ArgumentNullException.ThrowIfNull(whenTrue); ArgumentNullException.ThrowIfNull(whenFalse);
+        if (!BaseModuleValueAuthorityContract.StructurallyEquals(whenTrue.Authority, whenFalse.Authority)) throw new InvalidOperationException("base.moduleMutation.invalid");
+        return new(new BaseModuleConditionalExpression { Id = nodeId, ResultType = whenTrue.Authority, GuardId = guardId, WhenTrue = whenTrue.Expression, WhenFalse = whenFalse.Expression });
+    }
+
+    /// <summary>Creates a typed missing-value coalescing expression with identical scalar authority.</summary>
+    public static BaseModuleValue<TValue> Coalesce<TValue>(string nodeId, params BaseModuleValue<TValue>[] values)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+        if (values.Length is < 2 or > 16 || values.Any(value => value is null) || values.Any(value => !BaseModuleValueAuthorityContract.StructurallyEquals(values[0].Authority, value.Authority)))
+            throw new InvalidOperationException("base.moduleMutation.invalid");
+        return new(new BaseModuleCoalesceExpression { Id = nodeId, ResultType = values[0].Authority, Values = [.. values.Select(static value => value.Expression)] });
+    }
+
+    /// <summary>Creates a typed integer expression under identical range authority.</summary>
+    public static BaseModuleValue<TValue> Integer<TValue>(string nodeId, BaseModuleNumericOperator op, BaseModuleValue<TValue> left, BaseModuleValue<TValue> right)
+    {
+        ArgumentNullException.ThrowIfNull(left); ArgumentNullException.ThrowIfNull(right);
+        if (!BaseModuleValueAuthorityContract.StructurallyEquals(left.Authority, right.Authority) || left.Authority.Kind is not (BaseModuleValueKind.Int32 or BaseModuleValueKind.Int64 or BaseModuleValueKind.UInt32 or BaseModuleValueKind.UInt64))
+            throw new InvalidOperationException("base.moduleMutation.invalid");
+        return new(new BaseModuleBinaryNumericExpression { Id = nodeId, ResultType = left.Authority, Operator = op, Left = left.Expression, Right = right.Expression });
+    }
+
+    /// <summary>Creates a typed decimal expression under identical scalar authority.</summary>
+    public static BaseModuleValue<decimal> Decimal(string nodeId, BaseModuleNumericOperator op, BaseModuleValue<decimal> left, BaseModuleValue<decimal> right, BaseModuleDecimalContext context)
+    {
+        ArgumentNullException.ThrowIfNull(left); ArgumentNullException.ThrowIfNull(right); ArgumentNullException.ThrowIfNull(context);
+        if (!BaseModuleValueAuthorityContract.StructurallyEquals(left.Authority, right.Authority) || left.Authority.Kind != BaseModuleValueKind.Decimal)
+            throw new InvalidOperationException("base.moduleMutation.invalid");
+        return new(new BaseModuleBinaryNumericExpression { Id = nodeId, ResultType = left.Authority, Operator = op, Left = left.Expression, Right = right.Expression, Decimal = context });
+    }
+
+    /// <summary>Creates one typed persisted-field assignment.</summary>
+    public static BaseModuleFieldValue<TRecord> Field<TRecord, TValue>(BaseField<TRecord, TValue> field, BaseModuleValue<TValue> value)
+    {
+        ArgumentNullException.ThrowIfNull(field); ArgumentNullException.ThrowIfNull(value);
+        if (!BaseModuleValueAuthorityContract.ValueCompatible(value.Authority, field.ModuleMutation.Authority)) throw new InvalidOperationException("base.moduleMutation.invalid");
+        return new(new BaseModuleObjectPropertyExpression { StablePropertyId = field.Id, Value = value.Expression });
+    }
+
+    /// <summary>Creates one typed result-property projection.</summary>
+    public static BaseModuleResultValue<TResult> Property<TResult, TValue>(BaseModuleResultProperty<TResult, TValue> property, BaseModuleValue<TValue> value)
+    {
+        ArgumentNullException.ThrowIfNull(property); ArgumentNullException.ThrowIfNull(value);
+        if (!BaseModuleValueAuthorityContract.ValueCompatible(value.Authority, property.Authority.ValueType)) throw new InvalidOperationException("base.moduleMutation.invalid");
+        return new(new BaseModuleObjectPropertyExpression { StablePropertyId = property.Authority.StablePropertyPath[^1], Value = value.Expression });
+    }
+
+    /// <summary>Creates one structural object from typed persisted-field assignments.</summary>
+    public static BaseModuleRecordObject<TRecord> Object<TRecord>(string nodeId, params BaseModuleFieldValue<TRecord>[] fields) =>
+        new(new BaseModuleObjectExpression { Id = nodeId, Properties = [.. fields.Select(static field => field.Value)] });
+
+    /// <summary>Creates one structural result object from typed result-property projections.</summary>
+    public static BaseModuleResultObject<TResult> ResultObject<TResult>(string nodeId, params BaseModuleResultValue<TResult>[] properties) =>
+        new(new BaseModuleObjectExpression { Id = nodeId, Properties = [.. properties.Select(static property => property.Value)] });
+
+    /// <summary>Captures one record using its generated collection and typed identifier authority.</summary>
+    public static BaseModuleRecordCapture CaptureRecord<TRecord>(string nodeId, BaseModuleValue<BaseRecordId<TRecord>> recordId, BaseModuleCapturePresence presence) =>
+        new() { Id = nodeId, CollectionId = BaseGeneratedRecordTypeContract.GetCollectionId<TRecord>(), RecordId = recordId.Expression, Presence = presence };
+
+    /// <summary>Captures one generation cell using an optional typed string key.</summary>
+    public static BaseModuleGenerationCapture CaptureGeneration(string nodeId, string cellId, BaseModuleValue<string>? key, BaseModuleGenerationAbsenceBehavior absence) =>
+        new() { Id = nodeId, CellId = cellId, Key = key?.Expression, Absence = absence };
+
+    /// <summary>Requires one captured revision to equal a typed expected value.</summary>
+    public static BaseModuleRevisionEqualsGuard RevisionEquals(string nodeId, string captureId, BaseModuleValue<RevisionToken> expected) =>
+        new() { Id = nodeId, CaptureId = captureId, Expected = expected.Expression };
+
+    /// <summary>Compares one captured generated field for exact typed equality.</summary>
+    public static BaseModuleFieldEqualsGuard FieldEquals<TRecord, TValue>(string nodeId, string captureId, BaseModuleCapturedField<TRecord, TValue> field, BaseModuleValue<TValue> expected) =>
+        new() { Id = nodeId, Field = new BaseModuleCapturedFieldReference { CaptureId = captureId, StableFieldId = field.Field.Id, Authority = field.Authority }, Expected = expected.Expression };
+
+    /// <summary>Compares one captured generated ordered field to a typed value.</summary>
+    public static BaseModuleFieldComparisonGuard FieldCompare<TRecord, TValue>(string nodeId, string captureId, BaseModuleCapturedField<TRecord, TValue> field, BaseModuleOrderedComparisonKind comparison, BaseModuleValue<TValue> expected) =>
+        new() { Id = nodeId, Field = new BaseModuleCapturedFieldReference { CaptureId = captureId, StableFieldId = field.Field.Id, Authority = field.Authority }, Comparison = comparison, Expected = expected.Expression };
+
+    /// <summary>Tests presence for one captured generated field.</summary>
+    public static BaseModuleFieldPresenceGuard FieldPresence<TRecord, TValue>(string nodeId, string captureId, BaseModuleCapturedField<TRecord, TValue> field, BaseModuleFieldPresenceTest test) =>
+        new() { Id = nodeId, Field = new BaseModuleCapturedFieldReference { CaptureId = captureId, StableFieldId = field.Field.Id, Authority = field.Authority }, Test = test };
+
+    /// <summary>Compares one captured generation to optional typed generation evidence.</summary>
+    public static BaseModuleGenerationGuard Generation(string nodeId, string captureId, BaseModuleGenerationComparisonKind comparison, BaseModuleValue<BaseModuleGeneration>? expected = null) =>
+        new() { Id = nodeId, CaptureId = captureId, Comparison = comparison, Expected = expected?.Expression };
+
+    /// <summary>Creates one record using exact generated record and identifier authority.</summary>
+    public static BaseModuleCreateStatement Create<TRecord>(string nodeId, BaseModuleValue<BaseRecordId<TRecord>> recordId, BaseModuleRecordObject<TRecord> payload) =>
+        new() { Id = nodeId, CollectionId = BaseGeneratedRecordTypeContract.GetCollectionId<TRecord>(), RecordId = recordId.Expression, Payload = payload.Value };
+
+    /// <summary>Patches one record using exact generated record and identifier authority.</summary>
+    public static BaseModulePatchStatement Patch<TRecord>(string nodeId, BaseModuleValue<BaseRecordId<TRecord>> recordId, BaseModuleRecordObject<TRecord> patch, BaseModuleValue<RevisionToken>? expectedRevision = null) =>
+        new() { Id = nodeId, CollectionId = BaseGeneratedRecordTypeContract.GetCollectionId<TRecord>(), RecordId = recordId.Expression, Patch = patch.Value, ExpectedRevision = expectedRevision?.Expression };
+
+    /// <summary>Replaces one record using exact generated record and identifier authority.</summary>
+    public static BaseModuleReplaceStatement Replace<TRecord>(string nodeId, BaseModuleValue<BaseRecordId<TRecord>> recordId, BaseModuleRecordObject<TRecord> payload, BaseModuleValue<RevisionToken>? expectedRevision = null) =>
+        new() { Id = nodeId, CollectionId = BaseGeneratedRecordTypeContract.GetCollectionId<TRecord>(), RecordId = recordId.Expression, Payload = payload.Value, ExpectedRevision = expectedRevision?.Expression };
+
+    /// <summary>Deletes one record using exact generated record and identifier authority.</summary>
+    public static BaseModuleDeleteStatement Delete<TRecord>(string nodeId, BaseModuleValue<BaseRecordId<TRecord>> recordId, BaseModuleValue<RevisionToken>? expectedRevision = null) =>
+        new() { Id = nodeId, CollectionId = BaseGeneratedRecordTypeContract.GetCollectionId<TRecord>(), RecordId = recordId.Expression, ExpectedRevision = expectedRevision?.Expression };
+
+    /// <summary>Upserts one record using exact generated record and identifier authority.</summary>
+    public static BaseModuleUpsertStatement Upsert<TRecord>(string nodeId, BaseModuleValue<BaseRecordId<TRecord>> recordId, BaseModuleRecordObject<TRecord> create, BaseModuleRecordObject<TRecord> update, RecordUpsertUpdateMode mode, BaseModuleValue<RevisionToken>? expectedRevision = null) =>
+        new() { Id = nodeId, CollectionId = BaseGeneratedRecordTypeContract.GetCollectionId<TRecord>(), RecordId = recordId.Expression, Create = create.Value, Update = update.Value, UpdateMode = mode, ExpectedRevision = expectedRevision?.Expression };
+
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
-    public static BaseModuleRecordCapture CaptureRecord(string id, string collectionId, BaseModuleValueExpression recordId, BaseModuleCapturePresence presence) =>
+    internal static BaseModuleRecordCapture CaptureRecord(string id, string collectionId, BaseModuleValueExpression recordId, BaseModuleCapturePresence presence) =>
         new() { Id = id, CollectionId = collectionId, RecordId = recordId, Presence = presence };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
-    public static BaseModuleGenerationCapture CaptureGeneration(string id, string cellId, BaseModuleValueExpression? key, BaseModuleGenerationAbsenceBehavior absence) =>
+    internal static BaseModuleGenerationCapture CaptureGenerationRaw(string id, string cellId, BaseModuleValueExpression? key, BaseModuleGenerationAbsenceBehavior absence) =>
         new() { Id = id, CellId = cellId, Key = key, Absence = absence };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
     public static BaseModuleRecordPresenceGuard RecordPresent(string id, string captureId, bool present) => new() { Id = id, CaptureId = captureId, MustBePresent = present };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
-    public static BaseModuleRevisionEqualsGuard RevisionEquals(string id, string captureId, BaseModuleValueExpression expected) => new() { Id = id, CaptureId = captureId, Expected = expected };
+    internal static BaseModuleRevisionEqualsGuard RevisionEquals(string id, string captureId, BaseModuleValueExpression expected) => new() { Id = id, CaptureId = captureId, Expected = expected };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
-    public static BaseModuleFieldEqualsGuard FieldEquals(string id, BaseModuleCapturedFieldReference field, BaseModuleValueExpression expected) => new() { Id = id, Field = field, Expected = expected };
+    internal static BaseModuleFieldEqualsGuard FieldEquals(string id, BaseModuleCapturedFieldReference field, BaseModuleValueExpression expected) => new() { Id = id, Field = field, Expected = expected };
     /// <summary>Creates one exact-type ordered field guard.</summary>
-    public static BaseModuleFieldComparisonGuard FieldCompare(string id, BaseModuleCapturedFieldReference field, BaseModuleOrderedComparisonKind comparison, BaseModuleValueExpression expected) => new() { Id = id, Field = field, Comparison = comparison, Expected = expected };
+    internal static BaseModuleFieldComparisonGuard FieldCompare(string id, BaseModuleCapturedFieldReference field, BaseModuleOrderedComparisonKind comparison, BaseModuleValueExpression expected) => new() { Id = id, Field = field, Comparison = comparison, Expected = expected };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
-    public static BaseModuleFieldPresenceGuard FieldPresence(string id, BaseModuleCapturedFieldReference field, BaseModuleFieldPresenceTest test) => new() { Id = id, Field = field, Test = test };
+    internal static BaseModuleFieldPresenceGuard FieldPresence(string id, BaseModuleCapturedFieldReference field, BaseModuleFieldPresenceTest test) => new() { Id = id, Field = field, Test = test };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
-    public static BaseModuleGenerationGuard Generation(string id, string captureId, BaseModuleGenerationComparisonKind comparison, BaseModuleValueExpression? expected = null) => new() { Id = id, CaptureId = captureId, Comparison = comparison, Expected = expected };
+    internal static BaseModuleGenerationGuard Generation(string id, string captureId, BaseModuleGenerationComparisonKind comparison, BaseModuleValueExpression? expected = null) => new() { Id = id, CaptureId = captureId, Comparison = comparison, Expected = expected };
     /// <summary>Creates one closed semantic-slot state guard.</summary>
     public static BaseModuleSemanticActivationStateGuard SemanticActivationState(string id, BaseModuleSemanticActivationStateTest test) => new() { Id = id, Test = test };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
@@ -46,15 +184,15 @@ public sealed class BaseModuleMutationTemplateBuilder
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
     public static BaseModuleLogicalGuard Not(string id, string guardId) => Logical(id, BaseModuleLogicalGuardKind.Not, [guardId]);
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
-    public static BaseModuleCreateStatement Create(string id, string collectionId, BaseModuleValueExpression recordId, BaseModuleObjectExpression payload) => new() { Id = id, CollectionId = collectionId, RecordId = recordId, Payload = payload };
+    internal static BaseModuleCreateStatement Create(string id, string collectionId, BaseModuleValueExpression recordId, BaseModuleObjectExpression payload) => new() { Id = id, CollectionId = collectionId, RecordId = recordId, Payload = payload };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
-    public static BaseModulePatchStatement Patch(string id, string collectionId, BaseModuleValueExpression recordId, BaseModuleObjectExpression patch, BaseModuleValueExpression? expectedRevision = null) => new() { Id = id, CollectionId = collectionId, RecordId = recordId, Patch = patch, ExpectedRevision = expectedRevision };
+    internal static BaseModulePatchStatement Patch(string id, string collectionId, BaseModuleValueExpression recordId, BaseModuleObjectExpression patch, BaseModuleValueExpression? expectedRevision = null) => new() { Id = id, CollectionId = collectionId, RecordId = recordId, Patch = patch, ExpectedRevision = expectedRevision };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
-    public static BaseModuleReplaceStatement Replace(string id, string collectionId, BaseModuleValueExpression recordId, BaseModuleObjectExpression payload, BaseModuleValueExpression? expectedRevision = null) => new() { Id = id, CollectionId = collectionId, RecordId = recordId, Payload = payload, ExpectedRevision = expectedRevision };
+    internal static BaseModuleReplaceStatement Replace(string id, string collectionId, BaseModuleValueExpression recordId, BaseModuleObjectExpression payload, BaseModuleValueExpression? expectedRevision = null) => new() { Id = id, CollectionId = collectionId, RecordId = recordId, Payload = payload, ExpectedRevision = expectedRevision };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
-    public static BaseModuleDeleteStatement Delete(string id, string collectionId, BaseModuleValueExpression recordId, BaseModuleValueExpression? expectedRevision = null) => new() { Id = id, CollectionId = collectionId, RecordId = recordId, ExpectedRevision = expectedRevision };
+    internal static BaseModuleDeleteStatement Delete(string id, string collectionId, BaseModuleValueExpression recordId, BaseModuleValueExpression? expectedRevision = null) => new() { Id = id, CollectionId = collectionId, RecordId = recordId, ExpectedRevision = expectedRevision };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
-    public static BaseModuleUpsertStatement Upsert(string id, string collectionId, BaseModuleValueExpression recordId, BaseModuleObjectExpression create, BaseModuleObjectExpression update, RecordUpsertUpdateMode mode, BaseModuleValueExpression? expectedRevision = null) => new() { Id = id, CollectionId = collectionId, RecordId = recordId, Create = create, Update = update, UpdateMode = mode, ExpectedRevision = expectedRevision };
+    internal static BaseModuleUpsertStatement Upsert(string id, string collectionId, BaseModuleValueExpression recordId, BaseModuleObjectExpression create, BaseModuleObjectExpression update, RecordUpsertUpdateMode mode, BaseModuleValueExpression? expectedRevision = null) => new() { Id = id, CollectionId = collectionId, RecordId = recordId, Create = create, Update = update, UpdateMode = mode, ExpectedRevision = expectedRevision };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
     public static BaseModuleIncrementGenerationStatement IncrementGeneration(string id, string captureId, bool createIfAbsent) => new() { Id = id, CaptureId = captureId, CreateIfAbsent = createIfAbsent };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
@@ -62,47 +200,66 @@ public sealed class BaseModuleMutationTemplateBuilder
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
     public static BaseModuleRequireStatement Require(string id, string guardId, string requirementId) => new() { Id = id, GuardId = guardId, RequirementId = requirementId };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
-    public static BaseModuleRequestPropertyExpression RequestProperty(string id, string resultTypeId, BaseModuleRequestPropertyReference property) => new() { Id = id, ResultTypeId = resultTypeId, Property = property };
+    internal static BaseModuleRequestPropertyExpression RequestProperty(string id, BaseModuleRequestPropertyReference property) => new() { Id = id, ResultType = property.Authority.ValueType, Property = property };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
-    public static BaseModuleConstantExpression Constant(string id, string resultTypeId, ReadOnlySpan<byte> canonicalBaseJson) => new() { Id = id, ResultTypeId = resultTypeId, CanonicalBaseJson = canonicalBaseJson.ToArray().ToImmutableArray() };
+    internal static BaseModuleConstantExpression Constant(string id, BaseModuleValueType resultType, ReadOnlySpan<byte> canonicalBaseJson) => new() { Id = id, ResultType = resultType, CanonicalBaseJson = canonicalBaseJson.ToArray().ToImmutableArray() };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
-    public static BaseModuleCapturedFieldExpression CapturedField(string id, string resultTypeId, BaseModuleCapturedFieldReference field) => new() { Id = id, ResultTypeId = resultTypeId, Field = field };
+    internal static BaseModuleCapturedFieldExpression CapturedField(string id, BaseModuleCapturedFieldReference field) => new() { Id = id, ResultType = field.Authority, Field = field };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
-    public static BaseModuleCapturedRecordIdExpression CapturedRecordId(string id, string resultTypeId, string captureId) => new() { Id = id, ResultTypeId = resultTypeId, CaptureId = captureId };
+    internal static BaseModuleCapturedRecordIdExpression CapturedRecordId(string id, BaseModuleValueType resultType, string captureId) => new() { Id = id, ResultType = resultType, CaptureId = captureId };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
-    public static BaseModuleCapturedRevisionExpression CapturedRevision(string id, string captureId) => new() { Id = id, ResultTypeId = "revision", CaptureId = captureId };
+    internal static BaseModuleCapturedRevisionExpression CapturedRevisionRaw(string id, string captureId) => new() { Id = id, ResultType = BaseModuleValueAuthorityContract.Primitive<RevisionToken>(), CaptureId = captureId };
+    /// <summary>Creates a typed captured-revision expression.</summary>
+    public static BaseModuleValue<RevisionToken> CapturedRevision(string nodeId, string captureId) =>
+        new(new BaseModuleCapturedRevisionExpression { Id = nodeId, ResultType = BaseModuleValueAuthorityContract.Primitive<RevisionToken>(), CaptureId = captureId });
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
-    public static BaseModuleCapturedGenerationExpression CapturedGeneration(string id, string resultTypeId, string captureId) => new() { Id = id, ResultTypeId = resultTypeId, CaptureId = captureId };
+    internal static BaseModuleCapturedGenerationExpression CapturedGenerationRaw(string id, string captureId) => new() { Id = id, ResultType = BaseModuleValueAuthorityContract.Primitive<BaseModuleGeneration>(), CaptureId = captureId };
+    /// <summary>Creates one typed captured-generation expression.</summary>
+    public static BaseModuleValue<BaseModuleGeneration> CapturedGeneration(string nodeId, string captureId) =>
+        new(new BaseModuleCapturedGenerationExpression { Id = nodeId, ResultType = BaseModuleValueAuthorityContract.Primitive<BaseModuleGeneration>(), CaptureId = captureId });
+    /// <summary>Creates a typed captured record-ID expression for the exact generated record type.</summary>
+    public static BaseModuleValue<BaseRecordId<TRecord>> CapturedRecordId<TRecord>(string nodeId, string captureId) =>
+        new(new BaseModuleCapturedRecordIdExpression { Id = nodeId, ResultType = BaseModuleValueAuthorityContract.RecordId<TRecord>(), CaptureId = captureId });
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
-    public static BaseModuleCommittedRecordIdExpression CommittedRecordId(string id, string resultTypeId, string statementId) => new() { Id = id, ResultTypeId = resultTypeId, StatementId = statementId };
+    internal static BaseModuleCommittedRecordIdExpression CommittedRecordId(string id, BaseModuleValueType resultType, string statementId) => new() { Id = id, ResultType = resultType, StatementId = statementId };
+    /// <summary>Creates a typed committed record-ID expression for the exact generated record type.</summary>
+    public static BaseModuleValue<BaseRecordId<TRecord>> CommittedRecordId<TRecord>(string nodeId, string statementId) =>
+        new(new BaseModuleCommittedRecordIdExpression { Id = nodeId, ResultType = BaseModuleValueAuthorityContract.RecordId<TRecord>(), StatementId = statementId });
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
-    public static BaseModuleCommittedRevisionExpression CommittedRevision(string id, string statementId) => new() { Id = id, ResultTypeId = "revision", StatementId = statementId };
+    internal static BaseModuleCommittedRevisionExpression CommittedRevisionRaw(string id, string statementId) => new() { Id = id, ResultType = BaseModuleValueAuthorityContract.Primitive<RevisionToken>(), StatementId = statementId };
+    /// <summary>Creates a typed committed-revision expression.</summary>
+    public static BaseModuleValue<RevisionToken> CommittedRevision(string nodeId, string statementId) =>
+        new(new BaseModuleCommittedRevisionExpression { Id = nodeId, ResultType = BaseModuleValueAuthorityContract.Primitive<RevisionToken>(), StatementId = statementId });
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
-    public static BaseModuleCommittedUpsertDispositionExpression CommittedUpsertDisposition(string id, string resultTypeId, string statementId) => new() { Id = id, ResultTypeId = resultTypeId, StatementId = statementId };
+    internal static BaseModuleCommittedUpsertDispositionExpression CommittedUpsertDisposition(string id, BaseModuleValueType resultType, string statementId) => new() { Id = id, ResultType = resultType, StatementId = statementId };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
-    public static BaseModuleResultingGenerationExpression ResultingGeneration(string id, string resultTypeId, string captureId) => new() { Id = id, ResultTypeId = resultTypeId, CaptureId = captureId };
+    internal static BaseModuleResultingGenerationExpression ResultingGenerationRaw(string id, string captureId) => new() { Id = id, ResultType = BaseModuleValueAuthorityContract.Primitive<BaseModuleGeneration>(), CaptureId = captureId };
+    /// <summary>Creates one typed resulting-generation expression.</summary>
+    public static BaseModuleValue<BaseModuleGeneration> ResultingGeneration(string nodeId, string captureId) =>
+        new(new BaseModuleResultingGenerationExpression { Id = nodeId, ResultType = BaseModuleValueAuthorityContract.Primitive<BaseModuleGeneration>(), CaptureId = captureId });
     /// <summary>Projects the semantic ensure disposition.</summary>
-    public static BaseModuleSemanticActivationDispositionExpression SemanticActivationDisposition(string id, string resultTypeId) => new() { Id = id, ResultTypeId = resultTypeId };
+    internal static BaseModuleSemanticActivationDispositionExpression SemanticActivationDisposition(string id, BaseModuleValueType resultType) => new() { Id = id, ResultType = resultType };
     /// <summary>Projects the live semantic activation ID.</summary>
-    public static BaseModuleSemanticActivationIdExpression SemanticActivationId(string id, string resultTypeId) => new() { Id = id, ResultTypeId = resultTypeId };
+    internal static BaseModuleSemanticActivationIdExpression SemanticActivationId(string id, BaseModuleValueType resultType) => new() { Id = id, ResultType = resultType };
     /// <summary>Projects whether ensure created the activation.</summary>
-    public static BaseModuleSemanticActivationWasMaterializedExpression SemanticActivationWasMaterialized(string id) => new() { Id = id, ResultTypeId = "bool" };
+    internal static BaseModuleSemanticActivationWasMaterializedExpression SemanticActivationWasMaterialized(string id) => new() { Id = id, ResultType = BaseModuleValueAuthorityContract.Primitive<bool>() };
     /// <summary>Projects the semantic retirement disposition.</summary>
-    public static BaseModuleSemanticActivationRetirementDispositionExpression SemanticActivationRetirementDisposition(string id, string resultTypeId) => new() { Id = id, ResultTypeId = resultTypeId };
+    internal static BaseModuleSemanticActivationRetirementDispositionExpression SemanticActivationRetirementDisposition(string id, BaseModuleValueType resultType) => new() { Id = id, ResultType = resultType };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
-    public static BaseModuleCoalesceExpression Coalesce(string id, string resultTypeId, params BaseModuleValueExpression[] values) => new() { Id = id, ResultTypeId = resultTypeId, Values = [.. values] };
+    internal static BaseModuleCoalesceExpression Coalesce(string id, BaseModuleValueType resultType, params BaseModuleValueExpression[] values) => new() { Id = id, ResultType = resultType, Values = [.. values] };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
-    public static BaseModuleConditionalExpression Conditional(string id, string resultTypeId, string guardId, BaseModuleValueExpression whenTrue, BaseModuleValueExpression whenFalse) => new() { Id = id, ResultTypeId = resultTypeId, GuardId = guardId, WhenTrue = whenTrue, WhenFalse = whenFalse };
+    internal static BaseModuleConditionalExpression Conditional(string id, BaseModuleValueType resultType, string guardId, BaseModuleValueExpression whenTrue, BaseModuleValueExpression whenFalse) => new() { Id = id, ResultType = resultType, GuardId = guardId, WhenTrue = whenTrue, WhenFalse = whenFalse };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
-    public static BaseModuleBinaryNumericExpression Numeric(string id, string resultTypeId, BaseModuleNumericOperator op, BaseModuleValueExpression left, BaseModuleValueExpression right, BaseModuleDecimalContext? decimalContext = null) => new() { Id = id, ResultTypeId = resultTypeId, Operator = op, Left = left, Right = right, Decimal = decimalContext };
+    internal static BaseModuleBinaryNumericExpression Numeric(string id, BaseModuleValueType resultType, BaseModuleNumericOperator op, BaseModuleValueExpression left, BaseModuleValueExpression right, BaseModuleDecimalContext? decimalContext = null) => new() { Id = id, ResultType = resultType, Operator = op, Left = left, Right = right, Decimal = decimalContext };
     /// <summary>Creates one closed graph-owned module-mutation node.</summary>
-    public static BaseModuleObjectExpression Object(string id, string resultTypeId, params BaseModuleObjectPropertyExpression[] properties) => new() { Id = id, ResultTypeId = resultTypeId, Properties = [.. properties] };
+    internal static BaseModuleObjectExpression Object(string id, params BaseModuleObjectPropertyExpression[] properties) => new() { Id = id, Properties = [.. properties] };
     /// <summary>Creates one closed graph-owned object-property node.</summary>
-    public static BaseModuleObjectPropertyExpression Property(string propertyId, BaseModuleValueExpression value) => new() { StablePropertyId = propertyId, Value = value };
+    internal static BaseModuleObjectPropertyExpression Property(string propertyId, BaseModuleValueExpression value) => new() { StablePropertyId = propertyId, Value = value };
     /// <summary>Creates one closed ordered statement block.</summary>
     public static BaseModuleMutationBlock Block(params BaseModuleStatement[] statements) => new() { Statements = [.. statements] };
     /// <summary>Creates one closed result projection.</summary>
-    public static BaseModuleResultProjection Result(BaseModuleObjectExpression value) => new() { Value = value };
+    public static BaseModuleResultProjection Result<TResult>(BaseModuleResultObject<TResult> value) => new() { Value = value.Value };
+    internal static BaseModuleResultProjection ResultRaw(BaseModuleObjectExpression value) => new() { Value = value };
 
     private static BaseModuleLogicalGuard Logical(string id, BaseModuleLogicalGuardKind kind, string[] children) => new() { Id = id, Kind = kind, ChildGuardIds = [.. children] };
 
@@ -243,7 +400,7 @@ public static class BaseModuleMutationContract
             foreach (BaseModuleCapture capture in value.Captures) Capture(capture);
             Count(value.Guards.Length);
             foreach (BaseModuleGuard guard in value.Guards) Guard(guard);
-            Block(value.Body); Expression(value.Result.Value);
+            Block(value.Body); Object(value.Result.Value);
         }
 
         private void Capture(BaseModuleCapture value)
@@ -311,15 +468,15 @@ public static class BaseModuleMutationContract
             switch (value)
             {
                 case BaseModuleCreateStatement statement:
-                    Discriminator(0); String(statement.CollectionId); Expression(statement.RecordId); Expression(statement.Payload); break;
+                    Discriminator(0); String(statement.CollectionId); Expression(statement.RecordId); Object(statement.Payload); break;
                 case BaseModulePatchStatement statement:
-                    Discriminator(1); String(statement.CollectionId); Expression(statement.RecordId); Expression(statement.Patch); Optional(statement.ExpectedRevision); break;
+                    Discriminator(1); String(statement.CollectionId); Expression(statement.RecordId); Object(statement.Patch); Optional(statement.ExpectedRevision); break;
                 case BaseModuleReplaceStatement statement:
-                    Discriminator(2); String(statement.CollectionId); Expression(statement.RecordId); Expression(statement.Payload); Optional(statement.ExpectedRevision); break;
+                    Discriminator(2); String(statement.CollectionId); Expression(statement.RecordId); Object(statement.Payload); Optional(statement.ExpectedRevision); break;
                 case BaseModuleDeleteStatement statement:
                     Discriminator(3); String(statement.CollectionId); Expression(statement.RecordId); Optional(statement.ExpectedRevision); break;
                 case BaseModuleUpsertStatement statement:
-                    Discriminator(4); String(statement.CollectionId); Expression(statement.RecordId); Expression(statement.Create); Expression(statement.Update);
+                    Discriminator(4); String(statement.CollectionId); Expression(statement.RecordId); Object(statement.Create); Object(statement.Update);
                     Integer((int)statement.UpdateMode); Optional(statement.ExpectedRevision); break;
                 case BaseModuleIncrementGenerationStatement statement:
                     Discriminator(5); String(statement.CaptureId); Boolean(statement.CreateIfAbsent); break;
@@ -338,13 +495,15 @@ public static class BaseModuleMutationContract
 
         private void Expression(BaseModuleValueExpression value)
         {
-            String(value.Id); String(value.ResultTypeId);
+            String(value.Id);
+            if (value.ResultType is null) throw new InvalidOperationException("base.moduleMutation.invalid");
+            ValueType(value.ResultType);
             switch (value)
             {
                 case BaseModuleRequestPropertyExpression expression:
                     Discriminator(0); Count(expression.Property.StablePropertyPath.Length);
                     foreach (string edge in expression.Property.StablePropertyPath) String(edge);
-                    String(expression.Property.DeclaredTypeId); break;
+                    Bytes(expression.Property.Authority.AuthorityChecksum.ToArray()); break;
                 case BaseModuleConstantExpression expression: Discriminator(1); Bytes(expression.CanonicalBaseJson.AsSpan()); break;
                 case BaseModuleCapturedRecordIdExpression expression: Discriminator(2); String(expression.CaptureId); break;
                 case BaseModuleCapturedRevisionExpression expression: Discriminator(3); String(expression.CaptureId); break;
@@ -368,18 +527,28 @@ public static class BaseModuleMutationContract
                 case BaseModuleSemanticActivationIdExpression: Discriminator(14); break;
                 case BaseModuleSemanticActivationWasMaterializedExpression: Discriminator(15); break;
                 case BaseModuleSemanticActivationRetirementDispositionExpression: Discriminator(16); break;
-                case BaseModuleObjectExpression expression:
-                    Discriminator(13); Count(expression.Properties.Length);
-                    foreach (BaseModuleObjectPropertyExpression property in expression.Properties)
-                    { String(property.StablePropertyId); Expression(property.Value); }
-                    break;
                 default: throw new InvalidOperationException("base.moduleMutation.invalid");
             }
         }
 
+        private void Object(BaseModuleObjectExpression expression)
+        {
+            String(expression.Id); Count(expression.Properties.Length);
+            foreach (BaseModuleObjectPropertyExpression property in expression.Properties)
+            { String(property.StablePropertyId); Expression(property.Value); }
+        }
+
         private void Field(BaseModuleCapturedFieldReference value)
         {
-            String(value.CaptureId); String(value.StableFieldId); String(value.DeclaredTypeId);
+            String(value.CaptureId); String(value.StableFieldId);
+            ValueType(value.Authority);
+        }
+
+        private void ValueType(BaseModuleValueType value)
+        {
+            var writer = new System.Buffers.ArrayBufferWriter<byte>();
+            BaseSchemaContract.WriteModuleValueType(writer, value);
+            Bytes(writer.WrittenSpan);
         }
 
         private byte[] GuardDigest(string id)

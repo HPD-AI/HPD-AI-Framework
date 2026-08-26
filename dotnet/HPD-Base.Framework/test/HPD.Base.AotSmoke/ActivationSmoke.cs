@@ -56,8 +56,8 @@ internal static class ActivationSmoke
             },
             Checksum = [],
         }, Serializer.ActivationSmokeInput, Serializer.ActivationSmokeResult,
-        [BaseModuleDtoPropertyBinding.Create<ActivationSmokeInput, string>("hpd.base.aot.activation.input.value", "value")],
-        [BaseModuleDtoPropertyBinding.Create<ActivationSmokeResult, string>("hpd.base.aot.activation.result.value", "value")],
+        [BaseModuleDtoPropertyBinding.Create<ActivationSmokeInput, string>("hpd.base.aot.activation.input.value", "value", BaseGeneratedModuleScalarManifest.Primitive<string>())],
+        [BaseModuleDtoPropertyBinding.Create<ActivationSmokeResult, string>("hpd.base.aot.activation.result.value", "value", BaseGeneratedModuleScalarManifest.Primitive<string>())],
         static _ => new ActivationSmokeHandler());
 
     private static BaseActivationExecutionLimits ProviderLimits() => new()

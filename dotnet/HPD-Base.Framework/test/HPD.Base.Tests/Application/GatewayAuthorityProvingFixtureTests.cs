@@ -26,7 +26,7 @@ public sealed class GatewayAuthorityProvingFixtureTests
                 PrincipalContext principal = Principal();
                 RecordEnvelope desired = (await runtime.CreateAsync(
                     "gateway.desired",
-                    new RecordCreateRequest { RequestedId = new RecordId("desired"), Payload = Payload("generation", 1) },
+                    new RecordCreateRequest { RequestedId = RecordId.Create("desired"), Payload = Payload("generation", 1) },
                     principal,
                     Operation(BaseOperationKind.Create, "gateway.desired", "desired"))).Value!;
                 expectedRevision = desired.Metadata.Revision!.Value;
@@ -54,7 +54,7 @@ public sealed class GatewayAuthorityProvingFixtureTests
             {
                 (await restartedRuntime.GetAsync(
                     fact.Collection,
-                    new RecordId(fact.Id),
+                    RecordId.Create(fact.Id),
                     restartedPrincipal,
                     Operation(BaseOperationKind.Get, fact.Collection, fact.Id)))
                     .IsSuccess().Should().BeTrue($"{fact.Collection} must reconstruct after restart");
@@ -94,7 +94,7 @@ public sealed class GatewayAuthorityProvingFixtureTests
             PrincipalContext principal = Principal();
             OperationResult<RecordEnvelope> initialDesired = await runtime.CreateAsync(
                 "gateway.desired",
-                new RecordCreateRequest { RequestedId = new RecordId("desired"), Payload = Payload("generation", 1) },
+                new RecordCreateRequest { RequestedId = RecordId.Create("desired"), Payload = Payload("generation", 1) },
                 principal,
                 Operation(BaseOperationKind.Create, "gateway.desired", "desired"));
             initialDesired.IsSuccess().Should().BeTrue(initialDesired.Error?.Code);
@@ -122,7 +122,7 @@ public sealed class GatewayAuthorityProvingFixtureTests
             duplicate.Value!.RequestDisposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
             observer.Count.Should().Be(7, "the duplicate must not redeliver six committed authority mutations");
             (await runtime.GetAsync(
-                "gateway.outbox", new RecordId("outbox-1"), principal,
+                "gateway.outbox", RecordId.Create("outbox-1"), principal,
                 Operation(BaseOperationKind.Get, "gateway.outbox", "outbox-1"))).IsSuccess().Should().BeTrue();
 
             BaseRecordBatchRequest changedBoundSemantics = AuthorityBatch(
@@ -156,17 +156,17 @@ public sealed class GatewayAuthorityProvingFixtureTests
 
             rejected.Value!.Outcome.Should().Be(BaseRecordBatchOutcome.RolledBack);
             (await runtime.GetAsync(
-                "gateway.revisions", new RecordId("revision-2"), principal,
+                "gateway.revisions", RecordId.Create("revision-2"), principal,
                 Operation(BaseOperationKind.Get, "gateway.revisions", "revision-2")))
                 .Status.Should().Be(OperationStatus.NotFound);
             (await runtime.GetAsync(
-                "gateway.outbox", new RecordId("outbox-2"), principal,
+                "gateway.outbox", RecordId.Create("outbox-2"), principal,
                 Operation(BaseOperationKind.Get, "gateway.outbox", "outbox-2")))
                 .Status.Should().Be(OperationStatus.NotFound);
             observer.Count.Should().Be(7);
 
             RecordEnvelope currentDesired = (await runtime.GetAsync(
-                "gateway.desired", new RecordId("desired"), principal,
+                "gateway.desired", RecordId.Create("desired"), principal,
                 Operation(BaseOperationKind.Get, "gateway.desired", "desired"))).Value!;
             BaseRecordBatchRequest correctedRetry = AuthorityBatch(
                 "request-2",
@@ -281,7 +281,7 @@ public sealed class GatewayAuthorityProvingFixtureTests
                     ItemId = "desired",
                     CollectionId = "gateway.desired",
                     Kind = BaseRecordMutationKind.Replace,
-                    RecordId = new RecordId("desired"),
+                    RecordId = RecordId.Create("desired"),
                     Replace = new RecordReplaceRequest
                     {
                         ExpectedRevision = desiredRevision,
@@ -301,7 +301,7 @@ public sealed class GatewayAuthorityProvingFixtureTests
             ItemId = itemId,
             CollectionId = collection,
             Kind = BaseRecordMutationKind.Create,
-            Create = new RecordCreateRequest { RequestedId = new RecordId(id), Payload = payload },
+            Create = new RecordCreateRequest { RequestedId = RecordId.Create(id), Payload = payload },
         };
 
     private static BaseCollection<JsonElement> Collection(

@@ -1,3 +1,6 @@
+using System.Collections.Immutable;
+using System.Text.Json.Serialization;
+
 namespace HPD.Base;
 
 /// <summary>
@@ -33,4 +36,8 @@ public sealed record QueryValue
     public string? SubjectAuthorityEpoch { get; init; }
     /// <summary>Gets the canonical unpadded base64url incarnation for a subject-reference value.</summary>
     public string? SubjectIncarnation { get; init; }
+    /// <summary>Gets the owned canonical UTF-8 JSON bytes for a canonical-JSON value.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    [JsonConverter(typeof(BaseCanonicalJsonQueryValueJsonConverter))]
+    public ImmutableArray<byte> CanonicalJsonUtf8 { get; init; }
 }

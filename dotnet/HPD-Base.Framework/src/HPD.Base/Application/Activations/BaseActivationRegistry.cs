@@ -698,7 +698,7 @@ public static class BaseActivationDefinitionBuilder
             Append(hash, binding.PropertyType?.AssemblyQualifiedName ?? string.Empty);
             Append(hash, (int)binding.Confidentiality);
             Append(hash, (int)binding.RecordDisclosure);
-            Append(hash, binding.Nullable ? 1 : 0);
+            Append(hash, binding.Nullability == BaseFieldNullability.Nullable ? 1 : 0);
         }
         return hash.GetHashAndReset().ToImmutableArray();
     }

@@ -346,12 +346,12 @@ public sealed class BaseTextSemanticTests
         await using ServiceProvider provider = services.BuildServiceProvider();
         Assert.True((await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess());
         BaseCollectionSession<TextSemanticDocument> collection = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.Admin, SubjectKind = AccessSubjectKind.User, SubjectId = "text-test" }).Collection(TextSemanticDocument.Collection);
-        BaseResult<BaseRecord<TextSemanticDocument>> createdA = await collection.CreateAsync(new RecordId("a"), new TextSemanticDocument { Title = "Distributed systems", Body = "portable search", State = "published" });
+        BaseResult<BaseRecord<TextSemanticDocument>> createdA = await collection.CreateAsync(RecordId.Create("a"), new TextSemanticDocument { Title = "Distributed systems", Body = "portable search", State = "published" });
         Assert.True(createdA is BaseSuccess<BaseRecord<TextSemanticDocument>>, createdA is BaseFailure<BaseRecord<TextSemanticDocument>> failed ? failed.Error.Code + ":" + failed.Error.Message : createdA.Status.ToString());
-        (await collection.CreateAsync(new RecordId("b"), new TextSemanticDocument { Title = "Systems", Body = "distributed distributed", State = "draft" })).RequireValue();
-        (await collection.CreateAsync(new RecordId("c"), new TextSemanticDocument { Title = "Distributed", Body = "systems", State = "published" })).RequireValue();
-        (await collection.CreateAsync(new RecordId("order-a"), new TextSemanticDocument { Title = "Ordering", Body = "equal", State = "alpha" })).RequireValue();
-        (await collection.CreateAsync(new RecordId("order-z"), new TextSemanticDocument { Title = "Ordering", Body = "equal", State = "zeta" })).RequireValue();
+        (await collection.CreateAsync(RecordId.Create("b"), new TextSemanticDocument { Title = "Systems", Body = "distributed distributed", State = "draft" })).RequireValue();
+        (await collection.CreateAsync(RecordId.Create("c"), new TextSemanticDocument { Title = "Distributed", Body = "systems", State = "published" })).RequireValue();
+        (await collection.CreateAsync(RecordId.Create("order-a"), new TextSemanticDocument { Title = "Ordering", Body = "equal", State = "alpha" })).RequireValue();
+        (await collection.CreateAsync(RecordId.Create("order-z"), new TextSemanticDocument { Title = "Ordering", Body = "equal", State = "zeta" })).RequireValue();
 
         BaseTextResult<TextSemanticDocument> first = (await collection.Text(TextSemanticDocument.TextIndexes.Content, BaseTextQuery.Token("distributed"))
             .Where(TextSemanticDocument.Fields.State, "published").Take(1).ExecuteAsync()).RequireValue();
@@ -372,7 +372,7 @@ public sealed class BaseTextSemanticTests
         {
             await using IAsyncEnumerator<BaseLiveQueryTransition<BaseTextResult<TextSemanticDocument>>> live = collection.Text(TextSemanticDocument.TextIndexes.Content, BaseTextQuery.Token("distributed")).Take(10).LiveAsync(liveTimeout.Token).GetAsyncEnumerator(liveTimeout.Token);
             Assert.True(await live.MoveNextAsync()); Assert.Equal(BaseLiveQueryTransitionKind.Snapshot, live.Current.Kind); Assert.Equal(3, live.Current.Value!.Matches.Length);
-            await collection.CreateAsync(new RecordId("d"), new TextSemanticDocument { Title = "Distributed runtime", Body = "systems", State = "published" }, cancellationToken: liveTimeout.Token);
+            await collection.CreateAsync(RecordId.Create("d"), new TextSemanticDocument { Title = "Distributed runtime", Body = "systems", State = "published" }, cancellationToken: liveTimeout.Token);
             Assert.True(await live.MoveNextAsync()); Assert.Equal(BaseLiveQueryTransitionKind.Snapshot, live.Current.Kind); Assert.Equal(4, live.Current.Value!.Matches.Length);
         }
         IBaseTextAdministration administration = provider.GetRequiredService<IBaseTextAdministration>(); BaseTextIndexStatus before = (await administration.GetAsync(TextSemanticDocument.Collection.Id, TextSemanticDocument.TextIndexes.Content.Definition.Id)).Value!;
@@ -469,8 +469,8 @@ public sealed class BaseTextSemanticTests
         });
         await using ServiceProvider provider = services.BuildServiceProvider(); Assert.True((await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess());
         BaseCollectionSession<DynamicTextDocument> collection = provider.GetRequiredService<IBaseSessionFactory>().For(new() { AuthenticationState = PrincipalAuthenticationState.Admin, SubjectKind = AccessSubjectKind.User, SubjectId = "dynamic" }).Collection(DynamicTextDocument.Collection);
-        await collection.CreateAsync(new("allowed"), new DynamicTextDocument { InternalTitle = "hidden keyword", State = "published" });
-        await collection.CreateAsync(new("denied"), new DynamicTextDocument { InternalTitle = "hidden keyword", State = "draft" });
+        await collection.CreateAsync(RecordId.Create("allowed"), new DynamicTextDocument { InternalTitle = "hidden keyword", State = "published" });
+        await collection.CreateAsync(RecordId.Create("denied"), new DynamicTextDocument { InternalTitle = "hidden keyword", State = "draft" });
 
         BaseTextResult<DynamicTextDocument> result = (await collection.Text(DynamicTextDocument.TextIndexes.Content, BaseTextQuery.Token("hidden")).Take(10).ExecuteAsync()).RequireValue();
         Assert.Equal(["allowed"], result.Matches.Select(static value => value.Record.Id.Value));
@@ -492,7 +492,7 @@ public sealed class BaseTextSemanticTests
             });
             await using ServiceProvider provider = services.BuildServiceProvider(); IBaseSchemaManager schemas = provider.GetRequiredService<IBaseSchemaManager>(); BaseSchemaPlan plan = (await schemas.PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite" })).Value!; Assert.True((await schemas.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = plan.ProtectedArtifact })).IsSuccess()); var initialized = await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync(); Assert.True(initialized.IsSuccess(), initialized.Error?.Code + ":" + initialized.Error?.Message);
             BaseCollectionSession<DynamicTextDocument> collection = provider.GetRequiredService<IBaseSessionFactory>().For(new() { AuthenticationState = PrincipalAuthenticationState.Admin, SubjectKind = AccessSubjectKind.User, SubjectId = "dynamic-sqlite" }).Collection(DynamicTextDocument.Collection);
-            await collection.CreateAsync(new("record"), new DynamicTextDocument { InternalTitle = "prohibited", State = "draft" });
+            await collection.CreateAsync(RecordId.Create("record"), new DynamicTextDocument { InternalTitle = "prohibited", State = "draft" });
             BaseResult<BaseTextResult<DynamicTextDocument>> result = await collection.Text(DynamicTextDocument.TextIndexes.Content, BaseTextQuery.Token("prohibited")).Take(10).ExecuteAsync();
             Assert.Equal(OperationStatus.Unsupported, result.Status); Assert.Equal(BaseTextErrorCodes.PolicyConstraintUnsupported, Assert.IsType<BaseFailure<BaseTextResult<DynamicTextDocument>>>(result).Error.Code);
         }
@@ -510,7 +510,7 @@ public sealed class BaseTextSemanticTests
         BaseTextLoweringReceipt lowering = new() { ProviderId = descriptor.Id, ProviderVersion = 1, ProviderClass = descriptor.ProviderClass, AuthoritySnapshotDigest = ImmutableArray.Create(new byte[32]), IndexChecksum = ImmutableArray.Create(new byte[32]), QueryDigest = ImmutableArray.Create(new byte[32]), ConstraintDigest = ImmutableArray.Create(new byte[32]), InfluenceConstraintsDigest = ImmutableArray.Create(new byte[32]), StatementShapeDigest = ImmutableArray.Create(new byte[32]), OrderingDigest = ImmutableArray.Create(new byte[32]), LimitsDigest = ImmutableArray.Create(new byte[32]), CertificationReceiptDigest = ImmutableArray.Create(new byte[32]) };
         BaseTextCompletenessEvidence expected = BaseTextProviderEvidence.CreateCompleteness(descriptor, snapshot, lowering, [after], 2, at.CanonicalOrderingBoundary); BaseTextCompletenessEvidence substituted = BaseTextProviderEvidence.CreateCompleteness(descriptor, snapshot, lowering, [after], 2, before.CanonicalOrderingBoundary);
         Assert.False(BaseTextProviderEvidence.CompletenessEquals(expected, substituted));
-        static BaseTextCandidate Candidate(string id, BaseTextScore score, ImmutableArray<BaseTextOrderingValue> values) => new() { RecordId = new(id), Revision = new("test:1"), IndexedPosition = new(1), Score = score, SecondaryOrdering = values, CanonicalOrderingBoundary = BaseTextOrderingContract.Boundary(score, values, new(id)), ScoreProof = new() { Fields = [], Features = [], ProofDigest = ImmutableArray.Create(new byte[32]) } };
+        static BaseTextCandidate Candidate(string id, BaseTextScore score, ImmutableArray<BaseTextOrderingValue> values) => new() { RecordId = RecordId.Create(id), Revision = new("test:1"), IndexedPosition = new(1), Score = score, SecondaryOrdering = values, CanonicalOrderingBoundary = BaseTextOrderingContract.Boundary(score, values, RecordId.Create(id)), ScoreProof = new() { Fields = [], Features = [], ProofDigest = ImmutableArray.Create(new byte[32]) } };
     }
 
     [Fact]
@@ -538,8 +538,8 @@ public sealed class BaseTextSemanticTests
         services.AddHPDBase(builder => builder.AddPolicyAuthority<AllowTextPolicy>(new BasePolicyAuthorityDefinition { Id = "text.limit", Version = 1, OwningModuleId = "tests", EvaluatorContractId = "text.limit.eval", EvaluatorContractVersion = 1, CompositionOrder = 0 }).AddCollection(TextSemanticDocument.Collection));
         await using ServiceProvider provider = services.BuildServiceProvider(); Assert.True((await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess());
         BaseCollectionSession<TextSemanticDocument> collection = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.Admin }).Collection(TextSemanticDocument.Collection);
-        BaseResult<BaseRecord<TextSemanticDocument>> created = await collection.CreateAsync(new RecordId("too-large"), new TextSemanticDocument { Title = new string('a', 65), Body = "body", State = "published" });
-        Assert.Equal(OperationStatus.ValidationFailed, created.Status); Assert.Equal(OperationStatus.NotFound, (await collection.GetAsync(new RecordId("too-large"))).Status);
+        BaseResult<BaseRecord<TextSemanticDocument>> created = await collection.CreateAsync(RecordId.Create("too-large"), new TextSemanticDocument { Title = new string('a', 65), Body = "body", State = "published" });
+        Assert.Equal(OperationStatus.ValidationFailed, created.Status); Assert.Equal(OperationStatus.NotFound, (await collection.GetAsync(RecordId.Create("too-large"))).Status);
     }
 
     [Fact]
@@ -560,10 +560,10 @@ public sealed class BaseTextSemanticTests
             });
             await using ServiceProvider provider = services.BuildServiceProvider(); IBaseSchemaManager schemas = provider.GetRequiredService<IBaseSchemaManager>(); BaseSchemaPlan plan = (await schemas.PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite" })).Value!; Assert.True((await schemas.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = plan.ProtectedArtifact })).IsSuccess()); OperationResult<BaseApplicationReadiness> readiness = await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync(); Assert.True(readiness.IsSuccess(), readiness.Error?.Code + ":" + readiness.Error?.Message);
             BaseCollectionSession<TextSemanticDocument> collection = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.Admin, SubjectKind = AccessSubjectKind.User, SubjectId = "sqlite-text" }).Collection(TextSemanticDocument.Collection);
-            await collection.CreateAsync(new RecordId("sqlite"), new TextSemanticDocument { Title = "Portable lexical search", Body = "SQLite snapshot", State = "published" });
-            await collection.CreateAsync(new RecordId("sqlite-draft"), new TextSemanticDocument { Title = "Portable lexical search", Body = "SQLite hidden draft", State = "draft" });
-            await collection.CreateAsync(new RecordId("sql-order-a"), new TextSemanticDocument { Title = "Ordering", Body = "equal", State = "alpha" });
-            await collection.CreateAsync(new RecordId("sql-order-z"), new TextSemanticDocument { Title = "Ordering", Body = "equal", State = "zeta" });
+            await collection.CreateAsync(RecordId.Create("sqlite"), new TextSemanticDocument { Title = "Portable lexical search", Body = "SQLite snapshot", State = "published" });
+            await collection.CreateAsync(RecordId.Create("sqlite-draft"), new TextSemanticDocument { Title = "Portable lexical search", Body = "SQLite hidden draft", State = "draft" });
+            await collection.CreateAsync(RecordId.Create("sql-order-a"), new TextSemanticDocument { Title = "Ordering", Body = "equal", State = "alpha" });
+            await collection.CreateAsync(RecordId.Create("sql-order-z"), new TextSemanticDocument { Title = "Ordering", Body = "equal", State = "zeta" });
             BaseTextResult<TextSemanticDocument> result = (await collection.Text(TextSemanticDocument.TextIndexes.Content, BaseTextQuery.ExactPhrase("lexical", "search")).Take(10).ExecuteAsync()).RequireValue();
             Assert.Equal(2, result.Matches.Length);
             BaseTextResult<TextSemanticDocument> filtered = (await collection.Text(TextSemanticDocument.TextIndexes.Content, BaseTextQuery.All(BaseTextQuery.Token("portable"), BaseTextQuery.StartsWith("lex"))).Where(TextSemanticDocument.Fields.State, "published").Take(10).ExecuteAsync()).RequireValue();
@@ -573,21 +573,21 @@ public sealed class BaseTextSemanticTests
             BaseTextResult<TextSemanticDocument> ordered = orderedResult.RequireValue();
             Assert.Equal(["sql-order-z", "sql-order-a"], ordered.Matches.Select(static match => match.Record.Id.Value));
             IBaseTextAdministration administration = provider.GetRequiredService<IBaseTextAdministration>(); BaseTextIndexStatus before = (await administration.GetAsync(TextSemanticDocument.Collection.Id, TextSemanticDocument.TextIndexes.Content.Definition.Id)).Value!; BaseTextRebuildRequest rebuild = Rebuild(before.Generation, "sqlite");
-            rebuildPhases.Arm("textRebuildPageCommitted", async () => { (await collection.ReplaceAsync(new("sql-order-a"), new TextSemanticDocument { Title = "Concurrent coverage token", Body = "equal", State = "alpha" })).RequireValue(); await ValueTask.CompletedTask; });
+            rebuildPhases.Arm("textRebuildPageCommitted", async () => { (await collection.ReplaceAsync(RecordId.Create("sql-order-a"), new TextSemanticDocument { Title = "Concurrent coverage token", Body = "equal", State = "alpha" })).RequireValue(); await ValueTask.CompletedTask; });
             BaseTextRebuildResult rebuilt = (await administration.RebuildAsync(rebuild)).Value!; Assert.Equal(2, rebuilt.PublishedGeneration); Assert.Equal(4, rebuilt.RecordCount);
             BaseTextResult<TextSemanticDocument> concurrent = (await collection.Text(TextSemanticDocument.TextIndexes.Content, BaseTextQuery.Token("coverage")).Take(10).ExecuteAsync()).RequireValue(); Assert.Single(concurrent.Matches); Assert.Equal("sql-order-a", concurrent.Matches[0].Record.Id.Value);
             BaseTextRebuildResult duplicate = (await administration.RebuildAsync(rebuild)).Value!; Assert.Equal(rebuilt.PublishedGeneration, duplicate.PublishedGeneration); Assert.True(rebuilt.PublicationChecksum.AsSpan().SequenceEqual(duplicate.PublicationChecksum.AsSpan()));
             Assert.Equal(OperationStatus.Conflict, (await administration.RebuildAsync(Rebuild(before.Generation, "sqlite", "changed"))).Status);
             IHPDBaseApplication application = provider.GetRequiredService<IHPDBaseApplication>(); Assert.True(provider.GetRequiredService<SqliteRecordStore>().AdministrationCapability.Backup); var artifact = new MemoryStream(); var administrator = new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System }; BaseBackupManifest manifest = (await application.Administration.CreateBackupAsync(artifact, new() { StoreId = "sqlite", Principal = administrator })).RequireValue();
             byte[] corrupted = artifact.ToArray(); corrupted[corrupted.Length / 2] ^= 0x20; Assert.Equal(BaseAdministrationErrorCodes.ArtifactInvalid, Assert.IsType<BaseFailure<BaseBackupManifest>>(await application.Administration.ValidateBackupAsync(new MemoryStream(corrupted), new() { StoreId = "sqlite", Principal = administrator })).Error.Code);
-            (await collection.ReplaceAsync(new("sqlite"), new TextSemanticDocument { Title = "Changed record", Body = "different", State = "published" })).RequireValue(); artifact.Position = 0;
+            (await collection.ReplaceAsync(RecordId.Create("sqlite"), new TextSemanticDocument { Title = "Changed record", Body = "different", State = "published" })).RequireValue(); artifact.Position = 0;
             (await application.Administration.RestoreAsync(artifact, new() { StoreId = "sqlite", Principal = administrator, ExpectedCurrentStoreIdentityDigest = manifest.StoreIdentityDigest, ExpectedArtifactStoreIdentityDigest = manifest.StoreIdentityDigest, IdentityMode = BaseRestoreIdentityMode.RequireCurrentStoreIdentity, RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore, ConfirmDestructiveReplacement = true, ScheduleRestoreDomain = BaseScheduleRestoreDomain.InPlaceRecovery })).RequireValue();
             BaseTextResult<TextSemanticDocument> restored = (await collection.Text(TextSemanticDocument.TextIndexes.Content, BaseTextQuery.ExactPhrase("lexical", "search")).Where(TextSemanticDocument.Fields.State, "published").Take(10).ExecuteAsync()).RequireValue(); Assert.Single(restored.Matches);
             Assert.Equal(rebuilt.PublishedGeneration, (await administration.RebuildAsync(rebuild)).Value!.PublishedGeneration);
 
             rebuildPhases.Arm("textRebuildPageCommitted", async () =>
             {
-                (await collection.ReplaceAsync(new("sql-order-z"), new TextSemanticDocument { Title = "Coverage gap mutation", Body = "equal", State = "zeta" })).RequireValue();
+                (await collection.ReplaceAsync(RecordId.Create("sql-order-z"), new TextSemanticDocument { Title = "Coverage gap mutation", Body = "equal", State = "zeta" })).RequireValue();
                 using var connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=" + path); connection.Open(); using Microsoft.Data.Sqlite.SqliteCommand command = connection.CreateCommand(); command.CommandText = $"DELETE FROM {SqliteTextModel.RebuildAppliedTable} WHERE scope='tests' AND operation='text.rebuild' AND idempotency_key='sqlite-coverage-gap';"; command.ExecuteNonQuery(); await ValueTask.CompletedTask;
             });
             OperationResult<BaseTextRebuildResult> missingCoverage = await administration.RebuildAsync(Rebuild(2, "sqlite-coverage-gap")); Assert.Equal(OperationStatus.StoreError, missingCoverage.Status); Assert.Equal(2, (await administration.GetAsync(TextSemanticDocument.Collection.Id, TextSemanticDocument.TextIndexes.Content.Definition.Id)).Value!.Generation);
@@ -670,7 +670,7 @@ internal sealed class TrackingTextAuthority(bool malformed) : IBaseTextProvider,
         }
         public ValueTask<OperationResult<RecordEnvelope[]>> GetExactAsync(CollectionDefinition collection, BaseTextCandidateIdentity[] candidates, OperationContext context, CancellationToken cancellationToken = default) { owner.HydrationCount++; return ValueTask.FromResult(OperationResults.Ok(Array.Empty<RecordEnvelope>())); }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-        private static BaseTextCandidate Candidate(string id, ulong score) { var value = new BaseTextScore { Units = score }; ImmutableArray<BaseTextOrderingValue> order = []; return new() { RecordId = new(id), Revision = new("test:1"), IndexedPosition = new(1), Score = value, SecondaryOrdering = order, CanonicalOrderingBoundary = BaseTextOrderingContract.Boundary(value, order, new(id)), ScoreProof = new() { Fields = [], Features = [], ProofDigest = ImmutableArray.Create(new byte[32]) } }; }
+        private static BaseTextCandidate Candidate(string id, ulong score) { var value = new BaseTextScore { Units = score }; ImmutableArray<BaseTextOrderingValue> order = []; return new() { RecordId = RecordId.Create(id), Revision = new("test:1"), IndexedPosition = new(1), Score = value, SecondaryOrdering = order, CanonicalOrderingBoundary = BaseTextOrderingContract.Boundary(value, order, RecordId.Create(id)), ScoreProof = new() { Fields = [], Features = [], ProofDigest = ImmutableArray.Create(new byte[32]) } }; }
     }
 }
 

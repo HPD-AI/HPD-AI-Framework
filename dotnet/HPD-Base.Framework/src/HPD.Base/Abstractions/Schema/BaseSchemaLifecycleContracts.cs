@@ -192,6 +192,8 @@ public sealed record BaseLogicalField
     public BaseSchemaAuthorityChecksum? ScalarCodecChecksum { get; init; }
     /// <summary>Gets the scalar constraint checksum.</summary>
     public BaseScalarConstraintChecksum? ScalarConstraintChecksum { get; init; }
+    /// <summary>Gets the exact typed record-ID target collection.</summary>
+    public string? RecordTargetCollectionId { get; init; }
     /// <summary>Gets the normalized confidentiality class.</summary>
     public BaseFieldConfidentiality Confidentiality { get; init; }
     /// <summary>Gets the normalized complete disclosure policy.</summary>
@@ -266,6 +268,10 @@ public sealed record BaseLogicalRead
 {
     /// <summary>Gets or sets id.</summary>
     public required string Id { get; init; }
+    /// <summary>Gets the installed registered-read topology.</summary>
+    public required BaseRelationalReadTopology Topology { get; init; }
+    /// <summary>Gets the installed compound-plan checksum when applicable.</summary>
+    public string? CompoundChecksum { get; init; }
     /// <summary>Gets or sets source Ids.</summary>
     public required string[] SourceIds { get; init; }
     /// <summary>Gets or sets projection Field Ids.</summary>
@@ -274,6 +280,14 @@ public sealed record BaseLogicalRead
     public required string ParameterSerializerContractChecksum { get; init; }
     /// <summary>Gets the row serializer checksum.</summary>
     public required string RowSerializerContractChecksum { get; init; }
+    /// <summary>Gets the maximum provider execution duration in milliseconds.</summary>
+    public required int MaximumExecutionMilliseconds { get; init; }
+    /// <summary>Gets the installed pagination mode.</summary>
+    public required BaseRegisteredReadPaginationMode PaginationMode { get; init; }
+    /// <summary>Gets the installed maximum offset; page-only reads require zero.</summary>
+    public required int MaximumOffset { get; init; }
+    /// <summary>Gets ordered internal canonical-JSON authority checksums bound by this read.</summary>
+    public required string[] CanonicalJsonAuthorityChecksums { get; init; }
 }
 
 /// <summary>Contains the public schema identity of one exported logical-subject contract.</summary>

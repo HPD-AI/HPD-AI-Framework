@@ -65,9 +65,9 @@ public abstract class RecordStorePatchReplaceConformanceTests<TFixture> : Record
         {
             var missingPatch = await store.PatchAsync(
                 Collection,
-                new RecordId("missing"),
+                RecordId.Create("missing"),
                 new RecordPatchRequest { Patch = RecordStoreConformanceData.Patch(("title", RecordStoreConformanceData.StringElement("new"))) },
-                Operation(BaseOperationKind.Patch, new RecordId("missing")));
+                Operation(BaseOperationKind.Patch, RecordId.Create("missing")));
             RecordStoreConformanceAssertions.Failure(missingPatch, OperationStatus.NotFound);
 
             var emptyPatch = await store.PatchAsync(
@@ -82,9 +82,9 @@ public abstract class RecordStorePatchReplaceConformanceTests<TFixture> : Record
         {
             var missingReplace = await store.ReplaceAsync(
                 Collection,
-                new RecordId("missing"),
+                RecordId.Create("missing"),
                 new RecordReplaceRequest { Payload = RecordStoreConformanceData.Payload(("title", "new")) },
-                Operation(BaseOperationKind.Replace, new RecordId("missing")));
+                Operation(BaseOperationKind.Replace, RecordId.Create("missing")));
             RecordStoreConformanceAssertions.Failure(missingReplace, OperationStatus.NotFound);
         }
 

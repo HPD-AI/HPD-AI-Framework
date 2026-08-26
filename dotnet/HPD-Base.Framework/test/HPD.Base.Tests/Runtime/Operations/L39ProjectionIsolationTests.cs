@@ -12,7 +12,7 @@ public sealed class L39ProjectionIsolationTests
     {
         var value = new BaseAtomicProjectionValue(BaseAtomicProjectionValueKind.Array, ImmutableArray.Create<byte>(91, 49, 93));
         var record = new BaseAtomicProjectionRecord(
-            new RecordId("record-a"),
+            RecordId.Create("record-a"),
             new RevisionToken("sqlite:7"),
             [new BaseAtomicProjectionField("document.embedding", value)]);
         var fact = new BaseAtomicMutationProjectionFact(

@@ -36,22 +36,22 @@ public sealed class SqliteRelationStorageTests
         try
         {
             await using var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path, Collections = [source, target] });
-            (await store.CreateAsync(target, new RecordCreateRequest { RequestedId = new RecordId("u1"), Payload = EmptyPayload() }, Operation(BaseOperationKind.Create, "users", "u1"))).Status.Should().Be(OperationStatus.Created);
-            (await store.CreateAsync(target, new RecordCreateRequest { RequestedId = new RecordId("u2"), Payload = EmptyPayload() }, Operation(BaseOperationKind.Create, "users", "u2"))).Status.Should().Be(OperationStatus.Created);
-            (await store.CreateAsync(source, new RecordCreateRequest { RequestedId = new RecordId("p1"), Payload = Members("u1", "u2") }, Operation(BaseOperationKind.Create, "projects", "p1"))).Status.Should().Be(OperationStatus.Created);
+            (await store.CreateAsync(target, new RecordCreateRequest { RequestedId = RecordId.Create("u1"), Payload = EmptyPayload() }, Operation(BaseOperationKind.Create, "users", "u1"))).Status.Should().Be(OperationStatus.Created);
+            (await store.CreateAsync(target, new RecordCreateRequest { RequestedId = RecordId.Create("u2"), Payload = EmptyPayload() }, Operation(BaseOperationKind.Create, "users", "u2"))).Status.Should().Be(OperationStatus.Created);
+            (await store.CreateAsync(source, new RecordCreateRequest { RequestedId = RecordId.Create("p1"), Payload = Members("u1", "u2") }, Operation(BaseOperationKind.Create, "projects", "p1"))).Status.Should().Be(OperationStatus.Created);
 
             (await ReadLinksAsync(path)).Should().Equal(("p1", "u1", 0L), ("p1", "u2", 1L));
 
-            (await store.PatchAsync(source, new RecordId("p1"), new RecordPatchRequest { Patch = Members("u2") }, Operation(BaseOperationKind.Patch, "projects", "p1"))).Status.Should().Be(OperationStatus.Updated);
+            (await store.PatchAsync(source, RecordId.Create("p1"), new RecordPatchRequest { Patch = Members("u2") }, Operation(BaseOperationKind.Patch, "projects", "p1"))).Status.Should().Be(OperationStatus.Updated);
             (await ReadLinksAsync(path)).Should().Equal(("p1", "u2", 0L));
 
-            var restricted = await store.DeleteAsync(target, new RecordId("u2"), new RecordDeleteRequest(), Operation(BaseOperationKind.Delete, "users", "u2"));
+            var restricted = await store.DeleteAsync(target, RecordId.Create("u2"), new RecordDeleteRequest(), Operation(BaseOperationKind.Delete, "users", "u2"));
             restricted.Status.Should().Be(OperationStatus.Conflict);
             restricted.Error!.Code.Should().Be("base.relation.deleteRestricted");
 
-            (await store.DeleteAsync(source, new RecordId("p1"), new RecordDeleteRequest(), Operation(BaseOperationKind.Delete, "projects", "p1"))).Status.Should().Be(OperationStatus.Deleted);
+            (await store.DeleteAsync(source, RecordId.Create("p1"), new RecordDeleteRequest(), Operation(BaseOperationKind.Delete, "projects", "p1"))).Status.Should().Be(OperationStatus.Deleted);
             (await ReadLinksAsync(path)).Should().BeEmpty();
-            (await store.DeleteAsync(target, new RecordId("u2"), new RecordDeleteRequest(), Operation(BaseOperationKind.Delete, "users", "u2"))).Status.Should().Be(OperationStatus.Deleted);
+            (await store.DeleteAsync(target, RecordId.Create("u2"), new RecordDeleteRequest(), Operation(BaseOperationKind.Delete, "users", "u2"))).Status.Should().Be(OperationStatus.Deleted);
         }
         finally
         {
@@ -155,12 +155,12 @@ public sealed class SqliteRelationStorageTests
         {
             OperationResult<RecordMutationSessionResult> user = await session.CreateAsync(
                 target,
-                new RecordCreateRequest { RequestedId = new RecordId("u1"), Payload = EmptyPayload() },
+                new RecordCreateRequest { RequestedId = RecordId.Create("u1"), Payload = EmptyPayload() },
                 Context(BaseRecordMutationKind.Create, "user-event", target.Id), cancellationToken);
             user.IsSuccess().Should().BeTrue(user.Error?.Code);
             OperationResult<RecordMutationSessionResult> project = await session.CreateAsync(
                 source,
-                new RecordCreateRequest { RequestedId = new RecordId("p1"), Payload = Members("u1") },
+                new RecordCreateRequest { RequestedId = RecordId.Create("p1"), Payload = Members("u1") },
                 Context(BaseRecordMutationKind.Create, "project-event", source.Id), cancellationToken);
             project.IsSuccess().Should().BeTrue(project.Error?.Code);
             return new AtomicMutationProcessingResult(

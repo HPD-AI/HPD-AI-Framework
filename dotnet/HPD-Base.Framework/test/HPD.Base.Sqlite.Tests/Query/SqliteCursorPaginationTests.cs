@@ -306,7 +306,7 @@ public sealed class SqliteCursorPaginationTests
             collection,
             new RecordCreateRequest
             {
-                RequestedId = new RecordId(id),
+                RequestedId = RecordId.Create(id),
                 Payload = new RecordPayload
                 {
                     Kind = RecordPayloadKind.Json,

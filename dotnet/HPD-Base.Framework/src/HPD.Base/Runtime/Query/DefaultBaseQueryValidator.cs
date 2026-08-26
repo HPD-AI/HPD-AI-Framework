@@ -66,6 +66,15 @@ internal sealed class DefaultBaseQueryValidator : IBaseQueryValidator
             {
                 return ValueTask.FromResult(fieldCheck);
             }
+
+            string topLevel = fields.All.Contains(sort.Field) ? sort.Field : TopLevelFieldPath(sort.Field);
+            if (fields.Definitions.TryGetValue(topLevel, out FieldDefinition? definition)
+                && definition.ScalarCodec is { OrderingVersion: null })
+            {
+                return ValueTask.FromResult(Unsupported(
+                    "base.runtime.query.sort.unsupported",
+                    "Sort is not supported for the selected field."));
+            }
         }
 
         var selectCount = query.Select?.Length ?? 0;
@@ -309,7 +318,10 @@ internal sealed class DefaultBaseQueryValidator : IBaseQueryValidator
             fields.Select(field => (field.Id, field.Type))
                 .Where(item => !string.IsNullOrWhiteSpace(item.Item1))
                 .GroupBy(item => item.Item1, StringComparer.Ordinal)
-                .ToDictionary(group => group.Key, group => group.First().Type, StringComparer.Ordinal));
+                .ToDictionary(group => group.Key, group => group.First().Type, StringComparer.Ordinal),
+            fields.Where(field => !string.IsNullOrWhiteSpace(field.Id))
+                .GroupBy(field => field.Id, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal));
     }
 
     private static OperationResult<ValidatedRecordQuery>? ValidateFieldPath(
@@ -461,7 +473,8 @@ internal sealed class DefaultBaseQueryValidator : IBaseQueryValidator
         HashSet<string> All,
         HashSet<string> System,
         HashSet<string> Relations,
-        Dictionary<string, string> Types);
+        Dictionary<string, string> Types,
+        Dictionary<string, FieldDefinition> Definitions);
 
     private static class FilterCounter
     {
@@ -579,6 +592,12 @@ internal sealed class DefaultBaseQueryValidator : IBaseQueryValidator
                 return value;
             }
 
+            var canonical = ValidateFieldValue(filter.Field, filter.Value, fields, filter.Operator);
+            if (!canonical.Succeeded)
+            {
+                return canonical;
+            }
+
             if (capability.Filter.Operators is { Length: > 0 } operators
                 && !operators.Contains(filter.Operator))
             {
@@ -612,6 +631,12 @@ internal sealed class DefaultBaseQueryValidator : IBaseQueryValidator
                 if (!valueResult.Succeeded)
                 {
                     return valueResult;
+                }
+
+                var canonical = ValidateFieldValue(filter.Field, value, fields, FilterOperator.Equal);
+                if (!canonical.Succeeded)
+                {
+                    return canonical;
                 }
             }
 
@@ -665,7 +690,7 @@ internal sealed class DefaultBaseQueryValidator : IBaseQueryValidator
                 QueryValueKind.Number => activeBranches == 1 && value.Number is not null,
                 QueryValueKind.Decimal => activeBranches == 1 && value.Decimal is not null,
                 QueryValueKind.DateTime => activeBranches == 1 && value.DateTime is not null,
-                QueryValueKind.Id => activeBranches == 1 && value.Id is not null,
+                QueryValueKind.Id => activeBranches == 1 && RecordId.TryParse(value.Id, out _),
                 QueryValueKind.Array => activeBranches == 1 && value.Array is not null,
                 _ => false
             };
@@ -689,6 +714,39 @@ internal sealed class DefaultBaseQueryValidator : IBaseQueryValidator
 
         private static FilterShapeResult Success() => new(true, string.Empty, string.Empty);
         private static FilterShapeResult Fail(string code, string message) => new(false, code, message);
+
+        private static FilterShapeResult ValidateFieldValue(
+            string fieldId,
+            QueryValue value,
+            FieldIndex fields,
+            FilterOperator filterOperator)
+        {
+            if (!fields.Definitions.TryGetValue(fieldId, out FieldDefinition? field)
+                || field.ScalarKind != BaseScalarKind.ModuleGeneration)
+            {
+                return Success();
+            }
+
+            if (filterOperator is not (FilterOperator.Equal or FilterOperator.NotEqual))
+            {
+                return Fail("base.runtime.query.filter.operator.unsupported", "Filter operator is not supported by the field scalar authority.");
+            }
+
+            if (value.Kind != QueryValueKind.String || value.String is null)
+            {
+                return Fail("base.runtime.query.value.nonCanonical", "The query value is not canonical for its field.");
+            }
+
+            try
+            {
+                _ = BaseModuleGeneration.ParseCanonical(value.String);
+                return Success();
+            }
+            catch (FormatException)
+            {
+                return Fail("base.runtime.query.value.nonCanonical", "The query value is not canonical for its field.");
+            }
+        }
 
         private static FilterShapeResult ValidateFilterField(
             string fieldPath,

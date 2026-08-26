@@ -133,7 +133,7 @@ internal sealed partial class InMemoryRecordStore : IBaseStudioEvidenceStore
         BaseRecordMutationJournalEntry value = row.RecordMutation!;
         var item = new BaseStudioRecordMutationEvidenceItem { Kind = BaseStudioEvidenceKind.RecordMutation, OrderingTuple = BaseStudioEvidenceContract.Tuple(row.Position.Value),
             ObservedAtUtc = value.OccurredAt.ToUniversalTime(), SemanticKind = Semantic(value.Operation), CollectionId = new string(value.CollectionId.AsSpan()),
-            RecordId = new RecordId(new string(value.RecordId.Value.AsSpan())), Revision = null,
+            RecordId = RecordId.Create(new string(value.RecordId.Value.AsSpan())), Revision = null,
             EvidenceId = new string(value.EventId.AsSpan()), EvidenceChecksum = [] };
         return item with { EvidenceChecksum = BaseStudioEvidenceContract.ItemChecksum(item) };
     }

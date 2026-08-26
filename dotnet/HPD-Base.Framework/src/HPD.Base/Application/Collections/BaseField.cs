@@ -7,6 +7,7 @@ namespace HPD.Base;
 /// <typeparam name="TValue">The field value type.</typeparam>
 public sealed class BaseField<TRecord, TValue> : IBaseFieldContract
 {
+    private BaseModuleCapturedField<TRecord, TValue>? _moduleMutation;
     internal BaseField(
         string id,
         string applicationName,
@@ -47,6 +48,13 @@ public sealed class BaseField<TRecord, TValue> : IBaseFieldContract
     /// Gets the query operations valid for this field.
     /// </summary>
     public BaseFieldOperator Operators { get; }
+    /// <summary>Gets the graph-owned module-mutation handle for this exact persisted field.</summary>
+    public BaseModuleCapturedField<TRecord, TValue> ModuleMutation => _moduleMutation
+        ?? throw new InvalidOperationException("base.moduleMutation.invalid");
+    /// <summary>Gets authority for constants admitted by this exact persisted field.</summary>
+    public BaseModuleConstantAuthority<TValue> ConstantAuthority => ModuleMutation.ConstantAuthority;
+    internal void BindModuleMutation(BaseModuleValueType authority) =>
+        _moduleMutation = new(this, authority);
     Type IBaseFieldContract.ValueType => typeof(TValue);
 }
 

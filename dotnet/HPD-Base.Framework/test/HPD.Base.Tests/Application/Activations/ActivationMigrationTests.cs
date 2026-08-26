@@ -33,11 +33,11 @@ public sealed class ActivationMigrationTests
         {
             Definition = definition, SourceTypeInfo = MigrationJsonContext.Default.SourceInput,
             TargetTypeInfo = MigrationJsonContext.Default.TargetInput,
-            SourceBindings = [BaseModuleDtoPropertyBinding.Create<SourceInput, string>("source.name", "name")],
+            SourceBindings = [BaseModuleDtoPropertyBinding.Create<SourceInput, string>("source.name", "name", BaseGeneratedModuleScalarManifest.Primitive<string>())],
             TargetBindings =
             [
-                BaseModuleDtoPropertyBinding.Create<TargetInput, string>("target.name", "displayName"),
-                BaseModuleDtoPropertyBinding.Create<TargetInput, bool>("target.enabled", "enabled"),
+                BaseModuleDtoPropertyBinding.Create<TargetInput, string>("target.name", "displayName", BaseGeneratedModuleScalarManifest.Primitive<string>()),
+                BaseModuleDtoPropertyBinding.Create<TargetInput, bool>("target.enabled", "enabled", BaseGeneratedModuleScalarManifest.Primitive<bool>()),
             ],
         };
         var installed = new BaseInstalledActivationMigration<SourceInput, TargetInput>(registration);
@@ -68,11 +68,11 @@ public sealed class ActivationMigrationTests
             },
             SourceTypeInfo = MigrationJsonContext.Default.SourceInput,
             TargetTypeInfo = MigrationJsonContext.Default.TargetInput,
-            SourceBindings = [BaseModuleDtoPropertyBinding.Create<SourceInput, string>("source.name", "name")],
+            SourceBindings = [BaseModuleDtoPropertyBinding.Create<SourceInput, string>("source.name", "name", BaseGeneratedModuleScalarManifest.Primitive<string>())],
             TargetBindings =
             [
-                BaseModuleDtoPropertyBinding.Create<TargetInput, string>("target.name", "displayName"),
-                BaseModuleDtoPropertyBinding.Create<TargetInput, bool>("target.enabled", "enabled"),
+                BaseModuleDtoPropertyBinding.Create<TargetInput, string>("target.name", "displayName", BaseGeneratedModuleScalarManifest.Primitive<string>()),
+                BaseModuleDtoPropertyBinding.Create<TargetInput, bool>("target.enabled", "enabled", BaseGeneratedModuleScalarManifest.Primitive<bool>()),
             ],
         });
 

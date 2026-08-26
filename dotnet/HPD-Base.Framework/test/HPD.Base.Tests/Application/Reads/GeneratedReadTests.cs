@@ -11,6 +11,151 @@ namespace HPD.Base.Tests.Application.Reads;
 public sealed class GeneratedReadTests
 {
     [Fact]
+    public void Provider_result_byte_accumulators_fail_closed_on_arithmetic_overflow()
+    {
+        InMemoryRecordStore.TryAccumulateRelationalResultBytes(long.MaxValue, 1, out long inMemoryTotal)
+            .Should().BeFalse();
+        inMemoryTotal.Should().Be(0);
+        SqliteRecordStore.TryAccumulateRelationalResultBytes(long.MaxValue, 1, out long sqliteTotal)
+            .Should().BeFalse();
+        sqliteTotal.Should().Be(0);
+    }
+
+    [Fact]
+    public void InMemory_stops_projection_at_the_first_over_limit_row_and_discards_the_page()
+    {
+        int projections = 0;
+
+        bool admitted = InMemoryRecordStore.TryMaterializeBoundedPage(
+            new[] { 1, 2, 3 },
+            maximumRows: 3,
+            maximumBytes: 4,
+            value =>
+            {
+                projections++;
+                return value;
+            },
+            _ => 5,
+            out int[] page);
+
+        admitted.Should().BeFalse();
+        projections.Should().Be(1, "projection must stop before materializing the remainder of an over-limit page");
+        page.Should().BeEmpty("no partial projected page may escape");
+    }
+
+    [Fact]
+    public void RegisteredReadExecutionTimeoutParticipatesInLogicalSchemaIdentity()
+    {
+        static BaseLogicalSchema Build(int timeoutMilliseconds)
+        {
+            BaseReadDefinition<ProjectSummaryRead, ProjectSummaryRead.Row> source = ProjectSummaryRead.Definition;
+            var read = new BaseReadDefinition<ProjectSummaryRead, ProjectSummaryRead.Row>(
+                source.Plan with
+                {
+                    Budgets = source.Plan.Budgets with { MaxExecutionMilliseconds = timeoutMilliseconds },
+                },
+                null,
+                null,
+                source.ParameterCodec,
+                source.RowCodec,
+                source.ClientContract)
+            {
+                Exposure = source.Exposure,
+                Authorization = source.Authorization,
+                Disclosure = source.Disclosure,
+                SourceAuthority = source.SourceAuthority,
+                Audience = source.Audience,
+                RequiredGrantId = source.RequiredGrantId,
+                ConfidentialOutputFieldIds = source.ConfidentialOutputFieldIds,
+                SecretOutputFieldIds = source.SecretOutputFieldIds,
+                SystemSourceIds = source.SystemSourceIds,
+                SerializerRegistration = source.SerializerRegistration,
+                ParameterDeclarations = source.ParameterDeclarations,
+                RowDeclarations = source.RowDeclarations,
+            };
+            var services = new ServiceCollection();
+            services.AddHPDBase(builder => builder
+                .ConfigureSchema(options => options.ApplicationId = "read-timeout-checksum")
+                .AddCollection(ReadProject.Collection)
+                .AddCollection(ReadOwner.Collection)
+                .AddCollection(ReadTask.Collection)
+                .AddRead(read));
+            using ServiceProvider provider = services.BuildServiceProvider();
+            return provider.GetRequiredService<BaseLogicalSchema>();
+        }
+
+        Build(1_000).CanonicalChecksum.Should().NotBe(Build(2_000).CanonicalChecksum);
+    }
+
+    [Fact]
+    public void RegisteredReadPaginationAuthorityParticipatesInLogicalSchemaIdentity()
+    {
+        static BaseLogicalSchema Build(BaseRegisteredReadPaginationAuthority pagination)
+        {
+            BaseReadDefinition<ProjectSummaryRead, ProjectSummaryRead.Row> source = ProjectSummaryRead.Definition;
+            var read = new BaseReadDefinition<ProjectSummaryRead, ProjectSummaryRead.Row>(
+                source.Plan with { Pagination = pagination },
+                null,
+                null,
+                source.ParameterCodec,
+                source.RowCodec,
+                source.ClientContract)
+            {
+                Exposure = source.Exposure,
+                Authorization = source.Authorization,
+                Disclosure = source.Disclosure,
+                SourceAuthority = source.SourceAuthority,
+                Audience = source.Audience,
+                RequiredGrantId = source.RequiredGrantId,
+                ConfidentialOutputFieldIds = source.ConfidentialOutputFieldIds,
+                SecretOutputFieldIds = source.SecretOutputFieldIds,
+                SystemSourceIds = source.SystemSourceIds,
+                SerializerRegistration = source.SerializerRegistration,
+                ParameterDeclarations = source.ParameterDeclarations,
+                RowDeclarations = source.RowDeclarations,
+            };
+            var services = new ServiceCollection();
+            services.AddHPDBase(builder => builder
+                .ConfigureSchema(options => options.ApplicationId = "read-pagination-checksum")
+                .AddCollection(ReadProject.Collection)
+                .AddCollection(ReadOwner.Collection)
+                .AddCollection(ReadTask.Collection)
+                .AddRead(read));
+            using ServiceProvider provider = services.BuildServiceProvider();
+            return provider.GetRequiredService<BaseLogicalSchema>();
+        }
+
+        BaseLogicalSchema pageOnly = Build(new()
+        {
+            Mode = BaseRegisteredReadPaginationMode.PageOnly,
+            MaximumOffset = 0,
+        });
+        BaseLogicalSchema offsetZero = Build(new()
+        {
+            Mode = BaseRegisteredReadPaginationMode.PageAndOffset,
+            MaximumOffset = 0,
+        });
+        BaseLogicalSchema offsetOne = Build(new()
+        {
+            Mode = BaseRegisteredReadPaginationMode.PageAndOffset,
+            MaximumOffset = 1,
+        });
+        BaseLogicalSchema offsetMaximum = Build(new()
+        {
+            Mode = BaseRegisteredReadPaginationMode.PageAndOffset,
+            MaximumOffset = 100_000,
+        });
+
+        new[]
+        {
+            pageOnly.CanonicalChecksum,
+            offsetZero.CanonicalChecksum,
+            offsetOne.CanonicalChecksum,
+            offsetMaximum.CanonicalChecksum,
+        }.Should().OnlyHaveUniqueItems();
+    }
+
+    [Fact]
     public void GeneratorProducesTypedHandlesAndClosedCanonicalPlan()
     {
         ProjectNameRead.Parameters.Name.Id.Should().Be("project-name.name");
@@ -85,7 +230,7 @@ public sealed class GeneratedReadTests
         BaseResult<BasePage<ProjectNameRead.Row>> result = await session.Reads.ExecuteAsync(
             ProjectNameRead.Handle,
             new ProjectNameRead { Name = "alpha" },
-            BaseReadPageRequest.Create(2, 20));
+            BaseReadPageRequest.Create(1, 20));
 
         result.RequireValue().Items.Should().ContainSingle().Which.Name.Should().Be("returned");
         store.Request!.ParameterValues.Should().ContainSingle().Which.Should().BeEquivalentTo(
@@ -94,13 +239,98 @@ public sealed class GeneratedReadTests
                 ParameterId = "project-name.name",
                 Value = new QueryValue { Kind = QueryValueKind.String, String = "alpha" },
             });
-        store.Request.Plan.Page.Should().Be(BaseReadPageRequest.Create(2, 20));
+        store.Request.Plan.Window.Should().BeEquivalentTo(new BaseRegisteredReadWindow
+        {
+            Kind = BaseRegisteredReadWindowKind.Page, Page = 1, PerPage = 20,
+        });
+        store.Request.ExecutionTimeout.Should().Be(TimeSpan.FromMilliseconds(ProjectNameRead.Definition.Plan.Budgets.MaxExecutionMilliseconds));
+        store.Request.MaxResultBytes.Should().Be(ProjectNameRead.Definition.Plan.Budgets.MaxResultBytes);
         store.Request.Operation.TenantId.Should().Be("tenant_1");
         store.Request.SourcePolicies.Should().ContainSingle().Which.Should().BeEquivalentTo(new
         {
             SourceId = "projects",
             CollectionId = "read-projects",
         });
+    }
+
+    [Fact]
+    public async Task OffsetAuthorityRejectsOverMaximumBeforeProviderAndRejectsHostileEcho()
+    {
+        var store = new RelationalReadStore();
+        var services = new ServiceCollection().AddLogging();
+        services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>()
+            .AddCollection(ReadProject.Collection)
+            .AddRead(ProjectNameRead.Definition)
+            .UseStore(TestStoreProvider.Create(store, relational: true)));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+        BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
+        {
+            AuthenticationState = PrincipalAuthenticationState.System,
+        });
+
+        BaseFailure<BasePage<ProjectNameRead.Row>> excessive = (await session.Reads.ExecuteOffsetAsync(
+            ProjectNameRead.Handle, new ProjectNameRead { Name = "alpha" }, BaseReadOffsetRequest.Create(100_001, 1)))
+            .Should().BeOfType<BaseFailure<BasePage<ProjectNameRead.Row>>>().Subject;
+        excessive.Error.Code.Should().Be("base.relational.read.invalid");
+        store.Request.Should().BeNull();
+
+        store.Response = new BaseRelationalReadExecutionResult
+        {
+            Result = new BaseRelationalReadResult
+            {
+                Rows = [], Page = new PageInfo { Offset = 2, Limit = 1 }, Count = 0, SchemaGeneration = 0,
+            },
+            DependencyEvidence = [new BaseReadDependencyEvidence { CollectionId = ReadProject.Collection.Id }],
+        };
+        BaseFailure<BasePage<ProjectNameRead.Row>> hostile = (await session.Reads.ExecuteOffsetAsync(
+            ProjectNameRead.Handle, new ProjectNameRead { Name = "alpha" }, BaseReadOffsetRequest.Create(1, 1)))
+            .Should().BeOfType<BaseFailure<BasePage<ProjectNameRead.Row>>>().Subject;
+        hostile.Error.Code.Should().Be("base.relational.read.resultInvalid");
+
+        BaseRelationalRow row = new()
+        {
+            Fields = [new BaseRelationalFieldValue
+            {
+                FieldId = "project-name.row.name",
+                Value = new QueryValue { Kind = QueryValueKind.String, String = "hostile" },
+            }],
+        };
+        foreach ((BaseRelationalRow[] rows, long count, int offset, int limit, bool hasMore) in new[]
+        {
+            (Array.Empty<BaseRelationalRow>(), 100L, 0, 10, true),
+            (Array.Empty<BaseRelationalRow>(), 5L, 0, 10, true),
+            (new[] { row }, 0L, 100, 1, false),
+        })
+        {
+            store.Response = new BaseRelationalReadExecutionResult
+            {
+                Result = new BaseRelationalReadResult
+                {
+                    Rows = rows, Page = new PageInfo { Offset = offset, Limit = limit, HasMore = hasMore },
+                    Count = count, SchemaGeneration = 0,
+                },
+                DependencyEvidence = [new BaseReadDependencyEvidence { CollectionId = ReadProject.Collection.Id }],
+            };
+            BaseFailure<BasePage<ProjectNameRead.Row>> incomplete = (await session.Reads.ExecuteOffsetAsync(
+                ProjectNameRead.Handle, new ProjectNameRead { Name = "alpha" }, BaseReadOffsetRequest.Create(offset, limit)))
+                .Should().BeOfType<BaseFailure<BasePage<ProjectNameRead.Row>>>().Subject;
+            incomplete.Error.Code.Should().Be("base.relational.read.resultInvalid");
+        }
+
+        store.Response = new BaseRelationalReadExecutionResult
+        {
+            Result = new BaseRelationalReadResult
+            {
+                Rows = [], Page = new PageInfo { Page = 1, PerPage = 10, Offset = 0, HasMore = true },
+                Count = 5, SchemaGeneration = 0,
+            },
+            DependencyEvidence = [new BaseReadDependencyEvidence { CollectionId = ReadProject.Collection.Id }],
+        };
+        BaseFailure<BasePage<ProjectNameRead.Row>> mixedPage = (await session.Reads.ExecuteAsync(
+            ProjectNameRead.Handle, new ProjectNameRead { Name = "alpha" }, BaseReadPageRequest.Create(1, 10)))
+            .Should().BeOfType<BaseFailure<BasePage<ProjectNameRead.Row>>>().Subject;
+        mixedPage.Error.Code.Should().Be("base.relational.read.resultInvalid");
     }
 
     [Fact]
@@ -155,12 +385,29 @@ public sealed class GeneratedReadTests
             Result = new BaseRelationalReadResult
             {
                 Rows = rows,
-                Page = new PageInfo { Page = 1, PerPage = 20, Limit = 20 },
+                Page = new PageInfo { Page = 1, PerPage = 20 },
                 Count = rows.Length,
                 SchemaGeneration = 0,
             },
             DependencyEvidence = evidence,
         };
+    }
+
+    [Fact]
+    public void HostRegisteredReadCeilingCannotUndercutImmutableReadAuthority()
+    {
+        var store = new RelationalReadStore();
+        var services = new ServiceCollection().AddLogging();
+        Action configure = () => services.AddHPDBase(builder => builder
+            .ConfigureRelational(options => options.MaxRegisteredReadResultBytes = 99_999)
+            .AddTestPolicyAuthority<AllowPolicyEvaluator>()
+            .AddCollection(ReadProject.Collection)
+            .AddRead(ProjectNameRead.Definition)
+            .UseStore(TestStoreProvider.Create(store, relational: true)));
+
+        configure.Should().Throw<InvalidOperationException>()
+            .WithMessage("Read 'project-name' has an invalid or over-limit topology.");
+        store.Request.Should().BeNull();
     }
 
     [Fact]
@@ -187,7 +434,7 @@ public sealed class GeneratedReadTests
 
         BaseResult<ProjectSummaryRead.Row[]> result = await session.Reads.ToArrayAsync(
             ProjectSummaryRead.Handle,
-            new ProjectSummaryRead { OwnerId = new BaseRecordId<ReadOwner>(new RecordId("owner_1")) });
+            new ProjectSummaryRead { OwnerId = new BaseRecordId<ReadOwner>(RecordId.Create("owner_1")) });
 
         result.Should().BeOfType<BaseFailure<ProjectSummaryRead.Row[]>>()
             .Which.Error.Code.Should().Be("base.relational.read.policyUnsupported");
@@ -318,10 +565,10 @@ public sealed class GeneratedReadTests
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
         BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System });
 
-        BaseRecordId<ReadOwner> ownerId = new(new RecordId("owner"));
+        BaseRecordId<ReadOwner> ownerId = new(RecordId.Create("owner"));
         BaseResult<BaseRecord<ReadOwner>> ownerCreate = await session.Collection(ReadOwner.Collection).CreateAsync(ownerId.Value, new ReadOwner { Name = "owner" });
         ownerCreate.Should().BeOfType<BaseSuccess<BaseRecord<ReadOwner>>>(ownerCreate is BaseFailure<BaseRecord<ReadOwner>> ownerFailure ? ownerFailure.Error.Code : "unexpected result");
-        BaseRecordId<ReadProject> id = new(new RecordId("project"));
+        BaseRecordId<ReadProject> id = new(RecordId.Create("project"));
         (await session.Collection(ReadProject.Collection).CreateAsync(id.Value, new ReadProject
         {
             Name = "created",
@@ -391,12 +638,12 @@ public sealed class GeneratedReadTests
             AuthenticationState = PrincipalAuthenticationState.Authenticated,
             SubjectId = "subject_1",
         });
-        var ownerId = new BaseRecordId<ReadOwner>(new RecordId("owner_1"));
-        var projectId = new BaseRecordId<ReadProject>(new RecordId("project_1"));
+        var ownerId = new BaseRecordId<ReadOwner>(RecordId.Create("owner_1"));
+        var projectId = new BaseRecordId<ReadProject>(RecordId.Create("project_1"));
         (await session.Collection(ReadOwner.Collection).CreateAsync(ownerId.Value, new ReadOwner { Name = "Owner" })).Should().BeOfType<BaseSuccess<BaseRecord<ReadOwner>>>();
         (await session.Collection(ReadProject.Collection).CreateAsync(projectId.Value, new ReadProject { Name = "Project", OwnerId = ownerId })).Should().BeOfType<BaseSuccess<BaseRecord<ReadProject>>>();
-        (await session.Collection(ReadTask.Collection).CreateAsync(new RecordId("task_1"), new ReadTask { ProjectId = projectId })).Should().BeOfType<BaseSuccess<BaseRecord<ReadTask>>>();
-        (await session.Collection(ReadTask.Collection).CreateAsync(new RecordId("task_2"), new ReadTask { ProjectId = projectId })).Should().BeOfType<BaseSuccess<BaseRecord<ReadTask>>>();
+        (await session.Collection(ReadTask.Collection).CreateAsync(RecordId.Create("task_1"), new ReadTask { ProjectId = projectId })).Should().BeOfType<BaseSuccess<BaseRecord<ReadTask>>>();
+        (await session.Collection(ReadTask.Collection).CreateAsync(RecordId.Create("task_2"), new ReadTask { ProjectId = projectId })).Should().BeOfType<BaseSuccess<BaseRecord<ReadTask>>>();
 
         ProjectSummaryRead.Row[] rows = (await session.Reads.ToArrayAsync(
             ProjectSummaryRead.Handle, new ProjectSummaryRead { OwnerId = ownerId })).RequireValue();
@@ -407,6 +654,120 @@ public sealed class GeneratedReadTests
             OwnerName = "Owner",
             TaskCount = 2L,
         });
+
+        IRelationalReadStore inMemory = (IRelationalReadStore)provider
+            .GetRequiredService<IRecordStoreRegistry>().GetStoreForCollection(ReadProject.Collection.Id)!;
+        long generation = provider.GetRequiredService<IHPDBaseApplication>().CurrentReadiness!.SchemaGeneration!.Value;
+        OperationResult<BaseRelationalReadExecutionResult> overLimit = await inMemory.ExecuteReadAsync(
+            new BaseRelationalReadExecutionRequest
+            {
+                Plan = ProjectSummaryRead.Definition.Plan with { SchemaGeneration = generation },
+                ParameterValues =
+                [
+                    new BaseRelationalParameterValue
+                    {
+                        ParameterId = "project-summary.owner-id",
+                        Value = new QueryValue { Kind = QueryValueKind.Id, Id = ownerId.Value.Value },
+                    },
+                ],
+                SourcePolicies = ProjectSummaryRead.Definition.Plan.Sources.Select(source =>
+                    new BaseRelationalReadSourcePolicy { SourceId = source.Id, CollectionId = source.CollectionId }).ToArray(),
+                Operation = new OperationContext { Operation = BaseOperationKind.List, CollectionId = ReadProject.Collection.Id },
+                AcquisitionTimeout = TimeSpan.FromSeconds(1),
+                ExecutionTimeout = TimeSpan.FromSeconds(1),
+                MaxResultRows = 100,
+                MaxResultBytes = 1,
+            });
+        overLimit.Error!.Code.Should().Be("base.relational.read.limitExceeded");
+        overLimit.Value.Should().BeNull("providers must not expose a partial buffered page");
+    }
+
+    [Fact]
+    public async Task InMemory_real_pipeline_bounds_final_projection_across_explicit_fallback_and_distinct_ordering()
+    {
+        var services = new ServiceCollection().AddLogging();
+        services.AddHPDBase(builder => builder
+            .AddTestPolicyAuthority<AllowPolicyEvaluator>()
+            .AddCollection(L60BoundedProjectionRecord.Collection)
+            .AddRead(L60BoundedProjectionRead.Definition));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+        BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
+        {
+            AuthenticationState = PrincipalAuthenticationState.System,
+            SubjectId = "l60-pipeline",
+        });
+        BaseCollectionSession<L60BoundedProjectionRecord> collection =
+            session.Collection(L60BoundedProjectionRecord.Collection);
+        (await collection.CreateAsync(RecordId.Create("one"), new L60BoundedProjectionRecord
+        {
+            Order = 1,
+            Payload = new string('a', 128),
+            Poison = 1,
+        })).RequireValue();
+        (await collection.CreateAsync(RecordId.Create("two"), new L60BoundedProjectionRecord
+        {
+            Order = 2,
+            Payload = new string('z', 128),
+            Poison = 2,
+        })).RequireValue();
+        (await collection.CreateAsync(RecordId.Create("three"), new L60BoundedProjectionRecord
+        {
+            Order = 3,
+            Payload = new string('z', 128) + "z",
+            Poison = 3,
+        })).RequireValue();
+
+        var store = (InMemoryRecordStore)provider.GetRequiredService<IRecordStoreRegistry>()
+            .GetStoreForCollection(L60BoundedProjectionRecord.Collection.Id)!;
+        InMemoryStoreState state = store.CaptureVectorRoot();
+        string poisonWireName = L60BoundedProjectionRecord.Collection.Definition.Fields!
+            .Single(field => field.Id == L60BoundedProjectionRecord.Fields.Poison.Id).WireName;
+        state.Collections[L60BoundedProjectionRecord.Collection.Id].RecordsById["two"]
+            .Payload.Fields![poisonWireName] = JsonSerializer.SerializeToElement("poison-must-not-project");
+        state.Collections[L60BoundedProjectionRecord.Collection.Id].RecordsById["three"]
+            .Payload.Fields![poisonWireName] = JsonSerializer.SerializeToElement("poison-must-not-project");
+
+        long generation = provider.GetRequiredService<IHPDBaseApplication>().CurrentReadiness!.SchemaGeneration!.Value;
+        async ValueTask<OperationResult<BaseRelationalReadExecutionResult>> Execute(BaseRelationalReadPlan plan) =>
+            await store.ExecuteReadAsync(new BaseRelationalReadExecutionRequest
+            {
+                Plan = plan with { SchemaGeneration = generation },
+                ParameterValues = [],
+                SourcePolicies = plan.Sources.Select(source => new BaseRelationalReadSourcePolicy
+                {
+                    SourceId = source.Id,
+                    CollectionId = source.CollectionId,
+                }).ToArray(),
+                Operation = new OperationContext
+                {
+                    Operation = BaseOperationKind.List,
+                    CollectionId = L60BoundedProjectionRecord.Collection.Id,
+                },
+                AcquisitionTimeout = TimeSpan.FromSeconds(1),
+                ExecutionTimeout = TimeSpan.FromSeconds(1),
+                MaxResultRows = 3,
+                MaxResultBytes = 1,
+            });
+
+        OperationResult<BaseRelationalReadExecutionResult> explicitSort =
+            await Execute(L60BoundedProjectionRead.Definition.Plan);
+        explicitSort.Error!.Code.Should().Be("base.relational.read.limitExceeded");
+        explicitSort.Value.Should().BeNull();
+
+        OperationResult<BaseRelationalReadExecutionResult> fallbackSort = await Execute(
+            L60BoundedProjectionRead.Definition.Plan with { Sort = [] });
+        fallbackSort.Error!.Code.Should().Be("base.relational.read.limitExceeded");
+        fallbackSort.Value.Should().BeNull();
+
+        state.Collections[L60BoundedProjectionRecord.Collection.Id].RecordsById["two"]
+            .Payload.Fields![poisonWireName] = JsonSerializer.SerializeToElement(2L);
+        state.Collections[L60BoundedProjectionRecord.Collection.Id].RecordsById["three"]
+            .Payload.Fields![poisonWireName] = JsonSerializer.SerializeToElement(3L);
+        OperationResult<BaseRelationalReadExecutionResult> distinct = await Execute(
+            L60BoundedProjectionRead.Definition.Plan with { Distinct = true });
+        distinct.Error!.Code.Should().Be("base.relational.read.limitExceeded");
+        distinct.Value.Should().BeNull("Distinct may retain authority and digests, but never a partial projected page");
     }
 
     [Fact]
@@ -427,11 +788,11 @@ public sealed class GeneratedReadTests
         await using ServiceProvider provider = services.BuildServiceProvider();
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
         BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.Authenticated, SubjectId = "live-subject" });
-        var ownerId = new BaseRecordId<ReadOwner>(new RecordId("owner_1"));
-        var projectId = new BaseRecordId<ReadProject>(new RecordId("project_1"));
+        var ownerId = new BaseRecordId<ReadOwner>(RecordId.Create("owner_1"));
+        var projectId = new BaseRecordId<ReadProject>(RecordId.Create("project_1"));
         (await session.Collection(ReadOwner.Collection).CreateAsync(ownerId.Value, new ReadOwner { Name = "Owner" })).Should().BeOfType<BaseSuccess<BaseRecord<ReadOwner>>>();
         (await session.Collection(ReadProject.Collection).CreateAsync(projectId.Value, new ReadProject { Name = "Project", OwnerId = ownerId })).Should().BeOfType<BaseSuccess<BaseRecord<ReadProject>>>();
-        (await session.Collection(ReadTask.Collection).CreateAsync(new RecordId("task_1"), new ReadTask { ProjectId = projectId })).Should().BeOfType<BaseSuccess<BaseRecord<ReadTask>>>();
+        (await session.Collection(ReadTask.Collection).CreateAsync(RecordId.Create("task_1"), new ReadTask { ProjectId = projectId })).Should().BeOfType<BaseSuccess<BaseRecord<ReadTask>>>();
 
         await using IAsyncEnumerator<BaseLiveQueryTransition<ProjectSummaryRead.Row[]>> transitions = session.Reads
             .LiveAsync(ProjectSummaryRead.Handle, new ProjectSummaryRead { OwnerId = ownerId })
@@ -441,11 +802,11 @@ public sealed class GeneratedReadTests
         transitions.Current.Value.Should().ContainSingle().Which.TaskCount.Should().Be(1);
 
         int queryEvaluations = policy.QueryEvaluations;
-        (await session.Collection(ReadUnrelated.Collection).CreateAsync(new RecordId("unrelated"), new ReadUnrelated { Value = "ignored" })).Should().BeOfType<BaseSuccess<BaseRecord<ReadUnrelated>>>();
+        (await session.Collection(ReadUnrelated.Collection).CreateAsync(RecordId.Create("unrelated"), new ReadUnrelated { Value = "ignored" })).Should().BeOfType<BaseSuccess<BaseRecord<ReadUnrelated>>>();
         await Task.Delay(100);
         policy.QueryEvaluations.Should().Be(queryEvaluations, "precise dependency evidence must not rerun for an unrelated collection");
 
-        (await session.Collection(ReadTask.Collection).CreateAsync(new RecordId("task_2"), new ReadTask { ProjectId = projectId })).Should().BeOfType<BaseSuccess<BaseRecord<ReadTask>>>();
+        (await session.Collection(ReadTask.Collection).CreateAsync(RecordId.Create("task_2"), new ReadTask { ProjectId = projectId })).Should().BeOfType<BaseSuccess<BaseRecord<ReadTask>>>();
 
         (await transitions.MoveNextAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2))).Should().BeTrue();
         transitions.Current.Kind.Should().Be(BaseLiveQueryTransitionKind.Snapshot);
@@ -477,12 +838,12 @@ public sealed class GeneratedReadTests
                 AuthenticationState = PrincipalAuthenticationState.Authenticated,
                 SubjectId = "subject_1",
             });
-            var ownerId = new BaseRecordId<ReadOwner>(new RecordId("owner_1"));
-            var projectId = new BaseRecordId<ReadProject>(new RecordId("project_1"));
+            var ownerId = new BaseRecordId<ReadOwner>(RecordId.Create("owner_1"));
+            var projectId = new BaseRecordId<ReadProject>(RecordId.Create("project_1"));
             (await session.Collection(ReadOwner.Collection).CreateAsync(ownerId.Value, new ReadOwner { Name = "Owner" })).Should().BeOfType<BaseSuccess<BaseRecord<ReadOwner>>>();
             (await session.Collection(ReadProject.Collection).CreateAsync(projectId.Value, new ReadProject { Name = "Project", OwnerId = ownerId })).Should().BeOfType<BaseSuccess<BaseRecord<ReadProject>>>();
-            (await session.Collection(ReadTask.Collection).CreateAsync(new RecordId("task_1"), new ReadTask { ProjectId = projectId })).Should().BeOfType<BaseSuccess<BaseRecord<ReadTask>>>();
-            (await session.Collection(ReadTask.Collection).CreateAsync(new RecordId("task_2"), new ReadTask { ProjectId = projectId })).Should().BeOfType<BaseSuccess<BaseRecord<ReadTask>>>();
+            (await session.Collection(ReadTask.Collection).CreateAsync(RecordId.Create("task_1"), new ReadTask { ProjectId = projectId })).Should().BeOfType<BaseSuccess<BaseRecord<ReadTask>>>();
+            (await session.Collection(ReadTask.Collection).CreateAsync(RecordId.Create("task_2"), new ReadTask { ProjectId = projectId })).Should().BeOfType<BaseSuccess<BaseRecord<ReadTask>>>();
 
             ProjectSummaryRead.Row[] rows = (await session.Reads.ToArrayAsync(
                 ProjectSummaryRead.Handle, new ProjectSummaryRead { OwnerId = ownerId })).RequireValue();
@@ -495,6 +856,18 @@ public sealed class GeneratedReadTests
             });
 
             SqliteRecordStore store = provider.GetRequiredService<SqliteRecordStore>();
+            long generation = provider.GetRequiredService<IHPDBaseApplication>().CurrentReadiness!.SchemaGeneration!.Value;
+            OperationResult<BaseRelationalReadExecutionResult> overLimit = await store.ExecuteReadAsync(new BaseRelationalReadExecutionRequest
+            {
+                Plan = ProjectSummaryRead.Definition.Plan with { SchemaGeneration = generation },
+                ParameterValues = [new BaseRelationalParameterValue { ParameterId = "project-summary.owner-id", Value = new QueryValue { Kind = QueryValueKind.Id, Id = ownerId.Value.Value } }],
+                SourcePolicies = ProjectSummaryRead.Definition.Plan.Sources.Select(source => new BaseRelationalReadSourcePolicy { SourceId = source.Id, CollectionId = source.CollectionId }).ToArray(),
+                Operation = new OperationContext { Operation = BaseOperationKind.List, CollectionId = ReadProject.Collection.Id },
+                AcquisitionTimeout = TimeSpan.FromSeconds(1), ExecutionTimeout = TimeSpan.FromSeconds(1),
+                MaxResultRows = 100, MaxResultBytes = 1,
+            });
+            overLimit.Error!.Code.Should().Be("base.relational.read.limitExceeded");
+            overLimit.Value.Should().BeNull("providers must not expose a partial buffered page");
             OperationResult<BaseRelationalReadExecutionResult> stale = await store.ExecuteReadAsync(new BaseRelationalReadExecutionRequest
             {
                 Plan = ProjectSummaryRead.Definition.Plan with { SchemaGeneration = 99 },
@@ -570,6 +943,18 @@ public sealed class GeneratedReadTests
             CancellationToken cancellationToken = default)
         {
             Request = request;
+            PageInfo page = request.Plan.Window switch
+            {
+                { Kind: BaseRegisteredReadWindowKind.Page } window => new PageInfo
+                {
+                    Page = window.Page, PerPage = window.PerPage, HasMore = false,
+                },
+                { Kind: BaseRegisteredReadWindowKind.Offset } window => new PageInfo
+                {
+                    Offset = window.Offset, Limit = window.Limit, HasMore = false,
+                },
+                _ => new PageInfo { Limit = 20, HasMore = false },
+            };
             return ValueTask.FromResult(OperationResults.Ok(Response ?? new BaseRelationalReadExecutionResult
             {
                 Result = new BaseRelationalReadResult
@@ -582,7 +967,7 @@ public sealed class GeneratedReadTests
                             Value = new QueryValue { Kind = QueryValueKind.String, String = "returned" },
                         }],
                     }],
-                    Page = new PageInfo { Limit = 20, HasMore = false },
+                    Page = page,
                     Count = 1,
                     SchemaGeneration = 0,
                 },
@@ -596,7 +981,7 @@ public sealed class GeneratedReadTests
         public List<string> Collections { get; } = [];
         public ValueTask<PolicyDecision> EvaluateAsync(PolicyEvaluationRequest request, CancellationToken cancellationToken = default)
         {
-            Collections.Add(request.Collection.Id);
+            Collections.Add(request.Collection!.Id);
             PolicyDecision decision = PolicyDecision.Allow();
             if (request.Collection.Id == ReadOwner.Collection.Id)
                 decision = decision.WithReadMask(new FieldMask { Mode = FieldMaskMode.IncludeOnly, Include = [] });
@@ -654,6 +1039,42 @@ internal sealed partial record ReadUnrelated
     public required string Value { get; init; }
 }
 
+[BaseCollection("l60-bounded-projection", typeof(GeneratedReadJsonContext))]
+internal sealed partial record L60BoundedProjectionRecord
+{
+    [BaseField("l60-bounded.order", Operators = BaseFieldOperator.Equal | BaseFieldOperator.Order)]
+    public required long Order { get; init; }
+
+    [BaseField("l60-bounded.payload", MaximumUtf8Bytes = 512)]
+    public required string Payload { get; init; }
+
+    [BaseField("l60-bounded.poison")]
+    public required long Poison { get; init; }
+}
+
+[BaseRead("l60-bounded-projection", typeof(GeneratedReadJsonContext), RequiredGrantId = "l60-bounded.execute")]
+internal sealed partial record L60BoundedProjectionRead
+{
+    public sealed partial record Row
+    {
+        [BaseReadField("l60-bounded.row.payload")]
+        public required string Payload { get; init; }
+
+        [BaseReadField("l60-bounded.row.poison")]
+        public required long Poison { get; init; }
+    }
+
+    public static void Configure(BaseReadDefinitionBuilder<L60BoundedProjectionRead, Row> read)
+    {
+        read.From(L60BoundedProjectionRecord.Collection, "records", out var record)
+            .Project(Row.Fields.Payload, record.Field(L60BoundedProjectionRecord.Fields.Payload))
+            .Project(Row.Fields.Poison, record.Field(L60BoundedProjectionRecord.Fields.Poison))
+            .OrderBy(record.Field(L60BoundedProjectionRecord.Fields.Order))
+            .Limits(maximumResultRows: 3, maximumResultBytes: 1_024,
+                maximumOperations: 1_000, maximumExecutionMilliseconds: 1_000);
+    }
+}
+
 [BaseRead("project-name", typeof(GeneratedReadJsonContext), Exposure = BaseReadExposure.Public, RequiredGrantId = "project-name.execute")]
 internal sealed partial record ProjectNameRead
 {
@@ -671,7 +1092,8 @@ internal sealed partial record ProjectNameRead
         read.From(ReadProject.Collection, "projects", out var project)
             .Where(project.Field(ReadProject.Fields.Name)
                 .Equal(read.Parameter(Parameters.Name)))
-            .Project(Row.Fields.Name, project.Field(ReadProject.Fields.Name));
+            .Project(Row.Fields.Name, project.Field(ReadProject.Fields.Name))
+            .AllowOffsetPagination(100_000);
     }
 }
 
@@ -710,6 +1132,9 @@ internal sealed partial record ProjectSummaryRead
 [JsonSerializable(typeof(ReadOwner))]
 [JsonSerializable(typeof(ReadTask))]
 [JsonSerializable(typeof(ReadUnrelated))]
+[JsonSerializable(typeof(L60BoundedProjectionRecord))]
+[JsonSerializable(typeof(L60BoundedProjectionRead))]
+[JsonSerializable(typeof(L60BoundedProjectionRead.Row), TypeInfoPropertyName = "L60BoundedProjectionReadRow")]
 [JsonSerializable(typeof(ProjectNameRead))]
 [JsonSerializable(typeof(ProjectNameRead.Row), TypeInfoPropertyName = "ProjectNameReadRow")]
 [JsonSerializable(typeof(ProjectSummaryRead))]

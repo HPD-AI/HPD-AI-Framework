@@ -128,7 +128,7 @@ internal static class BaseAtomicMutationProjectionFactory
     {
         if (record is null) return null;
         return new BaseAtomicProjectionRecord(
-            new RecordId(Copy(record.Id.Value)),
+            RecordId.Create(Copy(record.Id.Value)),
             new RevisionToken(Copy(record.Revision.Value)),
             record.Fields.Select(static field => new BaseAtomicProjectionField(
                 Copy(field.StableFieldId),

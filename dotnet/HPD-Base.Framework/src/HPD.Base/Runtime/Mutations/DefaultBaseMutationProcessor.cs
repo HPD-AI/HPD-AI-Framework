@@ -1885,7 +1885,7 @@ internal sealed class DefaultBaseMutationProcessor(
                 if (item.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(item.GetString())) { code = "base.relation.invalid"; return false; }
                 string id = item.GetString()!;
                 if (!unique.Add(id)) { code = "base.relation.cardinalityInvalid"; return false; }
-                values.Add(new RecordId(id));
+                values.Add(RecordId.Create(id));
             }
             if (relation.MinimumCount is int minimum && values.Count < minimum ||
                 relation.MaximumCount is int maximum && values.Count > maximum)
@@ -1896,7 +1896,7 @@ internal sealed class DefaultBaseMutationProcessor(
             ids = values.ToArray(); return true;
         }
         if (value.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(value.GetString())) { code = "base.relation.invalid"; return false; }
-        ids = [new RecordId(value.GetString()!)]; return true;
+        ids = [RecordId.Create(value.GetString()!)]; return true;
     }
 
     private static OperationStatus RelationStatus(BaseError error) => error.Category switch

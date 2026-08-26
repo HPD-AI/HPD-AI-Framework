@@ -10,6 +10,41 @@ namespace HPD.Base.Tests.Application.ModuleMutations;
 
 public sealed class BaseModuleProgramEvaluatorTests
 {
+    [Fact]
+    public void Public_builder_surface_does_not_expose_raw_scalar_authority_or_expression_inputs()
+    {
+        Type[] forbidden =
+        [
+            typeof(BaseModuleValueType), typeof(BaseModuleValueExpression),
+            typeof(BaseModuleRequestPropertyReference), typeof(BaseModuleCapturedFieldReference),
+            typeof(BaseModuleObjectExpression), typeof(BaseModuleObjectPropertyExpression),
+        ];
+
+        typeof(BaseModuleMutationTemplateBuilder).GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+            .SelectMany(static method => method.GetParameters())
+            .Should().NotContain(parameter => forbidden.Contains(parameter.ParameterType)
+                || parameter.ParameterType.IsArray && forbidden.Contains(parameter.ParameterType.GetElementType()));
+
+        Type[] opaqueNodes =
+        [
+            typeof(BaseModuleRecordCapture), typeof(BaseModuleGenerationCapture),
+            typeof(BaseModuleRevisionEqualsGuard), typeof(BaseModuleFieldEqualsGuard),
+            typeof(BaseModuleFieldComparisonGuard), typeof(BaseModuleFieldPresenceGuard),
+            typeof(BaseModuleGenerationGuard), typeof(BaseModuleCreateStatement),
+            typeof(BaseModulePatchStatement), typeof(BaseModuleReplaceStatement),
+            typeof(BaseModuleDeleteStatement), typeof(BaseModuleUpsertStatement),
+            typeof(BaseModuleResultProjection),
+        ];
+
+        foreach (Type type in forbidden.Where(static type => type != typeof(BaseModuleValueType)).Concat(opaqueNodes))
+            type.GetConstructors(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
+                .Should().BeEmpty(type.FullName);
+
+        opaqueNodes.SelectMany(static type => type.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+            .Should().NotContain(property => forbidden.Contains(property.PropertyType),
+                "opaque graph nodes must not reveal reusable raw expressions or authority");
+    }
+
     [Theory]
     [MemberData(nameof(InexactGrants))]
     public async Task Inexact_grant_with_matching_registration_id_is_not_L50_authority(AccessGrant grant)
@@ -155,7 +190,7 @@ public sealed class BaseModuleProgramEvaluatorTests
     public void Canonical_checksum_matches_the_locked_template_byte_vector()
     {
         string actual = Convert.ToHexString(GenerationDefinition().Checksum.ToArray());
-        actual.Should().Be("AEC430456F17DA04BA1E270698D96C74E1D198610D51D0A9D340BBC5B67C95D2");
+        actual.Should().Be("D231AC568882B77CCA96DDF60AE9C2CF11016F17488AAE90AA69F3CBC938E8C5");
     }
 
     [Fact]
@@ -173,12 +208,12 @@ public sealed class BaseModuleProgramEvaluatorTests
                         Id = "counter-increases",
                         Field = new BaseModuleCapturedFieldReference
                         {
-                            CaptureId = "existing", StableFieldId = "record.counter", DeclaredTypeId = "int64",
+                            CaptureId = "existing", StableFieldId = "record.counter", Authority = Type<long>(),
                         },
                         Comparison = BaseModuleOrderedComparisonKind.LessThan,
                         Expected = new BaseModuleConstantExpression
                         {
-                            Id = "next-counter", ResultTypeId = "int64",
+                            Id = "next-counter", ResultType = Type<long>(),
                             CanonicalBaseJson = "42"u8.ToArray().ToImmutableArray(),
                         },
                     },
@@ -187,7 +222,7 @@ public sealed class BaseModuleProgramEvaluatorTests
         };
 
         Convert.ToHexString(BaseModuleMutationContract.ComputeChecksum(definition).ToArray())
-            .Should().Be("215261263041E3D818C6F3FD3C44CDA176B3A0F8BA121A46957AA1EA7C22C80B");
+            .Should().Be("2EBF822D81AFF749F2CD4C35DD80E3A771E0137F61BADB56F4E2B7440BA0C514");
     }
 
     [Fact]
@@ -234,8 +269,8 @@ public sealed class BaseModuleProgramEvaluatorTests
         CollectionDefinition target = ModuleCollection();
         BaseModuleRelationTargetCaptureRequest[] expected =
         [
-            new() { Ordinal = 0, SourceStatementId = "write-a", SourceFieldId = "owner", TargetCollection = target, TargetRecordId = new RecordId("a") },
-            new() { Ordinal = 1, SourceStatementId = "write-b", SourceFieldId = "owner", TargetCollection = target, TargetRecordId = new RecordId("b") },
+            new() { Ordinal = 0, SourceStatementId = "write-a", SourceFieldId = "owner", TargetCollection = target, TargetRecordId = RecordId.Create("a") },
+            new() { Ordinal = 1, SourceStatementId = "write-b", SourceFieldId = "owner", TargetCollection = target, TargetRecordId = RecordId.Create("b") },
         ];
         BaseAtomicMutationAuthorityRequirement requirement = AuthorityRequirement();
         var intent = new BaseAtomicMutationIntent { IntentDigest = "intent", Authority = requirement, Items = [] };
@@ -322,16 +357,19 @@ public sealed class BaseModuleProgramEvaluatorTests
             Checksum = BaseModuleMutationChecksum.Create(new byte[32]),
             Template = new BaseModuleMutationTemplate
             {
-                Captures = [BaseModuleMutationTemplateBuilder.CaptureGeneration(
+                Captures = [BaseModuleMutationTemplateBuilder.CaptureGenerationRaw(
                     "generation", "module.generation", null, BaseModuleGenerationAbsenceBehavior.AllowEither)],
                 Guards = [],
                 Body = BaseModuleMutationTemplateBuilder.Block(
                     BaseModuleMutationTemplateBuilder.IncrementGeneration("increment", "generation", true)),
-                Result = BaseModuleMutationTemplateBuilder.Result(
-                    BaseModuleMutationTemplateBuilder.Object("result", "result",
+                Result = BaseModuleMutationTemplateBuilder.ResultRaw(
+                    BaseModuleMutationTemplateBuilder.Object("result",
                         BaseModuleMutationTemplateBuilder.Property("result.generation",
-                            BaseModuleMutationTemplateBuilder.ResultingGeneration(
-                                "result-generation", "string", "generation")))),
+                            new BaseModuleResultingGenerationExpression
+                            {
+                                Id = "result-generation", ResultType = Dto<string>("result.generation").ValueType,
+                                CaptureId = "generation",
+                            }))),
             },
         }).Build();
 
@@ -341,10 +379,13 @@ public sealed class BaseModuleProgramEvaluatorTests
     [Fact]
     public void Every_manual_factory_matches_its_direct_closed_union_shape()
     {
-        BaseModuleValueExpression constant = BaseModuleMutationTemplateBuilder.Constant("constant", "int64", "1"u8);
-        var requestReference = new BaseModuleRequestPropertyReference { StablePropertyPath = ["request.value"], DeclaredTypeId = "int64" };
-        var fieldReference = new BaseModuleCapturedFieldReference { CaptureId = "record", StableFieldId = "record.value", DeclaredTypeId = "int64" };
-        BaseModuleObjectExpression payload = BaseModuleMutationTemplateBuilder.Object("payload", "payload",
+        BaseModuleValueType integer = Type<long>();
+        BaseModuleValueType recordId = Type<string>();
+        BaseModuleDtoScalarAuthority requestAuthority = Dto<long>("request.value");
+        BaseModuleValueExpression constant = BaseModuleMutationTemplateBuilder.Constant("constant", integer, "1"u8);
+        var requestReference = new BaseModuleRequestPropertyReference { StablePropertyPath = ["request.value"], Authority = requestAuthority };
+        var fieldReference = new BaseModuleCapturedFieldReference { CaptureId = "record", StableFieldId = "record.value", Authority = integer };
+        BaseModuleObjectExpression payload = BaseModuleMutationTemplateBuilder.Object("payload",
             BaseModuleMutationTemplateBuilder.Property("payload.value", constant));
         BaseModuleMutationBlock empty = BaseModuleMutationTemplateBuilder.Block();
 
@@ -352,7 +393,7 @@ public sealed class BaseModuleProgramEvaluatorTests
         [
             (BaseModuleMutationTemplateBuilder.CaptureRecord("record", "records", constant, BaseModuleCapturePresence.RequirePresent),
                 new BaseModuleRecordCapture { Id = "record", CollectionId = "records", RecordId = constant, Presence = BaseModuleCapturePresence.RequirePresent }),
-            (BaseModuleMutationTemplateBuilder.CaptureGeneration("generation", "module.generation", constant, BaseModuleGenerationAbsenceBehavior.AllowEither),
+            (BaseModuleMutationTemplateBuilder.CaptureGenerationRaw("generation", "module.generation", constant, BaseModuleGenerationAbsenceBehavior.AllowEither),
                 new BaseModuleGenerationCapture { Id = "generation", CellId = "module.generation", Key = constant, Absence = BaseModuleGenerationAbsenceBehavior.AllowEither }),
             (BaseModuleMutationTemplateBuilder.RecordPresent("record-present", "record", true),
                 new BaseModuleRecordPresenceGuard { Id = "record-present", CaptureId = "record", MustBePresent = true }),
@@ -388,39 +429,39 @@ public sealed class BaseModuleProgramEvaluatorTests
                 new BaseModuleIfStatement { Id = "if", GuardId = "guard", WhenTrue = empty, WhenFalse = empty }),
             (BaseModuleMutationTemplateBuilder.Require("require", "guard", "requirement"),
                 new BaseModuleRequireStatement { Id = "require", GuardId = "guard", RequirementId = "requirement" }),
-            (BaseModuleMutationTemplateBuilder.RequestProperty("request", "int64", requestReference),
-                new BaseModuleRequestPropertyExpression { Id = "request", ResultTypeId = "int64", Property = requestReference }),
-            (constant, new BaseModuleConstantExpression { Id = "constant", ResultTypeId = "int64", CanonicalBaseJson = "1"u8.ToArray().ToImmutableArray() }),
-            (BaseModuleMutationTemplateBuilder.CapturedField("captured-field", "int64", fieldReference),
-                new BaseModuleCapturedFieldExpression { Id = "captured-field", ResultTypeId = "int64", Field = fieldReference }),
-            (BaseModuleMutationTemplateBuilder.CapturedRecordId("captured-id", "recordId", "record"),
-                new BaseModuleCapturedRecordIdExpression { Id = "captured-id", ResultTypeId = "recordId", CaptureId = "record" }),
-            (BaseModuleMutationTemplateBuilder.CapturedRevision("captured-revision", "record"),
-                new BaseModuleCapturedRevisionExpression { Id = "captured-revision", ResultTypeId = "revision", CaptureId = "record" }),
-            (BaseModuleMutationTemplateBuilder.CapturedGeneration("captured-generation", "base.moduleGeneration", "generation"),
-                new BaseModuleCapturedGenerationExpression { Id = "captured-generation", ResultTypeId = "base.moduleGeneration", CaptureId = "generation" }),
-            (BaseModuleMutationTemplateBuilder.CommittedRecordId("committed-id", "recordId", "create"),
-                new BaseModuleCommittedRecordIdExpression { Id = "committed-id", ResultTypeId = "recordId", StatementId = "create" }),
-            (BaseModuleMutationTemplateBuilder.CommittedRevision("committed-revision", "create"),
-                new BaseModuleCommittedRevisionExpression { Id = "committed-revision", ResultTypeId = "revision", StatementId = "create" }),
-            (BaseModuleMutationTemplateBuilder.CommittedUpsertDisposition("upsert-disposition", "upsertDisposition", "upsert"),
-                new BaseModuleCommittedUpsertDispositionExpression { Id = "upsert-disposition", ResultTypeId = "upsertDisposition", StatementId = "upsert" }),
-            (BaseModuleMutationTemplateBuilder.ResultingGeneration("resulting-generation", "base.moduleGeneration", "generation"),
-                new BaseModuleResultingGenerationExpression { Id = "resulting-generation", ResultTypeId = "base.moduleGeneration", CaptureId = "generation" }),
-            (BaseModuleMutationTemplateBuilder.Coalesce("coalesce", "int64", constant, constant),
-                new BaseModuleCoalesceExpression { Id = "coalesce", ResultTypeId = "int64", Values = [constant, constant] }),
-            (BaseModuleMutationTemplateBuilder.Conditional("conditional", "int64", "guard", constant, constant),
-                new BaseModuleConditionalExpression { Id = "conditional", ResultTypeId = "int64", GuardId = "guard", WhenTrue = constant, WhenFalse = constant }),
-            (BaseModuleMutationTemplateBuilder.Numeric("numeric", "int64", BaseModuleNumericOperator.IntegerAddChecked, constant, constant),
-                new BaseModuleBinaryNumericExpression { Id = "numeric", ResultTypeId = "int64", Operator = BaseModuleNumericOperator.IntegerAddChecked, Left = constant, Right = constant }),
-            (payload, new BaseModuleObjectExpression { Id = "payload", ResultTypeId = "payload", Properties = [new BaseModuleObjectPropertyExpression { StablePropertyId = "payload.value", Value = constant }] }),
+            (BaseModuleMutationTemplateBuilder.RequestProperty("request", requestReference),
+                new BaseModuleRequestPropertyExpression { Id = "request", ResultType = requestAuthority.ValueType, Property = requestReference }),
+            (constant, new BaseModuleConstantExpression { Id = "constant", ResultType = integer, CanonicalBaseJson = "1"u8.ToArray().ToImmutableArray() }),
+            (BaseModuleMutationTemplateBuilder.CapturedField("captured-field", fieldReference),
+                new BaseModuleCapturedFieldExpression { Id = "captured-field", ResultType = integer, Field = fieldReference }),
+            (BaseModuleMutationTemplateBuilder.CapturedRecordId("captured-id", recordId, "record"),
+                new BaseModuleCapturedRecordIdExpression { Id = "captured-id", ResultType = recordId, CaptureId = "record" }),
+            (BaseModuleMutationTemplateBuilder.CapturedRevisionRaw("captured-revision", "record"),
+                new BaseModuleCapturedRevisionExpression { Id = "captured-revision", ResultType = Type<RevisionToken>(), CaptureId = "record" }),
+            (BaseModuleMutationTemplateBuilder.CapturedGenerationRaw("captured-generation", "generation"),
+                new BaseModuleCapturedGenerationExpression { Id = "captured-generation", ResultType = Type<BaseModuleGeneration>(), CaptureId = "generation" }),
+            (BaseModuleMutationTemplateBuilder.CommittedRecordId("committed-id", recordId, "create"),
+                new BaseModuleCommittedRecordIdExpression { Id = "committed-id", ResultType = recordId, StatementId = "create" }),
+            (BaseModuleMutationTemplateBuilder.CommittedRevisionRaw("committed-revision", "create"),
+                new BaseModuleCommittedRevisionExpression { Id = "committed-revision", ResultType = Type<RevisionToken>(), StatementId = "create" }),
+            (BaseModuleMutationTemplateBuilder.CommittedUpsertDisposition("upsert-disposition", Type<string>(), "upsert"),
+                new BaseModuleCommittedUpsertDispositionExpression { Id = "upsert-disposition", ResultType = Type<string>(), StatementId = "upsert" }),
+            (BaseModuleMutationTemplateBuilder.ResultingGenerationRaw("resulting-generation", "generation"),
+                new BaseModuleResultingGenerationExpression { Id = "resulting-generation", ResultType = Type<BaseModuleGeneration>(), CaptureId = "generation" }),
+            (BaseModuleMutationTemplateBuilder.Coalesce("coalesce", integer, constant, constant),
+                new BaseModuleCoalesceExpression { Id = "coalesce", ResultType = integer, Values = [constant, constant] }),
+            (BaseModuleMutationTemplateBuilder.Conditional("conditional", integer, "guard", constant, constant),
+                new BaseModuleConditionalExpression { Id = "conditional", ResultType = integer, GuardId = "guard", WhenTrue = constant, WhenFalse = constant }),
+            (BaseModuleMutationTemplateBuilder.Numeric("numeric", integer, BaseModuleNumericOperator.IntegerAddChecked, constant, constant),
+                new BaseModuleBinaryNumericExpression { Id = "numeric", ResultType = integer, Operator = BaseModuleNumericOperator.IntegerAddChecked, Left = constant, Right = constant }),
+            (payload, new BaseModuleObjectExpression { Id = "payload", Properties = [new BaseModuleObjectPropertyExpression { StablePropertyId = "payload.value", Value = constant }] }),
             (BaseModuleMutationTemplateBuilder.Block(new BaseModuleRequireStatement { Id = "required", GuardId = "guard", RequirementId = "required" }),
                 new BaseModuleMutationBlock { Statements = [new BaseModuleRequireStatement { Id = "required", GuardId = "guard", RequirementId = "required" }] }),
-            (BaseModuleMutationTemplateBuilder.Result(payload), new BaseModuleResultProjection { Value = payload }),
+            (BaseModuleMutationTemplateBuilder.ResultRaw(payload), new BaseModuleResultProjection { Value = payload }),
         ];
 
         foreach ((object factory, object direct) in pairs)
-            factory.Should().BeEquivalentTo(direct, options => options.RespectingRuntimeTypes(), factory.GetType().Name);
+            factory.Should().BeEquivalentTo(direct, options => options.RespectingRuntimeTypes().IncludingInternalProperties(), factory.GetType().Name);
     }
 
     [Fact]
@@ -437,11 +478,11 @@ public sealed class BaseModuleProgramEvaluatorTests
         };
         BaseModuleResultingGenerationExpression Resulting(string id, string capture) => new()
         {
-            Id = id, ResultTypeId = "base.moduleGeneration", CaptureId = capture,
+            Id = id, ResultType = Type<BaseModuleGeneration>(), CaptureId = capture,
         };
         var conditional = new BaseModuleConditionalExpression
         {
-            Id = "selected", ResultTypeId = "base.moduleGeneration", GuardId = "choose-a",
+            Id = "selected", ResultType = Type<BaseModuleGeneration>(), GuardId = "choose-a",
             WhenTrue = Resulting("selected-a", "a"), WhenFalse = Resulting("selected-b", "b"),
         };
         BaseRegisteredModuleMutationDefinition definition = BaseModuleMutationContract.Seal(new()
@@ -463,7 +504,7 @@ public sealed class BaseModuleProgramEvaluatorTests
                     WhenTrue = BaseModuleMutationTemplateBuilder.Block(BaseModuleMutationTemplateBuilder.IncrementGeneration("increment-a", "a", true)),
                     WhenFalse = BaseModuleMutationTemplateBuilder.Block(BaseModuleMutationTemplateBuilder.IncrementGeneration("increment-b", "b", true)),
                 }),
-                Result = BaseModuleMutationTemplateBuilder.Result(BaseModuleMutationTemplateBuilder.Object("result", "result",
+                Result = BaseModuleMutationTemplateBuilder.ResultRaw(BaseModuleMutationTemplateBuilder.Object("result",
                     BaseModuleMutationTemplateBuilder.Property("result.generation", conditional))),
             },
             Limits = Limits(), ReceiptPolicy = new BaseModuleMutationReceiptPolicy { FormatVersion = 1, Lifetime = TimeSpan.FromDays(1) },
@@ -478,7 +519,7 @@ public sealed class BaseModuleProgramEvaluatorTests
         {
             Template = definition.Template with
             {
-                Result = BaseModuleMutationTemplateBuilder.Result(BaseModuleMutationTemplateBuilder.Object("result", "result",
+                Result = BaseModuleMutationTemplateBuilder.ResultRaw(BaseModuleMutationTemplateBuilder.Object("result",
                     BaseModuleMutationTemplateBuilder.Property("result.generation", Resulting("unconditional-a", "a")))),
             },
         });
@@ -496,10 +537,10 @@ public sealed class BaseModuleProgramEvaluatorTests
             definition.Id, definition.Version, definition.Checksum.ToArray(),
             EvaluatorJsonContext.Default.CreateRequest, EvaluatorJsonContext.Default.UnsupportedResult,
             [
-                BaseModuleDtoPropertyBinding.Create<CreateRequest, string>("request.id", nameof(CreateRequest.Id)),
-                BaseModuleDtoPropertyBinding.Create<CreateRequest, string>("request.name", nameof(CreateRequest.Name)),
+                BaseModuleDtoPropertyBinding.Create<CreateRequest, string>("request.id", nameof(CreateRequest.Id), BaseGeneratedModuleScalarManifest.Primitive<string>()),
+                BaseModuleDtoPropertyBinding.Create<CreateRequest, string>("request.name", nameof(CreateRequest.Name), BaseGeneratedModuleScalarManifest.Primitive<string>()),
             ],
-            [BaseModuleDtoPropertyBinding.Create<UnsupportedResult, DateTimeOffset>("result.id", nameof(UnsupportedResult.Id))]);
+            [BaseModuleDtoPropertyBinding.Create<UnsupportedResult, DateTimeOffset>("result.id", nameof(UnsupportedResult.Id), BaseGeneratedModuleScalarManifest.Primitive<DateTimeOffset>())]);
         var registration = new BaseModuleMutationRegistration<CreateRequest, UnsupportedResult>(definition, identity);
 
         Action validate = () => BaseModuleMutationContractValidator.ValidateDefinition(
@@ -538,7 +579,8 @@ public sealed class BaseModuleProgramEvaluatorTests
         IReadOnlyDictionary<string, BaseModuleDtoPropertyBinding> bindings = new Dictionary<string, BaseModuleDtoPropertyBinding>
         {
             ["result.generation"] = BaseModuleDtoPropertyBinding.Create<GenerationResult, string>(
-                "result.generation", nameof(GenerationResult.Generation), BaseFieldConfidentiality.Confidential, BaseRecordDisclosure.Omit),
+                "result.generation", nameof(GenerationResult.Generation), BaseGeneratedModuleScalarManifest.Primitive<string>(),
+                BaseFieldConfidentiality.Confidential, BaseRecordDisclosure.Omit),
         };
 
         bool allowed = await BaseModuleReceiptDisclosure.AuthorizeAsync(
@@ -695,10 +737,10 @@ public sealed class BaseModuleProgramEvaluatorTests
                         Id = "record", CollectionId = collection.Id, Presence = BaseModuleCapturePresence.AllowEither,
                         RecordId = new BaseModuleCapturedFieldExpression
                         {
-                            Id = "captured-key", ResultTypeId = "string",
+                            Id = "captured-key", ResultType = Type<string>(),
                             Field = new BaseModuleCapturedFieldReference
                             {
-                                CaptureId = "record", StableFieldId = "field.name", DeclaredTypeId = "string",
+                                CaptureId = "record", StableFieldId = "field.name", Authority = Type<string>(),
                             },
                         },
                     },
@@ -740,7 +782,7 @@ public sealed class BaseModuleProgramEvaluatorTests
         result.Should().BeOfType<BaseSuccess<BaseModuleMutationExecutionResult<CreateResult>>>(
             result is BaseFailure<BaseModuleMutationExecutionResult<CreateResult>> failure ? failure.Error.Code : string.Empty);
         result.RequireValue().Result.Id.Should().Be("record-1");
-        OperationResult<RecordEnvelope> stored = await store.GetAsync(collection, new RecordId("record-1"), session.Operation(BaseOperationKind.Get, collection.Id));
+        OperationResult<RecordEnvelope> stored = await store.GetAsync(collection, RecordId.Create("record-1"), session.Operation(BaseOperationKind.Get, collection.Id));
         stored.Value!.Payload.Fields!["name"].GetString().Should().Be("Grace");
     }
 
@@ -767,7 +809,7 @@ public sealed class BaseModuleProgramEvaluatorTests
 
         result.Should().BeOfType<BaseFailure<BaseModuleMutationExecutionResult<CreateResult>>>()
             .Which.Error.Code.Should().Be(BaseModuleMutationErrorCodes.Unauthorized);
-        (await store.GetAsync(collection, new RecordId("record-denied"), session.Operation(BaseOperationKind.Get, collection.Id)))
+        (await store.GetAsync(collection, RecordId.Create("record-denied"), session.Operation(BaseOperationKind.Get, collection.Id)))
             .Status.Should().Be(OperationStatus.NotFound);
     }
 
@@ -939,7 +981,7 @@ public sealed class BaseModuleProgramEvaluatorTests
                 Checksum = [],
             }, EvaluatorJsonContext.Default.GenerationRequest, EvaluatorJsonContext.Default.GenerationResult, [],
             [BaseModuleDtoPropertyBinding.Create<GenerationResult, string>(
-                "result.generation", nameof(GenerationResult.Generation))]);
+                "result.generation", nameof(GenerationResult.Generation), BaseGeneratedModuleScalarManifest.Primitive<string>())]);
         ServiceProvider services = new ServiceCollection()
             .AddSingleton<IBaseModuleMutationRuntime>(moduleRuntime)
             .BuildServiceProvider();
@@ -1017,7 +1059,7 @@ public sealed class BaseModuleProgramEvaluatorTests
         BaseModuleProgramValue sum = evaluator.Evaluate(new BaseModuleBinaryNumericExpression
         {
             Id = "amount-plus-one",
-            ResultTypeId = "int64",
+            ResultType = Type<long>(),
             Operator = BaseModuleNumericOperator.IntegerAddChecked,
             Left = Request("request.amount", "amount"),
             Right = Constant("one", "1"u8),
@@ -1033,6 +1075,71 @@ public sealed class BaseModuleProgramEvaluatorTests
         bytes.Should().Equal("{\"Amount\":41}"u8.ToArray());
     }
 
+    [Fact]
+    public void Hostile_captured_scalar_is_rejected_as_provider_influenced()
+    {
+        BaseCapturedAtomicExecution captured = Captured();
+        BaseCapturedModuleRecord record = captured.ModuleRecords[0];
+        captured = captured with
+        {
+            ModuleRecords =
+            [
+                record with
+                {
+                    CollectionId = "records",
+                    Current = record.Current! with
+                    {
+                        CollectionId = "records",
+                        Payload = new RecordPayload
+                        {
+                            Kind = RecordPayloadKind.FieldMap,
+                            Fields = new Dictionary<string, JsonElement>
+                            {
+                                ["counter"] = JsonSerializer.SerializeToElement("not-an-integer"),
+                            },
+                        },
+                    },
+                },
+            ],
+        };
+        var evaluator = new BaseModuleProgramEvaluator<EvaluatorRequest, EvaluatorResult>(
+            Definition(), Identity(), new EvaluatorRequest { Amount = 0, Enabled = true }, captured,
+            new Dictionary<string, CollectionDefinition>
+            {
+                ["records"] = new CollectionDefinition
+                {
+                    Id = "records", Name = "records", Kind = BaseCollectionKinds.Document,
+                    SchemaMode = SchemaMode.Strict, UnknownFields = UnknownFieldPolicy.Reject,
+                    Fields = [new FieldDefinition { Id = "record.counter", ApplicationName = "Counter", WireName = "counter", Type = BaseFieldTypes.Integer }],
+                },
+            });
+        var expression = new BaseModuleCapturedFieldExpression
+        {
+            Id = "captured-counter", ResultType = Type<long>(),
+            Field = new BaseModuleCapturedFieldReference { CaptureId = "existing", StableFieldId = "record.counter", Authority = Type<long>() },
+        };
+
+        Action act = () => evaluator.Evaluate(expression);
+
+        act.Should().Throw<BaseModuleScalarContractException>()
+            .Which.ProviderInfluenced.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Typed_constant_owns_and_validates_its_exact_authority()
+    {
+        BaseModuleDtoScalarAuthority scalar = Dto<Guid>("request.id");
+        var property = new BaseModuleRequestProperty<CreateRequest, Guid>(scalar);
+        Guid value = Guid.Parse("0f9a4bc4-f95f-4d9e-840c-35d6d81bed52");
+
+        BaseModuleValue<Guid> expression = BaseModuleMutationTemplateBuilder.Constant(
+            "constant-id", property.ConstantAuthority, value);
+
+        expression.Expression.Should().BeOfType<BaseModuleConstantExpression>()
+            .Which.CanonicalBaseJson.AsSpan().ToArray().Should().Equal(
+                JsonSerializer.SerializeToUtf8Bytes(value.ToString("D")));
+    }
+
     [Theory]
     [InlineData(40, BaseModuleOrderedComparisonKind.LessThan, true)]
     [InlineData(41, BaseModuleOrderedComparisonKind.LessThan, false)]
@@ -1046,11 +1153,11 @@ public sealed class BaseModuleProgramEvaluatorTests
     {
         BaseModuleCapturedFieldReference field = new()
         {
-            CaptureId = "existing", StableFieldId = "record.counter", DeclaredTypeId = "int64",
+            CaptureId = "existing", StableFieldId = "record.counter", Authority = Type<long>(),
         };
         BaseModuleConstantExpression threshold = new()
         {
-            Id = "threshold", ResultTypeId = "int64",
+            Id = "threshold", ResultType = Type<long>(),
             CanonicalBaseJson = "41"u8.ToArray().ToImmutableArray(),
         };
         BaseRegisteredModuleMutationDefinition definition = Definition() with
@@ -1154,12 +1261,12 @@ public sealed class BaseModuleProgramEvaluatorTests
                         Id = "ordered-date",
                         Field = new BaseModuleCapturedFieldReference
                         {
-                            CaptureId = "record", StableFieldId = "record.value", DeclaredTypeId = "dateTime",
+                            CaptureId = "record", StableFieldId = "record.value", Authority = Type<DateTimeOffset>(),
                         },
                         Comparison = BaseModuleOrderedComparisonKind.GreaterThan,
                         Expected = new BaseModuleConstantExpression
                         {
-                            Id = "expected-date", ResultTypeId = "dateTime",
+                            Id = "expected-date", ResultType = Type<DateTimeOffset>(),
                             CanonicalBaseJson = System.Text.Encoding.UTF8.GetBytes(json).ToImmutableArray(),
                         },
                     },
@@ -1188,9 +1295,16 @@ public sealed class BaseModuleProgramEvaluatorTests
 
     private static bool EvaluateOrdered(string typeId, string fieldType, System.Text.Json.JsonElement capturedValue, ReadOnlySpan<byte> expectedJson)
     {
+        BaseModuleValueType valueType = typeId switch
+        {
+            "int64" => Type<long>(),
+            "decimal" => Type<decimal>(),
+            "dateTime" => Type<DateTimeOffset>(),
+            _ => throw new InvalidOperationException(),
+        };
         BaseModuleCapturedFieldReference field = new()
         {
-            CaptureId = "existing", StableFieldId = "record.value", DeclaredTypeId = typeId,
+            CaptureId = "existing", StableFieldId = "record.value", Authority = valueType,
         };
         BaseRegisteredModuleMutationDefinition source = Definition();
         BaseRegisteredModuleMutationDefinition definition = source with
@@ -1205,7 +1319,7 @@ public sealed class BaseModuleProgramEvaluatorTests
                         Comparison = BaseModuleOrderedComparisonKind.GreaterThan,
                         Expected = new BaseModuleConstantExpression
                         {
-                            Id = "expected", ResultTypeId = typeId,
+                            Id = "expected", ResultType = valueType,
                             CanonicalBaseJson = expectedJson.ToArray().ToImmutableArray(),
                         },
                     },
@@ -1250,23 +1364,23 @@ public sealed class BaseModuleProgramEvaluatorTests
         "module.test", 1, new byte[32], EvaluatorJsonContext.Default.EvaluatorRequest,
         EvaluatorJsonContext.Default.EvaluatorResult,
         [
-            BaseModuleDtoPropertyBinding.Create<EvaluatorRequest, long>("request.amount", nameof(EvaluatorRequest.Amount)),
-            BaseModuleDtoPropertyBinding.Create<EvaluatorRequest, bool>("request.enabled", nameof(EvaluatorRequest.Enabled)),
+            BaseModuleDtoPropertyBinding.Create<EvaluatorRequest, long>("request.amount", nameof(EvaluatorRequest.Amount), BaseGeneratedModuleScalarManifest.Primitive<long>()),
+            BaseModuleDtoPropertyBinding.Create<EvaluatorRequest, bool>("request.enabled", nameof(EvaluatorRequest.Enabled), BaseGeneratedModuleScalarManifest.Primitive<bool>()),
         ],
-        [BaseModuleDtoPropertyBinding.Create<EvaluatorResult, long>("result.amount", nameof(EvaluatorResult.Amount))]);
+        [BaseModuleDtoPropertyBinding.Create<EvaluatorResult, long>("result.amount", nameof(EvaluatorResult.Amount), BaseGeneratedModuleScalarManifest.Primitive<long>())]);
 
     private static BaseGeneratedModuleMutationIdentity<GenerationRequest, GenerationResult> GenerationIdentity() => new(
         "module.increment", 1, new byte[32], EvaluatorJsonContext.Default.GenerationRequest,
         EvaluatorJsonContext.Default.GenerationResult, [],
-        [BaseModuleDtoPropertyBinding.Create<GenerationResult, string>("result.generation", nameof(GenerationResult.Generation))]);
+        [BaseModuleDtoPropertyBinding.Create<GenerationResult, string>("result.generation", nameof(GenerationResult.Generation), BaseGeneratedModuleScalarManifest.Primitive<string>())]);
 
     private static BaseGeneratedModuleMutationIdentity<CreateRequest, CreateResult> CreateIdentity() => new(
         "module.create", 1, new byte[32], EvaluatorJsonContext.Default.CreateRequest, EvaluatorJsonContext.Default.CreateResult,
         [
-            BaseModuleDtoPropertyBinding.Create<CreateRequest, string>("request.id", nameof(CreateRequest.Id)),
-            BaseModuleDtoPropertyBinding.Create<CreateRequest, string>("request.name", nameof(CreateRequest.Name)),
+            BaseModuleDtoPropertyBinding.Create<CreateRequest, string>("request.id", nameof(CreateRequest.Id), BaseGeneratedModuleScalarManifest.Primitive<string>()),
+            BaseModuleDtoPropertyBinding.Create<CreateRequest, string>("request.name", nameof(CreateRequest.Name), BaseGeneratedModuleScalarManifest.Primitive<string>()),
         ],
-        [BaseModuleDtoPropertyBinding.Create<CreateResult, string>("result.id", nameof(CreateResult.Id))]);
+        [BaseModuleDtoPropertyBinding.Create<CreateResult, string>("result.id", nameof(CreateResult.Id), BaseGeneratedModuleScalarManifest.Primitive<string>())]);
 
     private static BaseRegisteredModuleMutationDefinition CreateDefinition() => BaseModuleMutationContract.Seal(new()
     {
@@ -1288,7 +1402,7 @@ public sealed class BaseModuleProgramEvaluatorTests
                         Id = "create", CollectionId = "module-records", RecordId = Request("request.id", "create-id"),
                         Payload = new BaseModuleObjectExpression
                         {
-                            Id = "payload", ResultTypeId = "record", Properties =
+                            Id = "payload", Properties =
                             [new BaseModuleObjectPropertyExpression { StablePropertyId = "field.name", Value = Request("request.name", "name") }],
                         },
                     },
@@ -1297,7 +1411,7 @@ public sealed class BaseModuleProgramEvaluatorTests
                         Id = "patch", CollectionId = "module-records", RecordId = Request("request.id", "patch-id"),
                         Patch = new BaseModuleObjectExpression
                         {
-                            Id = "patch-payload", ResultTypeId = "record", Properties =
+                            Id = "patch-payload", Properties =
                             [new BaseModuleObjectPropertyExpression { StablePropertyId = "field.name", Value = Constant("grace", "\"Grace\""u8) }],
                         },
                     },
@@ -1307,8 +1421,8 @@ public sealed class BaseModuleProgramEvaluatorTests
             {
                 Value = new BaseModuleObjectExpression
                 {
-                    Id = "result", ResultTypeId = "result", Properties =
-                    [new BaseModuleObjectPropertyExpression { StablePropertyId = "result.id", Value = new BaseModuleCommittedRecordIdExpression { Id = "committed-id", ResultTypeId = "string", StatementId = "create" } }],
+                    Id = "result", Properties =
+                    [new BaseModuleObjectPropertyExpression { StablePropertyId = "result.id", Value = new BaseModuleCommittedRecordIdExpression { Id = "committed-id", ResultType = Dto<string>("result.id").ValueType, StatementId = "create" } }],
                 },
             },
         },
@@ -1490,13 +1604,13 @@ public sealed class BaseModuleProgramEvaluatorTests
             {
                 Value = new BaseModuleObjectExpression
                 {
-                    Id = "result", ResultTypeId = "result",
+                    Id = "result",
                     Properties =
                     [
                         new BaseModuleObjectPropertyExpression
                         {
                             StablePropertyId = "result.generation",
-                            Value = new BaseModuleResultingGenerationExpression { Id = "result-generation", ResultTypeId = "string", CaptureId = "generation" },
+                            Value = new BaseModuleResultingGenerationExpression { Id = "result-generation", ResultType = Dto<string>("result.generation").ValueType, CaptureId = "generation" },
                         },
                     ],
                 },
@@ -1550,7 +1664,7 @@ public sealed class BaseModuleProgramEvaluatorTests
             {
                 Value = new BaseModuleObjectExpression
                 {
-                    Id = "result", ResultTypeId = "result",
+                    Id = "result",
                     Properties =
                     [
                         new BaseModuleObjectPropertyExpression
@@ -1568,14 +1682,28 @@ public sealed class BaseModuleProgramEvaluatorTests
 
     private static BaseModuleRequestPropertyExpression Request(string stableId, string id) => new()
     {
-        Id = id, ResultTypeId = "int64",
-        Property = new BaseModuleRequestPropertyReference { StablePropertyPath = [stableId], DeclaredTypeId = "int64" },
+        Id = id,
+        ResultType = stableId == "request.amount" ? Dto<long>(stableId).ValueType : Dto<string>(stableId).ValueType,
+        Property = new BaseModuleRequestPropertyReference
+        {
+            StablePropertyPath = [stableId],
+            Authority = stableId == "request.amount" ? Dto<long>(stableId) : Dto<string>(stableId),
+        },
     };
 
     private static BaseModuleConstantExpression Constant(string id, ReadOnlySpan<byte> bytes) => new()
     {
-        Id = id, ResultTypeId = "json", CanonicalBaseJson = bytes.ToArray().ToImmutableArray(),
+        Id = id,
+        ResultType = !bytes.IsEmpty && bytes[0] == (byte)'"' ? Type<string>() : Type<long>(),
+        CanonicalBaseJson = bytes.ToArray().ToImmutableArray(),
     };
+
+    private static BaseModuleValueType Type<TValue>(
+        BaseFieldNullability? nullability = null) =>
+        BaseModuleValueAuthorityContract.Primitive<TValue>(nullability: nullability);
+
+    private static BaseModuleDtoScalarAuthority Dto<TValue>(params string[] path) =>
+        BaseGeneratedModuleScalarManifest.Primitive<TValue>().Seal(path);
 
     private static BaseCapturedAtomicExecution Captured() => new()
     {
@@ -1586,10 +1714,10 @@ public sealed class BaseModuleProgramEvaluatorTests
         [
             new BaseCapturedModuleRecord
             {
-                Ordinal = 0, CaptureId = "existing", CollectionId = "records", RecordId = new RecordId("one"), Exists = true,
+                Ordinal = 0, CaptureId = "existing", CollectionId = "records", RecordId = RecordId.Create("one"), Exists = true,
                 Current = new RecordEnvelope
                 {
-                    CollectionId = "records", Id = new RecordId("one"),
+                    CollectionId = "records", Id = RecordId.Create("one"),
                     Payload = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = new Dictionary<string, System.Text.Json.JsonElement>() },
                     Metadata = new RecordMetadata(),
                 },

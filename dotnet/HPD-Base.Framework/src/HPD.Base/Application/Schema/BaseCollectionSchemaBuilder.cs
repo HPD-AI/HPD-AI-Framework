@@ -104,6 +104,9 @@ public sealed class BaseCollectionSchemaBuilder<T>
     public BaseSchemaFieldBuilder<T, string> FileReference(string fieldId, string applicationName, BaseJsonProperty<T, string> property) => Field(fieldId, applicationName, property, "string", "file-reference");
     /// <summary>Declares a bounded immutable binary field.</summary>
     public BaseSchemaFieldBuilder<T, BaseBinary> Binary(string fieldId, string applicationName, BaseJsonProperty<T, BaseBinary> property) => Field(fieldId, applicationName, property, "string", "base64");
+    /// <summary>Declares one opaque canonical module-generation field.</summary>
+    public BaseSchemaFieldBuilder<T, BaseModuleGeneration> ModuleGeneration(string fieldId, string applicationName, BaseJsonProperty<T, BaseModuleGeneration> property) =>
+        Field(fieldId, applicationName, property, "string", "base-module-generation");
 
     /// <summary>Requires storage protection for this collection from one owning module.</summary>
     public BaseCollectionSchemaBuilder<T> RequireStorageProtection(BaseStorageProtectionRequirement requirement)
@@ -124,7 +127,7 @@ public sealed class BaseCollectionSchemaBuilder<T>
             throw new InvalidOperationException($"Relation '{relationId}' is already declared.");
         }
 
-        Field(fieldId, applicationName, property, "string", "record-id");
+        Field(fieldId, applicationName, property, "id", "record-id");
         FieldEntry entry = _fields[fieldId];
         entry.Relation = new RelationDefinition
         {
@@ -265,10 +268,12 @@ public sealed class BaseCollectionSchemaBuilder<T>
     private static BaseScalarKind? ScalarKind(Type valueType, string type, string? format)
     {
         Type actual = Nullable.GetUnderlyingType(valueType) ?? valueType;
-        if (type == "string" && format is "record-id" or "file-reference") return BaseScalarKind.String;
+        if (type == "id" && format == "record-id") return BaseScalarKind.RecordId;
+        if (type == "string" && format == "file-reference") return BaseScalarKind.String;
         if (actual == typeof(string)) return BaseScalarKind.String;
         if (actual == typeof(BaseBinary)) return BaseScalarKind.Binary;
         if (actual == typeof(BaseCanonicalJson)) return BaseScalarKind.CanonicalJson;
+        if (actual == typeof(BaseModuleGeneration)) return BaseScalarKind.ModuleGeneration;
         if (actual == typeof(int)) return BaseScalarKind.Int32;
         if (actual == typeof(long)) return BaseScalarKind.Int64;
         if (actual == typeof(uint)) return BaseScalarKind.UInt32;
@@ -332,7 +337,22 @@ internal sealed class FieldEntry<TValue>(string collectionId, string id, string 
         {
             BaseFieldPresence presence = IsRequired ? BaseFieldPresence.Required : BaseFieldPresence.Optional;
             BaseFieldNullability nullability = IsNullable ? BaseFieldNullability.Nullable : BaseFieldNullability.NonNullable;
-            BaseScalarConstraintSet constraints = MaximumBytes is null ? ScalarConstraints : ScalarConstraints with { MaximumBinaryBytes = MaximumBytes };
+            BaseScalarConstraintSet constraints = ScalarKind switch
+            {
+                BaseScalarKind.RecordId => ScalarConstraints with
+                {
+                    MinimumUtf8Bytes = 1,
+                    MaximumUtf8Bytes = 256,
+                    StringNormalization = BaseStringNormalizationRequirement.RequireNfc,
+                },
+                BaseScalarKind.ModuleGeneration => ScalarConstraints with
+                {
+                    MinimumUtf8Bytes = 1,
+                    MaximumUtf8Bytes = 19,
+                    StringNormalization = null,
+                },
+                _ => MaximumBytes is null ? ScalarConstraints : ScalarConstraints with { MaximumBinaryBytes = MaximumBytes },
+            };
             BaseScalarCodecAuthority? codec = ScalarKind is null ? null : ScalarKind == BaseScalarKind.ClosedEnum
                 ? BaseSchemaContract.Codec(ScalarKind.Value, BaseSchemaContract.EnumQualifier(System.Enum.GetNames(Nullable.GetUnderlyingType(typeof(TValue)) ?? typeof(TValue))))
                 : BaseSchemaContract.Codec(ScalarKind.Value);

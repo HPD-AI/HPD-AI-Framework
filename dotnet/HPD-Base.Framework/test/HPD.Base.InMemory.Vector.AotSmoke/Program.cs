@@ -31,8 +31,8 @@ internal static class Program
         BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(principal);
         if (args is ["--capacity"])
             return await RunCapacityGateAsync(provider, session, principal);
-        (await session.Collection(InMemoryVectorRecord.Collection).CreateAsync(new RecordId("one"), new InMemoryVectorRecord { Label = "one", Tenant = new RecordId("tenant-a"), Active = true, Priority = 7, Optional = null, Embedding = BaseVector.Create([1, 0]) })).RequireValue();
-        (await session.Collection(InMemoryVectorRecord.Collection).CreateAsync(new RecordId("two"), new InMemoryVectorRecord { Label = "two", Tenant = new RecordId("tenant-b"), Active = false, Priority = 9, Optional = "present", Embedding = BaseVector.Create([0, 1]) })).RequireValue();
+        (await session.Collection(InMemoryVectorRecord.Collection).CreateAsync(RecordId.Create("one"), new InMemoryVectorRecord { Label = "one", Tenant = RecordId.Create("tenant-a"), Active = true, Priority = 7, Optional = null, Embedding = BaseVector.Create([1, 0]) })).RequireValue();
+        (await session.Collection(InMemoryVectorRecord.Collection).CreateAsync(RecordId.Create("two"), new InMemoryVectorRecord { Label = "two", Tenant = RecordId.Create("tenant-b"), Active = false, Priority = 9, Optional = "present", Embedding = BaseVector.Create([0, 1]) })).RequireValue();
 
         BaseVectorResult<InMemoryVectorRecord> cosine = (await session.Collection(InMemoryVectorRecord.Collection)
             .Vector(InMemoryVectorRecord.VectorIndexes.Cosine).Nearest(BaseVector.Create([1, 0]))
@@ -40,7 +40,7 @@ internal static class Program
             .Where<string>(InMemoryVectorRecord.Fields.Optional, null!).Take(2).ExecuteAsync()).RequireValue();
         BaseVectorResult<InMemoryVectorRecord> euclidean = (await session.Collection(InMemoryVectorRecord.Collection)
             .Vector(InMemoryVectorRecord.VectorIndexes.Euclidean).Nearest(BaseVector.Create([1, 0]))
-            .Where(InMemoryVectorRecord.Fields.Tenant, new RecordId("tenant-a")).OrWhere(InMemoryVectorRecord.Fields.Label, "two")
+            .Where(InMemoryVectorRecord.Fields.Tenant, RecordId.Create("tenant-a")).OrWhere(InMemoryVectorRecord.Fields.Label, "two")
             .Take(2).ExecuteAsync()).RequireValue();
         BaseVectorConsistencyToken token = cosine.ConsistencyToken;
         BaseVectorResult<InMemoryVectorRecord> consistent = (await session.Collection(InMemoryVectorRecord.Collection)
@@ -67,16 +67,16 @@ internal static class Program
         Process process = Process.GetCurrentProcess();
         process.Refresh();
         long baseline = process.WorkingSet64;
-        (await session.Collection(InMemoryUnrelatedRecord.Collection).CreateAsync(new RecordId("unrelated"), new InMemoryUnrelatedRecord { Value = "untouched" })).RequireValue();
+        (await session.Collection(InMemoryUnrelatedRecord.Collection).CreateAsync(RecordId.Create("unrelated"), new InMemoryUnrelatedRecord { Value = "untouched" })).RequireValue();
 
         for (int offset = 0; offset < recordCount; offset += 100)
         {
             BaseBatchBuilder batch = session.Atomic();
             int end = Math.Min(recordCount, offset + 100);
             for (int index = offset; index < end; index++)
-                batch.Create(InMemoryVectorRecord.Collection, new RecordId($"capacity-{index:D6}"), new InMemoryVectorRecord
+                batch.Create(InMemoryVectorRecord.Collection, RecordId.Create($"capacity-{index:D6}"), new InMemoryVectorRecord
                 {
-                    Label = $"record-{index:D6}", Tenant = new RecordId("capacity"), Active = true,
+                    Label = $"record-{index:D6}", Tenant = RecordId.Create("capacity"), Active = true,
                     Priority = index, Optional = null, Embedding = index < vectorCount ? BaseVector.Create([1, index / 1000f]) : null,
                 });
             (await batch.CommitAsync()).RequireValue().RequireCommitted();
@@ -104,16 +104,16 @@ internal static class Program
         }
         while (scanCursor is not null);
         if (examined != recordCount) return 17;
-        await session.Collection(InMemoryVectorRecord.Collection).ReplaceAsync(new RecordId("capacity-000000"), new InMemoryVectorRecord
-        { Label = "mutation-one", Tenant = new RecordId("capacity"), Active = true, Priority = 0, Optional = null, Embedding = BaseVector.Create([1, 0]) });
+        await session.Collection(InMemoryVectorRecord.Collection).ReplaceAsync(RecordId.Create("capacity-000000"), new InMemoryVectorRecord
+        { Label = "mutation-one", Tenant = RecordId.Create("capacity"), Active = true, Priority = 0, Optional = null, Embedding = BaseVector.Create([1, 0]) });
         OperationResult<IInMemoryProjectionReadSession> secondCapture = await ((IInMemoryProjectionAuthority)store).CaptureAsync(CancellationToken.None);
         if (!secondCapture.IsSuccess() || secondCapture.Value is null) return 11;
         await using IInMemoryProjectionReadSession secondRoot = secondCapture.Value;
         BaseInMemoryProjectionIndexHandle secondHandle = secondRoot.ProjectionSnapshot.GetIndexHandles().Single(handle => handle.Index.Id == InMemoryVectorRecord.VectorIndexes.Cosine.Definition.Id);
         IReadOnlyDictionary<string, InMemoryVectorCarrier> secondCarriers = secondRoot.State.GetCarriers(secondHandle);
         if (secondCarriers.Count != vectorCount || !secondCarriers.TryGetValue("capacity-000000", out InMemoryVectorCarrier? secondCarrier) || secondCarrier.Revision == firstCarrier.Revision) return 18;
-        await session.Collection(InMemoryVectorRecord.Collection).ReplaceAsync(new RecordId("capacity-000000"), new InMemoryVectorRecord
-        { Label = "mutation-two", Tenant = new RecordId("capacity"), Active = true, Priority = 0, Optional = null, Embedding = BaseVector.Create([1, 0]) });
+        await session.Collection(InMemoryVectorRecord.Collection).ReplaceAsync(RecordId.Create("capacity-000000"), new InMemoryVectorRecord
+        { Label = "mutation-two", Tenant = RecordId.Create("capacity"), Active = true, Priority = 0, Optional = null, Embedding = BaseVector.Create([1, 0]) });
 
         OperationResult<BaseVectorIndexStatus[]> listed = await provider.GetRequiredService<IBaseVectorAdministration>().ListAsync();
         if (!listed.IsSuccess() || listed.Value is null) return 13;

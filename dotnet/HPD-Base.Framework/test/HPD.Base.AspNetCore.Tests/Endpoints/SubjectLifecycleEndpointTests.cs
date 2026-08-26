@@ -88,12 +88,12 @@ public sealed class SubjectLifecycleEndpointTests
             HttpPrivateSubjectRecord.Collection.Id,
             new RecordCreateRequest
             {
-                RequestedId = new RecordId("subject-1"),
+                RequestedId = RecordId.Create("subject-1"),
                 Payload = FieldPayload(("active", true), ("tombstoned", false)),
             }, principal, Operation(applicationId, BaseOperationKind.Create, HttpPrivateSubjectRecord.Collection.Id));
         created.IsSuccess().Should().BeTrue(created.Error?.Code);
         OperationResult<RecordEnvelope> changed = await runtime.PatchAsync(
-            HttpPrivateSubjectRecord.Collection.Id, new RecordId("subject-1"),
+            HttpPrivateSubjectRecord.Collection.Id, RecordId.Create("subject-1"),
             new RecordPatchRequest { Patch = FieldPayload(("active", false)) },
             principal, Operation(applicationId, BaseOperationKind.Patch, HttpPrivateSubjectRecord.Collection.Id));
         changed.IsSuccess().Should().BeTrue(changed.Error?.Code);

@@ -7,6 +7,16 @@ namespace HPD.Base;
 
 internal static class BaseSchemaContract
 {
+    internal static bool ScalarAuthorityCompatible(
+        BaseScalarCodecAuthority leftCodec, BaseScalarConstraintSet leftConstraints,
+        BaseScalarCodecAuthority rightCodec, BaseScalarConstraintSet rightConstraints)
+    {
+        var left = new ArrayBufferWriter<byte>();
+        var right = new ArrayBufferWriter<byte>();
+        WriteCodec(left, leftCodec); WriteConstraints(left, leftConstraints);
+        WriteCodec(right, rightCodec); WriteConstraints(right, rightConstraints);
+        return left.WrittenSpan.SequenceEqual(right.WrittenSpan);
+    }
     private static readonly byte[] ConstraintPurpose = "hpd.base.scalar-constraint.v1\0"u8.ToArray();
     private static readonly byte[] PredicatePurpose = "hpd.base.index-predicate.v1\0"u8.ToArray();
     private static readonly byte[] IndexPurpose = "hpd.base.logical-index.v1\0"u8.ToArray();
@@ -23,6 +33,8 @@ internal static class BaseSchemaContract
         ImmutableArray<BaseScalarConstraintKind> constraints = kind switch
         {
             BaseScalarKind.String => [BaseScalarConstraintKind.Utf8Bytes, BaseScalarConstraintKind.StringNormalization],
+            BaseScalarKind.RecordId => [BaseScalarConstraintKind.Utf8Bytes, BaseScalarConstraintKind.StringNormalization],
+            BaseScalarKind.ModuleGeneration => [BaseScalarConstraintKind.Utf8Bytes],
             BaseScalarKind.Binary => [BaseScalarConstraintKind.BinaryBytes],
             BaseScalarKind.Int32 => [BaseScalarConstraintKind.Int32Range],
             BaseScalarKind.Int64 => [BaseScalarConstraintKind.Int64Range],
@@ -34,7 +46,7 @@ internal static class BaseSchemaContract
             BaseScalarKind.FrozenArray => [BaseScalarConstraintKind.CollectionItems],
             _ => [],
         };
-        bool orderable = kind is not BaseScalarKind.CanonicalJson and not BaseScalarKind.FrozenArray;
+        bool orderable = kind is not BaseScalarKind.CanonicalJson and not BaseScalarKind.FrozenArray and not BaseScalarKind.ModuleGeneration;
         byte[] equality = AuthorityChecksum("hpd.base.scalar-equality.v1\0"u8, id, 1, kind);
         byte[]? ordering = orderable ? AuthorityChecksum("hpd.base.scalar-ordering.v1\0"u8, id, 1, kind) : null;
         var authority = new ArrayBufferWriter<byte>(); authority.Write("hpd.base.scalar-codec.v1\0"u8);
@@ -61,6 +73,57 @@ internal static class BaseSchemaContract
         Write(writer, collectionId); Write(writer, fieldId); WriteUInt16(writer, (ushort)presence); WriteUInt16(writer, (ushort)nullability);
         WriteCodec(writer, codec); WriteConstraints(writer, constraints);
         return BaseScalarConstraintChecksum.Create(SHA256.HashData(writer.WrittenSpan));
+    }
+
+    internal static BaseModuleDtoScalarAuthorityChecksum SealModuleDtoScalarAuthority(
+        IReadOnlyList<string> stablePropertyPath,
+        BaseModuleValueType valueType)
+    {
+        ArgumentNullException.ThrowIfNull(stablePropertyPath);
+        ArgumentNullException.ThrowIfNull(valueType);
+        if (stablePropertyPath.Count is < 1 or > 16 || stablePropertyPath.Any(static edge => string.IsNullOrWhiteSpace(edge)))
+            throw Invalid();
+        var writer = new ArrayBufferWriter<byte>();
+        writer.Write("hpd.base.module.dto-scalar-authority.v1\0"u8);
+        WriteUInt32(writer, checked((uint)stablePropertyPath.Count));
+        foreach (string edge in stablePropertyPath) { BaseApplicationId.Validate(edge, nameof(stablePropertyPath)); Write(writer, edge); }
+        WriteModuleValueType(writer, valueType);
+        return BaseModuleDtoScalarAuthorityChecksum.Create(SHA256.HashData(writer.WrittenSpan));
+    }
+
+    internal static void WriteModuleValueType(ArrayBufferWriter<byte> writer, BaseModuleValueType value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        if (!Enum.IsDefined(value.Kind) || !Enum.IsDefined(value.Presence) || !Enum.IsDefined(value.Nullability)
+            || value.Kind == BaseModuleValueKind.FrozenArray)
+            throw Invalid();
+        WriteUInt64(writer, checked((ulong)value.Kind));
+        WriteUInt64(writer, checked((ulong)value.Presence));
+        WriteUInt64(writer, checked((ulong)value.Nullability));
+        if (value.Kind == BaseModuleValueKind.Revision)
+        {
+            if (value.Presence != BaseFieldPresence.Required || value.Nullability != BaseFieldNullability.NonNullable
+                || value.OwnedCodec is not null || value.OwnedConstraints is not null
+                || value.ConstraintChecksum is not null || value.RecordTargetCollectionId is not null)
+                throw Invalid();
+            Write(writer, false); Write(writer, false); Write(writer, false); Write(writer, false);
+            return;
+        }
+
+        BaseScalarKind scalarKind = (BaseScalarKind)(int)value.Kind;
+        BaseScalarCodecAuthority codec = value.OwnedCodec ?? throw Invalid();
+        BaseScalarConstraintSet constraints = value.OwnedConstraints ?? throw Invalid();
+        BaseScalarConstraintChecksum checksum = value.ConstraintChecksum ?? throw Invalid();
+        if (codec.Kind != scalarKind || !ValidCodec(codec)) throw Invalid();
+        ValidateConstraints(codec, constraints);
+        if (!checksum.IsValid) throw Invalid();
+        bool recordId = value.Kind == BaseModuleValueKind.RecordId;
+        if (recordId != (value.RecordTargetCollectionId is not null)) throw Invalid();
+        if (value.RecordTargetCollectionId is { } target) BaseApplicationId.Validate(target, nameof(value));
+        Write(writer, true); WriteCodec(writer, codec);
+        Write(writer, true); WriteConstraints(writer, constraints);
+        Write(writer, true); writer.Write(checksum.ToArray());
+        Write(writer, recordId); if (recordId) Write(writer, value.RecordTargetCollectionId!);
     }
 
     internal static string EnumQualifier(IEnumerable<string> literals)
@@ -136,6 +199,11 @@ internal static class BaseSchemaContract
              value.MaximumJsonTotalNodes is not > 0 || value.MaximumJsonTotalStringUtf8Bytes is not > 0 ||
              value.MaximumJsonTotalNameUtf8Bytes is not > 0)) throw Invalid();
         if (codec.Kind == BaseScalarKind.ClosedEnum && value.AllowedEnumLiterals.IsDefaultOrEmpty) throw Invalid();
+        if (codec.Kind == BaseScalarKind.RecordId &&
+            (value.MinimumUtf8Bytes != 1 || value.MaximumUtf8Bytes != 256 ||
+             value.StringNormalization != BaseStringNormalizationRequirement.RequireNfc)) throw Invalid();
+        if (codec.Kind == BaseScalarKind.ModuleGeneration &&
+            (value.MinimumUtf8Bytes != 1 || value.MaximumUtf8Bytes != 19 || value.StringNormalization is not null)) throw Invalid();
     }
 
     private static HashSet<BaseScalarConstraintKind> Used(BaseScalarConstraintSet value)
@@ -207,6 +275,8 @@ internal static class BaseSchemaContract
         byte[] result = (kind, value) switch
         {
             (BaseScalarKind.String, string item) => StrictUtf8(item),
+            (BaseScalarKind.RecordId, RecordId item) when item.IsValid => StrictUtf8(item.Value),
+            (BaseScalarKind.ModuleGeneration, BaseModuleGeneration item) => StrictUtf8(item.ToCanonicalString()),
             (BaseScalarKind.Binary, BaseBinary item) => item.ToArray(),
             (BaseScalarKind.Int32, int item) => Signed32(item),
             (BaseScalarKind.Int64, long item) => Signed64(item),
@@ -229,6 +299,8 @@ internal static class BaseSchemaContract
             return kind switch
             {
                 BaseScalarKind.String => ValidUtf8(bytes),
+                BaseScalarKind.RecordId => ValidRecordId(bytes),
+                BaseScalarKind.ModuleGeneration => ValidModuleGeneration(bytes),
                 BaseScalarKind.Binary => true,
                 BaseScalarKind.Int32 or BaseScalarKind.UInt32 => bytes.Length == 4,
                 BaseScalarKind.Int64 or BaseScalarKind.UInt64 => bytes.Length == 8,
@@ -244,6 +316,28 @@ internal static class BaseSchemaContract
     }
 
     private static byte[] GuidBytes(Guid value) { byte[] bytes = new byte[16]; value.TryWriteBytes(bytes, bigEndian: true, out _); return bytes; }
+
+    private static bool ValidRecordId(ReadOnlySpan<byte> bytes)
+    {
+        try
+        {
+            string value = new System.Text.UTF8Encoding(false, true).GetString(bytes);
+            return RecordId.TryParse(value, out _)
+                && bytes.SequenceEqual(System.Text.Encoding.UTF8.GetBytes(value));
+        }
+        catch { return false; }
+    }
+
+    private static bool ValidModuleGeneration(ReadOnlySpan<byte> bytes)
+    {
+        try
+        {
+            string value = new System.Text.UTF8Encoding(false, true).GetString(bytes);
+            _ = BaseModuleGeneration.ParseCanonical(value);
+            return bytes.SequenceEqual(System.Text.Encoding.UTF8.GetBytes(value));
+        }
+        catch { return false; }
+    }
 
     private static bool ValidCodec(BaseScalarCodecAuthority codec)
     {

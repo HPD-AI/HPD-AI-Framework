@@ -11,6 +11,94 @@ namespace HPD.Base.Generators.Tests;
 public sealed class BaseCollectionGeneratorTests
 {
     [Fact]
+    public void CanonicalJsonUsesTheBaseOwnedScalarConverter()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+
+            [BaseCollection("documents", typeof(AppJsonContext))]
+            public sealed partial record Document
+            {
+                [BaseField("metadata", MaximumCanonicalJsonBytes = 1024,
+                    JsonShape = BaseJsonShape.Object, MaximumJsonDepth = 4,
+                    MaximumJsonArrayItems = 16, MaximumJsonObjectProperties = 16,
+                    MaximumJsonTotalNodes = 64, MaximumJsonTotalStringUtf8Bytes = 1024,
+                    MaximumJsonTotalNameUtf8Bytes = 1024)]
+                public required BaseCanonicalJson Metadata { get; init; }
+            }
+
+            [JsonSerializable(typeof(Document))]
+            public sealed partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        GeneratorResult result = Run(source);
+
+        result.Diagnostics.Should().BeEmpty();
+        result.GeneratedSource.Should().Contain("MaximumCanonicalJsonBytes = 1024");
+        result.GeneratedSource.Should().Contain("BaseScalarKind.CanonicalJson");
+        result.GeneratedSource.Should().Contain("Format = \"base-json-v1\"");
+        result.GeneratedSource.Should().NotContain("BaseCanonicalJson.Utf8");
+    }
+
+    [Fact]
+    public void ClosedEnumAdmitsExactRenamedWireLiteralsThroughTheBaseConverter()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+
+            public enum ProcessingMode
+            {
+                [JsonStringEnumMemberName("archived-wire")] Archived,
+                [JsonStringEnumMemberName("queued-wire")] Queued,
+            }
+
+            [BaseCollection("work-items", typeof(AppJsonContext))]
+            public sealed partial record WorkItem
+            {
+                [BaseField("mode", AllowedEnumLiterals = ["archived-wire", "queued-wire"])]
+                [JsonConverter(typeof(BaseClosedEnumJsonConverter<ProcessingMode>))]
+                public required ProcessingMode Mode { get; init; }
+            }
+
+            [JsonSerializable(typeof(WorkItem))]
+            public sealed partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        GeneratorResult result = Run(source);
+
+        result.Diagnostics.Should().BeEmpty();
+        result.GeneratedSource.Should().Contain("queued-wire");
+        result.GeneratedSource.Should().Contain("archived-wire");
+    }
+
+    [Theory]
+    [InlineData("[System.Flags] public enum State { Active = 1, Disabled = 2 }")]
+    [InlineData("public enum State { Active = 1, Alias = 1 }")]
+    [InlineData("public enum State { [JsonStringEnumMemberName(\"same\")] Active = 1, [JsonStringEnumMemberName(\"same\")] Disabled = 2 }")]
+    [InlineData("public enum State : ulong { Invalid = 18446744073709551615UL }")]
+    public void CollectionClosedEnumsRejectAmbiguousOrUnboundedVocabularies(string declaration)
+    {
+        string source = $$"""
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            {{declaration}}
+            [BaseCollection("items", typeof(AppJsonContext))]
+            public sealed partial record Item
+            {
+                [BaseField("item.state", AllowedEnumLiterals = ["Active", "Disabled"])]
+                [JsonConverter(typeof(BaseClosedEnumJsonConverter<State>))]
+                public required State State { get; init; }
+            }
+            [JsonSerializable(typeof(Item))]
+            public sealed partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        Run(source).Diagnostics.Should().Contain(item => item.Id == "HPDBASE5401");
+    }
+
+    [Fact]
     public void SubjectReferenceLowersToADistinctClosedFieldContract()
     {
         const string source = """
@@ -130,6 +218,10 @@ public sealed class BaseCollectionGeneratorTests
         first.GeneratedSource.Should().Contain("BaseCollection<global::Example.Project>");
         first.GeneratedSource.Should().Contain("Fields.SetName");
         first.GeneratedSource.Should().Contain("BaseRecordIdJsonConverterFactory.Register<global::Example.User>()");
+        first.GeneratedSource.Should().Contain("ScalarKind = global::HPD.Base.BaseScalarKind.RecordId");
+        first.GeneratedSource.Should().Contain("MinimumUtf8Bytes = 1");
+        first.GeneratedSource.Should().Contain("MaximumUtf8Bytes = 256");
+        first.GeneratedSource.Should().Contain("StringNormalization = global::HPD.Base.BaseStringNormalizationRequirement.RequireNfc");
     }
 
     [Fact]
@@ -1385,6 +1477,89 @@ public sealed class BaseCollectionGeneratorTests
 
         result.Diagnostics.Count(item => item.Id == "HPDBASE0450").Should().Be(1);
         result.Diagnostics.Count(item => item.Id == "HPDBASE0451").Should().Be(1);
+    }
+
+    [Fact]
+    public void WhenWritingNullIsAdmittedOnlyForOptionalNonNullableFields()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseCollection("records", typeof(AppJsonContext))]
+            public sealed partial record Record
+            {
+                [BaseField("record.label", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable)]
+                public string? Label { get; init; }
+            }
+            [JsonSourceGenerationOptions(DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+            [JsonSerializable(typeof(Record))]
+            public sealed partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        GeneratorResult result = Run(source);
+
+        result.Diagnostics.Should().NotContain(item => item.Severity == Microsoft.CodeAnalysis.DiagnosticSeverity.Error);
+        result.GeneratedSource.Should().Contain("Presence = global::HPD.Base.BaseFieldPresence.Optional")
+            .And.Contain("Nullability = global::HPD.Base.BaseFieldNullability.NonNullable")
+            .And.Contain("global::System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull");
+    }
+
+    [Theory]
+    [InlineData("Required", "NonNullable")]
+    [InlineData("Optional", "Nullable")]
+    [InlineData("Required", "Nullable")]
+    public void WhenWritingNullRejectsEveryOtherPresenceNullabilityCombination(string presence, string nullability)
+    {
+        string source = $$"""
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseCollection("records", typeof(AppJsonContext))]
+            public sealed partial record Record
+            {
+                [BaseField("record.label", Presence = BaseFieldPresence.{{presence}}, Nullability = BaseFieldNullability.{{nullability}})]
+                public string? Label { get; init; }
+            }
+            [JsonSourceGenerationOptions(DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+            [JsonSerializable(typeof(Record))]
+            public sealed partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        GeneratorResult result = Run(source);
+
+        result.Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE0447")
+            .Which.GetMessage().Should().Contain("Optional").And.Contain("NonNullable");
+    }
+
+    [Fact]
+    public void WhenWritingNullRejectsNullableReadMembersInAMixedAuthoritativeContext()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseCollection("records", typeof(AppJsonContext))]
+            public sealed partial record Record
+            {
+                [BaseField("record.label", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable)]
+                public string? Label { get; init; }
+            }
+            [BaseRead("records.read", typeof(AppJsonContext), RequiredGrantId = "records.read")]
+            public sealed partial record Read
+            {
+                [BaseReadParameter("records.read.filter")] public string? Filter { get; init; }
+                public sealed partial record Row { [BaseReadField("records.read.value")] public required string Value { get; init; } }
+                public static void Configure(BaseReadDefinitionBuilder<Read, Row> read) { }
+            }
+            [JsonSourceGenerationOptions(DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+            [JsonSerializable(typeof(Record))]
+            [JsonSerializable(typeof(Read))]
+            [JsonSerializable(typeof(Read.Row), TypeInfoPropertyName = "ReadRow")]
+            public sealed partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        GeneratorResult result = Run(source);
+
+        result.Diagnostics.Should().Contain(item => item.Id == "HPDBASE0447");
+        result.GeneratedSource.Should().NotContain("CreateGenerated");
     }
 
     [Fact]

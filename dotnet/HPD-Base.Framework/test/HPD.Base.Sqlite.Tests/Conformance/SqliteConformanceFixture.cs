@@ -127,10 +127,10 @@ public sealed class SqliteConformanceFixture : IConfigurableRuntimeStoreConforma
             collection,
             new RecordCreateRequest
             {
-                RequestedId = new RecordId(id),
+                RequestedId = RecordId.Create(id),
                 Payload = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = fields.ToDictionary(field => field.Field, field => field.Value.Clone(), StringComparer.Ordinal) }
             },
-            Operation(BaseOperationKind.Create, new RecordId(id)));
+            Operation(BaseOperationKind.Create, RecordId.Create(id)));
 
         result.Status.Should().Be(OperationStatus.Created);
         return result.Value!;

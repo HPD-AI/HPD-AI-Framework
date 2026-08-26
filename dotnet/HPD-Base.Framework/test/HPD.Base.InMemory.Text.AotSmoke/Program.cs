@@ -17,7 +17,7 @@ internal static class Program
         });
         await using ServiceProvider provider = services.BuildServiceProvider(); if (!(await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess()) return 2;
         BaseCollectionSession<AotTextRecord> collection = provider.GetRequiredService<IBaseSessionFactory>().For(new() { AuthenticationState = PrincipalAuthenticationState.Admin, SubjectKind = AccessSubjectKind.User, SubjectId = "aot" }).Collection(AotTextRecord.Collection);
-        (await collection.CreateAsync(new("one"), new() { Title = "Portable lexical search", State = "published" })).RequireValue();
+        (await collection.CreateAsync(RecordId.Create("one"), new() { Title = "Portable lexical search", State = "published" })).RequireValue();
         BaseTextResult<AotTextRecord> result = (await collection.Text(AotTextRecord.TextIndexes.Content, BaseTextQuery.ExactPhrase("lexical", "search")).Where(AotTextRecord.Fields.State, "published").Take(4).ExecuteAsync()).RequireValue();
         IBaseTextAdministration administration = provider.GetRequiredService<IBaseTextAdministration>(); BaseTextIndexStatus state = (await administration.GetAsync(AotTextRecord.Collection.Id, AotTextRecord.TextIndexes.Content.Definition.Id)).Value!;
         BaseTextRebuildResult rebuilt = (await administration.RebuildAsync(new() { CollectionId = state.CollectionId, TextIndexId = state.TextIndexId, ExpectedGeneration = state.Generation, Identity = BaseMutationRequestIdentity.Create("aot", "text.rebuild", "one", BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("one"u8))) })).Value!;

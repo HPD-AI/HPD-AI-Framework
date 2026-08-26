@@ -194,6 +194,31 @@ public sealed class GeneratedCollectionTests
     }
 
     [Fact]
+    public void RenamedClosedEnumUsesOnlyItsExactWireVocabularyAtTheGeneratedBoundary()
+    {
+        var metadata = Metadata().GeneratedWireEnumRecord;
+        _ = GeneratedWireEnumRecord.Collection.Definition;
+
+        JsonSerializer.Serialize(new GeneratedWireEnumRecord { State = GeneratedWireState.Active }, metadata)
+            .Should().Be("{\"state\":\"active-wire\"}");
+        JsonSerializer.Deserialize("{\"state\":\"active-wire\"}", metadata)!.State.Should().Be(GeneratedWireState.Active);
+        ((Action)(() => JsonSerializer.Deserialize("{\"state\":0}", metadata))).Should().Throw<JsonException>();
+        ((Action)(() => JsonSerializer.Deserialize("{\"state\":\"ACTIVE-WIRE\"}", metadata))).Should().Throw<JsonException>();
+        ((Action)(() => JsonSerializer.Deserialize("{\"state\":\"Active\"}", metadata))).Should().Throw<JsonException>();
+        ((Action)(() => JsonSerializer.Deserialize("{\"state\":\"unknown\"}", metadata))).Should().Throw<JsonException>();
+        ((Action)(() => JsonSerializer.Serialize(new GeneratedWireEnumRecord { State = (GeneratedWireState)99 }, metadata))).Should().Throw<JsonException>();
+    }
+
+    [Fact]
+    public void OptionalNonNullableNullSerializesAsAGenuinelyMissingField()
+    {
+        string json = JsonSerializer.Serialize(new GeneratedOptionalNonNullableRecord(),
+            GeneratedOptionalNonNullableJsonContext.Default.GeneratedOptionalNonNullableRecord);
+
+        json.Should().Be("{}");
+    }
+
+    [Fact]
     public void ManualBuilderCoversEveryPreviouslyMissingScalarAndBinaryEquality()
     {
         var metadata = Metadata().ManualScalarRecord;
@@ -290,6 +315,33 @@ internal enum GeneratedState
     Disabled,
 }
 
+internal enum GeneratedWireState
+{
+    [JsonStringEnumMemberName("active-wire")]
+    Active,
+    [JsonStringEnumMemberName("disabled-wire")]
+    Disabled,
+}
+
+[BaseCollection("generated-wire-enums", typeof(GeneratedApplicationJsonContext))]
+internal sealed partial record GeneratedWireEnumRecord
+{
+    [BaseField("state", AllowedEnumLiterals = ["active-wire", "disabled-wire"])]
+    [JsonConverter(typeof(BaseClosedEnumJsonConverter<GeneratedWireState>))]
+    public required GeneratedWireState State { get; init; }
+}
+
+[BaseCollection("generated-optional-non-null", typeof(GeneratedOptionalNonNullableJsonContext))]
+internal sealed partial record GeneratedOptionalNonNullableRecord
+{
+    [BaseField("label", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable)]
+    public string? Label { get; init; }
+}
+
+[JsonSourceGenerationOptions(DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(GeneratedOptionalNonNullableRecord))]
+internal sealed partial class GeneratedOptionalNonNullableJsonContext : JsonSerializerContext;
+
 [BaseCollection("generated-enums", typeof(GeneratedApplicationJsonContext))]
 internal sealed partial record GeneratedEnumRecord
 {
@@ -313,6 +365,7 @@ internal sealed record ManualScalarRecord
 [JsonSerializable(typeof(GeneratedProject))]
 [JsonSerializable(typeof(GeneratedIgnoreContract))]
 [JsonSerializable(typeof(GeneratedEnumRecord))]
+[JsonSerializable(typeof(GeneratedWireEnumRecord))]
 [JsonSerializable(typeof(ManualScalarRecord))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class GeneratedApplicationJsonContext : JsonSerializerContext;

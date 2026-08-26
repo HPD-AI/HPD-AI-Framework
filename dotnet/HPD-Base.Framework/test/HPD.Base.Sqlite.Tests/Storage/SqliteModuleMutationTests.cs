@@ -1298,7 +1298,7 @@ public sealed partial class SqliteModuleMutationTests
 
     private static BaseGeneratedModuleMutationIdentity<Request, Result> Identity() => new(
         "module.increment", 1, new byte[32], Json.Default.Request, Json.Default.Result, [],
-        [BaseModuleDtoPropertyBinding.Create<Result, string>("result.generation", nameof(Result.Generation))]);
+        [BaseModuleDtoPropertyBinding.Create<Result, string>("result.generation", nameof(Result.Generation), BaseGeneratedModuleScalarManifest.Primitive<string>())]);
 
     private static BaseRegisteredModuleMutationDefinition Definition() => BaseModuleMutationContract.Seal(new()
     {
@@ -1314,11 +1314,16 @@ public sealed partial class SqliteModuleMutationTests
             {
                 Value = new BaseModuleObjectExpression
                 {
-                    Id = "result", ResultTypeId = "result",
+                    Id = "result",
                     Properties = [new BaseModuleObjectPropertyExpression
                     {
                         StablePropertyId = "result.generation",
-                        Value = new BaseModuleResultingGenerationExpression { Id = "result-generation", ResultTypeId = "string", CaptureId = "generation" },
+                        Value = new BaseModuleResultingGenerationExpression
+                        {
+                            Id = "result-generation",
+                            ResultType = BaseGeneratedModuleScalarManifest.Primitive<string>().Seal(["result.generation"]).ValueType,
+                            CaptureId = "generation",
+                        },
                     }],
                 },
             },

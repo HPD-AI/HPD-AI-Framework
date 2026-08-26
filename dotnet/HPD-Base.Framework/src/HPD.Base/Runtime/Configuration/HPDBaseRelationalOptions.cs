@@ -20,6 +20,10 @@ public sealed class HPDBaseRelationalOptions
     public int MaxGroupKeys { get; set; } = 8;
     /// <summary>Gets or sets max Aggregates.</summary>
     public int MaxAggregates { get; set; } = 16;
+    /// <summary>Gets or sets the maximum independent count branches.</summary>
+    public int MaxCompoundReadBranches { get; set; } = 32;
+    /// <summary>Gets or sets the maximum aggregate operations across compound branches.</summary>
+    public int MaxCompoundReadOperations { get; set; } = 256;
     /// <summary>Gets or sets max Projection Fields.</summary>
     public int MaxProjectionFields { get; set; } = 64;
     /// <summary>Gets or sets max Sort Fields.</summary>
@@ -30,8 +34,10 @@ public sealed class HPDBaseRelationalOptions
     public int MaxResultRows { get; set; } = 1_000;
     /// <summary>Gets or sets max Groups.</summary>
     public int MaxGroups { get; set; } = 1_000;
-    /// <summary>Gets or sets max Result Bytes.</summary>
-    public int MaxResultBytes { get; set; } = 1_048_576;
+    /// <summary>Gets or sets the host ceiling for one immutable registered-read result.</summary>
+    public int MaxRegisteredReadResultBytes { get; set; } = 16_777_216;
+    /// <summary>Gets or sets the independent host ceiling for ordinary record/include results.</summary>
+    public int MaxIncludeResultBytes { get; set; } = 1_048_576;
     /// <summary>Gets or sets max Include Depth.</summary>
     public int MaxIncludeDepth { get; set; } = 3;
     /// <summary>Gets or sets max Includes.</summary>
@@ -57,12 +63,15 @@ public sealed class HPDBaseRelationalOptions
         Bounded(MaxParameterArrayItems, 256, nameof(MaxParameterArrayItems));
         Bounded(MaxGroupKeys, 8, nameof(MaxGroupKeys));
         Bounded(MaxAggregates, 16, nameof(MaxAggregates));
+        Range(MaxCompoundReadBranches, 1, 32, nameof(MaxCompoundReadBranches));
+        Range(MaxCompoundReadOperations, 1, 4_096, nameof(MaxCompoundReadOperations));
         Bounded(MaxProjectionFields, 64, nameof(MaxProjectionFields));
         Bounded(MaxSortFields, 8, nameof(MaxSortFields));
         Bounded(MaxPageSize, 500, nameof(MaxPageSize));
         Bounded(MaxResultRows, 1_000, nameof(MaxResultRows));
         Bounded(MaxGroups, 1_000, nameof(MaxGroups));
-        Bytes(MaxResultBytes, nameof(MaxResultBytes));
+        RegisteredReadBytes(MaxRegisteredReadResultBytes, nameof(MaxRegisteredReadResultBytes));
+        Bytes(MaxIncludeResultBytes, nameof(MaxIncludeResultBytes));
         Bounded(MaxIncludeDepth, 3, nameof(MaxIncludeDepth));
         Bounded(MaxIncludes, 8, nameof(MaxIncludes));
         Bounded(MaxIncludedRecords, 1_000, nameof(MaxIncludedRecords));
@@ -78,10 +87,22 @@ public sealed class HPDBaseRelationalOptions
             throw new ArgumentOutOfRangeException(name);
     }
 
+    private static void Range(int value, int minimum, int maximum, string name)
+    {
+        if (value < minimum || value > maximum)
+            throw new ArgumentOutOfRangeException(name);
+    }
+
     /// <summary>Performs bytes.</summary>
     private static void Bytes(int value, string name)
     {
         if (value < 1_024 || value > 64 * 1024 * 1024)
+            throw new ArgumentOutOfRangeException(name);
+    }
+
+    private static void RegisteredReadBytes(int value, string name)
+    {
+        if (value < 1 || value > 16_777_216)
             throw new ArgumentOutOfRangeException(name);
     }
 

@@ -437,7 +437,7 @@ internal static class BaseSemanticActivationKeyCompiler
                     hash.AppendData([1]); Int(tuple.Elements.Length); foreach (BaseSemanticActivationKeyExpression item in tuple.Elements) Add(item); break;
                 case BaseSemanticActivationKeyPropertyExpression property:
                     hash.AppendData([2]); Int(property.Property.StablePropertyPath.Length); foreach (string edge in property.Property.StablePropertyPath) Text(edge);
-                    Text(property.Property.DeclaredTypeId); Int((int)property.ScalarKind); Int(property.MaximumValueBytes); hash.AppendData([property.AllowNull ? (byte)1 : (byte)0]); break;
+                    hash.AppendData(property.Property.Authority.AuthorityChecksum.ToArray()); Int((int)property.ScalarKind); Int(property.MaximumValueBytes); hash.AppendData([property.AllowNull ? (byte)1 : (byte)0]); break;
                 case BaseSemanticActivationKeyConstantExpression constant:
                     hash.AppendData([3]); Int((int)constant.ScalarKind); Int(constant.MaximumValueBytes); Int(constant.CanonicalBaseJson.Length); hash.AppendData(constant.CanonicalBaseJson.AsSpan()); break;
                 default: throw new InvalidOperationException("base.semanticActivation.contractInvalid");
@@ -473,14 +473,17 @@ internal static class BaseSemanticActivationKeyCompiler
             throw new InvalidOperationException("base.semanticActivation.contractInvalid");
         string path = string.Join('\0', value.Property.StablePropertyPath);
         if (!bindings.TryGetValue(path, out BaseModuleDtoPropertyBinding? binding)
-            || value.AllowNull && !binding.Nullable || !ScalarMatches(binding.PropertyType, value.ScalarKind))
+            || value.AllowNull && binding.Nullability != BaseFieldNullability.Nullable || !ScalarMatches(binding.PropertyType, value.ScalarKind))
             throw new InvalidOperationException("base.semanticActivation.contractInvalid");
         return value with
         {
             Property = value.Property with
             {
                 StablePropertyPath = value.Property.StablePropertyPath.Select(static edge => new string(edge.AsSpan())).ToImmutableArray(),
-                DeclaredTypeId = new string(value.Property.DeclaredTypeId.AsSpan()),
+                Authority = new BaseModuleDtoScalarAuthority(
+                    value.Property.Authority.StablePropertyPath,
+                    value.Property.Authority.ValueType,
+                    value.Property.Authority.AuthorityChecksum),
             },
         };
     }

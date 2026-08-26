@@ -37,7 +37,7 @@ public sealed class SerializationTests
     [Fact]
     public void PrimitiveConvertersUseStringWireShape()
     {
-        JsonSerializer.Serialize(new RecordId("abc"), HPDBaseJsonSerializerContext.Default.RecordId).Should().Be("\"abc\"");
+        JsonSerializer.Serialize(RecordId.Create("abc"), HPDBaseJsonSerializerContext.Default.RecordId).Should().Be("\"abc\"");
         JsonSerializer.Serialize(new RevisionToken("r1"), HPDBaseJsonSerializerContext.Default.RevisionToken).Should().Be("\"r1\"");
     }
 }

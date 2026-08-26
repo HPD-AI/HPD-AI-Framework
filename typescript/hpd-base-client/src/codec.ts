@@ -11,6 +11,7 @@ export type BaseTypeNode =
   | { readonly kind: "decimal"; readonly wire: "decimal-string" }
   | { readonly kind: "floating"; readonly precision: "binary32" | "binary64"; readonly finiteOnly: true }
   | { readonly kind: "bytes"; readonly wire: "base64"; readonly maxBytes: number }
+  | { readonly kind: "canonicalJson"; readonly canonicalJsonShape: BaseCanonicalJsonShape }
   | { readonly kind: "redacted" }
   | { readonly kind: "subjectReference"; readonly contractId: string; readonly contractVersion: number; readonly subjectIdKind: "ordinalString" | "guid" | "uint64"; readonly maximumSubjectIdUtf8Bytes: number; readonly authorityEpochBytes: 16; readonly incarnationBytes: 24 }
   | { readonly kind: "literal"; readonly value: string | boolean | null }
@@ -18,6 +19,19 @@ export type BaseTypeNode =
   | { readonly kind: "array"; readonly elementTypeId: string; readonly minItems: number; readonly maxItems: number }
   | { readonly kind: "object"; readonly properties: readonly { readonly name: string; readonly wireName: string; readonly typeId: string; readonly required: boolean; readonly nullable: boolean; readonly disclosureShape: "none" | "omission" | "fixed-marker" }[]; readonly additionalProperties: false }
   | { readonly kind: "union"; readonly discriminator: string; readonly variants: readonly { readonly tag: string; readonly typeId: string }[] };
+
+/** Public bounded canonical-JSON authority carried by one generated type node. */
+export interface BaseCanonicalJsonShape {
+  readonly jsonShape: "object" | "array" | "objectOrArray" | 0 | 1 | 2;
+  readonly maximumCanonicalJsonBytes: number;
+  readonly maximumJsonDepth: number;
+  readonly maximumJsonArrayItems: number;
+  readonly maximumJsonObjectProperties: number;
+  readonly maximumJsonTotalNodes: number;
+  readonly maximumJsonTotalStringUtf8Bytes: number;
+  readonly maximumJsonTotalNameUtf8Bytes: number;
+  readonly checksum: string;
+}
 
 /** Maps stable DTO type IDs to closed graph nodes. */
 export type BaseTypeGraph = Readonly<Record<string, BaseTypeNode>>;
@@ -51,6 +65,7 @@ function ownTypeNode(node: BaseTypeNode): BaseTypeNode {
     case "integer": if (!integerText(node.minimum) || !integerText(node.maximum) || BigInt(node.minimum) > BigInt(node.maximum) || !["number", "decimal-string"].includes(node.wire)) invalid(); return own(["kind", "minimum", "maximum", "wire"], { ...node });
     case "floating": if (!["binary32", "binary64"].includes(node.precision) || node.finiteOnly !== true) invalid(); return own(["kind", "precision", "finiteOnly"], { ...node });
     case "bytes": if (node.wire !== "base64" || !positiveInt(node.maxBytes)) invalid(); return own(["kind", "wire", "maxBytes"], { ...node });
+    case "canonicalJson": return own(["kind", "canonicalJsonShape"], { ...node, canonicalJsonShape: ownCanonicalJsonShape(node.canonicalJsonShape) });
     case "subjectReference": if (!dynamicTypeId(node.contractId) || !positiveInt(node.contractVersion) || !["ordinalString", "guid", "uint64"].includes(node.subjectIdKind) || !positiveInt(node.maximumSubjectIdUtf8Bytes) || node.authorityEpochBytes !== 16 || node.incarnationBytes !== 24) invalid(); return own(["kind", "contractId", "contractVersion", "subjectIdKind", "maximumSubjectIdUtf8Bytes", "authorityEpochBytes", "incarnationBytes"], { ...node });
     case "literal": if (node.value !== null && typeof node.value !== "string" && typeof node.value !== "boolean") invalid(); return own(["kind", "value"], { ...node });
     case "enum": if (!Array.isArray(node.values) || node.values.length < 1 || node.values.length > 256 || node.values.some(value => !boundedText(value, 256)) || !canonicalStrings(node.values)) invalid(); return own(["kind", "values"], { ...node, values: Object.freeze([...node.values]) });
@@ -99,6 +114,28 @@ interface RawNumber { readonly rawNumber: true; readonly token: string; }
 const rawNumber = (token: string): RawNumber => Object.freeze({ rawNumber: true, token });
 const isRawNumber = (value: unknown): value is RawNumber => typeof value === "object" && value !== null && !Array.isArray(value) && (value as Partial<RawNumber>).rawNumber === true && typeof (value as Partial<RawNumber>).token === "string";
 
+declare const canonicalJsonNumberBrand: unique symbol;
+/** An exact BASE canonical-JSON number that is not losslessly representable as a JavaScript number. */
+export type BaseCanonicalJsonNumber = Readonly<{
+  readonly canonical: string;
+  readonly [canonicalJsonNumberBrand]: true;
+}>;
+const canonicalJsonNumberMarker = Symbol("BaseCanonicalJsonNumber");
+/** Creates an exact canonical-JSON number from one canonical L44 number token. */
+export function baseCanonicalJsonNumber(canonical: string): BaseCanonicalJsonNumber {
+  if (!canonicalBaseJsonNumber(canonical)) invalid();
+  return Object.freeze({ canonical, [canonicalJsonNumberMarker]: true }) as unknown as BaseCanonicalJsonNumber;
+}
+/** Returns whether a value is an exact BASE canonical-JSON number. */
+export function isBaseCanonicalJsonNumber(value: unknown): value is BaseCanonicalJsonNumber {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    && (value as Record<PropertyKey, unknown>)[canonicalJsonNumberMarker] === true
+    && typeof (value as { readonly canonical?: unknown }).canonical === "string"
+    && Object.getOwnPropertySymbols(value).length === 1
+    && Object.keys(value).length === 1
+    && canonicalBaseJsonNumber((value as { readonly canonical: string }).canonical);
+}
+
 /** Parses strict BASE JSON and materializes only lossless general-purpose JSON numbers. */
 export function parseBaseJson(json: string): unknown { return materialize(parseBaseJsonDocument(json)); }
 
@@ -146,6 +183,7 @@ function decodeNode(value: unknown, typeId: string, graph: BaseTypeGraph, shape:
     case "decimal": if (typeof value !== "string" || !/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/u.test(value) || value === "-0") invalid(); return value;
     case "floating": return floating(value, node.precision);
     case "bytes": return decodeBytes(value, node.maxBytes, shape);
+    case "canonicalJson": return canonicalJsonValue(value, node.canonicalJsonShape, shape);
     case "redacted": if (!isBaseRedacted(value)) invalid(); return baseRedacted;
     case "subjectReference": return subjectReference(value, node);
     case "literal": if (value !== node.value) invalid(); return value;
@@ -173,6 +211,7 @@ function encodeNode(value: unknown, typeId: string, graph: BaseTypeGraph, path: 
       case "module-generation": return JSON.stringify(decodeNode(value, typeId, graph, "application"));
       case "boolean": case "string": case "decimal": case "literal": case "enum": return JSON.stringify(decodeNode(value, typeId, graph, "application"));
       case "bytes": return JSON.stringify(encodeBytes(value, node.maxBytes));
+      case "canonicalJson": return canonicalJsonText(value, node.canonicalJsonShape, "application");
       case "redacted": invalid();
       case "subjectReference": { const reference = subjectReference(value, node); return `{"subjectId":${JSON.stringify(reference.subjectId)},"authorityEpoch":${JSON.stringify(reference.authorityEpoch)},"incarnation":${JSON.stringify(reference.incarnation)}}`; }
       case "integer": { const decoded = integer(value, node); return node.wire === "number" ? String(decoded) : JSON.stringify(decoded); }
@@ -183,6 +222,74 @@ function encodeNode(value: unknown, typeId: string, graph: BaseTypeGraph, path: 
     }
   } finally { if (object(value) || Array.isArray(value)) path.delete(value as object); }
   return invalid();
+}
+
+function ownCanonicalJsonShape(value: BaseCanonicalJsonShape): BaseCanonicalJsonShape {
+  if (!object(value)) invalid(); exactTypeNode(value, ["jsonShape", "maximumCanonicalJsonBytes", "maximumJsonDepth",
+    "maximumJsonArrayItems", "maximumJsonObjectProperties", "maximumJsonTotalNodes",
+    "maximumJsonTotalStringUtf8Bytes", "maximumJsonTotalNameUtf8Bytes", "checksum"]);
+  if (![0, 1, 2, "object", "array", "objectOrArray"].includes(value.jsonShape)
+    || ![value.maximumCanonicalJsonBytes, value.maximumJsonDepth, value.maximumJsonArrayItems,
+      value.maximumJsonObjectProperties, value.maximumJsonTotalNodes, value.maximumJsonTotalStringUtf8Bytes,
+      value.maximumJsonTotalNameUtf8Bytes].every(positiveInt)
+    || typeof value.checksum !== "string" || !/^[0-9a-f]{64}$/u.test(value.checksum)) invalid();
+  return Object.freeze({ ...value });
+}
+
+function canonicalJsonValue(value: unknown, limits: BaseCanonicalJsonShape, shape: "application" | "wire"): unknown {
+  canonicalJsonText(value, limits, shape);
+  return deepOwnJson(materializeCanonicalJson(value));
+}
+
+function canonicalJsonText(value: unknown, limits: BaseCanonicalJsonShape, shape: "application" | "wire"): string {
+  let nodes = 0; let strings = 0; let names = 0; const encoder = new TextEncoder();
+  const visit = (item: unknown, depth: number): string => {
+    if (++nodes > limits.maximumJsonTotalNodes || depth > limits.maximumJsonDepth) invalid();
+    if (item === null) return "null";
+    if (typeof item === "boolean") return item ? "true" : "false";
+    if (typeof item === "string") { validUnicode(item); strings += encoder.encode(item).length; if (strings > limits.maximumJsonTotalStringUtf8Bytes) invalid(); return JSON.stringify(item); }
+    if (isRawNumber(item)) { if (shape !== "wire" || !canonicalBaseJsonNumber(item.token)) invalid(); return item.token; }
+    if (isBaseCanonicalJsonNumber(item)) { if (shape !== "application") invalid(); return item.canonical; }
+    if (typeof item === "number") { const token = Object.is(item, -0) ? "0" : item.toString(); if (shape !== "application" || !canonicalBaseJsonNumber(token)) invalid(); return token; }
+    if (Array.isArray(item)) { if (item.length > limits.maximumJsonArrayItems) invalid(); return `[${item.map(child => visit(child, depth + 1)).join(",")}]`; }
+    if (!object(item)) invalid(); const keys = Object.keys(item); if (keys.length > limits.maximumJsonObjectProperties) invalid();
+    const sorted = [...keys].sort(); return `{${sorted.map(key => { validUnicode(key); nodes++; names += encoder.encode(key).length; if (nodes > limits.maximumJsonTotalNodes || names > limits.maximumJsonTotalNameUtf8Bytes) invalid(); return `${JSON.stringify(key)}:${visit(item[key], depth + 1)}`; }).join(",")}}`;
+  };
+  const objectShape = object(value); const arrayShape = Array.isArray(value); const admitted = limits.jsonShape === 0 || limits.jsonShape === "object" ? objectShape
+    : limits.jsonShape === 1 || limits.jsonShape === "array" ? arrayShape : objectShape || arrayShape;
+  if (!admitted) invalid(); const text = visit(value, 1); if (encoder.encode(text).length > limits.maximumCanonicalJsonBytes) invalid(); return text;
+}
+
+function canonicalBaseJsonNumber(value: string): boolean {
+  if (!/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]{1,28})?$/u.test(value) || value === "-0" || value.endsWith("0") && value.includes(".")) return false;
+  const digits = value.replace(/[-.]/gu, "").replace(/^0+/u, "") || "0";
+  try {
+    const coefficient = BigInt(digits);
+    return value.startsWith("-")
+      ? coefficient <= 170141183460469231731687303715884105728n
+      : coefficient <= 170141183460469231731687303715884105727n;
+  } catch { return false; }
+}
+
+function deepOwnJson(value: unknown): unknown {
+  if (isBaseCanonicalJsonNumber(value)) return value;
+  if (Array.isArray(value)) return Object.freeze(value.map(deepOwnJson));
+  if (object(value)) return Object.freeze(Object.fromEntries(Object.entries(value).map(([key, item]) => [key, deepOwnJson(item)])));
+  return value;
+}
+
+function materializeCanonicalJson(value: unknown): unknown {
+  if (isRawNumber(value)) {
+    if (!canonicalBaseJsonNumber(value.token)) invalid();
+    const numeric = Number(value.token);
+    if (Number.isFinite(numeric) && !Object.is(numeric, -0)
+      && numeric.toString() === value.token
+      && (value.token.includes(".") || Number.isSafeInteger(numeric))) return numeric;
+    return baseCanonicalJsonNumber(value.token);
+  }
+  if (Array.isArray(value)) return value.map(materializeCanonicalJson);
+  if (object(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, materializeCanonicalJson(item)]));
+  return value;
 }
 
 function subjectReference(value: unknown, node: Extract<BaseTypeNode, { kind: "subjectReference" }>): BaseSubjectReference {
@@ -297,5 +404,5 @@ function encodeBytes(value: unknown, maximum: number): string {
 }
 function scalarLength(value: string): number { return [...value].length; }
 function validUnicode(value: string): void { for (let index = 0; index < value.length; index++) { const unit = value.charCodeAt(index); if (unit >= 0xd800 && unit <= 0xdbff) { const next = value.charCodeAt(++index); if (!(next >= 0xdc00 && next <= 0xdfff)) invalid(); } else if (unit >= 0xdc00 && unit <= 0xdfff) invalid(); } }
-function object(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value) && !isRawNumber(value); }
+function object(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value) && !isRawNumber(value) && !isBaseCanonicalJsonNumber(value); }
 function invalid(): never { throw new TypeError("base.client.responseInvalid"); }

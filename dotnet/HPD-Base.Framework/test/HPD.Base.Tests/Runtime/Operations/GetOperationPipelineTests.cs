@@ -15,7 +15,7 @@ public sealed class GetOperationPipelineTests
 
         var result = await provider.GetRequiredService<IBaseRecordRuntime>().GetAsync(
             "items",
-            new RecordId("rec_1"),
+            RecordId.Create("rec_1"),
             RuntimeTestData.AnonymousPrincipal,
             RuntimeTestData.Operation(BaseOperationKind.Get),
             CancellationToken.None);
@@ -34,7 +34,7 @@ public sealed class GetOperationPipelineTests
 
         var result = await provider.GetRequiredService<IBaseRecordRuntime>().GetAsync(
             "items",
-            new RecordId("rec_1"),
+            RecordId.Create("rec_1"),
             RuntimeTestData.AnonymousPrincipal,
             RuntimeTestData.Operation(BaseOperationKind.Get),
             CancellationToken.None);
@@ -50,7 +50,7 @@ public sealed class GetOperationPipelineTests
         return new RecordEnvelope
         {
             CollectionId = "items",
-            Id = new RecordId(id),
+            Id = RecordId.Create(id),
             Payload = new RecordPayload
             {
                 Kind = RecordPayloadKind.Json,

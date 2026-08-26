@@ -15,7 +15,7 @@ public sealed class SqliteWalTests
         try
         {
             var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path });
-            var create = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("one"), Payload = Payload() }, Operation(BaseOperationKind.Create));
+            var create = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = RecordId.Create("one"), Payload = Payload() }, Operation(BaseOperationKind.Create));
             create.Status.Should().Be(OperationStatus.Created);
 
             await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString());

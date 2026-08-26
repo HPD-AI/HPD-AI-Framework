@@ -37,6 +37,10 @@ internal static class InMemoryValidation
         });
     }
 
+    /// <summary>Validates one closed record identifier without dereferencing an invalid default value.</summary>
+    public static OperationResult<T>? ValidateRecordId<T>(RecordId recordId) =>
+        recordId.IsValid ? null : ValidateRecordId<T>(null);
+
     /// <summary>Executes the validate field name operation.</summary>
     public static OperationResult<T>? ValidateFieldName<T>(string? fieldName)
     {
