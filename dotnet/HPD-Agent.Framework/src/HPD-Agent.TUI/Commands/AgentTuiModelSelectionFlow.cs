@@ -86,6 +86,7 @@ public static class AgentTuiModelSelectionFlow
                 "Select provider",
                 connected,
                 static candidate => candidate.DisplayName,
+                new AgentTuiSelectOptions { AllowFilter = true },
                 cancellationToken)
             .ConfigureAwait(false);
 

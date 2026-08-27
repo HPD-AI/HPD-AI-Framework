@@ -1,5 +1,6 @@
 using FluentAssertions;
 using HPD.Agent;
+using HPD.Agent.Providers;
 using HPD.Agent.TUI.Commands;
 using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Models;
@@ -62,7 +63,7 @@ public sealed class ModelSelectionCommandTests
             shell,
             "hello"));
         runConfig.Should().NotBeNull();
-        runConfig!.Clients.Chat!.ProviderKey.Should().Be("openrouter");
+        runConfig!.Clients.Chat!.Provider!.Key.Should().Be("openrouter");
         runConfig.Clients.Chat.ModelName.Should().Be("deepseek/deepseek-chat");
     }
 
@@ -226,21 +227,22 @@ public sealed class ModelSelectionCommandTests
         registry.TryFindSlashCommand("/model", out var command, out var arguments).Should().BeTrue();
         var scope = new AgentTuiRuntimeScope("agent", "session", "main");
         var shell = new ChatShellModel(scope);
+        var dialogs = new QueuedDialogs(
+            selections:
+            [
+                "Provider A",
+                null,
+                "Provider B",
+                "Provider B Model"
+            ],
+            inputs: []);
 
         await command.ExecuteAsync(new AgentTuiCommandContext(
             scope,
             shell,
             shell.Navigation,
             new NoopRuntime(),
-            new QueuedDialogs(
-                selections:
-                [
-                    "Provider A",
-                    null,
-                    "Provider B",
-                    "Provider B Model"
-                ],
-                inputs: []),
+            dialogs,
             static (_, _) => ValueTask.CompletedTask,
             command,
             arguments));
@@ -248,6 +250,7 @@ public sealed class ModelSelectionCommandTests
         selection.Current.Should().NotBeNull();
         selection.Current!.ProviderKey.Should().Be("provider-b");
         selection.Current!.ModelId.Should().Be("gpt-b");
+        dialogs.FilteredSelectionCalls.Should().Be(2);
     }
 
     [Fact]
