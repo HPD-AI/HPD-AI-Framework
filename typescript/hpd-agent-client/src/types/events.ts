@@ -1,6 +1,4 @@
 import type {
-  BackgroundHandleKind,
-  BackgroundHandleOperation,
   ClientToolAugmentation,
   ClientToolInvokeOutcomeKind,
   ToolResultContent,
@@ -11,7 +9,12 @@ import type {
   ThreadKind,
   ThreadVisibility,
 } from './session.js';
-import type { ModelBackgroundOperationStatus, ThreadExecutionError } from './thread-execution.js';
+import type { ThreadExecutionError } from './thread-execution.js';
+import type {
+  AgentOperationCapabilities,
+  AgentOperationKind,
+  AgentOperationSnapshot,
+} from './operations.js';
 import type { CompactionContinuation, ThreadCompactionRequest } from './run-config.js';
 
 export interface UsageDetails {
@@ -63,7 +66,7 @@ export const EventTypes = {
   // Input Events
   USER_MESSAGES_INPUT: 'USER_MESSAGES_INPUT',
   COMPACT_THREAD_INPUT: 'COMPACT_THREAD_INPUT',
-  BACKGROUND_TASK_NOTIFICATION_INPUT: 'BACKGROUND_TASK_NOTIFICATION_INPUT',
+  AGENT_OPERATION_NOTIFICATION_INPUT: 'AGENT_OPERATION_NOTIFICATION_INPUT',
 
   // Durable Thread Events
   THREAD_CREATED: 'THREAD_CREATED',
@@ -148,17 +151,13 @@ export const EventTypes = {
   MIDDLEWARE_STATE_SNAPSHOT: 'MIDDLEWARE_STATE_SNAPSHOT',
   MIDDLEWARE_STATE_CHANGED: 'MIDDLEWARE_STATE_CHANGED',
   COLLAPSING_STATE: 'COLLAPSING_STATE',
-  MODEL_BACKGROUND_OPERATION_STARTED: 'MODEL_BACKGROUND_OPERATION_STARTED',
-  MODEL_BACKGROUND_OPERATION_STATUS: 'MODEL_BACKGROUND_OPERATION_STATUS',
-  BACKGROUND_TASK_STARTED: 'BACKGROUND_TASK_STARTED',
-  BACKGROUND_TASK_COMPLETED: 'BACKGROUND_TASK_COMPLETED',
-  BACKGROUND_TASK_CANCELLED: 'BACKGROUND_TASK_CANCELLED',
-  BACKGROUND_TASK_FAULTED: 'BACKGROUND_TASK_FAULTED',
-  BACKGROUND_HANDLE_REGISTERED: 'BACKGROUND_HANDLE_REGISTERED',
-  BACKGROUND_HANDLE_STATUS_CHANGED: 'BACKGROUND_HANDLE_STATUS_CHANGED',
-  BACKGROUND_TASK_NOTIFICATION_QUEUED: 'BACKGROUND_TASK_NOTIFICATION_QUEUED',
-  BACKGROUND_TASK_NOTIFICATION_DELIVERED: 'BACKGROUND_TASK_NOTIFICATION_DELIVERED',
-  BACKGROUND_TASK_NOTIFICATION_SUPPRESSED: 'BACKGROUND_TASK_NOTIFICATION_SUPPRESSED',
+  AGENT_OPERATION_REGISTERED: 'AGENT_OPERATION_REGISTERED',
+  AGENT_OPERATION_TRANSITIONED: 'AGENT_OPERATION_TRANSITIONED',
+  AGENT_OPERATION_NOTIFICATION_QUEUED: 'AGENT_OPERATION_NOTIFICATION_QUEUED',
+  AGENT_OPERATION_NOTIFICATION_DELIVERED: 'AGENT_OPERATION_NOTIFICATION_DELIVERED',
+  AGENT_OPERATION_NOTIFICATION_SUPPRESSED: 'AGENT_OPERATION_NOTIFICATION_SUPPRESSED',
+  AGENT_OPERATION_TOMBSTONED: 'AGENT_OPERATION_TOMBSTONED',
+  AGENT_OPERATION_TOMBSTONE_EVICTED: 'AGENT_OPERATION_TOMBSTONE_EVICTED',
 
   // Control
   INTERRUPTION_REQUEST: 'INTERRUPTION_REQUEST',
@@ -305,16 +304,17 @@ export interface CompactThreadInputEvent extends AgentInputEvent {
   request?: ThreadCompactionRequest;
 }
 
-export interface BackgroundTaskNotification {
+export interface AgentOperationNotification {
   notificationId: string;
-  taskIds: string[];
-  summary: string;
-  metadata?: Record<string, string> | null;
+  operationId: string;
+  name: string;
+  providerStatus: string;
+  summary?: string | null;
 }
 
-export interface BackgroundTaskNotificationInputEvent extends AgentInputEvent {
-  type: typeof EventTypes.BACKGROUND_TASK_NOTIFICATION_INPUT;
-  notifications: BackgroundTaskNotification[];
+export interface AgentOperationNotificationInputEvent extends AgentInputEvent {
+  type: typeof EventTypes.AGENT_OPERATION_NOTIFICATION_INPUT;
+  notifications: AgentOperationNotification[];
 }
 
 // ============================================
@@ -518,45 +518,6 @@ export interface SubAgentInvocationCancelledEvent extends BaseEvent {
   reason?: string | null;
 }
 
-export interface ModelBackgroundOperationStartedEvent extends BaseEvent {
-  type: typeof EventTypes.MODEL_BACKGROUND_OPERATION_STARTED;
-  continuationToken: unknown;
-  status: ModelBackgroundOperationStatus;
-  operationId?: string | null;
-}
-
-export interface ModelBackgroundOperationStatusEvent extends BaseEvent {
-  type: typeof EventTypes.MODEL_BACKGROUND_OPERATION_STATUS;
-  continuationToken: unknown;
-  status: ModelBackgroundOperationStatus;
-  statusMessage?: string | null;
-}
-
-export type BackgroundTaskSourceKind =
-  | 'ToolCall'
-  | 'Command'
-  | 'SubAgent'
-  | 'Runtime'
-  | 'Maintenance'
-  | 'Other'
-  | string;
-
-export type BackgroundTaskNotificationRule =
-  | { kind: 'none' }
-  | {
-      kind: 'on_final_state';
-      completed?: boolean;
-      faulted?: boolean;
-      cancelled?: boolean;
-    }
-  | {
-      kind: 'strategy';
-      name: string;
-      parameters?: Record<string, string> | null;
-      fallback?: BackgroundTaskNotificationRule | null;
-    }
-  | ({ kind: string } & Record<string, unknown>);
-
 export interface ToolInvocationInfo {
   batchId: string;
   callId: string;
@@ -577,84 +538,56 @@ export interface FunctionInvocationSnapshot {
   toolCallIndex?: number | null;
 }
 
-export interface BackgroundTaskEvent extends Omit<BaseEvent, 'metadata'> {
-  taskId: string;
-  name: string;
-  sourceKind: BackgroundTaskSourceKind;
-  sourceId?: string | null;
-  originatingThreadExecutionId?: string | null;
-  notification: BackgroundTaskNotificationRule;
-  invocation?: FunctionInvocationSnapshot | null;
-  metadata?: Record<string, string> | null;
+export interface AgentOperationRegisteredEvent extends BaseEvent {
+  type: typeof EventTypes.AGENT_OPERATION_REGISTERED;
+  operation: AgentOperationSnapshot;
 }
 
-export interface BackgroundTaskStartedEvent extends BackgroundTaskEvent {
-  type: typeof EventTypes.BACKGROUND_TASK_STARTED;
-  startedAt: string;
+export interface AgentOperationTransitionedEvent extends BaseEvent {
+  type: typeof EventTypes.AGENT_OPERATION_TRANSITIONED;
+  operationId: string;
+  previousVersion: number;
+  operation: AgentOperationSnapshot;
+  providerDeduplicationKey?: string | null;
 }
 
-export interface BackgroundTaskCompletedEvent extends BackgroundTaskEvent {
-  type: typeof EventTypes.BACKGROUND_TASK_COMPLETED;
-  completedAt: string;
-  durationMilliseconds: number;
-}
-
-export interface BackgroundTaskCancelledEvent extends BackgroundTaskEvent {
-  type: typeof EventTypes.BACKGROUND_TASK_CANCELLED;
-  cancelledAt: string;
-  reason?: string | null;
-}
-
-export interface BackgroundTaskFaultedEvent extends BackgroundTaskEvent {
-  type: typeof EventTypes.BACKGROUND_TASK_FAULTED;
-  isError?: true;
-  faultedAt: string;
-  exceptionType: string;
-  errorMessage: string;
-}
-
-export interface BackgroundHandleRegisteredEvent extends Omit<BaseEvent, 'metadata'> {
-  type: typeof EventTypes.BACKGROUND_HANDLE_REGISTERED;
-  handleId: string;
-  name: string;
-  handleKind: string;
-  sourceKind: BackgroundTaskSourceKind;
-  sourceId?: string | null;
-  invocation?: FunctionInvocationSnapshot | null;
-  supportedOperations: string;
-  metadata?: Record<string, string> | null;
-  registeredAt: string;
-}
-
-export interface BackgroundHandleStatusChangedEvent extends Omit<BaseEvent, 'metadata'> {
-  type: typeof EventTypes.BACKGROUND_HANDLE_STATUS_CHANGED;
-  handleId: string;
-  status: string;
-  observedAt: string;
-  metadata?: Record<string, string> | null;
-}
-
-export interface BackgroundTaskNotificationQueuedEvent extends BaseEvent {
-  type: typeof EventTypes.BACKGROUND_TASK_NOTIFICATION_QUEUED;
-  notificationId: string;
-  taskIds: string[];
+export interface AgentOperationNotificationQueuedEvent extends BaseEvent {
+  type: typeof EventTypes.AGENT_OPERATION_NOTIFICATION_QUEUED;
+  notification: AgentOperationNotification;
   queuedAt: string;
-  reason: string;
 }
 
-export interface BackgroundTaskNotificationDeliveredEvent extends BaseEvent {
-  type: typeof EventTypes.BACKGROUND_TASK_NOTIFICATION_DELIVERED;
+export interface AgentOperationNotificationDeliveredEvent extends BaseEvent {
+  type: typeof EventTypes.AGENT_OPERATION_NOTIFICATION_DELIVERED;
   notificationId: string;
   deliveredAt: string;
-  threadExecutionId?: string | null;
 }
 
-export interface BackgroundTaskNotificationSuppressedEvent extends BaseEvent {
-  type: typeof EventTypes.BACKGROUND_TASK_NOTIFICATION_SUPPRESSED;
-  notificationId: string;
-  taskIds: string[];
-  suppressedAt: string;
+export interface AgentOperationNotificationSuppressedEvent extends BaseEvent {
+  type: typeof EventTypes.AGENT_OPERATION_NOTIFICATION_SUPPRESSED;
+  operationId: string;
   reason: string;
+  suppressedAt: string;
+}
+
+export interface AgentOperationTombstone {
+  operationId: string;
+  address: import('./operations.js').AgentExecutionAddress;
+  providerDeduplicationKeys: string[];
+  providerStatus: import('./operations.js').AgentOperationProviderStatus;
+  finishedAt: string;
+  finalVersion: number;
+}
+
+export interface AgentOperationTombstonedEvent extends BaseEvent {
+  type: typeof EventTypes.AGENT_OPERATION_TOMBSTONED;
+  tombstone: AgentOperationTombstone;
+}
+
+export interface AgentOperationTombstoneEvictedEvent extends BaseEvent {
+  type: typeof EventTypes.AGENT_OPERATION_TOMBSTONE_EVICTED;
+  operationId: string;
+  evictedAt: string;
 }
 
 export interface ContextMessageSnapshot {
@@ -803,7 +736,7 @@ export interface ReasoningMessageEndEvent extends BaseEvent {
 // ============================================
 
 /** Indicates the kind of capability behind a tool call. Serialised as a string on the wire. */
-export type ToolCallType = 'Function' | 'Skill' | 'SubAgent' | 'MultiAgent' | 'MCPServer' | 'OpenApi';
+export type ToolCallType = 'Function' | 'Skill' | 'SubAgent' | 'MultiAgent' | 'McpServer' | 'OpenApi';
 
 export interface ToolCallStartEvent extends BaseEvent {
   type: typeof EventTypes.TOOL_CALL_START;
@@ -976,8 +909,8 @@ export interface ClientToolInvokeOutcomeEvent extends BaseEvent, ResponseMetadat
   content?: ToolResultContent[];
   errorMessage?: string;
   clientOperationId?: string;
-  handleKind?: BackgroundHandleKind | null;
-  supportedOperations?: BackgroundHandleOperation[] | number;
+  operationKind?: AgentOperationKind | null;
+  operationCapabilities?: AgentOperationCapabilities;
   augmentation?: ClientToolAugmentation;
 }
 
@@ -1028,7 +961,7 @@ export type KnownAgentEvent =
   // Input Events
   | UserMessagesInputEvent
   | CompactThreadInputEvent
-  | BackgroundTaskNotificationInputEvent
+  | AgentOperationNotificationInputEvent
   // Durable Thread Events
   | ThreadCreatedEvent
   | ThreadUpdatedEvent
@@ -1050,17 +983,13 @@ export type KnownAgentEvent =
   | SubAgentInvocationCompletedEvent
   | SubAgentInvocationFailedEvent
   | SubAgentInvocationCancelledEvent
-  | ModelBackgroundOperationStartedEvent
-  | ModelBackgroundOperationStatusEvent
-  | BackgroundTaskStartedEvent
-  | BackgroundTaskCompletedEvent
-  | BackgroundTaskCancelledEvent
-  | BackgroundTaskFaultedEvent
-  | BackgroundHandleRegisteredEvent
-  | BackgroundHandleStatusChangedEvent
-  | BackgroundTaskNotificationQueuedEvent
-  | BackgroundTaskNotificationDeliveredEvent
-  | BackgroundTaskNotificationSuppressedEvent
+  | AgentOperationRegisteredEvent
+  | AgentOperationTransitionedEvent
+  | AgentOperationNotificationQueuedEvent
+  | AgentOperationNotificationDeliveredEvent
+  | AgentOperationNotificationSuppressedEvent
+  | AgentOperationTombstonedEvent
+  | AgentOperationTombstoneEvictedEvent
   | IterationContextSnapshotEvent
   | MiddlewareStateSnapshotEvent
   | MiddlewareStateChangedEvent

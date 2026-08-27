@@ -226,8 +226,8 @@ export class AgentClient {
         content: toolResponse.content,
         errorMessage: toolResponse.errorMessage,
         clientOperationId: toolResponse.clientOperationId,
-        handleKind: toolResponse.handleKind,
-        supportedOperations: toolResponse.supportedOperations,
+        operationKind: toolResponse.operationKind,
+        operationCapabilities: toolResponse.operationCapabilities,
         augmentation: toolResponse.augmentation,
       });
     }
