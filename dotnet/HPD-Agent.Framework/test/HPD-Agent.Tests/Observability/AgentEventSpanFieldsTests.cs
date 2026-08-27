@@ -113,9 +113,11 @@ public class AgentEventSpanFieldsTests
     public static TheoryData<AgentEvent> SampleEvents() => new()
     {
         new MessageTurnStartedEvent("t", "c", "A"),
-        new MessageTurnFinishedEvent("t", "c", "A", TimeSpan.FromMilliseconds(100)),
+        new MessageTurnFinishedEvent("t", "c", "agent", "A", TimeSpan.FromMilliseconds(100), MessageTurnUsageSummary.Empty),
         new AgentTurnStartedEvent(1),
-        new AgentTurnFinishedEvent(1),
+        new AgentTurnFinishedEvent("t", 1, "operation", null, 1,
+            HPD.Agent.Providers.ProviderClientFamily.Chat, ProviderOperationOutcome.Succeeded,
+            null, null, null, null),
         new ToolCallStartEvent("call-1", "SomeTool", "msg-1", null),
         new ToolCallEndEvent("call-1", "msg-1", "SomeTool", "{}"),
         new ToolCallResultEvent("call-1", new ToolResultPayload(Text: "result"), null),

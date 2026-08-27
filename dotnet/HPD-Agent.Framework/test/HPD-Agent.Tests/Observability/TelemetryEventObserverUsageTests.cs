@@ -24,14 +24,14 @@ public sealed class TelemetryEventObserverUsageTests
             AgentId: "agent-1",
             AgentName: "UsageAgent",
             Duration: TimeSpan.FromMilliseconds(42),
-            Usage: new UsageDetails
+            Usage: Summary(new UsageDetails
             {
                 InputTokenCount = 100,
                 OutputTokenCount = 25,
                 TotalTokenCount = 125,
                 CachedInputTokenCount = 40,
                 ReasoningTokenCount = 7
-            }));
+            })));
 
         measurements["agent.usage.input_tokens"].Should().Contain(100);
         measurements["agent.usage.output_tokens"].Should().Contain(25);
@@ -55,14 +55,21 @@ public sealed class TelemetryEventObserverUsageTests
             AgentId: "agent-1",
             AgentName: "UsageAgent",
             Duration: TimeSpan.FromMilliseconds(42),
-            Usage: new UsageDetails
+            Usage: Summary(new UsageDetails
             {
                 InputTokenCount = 12,
                 OutputTokenCount = 8
-            }));
+            })));
 
         measurements["agent.usage.total_tokens"].Should().Contain(20);
     }
+
+    private static MessageTurnUsageSummary Summary(UsageDetails usage) => new(
+    [
+        new("event-1", "turn-1", 1, "operation-1", null, 1,
+            ProviderOperationKind.ChatModelResponse, HPD.Agent.Providers.ProviderClientFamily.Chat,
+            ProviderOperationOutcome.Succeeded, usage, "test", "model", "response")
+    ]);
 
     private static MeterListener CreateListener(
         string sourceName,

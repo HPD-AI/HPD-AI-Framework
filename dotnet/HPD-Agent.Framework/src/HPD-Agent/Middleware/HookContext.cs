@@ -114,6 +114,9 @@ public abstract class HookContext
     /// </summary>
     public string? ThreadId => Thread?.Id;
 
+    /// <summary>The durable message-turn identity owning provider work from this hook.</summary>
+    public string MessageTurnId => Base.State.RunId;
+
     /// <summary>
     /// Service provider for dependency injection (may be null if not configured).
     /// Use to access services like HttpClient, ILogger, IDistributedCache, etc.

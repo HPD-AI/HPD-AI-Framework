@@ -150,12 +150,22 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
             AudioFormat = context.Options.OutputFormat,
             Speed = context.Options.Speed
         };
+        var operationId = Guid.NewGuid().ToString("N");
+        ProviderOperationAccountingScope.Current?.RegisterAttempt(new(
+            operationId,
+            requestWithProvider.ResponseId.Value,
+            1,
+            ProviderOperationKind.TextToSpeech,
+            HPD.Agent.Providers.ProviderClientFamily.TextToSpeech,
+            providerKey,
+            modelId));
 
+        var terminalPublicationStarted = false;
         try
         {
             if (profile.SupportsCompletedTextAudioStreaming)
             {
-                return await SynthesizeStreamingAudioAsync(
+                var streamingResult = await SynthesizeStreamingAudioAsync(
                     outputFlow,
                     requestWithProvider,
                     context,
@@ -165,6 +175,12 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
                     ledger,
                     trace,
                     cancellationToken).ConfigureAwait(false);
+                terminalPublicationStarted = true;
+                await PublishUsageAsync(
+                    context, requestWithProvider, operationId, providerKey, modelId,
+                    ProviderOperationOutcome.Succeeded, streamingResult.Usage,
+                    CancellationToken.None).ConfigureAwait(false);
+                return streamingResult;
             }
 
             var audioResponse = await GetCompletedAudioDataAsync(
@@ -172,6 +188,11 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
                     requestWithProvider.Text,
                     ttsOptions,
                     cancellationToken).ConfigureAwait(false);
+            terminalPublicationStarted = true;
+            await PublishUsageAsync(
+                context, requestWithProvider, operationId, providerKey, modelId,
+                ProviderOperationOutcome.Succeeded, audioResponse.Usage,
+                CancellationToken.None).ConfigureAwait(false);
 
             modelId = FirstNonWhiteSpace(audioResponse.ModelId, modelId);
             var mediaType = FirstNonWhiteSpace(
@@ -352,7 +373,7 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
                     artifact);
             }
 
-            return new TextToSpeechSegmentSynthesisResult
+            var result = new TextToSpeechSegmentSynthesisResult
             {
                 OutputFlowId = outputFlow.Id,
                 ResponseId = requestWithProvider.ResponseId,
@@ -361,11 +382,21 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
                 Disposition = TtsSynthesisDisposition.Synthesized,
                 Text = requestWithProvider.Text,
                 MediaType = mediaType,
+                Usage = audioResponse.Usage,
                 Ledger = ledger,
                 Trace = trace
             };
+            return result;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException) when (!terminalPublicationStarted)
+        {
+            await PublishUsageAsync(
+                context, requestWithProvider, operationId, providerKey, modelId,
+                ProviderOperationOutcome.Cancelled, null,
+                CancellationToken.None).ConfigureAwait(false);
+            throw;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException && !terminalPublicationStarted)
         {
             var error = ToErrorInfo(ex);
             _ledgerTraceWriter.AppendTtsResult(
@@ -384,13 +415,18 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
                 null,
                 null,
                 error);
-            return FailedResult(
+            var result = FailedResult(
                 outputFlow.Id,
                 requestWithProvider,
                 TtsSynthesisDisposition.Failed,
                 error,
                 ledger,
                 trace);
+            await PublishUsageAsync(
+                context, requestWithProvider, operationId, providerKey, modelId,
+                ProviderOperationOutcome.Failed, null,
+                CancellationToken.None).ConfigureAwait(false);
+            return result;
         }
     }
 
@@ -429,6 +465,34 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
 
     private static bool RequiresContentStoreArtifact(AssistantTextToSpeechOutputOptions options) =>
         options.ArtifactCapturePolicy == AssistantAudioArtifactCapturePolicy.ContentStoreArtifact;
+
+    private static async ValueTask PublishUsageAsync(
+        TextToSpeechSynthesisContext context,
+        TextToSpeechSegmentRequest request,
+        string operationId,
+        string providerKey,
+        string? modelId,
+        ProviderOperationOutcome outcome,
+        UsageDetails? usage,
+        CancellationToken cancellationToken)
+    {
+        var terminalEvent = new ProviderOperationUsageEvent(
+                context.MessageTurnId,
+                operationId,
+                LogicalOperationId: request.ResponseId.Value,
+                Attempt: 1,
+                ProviderOperationKind.TextToSpeech,
+                HPD.Agent.Providers.ProviderClientFamily.TextToSpeech,
+                outcome,
+                usage,
+                providerKey,
+                modelId,
+                request.ResponseId.Value);
+        if (ProviderOperationAccountingScope.Current is { } accounting)
+            await accounting.CommitTerminalAsync(terminalEvent, cancellationToken).ConfigureAwait(false);
+        else
+            await context.PublishAsync(terminalEvent, cancellationToken).ConfigureAwait(false);
+    }
 
     private static AudioErrorInfo ToErrorInfo(Exception exception)
     {
@@ -470,7 +534,7 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
             throw new InvalidOperationException("Text-to-speech response did not contain audio data.");
         }
 
-        return new SynthesizedAudioData(audio.Data, audio.MediaType, response.ModelId);
+        return new SynthesizedAudioData(audio.Data, audio.MediaType, response.ModelId, response.Usage);
     }
 
     private async ValueTask<TextToSpeechSegmentSynthesisResult> SynthesizeStreamingAudioAsync(
@@ -492,6 +556,7 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
         DateTimeOffset? providerFirstAudioAt = null;
         var sequence = 0;
         var totalDuration = TimeSpan.Zero;
+        UsageDetails? reportedUsage = null;
 
         await foreach (var update in context.Options.TextToSpeechClient
             .GetStreamingAudioAsync(request.Text, ttsOptions, cancellationToken)
@@ -499,6 +564,11 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
             .ConfigureAwait(false))
         {
             modelId = FirstNonWhiteSpace(update.ModelId, modelId);
+            foreach (var usageContent in update.Contents.OfType<UsageContent>())
+            {
+                reportedUsage ??= new UsageDetails();
+                reportedUsage.Add(usageContent.Details);
+            }
             foreach (var audio in update.Contents.OfType<DataContent>().Where(content =>
                 content.HasTopLevelMediaType("audio")))
             {
@@ -685,6 +755,7 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
             Disposition = TtsSynthesisDisposition.Synthesized,
             Text = request.Text,
             MediaType = mediaType,
+            Usage = reportedUsage,
             Ledger = ledger,
             Trace = trace
         };
@@ -766,10 +837,13 @@ internal sealed record OutputAudioStreamStart(
 internal sealed record SynthesizedAudioData(
     ReadOnlyMemory<byte> Data,
     string? MediaType,
-    string? ModelId);
+    string? ModelId,
+    UsageDetails? Usage);
 
 internal sealed record TextToSpeechSynthesisContext
 {
+    public required string MessageTurnId { get; init; }
+
     public required AudioSessionId SessionId { get; init; }
 
     public required ThreadRef Thread { get; init; }
@@ -812,6 +886,8 @@ internal sealed record TextToSpeechSegmentSynthesisResult
     public string? MediaType { get; init; }
 
     public AudioErrorInfo? Error { get; init; }
+
+    public UsageDetails? Usage { get; init; }
 
     public required IReadOnlyList<RealtimeLedgerRecord> Ledger { get; init; }
 

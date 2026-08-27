@@ -42,6 +42,7 @@ public sealed partial class Agent : IAsyncDisposable
     private readonly ProviderClientManager<IImageGenerator> _imageGeneratorManager = new();
     private readonly ProviderClientManager<IEmbeddingGenerator> _embeddingGeneratorManager = new();
     private readonly ProviderClientManager<IHostedFileClient> _hostedFileClientManager = new();
+    private readonly InMemorySessionStore _ephemeralEventJournal = new();
     private readonly AgentClientSet? _clientSet;
     private readonly IAsyncDisposable? _providerRuntimeOwner;
     private readonly string _name;
@@ -941,19 +942,17 @@ public sealed partial class Agent : IAsyncDisposable
         evt = EnrichOutputEvent(evt);
         if (thread == null)
         {
-            await eventCoordinator.EmitAsync(evt, cancellationToken).ConfigureAwait(false);
-            return evt;
+            return await new ThreadEventPublisher(_ephemeralEventJournal, eventCoordinator)
+                .CommitAndPublishAsync(new ThreadKey($"ephemeral:{AgentId}", "main"), evt, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         var store = Config?.SessionStore;
         if (store == null)
         {
-            var stateless = ThreadEventValidation.PrepareForAppend(
-                thread.SessionId,
-                thread.Id,
-                evt) with { ThreadSequenceNumber = 0 };
-            await eventCoordinator.EmitAsync(stateless, cancellationToken).ConfigureAwait(false);
-            return stateless;
+            return await new ThreadEventPublisher(_ephemeralEventJournal, eventCoordinator)
+                .CommitAndPublishAsync(new ThreadKey(thread.SessionId, thread.Id), evt, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         var publisher = new ThreadEventPublisher(store, eventCoordinator);
@@ -968,23 +967,96 @@ public sealed partial class Agent : IAsyncDisposable
         string? messageTurnId,
         string? conversationId,
         Exception exception,
+        MessageTurnUsageSummary usage,
         HPD.Events.IEventCoordinator eventCoordinator)
     {
-        if (thread == null)
+        if (string.IsNullOrWhiteSpace(messageTurnId))
             return;
 
         await CommitAndPublishThreadEventAsync(
             thread,
-            ThreadEventFactory.TurnFailed(
-                thread.SessionId,
-                thread.Id,
-                messageTurnId,
-                conversationId,
-                AgentId,
-                _name,
-                exception),
+            new MessageTurnErrorEvent(messageTurnId, exception.Message, usage, exception)
+            {
+                ConversationId = conversationId,
+                AgentId = AgentId,
+                AgentName = _name,
+                ErrorType = exception.GetType().FullName
+            },
             eventCoordinator,
             CancellationToken.None).ConfigureAwait(false);
+    }
+
+    private async Task CommitPendingFailedProviderAttemptsAsync(
+        MessageTurnUsageCollector collector,
+        Thread? thread,
+        string? messageTurnId,
+        string? conversationId,
+        int iteration,
+        int inputMessageCount,
+        bool isResume,
+        int turnMessageCount,
+        Exception exception,
+        HPD.Events.IEventCoordinator eventCoordinator)
+    {
+        if (string.IsNullOrWhiteSpace(messageTurnId))
+            return;
+        var outcome = exception is OperationCanceledException
+            ? ProviderOperationOutcome.Cancelled
+            : ProviderOperationOutcome.Failed;
+        foreach (var attempt in collector.GetPendingAttempts())
+        {
+            AgentEvent terminal = attempt.Family is ProviderClientFamily.Chat or ProviderClientFamily.Realtime
+                ? new AgentTurnFinishedEvent(
+                    messageTurnId, iteration, attempt.OperationId, attempt.LogicalOperationId, attempt.Attempt,
+                    attempt.Family, outcome, null, attempt.ProviderKey, attempt.ModelId, null)
+                : new ProviderOperationUsageEvent(
+                    messageTurnId, attempt.OperationId, attempt.LogicalOperationId, attempt.Attempt,
+                    attempt.OperationKind, attempt.Family, outcome, null,
+                    attempt.ProviderKey, attempt.ModelId, null);
+            await collector.CommitTerminalAsync(terminal, CancellationToken.None).ConfigureAwait(false);
+        }
+    }
+
+    private static bool TryCreateProviderUsageMeasurement(
+        AgentEvent evt,
+        [NotNullWhen(true)] out ProviderUsageMeasurement? measurement)
+    {
+        measurement = evt switch
+        {
+            AgentTurnFinishedEvent model => new ProviderUsageMeasurement(
+                model.EventId,
+                model.MessageTurnId,
+                model.ThreadSequenceNumber,
+                model.OperationId,
+                model.LogicalOperationId,
+                model.Attempt,
+                model.Family is ProviderClientFamily.Realtime
+                    ? ProviderOperationKind.RealtimeModelResponse
+                    : ProviderOperationKind.ChatModelResponse,
+                model.Family,
+                model.Outcome,
+                model.Usage,
+                model.ProviderKey,
+                model.ModelId,
+                model.ResponseId),
+            ProviderOperationUsageEvent operation => new ProviderUsageMeasurement(
+                operation.EventId,
+                operation.MessageTurnId,
+                operation.ThreadSequenceNumber,
+                operation.OperationId,
+                operation.LogicalOperationId,
+                operation.Attempt,
+                operation.OperationKind,
+                operation.Family,
+                operation.Outcome,
+                operation.Usage,
+                operation.ProviderKey,
+                operation.ModelId,
+                operation.ResponseId),
+            _ => null
+        };
+
+        return measurement is not null;
     }
 
     private async Task<AgentEvent> CommitAgentThreadEventAsync(
@@ -1003,8 +1075,9 @@ public sealed partial class Agent : IAsyncDisposable
         evt = EnrichOutputEvent(evt);
         if (thread == null)
         {
-            await eventCoordinator.EmitAsync(evt, cancellationToken).ConfigureAwait(false);
-            return evt;
+            return await new ThreadEventPublisher(_ephemeralEventJournal, eventCoordinator)
+                .CommitAndPublishAsync(new ThreadKey($"ephemeral:{AgentId}", "main"), evt, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         var threadEvent = ThreadEventFactory.FromAgentEvent(
@@ -2250,6 +2323,7 @@ public sealed partial class Agent : IAsyncDisposable
         HPD.Events.IEventCoordinator? eventCoordinator = null,
         string? clientInputId = null,
         ActiveRuntimeInput? activeInput = null,
+        ProviderOperationAccountingBridge? accountingBridge = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default,
         AgentChatClientHandle? inheritedChatClient = null,
         ClientFamilyInheritanceMode inheritedChatMode = ClientFamilyInheritanceMode.UseOwn)
@@ -2347,6 +2421,9 @@ public sealed partial class Agent : IAsyncDisposable
                 SpanId       = turnSpanId,
                 ParentSpanId = null   // root span
             };
+            using var providerAccountingScope = accountingBridge?.Collector is { } collector
+                ? ProviderOperationAccountingScope.Push(collector)
+                : null;
  
             AgentLoopState state;
             IEnumerable<ChatMessage> effectiveMessages;
@@ -2742,6 +2819,8 @@ public sealed partial class Agent : IAsyncDisposable
                     ResponseContinuationToken? lastContinuationToken = null;
                     Middleware.AgentModelTurnRequest? currentModelRequest = null;
                     Middleware.IAgentModelTurnExecutor? currentModelTurnExecutor = null;
+                    var logicalModelOperationId = Guid.NewGuid().ToString("N");
+                    var physicalModelAttempt = 0;
 
                     // Execute LLM call (unless skipped by Middleware)
 
@@ -2995,12 +3074,157 @@ public sealed partial class Agent : IAsyncDisposable
                             };
                         }
 
+                        async IAsyncEnumerable<Middleware.AgentModelUpdate> ExecuteAccountedModelAttempt(
+                            Middleware.AgentModelTurnRequest request,
+                            [EnumeratorCancellation] CancellationToken attemptCancellationToken = default)
+                        {
+                            var attemptNumber = Interlocked.Increment(ref physicalModelAttempt);
+                            var family = request.Transport is Middleware.AgentModelTransport.Realtime
+                                ? Providers.ProviderClientFamily.Realtime
+                                : Providers.ProviderClientFamily.Chat;
+                            var selected = Config?.ResolveClientConfig(family, effectiveRunConfig.Clients);
+                            var operationId = Guid.NewGuid().ToString("N");
+                            ProviderOperationAccountingScope.Current?.RegisterAttempt(new(
+                                operationId, logicalModelOperationId, attemptNumber,
+                                family is Providers.ProviderClientFamily.Realtime
+                                    ? ProviderOperationKind.RealtimeModelResponse
+                                    : ProviderOperationKind.ChatModelResponse,
+                                family, selected?.Provider?.Key, selected?.ModelName));
+                            ProviderUsageAccumulator? usageAccumulator = null;
+                            UsageUpdateSemantics ResolveAttemptUsageSemantics()
+                            {
+                                var declaration = family is ProviderClientFamily.Realtime
+                                    ? request.RealtimeModel?.GetService(typeof(ProviderStreamingUsageSemanticsDeclaration))
+                                        as ProviderStreamingUsageSemanticsDeclaration
+                                    : request.ChatModel?.GetService(typeof(ProviderStreamingUsageSemanticsDeclaration))
+                                        as ProviderStreamingUsageSemanticsDeclaration;
+                                return ProviderStreamingUsageSemanticsCatalog.Resolve(
+                                    selected?.Provider?.Key, family, declaration);
+                            }
+                            var transcriptionAttempts = new Dictionary<string, (string OperationId, UsageDetails? Usage)>(StringComparer.Ordinal);
+                            string? attemptModelId = selected?.ModelName;
+                            string? attemptResponseId = null;
+                            await using var attemptEnumerator = modelTurnExecutor
+                                .RunAsync(request, attemptCancellationToken)
+                                .GetAsyncEnumerator(attemptCancellationToken);
+                            while (true)
+                            {
+                                bool moved = false;
+                                Exception? failure = null;
+                                try
+                                {
+                                    moved = await attemptEnumerator.MoveNextAsync().ConfigureAwait(false);
+                                }
+                                catch (Exception exception)
+                                {
+                                    failure = exception;
+                                }
+
+                                if (failure is not null)
+                                {
+                                    foreach (var (itemId, transcription) in transcriptionAttempts)
+                                    {
+                                        accountingBridge.EnqueueTerminal(new ProviderOperationUsageEvent(
+                                            messageTurnId, transcription.OperationId, itemId, 1,
+                                            ProviderOperationKind.RealtimeInputTranscription,
+                                            ProviderClientFamily.Realtime,
+                                            failure is OperationCanceledException
+                                                ? ProviderOperationOutcome.Cancelled
+                                                : ProviderOperationOutcome.Failed,
+                                            transcription.Usage, selected?.Provider?.Key, selected?.ModelName, itemId));
+                                    }
+                                    transcriptionAttempts.Clear();
+                                    accountingBridge?.EnqueueTerminal(new AgentTurnFinishedEvent(
+                                        messageTurnId, state.Iteration, operationId, logicalModelOperationId,
+                                        attemptNumber, family,
+                                        failure is OperationCanceledException
+                                            ? ProviderOperationOutcome.Cancelled
+                                            : ProviderOperationOutcome.Failed,
+                                        usageAccumulator?.Usage, selected?.Provider?.Key, attemptModelId, attemptResponseId)
+                                    { TraceId = traceId, SpanId = iterSpanId, ParentSpanId = turnSpanId });
+                                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+                                }
+
+                                if (!moved)
+                                {
+                                    foreach (var (itemId, transcription) in transcriptionAttempts)
+                                    {
+                                        accountingBridge.EnqueueTerminal(new ProviderOperationUsageEvent(
+                                            messageTurnId, transcription.OperationId, itemId, 1,
+                                            ProviderOperationKind.RealtimeInputTranscription,
+                                            ProviderClientFamily.Realtime, ProviderOperationOutcome.Unknown,
+                                            transcription.Usage, selected?.Provider?.Key, selected?.ModelName, itemId));
+                                    }
+                                    transcriptionAttempts.Clear();
+                                    accountingBridge?.EnqueueTerminal(new AgentTurnFinishedEvent(
+                                        messageTurnId, state.Iteration, operationId, logicalModelOperationId,
+                                        attemptNumber, family, ProviderOperationOutcome.Succeeded,
+                                        usageAccumulator?.Usage, selected?.Provider?.Key, attemptModelId, attemptResponseId)
+                                    { TraceId = traceId, SpanId = iterSpanId, ParentSpanId = turnSpanId });
+                                    yield break;
+                                }
+
+                                var current = attemptEnumerator.Current;
+                                if (current.ChatUpdate is { } chatUpdate)
+                                {
+                                    attemptModelId = chatUpdate.ModelId ?? attemptModelId;
+                                    attemptResponseId = chatUpdate.ResponseId ?? attemptResponseId;
+                                    foreach (var usageContent in chatUpdate.Contents.OfType<UsageContent>())
+                                    {
+                                        (usageAccumulator ??= new ProviderUsageAccumulator(
+                                            ResolveAttemptUsageSemantics()))
+                                            .Observe(usageContent.Details);
+                                    }
+                                }
+                                if (current is Middleware.AgentUsageUpdate { Usage: { } reportedUsage })
+                                {
+                                    (usageAccumulator ??= new ProviderUsageAccumulator(
+                                        ResolveAttemptUsageSemantics()))
+                                        .Observe(reportedUsage);
+                                }
+                                if (current is AgentInputTranscriptUpdate transcript)
+                                {
+                                    var itemId = string.IsNullOrWhiteSpace(transcript.ItemId)
+                                        ? $"transcription-{transcriptionAttempts.Count + 1}"
+                                        : transcript.ItemId;
+                                    if (!transcriptionAttempts.TryGetValue(itemId, out var transcription))
+                                    {
+                                        transcription = (Guid.NewGuid().ToString("N"), null);
+                                        transcriptionAttempts.Add(itemId, transcription);
+                                        ProviderOperationAccountingScope.Current?.RegisterAttempt(new(
+                                            transcription.OperationId, itemId, 1,
+                                            ProviderOperationKind.RealtimeInputTranscription,
+                                            ProviderClientFamily.Realtime,
+                                            selected?.Provider?.Key, selected?.ModelName));
+                                    }
+                                    if (transcript.Usage is not null)
+                                    {
+                                        transcription = (transcription.OperationId, transcript.Usage);
+                                        transcriptionAttempts[itemId] = transcription;
+                                    }
+                                    if (transcript.Stage is AgentInputTranscriptStage.Final or AgentInputTranscriptStage.Failed)
+                                    {
+                                        accountingBridge.EnqueueTerminal(new ProviderOperationUsageEvent(
+                                            messageTurnId, transcription.OperationId, itemId, 1,
+                                            ProviderOperationKind.RealtimeInputTranscription,
+                                            ProviderClientFamily.Realtime,
+                                            transcript.Stage is AgentInputTranscriptStage.Failed
+                                                ? ProviderOperationOutcome.Failed
+                                                : ProviderOperationOutcome.Succeeded,
+                                            transcription.Usage, selected?.Provider?.Key, selected?.ModelName, itemId));
+                                        transcriptionAttempts.Remove(itemId);
+                                    }
+                                }
+                                yield return current;
+                            }
+                        }
+
                         if (coalesceDeltas)
                         {
                             // COALESCE MODE: Buffer all updates, then emit coalesced events
                             await foreach (var modelUpdate in turnPipeline.ExecuteModelTurnStreamingAsync(
                                 modelRequest,
-                                (req) => modelTurnExecutor.RunAsync(req, effectiveCancellationToken),
+                                (req) => ExecuteAccountedModelAttempt(req, effectiveCancellationToken),
                                 effectiveCancellationToken))
                             {
                                 if (modelUpdate is AgentInputTranscriptUpdate transcriptUpdate &&
@@ -3199,7 +3423,7 @@ public sealed partial class Agent : IAsyncDisposable
                             // STREAMING MODE: Emit immediately (existing behavior)
                             await foreach (var modelUpdate in turnPipeline.ExecuteModelTurnStreamingAsync(
                                 modelRequest,
-                                (req) => modelTurnExecutor.RunAsync(req, effectiveCancellationToken),
+                                (req) => ExecuteAccountedModelAttempt(req, effectiveCancellationToken),
                                 effectiveCancellationToken))
                             {
                                 if (modelUpdate is AgentInputTranscriptUpdate transcriptUpdate &&
@@ -3432,17 +3656,10 @@ public sealed partial class Agent : IAsyncDisposable
                         clientFamily,
                         effectiveRunConfig.Clients);
 
-                    yield return new AgentTurnFinishedEvent(
-                        state.Iteration,
-                        iterationUsage,
-                        resolvedClientConfig?.Provider?.Key,
-                        iterationResponse?.ModelId ?? resolvedClientConfig?.ModelName,
-                        iterationResponse?.ResponseId)
+                    foreach (var terminalAttempt in accountingBridge?.DrainTerminals() ?? [])
                     {
-                        TraceId      = traceId,
-                        SpanId       = iterSpanId,
-                        ParentSpanId = turnSpanId
-                    };
+                        yield return terminalAttempt;
+                    }
 
                     // Check for early termination from BeforeIteration middleware (e.g., ContinuationPermissionMiddleware)
                     if (state.IsTerminated)
@@ -3782,7 +3999,32 @@ public sealed partial class Agent : IAsyncDisposable
                 }
             }
 
-            // Emit MESSAGE TURN finished event
+            // Provider work and durable turn-history rewrites must settle before accounting closes.
+            agentContext.SyncState(state);
+            var messageIdsBeforeAccountingClose = turnHistory
+                .Select(message => message.MessageId)
+                .ToList();
+            Middleware.AfterMessageTurnContext? completedTurnContext = null;
+            if (lastResponse is not null)
+            {
+                completedTurnContext = agentContext.AsAfterMessageTurn(
+                    finalResponse: lastResponse,
+                    turnHistory: turnHistory,
+                    runConfig: effectiveRunConfig);
+                await turnPipeline.ExecuteBeforeMessageTurnAccountingCloseAsync(
+                    completedTurnContext,
+                    effectiveCancellationToken).ConfigureAwait(false);
+            }
+
+            state = agentContext.State;
+            await ReconcileCommittedTurnHistoryAsync(
+                session,
+                thread,
+                turnHistory,
+                messageIdsBeforeAccountingClose,
+                effectiveCancellationToken).ConfigureAwait(false);
+
+            // Emit MESSAGE TURN finished event after all turn-owned provider work has settled.
             turnStopwatch.Stop();
             yield return new MessageTurnFinishedEvent(
                 messageTurnId,
@@ -3790,7 +4032,7 @@ public sealed partial class Agent : IAsyncDisposable
                 AgentId,
                 _name,
                 turnStopwatch.Elapsed,
-                Usage: state.AccumulatedUsage)
+                MessageTurnUsageSummary.Empty)
             {
                 TraceId      = traceId,
                 SpanId       = turnSpanId,
@@ -3812,39 +4054,13 @@ public sealed partial class Agent : IAsyncDisposable
                 DateTimeOffset.UtcNow)
             { TraceId = traceId };
     
-            // MIDDLEWARE: AfterMessageTurnAsync (V2 - turn-level hook)
-            // Update AgentContext with final state
-            agentContext.SyncState(state);
-
-            var messageIdsBeforeAfterTurn = turnHistory
-                .Select(message => message.MessageId)
-                .ToList();
-
-            // Only call AfterMessageTurn if we have a response (may be null if terminated early)
-            if (lastResponse != null)
+            // Post-terminal middleware is observer/cleanup-only.
+            if (completedTurnContext is not null)
             {
-                // Create typed context for AfterMessageTurn
-                var afterTurnContext = agentContext.AsAfterMessageTurn(
-                    finalResponse: lastResponse,
-                    turnHistory: turnHistory,
-                    runConfig: effectiveRunConfig);
-
-                // Execute AfterMessageTurnAsync in REVERSE order (stack unwinding)
-                await turnPipeline.ExecuteAfterMessageTurnAsync(afterTurnContext, effectiveCancellationToken);
+                await turnPipeline.ExecuteAfterMessageTurnAsync(
+                    completedTurnContext,
+                    effectiveCancellationToken).ConfigureAwait(false);
             }
-
-            // V2: Sync state after middleware
-            state = agentContext.State;
-
-            // Durable transcript messages are committed incrementally at stable message boundaries.
-            // AfterMessageTurn may still rewrite turnHistory for next-turn behavior, so reconcile
-            // those edits back into the already-committed thread messages by stable message ID.
-            await ReconcileCommittedTurnHistoryAsync(
-                session,
-                thread,
-                turnHistory,
-                messageIdsBeforeAfterTurn,
-                effectiveCancellationToken).ConfigureAwait(false);
 
             // PERSISTENCE: Save persistent middleware state ( split by scope)
             if (session != null)
@@ -4226,6 +4442,7 @@ public sealed partial class Agent : IAsyncDisposable
 
         var turnHistory = new List<ChatMessage>();
         var historyCompletionSource = new TaskCompletionSource<IReadOnlyList<ChatMessage>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var accountingBridge = new ProviderOperationAccountingBridge();
 
         await foreach (var evt in RunAgenticLoopInternal(
             turn,
@@ -4234,6 +4451,7 @@ public sealed partial class Agent : IAsyncDisposable
             session: null,
             initialContextProperties: null,
             clientInputId: null,
+            accountingBridge: accountingBridge,
             cancellationToken: cancellationToken))
         {
             var outputEvent = EnrichOutputEvent(evt);
@@ -4471,6 +4689,7 @@ public sealed partial class Agent : IAsyncDisposable
         var initialProperties = BuildInitialContextProperties(options);
 
         // Execute agentic loop
+        var accountingBridge = new ProviderOperationAccountingBridge();
         var internalStream = RunAgenticLoopInternal(
             turn,
             turnHistory,
@@ -4482,6 +4701,7 @@ public sealed partial class Agent : IAsyncDisposable
             eventCoordinator: eventCoordinator,
             clientInputId: clientInputId,
             activeInput: activeInput,
+            accountingBridge: accountingBridge,
             cancellationToken: cancellationToken,
             inheritedChatClient: inheritedChatClient,
             inheritedChatMode: inheritedChatMode);
@@ -4494,6 +4714,19 @@ public sealed partial class Agent : IAsyncDisposable
         var turnFinished = false;
         var stagedTextMessages = new HashSet<string>(StringComparer.Ordinal);
         var stagedReasoningMessages = new HashSet<string>(StringComparer.Ordinal);
+        MessageTurnUsageCollector? usageCollector = null;
+        using var usageSubscription = eventCoordinator.SubscribeAny(committedEvent =>
+        {
+            if (committedEvent is AgentEvent agentEvent &&
+                TryCreateProviderUsageMeasurement(agentEvent, out var measurement) &&
+                usageCollector is not null &&
+                string.Equals(measurement.MessageTurnId, messageTurnId, StringComparison.Ordinal))
+            {
+                usageCollector.TryAcceptCommitted(measurement);
+            }
+
+            return ValueTask.CompletedTask;
+        });
 
         try
         {
@@ -4507,7 +4740,7 @@ public sealed partial class Agent : IAsyncDisposable
 
                     evt = enumerator.Current;
                 }
-                catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+                catch (Exception ex)
                 {
                     await FinalizeOutstandingAgentDeltasAsync(
                         thread, stagedTextMessages, stagedReasoningMessages,
@@ -4516,11 +4749,30 @@ public sealed partial class Agent : IAsyncDisposable
                         eventCoordinator).ConfigureAwait(false);
                     if (!turnFinished)
                     {
+                        foreach (var terminalAttempt in accountingBridge.DrainTerminals())
+                        {
+                            if (usageCollector is not null)
+                                await usageCollector.CommitTerminalAsync(terminalAttempt, CancellationToken.None).ConfigureAwait(false);
+                            else
+                                await CommitAgentThreadEventAsync(
+                                    thread, terminalAttempt, messageTurnId, conversationId, currentIteration,
+                                    inputMessages.Count, isResume, null, turnHistory.Count,
+                                    eventCoordinator, CancellationToken.None).ConfigureAwait(false);
+                        }
+                        if (usageCollector is not null)
+                        {
+                            await CommitPendingFailedProviderAttemptsAsync(
+                                usageCollector, thread, messageTurnId, conversationId, currentIteration,
+                                inputMessages.Count, isResume, turnHistory.Count, ex, eventCoordinator).ConfigureAwait(false);
+                        }
                         await AppendThreadFailureRuntimeEventAsync(
                             thread,
                             messageTurnId,
                             conversationId,
                             ex,
+                            usageCollector is null
+                                ? MessageTurnUsageSummary.Empty
+                                : await usageCollector.CloseAsync(CancellationToken.None).ConfigureAwait(false),
                             eventCoordinator).ConfigureAwait(false);
                     }
 
@@ -4531,6 +4783,18 @@ public sealed partial class Agent : IAsyncDisposable
             {
                 messageTurnId = started.MessageTurnId;
                 conversationId = started.ConversationId;
+                usageCollector = new MessageTurnUsageCollector(started.MessageTurnId);
+                accountingBridge.Collector = usageCollector;
+                usageCollector.ConfigureCommitter(async (terminalEvent, commitCancellationToken) =>
+                {
+                    var committed = await CommitAgentThreadEventAsync(
+                        thread, terminalEvent, messageTurnId, conversationId, currentIteration,
+                        inputMessages.Count, isResume, null, turnHistory.Count,
+                        eventCoordinator, commitCancellationToken).ConfigureAwait(false);
+                    if (TryCreateProviderUsageMeasurement(committed, out var measurement))
+                        usageCollector.TryAcceptCommitted(measurement);
+                    return committed;
+                });
             }
             else if (evt is AgentTurnStartedEvent agentTurnStarted)
             {
@@ -4540,8 +4804,14 @@ public sealed partial class Agent : IAsyncDisposable
             {
                 currentIteration = agentTurnFinished.Iteration;
             }
-            else if (evt is MessageTurnFinishedEvent)
+            else if (evt is MessageTurnFinishedEvent finished)
             {
+                evt = finished with
+                {
+                    Usage = usageCollector is null
+                        ? MessageTurnUsageSummary.Empty
+                        : await usageCollector.CloseAsync(cancellationToken).ConfigureAwait(false)
+                };
                 turnFinished = true;
             }
 
@@ -4591,6 +4861,16 @@ public sealed partial class Agent : IAsyncDisposable
                     eventCoordinator, cancellationToken).ConfigureAwait(false);
             }
 
+            // The iterator owns model-call commits, so accept their committed identity
+            // synchronously. The coordinator subscription remains necessary for
+            // message-turn-owned operations published directly by middleware (audio,
+            // hosted operations, and future provider families).
+            if (TryCreateProviderUsageMeasurement(outputEvent, out var committedMeasurement) &&
+                string.Equals(committedMeasurement.MessageTurnId, messageTurnId, StringComparison.Ordinal))
+            {
+                usageCollector?.TryAcceptCommitted(committedMeasurement);
+            }
+
             await PersistAgentEventContentAsync(
                 session,
                 outputEvent,
@@ -4615,6 +4895,9 @@ public sealed partial class Agent : IAsyncDisposable
                         messageTurnId,
                         conversationId,
                         ex,
+                        usageCollector is null
+                            ? MessageTurnUsageSummary.Empty
+                            : await usageCollector.CloseAsync(CancellationToken.None).ConfigureAwait(false),
                         eventCoordinator).ConfigureAwait(false);
                     throw;
                 }

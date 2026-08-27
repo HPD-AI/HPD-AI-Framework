@@ -41,6 +41,11 @@ namespace HPD.Agent.Hosting.Serialization;
 [JsonSerializable(typeof(List<ThreadExecutionOperationDto>))]
 // Thread event DTOs
 [JsonSerializable(typeof(AgentEvent))]
+[JsonSerializable(typeof(ProviderOperationUsageEvent))]
+[JsonSerializable(typeof(ProviderValuationObservationEvent))]
+[JsonSerializable(typeof(ProviderUsageMeasurement))]
+[JsonSerializable(typeof(MessageTurnUsageSummary))]
+[JsonSerializable(typeof(ProviderReportedMonetaryObservation))]
 [JsonSerializable(typeof(AgentEvent[]))]
 [JsonSerializable(typeof(List<AgentEvent>))]
 // Content DTOs
@@ -111,7 +116,7 @@ namespace HPD.Agent.Hosting.Serialization;
 [JsonSerializable(typeof(ProviderAccountOperationRequest))]
 [JsonSerializable(typeof(BeginProviderAuthorizationHostRequest))]
 [JsonSerializable(typeof(CompleteProviderAuthorizationRequest))]
-[JsonSerializable(typeof(AdvanceProviderDeviceAuthorizationRequest))]
+[JsonSerializable(typeof(ProviderDeviceAuthorizationOperationRequest))]
 [JsonSerializable(typeof(ProviderAuthorizationChallenge))]
 [JsonSerializable(typeof(BrowserAuthorizationChallenge))]
 [JsonSerializable(typeof(DeviceAuthorizationChallenge))]

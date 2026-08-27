@@ -1,14 +1,32 @@
 using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace HPD.Agent.ModelsDev;
 
-public sealed partial class ModelsDevStore
+public enum ModelsDevCatalogOrigin { Network, FreshCache, StaleCache, Embedded, Supplied }
+public enum ModelsDevRefreshMode { IfStale, Force, CacheOnly }
+
+public sealed record ModelsDevCatalogSnapshot(
+    ModelsDevDatabase Database, DateTimeOffset RetrievedAt, string? ETag,
+    string ContentDigest, Uri Source, ModelsDevCatalogOrigin Origin);
+
+public interface IModelsDevCatalog
+{
+    ValueTask<ModelsDevCatalogSnapshot> GetSnapshotAsync(
+        ModelsDevRefreshMode refreshMode = ModelsDevRefreshMode.IfStale,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed partial class ModelsDevStore : IModelsDevCatalog
 {
     private readonly HttpClient _httpClient;
     private readonly ModelsDevOptions _options;
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private ModelsDevDatabase? _database;
+    private readonly Dictionary<string, string> _payloads = new(StringComparer.Ordinal);
+    private readonly ModelsDevCatalogSnapshot? _supplied;
+    private ModelsDevCatalogSnapshot? _current;
 
     public ModelsDevStore(HttpClient httpClient, ModelsDevOptions? options = null)
     {
@@ -16,279 +34,244 @@ public sealed partial class ModelsDevStore
         _options = options ?? new ModelsDevOptions();
     }
 
-    private ModelsDevStore(ModelsDevDatabase database)
+    private ModelsDevStore(ModelsDevCatalogSnapshot supplied)
     {
+        ValidateDatabase(supplied.Database);
+        if (supplied.Origin is not (ModelsDevCatalogOrigin.Supplied or ModelsDevCatalogOrigin.Embedded))
+            throw new ArgumentException("A supplied store requires Supplied or Embedded provenance.", nameof(supplied));
         _httpClient = new HttpClient();
-        _options = new ModelsDevOptions { UseDiskCache = false };
-        _database = database ?? throw new ArgumentNullException(nameof(database));
+        _options = new ModelsDevOptions { UseDiskCache = false, ApiUri = supplied.Source };
+        _supplied = _current = supplied;
     }
 
-    public static ModelsDevStore FromDatabase(ModelsDevDatabase database)
-        => new(database);
+    public static ModelsDevStore FromSnapshot(ModelsDevCatalogSnapshot snapshot) => new(snapshot);
 
-    public async ValueTask<ModelsDevDatabase> GetDatabaseAsync(CancellationToken cancellationToken = default)
+    public async ValueTask<ModelsDevCatalogSnapshot> GetSnapshotAsync(
+        ModelsDevRefreshMode refreshMode = ModelsDevRefreshMode.IfStale,
+        CancellationToken cancellationToken = default)
     {
-        if (_database is not null)
-        {
-            return _database;
-        }
+        if (_supplied is not null) return _supplied;
+        if (refreshMode is ModelsDevRefreshMode.IfStale && IsFresh(_current)) return _current!;
 
-        await _gate.WaitAsync(cancellationToken);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_database is not null)
+            if (refreshMode is ModelsDevRefreshMode.IfStale && IsFresh(_current)) return _current!;
+            var cached = _options.UseDiskCache ? await TryReadCacheAsync(cancellationToken).ConfigureAwait(false) : null;
+            if (refreshMode is ModelsDevRefreshMode.IfStale && IsFresh(cached))
+                return _current = cached! with { Origin = ModelsDevCatalogOrigin.FreshCache };
+            if (refreshMode is ModelsDevRefreshMode.CacheOnly)
+                return cached is null
+                    ? throw new InvalidOperationException("No valid models.dev cache is available.")
+                    : _current = cached with { Origin = IsFresh(cached) ? ModelsDevCatalogOrigin.FreshCache : ModelsDevCatalogOrigin.StaleCache };
+            try
             {
-                return _database;
+                var network = await FetchWithRetriesAsync(cached ?? _current, cancellationToken).ConfigureAwait(false);
+                _current = network;
+                await TryWriteCacheAsync(network, cancellationToken).ConfigureAwait(false);
+                return network;
             }
-
-            _database = await LoadDatabaseAsync(cancellationToken);
-            return _database;
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception exception) when (cached is not null || _current is not null)
+            {
+                _options.DiagnosticSink?.Invoke(new("stale_cache_fallback", "Catalog refresh failed; using the last valid snapshot.", exception));
+                return _current = (cached ?? _current!) with { Origin = ModelsDevCatalogOrigin.StaleCache };
+            }
         }
-        finally
-        {
-            _gate.Release();
-        }
+        finally { _gate.Release(); }
     }
 
     public async ValueTask<ModelsDevModel?> GetModelAsync(
-        ModelsDevModelId id,
+        ModelsDevModelId id, ModelsDevRefreshMode refreshMode = ModelsDevRefreshMode.IfStale,
         CancellationToken cancellationToken = default)
     {
-        if (!id.IsValid)
-        {
-            return null;
-        }
-
-        var database = await GetDatabaseAsync(cancellationToken);
-        if (!database.Providers.TryGetValue(id.Provider, out var provider))
-        {
-            return null;
-        }
-
-        if (provider.Models.TryGetValue(id.Model, out var model))
-        {
-            return model;
-        }
-
-        if (string.Equals(id.Provider, "amazon-bedrock", StringComparison.OrdinalIgnoreCase)
-            && TryStripBedrockPrefix(id.Model, out var stripped)
-            && provider.Models.TryGetValue(stripped, out model))
-        {
-            return model;
-        }
-
-        return null;
+        if (!id.IsValid) return null;
+        var database = (await GetSnapshotAsync(refreshMode, cancellationToken).ConfigureAwait(false)).Database;
+        if (!database.Providers.TryGetValue(id.Provider, out var provider)) return null;
+        if (provider.Models.TryGetValue(id.Model, out var model)) return model;
+        return string.Equals(id.Provider, "amazon-bedrock", StringComparison.OrdinalIgnoreCase)
+            && TryStripBedrockPrefix(id.Model, out var stripped) && provider.Models.TryGetValue(stripped, out model)
+                ? model : null;
     }
 
-    public async ValueTask<string> ResolveModelAliasAsync(
-        string providerId,
-        string modelId,
-        CancellationToken cancellationToken = default)
+    private bool IsFresh(ModelsDevCatalogSnapshot? snapshot)
+        => snapshot is not null && DateTimeOffset.UtcNow - snapshot.RetrievedAt < _options.RefreshInterval;
+
+    private async ValueTask<ModelsDevCatalogSnapshot> FetchWithRetriesAsync(
+        ModelsDevCatalogSnapshot? previous, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(providerId) || string.IsNullOrWhiteSpace(modelId))
+        Exception? last = null;
+        for (var attempt = 0; attempt <= _options.MaxTransientRetries; attempt++)
         {
-            return modelId;
-        }
-
-        if (ModelsDevModelId.HasDateSuffix(modelId))
-        {
-            return modelId;
-        }
-
-        var database = await GetDatabaseAsync(cancellationToken);
-        if (!database.Providers.TryGetValue(providerId, out var provider)
-            || !provider.Models.TryGetValue(modelId, out var alias)
-            || alias.Name is null
-            || !alias.Name.Contains("(latest)", StringComparison.OrdinalIgnoreCase))
-        {
-            return modelId;
-        }
-
-        var baseName = alias.Name.Replace(" (latest)", string.Empty, StringComparison.OrdinalIgnoreCase);
-        foreach (var pair in provider.Models)
-        {
-            if (string.Equals(pair.Key, modelId, StringComparison.OrdinalIgnoreCase)
-                || pair.Value.Name is null
-                || pair.Value.Name.Contains("(latest)", StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(pair.Value.Name, baseName, StringComparison.Ordinal)
-                || !ModelsDevModelId.HasDateSuffix(pair.Key))
+            cancellationToken.ThrowIfCancellationRequested();
+            try { return await FetchAsync(previous, cancellationToken).ConfigureAwait(false); }
+            catch (Exception ex) when (IsTransient(ex))
             {
-                continue;
+                if (ex is OperationCanceledException && cancellationToken.IsCancellationRequested) throw;
+                last = ex;
+                if (attempt == _options.MaxTransientRetries) break;
+                var delay = _options.RetryBaseDelay.TotalMilliseconds * Math.Pow(2, attempt)
+                    + Random.Shared.NextDouble() * _options.RetryJitter.TotalMilliseconds;
+                await Task.Delay(TimeSpan.FromMilliseconds(delay), cancellationToken).ConfigureAwait(false);
             }
-
-            return pair.Key;
         }
-
-        return modelId;
+        throw new HttpRequestException("models.dev catalog refresh failed after retries.", last);
     }
 
-    private async ValueTask<ModelsDevDatabase> LoadDatabaseAsync(CancellationToken cancellationToken)
+    private static bool IsTransient(Exception exception) => exception switch
     {
-        ModelsDevCachedData? cached = null;
-        if (_options.UseDiskCache)
-        {
-            cached = await TryReadCacheAsync(cancellationToken);
-            if (cached is not null && DateTimeOffset.UtcNow - cached.LastRefresh < _options.RefreshInterval)
-            {
-                return cached.Database;
-            }
-        }
+        IOException => true,
+        TaskCanceledException => true,
+        HttpRequestException { StatusCode: null } => true,
+        HttpRequestException { StatusCode: HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests } => true,
+        HttpRequestException { StatusCode: >= HttpStatusCode.InternalServerError } => true,
+        _ => false
+    };
 
-        try
-        {
-            var fetched = await FetchAsync(cached?.ETag, cancellationToken);
-            if (fetched.Database is null && cached is not null)
-            {
-                await TryWriteCacheAsync(cached.Database, fetched.ETag ?? cached.ETag, cancellationToken);
-                return cached.Database;
-            }
-
-            if (fetched.Database is null)
-            {
-                throw new InvalidOperationException("models.dev returned no catalog data.");
-            }
-
-            await TryWriteCacheAsync(fetched.Database, fetched.ETag, cancellationToken);
-            return fetched.Database;
-        }
-        catch when (cached is not null)
-        {
-            return cached.Database;
-        }
-    }
-
-    private async ValueTask<(ModelsDevDatabase? Database, string? ETag)> FetchAsync(
-        string? etag,
-        CancellationToken cancellationToken)
+    private async ValueTask<ModelsDevCatalogSnapshot> FetchAsync(
+        ModelsDevCatalogSnapshot? previous, CancellationToken cancellationToken)
     {
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        cts.CancelAfter(_options.HttpTimeout);
-
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(_options.HttpTimeout);
         using var request = new HttpRequestMessage(HttpMethod.Get, _options.ApiUri);
-        if (!string.IsNullOrWhiteSpace(etag))
-        {
-            request.Headers.IfNoneMatch.ParseAdd(etag);
-        }
-
-        using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cts.Token);
-        if (response.StatusCode == HttpStatusCode.NotModified)
-        {
-            return (null, etag);
-        }
-
+        if (!string.IsNullOrWhiteSpace(previous?.ETag)) request.Headers.IfNoneMatch.ParseAdd(previous.ETag);
+        using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseContentRead, timeout.Token).ConfigureAwait(false);
+        if (response.StatusCode is HttpStatusCode.NotModified && previous is not null)
+            return previous with { RetrievedAt = DateTimeOffset.UtcNow, Origin = ModelsDevCatalogOrigin.Network };
         response.EnsureSuccessStatusCode();
-
-        await using var stream = await response.Content.ReadAsStreamAsync(cts.Token);
-        var providers = await JsonSerializer.DeserializeAsync(
-            stream,
-            ModelsDevJsonContext.Default.DictionaryStringModelsDevProvider,
-            cts.Token);
-
-        if (providers is null)
-        {
-            throw new JsonException("Failed to deserialize models.dev provider catalog.");
-        }
-
-        return (new ModelsDevDatabase { Providers = providers }, response.Headers.ETag?.Tag);
+        var payload = await response.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false);
+        var digest = Digest(payload);
+        _payloads[digest] = payload;
+        return new(DeserializeAndValidate(payload), DateTimeOffset.UtcNow, response.Headers.ETag?.Tag,
+            digest, _options.ApiUri, ModelsDevCatalogOrigin.Network);
     }
 
-    private async ValueTask<ModelsDevCachedData?> TryReadCacheAsync(CancellationToken cancellationToken)
+    private async ValueTask<ModelsDevCatalogSnapshot?> TryReadCacheAsync(CancellationToken cancellationToken)
     {
         var path = GetCachePath();
-        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-        {
-            return null;
-        }
-
+        if (path is null || !File.Exists(path)) return null;
         try
         {
-            await using var stream = File.OpenRead(path);
-            return await JsonSerializer.DeserializeAsync(
-                stream,
-                ModelsDevJsonContext.Default.ModelsDevCachedData,
-                cancellationToken);
+            await using var held = await AcquireFileLockAsync(path + ".lock", cancellationToken).ConfigureAwait(false);
+            var cached = JsonSerializer.Deserialize(
+                await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false),
+                ModelsDevJsonContext.Default.ModelsDevCachedData);
+            if (cached is null || cached.Source != _options.ApiUri || cached.ContentDigest != Digest(cached.Payload)) return null;
+            _payloads[cached.ContentDigest] = cached.Payload;
+            return new(DeserializeAndValidate(cached.Payload), cached.RetrievedAt, cached.ETag,
+                cached.ContentDigest, cached.Source, ModelsDevCatalogOrigin.FreshCache);
         }
-        catch
+        catch (OperationCanceledException) { throw; }
+        catch (Exception exception)
         {
+            _options.DiagnosticSink?.Invoke(new("cache_read_failed", "The models.dev cache could not be validated.", exception));
             return null;
         }
     }
 
-    private async ValueTask TryWriteCacheAsync(
-        ModelsDevDatabase database,
-        string? etag,
-        CancellationToken cancellationToken)
+    private async ValueTask TryWriteCacheAsync(ModelsDevCatalogSnapshot snapshot, CancellationToken cancellationToken)
     {
-        if (!_options.UseDiskCache)
-        {
-            return;
-        }
-
         var path = GetCachePath();
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return;
-        }
-
+        if (!_options.UseDiskCache || path is null) return;
         try
         {
-            var directory = Path.GetDirectoryName(path);
-            if (!string.IsNullOrWhiteSpace(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            await using var held = await AcquireFileLockAsync(path + ".lock", cancellationToken).ConfigureAwait(false);
+            var payload = _payloads.TryGetValue(snapshot.ContentDigest, out var exactPayload)
+                ? exactPayload
+                : JsonSerializer.Serialize(snapshot.Database.Providers, ModelsDevJsonContext.Default.DictionaryStringModelsDevProvider);
             var cached = new ModelsDevCachedData
             {
-                Database = database,
-                LastRefresh = DateTimeOffset.UtcNow,
-                ETag = etag
+                Payload = payload, RetrievedAt = snapshot.RetrievedAt, ETag = snapshot.ETag,
+                ContentDigest = Digest(payload), Source = snapshot.Source
             };
-
-            await using var stream = File.Create(path);
-            await JsonSerializer.SerializeAsync(
-                stream,
-                cached,
-                ModelsDevJsonContext.Default.ModelsDevCachedData,
-                cancellationToken);
+            var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                await File.WriteAllTextAsync(temporary,
+                    JsonSerializer.Serialize(cached, ModelsDevJsonContext.Default.ModelsDevCachedData), cancellationToken).ConfigureAwait(false);
+                File.Move(temporary, path, true);
+            }
+            finally { if (File.Exists(temporary)) File.Delete(temporary); }
         }
-        catch
+        catch (OperationCanceledException) { throw; }
+        catch (Exception exception)
         {
-            // Cache writes should not prevent model selection.
+            _options.DiagnosticSink?.Invoke(new("cache_write_failed", "The valid catalog snapshot could not be written to cache.", exception));
+        }
+    }
+
+    private static async ValueTask<FileStream> AcquireFileLockAsync(string path, CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try { return new(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
+            catch (IOException) { await Task.Delay(25, cancellationToken).ConfigureAwait(false); }
         }
     }
 
     private string? GetCachePath()
     {
-        if (!string.IsNullOrWhiteSpace(_options.CachePath))
+        var basePath = _options.CachePath;
+        if (string.IsNullOrWhiteSpace(basePath))
         {
-            return _options.CachePath;
+            var profile = System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile);
+            if (string.IsNullOrWhiteSpace(profile)) return null;
+            basePath = Path.Combine(profile, ".hpd", "models-dev");
         }
-
-        var home = System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile);
-        return string.IsNullOrWhiteSpace(home)
-            ? null
-            : Path.Combine(home, ".hpd", "models_dev.json");
+        var isFile = !string.IsNullOrEmpty(Path.GetExtension(basePath));
+        var directory = isFile ? Path.GetDirectoryName(basePath)! : basePath;
+        var prefix = isFile ? Path.GetFileNameWithoutExtension(basePath) : "catalog";
+        return Path.Combine(directory, $"{prefix}-{Digest(_options.ApiUri.AbsoluteUri)[..16]}.json");
     }
 
-    private static bool TryStripBedrockPrefix(string modelId, out string stripped)
+    private static ModelsDevDatabase DeserializeAndValidate(string payload)
+    {
+        var providers = JsonSerializer.Deserialize(payload, ModelsDevJsonContext.Default.DictionaryStringModelsDevProvider)
+            ?? throw new JsonException("Failed to deserialize models.dev provider catalog.");
+        var database = new ModelsDevDatabase { Providers = providers };
+        ValidateDatabase(database);
+        return database;
+    }
+
+    private static void ValidateDatabase(ModelsDevDatabase database)
+    {
+        foreach (var (providerId, provider) in database.Providers)
+        foreach (var (modelId, model) in provider.Models)
+        {
+            if (model.Cost is null) continue;
+            ValidateRates(model.Cost.Input, model.Cost.Output, model.Cost.Reasoning, model.Cost.CacheRead,
+                model.Cost.CacheWrite, model.Cost.InputAudio, model.Cost.OutputAudio, providerId, modelId);
+            var thresholds = new HashSet<long>();
+            foreach (var tier in model.Cost.Tiers)
+            {
+                if (!string.Equals(tier.Tier.Type, "input", StringComparison.OrdinalIgnoreCase)
+                    || tier.Tier.Size < 0 || !thresholds.Add(tier.Tier.Size))
+                    throw new JsonException($"Invalid pricing tier for {providerId}/{modelId}.");
+                ValidateRates(tier.Input, tier.Output, tier.Reasoning, tier.CacheRead,
+                    tier.CacheWrite, tier.InputAudio, tier.OutputAudio, providerId, modelId);
+            }
+        }
+    }
+
+    private static void ValidateRates(decimal input, decimal output, decimal? reasoning, decimal? cacheRead,
+        decimal? cacheWrite, decimal? inputAudio, decimal? outputAudio, string providerId, string modelId)
+    {
+        if (new decimal?[] { input, output, reasoning, cacheRead, cacheWrite, inputAudio, outputAudio }.Any(rate => rate < 0))
+            throw new JsonException($"Negative price for {providerId}/{modelId}.");
+    }
+
+    private static string Digest(string value)
+        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
+
+    internal static bool TryStripBedrockPrefix(string modelId, out string stripped)
     {
         stripped = modelId;
         var separator = modelId.IndexOf('.');
-        if (separator <= 0 || separator == modelId.Length - 1)
-        {
-            return false;
-        }
-
+        if (separator <= 0 || separator == modelId.Length - 1) return false;
         var prefix = modelId[..separator];
-        if (!string.Equals(prefix, "us", StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(prefix, "eu", StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(prefix, "apac", StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(prefix, "global", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
+        if (prefix is not ("us" or "eu" or "apac" or "global")) return false;
         stripped = modelId[(separator + 1)..];
         return true;
     }

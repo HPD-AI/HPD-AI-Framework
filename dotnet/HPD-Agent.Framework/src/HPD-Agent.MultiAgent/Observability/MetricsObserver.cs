@@ -234,13 +234,14 @@ public class MetricsObserver
 
     private void HandleTurnFinished(MessageTurnFinishedEvent evt)
     {
-        if (evt.Usage == null) return;
-
         var (metrics, nodeMetrics) = FindActiveNodeMetrics();
         if (nodeMetrics == null || metrics == null) return;
 
-        nodeMetrics.InputTokens += (int)(evt.Usage.InputTokenCount ?? 0);
-        nodeMetrics.OutputTokens += (int)(evt.Usage.OutputTokenCount ?? 0);
+        foreach (var measurement in evt.Usage.Operations)
+        {
+            nodeMetrics.InputTokens += (int)(measurement.Usage?.InputTokenCount ?? 0);
+            nodeMetrics.OutputTokens += (int)(measurement.Usage?.OutputTokenCount ?? 0);
+        }
 
         OnMetricsUpdated?.Invoke(metrics);
     }

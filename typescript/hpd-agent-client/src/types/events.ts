@@ -83,6 +83,8 @@ export const EventTypes = {
   // Agent Turn (iteration within a message turn)
   AGENT_TURN_STARTED: 'AGENT_TURN_STARTED',
   AGENT_TURN_FINISHED: 'AGENT_TURN_FINISHED',
+  PROVIDER_OPERATION_USAGE: 'PROVIDER_OPERATION_USAGE',
+  PROVIDER_VALUATION_OBSERVATION: 'PROVIDER_VALUATION_OBSERVATION',
   STATE_SNAPSHOT: 'STATE_SNAPSHOT',
   THREAD_EXECUTION_STARTED: 'THREAD_EXECUTION_STARTED',
   THREAD_EXECUTION_FINISHED: 'THREAD_EXECUTION_FINISHED',
@@ -422,7 +424,7 @@ export interface MessageTurnFinishedEvent extends BaseEvent {
   conversationId: string;
   agentName: string;
   duration: string;
-  usage?: UsageDetails | null;
+  usage: MessageTurnUsageSummary;
   timestamp: string;
 }
 
@@ -431,7 +433,8 @@ export interface MessageTurnErrorEvent extends BaseEvent {
   isError: true;
   errorMessage: string;
   errorType?: string | null;
-  messageTurnId?: string | null;
+  messageTurnId: string;
+  usage: MessageTurnUsageSummary;
   conversationId?: string | null;
   agentId?: string | null;
   agentName?: string | null;
@@ -448,11 +451,76 @@ export interface AgentTurnStartedEvent extends BaseEvent {
 
 export interface AgentTurnFinishedEvent extends BaseEvent {
   type: typeof EventTypes.AGENT_TURN_FINISHED;
+  messageTurnId: string;
   iteration: number;
+  operationId: string;
+  logicalOperationId?: string | null;
+  attempt: number;
+  family: ProviderClientFamily;
+  outcome: ProviderOperationOutcome;
   usage?: UsageDetails | null;
   providerKey?: string | null;
   modelId?: string | null;
   responseId?: string | null;
+}
+
+export type ProviderClientFamily =
+  | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
+  | 'Chat' | 'TextToSpeech' | 'SpeechToText' | 'Realtime'
+  | 'ImageGeneration' | 'Embeddings' | 'HostedFiles'
+  | 'VoiceActivityDetection' | 'EndOfTurnDetection';
+
+export type ProviderOperationOutcome =
+  | 0 | 1 | 2 | 3
+  | 'Succeeded' | 'Failed' | 'Cancelled' | 'Unknown';
+
+export type ProviderOperationKind =
+  | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
+  | 'ChatModelResponse' | 'RealtimeModelResponse' | 'SpeechToText'
+  | 'TextToSpeech' | 'RealtimeInputTranscription' | 'ImageGeneration'
+  | 'Embeddings' | 'HostedFileOperation' | 'VoiceActivityDetection'
+  | 'EndOfTurnDetection';
+
+export interface ProviderUsageMeasurement {
+  sourceEventId: string;
+  messageTurnId: string;
+  threadSequenceNumber: number;
+  operationId: string;
+  logicalOperationId?: string | null;
+  attempt: number;
+  operationKind: ProviderOperationKind;
+  family: ProviderClientFamily;
+  outcome: ProviderOperationOutcome;
+  usage?: UsageDetails | null;
+  providerKey?: string | null;
+  modelId?: string | null;
+  responseId?: string | null;
+}
+
+export interface MessageTurnUsageSummary {
+  operations: ProviderUsageMeasurement[];
+}
+
+export interface ProviderOperationUsageEvent extends BaseEvent {
+  type: typeof EventTypes.PROVIDER_OPERATION_USAGE;
+  messageTurnId: string;
+  operationId: string;
+  logicalOperationId?: string | null;
+  attempt: number;
+  operationKind: ProviderOperationKind;
+  family: ProviderClientFamily;
+  outcome: ProviderOperationOutcome;
+  usage?: UsageDetails | null;
+  providerKey?: string | null;
+  modelId?: string | null;
+  responseId?: string | null;
+}
+
+export interface ProviderValuationObservationEvent extends BaseEvent {
+  type: typeof EventTypes.PROVIDER_VALUATION_OBSERVATION;
+  messageTurnId: string;
+  sourceEventId: string;
+  observation: Record<string, unknown>;
 }
 
 export interface StateSnapshotEvent extends BaseEvent {
@@ -979,6 +1047,8 @@ export type KnownAgentEvent =
   // Agent Turn Events
   | AgentTurnStartedEvent
   | AgentTurnFinishedEvent
+  | ProviderOperationUsageEvent
+  | ProviderValuationObservationEvent
   | StateSnapshotEvent
   | ThreadExecutionStartedEvent
   | ThreadExecutionFinishedEvent

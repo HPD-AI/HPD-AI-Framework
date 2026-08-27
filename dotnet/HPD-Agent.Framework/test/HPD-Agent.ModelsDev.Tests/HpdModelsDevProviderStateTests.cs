@@ -109,9 +109,7 @@ public sealed class HpdModelsDevProviderStateTests
                 DisplayName = DisplayName
             };
 
-        public ProviderValidationResult ValidateConfiguration(
-            ProviderClientConfig config,
-            ProviderClientFamily family)
+        public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
             => ProviderValidationResult.Success();
     }
 }

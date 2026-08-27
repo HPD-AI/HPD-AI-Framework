@@ -454,6 +454,16 @@ public static partial class NativeExports
     public static IntPtr AdvanceProviderDeviceAuthorization(IntPtr agentHandle, IntPtr requestJsonPtr) =>
         AdvanceProviderDeviceAuthorizationCore(agentHandle, Marshal.PtrToStringUTF8(requestJsonPtr));
 
+    /// <summary>Reads one device authorization transaction without contacting the provider.</summary>
+    [UnmanagedCallersOnly(EntryPoint = "get_provider_device_authorization_status")]
+    public static IntPtr GetProviderDeviceAuthorizationStatus(IntPtr agentHandle, IntPtr requestJsonPtr) =>
+        GetProviderDeviceAuthorizationStatusCore(agentHandle, Marshal.PtrToStringUTF8(requestJsonPtr));
+
+    /// <summary>Cancels one device authorization transaction.</summary>
+    [UnmanagedCallersOnly(EntryPoint = "cancel_provider_device_authorization")]
+    public static IntPtr CancelProviderDeviceAuthorization(IntPtr agentHandle, IntPtr requestJsonPtr) =>
+        CancelProviderDeviceAuthorizationCore(agentHandle, Marshal.PtrToStringUTF8(requestJsonPtr));
+
     /// <summary>Reads redacted authorization status for a provider account.</summary>
     [UnmanagedCallersOnly(EntryPoint = "get_provider_authorization_status")]
     public static IntPtr GetProviderAuthorizationStatus(IntPtr agentHandle, IntPtr requestJsonPtr) =>
@@ -517,11 +527,40 @@ public static partial class NativeExports
         {
             var service = RequireProviderAccountService(agentHandle);
             var request = JsonSerializer.Deserialize(requestJson ?? string.Empty,
-                HPDFFIJsonContext.Default.AdvanceProviderDeviceAuthorizationFfiRequest)
+                HPDFFIJsonContext.Default.ProviderDeviceAuthorizationFfiRequest)
                 ?? throw new JsonException("The provider device authorization advance request was null.");
             var result = service.AdvanceDeviceAsync(request).AsTask().GetAwaiter().GetResult();
             return MarshalString(JsonSerializer.Serialize(
                 result, HPDFFIJsonContext.Default.ProviderDeviceAuthorizationStatus));
+        }
+        catch (Exception exception) { return ProviderAccountError(exception); }
+    }
+
+    internal static IntPtr GetProviderDeviceAuthorizationStatusCore(IntPtr agentHandle, string? requestJson)
+    {
+        try
+        {
+            var service = RequireProviderAccountService(agentHandle);
+            var request = JsonSerializer.Deserialize(requestJson ?? string.Empty,
+                HPDFFIJsonContext.Default.ProviderDeviceAuthorizationFfiRequest)
+                ?? throw new JsonException("The provider device authorization status request was null.");
+            var result = service.GetDeviceStatusAsync(request).AsTask().GetAwaiter().GetResult();
+            return MarshalString(JsonSerializer.Serialize(
+                result, HPDFFIJsonContext.Default.ProviderDeviceAuthorizationStatus));
+        }
+        catch (Exception exception) { return ProviderAccountError(exception); }
+    }
+
+    internal static IntPtr CancelProviderDeviceAuthorizationCore(IntPtr agentHandle, string? requestJson)
+    {
+        try
+        {
+            var service = RequireProviderAccountService(agentHandle);
+            var request = JsonSerializer.Deserialize(requestJson ?? string.Empty,
+                HPDFFIJsonContext.Default.ProviderDeviceAuthorizationFfiRequest)
+                ?? throw new JsonException("The provider device authorization cancellation request was null.");
+            service.CancelDeviceAsync(request).AsTask().GetAwaiter().GetResult();
+            return MarshalString("true");
         }
         catch (Exception exception) { return ProviderAccountError(exception); }
     }

@@ -72,7 +72,7 @@ public class ThreadEventStoreTests : AgentTestBase
                 ThreadEventFactory.TextMessageStarted("session-1", "main", null, "msg-1", ChatRole.User.Value, 0),
                 ThreadEventFactory.TextDelta("session-1", "main", null, "msg-1", "durable", 0),
                 ThreadEventFactory.TextMessageCompleted("session-1", "main", null, "msg-1", 0),
-                ThreadEventFactory.TurnCompleted("session-1", "main", "turn-1", "session-1", "agent-1", "Agent", 1, "done", TimeSpan.FromMilliseconds(10), 1)
+                ThreadEventFactory.TurnCompleted("session-1", "main", "turn-1", "session-1", "agent-1", "Agent", 1, "done", TimeSpan.FromMilliseconds(10), 1, MessageTurnUsageSummary.Empty)
             ]);
 
         var projected = ThreadProjector.Project("session-1", "main", events, ThreadProjectionPurpose.ThreadHistory);
@@ -598,7 +598,7 @@ public class ThreadEventStoreTests : AgentTestBase
 
         Assert.False(string.IsNullOrWhiteSpace(failed.MessageTurnId));
         Assert.Equal("session-1", failed.ConversationId);
-        Assert.Equal(nameof(InvalidOperationException), failed.ErrorType);
+        Assert.Equal(typeof(InvalidOperationException).FullName, failed.ErrorType);
         Assert.Contains("No responses queued", failed.ErrorMessage);
     }
 

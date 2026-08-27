@@ -371,12 +371,12 @@ public class AgentEventSerializerTests
         Assert.Contains("\"messageTurnId\":\"turn-1\"", startJson);
 
         // MessageTurnFinishedEvent
-        var finishEvt = new MessageTurnFinishedEvent("turn-1", "conv-1", "Agent", TimeSpan.FromSeconds(5));
+        var finishEvt = new MessageTurnFinishedEvent("turn-1", "conv-1", "agent-1", "Agent", TimeSpan.FromSeconds(5), MessageTurnUsageSummary.Empty);
         var finishJson = AgentEventSerializer.ToJson(finishEvt);
         Assert.Contains("\"type\":\"MESSAGE_TURN_FINISHED\"", finishJson);
 
         // MessageTurnErrorEvent
-        var errorEvt = new MessageTurnErrorEvent("Test error");
+        var errorEvt = new MessageTurnErrorEvent("turn-1", "Test error", MessageTurnUsageSummary.Empty);
         var errorJson = AgentEventSerializer.ToJson(errorEvt);
         Assert.Contains("\"type\":\"MESSAGE_TURN_ERROR\"", errorJson);
         Assert.Contains("\"isError\":true", errorJson);
@@ -394,7 +394,13 @@ public class AgentEventSerializerTests
 
         // AgentTurnFinishedEvent
         var finishEvt = new AgentTurnFinishedEvent(
+            "turn-1",
             1,
+            "operation-1",
+            null,
+            1,
+            HPD.Agent.Providers.ProviderClientFamily.Chat,
+            ProviderOperationOutcome.Succeeded,
             new UsageDetails
             {
                 InputTokenCount = 100,
@@ -419,6 +425,30 @@ public class AgentEventSerializerTests
         Assert.Equal("openai", roundTripped.ProviderKey);
         Assert.Equal("gpt-5", roundTripped.ModelId);
         Assert.Equal("resp-1", roundTripped.ResponseId);
+    }
+
+    [Fact]
+    public void ToJson_ProviderUsageAndValuationObservationEvents_RoundTrip()
+    {
+        var usageEvent = new ProviderOperationUsageEvent(
+            "turn-1", "operation-1", "logical-1", 2,
+            ProviderOperationKind.TextToSpeech,
+            HPD.Agent.Providers.ProviderClientFamily.TextToSpeech,
+            ProviderOperationOutcome.Succeeded,
+            new UsageDetails { OutputTokenCount = 12 },
+            "openai", "tts-1", "response-1");
+        var usageRoundTrip = Assert.IsType<ProviderOperationUsageEvent>(
+            AgentEventSerializer.FromJson(AgentEventSerializer.ToJson(usageEvent)));
+        Assert.Equal("operation-1", usageRoundTrip.OperationId);
+        Assert.Equal(12, usageRoundTrip.Usage?.OutputTokenCount);
+
+        var observationEvent = new ProviderValuationObservationEvent(
+            "turn-1", usageEvent.EventId,
+            new ProviderReportedMonetaryObservation(0.42m, "USD", "openai", "response-1", "usage.cost"));
+        var observationRoundTrip = Assert.IsType<ProviderValuationObservationEvent>(
+            AgentEventSerializer.FromJson(AgentEventSerializer.ToJson(observationEvent)));
+        var observation = Assert.IsType<ProviderReportedMonetaryObservation>(observationRoundTrip.Observation);
+        Assert.Equal(0.42m, observation.Amount);
     }
 
     [Fact]

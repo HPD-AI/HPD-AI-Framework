@@ -160,6 +160,29 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
                 }, cancellationToken).ConfigureAwait(false);
 
                 results.Add(result);
+
+                var speechToText = context.Config?.ResolveClientConfig(
+                    HPD.Agent.Providers.ProviderClientFamily.SpeechToText,
+                    context.RunConfig.Clients);
+                foreach (var attempt in result.ProviderAttempts)
+                {
+                    var terminalEvent = new ProviderOperationUsageEvent(
+                            context.MessageTurnId,
+                            attempt.OperationId,
+                            LogicalOperationId: attempt.LogicalOperationId,
+                            Attempt: 1,
+                            attempt.OperationKind,
+                            HPD.Agent.Providers.ProviderClientFamily.SpeechToText,
+                            attempt.Outcome,
+                            attempt.Usage,
+                            speechToText?.Provider?.Key,
+                            speechToText?.ModelName,
+                            attempt.ResponseId);
+                    if (ProviderOperationAccountingScope.Current is { } accounting)
+                        await accounting.CommitTerminalAsync(terminalEvent, cancellationToken).ConfigureAwait(false);
+                    else
+                        await context.PublishAsync(terminalEvent, cancellationToken).ConfigureAwait(false);
+                }
             }
         }
         finally
@@ -210,7 +233,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
     private static bool IsRealtimeTransport(BeforeMessageTurnContext context)
         => context.RunConfig?.Clients.Transport is AgentModelTransportMode.Realtime;
 
-    public async Task AfterMessageTurnAsync(
+    public async Task BeforeMessageTurnAccountingCloseAsync(
         AfterMessageTurnContext context,
         CancellationToken cancellationToken)
     {
@@ -270,6 +293,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
         var result = await _assistantOutputService.RunAsync(
             new AssistantFinalTextToSpeechOutputRequest
             {
+                MessageTurnId = context.MessageTurnId,
                 SessionId = sessionId,
                 Thread = threadRef,
                 Text = text,
@@ -346,6 +370,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
             : null;
         var coordinator = new S6ProgressiveOutputParticipantV2(new S6ProgressiveOutputParticipantOptionsV2
         {
+            MessageTurnId = request.State.RunId,
             SessionId = sessionId,
             Thread = threadRef,
             OutputFlowId = outputFlowId,

@@ -276,6 +276,8 @@ public sealed class AudioInteractionRuntimeRunner
         }
 
         var outputFlowIds = new Dictionary<ResponseId, OutputFlowId>();
+        var finalTranscripts = new List<TranscriptUpdate>();
+        var providerAttempts = new List<ProviderAttemptTerminalUpdate>();
 
         await foreach (var update in interaction.Updates.WithCancellation(cancellationToken))
         {
@@ -292,6 +294,7 @@ public sealed class AudioInteractionRuntimeRunner
             if (update is TranscriptUpdate transcriptUpdate &&
                 transcriptUpdate.Stage is TranscriptProjectionStageV1.Final)
             {
+                finalTranscripts.Add(transcriptUpdate);
                 if (policy.InputMedia.AllowDerivedTextPersistence)
                 {
                     var transcriptLedger = new TranscriptLedgerRecord
@@ -389,6 +392,12 @@ public sealed class AudioInteractionRuntimeRunner
                 continue;
             }
 
+            if (update is ProviderAttemptTerminalUpdate providerAttempt)
+            {
+                providerAttempts.Add(providerAttempt);
+                continue;
+            }
+
             if (update is OutputTextUpdate outputTextUpdate)
             {
                 var outputFlowId = GetOutputFlowId(outputFlowIds, outputTextUpdate.ResponseId);
@@ -454,7 +463,8 @@ public sealed class AudioInteractionRuntimeRunner
             }
         }
 
-        return await BuildResultAsync(request.SessionId, ledger, trace, thread, envelopes, routeDecision, finalDecision, turnController.Snapshot, cancellationToken);
+        var result = await BuildResultAsync(request.SessionId, ledger, trace, thread, envelopes, routeDecision, finalDecision, turnController.Snapshot, cancellationToken);
+        return result with { FinalTranscripts = finalTranscripts, ProviderAttempts = providerAttempts };
     }
 
     private async ValueTask<AudioInteractionRuntimeResult> BuildResultAsync(
@@ -656,4 +666,9 @@ public sealed record AudioInteractionRuntimeResult(
     IReadOnlyList<CanonicalMediaEnvelope> Envelopes,
     ProviderRouteDecision? RouteDecision,
     EndpointDecisionProjectionV1? EndpointDecisionProjectionV1,
-    EndpointSnapshotProjectionV1? EndpointSnapshotProjectionV1);
+    EndpointSnapshotProjectionV1? EndpointSnapshotProjectionV1)
+{
+    public IReadOnlyList<TranscriptUpdate> FinalTranscripts { get; init; } = [];
+
+    public IReadOnlyList<ProviderAttemptTerminalUpdate> ProviderAttempts { get; init; } = [];
+}

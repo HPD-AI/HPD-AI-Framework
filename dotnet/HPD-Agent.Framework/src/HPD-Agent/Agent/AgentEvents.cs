@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Agent.Middleware;
 using HPD.Agent.Planning;
+using HPD.Agent.Providers;
 using HPD.Agent.Serialization;
 using Microsoft.Extensions.AI;
 using EventChannel = HPD.Events.EventChannel;
@@ -144,8 +145,9 @@ public abstract record AgentEvent : HPD.Events.Event
     public string EventId { get; init; } = Guid.NewGuid().ToString("N");
 
     /// <summary>
-    /// Authoritative position in a committed thread journal. Zero means the event is stateless
-    /// or has not yet been committed. HPD-Events never assigns or changes this value.
+    /// Authoritative position in a committed thread journal. Zero means the event is staged or
+    /// has not yet been committed. Runs without a configured session store use the agent-owned
+    /// ephemeral journal, so accounted terminal events still receive a canonical position.
     /// </summary>
     public long ThreadSequenceNumber { get; init; }
 
@@ -472,7 +474,7 @@ public record MessageTurnFinishedEvent : AgentEvent
         string AgentId,
         string AgentName,
         TimeSpan Duration,
-        UsageDetails? Usage = null)
+        MessageTurnUsageSummary Usage)
     {
         this.MessageTurnId = MessageTurnId;
         this.ConversationId = ConversationId;
@@ -482,22 +484,12 @@ public record MessageTurnFinishedEvent : AgentEvent
         this.Usage = Usage;
     }
 
-    public MessageTurnFinishedEvent(
-        string MessageTurnId,
-        string ConversationId,
-        string AgentName,
-        TimeSpan Duration,
-        UsageDetails? Usage = null)
-        : this(MessageTurnId, ConversationId, AgentName, AgentName, Duration, Usage)
-    {
-    }
-
     public string MessageTurnId { get; init; }
     public string ConversationId { get; init; }
     public string AgentId { get; init; }
     public string AgentName { get; init; }
     public TimeSpan Duration { get; init; }
-    public UsageDetails? Usage { get; init; }
+    public MessageTurnUsageSummary Usage { get; init; }
 
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
 
@@ -511,12 +503,13 @@ public record MessageTurnFinishedEvent : AgentEvent
 /// Error category is lazily computed from the exception using GenericErrorHandler.
 /// </summary>
 public record MessageTurnErrorEvent(
+    string MessageTurnId,
     string ErrorMessage,
+    MessageTurnUsageSummary Usage,
     [property: System.Text.Json.Serialization.JsonIgnore] Exception? Exception = null) : AgentEvent, IErrorEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
 
-    public string? MessageTurnId { get; init; }
     public string? ConversationId { get; init; }
     public string? AgentId { get; init; }
     public string? AgentName { get; init; }
@@ -584,13 +577,43 @@ public record AgentTurnStartedEvent(int Iteration) : AgentEvent
 /// An agent turn represents one completed model call within the enclosing message turn.
 /// </summary>
 public record AgentTurnFinishedEvent(
+    string MessageTurnId,
     int Iteration,
+    string OperationId,
+    string? LogicalOperationId,
+    int Attempt,
+    ProviderClientFamily Family,
+    ProviderOperationOutcome Outcome,
     UsageDetails? Usage,
     string? ProviderKey,
     string? ModelId,
     string? ResponseId) : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+}
+
+public sealed record ProviderOperationUsageEvent(
+    string MessageTurnId,
+    string OperationId,
+    string? LogicalOperationId,
+    int Attempt,
+    ProviderOperationKind OperationKind,
+    ProviderClientFamily Family,
+    ProviderOperationOutcome Outcome,
+    UsageDetails? Usage,
+    string? ProviderKey,
+    string? ModelId,
+    string? ResponseId) : AgentEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+}
+
+public sealed record ProviderValuationObservationEvent(
+    string MessageTurnId,
+    string SourceEventId,
+    ProviderValuationObservation Observation) : AgentEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 }
 
 /// <summary>Emitted before all dynamic capability sources are reconciled.</summary>

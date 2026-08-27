@@ -1,4 +1,3 @@
-using Microsoft.Extensions.AI;
 using System.Text.Json;
 
 namespace HPD.Agent;
@@ -39,9 +38,9 @@ public sealed record AgentTurnResult
     public MessageTurnFinishedEvent? Finished { get; init; }
 
     /// <summary>
-    /// Gets usage details reported by the model turn, when available.
+    /// Gets the heterogeneous usage summary for every provider operation in the message turn.
     /// </summary>
-    public UsageDetails? Usage => Finished?.Usage;
+    public MessageTurnUsageSummary? Usage => Finished?.Usage;
 
     /// <summary>
     /// Gets the duration reported by the completed turn, when available.

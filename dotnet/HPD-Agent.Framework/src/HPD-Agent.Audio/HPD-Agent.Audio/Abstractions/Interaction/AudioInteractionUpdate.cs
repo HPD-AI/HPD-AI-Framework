@@ -1,6 +1,7 @@
 namespace HPD.Agent.Audio.Interaction;
 
 using HPD.Agent.Audio.Media;
+using Microsoft.Extensions.AI;
 
 public abstract record AudioInteractionUpdate
 {
@@ -22,6 +23,8 @@ public sealed record TranscriptUpdate : AudioInteractionUpdate
     public float? Confidence { get; init; }
 
     public InputContentId? InputContentId { get; init; }
+
+    public UsageDetails? Usage { get; init; }
 }
 
 public sealed record ResponseLifecycleUpdate : AudioInteractionUpdate
@@ -61,6 +64,16 @@ public sealed record ToolCallUpdate : AudioInteractionUpdate
 public sealed record ProviderErrorUpdate : AudioInteractionUpdate
 {
     public required AudioErrorInfo Error { get; init; }
+}
+
+public sealed record ProviderAttemptTerminalUpdate : AudioInteractionUpdate
+{
+    public required string OperationId { get; init; }
+    public string? LogicalOperationId { get; init; }
+    public required ProviderOperationKind OperationKind { get; init; }
+    public required ProviderOperationOutcome Outcome { get; init; }
+    public UsageDetails? Usage { get; init; }
+    public string? ResponseId { get; init; }
 }
 
 public sealed record ProviderRepairUpdate : AudioInteractionUpdate

@@ -12,6 +12,7 @@ import {
   type AgentEvent,
   type AgentRequestEvent,
   type KnownAgentEvent,
+  type MessageTurnUsageSummary,
   type ThreadExecution,
 } from '@hpd-research/hpd-agent-client';
 import type {
@@ -236,7 +237,13 @@ class ThreadProjectionImpl implements ThreadProjection {
         this.recordAgentTurnUsage(known.usage, known.timestamp);
         break;
       case EventTypes.MESSAGE_TURN_FINISHED:
-        this.finishWorkGroup(known.messageTurnId, 'worked', known.timestamp, undefined, known.usage);
+        this.finishWorkGroup(
+          known.messageTurnId,
+          'worked',
+          known.timestamp,
+          undefined,
+          aggregateMessageTurnUsage(known.usage),
+        );
         this.snapshot = refreshSnapshot({
           ...this.snapshot,
           currentTurnId: null,
@@ -250,6 +257,7 @@ class ThreadProjectionImpl implements ThreadProjection {
           'failed',
           event.timestamp,
           known.errorMessage,
+          aggregateMessageTurnUsage(known.usage),
         );
         this.snapshot = refreshSnapshot({
           ...this.snapshot,
@@ -1116,6 +1124,18 @@ function addUsageDetails(
     outputTextTokenCount: add(current?.outputTextTokenCount, next.outputTextTokenCount),
     additionalCounts: Object.keys(additionalCounts).length > 0 ? additionalCounts : undefined,
   };
+}
+
+function aggregateMessageTurnUsage(
+  summary: MessageTurnUsageSummary,
+): ThreadContextUsage['usage'] | undefined {
+  return summary.operations
+    .map(operation => operation.usage)
+    .filter((usage): usage is NonNullable<typeof usage> => usage != null)
+    .reduce<ThreadContextUsage['usage'] | undefined>(
+      (current, usage) => addUsageDetails(current, usage),
+      undefined,
+    );
 }
 
 function cloneWorkPart(part: ThreadWorkPart): ThreadWorkPart {

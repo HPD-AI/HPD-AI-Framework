@@ -56,16 +56,64 @@ public sealed class ModelsDevModel
 public sealed class ModelsDevCost
 {
     [JsonPropertyName("input")]
-    public decimal? Input { get; init; }
+    public required decimal Input { get; init; }
 
     [JsonPropertyName("output")]
-    public decimal? Output { get; init; }
+    public required decimal Output { get; init; }
+
+    [JsonPropertyName("reasoning")]
+    public decimal? Reasoning { get; init; }
 
     [JsonPropertyName("cache_read")]
     public decimal? CacheRead { get; init; }
 
     [JsonPropertyName("cache_write")]
     public decimal? CacheWrite { get; init; }
+
+    [JsonPropertyName("input_audio")]
+    public decimal? InputAudio { get; init; }
+
+    [JsonPropertyName("output_audio")]
+    public decimal? OutputAudio { get; init; }
+
+    [JsonPropertyName("tiers")]
+    public IReadOnlyList<ModelsDevCostTier> Tiers { get; init; } = [];
+}
+
+public sealed class ModelsDevCostTier
+{
+    [JsonPropertyName("tier")]
+    public required ModelsDevCostTierSelector Tier { get; init; }
+
+    [JsonPropertyName("input")]
+    public required decimal Input { get; init; }
+
+    [JsonPropertyName("output")]
+    public required decimal Output { get; init; }
+
+    [JsonPropertyName("reasoning")]
+    public decimal? Reasoning { get; init; }
+
+    [JsonPropertyName("cache_read")]
+    public decimal? CacheRead { get; init; }
+
+    [JsonPropertyName("cache_write")]
+    public decimal? CacheWrite { get; init; }
+
+    [JsonPropertyName("input_audio")]
+    public decimal? InputAudio { get; init; }
+
+    [JsonPropertyName("output_audio")]
+    public decimal? OutputAudio { get; init; }
+}
+
+public sealed class ModelsDevCostTierSelector
+{
+    [JsonPropertyName("type")]
+    public required string Type { get; init; }
+
+    [JsonPropertyName("size")]
+    public long Size { get; init; }
 }
 
 public sealed class ModelsDevLimit
@@ -89,14 +137,20 @@ public sealed class ModelsDevModalities
     public IReadOnlyList<string> Output { get; init; } = [];
 }
 
-public sealed class ModelsDevCachedData
+internal sealed class ModelsDevCachedData
 {
-    [JsonPropertyName("database")]
-    public ModelsDevDatabase Database { get; init; } = new();
+    [JsonPropertyName("payload")]
+    public required string Payload { get; init; }
 
-    [JsonPropertyName("lastRefresh")]
-    public DateTimeOffset LastRefresh { get; init; }
+    [JsonPropertyName("retrieved_at")]
+    public required DateTimeOffset RetrievedAt { get; init; }
 
     [JsonPropertyName("etag")]
     public string? ETag { get; init; }
+
+    [JsonPropertyName("content_digest")]
+    public required string ContentDigest { get; init; }
+
+    [JsonPropertyName("source")]
+    public required Uri Source { get; init; }
 }

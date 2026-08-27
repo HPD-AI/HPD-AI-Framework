@@ -127,7 +127,8 @@ public sealed record AgentInputTranscriptUpdate(
     AgentInputTranscriptStage Stage,
     string? ItemId = null,
     int? ContentIndex = null,
-    Exception? Error = null) : AgentModelUpdate
+    Exception? Error = null,
+    UsageDetails? Usage = null) : AgentModelUpdate
 {
     public bool IsFinal => Stage is AgentInputTranscriptStage.Final;
 }

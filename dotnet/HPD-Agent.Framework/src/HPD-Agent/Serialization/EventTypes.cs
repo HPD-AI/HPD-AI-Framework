@@ -47,6 +47,8 @@ public static partial class EventTypes
     {
         public const string AGENT_TURN_STARTED = "AGENT_TURN_STARTED";
         public const string AGENT_TURN_FINISHED = "AGENT_TURN_FINISHED";
+        public const string PROVIDER_OPERATION_USAGE = "PROVIDER_OPERATION_USAGE";
+        public const string PROVIDER_VALUATION_OBSERVATION = "PROVIDER_VALUATION_OBSERVATION";
         public const string STATE_SNAPSHOT = "STATE_SNAPSHOT";
         public const string THREAD_EXECUTION_STARTED = "THREAD_EXECUTION_STARTED";
         public const string THREAD_EXECUTION_FINISHED = "THREAD_EXECUTION_FINISHED";

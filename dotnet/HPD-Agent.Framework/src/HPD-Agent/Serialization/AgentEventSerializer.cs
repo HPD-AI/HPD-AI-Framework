@@ -60,6 +60,8 @@ public static partial class AgentEventSerializer
         // Agent Turn Events
         [typeof(AgentTurnStartedEvent)] = EventTypes.AgentTurn.AGENT_TURN_STARTED,
         [typeof(AgentTurnFinishedEvent)] = EventTypes.AgentTurn.AGENT_TURN_FINISHED,
+        [typeof(ProviderOperationUsageEvent)] = EventTypes.AgentTurn.PROVIDER_OPERATION_USAGE,
+        [typeof(ProviderValuationObservationEvent)] = EventTypes.AgentTurn.PROVIDER_VALUATION_OBSERVATION,
         [typeof(StateSnapshotEvent)] = EventTypes.AgentTurn.STATE_SNAPSHOT,
         [typeof(ThreadExecutionStartedEvent)] = EventTypes.AgentTurn.THREAD_EXECUTION_STARTED,
         [typeof(ThreadExecutionFinishedEvent)] = EventTypes.AgentTurn.THREAD_EXECUTION_FINISHED,

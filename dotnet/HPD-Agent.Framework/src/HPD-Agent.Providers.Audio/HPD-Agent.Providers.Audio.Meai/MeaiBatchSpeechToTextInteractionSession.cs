@@ -177,6 +177,7 @@ public sealed class MeaiBatchSpeechToTextInteractionSession : IAudioInteractionS
         CancellationToken cancellationToken)
     {
         InputContentSourceOpenResult openResult;
+        string? operationId = null;
         try
         {
             openResult = await _sourceResolver.OpenAsync(
@@ -208,11 +209,34 @@ public sealed class MeaiBatchSpeechToTextInteractionSession : IAudioInteractionS
         {
             await using var stream = await openResult.Source.OpenStreamAsync(cancellationToken)
                 .ConfigureAwait(false);
+            operationId = Guid.NewGuid().ToString("N");
+            ProviderOperationAccountingScope.Current?.RegisterAttempt(new(
+                operationId,
+                inputContent.Id.Value,
+                1,
+                ProviderOperationKind.SpeechToText,
+                HPD.Agent.Providers.ProviderClientFamily.SpeechToText,
+                ProviderKey: null,
+                _options.ModelId));
             var response = await _client.GetTextAsync(
                     stream,
                     CreateSpeechToTextOptions(envelope),
                     cancellationToken)
                 .ConfigureAwait(false);
+
+            _updates.Add(new ProviderAttemptTerminalUpdate
+            {
+                SessionId = Id,
+                ObservedAt = DateTimeOffset.UtcNow,
+                RouteEpochId = Plan.RouteEpoch.Id,
+                Correlation = correlation,
+                OperationId = operationId,
+                LogicalOperationId = inputContent.Id.Value,
+                OperationKind = ProviderOperationKind.SpeechToText,
+                Outcome = ProviderOperationOutcome.Succeeded,
+                Usage = response.Usage,
+                ResponseId = null
+            });
 
             var transcript = response.Text;
             if (string.IsNullOrWhiteSpace(transcript) && _options.TreatEmptyTranscriptAsError)
@@ -233,11 +257,26 @@ public sealed class MeaiBatchSpeechToTextInteractionSession : IAudioInteractionS
                 Stage = TranscriptProjectionStageV1.Final,
                 Text = transcript,
                 InputContentId = inputContent.Id,
-                Correlation = correlation
+                Correlation = correlation,
+                Usage = response.Usage
             });
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
+            if (operationId is not null)
+            {
+                _updates.Add(new ProviderAttemptTerminalUpdate
+                {
+                    SessionId = Id,
+                    ObservedAt = DateTimeOffset.UtcNow,
+                    RouteEpochId = Plan.RouteEpoch.Id,
+                    Correlation = correlation,
+                    OperationId = operationId,
+                    LogicalOperationId = inputContent.Id.Value,
+                    OperationKind = ProviderOperationKind.SpeechToText,
+                    Outcome = ProviderOperationOutcome.Failed
+                });
+            }
             _updates.Add(CreateError(
                 "meai-stt.transcription-exception",
                 "MEAI speech-to-text failed",
