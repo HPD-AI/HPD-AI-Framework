@@ -82,14 +82,14 @@ public class ExternalToolCollapsingWrapperMCPTests
         var tools = CreateMockTools("tool1", "tool2");
 
         // Act
-        var (container, collapsedTools) = ExternalToolCollapsingWrapper.WrapMCPServerTools(
+        var (container, collapsedTools) = ExternalToolCollapsingWrapper.WrapMcpServerTools(
             serverName: "testServer",
             tools: tools,
             parentContainer: null);
 
         // Assert
         var parentContainer = GetAdditionalProperty(container, "ParentContainer");
-        parentContainer.Should().BeNull("standalone WithMCP() has no parent");
+        parentContainer.Should().BeNull("standalone WithMcp() has no parent");
     }
 
     [Fact]
@@ -99,7 +99,7 @@ public class ExternalToolCollapsingWrapperMCPTests
         var tools = CreateMockTools("tool1", "tool2");
 
         // Act
-        var (container, collapsedTools) = ExternalToolCollapsingWrapper.WrapMCPServerTools(
+        var (container, collapsedTools) = ExternalToolCollapsingWrapper.WrapMcpServerTools(
             serverName: "wolfram",
             tools: tools,
             parentContainer: "SearchToolHarness");
@@ -116,7 +116,7 @@ public class ExternalToolCollapsingWrapperMCPTests
         var tools = CreateMockTools("tool1");
 
         // Act
-        var (container, _) = ExternalToolCollapsingWrapper.WrapMCPServerTools(
+        var (container, _) = ExternalToolCollapsingWrapper.WrapMcpServerTools(
             serverName: "filesystem",
             tools: tools);
 
@@ -131,7 +131,7 @@ public class ExternalToolCollapsingWrapperMCPTests
         var tools = CreateMockTools("read", "write");
 
         // Act
-        var (container, collapsedTools) = ExternalToolCollapsingWrapper.WrapMCPServerTools(
+        var (container, collapsedTools) = ExternalToolCollapsingWrapper.WrapMcpServerTools(
             serverName: "fs",
             tools: tools,
             parentContainer: "DevToolHarness");
@@ -151,7 +151,7 @@ public class ExternalToolCollapsingWrapperMCPTests
         var tools = CreateMockTools("search", "fetch");
 
         // Act
-        var (container, _) = ExternalToolCollapsingWrapper.WrapMCPServerTools(
+        var (container, _) = ExternalToolCollapsingWrapper.WrapMcpServerTools(
             serverName: "web",
             tools: tools,
             FunctionResult: "Web tools activated",

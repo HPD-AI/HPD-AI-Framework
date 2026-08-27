@@ -183,11 +183,11 @@ internal static class CapabilityAnalyzer
             return AnalyzeMultiAgentCapability(method, attrs, semanticModel, className, namespaceName, diagnostics);
         }
 
-        // 4. Check for [MCPServer] attribute
-        if (HasAttribute(attrs, "MCPServer"))
+        // 4. Check for [McpServer] attribute
+        if (HasAttribute(attrs, "McpServer"))
         {
             // Check for conflicting attributes (HPDAG0302)
-            var conflictingAttr = GetConflictingCapabilityAttribute(attrs, "MCPServer");
+            var conflictingAttr = GetConflictingCapabilityAttribute(attrs, "McpServer");
             if (conflictingAttr != null)
             {
                 diagnostics.Add(Diagnostic.Create(
@@ -727,8 +727,8 @@ internal static class CapabilityAnalyzer
     // ========== MCPServer Analysis ==========
 
     /// <summary>
-    /// Analyzes a method with [MCPServer] attribute and creates an MCPServerCapability.
-    /// The method must return MCPServerConfig or MCPServerConfig?.
+    /// Analyzes a method with [McpServer] attribute and creates an MCPServerCapability.
+    /// The method must return McpServerConfig or McpServerConfig?.
     /// </summary>
     private static MCPServerCapability? AnalyzeMCPServerCapability(
         MethodDeclarationSyntax method,
@@ -738,12 +738,12 @@ internal static class CapabilityAnalyzer
         string namespaceName,
         List<Diagnostic> diagnostics)
     {
-        // Validate return type is MCPServerConfig or MCPServerConfig? (nullable)
+        // Validate return type is McpServerConfig or McpServerConfig? (nullable)
         var returnType = semanticModel.GetTypeInfo(method.ReturnType).Type;
         if (returnType == null)
             return null;
 
-        // Handle nullable: MCPServerConfig? unwraps to MCPServerConfig
+        // Handle nullable: McpServerConfig? unwraps to McpServerConfig
         var actualType = returnType;
         if (returnType is INamedTypeSymbol namedType &&
             namedType.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T &&
@@ -751,13 +751,13 @@ internal static class CapabilityAnalyzer
         {
             actualType = namedType.TypeArguments[0];
         }
-        // Also handle nullable reference type annotation (MCPServerConfig?)
+        // Also handle nullable reference type annotation (McpServerConfig?)
         if (returnType.NullableAnnotation == NullableAnnotation.Annotated && returnType is INamedTypeSymbol annotatedType)
         {
             actualType = annotatedType;
         }
 
-        if (actualType.Name != "MCPServerConfig")
+        if (actualType.Name != "McpServerConfig")
         {
             // Report HPDAG0301: Invalid return type
             diagnostics.Add(Diagnostic.Create(
@@ -772,7 +772,7 @@ internal static class CapabilityAnalyzer
         var isStatic = method.Modifiers.Any(SyntaxKind.StaticKeyword);
 
         // Extract attribute properties
-        var mcpAttr = attrs.FirstOrDefault(a => a.Name.ToString().Contains("MCPServer"));
+        var mcpAttr = attrs.FirstOrDefault(a => a.Name.ToString().Contains("McpServer"));
         string? serverName = null;
         string? customName = null;
         string? description = null;
@@ -815,7 +815,7 @@ internal static class CapabilityAnalyzer
             }
         }
 
-        // Fall back to [AIDescription] attribute if no description in [MCPServer]
+        // Fall back to [AIDescription] attribute if no description in [McpServer]
         if (string.IsNullOrWhiteSpace(description))
         {
             description = GetDescription(attrs);
@@ -1075,7 +1075,7 @@ internal static class CapabilityAnalyzer
     /// </summary>
     private static string? GetConflictingCapabilityAttribute(List<AttributeSyntax> attrs, string currentAttr)
     {
-        var capabilityAttributes = new[] { "AIFunction", "Skill", "SubAgent", "MultiAgent", "MCPServer", "OpenApi" };
+        var capabilityAttributes = new[] { "AIFunction", "Skill", "SubAgent", "MultiAgent", "McpServer", "OpenApi" };
 
         foreach (var attr in attrs)
         {

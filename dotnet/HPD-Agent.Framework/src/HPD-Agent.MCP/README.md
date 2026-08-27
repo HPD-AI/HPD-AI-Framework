@@ -1,22 +1,28 @@
-# HPD-Agent.MCP
+# HPD Agent MCP
 
-MCP client integration for HPD agents. It connects HPD agents to MCP servers and exposes MCP tools plus optional resource and prompt access as HPD `AIFunction`s.
+`HPD-Agent.MCP` integrates HPD Agent with stable Model Context Protocol C# SDK 2.x. MCP remains outside agent core and participates through the same immutable, leased capability catalog as native and optional-package capabilities.
 
-## Install
+## Registration
 
-```bash
-dotnet add package HPD-Agent.MCP
+```csharp
+await using var agent = await new AgentBuilder(config)
+    .WithMcp("mcp.json", options =>
+    {
+        // Null uses SDK discovery-first negotiation and SDK-managed fallback.
+        options.Protocol.ExactVersion = null;
+        options.Protocol.DiscoveryTimeout = TimeSpan.FromSeconds(5);
+        options.Invocation.InputResolver = inputResolver;
+        options.ProcessProvider = processProvider;
+        options.AuthorizationStore = authorizationStore;
+    })
+    .BuildAsync();
 ```
 
-## Use When
-
-Use this package when an HPD agent needs tools, readable resources, or reusable prompt templates from local stdio MCP servers or remote HTTP MCP servers.
+Manifest JSON can instead be registered with `WithMcpContent(json, sourceName, configure)`. The source name is a stable identity, not a server display name.
 
 ## Manifest
 
-MCP server entries must declare an explicit `transport`.
-
-### Local stdio server
+There is one final manifest schema. A server uses `stdio` or Streamable `http`. The manifest may request an exact protocol version, but it never claims negotiated facts. Session IDs, SSE selection, client-owned session flags, bearer tokens, OAuth codes, and runtime callbacks are not manifest fields.
 
 ```json
 {
@@ -24,215 +30,49 @@ MCP server entries must declare an explicit `transport`.
     {
       "name": "filesystem",
       "transport": "stdio",
-      "command": "npx",
-      "arguments": ["-y", "@modelcontextprotocol/server-filesystem", "."],
-      "workingDirectory": "/workspace",
-      "inheritEnvironmentVariables": false,
-      "useDefaultEnvironmentVariables": true,
-      "environment": {
-        "FILESYSTEM_ROOT": "/workspace"
-      },
-      "environmentSecretKeys": {
-        "GITHUB_TOKEN": "mcp:filesystem:GitHubToken"
-      },
-      "enableResources": true,
-      "maxResourceListResults": 100,
-      "maxResourceContentLength": 200000,
-      "enablePrompts": true,
-      "maxPromptListResults": 100,
-      "maxPromptContentLength": 200000,
-      "shutdownTimeoutMs": 5000
-    }
-  ]
-}
-```
-
-### Remote HTTP server
-
-```json
-{
-  "servers": [
+      "command": "mcp-filesystem",
+      "arguments": ["/workspace"],
+      "enableResources": true
+    },
     {
       "name": "search",
       "transport": "http",
-      "endpoint": "https://mcp.example.com/mcp",
-      "httpTransportMode": "auto",
-      "headers": {
-        "X-Workspace": "example"
-      },
-      "headerSecretKeys": {
-        "Authorization": "mcp:search:Authorization"
-      }
-    }
-  ]
-}
-```
-
-### Stdio process isolation
-
-Local stdio MCP servers can request HPD process isolation through `processIsolation`. This is only valid for `transport: "stdio"` because HTTP MCP servers are reached over the network rather than launched as child processes.
-
-```json
-{
-  "servers": [
-    {
-      "name": "filesystem",
-      "transport": "stdio",
-      "command": "npx",
-      "arguments": ["-y", "@modelcontextprotocol/server-filesystem", "."],
-      "processIsolation": {
-        "mode": "Isolated",
-        "profile": "filesystem-only",
-        "allowWrite": ["."],
-        "denyRead": ["~/.ssh", "~/.aws", "~/.gnupg"],
-        "networkMode": "Blocked"
-      }
-    }
-  ]
-}
-```
-
-The manifest declares the requested policy. The host application must provide an `IProcessProvider` through `MCPOptions.ProcessProvider` to enforce it. If a server requests isolated mode and no process provider is configured, HPD fails closed instead of launching the server unsandboxed.
-
-```csharp
-var agent = new AgentBuilder()
-    .WithMCP("mcp.json", options =>
-    {
-        options.ProcessProvider = myProcessProvider;
-    })
-    .Build();
-```
-
-`processIsolation` currently has 20 manifest fields, grouped into seven policy areas:
-
-| Area | Fields |
-| --- | --- |
-| Mode/profile | `mode`, `profile` |
-| Filesystem | `allowRead`, `denyRead`, `allowWrite`, `denyWrite` |
-| Network | `networkMode`, `allowedDomains`, `deniedDomains` |
-| Unix sockets | `allowUnixSockets`, `allowAllUnixSockets` |
-| Environment | `allowedEnvironmentVariables`, `stripUnlistedEnvironmentVariables` |
-| TLS trust | `tlsTrustMode`, `injectTlsTrustEnvironmentVariables` |
-| Process behavior | `allowPty`, `allowLocalBinding`, `allowedMachLookups`, `ignoreViolations`, `violationAction` |
-
-Named profiles are `filesystem-only`, `network-only`, `permissive`, and `disabled`. Omitting `profile` uses HPD's restrictive default profile.
-
-### OAuth-protected HTTP server
-
-```json
-{
-  "servers": [
-    {
-      "name": "enterprise",
-      "transport": "http",
-      "endpoint": "https://mcp.example.com/mcp",
+      "endpoint": "https://example.test/mcp",
       "oauth": {
-        "redirectUri": "http://localhost:8787/callback",
-        "clientId": "client-id",
-        "clientSecretKey": "mcp:enterprise:ClientSecret",
-        "scopes": ["read", "write"],
-        "additionalAuthorizationParameters": {
-          "audience": "mcp"
-        }
+        "registrationMode": "ClientIdMetadataDocument",
+        "redirectUri": "http://127.0.0.1:43110/callback",
+        "clientIdMetadataDocument": "https://client.example.test/oauth/metadata.json"
       }
     }
   ]
 }
 ```
 
-OAuth runtime behavior is code-injected through `MCPOptions.OAuthRuntime`, not serialized into the manifest. The manifest carries server data such as redirect URI, client ID, scopes, and secret keys; the host application owns browser/login UX and token persistence.
+Reserved MCP headers cannot be configured. HTTP operation is stateless from HPD's perspective; the SDK owns protocol headers, discovery, fallback, and any legacy transport details.
 
-```csharp
-var agent = new AgentBuilder()
-    .WithMCP("mcp.json", options =>
-    {
-        options.OAuthRuntime = new MyMcpOAuthRuntime();
-    })
-    .Build();
-```
+## MRTR and remote Tasks
 
-For toolharness-owned `[MCPServer]` declarations without a standalone manifest, configure options separately:
+Ordinary tools invoke the SDK-provided `McpClientTool`. HPD registers bounded client handlers through `IMcpInputResolver`; SDK 2.x owns `input_required` reconstruction, retries, cancellation, and its round limit. Resolver values are JSON and never become successful output while unresolved.
 
-```csharp
-var agent = new AgentBuilder()
-    .WithMCPOptions(options =>
-    {
-        options.OAuthRuntime = new MyMcpOAuthRuntime();
-    })
-    .WithToolHarness<MyHarness>()
-    .Build();
-```
+Remote MCP Tasks are optional and live in the separate `HPD-Agent.MCP.Tasks` package. Installing that package alone changes nothing; opt a source in explicitly with `options.AddTasksExtension()`. The base package therefore has no Tasks-extension dependency or runtime activation.
 
-`IMcpOAuthRuntime` can provide SDK hooks for authorization redirects, token caching, authorization-server selection, scope selection, and dynamic client registration persistence.
+Remote MCP Tasks are provider-owned durable work. They are distinct from HPD sessions and from local background execution. HPD assigns its own `OperationId`; a remote task ID is retained separately as `ProviderOperationId`. Detaching local observation does not imply remote cancellation.
 
-Built-in runtimes:
+The four similarly named lifetime concepts are deliberately independent:
 
-- `InMemoryMcpOAuthRuntime` stores tokens and dynamic client registrations for the lifetime of the runtime instance.
-- `JsonMcpOAuthRuntime` stores tokens and dynamic client registrations as JSON files under a host-provided cache directory.
+- An **HPD session** is application conversation state and can span many turns and connections.
+- A **legacy MCP transport session** is an SDK-owned protocol connection detail, such as `Mcp-Session-Id`; application code must not persist or manufacture it.
+- **HPD background work** is locally controlled work represented by the unified operation registry.
+- A **remote MCP Task** is server-controlled work observed through that same registry while preserving its separate provider task ID.
 
-```csharp
-var agent = new AgentBuilder()
-    .WithMCP("mcp.json", options =>
-    {
-        options.OAuthRuntime = new JsonMcpOAuthRuntime(
-            "~/.hpd/mcp/oauth",
-            authorizationRedirectDelegate: McpOAuthRedirectHandlers.LocalBrowser());
-    })
-    .Build();
-```
+## Lifetime and refresh
 
-Secret-backed fields are resolved through HPD's `ISecretResolver`. Literal values win when both a literal value and a `*SecretKey` are provided. Configuration and custom/vault resolvers can resolve arbitrary keys such as `mcp:enterprise:ClientSecret`; environment resolution requires the key to have registered aliases or to be exposed through configuration.
+Each MCP capability revision owns its clients, subscriptions, and authorization adapters. Agent turns pin one immutable catalog epoch. Notifications make a source eligible for transactional refresh; they never mutate a running turn. Retired connections close only after the final snapshot or turn lease releases the revision. `Agent` and MCP runtime ownership are asynchronous (`await using`).
 
-## Resources
+## Authorization
 
-Set `enableResources` to `true` to expose a small generic resource toolset for servers that advertise the MCP resources capability:
+Client ID Metadata Documents and pre-registration are the normal modes. Dynamic Client Registration requires both `DynamicRegistration` mode and `AllowDynamicRegistration = true`. Durable authorization records are application-owned through `IMcpAuthorizationStore` and are bound to resource identity, authorization-server issuer, client identity, and normalized scopes. Secrets are resolved from secret keys and are never serialized into manifests or projected into events.
 
-- `mcp_{server}_list_resources`
-- `mcp_{server}_list_resource_templates`
-- `mcp_{server}_read_resource`
+## Isolated stdio
 
-These functions obey the same collapse/no-collapse behavior as MCP tools. When server collapsing is enabled, they sit behind the same `MCP_{server}` container as the server's tools. Text resource reads are capped by `maxResourceContentLength`; binary resources return metadata instead of blob data.
-
-## Prompts
-
-Set `enablePrompts` to `true` to expose a small generic prompt toolset for servers that advertise the MCP prompts capability:
-
-- `mcp_{server}_list_prompts`
-- `mcp_{server}_get_prompt`
-
-These functions obey the same collapse/no-collapse behavior as MCP tools and resources. Prompt results are returned as structured tool output, not automatically injected into the agent prompt. Text prompt content is capped by `maxPromptContentLength`; image, audio, and binary embedded-resource content returns metadata instead of base64 payloads.
-
-## Live Updates
-
-Set `enableLiveUpdates` to `true` to emit HPD agent events when an MCP server reports that tools, prompts, or resources changed. Add `resourceSubscriptions` when the agent should subscribe to updates for specific MCP resource URIs.
-
-```json
-{
-  "name": "workspace",
-  "transport": "stdio",
-  "command": "mcp-server",
-  "enableLiveUpdates": true,
-  "resourceSubscriptions": [
-    "file:///workspace/README.md"
-  ]
-}
-```
-
-Live updates are invalidation signals. HPD does not mutate an active tool list mid-turn; applications can subscribe and decide whether to reload or rebuild:
-
-```csharp
-using var subscription = agent.Subscribe<McpServerChangedEvent>(evt =>
-{
-    Console.WriteLine($"{evt.ServerName}: {evt.ChangeKind} changed");
-});
-```
-
-MCP live update events live in `HPD.Agent.MCP` and are registered for agent-event serialization by the MCP package. Events are emitted into the executing agent's event coordinator, so existing parent/sub-agent/workflow bubbling applies automatically.
-
-## Builder
-
-```csharp
-var agent = new AgentBuilder()
-    .WithMCP("mcp.json")
-    .Build();
-```
+When `processIsolation.enabled` is true, an application-provided `IProcessProvider` is required and HPD fails closed when it is absent. The custom transport changes process launch and byte ownership only; JSON-RPC framing and MCP semantics remain SDK-owned.

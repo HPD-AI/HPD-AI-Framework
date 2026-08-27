@@ -21,18 +21,20 @@
     <InternalsVisibleTo Include="HPD-Agent" />
     <InternalsVisibleTo Include="HPD-Agent.FFI" />
     <InternalsVisibleTo Include="HPD-Agent.Tests" />
+    <InternalsVisibleTo Include="HPD-Agent.MCP.Tasks" />
+    <InternalsVisibleTo Include="HPD-Agent.MCP.AotSmoke" />
     <InternalsVisibleTo Include="AgentConsoleTest" />
     <InternalsVisibleTo Include="AgentAPI" />
   </ItemGroup>
 
   <ItemGroup>
     <!-- Core AI Framework -->
-    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.7.0" />
-    <PackageReference Include="Microsoft.Extensions.AI" Version="10.7.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.8.3" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.8.3" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.9" />
 
     <!-- MCP Support -->
-    <PackageReference Include="ModelContextProtocol" Version="2.0.0-preview.1" />
+    <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
   </ItemGroup>
 
   <ItemGroup>

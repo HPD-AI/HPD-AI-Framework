@@ -1,95 +1,102 @@
 using HPD.Agent;
-using Microsoft.Extensions.Logging.Abstractions;
+using System.Runtime.CompilerServices;
 
 namespace HPD.Agent.MCP;
 
-/// <summary>
-/// Extension methods for configuring Model Context Protocol (MCP) capabilities for the AgentBuilder.
-/// </summary>
+/// <summary>Registers MCP as an independently refreshed agent capability source.</summary>
 public static class AgentBuilderMcpExtensions
 {
-    /// <summary>
-    /// Configures MCP options without registering a manifest.
-    /// Use this for toolharness-owned [MCPServer] declarations or before calling WithMCP.
-    /// </summary>
-    /// <param name="configure">Configuration action for MCP options</param>
-    public static AgentBuilder WithMCPOptions(this AgentBuilder builder, Action<MCPOptions> configure)
+    private static readonly ConditionalWeakTable<AgentBuilder, McpOptions> BuilderOptions = new();
+
+    /// <summary>Configures final MCP policy for subsequently registered MCP sources.</summary>
+    /// <param name="builder">The agent builder.</param>
+    /// <param name="configure">The policy mutation.</param>
+    /// <returns>The same builder.</returns>
+    public static AgentBuilder WithMcpOptions(this AgentBuilder builder, Action<McpOptions> configure)
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(configure);
-
-        var options = builder.Config.Mcp?.Options as MCPOptions ?? new MCPOptions();
-        configure(options);
-
-        builder.Config.Mcp ??= new McpConfig();
-        builder.Config.Mcp.Options = options;
-
+        configure(BuilderOptions.GetValue(builder, static _ => new McpOptions()));
         return builder;
     }
 
-    /// <summary>
-    /// Enables MCP support with the specified manifest file
-    /// </summary>
-    /// <param name="manifestPath">Path to the MCP manifest JSON file</param>
-    /// <param name="options">Optional MCP configuration options</param>
-    public static AgentBuilder WithMCP(this AgentBuilder builder, string manifestPath, MCPOptions? options = null)
+    /// <summary>Registers an MCP manifest file as a required capability source.</summary>
+    /// <param name="builder">The agent builder.</param>
+    /// <param name="manifestPath">The path to the final MCP manifest.</param>
+    /// <param name="configure">Optional final runtime-policy configuration.</param>
+    /// <returns>The same builder.</returns>
+    public static AgentBuilder WithMcp(
+        this AgentBuilder builder,
+        string manifestPath,
+        Action<McpOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
-        if (string.IsNullOrWhiteSpace(manifestPath))
-            throw new ArgumentException("Manifest path cannot be null or empty", nameof(manifestPath));
-
-        options ??= builder.Config.Mcp?.Options as MCPOptions;
-        builder.Config.Mcp = new McpConfig
-        {
-            ManifestPath = manifestPath,
-            Options = options
-        };
-        var manager = new MCPClientManager(
-            builder.Logger?.CreateLogger("HPD.Agent.MCP.MCPClientManager") ?? NullLogger.Instance, 
-            options);
-        builder.McpClientManager = manager;
-        builder.WithEventSubscription(coordinator => manager.AttachLiveUpdates(coordinator));
-
+        ArgumentException.ThrowIfNullOrWhiteSpace(manifestPath);
+        var fullPath = Path.GetFullPath(manifestPath);
+        var options = CreateOptions(builder, configure);
+        builder.AddCapabilitySource(new AgentCapabilitySourceRegistration(
+            new McpCapabilitySourceFactory(
+                CapabilitySourceId.Create($"mcp.file:{fullPath}"),
+                fullPath,
+                null,
+                options,
+                builder.Logger,
+                builder.SecretResolver),
+            options.Catalog.LoadMode == McpCatalogLoadMode.Deferred
+                ? CapabilitySourceInitialLoadPolicy.Deferred
+                : CapabilitySourceInitialLoadPolicy.Required,
+            CapabilitySourceRefreshFailurePolicy.RetainLastKnownGood));
         return builder;
     }
 
-    /// <summary>
-    /// Enables MCP support with fluent configuration
-    /// </summary>
-    /// <param name="manifestPath">Path to the MCP manifest JSON file</param>
-    /// <param name="configure">Configuration action for MCP options</param>
-    public static AgentBuilder WithMCP(this AgentBuilder builder, string manifestPath, Action<MCPOptions> configure)
-    {
-        ArgumentNullException.ThrowIfNull(configure);
-
-        var options = builder.Config.Mcp?.Options as MCPOptions ?? new MCPOptions();
-        configure(options);
-        return builder.WithMCP(manifestPath, options);
-    }
-
-    /// <summary>
-    /// Enables MCP support with manifest content directly
-    /// </summary>
-    /// <param name="manifestContent">JSON content of the MCP manifest</param>
-    /// <param name="options">Optional MCP configuration options</param>
-    public static AgentBuilder WithMCPContent(this AgentBuilder builder, string manifestContent, MCPOptions? options = null)
+    /// <summary>Registers final MCP manifest JSON as a required capability source.</summary>
+    /// <param name="builder">The agent builder.</param>
+    /// <param name="manifestContent">The final manifest JSON.</param>
+    /// <param name="sourceName">A stable application-defined source name.</param>
+    /// <param name="configure">Optional final runtime-policy configuration.</param>
+    /// <returns>The same builder.</returns>
+    public static AgentBuilder WithMcpContent(
+        this AgentBuilder builder,
+        string manifestContent,
+        string sourceName,
+        Action<McpOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
-        if (string.IsNullOrWhiteSpace(manifestContent))
-            throw new ArgumentException("Manifest content cannot be null or empty", nameof(manifestContent));
-
-        options ??= builder.Config.Mcp?.Options as MCPOptions;
-        builder.Config.Mcp = new McpConfig
-        {
-            ManifestContent = manifestContent,
-            Options = options
-        };
-        var manager = new MCPClientManager(
-            builder.Logger?.CreateLogger("HPD.Agent.MCP.MCPClientManager") ?? NullLogger.Instance,
-            options);
-        builder.McpClientManager = manager;
-        builder.WithEventSubscription(coordinator => manager.AttachLiveUpdates(coordinator));
-
+        ArgumentException.ThrowIfNullOrWhiteSpace(manifestContent);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
+        var options = CreateOptions(builder, configure);
+        builder.AddCapabilitySource(new AgentCapabilitySourceRegistration(
+            new McpCapabilitySourceFactory(
+                CapabilitySourceId.Create($"mcp.content:{sourceName}"),
+                null,
+                manifestContent,
+                options,
+                builder.Logger,
+                builder.SecretResolver),
+            options.Catalog.LoadMode == McpCatalogLoadMode.Deferred
+                ? CapabilitySourceInitialLoadPolicy.Deferred
+                : CapabilitySourceInitialLoadPolicy.Required,
+            CapabilitySourceRefreshFailurePolicy.RetainLastKnownGood));
         return builder;
+    }
+
+    /// <summary>Registers final MCP manifest JSON using a deterministic content identity.</summary>
+    public static AgentBuilder WithMcpContent(
+        this AgentBuilder builder,
+        string manifestContent,
+        Action<McpOptions>? configure = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(manifestContent);
+        var digest = Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(manifestContent)))[..16];
+        return builder.WithMcpContent(manifestContent, digest, configure);
+    }
+
+    private static McpOptions CreateOptions(AgentBuilder builder, Action<McpOptions>? configure)
+    {
+        var options = BuilderOptions.GetValue(builder, static _ => new McpOptions());
+        configure?.Invoke(options);
+        return options;
     }
 }

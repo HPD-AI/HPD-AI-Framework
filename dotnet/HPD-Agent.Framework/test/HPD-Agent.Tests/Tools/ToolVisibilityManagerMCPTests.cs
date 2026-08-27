@@ -217,7 +217,7 @@ public class ToolVisibilityManagerMCPTests
     [Fact]
     public void StandaloneMCPContainer_NoParent_VisibleByDefault()
     {
-        // Arrange — standalone MCP container (from WithMCP(), no parent)
+        // Arrange — standalone MCP container (from WithMcp(), no parent)
         var mcpContainer = CreateMCPContainer(
             "filesystem",
             new[] { "read_file", "write_file" },
@@ -355,7 +355,7 @@ public class ToolVisibilityManagerMCPTests
     [Fact]
     public void StandaloneWithMCP_BehaviorUnchanged()
     {
-        // Arrange — standalone MCP container from WithMCP() (no ParentContainer)
+        // Arrange — standalone MCP container from WithMcp() (no ParentContainer)
         var mcpContainer = CreateMCPContainer(
             "github",
             new[] { "create_pr", "list_issues" },

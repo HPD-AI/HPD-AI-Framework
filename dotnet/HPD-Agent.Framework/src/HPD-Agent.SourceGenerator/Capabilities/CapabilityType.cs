@@ -31,7 +31,7 @@ internal enum CapabilityType
 
     /// <summary>
     /// An MCP server capability that provides external tool connections.
-    /// Decorated with [MCPServer] attribute. MCP servers are NOT containers themselves —
+    /// Decorated with [McpServer] attribute. MCP servers are NOT containers themselves —
     /// their tools are either stamped flat under the parent toolharness or wrapped in an MCP_* container at runtime.
     /// </summary>
     MCPServer,

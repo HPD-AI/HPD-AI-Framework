@@ -92,7 +92,7 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
                 name.Contains("AIFunction") ||
                 name.Contains("Skill") ||
                 name.Contains("SubAgent") ||
-                name.Contains("MCPServer") ||
+                name.Contains("McpServer") ||
                 name.Contains("OpenApi"));
         });
 
@@ -720,7 +720,7 @@ namespace HPD.Agent.Diagnostics {{
 
             // NEW: MCP Server support
             sb.AppendLine($"                // ========== MCP SERVERS ==========");
-            sb.AppendLine($"                HasMCPServers: {ToolHarness.MCPServerCapabilities.Any().ToString().ToLower()},");
+            sb.AppendLine($"                HasMcpServers: {ToolHarness.MCPServerCapabilities.Any().ToString().ToLower()},");
             if (ToolHarness.MCPServerCapabilities.Any())
             {
                 sb.AppendLine($"                CollectMcpServers: {ToolHarness.ClassName}Registration.CollectMcpServers,");

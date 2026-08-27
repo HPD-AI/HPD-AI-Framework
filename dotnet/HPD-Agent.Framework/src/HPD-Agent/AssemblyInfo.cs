@@ -9,6 +9,7 @@ using System.Runtime.CompilerServices;
 
 // Make internals visible to the MCP layer (needed for AddParentToolMetadata in flat mode)
 [assembly: InternalsVisibleTo("HPD-Agent.MCP")]
+[assembly: InternalsVisibleTo("HPD-Agent.MCP.Tasks")]
 
 // Make internals visible to the OpenAPI layer (needed for IOpenApiLoader, OpenApiSourceRegistration, OpenApiLoadResult)
 [assembly: InternalsVisibleTo("HPD-Agent.OpenApi")]

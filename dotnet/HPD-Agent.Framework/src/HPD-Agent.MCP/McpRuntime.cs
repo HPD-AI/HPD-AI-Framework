@@ -2,14 +2,15 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using HPD.Agent.Secrets;
 using ModelContextProtocol.Client;
+using ModelContextProtocol;
 using ModelContextProtocol.Authentication;
 using ModelContextProtocol.Protocol;
 using HPD.Agent;
 using HPD.Environment.Contracts;
 using System.Collections;
+using System.Collections.Immutable;
 using System.Text.Json;
 using HPD.Agent.Middleware;
-using HPD.Events;
 
 
 namespace HPD.Agent.MCP;
@@ -17,12 +18,20 @@ namespace HPD.Agent.MCP;
 /// <summary>
 /// Manages lifecycle of MCP clients and tool loading
 /// </summary>
-public class MCPClientManager : IDisposable
+public sealed class McpRuntime : IAsyncDisposable
 {
     private readonly Dictionary<string, McpClient> _clients = new();
-    private readonly Dictionary<string, MCPServerConfig> _serverConfigs = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, McpServerConfig> _serverConfigs = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _oauthClientSecrets = new(StringComparer.Ordinal);
     private readonly ILogger _logger;
-    private readonly MCPOptions _options;
+    private readonly McpOptions _options;
+    private readonly McpCatalogPageCache _catalogPages;
+    private readonly string _catalogPrivateScope = Guid.NewGuid().ToString("N");
+    private DateTimeOffset? _aggregateCatalogFreshUntil;
+    private CacheScope _aggregateCatalogScope = CacheScope.Public;
+    private readonly List<IAsyncDisposable> _subscriptionRegistrations = [];
+    private readonly List<CancellationTokenSource> _subscriptionCancellationSources = [];
+    private readonly List<Task> _subscriptionTasks = [];
     private bool _disposed = false;
 
     private const string ListResourcesSchemaJson = """
@@ -104,10 +113,20 @@ public class MCPClientManager : IDisposable
         }
         """;
 
-    public MCPClientManager(ILogger logger, MCPOptions? options = null)
+    public McpRuntime(ILogger logger, McpOptions? options = null)
+        : this(logger, options, catalogPages: null)
+    {
+    }
+
+    internal McpRuntime(
+        ILogger logger,
+        McpOptions? options,
+        McpCatalogPageCache? catalogPages)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _options = options ?? new MCPOptions();
+        _options = options ?? new McpOptions();
+        _options.Validate();
+        _catalogPages = catalogPages ?? new McpCatalogPageCache(_options.Catalog);
     }
 
     /// <summary>
@@ -143,17 +162,17 @@ public class MCPClientManager : IDisposable
 
                 // Determine Collapsing for this specific server
                 // Per-server setting takes precedence over global setting
-                var enableCollapsingForThisServer = serverConfig.EnableCollapsing ?? enableCollapsing;
+                var enableCollapsingForThisServer = serverConfig.EnableCollapsing || enableCollapsing;
 
                 if (enableCollapsingForThisServer && functions.Count > 0)
                 {
                     // Wrap tools with container for this server
-                    var (container, CollapsedTools) = ExternalToolCollapsingWrapper.WrapMCPServerTools(
+                    var (container, CollapsedTools) = ExternalToolCollapsingWrapper.WrapMcpServerTools(
                         serverConfig.Name,
                         functions,
                         maxFunctionNamesInDescription,
-                        FunctionResult: serverConfig.FunctionResult,
-                        SystemPrompt: serverConfig.SystemPrompt,
+                        FunctionResult: null,
+                        SystemPrompt: null,
                         customDescription: serverConfig.Description);
 
                     allTools.Add(container);
@@ -221,17 +240,17 @@ public class MCPClientManager : IDisposable
 
                 // Determine Collapsing for this specific server
                 // Per-server setting takes precedence over global setting
-                var enableCollapsingForThisServer = serverConfig.EnableCollapsing ?? enableCollapsing;
+                var enableCollapsingForThisServer = serverConfig.EnableCollapsing || enableCollapsing;
 
                 if (enableCollapsingForThisServer && functions.Count > 0)
                 {
                     // Wrap tools with container for this server
-                    var (container, CollapsedTools) = ExternalToolCollapsingWrapper.WrapMCPServerTools(
+                    var (container, CollapsedTools) = ExternalToolCollapsingWrapper.WrapMcpServerTools(
                         serverConfig.Name,
                         functions,
                         maxFunctionNamesInDescription,
-                        FunctionResult: serverConfig.FunctionResult,
-                        SystemPrompt: serverConfig.SystemPrompt,
+                        FunctionResult: null,
+                        SystemPrompt: null,
                         customDescription: serverConfig.Description);
 
                     allTools.Add(container);
@@ -270,7 +289,7 @@ public class MCPClientManager : IDisposable
     /// <summary>
     /// Loads and validates manifest from file
     /// </summary>
-    private static async Task<MCPManifest> LoadManifestAsync(string manifestPath, CancellationToken cancellationToken)
+    private static async Task<McpManifest> LoadManifestAsync(string manifestPath, CancellationToken cancellationToken)
     {
         try
         {
@@ -299,9 +318,9 @@ public class MCPClientManager : IDisposable
     /// <summary>
     /// Parses manifest from JSON content
     /// </summary>
-    private static MCPManifest ParseManifest(string manifestContent)
+    private static McpManifest ParseManifest(string manifestContent)
     {
-        var manifest = JsonSerializer.Deserialize(manifestContent, MCPJsonSerializerContext.Default.MCPManifest);
+        var manifest = JsonSerializer.Deserialize(manifestContent, McpJsonSerializerContext.Default.McpManifest);
 
         if (manifest == null)
         {
@@ -318,7 +337,7 @@ public class MCPClientManager : IDisposable
     }
 
     private async Task<List<AIFunction>> LoadServerFunctionsAsync(
-        MCPServerConfig serverConfig,
+        McpServerConfig serverConfig,
         CancellationToken cancellationToken)
     {
         var functions = await LoadServerToolsAsync(serverConfig, cancellationToken).ConfigureAwait(false);
@@ -330,15 +349,29 @@ public class MCPClientManager : IDisposable
     /// <summary>
     /// Loads tools from a specific MCP server
     /// </summary>
-    private async Task<List<AIFunction>> LoadServerToolsAsync(MCPServerConfig serverConfig, CancellationToken cancellationToken)
+    private async Task<List<AIFunction>> LoadServerToolsAsync(McpServerConfig serverConfig, CancellationToken cancellationToken)
     {
         var client = await GetOrCreateClientAsync(serverConfig, cancellationToken);
 
         // Use only the provided description from config (no reflection-based extraction for AOT compatibility)
         // If description is not provided, it will be empty
 
-        // ListToolsAsync returns McpClientTool[], which inherit from AIFunction
-        var mcpTools = await client.ListToolsAsync(cancellationToken: cancellationToken);
+        var mcpTools = new List<McpClientTool>();
+        string? cursor = null;
+        do
+        {
+            var pageCursor = cursor;
+            var partition = CatalogPartition(serverConfig.Name, "tools", pageCursor);
+            var page = await GetCatalogPageAsync(
+                partition,
+                ct => client.ListToolsAsync(
+                    new ListToolsRequestParams { Cursor = pageCursor }, ct),
+                cancellationToken).ConfigureAwait(false);
+            mcpTools.AddRange(page.Tools.Select(tool =>
+                new McpClientTool(client, tool, McpJsonUtilities.DefaultOptions)));
+            cursor = page.NextCursor;
+        }
+        while (cursor is not null);
 
         var adaptedTools = new List<AIFunction>();
 
@@ -364,6 +397,8 @@ public class MCPClientManager : IDisposable
                                 ToolName = originalAIFunction.Name,
                                 Arguments = args,
                                 ParentContext = functionContext,
+                                Client = client,
+                                InvocationOptions = _options.Invocation,
                                 InvokeToolAsync = InvokeOriginalMcpToolAsync
                             },
                             ct).ConfigureAwait(false);
@@ -375,6 +410,10 @@ public class MCPClientManager : IDisposable
                             FunctionExecutionContext? invocationContext,
                             CancellationToken invocationToken)
                         {
+                            using var invocationScope = McpInvocationContextScope.Push(
+                                serverConfig.Name,
+                                originalAIFunction.Name,
+                                invocationContext);
                             if (originalAIFunction is HPDAIFunctionFactory.HPDAIFunction hpdFunction &&
                                 invocationContext is not null)
                             {
@@ -402,7 +441,9 @@ public class MCPClientManager : IDisposable
                         originalAIFunction.JsonSchema,
                         McpToolInvocationRuntime.ResolveInvocationModePolicy(
                             serverConfig,
-                            originalAIFunction.Name))
+                            originalAIFunction.Name)),
+                    AdditionalProperties = CreateCapabilityMetadata(
+                        serverConfig.Name, originalAIFunction.Name, client)
                 };
 
                 // Attempt to copy schema information if the external tool exposes it
@@ -428,7 +469,7 @@ public class MCPClientManager : IDisposable
     }
 
     private async Task<List<AIFunction>> LoadServerResourceFunctionsAsync(
-        MCPServerConfig serverConfig,
+        McpServerConfig serverConfig,
         CancellationToken cancellationToken)
     {
         if (!serverConfig.EnableResources)
@@ -454,8 +495,8 @@ public class MCPClientManager : IDisposable
         };
     }
 
-    private static AIFunction CreateListResourcesFunction(
-        MCPServerConfig serverConfig,
+    private AIFunction CreateListResourcesFunction(
+        McpServerConfig serverConfig,
         McpClient client,
         string serverFunctionName)
     {
@@ -469,7 +510,7 @@ public class MCPClientManager : IDisposable
                     BindOptionalPositiveInt(json, "maxResults", serverConfig.MaxResourceListResults, serializerOptions),
                     serverConfig.MaxResourceListResults);
 
-                var result = new MCPResourceListResult
+                var result = new McpResourceListResult
                 {
                     Server = serverConfig.Name
                 };
@@ -481,7 +522,13 @@ public class MCPClientManager : IDisposable
 
                 do
                 {
-                    var page = await client.ListResourcesAsync(request, ct).ConfigureAwait(false);
+                    var pageCursor = request.Cursor;
+                    var page = await _catalogPages.GetAsync(
+                        CatalogPartition(serverConfig.Name, "resources", pageCursor),
+                        token => client.ListResourcesAsync(
+                            new ListResourcesRequestParams { Cursor = pageCursor }, token),
+                        ct,
+                        _catalogPrivateScope).ConfigureAwait(false);
                     foreach (var resource in page.Resources)
                     {
                         if (result.Resources.Count >= maxResults)
@@ -490,10 +537,10 @@ public class MCPClientManager : IDisposable
                             result.NextCursor = null;
                             return JsonSerializer.SerializeToElement(
                                 result,
-                                MCPJsonSerializerContext.Default.MCPResourceListResult);
+                                McpJsonSerializerContext.Default.McpResourceListResult);
                         }
 
-                        result.Resources.Add(new MCPResourceSummary
+                        result.Resources.Add(new McpResourceSummary
                         {
                             Name = resource.Name,
                             Title = resource.Title,
@@ -513,7 +560,7 @@ public class MCPClientManager : IDisposable
 
                 return JsonSerializer.SerializeToElement(
                     result,
-                    MCPJsonSerializerContext.Default.MCPResourceListResult);
+                    McpJsonSerializerContext.Default.McpResourceListResult);
             },
             new HPDAIFunctionFactoryOptions
             {
@@ -526,8 +573,8 @@ public class MCPClientManager : IDisposable
             });
     }
 
-    private static AIFunction CreateListResourceTemplatesFunction(
-        MCPServerConfig serverConfig,
+    private AIFunction CreateListResourceTemplatesFunction(
+        McpServerConfig serverConfig,
         McpClient client,
         string serverFunctionName)
     {
@@ -541,7 +588,7 @@ public class MCPClientManager : IDisposable
                     BindOptionalPositiveInt(json, "maxResults", serverConfig.MaxResourceListResults, serializerOptions),
                     serverConfig.MaxResourceListResults);
 
-                var result = new MCPResourceTemplateListResult
+                var result = new McpResourceTemplateListResult
                 {
                     Server = serverConfig.Name
                 };
@@ -553,7 +600,13 @@ public class MCPClientManager : IDisposable
 
                 do
                 {
-                    var page = await client.ListResourceTemplatesAsync(request, ct).ConfigureAwait(false);
+                    var pageCursor = request.Cursor;
+                    var page = await _catalogPages.GetAsync(
+                        CatalogPartition(serverConfig.Name, "resource-templates", pageCursor),
+                        token => client.ListResourceTemplatesAsync(
+                            new ListResourceTemplatesRequestParams { Cursor = pageCursor }, token),
+                        ct,
+                        _catalogPrivateScope).ConfigureAwait(false);
                     foreach (var template in page.ResourceTemplates)
                     {
                         if (result.ResourceTemplates.Count >= maxResults)
@@ -562,10 +615,10 @@ public class MCPClientManager : IDisposable
                             result.NextCursor = null;
                             return JsonSerializer.SerializeToElement(
                                 result,
-                                MCPJsonSerializerContext.Default.MCPResourceTemplateListResult);
+                                McpJsonSerializerContext.Default.McpResourceTemplateListResult);
                         }
 
-                        result.ResourceTemplates.Add(new MCPResourceTemplateSummary
+                        result.ResourceTemplates.Add(new McpResourceTemplateSummary
                         {
                             Name = template.Name,
                             Title = template.Title,
@@ -585,7 +638,7 @@ public class MCPClientManager : IDisposable
 
                 return JsonSerializer.SerializeToElement(
                     result,
-                    MCPJsonSerializerContext.Default.MCPResourceTemplateListResult);
+                    McpJsonSerializerContext.Default.McpResourceTemplateListResult);
             },
             new HPDAIFunctionFactoryOptions
             {
@@ -598,8 +651,8 @@ public class MCPClientManager : IDisposable
             });
     }
 
-    private static AIFunction CreateReadResourceFunction(
-        MCPServerConfig serverConfig,
+    private AIFunction CreateReadResourceFunction(
+        McpServerConfig serverConfig,
         McpClient client,
         string serverFunctionName)
     {
@@ -613,8 +666,13 @@ public class MCPClientManager : IDisposable
                     BindOptionalPositiveInt(json, "maxChars", serverConfig.MaxResourceContentLength, serializerOptions),
                     serverConfig.MaxResourceContentLength);
 
-                var readResult = await client.ReadResourceAsync(uri, cancellationToken: ct).ConfigureAwait(false);
-                var result = new MCPResourceReadResult
+                var readResult = await _catalogPages.GetAsync(
+                    CatalogPartition(serverConfig.Name, "resource", uri),
+                    token => client.ReadResourceAsync(
+                        new ReadResourceRequestParams { Uri = uri }, token),
+                    ct,
+                    _catalogPrivateScope).ConfigureAwait(false);
+                var result = new McpResourceReadResult
                 {
                     Server = serverConfig.Name,
                     Uri = uri
@@ -633,7 +691,7 @@ public class MCPClientManager : IDisposable
                             var emittedText = truncated ? textValue[..remainingChars] : textValue;
                             remainingChars -= emittedText.Length;
                             result.Truncated |= truncated;
-                            result.Contents.Add(new MCPResourceContentSummary
+                            result.Contents.Add(new McpResourceContentSummary
                             {
                                 Uri = text.Uri,
                                 MimeType = text.MimeType,
@@ -645,7 +703,7 @@ public class MCPClientManager : IDisposable
                         }
 
                         case BlobResourceContents blob:
-                            result.Contents.Add(new MCPResourceContentSummary
+                            result.Contents.Add(new McpResourceContentSummary
                             {
                                 Uri = blob.Uri,
                                 MimeType = blob.MimeType,
@@ -666,7 +724,7 @@ public class MCPClientManager : IDisposable
 
                 return JsonSerializer.SerializeToElement(
                     result,
-                    MCPJsonSerializerContext.Default.MCPResourceReadResult);
+                    McpJsonSerializerContext.Default.McpResourceReadResult);
             },
             new HPDAIFunctionFactoryOptions
             {
@@ -685,12 +743,70 @@ public class MCPClientManager : IDisposable
         {
             ["SourceType"] = "MCP",
             ["MCPServerName"] = serverName,
-            ["MCPResourceOperation"] = operation
+            ["McpResourceOperation"] = operation,
+            [HPDCapabilityMetadata.AdditionalPropertiesKey] = CreateTypedMetadata(
+                serverName, "resource", operation)
         };
     }
 
+    private static Dictionary<string, object?> CreateCapabilityMetadata(
+        string serverName,
+        string operation,
+        McpClient client)
+    {
+        var metadata = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["mcp.server"] = serverName,
+            ["mcp.operation"] = operation,
+            [HPDCapabilityMetadata.AdditionalPropertiesKey] = CreateTypedMetadata(
+                serverName, "tool", operation)
+        };
+        if (client.ServerCapabilities.Extensions?.ContainsKey("io.modelcontextprotocol/apps") == true)
+        {
+            metadata["mcp.extension.apps.advertised"] = "true";
+            metadata["mcp.apps.rendering"] = "unavailable";
+        }
+        return metadata;
+    }
+
+    internal ImmutableDictionary<string, string> GetSourceMetadata()
+    {
+        var metadata = ImmutableDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
+        foreach (var (serverName, client) in _clients.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
+        {
+            metadata[$"mcp.server.{serverName}.protocol"] = client.NegotiatedProtocolVersion;
+            if (client.ServerCapabilities.Extensions?.ContainsKey("io.modelcontextprotocol/apps") == true)
+            {
+                metadata[$"mcp.server.{serverName}.extension.apps.advertised"] = "true";
+                metadata[$"mcp.server.{serverName}.apps.rendering"] = "unavailable";
+            }
+        }
+        if (_aggregateCatalogFreshUntil is { } freshUntil)
+            metadata["mcp.catalog.freshUntil"] = freshUntil.ToUniversalTime().ToString("O");
+        metadata["mcp.catalog.cacheScope"] =
+            _aggregateCatalogScope == CacheScope.Private ? "private" : "public";
+        return metadata.ToImmutable();
+    }
+
+    private async ValueTask<T> GetCatalogPageAsync<T>(
+        string partition,
+        Func<CancellationToken, ValueTask<T>> fetch,
+        CancellationToken cancellationToken) where T : class, ICacheableResult
+    {
+        var page = await _catalogPages.GetAsync(
+            partition, fetch, cancellationToken, _catalogPrivateScope).ConfigureAwait(false);
+        if (_catalogPages.TryGetMetadata(partition, _catalogPrivateScope, out var metadata))
+        {
+            if (_aggregateCatalogFreshUntil is null || metadata.FreshUntil < _aggregateCatalogFreshUntil)
+                _aggregateCatalogFreshUntil = metadata.FreshUntil;
+            if (metadata.Scope == CacheScope.Private)
+                _aggregateCatalogScope = CacheScope.Private;
+        }
+        return page;
+    }
+
     private async Task<List<AIFunction>> LoadServerPromptFunctionsAsync(
-        MCPServerConfig serverConfig,
+        McpServerConfig serverConfig,
         CancellationToken cancellationToken)
     {
         if (!serverConfig.EnablePrompts)
@@ -715,8 +831,8 @@ public class MCPClientManager : IDisposable
         };
     }
 
-    private static AIFunction CreateListPromptsFunction(
-        MCPServerConfig serverConfig,
+    private AIFunction CreateListPromptsFunction(
+        McpServerConfig serverConfig,
         McpClient client,
         string serverFunctionName)
     {
@@ -730,7 +846,7 @@ public class MCPClientManager : IDisposable
                     BindOptionalPositiveInt(json, "maxResults", serverConfig.MaxPromptListResults, serializerOptions),
                     serverConfig.MaxPromptListResults);
 
-                var result = new MCPPromptListResult
+                var result = new McpPromptListResult
                 {
                     Server = serverConfig.Name
                 };
@@ -742,7 +858,13 @@ public class MCPClientManager : IDisposable
 
                 do
                 {
-                    var page = await client.ListPromptsAsync(request, ct).ConfigureAwait(false);
+                    var pageCursor = request.Cursor;
+                    var page = await _catalogPages.GetAsync(
+                        CatalogPartition(serverConfig.Name, "prompts", pageCursor),
+                        token => client.ListPromptsAsync(
+                            new ListPromptsRequestParams { Cursor = pageCursor }, token),
+                        ct,
+                        _catalogPrivateScope).ConfigureAwait(false);
                     foreach (var prompt in page.Prompts)
                     {
                         if (result.Prompts.Count >= maxResults)
@@ -751,23 +873,23 @@ public class MCPClientManager : IDisposable
                             result.NextCursor = null;
                             return JsonSerializer.SerializeToElement(
                                 result,
-                                MCPJsonSerializerContext.Default.MCPPromptListResult);
+                                McpJsonSerializerContext.Default.McpPromptListResult);
                         }
 
-                        result.Prompts.Add(new MCPPromptSummary
+                        result.Prompts.Add(new McpPromptSummary
                         {
                             Name = prompt.Name,
                             Title = prompt.Title,
                             Description = prompt.Description,
                             Arguments = prompt.Arguments?
-                                .Select(argument => new MCPPromptArgumentSummary
+                                .Select(argument => new McpPromptArgumentSummary
                                 {
                                     Name = argument.Name,
                                     Title = argument.Title,
                                     Description = argument.Description,
                                     Required = argument.Required == true
                                 })
-                                .ToList() ?? new List<MCPPromptArgumentSummary>()
+                                .ToList() ?? new List<McpPromptArgumentSummary>()
                         });
                     }
 
@@ -780,7 +902,7 @@ public class MCPClientManager : IDisposable
 
                 return JsonSerializer.SerializeToElement(
                     result,
-                    MCPJsonSerializerContext.Default.MCPPromptListResult);
+                    McpJsonSerializerContext.Default.McpPromptListResult);
             },
             new HPDAIFunctionFactoryOptions
             {
@@ -794,7 +916,7 @@ public class MCPClientManager : IDisposable
     }
 
     private static AIFunction CreateGetPromptFunction(
-        MCPServerConfig serverConfig,
+        McpServerConfig serverConfig,
         McpClient client,
         string serverFunctionName)
     {
@@ -817,7 +939,7 @@ public class MCPClientManager : IDisposable
                     },
                     ct).ConfigureAwait(false);
 
-                var result = new MCPPromptGetResult
+                var result = new McpPromptGetResult
                 {
                     Server = serverConfig.Name,
                     Name = name,
@@ -829,7 +951,7 @@ public class MCPClientManager : IDisposable
                 {
                     var content = SummarizePromptContent(message.Content, ref remainingChars);
                     result.Truncated |= content.Truncated;
-                    result.Messages.Add(new MCPPromptMessageSummary
+                    result.Messages.Add(new McpPromptMessageSummary
                     {
                         Role = message.Role.ToString().ToLowerInvariant(),
                         Content = content
@@ -841,7 +963,7 @@ public class MCPClientManager : IDisposable
 
                 return JsonSerializer.SerializeToElement(
                     result,
-                    MCPJsonSerializerContext.Default.MCPPromptGetResult);
+                    McpJsonSerializerContext.Default.McpPromptGetResult);
             },
             new HPDAIFunctionFactoryOptions
             {
@@ -860,9 +982,20 @@ public class MCPClientManager : IDisposable
         {
             ["SourceType"] = "MCP",
             ["MCPServerName"] = serverName,
-            ["MCPPromptOperation"] = operation
+            ["McpPromptOperation"] = operation,
+            [HPDCapabilityMetadata.AdditionalPropertiesKey] = CreateTypedMetadata(
+                serverName, "prompt", operation)
         };
     }
+
+    private static HPDCapabilityMetadata CreateTypedMetadata(
+        string serverName,
+        string category,
+        string operation) => new()
+    {
+        Id = CapabilityId.Create($"mcp:{serverName}:{category}:{operation}"),
+        Kind = HPDCapabilityKind.Mcp
+    };
 
     private static IDictionary<string, JsonElement>? BindPromptArguments(JsonElement json)
     {
@@ -889,7 +1022,7 @@ public class MCPClientManager : IDisposable
         return result;
     }
 
-    private static MCPPromptContentSummary SummarizePromptContent(ContentBlock content, ref int remainingChars)
+    private static McpPromptContentSummary SummarizePromptContent(ContentBlock content, ref int remainingChars)
     {
         switch (content)
         {
@@ -897,7 +1030,7 @@ public class MCPClientManager : IDisposable
                 return SummarizeTextPromptContent(text.Text, ref remainingChars);
 
             case ImageContentBlock image:
-                return new MCPPromptContentSummary
+                return new McpPromptContentSummary
                 {
                     ContentType = "image",
                     MimeType = image.MimeType,
@@ -905,7 +1038,7 @@ public class MCPClientManager : IDisposable
                 };
 
             case AudioContentBlock audio:
-                return new MCPPromptContentSummary
+                return new McpPromptContentSummary
                 {
                     ContentType = "audio",
                     MimeType = audio.MimeType,
@@ -916,7 +1049,7 @@ public class MCPClientManager : IDisposable
                 return SummarizeEmbeddedResourcePromptContent(embedded.Resource, ref remainingChars);
 
             case ResourceLinkBlock link:
-                return new MCPPromptContentSummary
+                return new McpPromptContentSummary
                 {
                     ContentType = "resource_link",
                     Uri = link.Uri,
@@ -927,21 +1060,21 @@ public class MCPClientManager : IDisposable
                 };
 
             default:
-                return new MCPPromptContentSummary
+                return new McpPromptContentSummary
                 {
                     ContentType = content.Type
                 };
         }
     }
 
-    private static MCPPromptContentSummary SummarizeTextPromptContent(string text, ref int remainingChars)
+    private static McpPromptContentSummary SummarizeTextPromptContent(string text, ref int remainingChars)
     {
         var safeText = text ?? string.Empty;
         var truncated = safeText.Length > remainingChars;
         var emittedText = truncated ? safeText[..Math.Max(remainingChars, 0)] : safeText;
         remainingChars -= emittedText.Length;
 
-        return new MCPPromptContentSummary
+        return new McpPromptContentSummary
         {
             ContentType = "text",
             Text = emittedText,
@@ -949,7 +1082,7 @@ public class MCPClientManager : IDisposable
         };
     }
 
-    private static MCPPromptContentSummary SummarizeEmbeddedResourcePromptContent(
+    private static McpPromptContentSummary SummarizeEmbeddedResourcePromptContent(
         ResourceContents resource,
         ref int remainingChars)
     {
@@ -965,7 +1098,7 @@ public class MCPClientManager : IDisposable
             }
 
             case BlobResourceContents blob:
-                return new MCPPromptContentSummary
+                return new McpPromptContentSummary
                 {
                     ContentType = "resource_blob",
                     Uri = blob.Uri,
@@ -974,7 +1107,7 @@ public class MCPClientManager : IDisposable
                 };
 
             default:
-                return new MCPPromptContentSummary
+                return new McpPromptContentSummary
                 {
                     ContentType = "resource",
                     Uri = resource.Uri,
@@ -1054,8 +1187,8 @@ public class MCPClientManager : IDisposable
         return string.IsNullOrEmpty(result) ? "server" : result;
     }
 
-    internal static async Task ResolveServerSecretsAsync(
-        MCPServerConfig config,
+    internal async Task ResolveServerSecretsAsync(
+        McpServerConfig config,
         ISecretResolver? secretResolver,
         CancellationToken cancellationToken = default)
     {
@@ -1102,34 +1235,14 @@ public class MCPClientManager : IDisposable
 
         if (config.OAuth != null)
         {
-            await ResolveOAuthSecretsAsync(config.Name, config.OAuth, secretResolver, cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    private static async Task ResolveOAuthSecretsAsync(
-        string serverName,
-        MCPOAuthConfig oauth,
-        ISecretResolver secretResolver,
-        CancellationToken cancellationToken)
-    {
-        if (oauth.ClientSecret == null && !string.IsNullOrWhiteSpace(oauth.ClientSecretKey))
-        {
-            oauth.ClientSecret = await ResolveRequiredSecretAsync(
-                secretResolver,
-                oauth.ClientSecretKey,
-                $"MCP server '{serverName}' OAuth client secret",
-                cancellationToken).ConfigureAwait(false);
-        }
-
-        var dynamicRegistration = oauth.DynamicClientRegistration;
-        if (dynamicRegistration?.InitialAccessToken == null &&
-            !string.IsNullOrWhiteSpace(dynamicRegistration?.InitialAccessTokenKey))
-        {
-            dynamicRegistration.InitialAccessToken = await ResolveRequiredSecretAsync(
-                secretResolver,
-                dynamicRegistration.InitialAccessTokenKey,
-                $"MCP server '{serverName}' OAuth dynamic client registration initial access token",
-                cancellationToken).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(config.OAuth.ClientSecretKey))
+            {
+                _oauthClientSecrets[config.Name] = await ResolveRequiredSecretAsync(
+                    secretResolver,
+                    config.OAuth.ClientSecretKey,
+                    $"MCP server '{config.Name}' OAuth client secret",
+                    cancellationToken).ConfigureAwait(false);
+            }
         }
     }
 
@@ -1154,7 +1267,7 @@ public class MCPClientManager : IDisposable
     /// <summary>
     /// Gets or creates an MCP client for the specified server
     /// </summary>
-    private async Task<McpClient> GetOrCreateClientAsync(MCPServerConfig serverConfig, CancellationToken cancellationToken)
+    private async Task<McpClient> GetOrCreateClientAsync(McpServerConfig serverConfig, CancellationToken cancellationToken)
     {
         if (_clients.TryGetValue(serverConfig.Name, out var existingClient))
         {
@@ -1166,15 +1279,10 @@ public class MCPClientManager : IDisposable
         var transport = CreateTransport(serverConfig);
         var clientOptions = CreateClientOptions(serverConfig);
 
-        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(serverConfig.ConnectionTimeoutMs));
+        using var timeoutCts = new CancellationTokenSource(_options.Protocol.DiscoveryTimeout);
         using var combinedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
 
         var client = await McpClient.CreateAsync(transport, clientOptions, cancellationToken: combinedCts.Token);
-
-        if (string.IsNullOrWhiteSpace(serverConfig.SystemPrompt) && !string.IsNullOrWhiteSpace(client.ServerInstructions))
-        {
-            serverConfig.SystemPrompt = client.ServerInstructions;
-        }
 
         if (string.IsNullOrWhiteSpace(serverConfig.Description))
         {
@@ -1188,14 +1296,30 @@ public class MCPClientManager : IDisposable
         return client;
     }
 
-    private IClientTransport CreateTransport(MCPServerConfig serverConfig)
+    internal async ValueTask<McpClient?> TryGetRecoveryClientAsync(
+        string serverName,
+        CancellationToken cancellationToken)
     {
-        if (serverConfig.IsStdioTransport())
+        ArgumentException.ThrowIfNullOrWhiteSpace(serverName);
+        return _serverConfigs.TryGetValue(serverName, out var config)
+            ? await GetOrCreateClientAsync(config, cancellationToken).ConfigureAwait(false)
+            : null;
+    }
+
+    private static string CatalogPartition(string serverName, string kind, string? cursor) =>
+        $"{serverName}\n{kind}\n{cursor ?? string.Empty}";
+
+    private static string CatalogPartitionPrefix(string serverName, string kind) =>
+        $"{serverName}\n{kind}\n";
+
+    private IClientTransport CreateTransport(McpServerConfig serverConfig)
+    {
+        if (serverConfig.IsStdio)
         {
             return CreateStdioTransport(serverConfig);
         }
 
-        if (serverConfig.IsHttpTransport())
+        if (serverConfig.IsHttp)
         {
             return CreateHttpTransport(serverConfig);
         }
@@ -1203,14 +1327,14 @@ public class MCPClientManager : IDisposable
         throw new InvalidOperationException($"Unsupported MCP transport '{serverConfig.Transport}' for server '{serverConfig.Name}'.");
     }
 
-    private IClientTransport CreateStdioTransport(MCPServerConfig serverConfig)
+    private IClientTransport CreateStdioTransport(McpServerConfig serverConfig)
     {
-        if (serverConfig.ProcessIsolation?.Mode is ProcessIsolationMode.Isolated)
+        if (serverConfig.ProcessIsolation?.Enabled == true)
         {
             if (_options.ProcessProvider is null)
             {
                 throw new InvalidOperationException(
-                    $"MCP server '{serverConfig.Name}' requested process isolation, but MCPOptions.ProcessProvider was not configured.");
+                    $"MCP server '{serverConfig.Name}' requested process isolation, but McpOptions.ProcessProvider was not configured.");
             }
 
             return new McpProcessClientTransport(
@@ -1222,7 +1346,7 @@ public class MCPClientManager : IDisposable
         return CreateSdkStdioTransport(serverConfig);
     }
 
-    private static StdioClientTransport CreateSdkStdioTransport(MCPServerConfig serverConfig)
+    private static StdioClientTransport CreateSdkStdioTransport(McpServerConfig serverConfig)
     {
         var environment = CreateEnvironmentVariables(serverConfig);
         var transportOptions = new StdioClientTransportOptions
@@ -1233,13 +1357,13 @@ public class MCPClientManager : IDisposable
             WorkingDirectory = serverConfig.WorkingDirectory,
             InheritEnvironmentVariables = serverConfig.InheritEnvironmentVariables,
             EnvironmentVariables = environment,
-            ShutdownTimeout = TimeSpan.FromMilliseconds(serverConfig.ShutdownTimeoutMs)
+            ShutdownTimeout = TimeSpan.FromSeconds(5)
         };
 
         return new StdioClientTransport(transportOptions);
     }
 
-    private static IReadOnlyDictionary<string, string?> CreateProcessEnvironmentVariables(MCPServerConfig serverConfig)
+    private static IReadOnlyDictionary<string, string?> CreateProcessEnvironmentVariables(McpServerConfig serverConfig)
     {
         var environment = new Dictionary<string, string?>(StringComparer.Ordinal);
 
@@ -1267,7 +1391,7 @@ public class MCPClientManager : IDisposable
         return environment;
     }
 
-    private static IDictionary<string, string?>? CreateEnvironmentVariables(MCPServerConfig serverConfig)
+    private static IDictionary<string, string?>? CreateEnvironmentVariables(McpServerConfig serverConfig)
     {
         Dictionary<string, string?>? environment = null;
 
@@ -1288,28 +1412,24 @@ public class MCPClientManager : IDisposable
         return environment;
     }
 
-    private HttpClientTransport CreateHttpTransport(MCPServerConfig serverConfig)
+    private HttpClientTransport CreateHttpTransport(McpServerConfig serverConfig)
     {
         var transportOptions = new HttpClientTransportOptions
         {
             Name = serverConfig.Name,
-            Endpoint = new Uri(serverConfig.Endpoint!, UriKind.Absolute),
-            ConnectionTimeout = TimeSpan.FromMilliseconds(serverConfig.ConnectionTimeoutMs),
+            Endpoint = serverConfig.Endpoint!,
+            ConnectionTimeout = _options.Protocol.DiscoveryTimeout,
             AdditionalHeaders = serverConfig.Headers,
-            KnownSessionId = serverConfig.KnownSessionId,
-            OwnsSession = serverConfig.OwnsSession,
             OAuth = CreateOAuthOptions(serverConfig)
         };
 
-        if (!string.IsNullOrWhiteSpace(serverConfig.HttpTransportMode))
-        {
-            transportOptions.TransportMode = ParseHttpTransportMode(serverConfig.HttpTransportMode);
-        }
-
-        return new HttpClientTransport(transportOptions);
+        var httpClient = _options.HttpClientFactory?.Invoke(serverConfig);
+        return httpClient is null
+            ? new HttpClientTransport(transportOptions)
+            : new HttpClientTransport(transportOptions, httpClient, loggerFactory: null, ownsHttpClient: false);
     }
 
-    private ClientOAuthOptions? CreateOAuthOptions(MCPServerConfig serverConfig)
+    private ClientOAuthOptions? CreateOAuthOptions(McpServerConfig serverConfig)
     {
         var config = serverConfig.OAuth;
         if (config == null)
@@ -1317,88 +1437,39 @@ public class MCPClientManager : IDisposable
             return null;
         }
 
-        var runtime = _options.OAuthRuntime;
-        var clientRegistration = runtime?.GetClientRegistration(serverConfig);
         var options = new ClientOAuthOptions
         {
-            RedirectUri = new Uri(config.RedirectUri, UriKind.Absolute),
-            ClientId = config.ClientId ?? clientRegistration?.ClientId,
-            ClientSecret = config.ClientSecret ?? clientRegistration?.ClientSecret,
-            ClientMetadataDocumentUri = string.IsNullOrWhiteSpace(config.ClientMetadataDocumentUri)
-                ? null
-                : new Uri(config.ClientMetadataDocumentUri, UriKind.Absolute),
+            RedirectUri = config.RedirectUri!,
+            ClientId = config.RegistrationMode == McpOAuthClientRegistrationMode.PreRegistered
+                ? config.ClientId
+                : null,
+            ClientSecret = _oauthClientSecrets.GetValueOrDefault(serverConfig.Name),
+            ClientMetadataDocumentUri =
+                config.RegistrationMode == McpOAuthClientRegistrationMode.ClientIdMetadataDocument
+                    ? config.ClientIdMetadataDocument
+                    : null,
             Scopes = config.Scopes,
-            DynamicClientRegistration = CreateDynamicClientRegistrationOptions(
-                serverConfig,
-                config.DynamicClientRegistration,
-                runtime)
+            DynamicClientRegistration =
+                config.RegistrationMode == McpOAuthClientRegistrationMode.DynamicRegistration
+                    ? new DynamicClientRegistrationOptions()
+                    : null,
+            TokenCache = _options.AuthorizationStore is { } store
+                ? new McpAuthorizationTokenCache(store, serverConfig, config)
+                : null
         };
-
-        options.AuthorizationRedirectDelegate = runtime?.CreateAuthorizationRedirectDelegate(serverConfig);
-        options.TokenCache = runtime?.CreateTokenCache(serverConfig);
-        options.AuthServerSelector = runtime?.CreateAuthServerSelector(serverConfig);
-        options.ScopeSelector = runtime?.CreateScopeSelector(serverConfig);
-
-        if (config.AdditionalAuthorizationParameters is { Count: > 0 })
-        {
-            foreach (var (key, value) in config.AdditionalAuthorizationParameters)
-            {
-                options.AdditionalAuthorizationParameters[key] = value;
-            }
-        }
-
         return options;
     }
 
-    private static DynamicClientRegistrationOptions? CreateDynamicClientRegistrationOptions(
-        MCPServerConfig serverConfig,
-        MCPDynamicClientRegistrationConfig? config,
-        IMcpOAuthRuntime? runtime)
-    {
-        var responseDelegate = runtime?.CreateDynamicClientRegistrationResponseDelegate(serverConfig);
-        if (config == null && responseDelegate == null)
-        {
-            return null;
-        }
-
-        return new DynamicClientRegistrationOptions
-        {
-            ClientName = config?.ClientName,
-            ClientUri = string.IsNullOrWhiteSpace(config?.ClientUri)
-                ? null
-                : new Uri(config.ClientUri, UriKind.Absolute),
-            InitialAccessToken = config?.InitialAccessToken,
-            ResponseDelegate = responseDelegate
-        };
-    }
-
-    private static HttpTransportMode ParseHttpTransportMode(string value)
-    {
-        return value.ToLowerInvariant() switch
-        {
-            "autodetect" or "auto" => HttpTransportMode.AutoDetect,
-            "streamablehttp" or "streamable-http" or "http" => HttpTransportMode.StreamableHttp,
-            "sse" => HttpTransportMode.Sse,
-            _ => throw new ArgumentException($"Unsupported MCP HTTP transport mode '{value}'.", nameof(value))
-        };
-    }
-
-    private static McpClientOptions CreateClientOptions(MCPServerConfig serverConfig)
+    private McpClientOptions CreateClientOptions(McpServerConfig serverConfig)
     {
         var options = new McpClientOptions
         {
-            ProtocolVersion = serverConfig.ProtocolVersion,
-            InitializationTimeout = TimeSpan.FromMilliseconds(serverConfig.InitializationTimeoutMs)
+            ProtocolVersion = serverConfig.ExactVersion ?? _options.Protocol.ExactVersion,
+            InitializationTimeout = _options.Protocol.DiscoveryTimeout,
+            Handlers = McpClientHandlerAdapter.Create(serverConfig.Name, _options.Invocation)
         };
 
-        if (!string.IsNullOrWhiteSpace(serverConfig.ClientName))
-        {
-            options.ClientInfo = new Implementation
-            {
-                Name = serverConfig.ClientName,
-                Version = string.IsNullOrWhiteSpace(serverConfig.ClientVersion) ? "1.0.0" : serverConfig.ClientVersion
-            };
-        }
+        options.DiscoverProbeTimeout = _options.Protocol.DiscoveryTimeout;
 
         return options;
     }
@@ -1425,7 +1496,7 @@ public class MCPClientManager : IDisposable
     }
 
     /// <summary>
-    /// Loads tools from an MCP server defined via [MCPServer] attribute in a toolharness.
+    /// Loads tools from an MCP server defined via [McpServer] attribute in a toolharness.
     /// Handles both flat and nested collapsing modes based on config.CollapseWithinToolHarness.
     /// </summary>
     /// <param name="config">Server config with ParentToolHarness and CollapseWithinToolHarness set</param>
@@ -1433,7 +1504,7 @@ public class MCPClientManager : IDisposable
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>List of AIFunctions (flat tools or container + collapsed tools)</returns>
     public async Task<List<AIFunction>> LoadToolsForToolHarnessAsync(
-        MCPServerConfig config,
+        McpServerConfig config,
         int maxFunctionNamesInDescription = 10,
         ISecretResolver? secretResolver = null,
         CancellationToken cancellationToken = default)
@@ -1454,12 +1525,12 @@ public class MCPClientManager : IDisposable
         if (config.CollapseWithinToolHarness)
         {
             // Nested mode: MCP tools behind their own MCP_* container, parented to the toolharness
-            var (container, collapsedTools) = ExternalToolCollapsingWrapper.WrapMCPServerTools(
+            var (container, collapsedTools) = ExternalToolCollapsingWrapper.WrapMcpServerTools(
                 serverName: config.Name,
                 tools: functions,
                 maxFunctionNamesInDescription: maxFunctionNamesInDescription,
-                FunctionResult: config.FunctionResult,
-                SystemPrompt: config.SystemPrompt,
+                FunctionResult: null,
+                SystemPrompt: null,
                 customDescription: config.Description,
                 parentContainer: config.ParentToolHarness);
 
@@ -1486,18 +1557,19 @@ public class MCPClientManager : IDisposable
         }
     }
 
-    /// <summary>
-    /// Registers live-update handlers for already-loaded MCP servers.
-    /// </summary>
-    public IDisposable AttachLiveUpdates(IEventCoordinator eventCoordinator)
+    /// <summary>Starts negotiated notification delivery for this immutable runtime revision.</summary>
+    /// <param name="invalidate">Receives refresh hints; it never mutates the active snapshot directly.</param>
+    /// <param name="cancellationToken">Cancels listener startup.</param>
+    internal async ValueTask StartSubscriptionsAsync(
+        Action<string> invalidate,
+        CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(eventCoordinator);
+        ArgumentNullException.ThrowIfNull(invalidate);
 
-        var subscriptions = new List<IAsyncDisposable>();
-        var attachedServers = new List<string>();
         foreach (var (serverName, config) in _serverConfigs)
         {
-            if (!config.EnableLiveUpdates)
+            if (!_options.Subscriptions.EnableCatalogInvalidation &&
+                _options.Subscriptions.ResourceUris.Count == 0)
             {
                 continue;
             }
@@ -1509,94 +1581,151 @@ public class MCPClientManager : IDisposable
 
             try
             {
-                AttachListChangedHandlers(config, client, eventCoordinator, subscriptions);
-                AttachResourceUpdateSubscriptionsAsync(config, client, eventCoordinator, subscriptions)
-                    .GetAwaiter()
-                    .GetResult();
-
-                eventCoordinator.Emit(new McpLiveUpdatesStartedEvent
+                // SDK notification handlers project messages delivered by either era. The
+                // transport mechanism itself remains era-gated below.
+                AttachInvalidationHandlers(config, client, invalidate);
+                if (string.CompareOrdinal(
+                    client.NegotiatedProtocolVersion,
+                    "2026-07-28") >= 0)
                 {
-                    ServerName = config.Name,
-                    ObservedAt = DateTimeOffset.UtcNow,
-                    Subscriptions = DescribeLiveUpdateSubscriptions(config, client)
-                });
-                attachedServers.Add(config.Name);
+                    StartModernSubscription(config, client, cancellationToken);
+                }
+                else
+                {
+                    await AttachLegacyResourceSubscriptionsAsync(
+                        config, client, invalidate, cancellationToken).ConfigureAwait(false);
+                }
             }
             catch (Exception ex)
             {
-                EmitLiveUpdateError(eventCoordinator, config.Name, ex);
-                if (_options.FailOnLiveUpdateError)
+                _logger.LogWarning(ex,
+                    "MCP subscriptions failed for server '{ServerName}': {Error}",
+                    config.Name,
+                    ex.Message);
+                if (_options.Subscriptions.FailurePolicy == McpSubscriptionFailurePolicy.FailSource)
                 {
-                    throw new InvalidOperationException($"Failed to attach MCP live updates for server '{config.Name}'", ex);
+                    throw new InvalidOperationException(
+                        $"Failed to attach MCP subscriptions for server '{config.Name}'.", ex);
                 }
             }
         }
-
-        return new McpLiveUpdateSubscription(this, eventCoordinator, subscriptions, attachedServers);
     }
 
-    private void AttachListChangedHandlers(
-        MCPServerConfig config,
+    private void AttachInvalidationHandlers(
+        McpServerConfig config,
         McpClient client,
-        IEventCoordinator eventCoordinator,
-        List<IAsyncDisposable> subscriptions)
+        Action<string> invalidate)
     {
         if (client.ServerCapabilities.Tools?.ListChanged == true)
         {
-            subscriptions.Add(client.RegisterNotificationHandler(
+            _subscriptionRegistrations.Add(client.RegisterNotificationHandler(
                 NotificationMethods.ToolListChangedNotification,
                 (_, _) =>
                 {
-                    eventCoordinator.Emit(new McpServerChangedEvent
-                    {
-                        ServerName = config.Name,
-                        ChangeKind = McpLiveUpdateKind.ToolsChanged,
-                        ObservedAt = DateTimeOffset.UtcNow
-                    });
+                    _catalogPages.Invalidate(CatalogPartitionPrefix(config.Name, "tools"));
+                    invalidate($"MCP server '{config.Name}' tools changed.");
                     return ValueTask.CompletedTask;
                 }));
         }
 
         if (client.ServerCapabilities.Prompts?.ListChanged == true)
         {
-            subscriptions.Add(client.RegisterNotificationHandler(
+            _subscriptionRegistrations.Add(client.RegisterNotificationHandler(
                 NotificationMethods.PromptListChangedNotification,
                 (_, _) =>
                 {
-                    eventCoordinator.Emit(new McpServerChangedEvent
-                    {
-                        ServerName = config.Name,
-                        ChangeKind = McpLiveUpdateKind.PromptsChanged,
-                        ObservedAt = DateTimeOffset.UtcNow
-                    });
+                    _catalogPages.Invalidate(CatalogPartitionPrefix(config.Name, "prompts"));
+                    invalidate($"MCP server '{config.Name}' prompts changed.");
                     return ValueTask.CompletedTask;
                 }));
         }
 
         if (client.ServerCapabilities.Resources?.ListChanged == true)
         {
-            subscriptions.Add(client.RegisterNotificationHandler(
+            _subscriptionRegistrations.Add(client.RegisterNotificationHandler(
                 NotificationMethods.ResourceListChangedNotification,
                 (_, _) =>
                 {
-                    eventCoordinator.Emit(new McpServerChangedEvent
-                    {
-                        ServerName = config.Name,
-                        ChangeKind = McpLiveUpdateKind.ResourcesChanged,
-                        ObservedAt = DateTimeOffset.UtcNow
-                    });
+                    _catalogPages.Invalidate(CatalogPartitionPrefix(config.Name, "resources"));
+                    _catalogPages.Invalidate(CatalogPartitionPrefix(config.Name, "resource-templates"));
+                    invalidate($"MCP server '{config.Name}' resources changed.");
+                    return ValueTask.CompletedTask;
+                }));
+        }
+        if (_options.Subscriptions.ResourceUris.Count > 0)
+        {
+            _subscriptionRegistrations.Add(client.RegisterNotificationHandler(
+                NotificationMethods.ResourceUpdatedNotification,
+                (_, _) =>
+                {
+                    _catalogPages.Invalidate(CatalogPartitionPrefix(config.Name, "resource"));
+                    invalidate($"MCP server '{config.Name}' resource changed.");
                     return ValueTask.CompletedTask;
                 }));
         }
     }
 
-    private async Task AttachResourceUpdateSubscriptionsAsync(
-        MCPServerConfig config,
+    private void StartModernSubscription(
+        McpServerConfig config,
         McpClient client,
-        IEventCoordinator eventCoordinator,
-        List<IAsyncDisposable> subscriptions)
+        CancellationToken startupCancellationToken)
     {
-        if (config.ResourceSubscriptions.Count == 0)
+        var listenerCancellation = CancellationTokenSource.CreateLinkedTokenSource(startupCancellationToken);
+        _subscriptionCancellationSources.Add(listenerCancellation);
+        var request = new SubscriptionsListenRequestParams
+        {
+            Notifications = new SubscriptionsListenNotifications
+            {
+                ToolsListChanged = _options.Subscriptions.EnableCatalogInvalidation &&
+                    client.ServerCapabilities.Tools?.ListChanged == true,
+                PromptsListChanged = _options.Subscriptions.EnableCatalogInvalidation &&
+                    client.ServerCapabilities.Prompts?.ListChanged == true,
+                ResourcesListChanged = _options.Subscriptions.EnableCatalogInvalidation &&
+                    client.ServerCapabilities.Resources?.ListChanged == true,
+                ResourceSubscriptions = [.. _options.Subscriptions.ResourceUris]
+            }
+        };
+
+        var listener = client.SendRequestAsync<SubscriptionsListenRequestParams, EmptyResult>(
+            RequestMethods.SubscriptionsListen,
+            request,
+            McpJsonSerializerContext.Default.Options,
+            requestId: default,
+            cancellationToken: listenerCancellation.Token);
+        _subscriptionTasks.Add(ObserveSubscriptionAsync(
+            config.Name,
+            listener.AsTask(),
+            listenerCancellation.Token));
+    }
+
+    private async Task ObserveSubscriptionAsync(
+        string serverName,
+        Task<EmptyResult> listener,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await listener.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "MCP subscription listener stopped for server '{ServerName}': {Error}",
+                serverName,
+                ex.Message);
+        }
+    }
+
+    private async Task AttachLegacyResourceSubscriptionsAsync(
+        McpServerConfig config,
+        McpClient client,
+        Action<string> invalidate,
+        CancellationToken cancellationToken)
+    {
+        if (_options.Subscriptions.ResourceUris.Count == 0)
         {
             return;
         }
@@ -1607,89 +1736,18 @@ public class MCPClientManager : IDisposable
                 $"MCP server '{config.Name}' does not advertise resource subscription support.");
         }
 
-        foreach (var uri in config.ResourceSubscriptions)
+        foreach (var uri in _options.Subscriptions.ResourceUris)
         {
             var subscription = await client.SubscribeToResourceAsync(
                 uri,
                 (notification, _) =>
                 {
-                    eventCoordinator.Emit(new McpServerChangedEvent
-                    {
-                        ServerName = config.Name,
-                        ChangeKind = McpLiveUpdateKind.ResourceUpdated,
-                        ObservedAt = DateTimeOffset.UtcNow,
-                        Uri = notification.Uri
-                    });
+                    invalidate($"MCP server '{config.Name}' resource '{notification.Uri}' changed.");
                     return ValueTask.CompletedTask;
-                }).ConfigureAwait(false);
+                },
+                cancellationToken: cancellationToken).ConfigureAwait(false);
 
-            subscriptions.Add(subscription);
-        }
-    }
-
-    private static IReadOnlyList<McpLiveUpdateKind> DescribeLiveUpdateSubscriptions(MCPServerConfig config, McpClient client)
-    {
-        var subscriptions = new List<McpLiveUpdateKind>();
-        if (client.ServerCapabilities.Tools?.ListChanged == true)
-            subscriptions.Add(McpLiveUpdateKind.ToolsChanged);
-        if (client.ServerCapabilities.Prompts?.ListChanged == true)
-            subscriptions.Add(McpLiveUpdateKind.PromptsChanged);
-        if (client.ServerCapabilities.Resources?.ListChanged == true)
-            subscriptions.Add(McpLiveUpdateKind.ResourcesChanged);
-        if (config.ResourceSubscriptions.Count > 0)
-            subscriptions.Add(McpLiveUpdateKind.ResourceUpdated);
-
-        return subscriptions;
-    }
-
-    private void EmitLiveUpdateError(IEventCoordinator eventCoordinator, string serverName, Exception exception)
-    {
-        _logger.LogWarning(exception, "MCP live updates failed for server '{ServerName}': {Error}", serverName, exception.Message);
-        eventCoordinator.Emit(new McpLiveUpdatesErrorEvent
-        {
-            ServerName = serverName,
-            ObservedAt = DateTimeOffset.UtcNow,
-            ErrorMessage = exception.Message,
-            Exception = exception
-        });
-    }
-
-    private sealed class McpLiveUpdateSubscription(
-        MCPClientManager manager,
-        IEventCoordinator eventCoordinator,
-        List<IAsyncDisposable> subscriptions,
-        List<string> attachedServers) : IDisposable
-    {
-        private bool _disposed;
-
-        public void Dispose()
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            _disposed = true;
-            foreach (var subscription in subscriptions)
-            {
-                try
-                {
-                    subscription.DisposeAsync().AsTask().GetAwaiter().GetResult();
-                }
-                catch (Exception ex)
-                {
-                    manager._logger.LogWarning(ex, "Failed to dispose MCP live update subscription: {Error}", ex.Message);
-                }
-            }
-
-            foreach (var serverName in attachedServers)
-            {
-                eventCoordinator.Emit(new McpLiveUpdatesStoppedEvent
-                {
-                    ServerName = serverName,
-                    ObservedAt = DateTimeOffset.UtcNow
-                });
-            }
+            _subscriptionRegistrations.Add(subscription);
         }
     }
 
@@ -1727,19 +1785,30 @@ public class MCPClientManager : IDisposable
         return _clients.ToDictionary(kvp => kvp.Key, kvp => true);
     }
 
-    public void Dispose()
-    {
-        Dispose(true);
-        GC.SuppressFinalize(this);
-    }
-
-    protected virtual void Dispose(bool disposing)
+    /// <summary>Asynchronously closes all connections owned by this runtime revision.</summary>
+    public async ValueTask DisposeAsync()
     {
         if (_disposed) return;
+        _disposed = true;
+        _logger.LogInformation("Disposing McpRuntime and {Count} clients", _clients.Count);
 
-        if (disposing)
+        foreach (var cancellation in _subscriptionCancellationSources)
+            await cancellation.CancelAsync().ConfigureAwait(false);
+        foreach (var registration in _subscriptionRegistrations)
+            await registration.DisposeAsync().ConfigureAwait(false);
+        try
         {
-            _logger.LogInformation("Disposing MCPClientManager and {Count} clients", _clients.Count);
+            await Task.WhenAll(_subscriptionTasks).WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            _logger.LogWarning("Timed out waiting for MCP subscription listeners to stop.");
+        }
+        foreach (var cancellation in _subscriptionCancellationSources)
+            cancellation.Dispose();
+        _subscriptionCancellationSources.Clear();
+        _subscriptionRegistrations.Clear();
+        _subscriptionTasks.Clear();
             
             foreach (var (serverName, client) in _clients)
             {
@@ -1747,7 +1816,7 @@ public class MCPClientManager : IDisposable
                 {
                     if (client is IAsyncDisposable asyncDisposable)
                     {
-                        asyncDisposable.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                        await asyncDisposable.DisposeAsync().ConfigureAwait(false);
                     }
                     else if (client is IDisposable disposable)
                     {
@@ -1762,10 +1831,7 @@ public class MCPClientManager : IDisposable
                 }
             }
             
-            _clients.Clear();
-            _serverConfigs.Clear();
-        }
-        
-        _disposed = true;
+        _clients.Clear();
+        _serverConfigs.Clear();
     }
 }
