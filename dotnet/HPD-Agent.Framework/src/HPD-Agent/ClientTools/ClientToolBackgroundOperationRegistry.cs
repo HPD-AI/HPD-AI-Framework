@@ -8,28 +8,28 @@ namespace HPD.Agent.ClientTools;
 /// <summary>
 /// Runtime-scoped registry for client-owned background tool operations.
 /// </summary>
-public interface IClientToolBackgroundOperationRegistry
+public interface IClientToolOperationRegistry
 {
     /// <summary>
     /// Registers a client-owned background operation.
     /// </summary>
     /// <param name="descriptor">Operation descriptor.</param>
     /// <returns>The registered operation.</returns>
-    ClientToolBackgroundOperationRegistration RegisterClientToolBackgroundOperation(
-        ClientToolBackgroundOperationDescriptor descriptor);
+    ClientToolOperationRegistration RegisterClientToolOperation(
+        ClientToolOperationDescriptor descriptor);
 
     /// <summary>
     /// Attempts to resolve a registered client-owned background operation.
     /// </summary>
     /// <param name="input">Terminal outcome input from the client.</param>
     /// <returns><see langword="true"/> when a matching operation was resolved.</returns>
-    bool TryResolveClientToolBackgroundOperation(ClientToolBackgroundOperationOutcomeEvent input);
+    bool TryResolveClientToolOperation(ClientToolOperationOutcomeEvent input);
 }
 
 /// <summary>
 /// Describes a client-owned background tool operation accepted by a responder.
 /// </summary>
-public sealed record ClientToolBackgroundOperationDescriptor
+public sealed record ClientToolOperationDescriptor
 {
     /// <summary>Gets the client-owned operation id.</summary>
     public required string ClientOperationId { get; init; }
@@ -62,18 +62,18 @@ public sealed record ClientToolBackgroundOperationDescriptor
 /// <summary>
 /// Registration returned for a client-owned background tool operation.
 /// </summary>
-public sealed record ClientToolBackgroundOperationRegistration(
+public sealed record ClientToolOperationRegistration(
     string ClientOperationId,
     string TaskId,
-    Task<ClientToolBackgroundOperationResult> Completion);
+    Task<ClientToolOperationResult> Completion);
 
 /// <summary>
 /// Terminal result for a client-owned background tool operation.
 /// </summary>
-public sealed record ClientToolBackgroundOperationResult
+public sealed record ClientToolOperationResult
 {
     /// <summary>Gets the terminal state.</summary>
-    public required ClientToolBackgroundOperationOutcomeState State { get; init; }
+    public required ClientToolOperationOutcomeState State { get; init; }
 
     /// <summary>Gets content for completed operations.</summary>
     public IReadOnlyList<IToolResultContent>? Content { get; init; }

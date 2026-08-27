@@ -51,8 +51,6 @@ public sealed class FunctionExecutionContext
         EventCoordinator = request.EventCoordinator;
         ThreadEvents = hookContext.Base.ThreadEvents;
         StructEvents = request.StructEvents;
-        BackgroundTasks = request.BackgroundTasks;
-        BackgroundHandles = request.BackgroundHandles;
         Services = hookContext.Services;
         RuntimeCapabilities = hookContext.RuntimeCapabilities;
         _contentStore = hookContext.ContentStore;
@@ -107,14 +105,60 @@ public sealed class FunctionExecutionContext
 
     internal AgentClientSet? ClientSet => _clientSet;
 
+    /// <summary>Gets the unified operation registry owned by the active runtime.</summary>
+    internal AgentOperationRegistry? OperationRegistry =>
+        RuntimeCapabilities.TryGet<AgentOperationRegistry>(out var registry) ? registry : null;
 
-    public IAgentBackgroundTaskRegistry? BackgroundTasks { get; }
+    /// <summary>Gets whether this invocation can register unified operations.</summary>
+    public bool CanStartOperations => OperationRegistry is not null &&
+        !string.IsNullOrWhiteSpace(SessionId) && !string.IsNullOrWhiteSpace(ThreadId);
 
-    public bool CanRegisterBackgroundTasks => BackgroundTasks is not null;
+    /// <summary>Gets immutable snapshots of operations owned by the active agent runtime.</summary>
+    public IReadOnlyList<AgentOperationSnapshot> ListOperations() =>
+        OperationRegistry?.Snapshot() ?? [];
 
-    public IAgentBackgroundHandleRegistry? BackgroundHandles { get; }
+    /// <summary>Requests cancellation of an operation owned by the active agent runtime.</summary>
+    /// <param name="operationId">The HPD-authoritative operation identifier.</param>
+    /// <param name="cancellationToken">A token that cancels the control request.</param>
+    public ValueTask CancelOperationAsync(
+        string operationId,
+        CancellationToken cancellationToken = default) =>
+        (OperationRegistry ?? throw new InvalidOperationException(
+            "Function execution does not have an active operation registry."))
+        .RequestCancellationAsync(operationId, cancellationToken);
 
-    public bool CanRegisterBackgroundHandles => BackgroundHandles is not null;
+    /// <summary>Starts runtime-owned work as one unified local-tool operation.</summary>
+    /// <param name="name">The stable operation name.</param>
+    /// <param name="metadata">Bounded, non-secret operation metadata.</param>
+    /// <param name="notification">The semantic notification policy.</param>
+    /// <param name="work">The work body, which receives the operation ID and its lifetime token.</param>
+    /// <param name="cancellationToken">A token linked to the operation lifetime.</param>
+    /// <returns>The authoritative operation receipt.</returns>
+    public ValueTask<AgentOperationReceipt> StartOperationAsync(
+        string name,
+        IReadOnlyDictionary<string, string>? metadata,
+        AgentOperationNotificationPolicy notification,
+        Func<string, CancellationToken, ValueTask<AgentOperationCompletion>> work,
+        CancellationToken cancellationToken = default)
+    {
+        var registry = OperationRegistry ?? throw new InvalidOperationException(
+            "Function execution does not have an active operation registry.");
+        if (string.IsNullOrWhiteSpace(SessionId) || string.IsNullOrWhiteSpace(ThreadId))
+            throw new InvalidOperationException("Operations require a session and thread address.");
+        return AgentLocalOperationScheduler.StartAsync(
+            registry,
+            AgentOperationSourceKind.LocalTool,
+            name,
+            new AgentExecutionAddress(AgentName, SessionId, ThreadId),
+            ThreadExecutionId,
+            InvocationSnapshot,
+            metadata,
+            notification,
+            work,
+            cancellationToken);
+    }
+
+
 
     public T Analyze<T>(Func<AgentLoopState, T> analyzer)
     {
@@ -275,77 +319,6 @@ public sealed class FunctionExecutionContext
     [EditorBrowsable(EditorBrowsableState.Never)]
     public AgentConfig? GetParentAgentConfigSnapshot()
         => _parentConfig is null ? null : AgentConfigSnapshot.Create(_parentConfig);
-
-    public BackgroundTaskRegistration RegisterBackgroundTask(
-        string name,
-        BackgroundTaskNotificationRule notification,
-        Func<BackgroundTaskContext, CancellationToken, Task> taskFactory)
-        => RegisterBackgroundTask(
-            new BackgroundTaskDescriptor
-            {
-                Name = name,
-                SourceKind = BackgroundTaskSourceKind.ToolCall,
-                SourceId = FunctionCallId,
-                SessionId = InvocationSnapshot.SessionId,
-                ThreadId = InvocationSnapshot.ThreadId,
-                Invocation = InvocationSnapshot,
-                Notification = notification
-            },
-            taskFactory);
-
-    /// <summary>
-    /// Registers runtime-owned background work from a function invocation.
-    /// </summary>
-    /// <param name="descriptor">The background task descriptor.</param>
-    /// <param name="taskFactory">The background task body.</param>
-    /// <returns>The accepted background task registration.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when no active runtime can accept background tasks.</exception>
-    public BackgroundTaskRegistration RegisterBackgroundTask(
-        BackgroundTaskDescriptor descriptor,
-        Func<BackgroundTaskContext, CancellationToken, Task> taskFactory)
-    {
-        if (BackgroundTasks is null)
-            throw new InvalidOperationException(
-                "Function background task registration requires an active agent runtime.");
-
-        return BackgroundTasks.RegisterBackgroundTask(
-            descriptor with
-            {
-                SourceId = descriptor.SourceId ?? FunctionCallId,
-                SessionId = descriptor.SessionId ?? InvocationSnapshot.SessionId,
-                ThreadId = descriptor.ThreadId ?? InvocationSnapshot.ThreadId,
-                Invocation = descriptor.Invocation ?? InvocationSnapshot
-            },
-            taskFactory);
-    }
-
-    /// <summary>
-    /// Registers a controllable background resource from a function invocation.
-    /// </summary>
-    /// <param name="descriptor">The background handle descriptor.</param>
-    /// <param name="handle">The handle implementation.</param>
-    /// <returns>The accepted background handle registration.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when no active runtime can accept background handles.</exception>
-    public async ValueTask<BackgroundHandleRegistration> RegisterBackgroundHandleAsync(
-        BackgroundHandleDescriptor descriptor,
-        IBackgroundHandle handle,
-        CancellationToken cancellationToken = default)
-    {
-        if (BackgroundHandles is null)
-            throw new InvalidOperationException(
-                "Function background handle registration requires an active agent runtime.");
-
-        return await BackgroundHandles.RegisterHandleAsync(
-            descriptor with
-            {
-                SourceId = descriptor.SourceId ?? descriptor.HandleId ?? FunctionCallId,
-                SessionId = descriptor.SessionId ?? InvocationSnapshot.SessionId,
-                ThreadId = descriptor.ThreadId ?? InvocationSnapshot.ThreadId,
-                Invocation = descriptor.Invocation ?? InvocationSnapshot
-            },
-            handle,
-            cancellationToken).ConfigureAwait(false);
-    }
 
     private TEvent WithInvocationScope<TEvent>(TEvent evt)
         where TEvent : AgentEvent

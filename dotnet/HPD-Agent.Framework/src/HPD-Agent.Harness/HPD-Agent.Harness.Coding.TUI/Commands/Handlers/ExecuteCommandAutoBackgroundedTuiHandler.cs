@@ -12,11 +12,11 @@ internal sealed class ExecuteCommandAutoBackgroundedTuiHandler : ExecuteCommandT
         var store = GetStore(context);
         var state = store.GetOrCreate(evt);
         state.IsBackground = true;
-        state.BackgroundHandleId = evt.BackgroundHandleId;
+        state.OperationId = evt.OperationId;
         state.BackgroundedAt = evt.BackgroundedAt;
         state.DurationMilliseconds = evt.ElapsedMilliseconds;
         state.DisplayState = CodingCommandDisplayState.Backgrounded;
-        store.IndexBackgroundHandle(state);
+        store.IndexOperation(state);
 
         UpdateTranscript(context, state, evt);
         return ValueTask.CompletedTask;

@@ -91,15 +91,15 @@ public record ClientToolInvokeOutcomeEvent : AgentEvent, IAgentResponseEvent
     public string? ClientOperationId { get; init; }
 
     /// <summary>
-    /// Gets the optional handle kind when the accepted background operation is controllable.
+    /// Gets the provider operation kind when the accepted background operation is controllable.
     /// </summary>
-    public BackgroundHandleKind? HandleKind { get; init; }
+    public AgentOperationKind? OperationKind { get; init; }
 
     /// <summary>
-    /// Gets the optional operations supported by the background handle.
+    /// Gets the controls supported by the provider operation.
     /// </summary>
-    public BackgroundHandleOperation SupportedOperations { get; init; } =
-        BackgroundHandleOperation.None;
+    public AgentOperationCapabilities OperationCapabilities { get; init; } =
+        AgentOperationCapabilities.None;
 
     /// <summary>
     /// Gets optional client tool state changes to apply before the next iteration.
@@ -148,8 +148,8 @@ internal sealed class ReadOnlyStringSetJsonConverter : JsonConverter<IReadOnlySe
 /// <summary>
 /// Terminal state reported by a client-owned background tool operation.
 /// </summary>
-[JsonConverter(typeof(JsonStringEnumConverter<ClientToolBackgroundOperationOutcomeState>))]
-public enum ClientToolBackgroundOperationOutcomeState
+[JsonConverter(typeof(JsonStringEnumConverter<ClientToolOperationOutcomeState>))]
+public enum ClientToolOperationOutcomeState
 {
     /// <summary>The operation completed successfully.</summary>
     Completed,
@@ -170,7 +170,7 @@ public enum ClientToolBackgroundOperationOutcomeState
 /// <summary>
 /// Input sent by a client when accepted background client-tool work reaches a terminal state.
 /// </summary>
-public sealed record ClientToolBackgroundOperationOutcomeEvent : AgentInputEvent
+public sealed record ClientToolOperationOutcomeEvent : AgentInputEvent
 {
     /// <summary>
     /// Gets the client-owned background operation id.
@@ -180,10 +180,10 @@ public sealed record ClientToolBackgroundOperationOutcomeEvent : AgentInputEvent
     /// <summary>
     /// Gets the terminal state reported by the client.
     /// </summary>
-    public required ClientToolBackgroundOperationOutcomeState State { get; init; }
+    public required ClientToolOperationOutcomeState State { get; init; }
 
     /// <summary>
-    /// Gets the final content produced by the client operation when <see cref="State"/> is <see cref="ClientToolBackgroundOperationOutcomeState.Completed"/>.
+    /// Gets the final content produced by the client operation when <see cref="State"/> is <see cref="ClientToolOperationOutcomeState.Completed"/>.
     /// </summary>
     public IReadOnlyList<IToolResultContent>? Content { get; init; }
 
@@ -194,20 +194,20 @@ public sealed record ClientToolBackgroundOperationOutcomeEvent : AgentInputEvent
 
     /// <summary>
     /// Gets the error message when <see cref="State"/> is
-    /// <see cref="ClientToolBackgroundOperationOutcomeState.Faulted"/> or
-    /// <see cref="ClientToolBackgroundOperationOutcomeState.Unknown"/>.
+    /// <see cref="ClientToolOperationOutcomeState.Faulted"/> or
+    /// <see cref="ClientToolOperationOutcomeState.Unknown"/>.
     /// </summary>
     public string? ErrorMessage { get; init; }
 
     /// <summary>
     /// Gets the optional error type when <see cref="State"/> is
-    /// <see cref="ClientToolBackgroundOperationOutcomeState.Faulted"/> or
-    /// <see cref="ClientToolBackgroundOperationOutcomeState.Unknown"/>.
+    /// <see cref="ClientToolOperationOutcomeState.Faulted"/> or
+    /// <see cref="ClientToolOperationOutcomeState.Unknown"/>.
     /// </summary>
     public string? ErrorType { get; init; }
 
     /// <summary>
-    /// Gets the optional cancellation reason when <see cref="State"/> is <see cref="ClientToolBackgroundOperationOutcomeState.Cancelled"/>.
+    /// Gets the optional cancellation reason when <see cref="State"/> is <see cref="ClientToolOperationOutcomeState.Cancelled"/>.
     /// </summary>
     public string? CancellationReason { get; init; }
 

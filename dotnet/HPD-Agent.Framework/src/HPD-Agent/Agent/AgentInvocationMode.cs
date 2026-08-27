@@ -153,63 +153,6 @@ public sealed class AgentInvocationModeJsonConverter : JsonConverter<AgentInvoca
 }
 
 /// <summary>
-/// Structured receipt returned to the model when an agent capability starts background work.
-/// </summary>
-public sealed record AgentBackgroundInvocationReceipt
-{
-    /// <summary>
-    /// Gets the machine-readable launch status.
-    /// </summary>
-    public string Status { get; init; } = "background_started";
-
-    /// <summary>
-    /// Gets the runtime background task id, when a task was registered.
-    /// </summary>
-    public string? TaskId { get; init; }
-
-    /// <summary>
-    /// Gets the controllable background handle id, when a handle was registered.
-    /// </summary>
-    public string? HandleId { get; init; }
-
-    /// <summary>
-    /// Gets the kind of background handle, when a handle was registered.
-    /// </summary>
-    public BackgroundHandleKind? HandleKind { get; init; }
-
-    /// <summary>
-    /// Gets the operations supported by the handle.
-    /// </summary>
-    public BackgroundHandleOperation SupportedOperations { get; init; } =
-        BackgroundHandleOperation.None;
-
-    /// <summary>
-    /// Gets the invoked subagent or workflow name.
-    /// </summary>
-    public required string Name { get; init; }
-
-    /// <summary>
-    /// Gets the source kind used by background task events.
-    /// </summary>
-    public required BackgroundTaskSourceKind SourceKind { get; init; }
-
-    /// <summary>
-    /// Gets the parent session id associated with the background task.
-    /// </summary>
-    public string? SessionId { get; init; }
-
-    /// <summary>
-    /// Gets the parent thread id associated with the background task.
-    /// </summary>
-    public string? ThreadId { get; init; }
-
-    /// <summary>
-    /// Gets a short human-readable status message.
-    /// </summary>
-    public string? Message { get; init; }
-}
-
-/// <summary>
 /// Result returned by mode-aware subagent and multi-agent runtimes.
 /// </summary>
 public sealed record AgentInvocationResult
@@ -229,10 +172,8 @@ public sealed record AgentInvocationResult
     /// </summary>
     public object? ToolResult { get; init; }
 
-    /// <summary>
-    /// Gets the launch receipt for background invocations or structured mode errors.
-    /// </summary>
-    public AgentBackgroundInvocationReceipt? Background { get; init; }
+    /// <summary>Gets the unified operation receipt for provider-owned or durable work.</summary>
+    public AgentOperationReceipt? Operation { get; init; }
 
     /// <summary>
     /// Converts this runtime result into the object returned by the tool wrapper.
@@ -243,16 +184,18 @@ public sealed record AgentInvocationResult
         if (Mode == AgentInvocationMode.Synchronous)
             return ToolResult ?? Text ?? string.Empty;
 
-        if (Background is null)
-            return string.Empty;
+        if (Operation is not null)
+        {
+            var operationJson = JsonSerializer.SerializeToElement(
+                Operation,
+                HPDJsonContext.Default.AgentOperationReceipt);
+            return new ToolResultPayload(
+                Text: operationJson.GetRawText(),
+                Json: operationJson,
+                ResultType: typeof(AgentOperationReceipt).FullName);
+        }
 
-        var json = JsonSerializer.SerializeToElement(
-            Background,
-            HPDJsonContext.Default.AgentBackgroundInvocationReceipt);
-        return new ToolResultPayload(
-            Text: json.GetRawText(),
-            Json: json,
-            ResultType: typeof(AgentBackgroundInvocationReceipt).FullName);
+        return Text ?? string.Empty;
     }
 }
 
@@ -475,20 +418,15 @@ public static class AgentInvocationModes
     /// <param name="message">The reason background work could not be started.</param>
     /// <param name="status">The machine-readable receipt status.</param>
     /// <returns>A structured background invocation result.</returns>
-    public static AgentInvocationResult CreateReceiptResult(
+    public static AgentInvocationResult CreateFailureResult(
         string name,
-        BackgroundTaskSourceKind sourceKind,
+        AgentOperationSourceKind sourceKind,
         string message,
         string status = "background_unavailable")
         => new()
         {
-            Mode = AgentInvocationMode.Background,
-            Background = new AgentBackgroundInvocationReceipt
-            {
-                Status = status,
-                Name = name,
-                SourceKind = sourceKind,
-                Message = message
-            }
+            Mode = AgentInvocationMode.Synchronous,
+            Text = $"{status}: {message}",
+            ToolResult = $"{status}: {message}"
         };
 }

@@ -334,7 +334,7 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
                 _ => ExecuteCommandAction.Run
             };
             var command = GetString(requestArguments, "command");
-            var backgroundHandleId = GetString(requestArguments, "backgroundHandleId");
+            var operationId = GetString(requestArguments, "operationId");
             var workingDirectory = GetString(requestArguments, "workingDirectory");
             var timeoutMilliseconds = GetInt(requestArguments, "timeoutMilliseconds", 120_000);
             var startsInBackground = GetEnum(
@@ -348,7 +348,7 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
             var normalized = CodingToolHarness.NormalizeExecuteCommandRequest(
                 action,
                 command,
-                backgroundHandleId,
+                operationId,
                 workingDirectory,
                 timeoutMilliseconds,
                 startsInBackground,
@@ -392,7 +392,7 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
                     request.Action.ToString(),
                     shell.Family.ToString(),
                     request.WorkingDirectory,
-                    request.BackgroundHandleId ?? string.Empty,
+                    request.OperationId ?? string.Empty,
                     sandbox.Canonicalize(request.WorkingDirectory));
                 return new ExecuteCommandPlanBase
                 {

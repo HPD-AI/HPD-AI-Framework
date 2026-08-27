@@ -3,6 +3,7 @@ using FluentAssertions;
 using HPD.Agent;
 using HPD.Agent.Hosting.Data;
 using HPD.Agent.Hosting.Serialization;
+using HPD.Agent.Providers;
 using HPD.Agent.Serialization;
 using Microsoft.Extensions.AI;
 
@@ -300,7 +301,11 @@ public class DtoSerializationTests
             {
                 Clients = new AgentClientsConfig { Chat = new ChatClientConfig
                 {
-                    ProviderKey = "anthropic",
+                    Provider = new ProviderReference
+                    {
+                        Key = "anthropic", Backend = "platform",
+                        Authentication = new ApiKeyProviderAuthentication { SecretKey = "anthropic:ApiKey" }
+                    },
                     ModelName = "claude-sonnet-4-5",
                     Temperature = 0.7,
                     MaxOutputTokens = 4000

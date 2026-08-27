@@ -411,19 +411,11 @@ public sealed class BeforeFunctionContext : HookContext
     /// Runtime-owned background task registry available to function interception middleware.
     /// May be null when the function is not running inside an agent runtime.
     /// </summary>
-    public IAgentBackgroundTaskRegistry? BackgroundTasks { get; }
-
-    /// <summary>
-    /// Runtime-owned background handle registry available to function interception middleware.
-    /// May be null when the function is not running inside an agent runtime.
-    /// </summary>
-    public IAgentBackgroundHandleRegistry? BackgroundHandles { get; }
-
     /// <summary>
     /// Runtime-owned registry for client-owned background tool operations.
     /// May be null when the function is not running inside an agent runtime.
     /// </summary>
-    public IClientToolBackgroundOperationRegistry? ClientToolBackgroundOperations { get; }
+    public IClientToolOperationRegistry? ClientToolOperations { get; }
 
     //
     // CONTROL SIGNALS
@@ -463,9 +455,7 @@ public sealed class BeforeFunctionContext : HookContext
         string? skillName,
         AgentRunConfig runConfig,
         ToolInvocationInfo? invocation = null,
-        IAgentBackgroundTaskRegistry? backgroundTasks = null,
-        IAgentBackgroundHandleRegistry? backgroundHandles = null,
-        IClientToolBackgroundOperationRegistry? clientToolBackgroundOperations = null)
+        IClientToolOperationRegistry? clientToolOperations = null)
         : base(baseContext)
     {
         Function = function; // Can be null for unknown functions
@@ -475,9 +465,7 @@ public sealed class BeforeFunctionContext : HookContext
         ToolHarnessName = toolharnessName;
         SkillName = skillName;
         RunConfig = runConfig ?? throw new ArgumentNullException(nameof(runConfig));
-        BackgroundTasks = backgroundTasks;
-        BackgroundHandles = backgroundHandles;
-        ClientToolBackgroundOperations = clientToolBackgroundOperations;
+        ClientToolOperations = clientToolOperations;
     }
 }
 

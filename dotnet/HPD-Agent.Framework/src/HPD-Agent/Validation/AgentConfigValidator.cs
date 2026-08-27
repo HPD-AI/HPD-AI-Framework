@@ -32,13 +32,26 @@ public static class AgentConfigValidator
         // Basic configuration validation
         ValidateName(config, errors);
         ValidateMaxAgenticIterations(config, errors);
-        ValidateMcp(config, errors);
         ValidateErrorHandling(config, errors);
         ValidateCompaction(config, errors);
         ValidateCaching(config, errors);
+        ValidateOperations(config, errors);
         ValidateCrossConfiguration(config, errors);
 
         return errors;
+    }
+
+    private static void ValidateOperations(AgentConfig config, List<string> errors)
+    {
+        try
+        {
+            config.Shutdown.Validate();
+            config.OperationRetention.Validate();
+        }
+        catch (ArgumentOutOfRangeException exception)
+        {
+            errors.Add(exception.Message);
+        }
     }
 
     private static void ValidateName(AgentConfig config, List<string> errors)
@@ -58,24 +71,6 @@ public static class AgentConfigValidator
         if (config.MaxAgenticIterations <= 0 || config.MaxAgenticIterations > 50)
         {
             errors.Add("MaxFunctionCallTurns must be between 1 and 50.");
-        }
-    }
-
-    private static void ValidateMcp(AgentConfig config, List<string> errors)
-    {
-        if (config.Mcp != null && !string.IsNullOrEmpty(config.Mcp.ManifestPath))
-        {
-            if (!IsValidPath(config.Mcp.ManifestPath))
-            {
-                errors.Add("MCP ManifestPath must be a valid file path.");
-            }
-        }
-
-        if (config.Mcp != null &&
-            !string.IsNullOrEmpty(config.Mcp.ManifestPath) &&
-            !string.IsNullOrEmpty(config.Mcp.ManifestContent))
-        {
-            errors.Add("MCP ManifestPath and ManifestContent cannot both be set.");
         }
     }
 

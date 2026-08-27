@@ -1,6 +1,7 @@
 using HPD.Agent.Tests.Infrastructure;
 using HPD.Agent.Tests.TestToolHarnesses;
 using HPD.Agent.Middleware;
+using HPD.Agent.Providers;
 using HPD.MultiAgent;
 using Microsoft.Extensions.AI;
 using Xunit;
@@ -257,7 +258,7 @@ public class AgentBuilderWithToolTests
             {
                 Chat = new ChatClientConfig
                 {
-                    ProviderKey = "test",
+                    Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" },
                     ModelName = "test-model"
                 }
             },
@@ -266,6 +267,7 @@ public class AgentBuilderWithToolTests
                 MaxTurnDuration = TimeSpan.FromSeconds(20)
             }
         };
+        config.Clients.Chat!.Override = ClientOverride<IChatClient>.Borrow(client, "test", "local");
 
         var agent = await new AgentBuilder(config, new TestProviderRegistry(client))
             .WithAgentStore(new InMemoryAgentStore())

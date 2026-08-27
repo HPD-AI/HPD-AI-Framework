@@ -20,7 +20,7 @@ namespace HPD.Agent.Hosting.Lifecycle;
 /// by <c>agentId/sessionId/threadId</c>, giving every selected agent/thread pair its own runtime queue.
 /// Eviction is purely last-access based; <c>IsStreaming</c> is no longer tracked here.
 /// </remarks>
-public abstract class AgentManager : IDisposable
+public abstract class AgentManager : IAsyncDisposable
 {
     private readonly IAgentStore _store;
     private readonly ConcurrentDictionary<string, AgentEntry> _agents = new();
@@ -321,26 +321,30 @@ public abstract class AgentManager : IDisposable
                     ((ICollection<KeyValuePair<string, AgentEntry>>)_agents)
                         .Remove(new KeyValuePair<string, AgentEntry>(kvp.Key, entry)))
                 {
-                    entry.Dispose();
+                    _ = entry.DisposeAsync().AsTask();
                 }
             }
         }
     }
 
-    public void Dispose()
+    /// <summary>Stops eviction and asynchronously disposes every cached agent and event hub.</summary>
+    public async ValueTask DisposeAsync()
     {
         if (_disposed) return;
         _disposed = true;
         _evictionTimer.Dispose();
         foreach (var entry in _agents.Values)
-            entry.Dispose();
+            await entry.DisposeAsync().ConfigureAwait(false);
         foreach (var hub in _runtimeEventHubs.Values)
             hub.Dispose();
         foreach (var kvp in _buildLocks)
             kvp.Value.Dispose();
+        _agents.Clear();
+        _runtimeEventHubs.Clear();
+        _buildLocks.Clear();
     }
 
-    private sealed class AgentEntry : IDisposable
+    private sealed class AgentEntry : IAsyncDisposable
     {
         public object SyncRoot { get; } = new();
         public Agent Agent { get; }
@@ -355,9 +359,10 @@ public abstract class AgentManager : IDisposable
             LastAccessed = DateTime.UtcNow;
         }
 
-        public void Dispose()
+        public async ValueTask DisposeAsync()
         {
             _liveEventBridge?.Dispose();
+            await Agent.DisposeAsync().ConfigureAwait(false);
         }
     }
 

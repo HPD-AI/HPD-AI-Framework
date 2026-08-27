@@ -16,7 +16,7 @@
   <ItemGroup>
     <!-- Core dependencies -->
     <ProjectReference Include="../HPD-Agent/HPD-Agent.csproj" />
-    <ProjectReference Include="../HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
+    <ProjectReference Include="../HPD-Agent.Audio/HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
     <ProjectReference Include="../../../HPD-Graph.Framework/src/HPD-Graph.Core/HPD-Graph.Core.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
     <ProjectReference Include="../../../shared/src/HPD-Events/HPD-Events.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
     <ProjectReference Include="../../../shared/src/HPD-Serialization/HPD-Serialization.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />

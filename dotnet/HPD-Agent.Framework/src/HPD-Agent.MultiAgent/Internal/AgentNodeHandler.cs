@@ -504,16 +504,11 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         var parent = parentContext.GetEffectiveChatClientHandle()?.ResolvedConfig as ChatClientConfig;
         var inherited = parent is null
             ? new ChatClientConfig()
-            : (ChatClientConfig)ProviderClientConfigResolver.Clone(parent);
-        inherited.Override = new ClientOverride<IChatClient> { Client = parentClient };
-        if (own is not null)
-        {
-            var baseline = new AgentClientsConfig { Chat = inherited };
-            inherited = (ChatClientConfig)ProviderClientConfigResolver.Resolve(
-                baseline,
-                ProviderClientFamily.Chat,
-                new AgentClientsConfig { Chat = own })!;
-        }
+            : (ChatClientConfig)ProviderClientConfigSnapshot.Clone(parent);
+        inherited.Override = ClientOverride<IChatClient>.Borrow(
+            parentClient,
+            parent?.Provider?.Key,
+            parent?.Provider?.Backend);
         runConfig.Clients.Chat = inherited;
     }
 

@@ -28,7 +28,7 @@ internal sealed record DebugExecutionStartRequest
     public required DebugPermissionDecision Permission { get; init; }
     public LaunchDebugOperation? SemanticLaunchOperation { get; init; }
     public bool IsRestart { get; init; }
-    public required IAgentBackgroundHandleRegistry BackgroundHandles { get; init; }
+    public required FunctionExecutionContext ExecutionContext { get; init; }
     public required DebugInitializeFeatures InitializeFeatures { get; init; }
     public JsonElement? RestartData { get; init; }
     public IDebugLifecycleEventPublisher? EventPublisher { get; init; }
@@ -42,7 +42,7 @@ internal sealed record DebugExecutionStartRequest
 internal sealed record DebugSessionStartResult(
     string DebugTreeId,
     string DebugSessionId,
-    BackgroundHandleSnapshot Handle,
+    AgentOperationReceipt Operation,
     DebugSessionStatus Status,
     int OwnedResourceCount,
     DebugBreakpointCounts Breakpoints);
@@ -111,7 +111,7 @@ internal sealed class DebugExecutionStartOrchestrator
         };
         DebugSession? session = null;
         DebugSessionTree? tree = null;
-        DebugSessionHandle? handle = null;
+        DebugSessionOperation? operation = null;
         var published = false;
         var managerCommitted = false;
         DebugActivatedExecution? activated = null;
@@ -182,23 +182,16 @@ internal sealed class DebugExecutionStartOrchestrator
                 RegisterCoreHandlers, CreateOutputCoalescer, CreateProgressCoalescer,
                 cancellationToken).ConfigureAwait(false);
 
-            handle = new DebugSessionHandle(manager, scope, reservation.TreeId);
-            var registration = await request.BackgroundHandles.RegisterHandleAsync(new()
-            {
-                HandleId = reservation.TreeId,
-                Name = $"Debug session {adapterPlan.AdapterId}",
-                Kind = BackgroundHandleKind.DebugSession,
-                SourceKind = BackgroundTaskSourceKind.ToolCall,
-                SourceId = reservation.TreeId,
-                SessionId = request.Runtime.SessionId,
-                ThreadId = request.Runtime.ThreadId,
-                SupportedOperations = BackgroundHandleOperation.Status | BackgroundHandleOperation.Read |
-                    BackgroundHandleOperation.Stop | BackgroundHandleOperation.Artifacts | BackgroundHandleOperation.Events
-            }, handle, cancellationToken).ConfigureAwait(false);
-            handle.AttachRegistration(registration);
             reservation.Commit(tree);
             managerCommitted = true;
-            handle.CommitLive();
+            operation = new DebugSessionOperation(manager, scope, reservation.TreeId);
+            var receipt = await request.ExecutionContext.StartOperationAsync(
+                $"Debug session {adapterPlan.AdapterId}",
+                operation.Metadata,
+                new AgentOperationNotificationPolicy { IncludeTerminal = true },
+                (_, operationToken) => operation.ObserveAsync(operationToken),
+                cancellationToken).ConfigureAwait(false);
+            operation.CommitLive();
             if (tree.EventPublisher is not null)
                 await tree.EventPublisher.PublishAsync(new DebugTreeStartedEvent
                 {
@@ -211,7 +204,6 @@ internal sealed class DebugExecutionStartOrchestrator
                     ExecutionPlannerId = request.ExecutionPlan.PlannerId
                 }, durable: true, CancellationToken.None).ConfigureAwait(false);
             published = true;
-            var snapshot = await handle.GetStatusAsync(CancellationToken.None).ConfigureAwait(false);
             var desired = tree.Breakpoints.Snapshot;
             var adapterBreakpoints = session.AdapterBreakpoints.Snapshot;
             var requestedBreakpoints = desired.Source.Length +
@@ -223,7 +215,7 @@ internal sealed class DebugExecutionStartOrchestrator
             return new(
                 reservation.TreeId,
                 sessionId,
-                snapshot,
+                receipt,
                 session.State.Status,
                 activated.OwnedResources.Count,
                 new(
@@ -237,7 +229,7 @@ internal sealed class DebugExecutionStartOrchestrator
             if (!published)
             {
                 startLifetime.Cancel();
-                handle?.MarkPublicationFailed();
+                operation?.MarkPublicationFailed();
                 if (managerCommitted)
                     await manager.DiscardAndDisposeAsync(scope, reservation.TreeId)
                         .ConfigureAwait(false);

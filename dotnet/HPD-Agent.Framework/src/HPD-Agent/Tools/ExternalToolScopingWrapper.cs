@@ -21,7 +21,7 @@ public static class ExternalToolCollapsingWrapper
     /// <param name="SystemPrompt">Persistent instructions injected into system prompt after expansion</param>
     /// <param name="customDescription">Optional custom description from JSON config. If provided, replaces auto-generated description.</param>
     /// <returns>Container function and Collapsed tools with metadata</returns>
-    public static (AIFunction container, List<AIFunction> CollapsedTools) WrapMCPServerTools(
+    public static (AIFunction container, List<AIFunction> CollapsedTools) WrapMcpServerTools(
         string serverName,
         List<AIFunction> tools,
         int maxFunctionNamesInDescription = 10,
@@ -86,7 +86,7 @@ public static class ExternalToolCollapsingWrapper
                 {
                     ["IsContainer"] = true,
                     ["ToolHarnessName"] = containerName,
-                    ["ParentContainer"] = parentContainer, // null for standalone WithMCP(), toolharness name for [MCPServer]
+                    ["ParentContainer"] = parentContainer, // null for standalone WithMcp(), toolharness name for [McpServer]
                     ["ReferencedFunctions"] = allFunctionNames.ToArray(),
                     ["FunctionCount"] = allFunctionNames.Count,
                     ["SourceType"] = "MCP",

@@ -22,7 +22,7 @@ public sealed class AnnotationMiddlewareTests
             LockTimeout = TimeSpan.FromSeconds(5),
         });
 
-        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client));
+        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client)).WithChatClient(client);
         builder
             .AddEvaluator(new StubDeterministicEvaluator("Flagged", pass: false), policy: EvalPolicy.TrackTrend)
             .AddAnnotationQueue(queue);
@@ -45,7 +45,7 @@ public sealed class AnnotationMiddlewareTests
         Name = name,
         SystemInstructions = "You are a test agent.",
         MaxAgenticIterations = 3,
-        Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" } },
+        Clients = new AgentClientsConfig { Chat = new ChatClientConfig { Provider = TestProviderSelections.Anonymous(), ModelName = "test-model" } },
         AgenticLoop = new AgenticLoopConfig { MaxTurnDuration = TimeSpan.FromSeconds(10) },
     };
 

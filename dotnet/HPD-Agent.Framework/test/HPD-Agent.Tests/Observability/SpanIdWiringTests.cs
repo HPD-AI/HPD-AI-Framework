@@ -307,7 +307,7 @@ public class SpanIdWiringTests : AgentTestBase
 
         var config = DefaultConfig();
         config.EnsureChatClientConfig();
-        config.EnsureChatClientConfig().ProviderKey = "test";
+        config.EnsureChatClientConfig().Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" };
         config.EnsureChatClientConfig().ModelName = "test-model";
         config.ServerConfiguredTools = [guardedTool];
 

@@ -2,6 +2,7 @@ using FluentAssertions;
 using HPD.Events;
 using HPD.Events.Core;
 using HPD.Agent.Middleware;
+using HPD.Agent.Providers;
 using HPD.Agent.Tests.Infrastructure;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,7 +16,7 @@ public class SubAgentRuntimeTests
     {
         Name = "SubAgentUnderTest",
         SystemInstructions = "Test sub-agent.",
-        Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" } }
+        Clients = new AgentClientsConfig { Chat = new ChatClientConfig { Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" }, ModelName = "test-model" } }
     };
 
     [Fact]
@@ -29,7 +30,7 @@ public class SubAgentRuntimeTests
             contextPolicy: SubAgentContextPolicy.Fork,
             metadata: null,
             invocationModePolicy: AgentInvocationModePolicy.BackgroundOnly,
-            backgroundNotification: null);
+            operationNotification: null);
 
         var result = await SubAgentRuntime.InvokeAsync(
             new SubAgentRuntime.SubAgentInvocationRequest
@@ -41,11 +42,9 @@ public class SubAgentRuntimeTests
             },
             CancellationToken.None);
 
-        result.Mode.Should().Be(AgentInvocationMode.Background);
-        result.Background.Should().NotBeNull();
-        result.Background!.Status.Should().Be("background_unavailable");
-        result.Background.SourceKind.Should().Be(BackgroundTaskSourceKind.SubAgent);
-        result.Background.Name.Should().Be("review-current-change");
+        result.Mode.Should().Be(AgentInvocationMode.Synchronous);
+        result.Operation.Should().BeNull();
+        result.Text.Should().StartWith("background_unavailable:");
     }
 
     [Fact]
@@ -59,7 +58,7 @@ public class SubAgentRuntimeTests
             contextPolicy: SubAgentContextPolicy.Fork,
             metadata: null,
             invocationModePolicy: AgentInvocationModePolicy.BackgroundOnly,
-            backgroundNotification: null);
+            operationNotification: null);
 
         var result = await SubAgentRuntime.InvokeAsync(
             new SubAgentRuntime.SubAgentInvocationRequest
@@ -71,7 +70,7 @@ public class SubAgentRuntimeTests
             },
             CancellationToken.None);
 
-        result.Background!.Name.Should().Be("agent");
+        result.Text.Should().StartWith("background_unavailable:");
     }
 
     [Fact]
@@ -85,7 +84,7 @@ public class SubAgentRuntimeTests
             contextPolicy: SubAgentContextPolicy.Fork,
             metadata: null,
             invocationModePolicy: AgentInvocationModePolicy.BackgroundOnly,
-            backgroundNotification: null);
+            operationNotification: null);
 
         Func<Task> act = async () => await SubAgentRuntime.InvokeAsync(
             new SubAgentRuntime.SubAgentInvocationRequest
@@ -285,7 +284,9 @@ public class SubAgentRuntimeTests
         FakeChatClient client,
         params IAgentMiddleware[] middlewares)
     {
-        var builder = new AgentBuilder(MinimalConfig(), new TestProviderRegistry(client))
+        var config = MinimalConfig();
+        config.Clients.Chat!.Override = ClientOverride<IChatClient>.Borrow(client, "test", "local");
+        var builder = new AgentBuilder(config, new TestProviderRegistry(client))
             .WithSessionStore(store);
 
         foreach (var middleware in middlewares)

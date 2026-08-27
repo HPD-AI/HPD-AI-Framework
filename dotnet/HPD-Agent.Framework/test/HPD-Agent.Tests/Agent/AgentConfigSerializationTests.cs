@@ -139,7 +139,7 @@ public sealed class AgentConfigSerializationTests
     {
         var config = new ProviderClientConfig
         {
-            ProviderKey = "provider-options",
+            Provider = new HPD.Agent.Providers.ProviderReference { Key = "provider-options" },
             ProviderConfig = new ProviderTestOptions { budget = 512, enabled = true }
         };
 

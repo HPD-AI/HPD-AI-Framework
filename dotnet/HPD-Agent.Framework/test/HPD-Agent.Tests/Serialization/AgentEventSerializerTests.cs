@@ -197,7 +197,7 @@ public class AgentEventSerializerTests
                 {
                     Chat = new ChatClientConfig
                     {
-                        ProviderKey = "openai",
+                        Provider = new HPD.Agent.Providers.ProviderReference { Key = "openai" },
                         ModelName = "gpt-5.5",
                         Temperature = 0.7,
                         MaxOutputTokens = 123,
@@ -226,7 +226,7 @@ public class AgentEventSerializerTests
         Assert.Equal(ChatRole.User, result.Messages[0].Role);
         Assert.Equal("hello", result.Messages[0].Text);
         Assert.NotNull(result.RunConfig);
-        Assert.Equal("openai", result.RunConfig!.Clients.Chat!.ProviderKey);
+        Assert.Equal("openai", result.RunConfig!.Clients.Chat!.Provider?.Key);
         Assert.Equal("gpt-5.5", result.RunConfig.Clients.Chat.ModelName);
         Assert.True(result.RunConfig!.Streaming?.CoalesceDeltas);
         Assert.Equal(0.7, result.RunConfig.Clients.Chat!.Temperature);
@@ -498,7 +498,7 @@ public class AgentEventSerializerTests
     [InlineData(ToolCallType.Skill)]
     [InlineData(ToolCallType.SubAgent)]
     [InlineData(ToolCallType.MultiAgent)]
-    [InlineData(ToolCallType.MCPServer)]
+    [InlineData(ToolCallType.McpServer)]
     [InlineData(ToolCallType.OpenApi)]
     public void ToolCallStartEvent_RoundTrip_AllCallTypes(ToolCallType callType)
     {
@@ -742,95 +742,6 @@ public class AgentEventSerializerTests
         Assert.Contains("\"changeCount\":1", json);
         Assert.Contains("\"changeType\":\"updated\"", json);
         Assert.Contains("\"batchId\":\"batch-1\"", json);
-    }
-
-    [Fact]
-    public void BackgroundTaskEvents_UseBackgroundTaskDiscriminators()
-    {
-        var invocation = CreateInvocationSnapshot();
-        var events = new AgentEvent[]
-        {
-            new BackgroundTaskStartedEvent
-            {
-                TaskId = "task-1",
-                Name = "work",
-                SourceKind = BackgroundTaskSourceKind.ToolCall,
-                Notification = new BackgroundTaskNotificationRule.OnFinalStateRule(Faulted: true),
-                Invocation = invocation,
-                StartedAt = DateTimeOffset.UnixEpoch
-            },
-            new BackgroundTaskCompletedEvent
-            {
-                TaskId = "task-1",
-                Name = "work",
-                SourceKind = BackgroundTaskSourceKind.ToolCall,
-                Notification = new BackgroundTaskNotificationRule.OnFinalStateRule(Faulted: true),
-                Invocation = invocation,
-                CompletedAt = DateTimeOffset.UnixEpoch.AddMilliseconds(12),
-                DurationMilliseconds = 12
-            },
-            new BackgroundTaskCancelledEvent
-            {
-                TaskId = "task-1",
-                Name = "work",
-                SourceKind = BackgroundTaskSourceKind.ToolCall,
-                Notification = new BackgroundTaskNotificationRule.OnFinalStateRule(Faulted: true),
-                Invocation = invocation,
-                CancelledAt = DateTimeOffset.UnixEpoch
-            },
-            new BackgroundTaskFaultedEvent
-            {
-                TaskId = "task-1",
-                Name = "work",
-                SourceKind = BackgroundTaskSourceKind.ToolCall,
-                Notification = new BackgroundTaskNotificationRule.OnFinalStateRule(Faulted: true),
-                Invocation = invocation,
-                FaultedAt = DateTimeOffset.UnixEpoch,
-                ExceptionType = "System.InvalidOperationException",
-                ErrorMessage = "boom"
-            }
-        };
-
-        var expectedTypes = new[]
-        {
-            EventTypes.BackgroundTask.BACKGROUND_TASK_STARTED,
-            EventTypes.BackgroundTask.BACKGROUND_TASK_COMPLETED,
-            EventTypes.BackgroundTask.BACKGROUND_TASK_CANCELLED,
-            EventTypes.BackgroundTask.BACKGROUND_TASK_FAULTED
-        };
-
-        for (var i = 0; i < events.Length; i++)
-        {
-            var json = AgentEventSerializer.ToJson(events[i]);
-            Assert.Contains($"\"type\":\"{expectedTypes[i]}\"", json);
-            Assert.DoesNotContain("\"type\":\"BACKGROUND_OPERATION_", json);
-        }
-    }
-
-    [Fact]
-    public void BackgroundTaskStartedEvent_RoundTrips()
-    {
-        var evt = new BackgroundTaskStartedEvent
-        {
-            TaskId = "task-1",
-            Name = "work",
-            SourceKind = BackgroundTaskSourceKind.ToolCall,
-            Notification = new BackgroundTaskNotificationRule.OnFinalStateRule(Faulted: true),
-            Invocation = CreateInvocationSnapshot(),
-            StartedAt = DateTimeOffset.UnixEpoch
-        };
-
-        var json = AgentEventSerializer.ToJson(evt);
-        var result = Assert.IsType<BackgroundTaskStartedEvent>(
-            AgentEventSerializer.FromEventJson(json));
-
-        Assert.Equal(evt.TaskId, result.TaskId);
-        Assert.Equal(evt.Name, result.Name);
-        Assert.Equal(evt.SourceKind, result.SourceKind);
-        Assert.Equal(evt.Notification, result.Notification);
-        Assert.NotNull(result.Invocation);
-        Assert.Equal(evt.Invocation.BatchId, result.Invocation!.BatchId);
-        Assert.Equal(evt.Invocation.ToolCallIndex, result.Invocation.ToolCallIndex);
     }
 
     [Fact]

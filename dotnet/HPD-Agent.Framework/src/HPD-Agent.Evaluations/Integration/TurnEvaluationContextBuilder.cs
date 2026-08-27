@@ -60,7 +60,7 @@ internal static class TurnEvaluationContextBuilder
             Duration = buffer.TurnDuration,
             ModelId = context.RunConfig.Clients.Chat?.ModelName ?? context.FinalResponse.ModelId,
             ResponseModelId = context.FinalResponse.ModelId,
-            ProviderKey = context.RunConfig.Clients.Chat?.ProviderKey,
+            ProviderKey = context.RunConfig.Clients.Chat?.Provider?.Key,
             Attributes = attributes,
             Metrics = new Dictionary<string, double>(evalData.Metrics),
             StopKind = stopKind,
@@ -216,6 +216,8 @@ internal static class TurnEvaluationContextBuilder
             AgentName = context.AgentName,
             StartedAt = buffer.TurnStartedAt,
             Duration = buffer.TurnDuration,
+            CapabilityIdentity = buffer.CapabilityIdentity,
+            Operations = buffer.GetOperationTraces(),
             Iterations = iterations,
         };
     }

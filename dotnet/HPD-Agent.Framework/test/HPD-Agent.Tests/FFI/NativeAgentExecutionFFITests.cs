@@ -37,7 +37,7 @@ public sealed class NativeAgentExecutionFFITests
             {
                 Chat = new ChatClientConfig
                 {
-                    ProviderKey = "test",
+                    Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" },
                     ModelName = "test-model",
                 },
             },
@@ -47,6 +47,7 @@ public sealed class NativeAgentExecutionFFITests
                 MaxTurnDuration = TimeSpan.FromSeconds(10),
             },
         };
+        config.Clients.Chat!.Override = ClientOverride<IChatClient>.Borrow(fakeClient, "test", "local");
 
         var agent = await new AgentBuilder(config, new TestProviderRegistry(fakeClient))
             .WithPermissions()

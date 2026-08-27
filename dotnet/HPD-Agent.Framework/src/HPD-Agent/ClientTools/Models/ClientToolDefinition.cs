@@ -116,7 +116,7 @@ public sealed record ClientToolPolicy
     public bool? Destructive { get; init; }
     public bool? Idempotent { get; init; }
     public AgentInvocationModePolicy? InvocationModePolicy { get; init; }
-    public BackgroundTaskNotificationRule? BackgroundNotification { get; init; }
+    public AgentOperationNotificationPolicy? OperationNotification { get; init; }
 
     public static ClientToolPolicy Resolve(
         ClientToolPolicy? basePolicy,
@@ -133,9 +133,9 @@ public sealed record ClientToolPolicy
             Idempotent = operationPolicy?.Idempotent ?? basePolicy?.Idempotent ?? false,
             InvocationModePolicy = operationPolicy?.InvocationModePolicy ??
                 basePolicy?.InvocationModePolicy ?? AgentInvocationModePolicy.SynchronousOnly,
-            BackgroundNotification = operationPolicy?.BackgroundNotification ??
-                basePolicy?.BackgroundNotification ??
-                new BackgroundTaskNotificationRule.OnFinalStateRule(true, true)
+            OperationNotification = operationPolicy?.OperationNotification ??
+                basePolicy?.OperationNotification ??
+                new AgentOperationNotificationPolicy()
         };
 }
 

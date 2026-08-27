@@ -37,7 +37,7 @@ public partial class CodingToolHarness
                 ["workspaceAccess"] = "read-only"
             },
             invocationModePolicy: AgentInvocationModePolicy.ModelChoice,
-            backgroundNotification: null)
+            operationNotification: null)
             .WithRunConfig(SubAgentRunConfig.Inherit());
     }
 
@@ -60,7 +60,7 @@ public partial class CodingToolHarness
                 ["workspaceAccess"] = "read-write"
             },
             invocationModePolicy: AgentInvocationModePolicy.ModelChoice,
-            backgroundNotification: null)
+            operationNotification: null)
             .WithRunConfig(SubAgentRunConfig.Inherit());
     }
 
@@ -83,7 +83,7 @@ public partial class CodingToolHarness
                 ["workspaceAccess"] = "read-only"
             },
             invocationModePolicy: AgentInvocationModePolicy.ModelChoice,
-            backgroundNotification: null)
+            operationNotification: null)
             .WithRunConfig(SubAgentRunConfig.Inherit());
     }
 

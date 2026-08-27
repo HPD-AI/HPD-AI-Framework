@@ -84,8 +84,8 @@ internal sealed class AgentInputHandlingContext
     public required Func<UserMessagesInputEvent, ActiveRuntimeInput?, IEventCoordinator, CancellationToken, Task<AgentTurnResult>> RunMessagesAsync { get; init; }
     public required Func<InterruptionRequestEvent, CancellationToken, Task<AgentInputResult>> InterruptAsync { get; init; }
     public required Func<SteeringInputEvent, CancellationToken, Task<AgentInputResult>> SteerAsync { get; init; }
-    public required Func<ClientToolBackgroundOperationOutcomeEvent, bool> TryResolveClientToolBackgroundOperation { get; init; }
-    public Func<BackgroundTaskNotificationInputEvent, IEventCoordinator, CancellationToken, ValueTask>? PublishBackgroundTaskNotificationDelivered { get; init; }
+    public required Func<ClientToolOperationOutcomeEvent, bool> TryResolveClientToolOperation { get; init; }
+    public Func<AgentOperationNotificationInputEvent, IEventCoordinator, CancellationToken, ValueTask>? PublishAgentOperationNotificationDelivered { get; init; }
 }
 
 internal sealed class AgentInputDispatcher
@@ -183,8 +183,8 @@ internal sealed class AgentInputDispatcher
     {
         yield return Register(AgentInputDelivery.QueuedWork, new UserMessagesInputHandler());
         yield return Register(AgentInputDelivery.QueuedWork, new CompactThreadInputHandler());
-        yield return Register(AgentInputDelivery.QueuedWork, new BackgroundTaskNotificationInputHandler());
-        yield return Register(AgentInputDelivery.ActiveControl, new ClientToolBackgroundOperationOutcomeInputHandler());
+        yield return Register(AgentInputDelivery.QueuedWork, new AgentOperationNotificationInputHandler());
+        yield return Register(AgentInputDelivery.ActiveControl, new ClientToolOperationOutcomeInputHandler());
         yield return Register(AgentInputDelivery.ActiveControl, new InterruptionInputHandler());
         yield return Register(AgentInputDelivery.ActiveControl, new SteeringInputHandler());
     }
@@ -286,14 +286,14 @@ internal sealed class UserMessagesInputHandler : IAgentInputHandler<UserMessages
     }
 }
 
-internal sealed class BackgroundTaskNotificationInputHandler : IAgentInputHandler<BackgroundTaskNotificationInputEvent>
+internal sealed class AgentOperationNotificationInputHandler : IAgentInputHandler<AgentOperationNotificationInputEvent>
 {
     public async ValueTask<AgentInputResult> HandleAsync(
-        BackgroundTaskNotificationInputEvent input,
+        AgentOperationNotificationInputEvent input,
         AgentInputHandlingContext context,
         CancellationToken cancellationToken)
     {
-        var userInput = BackgroundTaskNotificationDispatcher.ToUserMessagesInput(input) with
+        var userInput = AgentOperationNotificationDispatcher.ToUserMessagesInput(input) with
         {
             AgentId = input.AgentId,
             SessionId = input.SessionId,
@@ -304,7 +304,7 @@ internal sealed class BackgroundTaskNotificationInputHandler : IAgentInputHandle
 
         var result = await context.RunMessagesAsync(userInput, context.ActiveInput, context.EventCoordinator, cancellationToken)
             .ConfigureAwait(false);
-        if (context.PublishBackgroundTaskNotificationDelivered is { } publishDelivered)
+        if (context.PublishAgentOperationNotificationDelivered is { } publishDelivered)
         {
             await publishDelivered(input, context.EventCoordinator, cancellationToken).ConfigureAwait(false);
         }
@@ -312,15 +312,15 @@ internal sealed class BackgroundTaskNotificationInputHandler : IAgentInputHandle
     }
 }
 
-internal sealed class ClientToolBackgroundOperationOutcomeInputHandler :
-    IAgentInputHandler<ClientToolBackgroundOperationOutcomeEvent>
+internal sealed class ClientToolOperationOutcomeInputHandler :
+    IAgentInputHandler<ClientToolOperationOutcomeEvent>
 {
     public ValueTask<AgentInputResult> HandleAsync(
-        ClientToolBackgroundOperationOutcomeEvent input,
+        ClientToolOperationOutcomeEvent input,
         AgentInputHandlingContext context,
         CancellationToken cancellationToken)
     {
-        if (!context.TryResolveClientToolBackgroundOperation(input))
+        if (!context.TryResolveClientToolOperation(input))
         {
             throw new InvalidOperationException(
                 $"No client tool background operation '{input.ClientOperationId}' is active.");

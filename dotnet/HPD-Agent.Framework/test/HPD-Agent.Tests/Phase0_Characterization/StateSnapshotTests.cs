@@ -132,7 +132,7 @@ public class StateSnapshotTests : AgentTestBase
         var config = DefaultConfig();
         // Ensure provider is configured
         config.EnsureChatClientConfig();
-        config.EnsureChatClientConfig().ProviderKey = "test";
+        config.EnsureChatClientConfig().Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" };
         config.EnsureChatClientConfig().ModelName = "test-model";
 
         var agent = CreateAgent(
@@ -204,7 +204,7 @@ public class StateSnapshotTests : AgentTestBase
         config.MaxAgenticIterations = 5; // Set low limit
         // Ensure provider is configured
         config.EnsureChatClientConfig();
-        config.EnsureChatClientConfig().ProviderKey = "test";
+        config.EnsureChatClientConfig().Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" };
         config.EnsureChatClientConfig().ModelName = "test-model";
 
         var agent = CreateAgentWithMiddlewares(

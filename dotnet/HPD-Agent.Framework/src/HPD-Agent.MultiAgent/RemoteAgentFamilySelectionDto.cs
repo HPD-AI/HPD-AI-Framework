@@ -9,9 +9,9 @@ namespace HPD.MultiAgent;
 /// Carries one provider-family selection across a remote multi-agent boundary.
 /// </summary>
 /// <remarks>
-/// The payload contains configuration only. Runtime client overrides and raw API keys are
-/// rejected before serialization; the receiving host resolves <see cref="ProviderClientConfig.AuthenticationKey"/>
-/// against its own credential registry.
+/// The payload contains portable configuration only. Runtime client overrides and process-local
+/// literal-secret registrations are rejected before serialization. Portable secret references
+/// are resolved and authorized by the receiving host.
 /// </remarks>
 public sealed record RemoteAgentFamilySelectionDto
 {
@@ -37,7 +37,7 @@ public sealed record RemoteAgentFamilySelectionDto
     /// <param name="deadline">The optional absolute invocation deadline.</param>
     /// <returns>A versioned safe transport payload.</returns>
     /// <exception cref="InvalidOperationException">
-    /// The configuration contains a raw API key or runtime client override.
+    /// The configuration contains a process-local literal-secret registration or runtime client override.
     /// </exception>
     public static RemoteAgentFamilySelectionDto Create(
         ProviderClientFamily family,
@@ -50,7 +50,7 @@ public sealed record RemoteAgentFamilySelectionDto
         EnsurePortable(configuration);
 
         var clients = new AgentClientsConfig();
-        clients.SetFamilyConfig(family, ProviderClientConfigResolver.Clone(configuration));
+        clients.SetFamilyConfig(family, ProviderClientConfigSnapshot.Clone(configuration));
         var json = HpdAgentConfigSerializer.Serialize(
             new AgentRunConfig { Clients = clients }, providerComposition);
         var root = JsonNode.Parse(json) as JsonObject
@@ -94,9 +94,9 @@ public sealed record RemoteAgentFamilySelectionDto
 
     private static void EnsurePortable(ProviderClientConfig configuration)
     {
-        if (!string.IsNullOrWhiteSpace(configuration.ApiKey))
+        if (configuration.Provider?.Authentication is ExplicitApiKeyProviderAuthentication)
             throw new InvalidOperationException(
-                "Raw API keys cannot cross a remote agent boundary. Use AuthenticationKey and register the credential on the receiving host.");
+                "Process-local literal provider secrets cannot cross a remote agent boundary. Use an API-key secret reference resolved by the receiving host.");
 
         var hasOverride = configuration switch
         {
@@ -123,6 +123,7 @@ public sealed record RemoteAgentFamilySelectionDto
         ProviderClientFamily.Embeddings => "embeddings",
         ProviderClientFamily.HostedFiles => "hostedFiles",
         ProviderClientFamily.VoiceActivityDetection => "voiceActivity",
+        ProviderClientFamily.EndOfTurnDetection => "endOfTurn",
         _ => throw new ArgumentOutOfRangeException(nameof(family), family, null)
     };
 }

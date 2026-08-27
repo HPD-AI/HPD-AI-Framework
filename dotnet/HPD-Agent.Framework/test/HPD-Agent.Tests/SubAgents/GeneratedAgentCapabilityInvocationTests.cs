@@ -1,4 +1,5 @@
 using HPD.Agent.Tests.Infrastructure;
+using HPD.Agent.Providers;
 using HPD.MultiAgent;
 using Microsoft.Extensions.AI;
 
@@ -23,6 +24,7 @@ public sealed class GeneratedAgentCapabilityInvocationTests
         var subAgentFunction = CreateGeneratedShapeSubAgentFunction();
         var multiAgentFunction = CreateGeneratedShapeMultiAgentFunction();
         var config = DefaultConfig();
+        config.Clients.Chat!.Override = ClientOverride<IChatClient>.Borrow(parentClient, "test", "local");
         config.ServerConfiguredTools = [subAgentFunction, multiAgentFunction];
 
         var agent = await new AgentBuilder(config, new TestProviderRegistry(parentClient))
@@ -145,7 +147,7 @@ public sealed class GeneratedAgentCapabilityInvocationTests
         {
             Chat = new ChatClientConfig
             {
-                ProviderKey = "test",
+                Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" },
                 ModelName = "test-model",
             },
         },

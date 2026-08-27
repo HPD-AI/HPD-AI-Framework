@@ -180,11 +180,11 @@ public sealed record ClientToolProviderInvokeOutcomeMessage
     public string? ClientOperationId { get; init; }
 
     /// <summary>Gets optional handle kind for background work.</summary>
-    public BackgroundHandleKind? HandleKind { get; init; }
+    public AgentOperationKind? OperationKind { get; init; }
 
     /// <summary>Gets supported handle operations for background work.</summary>
-    public BackgroundHandleOperation SupportedOperations { get; init; } =
-        BackgroundHandleOperation.None;
+    public AgentOperationCapabilities OperationCapabilities { get; init; } =
+        AgentOperationCapabilities.None;
 
     /// <summary>Gets optional client tool augmentation.</summary>
     public ClientToolAugmentation? Augmentation { get; init; }
@@ -193,7 +193,7 @@ public sealed record ClientToolProviderInvokeOutcomeMessage
 /// <summary>
 /// Terminal outcome sent by a provider for background work it previously accepted.
 /// </summary>
-public sealed record ClientToolProviderBackgroundOperationOutcomeMessage
+public sealed record ClientToolProviderOperationOutcomeMessage
 {
     /// <summary>Gets the wire message type.</summary>
     public string Type { get; init; } = "provider.backgroundOperationOutcome";
@@ -205,7 +205,7 @@ public sealed record ClientToolProviderBackgroundOperationOutcomeMessage
     public required string ClientOperationId { get; init; }
 
     /// <summary>Gets the terminal operation state.</summary>
-    public required ClientToolBackgroundOperationOutcomeState State { get; init; }
+    public required ClientToolOperationOutcomeState State { get; init; }
 
     /// <summary>Gets final content for completed operations.</summary>
     public IReadOnlyList<IToolResultContent>? Content { get; init; }

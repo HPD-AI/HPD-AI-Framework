@@ -12,7 +12,11 @@ public sealed class NativeProviderConfigurationTests
             {
               "clients": {
                 "chat": {
-                  "providerKey": "anthropic",
+                  "provider": {
+                    "key": "anthropic",
+                    "backend": "platform",
+                    "authentication": { "type": "api-key", "secretKey": "anthropic:ApiKey" }
+                  },
                   "modelName": "claude-test",
                   "providerConfig": {},
                   "providerOptions": { "thinkingBudgetTokens": 2048 }

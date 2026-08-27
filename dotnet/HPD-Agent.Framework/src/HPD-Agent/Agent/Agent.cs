@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.AI;
+using System.Collections.Concurrent;
 using HPD.Agent.Middleware;
 using System.Runtime.CompilerServices;
 using System.Diagnostics;
@@ -17,8 +18,8 @@ using HPD.Agent.Providers;
 using HPD.Agent.StructuredOutput;
 using HPD.Events;
 using HPD.Events.Struct;
-using ClientToolBackgroundOperationOutcomeEvent = HPD.Agent.ClientTools.ClientToolBackgroundOperationOutcomeEvent;
-using IClientToolBackgroundOperationRegistry = HPD.Agent.ClientTools.IClientToolBackgroundOperationRegistry;
+using ClientToolOperationOutcomeEvent = HPD.Agent.ClientTools.ClientToolOperationOutcomeEvent;
+using IClientToolOperationRegistry = HPD.Agent.ClientTools.IClientToolOperationRegistry;
 
 
 namespace HPD.Agent;
@@ -27,13 +28,14 @@ namespace HPD.Agent;
 /// Core Agent class implementing agentic behavior with function calling, middleware, and event coordination.
 /// </code>
 /// </summary>
-public sealed class Agent
+public sealed partial class Agent : IAsyncDisposable
 {
     internal ProviderComposition? ProviderComposition => _chatClientResolver.Composition;
 
     private readonly IChatClient? _baseClient;
     private readonly AgentChatClientHandle? _defaultChatClientHandle;
     private readonly AgentChatClientResolver _chatClientResolver;
+    private readonly AgentProviderProfileIndex? _providerProfileIndex;
     private readonly ProviderClientManager<ITextToSpeechClient> _textToSpeechClientManager = new();
     private readonly ProviderClientManager<ISpeechToTextClient> _speechToTextClientManager = new();
     private readonly ProviderClientManager<IRealtimeClient> _realtimeClientManager = new();
@@ -41,6 +43,7 @@ public sealed class Agent
     private readonly ProviderClientManager<IEmbeddingGenerator> _embeddingGeneratorManager = new();
     private readonly ProviderClientManager<IHostedFileClient> _hostedFileClientManager = new();
     private readonly AgentClientSet? _clientSet;
+    private readonly IAsyncDisposable? _providerRuntimeOwner;
     private readonly string _name;
     private readonly ChatClientMetadata _metadata;
     // OpenTelemetry Activity Source for telemetry
@@ -73,7 +76,7 @@ public sealed class Agent
     private Middleware.AgentRuntimeContext? _runtimeContext;
     private HPD.Events.IEventCoordinator? _runtimeEventCoordinator;
     private StructEventHub? _runtimeStructEvents;
-    private BackgroundTaskNotificationDispatcher? _runtimeNotificationDispatcher;
+    private AgentOperationNotificationDispatcher? _runtimeNotificationDispatcher;
     private bool _runtimeStarting;
     private bool _runtimeStopping;
     private ActiveRuntimeInput? _activeRuntimeInput;
@@ -100,10 +103,17 @@ public sealed class Agent
     // HttpClients created by AgentBuilder for OpenAPI sources that did not provide their own.
     // Disposed when the Agent is disposed.
     private readonly IReadOnlyList<HttpClient>? _ownedHttpClients;
-    private SkillCatalog? _skillCatalog;
+    private AgentCapabilityCatalog? _capabilityCatalog;
+    private IReadOnlyList<IAgentCapabilitySource> _capabilitySources = [];
+    private readonly AgentOperationRegistry _operationRegistry;
+    private readonly ConcurrentDictionary<long, CancellationTokenSource> _activeTurnCancellations = new();
+    private long _nextActiveTurnId;
     private readonly ContainerMiddleware? _containerMiddleware;
     private CancellationTokenSource? _skillWatchCancellation;
     private IReadOnlyList<Task> _skillWatchTasks = [];
+    private int _disposeState;
+    private readonly TaskCompletionSource _disposeCompletion =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private async Task<bool> DrainAcceptedSteeringAsync(
         ActiveRuntimeInput? activeInput,
@@ -208,7 +218,7 @@ public sealed class Agent
     /// <summary>
     /// Provider from the configuration
     /// </summary>
-    public string? ProviderKey => Config?.ResolveClientConfig(Providers.ProviderClientFamily.Chat)?.ProviderKey;
+    public string? ProviderKey => Config?.ResolveClientConfig(Providers.ProviderClientFamily.Chat)?.Provider?.Key;
 
     /// <summary>
     /// Model ID from the configuration
@@ -272,7 +282,8 @@ public sealed class Agent
         IContentStore? contentStore = null,
         IReadOnlyDictionary<string, MiddlewareStateFactory>? stateFactories = null,
         IReadOnlyList<HttpClient>? ownedHttpClients = null,
-        AgentClientSet? clientSet = null)
+        AgentClientSet? clientSet = null,
+        IAsyncDisposable? providerRuntimeOwner = null)
     {
         _providerRegistry = providerRegistry;
         _contentStore = contentStore;
@@ -282,6 +293,7 @@ public sealed class Agent
         _ownedHttpClients = ownedHttpClients;
         Config = config ?? throw new ArgumentNullException(nameof(config));
         _clientSet = clientSet;
+        _providerRuntimeOwner = providerRuntimeOwner;
         _baseClient = clientSet?.Chat ?? baseClient;
         _defaultChatClientHandle = _baseClient is null
             ? null
@@ -290,6 +302,9 @@ public sealed class Agent
                 AgentChatClientSource.BuilderDefault,
                 clientSet?.GetResolvedConfig(Providers.ProviderClientFamily.Chat));
         _chatClientResolver = new AgentChatClientResolver(providerRegistry, serviceProvider);
+        _providerProfileIndex = _chatClientResolver.Composition is null
+            ? null
+            : AgentProviderProfileIndex.Create(config, _chatClientResolver.Composition);
         _name = config.Name ?? "Agent"; // Default to "Agent" to prevent null dictionary key exceptions
 
         // Initialize unified middleware pipeline
@@ -300,7 +315,7 @@ public sealed class Agent
         // Initialize Microsoft.Extensions.AI compliance metadata
         var chatConfig = config.ResolveClientConfig(Providers.ProviderClientFamily.Chat);
         _metadata = new ChatClientMetadata(
-            providerName: chatConfig?.ProviderKey,
+            providerName: chatConfig?.Provider?.Key,
             providerUri: null,
             defaultModelId: chatConfig?.ModelName
         );
@@ -313,6 +328,12 @@ public sealed class Agent
         // Create event coordinator for Middleware events and human-in-the-loop
         // Direct use of HPD.Events.EventCoordinator (no wrapper)
         _eventCoordinator = new HPD.Events.Core.EventCoordinator();
+        var operationThreadEvents = Config.SessionStore is null
+            ? null
+            : new ThreadEventPublisher(Config.SessionStore, _eventCoordinator);
+        _operationRegistry = new AgentOperationRegistry(
+            new AgentOperationEventSink(_eventCoordinator, operationThreadEvents),
+            Config.OperationRetention);
 
         // Plan mode instructions now injected by AgentPlanAgentMiddleware (middleware-based)
         _messageProcessor = new MessageProcessor(
@@ -322,9 +343,7 @@ public sealed class Agent
             _middlewarePipeline,
             config.ErrorHandling,
             config.ServerConfiguredTools,
-            config.AgenticLoop,
-            GetCurrentRuntimeBackgroundTaskRegistry,
-            GetCurrentRuntimeBackgroundHandleRegistry);
+            config.AgenticLoop);
         _functionCallProcessor = new FunctionCallProcessor(
             _eventCoordinator, // Pass IEventCoordinator for decoupled event emission
             _middlewarePipeline, // Pass unified middleware pipeline for permission checks
@@ -334,9 +353,7 @@ public sealed class Agent
             config.ServerConfiguredTools,
             config.AgenticLoop,  // Pass agentic loop config for TerminateOnUnknownCalls
             _name,
-            _stateFactories,
-            GetCurrentRuntimeBackgroundTaskRegistry,
-            GetCurrentRuntimeBackgroundHandleRegistry);
+            _stateFactories);
         _agentTurn = new AgentTurn(
             _baseClient,
             config.ConfigureOptions,
@@ -379,22 +396,65 @@ public sealed class Agent
     /// </summary>
     public ChatOptions? DefaultOptions => _messageProcessor.DefaultOptions;
 
-    internal void SetSkillCatalog(
-        SkillCatalog catalog,
-        IEnumerable<(ISkillSource Source, SkillSourceContext Context)> sources)
+    internal void SetCapabilityCatalog(
+        AgentCapabilityCatalog catalog,
+        IEnumerable<(ISkillSource Source, SkillSourceContext Context)> sources,
+        IReadOnlyList<IAgentCapabilitySource>? capabilitySources = null)
     {
-        _skillCatalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+        _capabilityCatalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+        _capabilitySources = capabilitySources ?? [];
         ArgumentNullException.ThrowIfNull(sources);
         var watchable = sources
             .Where(entry => entry.Source is IWatchableSkillSource)
             .ToArray();
-        if (watchable.Length == 0)
+        if (watchable.Length == 0 && _capabilitySources.Count == 0)
             return;
         _skillWatchCancellation = new CancellationTokenSource();
         _skillWatchTasks = watchable.Select(entry => WatchSkillSourceAsync(
             (IWatchableSkillSource)entry.Source,
             entry.Context,
-            _skillWatchCancellation.Token)).ToArray();
+            _skillWatchCancellation.Token))
+            .Concat(_capabilitySources.Select(source => WatchCapabilitySourceAsync(
+                source,
+                _skillWatchCancellation.Token)))
+            .ToArray();
+    }
+
+    private async Task WatchCapabilitySourceAsync(
+        IAgentCapabilitySource source,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var enumerator = source.WatchAsync(cancellationToken)
+                .GetAsyncEnumerator(cancellationToken);
+            Task<bool> pendingInvalidation = enumerator.MoveNextAsync().AsTask();
+            while (await pendingInvalidation.ConfigureAwait(false))
+            {
+                while (true)
+                {
+                    pendingInvalidation = enumerator.MoveNextAsync().AsTask();
+                    var quietWindow = Task.Delay(TimeSpan.FromMilliseconds(200), cancellationToken);
+                    var completed = await Task.WhenAny(pendingInvalidation, quietWindow).ConfigureAwait(false);
+                    if (completed != pendingInvalidation)
+                        break;
+                    if (!await pendingInvalidation.ConfigureAwait(false))
+                        break;
+                }
+                await RefreshCapabilitiesAsync("source-invalidation", cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            _agentLogger?.LogWarning(
+                exception,
+                "Capability source watcher {SourceId} stopped; catalog epoch {Epoch} remains active.",
+                source.Id,
+                CapabilityEpoch);
+        }
     }
 
     private async Task WatchSkillSourceAsync(
@@ -422,7 +482,7 @@ public sealed class Agent
                         break;
                 }
 
-                await ReloadSkillsAsync("watch", cancellationToken).ConfigureAwait(false);
+                await RefreshCapabilitiesAsync("watch", cancellationToken).ConfigureAwait(false);
                 if (pendingChange.IsCompletedSuccessfully && !pendingChange.Result)
                     break;
             }
@@ -433,76 +493,69 @@ public sealed class Agent
         catch (Exception exception)
         {
             // A watcher is advisory. Preserve the last-known-good catalog and keep failures
-            // bounded to host diagnostics; explicit ReloadSkillsAsync remains available.
+            // bounded to host diagnostics; explicit capability refresh remains available.
             _agentLogger?.LogWarning(
                 exception,
                 "Skill source watcher stopped for harness {ToolHarness}; catalog epoch {Epoch} remains active.",
                 context.OwnerToolHarnessName,
-                SkillCatalogEpoch);
+                CapabilityEpoch);
         }
     }
 
-    /// <summary>Rereads all harness-bound runtime skill sources and atomically publishes a validated catalog.</summary>
-    public async ValueTask<SkillReloadResult> ReloadSkillsAsync(CancellationToken cancellationToken = default)
-        => await ReloadSkillsAsync("manual", cancellationToken).ConfigureAwait(false);
+    /// <summary>Rereads every registered dynamic source and atomically publishes a complete validated catalog.</summary>
+    public async ValueTask<AgentCapabilityRefreshResult> RefreshCapabilitiesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        ThrowIfShutdownStarted();
+        return await RefreshCapabilitiesAsync("manual", cancellationToken).ConfigureAwait(false);
+    }
 
-    private async ValueTask<SkillReloadResult> ReloadSkillsAsync(
+    private async ValueTask<AgentCapabilityRefreshResult> RefreshCapabilitiesAsync(
         string reason,
         CancellationToken cancellationToken)
     {
-        if (_skillCatalog is null)
-            return new SkillReloadResult(false, 0, "This agent has no skill catalog.");
+        if (_capabilityCatalog is null)
+            return new AgentCapabilityRefreshResult(false, 0, "This agent has no capability catalog.");
 
-        var previousEpoch = SkillCatalogEpoch;
+        var previousEpoch = CapabilityEpoch;
         await _eventCoordinator.EmitAsync(
-            EnrichOutputEvent(new SkillReloadStartedEvent(previousEpoch, reason)),
+            EnrichOutputEvent(new AgentCapabilityRefreshStartedEvent(previousEpoch, reason)),
             cancellationToken).ConfigureAwait(false);
-        var result = await _skillCatalog.ReloadAsync(
-            new SkillReloadRequest(reason),
-            cancellationToken).ConfigureAwait(false);
+        var result = await _capabilityCatalog.RefreshAsync(reason, cancellationToken).ConfigureAwait(false);
         if (!result.Published)
         {
             await _eventCoordinator.EmitAsync(
-                EnrichOutputEvent(new SkillReloadRejectedEvent(
+                EnrichOutputEvent(new AgentCapabilityRefreshRejectedEvent(
                     result.Epoch,
-                    BoundSkillReloadError(result.Error),
+                    BoundCapabilityRefreshError(result.Error),
                     reason)),
                 cancellationToken).ConfigureAwait(false);
             return result;
         }
 
-        using var lease = _skillCatalog.Acquire();
+        await using var lease = _capabilityCatalog.Acquire();
         _messageProcessor.ReplaceCapabilityFunctions(lease.Snapshot.Functions);
         _containerMiddleware?.ReplaceCapabilityFunctions(lease.Snapshot.Functions);
         await _eventCoordinator.EmitAsync(
-            EnrichOutputEvent(new SkillReloadPublishedEvent(
+            EnrichOutputEvent(new AgentCapabilityRefreshPublishedEvent(
                 previousEpoch,
                 result.Epoch,
-                result.ChangedSkillIds ?? Array.Empty<string>(),
                 reason)),
             cancellationToken).ConfigureAwait(false);
         return result;
     }
 
-    private static string BoundSkillReloadError(string? error)
+    private static string BoundCapabilityRefreshError(string? error)
     {
         const int maximumLength = 512;
         var bounded = string.IsNullOrWhiteSpace(error)
-            ? "The replacement skill catalog failed validation."
+            ? "The replacement capability catalog failed validation."
             : error.Replace('\r', ' ').Replace('\n', ' ');
         return bounded.Length <= maximumLength ? bounded : bounded[..maximumLength];
     }
 
-    internal long SkillCatalogEpoch
-    {
-        get
-        {
-            if (_skillCatalog is null)
-                return -1;
-            using var lease = _skillCatalog.Acquire();
-            return lease.Snapshot.Epoch;
-        }
-    }
+    /// <summary>Gets the currently published complete capability epoch.</summary>
+    public long CapabilityEpoch => _capabilityCatalog?.CurrentEpoch ?? -1;
 
     /// <summary>
     /// Gets whether this agent currently has a continuous runtime input loop.
@@ -549,9 +602,7 @@ public sealed class Agent
                 pipeline,
                 Config?.ErrorHandling,
                 Config?.ServerConfiguredTools,
-                Config?.AgenticLoop,
-                GetCurrentRuntimeBackgroundTaskRegistry,
-                GetCurrentRuntimeBackgroundHandleRegistry);
+                Config?.AgenticLoop);
 
         return new FunctionCallProcessor(
             eventCoordinator,
@@ -562,9 +613,7 @@ public sealed class Agent
             Config?.ServerConfiguredTools,
             Config?.AgenticLoop,
             _name,
-            _stateFactories,
-            GetCurrentRuntimeBackgroundTaskRegistry,
-            GetCurrentRuntimeBackgroundHandleRegistry);
+            _stateFactories);
     }
 
     private sealed class RuntimeStructHandlerSubscription(
@@ -1343,22 +1392,6 @@ public sealed class Agent
         return _structEvents;
     }
 
-    private Middleware.IAgentBackgroundTaskRegistry? GetCurrentRuntimeBackgroundTaskRegistry()
-    {
-        lock (_runtimeLock)
-        {
-            return _runtimeContext;
-        }
-    }
-
-    private Middleware.IAgentBackgroundHandleRegistry? GetCurrentRuntimeBackgroundHandleRegistry()
-    {
-        lock (_runtimeLock)
-        {
-            return _runtimeContext;
-        }
-    }
-
     private async Task<AgentInputResult> RunInputDirectAsync(
         AgentInputEvent input,
         AgentInputHandlerRegistration registration,
@@ -1398,14 +1431,14 @@ public sealed class Agent
             RunMessagesAsync = RunMessagesInputAsync,
             InterruptAsync = HandleInterruptionAsync,
             SteerAsync = HandleSteeringAsync,
-            TryResolveClientToolBackgroundOperation = ResolveClientToolBackgroundOperation,
-            PublishBackgroundTaskNotificationDelivered = PublishBackgroundTaskNotificationDeliveredAsync
+            TryResolveClientToolOperation = ResolveClientToolOperation,
+            PublishAgentOperationNotificationDelivered = PublishAgentOperationNotificationDeliveredAsync
         };
 
-    private bool ResolveClientToolBackgroundOperation(ClientToolBackgroundOperationOutcomeEvent input)
+    private bool ResolveClientToolOperation(ClientToolOperationOutcomeEvent input)
     {
-        var registry = GetCurrentRuntimeBackgroundTaskRegistry() as IClientToolBackgroundOperationRegistry;
-        return registry?.TryResolveClientToolBackgroundOperation(input) == true;
+        lock (_runtimeLock)
+            return _runtimeContext?.TryResolveClientToolOperation(input) == true;
     }
 
     private async Task RunRuntimeLoopAsync(
@@ -1531,8 +1564,8 @@ public sealed class Agent
         }
     }
 
-    private async ValueTask PublishBackgroundTaskNotificationDeliveredAsync(
-        BackgroundTaskNotificationInputEvent input,
+    private async ValueTask PublishAgentOperationNotificationDeliveredAsync(
+        AgentOperationNotificationInputEvent input,
         HPD.Events.IEventCoordinator runtimeCoordinator,
         CancellationToken cancellationToken)
     {
@@ -1544,7 +1577,7 @@ public sealed class Agent
 
         foreach (var notification in input.Notifications)
         {
-            await PublishScopedRuntimeEventAsync(new BackgroundTaskNotificationDeliveredEvent
+            await PublishScopedRuntimeEventAsync(new AgentOperationNotificationDeliveredEvent
             {
                 NotificationId = notification.NotificationId,
                 DeliveredAt = DateTimeOffset.UtcNow,
@@ -1588,6 +1621,7 @@ public sealed class Agent
     /// </summary>
     public async Task StartAsync(AgentRunConfig? runConfig = null, CancellationToken cancellationToken = default)
     {
+        ThrowIfShutdownStarted();
         cancellationToken.ThrowIfCancellationRequested();
 
         Middleware.AgentRuntimeContext runtimeContext;
@@ -1596,7 +1630,7 @@ public sealed class Agent
         StructEventHub runtimeStructEvents;
         CancellationTokenSource runtimeCts;
         Channel<AgentInputEvent> runtimeInbox;
-        BackgroundTaskNotificationDispatcher runtimeNotificationDispatcher;
+        AgentOperationNotificationDispatcher runtimeNotificationDispatcher;
 
         lock (_runtimeLock)
         {
@@ -1650,9 +1684,10 @@ public sealed class Agent
                     _functionExecutionCore,
                     runtimeContext,
                     runtimeCoordinator));
-            runtimeNotificationDispatcher = new BackgroundTaskNotificationDispatcher(
-                _name,
-                runtimeCoordinator,
+            runtimeContext.RuntimeCapabilities.Set(_operationRegistry);
+            runtimeContext.RuntimeCapabilities.Set<IClientToolOperationRegistry>(runtimeContext);
+            runtimeNotificationDispatcher = new AgentOperationNotificationDispatcher(
+                _eventCoordinator,
                 runtimeThreadEvents,
                 runtimeInbox.Writer,
                 runConfig);
@@ -1758,13 +1793,12 @@ public sealed class Agent
         CancellationToken cancellationToken)
     {
         Task? runtimeTask;
-        BackgroundTaskNotificationDispatcher? runtimeNotificationDispatcher;
+        AgentOperationNotificationDispatcher? runtimeNotificationDispatcher;
         var drainPendingInputs = true;
         TimeSpan? drainTimeout = null;
         Exception? stopError = null;
         List<Exception>? exceptions = null;
 
-        runtimeContext.StopAcceptingBackgroundTaskRegistrations();
 
         try
         {
@@ -2175,7 +2209,7 @@ public sealed class Agent
                 RunConfig = runConfig,
                 Messages = steering.Messages.ToArray()
             },
-            BackgroundTaskNotificationInputEvent notification => notification with
+            AgentOperationNotificationInputEvent notification => notification with
             {
                 RunConfig = runConfig,
                 Notifications = notification.Notifications.ToArray()
@@ -2257,6 +2291,14 @@ public sealed class Agent
 
         // Create linked cancellation token for turn timeout
         using var turnCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var activeTurnId = Interlocked.Increment(ref _nextActiveTurnId);
+        if (!_activeTurnCancellations.TryAdd(activeTurnId, turnCts))
+            throw new InvalidOperationException("Failed to register the active agent turn.");
+        if (Volatile.Read(ref _disposeState) != 0)
+        {
+            _activeTurnCancellations.TryRemove(activeTurnId, out _);
+            throw new ObjectDisposedException(nameof(Agent));
+        }
         if (Config?.AgenticLoop?.MaxTurnDuration is { } turnTimeout)
         {
             turnCts.CancelAfter(turnTimeout);
@@ -2324,7 +2366,20 @@ public sealed class Agent
 
             // Use PreparedTurn's already-prepared messages and options
             effectiveMessages = turn.MessagesForLLM;
-            effectiveOptions = turn.Options;  // Already merged + Middlewareed
+            effectiveOptions = turn.Options;
+            var capabilityOverlay = AgentTurnCapabilityOverlay.Compose(
+                turn.CatalogLease?.Snapshot,
+                effectiveOptions?.Tools,
+                runConfig?.RuntimeTools,
+                runConfig?.Tools?.Additional);
+            effectiveOptions = effectiveOptions?.Clone() ?? new ChatOptions();
+            effectiveOptions.Tools = capabilityOverlay.Tools.ToArray();
+            yield return new AgentTurnCapabilitiesPinnedEvent
+            {
+                Identity = capabilityOverlay.Identity,
+                TraceId = traceId,
+                SpanId = turnSpanId
+            };
 
             //     
             // BUILD CONFIGURATION & DECISION ENGINE (common to both paths)
@@ -2361,7 +2416,7 @@ public sealed class Agent
                     },
                     effectiveCancellationToken).ConfigureAwait(false);
             }
-            runClientSet = await ResolveRunClientSetAsync(effectiveRunConfig, effectiveCancellationToken)
+            runClientSet = await ResolveRunClientSetV9Async(effectiveRunConfig, effectiveCancellationToken)
                 .ConfigureAwait(false);
             var effectiveClientSet = runClientSet ?? _clientSet;
 
@@ -2612,35 +2667,6 @@ public sealed class Agent
                     var modelVisibleMessages = messagesToSend as List<ChatMessage> ?? messagesToSend.ToList();
 
                     // ═══════════════════════════════════════════════════════════════
-                    // RUNTIME TOOLS MERGE (for structured output tool mode)
-                    // Must happen BEFORE BeforeIterationAsync so middleware sees the output tool
-                    // Only merge once - subsequent iterations reuse the merged options
-                    // ═══════════════════════════════════════════════════════════════
-                    var hasRuntimeTools = runConfig?.RuntimeTools?.Count > 0;
-                    var hasAdditionalTools = runConfig?.Tools?.Additional?.Count > 0;
-
-                    if ((hasRuntimeTools || hasAdditionalTools) && state.Iteration == 0)
-                    {
-                        // Clone options to avoid mutating shared instances
-                        effectiveOptions = effectiveOptions?.Clone() ?? new ChatOptions();
-
-                        // Merge runtime tools with existing tools
-                        var allTools = new List<AITool>();
-                        if (effectiveOptions.Tools != null)
-                            allTools.AddRange(effectiveOptions.Tools);
-
-                        // Add internal runtime tools (from structured output)
-                        if (hasRuntimeTools)
-                            allTools.AddRange(runConfig!.RuntimeTools!);
-
-                        // Add user-provided additional tools
-                        if (hasAdditionalTools)
-                            allTools.AddRange(runConfig!.Tools!.Additional!);
-
-                        effectiveOptions.Tools = allTools;
-                    }
-
-                    // ═══════════════════════════════════════════════════════════════
                     // RUNTIME TOOL MODE OVERRIDE (for structured output tool/union mode)
                     // Forces LLM to call a tool - provider-enforced, not prompt-based
                     // Only apply on first iteration - subsequent iterations follow same mode
@@ -2711,7 +2737,8 @@ public sealed class Agent
                     var toolRequests = new List<FunctionCallContent>();
                     bool messageStarted = false;
                     bool reasoningMessageStarted = false;
-                    bool backgroundOperationEventEmitted = false;
+                    AgentOperation? providerResponseOperation = FindProviderResponseOperation(
+                        runConfig?.BackgroundResponses?.ContinuationToken);
                     ResponseContinuationToken? lastContinuationToken = null;
                     Middleware.AgentModelTurnRequest? currentModelRequest = null;
                     Middleware.IAgentModelTurnExecutor? currentModelTurnExecutor = null;
@@ -3025,25 +3052,38 @@ public sealed class Agent
                                 {
                                     lastContinuationToken = continuationToken;
 
-                                    // Emit background operation started event on first token
-                                    if (!backgroundOperationEventEmitted && allowBackgroundResponses)
+                                    if (providerResponseOperation is null && allowBackgroundResponses)
                                     {
-                                        backgroundOperationEventEmitted = true;
-                                        yield return new ModelBackgroundOperationStartedEvent(
-                                            ContinuationToken: continuationToken,
-                                            Status: OperationStatus.InProgress,
-                                            OperationId: assistantMessageId)
-                        { TraceId = traceId };
-
-                                        // Track in agent loop state for crash recovery
-                                        state = state.WithBackgroundOperation(new BackgroundOperationInfo
+                                        var now = DateTimeOffset.UtcNow;
+                                        providerResponseOperation = await _operationRegistry.RegisterAsync(
+                                            new AgentOperationSnapshot
                                         {
-                                            TokenData = Convert.ToBase64String(continuationToken.ToBytes().Span),
-                                            Iteration = state.Iteration,
-                                            StartedAt = DateTimeOffset.UtcNow,
-                                            LastKnownStatus = OperationStatus.InProgress
-                                        });
+                                            OperationId = Guid.NewGuid().ToString("N"),
+                                            ProviderOperationId = assistantMessageId,
+                                            SourceKind = AgentOperationSourceKind.ProviderOperation,
+                                            Name = "model.response",
+                                            Address = new AgentExecutionAddress(
+                                                AgentId, session?.Id ?? string.Empty, thread?.Id ?? string.Empty),
+                                            OriginatingThreadExecutionId = activeInput?.ThreadExecutionId,
+                                            ProviderStatus = AgentOperationProviderStatus.Running,
+                                            ObservationStatus = AgentOperationObservationStatus.Attached,
+                                            Control = new AgentOperationControl(
+                                                assistantMessageId, AgentOperationKind.Provider,
+                                                AgentOperationCapabilities.None),
+                                            Notification = new AgentOperationNotificationPolicy
+                                            {
+                                                IncludeTerminal = true,
+                                                DeduplicationKey = $"model.response:{assistantMessageId}"
+                                            },
+                                            RegisteredAt = now,
+                                            StartedAt = now,
+                                            UpdatedAt = now,
+                                            Version = 0
+                                        }, observer: new ProviderResponseObservation(continuationToken),
+                                            cancellationToken: effectiveCancellationToken).ConfigureAwait(false);
                                     }
+                                    else if (providerResponseOperation?.Observer is ProviderResponseObservation observation)
+                                        observation.ContinuationToken = continuationToken;
                                 }
 #pragma warning restore MEAI001
 
@@ -3211,25 +3251,38 @@ public sealed class Agent
                                 {
                                     lastContinuationToken = continuationToken;
 
-                                    // Emit background operation started event on first token
-                                    if (!backgroundOperationEventEmitted && allowBackgroundResponses)
+                                    if (providerResponseOperation is null && allowBackgroundResponses)
                                     {
-                                        backgroundOperationEventEmitted = true;
-                                        yield return new ModelBackgroundOperationStartedEvent(
-                                            ContinuationToken: continuationToken,
-                                            Status: OperationStatus.InProgress,
-                                            OperationId: assistantMessageId)
-                        { TraceId = traceId };
-
-                                        // Track in agent loop state for crash recovery
-                                        state = state.WithBackgroundOperation(new BackgroundOperationInfo
+                                        var now = DateTimeOffset.UtcNow;
+                                        providerResponseOperation = await _operationRegistry.RegisterAsync(
+                                            new AgentOperationSnapshot
                                         {
-                                            TokenData = Convert.ToBase64String(continuationToken.ToBytes().Span),
-                                            Iteration = state.Iteration,
-                                            StartedAt = DateTimeOffset.UtcNow,
-                                            LastKnownStatus = OperationStatus.InProgress
-                                        });
+                                            OperationId = Guid.NewGuid().ToString("N"),
+                                            ProviderOperationId = assistantMessageId,
+                                            SourceKind = AgentOperationSourceKind.ProviderOperation,
+                                            Name = "model.response",
+                                            Address = new AgentExecutionAddress(
+                                                AgentId, session?.Id ?? string.Empty, thread?.Id ?? string.Empty),
+                                            OriginatingThreadExecutionId = activeInput?.ThreadExecutionId,
+                                            ProviderStatus = AgentOperationProviderStatus.Running,
+                                            ObservationStatus = AgentOperationObservationStatus.Attached,
+                                            Control = new AgentOperationControl(
+                                                assistantMessageId, AgentOperationKind.Provider,
+                                                AgentOperationCapabilities.None),
+                                            Notification = new AgentOperationNotificationPolicy
+                                            {
+                                                IncludeTerminal = true,
+                                                DeduplicationKey = $"model.response:{assistantMessageId}"
+                                            },
+                                            RegisteredAt = now,
+                                            StartedAt = now,
+                                            UpdatedAt = now,
+                                            Version = 0
+                                        }, observer: new ProviderResponseObservation(continuationToken),
+                                            cancellationToken: effectiveCancellationToken).ConfigureAwait(false);
                                     }
+                                    else if (providerResponseOperation?.Observer is ProviderResponseObservation observation)
+                                        observation.ContinuationToken = continuationToken;
                                 }
 #pragma warning restore MEAI001
 
@@ -3337,18 +3390,16 @@ public sealed class Agent
                         }
                     } // End of else block (LLM call not skipped)
 
-                    // Clear background operation state when completed (token becomes null)
-                    if (backgroundOperationEventEmitted && lastContinuationToken == null)
+                    if (providerResponseOperation is not null && lastContinuationToken == null)
                     {
-                        // Operation completed - clear the tracked background operation
-                        state = state.WithBackgroundOperation(null);
-
-                        // Emit completion status event
-                        yield return new ModelBackgroundOperationStatusEvent(
-                            ContinuationToken: null!,  // null indicates completion
-                            Status: OperationStatus.Completed,
-                            StatusMessage: "Background operation completed successfully")
-                        { TraceId = traceId };
+                        await _operationRegistry.TransitionAsync(
+                            providerResponseOperation.Snapshot.OperationId,
+                            new AgentOperationTransition
+                            {
+                                ProviderStatus = AgentOperationProviderStatus.Completed,
+                                Completion = new AgentOperationCompletion("Model response completed."),
+                                ProviderDeduplicationKey = $"model.response.completed:{assistantMessageId}"
+                            }, effectiveCancellationToken).ConfigureAwait(false);
                     }
 
                     // Close the message if we started one (applies to both middleware and normal flow)
@@ -3811,10 +3862,13 @@ public sealed class Agent
         }
         finally
         {
+            _activeTurnCancellations.TryRemove(activeTurnId, out _);
             if (chatClientLease is not null)
                 await chatClientLease.DisposeAsync().ConfigureAwait(false);
-            runClientSet?.Dispose();
-            turn.CatalogLease?.Dispose();
+            if (runClientSet is not null)
+                await runClientSet.DisposeAsync().ConfigureAwait(false);
+            if (turn.CatalogLease is not null)
+                await turn.CatalogLease.DisposeAsync().ConfigureAwait(false);
             RootAgent = previousRootAgent;
         }
     }
@@ -3952,15 +4006,53 @@ public sealed class Agent
         return updates.ToChatResponse();
     }
 
-    /// <inheritdoc />
-    public void Dispose()
+    /// <summary>Returns immutable snapshots of all operations currently known to this agent.</summary>
+    public IReadOnlyList<AgentOperationSnapshot> ListOperations() => _operationRegistry.Snapshot();
+
+    /// <summary>Requests provider cancellation for one operation without conflating it with observation shutdown.</summary>
+    public ValueTask CancelOperationAsync(
+        string operationId,
+        CancellationToken cancellationToken = default) =>
+        _operationRegistry.RequestCancellationAsync(operationId, cancellationToken);
+
+    /// <summary>Supplies protocol-neutral input to an operation currently awaiting provider input.</summary>
+    public ValueTask SupplyOperationInputAsync(
+        string operationId,
+        AgentOperationInput input,
+        CancellationToken cancellationToken = default) =>
+        _operationRegistry.SupplyInputAsync(operationId, input, cancellationToken);
+
+    /// <summary>
+    /// Asynchronously stops accepted work and releases observers, transports, capability
+    /// revisions, providers, event infrastructure, and owned clients in dependency order.
+    /// </summary>
+    public async ValueTask DisposeAsync()
     {
-        StopAsync().GetAwaiter().GetResult();
+        if (Interlocked.Exchange(ref _disposeState, 1) != 0)
+        {
+            await _disposeCompletion.Task.ConfigureAwait(false);
+            return;
+        }
+        try
+        {
+            await DisposeCoreAsync().ConfigureAwait(false);
+            _disposeCompletion.TrySetResult();
+        }
+        catch (Exception exception)
+        {
+            _disposeCompletion.TrySetException(exception);
+            throw;
+        }
+    }
+
+    private async ValueTask DisposeCoreAsync()
+    {
+        await StopAsync().ConfigureAwait(false);
 
         _skillWatchCancellation?.Cancel();
         if (_skillWatchTasks.Count > 0)
         {
-            try { Task.WhenAll(_skillWatchTasks).GetAwaiter().GetResult(); }
+            try { await Task.WhenAll(_skillWatchTasks).ConfigureAwait(false); }
             catch (OperationCanceledException) { }
         }
         _skillWatchCancellation?.Dispose();
@@ -3978,23 +4070,71 @@ public sealed class Agent
         foreach (var subscription in _eventSubscriptions)
             subscription.Dispose();
 
+        await DrainActiveTurnsAsync(Config.Shutdown).ConfigureAwait(false);
+        await _operationRegistry.ShutdownAsync(Config.Shutdown).ConfigureAwait(false);
+
+        if (_capabilityCatalog is not null)
+        {
+            var leakedRevisionOwners = await _capabilityCatalog
+                .ShutdownAsync(Config.Shutdown.LeaseLeaks)
+                .ConfigureAwait(false);
+            if (leakedRevisionOwners > 0)
+            {
+                _agentLogger?.LogWarning(
+                    "Agent shutdown found {LeakedRevisionOwnerCount} capability revision owner(s) still pinned by leaked leases; policy {LeaseLeakPolicy} was applied.",
+                    leakedRevisionOwners,
+                    Config.Shutdown.LeaseLeaks);
+            }
+        }
+        foreach (var source in _capabilitySources)
+            await source.DisposeAsync().ConfigureAwait(false);
+        if (_providerRuntimeOwner is not null)
+            await _providerRuntimeOwner.DisposeAsync().ConfigureAwait(false);
         if (_clientSet != null)
-            _clientSet.Dispose();
+            await _clientSet.DisposeAsync().ConfigureAwait(false);
         else
             _baseClient?.Dispose();
-        _chatClientResolver.Dispose();
-        _textToSpeechClientManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        _speechToTextClientManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        _realtimeClientManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        _imageGeneratorManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        _embeddingGeneratorManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        _hostedFileClientManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        _realtimeProviderProtocolParticipant.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        (_eventCoordinator as IDisposable)?.Dispose();
+        await _chatClientResolver.DisposeAsync().ConfigureAwait(false);
+        await _textToSpeechClientManager.DisposeAsync().ConfigureAwait(false);
+        await _speechToTextClientManager.DisposeAsync().ConfigureAwait(false);
+        await _realtimeClientManager.DisposeAsync().ConfigureAwait(false);
+        await _imageGeneratorManager.DisposeAsync().ConfigureAwait(false);
+        await _embeddingGeneratorManager.DisposeAsync().ConfigureAwait(false);
+        await _hostedFileClientManager.DisposeAsync().ConfigureAwait(false);
+        await _realtimeProviderProtocolParticipant.DisposeAsync().ConfigureAwait(false);
         if (_ownedHttpClients != null)
             foreach (var client in _ownedHttpClients)
                 client.Dispose();
-        _skillCatalog?.Dispose();
+        if (_eventCoordinator is IAsyncDisposable asyncEventCoordinator)
+            await asyncEventCoordinator.DisposeAsync().ConfigureAwait(false);
+        else
+            (_eventCoordinator as IDisposable)?.Dispose();
+    }
+
+    private void ThrowIfShutdownStarted() =>
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, this);
+
+    private async ValueTask DrainActiveTurnsAsync(AgentShutdownOptions options)
+    {
+        var gracefulDeadline = DateTimeOffset.UtcNow + options.GracefulDrainTimeout;
+        while (!_activeTurnCancellations.IsEmpty && DateTimeOffset.UtcNow < gracefulDeadline)
+            await Task.Delay(TimeSpan.FromMilliseconds(25)).ConfigureAwait(false);
+        if (_activeTurnCancellations.IsEmpty)
+            return;
+
+        foreach (var cancellation in _activeTurnCancellations.Values)
+            cancellation.Cancel();
+
+        var cancellationDeadline = DateTimeOffset.UtcNow + options.CancellationDrainTimeout;
+        while (!_activeTurnCancellations.IsEmpty && DateTimeOffset.UtcNow < cancellationDeadline)
+            await Task.Delay(TimeSpan.FromMilliseconds(25)).ConfigureAwait(false);
+        if (!_activeTurnCancellations.IsEmpty)
+        {
+            _agentLogger?.LogWarning(
+                "Agent shutdown abandoned {Count} turn(s) that retained resources after both drain deadlines; policy {Policy}.",
+                _activeTurnCancellations.Count,
+                options.LeaseLeaks);
+        }
     }
 
     /// <summary>
@@ -4042,7 +4182,9 @@ public sealed class Agent
 
         // Prepare turn (stateless - no thread)
         var inputMessages = messages.ToList();
-        var catalogLease = _skillCatalog?.Acquire();
+        if (_capabilityCatalog is not null)
+            await _capabilityCatalog.EnsureReadyAsync(cancellationToken).ConfigureAwait(false);
+        var catalogLease = _capabilityCatalog?.Acquire();
         PreparedTurn turn;
         try
         {
@@ -4057,7 +4199,8 @@ public sealed class Agent
         }
         catch
         {
-            catalogLease?.Dispose();
+            if (catalogLease is not null)
+                await catalogLease.DisposeAsync().ConfigureAwait(false);
             throw;
         }
 
@@ -4257,6 +4400,7 @@ public sealed class Agent
         AgentChatClientHandle? inheritedChatClient = null,
         ClientFamilyInheritanceMode inheritedChatMode = ClientFamilyInheritanceMode.UseOwn)
     {
+        ThrowIfShutdownStarted();
         // Validation
         if (thread != null)
         {
@@ -4278,7 +4422,9 @@ public sealed class Agent
 
         // Prepare turn
         var inputMessages = messages?.ToList() ?? new List<ChatMessage>();
-        var catalogLease = _skillCatalog?.Acquire();
+        if (_capabilityCatalog is not null)
+            await _capabilityCatalog.EnsureReadyAsync(cancellationToken).ConfigureAwait(false);
+        var catalogLease = _capabilityCatalog?.Acquire();
         PreparedTurn turn;
         try
         {
@@ -4293,7 +4439,8 @@ public sealed class Agent
         }
         catch
         {
-            catalogLease?.Dispose();
+            if (catalogLease is not null)
+                await catalogLease.DisposeAsync().ConfigureAwait(false);
             throw;
         }
 
@@ -5247,384 +5394,6 @@ public sealed class Agent
         return properties;
     }
 
-    private async ValueTask<AgentClientSet?> ResolveRunClientSetAsync(
-        AgentRunConfig runConfig,
-        CancellationToken cancellationToken)
-    {
-        var runClients = runConfig.Clients;
-        var families = new[]
-        {
-            Providers.ProviderClientFamily.TextToSpeech,
-            Providers.ProviderClientFamily.SpeechToText,
-            Providers.ProviderClientFamily.Realtime,
-            Providers.ProviderClientFamily.ImageGeneration,
-            Providers.ProviderClientFamily.Embeddings,
-            Providers.ProviderClientFamily.HostedFiles
-        };
-        if (!families.Any(family =>
-                runClients.GetFamilyConfig(family) is not null ||
-                Config?.ResolveClientConfig(family) is { ProviderKey.Length: > 0 }))
-            return null;
-
-        var owned = new HashSet<object>(ReferenceEqualityComparer.Instance);
-        var leases = new List<IAsyncDisposable>();
-        var resolved = _clientSet?.ResolvedConfigs.ToDictionary(pair => pair.Key, pair => pair.Value)
-            ?? new Dictionary<Providers.ProviderClientFamily, ProviderClientConfig>();
-
-        try
-        {
-        var textToSpeech = await ResolveRunClientAsync<Providers.ITextToSpeechClientProvider, ITextToSpeechClient>(
-            Providers.ProviderClientFamily.TextToSpeech,
-            runClients,
-            runClients.TextToSpeech?.Override?.Client,
-            _clientSet?.TextToSpeech,
-            static (provider, config, services) => provider.CreateTextToSpeechClient(config, services),
-            Config?.ClientMiddleware?.TextToSpeech,
-            _textToSpeechClientManager,
-            owned,
-            leases,
-            resolved,
-            cancellationToken).ConfigureAwait(false);
-        var speechToText = await ResolveRunClientAsync<Providers.ISpeechToTextClientProvider, ISpeechToTextClient>(
-            Providers.ProviderClientFamily.SpeechToText,
-            runClients,
-            runClients.SpeechToText?.Override?.Client,
-            _clientSet?.SpeechToText,
-            static (provider, config, services) => provider.CreateSpeechToTextClient(config, services),
-            Config?.ClientMiddleware?.SpeechToText,
-            _speechToTextClientManager,
-            owned,
-            leases,
-            resolved,
-            cancellationToken).ConfigureAwait(false);
-        var realtime = await ResolveRunClientAsync<Providers.IRealtimeClientProvider, IRealtimeClient>(
-            Providers.ProviderClientFamily.Realtime,
-            runClients,
-            runClients.Realtime?.Override?.Client,
-            _clientSet?.Realtime,
-            static (provider, config, services) => provider.CreateRealtimeClient(config, services),
-            Config?.ClientMiddleware?.Realtime,
-            _realtimeClientManager,
-            owned,
-            leases,
-            resolved,
-            cancellationToken).ConfigureAwait(false);
-        var image = await ResolveRunClientAsync<Providers.IImageGeneratorProvider, IImageGenerator>(
-            Providers.ProviderClientFamily.ImageGeneration,
-            runClients,
-            runClients.ImageGeneration?.Override?.Client,
-            _clientSet?.ImageGenerator,
-            static (provider, config, services) => provider.CreateImageGenerator(config, services),
-            Config?.ClientMiddleware?.ImageGeneration,
-            _imageGeneratorManager,
-            owned,
-            leases,
-            resolved,
-            cancellationToken).ConfigureAwait(false);
-        var embeddings = await ResolveRunClientAsync<Providers.IEmbeddingGeneratorProvider, IEmbeddingGenerator>(
-            Providers.ProviderClientFamily.Embeddings,
-            runClients,
-            runClients.Embeddings?.Override?.Client,
-            _clientSet?.EmbeddingGenerator,
-            static (provider, config, services) => provider.CreateEmbeddingGenerator(config, services),
-            Config?.ClientMiddleware?.Embeddings,
-            _embeddingGeneratorManager,
-            owned,
-            leases,
-            resolved,
-            cancellationToken).ConfigureAwait(false);
-        var hostedFiles = await ResolveRunClientAsync<Providers.IHostedFileClientProvider, IHostedFileClient>(
-            Providers.ProviderClientFamily.HostedFiles,
-            runClients,
-            runClients.HostedFiles?.Override?.Client,
-            _clientSet?.HostedFiles,
-            static (provider, config, services) => provider.CreateHostedFileClient(config, services),
-            Config?.ClientMiddleware?.HostedFiles,
-            _hostedFileClientManager,
-            owned,
-            leases,
-            resolved,
-            cancellationToken).ConfigureAwait(false);
-
-        var result = new AgentClientSet
-        {
-            TextToSpeech = textToSpeech,
-            SpeechToText = speechToText,
-            Realtime = realtime,
-            ImageGenerator = image,
-            EmbeddingGenerator = embeddings,
-            HostedFiles = hostedFiles,
-            ResolvedConfigs = resolved
-        };
-        result.SetOwnedClients(owned);
-        result.SetLeases(leases);
-        return result;
-        }
-        catch
-        {
-            for (var index = leases.Count - 1; index >= 0; index--)
-                await leases[index].DisposeAsync().ConfigureAwait(false);
-            foreach (var client in owned)
-            {
-                if (client is IAsyncDisposable asyncDisposable)
-                    await asyncDisposable.DisposeAsync().ConfigureAwait(false);
-                else if (client is IDisposable disposable)
-                    disposable.Dispose();
-            }
-            throw;
-        }
-    }
-
-    private async ValueTask<TClient?> ResolveRunClientAsync<TProvider, TClient>(
-        Providers.ProviderClientFamily family,
-        AgentClientsConfig runClients,
-        TClient? runOverride,
-        TClient? builderDefault,
-        Func<TProvider, ProviderClientConfig, IServiceProvider?, TClient> factory,
-        IReadOnlyList<Func<TClient, IServiceProvider?, TClient>>? middleware,
-        ProviderClientManager<TClient> manager,
-        HashSet<object> owned,
-        List<IAsyncDisposable> leases,
-        Dictionary<Providers.ProviderClientFamily, ProviderClientConfig> resolved,
-        CancellationToken cancellationToken)
-        where TProvider : class, Providers.IProvider
-        where TClient : class
-    {
-        var hasRunConfig = runClients.GetFamilyConfig(family) is not null;
-        if (!hasRunConfig && builderDefault is not null)
-            return builderDefault;
-        if (runOverride is not null)
-            return runOverride;
-
-        var effective = hasRunConfig
-            ? Config?.ResolveClientConfig(family, runClients)
-            : Config?.ResolveClientConfig(family);
-        if (effective is null || string.IsNullOrWhiteSpace(effective.ProviderKey))
-            return null;
-        if (_providerRegistry is null)
-            throw new AgentRunConfigurationException(
-                "ProviderFamilyResolutionFailed",
-                $"Clients.{family}",
-                $"The {family} provider '{effective.ProviderKey}' cannot be resolved because no provider registry is available.");
-
-        var safeResolvedConfig = ProviderClientConfigResolver.Clone(effective);
-        var authentication = await ResolveAuxiliaryAuthenticationAsync(
-            effective,
-            family,
-            cancellationToken).ConfigureAwait(false);
-        effective = authentication.Config;
-        if (authentication.Credential is not null)
-            leases.Add(authentication.Credential);
-
-        var provider = _providerRegistry.GetRequiredProvider<TProvider>(effective.ProviderKey);
-        TClient CreateClient()
-        {
-            var validation = provider.ValidateConfiguration(effective, family);
-            if (!validation.IsValid)
-                throw new AgentRunConfigurationException(
-                    "ProviderConfigurationInvalid",
-                    $"Clients.{family}",
-                    string.Join("; ", validation.Errors),
-                    effective.ProviderKey);
-            var created = factory(provider, effective, _serviceProvider);
-            if (middleware is not null)
-            {
-                for (var index = middleware.Count - 1; index >= 0; index--)
-                    created = middleware[index](created, _serviceProvider)
-                        ?? throw new InvalidOperationException($"{family} client middleware returned null.");
-            }
-            return created;
-        }
-
-        TClient client;
-        if (authentication.CacheIdentity is null)
-        {
-            client = CreateClient();
-            owned.Add(client);
-        }
-        else
-        {
-            var lease = await manager.AcquireAsync(
-                new ProviderClientCacheKey
-                {
-                    ProviderKey = effective.ProviderKey,
-                    Family = family,
-                    AuthenticationIdentity = authentication.CacheIdentity,
-                    AuthenticationGeneration = authentication.Generation,
-                    Endpoint = effective.Endpoint,
-                    ProviderConfigFingerprint = ProviderClientFingerprint.Combine(
-                        GetAuxiliaryProviderConfigFingerprint(effective, family),
-                        effective.CustomHeaders),
-                    ClientBoundModel = BindsModelToClient(effective.ProviderKey, family)
-                        ? effective.ModelName
-                        : null
-                },
-                _ => ValueTask.FromResult(CreateClient()),
-                cancellationToken).ConfigureAwait(false);
-            leases.Add(lease);
-            client = lease.Client;
-        }
-        resolved[family] = safeResolvedConfig;
-        return client;
-    }
-
-    private async ValueTask<AuxiliaryAuthenticationResolution> ResolveAuxiliaryAuthenticationAsync(
-        ProviderClientConfig config,
-        ProviderClientFamily family,
-        CancellationToken cancellationToken)
-    {
-        if (config.CustomHeaders is not null)
-        {
-            foreach (var header in config.CustomHeaders.Keys)
-            {
-                if (header.Equals("Authorization", StringComparison.OrdinalIgnoreCase) ||
-                    header.Equals("Proxy-Authorization", StringComparison.OrdinalIgnoreCase) ||
-                    header.Equals("api-key", StringComparison.OrdinalIgnoreCase) ||
-                    header.Equals("x-api-key", StringComparison.OrdinalIgnoreCase))
-                    throw new AgentRunConfigurationException(
-                        "AuthenticationHeaderNotAllowed",
-                        $"Clients.{family}.CustomHeaders.{header}",
-                        $"Header '{header}' cannot carry provider credentials. Use ApiKey or AuthenticationKey.",
-                        config.ProviderKey);
-            }
-        }
-
-        if (!string.IsNullOrWhiteSpace(config.ApiKey))
-        {
-            var credential = ProviderCredentialLease.CreateExplicit(config.ApiKey);
-            var explicitConfig = ProviderClientConfigResolver.Clone(config);
-            explicitConfig.ApiKey = credential.Secret.ToString();
-            return new AuxiliaryAuthenticationResolution(explicitConfig, null, 0, credential);
-        }
-
-        var registry = _serviceProvider?.GetService(typeof(IProviderAuthenticationRegistry))
-            as IProviderAuthenticationRegistry;
-        var authenticationKey = config.AuthenticationKey;
-        var scope = _serviceProvider?.GetService(typeof(ProviderAuthorizationScope))
-            as ProviderAuthorizationScope
-            ?? new ProviderAuthorizationScope { TrustDomainId = "local-process" };
-        var context = new ProviderAuthenticationContext
-        {
-            ProviderKey = config.ProviderKey,
-            Family = family,
-            AuthorizationScope = scope
-        };
-
-        ProviderAuthenticationRegistration? registration = null;
-        if (string.IsNullOrWhiteSpace(authenticationKey))
-        {
-            if (registry is null)
-                return new AuxiliaryAuthenticationResolution(config, "canonical", 0, null);
-
-            var compatible = new List<ProviderAuthenticationRegistration>();
-            await foreach (var candidate in registry.ListCompatibleAsync(context, cancellationToken)
-                .ConfigureAwait(false))
-            {
-                compatible.Add(candidate);
-            }
-            var defaults = compatible.Where(static candidate => candidate.IsDefault).ToArray();
-            if (defaults.Length > 1 || (defaults.Length == 0 && compatible.Count > 1))
-                throw new AgentRunConfigurationException(
-                    "AuthenticationSelectionRequired",
-                    $"Clients.{family}.AuthenticationKey",
-                    $"Provider '{config.ProviderKey}' has multiple compatible authentication registrations and no unique default.",
-                    config.ProviderKey);
-            registration = defaults.Length == 1 ? defaults[0] : compatible.Count == 1 ? compatible[0] : null;
-            if (registration is null)
-                return new AuxiliaryAuthenticationResolution(config, "canonical", 0, null);
-            authenticationKey = registration.Key;
-        }
-        else
-        {
-            if (registry is null)
-                throw new AgentRunConfigurationException(
-                    "AuthenticationRegistryRequired",
-                    $"Clients.{family}.AuthenticationKey",
-                    $"Authentication registration '{authenticationKey}' cannot be resolved because no registry is available.",
-                    config.ProviderKey);
-            registration = await registry.FindAsync(authenticationKey, context, cancellationToken)
-                .ConfigureAwait(false)
-                ?? throw new AgentRunConfigurationException(
-                    "AuthenticationRegistrationNotFound",
-                    $"Clients.{family}.AuthenticationKey",
-                    $"Authentication registration '{authenticationKey}' is missing or incompatible with provider '{config.ProviderKey}' and family '{family}'.",
-                    config.ProviderKey);
-        }
-
-        var credentialResolver = _serviceProvider?.GetService(typeof(IProviderCredentialResolver))
-            as IProviderCredentialResolver;
-        if (credentialResolver is null)
-        {
-            var secretResolver = _serviceProvider?.GetService(typeof(Secrets.ISecretResolver))
-                as Secrets.ISecretResolver
-                ?? throw new AgentRunConfigurationException(
-                    "CredentialResolverRequired",
-                    $"Clients.{family}.AuthenticationKey",
-                    $"Authentication registration '{authenticationKey}' cannot resolve its secret because no credential resolver is available.",
-                    config.ProviderKey);
-            credentialResolver = new SecretResolverProviderCredentialResolver(secretResolver);
-        }
-
-        var credentialLease = await credentialResolver.AcquireAsync(new ProviderCredentialRequest
-        {
-            ProviderKey = config.ProviderKey,
-            Family = family,
-            Identity = $"registration:{authenticationKey}",
-            SecretKey = registration!.SecretKey,
-            AuthorizationScope = scope
-        }, cancellationToken).ConfigureAwait(false);
-        var resolved = ProviderClientConfigResolver.Clone(config);
-        resolved.AuthenticationKey = authenticationKey;
-        resolved.ApiKey = credentialLease.Secret.ToString();
-        return new AuxiliaryAuthenticationResolution(
-            resolved,
-            credentialLease.Identity,
-            credentialLease.Generation,
-            credentialLease);
-    }
-
-    private string? GetAuxiliaryProviderConfigFingerprint(
-        ProviderClientConfig config,
-        ProviderClientFamily family)
-    {
-        if (config.ProviderConfig is null)
-            return null;
-        var composition = _chatClientResolver.Composition
-            ?? throw new AgentRunConfigurationException(
-                "ProviderCompositionNotInstalled",
-                $"Clients.{family}.ProviderConfig",
-                "Generated provider composition is required to fingerprint provider configuration.",
-                config.ProviderKey);
-        var canonical = composition.Descriptors.Canonicalize(config.ProviderKey);
-        if (!composition.Serialization.TryGet(
-                canonical,
-                family,
-                ProviderPayloadKind.Configuration,
-                out var contract) || contract is null)
-            throw new AgentRunConfigurationException(
-                "ProviderConfigTypeMismatch",
-                $"Clients.{family}.ProviderConfig",
-                $"Provider '{canonical}' does not declare a configuration payload for family '{family}'.",
-                canonical);
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(config.ProviderConfig, contract.JsonTypeInfo);
-        return Convert.ToHexString(SHA256.HashData(bytes));
-    }
-
-    private bool BindsModelToClient(string? providerKey, ProviderClientFamily family)
-    {
-        var composition = _chatClientResolver.Composition;
-        if (composition is null || string.IsNullOrWhiteSpace(providerKey) ||
-            !composition.Descriptors.TryGet(providerKey, out var descriptor) || descriptor is null ||
-            !descriptor.Families.TryGetValue(family, out var familyDescriptor))
-            return true;
-        return familyDescriptor.BindsModelToClient;
-    }
-
-    private sealed record AuxiliaryAuthenticationResolution(
-        ProviderClientConfig Config,
-        string? CacheIdentity,
-        long Generation,
-        IProviderCredentialLease? Credential);
 
     private static Middleware.AgentModelTransport ResolveModelTransport(AgentRunConfig runConfig)
         => runConfig.Clients.Transport switch
@@ -5812,6 +5581,7 @@ public sealed class Agent
         var maxAttempts = config!.MaxPollAttempts;
 
         ResponseContinuationToken? lastToken = null;
+        string? operationId = null;
         var startTime = DateTimeOffset.UtcNow;
         var attempts = 0;
         var isFirstRun = true;
@@ -5821,20 +5591,20 @@ public sealed class Agent
             // Check timeout
             if (timeout.HasValue && DateTimeOffset.UtcNow - startTime > timeout.Value)
             {
-                yield return new ModelBackgroundOperationStatusEvent(
-                    ContinuationToken: lastToken!,
-                    Status: OperationStatus.Failed,
-                    StatusMessage: $"Background operation timed out after {timeout.Value}");
+                if (operationId is not null)
+                    await FailProviderResponseOperationAsync(
+                        operationId, "provider_response_timeout",
+                        $"Model response timed out after {timeout.Value}.").ConfigureAwait(false);
                 yield break;
             }
 
             // Check max attempts (only after first run)
             if (!isFirstRun && attempts >= maxAttempts)
             {
-                yield return new ModelBackgroundOperationStatusEvent(
-                    ContinuationToken: lastToken!,
-                    Status: OperationStatus.Failed,
-                    StatusMessage: $"Background operation exceeded max poll attempts ({maxAttempts})");
+                if (operationId is not null)
+                    await FailProviderResponseOperationAsync(
+                        operationId, "provider_response_poll_limit",
+                        $"Model response exceeded {maxAttempts} poll attempts.").ConfigureAwait(false);
                 yield break;
             }
 
@@ -5844,11 +5614,12 @@ public sealed class Agent
                 options.BackgroundResponses!.ContinuationToken = lastToken;
                 attempts++;
 
-                // Emit polling status event
-                yield return new ModelBackgroundOperationStatusEvent(
-                    ContinuationToken: lastToken,
-                    Status: OperationStatus.InProgress,
-                    StatusMessage: $"Polling attempt {attempts}/{maxAttempts}");
+                if (operationId is not null)
+                    await _operationRegistry.TransitionAsync(operationId, new AgentOperationTransition
+                    {
+                        ProviderStatus = AgentOperationProviderStatus.Running,
+                        ProviderDeduplicationKey = $"model.response.poll:{attempts}"
+                    }, cancellationToken).ConfigureAwait(false);
             }
 
             // Run the agent
@@ -5859,27 +5630,86 @@ public sealed class Agent
             {
                 yield return evt;
 
-                // Capture continuation token from events
-                if (evt is ModelBackgroundOperationStartedEvent started)
-                {
-                    lastToken = started.ContinuationToken;
-                }
-                else if (evt is ModelBackgroundOperationStatusEvent status && status.ContinuationToken != null)
-                {
-                    lastToken = status.ContinuationToken;
-                }
+                if (evt is AgentOperationRegisteredEvent
+                    {
+                        Operation.SourceKind: AgentOperationSourceKind.ProviderOperation,
+                        Operation.Name: "model.response"
+                    } registered)
+                    operationId = registered.Operation.OperationId;
             }
+
+            if (operationId is null)
+                operationId = _operationRegistry.Snapshot()
+                    .Where(static candidate => candidate.SourceKind == AgentOperationSourceKind.ProviderOperation &&
+                        candidate.Name == "model.response" &&
+                        candidate.ProviderStatus is not AgentOperationProviderStatus.Completed and
+                            not AgentOperationProviderStatus.Failed and not AgentOperationProviderStatus.Cancelled)
+                    .OrderByDescending(static candidate => candidate.RegisteredAt)
+                    .Select(static candidate => candidate.OperationId)
+                    .FirstOrDefault();
+            lastToken = operationId is null ? null : GetProviderResponseContinuation(operationId);
 
             isFirstRun = false;
 
             // If no token, operation completed
             if (lastToken == null)
             {
+                if (operationId is not null && _operationRegistry.TryGet(operationId, out var completed) &&
+                    completed!.Snapshot.ProviderStatus is not AgentOperationProviderStatus.Completed and
+                        not AgentOperationProviderStatus.Failed and not AgentOperationProviderStatus.Cancelled)
+                {
+                    await _operationRegistry.TransitionAsync(operationId, new AgentOperationTransition
+                    {
+                        ProviderStatus = AgentOperationProviderStatus.Completed,
+                        Completion = new AgentOperationCompletion("Model response completed."),
+                        ProviderDeduplicationKey = $"model.response.completed:{operationId}"
+                    }, cancellationToken).ConfigureAwait(false);
+                }
                 yield break;
             }
 
             // Wait before next poll
             await Task.Delay(pollInterval, cancellationToken);
+        }
+    }
+
+    private AgentOperation? FindProviderResponseOperation(ResponseContinuationToken? continuationToken)
+    {
+        if (continuationToken is null)
+            return null;
+        return _operationRegistry.LiveOperations().FirstOrDefault(operation =>
+            operation.Observer is ProviderResponseObservation observation &&
+            observation.Matches(continuationToken));
+    }
+
+    private ResponseContinuationToken? GetProviderResponseContinuation(string operationId) =>
+        _operationRegistry.TryGet(operationId, out var operation) &&
+        operation!.Observer is ProviderResponseObservation observation
+            ? observation.ContinuationToken
+            : null;
+
+    private ValueTask<AgentOperationSnapshot> FailProviderResponseOperationAsync(
+        string operationId,
+        string code,
+        string message) =>
+        _operationRegistry.TransitionAsync(operationId, new AgentOperationTransition
+        {
+            ProviderStatus = AgentOperationProviderStatus.Failed,
+            Failure = new AgentOperationFailure(code, message),
+            ProviderDeduplicationKey = $"model.response.failed:{operationId}:{code}"
+        }, CancellationToken.None);
+
+    private sealed class ProviderResponseObservation(ResponseContinuationToken continuationToken) : IAsyncDisposable
+    {
+        internal ResponseContinuationToken? ContinuationToken { get; set; } = continuationToken;
+
+        internal bool Matches(ResponseContinuationToken candidate) =>
+            ContinuationToken is { } current && current.ToBytes().Span.SequenceEqual(candidate.ToBytes().Span);
+
+        public ValueTask DisposeAsync()
+        {
+            ContinuationToken = null;
+            return ValueTask.CompletedTask;
         }
     }
 
@@ -6056,6 +5886,17 @@ public sealed class Agent
 
         // Ensure back-reference is set on loaded threads
         thread.Session = session;
+
+        var events = await store.CollectThreadEventsAsync(
+            new ThreadKey(sessionId, threadId),
+            cancellationToken).ConfigureAwait(false);
+        if (events is not null)
+        {
+            await _operationRegistry.RehydrateAsync(events).ConfigureAwait(false);
+            await _capabilityCatalog.EnsureReadyAsync(cancellationToken).ConfigureAwait(false);
+            await _capabilityCatalog.ReconcileAsync(
+                _operationRegistry.LiveOperations(), cancellationToken).ConfigureAwait(false);
+        }
 
         return (session, thread);
     }
@@ -7435,7 +7276,7 @@ public sealed class Agent
                         "Skill" => ToolCallType.Skill,
                         "SubAgent" => ToolCallType.SubAgent,
                         "MultiAgent" => ToolCallType.MultiAgent,
-                        "MCPServer" => ToolCallType.MCPServer,
+                        "MCPServer" => ToolCallType.McpServer,
                         "OpenApi" => ToolCallType.OpenApi,
                         _ => null
                     };
@@ -7614,34 +7455,6 @@ internal sealed record AgentToolCallRequest(
 }
 
 /// <summary>
-/// Information about an active background operation being tracked by the agent loop.
-/// Used for crash recovery - allows resuming polling for in-flight background operations.
-/// </summary>
-public record BackgroundOperationInfo
-{
-    /// <summary>
-    /// Serialized continuation token (Base64 encoded).
-    /// Can be deserialized using ResponseContinuationToken.FromBytes().
-    /// </summary>
-    public required string TokenData { get; init; }
-
-    /// <summary>
-    /// Which iteration started this background operation.
-    /// </summary>
-    public required int Iteration { get; init; }
-
-    /// <summary>
-    /// When the background operation was started.
-    /// </summary>
-    public required DateTimeOffset StartedAt { get; init; }
-
-    /// <summary>
-    /// Last known status from the provider.
-    /// </summary>
-    public OperationStatus? LastKnownStatus { get; init; }
-}
-
-/// <summary>
 /// Immutable snapshot of agent execution loop state.
 /// Consolidates all 11 state variables that were scattered in RunAgenticLoopInternal.
 /// Thread-safe and testable - enables pure decision-making logic.
@@ -7796,17 +7609,6 @@ public sealed record AgentLoopState
     /// </summary>
     public MiddlewareState MiddlewareState { get; init; }
         = new MiddlewareState();
-
-    //
-    // BACKGROUND OPERATION TRACKING
-    //
-
-    /// <summary>
-    /// Active background operation being tracked (if any).
-    /// Used for crash recovery - allows resuming polling for in-flight background operations.
-    /// Null when no background operation is active.
-    /// </summary>
-    public BackgroundOperationInfo? ActiveBackgroundOperation { get; init; }
 
     //
     // USAGE TRACKING
@@ -8007,11 +7809,6 @@ public sealed record AgentLoopState
         this with { ResponseUpdates = ImmutableList<ChatResponseUpdate>.Empty };
 
     /// <summary>
-    /// Sets or clears the active background operation.
-    /// Called when an LLM call returns a continuation token (backgrounded operation).
-    /// </summary>
-    /// <param name="operation">The background operation info, or null to clear.</param>
-    /// <summary>
     /// Records usage from a completed iteration:
     /// - Appends to <see cref="IterationUsage"/> (per-iteration breakdown)
     /// - Adds into <see cref="AccumulatedUsage"/> (running total across the turn)
@@ -8029,9 +7826,6 @@ public sealed record AgentLoopState
         total.Add(iterationUsage);
         return this with { AccumulatedUsage = total, IterationUsage = newIterationUsage };
     }
-
-    public AgentLoopState WithBackgroundOperation(BackgroundOperationInfo? operation) =>
-        this with { ActiveBackgroundOperation = operation };
 
     /// <summary>
     /// Serialized loop-state schema version.
@@ -8348,8 +8142,6 @@ internal class FunctionCallProcessor
     private readonly FunctionExecutionCore _functionExecutionCore;
     private readonly string _agentName;
     private readonly IReadOnlyDictionary<string, MiddlewareStateFactory> _stateFactories;
-    private readonly Func<Middleware.IAgentBackgroundTaskRegistry?> _getBackgroundTaskRegistry;
-    private readonly Func<Middleware.IAgentBackgroundHandleRegistry?> _getBackgroundHandleRegistry;
 
     public FunctionCallProcessor(
         HPD.Events.IEventCoordinator eventCoordinator,
@@ -8360,9 +8152,7 @@ internal class FunctionCallProcessor
         IList<AITool>? serverConfiguredTools = null,
         AgenticLoopConfig? agenticLoopConfig = null,
         string agentName = "Agent",
-        IReadOnlyDictionary<string, MiddlewareStateFactory>? stateFactories = null,
-        Func<Middleware.IAgentBackgroundTaskRegistry?>? getBackgroundTaskRegistry = null,
-        Func<Middleware.IAgentBackgroundHandleRegistry?>? getBackgroundHandleRegistry = null)
+        IReadOnlyDictionary<string, MiddlewareStateFactory>? stateFactories = null)
     {
         _eventCoordinator = eventCoordinator ?? throw new ArgumentNullException(nameof(eventCoordinator));
         _middlewarePipeline = middlewarePipeline ?? throw new ArgumentNullException(nameof(middlewarePipeline));
@@ -8372,8 +8162,6 @@ internal class FunctionCallProcessor
         _agenticLoopConfig = agenticLoopConfig;
         _agentName = agentName;
         _stateFactories = stateFactories ?? ImmutableDictionary<string, MiddlewareStateFactory>.Empty;
-        _getBackgroundTaskRegistry = getBackgroundTaskRegistry ?? (() => null);
-        _getBackgroundHandleRegistry = getBackgroundHandleRegistry ?? (() => null);
     }
 
     // Helpers moved here from FunctionMapBuilder to keep lookup logic next to caller
@@ -8833,7 +8621,7 @@ internal class FunctionCallProcessor
 internal record PreparedTurn
 {
     /// <summary>Gets the immutable capability-catalog lease pinned for this complete turn.</summary>
-    internal SkillCatalogLease? CatalogLease { get; init; }
+    internal AgentCapabilityLease? CatalogLease { get; init; }
 
     /// <summary>
     /// Prepared thread history and new input for the first iteration.

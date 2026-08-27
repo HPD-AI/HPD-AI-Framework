@@ -53,12 +53,13 @@ internal static class AgentRunConfigSnapshot
         TextToSpeech = CloneClient<TextToSpeechClientConfig>(source.TextToSpeech),
         SpeechToText = CloneClient<SpeechToTextClientConfig>(source.SpeechToText),
         HostedFiles = CloneClient<HostedFilesClientConfig>(source.HostedFiles),
-        VoiceActivity = CloneClient<VoiceActivityClientConfig>(source.VoiceActivity)
+        VoiceActivity = CloneClient<VoiceActivityClientConfig>(source.VoiceActivity),
+        EndOfTurn = CloneClient<EndOfTurnClientConfig>(source.EndOfTurn)
     };
 
     private static TConfig? CloneClient<TConfig>(TConfig? source)
         where TConfig : ProviderClientConfig
-        => source is null ? null : (TConfig)ProviderClientConfigResolver.Clone(source);
+        => source is null ? null : (TConfig)ProviderClientConfigSnapshot.Clone(source);
 
     private static void SnapshotProviderPayloads(AgentClientsConfig clients, ProviderComposition? composition)
     {
@@ -70,7 +71,7 @@ internal static class AgentRunConfigSnapshot
 
             config.ProviderConfig = SnapshotPayload(
                 composition,
-                config.ProviderKey,
+                config.Provider?.Key,
                 family,
                 ProviderPayloadKind.Configuration,
                 config.ProviderConfig,
@@ -79,37 +80,37 @@ internal static class AgentRunConfigSnapshot
             switch (config)
             {
                 case ChatClientConfig chat:
-                    chat.ProviderOptions = SnapshotPayload(composition, chat.ProviderKey, family,
+                    chat.ProviderOptions = SnapshotPayload(composition, chat.Provider?.Key, family,
                         ProviderPayloadKind.OperationOptions, chat.ProviderOptions,
                         $"Clients.{family}.ProviderOptions") as IChatRequestOptions;
                     break;
                 case RealtimeClientConfig realtime:
-                    realtime.ProviderOptions = SnapshotPayload(composition, realtime.ProviderKey, family,
+                    realtime.ProviderOptions = SnapshotPayload(composition, realtime.Provider?.Key, family,
                         ProviderPayloadKind.OperationOptions, realtime.ProviderOptions,
                         $"Clients.{family}.ProviderOptions") as IRealtimeSessionProviderOptions;
                     break;
                 case ImageGenerationClientConfig image:
-                    image.ProviderOptions = SnapshotPayload(composition, image.ProviderKey, family,
+                    image.ProviderOptions = SnapshotPayload(composition, image.Provider?.Key, family,
                         ProviderPayloadKind.OperationOptions, image.ProviderOptions,
                         $"Clients.{family}.ProviderOptions") as IImageGenerationProviderOptions;
                     break;
                 case EmbeddingsClientConfig embeddings:
-                    embeddings.ProviderOptions = SnapshotPayload(composition, embeddings.ProviderKey, family,
+                    embeddings.ProviderOptions = SnapshotPayload(composition, embeddings.Provider?.Key, family,
                         ProviderPayloadKind.OperationOptions, embeddings.ProviderOptions,
                         $"Clients.{family}.ProviderOptions") as IEmbeddingGenerationProviderOptions;
                     break;
                 case TextToSpeechClientConfig tts:
-                    tts.ProviderOptions = SnapshotPayload(composition, tts.ProviderKey, family,
+                    tts.ProviderOptions = SnapshotPayload(composition, tts.Provider?.Key, family,
                         ProviderPayloadKind.OperationOptions, tts.ProviderOptions,
                         $"Clients.{family}.ProviderOptions") as ITextToSpeechProviderOptions;
                     break;
                 case SpeechToTextClientConfig stt:
-                    stt.ProviderOptions = SnapshotPayload(composition, stt.ProviderKey, family,
+                    stt.ProviderOptions = SnapshotPayload(composition, stt.Provider?.Key, family,
                         ProviderPayloadKind.OperationOptions, stt.ProviderOptions,
                         $"Clients.{family}.ProviderOptions") as ISpeechToTextProviderOptions;
                     break;
                 case HostedFilesClientConfig files:
-                    files.ProviderOptions = SnapshotPayload(composition, files.ProviderKey, family,
+                    files.ProviderOptions = SnapshotPayload(composition, files.Provider?.Key, family,
                         ProviderPayloadKind.OperationOptions, files.ProviderOptions,
                         $"Clients.{family}.ProviderOptions") as IHostedFileProviderOptions;
                     break;
@@ -214,7 +215,7 @@ internal static class AgentRunConfigSnapshot
     {
         if (source is null)
             return null;
-        var clients = new AgentClientsConfig { Chat = (ChatClientConfig)ProviderClientConfigResolver.Clone(source) };
+        var clients = new AgentClientsConfig { Chat = (ChatClientConfig)ProviderClientConfigSnapshot.Clone(source) };
         SnapshotProviderPayloads(clients, composition);
         return clients.Chat;
     }

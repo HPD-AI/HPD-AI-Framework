@@ -1,11 +1,12 @@
 using FluentAssertions;
 using HPD.Agent.Hosting.Lifecycle;
 using HPD.Agent.Hosting.Tests.Infrastructure;
+using HPD.Agent.Providers;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Hosting.Tests.Lifecycle;
 
-public sealed class AgentStreamingServiceTests : IDisposable
+public sealed class AgentStreamingServiceTests : IAsyncLifetime
 {
     private readonly InMemorySessionStore _sessionStore = new();
     private readonly InMemoryAgentStore _agentStore = new();
@@ -20,10 +21,12 @@ public sealed class AgentStreamingServiceTests : IDisposable
         _service = new AgentStreamingService(_sessionManager, _agentManager);
     }
 
-    public void Dispose()
+    public Task InitializeAsync() => Task.CompletedTask;
+
+    public async Task DisposeAsync()
     {
         _sessionManager.Dispose();
-        _agentManager.Dispose();
+        await _agentManager.DisposeAsync();
     }
 
     [Fact]
@@ -58,7 +61,11 @@ public sealed class AgentStreamingServiceTests : IDisposable
         {
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig
             {
-                ProviderKey = "openrouter",
+                Provider = new ProviderReference
+                {
+                    Key = "openrouter", Backend = "platform",
+                    Authentication = new ApiKeyProviderAuthentication { SecretKey = "openrouter:ApiKey" }
+                },
                 ModelName = "model-1"
             } },
             Context = new AgentContextRunConfig
@@ -97,22 +104,30 @@ public sealed class AgentStreamingServiceTests : IDisposable
     }
 
     [Fact]
-    public void ApplyRouteScope_PreservesBackgroundNotificationRunConfig()
+    public void ApplyRouteScope_PreservesOperationNotificationRunConfig()
     {
         var runConfig = new AgentRunConfig
         {
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig
             {
-                ProviderKey = "openrouter",
+                Provider = new ProviderReference
+                {
+                    Key = "openrouter", Backend = "platform",
+                    Authentication = new ApiKeyProviderAuthentication { SecretKey = "openrouter:ApiKey" }
+                },
                 ModelName = "model-1"
             } }
         };
-        var input = new BackgroundTaskNotificationInputEvent(
+        var input = new AgentOperationNotificationInputEvent(
             [
-                new BackgroundTaskNotification(
-                    "notification-1",
-                    ["task-1"],
-                    "Background task completed.")
+                new AgentOperationNotification
+                {
+                    NotificationId = "notification-1",
+                    OperationId = "operation-1",
+                    Name = "compile",
+                    ProviderStatus = "completed",
+                    Summary = "Operation completed."
+                }
             ])
         {
             ClientInputId = "client-input-1",
@@ -130,7 +145,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
             "route-thread",
             "route-run");
 
-        var notification = scoped.Should().BeOfType<BackgroundTaskNotificationInputEvent>().Subject;
+        var notification = scoped.Should().BeOfType<AgentOperationNotificationInputEvent>().Subject;
         notification.AgentId.Should().Be("route-agent");
         notification.SessionId.Should().Be("route-session");
         notification.ThreadId.Should().Be("route-thread");
@@ -204,7 +219,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
                 {
                     Chat = new ChatClientConfig
                     {
-                        ProviderKey = "test",
+                        Provider = TestAgentFactory.TestSelection(),
                         ModelName = "test-model"
                     }
                 }
@@ -254,7 +269,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
             Name = "agent-1",
             Clients = new AgentClientsConfig
             {
-                Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" }
+                Chat = new ChatClientConfig { Provider = TestAgentFactory.TestSelection(), ModelName = "test-model" }
             }
         }, "agent-1");
 
@@ -289,7 +304,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
                 {
                     Chat = new ChatClientConfig
                     {
-                        ProviderKey = "test",
+                        Provider = TestAgentFactory.TestSelection(),
                         ModelName = "test-model"
                     }
                 }
@@ -366,7 +381,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
                     {
                         Chat = new ChatClientConfig
                         {
-                            ProviderKey = "test",
+                            Provider = TestAgentFactory.TestSelection(),
                             ModelName = "test-model"
                         }
                     }

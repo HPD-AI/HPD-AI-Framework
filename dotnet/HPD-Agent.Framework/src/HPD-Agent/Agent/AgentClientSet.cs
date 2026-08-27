@@ -6,7 +6,7 @@ namespace HPD.Agent;
 /// <summary>
 /// Resolved client-family instances for an agent build.
 /// </summary>
-public sealed class AgentClientSet : IDisposable
+public sealed class AgentClientSet : IAsyncDisposable
 {
     private readonly object _lifetimeGate = new();
     private IReadOnlySet<object>? _ownedClients;
@@ -53,7 +53,7 @@ public sealed class AgentClientSet : IDisposable
     internal void SetLeases(IReadOnlyList<IAsyncDisposable> leases)
         => _leases = leases;
 
-    internal IDisposable AcquireBorrowedLease()
+    internal IAsyncDisposable AcquireBorrowedLease()
     {
         lock (_lifetimeGate)
         {
@@ -63,8 +63,9 @@ public sealed class AgentClientSet : IDisposable
         }
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
+        var dispose = false;
         lock (_lifetimeGate)
         {
             if (_disposeRequested || _disposed)
@@ -73,11 +74,13 @@ public sealed class AgentClientSet : IDisposable
             if (_borrowCount != 0)
                 return;
             _disposed = true;
+            dispose = true;
         }
-        DisposeCore();
+        if (dispose)
+            await DisposeCoreAsync().ConfigureAwait(false);
     }
 
-    private void ReleaseBorrowedLease()
+    private async ValueTask ReleaseBorrowedLeaseAsync()
     {
         var dispose = false;
         lock (_lifetimeGate)
@@ -91,41 +94,47 @@ public sealed class AgentClientSet : IDisposable
             }
         }
         if (dispose)
-            DisposeCore();
+            await DisposeCoreAsync().ConfigureAwait(false);
     }
 
-    private void DisposeCore()
+    private async ValueTask DisposeCoreAsync()
     {
         var disposed = new HashSet<object>(ReferenceEqualityComparer.Instance);
 
-        DisposeOnce(Chat, disposed, _ownedClients);
-        DisposeOnce(TextToSpeech, disposed, _ownedClients);
-        DisposeOnce(SpeechToText, disposed, _ownedClients);
-        DisposeOnce(Realtime, disposed, _ownedClients);
-        DisposeOnce(ImageGenerator, disposed, _ownedClients);
-        DisposeOnce(EmbeddingGenerator, disposed, _ownedClients);
-        DisposeOnce(HostedFiles, disposed, _ownedClients);
+        await DisposeOnceAsync(Chat, disposed, _ownedClients).ConfigureAwait(false);
+        await DisposeOnceAsync(TextToSpeech, disposed, _ownedClients).ConfigureAwait(false);
+        await DisposeOnceAsync(SpeechToText, disposed, _ownedClients).ConfigureAwait(false);
+        await DisposeOnceAsync(Realtime, disposed, _ownedClients).ConfigureAwait(false);
+        await DisposeOnceAsync(ImageGenerator, disposed, _ownedClients).ConfigureAwait(false);
+        await DisposeOnceAsync(EmbeddingGenerator, disposed, _ownedClients).ConfigureAwait(false);
+        await DisposeOnceAsync(HostedFiles, disposed, _ownedClients).ConfigureAwait(false);
 
         if (_leases is not null)
         {
             for (var index = _leases.Count - 1; index >= 0; index--)
-                _leases[index].DisposeAsync().AsTask().GetAwaiter().GetResult();
+                await _leases[index].DisposeAsync().ConfigureAwait(false);
         }
     }
 
-    private sealed class BorrowedLease(AgentClientSet owner) : IDisposable
+    private sealed class BorrowedLease(AgentClientSet owner) : IAsyncDisposable
     {
         private AgentClientSet? _owner = owner;
-        public void Dispose() => Interlocked.Exchange(ref _owner, null)?.ReleaseBorrowedLease();
+        public ValueTask DisposeAsync() =>
+            Interlocked.Exchange(ref _owner, null)?.ReleaseBorrowedLeaseAsync() ?? ValueTask.CompletedTask;
     }
 
-    private static void DisposeOnce(object? value, HashSet<object> disposed, IReadOnlySet<object>? ownedClients)
+    private static async ValueTask DisposeOnceAsync(
+        object? value,
+        HashSet<object> disposed,
+        IReadOnlySet<object>? ownedClients)
     {
-        if (value is not IDisposable disposable ||
+        if (value is null ||
             (ownedClients is not null && !ownedClients.Contains(value)) ||
             !disposed.Add(value))
             return;
-
-        disposable.Dispose();
+        if (value is IAsyncDisposable asyncDisposable)
+            await asyncDisposable.DisposeAsync().ConfigureAwait(false);
+        else if (value is IDisposable disposable)
+            disposable.Dispose();
     }
 }

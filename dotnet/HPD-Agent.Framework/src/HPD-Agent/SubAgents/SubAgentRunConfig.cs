@@ -198,16 +198,11 @@ public sealed class SubAgentRunConfig
             if (parent is null || parentClient is null)
                 return;
 
-            var inherited = ProviderClientConfigResolver.Clone(parent);
-            SetOverride(inherited, family, parentClient);
+            var inherited = ProviderClientConfigSnapshot.Clone(parent);
             if (own is not null)
-            {
-                var baseline = new AgentClientsConfig();
-                baseline.SetFamilyConfig(family, inherited);
-                var overrides = new AgentClientsConfig();
-                overrides.SetFamilyConfig(family, own);
-                inherited = ProviderClientConfigResolver.Resolve(baseline, family, overrides)!;
-            }
+                inherited = EffectiveProviderClientConfigResolver.OverlayResolvedInheritance(parent, own);
+            if (own?.Provider is null)
+                SetOverride(inherited, family, parentClient);
             result.Clients.SetFamilyConfig(family, inherited);
         }
     }
@@ -231,22 +226,22 @@ public sealed class SubAgentRunConfig
         switch (family)
         {
             case ProviderClientFamily.Realtime:
-                ((RealtimeClientConfig)config).Override = new() { Client = (Microsoft.Extensions.AI.IRealtimeClient)client };
+                ((RealtimeClientConfig)config).Override = ClientOverride<Microsoft.Extensions.AI.IRealtimeClient>.Borrow((Microsoft.Extensions.AI.IRealtimeClient)client);
                 break;
             case ProviderClientFamily.ImageGeneration:
-                ((ImageGenerationClientConfig)config).Override = new() { Client = (Microsoft.Extensions.AI.IImageGenerator)client };
+                ((ImageGenerationClientConfig)config).Override = ClientOverride<Microsoft.Extensions.AI.IImageGenerator>.Borrow((Microsoft.Extensions.AI.IImageGenerator)client);
                 break;
             case ProviderClientFamily.Embeddings:
-                ((EmbeddingsClientConfig)config).Override = new() { Client = (Microsoft.Extensions.AI.IEmbeddingGenerator)client };
+                ((EmbeddingsClientConfig)config).Override = ClientOverride<Microsoft.Extensions.AI.IEmbeddingGenerator>.Borrow((Microsoft.Extensions.AI.IEmbeddingGenerator)client);
                 break;
             case ProviderClientFamily.TextToSpeech:
-                ((TextToSpeechClientConfig)config).Override = new() { Client = (Microsoft.Extensions.AI.ITextToSpeechClient)client };
+                ((TextToSpeechClientConfig)config).Override = ClientOverride<Microsoft.Extensions.AI.ITextToSpeechClient>.Borrow((Microsoft.Extensions.AI.ITextToSpeechClient)client);
                 break;
             case ProviderClientFamily.SpeechToText:
-                ((SpeechToTextClientConfig)config).Override = new() { Client = (Microsoft.Extensions.AI.ISpeechToTextClient)client };
+                ((SpeechToTextClientConfig)config).Override = ClientOverride<Microsoft.Extensions.AI.ISpeechToTextClient>.Borrow((Microsoft.Extensions.AI.ISpeechToTextClient)client);
                 break;
             case ProviderClientFamily.HostedFiles:
-                ((HostedFilesClientConfig)config).Override = new() { Client = (Microsoft.Extensions.AI.IHostedFileClient)client };
+                ((HostedFilesClientConfig)config).Override = ClientOverride<Microsoft.Extensions.AI.IHostedFileClient>.Borrow((Microsoft.Extensions.AI.IHostedFileClient)client);
                 break;
         }
     }

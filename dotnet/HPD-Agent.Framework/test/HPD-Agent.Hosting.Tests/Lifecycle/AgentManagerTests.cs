@@ -10,7 +10,7 @@ namespace HPD.Agent.Hosting.Tests.Lifecycle;
 /// Tests for the AgentManager abstract base class.
 /// Covers definition CRUD, instance caching, build locking, and idle eviction.
 /// </summary>
-public class AgentManagerTests : IDisposable
+public class AgentManagerTests : IAsyncLifetime
 {
     private readonly InMemoryAgentStore _store;
     private readonly TestAgentManagerImpl _manager;
@@ -21,7 +21,8 @@ public class AgentManagerTests : IDisposable
         _manager = new TestAgentManagerImpl(_store);
     }
 
-    public void Dispose() => _manager.Dispose();
+    public Task InitializeAsync() => Task.CompletedTask;
+    public Task DisposeAsync() => _manager.DisposeAsync().AsTask();
 
     // ──────────────────────────────────────────────────────────────────────────
     // Definition CRUD
@@ -364,7 +365,7 @@ public class AgentManagerTests : IDisposable
     {
         Name = name,
         MaxAgenticIterations = 5,
-        Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" } }
+        Clients = new AgentClientsConfig { Chat = new ChatClientConfig { Provider = TestAgentFactory.TestSelection(), ModelName = "test-model" } }
     };
 
     // ──────────────────────────────────────────────────────────────────────────

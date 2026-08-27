@@ -121,60 +121,6 @@ public sealed record InterruptionHandledEvent : AgentEvent
 
 #endregion
 
-#region Background Operation Types
-
-/// <summary>
-/// Status of a long-running background operation.
-/// Used with AllowBackgroundResponses feature for tracking LLM operations
-/// that run asynchronously on provider infrastructure.
-/// </summary>
-public readonly struct OperationStatus : IEquatable<OperationStatus>
-{
-    /// <summary>Operation has been accepted but not yet started.</summary>
-    public static OperationStatus Queued { get; } = new("Queued");
-
-    /// <summary>Operation is actively running.</summary>
-    public static OperationStatus InProgress { get; } = new("InProgress");
-
-    /// <summary>Operation completed successfully.</summary>
-    public static OperationStatus Completed { get; } = new("Completed");
-
-    /// <summary>Operation failed with an error.</summary>
-    public static OperationStatus Failed { get; } = new("Failed");
-
-    /// <summary>Operation was cancelled.</summary>
-    public static OperationStatus Cancelled { get; } = new("Cancelled");
-
-    /// <summary>The status value as a string.</summary>
-    public string Value { get; }
-
-    /// <summary>Creates a new OperationStatus with the specified value.</summary>
-    public OperationStatus(string value) => Value = value ?? throw new ArgumentNullException(nameof(value));
-
-    /// <summary>Whether this status represents a terminal state (no further updates expected).</summary>
-    public bool IsTerminal => this == Completed || this == Failed || this == Cancelled;
-
-    /// <inheritdoc />
-    public bool Equals(OperationStatus other) => Value == other.Value;
-
-    /// <inheritdoc />
-    public override bool Equals(object? obj) => obj is OperationStatus other && Equals(other);
-
-    /// <inheritdoc />
-    public override int GetHashCode() => Value?.GetHashCode() ?? 0;
-
-    /// <inheritdoc />
-    public override string ToString() => Value;
-
-    /// <summary>Equality operator.</summary>
-    public static bool operator ==(OperationStatus left, OperationStatus right) => left.Equals(right);
-
-    /// <summary>Inequality operator.</summary>
-    public static bool operator !=(OperationStatus left, OperationStatus right) => !left.Equals(right);
-}
-
-#endregion
-
 /// <summary>
 /// Protocol-agnostic internal events emitted by the agent core.
 /// These events represent what actually happened during agent execution,
@@ -473,21 +419,6 @@ public sealed record CompactThreadInputEvent : AgentInputEvent
     public Thread? Thread { get; init; }
 }
 
-/// <summary>
-/// Runtime-generated input that wakes the model with one or more background task notifications.
-/// </summary>
-public sealed record BackgroundTaskNotificationInputEvent(
-    IReadOnlyList<BackgroundTaskNotification> Notifications) : AgentInputEvent;
-
-/// <summary>
-/// Model-visible summary of background task facts selected by notification policy.
-/// </summary>
-public sealed record BackgroundTaskNotification(
-    string NotificationId,
-    IReadOnlyList<string> TaskIds,
-    string Summary,
-    IReadOnlyDictionary<string, string>? Metadata = null);
-
 #region Message Turn Events (Entire User Interaction)
 
 /// <summary>
@@ -656,18 +587,17 @@ public record AgentTurnFinishedEvent(int Iteration) : AgentEvent
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
 }
 
-/// <summary>Emitted before runtime skill sources are reconciled.</summary>
-public sealed record SkillReloadStartedEvent(long CurrentEpoch, string Reason) : AgentEvent;
+/// <summary>Emitted before all dynamic capability sources are reconciled.</summary>
+public sealed record AgentCapabilityRefreshStartedEvent(long CurrentEpoch, string Reason) : AgentEvent;
 
-/// <summary>Emitted after a validated immutable skill catalog epoch is published.</summary>
-public sealed record SkillReloadPublishedEvent(
+/// <summary>Emitted after a complete validated capability epoch is published.</summary>
+public sealed record AgentCapabilityRefreshPublishedEvent(
     long PreviousEpoch,
     long NewEpoch,
-    IReadOnlyList<string> ChangedSkillIds,
     string Reason) : AgentEvent;
 
-/// <summary>Emitted when a replacement skill catalog is rejected and the prior epoch remains active.</summary>
-public sealed record SkillReloadRejectedEvent(
+/// <summary>Emitted when a complete capability candidate is rejected and the prior epoch remains active.</summary>
+public sealed record AgentCapabilityRefreshRejectedEvent(
     long RetainedEpoch,
     string Error,
     string Reason) : AgentEvent, IErrorEvent
@@ -678,6 +608,13 @@ public sealed record SkillReloadRejectedEvent(
     /// <inheritdoc />
     [JsonIgnore]
     public Exception? Exception => null;
+}
+
+/// <summary>Emitted when one immutable effective capability surface is pinned for a turn.</summary>
+public sealed record AgentTurnCapabilitiesPinnedEvent : AgentEvent
+{
+    /// <summary>Gets the complete stable identity of the effective surface.</summary>
+    public required AgentTurnCapabilityIdentity Identity { get; init; }
 }
 
 /// <summary>Emitted before a skill resolves its authoritative instructions.</summary>
@@ -910,8 +847,8 @@ public enum ToolCallType
     SubAgent,
     /// <summary>A [MultiAgent] workflow that orchestrates multiple agents.</summary>
     MultiAgent,
-    /// <summary>A tool exposed by an [MCPServer].</summary>
-    MCPServer,
+    /// <summary>A tool exposed by an [McpServer].</summary>
+    McpServer,
     /// <summary>A function generated from an [OpenApi] spec.</summary>
     OpenApi,
 }
@@ -1074,186 +1011,36 @@ public sealed record ToolResultPayload(
     }
 }
 
-/// <summary>
-/// Source category for runtime-owned background work.
-/// </summary>
-[JsonConverter(typeof(JsonStringEnumConverter<BackgroundTaskSourceKind>))]
-public enum BackgroundTaskSourceKind
+ /// <summary>Emitted exactly once when an operation becomes authoritative in its owning thread.</summary>
+public sealed record AgentOperationRegisteredEvent : AgentEvent
 {
-    ToolCall,
-    Function,
-    Command,
-    ClientTool,
-    SubAgent,
-    MultiAgent,
-    McpTool,
-    Runtime,
-    Maintenance,
-    Other
-}
-
-/// <summary>
-/// Base event for runtime-owned background work.
-/// </summary>
-public abstract record BackgroundTaskEvent : AgentEvent
-{
+    /// <inheritdoc />
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
 
-    public required string TaskId { get; init; }
-
-    public required string Name { get; init; }
-
-    public required BackgroundTaskSourceKind SourceKind { get; init; }
-
-    public required BackgroundTaskNotificationRule Notification { get; init; }
-
-    public string? SourceId { get; init; }
-
-    public string? OriginatingThreadExecutionId { get; init; }
-
-    public FunctionInvocationSnapshot? Invocation { get; init; }
-
-    public IReadOnlyDictionary<string, string>? Metadata { get; init; }
+    /// <summary>Gets the complete initial operation snapshot.</summary>
+    public required AgentOperationSnapshot Operation { get; init; }
 }
 
-/// <summary>
-/// Emitted when runtime-owned background work begins.
-/// </summary>
-public sealed record BackgroundTaskStartedEvent : BackgroundTaskEvent
+/// <summary>Emitted once for each committed, version-checked operation transition.</summary>
+public sealed record AgentOperationTransitionedEvent : AgentEvent
 {
-    public required DateTimeOffset StartedAt { get; init; }
-}
-
-/// <summary>
-/// Emitted when runtime-owned background work completes.
-/// </summary>
-public sealed record BackgroundTaskCompletedEvent : BackgroundTaskEvent
-{
-    public required DateTimeOffset CompletedAt { get; init; }
-
-    public required long DurationMilliseconds { get; init; }
-
-    public string? Summary { get; init; }
-}
-
-/// <summary>
-/// Emitted when runtime-owned background work observes cancellation.
-/// </summary>
-public sealed record BackgroundTaskCancelledEvent : BackgroundTaskEvent
-{
-    public required DateTimeOffset CancelledAt { get; init; }
-
-    public string? Reason { get; init; }
-}
-
-/// <summary>
-/// Emitted when runtime-owned background work faults.
-/// </summary>
-public sealed record BackgroundTaskFaultedEvent : BackgroundTaskEvent, IErrorEvent
-{
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
-
-    public required DateTimeOffset FaultedAt { get; init; }
-
-    public required string ExceptionType { get; init; }
-
-    public required string ErrorMessage { get; init; }
-
-    [JsonIgnore]
-    public Exception? Exception => null;
-}
-
-/// <summary>
-/// Emitted when a controllable background handle is registered with the runtime.
-/// </summary>
-public sealed record BackgroundHandleRegisteredEvent : AgentEvent
-{
+    /// <inheritdoc />
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
 
-    public required string HandleId { get; init; }
+    /// <summary>Gets the operation identifier.</summary>
+    public required string OperationId { get; init; }
 
-    public required string Name { get; init; }
+    /// <summary>Gets the version replaced by this transition.</summary>
+    public required long PreviousVersion { get; init; }
 
-    public required BackgroundHandleKind HandleKind { get; init; }
+    /// <summary>Gets the complete snapshot after the transition.</summary>
+    public required AgentOperationSnapshot Operation { get; init; }
 
-    public required BackgroundTaskSourceKind SourceKind { get; init; }
-
-    public string? SourceId { get; init; }
-
-    public FunctionInvocationSnapshot? Invocation { get; init; }
-
-    public required BackgroundHandleOperation SupportedOperations { get; init; }
-
-    public IReadOnlyDictionary<string, string>? Metadata { get; init; }
-
-    public required DateTimeOffset RegisteredAt { get; init; }
+    /// <summary>Gets the provider deduplication key when supplied.</summary>
+    public string? ProviderDeduplicationKey { get; init; }
 }
 
-/// <summary>
-/// Emitted when a controllable background handle reports a status change.
-/// </summary>
-public sealed record BackgroundHandleStatusChangedEvent : AgentEvent
-{
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-
-    public required string HandleId { get; init; }
-
-    public required string Status { get; init; }
-
-    public required DateTimeOffset ObservedAt { get; init; }
-
-    public IReadOnlyDictionary<string, string>? Metadata { get; init; }
-}
-
-/// <summary>
-/// Emitted when background task notification rules select one or more final-state task facts for model delivery.
-/// </summary>
-public sealed record BackgroundTaskNotificationQueuedEvent : AgentEvent
-{
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override EventChannel Channel { get; init; } = EventChannel.Control;
-
-    public required string NotificationId { get; init; }
-
-    public required IReadOnlyList<string> TaskIds { get; init; }
-
-    public required DateTimeOffset QueuedAt { get; init; }
-
-    public required string Reason { get; init; }
-}
-
-/// <summary>
-/// Emitted after a queued background task notification has been delivered to a model turn.
-/// </summary>
-public sealed record BackgroundTaskNotificationDeliveredEvent : AgentEvent
-{
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override EventChannel Channel { get; init; } = EventChannel.Control;
-
-    public required string NotificationId { get; init; }
-
-    public required DateTimeOffset DeliveredAt { get; init; }
-
-}
-
-/// <summary>
-/// Emitted when background task notification rules explicitly decide not to wake the model.
-/// </summary>
-public sealed record BackgroundTaskNotificationSuppressedEvent : AgentEvent
-{
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override EventChannel Channel { get; init; } = EventChannel.Control;
-
-    public required string NotificationId { get; init; }
-
-    public required IReadOnlyList<string> TaskIds { get; init; }
-
-    public required DateTimeOffset SuppressedAt { get; init; }
-
-    public required string Reason { get; init; }
-}
-
-#endregion
+ #endregion
 
 #region Middleware Events
 
@@ -1494,40 +1281,6 @@ public record CircuitBreakerTriggeredEvent(
     public override EventChannel Channel { get; init; } = EventChannel.Control;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
 }
-
-#region Background Operation Events
-
-/// <summary>
-/// Emitted when an LLM operation has been backgrounded by the provider.
-/// Contains the continuation token needed for polling for completion.
-/// </summary>
-/// <remarks>
-/// This event is emitted when AllowBackgroundResponses is true and the provider
-/// supports background mode. The client should use the ContinuationToken to poll
-/// for the operation's completion.
-/// </remarks>
-public record ModelBackgroundOperationStartedEvent(
-    ResponseContinuationToken ContinuationToken,
-    OperationStatus Status,
-    string? OperationId = null
-) : AgentEvent
-{
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-}
-
-/// <summary>
-/// Emitted during polling with status updates for a background operation.
-/// </summary>
-public record ModelBackgroundOperationStatusEvent(
-    ResponseContinuationToken ContinuationToken,
-    OperationStatus Status,
-    string? StatusMessage = null
-) : AgentEvent
-{
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-}
-
-#endregion
 
 /// <summary>
 /// Emitted when parallel tool execution starts.

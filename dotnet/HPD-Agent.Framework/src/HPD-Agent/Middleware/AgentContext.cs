@@ -176,8 +176,8 @@ public sealed class AgentContext
     /// <para><b>Example - Audio Provider with HttpClient:</b></para>
     /// <code>
     /// var httpClient = context.Services?.GetService(typeof(HttpClient)) as HttpClient;
-    /// var provider = providerRegistry.GetProvider&lt;ITextToSpeechClientProvider&gt;("openai");
-    /// var ttsClient = provider?.CreateTextToSpeechClient(config, context.Services);
+    /// var runtime = context.Services?.GetService(typeof(ProviderFamilyClientRuntime));
+    /// // The family-neutral runtime constructs every provider family asynchronously.
     /// </code>
     /// </remarks>
     public IServiceProvider? Services => _services;
@@ -657,9 +657,7 @@ public sealed class AgentContext
         string? toolharnessName = null,
         string? skillName = null,
         ToolInvocationInfo? invocation = null,
-        IAgentBackgroundTaskRegistry? backgroundTasks = null,
-        IAgentBackgroundHandleRegistry? backgroundHandles = null,
-        IClientToolBackgroundOperationRegistry? clientToolBackgroundOperations = null)
+        IClientToolOperationRegistry? clientToolOperations = null)
         => new(
             this,
             function,
@@ -669,9 +667,7 @@ public sealed class AgentContext
             skillName,
             runConfig,
             invocation,
-            backgroundTasks,
-            backgroundHandles,
-            clientToolBackgroundOperations);
+            clientToolOperations);
 
     /// <summary>
     /// Creates a typed context for AfterFunction hook.

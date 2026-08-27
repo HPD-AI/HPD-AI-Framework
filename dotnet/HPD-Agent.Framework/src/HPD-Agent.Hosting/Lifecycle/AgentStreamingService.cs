@@ -440,8 +440,6 @@ public sealed class AgentStreamingService : IAgentStreamingService
         execution.StartedAt,
         null,
         null,
-        null,
-        [],
         []);
 
     private async Task<AgentServiceResult<Agent>> GetAgentForExecutionAsync(

@@ -90,7 +90,7 @@ public class SubAgentSourceGeneratorTests
         Assert.NotNull(subAgent);
         var config = ConfigOf(subAgent);
         Assert.NotNull(config.EnsureChatClientConfig());
-        Assert.Equal("openrouter", config.EnsureChatClientConfig().ProviderKey);
+        Assert.Equal("openrouter", config.EnsureChatClientConfig().Provider?.Key);
         Assert.Equal("google/gemini-2.0-flash-exp:free", config.EnsureChatClientConfig().ModelName);
     }
 

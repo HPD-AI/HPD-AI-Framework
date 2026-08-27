@@ -54,10 +54,8 @@ public sealed class RealtimeConsumerSetupTests
                             Transport = AgentModelTransportMode.Realtime,
                             Realtime = new RealtimeClientConfig
                             {
-                                Override = new ClientOverride<IRealtimeClient>
-                                {
-                                    Client = new ConsumerRealtimeClient(realtimeSession)
-                                }
+                                Override = ClientOverride<IRealtimeClient>.Borrow(
+                                    new ConsumerRealtimeClient(realtimeSession))
                             }
                         }
                     }
@@ -65,7 +63,7 @@ public sealed class RealtimeConsumerSetupTests
         }
         finally
         {
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         Assert.NotNull(realtimeSession.Options?.InputAudioFormat);

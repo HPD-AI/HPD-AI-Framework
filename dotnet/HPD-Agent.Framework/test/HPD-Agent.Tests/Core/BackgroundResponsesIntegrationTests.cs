@@ -33,8 +33,6 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
         var events = await RunAndCollectAsync(agent, messages, session, thread);
 
         // Assert: Should not contain any background events
-        Assert.DoesNotContain(events, e => e is ModelBackgroundOperationStartedEvent);
-        Assert.DoesNotContain(events, e => e is ModelBackgroundOperationStatusEvent);
     }
 
     [Fact]
@@ -58,7 +56,6 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
         var events = await RunAndCollectAsync(agent, messages, session, thread, options);
 
         // Assert: Background events should not be emitted when disabled at run level
-        Assert.DoesNotContain(events, e => e is ModelBackgroundOperationStartedEvent);
     }
 
     [Fact]
@@ -107,80 +104,6 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
 
         // Assert: Options should override config
         Assert.Equal(TimeSpan.FromMinutes(5), resolvedTimeout);
-    }
-
-    #endregion
-
-    #region Session State with Background Operations
-
-    [Fact]
-    public async Task Session_BackgroundOperation_ClearsAfterCompletion()
-    {
-        // Arrange
-        var fakeClient = new FakeChatClient();
-        fakeClient.EnqueueTextResponse("Completed response");
-
-        var config = DefaultConfig();
-        var agent = CreateAgent(config, fakeClient);
-        var session = new global::HPD.Agent.Session("test-session-id");
-        var thread = new global::HPD.Agent.Thread("test-session-id", "test-agent");
-        thread.AddMessage(UserMessage("Test"));
-
-        // Act
-        var messages = thread.Messages;
-        await agent.RunAsync(new UserMessagesInputEvent { Messages = messages,
-            Session = session,
-            Thread = thread
-        }, TestCancellationToken);
-
-        // Assert: regular non-background completion still leaves ordinary transcript state intact.
-        Assert.NotEmpty(thread.Messages);
-    }
-
-    [Fact]
-    public async Task AgentLoopState_Serialization_PreservesBackgroundOperationInfo()
-    {
-        // Arrange
-        var messages = new List<ChatMessage> { UserMessage("Test") };
-        var backgroundOp = new BackgroundOperationInfo
-        {
-            TokenData = "dGVzdF90b2tlbg==",
-            Iteration = 2,
-            StartedAt = DateTimeOffset.Parse("2025-12-15T10:30:00Z"),
-            LastKnownStatus = OperationStatus.InProgress
-        };
-
-        var state = AgentLoopState.InitialSafe(messages, "run-123", "conv-456", "TestAgent")
-            .WithBackgroundOperation(backgroundOp);
-
-        // Act: Serialize and deserialize
-        var json = state.Serialize();
-        var deserialized = AgentLoopState.Deserialize(json);
-
-        // Assert: Core fields should be preserved
-        Assert.NotNull(deserialized.ActiveBackgroundOperation);
-        Assert.Equal("dGVzdF90b2tlbg==", deserialized.ActiveBackgroundOperation.TokenData);
-        Assert.Equal(2, deserialized.ActiveBackgroundOperation.Iteration);
-
-        // Note: LastKnownStatus may not serialize properly if OperationStatus struct
-        // doesn't have a proper JSON converter. This is acceptable as the TokenData
-        // and Iteration are the critical fields for crash recovery.
-        // The status can be re-queried from the provider using the token.
-    }
-
-    [Fact]
-    public async Task AgentLoopState_Serialization_WorksWithNullBackgroundOperation()
-    {
-        // Arrange
-        var messages = new List<ChatMessage> { UserMessage("Test") };
-        var state = AgentLoopState.InitialSafe(messages, "run-123", "conv-456", "TestAgent");
-
-        // Act: Serialize and deserialize
-        var json = state.Serialize();
-        var deserialized = AgentLoopState.Deserialize(json);
-
-        // Assert
-        Assert.Null(deserialized.ActiveBackgroundOperation);
     }
 
     #endregion

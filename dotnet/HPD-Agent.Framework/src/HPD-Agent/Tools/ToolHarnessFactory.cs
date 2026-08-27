@@ -146,14 +146,14 @@ public record ToolHarnessFactory(
     // ========== NEW: MCP SERVER SUPPORT ==========
 
     /// <summary>
-    /// Whether this toolharness has [MCPServer] methods.
+    /// Whether this toolharness has [McpServer] methods.
     /// When true, the generated Registration class has a static MCPServers property
-    /// containing MCPServerRegistration objects that AgentBuilder processes at build time.
+    /// containing McpServerSource descriptors that AgentBuilder processes at build time.
     /// </summary>
-    bool HasMCPServers = false,
+    bool HasMcpServers = false,
 
     /// <summary>
-    /// Delegate to collect MCP server registrations from [MCPServer] methods.
+    /// Delegate to collect MCP server registrations from [McpServer] methods.
     /// Null when the toolharness has no MCP servers.
     /// </summary>
     Action<object, Action<McpServerSource>>? CollectMcpServers = null,

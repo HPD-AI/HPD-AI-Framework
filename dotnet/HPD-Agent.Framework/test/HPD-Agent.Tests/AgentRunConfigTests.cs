@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Extensions.AI;
+using HPD.Agent.Providers;
 
 namespace HPD.Agent.Tests;
 
@@ -62,23 +63,25 @@ public class AgentRunConfigTests
     }
 
     [Fact]
-    public void ApiKey_IsExcludedFromSourceGeneratedJson()
+    public void AuthenticationSelection_UsesPortableDiscriminatedUnion()
     {
         var runConfig = new AgentRunConfig
         {
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig
             {
-                ProviderKey = "openai",
+                Provider = new ProviderReference
+                {
+                    Key = "openai",
+                    Backend = "platform",
+                    Authentication = new OAuthProviderAuthentication { AccountId = "openai-work" }
+                },
                 ModelName = "gpt-test",
-                ApiKey = "must-not-serialize",
-                AuthenticationKey = "openai-work"
             } }
         };
 
         var json = JsonSerializer.Serialize(runConfig, HPDJsonContext.Default.AgentRunConfig);
 
-        Assert.DoesNotContain("must-not-serialize", json, StringComparison.Ordinal);
-        Assert.DoesNotContain("ApiKey", json, StringComparison.Ordinal);
+        Assert.Contains("\"type\": \"oauth\"", json, StringComparison.Ordinal);
         Assert.Contains("openai-work", json, StringComparison.Ordinal);
     }
 

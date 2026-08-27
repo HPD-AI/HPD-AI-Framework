@@ -170,7 +170,7 @@ public sealed record ExecuteCommandAutoBackgroundedEvent : ExecuteCommandEvent
 {
     public override EventKind Kind { get; init; } = EventKind.Lifecycle;
 
-    public required string BackgroundHandleId { get; init; }
+    public required string OperationId { get; init; }
 
     public required DateTimeOffset BackgroundedAt { get; init; }
 

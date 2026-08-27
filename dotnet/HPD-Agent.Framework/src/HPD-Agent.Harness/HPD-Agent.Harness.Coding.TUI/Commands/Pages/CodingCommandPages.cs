@@ -68,7 +68,7 @@ internal abstract class CodingCommandPageComponentBase : IComponent
         ref SegmentWriter output)
     {
         CodingCommandPanelText.WriteClipped($"• {command.DisplayCommand}", maxWidth, Theme.ResolveCommandState(MapState(command.DisplayState), context.Theme), ref output);
-        WriteBackgroundDetail("handle", command.BackgroundHandleId ?? command.CommandId, maxWidth, in context, ref output);
+        WriteBackgroundDetail("handle", command.OperationId ?? command.CommandId, maxWidth, in context, ref output);
         if (!string.IsNullOrWhiteSpace(command.WorkingDirectory))
         {
             WriteBackgroundDetail("cwd", command.WorkingDirectory, maxWidth, in context, ref output);

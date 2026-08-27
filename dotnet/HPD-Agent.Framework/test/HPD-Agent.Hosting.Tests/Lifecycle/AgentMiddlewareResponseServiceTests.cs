@@ -6,7 +6,7 @@ using HPD.Agent.Hosting.Lifecycle;
 
 namespace HPD.Agent.Hosting.Tests.Lifecycle;
 
-public class AgentMiddlewareResponseServiceTests : IDisposable
+public class AgentMiddlewareResponseServiceTests : IAsyncLifetime
 {
     private readonly InMemorySessionStore _sessionStore = new();
     private readonly InMemoryAgentStore _agentStore = new();
@@ -21,10 +21,12 @@ public class AgentMiddlewareResponseServiceTests : IDisposable
         _service = new AgentMiddlewareResponseService(_sessionManager, _agentManager);
     }
 
-    public void Dispose()
+    public Task InitializeAsync() => Task.CompletedTask;
+
+    public async Task DisposeAsync()
     {
         _sessionManager.Dispose();
-        _agentManager.Dispose();
+        await _agentManager.DisposeAsync();
     }
 
     [Fact]
@@ -103,7 +105,7 @@ public class AgentMiddlewareResponseServiceTests : IDisposable
         {
             Chat = new ChatClientConfig
             {
-                ProviderKey = "test",
+                Provider = TestAgentFactory.TestSelection(),
                 ModelName = "test-model"
             }
         }

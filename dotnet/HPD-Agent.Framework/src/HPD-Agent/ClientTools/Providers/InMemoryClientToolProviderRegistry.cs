@@ -22,7 +22,7 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
     private readonly ConcurrentDictionary<string, ClientToolProviderBindingLease> _leases =
         new(StringComparer.Ordinal);
 
-    private readonly ConcurrentDictionary<string, PendingProviderBackgroundOperation> _backgroundOperations =
+    private readonly ConcurrentDictionary<string, PendingProviderOperation> _operations =
         new(StringComparer.Ordinal);
 
     private readonly object _leaseLock = new();
@@ -222,7 +222,7 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
             string.Equals(existing.Snapshot.ConnectionId, connectionId, StringComparison.Ordinal))
         {
             existing.FailPendingInvocations("Provider disconnected.");
-            FailProviderBackgroundOperations(clientRuntimeId, connectionId, "Provider disconnected.");
+            FailProviderOperations(clientRuntimeId, connectionId, "Provider disconnected.");
             BreakProviderLeases(clientRuntimeId, connectionId, ClientToolProviderBindingLeaseStatus.Disconnected, "Provider disconnected.");
             _providers[clientRuntimeId] = existing with
             {
@@ -270,7 +270,7 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
                 }
 
                 existing.FailPendingInvocations(reason);
-                FailProviderBackgroundOperations(
+                FailProviderOperations(
                     clientRuntimeId,
                     existing.Snapshot.ConnectionId,
                     reason);
@@ -646,8 +646,8 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
     }
 
     /// <inheritdoc />
-    public ClientToolProviderBackgroundOperationRegistration RegisterBackgroundOperation(
-        ClientToolProviderBackgroundOperationDescriptor descriptor)
+    public ClientToolProviderOperationRegistration RegisterOperation(
+        ClientToolProviderOperationDescriptor descriptor)
     {
         ArgumentNullException.ThrowIfNull(descriptor);
         ArgumentNullException.ThrowIfNull(descriptor.Binding);
@@ -665,23 +665,23 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
                 $"Provider binding '{descriptor.Binding.BindingId}' is not active.");
         }
 
-        var pending = new PendingProviderBackgroundOperation(descriptor);
-        if (!_backgroundOperations.TryAdd(descriptor.ClientOperationId, pending))
+        var pending = new PendingProviderOperation(descriptor);
+        if (!_operations.TryAdd(descriptor.ClientOperationId, pending))
         {
             throw new InvalidOperationException(
                 $"A provider background operation with id '{descriptor.ClientOperationId}' is already registered.");
         }
 
-        return new ClientToolProviderBackgroundOperationRegistration(
+        return new ClientToolProviderOperationRegistration(
             descriptor.ClientOperationId,
             pending.Completion);
     }
 
     /// <inheritdoc />
-    public bool TryResolveBackgroundOperationOutcome(
+    public bool TryResolveOperationOutcome(
         string clientRuntimeId,
         string connectionId,
-        ClientToolProviderBackgroundOperationOutcomeMessage outcome)
+        ClientToolProviderOperationOutcomeMessage outcome)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(clientRuntimeId);
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionId);
@@ -692,7 +692,7 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
         if (!TryGetActiveLease(outcome.BindingId, clientRuntimeId, connectionId, out _))
             return false;
 
-        if (!_backgroundOperations.TryRemove(outcome.ClientOperationId, out var pending))
+        if (!_operations.TryRemove(outcome.ClientOperationId, out var pending))
             return false;
 
         if (!string.Equals(pending.Descriptor.Binding.BindingId, outcome.BindingId, StringComparison.Ordinal) ||
@@ -702,7 +702,7 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
             return false;
         }
 
-        return pending.TrySetResult(new ClientToolBackgroundOperationResult
+        return pending.TrySetResult(new ClientToolOperationResult
         {
             State = outcome.State,
             Content = outcome.Content,
@@ -929,12 +929,12 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
         }
     }
 
-    private void FailProviderBackgroundOperations(
+    private void FailProviderOperations(
         string clientRuntimeId,
         string connectionId,
         string message)
     {
-        foreach (var (clientOperationId, pending) in _backgroundOperations)
+        foreach (var (clientOperationId, pending) in _operations)
         {
             var binding = pending.Descriptor.Binding;
             if (!string.Equals(binding.ClientRuntimeId, clientRuntimeId, StringComparison.Ordinal) ||
@@ -943,11 +943,11 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
                 continue;
             }
 
-            if (_backgroundOperations.TryRemove(clientOperationId, out _))
+            if (_operations.TryRemove(clientOperationId, out _))
             {
-                pending.TrySetResult(new ClientToolBackgroundOperationResult
+                pending.TrySetResult(new ClientToolOperationResult
                 {
-                    State = ClientToolBackgroundOperationOutcomeState.Unknown,
+                    State = ClientToolOperationOutcomeState.Unknown,
                     ErrorMessage = message,
                     ErrorType = "unknown_outcome"
                 });
@@ -1087,8 +1087,8 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
                 Error = outcome.Error,
                 ErrorMessage = outcome.Error?.Message,
                 ClientOperationId = outcome.ClientOperationId,
-                HandleKind = outcome.HandleKind,
-                SupportedOperations = outcome.SupportedOperations,
+                OperationKind = outcome.OperationKind,
+                OperationCapabilities = outcome.OperationCapabilities,
                 Augmentation = outcome.Augmentation,
                 ResponderId = Snapshot.ClientRuntimeId,
                 ResponderGroup = Snapshot.Manifest?.AppProvider.Name
@@ -1124,21 +1124,21 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
             => throw new InvalidOperationException("Provider connection is not available.");
     }
 
-    private sealed class PendingProviderBackgroundOperation
+    private sealed class PendingProviderOperation
     {
-        private readonly TaskCompletionSource<ClientToolBackgroundOperationResult> _completion =
+        private readonly TaskCompletionSource<ClientToolOperationResult> _completion =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public PendingProviderBackgroundOperation(ClientToolProviderBackgroundOperationDescriptor descriptor)
+        public PendingProviderOperation(ClientToolProviderOperationDescriptor descriptor)
         {
             Descriptor = descriptor ?? throw new ArgumentNullException(nameof(descriptor));
         }
 
-        public ClientToolProviderBackgroundOperationDescriptor Descriptor { get; }
+        public ClientToolProviderOperationDescriptor Descriptor { get; }
 
-        public Task<ClientToolBackgroundOperationResult> Completion => _completion.Task;
+        public Task<ClientToolOperationResult> Completion => _completion.Task;
 
-        public bool TrySetResult(ClientToolBackgroundOperationResult result)
+        public bool TrySetResult(ClientToolOperationResult result)
             => _completion.TrySetResult(result);
     }
 }

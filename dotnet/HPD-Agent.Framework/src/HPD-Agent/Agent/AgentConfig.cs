@@ -6,6 +6,7 @@ using HPD.Agent.Audio.Output;
 using HPD.Agent.Audio.Policies;
 using Microsoft.Extensions.AI;
 using HPD.Agent;
+using HPD.Agent.Providers;
 using HPD.Agent.Serialization;
 
 using System.Collections.Immutable;
@@ -41,14 +42,22 @@ public class AgentConfig
     /// </summary>
     public int ContinuationExtensionAmount { get; set; } = 3;
 
+    /// <summary>Gets or sets bounded asynchronous shutdown behavior.</summary>
+    public AgentShutdownOptions Shutdown { get; set; } = new();
+
+    /// <summary>Gets or sets operation snapshot, tombstone, and replay-protection retention.</summary>
+    public AgentOperationRetentionPolicy OperationRetention { get; set; } = new();
+
     /// <summary>
     /// Configuration for provider-created client families.
     /// </summary>
     public AgentClientsConfig Clients { get; set; } = new();
 
-    /// <summary>Gets or sets provider-indexed family defaults used when a run switches providers.</summary>
-    public IDictionary<string, AgentProviderProfile> ProviderProfiles { get; set; }
-        = new Dictionary<string, AgentProviderProfile>(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Gets provider/backend family baselines serialized with explicit identities.</summary>
+    public IList<AgentProviderBackendProfile> ProviderProfiles { get; init; } = [];
+
+    /// <summary>Gets the explicit provider/backend default for each configured client family.</summary>
+    public IList<AgentProviderFamilyDefault> ProviderDefaults { get; init; } = [];
 
     public void SetClientConfig(HPD.Agent.Providers.ProviderClientFamily family, ProviderClientConfig? config)
     {
@@ -79,6 +88,7 @@ public class AgentConfig
             HPD.Agent.Providers.ProviderClientFamily.SpeechToText => new SpeechToTextClientConfig(),
             HPD.Agent.Providers.ProviderClientFamily.HostedFiles => new HostedFilesClientConfig(),
             HPD.Agent.Providers.ProviderClientFamily.VoiceActivityDetection => new VoiceActivityClientConfig(),
+            HPD.Agent.Providers.ProviderClientFamily.EndOfTurnDetection => new EndOfTurnClientConfig(),
             _ => throw new ArgumentOutOfRangeException(nameof(family), family, "Unknown provider client family.")
         };
         Clients.SetFamilyConfig(family, config);
@@ -94,11 +104,6 @@ public class AgentConfig
     /// Configuration for provider validation behavior during agent building.
     /// </summary>
     public ValidationConfig? Validation { get; set; }
-
-    /// <summary>
-    /// Configuration for the Model Context Protocol (MCP).
-    /// </summary>
-    public McpConfig? Mcp { get; set; }
 
     /// <summary>
     /// Configuration for error handling behavior.
@@ -261,11 +266,7 @@ public class AgentConfig
         HPD.Agent.Providers.ProviderClientFamily family,
         AgentClientsConfig? runClients = null)
     {
-        return ProviderClientConfigResolver.Resolve(
-            Clients,
-            family,
-            runClients,
-            ProviderProfiles);
+        return runClients?.GetFamilyConfig(family) ?? Clients.GetFamilyConfig(family);
     }
 
     /// <summary>
@@ -493,45 +494,16 @@ public class AgentConfig
 #region Supporting Configuration Classes
 
 /// <summary>
-/// Configuration for the Model Context Protocol (MCP).
-/// </summary>
-public class McpConfig
-{
-    public string ManifestPath { get; set; } = string.Empty;
-    public string ManifestContent { get; set; } = string.Empty;
-    /// <summary>
-    /// Runtime-only MCP configuration options.
-    /// Stored as object to avoid a compile-time dependency on HPD-Agent.MCP.
-    /// </summary>
-    [JsonIgnore]
-    public object? Options { get; set; }
-}
-
-/// <summary>
 /// Configuration for AI provider settings.
 /// Based on existing patterns in AgentBuilder.
 /// </summary>
 public class ProviderClientConfig
 {
-    /// <summary>
-    /// Provider identifier (lowercase, e.g., "openai", "anthropic", "ollama").
-    /// This is the primary key for provider resolution.
-    /// </summary>
-    public string? ProviderKey { get; set; }
+    /// <summary>Gets or sets the portable provider/backend/authentication reference.</summary>
+    public ProviderReference? Provider { get; set; }
 
     /// <summary>Gets or sets the portable model name selected for this client family.</summary>
     public string? ModelName { get; set; }
-    /// <summary>
-    /// Gets or sets a runtime-only API-key override.
-    /// Secret values are deliberately excluded from serialized provider configuration.
-    /// </summary>
-    [JsonIgnore]
-    public string? ApiKey { get; set; }
-
-    /// <summary>
-    /// Gets or sets the opaque name of a host-registered static credential.
-    /// </summary>
-    public string? AuthenticationKey { get; set; }
     /// <summary>Gets or sets the optional provider endpoint override used for client construction.</summary>
     public string? Endpoint { get; set; }
 
@@ -573,6 +545,8 @@ public class AgentClientsConfig
     public HostedFilesClientConfig? HostedFiles { get; set; }
     /// <summary>Gets or sets voice-activity-detection component selection.</summary>
     public VoiceActivityClientConfig? VoiceActivity { get; set; }
+    /// <summary>Gets or sets semantic end-of-turn-detection component selection.</summary>
+    public EndOfTurnClientConfig? EndOfTurn { get; set; }
     /// <summary>Gets the configuration stored for one provider client family.</summary>
     /// <param name="family">The family to inspect.</param>
     /// <returns>The configured family value, or <see langword="null"/> when absent.</returns>
@@ -587,6 +561,7 @@ public class AgentClientsConfig
             HPD.Agent.Providers.ProviderClientFamily.Embeddings => Embeddings,
             HPD.Agent.Providers.ProviderClientFamily.HostedFiles => HostedFiles,
             HPD.Agent.Providers.ProviderClientFamily.VoiceActivityDetection => VoiceActivity,
+            HPD.Agent.Providers.ProviderClientFamily.EndOfTurnDetection => EndOfTurn,
             _ => null
         };
 
@@ -624,6 +599,9 @@ public class AgentClientsConfig
             case HPD.Agent.Providers.ProviderClientFamily.VoiceActivityDetection:
                 VoiceActivity = RequireFamilyType<VoiceActivityClientConfig>(config, family);
                 break;
+            case HPD.Agent.Providers.ProviderClientFamily.EndOfTurnDetection:
+                EndOfTurn = RequireFamilyType<EndOfTurnClientConfig>(config, family);
+                break;
         }
     }
 
@@ -635,37 +613,6 @@ public class AgentClientsConfig
             ? null
             : config as TConfig ?? throw new ArgumentException(
                 $"{family} configuration must be {typeof(TConfig).Name}.", nameof(config));
-}
-
-/// <summary>Family defaults associated with one provider identity.</summary>
-public sealed class AgentProviderProfile
-{
-    /// <summary>Gets or sets Chat defaults.</summary>
-    public ChatClientConfig? Chat { get; set; }
-    /// <summary>Gets or sets Realtime defaults.</summary>
-    public RealtimeClientConfig? Realtime { get; set; }
-    /// <summary>Gets or sets image-generation defaults.</summary>
-    public ImageGenerationClientConfig? ImageGeneration { get; set; }
-    /// <summary>Gets or sets embedding defaults.</summary>
-    public EmbeddingsClientConfig? Embeddings { get; set; }
-    /// <summary>Gets or sets text-to-speech defaults.</summary>
-    public TextToSpeechClientConfig? TextToSpeech { get; set; }
-    /// <summary>Gets or sets speech-to-text defaults.</summary>
-    public SpeechToTextClientConfig? SpeechToText { get; set; }
-    /// <summary>Gets or sets hosted-file defaults.</summary>
-    public HostedFilesClientConfig? HostedFiles { get; set; }
-
-    internal ProviderClientConfig? GetFamilyConfig(HPD.Agent.Providers.ProviderClientFamily family) => family switch
-    {
-        HPD.Agent.Providers.ProviderClientFamily.Chat => Chat,
-        HPD.Agent.Providers.ProviderClientFamily.Realtime => Realtime,
-        HPD.Agent.Providers.ProviderClientFamily.ImageGeneration => ImageGeneration,
-        HPD.Agent.Providers.ProviderClientFamily.Embeddings => Embeddings,
-        HPD.Agent.Providers.ProviderClientFamily.TextToSpeech => TextToSpeech,
-        HPD.Agent.Providers.ProviderClientFamily.SpeechToText => SpeechToText,
-        HPD.Agent.Providers.ProviderClientFamily.HostedFiles => HostedFiles,
-        _ => null
-    };
 }
 
 /// <summary>
@@ -687,203 +634,6 @@ public class AgentClientMiddlewareConfig
     public List<Func<IEmbeddingGenerator, IServiceProvider?, IEmbeddingGenerator>>? Embeddings { get; set; }
     /// <summary>Gets or sets wrappers applied to resolved hosted-file clients.</summary>
     public List<Func<IHostedFileClient, IServiceProvider?, IHostedFileClient>>? HostedFiles { get; set; }
-}
-
-/// <summary>
-/// Provides centralized cloning and precedence-aware merging for provider client configuration.
-/// </summary>
-public static class ProviderClientConfigResolver
-{
-    /// <summary>Resolves agent and run layers for one client family.</summary>
-    /// <param name="agentClients">Agent-default client configuration.</param>
-    /// <param name="family">The family to resolve.</param>
-    /// <param name="runClients">Optional per-run client configuration.</param>
-    /// <returns>The merged family configuration, or <see langword="null"/> when empty.</returns>
-    public static ProviderClientConfig? Resolve(
-        AgentClientsConfig? agentClients,
-        HPD.Agent.Providers.ProviderClientFamily family,
-        AgentClientsConfig? runClients = null,
-        IDictionary<string, AgentProviderProfile>? providerProfiles = null)
-    {
-        var agentFamily = agentClients?.GetFamilyConfig(family);
-
-        var runFamily = runClients?.GetFamilyConfig(family);
-        var agentProviderKey = agentFamily?.ProviderKey;
-        var effectiveProviderKey = FirstNonEmpty(runFamily?.ProviderKey, agentProviderKey);
-        var providerChanged = !string.IsNullOrWhiteSpace(runFamily?.ProviderKey) &&
-            !string.IsNullOrWhiteSpace(agentProviderKey) &&
-            !string.Equals(runFamily.ProviderKey, agentProviderKey, StringComparison.Ordinal);
-
-        var profile = GetProfile(providerProfiles, effectiveProviderKey)?.GetFamilyConfig(family);
-        var compatibleAgentFamily = providerChanged ? null : agentFamily;
-
-        return Merge(profile, compatibleAgentFamily, runFamily);
-    }
-
-    /// <summary>Merges provider client configurations in ascending precedence order.</summary>
-    /// <param name="configs">Configuration layers, from lowest to highest precedence.</param>
-    /// <returns>The merged configuration, or <see langword="null"/> when empty.</returns>
-    public static ProviderClientConfig? Merge(params ProviderClientConfig?[] configs)
-    {
-        ProviderClientConfig? result = null;
-
-        foreach (var config in configs)
-        {
-            if (config == null)
-                continue;
-
-            result ??= CreateLike(
-                configs.FirstOrDefault(static value => value is not null && value.GetType() != typeof(ProviderClientConfig))
-                ?? config);
-            Apply(result, config);
-        }
-
-        return IsEmpty(result) ? null : result;
-    }
-
-    /// <summary>Clones a provider client configuration while preserving its family type.</summary>
-    /// <param name="config">The configuration to clone.</param>
-    /// <returns>An independent configuration instance.</returns>
-    public static ProviderClientConfig Clone(ProviderClientConfig config)
-    {
-        ArgumentNullException.ThrowIfNull(config);
-        var clone = CreateLike(config);
-        Apply(clone, config);
-        return clone;
-    }
-
-    private static ProviderClientConfig CreateLike(ProviderClientConfig config) => config switch
-    {
-        ChatClientConfig => new ChatClientConfig(),
-        RealtimeClientConfig => new RealtimeClientConfig(),
-        ImageGenerationClientConfig => new ImageGenerationClientConfig(),
-        EmbeddingsClientConfig => new EmbeddingsClientConfig(),
-        TextToSpeechClientConfig => new TextToSpeechClientConfig(),
-        SpeechToTextClientConfig => new SpeechToTextClientConfig(),
-        HostedFilesClientConfig => new HostedFilesClientConfig(),
-        VoiceActivityClientConfig => new VoiceActivityClientConfig(),
-        _ => new ProviderClientConfig()
-    };
-
-    private static AgentProviderProfile? GetProfile(
-        IDictionary<string, AgentProviderProfile>? profiles,
-        string? providerKey)
-    {
-        if (profiles is null || string.IsNullOrWhiteSpace(providerKey))
-            return null;
-
-        return profiles.TryGetValue(providerKey, out var exact)
-            ? exact
-            : profiles.FirstOrDefault(pair =>
-                string.Equals(pair.Key, providerKey, StringComparison.OrdinalIgnoreCase)).Value;
-    }
-
-    private static void Apply(ProviderClientConfig target, ProviderClientConfig source)
-    {
-        if (!string.IsNullOrWhiteSpace(source.ProviderKey))
-            target.ProviderKey = source.ProviderKey;
-
-        if (!string.IsNullOrWhiteSpace(source.ModelName))
-            target.ModelName = source.ModelName;
-
-        target.ApiKey = source.ApiKey ?? target.ApiKey;
-        target.AuthenticationKey = source.AuthenticationKey ?? target.AuthenticationKey;
-        target.Endpoint = source.Endpoint ?? target.Endpoint;
-        if (target is ChatClientConfig targetChat && source is ChatClientConfig sourceChat)
-        {
-            targetChat.Temperature = sourceChat.Temperature ?? targetChat.Temperature;
-            targetChat.TopP = sourceChat.TopP ?? targetChat.TopP;
-            targetChat.TopK = sourceChat.TopK ?? targetChat.TopK;
-            targetChat.MaxOutputTokens = sourceChat.MaxOutputTokens ?? targetChat.MaxOutputTokens;
-            targetChat.FrequencyPenalty = sourceChat.FrequencyPenalty ?? targetChat.FrequencyPenalty;
-            targetChat.PresencePenalty = sourceChat.PresencePenalty ?? targetChat.PresencePenalty;
-            targetChat.Seed = sourceChat.Seed ?? targetChat.Seed;
-            targetChat.StopSequences = sourceChat.StopSequences?.ToArray() ?? targetChat.StopSequences;
-            targetChat.Reasoning = sourceChat.Reasoning?.Clone() ?? targetChat.Reasoning;
-            targetChat.RuntimeResponseFormat = sourceChat.RuntimeResponseFormat ?? targetChat.RuntimeResponseFormat;
-            targetChat.ProviderOptions = sourceChat.ProviderOptions ?? targetChat.ProviderOptions;
-            targetChat.Override = sourceChat.Override ?? targetChat.Override;
-        }
-        else if (target is RealtimeClientConfig targetRealtime && source is RealtimeClientConfig sourceRealtime)
-        {
-            targetRealtime.OutputAudioFormat = sourceRealtime.OutputAudioFormat ?? targetRealtime.OutputAudioFormat;
-            targetRealtime.Voice = sourceRealtime.Voice ?? targetRealtime.Voice;
-            targetRealtime.MaxOutputTokens = sourceRealtime.MaxOutputTokens ?? targetRealtime.MaxOutputTokens;
-            targetRealtime.OutputModalities = sourceRealtime.OutputModalities ?? targetRealtime.OutputModalities;
-            targetRealtime.Transcription = sourceRealtime.Transcription ?? targetRealtime.Transcription;
-            targetRealtime.ProviderOptions = sourceRealtime.ProviderOptions ?? targetRealtime.ProviderOptions;
-            targetRealtime.Override = sourceRealtime.Override ?? targetRealtime.Override;
-        }
-        else if (target is ImageGenerationClientConfig targetImage && source is ImageGenerationClientConfig sourceImage)
-        {
-            targetImage.Count = sourceImage.Count ?? targetImage.Count;
-            targetImage.ImageSize = sourceImage.ImageSize ?? targetImage.ImageSize;
-            targetImage.MediaType = sourceImage.MediaType ?? targetImage.MediaType;
-            targetImage.StreamingCount = sourceImage.StreamingCount ?? targetImage.StreamingCount;
-            targetImage.ProviderOptions = sourceImage.ProviderOptions ?? targetImage.ProviderOptions;
-            targetImage.Override = sourceImage.Override ?? targetImage.Override;
-        }
-        else if (target is EmbeddingsClientConfig targetEmbeddings && source is EmbeddingsClientConfig sourceEmbeddings)
-        {
-            targetEmbeddings.Dimensions = sourceEmbeddings.Dimensions ?? targetEmbeddings.Dimensions;
-            targetEmbeddings.ProviderOptions = sourceEmbeddings.ProviderOptions ?? targetEmbeddings.ProviderOptions;
-            targetEmbeddings.Override = sourceEmbeddings.Override ?? targetEmbeddings.Override;
-        }
-        else if (target is TextToSpeechClientConfig targetTts && source is TextToSpeechClientConfig sourceTts)
-        {
-            targetTts.VoiceId = sourceTts.VoiceId ?? targetTts.VoiceId;
-            targetTts.Language = sourceTts.Language ?? targetTts.Language;
-            targetTts.AudioFormat = sourceTts.AudioFormat ?? targetTts.AudioFormat;
-            targetTts.Speed = sourceTts.Speed ?? targetTts.Speed;
-            targetTts.Pitch = sourceTts.Pitch ?? targetTts.Pitch;
-            targetTts.Volume = sourceTts.Volume ?? targetTts.Volume;
-            targetTts.ProviderOptions = sourceTts.ProviderOptions ?? targetTts.ProviderOptions;
-            targetTts.Override = sourceTts.Override ?? targetTts.Override;
-        }
-        else if (target is SpeechToTextClientConfig targetStt && source is SpeechToTextClientConfig sourceStt)
-        {
-            targetStt.SpeechLanguage = sourceStt.SpeechLanguage ?? targetStt.SpeechLanguage;
-            targetStt.SpeechSampleRate = sourceStt.SpeechSampleRate ?? targetStt.SpeechSampleRate;
-            targetStt.TextLanguage = sourceStt.TextLanguage ?? targetStt.TextLanguage;
-            targetStt.ProviderOptions = sourceStt.ProviderOptions ?? targetStt.ProviderOptions;
-            targetStt.Override = sourceStt.Override ?? targetStt.Override;
-        }
-        else if (target is HostedFilesClientConfig targetFiles && source is HostedFilesClientConfig sourceFiles)
-        {
-            targetFiles.Scope = sourceFiles.Scope ?? targetFiles.Scope;
-            targetFiles.Purpose = sourceFiles.Purpose ?? targetFiles.Purpose;
-            targetFiles.Limit = sourceFiles.Limit ?? targetFiles.Limit;
-            targetFiles.ProviderOptions = sourceFiles.ProviderOptions ?? targetFiles.ProviderOptions;
-            targetFiles.Override = sourceFiles.Override ?? targetFiles.Override;
-        }
-        target.ProviderConfig = source.ProviderConfig ?? target.ProviderConfig;
-
-        if (source.CustomHeaders != null)
-        {
-            target.CustomHeaders ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var pair in source.CustomHeaders)
-                target.CustomHeaders[pair.Key] = pair.Value;
-        }
-
-    }
-
-    private static bool IsEmpty(ProviderClientConfig? config) =>
-        config == null ||
-        (string.IsNullOrWhiteSpace(config.ProviderKey) &&
-         string.IsNullOrWhiteSpace(config.ModelName) &&
-         string.IsNullOrWhiteSpace(config.ApiKey) &&
-         string.IsNullOrWhiteSpace(config.AuthenticationKey) &&
-         string.IsNullOrWhiteSpace(config.Endpoint) &&
-         (config is not ChatClientConfig chat ||
-          (chat.Temperature is null && chat.TopP is null && chat.TopK is null &&
-           chat.MaxOutputTokens is null && chat.FrequencyPenalty is null &&
-           chat.PresencePenalty is null && chat.Seed is null &&
-           chat.StopSequences is null && chat.Reasoning is null &&
-           chat.ProviderOptions is null && chat.Override is null)) &&
-         config.CustomHeaders == null);
-
-    private static string? FirstNonEmpty(params string?[] values) =>
-        values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
 }
 
 /// <summary>
@@ -1208,17 +958,6 @@ public class ToolSelectionConfig
 }
 
 /// <summary>
-/// Mistral AI-specific settings
-/// </summary>
-public class MistralSettings
-{
-    /// <summary>
-    /// API key for the Mistral AI platform.
-    /// </summary>
-    public string? ApiKey { get; set; }
-}
-
-/// <summary>
 /// Configuration for Collapsing feature.
 /// Controls hierarchical organization of functions to reduce token usage.
 /// </summary>
@@ -1267,7 +1006,7 @@ public class CollapsingConfig
     /// Value = Instructions shown to the agent after that server's container is expanded.
     /// Example: { "filesystem", "IMPORTANT: Always use absolute paths. Check FileExists before operations." }
     /// </summary>
-    public Dictionary<string, string>? MCPServerInstructions { get; set; }
+    public Dictionary<string, string>? McpServerInstructions { get; set; }
 
     /// <summary>
     /// Optional post-expansion instructions for Client tools container.

@@ -146,7 +146,7 @@ public sealed class SkillStoreTests
             Assert.Contains(agent.DefaultOptions!.Tools!, tool =>
                 tool is Microsoft.Extensions.AI.AIFunction function && function.Name == "runtime_skill");
         }
-        finally { agent.Dispose(); }
+        finally { await agent.DisposeAsync(); }
     }
 
     [Fact]
@@ -190,7 +190,7 @@ public sealed class SkillStoreTests
             Assert.Contains(agent.DefaultOptions!.Tools!, tool =>
                 tool is Microsoft.Extensions.AI.AIFunction function && function.Name == "di_skill");
         }
-        finally { agent.Dispose(); }
+        finally { await agent.DisposeAsync(); }
     }
 
     [Fact]
@@ -217,7 +217,7 @@ public sealed class SkillStoreTests
             Assert.Contains("explicit_skill", names);
             Assert.DoesNotContain("di_skill", names);
         }
-        finally { agent.Dispose(); }
+        finally { await agent.DisposeAsync(); }
     }
 
     [Fact]
@@ -258,7 +258,7 @@ public sealed class SkillStoreTests
             Assert.Contains("data_skill", names);
             Assert.Contains("support_skill", names);
         }
-        finally { agent.Dispose(); }
+        finally { await agent.DisposeAsync(); }
     }
 
     [Fact]

@@ -40,6 +40,82 @@ internal interface IOpenApiLoader
         CancellationToken cancellationToken);
 }
 
+/// <summary>Adapts one optional OpenAPI registration into the capability-source lifetime model.</summary>
+internal sealed class OpenApiCapabilitySourceFactory(
+    CapabilitySourceId id,
+    OpenApiSourceRegistration registration,
+    IOpenApiLoader loader) : IAgentCapabilitySourceFactory
+{
+    public CapabilitySourceId Id { get; } = id;
+
+    public ValueTask<IAgentCapabilitySource> CreateAsync(
+        IServiceProvider? services,
+        CancellationToken cancellationToken) =>
+        ValueTask.FromResult<IAgentCapabilitySource>(new OpenApiCapabilitySource(Id, registration, loader));
+}
+
+internal sealed class OpenApiCapabilitySource(
+    CapabilitySourceId id,
+    OpenApiSourceRegistration registration,
+    IOpenApiLoader loader) : IAgentCapabilitySource
+{
+    private long _revision = -1;
+    private int _disposed;
+    public CapabilitySourceId Id { get; } = id;
+
+    public async ValueTask<CapabilitySourceLoadResult> LoadAsync(
+        CapabilityLoadContext context,
+        CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        var result = await loader.LoadAllAsync([registration], cancellationToken).ConfigureAwait(false);
+        var revision = CapabilitySourceRevision.Create(Interlocked.Increment(ref _revision));
+        return new(new OpenApiCapabilityRevisionOwner(Id, revision, result));
+    }
+
+    public async IAsyncEnumerable<CapabilityInvalidation> WatchAsync(
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        await Task.CompletedTask;
+        yield break;
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        Interlocked.Exchange(ref _disposed, 1);
+        return ValueTask.CompletedTask;
+    }
+}
+
+internal sealed class OpenApiCapabilityRevisionOwner : ICapabilitySourceRevisionOwner
+{
+    private readonly MaterializedCapabilityRevisionOwner _functions;
+    private List<HttpClient>? _clients;
+
+    internal OpenApiCapabilityRevisionOwner(
+        CapabilitySourceId sourceId,
+        CapabilitySourceRevision revision,
+        OpenApiLoadResult result)
+    {
+        SourceId = sourceId;
+        Revision = revision;
+        _functions = new MaterializedCapabilityRevisionOwner(sourceId, revision, result.Functions);
+        _clients = result.OwnedHttpClients;
+    }
+
+    public CapabilitySourceId SourceId { get; }
+    public CapabilitySourceRevision Revision { get; }
+    public CapabilitySourceSnapshot Snapshot => _functions.Snapshot;
+
+    public async ValueTask DisposeAsync()
+    {
+        await _functions.DisposeAsync().ConfigureAwait(false);
+        var clients = Interlocked.Exchange(ref _clients, null);
+        if (clients is null) return;
+        foreach (var client in clients) client.Dispose();
+    }
+}
+
 /// <summary>
 /// A pending OpenAPI source registered via WithOpenApi() or [OpenApi] toolharness attribute.
 /// Stored as a plain data record in core — no HPD.OpenApi.Core types referenced here.

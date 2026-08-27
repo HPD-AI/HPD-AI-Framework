@@ -32,7 +32,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         finally
         {
             capture.Dispose();
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var resultMessages = SentContents<FunctionResultContent>(session).ToList();
@@ -85,7 +85,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         finally
         {
             capture.Dispose();
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var capturedEvents = capture.Snapshot();
@@ -148,7 +148,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         finally
         {
             capture.Dispose();
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         Assert.Equal("whisper-1", session.Options?.TranscriptionOptions?.ModelId);
@@ -218,7 +218,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         finally
         {
             capture.Dispose();
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var capturedEvents = capture.Snapshot();
@@ -281,7 +281,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         finally
         {
             capture.Dispose();
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var thread = await store.ProjectThreadAsync(
@@ -329,7 +329,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         }
         finally
         {
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var thread = await store.ProjectThreadAsync("session-dup", "main", ThreadProjectionPurpose.ThreadHistory, TestCancellationToken);
@@ -362,7 +362,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         }
         finally
         {
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var thread = await store.ProjectThreadAsync("session-tools", "main", ThreadProjectionPurpose.ThreadHistory, TestCancellationToken);
@@ -413,7 +413,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         }
         finally
         {
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var sentUserTexts = session.Sent
@@ -460,7 +460,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                 "main",
                 runConfig: CreateRealtimeMathRunConfig(session),
                 cancellationToken: TestCancellationToken));
-        agent.Dispose();
+        await agent.DisposeAsync();
 
         Assert.Contains("provider.error", ex.Message);
 
@@ -508,7 +508,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         }
         finally
         {
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var resultMessages = SentContents<FunctionResultContent>(session).ToList();
@@ -557,7 +557,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         finally
         {
             capture.Dispose();
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var deltas = capture.Snapshot().OfType<TextDeltaEvent>().Select(evt => evt.Text).ToArray();
@@ -585,7 +585,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         }
         finally
         {
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         Assert.True(middleware.WasCalled);
@@ -616,7 +616,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         finally
         {
             capture.Dispose();
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var capturedEvents = capture.Snapshot();
@@ -667,7 +667,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         finally
         {
             capture.Dispose();
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var result = Assert.Single(SentContents<FunctionResultContent>(session));
@@ -706,7 +706,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         finally
         {
             capture.Dispose();
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var capturedEvents = capture.Snapshot();
@@ -748,7 +748,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         finally
         {
             capture.Dispose();
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var capturedEvents = capture.Snapshot();
@@ -776,7 +776,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         }
         finally
         {
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var result = Assert.Single(SentContents<FunctionResultContent>(session));
@@ -808,7 +808,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         finally
         {
             capture.Dispose();
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var capturedEvents = capture.Snapshot();
@@ -845,7 +845,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         }
         finally
         {
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
 
         var result = Assert.Single(SentContents<FunctionResultContent>(session));
@@ -871,7 +871,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                 Transport = AgentModelTransportMode.Realtime,
                 Realtime = new RealtimeClientConfig
                 {
-                    Override = new ClientOverride<IRealtimeClient> { Client = new FakeRealtimeClient(session) },
+                    Override = ClientOverride<IRealtimeClient>.Borrow(new FakeRealtimeClient(session)),
                     Transcription = realtimeTranscriptionOptions is null
                         ? null
                         : new RealtimeTranscriptionRunConfig

@@ -29,7 +29,7 @@
   <!-- Core HPD-Agent reference -->
   <ItemGroup>
     <ProjectReference Include="../HPD-Agent/HPD-Agent.csproj" />
-    <ProjectReference Include="../HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
+    <ProjectReference Include="../HPD-Agent.Audio/HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
     <ProjectReference Include="../HPD-Agent.MCP/HPD-Agent.MCP.csproj" />
     <ProjectReference Include="../HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj"
                       OutputItemType="Analyzer"

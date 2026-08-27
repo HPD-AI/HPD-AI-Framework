@@ -9,51 +9,30 @@ public sealed record ThreadExecutionDto(
     DateTimeOffset StartedAt,
     DateTimeOffset? FinishedAt,
     ThreadExecutionErrorDto? Error,
-    ThreadExecutionModelBackgroundOperationDto? ModelBackgroundOperation,
-    IReadOnlyList<ThreadExecutionBackgroundTaskDto> BackgroundTasks,
-    IReadOnlyList<ThreadExecutionBackgroundHandleDto> BackgroundHandles);
+    IReadOnlyList<ThreadExecutionOperationDto> Operations);
 
 public sealed record ThreadExecutionErrorDto(
     string? Type,
     string? Message);
 
-public sealed record ThreadExecutionModelBackgroundOperationDto(
-    string Status,
-    string? OperationId,
-    string? StatusMessage,
-    string? ContinuationToken);
-
-public sealed record ThreadExecutionBackgroundTaskDto(
-    string TaskId,
+/// <summary>Projects one authoritative operation aggregate without runtime hooks or credentials.</summary>
+public sealed record ThreadExecutionOperationDto(
+    string OperationId,
+    string? ProviderOperationId,
     string Name,
     string SourceKind,
-    string? SourceId,
-    ThreadExecutionBackgroundTaskNotificationDto Notification,
-    string Status,
-    DateTimeOffset? StartedAt,
-    DateTimeOffset? CompletedAt,
-    DateTimeOffset? CancelledAt,
-    DateTimeOffset? FaultedAt,
-    string? ErrorType,
-    string? ErrorMessage);
-
-/// <summary>
-/// API DTO projection of a background task notification rule.
-/// </summary>
-/// <param name="Kind">Rule kind, such as none, on_final_state, or strategy.</param>
-/// <param name="StrategyName">Strategy name when <paramref name="Kind"/> is strategy.</param>
-public sealed record ThreadExecutionBackgroundTaskNotificationDto(
-    string Kind,
-    string? StrategyName = null);
-
-public sealed record ThreadExecutionBackgroundHandleDto(
-    string HandleId,
-    string Name,
-    string HandleKind,
-    string SourceKind,
-    string? SourceId,
-    string Status,
-    string SupportedOperations,
+    string ProviderStatus,
+    string ObservationStatus,
+    string ControlKind,
+    string ControlCapabilities,
+    string? ControlHandleId,
+    long Version,
     DateTimeOffset RegisteredAt,
-    DateTimeOffset? UpdatedAt,
+    DateTimeOffset? StartedAt,
+    DateTimeOffset UpdatedAt,
+    DateTimeOffset? FinishedAt,
+    string? CompletionSummary,
+    IReadOnlyList<string>? ArtifactReferences,
+    string? FailureCode,
+    string? FailureMessage,
     IReadOnlyDictionary<string, string>? Metadata);

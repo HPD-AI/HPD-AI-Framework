@@ -33,7 +33,7 @@ public sealed class AgentRunConfigSnapshotTests
             {
                 Chat = new ChatClientConfig
                 {
-                    ProviderKey = "test",
+                    Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" },
                     ModelName = "model",
                     StopSequences = ["stop"]
                 }

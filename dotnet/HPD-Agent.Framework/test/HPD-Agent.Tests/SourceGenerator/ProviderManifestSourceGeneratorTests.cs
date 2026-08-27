@@ -26,14 +26,15 @@ public sealed class ProviderManifestSourceGeneratorTests
             [HpdProviderFamily(ProviderClientFamily.Chat, DefaultModelName = "sample-model", BindsModelToClient = false)]
             [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(ProviderClientConfig), typeof(HPDJsonContext))]
             [HpdProviderSecretAlias("sample:ApiKey", "SAMPLE_API_KEY")]
-            internal sealed class SampleProvider : IChatClientProvider
+            internal sealed class SampleProvider : IProvider, IProviderClientFactory<IChatClient>
             {
                 public string ProviderKey => "sample";
                 public string DisplayName => "Sample";
                 public IProviderErrorHandler CreateErrorHandler() => throw new NotSupportedException();
                 public ProviderMetadata GetMetadata() => new();
-                public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family) => ProviderValidationResult.Success();
-                public ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+                public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config) => ProviderValidationResult.Success();
+                public ProviderClientCredentialBinding ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor) => ProviderClientCredentialBinding.RequestTime;
+                public ValueTask<ProviderClientConstruction<IChatClient>> CreateAsync(ProviderClientConstructionContext context, CancellationToken cancellationToken = default) => throw new NotSupportedException();
             }
             """;
 

@@ -48,7 +48,7 @@ internal sealed class DebugStartResultProjector(DebugResultFormatter formatter)
             new("acknowledgedBreakpoints", result.Breakpoints.Acknowledged),
             new("resolvedBreakpoints", result.Breakpoints.Verified),
             new("pendingBreakpoints", result.Breakpoints.Pending),
-            new("backgroundHandleId", result.Handle.HandleId)
+            new("operationId", result.Operation.OperationId)
         };
         var details = new List<string>();
         if (NeedsStoppingStrategyNotice(action, plan.InitialConfiguration))

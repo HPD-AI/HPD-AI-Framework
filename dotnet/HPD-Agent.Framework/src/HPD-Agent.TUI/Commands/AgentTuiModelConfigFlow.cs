@@ -1,5 +1,6 @@
 using HPD.Agent;
 using HPD.Agent.TUI.Models;
+using HPD.Agent.Providers;
 using System.Globalization;
 
 namespace HPD.Agent.TUI.Commands;
@@ -366,7 +367,7 @@ public static class AgentTuiModelConfigFlow
     private static ChatClientConfig? CloneChat(ChatClientConfig? source)
         => source is null
             ? null
-            : (ChatClientConfig)ProviderClientConfigResolver.Clone(source);
+            : (ChatClientConfig)ProviderClientConfigSnapshot.Clone(source);
 
     private sealed record ModelConfigChoice(
         string Kind,

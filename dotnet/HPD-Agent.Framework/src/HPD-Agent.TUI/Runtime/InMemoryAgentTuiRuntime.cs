@@ -776,9 +776,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
                 ThreadId = scope.ThreadId
             };
             var result = await _agent.RunAsync(scopedControl, cancellationToken).ConfigureAwait(false);
-            AgentTuiThreadExecution? current;
-            lock (_gate)
-                current = _activeExecution;
+            var current = GetActiveExecution();
             return new AgentTuiSubmitResult(result.Disposition, result.ThreadExecutionId, current);
         }
 
@@ -974,9 +972,40 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
     {
         lock (_gate)
         {
-            return _activeExecution;
+            if (_activeExecution is not { } active)
+                return null;
+            var operations = _agent.ListOperations()
+                .Where(operation =>
+                    operation.Address.SessionId == active.SessionId &&
+                    operation.Address.ThreadId == active.ThreadId &&
+                    (operation.OriginatingThreadExecutionId is null ||
+                     operation.OriginatingThreadExecutionId == active.ThreadExecutionId))
+                .Select(ToTuiOperation)
+                .ToArray();
+            return active with { Operations = operations };
         }
     }
+
+    private static AgentTuiOperation ToTuiOperation(AgentOperationSnapshot operation) => new(
+        operation.OperationId,
+        operation.ProviderOperationId,
+        operation.Name,
+        operation.SourceKind.ToString().ToLowerInvariant(),
+        operation.ProviderStatus.ToString().ToLowerInvariant(),
+        operation.ObservationStatus.ToString().ToLowerInvariant(),
+        operation.Control.Kind.ToString().ToLowerInvariant(),
+        operation.Control.Capabilities.ToString().ToLowerInvariant(),
+        operation.Control.HandleId,
+        operation.Version,
+        operation.RegisteredAt,
+        operation.StartedAt,
+        operation.UpdatedAt,
+        operation.FinishedAt,
+        operation.Completion?.Summary,
+        operation.Completion?.ArtifactReferences,
+        operation.Failure?.Code,
+        operation.Failure?.Message,
+        operation.Metadata);
 
     private bool TryReserveExecution(string executionId)
     {

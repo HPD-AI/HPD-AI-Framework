@@ -64,7 +64,7 @@ public abstract class AgentTestBase : IAsyncDisposable, IDisposable
         Name = "TestAgent",
         MaxAgenticIterations = 50,
         Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
-            ProviderKey = "test",  // Required by validation
+            Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" },
             ModelName = "test-model"
         } },
         AgenticLoop = new AgenticLoopConfig

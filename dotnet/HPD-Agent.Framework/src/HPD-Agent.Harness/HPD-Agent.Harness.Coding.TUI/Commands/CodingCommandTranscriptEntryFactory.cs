@@ -52,7 +52,7 @@ internal static class CodingCommandTranscriptEntryFactory
                 : null,
             state.IsBackground,
             state.AutoBackgroundEligible,
-            state.BackgroundHandleId,
+            state.OperationId,
             state.OutputObserved,
             state.OutputTruncated,
             state.OutputEventsSuppressed,

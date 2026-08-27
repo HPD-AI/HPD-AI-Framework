@@ -42,8 +42,8 @@ public static partial class AgentEventSerializer
         // Input Events
         [typeof(UserMessagesInputEvent)] = EventTypes.Input.USER_MESSAGES_INPUT,
         [typeof(CompactThreadInputEvent)] = EventTypes.Input.COMPACT_THREAD_INPUT,
-        [typeof(BackgroundTaskNotificationInputEvent)] = EventTypes.Input.BACKGROUND_TASK_NOTIFICATION_INPUT,
-        [typeof(ClientTools.ClientToolBackgroundOperationOutcomeEvent)] = EventTypes.ClientTool.CLIENT_TOOL_BACKGROUND_OPERATION_OUTCOME,
+        [typeof(AgentOperationNotificationInputEvent)] = EventTypes.Input.AGENT_OPERATION_NOTIFICATION_INPUT,
+        [typeof(ClientTools.ClientToolOperationOutcomeEvent)] = EventTypes.ClientTool.CLIENT_TOOL_BACKGROUND_OPERATION_OUTCOME,
 
         // Thread Events
         [typeof(ThreadCreatedEvent)] = ThreadEventTypes.ThreadCreated,
@@ -89,15 +89,17 @@ public static partial class AgentEventSerializer
         [typeof(ToolCallResultEvent)] = EventTypes.Tool.TOOL_CALL_RESULT,
 
         // Background Task Events
-        [typeof(BackgroundTaskStartedEvent)] = EventTypes.BackgroundTask.BACKGROUND_TASK_STARTED,
-        [typeof(BackgroundTaskCompletedEvent)] = EventTypes.BackgroundTask.BACKGROUND_TASK_COMPLETED,
-        [typeof(BackgroundTaskCancelledEvent)] = EventTypes.BackgroundTask.BACKGROUND_TASK_CANCELLED,
-        [typeof(BackgroundTaskFaultedEvent)] = EventTypes.BackgroundTask.BACKGROUND_TASK_FAULTED,
-        [typeof(BackgroundHandleRegisteredEvent)] = EventTypes.BackgroundTask.BACKGROUND_HANDLE_REGISTERED,
-        [typeof(BackgroundHandleStatusChangedEvent)] = EventTypes.BackgroundTask.BACKGROUND_HANDLE_STATUS_CHANGED,
-        [typeof(BackgroundTaskNotificationQueuedEvent)] = EventTypes.BackgroundTask.BACKGROUND_TASK_NOTIFICATION_QUEUED,
-        [typeof(BackgroundTaskNotificationDeliveredEvent)] = EventTypes.BackgroundTask.BACKGROUND_TASK_NOTIFICATION_DELIVERED,
-        [typeof(BackgroundTaskNotificationSuppressedEvent)] = EventTypes.BackgroundTask.BACKGROUND_TASK_NOTIFICATION_SUPPRESSED,
+        [typeof(AgentOperationRegisteredEvent)] = EventTypes.Operation.AGENT_OPERATION_REGISTERED,
+        [typeof(AgentOperationTransitionedEvent)] = EventTypes.Operation.AGENT_OPERATION_TRANSITIONED,
+        [typeof(AgentOperationNotificationQueuedEvent)] = EventTypes.Operation.AGENT_OPERATION_NOTIFICATION_QUEUED,
+        [typeof(AgentOperationNotificationDeliveredEvent)] = EventTypes.Operation.AGENT_OPERATION_NOTIFICATION_DELIVERED,
+        [typeof(AgentOperationNotificationSuppressedEvent)] = EventTypes.Operation.AGENT_OPERATION_NOTIFICATION_SUPPRESSED,
+        [typeof(AgentOperationTombstonedEvent)] = EventTypes.Operation.AGENT_OPERATION_TOMBSTONED,
+        [typeof(AgentOperationTombstoneEvictedEvent)] = EventTypes.Operation.AGENT_OPERATION_TOMBSTONE_EVICTED,
+        [typeof(AgentCapabilityRefreshStartedEvent)] = EventTypes.Capability.AGENT_CAPABILITY_REFRESH_STARTED,
+        [typeof(AgentCapabilityRefreshPublishedEvent)] = EventTypes.Capability.AGENT_CAPABILITY_REFRESH_PUBLISHED,
+        [typeof(AgentCapabilityRefreshRejectedEvent)] = EventTypes.Capability.AGENT_CAPABILITY_REFRESH_REJECTED,
+        [typeof(AgentTurnCapabilitiesPinnedEvent)] = EventTypes.Capability.AGENT_TURN_CAPABILITIES_PINNED,
 
         // Permission Events
         [typeof(PermissionRequestEvent)] = EventTypes.Permission.PERMISSION_REQUEST,
@@ -151,8 +153,6 @@ public static partial class AgentEventSerializer
         [typeof(MiddlewareStateChangedEvent)] = EventTypes.Observability.MIDDLEWARE_STATE_CHANGED,
         [typeof(CollapsingStateEvent)] = EventTypes.Observability.COLLAPSING_STATE,
         [typeof(EventDroppedEvent)] = EventTypes.Observability.EVENT_DROPPED,
-        [typeof(ModelBackgroundOperationStartedEvent)] = EventTypes.Observability.MODEL_BACKGROUND_OPERATION_STARTED,
-        [typeof(ModelBackgroundOperationStatusEvent)] = EventTypes.Observability.MODEL_BACKGROUND_OPERATION_STATUS,
         [typeof(StructuredOutputErrorEvent)] = EventTypes.Observability.STRUCTURED_OUTPUT_ERROR,
         [typeof(StructuredOutputStartEvent)] = EventTypes.Observability.STRUCTURED_OUTPUT_START,
         [typeof(StructuredOutputPartialEvent)] = EventTypes.Observability.STRUCTURED_OUTPUT_PARTIAL,
@@ -477,7 +477,7 @@ public static partial class AgentEventSerializer
             prefix += ",\"isError\":true";
             if (!eventJson.Contains("\"errorMessage\"", StringComparison.Ordinal))
             {
-                prefix += $",\"errorMessage\":{JsonSerializer.Serialize(errorEvent.ErrorMessage, StandardJsonOptions)}";
+                prefix += $",\"errorMessage\":{JsonSerializer.Serialize(errorEvent.ErrorMessage, AgentEventJsonContext.Default.String)}";
             }
         }
 

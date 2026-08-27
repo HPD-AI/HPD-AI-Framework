@@ -2,6 +2,7 @@ using HPD.Agent;
 using HPD.Agent.TUI.Commands;
 using HPD.Agent.TUI.Models;
 using HPD.Agent.TUI.Runtime;
+using HPD.Agent.Providers;
 
 namespace HPD.Agent.TUI;
 
@@ -161,7 +162,17 @@ public sealed class AgentTuiModelSelectionState
     private static ChatClientConfig CreateChatSelection(AgentTuiSelectedModel selection)
     {
         var config = CloneChat(selection.Chat) ?? new ChatClientConfig();
-        config.ProviderKey = selection.ProviderKey;
+        var existing = config.Provider;
+        var compatible = existing is not null &&
+            string.Equals(existing.Key, selection.ProviderKey, StringComparison.OrdinalIgnoreCase);
+        config.Provider = new ProviderReference
+        {
+            Key = selection.ProviderKey,
+            Backend = compatible ? existing!.Backend : null,
+            Authentication = compatible && existing!.Authentication is not null
+                ? ProviderClientConfigSnapshot.CloneAuthentication(existing.Authentication)
+                : null
+        };
         config.ModelName = selection.ModelId;
         return config;
     }
@@ -169,7 +180,7 @@ public sealed class AgentTuiModelSelectionState
     private static ChatClientConfig? CloneChat(ChatClientConfig? source)
         => source is null
             ? null
-            : (ChatClientConfig)ProviderClientConfigResolver.Clone(source);
+            : (ChatClientConfig)ProviderClientConfigSnapshot.Clone(source);
 }
 
 public sealed record AgentTuiSelectedModel(

@@ -54,23 +54,17 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
     private readonly ErrorHandlingConfig? _errorHandlingConfig;
     private readonly IList<AITool>? _serverConfiguredTools;
     private readonly AgenticLoopConfig? _agenticLoopConfig;
-    private readonly Func<Middleware.IAgentBackgroundTaskRegistry?> _getBackgroundTaskRegistry;
-    private readonly Func<Middleware.IAgentBackgroundHandleRegistry?> _getBackgroundHandleRegistry;
 
     public FunctionExecutionCore(
         AgentMiddlewarePipeline middlewarePipeline,
         ErrorHandlingConfig? errorHandlingConfig = null,
         IList<AITool>? serverConfiguredTools = null,
-        AgenticLoopConfig? agenticLoopConfig = null,
-        Func<Middleware.IAgentBackgroundTaskRegistry?>? getBackgroundTaskRegistry = null,
-        Func<Middleware.IAgentBackgroundHandleRegistry?>? getBackgroundHandleRegistry = null)
+        AgenticLoopConfig? agenticLoopConfig = null)
     {
         _middlewarePipeline = middlewarePipeline ?? throw new ArgumentNullException(nameof(middlewarePipeline));
         _errorHandlingConfig = errorHandlingConfig;
         _serverConfiguredTools = serverConfiguredTools;
         _agenticLoopConfig = agenticLoopConfig;
-        _getBackgroundTaskRegistry = getBackgroundTaskRegistry ?? (() => null);
-        _getBackgroundHandleRegistry = getBackgroundHandleRegistry ?? (() => null);
     }
 
     public Dictionary<string, AIFunction>? BuildMergedMap(IList<AITool>? requestTools) =>
@@ -188,7 +182,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 HPDCapabilityKind.SkillActivation => ToolCallType.Skill,
                 HPDCapabilityKind.SubAgent => ToolCallType.SubAgent,
                 HPDCapabilityKind.MultiAgent => ToolCallType.MultiAgent,
-                HPDCapabilityKind.Mcp => ToolCallType.MCPServer,
+                HPDCapabilityKind.Mcp => ToolCallType.McpServer,
                 HPDCapabilityKind.OpenApi => ToolCallType.OpenApi,
                 HPDCapabilityKind.Function or
                 HPDCapabilityKind.SkillResource or
@@ -208,7 +202,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             "Skill"      => ToolCallType.Skill,
             "SubAgent"   => ToolCallType.SubAgent,
             "MultiAgent" => ToolCallType.MultiAgent,
-            "MCPServer"  => ToolCallType.MCPServer,
+            "MCPServer"  => ToolCallType.McpServer,
             "OpenApi"    => ToolCallType.OpenApi,
             _            => null,
         };
@@ -350,6 +344,8 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
         var arguments = (IReadOnlyDictionary<string, object?>?)(functionCall.Arguments ?? new Dictionary<string, object?>())
             ?? new Dictionary<string, object?>();
 
+        agentContext.RuntimeCapabilities.TryGet<IClientToolOperationRegistry>(
+            out var clientToolOperations);
         var beforeFunctionContext = agentContext.AsBeforeFunction(
             function: function!,
             callId: functionCall.CallId,
@@ -358,9 +354,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             toolharnessName: toolharnessName,
             skillName: null,
             invocation: invocation,
-            backgroundTasks: _getBackgroundTaskRegistry(),
-            backgroundHandles: _getBackgroundHandleRegistry(),
-            clientToolBackgroundOperations: _getBackgroundTaskRegistry() as IClientToolBackgroundOperationRegistry);
+            clientToolOperations: clientToolOperations);
 
         await _middlewarePipeline.ExecuteBeforeFunctionAsync(
             beforeFunctionContext, cancellationToken).ConfigureAwait(false);
@@ -450,9 +444,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 SkillName = null,
                 EventCoordinator = agentContext.EventCoordinator,
                 EventPublisher = agentContext.PublishAsync,
-                StructEvents = agentContext.StructEvents,
-                BackgroundTasks = _getBackgroundTaskRegistry(),
-                BackgroundHandles = _getBackgroundHandleRegistry()
+                StructEvents = agentContext.StructEvents
             };
 
             var executionResult = await _middlewarePipeline.ExecuteFunctionCallAsync(

@@ -45,6 +45,9 @@ internal sealed class TurnEventBuffer
 
     // Key = permissionId
     private readonly ConcurrentDictionary<string, string> _permissionCallIds = new();
+    private readonly ConcurrentDictionary<string, AgentOperationSnapshot> _operations = new();
+    private readonly ConcurrentDictionary<string, int> _operationInputRounds = new();
+    private AgentTurnCapabilityIdentity? _capabilityIdentity;
 
     // ── Mutation methods (called from the event subscription) ─────────────────
 
@@ -108,6 +111,20 @@ internal sealed class TurnEventBuffer
             _deniedCallIds[callId] = true;
     }
 
+    public void RecordCapabilities(AgentTurnCapabilityIdentity identity)
+    {
+        RecordEvent();
+        _capabilityIdentity = identity;
+    }
+
+    public void RecordOperation(AgentOperationSnapshot operation)
+    {
+        RecordEvent();
+        _operations[operation.OperationId] = operation;
+        if (operation.ProviderStatus == AgentOperationProviderStatus.InputRequired)
+            _operationInputRounds.AddOrUpdate(operation.OperationId, 1, static (_, rounds) => rounds + 1);
+    }
+
     // ── Query methods (called from AfterMessageTurnAsync) ────────────────────
 
     public TimeSpan GetIterationDuration(int iteration)
@@ -142,6 +159,28 @@ internal sealed class TurnEventBuffer
     public bool HasTurnFinished => _turnFinished;
 
     public bool HasAnyEvents => Volatile.Read(ref _eventCount) > 0;
+
+    public AgentTurnCapabilityIdentity? CapabilityIdentity => _capabilityIdentity;
+
+    public IReadOnlyList<AgentOperationTrace> GetOperationTraces() => _operations.Values
+        .OrderBy(static operation => operation.RegisteredAt)
+        .ThenBy(static operation => operation.OperationId, StringComparer.Ordinal)
+        .Select(operation => new AgentOperationTrace
+        {
+            OperationId = operation.OperationId,
+            ProviderOperationId = operation.ProviderOperationId,
+            SourceKind = operation.SourceKind,
+            Status = operation.ProviderStatus,
+            AcceptedToStartLatency = operation.StartedAt is { } started
+                ? started - operation.RegisteredAt : null,
+            ProviderExecutionLatency = operation.StartedAt is { } providerStarted && operation.FinishedAt is { } finished
+                ? finished - providerStarted : null,
+            ObservationLatency = operation.UpdatedAt - operation.RegisteredAt,
+            InputRoundCount = _operationInputRounds.GetValueOrDefault(operation.OperationId),
+            IsTerminal = operation.ProviderStatus is AgentOperationProviderStatus.Completed or
+                AgentOperationProviderStatus.Failed or AgentOperationProviderStatus.Cancelled
+        })
+        .ToArray();
 
     /// <summary>
     /// Returns all iteration numbers recorded in the buffer, in ascending order.

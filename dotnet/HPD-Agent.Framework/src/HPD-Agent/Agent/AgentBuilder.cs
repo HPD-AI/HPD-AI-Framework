@@ -102,9 +102,6 @@ public class AgentBuilder
     private JsonSerializerOptions? _toolSerializerOptions;
     internal ILoggerFactory? _logger;
 
-    // MCP runtime fields (stored as object to avoid circular reference to HPD-Agent.MCP)
-    internal object? _mcpClientManager;
-
     // AIContextProvider factory (protocol-specific, stored as object for extensibility)
     internal object? _contextProviderFactory;
 
@@ -130,8 +127,11 @@ public class AgentBuilder
     // Secret resolution
     private ISecretResolver? _secretResolver;
     private readonly List<ISecretResolver> _additionalResolvers = new();
-    private readonly ExplicitSecretResolver _explicitSecretResolver = new();
+    private readonly ProviderRuntimeSecretRegistry _runtimeSecretRegistry = new();
     private bool _secretResolverChainBuilt;
+    private readonly List<IProviderExternalIdentityRegistration> _externalIdentityRegistrations = [];
+    private readonly List<IProviderAuthenticationStrategy> _authenticationStrategies = [];
+    private readonly List<ProviderAuthorizationStoreRegistration> _authorizationStores = [];
 
     /// <summary>
     /// Selected ToolHarnesses for this agent (from WithToolHarness calls).
@@ -166,7 +166,7 @@ public class AgentBuilder
         = new(StringComparer.OrdinalIgnoreCase);
     internal readonly Dictionary<string, List<StoredSkillSourceRegistration>> _storedSkillSources
         = new(StringComparer.OrdinalIgnoreCase);
-    private SkillCatalog? _skillCatalog;
+    private AgentCapabilityCatalog? _capabilityCatalog;
 
     /// <summary>
     /// Middleware overrides from builder calls (takes precedence over config).
@@ -240,13 +240,15 @@ public class AgentBuilder
     /// Null until HPD-Agent.OpenApi is loaded. Same pattern as provider modules.
     /// </summary>
     private static IOpenApiLoader? s_openApiLoader;
-    private static IMcpToolLoader? s_mcpToolLoader;
 
     /// <summary>
     /// OpenAPI sources registered via WithOpenApi() or [OpenApi] toolharness attribute.
     /// Resolved and loaded in BuildDependenciesAsync() after MCP tool loading.
     /// </summary>
     internal readonly List<OpenApiSourceRegistration> _openApiSources = new();
+    internal readonly List<AgentCapabilitySourceRegistration> _capabilitySourceRegistrations = [];
+    private readonly HashSet<CapabilitySourceId> _collectedToolHarnessCapabilitySources = [];
+    private readonly List<IAgentCapabilitySource> _ownedCapabilitySources = [];
 
     /// <summary>
     /// Registers the OpenAPI loader hook. Called by OpenApiAutoDiscovery via [ModuleInitializer].
@@ -257,13 +259,6 @@ public class AgentBuilder
         s_openApiLoader = loader;
     }
 
-    /// <summary>
-    /// Registers the MCP loader hook. Called by MCPAutoDiscovery via [ModuleInitializer].
-    /// </summary>
-    internal static void RegisterMcpToolLoader(IMcpToolLoader loader)
-    {
-        s_mcpToolLoader = loader;
-    }
 
     /// <summary>
     /// Adds a pending OpenAPI source registration. Called by WithOpenApi() and
@@ -272,6 +267,18 @@ public class AgentBuilder
     internal void AddOpenApiSource(OpenApiSourceRegistration registration)
     {
         _openApiSources.Add(registration);
+    }
+
+    /// <summary>Registers one protocol-neutral, asynchronously owned capability source.</summary>
+    /// <param name="registration">The factory and explicit failure policies.</param>
+    /// <returns>The same builder.</returns>
+    public AgentBuilder AddCapabilitySource(AgentCapabilitySourceRegistration registration)
+    {
+        ArgumentNullException.ThrowIfNull(registration);
+        if (_capabilitySourceRegistrations.Any(existing => existing.Factory.Id == registration.Factory.Id))
+            throw new InvalidOperationException($"Capability source '{registration.Factory.Id}' is already registered.");
+        _capabilitySourceRegistrations.Add(registration);
+        return this;
     }
 
     /// <summary>
@@ -647,6 +654,23 @@ public class AgentBuilder
                 instance = factory.CreateInstance();
 
             HaveInstance:
+                if (factory.CollectMcpServers != null)
+                {
+                    factory.CollectMcpServers(instance, source =>
+                    {
+                        var sourceFactory = source.FactoryProvider(instance);
+                        if (sourceFactory is not null)
+                        {
+                            if (!_collectedToolHarnessCapabilitySources.Add(sourceFactory.Id))
+                                return;
+                            AddCapabilitySource(new AgentCapabilitySourceRegistration(
+                                sourceFactory,
+                                CapabilitySourceInitialLoadPolicy.Required,
+                                CapabilitySourceRefreshFailurePolicy.RetainLastKnownGood));
+                        }
+                    });
+                }
+
                 // Collect OpenAPI sources from [OpenApi] toolharness methods (ZERO REFLECTION!)
                 // Config is stored as object; cast to OpenApiConfig happens in OpenApiLoader.
                 // CollapseWithinToolHarness placeholder is false — loader reads it from config directly.
@@ -1049,6 +1073,36 @@ public class AgentBuilder
         return this;
     }
 
+    /// <summary>Registers a named SDK-native external identity for provider authentication.</summary>
+    /// <param name="registration">The lease-producing identity registration.</param>
+    /// <returns>This builder.</returns>
+    public AgentBuilder AddProviderExternalIdentity(IProviderExternalIdentityRegistration registration)
+    {
+        ArgumentNullException.ThrowIfNull(registration);
+        _externalIdentityRegistrations.Add(registration);
+        return this;
+    }
+
+    /// <summary>Registers provider-owned OAuth authorization and refresh mechanics.</summary>
+    /// <param name="strategy">The provider/backend authentication strategy.</param>
+    /// <returns>This builder.</returns>
+    public AgentBuilder AddProviderAuthenticationStrategy(IProviderAuthenticationStrategy strategy)
+    {
+        ArgumentNullException.ThrowIfNull(strategy);
+        _authenticationStrategies.Add(strategy);
+        return this;
+    }
+
+    /// <summary>Registers a protected authorization store.</summary>
+    /// <param name="registration">The named store and its session protector.</param>
+    /// <returns>This builder.</returns>
+    public AgentBuilder AddProviderAuthorizationStore(ProviderAuthorizationStoreRegistration registration)
+    {
+        ArgumentNullException.ThrowIfNull(registration);
+        _authorizationStores.Add(registration);
+        return this;
+    }
+
     /// <summary>
     /// Replaces the entire secret resolver chain with a custom resolver.
     /// </summary>
@@ -1070,21 +1124,19 @@ public class AgentBuilder
     }
 
     /// <summary>
-    /// Adds a runtime-only secret with the highest resolution priority.
-    /// Explicit secret values are never written to serializable agent configuration.
+    /// Registers an explicit API key in process-local, clearable storage.
     /// </summary>
-    /// <param name="key">The canonical secret-resolver key.</param>
-    /// <param name="value">The secret value.</param>
-    /// <returns>This builder.</returns>
-    public AgentBuilder AddExplicitSecret(string key, string value)
+    /// <param name="value">The secret characters, which are copied immediately and never cleared by HPD.</param>
+    /// <returns>A runtime-only authentication selection containing only the opaque registration name.</returns>
+    public ExplicitApiKeyProviderAuthentication RegisterExplicitApiKey(ReadOnlySpan<char> value)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(key);
-        ArgumentException.ThrowIfNullOrWhiteSpace(value);
         if (_secretResolverChainBuilt)
-            throw new InvalidOperationException("Explicit secrets cannot be added after the agent has been built.");
+            throw new InvalidOperationException("Explicit provider secrets cannot be registered after the agent has been built.");
 
-        _explicitSecretResolver.Set(key, value);
-        return this;
+        return new ExplicitApiKeyProviderAuthentication
+        {
+            RuntimeRegistrationName = _runtimeSecretRegistry.Register(value)
+        };
     }
 
     /// <summary>
@@ -1796,7 +1848,7 @@ public class AgentBuilder
         // Providers need ISecretResolver available in the service provider during CreateChatClient
         if (!_secretResolverChainBuilt)
         {
-            var resolvers = new List<ISecretResolver> { _explicitSecretResolver };
+            var resolvers = new List<ISecretResolver>();
             if (_secretResolver is not null)
             {
                 resolvers.Add(_secretResolver);
@@ -1812,10 +1864,34 @@ public class AgentBuilder
             _secretResolverChainBuilt = true;
         }
 
-        // Wrap the service provider to make ISecretResolver available to providers
-        // This allows providers to resolve secrets during CreateChatClient without
-        // replacing the user's service provider
-        _serviceProvider = new CompositeServiceProvider(_serviceProvider, _secretResolver);
+        var hostServices = _serviceProvider;
+        var externalRegistry = ResolveExternalIdentityRegistry(hostServices);
+        var strategyRegistry = ResolveAuthenticationStrategyRegistry(hostServices);
+        var storeRegistry = ResolveAuthorizationStoreRegistry(hostServices);
+        var credentialSource = GetOptionalService<IProviderCredentialSource>(hostServices) ??
+            new ProviderAuthenticationCoordinator(
+                _secretResolver,
+                GetOptionalService<IProviderRuntimeSecretRegistry>(hostServices) ?? _runtimeSecretRegistry,
+                externalRegistry,
+                strategyRegistry,
+                storeRegistry,
+                GetOptionalService<IProviderAuthorizationTransactionStore>(hostServices),
+                GetOptionalService<IProviderAuthorizationTransactionProtector>(hostServices),
+                GetOptionalService<IProviderAuthorizationInteraction>(hostServices),
+                GetOptionalService<Func<NormalizedProviderAuthorizationRequest, Uri>>(hostServices),
+                GetOptionalService<TimeProvider>(hostServices),
+                hostServices?.GetService(typeof(ProviderAuthorizationActivation)) is ProviderAuthorizationActivation activation
+                    ? activation
+                    : ProviderAuthorizationActivation.ExplicitOnly);
+
+        // Publish only narrow runtime contracts. Provider packages never receive the root container.
+        _serviceProvider = new CompositeServiceProvider(
+            hostServices,
+            _secretResolver,
+            credentialSource,
+            externalRegistry,
+            strategyRegistry,
+            storeRegistry);
 
         // Skill sources participate in epoch-zero tool construction, so their infrastructure
         // must be final before BuildDependenciesAsync invokes BuildToolOptionsAsync.
@@ -1861,6 +1937,39 @@ public class AgentBuilder
         ActivateRegisteredFeatures();
         RegisterAutoMiddleware(buildData);
         return CreateAgent(buildData);
+    }
+
+    private IProviderExternalIdentityRegistry ResolveExternalIdentityRegistry(IServiceProvider? services)
+    {
+        if (_externalIdentityRegistrations.Count == 0 &&
+            services?.GetService<IProviderExternalIdentityRegistry>() is { } existing)
+            return existing;
+        return new ProviderExternalIdentityRegistry(
+            _externalIdentityRegistrations.Concat(
+                services?.GetServices<IProviderExternalIdentityRegistration>() ?? []));
+    }
+
+    private static TService? GetOptionalService<TService>(IServiceProvider? services) =>
+        services is null ? default : services.GetService<TService>();
+
+    private IProviderAuthenticationStrategyRegistry ResolveAuthenticationStrategyRegistry(IServiceProvider? services)
+    {
+        if (_authenticationStrategies.Count == 0 &&
+            services?.GetService<IProviderAuthenticationStrategyRegistry>() is { } existing)
+            return existing;
+        return new ProviderAuthenticationStrategyRegistry(
+            _authenticationStrategies.Concat(
+                services?.GetServices<IProviderAuthenticationStrategy>() ?? []));
+    }
+
+    private IProviderAuthorizationStoreRegistry ResolveAuthorizationStoreRegistry(IServiceProvider? services)
+    {
+        if (_authorizationStores.Count == 0 &&
+            services?.GetService<IProviderAuthorizationStoreRegistry>() is { } existing)
+            return existing;
+        return new ProviderAuthorizationStoreRegistry(
+            _authorizationStores.Concat(
+                services?.GetServices<ProviderAuthorizationStoreRegistration>() ?? []));
     }
 
     private async Task MaterializeSubAgentDefinitionsAsync(
@@ -2181,13 +2290,15 @@ public class AgentBuilder
             _contentStore,
             _stateFactories,
             buildData.OwnedHttpClients,
-            buildData.ClientSet);
-        if (_skillCatalog is not null)
-            agent.SetSkillCatalog(
-                _skillCatalog,
+            buildData.ClientSet,
+            _runtimeSecretRegistry);
+        if (_capabilityCatalog is not null)
+            agent.SetCapabilityCatalog(
+                _capabilityCatalog,
                 _skillSources.SelectMany(pair => pair.Value.Select(source => (
                     Source: source,
-                    Context: new SkillSourceContext(_config.Name, pair.Key, null, _serviceProvider)))));
+                    Context: new SkillSourceContext(_config.Name, pair.Key, null, _serviceProvider)))),
+                _ownedCapabilitySources);
         return agent;
     }
 
@@ -2197,101 +2308,6 @@ public class AgentBuilder
         {
             activate(this);
         }
-    }
-
-    /// <summary>
-    /// Loads MCP tools from toolharness-owned [MCPServer] methods.
-    /// Generated registration code collects MCP server sources directly; HPD-Agent.MCP owns concrete config handling.
-    /// </summary>
-    private async Task<List<AIFunction>> LoadToolHarnessMCPServersAsync(CancellationToken cancellationToken)
-    {
-        var allTools = new List<AIFunction>();
-
-        var toolharnessesWithMcp = _selectedToolHarnessFactories
-            .Where(f => f.HasMCPServers && f.CollectMcpServers != null)
-            .ToList();
-        if (toolharnessesWithMcp.Count == 0)
-            return allTools;
-
-        if (s_mcpToolLoader == null)
-        {
-            _logger?.CreateLogger<AgentBuilder>().LogWarning(
-                "ToolHarnesses have [MCPServer] attributes but HPD-Agent.MCP is not loaded. Skipping MCP server loading.");
-            return allTools;
-        }
-
-        if (McpClientManager == null)
-        {
-            var logger = _logger?.CreateLogger("HPD.Agent.MCP.MCPClientManager")
-                ?? NullLogger.Instance;
-            McpClientManager = s_mcpToolLoader.CreateManager(logger, _config.Mcp?.Options);
-            _eventSubscriptionFactories.Add(coordinator =>
-                s_mcpToolLoader.AttachLiveUpdates(McpClientManager!, coordinator));
-        }
-
-        var maxFunctionNames = _config.Collapsing?.MaxFunctionNamesInDescription ?? 10;
-
-        foreach (var factory in toolharnessesWithMcp)
-        {
-            try
-            {
-                object? toolharnessInstance = null;
-                if (_serviceProvider != null)
-                {
-                    toolharnessInstance = _serviceProvider.GetService(factory.ToolHarnessType);
-                }
-                if (toolharnessInstance == null && factory.CreateWithSecrets != null && _secretResolver != null)
-                {
-                    toolharnessInstance = factory.CreateWithSecrets(_secretResolver);
-                }
-                toolharnessInstance ??= factory.CreateInstance();
-
-                var sources = new List<McpServerSource>();
-                factory.CollectMcpServers!(toolharnessInstance, sources.Add);
-
-                foreach (var source in sources)
-                {
-                    object? config = null;
-
-                    if (source.FromManifest != null)
-                    {
-                        config = await s_mcpToolLoader.LoadConfigFromManifestAsync(
-                            source.FromManifest,
-                            source.ManifestServerName ?? source.Name,
-                            cancellationToken).ConfigureAwait(false);
-                    }
-                    else if (source.ConfigProvider != null)
-                    {
-                        config = source.ConfigProvider(toolharnessInstance);
-                    }
-
-                    if (config == null)
-                    {
-                        _logger?.CreateLogger<AgentBuilder>().LogDebug(
-                            "MCP server '{ServerName}' in toolharness '{ToolHarnessName}' returned null config, skipping",
-                            source.Name, factory.Name);
-                        continue;
-                    }
-
-                    var tools = await s_mcpToolLoader.LoadForToolHarnessAsync(
-                        McpClientManager!,
-                        config,
-                        source,
-                        _secretResolver,
-                        maxFunctionNames,
-                        cancellationToken).ConfigureAwait(false);
-                    allTools.AddRange(tools);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger?.CreateLogger<AgentBuilder>().LogWarning(ex,
-                    "Failed to load MCP servers for toolharness '{ToolHarnessName}': {Error}",
-                    factory.Name, ex.Message);
-            }
-        }
-
-        return allTools;
     }
 
     private async Task<AgentToolBuildResult> BuildToolOptionsAsync(CancellationToken cancellationToken)
@@ -2314,15 +2330,13 @@ public class AgentBuilder
         var staticMetadata = staticFunctions
             .Where(function => TryGetCapabilityMetadata(function, out _))
             .ToDictionary(function => function, function => GetCapabilityMetadata(function));
-        var initialSnapshot = await BuildSkillSnapshotAsync(
+        var initialRevision = await BuildMaterializedCapabilityRevisionAsync(
             0,
             staticFunctions,
             staticMetadata,
             cancellationToken).ConfigureAwait(false);
-        toolFunctions.AddRange(initialSnapshot.Functions.Where(function => !staticFunctions.Contains(function)));
-        _skillCatalog = new SkillCatalog(
-            initialSnapshot,
-            (epoch, token) => BuildSkillSnapshotAsync(epoch, staticFunctions, staticMetadata, token));
+        toolFunctions.AddRange(initialRevision.Snapshot.Functions.Where(function => !staticFunctions.Contains(function)));
+        var refreshBaseFunctions = staticFunctions.ToList();
 
         var typedSkillFunctions = toolFunctions.Where(function =>
             function.AdditionalProperties?.TryGetValue(
@@ -2348,70 +2362,10 @@ public class AgentBuilder
             }).ToList();
         }
 
-        // Load MCP tools if configured.
-        if (McpClientManager != null)
-        {
-            try
-            {
-                if (s_mcpToolLoader == null)
-                    throw new InvalidOperationException(
-                        "MCP client manager is configured but HPD-Agent.MCP loader is not registered. " +
-                        "Reference HPD-Agent.MCP so its module initializer can register MCP support.");
-
-                List<AIFunction> mcpTools;
-                if (_config.Mcp != null &&
-                    (!string.IsNullOrEmpty(_config.Mcp.ManifestPath) ||
-                     !string.IsNullOrEmpty(_config.Mcp.ManifestContent)))
-                {
-                    var maxFunctionNames = _config.Collapsing?.MaxFunctionNamesInDescription ?? 10;
-
-                    if (!string.IsNullOrEmpty(_config.Mcp.ManifestContent))
-                    {
-                        mcpTools = await s_mcpToolLoader.LoadFromManifestContentAsync(
-                            McpClientManager,
-                            _config.Mcp.ManifestContent,
-                            _secretResolver,
-                            maxFunctionNames,
-                            cancellationToken).ConfigureAwait(false);
-                    }
-                    else
-                    {
-                        mcpTools = await s_mcpToolLoader.LoadFromManifestAsync(
-                            McpClientManager,
-                            _config.Mcp.ManifestPath,
-                            _secretResolver,
-                            maxFunctionNames,
-                            cancellationToken).ConfigureAwait(false);
-                    }
-                }
-                else
-                {
-                    throw new InvalidOperationException("MCP client manager is configured but no manifest path or content provided");
-                }
-
-                toolFunctions.AddRange(mcpTools);
-                _logger?.CreateLogger<AgentBuilder>().LogInformation("Successfully integrated {Count} MCP tools into agent", mcpTools.Count);
-            }
-            catch (Exception ex)
-            {
-                _logger?.CreateLogger<AgentBuilder>().LogError(ex, "Failed to load MCP tools: {Error}", ex.Message);
-                throw new InvalidOperationException("Failed to initialize MCP integration", ex);
-            }
-        }
-
-        // Load toolharness-owned MCP servers (from [MCPServer] attributes).
-        var toolharnessMcpTools = await LoadToolHarnessMCPServersAsync(cancellationToken);
-        if (toolharnessMcpTools.Count > 0)
-        {
-            toolFunctions.AddRange(toolharnessMcpTools);
-            _logger?.CreateLogger<AgentBuilder>().LogInformation("Successfully integrated {Count} toolharness-owned MCP tools into agent", toolharnessMcpTools.Count);
-        }
-
         // Note: Old SkillDefinition-based skills have been removed in favor of type-safe Skill class.
         // Skills are now registered via ToolHarnesses and auto-discovered by the source generator.
 
-        // Load OpenAPI sources (from WithOpenApi() or [OpenApi] toolharness attributes).
-        OpenApiLoadResult? openApiResult = null;
+        // Convert OpenAPI declarations into refreshable, revision-owned capability sources.
         if (_openApiSources.Count > 0)
         {
             if (s_openApiLoader == null)
@@ -2419,25 +2373,198 @@ public class AgentBuilder
                     "OpenAPI sources were registered but HPD-Agent.OpenApi is not loaded. " +
                     "Add a reference to HPD-Agent.OpenApi.");
 
-            openApiResult = await s_openApiLoader.LoadAllAsync(_openApiSources, cancellationToken);
-            toolFunctions.AddRange(openApiResult.Functions);
-            if (openApiResult.Functions.Count > 0)
-                _logger?.CreateLogger<AgentBuilder>().LogInformation(
-                    "Successfully integrated {Count} OpenAPI functions from {Sources} source(s)",
-                    openApiResult.Functions.Count, _openApiSources.Count);
+            foreach (var source in _openApiSources)
+            {
+                var sourceId = CapabilitySourceId.Create(
+                    $"openapi:{source.ParentContainer ?? "standalone"}:{source.Name}");
+                AddCapabilitySource(new AgentCapabilitySourceRegistration(
+                    new OpenApiCapabilitySourceFactory(sourceId, source, s_openApiLoader),
+                    CapabilitySourceInitialLoadPolicy.Required,
+                    CapabilitySourceRefreshFailurePolicy.RetainLastKnownGood));
+            }
+        }
+
+        var loadedCapabilitySources = new List<(
+            AgentCapabilitySourceRegistration Registration,
+            IAgentCapabilitySource Source)>();
+        var sourceRevisionOwners = new List<ICapabilitySourceRevisionOwner>();
+        var sourceOwnedFunctions = new HashSet<AIFunction>(ReferenceEqualityComparer.Instance);
+        foreach (var registration in _capabilitySourceRegistrations
+            .OrderBy(static registration => registration.Factory.Id.Value, StringComparer.Ordinal))
+        {
+            ValidateCapabilitySourceRegistration(registration);
+            IAgentCapabilitySource? source = null;
+            ICapabilitySourceRevisionOwner? loadedOwner = null;
+            try
+            {
+                source = await RunCapabilitySourceStageAsync(
+                    token => registration.Factory.CreateAsync(_serviceProvider, token),
+                    registration.LoadTimeout,
+                    cancellationToken).ConfigureAwait(false);
+                if (source.Id != registration.Factory.Id)
+                    throw new InvalidOperationException(
+                        $"Capability source factory '{registration.Factory.Id}' created source '{source.Id}'.");
+                if (registration.InitialLoadPolicy == CapabilitySourceInitialLoadPolicy.Deferred)
+                {
+                    loadedOwner = new MaterializedCapabilityRevisionOwner(
+                        source.Id,
+                        CapabilitySourceRevision.Create(0),
+                        []);
+                }
+                else
+                {
+                    var loaded = await RunCapabilitySourceStageAsync(
+                        token => source.LoadAsync(new CapabilityLoadContext(0, _serviceProvider), token),
+                        registration.LoadTimeout,
+                        cancellationToken).ConfigureAwait(false);
+                    loadedOwner = loaded.Owner;
+                }
+                if (loadedOwner.SourceId != source.Id)
+                    throw new InvalidOperationException(
+                        $"Capability source '{source.Id}' returned owner '{loadedOwner.SourceId}'.");
+                loadedCapabilitySources.Add((registration, source));
+                _ownedCapabilitySources.Add(source);
+                sourceRevisionOwners.Add(loadedOwner);
+                toolFunctions.AddRange(loadedOwner.Snapshot.Functions);
+                foreach (var function in loadedOwner.Snapshot.Functions)
+                    sourceOwnedFunctions.Add(function);
+                loadedOwner = null;
+            }
+            catch when (registration.InitialLoadPolicy == CapabilitySourceInitialLoadPolicy.Optional &&
+                !cancellationToken.IsCancellationRequested)
+            {
+                if (loadedOwner is not null)
+                    await loadedOwner.DisposeAsync().ConfigureAwait(false);
+                if (source is not null)
+                    await source.DisposeAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                if (loadedOwner is not null)
+                    await loadedOwner.DisposeAsync().ConfigureAwait(false);
+                if (source is not null)
+                    await source.DisposeAsync().ConfigureAwait(false);
+                foreach (var owner in sourceRevisionOwners)
+                    await owner.DisposeAsync().ConfigureAwait(false);
+                foreach (var (_, createdSource) in loadedCapabilitySources)
+                {
+                    _ownedCapabilitySources.Remove(createdSource);
+                    await createdSource.DisposeAsync().ConfigureAwait(false);
+                }
+                sourceRevisionOwners.Clear();
+                loadedCapabilitySources.Clear();
+                throw;
+            }
         }
 
         NormalizeCapabilityMetadata(toolFunctions);
         _ = CapabilityGraph.CreateFromFunctions(toolFunctions);
 
+        NormalizeCapabilityMetadata(refreshBaseFunctions);
+        var refreshBaseMetadata = refreshBaseFunctions
+            .Where(function => TryGetCapabilityMetadata(function, out _))
+            .ToDictionary(function => function, function => GetCapabilityMetadata(function));
+        var publishedRevision = new MaterializedCapabilityRevisionOwner(
+            CapabilitySourceId.Create("agent.materialized"),
+            CapabilitySourceRevision.Create(0),
+            toolFunctions.Where(function =>
+                !sourceOwnedFunctions.Contains(function) && TryGetCapabilityMetadata(function, out _)));
+        var initialOwners = new List<ICapabilitySourceRevisionOwner> { publishedRevision };
+        initialOwners.AddRange(sourceRevisionOwners);
+        _capabilityCatalog = new AgentCapabilityCatalog(
+            0,
+            initialOwners,
+            async (epoch, token) =>
+            {
+                var candidateOwners = new List<ICapabilitySourceRevisionOwner>();
+                var revision = await BuildMaterializedCapabilityRevisionAsync(
+                    epoch,
+                    refreshBaseFunctions,
+                    refreshBaseMetadata,
+                    token).ConfigureAwait(false);
+                candidateOwners.Add(revision);
+                try
+                {
+                    foreach (var (registration, source) in loadedCapabilitySources)
+                    {
+                        try
+                        {
+                            var loaded = await RunCapabilitySourceStageAsync(
+                                loadToken => source.LoadAsync(
+                                    new CapabilityLoadContext(epoch, _serviceProvider), loadToken),
+                                registration.LoadTimeout,
+                                token).ConfigureAwait(false);
+                            if (loaded.Owner.SourceId != source.Id)
+                            {
+                                await loaded.Owner.DisposeAsync().ConfigureAwait(false);
+                                throw new InvalidOperationException(
+                                    $"Capability source '{source.Id}' returned owner '{loaded.Owner.SourceId}'.");
+                            }
+                            candidateOwners.Add(loaded.Owner);
+                        }
+                        catch when (registration.RefreshFailurePolicy ==
+                            CapabilitySourceRefreshFailurePolicy.RetainLastKnownGood &&
+                            !token.IsCancellationRequested &&
+                            _capabilityCatalog is not null &&
+                            _capabilityCatalog.TryGetCurrentRevision(source.Id, out var retained))
+                        {
+                            candidateOwners.Add(retained!);
+                        }
+                        catch when (registration.RefreshFailurePolicy ==
+                            CapabilitySourceRefreshFailurePolicy.RemoveSource &&
+                            !token.IsCancellationRequested)
+                        {
+                        }
+                    }
+                    return candidateOwners;
+                }
+                catch
+                {
+                    foreach (var candidate in candidateOwners)
+                    {
+                        if (_capabilityCatalog is null ||
+                            !_capabilityCatalog.TryGetCurrentRevision(candidate.SourceId, out var current) ||
+                            !ReferenceEquals(candidate, current))
+                            await candidate.DisposeAsync().ConfigureAwait(false);
+                    }
+                    throw;
+                }
+            },
+            hasDeferredSources: loadedCapabilitySources.Any(static pair =>
+                pair.Registration.InitialLoadPolicy == CapabilitySourceInitialLoadPolicy.Deferred));
+
         return new AgentToolBuildResult(
             MergeToolFunctions(
                 (_config.ResolveClientConfig(ProviderClientFamily.Chat) as ChatClientConfig)?.ToMicrosoftChatOptions(),
                 toolFunctions),
-            openApiResult?.OwnedHttpClients.Count > 0 ? openApiResult.OwnedHttpClients : null);
+            null);
     }
 
-    private async ValueTask<SkillCatalogSnapshot> BuildSkillSnapshotAsync(
+    private static void ValidateCapabilitySourceRegistration(AgentCapabilitySourceRegistration registration)
+    {
+        ArgumentNullException.ThrowIfNull(registration);
+        if (registration.LoadTimeout <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(registration.LoadTimeout));
+    }
+
+    private static async ValueTask<T> RunCapabilitySourceStageAsync<T>(
+        Func<CancellationToken, ValueTask<T>> stage,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(timeout);
+        try
+        {
+            return await stage(deadline.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && deadline.IsCancellationRequested)
+        {
+            throw new TimeoutException($"Capability source stage exceeded its {timeout} load deadline.");
+        }
+    }
+
+    private async ValueTask<MaterializedCapabilityRevisionOwner> BuildMaterializedCapabilityRevisionAsync(
         long epoch,
         IReadOnlyList<AIFunction> staticFunctions,
         IReadOnlyDictionary<AIFunction, HPDCapabilityMetadata> staticMetadata,
@@ -2507,35 +2634,11 @@ public class AgentBuilder
             if (projected != metadata)
                 SetCapabilityMetadata(function, projected);
         }
-        var graph = CapabilityGraph.CreateFromFunctions(typed);
-        var descriptors = typed
-            .Where(function => GetCapabilityMetadata(function).Kind == HPDCapabilityKind.SkillActivation)
-            .Select(function =>
-            {
-                var metadata = GetCapabilityMetadata(function);
-                var skill = function.AdditionalProperties?.TryGetValue(
-                    SkillRuntimeMetadata.SkillDefinitionKey,
-                    out var value) == true ? value as Skill : null;
-                return skill is null ? null : new SkillDescriptor
-                {
-                    Id = metadata.Id,
-                    ModelName = function.Name,
-                    Description = function.Description,
-                    Instructions = skill.Instructions,
-                    Reinforcement = skill.Reinforcement,
-                    Children = metadata.Reveals,
-                    Lifetime = skill.Lifetime
-                };
-            })
-            .Where(descriptor => descriptor is not null)
-            .ToImmutableDictionary(descriptor => descriptor!.Id, descriptor => descriptor!);
-        return new SkillCatalogSnapshot
-        {
-            Epoch = epoch,
-            Graph = graph,
-            Functions = typed,
-            Skills = descriptors
-        };
+        _ = CapabilityGraph.CreateFromFunctions(typed);
+        return new MaterializedCapabilityRevisionOwner(
+            CapabilitySourceId.Create("agent.materialized"),
+            CapabilitySourceRevision.Create(epoch),
+            typed);
     }
 
     private void MaterializeRuntimeSkillReferences(
@@ -2723,33 +2826,9 @@ public class AgentBuilder
             return null;
 
         if (config is not null)
-            resolvedConfigs[family] = ProviderClientConfigResolver.Clone(config);
+            resolvedConfigs[family] = ProviderClientConfigSnapshot.Clone(config);
         return client;
     }
-
-    private Func<ProviderComponentLifetimeContext, TComponent>? ResolveComponentFactory<TProvider, TComponent>(
-        ProviderClientFamily family,
-        ProviderFamilyLifetime defaultLifetime,
-        Func<TProvider, ProviderClientConfig, ProviderComponentLifetimeContext, IServiceProvider?, TComponent> createComponent,
-        Dictionary<ProviderClientFamily, ProviderClientConfig> resolvedConfigs)
-        where TProvider : class, IProvider
-    {
-        var config = _config.ResolveClientConfig(family);
-        if (config == null || string.IsNullOrWhiteSpace(config.ProviderKey))
-            return null;
-
-        var provider = _providerRegistry.GetRequiredProvider<TProvider>(config.ProviderKey);
-        var capturedConfig = ProviderClientConfigResolver.Clone(config);
-        resolvedConfigs[family] = capturedConfig;
-        var lifetime = provider.GetMetadata().Families.TryGetValue(family, out var descriptor) ? descriptor.Lifetime : defaultLifetime;
-        return context =>
-        {
-            var scopedContext = context.Lifetime == ProviderFamilyLifetime.ReusableClient ? context with { Lifetime = lifetime } : context;
-            return ApplyComponentMiddleware(family, createComponent(provider, capturedConfig, scopedContext, _serviceProvider), scopedContext);
-        };
-    }
-
-    private static TComponent ApplyComponentMiddleware<TComponent>(ProviderClientFamily family, TComponent component, ProviderComponentLifetimeContext context) => component;
 
     private TClient ApplyMiddleware<TClient>(TClient client, IReadOnlyList<Func<TClient, IServiceProvider?, TClient>>? middleware, string description)
     {
@@ -3015,16 +3094,6 @@ public class AgentBuilder
     /// <summary>
     /// Internal access to permission Middlewares for extension methods
     /// </summary>
-
-    /// <summary>
-    /// Gets or sets the MCP client manager for extension methods (stored as object to avoid circular reference).
-    /// Used by MCP extension methods to initialize and manage MCP server connections.
-    /// </summary>
-    public object? McpClientManager
-    {
-        get => _mcpClientManager;
-        set => _mcpClientManager = value;
-    }
 
     /// <summary>
     /// Adds a native function to the agent (used by FFI layer for Rust, C++, etc.)
@@ -4361,22 +4430,116 @@ public static class AgentBuilderConfigExtensions
 
 public static class AgentBuilderProviderExtensions
 {
-    /// <summary>Configures the default Chat provider and model for agent runs.</summary>
+    /// <summary>Configures a per-run chat provider and model using its conventional API-key secret reference.</summary>
+    /// <param name="runConfig">The per-run configuration.</param>
+    /// <param name="providerKey">The canonical provider key.</param>
+    /// <param name="modelName">The model name for the run.</param>
+    /// <returns>The run configuration for chaining.</returns>
+    public static AgentRunConfig WithProvider(
+        this AgentRunConfig runConfig,
+        string providerKey,
+        string modelName)
+        => runConfig.WithProvider(
+            providerKey,
+            modelName,
+            new ApiKeyProviderAuthentication { SecretKey = $"{providerKey}:ApiKey" });
+
+    /// <summary>Configures a per-run chat provider and model with a portable authentication reference.</summary>
+    /// <param name="runConfig">The per-run configuration.</param>
+    /// <param name="providerKey">The canonical provider key.</param>
+    /// <param name="modelName">The model name for the run.</param>
+    /// <param name="authentication">The portable authentication selection to authorize for the run.</param>
+    /// <returns>The run configuration for chaining.</returns>
+    /// <remarks>
+    /// Per-run selections cannot contain literal credentials. Register literal credentials on
+    /// <see cref="AgentBuilder"/> and select only portable secret, OAuth, external-identity, or anonymous references here.
+    /// </remarks>
+    public static AgentRunConfig WithProvider(
+        this AgentRunConfig runConfig,
+        string providerKey,
+        string modelName,
+        ProviderAuthentication authentication)
+    {
+        ArgumentNullException.ThrowIfNull(runConfig);
+        ArgumentException.ThrowIfNullOrWhiteSpace(providerKey);
+        ArgumentException.ThrowIfNullOrWhiteSpace(modelName);
+        ArgumentNullException.ThrowIfNull(authentication);
+
+        if (authentication is ExplicitApiKeyProviderAuthentication)
+        {
+            throw new ArgumentException(
+                "Per-run provider selection requires portable authentication and cannot use a runtime literal registration.",
+                nameof(authentication));
+        }
+
+        runConfig.Clients ??= new AgentClientsConfig();
+        runConfig.Clients.Chat = new ChatClientConfig
+        {
+            Provider = new ProviderReference
+            {
+                Key = providerKey,
+                Authentication = authentication
+            },
+            ModelName = modelName
+        };
+        return runConfig;
+    }
+
+    /// <summary>Configures the default chat provider and model using its conventional API-key secret reference.</summary>
     /// <param name="builder">The agent builder.</param>
     /// <param name="providerKey">The canonical provider key.</param>
     /// <param name="modelName">The default model name.</param>
-    /// <param name="apiKey">An optional runtime-only explicit API key.</param>
     /// <returns>The builder.</returns>
-    public static AgentBuilder WithProvider(this AgentBuilder builder, string providerKey, string modelName, string? apiKey = null)
+    public static AgentBuilder WithProvider(this AgentBuilder builder, string providerKey, string modelName)
+        => builder.WithProvider(
+            providerKey,
+            modelName,
+            new ApiKeyProviderAuthentication { SecretKey = $"{providerKey}:ApiKey" });
+
+    /// <summary>Configures the default chat provider and model with explicit authentication.</summary>
+    /// <param name="builder">The agent builder.</param>
+    /// <param name="providerKey">The canonical provider key.</param>
+    /// <param name="modelName">The default model name.</param>
+    /// <param name="authentication">The authentication selection to use for the provider.</param>
+    /// <returns>The builder.</returns>
+    public static AgentBuilder WithProvider(
+        this AgentBuilder builder,
+        string providerKey,
+        string modelName,
+        ProviderAuthentication authentication)
     {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(providerKey);
+        ArgumentException.ThrowIfNullOrWhiteSpace(modelName);
+        ArgumentNullException.ThrowIfNull(authentication);
+
         builder.Config.SetChatClientConfig(new ChatClientConfig
         {
-            ProviderKey = providerKey,
+            Provider = new ProviderReference
+            {
+                Key = providerKey,
+                Authentication = authentication
+            },
             ModelName = modelName
         });
-        if (apiKey is not null)
-            builder.AddExplicitSecret($"{providerKey}:ApiKey", apiKey);
         return builder;
+    }
+
+    /// <summary>Configures the default chat provider and model with a runtime-only literal API key.</summary>
+    /// <param name="builder">The agent builder.</param>
+    /// <param name="providerKey">The canonical provider key.</param>
+    /// <param name="modelName">The default model name.</param>
+    /// <param name="apiKey">The API key to register in the builder's runtime-only secret registry.</param>
+    /// <returns>The builder.</returns>
+    /// <remarks>The API-key value is not stored in serializable agent configuration.</remarks>
+    public static AgentBuilder WithProvider(
+        this AgentBuilder builder,
+        string providerKey,
+        string modelName,
+        ReadOnlySpan<char> apiKey)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        return builder.WithProvider(providerKey, modelName, builder.RegisterExplicitApiKey(apiKey));
     }
 }
 

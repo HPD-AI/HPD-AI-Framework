@@ -104,7 +104,7 @@ public sealed class AgentEvaluationConvenienceExtensionsTests
                 {
                     Chat = new ChatClientConfig
                     {
-                        ProviderKey = "test",
+                        Provider = TestProviderSelections.Anonymous(),
                         ModelName = "gpt-test",
                     },
                 },
@@ -154,7 +154,7 @@ public sealed class AgentEvaluationConvenienceExtensionsTests
         public IProvider? GetProvider(string providerKey) => new EchoProvider(providerKey, client);
 
         public TProvider? GetProvider<TProvider>(string providerKey)
-            where TProvider : class, IProvider
+            where TProvider : class
             => GetProvider(providerKey) as TProvider;
 
         public IReadOnlyCollection<string> GetRegisteredProviders() => ["test"];
@@ -166,13 +166,15 @@ public sealed class AgentEvaluationConvenienceExtensionsTests
         public void Clear() { }
     }
 
-    private sealed class EchoProvider(string providerKey, IChatClient client) : IChatClientProvider
+    private sealed class EchoProvider(string providerKey, IChatClient client) : IProvider, IProviderClientFactory<IChatClient>
     {
         public string ProviderKey => providerKey;
 
         public string DisplayName => providerKey;
 
-        public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default) => client;
+        public ProviderClientCredentialBinding ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor) => ProviderClientCredentialBinding.RequestTime;
+        public ValueTask<ProviderClientConstruction<IChatClient>> CreateAsync(ProviderClientConstructionContext context, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(new ProviderClientConstruction<IChatClient> { Client = client, Owner = ProviderClientConstructionUtilities.Own() });
 
         public HPD.Agent.ErrorHandling.IProviderErrorHandler CreateErrorHandler() => new StubErrorHandler();
 
@@ -194,7 +196,7 @@ public sealed class AgentEvaluationConvenienceExtensionsTests
             },
         };
 
-        public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
+        public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
             => ProviderValidationResult.Success();
     }
 }

@@ -374,13 +374,15 @@ public class CodingToolHarnessAgentBuilderTests
         }
     }
 
-    private sealed class TestChatClientProvider(IChatClient chatClient) : IChatClientProvider
+    private sealed class TestChatClientProvider(IChatClient chatClient) : IProvider, IProviderClientFactory<IChatClient>
     {
         public string ProviderKey => "test";
 
         public string DisplayName => "Test";
 
-        public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default) => chatClient;
+        public ProviderClientCredentialBinding ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor) => ProviderClientCredentialBinding.RequestTime;
+        public ValueTask<ProviderClientConstruction<IChatClient>> CreateAsync(ProviderClientConstructionContext context, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(new ProviderClientConstruction<IChatClient> { Client = chatClient, Owner = ProviderClientConstructionUtilities.Own() });
 
         public IProviderErrorHandler CreateErrorHandler() => new GenericErrorHandler();
 
@@ -403,7 +405,7 @@ public class CodingToolHarnessAgentBuilderTests
                 }
             };
 
-        public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family) => ProviderValidationResult.Success();
+        public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config) => ProviderValidationResult.Success();
     }
 
     private sealed class TestChatClient : IChatClient

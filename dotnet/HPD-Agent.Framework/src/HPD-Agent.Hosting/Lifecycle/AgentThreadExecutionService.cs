@@ -80,8 +80,6 @@ public sealed class AgentThreadExecutionService : IAgentThreadExecutionService
                 active.StartedAt,
                 null,
                 null,
-                null,
-                [],
                 []));
         }
 
@@ -98,37 +96,24 @@ public sealed class AgentThreadExecutionService : IAgentThreadExecutionService
             execution.StartedAt,
             execution.FinishedAt,
             execution.Error == null ? null : new ThreadExecutionErrorDto(execution.Error.Type, execution.Error.Message),
-            execution.ModelBackgroundOperation == null
-                ? null
-                : new ThreadExecutionModelBackgroundOperationDto(
-                    execution.ModelBackgroundOperation.Status,
-                    execution.ModelBackgroundOperation.OperationId,
-                    execution.ModelBackgroundOperation.StatusMessage,
-                    execution.ModelBackgroundOperation.ContinuationToken),
-            execution.BackgroundTasks.Select(task => new ThreadExecutionBackgroundTaskDto(
-                task.TaskId,
-                task.Name,
-                task.SourceKind,
-                task.SourceId,
-                new ThreadExecutionBackgroundTaskNotificationDto(
-                    task.Notification.Kind,
-                    task.Notification.StrategyName),
-                task.Status,
-                task.StartedAt,
-                task.CompletedAt,
-                task.CancelledAt,
-                task.FaultedAt,
-                task.ErrorType,
-                task.ErrorMessage)).ToList(),
-            execution.BackgroundHandles.Select(handle => new ThreadExecutionBackgroundHandleDto(
-                handle.HandleId,
-                handle.Name,
-                handle.HandleKind,
-                handle.SourceKind,
-                handle.SourceId,
-                handle.Status,
-                handle.SupportedOperations.ToString(),
-                handle.RegisteredAt,
-                handle.UpdatedAt,
-                handle.Metadata)).ToList());
+            execution.Operations.Select(operation => new ThreadExecutionOperationDto(
+                operation.OperationId,
+                operation.ProviderOperationId,
+                operation.Name,
+                operation.SourceKind.ToString().ToLowerInvariant(),
+                operation.ProviderStatus.ToString().ToLowerInvariant(),
+                operation.ObservationStatus.ToString().ToLowerInvariant(),
+                operation.Control.Kind.ToString().ToLowerInvariant(),
+                operation.Control.Capabilities.ToString().ToLowerInvariant(),
+                operation.Control.HandleId,
+                operation.Version,
+                operation.RegisteredAt,
+                operation.StartedAt,
+                operation.UpdatedAt,
+                operation.FinishedAt,
+                operation.Completion?.Summary,
+                operation.Completion?.ArtifactReferences,
+                operation.Failure?.Code,
+                operation.Failure?.Message,
+                operation.Metadata)).ToList());
 }

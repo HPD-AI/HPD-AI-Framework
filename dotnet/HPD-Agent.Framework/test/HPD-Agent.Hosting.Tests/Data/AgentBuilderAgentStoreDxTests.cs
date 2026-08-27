@@ -324,7 +324,7 @@ public class AgentBuilderAgentStoreDxTests
                 ? "You are a helpful assistant."
                 : "Stored instructions",
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
-                ProviderKey = "test",
+                Provider = TestAgentFactory.TestSelection(),
                 ModelName = "test-model"
             } }
         };

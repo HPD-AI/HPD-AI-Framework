@@ -3,6 +3,8 @@
 
 namespace HPD.Agent.Evaluations;
 
+using HPD.Agent.Providers;
+
 /// <summary>
 /// Configuration for the Chat-family role used as an evaluation judge.
 /// </summary>
@@ -21,7 +23,7 @@ public sealed class EvaluationJudgeRunConfig
     internal EvaluationJudgeRunConfig Snapshot() => new()
     {
         Inheritance = Inheritance,
-        Chat = Chat is null ? null : (ChatClientConfig)ProviderClientConfigResolver.Clone(Chat),
+        Chat = Chat is null ? null : (ChatClientConfig)ProviderClientConfigSnapshot.Clone(Chat),
         Timeout = Timeout
     };
 }

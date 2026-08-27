@@ -190,7 +190,7 @@ public class HPDAIFunctionFactory
                     Arguments = arguments,
                     ParentContext = functionContext,
                     InvocationModePolicy = HPDOptions.InvocationModePolicy,
-                    BackgroundNotification = HPDOptions.BackgroundNotification,
+                    OperationNotification = HPDOptions.OperationNotification,
                     InvokeFunctionAsync = InvokeFunctionBodyAsync
                 },
                 cancellationToken).ConfigureAwait(false);
@@ -570,8 +570,8 @@ public class HPDAIFunctionFactoryOptions
         AgentInvocationModePolicy.SynchronousOnly;
     public AgentInvocationModeHandling InvocationModeHandling { get; set; } =
         AgentInvocationModeHandling.Runtime;
-    public BackgroundTaskNotificationRule BackgroundNotification { get; set; } =
-        new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true, Faulted: true);
+    public AgentOperationNotificationPolicy OperationNotification { get; set; } =
+        new AgentOperationNotificationPolicy();
 
     // The validator now returns a list of detailed, structured errors.
     public Func<JsonElement, JsonSerializerOptions, List<ValidationError>>? Validator { get; set; }

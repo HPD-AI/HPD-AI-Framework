@@ -20,35 +20,34 @@ public sealed class SkillHotReloadTests
         using var subscription = agent.SubscribeAny(@event =>
         {
             events.Enqueue(@event);
-            if (@event is SkillReloadRejectedEvent)
+            if (@event is AgentCapabilityRefreshRejectedEvent)
                 rejectedObserved.TrySetResult();
             return ValueTask.CompletedTask;
         });
         try
         {
-            Assert.Equal(0, agent.SkillCatalogEpoch);
+            Assert.Equal(0, agent.CapabilityEpoch);
 
         source.Replace([RuntimeSkill("runtime_two")]);
-        var published = await agent.ReloadSkillsAsync();
+        var published = await agent.RefreshCapabilitiesAsync();
 
         Assert.True(published.Published);
-        Assert.Equal(1, agent.SkillCatalogEpoch);
+        Assert.Equal(1, agent.CapabilityEpoch);
 
         source.Replace([RuntimeSkill("DataAnalysis")]);
-        var rejected = await agent.ReloadSkillsAsync();
+        var rejected = await agent.RefreshCapabilitiesAsync();
             await rejectedObserved.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
             Assert.False(rejected.Published);
-            Assert.Equal(1, agent.SkillCatalogEpoch);
+            Assert.Equal(1, agent.CapabilityEpoch);
             Assert.Contains("Duplicate model-facing", rejected.Error);
-            Assert.Contains(events, @event => @event is SkillReloadPublishedEvent published &&
-                published.PreviousEpoch == 0 && published.NewEpoch == 1 &&
-                published.ChangedSkillIds.Count > 0);
-            Assert.Contains(events, @event => @event is SkillReloadRejectedEvent rejectedEvent &&
+            Assert.Contains(events, @event => @event is AgentCapabilityRefreshPublishedEvent published &&
+                published.PreviousEpoch == 0 && published.NewEpoch == 1);
+            Assert.Contains(events, @event => @event is AgentCapabilityRefreshRejectedEvent rejectedEvent &&
                 rejectedEvent.RetainedEpoch == 1 &&
                 !rejectedEvent.Error.Contains("Runtime guide", StringComparison.Ordinal));
         }
-        finally { agent.Dispose(); }
+        finally { await agent.DisposeAsync(); }
     }
 
     [Fact]
@@ -65,21 +64,21 @@ public sealed class SkillHotReloadTests
         try
         {
             await File.WriteAllTextAsync(skillPath, "---\nname: watched_skill\ndescription: Watched.\n---\n");
-            var rejected = await agent.ReloadSkillsAsync();
+            var rejected = await agent.RefreshCapabilitiesAsync();
 
             Assert.False(rejected.Published);
-            Assert.Equal(0, agent.SkillCatalogEpoch);
+            Assert.Equal(0, agent.CapabilityEpoch);
             Assert.Contains("no instructions", rejected.Error, StringComparison.OrdinalIgnoreCase);
 
             await File.WriteAllTextAsync(skillPath, SkillDocument("Version two."));
-            var published = await agent.ReloadSkillsAsync();
+            var published = await agent.RefreshCapabilitiesAsync();
 
             Assert.True(published.Published);
-            Assert.Equal(1, agent.SkillCatalogEpoch);
+            Assert.Equal(1, agent.CapabilityEpoch);
         }
         finally
         {
-            agent.Dispose();
+            await agent.DisposeAsync();
             Directory.Delete(path, recursive: true);
         }
     }
@@ -120,10 +119,10 @@ public sealed class SkillHotReloadTests
         try
         {
             await File.WriteAllTextAsync(contractPath, """{"type":"object","properties":""");
-            var rejected = await agent.ReloadSkillsAsync();
+            var rejected = await agent.RefreshCapabilitiesAsync();
 
             Assert.False(rejected.Published);
-            Assert.Equal(0, agent.SkillCatalogEpoch);
+            Assert.Equal(0, agent.CapabilityEpoch);
             Assert.Contains("not valid JSON", rejected.Error);
 
             await File.WriteAllTextAsync(contractPath, """
@@ -134,14 +133,14 @@ public sealed class SkillHotReloadTests
                   "additionalProperties": false
                 }
                 """);
-            var published = await agent.ReloadSkillsAsync();
+            var published = await agent.RefreshCapabilitiesAsync();
 
             Assert.True(published.Published);
-            Assert.Equal(1, agent.SkillCatalogEpoch);
+            Assert.Equal(1, agent.CapabilityEpoch);
         }
         finally
         {
-            agent.Dispose();
+            await agent.DisposeAsync();
             await services.DisposeAsync();
             Directory.Delete(path, recursive: true);
         }
@@ -159,11 +158,11 @@ public sealed class SkillHotReloadTests
             source.Replace([RuntimeSkill("runtime_two")]);
 
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            while (agent.SkillCatalogEpoch == 0)
+            while (agent.CapabilityEpoch == 0)
                 await Task.Delay(25, timeout.Token);
-            Assert.Equal(1, agent.SkillCatalogEpoch);
+            Assert.Equal(1, agent.CapabilityEpoch);
         }
-        finally { agent.Dispose(); }
+        finally { await agent.DisposeAsync(); }
     }
 
     [Fact]
@@ -181,16 +180,16 @@ public sealed class SkillHotReloadTests
             source.Replace([RuntimeSkill("runtime_two")]);
 
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            while (first.SkillCatalogEpoch == 0 || second.SkillCatalogEpoch == 0)
+            while (first.CapabilityEpoch == 0 || second.CapabilityEpoch == 0)
                 await Task.Delay(25, timeout.Token);
 
-            Assert.Equal(1, first.SkillCatalogEpoch);
-            Assert.Equal(1, second.SkillCatalogEpoch);
+            Assert.Equal(1, first.CapabilityEpoch);
+            Assert.Equal(1, second.CapabilityEpoch);
         }
         finally
         {
-            first.Dispose();
-            second.Dispose();
+            await first.DisposeAsync();
+            await second.DisposeAsync();
         }
     }
 
@@ -225,13 +224,13 @@ public sealed class SkillHotReloadTests
             source.Replace([RuntimeSkill("runtime_two")]);
 
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            while (agent.SkillCatalogEpoch == 0)
+            while (agent.CapabilityEpoch == 0)
                 await Task.Delay(25, timeout.Token);
             await Task.Delay(350, timeout.Token);
 
-            Assert.Equal(1, agent.SkillCatalogEpoch);
+            Assert.Equal(1, agent.CapabilityEpoch);
         }
-        finally { agent.Dispose(); }
+        finally { await agent.DisposeAsync(); }
     }
 
     [Fact]
@@ -277,7 +276,7 @@ public sealed class SkillHotReloadTests
             Assert.Contains(functions, function => function.Name == "runtime_weather");
             Assert.Contains(functions, function => function.Name == "get_weather");
         }
-        finally { agent.Dispose(); }
+        finally { await agent.DisposeAsync(); }
     }
 
     [Fact]
@@ -292,9 +291,10 @@ public sealed class SkillHotReloadTests
             Name = "skill-event-test",
             Clients = new AgentClientsConfig
             {
-                Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" }
+                Chat = new ChatClientConfig { Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" }, ModelName = "test-model" }
             }
         };
+        config.Clients.Chat!.Override = HPD.Agent.Providers.ClientOverride<IChatClient>.Borrow(client, "test", "local");
         var agent = await new AgentBuilder(config, new TestProviderRegistry(client))
             .WithToolHarness<CombinedCapabilitiesTools>()
             .BuildAsync();
@@ -317,7 +317,7 @@ public sealed class SkillHotReloadTests
             Assert.Contains(events, @event => @event is SkillResourceReadCompletedEvent completed &&
                 completed.Name == "read_validation_guide");
         }
-        finally { agent.Dispose(); }
+        finally { await agent.DisposeAsync(); }
     }
 
     [Fact]
@@ -348,9 +348,10 @@ public sealed class SkillHotReloadTests
             Name = "script-event-test",
             Clients = new AgentClientsConfig
             {
-                Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" }
+                Chat = new ChatClientConfig { Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" }, ModelName = "test-model" }
             }
         };
+        config.Clients.Chat!.Override = HPD.Agent.Providers.ClientOverride<IChatClient>.Borrow(client, "test", "local");
         var agent = await new AgentBuilder(config, new TestProviderRegistry(client))
             .WithServiceProvider(services)
             .WithToolHarness<CombinedCapabilitiesTools>(options => options.AddSkillSource(source))
@@ -373,7 +374,7 @@ public sealed class SkillHotReloadTests
         }
         finally
         {
-            agent.Dispose();
+            await agent.DisposeAsync();
             await services.DisposeAsync();
         }
     }
@@ -392,9 +393,10 @@ public sealed class SkillHotReloadTests
             Name = "leased-epoch-test",
             Clients = new AgentClientsConfig
             {
-                Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" }
+                Chat = new ChatClientConfig { Provider = new HPD.Agent.Providers.ProviderReference { Key = "test" }, ModelName = "test-model" }
             }
         };
+        config.Clients.Chat!.Override = HPD.Agent.Providers.ClientOverride<IChatClient>.Borrow(client, "test", "local");
         var agent = await new AgentBuilder(config, new TestProviderRegistry(client))
             .WithToolHarness<CombinedCapabilitiesTools>(options => options.AddSkillSource(source))
             .BuildAsync();
@@ -404,7 +406,7 @@ public sealed class SkillHotReloadTests
             await client.FirstRequestEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
             source.Replace([RuntimeSkill("runtime_two")]);
-            var reload = await agent.ReloadSkillsAsync();
+            var reload = await agent.RefreshCapabilitiesAsync();
             Assert.True(reload.Published);
             client.ReleaseFirstResponse.TrySetResult();
             await run;
@@ -419,7 +421,7 @@ public sealed class SkillHotReloadTests
         finally
         {
             client.ReleaseFirstResponse.TrySetResult();
-            agent.Dispose();
+            await agent.DisposeAsync();
         }
     }
 

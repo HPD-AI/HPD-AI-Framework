@@ -16,7 +16,7 @@ public class AgentInputDispatchTests
             .Should().Be(AgentInputDelivery.QueuedWork);
         AgentInputDispatcher.GetBuiltInRegistration(typeof(CompactThreadInputEvent)).Delivery
             .Should().Be(AgentInputDelivery.QueuedWork);
-        AgentInputDispatcher.GetBuiltInRegistration(typeof(ClientToolBackgroundOperationOutcomeEvent)).Delivery
+        AgentInputDispatcher.GetBuiltInRegistration(typeof(ClientToolOperationOutcomeEvent)).Delivery
             .Should().Be(AgentInputDelivery.ActiveControl);
         AgentInputDispatcher.GetBuiltInRegistration(typeof(InterruptionRequestEvent)).Delivery
             .Should().Be(AgentInputDelivery.ActiveControl);
@@ -123,10 +123,10 @@ public class AgentInputDispatchTests
     {
         var middleware = new RecordingAfterInputMiddleware();
         var dispatcher = new AgentInputDispatcher(new AgentMiddlewarePipeline([middleware]));
-        var input = new ClientToolBackgroundOperationOutcomeEvent
+        var input = new ClientToolOperationOutcomeEvent
         {
             ClientOperationId = "missing-operation",
-            State = ClientToolBackgroundOperationOutcomeState.Completed
+            State = ClientToolOperationOutcomeState.Completed
         };
 
         var act = () => dispatcher.DispatchAsync(
@@ -173,7 +173,7 @@ public class AgentInputDispatchTests
                 Disposition = AgentInputDisposition.Accepted,
                 ThreadExecutionId = input.ThreadExecutionId
             }),
-            TryResolveClientToolBackgroundOperation = _ => false
+            TryResolveClientToolOperation = _ => false
         };
 
     private sealed record TestInputEvent(string Value) : AgentInputEvent;

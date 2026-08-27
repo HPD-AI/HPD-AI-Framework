@@ -105,6 +105,18 @@ internal sealed class EvalTurnCapture
             case PermissionResponseEvent e:
                 buffer.RecordPermissionResponse(e.PermissionId, e.Approved);
                 break;
+
+            case AgentTurnCapabilitiesPinnedEvent e:
+                buffer.RecordCapabilities(e.Identity);
+                break;
+
+            case AgentOperationRegisteredEvent e:
+                buffer.RecordOperation(e.Operation);
+                break;
+
+            case AgentOperationTransitionedEvent e:
+                buffer.RecordOperation(e.Operation);
+                break;
         }
 
         return ValueTask.CompletedTask;

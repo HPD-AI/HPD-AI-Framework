@@ -126,8 +126,8 @@ public sealed class SubAgent
     /// <summary>
     /// Rule used when this subagent is invoked as runtime-owned background work.
     /// </summary>
-    public BackgroundTaskNotificationRule BackgroundNotification { get; init; } =
-        new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true, Faulted: true);
+    public AgentOperationNotificationPolicy OperationNotification { get; init; } =
+        new AgentOperationNotificationPolicy();
 
     /// <summary>
     /// ToolHarness types to register with the sub-agent.
@@ -158,7 +158,7 @@ public sealed class SubAgent
             Availability = Availability,
             ForkCompaction = ForkCompaction,
             InvocationModePolicy = InvocationModePolicy,
-            BackgroundNotification = BackgroundNotification,
+            OperationNotification = OperationNotification,
             ToolHarnessTypes = ToolHarnessTypes,
             Metadata = Metadata
         };
@@ -181,7 +181,7 @@ public sealed class SubAgent
             Availability = availability,
             ForkCompaction = ForkCompaction,
             InvocationModePolicy = InvocationModePolicy,
-            BackgroundNotification = BackgroundNotification,
+            OperationNotification = OperationNotification,
             ToolHarnessTypes = ToolHarnessTypes,
             Metadata = Metadata
         };
@@ -203,7 +203,7 @@ public sealed class SubAgent
             contextPolicy,
             metadata: null,
             invocationModePolicy: AgentInvocationModePolicy.SynchronousOnly,
-            backgroundNotification: null,
+            operationNotification: null,
             forkCompaction,
             toolharnessTypes);
 
@@ -224,7 +224,7 @@ public sealed class SubAgent
             contextPolicy,
             metadata,
             AgentInvocationModePolicy.SynchronousOnly,
-            backgroundNotification: null,
+            operationNotification: null,
             forkCompaction,
             toolharnessTypes);
 
@@ -238,7 +238,7 @@ public sealed class SubAgent
     /// <param name="contextPolicy">The child context policy.</param>
     /// <param name="metadata">Optional metadata applied to subagent-created threads.</param>
     /// <param name="invocationModePolicy">The allowed synchronous/background invocation policy.</param>
-    /// <param name="backgroundNotification">The notification rule used for background invocations.</param>
+    /// <param name="operationNotification">The notification rule used for background invocations.</param>
     /// <param name="forkCompaction">Optional compaction applied when parent history is forked.</param>
     /// <param name="toolharnessTypes">Tool harness types registered on the child agent.</param>
     /// <returns>The subagent definition.</returns>
@@ -250,7 +250,7 @@ public sealed class SubAgent
         SubAgentContextPolicy contextPolicy,
         Dictionary<string, object>? metadata,
         AgentInvocationModePolicy invocationModePolicy,
-        BackgroundTaskNotificationRule? backgroundNotification,
+        AgentOperationNotificationPolicy? operationNotification,
         ThreadForkCompaction? forkCompaction = null,
         params Type[] toolharnessTypes)
     {
@@ -269,8 +269,8 @@ public sealed class SubAgent
             ContextPolicy = contextPolicy,
             ForkCompaction = forkCompaction,
             InvocationModePolicy = invocationModePolicy,
-            BackgroundNotification = backgroundNotification
-                ?? new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true, Faulted: true),
+            OperationNotification = operationNotification
+                ?? new AgentOperationNotificationPolicy(),
             ToolHarnessTypes = toolharnessTypes ?? Array.Empty<Type>(),
             Metadata = metadata
         };
@@ -290,7 +290,7 @@ public sealed class SubAgent
             contextPolicy,
             metadata: null,
             invocationModePolicy: AgentInvocationModePolicy.SynchronousOnly,
-            backgroundNotification: null,
+            operationNotification: null,
             forkCompaction,
             toolharnessTypes);
 
@@ -303,7 +303,7 @@ public sealed class SubAgent
     /// <param name="contextPolicy">The child context policy.</param>
     /// <param name="metadata">Optional metadata applied to subagent-created threads.</param>
     /// <param name="invocationModePolicy">The allowed synchronous/background invocation policy.</param>
-    /// <param name="backgroundNotification">The notification rule used for background invocations.</param>
+    /// <param name="operationNotification">The notification rule used for background invocations.</param>
     /// <param name="forkCompaction">Optional compaction applied when parent history is forked.</param>
     /// <param name="toolharnessTypes">Tool harness types registered on the child agent.</param>
     /// <returns>The subagent definition.</returns>
@@ -322,7 +322,7 @@ public sealed class SubAgent
             contextPolicy,
             metadata,
             AgentInvocationModePolicy.SynchronousOnly,
-            backgroundNotification: null,
+            operationNotification: null,
             forkCompaction,
             toolharnessTypes);
 
@@ -333,7 +333,7 @@ public sealed class SubAgent
         SubAgentContextPolicy contextPolicy,
         Dictionary<string, object>? metadata,
         AgentInvocationModePolicy invocationModePolicy,
-        BackgroundTaskNotificationRule? backgroundNotification,
+        AgentOperationNotificationPolicy? operationNotification,
         ThreadForkCompaction? forkCompaction = null,
         params Type[] toolharnessTypes)
     {
@@ -351,8 +351,8 @@ public sealed class SubAgent
             ContextPolicy = contextPolicy,
             ForkCompaction = forkCompaction,
             InvocationModePolicy = invocationModePolicy,
-            BackgroundNotification = backgroundNotification
-                ?? new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true, Faulted: true),
+            OperationNotification = operationNotification
+                ?? new AgentOperationNotificationPolicy(),
             ToolHarnessTypes = toolharnessTypes ?? Array.Empty<Type>(),
             Metadata = metadata
         };
@@ -368,7 +368,7 @@ public sealed class SubAgent
         SubAgentContextPolicy contextPolicy = SubAgentContextPolicy.Fork,
         Dictionary<string, object>? metadata = null,
         AgentInvocationModePolicy invocationModePolicy = AgentInvocationModePolicy.SynchronousOnly,
-        BackgroundTaskNotificationRule? backgroundNotification = null,
+        AgentOperationNotificationPolicy? operationNotification = null,
         ThreadForkCompaction? forkCompaction = null,
         params Type[] toolharnessTypes)
     {
@@ -385,8 +385,8 @@ public sealed class SubAgent
             ContextPolicy = contextPolicy,
             ForkCompaction = forkCompaction,
             InvocationModePolicy = invocationModePolicy,
-            BackgroundNotification = backgroundNotification
-                ?? new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true, Faulted: true),
+            OperationNotification = operationNotification
+                ?? new AgentOperationNotificationPolicy(),
             ToolHarnessTypes = toolharnessTypes ?? [],
             Metadata = metadata
         };

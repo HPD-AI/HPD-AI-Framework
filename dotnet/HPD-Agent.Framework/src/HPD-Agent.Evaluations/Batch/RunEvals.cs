@@ -251,7 +251,7 @@ public static class RunEvals
             // Task failure — return a case with an error result
             return new ReportCase(
                 caseName,
-                caseRunConfig.Clients.Chat?.ProviderKey,
+                caseRunConfig.Clients.Chat?.Provider?.Key,
                 caseRunConfig.Clients.Chat?.ModelName,
                 null,
                 new EvaluationResult(),
@@ -569,7 +569,7 @@ public static class RunEvals
             Duration = source.Duration == TimeSpan.Zero ? taskDuration : source.Duration,
             ModelId = source.ModelId ?? runConfig.Clients.Chat?.ModelName ?? source.FinalResponse?.ModelId,
             ResponseModelId = source.ResponseModelId ?? source.FinalResponse?.ModelId,
-            ProviderKey = source.ProviderKey ?? runConfig.Clients.Chat?.ProviderKey,
+            ProviderKey = source.ProviderKey ?? runConfig.Clients.Chat?.Provider?.Key,
             Attributes = attributes,
             Metrics = source.Metrics,
             StopKind = source.StopKind,

@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
@@ -19,6 +20,8 @@ using Microsoft.Extensions.AI;
 
 public partial class CodingToolHarness
 {
+    private static readonly ConcurrentDictionary<(string SessionId, string CommandId), ExecuteCommandProcessOperation>
+        ProcessOperations = new();
     private static readonly Regex AnsiEscapeSequencePattern = new(
         "\\u001B(?:\\[[0-?]*[ -/]*[@-~]|\\][^\\u0007]*(?:\\u0007|\\u001B\\\\)|[@-_])",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -54,7 +57,7 @@ public partial class CodingToolHarness
             RunCommandOperation run => await ExecuteCommandCore(
                 ExecuteCommandAction.Run,
                 run.Command,
-                backgroundHandleId: null,
+                operationId: null,
                 run.WorkingDirectory,
                 run.TimeoutMilliseconds,
                 run.ExecutionMode == CommandExecutionMode.Background,
@@ -66,7 +69,7 @@ public partial class CodingToolHarness
             ListBackgroundCommandsOperation => await ExecuteCommandCore(
                 ExecuteCommandAction.ListBackground,
                 command: null,
-                backgroundHandleId: null,
+                operationId: null,
                 workingDirectory: null,
                 DefaultExecuteCommandTimeoutMilliseconds,
                 startsInBackground: false,
@@ -78,7 +81,7 @@ public partial class CodingToolHarness
             ReadCommandOutputOperation read => await ExecuteCommandCore(
                 ExecuteCommandAction.ReadOutput,
                 command: null,
-                read.BackgroundHandleId,
+                read.OperationId,
                 workingDirectory: null,
                 DefaultExecuteCommandTimeoutMilliseconds,
                 startsInBackground: false,
@@ -90,7 +93,7 @@ public partial class CodingToolHarness
             StopCommandOperation stop => await ExecuteCommandCore(
                 ExecuteCommandAction.Stop,
                 command: null,
-                stop.BackgroundHandleId,
+                stop.OperationId,
                 workingDirectory: null,
                 DefaultExecuteCommandTimeoutMilliseconds,
                 startsInBackground: false,
@@ -105,7 +108,7 @@ public partial class CodingToolHarness
     internal async Task<object> ExecuteCommandCore(
         ExecuteCommandAction action = ExecuteCommandAction.Run,
         string? command = null,
-        string? backgroundHandleId = null,
+        string? operationId = null,
         string? workingDirectory = null,
         int timeoutMilliseconds = DefaultExecuteCommandTimeoutMilliseconds,
         bool startsInBackground = false,
@@ -120,7 +123,7 @@ public partial class CodingToolHarness
         var normalized = NormalizeExecuteCommandRequest(
             action,
             command,
-            backgroundHandleId,
+            operationId,
             workingDirectory,
             timeoutMilliseconds,
             startsInBackground,
@@ -175,13 +178,13 @@ public partial class CodingToolHarness
                 "Background commands require a session id."));
         }
 
-        if (!context.CanRegisterBackgroundTasks || !context.CanRegisterBackgroundHandles)
+        if (!context.CanStartOperations)
         {
             return FormatExecuteCommandError(new ExecuteCommandError(
                 ExecuteCommandErrorKind.BackgroundUnavailable,
                 request.Command,
                 request.WorkingDirectory,
-                "Background command registration requires an active agent runtime with background task and handle support."));
+                "Background commands require an active agent operation registry."));
         }
 
         var activeCount = CountRunningBackgroundCommands(context);
@@ -232,7 +235,7 @@ public partial class CodingToolHarness
                 outputSink,
                 cancellationToken).ConfigureAwait(false);
 
-            var background = new ExecuteCommandProcessHandle(
+            var background = new ExecuteCommandProcessOperation(
                 request.CommandId,
                 context.SessionId,
                 request,
@@ -241,7 +244,7 @@ public partial class CodingToolHarness
                 category,
                 handle,
                 outputStore,
-                context.InvocationSnapshot);
+                context);
 
             await context.TryPublishAsync(new ExecuteCommandProcessStartedEvent
             {
@@ -327,7 +330,10 @@ public partial class CodingToolHarness
 
             await RegisterBackgroundProcessAsync(context, background, cancellationToken).ConfigureAwait(false);
 
-            return FormatExecuteCommandBackgroundStarted(request, background.OutputStore.CombinedPath);
+            return FormatExecuteCommandBackgroundStarted(
+                request,
+                background.OperationId!,
+                background.OutputStore.CombinedPath);
         }
         catch (Exception ex) when (IsMissingProcessProviderException(ex))
         {
@@ -463,13 +469,14 @@ public partial class CodingToolHarness
                             BaseCommand = baseCommand,
                             Category = category,
                             WorkingDirectory = request.WorkingDirectory,
-                            BackgroundHandleId = request.CommandId,
+                            OperationId = background.OperationId!,
                             BackgroundedAt = DateTimeOffset.UtcNow,
                             ElapsedMilliseconds = (long)stopwatch.Elapsed.TotalMilliseconds
                         }, cancellationToken).ConfigureAwait(false);
 
                         return FormatExecuteCommandBackgroundStarted(
                             request,
+                            background.OperationId!,
                             background.OutputStore.CombinedPath,
                             autoBackgrounded: true);
                     }
@@ -747,7 +754,7 @@ public partial class CodingToolHarness
     internal static ExecuteCommandNormalizationResult NormalizeExecuteCommandRequest(
         ExecuteCommandAction action,
         string? command,
-        string? backgroundHandleId,
+        string? operationId,
         string? workingDirectory,
         int timeoutMilliseconds,
         bool startsInBackground,
@@ -759,7 +766,7 @@ public partial class CodingToolHarness
         => NormalizeExecuteCommandRequest(
             action,
             command,
-            backgroundHandleId,
+            operationId,
             workingDirectory,
             timeoutMilliseconds,
             startsInBackground,
@@ -772,7 +779,7 @@ public partial class CodingToolHarness
     internal static ExecuteCommandNormalizationResult NormalizeExecuteCommandRequest(
         ExecuteCommandAction action,
         string? command,
-        string? backgroundHandleId,
+        string? operationId,
         string? workingDirectory,
         int timeoutMilliseconds,
         bool startsInBackground,
@@ -809,7 +816,7 @@ public partial class CodingToolHarness
         var argumentError = ValidateExecuteCommandActionArguments(
             action,
             command,
-            backgroundHandleId,
+            operationId,
             workingDirectory,
             environment,
             startsInBackground,
@@ -845,7 +852,7 @@ public partial class CodingToolHarness
                 $"cmd_{Guid.NewGuid():N}",
                 action,
                 command?.Trim() ?? string.Empty,
-                backgroundHandleId,
+                operationId,
                 cwd.WorkingDirectory!,
                 TimeSpan.FromMilliseconds(timeoutMilliseconds),
                 startsInBackground,
@@ -859,7 +866,7 @@ public partial class CodingToolHarness
     private static string? ValidateExecuteCommandActionArguments(
         ExecuteCommandAction action,
         string? command,
-        string? backgroundHandleId,
+        string? operationId,
         string? workingDirectory,
         IReadOnlyDictionary<string, string>? environment,
         bool startsInBackground,
@@ -870,25 +877,25 @@ public partial class CodingToolHarness
         {
             ExecuteCommandAction.Run when string.IsNullOrWhiteSpace(command)
                 => "Run requires command.",
-            ExecuteCommandAction.Run when !string.IsNullOrWhiteSpace(backgroundHandleId)
-                => "Run does not accept backgroundHandleId.",
+            ExecuteCommandAction.Run when !string.IsNullOrWhiteSpace(operationId)
+                => "Run does not accept operationId.",
             ExecuteCommandAction.ListBackground when !string.IsNullOrWhiteSpace(command) ||
-                                                     !string.IsNullOrWhiteSpace(backgroundHandleId) ||
+                                                     !string.IsNullOrWhiteSpace(operationId) ||
                                                      !string.IsNullOrWhiteSpace(workingDirectory) ||
                                                      environment is not null ||
                                                      startsInBackground ||
                                                      tailLines != 200 ||
                                                      delayMilliseconds != 0
-                => "ListBackground accepts no command, backgroundHandleId, workingDirectory, environment, executionMode, tailLines, or delayMilliseconds arguments.",
-            ExecuteCommandAction.ReadOutput when string.IsNullOrWhiteSpace(backgroundHandleId)
-                => "ReadOutput requires backgroundHandleId.",
+                => "ListBackground accepts no command, operationId, workingDirectory, environment, executionMode, tailLines, or delayMilliseconds arguments.",
+            ExecuteCommandAction.ReadOutput when string.IsNullOrWhiteSpace(operationId)
+                => "ReadOutput requires operationId.",
             ExecuteCommandAction.ReadOutput when !string.IsNullOrWhiteSpace(command) ||
                                                 !string.IsNullOrWhiteSpace(workingDirectory) ||
                                                 environment is not null ||
                                                 startsInBackground
                 => "ReadOutput does not accept command, workingDirectory, environment, or executionMode.",
-            ExecuteCommandAction.Stop when string.IsNullOrWhiteSpace(backgroundHandleId)
-                => "Stop requires backgroundHandleId.",
+            ExecuteCommandAction.Stop when string.IsNullOrWhiteSpace(operationId)
+                => "Stop requires operationId.",
             ExecuteCommandAction.Stop when !string.IsNullOrWhiteSpace(command) ||
                                           !string.IsNullOrWhiteSpace(workingDirectory) ||
                                           environment is not null ||
@@ -1046,6 +1053,7 @@ public partial class CodingToolHarness
 
     private static string FormatExecuteCommandBackgroundStarted(
         ExecuteCommandRequest request,
+        string operationId,
         string outputPath,
         bool autoBackgrounded = false)
     {
@@ -1058,18 +1066,18 @@ public partial class CodingToolHarness
         writer.WriteAttributeString("background", "true");
         if (autoBackgrounded)
             writer.WriteAttributeString("auto_backgrounded", "true");
-        writer.WriteAttributeString("background_handle_id", request.CommandId);
+        writer.WriteAttributeString("operation_id", operationId);
         writer.WriteAttributeString("output_path", outputPath);
         writer.WriteAttributeString("startup_status", "launched_not_verified");
         writer.WriteStartElement("verification_hint");
-        writer.WriteString("Background start only means the process launched. Use ExecuteCommand with a readOutput request containing backgroundHandleId and delayMilliseconds to verify server readiness before telling the user it is running.");
+        writer.WriteString("Background start only means the process launched. Use ExecuteCommand with a readOutput request containing operationId and delayMilliseconds to verify server readiness before telling the user it is running.");
         writer.WriteEndElement();
         writer.WriteEndElement();
         writer.Flush();
         return builder.ToString();
     }
 
-    private async ValueTask<ExecuteCommandProcessHandle?> TryRegisterExistingHandleAsBackgroundAsync(
+    private async ValueTask<ExecuteCommandProcessOperation?> TryRegisterExistingHandleAsBackgroundAsync(
         ExecuteCommandRequest request,
         FunctionExecutionContext context,
         string shell,
@@ -1081,8 +1089,7 @@ public partial class CodingToolHarness
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(context.SessionId) ||
-            !context.CanRegisterBackgroundTasks ||
-            !context.CanRegisterBackgroundHandles)
+            !context.CanStartOperations)
         {
             return null;
         }
@@ -1091,7 +1098,7 @@ public partial class CodingToolHarness
         if (activeCount >= _executeCommandOptions.MaxActiveBackgroundCommands)
             return null;
 
-        var background = new ExecuteCommandProcessHandle(
+        var background = new ExecuteCommandProcessOperation(
             request.CommandId,
             context.SessionId,
             request,
@@ -1100,7 +1107,7 @@ public partial class CodingToolHarness
             category,
             handle,
             outputStore,
-            invocation);
+            context);
 
         try
         {
@@ -1115,39 +1122,26 @@ public partial class CodingToolHarness
 
     private static async ValueTask RegisterBackgroundProcessAsync(
         FunctionExecutionContext context,
-        ExecuteCommandProcessHandle background,
+        ExecuteCommandProcessOperation operation,
         CancellationToken cancellationToken)
     {
-        await context.RegisterBackgroundHandleAsync(
-            new BackgroundHandleDescriptor
-            {
-                HandleId = background.CommandId,
-                Name = "ExecuteCommand",
-                Kind = BackgroundHandleKind.Process,
-                SourceKind = BackgroundTaskSourceKind.Command,
-                SourceId = background.CommandId,
-                SupportedOperations = BackgroundHandleOperation.Status |
-                                      BackgroundHandleOperation.Read |
-                                      BackgroundHandleOperation.Stop |
-                                      BackgroundHandleOperation.Artifacts,
-                Metadata = background.NotificationMetadata
-            },
-            background,
-            cancellationToken).ConfigureAwait(false);
-
-        context.BackgroundTasks!.RegisterBackgroundTask(
-            new BackgroundTaskDescriptor
-            {
-                Name = "ExecuteCommand",
-                SourceKind = BackgroundTaskSourceKind.Command,
-                SourceId = background.CommandId,
-                Invocation = context.InvocationSnapshot,
-                Notification = new BackgroundTaskNotificationRule.OnFinalStateRule(
-                    Completed: true,
-                    Faulted: true),
-                Metadata = background.NotificationMetadata
-            },
-            (backgroundContext, runtimeToken) => background.ObserveCompletionAsync(backgroundContext, runtimeToken));
+        if (!ProcessOperations.TryAdd((operation.SessionId, operation.CommandId), operation))
+            throw new InvalidOperationException($"Command '{operation.CommandId}' is already registered.");
+        try
+        {
+            var receipt = await context.StartOperationAsync(
+                "ExecuteCommand",
+                operation.Metadata,
+                new AgentOperationNotificationPolicy { IncludeTerminal = true },
+                (_, operationToken) => operation.ObserveCompletionAsync(operationToken),
+                cancellationToken).ConfigureAwait(false);
+            operation.OperationId = receipt.OperationId;
+        }
+        catch
+        {
+            ProcessOperations.TryRemove((operation.SessionId, operation.CommandId), out _);
+            throw;
+        }
     }
 
     private static string ListBackgroundCommands(
@@ -1178,10 +1172,10 @@ public partial class CodingToolHarness
         if (request.Delay > TimeSpan.Zero)
             await Task.Delay(request.Delay, cancellationToken).ConfigureAwait(false);
 
-        if (!TryGetBackgroundCommand(request.BackgroundHandleId, context, out var background))
+        if (!TryGetBackgroundCommand(request.OperationId, context, out var background))
         {
             return FormatExecuteCommandError(new ExecuteCommandError(
-                ExecuteCommandErrorKind.BackgroundTaskNotFound,
+                ExecuteCommandErrorKind.OperationNotFound,
                 null,
                 request.WorkingDirectory,
                 "Background command was not found for this session."));
@@ -1208,7 +1202,7 @@ public partial class CodingToolHarness
         using var writer = CreateCodingToolHarnessXmlWriter(builder);
 
         writer.WriteStartElement("execute_command_output");
-        writer.WriteAttributeString("background_handle_id", background.CommandId);
+        writer.WriteAttributeString("operation_id", background.CommandId);
         writer.WriteAttributeString("command", background.Request.Command);
         writer.WriteAttributeString("cwd", background.Request.WorkingDirectory);
         writer.WriteAttributeString("status", FormatEnum(background.Status));
@@ -1239,10 +1233,10 @@ public partial class CodingToolHarness
         FunctionExecutionContext context,
         CancellationToken cancellationToken)
     {
-        if (!TryGetBackgroundCommand(request.BackgroundHandleId, context, out var background))
+        if (!TryGetBackgroundCommand(request.OperationId, context, out var background))
         {
             return FormatExecuteCommandError(new ExecuteCommandError(
-                ExecuteCommandErrorKind.BackgroundTaskNotFound,
+                ExecuteCommandErrorKind.OperationNotFound,
                 null,
                 request.WorkingDirectory,
                 "Background command was not found for this session."));
@@ -1250,7 +1244,7 @@ public partial class CodingToolHarness
 
         background.SuppressFinalStateNotification("handled-by-foreground-stop");
 
-        if (background.Status == ExecuteCommandProcessHandleStatus.Running)
+        if (background.Status == ExecuteCommandProcessOperationStatus.Running)
             await background.Process.StopAsync(
                 new ProcessStopRequest(StopKind.GracefulThenKill, "requested"),
                 cancellationToken).ConfigureAwait(false);
@@ -1262,7 +1256,7 @@ public partial class CodingToolHarness
         using var writer = CreateCodingToolHarnessXmlWriter(builder);
 
         writer.WriteStartElement("execute_command_stop");
-        writer.WriteAttributeString("background_handle_id", background.CommandId);
+        writer.WriteAttributeString("operation_id", background.CommandId);
         writer.WriteAttributeString("command", background.Request.Command);
         writer.WriteAttributeString("cwd", background.Request.WorkingDirectory);
         writer.WriteAttributeString("status", FormatEnum(background.Status));
@@ -1402,10 +1396,10 @@ public partial class CodingToolHarness
 
     private static void WriteBackgroundCommandElement(
         XmlWriter writer,
-        ExecuteCommandProcessHandle command)
+        ExecuteCommandProcessOperation command)
     {
         writer.WriteStartElement("command");
-        writer.WriteAttributeString("background_handle_id", command.CommandId);
+        writer.WriteAttributeString("operation_id", command.OperationId ?? command.CommandId);
         writer.WriteAttributeString("command", command.Request.Command);
         writer.WriteAttributeString("cwd", command.Request.WorkingDirectory);
         writer.WriteAttributeString("status", FormatEnum(command.Status));
@@ -1659,16 +1653,15 @@ public partial class CodingToolHarness
            ex.Message.Contains(nameof(IProcessProvider), StringComparison.Ordinal);
 
     private static bool TryGetBackgroundCommand(
-        string? backgroundHandleId,
+        string? operationId,
         FunctionExecutionContext context,
-        out ExecuteCommandProcessHandle background)
+        out ExecuteCommandProcessOperation background)
     {
-        if (!string.IsNullOrWhiteSpace(backgroundHandleId) &&
-            context.BackgroundHandles?.TryGetHandle(
-                backgroundHandleId,
-                new BackgroundHandleScope { SessionId = context.SessionId },
-                out var registered) == true &&
-            registered.Handle is ExecuteCommandProcessHandle process)
+        if (!string.IsNullOrWhiteSpace(operationId) &&
+            !string.IsNullOrWhiteSpace(context.SessionId) &&
+            ProcessOperations.Values.FirstOrDefault(candidate =>
+                string.Equals(candidate.SessionId, context.SessionId, StringComparison.Ordinal) &&
+                string.Equals(candidate.OperationId, operationId, StringComparison.Ordinal)) is { } process)
         {
             background = process;
             return true;
@@ -1678,26 +1671,20 @@ public partial class CodingToolHarness
         return false;
     }
 
-    private static IReadOnlyList<ExecuteCommandProcessHandle> ListRegisteredBackgroundCommands(
+    private static IReadOnlyList<ExecuteCommandProcessOperation> ListRegisteredBackgroundCommands(
         FunctionExecutionContext context)
     {
-        if (context.BackgroundHandles is null)
+        if (string.IsNullOrWhiteSpace(context.SessionId))
             return [];
-
-        return context.BackgroundHandles.ListHandles(new BackgroundHandleQuery
-            {
-                SessionId = context.SessionId,
-                Kind = BackgroundHandleKind.Process,
-                SourceKind = BackgroundTaskSourceKind.Command
-            })
-            .Select(handle => handle.Handle)
-            .OfType<ExecuteCommandProcessHandle>()
+        return ProcessOperations
+            .Where(pair => string.Equals(pair.Key.SessionId, context.SessionId, StringComparison.Ordinal))
+            .Select(static pair => pair.Value)
             .ToList();
     }
 
     private static int CountRunningBackgroundCommands(FunctionExecutionContext context)
         => ListRegisteredBackgroundCommands(context)
-            .Count(process => process.Status == ExecuteCommandProcessHandleStatus.Running);
+            .Count(process => process.Status == ExecuteCommandProcessOperationStatus.Running);
 
     private static async Task CleanupFailedBackgroundStartAsync(
         IProcessInvocationHandle? handle,
@@ -1815,12 +1802,12 @@ public sealed record RunCommandOperation(
 public sealed record ListBackgroundCommandsOperation : ExecuteCommandOperation;
 
 /// <summary>Reads recent output from a background command.</summary>
-/// <param name="BackgroundHandleId">The handle returned by a background run.</param>
+/// <param name="OperationId">The handle returned by a background run.</param>
 /// <param name="TailLines">The maximum number of recent combined output lines.</param>
 /// <param name="DelayMilliseconds">An optional delay before reading output.</param>
 public sealed record ReadCommandOutputOperation(
     [property: Description("Background handle id returned by a previous background run.")]
-    string BackgroundHandleId,
+    string OperationId,
     [property: Description("Maximum number of recent combined output lines to return.")]
     int TailLines = 200,
     [property: Description("Optional delay in milliseconds before reading output.")]
@@ -1828,10 +1815,10 @@ public sealed record ReadCommandOutputOperation(
     : ExecuteCommandOperation;
 
 /// <summary>Stops a background command.</summary>
-/// <param name="BackgroundHandleId">The handle returned by a background run.</param>
+/// <param name="OperationId">The handle returned by a background run.</param>
 public sealed record StopCommandOperation(
     [property: Description("Background handle id returned by a previous background run.")]
-    string BackgroundHandleId)
+    string OperationId)
     : ExecuteCommandOperation;
 
 /// <summary>Controls whether a spawned command runs synchronously or in the background.</summary>
@@ -1917,7 +1904,7 @@ internal sealed record ExecuteCommandRequest(
     string CommandId,
     ExecuteCommandAction Action,
     string Command,
-    string? BackgroundHandleId,
+    string? OperationId,
     string WorkingDirectory,
     TimeSpan Timeout,
     bool StartsInBackground,
@@ -1979,7 +1966,7 @@ internal enum ExecuteCommandErrorKind
     Cancelled,
     BackgroundUnavailable,
     BackgroundLimitExceeded,
-    BackgroundTaskNotFound,
+    OperationNotFound,
     OutputStoreFailed,
     NotImplemented
 }

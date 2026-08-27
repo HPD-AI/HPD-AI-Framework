@@ -11,7 +11,7 @@ public class OpenApiConfig : OpenApiCoreConfig
 {
     /// <summary>
     /// Whether all generated functions require user permission before execution.
-    /// Default: false (consistent with [AIFunction], [Skill], [MCPServer]).
+    /// Default: false (consistent with [AIFunction], [Skill], [McpServer]).
     /// Use [RequiresPermission] on the [OpenApi] method to opt in.
     /// </summary>
     public bool RequiresPermission { get; set; } = false;

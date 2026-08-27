@@ -123,15 +123,15 @@ public static class SubAgentRuntime
         }
         catch (InvalidOperationException ex)
         {
-            return AgentInvocationModes.CreateReceiptResult(
+            return AgentInvocationModes.CreateFailureResult(
                 request.TaskName,
-                BackgroundTaskSourceKind.SubAgent,
+                AgentOperationSourceKind.SubAgent,
                 ex.Message,
                 "invalid_invocation_mode");
         }
 
         if (mode == AgentInvocationMode.Background)
-            return RegisterBackgroundInvocation(request);
+            return await RegisterBackgroundInvocationAsync(request).ConfigureAwait(false);
 
         var result = await InvokeSynchronousCoreAsync(
             request,
@@ -144,35 +144,34 @@ public static class SubAgentRuntime
         };
     }
 
-    private static AgentInvocationResult RegisterBackgroundInvocation(SubAgentInvocationRequest request)
+    private static async Task<AgentInvocationResult> RegisterBackgroundInvocationAsync(
+        SubAgentInvocationRequest request)
     {
         var definition = request.Definition;
         var parentContext = request.ParentContext;
-        if (parentContext is null || !parentContext.CanRegisterBackgroundTasks)
+        if (parentContext?.OperationRegistry is not { } operations ||
+            parentContext.SessionId is null || parentContext.ThreadId is null)
         {
-            return AgentInvocationModes.CreateReceiptResult(
+            return AgentInvocationModes.CreateFailureResult(
                 request.TaskName,
-                BackgroundTaskSourceKind.SubAgent,
+                AgentOperationSourceKind.SubAgent,
                 "Background invocation requires an active agent runtime.");
         }
 
         var inheritedLease = parentContext.GetEffectiveChatClientHandle()?.AcquireLease();
-        BackgroundTaskRegistration registration;
+        AgentOperationReceipt receipt;
         try
         {
-            registration = parentContext.RegisterBackgroundTask(
-                new BackgroundTaskDescriptor
-                {
-                    Name = request.TaskName,
-                    SourceKind = BackgroundTaskSourceKind.SubAgent,
-                    SourceId = parentContext.FunctionCallId,
-                    SessionId = parentContext.SessionId,
-                    ThreadId = parentContext.ThreadId,
-                    Invocation = parentContext.InvocationSnapshot,
-                    Notification = definition.BackgroundNotification,
-                    Metadata = CreateBackgroundDescriptorMetadata(definition, request.TaskName)
-                },
-                async (backgroundContext, runtimeToken) =>
+            receipt = await AgentLocalOperationScheduler.StartAsync(
+                operations,
+                AgentOperationSourceKind.SubAgent,
+                request.TaskName,
+                new AgentExecutionAddress(parentContext.AgentName, parentContext.SessionId, parentContext.ThreadId),
+                parentContext.ThreadExecutionId,
+                parentContext.InvocationSnapshot,
+                CreateBackgroundDescriptorMetadata(definition, request.TaskName),
+                definition.OperationNotification,
+                async (_, runtimeToken) =>
                 {
                     try
                     {
@@ -181,43 +180,26 @@ public static class SubAgentRuntime
                             AgentInvocationMode.Background,
                             runtimeToken).ConfigureAwait(false);
 
-                        backgroundContext.SetCompletion(
-                            summary: result.Text,
-                            metadata: new Dictionary<string, string>(StringComparer.Ordinal)
-                            {
-                                ["subAgent.sessionId"] = result.SessionId,
-                                ["subAgent.threadId"] = result.ThreadId,
-                                ["subAgent.invocationId"] = result.InvocationId,
-                                ["subAgent.agentId"] = result.AgentId,
-                                ["subAgent.taskName"] = request.TaskName
-                            });
+                        return new AgentOperationCompletion(result.Text);
                     }
                     finally
                     {
                         if (inheritedLease is not null)
                             await inheritedLease.DisposeAsync().ConfigureAwait(false);
                     }
-                });
+                }).ConfigureAwait(false);
         }
         catch
         {
-            inheritedLease?.Dispose();
+            if (inheritedLease is not null)
+                await inheritedLease.DisposeAsync().ConfigureAwait(false);
             throw;
         }
 
         return new AgentInvocationResult
         {
             Mode = AgentInvocationMode.Background,
-            Background = new AgentBackgroundInvocationReceipt
-            {
-                Status = "background_started",
-                TaskId = registration.TaskId,
-                Name = registration.Name,
-                SourceKind = registration.SourceKind,
-                SessionId = parentContext.SessionId,
-                ThreadId = parentContext.ThreadId,
-                Message = $"Started {definition.Name} in the background."
-            }
+            Operation = receipt
         };
     }
 
@@ -297,7 +279,7 @@ public static class SubAgentRuntime
                 route,
                 cancellationToken).ConfigureAwait(false);
 
-            using var inheritedClientLease = request.ParentContext?.ClientSet?.AcquireBorrowedLease();
+            await using var inheritedClientLease = request.ParentContext?.ClientSet?.AcquireBorrowedLease();
             await agent.RunAsync(new UserMessagesInputEvent { Messages = [
                 new ChatMessage(ChatRole.User, request.Input)
             ],
@@ -577,11 +559,7 @@ public static class SubAgentRuntime
     private sealed class LocalAgentRuntimeLease(Agent agent) : IAgentRuntimeLease
     {
         public Agent Agent { get; } = agent;
-        public ValueTask DisposeAsync()
-        {
-            Agent.Dispose();
-            return ValueTask.CompletedTask;
-        }
+        public ValueTask DisposeAsync() => Agent.DisposeAsync();
     }
 
     private static void AttachParentCoordinator(
