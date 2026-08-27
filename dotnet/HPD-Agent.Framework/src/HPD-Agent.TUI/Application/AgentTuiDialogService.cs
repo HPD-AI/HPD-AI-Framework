@@ -247,8 +247,8 @@ internal sealed class AgentTuiDialogService : IAgentTuiDialogService
                 return;
             }
 
-            completion.TrySetResult(result);
             PopTo(layerIndex);
+            completion.TrySetResult(result);
         }
 
         var content = contentFactory(Complete);
@@ -260,8 +260,8 @@ internal sealed class AgentTuiDialogService : IAgentTuiDialogService
                 return;
             }
 
-            completion.TrySetCanceled(cancellationToken);
             PopTo(layerIndex);
+            completion.TrySetCanceled(cancellationToken);
         });
         _ = completion.Task.ContinueWith(
             _ => registration.Dispose(),

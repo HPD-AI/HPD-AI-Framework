@@ -96,6 +96,47 @@ public sealed class AgentTuiDialogServiceTests
         fixture.Host.HasOpenDialog.Should().BeFalse();
     }
 
+    [Fact]
+    public async Task RunFlowAsync_ClosesCompletedStepBeforeMountingNextStep()
+    {
+        var fixture = CreateFixture();
+
+        IAgentTuiDialogService dialogs = fixture.Dialogs;
+        var pending = dialogs.RunFlowAsync<string>(async (flow, cancellationToken) =>
+        {
+            var first = await flow.SelectAsync(
+                "Provider",
+                new[] { "OpenAI Codex" },
+                static value => value,
+                cancellationToken);
+            if (!first.IsSubmitted)
+                return null;
+
+            var second = await flow.SelectAsync(
+                "Sign in",
+                new[] { "Use device code" },
+                static value => value,
+                cancellationToken);
+            return second.IsSubmitted ? second.Value : null;
+        });
+
+        fixture.Host.HandleInput(new KeyEvent(KeyCode.Enter));
+        await WaitUntilAsync(() => fixture.Navigation.ActiveFrame.Title == "Sign in");
+        fixture.Host.HasOpenDialog.Should().BeTrue("the next flow step must survive cleanup of the completed step");
+        fixture.Slot.Count.Should().Be(1);
+        fixture.Navigation.ActiveFrame.Title.Should().Be("Sign in");
+
+        fixture.Host.HandleInput(new KeyEvent(KeyCode.Enter));
+        (await pending.WaitAsync(TimeSpan.FromSeconds(2))).Should().Be("Use device code");
+        fixture.Host.HasOpenDialog.Should().BeFalse();
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> predicate)
+    {
+        for (var attempt = 0; attempt < 50 && !predicate(); attempt++)
+            await Task.Delay(10);
+    }
+
     private static DialogFixture CreateFixture()
     {
         var focus = new FocusManager();
