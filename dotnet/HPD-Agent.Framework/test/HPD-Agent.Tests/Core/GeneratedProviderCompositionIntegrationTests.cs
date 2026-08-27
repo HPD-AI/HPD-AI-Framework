@@ -17,6 +17,8 @@ public sealed class GeneratedProviderCompositionIntegrationTests
         Assert.Equal("anthropic", descriptor!.ProviderKey);
         Assert.Equal("anthropic", composition.Descriptors.Canonicalize("Anthropic"));
         Assert.NotNull(composition.Runtime.GetFactory("anthropic", "platform", ProviderClientFamily.Chat));
+        Assert.NotNull(composition.Runtime.GetFactory("openai", "platform", ProviderClientFamily.Chat));
+        Assert.NotNull(composition.Runtime.GetFactory("openai", "codex", ProviderClientFamily.Chat));
     }
 
     [Theory]

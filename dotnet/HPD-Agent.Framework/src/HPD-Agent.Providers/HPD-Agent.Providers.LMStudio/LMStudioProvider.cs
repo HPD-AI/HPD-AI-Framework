@@ -6,6 +6,7 @@ using System.Collections.Generic;
 namespace HPD.Agent.Providers.LMStudio;
 
 [HpdProvider("lmstudio", "LM Studio")]
+[HpdProviderBackend("local", ProviderAuthenticationKind.Anonymous, IsDefaultBackend = true, IsDefaultAuthentication = true)]
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(LMStudioProviderConfig), typeof(LMStudioJsonContext))]
 [HpdProviderSecretAlias("lmstudio:ApiKey", "LMSTUDIO_API_KEY", "LM_STUDIO_API_KEY")]
@@ -60,6 +61,7 @@ internal sealed class LMStudioProvider : OpenAICompatibleChatProviderBase<LMStud
     };
 
     protected override OpenAICompatibleProviderDefinition Definition => ProviderDefinition;
+    protected override System.Text.Json.Serialization.Metadata.JsonTypeInfo<LMStudioProviderConfig> ConfigurationTypeInfo => LMStudioJsonContext.Default.LMStudioProviderConfig;
 
     public override IProviderErrorHandler CreateErrorHandler()
         => new OpenAICompatibleErrorHandler(DisplayName);

@@ -9,7 +9,7 @@ public static class NscaleAgentBuilderExtensions
     public static AgentBuilder WithNscale(
         this AgentBuilder builder,
         string model = NscaleProvider.DefaultChatModel,
-        string? apiKey = null,
+        ProviderAuthentication? authentication = null,
         string? endpoint = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -21,8 +21,11 @@ public static class NscaleAgentBuilderExtensions
 
         var chatConfig = new ChatClientConfig
         {
-            ProviderKey = "nscale",
-            ApiKey = apiKey,
+            Provider = new ProviderReference
+            {
+                Key = "nscale",
+                Authentication = authentication ?? new ApiKeyProviderAuthentication { SecretKey = "nscale:ApiKey" }
+            },
             Endpoint = endpoint,
             ModelName = model
         };
@@ -32,4 +35,6 @@ public static class NscaleAgentBuilderExtensions
 
         return builder;
     }
+    /// <summary>Configures Nscale with a literal runtime-only API key.</summary>
+    public static AgentBuilder WithNscale(this AgentBuilder builder, string model, ReadOnlySpan<char> apiKey, string? endpoint = null) => builder.WithNscale(model, builder.RegisterExplicitApiKey(apiKey), endpoint);
 }

@@ -9,7 +9,7 @@ public static class CerebrasAgentBuilderExtensions
     public static AgentBuilder WithCerebras(
         this AgentBuilder builder,
         string model = CerebrasProvider.DefaultChatModel,
-        string? apiKey = null,
+        ProviderAuthentication? authentication = null,
         string? endpoint = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -21,8 +21,11 @@ public static class CerebrasAgentBuilderExtensions
 
         var chatConfig = new ChatClientConfig
         {
-            ProviderKey = "cerebras",
-            ApiKey = apiKey,
+            Provider = new ProviderReference
+            {
+                Key = "cerebras",
+                Authentication = authentication ?? new ApiKeyProviderAuthentication { SecretKey = "cerebras:ApiKey" }
+            },
             Endpoint = endpoint,
             ModelName = model
         };
@@ -32,4 +35,8 @@ public static class CerebrasAgentBuilderExtensions
 
         return builder;
     }
+
+    /// <summary>Configures Cerebras with a literal runtime-only API key.</summary>
+    public static AgentBuilder WithCerebras(this AgentBuilder builder, string model, ReadOnlySpan<char> apiKey, string? endpoint = null) =>
+        builder.WithCerebras(model, builder.RegisterExplicitApiKey(apiKey), endpoint);
 }

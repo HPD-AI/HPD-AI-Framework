@@ -6,6 +6,7 @@ using System.Collections.Generic;
 namespace HPD.Agent.Providers.Venice;
 
 [HpdProvider("venice", "Venice.ai")]
+[HpdProviderBackend("platform", ProviderAuthenticationKind.ApiKey, IsDefaultBackend = true, IsDefaultAuthentication = true, DefaultSecretKey = "venice:ApiKey")]
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(VeniceProviderConfig), typeof(VeniceJsonContext))]
 [HpdProviderSecretAlias("venice:ApiKey", "VENICE_API_KEY")]
@@ -64,6 +65,7 @@ internal sealed class VeniceProvider : OpenAICompatibleChatProviderBase<VenicePr
     };
 
     protected override OpenAICompatibleProviderDefinition Definition => ProviderDefinition;
+    protected override System.Text.Json.Serialization.Metadata.JsonTypeInfo<VeniceProviderConfig> ConfigurationTypeInfo => VeniceJsonContext.Default.VeniceProviderConfig;
 
     public override IProviderErrorHandler CreateErrorHandler()
         => new OpenAICompatibleErrorHandler(DisplayName);

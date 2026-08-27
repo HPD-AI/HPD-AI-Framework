@@ -8,6 +8,56 @@ namespace HPD.Agent.TUI.Tests;
 
 public sealed class HostedAgentTuiRuntimeValidationTests
 {
+    [Fact]
+    public async Task GetThreadStateAsync_ProjectsUnifiedOperations()
+    {
+        using var http = new HttpClient(new JsonHandler("""
+            {
+              "observedCursor": { "generation": 1, "sequenceNumber": 3 },
+              "pendingRequests": [],
+              "activeExecution": {
+                "threadExecutionId": "run-1",
+                "agentId": "agent",
+                "sessionId": "session",
+                "threadId": "main",
+                "status": "active",
+                "startedAt": "2026-08-26T12:00:00Z",
+                "operations": [{
+                  "operationId": "op-1",
+                  "providerOperationId": "remote-7",
+                  "name": "search",
+                  "sourceKind": "mcp_task",
+                  "providerStatus": "running",
+                  "observationStatus": "attached",
+                  "controlKind": "task",
+                  "controlCapabilities": "cancel,update",
+                  "controlHandleId": "remote-7",
+                  "version": 2,
+                  "registeredAt": "2026-08-26T12:00:00Z",
+                  "startedAt": "2026-08-26T12:00:01Z",
+                  "updatedAt": "2026-08-26T12:00:02Z",
+                  "metadata": { "server": "search" }
+                }]
+              }
+            }
+            """))
+        {
+            BaseAddress = new Uri("http://127.0.0.1/api/hpd-agent/")
+        };
+        await using var runtime = new HostedAgentTuiRuntime(http, new HostedAgentTuiRuntimeOptions
+        {
+            BaseAddress = http.BaseAddress
+        });
+
+        var state = await runtime.GetThreadStateAsync(
+            new AgentTuiRuntimeScope("agent", "session", "main"));
+
+        var operation = state.ActiveExecution!.Operations.Should().ContainSingle().Which;
+        operation.OperationId.Should().Be("op-1");
+        operation.ProviderOperationId.Should().Be("remote-7");
+        operation.Metadata.Should().Contain("server", "search");
+    }
+
     [Theory]
     [InlineData(null, "session", "main")]
     [InlineData("", "session", "main")]

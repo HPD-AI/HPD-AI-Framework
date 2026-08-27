@@ -13,9 +13,7 @@ public static class AgentBuilderExtensions
     /// Configures the agent to use Mistral AI as the AI provider.
     /// </summary>
     /// <param name="builder">The agent builder instance</param>
-    /// <param name="model">The model ID to use (e.g., "mistral-large-latest", "mistral-small-latest", "open-mixtral-8x7b")</param>
-    /// <param name="apiKey">Optional API key. If not provided, will use MISTRAL_API_KEY environment variable</param>
-    /// <returns>The builder for method chaining</returns>
+    /// <param name="model">The model ID to use (e.g., "mistral-large-latest", "mistral-small-latest", "open-mixtral-8x7b")</param>    /// <returns>The builder for method chaining</returns>
     /// <remarks>
     /// <para>
     /// The Mistral provider targets net10.0 because the generated Mistral SDK package targets net10.0.
@@ -49,7 +47,7 @@ public static class AgentBuilderExtensions
     public static AgentBuilder WithMistral(
         this AgentBuilder builder,
         string model,
-        string? apiKey = null)
+        ProviderAuthentication? authentication = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
@@ -59,8 +57,11 @@ public static class AgentBuilderExtensions
         // Build provider config
         var chatConfig = new ChatClientConfig
         {
-            ProviderKey = "mistral",
-            ApiKey = apiKey, // May be null - AgentBuilder.Build() will resolve via ISecretResolver
+            Provider = new ProviderReference
+            {
+                Key = "mistral",
+                Authentication = authentication ?? new ApiKeyProviderAuthentication { SecretKey = "mistral:ApiKey" }
+            },
             ModelName = model
         };
 
@@ -69,6 +70,10 @@ public static class AgentBuilderExtensions
 
         return builder;
     }
+
+    /// <summary>Configures Mistral with a literal runtime-only API key.</summary>
+    public static AgentBuilder WithMistral(this AgentBuilder builder, string model, ReadOnlySpan<char> apiKey) =>
+        builder.WithMistral(model, builder.RegisterExplicitApiKey(apiKey));
 
     /// <summary>
     /// Applies Mistral-specific per-request defaults to the configured chat client.

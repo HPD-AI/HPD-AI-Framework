@@ -6,6 +6,7 @@ using System.Collections.Generic;
 namespace HPD.Agent.Providers.Scaleway;
 
 [HpdProvider("scaleway", "Scaleway Generative APIs")]
+[HpdProviderBackend("platform", ProviderAuthenticationKind.ApiKey, IsDefaultBackend = true, IsDefaultAuthentication = true, DefaultSecretKey = "scaleway:ApiKey")]
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(ScalewayProviderConfig), typeof(ScalewayJsonContext))]
 [HpdProviderSecretAlias("scaleway:ApiKey", "SCW_SECRET_KEY", "SCALEWAY_API_KEY", "SCW_API_KEY")]
@@ -55,6 +56,7 @@ internal sealed class ScalewayProvider : OpenAICompatibleChatProviderBase<Scalew
     };
 
     protected override OpenAICompatibleProviderDefinition Definition => ProviderDefinition;
+    protected override System.Text.Json.Serialization.Metadata.JsonTypeInfo<ScalewayProviderConfig> ConfigurationTypeInfo => ScalewayJsonContext.Default.ScalewayProviderConfig;
 
     public override IProviderErrorHandler CreateErrorHandler()
         => new OpenAICompatibleErrorHandler(DisplayName);

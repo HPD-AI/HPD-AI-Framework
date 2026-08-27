@@ -34,10 +34,24 @@ internal static class ModelSelectionCommand
         var arguments = SplitArguments(context.Arguments);
         if (arguments.Count >= 2)
         {
+            var argumentCatalogContext = new AgentTuiModelCatalogContext(context.Scope, context.Shell);
+            var providers = await catalog.GetProvidersAsync(argumentCatalogContext).ConfigureAwait(false);
+            var provider = providers.SingleOrDefault(candidate =>
+                string.Equals(candidate.SelectionId, arguments[0], StringComparison.Ordinal));
+            if (provider is null)
+            {
+                AgentTuiModelSelectionFlow.AppendNotice(
+                    context,
+                    "Provider connection not found",
+                    $"No provider connection has selection ID '{arguments[0]}'.",
+                    TranscriptSeverity.Warning);
+                return;
+            }
+
             await AgentTuiModelSelectionFlow.CommitSelectionAsync(
                     selection,
                     context,
-                    arguments[0],
+                    provider,
                     arguments[1],
                     options)
                 .ConfigureAwait(false);

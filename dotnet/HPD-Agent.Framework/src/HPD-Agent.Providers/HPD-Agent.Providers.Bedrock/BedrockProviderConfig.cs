@@ -16,30 +16,6 @@ public class BedrockProviderConfig : global::HPD.Agent.IProviderConfig
     public string? Region { get; set; }
 
     /// <summary>
-    /// AWS Access Key ID for authentication.
-    /// </summary>
-    [JsonPropertyName("accessKeyId")]
-    public string? AccessKeyId { get; set; }
-
-    /// <summary>
-    /// AWS Secret Access Key for authentication.
-    /// </summary>
-    [JsonPropertyName("secretAccessKey")]
-    public string? SecretAccessKey { get; set; }
-
-    /// <summary>
-    /// AWS Session Token for temporary credentials.
-    /// </summary>
-    [JsonPropertyName("sessionToken")]
-    public string? SessionToken { get; set; }
-
-    /// <summary>
-    /// AWS profile name to use from the credentials file.
-    /// </summary>
-    [JsonPropertyName("profileName")]
-    public string? ProfileName { get; set; }
-
-    /// <summary>
     /// Request timeout in milliseconds.
     /// </summary>
     [JsonPropertyName("requestTimeoutMs")]

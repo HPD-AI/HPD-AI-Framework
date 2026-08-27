@@ -4,13 +4,14 @@ using Microsoft.Extensions.AI;
 namespace HPD.Agent.Providers;
 
 internal sealed class CompositeProvider :
-    IChatClientProvider,
-    ITextToSpeechClientProvider,
-    ISpeechToTextClientProvider,
-    IRealtimeClientProvider,
-    IImageGeneratorProvider,
-    IEmbeddingGeneratorProvider,
-    IHostedFileClientProvider
+    IProvider,
+    IProviderClientFactory<IChatClient>,
+    IProviderClientFactory<ITextToSpeechClient>,
+    IProviderClientFactory<ISpeechToTextClient>,
+    IProviderClientFactory<IRealtimeClient>,
+    IProviderClientFactory<IImageGenerator>,
+    IProviderClientFactory<IEmbeddingGenerator>,
+    IProviderClientFactory<IHostedFileClient>
 {
     private readonly List<IProvider> _providers = [];
 
@@ -38,11 +39,11 @@ internal sealed class CompositeProvider :
     }
 
     public bool Supports<TProvider>()
-        where TProvider : class, IProvider
+        where TProvider : class
         => _providers.Any(static provider => provider is TProvider);
 
     internal TProvider GetTypedFamilyProvider<TProvider>(ProviderClientFamily family)
-        where TProvider : class, IProvider
+        where TProvider : class
     {
         for (var i = _providers.Count - 1; i >= 0; i--)
         {
@@ -56,30 +57,21 @@ internal sealed class CompositeProvider :
             $"for client family '{family}'.");
     }
 
-    public ValueTask<IChatClient> CreateChatClientAsync(
-        ProviderClientConfig config,
-        IServiceProvider? services = null,
-        CancellationToken cancellationToken = default) =>
-        GetFamilyProvider<IChatClientProvider>(ProviderClientFamily.Chat)
-            .CreateChatClientAsync(config, services, cancellationToken);
+    ProviderClientCredentialBinding IProviderClientFactory<IChatClient>.ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor) => ResolveBinding<IChatClient>(ProviderClientFamily.Chat, descriptor);
+    ProviderClientCredentialBinding IProviderClientFactory<ITextToSpeechClient>.ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor) => ResolveBinding<ITextToSpeechClient>(ProviderClientFamily.TextToSpeech, descriptor);
+    ProviderClientCredentialBinding IProviderClientFactory<ISpeechToTextClient>.ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor) => ResolveBinding<ISpeechToTextClient>(ProviderClientFamily.SpeechToText, descriptor);
+    ProviderClientCredentialBinding IProviderClientFactory<IRealtimeClient>.ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor) => ResolveBinding<IRealtimeClient>(ProviderClientFamily.Realtime, descriptor);
+    ProviderClientCredentialBinding IProviderClientFactory<IImageGenerator>.ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor) => ResolveBinding<IImageGenerator>(ProviderClientFamily.ImageGeneration, descriptor);
+    ProviderClientCredentialBinding IProviderClientFactory<IEmbeddingGenerator>.ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor) => ResolveBinding<IEmbeddingGenerator>(ProviderClientFamily.Embeddings, descriptor);
+    ProviderClientCredentialBinding IProviderClientFactory<IHostedFileClient>.ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor) => ResolveBinding<IHostedFileClient>(ProviderClientFamily.HostedFiles, descriptor);
 
-    public ITextToSpeechClient CreateTextToSpeechClient(ProviderClientConfig config, IServiceProvider? services = null) =>
-        GetFamilyProvider<ITextToSpeechClientProvider>(ProviderClientFamily.TextToSpeech).CreateTextToSpeechClient(config, services);
-
-    public ISpeechToTextClient CreateSpeechToTextClient(ProviderClientConfig config, IServiceProvider? services = null) =>
-        GetFamilyProvider<ISpeechToTextClientProvider>(ProviderClientFamily.SpeechToText).CreateSpeechToTextClient(config, services);
-
-    public IRealtimeClient CreateRealtimeClient(ProviderClientConfig config, IServiceProvider? services = null) =>
-        GetFamilyProvider<IRealtimeClientProvider>(ProviderClientFamily.Realtime).CreateRealtimeClient(config, services);
-
-    public IImageGenerator CreateImageGenerator(ProviderClientConfig config, IServiceProvider? services = null) =>
-        GetFamilyProvider<IImageGeneratorProvider>(ProviderClientFamily.ImageGeneration).CreateImageGenerator(config, services);
-
-    public IEmbeddingGenerator CreateEmbeddingGenerator(ProviderClientConfig config, IServiceProvider? services = null) =>
-        GetFamilyProvider<IEmbeddingGeneratorProvider>(ProviderClientFamily.Embeddings).CreateEmbeddingGenerator(config, services);
-
-    public IHostedFileClient CreateHostedFileClient(ProviderClientConfig config, IServiceProvider? services = null) =>
-        GetFamilyProvider<IHostedFileClientProvider>(ProviderClientFamily.HostedFiles).CreateHostedFileClient(config, services);
+    ValueTask<ProviderClientConstruction<IChatClient>> IProviderClientFactory<IChatClient>.CreateAsync(ProviderClientConstructionContext context, CancellationToken cancellationToken) => CreateAsync<IChatClient>(ProviderClientFamily.Chat, context, cancellationToken);
+    ValueTask<ProviderClientConstruction<ITextToSpeechClient>> IProviderClientFactory<ITextToSpeechClient>.CreateAsync(ProviderClientConstructionContext context, CancellationToken cancellationToken) => CreateAsync<ITextToSpeechClient>(ProviderClientFamily.TextToSpeech, context, cancellationToken);
+    ValueTask<ProviderClientConstruction<ISpeechToTextClient>> IProviderClientFactory<ISpeechToTextClient>.CreateAsync(ProviderClientConstructionContext context, CancellationToken cancellationToken) => CreateAsync<ISpeechToTextClient>(ProviderClientFamily.SpeechToText, context, cancellationToken);
+    ValueTask<ProviderClientConstruction<IRealtimeClient>> IProviderClientFactory<IRealtimeClient>.CreateAsync(ProviderClientConstructionContext context, CancellationToken cancellationToken) => CreateAsync<IRealtimeClient>(ProviderClientFamily.Realtime, context, cancellationToken);
+    ValueTask<ProviderClientConstruction<IImageGenerator>> IProviderClientFactory<IImageGenerator>.CreateAsync(ProviderClientConstructionContext context, CancellationToken cancellationToken) => CreateAsync<IImageGenerator>(ProviderClientFamily.ImageGeneration, context, cancellationToken);
+    ValueTask<ProviderClientConstruction<IEmbeddingGenerator>> IProviderClientFactory<IEmbeddingGenerator>.CreateAsync(ProviderClientConstructionContext context, CancellationToken cancellationToken) => CreateAsync<IEmbeddingGenerator>(ProviderClientFamily.Embeddings, context, cancellationToken);
+    ValueTask<ProviderClientConstruction<IHostedFileClient>> IProviderClientFactory<IHostedFileClient>.CreateAsync(ProviderClientConstructionContext context, CancellationToken cancellationToken) => CreateAsync<IHostedFileClient>(ProviderClientFamily.HostedFiles, context, cancellationToken);
 
     public IProviderErrorHandler CreateErrorHandler() => _providers[0].CreateErrorHandler();
 
@@ -103,17 +95,27 @@ internal sealed class CompositeProvider :
         };
     }
 
-    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family) =>
-        GetFamilyProvider<IProvider>(family).ValidateConfiguration(config, family);
+    public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config) =>
+        GetFamilyProvider<IProvider>(config.Family).ValidateConfiguration(config);
 
     public Task<ProviderValidationResult>? ValidateConfigurationAsync(
-        ProviderClientConfig config,
-        ProviderClientFamily family,
+        EffectiveProviderClientConfig config,
         CancellationToken cancellationToken = default) =>
-        GetFamilyProvider<IProvider>(family).ValidateConfigurationAsync(config, family, cancellationToken);
+        GetFamilyProvider<IProvider>(config.Family).ValidateConfigurationAsync(config, cancellationToken);
+
+    private ProviderClientCredentialBinding ResolveBinding<TClient>(
+        ProviderClientFamily family,
+        ProviderClientBindingDescriptor descriptor) where TClient : class =>
+        GetFamilyProvider<IProviderClientFactory<TClient>>(family).ResolveCredentialBinding(descriptor);
+
+    private ValueTask<ProviderClientConstruction<TClient>> CreateAsync<TClient>(
+        ProviderClientFamily family,
+        ProviderClientConstructionContext context,
+        CancellationToken cancellationToken) where TClient : class =>
+        GetFamilyProvider<IProviderClientFactory<TClient>>(family).CreateAsync(context, cancellationToken);
 
     private TProvider GetFamilyProvider<TProvider>(ProviderClientFamily family)
-        where TProvider : class, IProvider
+        where TProvider : class
     {
         for (var i = _providers.Count - 1; i >= 0; i--)
         {

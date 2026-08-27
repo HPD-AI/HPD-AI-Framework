@@ -2,13 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
+using System.Text.Json;
 using Cnblogs.DashScope.Core;
 using HPD.Agent;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
-using HPD.Agent.Secrets;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
 using Meai = Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Providers.DashScope;
@@ -17,13 +16,17 @@ namespace HPD.Agent.Providers.DashScope;
 /// DashScope provider implementation using the Cnblogs DashScope Microsoft.Extensions.AI adapter.
 /// </summary>
 [HpdProvider("dashscope", "DashScope")]
+[HpdProviderBackend("platform", ProviderAuthenticationKind.ApiKey, IsDefaultBackend = true, IsDefaultAuthentication = true, DefaultSecretKey = "dashscope:ApiKey")]
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderFamily(ProviderClientFamily.Embeddings)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(DashScopeProviderConfig), typeof(DashScopeJsonContext))]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.OperationOptions, typeof(DashScopeChatRequestOptions), typeof(DashScopeJsonContext))]
 [HpdProviderPayload(ProviderClientFamily.Embeddings, ProviderPayloadKind.Configuration, typeof(DashScopeProviderConfig), typeof(DashScopeJsonContext))]
 [HpdProviderSecretAlias("dashscope:ApiKey", "DASHSCOPE_API_KEY", "QWEN_API_KEY", "DASHSCOPE_KEY")]
-internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvider, IProviderSecretAliasProvider
+internal class DashScopeProvider : IProvider,
+    IProviderClientFactory<Meai.IChatClient>,
+    IProviderClientFactory<Meai.IEmbeddingGenerator>,
+    IProviderSecretAliasProvider
 {
     private const string DefaultBaseAddress = "https://dashscope.aliyuncs.com/api/v1/";
     private const string DefaultWebsocketBaseAddress = "wss://dashscope.aliyuncs.com/api-ws/v1/inference/";
@@ -42,43 +45,65 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
         };
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
-    public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
+    ProviderClientCredentialBinding IProviderClientFactory<Meai.IChatClient>.ResolveCredentialBinding(
+        ProviderClientBindingDescriptor descriptor) => ResolveBinding(descriptor);
+    ProviderClientCredentialBinding IProviderClientFactory<Meai.IEmbeddingGenerator>.ResolveCredentialBinding(
+        ProviderClientBindingDescriptor descriptor) => ResolveBinding(descriptor);
+
+    ValueTask<ProviderClientConstruction<Meai.IChatClient>> IProviderClientFactory<Meai.IChatClient>.CreateAsync(
+        ProviderClientConstructionContext context,
+        CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
+        var config = context.EffectiveConfig;
 
         if (string.IsNullOrWhiteSpace(config.ModelName))
         {
             throw new InvalidOperationException("For DashScope, the ModelName must be configured.");
         }
 
-        var dashScopeConfig = config.ProviderConfig as DashScopeProviderConfig;
-        var useVl = (config as ChatClientConfig)?.ProviderOptions is DashScopeChatRequestOptions options
-            ? options.UseVl
-            : null;
-        var client = CreateDashScopeClient(config, dashScopeConfig, services);
+        var dashScopeConfig = ReadConfig(config);
+        var options = config.FamilyOperation.CanonicalPayload.IsEmpty ? null : JsonSerializer.Deserialize(
+            config.FamilyOperation.CanonicalPayload.AsSpan(), DashScopeJsonContext.Default.DashScopeChatRequestOptions);
+        var useVl = options?.UseVl;
+        var client = CreateDashScopeClient(context, dashScopeConfig);
         var chatClient = client.AsChatClient(config.ModelName, useVl);
 
-        return new DashScopeConfiguredChatClient(chatClient, config.ModelName, useVl);
+        Meai.IChatClient configured = new DashScopeConfiguredChatClient(chatClient, config.ModelName, useVl);
+        return ValueTask.FromResult(new ProviderClientConstruction<Meai.IChatClient>
+        {
+            Client = configured,
+            Owner = ProviderClientConstructionUtilities.Own(configured)
+        });
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
-    public Meai.IEmbeddingGenerator CreateEmbeddingGenerator(ProviderClientConfig config, IServiceProvider? services = null)
+    ValueTask<ProviderClientConstruction<Meai.IEmbeddingGenerator>> IProviderClientFactory<Meai.IEmbeddingGenerator>.CreateAsync(
+        ProviderClientConstructionContext context,
+        CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
+        var config = context.EffectiveConfig;
 
-        var dashScopeConfig = config.ProviderConfig as DashScopeProviderConfig
-            ?? config.ProviderConfig as DashScopeProviderConfig;
+        var dashScopeConfig = ReadConfig(config);
 
         var modelName =
             !string.IsNullOrWhiteSpace(config.ModelName) ? config.ModelName :
             "text-embedding-v4";
 
-        var dimensions = (config as EmbeddingsClientConfig)?.Dimensions;
+        int? dimensions = null;
 
-        var client = CreateDashScopeClient(config, dashScopeConfig, services);
+        var client = CreateDashScopeClient(context, dashScopeConfig);
         var generator = client.AsEmbeddingGenerator(modelName, dimensions);
 
-        return new DashScopeConfiguredEmbeddingGenerator(generator, modelName, dimensions);
+        Meai.IEmbeddingGenerator configured = new DashScopeConfiguredEmbeddingGenerator(generator, modelName, dimensions);
+        return ValueTask.FromResult(new ProviderClientConstruction<Meai.IEmbeddingGenerator>
+        {
+            Client = configured,
+            Owner = ProviderClientConstructionUtilities.Own(configured)
+        });
     }
 
     public IProviderErrorHandler CreateErrorHandler()
@@ -118,25 +143,19 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
-    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
+    public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
 
         var errors = new List<string>();
 
-        if (family == ProviderClientFamily.Chat && string.IsNullOrWhiteSpace(config.ModelName))
+        if (config.Family == ProviderClientFamily.Chat && string.IsNullOrWhiteSpace(config.ModelName))
         {
             errors.Add("Model name is required for DashScope");
         }
 
 
-        if (!string.IsNullOrWhiteSpace(config.Endpoint) &&
-            !Uri.IsWellFormedUriString(config.Endpoint, UriKind.Absolute))
-        {
-            errors.Add("Endpoint must be a valid, absolute URI");
-        }
-
-        var dashScopeConfig = config.ProviderConfig as DashScopeProviderConfig;
+        var dashScopeConfig = ReadConfig(config);
         if (dashScopeConfig is not null)
         {
             ValidateProviderOptions(dashScopeConfig, errors);
@@ -161,23 +180,19 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
 
     }
 
-    private static DashScopeClient CreateDashScopeClient(
-        ProviderClientConfig config,
-        DashScopeProviderConfig? dashScopeConfig,
-        IServiceProvider? services)
+    private static ProviderClientCredentialBinding ResolveBinding(ProviderClientBindingDescriptor descriptor)
     {
-        var secrets = services?.GetService<ISecretResolver>();
-        if (secrets is null)
-        {
-            throw new InvalidOperationException(
-                "ISecretResolver is required for provider initialization. " +
-                "Ensure the agent builder is properly configured with secret resolution.");
-        }
+        ArgumentNullException.ThrowIfNull(descriptor);
+        return ProviderClientCredentialBinding.ConstructionTime;
+    }
 
-        var apiKeyTask = secrets.RequireAsync("dashscope:ApiKey", "DashScope", config.ApiKey, CancellationToken.None);
-        var apiKey = apiKeyTask.GetAwaiter().GetResult();
+    private static DashScopeClient CreateDashScopeClient(
+        ProviderClientConstructionContext context,
+        DashScopeProviderConfig? dashScopeConfig)
+    {
+        var apiKey = ProviderClientConstructionUtilities.GetRequiredApiKey(context.CredentialBinding);
 
-        var baseAddress = FirstNonWhiteSpace(config.Endpoint) ?? DefaultBaseAddress;
+        var baseAddress = context.EffectiveConfig.Endpoint?.AbsoluteUri ?? DefaultBaseAddress;
         var websocketBaseAddress =
             string.IsNullOrWhiteSpace(dashScopeConfig?.WebsocketBaseAddress)
                 ? DefaultWebsocketBaseAddress
@@ -195,6 +210,10 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
             dashScopeConfig?.WorkspaceId,
             dashScopeConfig?.SocketPoolSize ?? 32);
     }
+
+    private static DashScopeProviderConfig? ReadConfig(EffectiveProviderClientConfig config) =>
+        config.ProviderConfiguration.CanonicalPayload.IsEmpty ? null : JsonSerializer.Deserialize(
+            config.ProviderConfiguration.CanonicalPayload.AsSpan(), DashScopeJsonContext.Default.DashScopeProviderConfig);
 
     private static string? FirstNonWhiteSpace(params string?[] values)
     {

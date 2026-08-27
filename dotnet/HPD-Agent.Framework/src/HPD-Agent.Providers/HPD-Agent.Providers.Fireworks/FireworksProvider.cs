@@ -7,18 +7,17 @@ using HPD.Agent;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
 using HPD.Agent.Providers.OpenAICompatible;
-using HPD.Agent.Secrets;
-using Microsoft.Extensions.DependencyInjection;
 using Meai = Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Providers.Fireworks;
 
 [HpdProvider("fireworks", "Fireworks AI", DocumentationUrl = "https://docs.fireworks.ai/")]
+[HpdProviderBackend("platform", ProviderAuthenticationKind.ApiKey, IsDefaultBackend = true, IsDefaultAuthentication = true, DefaultSecretKey = "fireworks:ApiKey")]
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(FireworksProviderConfig), typeof(FireworksJsonContext))]
 [HpdProviderSecretAlias("fireworks:ApiKey", "FIREWORKS_API_KEY")]
 [HpdProviderSecretAlias("fireworks:Endpoint", "FIREWORKS_ENDPOINT", "FIREWORKS_BASE_URL")]
-internal class FireworksProvider : IChatClientProvider, IProviderSecretAliasProvider
+internal class FireworksProvider : IProvider, IProviderClientFactory<Meai.IChatClient>, IProviderSecretAliasProvider
 {
     private static readonly Uri DefaultEndpoint = new("https://api.fireworks.ai/inference/v1/");
     private const string DefaultChatModel = "accounts/fireworks/models/llama-v3p1-8b-instruct";
@@ -59,34 +58,30 @@ internal class FireworksProvider : IChatClientProvider, IProviderSecretAliasProv
         };
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
-    public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
+    public ProviderClientCredentialBinding ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor)
     {
-        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(descriptor);
+        return ProviderClientCredentialBinding.ConstructionTime;
+    }
+
+    public ValueTask<ProviderClientConstruction<Meai.IChatClient>> CreateAsync(
+        ProviderClientConstructionContext context,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
+        var config = context.EffectiveConfig;
 
         if (string.IsNullOrWhiteSpace(config.ModelName))
         {
             throw new InvalidOperationException("For Fireworks AI, the ModelName must be configured.");
         }
 
-        var secrets = services?.GetService<ISecretResolver>();
-        if (secrets is null)
-        {
-            throw new InvalidOperationException(
-                "ISecretResolver is required for provider initialization. " +
-                "Ensure the agent builder is properly configured with secret resolution.");
-        }
+        var apiKey = ProviderClientConstructionUtilities.GetRequiredApiKey(context.CredentialBinding);
+        var baseUri = config.Endpoint ?? DefaultEndpoint;
 
-        var apiKey = await secrets.RequireAsync("fireworks:ApiKey", DisplayName, config.ApiKey, cancellationToken).ConfigureAwait(false);
-        var endpoint = await secrets.ResolveOrDefaultAsync("fireworks:Endpoint", config.Endpoint, cancellationToken).ConfigureAwait(false);
-
-        var baseUri = string.IsNullOrWhiteSpace(endpoint)
-            ? DefaultEndpoint
-            : new Uri(endpoint, UriKind.Absolute);
-
-        var httpClient = new HttpClient
-        {
-            BaseAddress = baseUri
-        };
+        var httpClient = context.Services.HttpClientFactory.CreateClient("hpd-provider-fireworks");
+        httpClient.BaseAddress = baseUri;
         httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
 
         var client = new OpenAICompatibleChatClient(httpClient, new OpenAICompatibleChatClientOptions
@@ -99,7 +94,12 @@ internal class FireworksProvider : IChatClientProvider, IProviderSecretAliasProv
             RequestProfile = ChatRequestProfile
         });
 
-        return new FireworksConfiguredChatClient(client, config.ModelName, baseUri);
+        Meai.IChatClient configured = new FireworksConfiguredChatClient(client, config.ModelName, baseUri);
+        return ValueTask.FromResult(new ProviderClientConstruction<Meai.IChatClient>
+        {
+            Client = configured,
+            Owner = ProviderClientConstructionUtilities.Own(httpClient, configured)
+        });
     }
 
     public IProviderErrorHandler CreateErrorHandler()
@@ -133,13 +133,13 @@ internal class FireworksProvider : IChatClientProvider, IProviderSecretAliasProv
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
-    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
+    public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
 
         var errors = new List<string>();
 
-        if (family != ProviderClientFamily.Chat)
+        if (config.Family != ProviderClientFamily.Chat)
         {
             errors.Add("Fireworks AI currently supports only the chat provider family.");
         }
@@ -149,12 +149,6 @@ internal class FireworksProvider : IChatClientProvider, IProviderSecretAliasProv
             errors.Add("Model name is required for Fireworks AI");
         }
 
-
-        if (!string.IsNullOrWhiteSpace(config.Endpoint) &&
-            !Uri.IsWellFormedUriString(config.Endpoint, UriKind.Absolute))
-        {
-            errors.Add("Endpoint must be a valid, absolute URI");
-        }
 
         return errors.Count > 0
             ? ProviderValidationResult.Failure(errors.ToArray())

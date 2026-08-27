@@ -14,7 +14,7 @@ public static class AgentBuilderExtensions
     public static AgentBuilder WithGroq(
         this AgentBuilder builder,
         string model = "llama-3.3-70b-versatile",
-        string? apiKey = null,
+        ProviderAuthentication? authentication = null,
         string? endpoint = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -24,8 +24,11 @@ public static class AgentBuilderExtensions
 
         var chatConfig = new ChatClientConfig
         {
-            ProviderKey = "groq",
-            ApiKey = apiKey,
+            Provider = new ProviderReference
+            {
+                Key = "groq",
+                Authentication = authentication ?? new ApiKeyProviderAuthentication { SecretKey = "groq:ApiKey" }
+            },
             Endpoint = endpoint,
             ModelName = model
         };
@@ -35,4 +38,8 @@ public static class AgentBuilderExtensions
 
         return builder;
     }
+
+    /// <summary>Configures Groq with a literal runtime-only API key.</summary>
+    public static AgentBuilder WithGroq(this AgentBuilder builder, string model, ReadOnlySpan<char> apiKey, string? endpoint = null) =>
+        builder.WithGroq(model, builder.RegisterExplicitApiKey(apiKey), endpoint);
 }

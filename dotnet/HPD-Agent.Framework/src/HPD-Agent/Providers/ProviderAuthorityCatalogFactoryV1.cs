@@ -14,14 +14,16 @@ internal static class ProviderAuthorityCatalogFactoryV1
         var contributions = new List<ProviderContributionV1>();
         foreach (var fragment in fragments.OrderBy(static value => value.OwnerAssembly, StringComparer.Ordinal))
         {
-            foreach (var descriptor in fragment.Descriptors.OrderBy(static value => value.ProviderKey, StringComparer.Ordinal))
+            foreach (var registration in fragment.RuntimeFactories.OrderBy(static value => value.ProviderKey, StringComparer.Ordinal))
             {
-                foreach (var pair in descriptor.Families.OrderBy(static value => value.Key))
+                var descriptor = fragment.Descriptors.Single(value =>
+                    StringComparer.OrdinalIgnoreCase.Equals(value.ProviderKey, registration.ProviderKey));
+                foreach (var backendKey in registration.BackendKeys.OrderBy(static value => value, StringComparer.Ordinal))
+                foreach (var family in registration.Families.OrderBy(static value => value))
                 {
                     var providerKey = descriptor.ProviderKey;
-                    var family = pair.Key;
-                    var credentialAliases = fragments.SelectMany(static value => value.SecretAliases)
-                        .Where(value => value.SecretKey.StartsWith(providerKey + ":", StringComparison.Ordinal))
+                    var familyDescriptor = descriptor.Families[family];
+                    var credentialAliases = fragment.SecretAliases
                         .Select(static value => new BoundedAscii(value.SecretKey));
                     var codecIds = fragments.SelectMany(static value => value.SerializationContracts)
                         .Where(value => StringComparer.OrdinalIgnoreCase.Equals(value.ProviderKey, providerKey) && value.Family == family)
@@ -34,8 +36,9 @@ internal static class ProviderAuthorityCatalogFactoryV1
                         [Role(family)],
                         new ProviderCapabilitySetV1(1, 0, EmptyHash("hpd.provider-capabilities.v1")),
                         codecIds,
-                        ProviderFactoryId.FromValue(DeriveStable("hpd.provider-factory-id.v1", providerKey, FamilyToken(family))),
-                        Lifetime(pair.Value.Lifetime),
+                        ProviderFactoryId.FromValue(DeriveStable(
+                            "hpd.provider-factory-id.v1", providerKey, backendKey, FamilyToken(family))),
+                        Lifetime(familyDescriptor.Lifetime),
                         credentialAliases,
                         EmptyHash("hpd.provider-support-manifest.v1")));
                 }
@@ -54,6 +57,7 @@ internal static class ProviderAuthorityCatalogFactoryV1
         ProviderClientFamily.SpeechToText => ProviderRoleV1.SpeechToText,
         ProviderClientFamily.TextToSpeech => ProviderRoleV1.TextToSpeech,
         ProviderClientFamily.VoiceActivityDetection => ProviderRoleV1.Vad,
+        ProviderClientFamily.EndOfTurnDetection => ProviderRoleV1.EndOfTurn,
         _ => throw new ProviderCompositionException("HPDP015", $"Provider family '{family}' has no authority-catalog role."),
     };
 

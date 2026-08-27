@@ -1,223 +1,196 @@
-using HPD.Agent.ErrorHandling;
-using HPD.Agent.Secrets;
-using Microsoft.Extensions.AI;
-using System;
-using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Threading;
+using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
+using HPD.Agent.ErrorHandling;
+using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Providers.OpenAICompatible;
 
-/// <summary>
-/// Base implementation for small OpenAI-compatible chat-completions providers.
-/// </summary>
-public abstract class OpenAICompatibleChatProviderBase<TConfig> : IChatClientProvider, IProviderSecretAliasProvider
+/// <summary>Base implementation for small OpenAI-compatible chat-completions providers.</summary>
+public abstract class OpenAICompatibleChatProviderBase<TConfig> :
+    IProvider,
+    IProviderClientFactory<IChatClient>,
+    IProviderSecretAliasProvider
     where TConfig : OpenAICompatibleProviderConfig
 {
+    /// <summary>Gets immutable provider protocol metadata.</summary>
     protected abstract OpenAICompatibleProviderDefinition Definition { get; }
 
+    /// <summary>Gets source-generated metadata for the provider configuration payload.</summary>
+    protected abstract JsonTypeInfo<TConfig> ConfigurationTypeInfo { get; }
+
+    /// <inheritdoc />
     public string ProviderKey => Definition.ProviderKey;
+
+    /// <inheritdoc />
     public string DisplayName => Definition.DisplayName;
 
-    /// <summary>
-    /// Runtime secret aliases (parallel to the <c>[HpdProviderSecretAlias]</c> manifest attribute)
-    /// so that explicitly-registered providers can resolve secrets without a generated composition.
-    /// </summary>
+    /// <inheritdoc />
     public IReadOnlyList<ProviderSecretAliasRegistration> SecretAliases
     {
         get
         {
             var registrations = new List<ProviderSecretAliasRegistration>();
             if (!string.IsNullOrWhiteSpace(Definition.ApiKeySecretKey) && Definition.ApiKeyEnvironmentVariables.Length > 0)
-                registrations.Add(new ProviderSecretAliasRegistration(Definition.ApiKeySecretKey, Definition.ApiKeyEnvironmentVariables));
+                registrations.Add(new ProviderSecretAliasRegistration(
+                    Definition.ApiKeySecretKey, Definition.ApiKeyEnvironmentVariables));
             if (!string.IsNullOrWhiteSpace(Definition.EndpointSecretKey) && Definition.EndpointEnvironmentVariables.Length > 0)
-                registrations.Add(new ProviderSecretAliasRegistration(Definition.EndpointSecretKey, Definition.EndpointEnvironmentVariables));
+                registrations.Add(new ProviderSecretAliasRegistration(
+                    Definition.EndpointSecretKey, Definition.EndpointEnvironmentVariables));
             return registrations;
         }
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider packages use generated AOT-compatible payload contracts.")]
-    public virtual async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public ProviderClientCredentialBinding ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor)
     {
-        ArgumentNullException.ThrowIfNull(config);
-
-        if (string.IsNullOrWhiteSpace(config.ModelName))
-        {
-            throw new InvalidOperationException($"For {DisplayName}, the ModelName must be configured.");
-        }
-
-        var secretResolver = services?.GetService(typeof(ISecretResolver)) as ISecretResolver;
-        var apiKey = ResolveApiKey(config, secretResolver);
-        var endpoint = ResolveEndpoint(config, secretResolver);
-
-        var httpClient = new HttpClient
-        {
-            BaseAddress = endpoint
-        };
-        ConfigureHttpClient(httpClient, config, apiKey);
-
-        var providerConfig = ResolveProviderConfig(config);
-        var innerClient = CreateOpenAICompatibleChatClient(httpClient, config, endpoint);
-        return WrapChatClient(innerClient, config, endpoint, providerConfig);
+        ArgumentNullException.ThrowIfNull(descriptor);
+        return ProviderClientCredentialBinding.ConstructionTime;
     }
 
+    /// <inheritdoc />
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider packages use generated AOT-compatible payload contracts.")]
+    public ValueTask<ProviderClientConstruction<IChatClient>> CreateAsync(
+        ProviderClientConstructionContext context,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
+        var config = context.EffectiveConfig;
+        var providerConfig = config.ProviderConfiguration.CanonicalPayload.IsEmpty
+            ? null
+            : JsonSerializer.Deserialize(config.ProviderConfiguration.CanonicalPayload.AsSpan(), ConfigurationTypeInfo);
+        if (string.IsNullOrWhiteSpace(config.ModelName))
+            throw new InvalidOperationException($"For {DisplayName}, the model name must be configured.");
+        var apiKey = GetApiKey(context.CredentialBinding, Definition.RequiresApiKey);
+        var endpoint = config.Endpoint is null ? Definition.DefaultEndpoint : EnsureTrailingSlash(config.Endpoint);
+        var httpClient = context.Services.HttpClientFactory.CreateClient($"hpd-provider-{ProviderKey}");
+        httpClient.BaseAddress = endpoint;
+        ConfigureHttpClient(httpClient, config, apiKey);
+        var inner = CreateOpenAICompatibleChatClient(httpClient, config, endpoint);
+        var client = WrapChatClient(inner, config, endpoint, providerConfig);
+        return ValueTask.FromResult(new ProviderClientConstruction<IChatClient>
+        {
+            Client = client,
+            Owner = new OpenAICompatibleClientOwner(client, httpClient)
+        });
+    }
+
+    /// <inheritdoc />
     public abstract IProviderErrorHandler CreateErrorHandler();
 
-    public virtual ProviderMetadata GetMetadata()
-        => new()
+    /// <inheritdoc />
+    public virtual ProviderMetadata GetMetadata() => new()
+    {
+        ProviderKey = ProviderKey,
+        DisplayName = DisplayName,
+        DocumentationUri = Definition.DocumentationUri,
+        Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
         {
-            ProviderKey = ProviderKey,
-            DisplayName = DisplayName,
-            DocumentationUri = Definition.DocumentationUri,
-            Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
+            [ProviderClientFamily.Chat] = new()
             {
-                [ProviderClientFamily.Chat] = new()
-                {
-                    Family = ProviderClientFamily.Chat,
-                    DefaultModelId = Definition.DefaultModelId,
-                    Capabilities = Definition.Capabilities
-                }
+                Family = ProviderClientFamily.Chat,
+                DefaultModelId = Definition.DefaultModelId,
+                Capabilities = Definition.Capabilities
             }
-        };
+        }
+    };
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider packages use generated AOT-compatible payload contracts.")]
-    public virtual ProviderValidationResult ValidateConfiguration(
-        ProviderClientConfig config,
-        ProviderClientFamily family)
+    /// <inheritdoc />
+    public virtual ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
-
         var errors = new List<string>();
-
-        if (family != ProviderClientFamily.Chat)
-        {
+        if (config.Family != ProviderClientFamily.Chat)
             errors.Add($"{DisplayName} currently supports only the chat provider family.");
-        }
-
         if (string.IsNullOrWhiteSpace(config.ModelName))
-        {
-            errors.Add($"Model name is required for {DisplayName}");
-        }
-
-        if (!string.IsNullOrWhiteSpace(config.Endpoint) &&
-            !Uri.IsWellFormedUriString(config.Endpoint, UriKind.Absolute))
-        {
-            errors.Add("Endpoint must be a valid, absolute URI");
-        }
-
-        return errors.Count > 0
-            ? ProviderValidationResult.Failure(errors.ToArray())
-            : ProviderValidationResult.Success();
+            errors.Add($"Model name is required for {DisplayName}.");
+        return errors.Count == 0
+            ? ProviderValidationResult.Success()
+            : ProviderValidationResult.Failure(errors.ToArray());
     }
 
-    protected virtual TConfig? ResolveProviderConfig(ProviderClientConfig config)
-        => config.ProviderConfig as TConfig;
-
+    /// <summary>Creates the protocol client.</summary>
     protected virtual IChatClient CreateOpenAICompatibleChatClient(
         HttpClient httpClient,
-        ProviderClientConfig config,
-        Uri endpoint)
-        => new OpenAICompatibleChatClient(httpClient, CreateChatClientOptions(config, endpoint));
+        EffectiveProviderClientConfig config,
+        Uri endpoint) => new OpenAICompatibleChatClient(httpClient, CreateChatClientOptions(config, endpoint));
 
+    /// <summary>Creates protocol options from the immutable effective snapshot.</summary>
     protected virtual OpenAICompatibleChatClientOptions CreateChatClientOptions(
-        ProviderClientConfig config,
-        Uri endpoint)
-        => new()
-        {
-            ProviderKey = ProviderKey,
-            DisplayName = DisplayName,
-            ProviderUri = Definition.ProviderUri ?? endpoint,
-            DefaultModelId = config.ModelName,
-            ChatCompletionsPath = Definition.ChatCompletionsPath,
-            RequestProfile = Definition.RequestProfile
-        };
+        EffectiveProviderClientConfig config,
+        Uri endpoint) => new()
+    {
+        ProviderKey = ProviderKey,
+        DisplayName = DisplayName,
+        ProviderUri = Definition.ProviderUri ?? endpoint,
+        DefaultModelId = config.ModelName,
+        ChatCompletionsPath = Definition.ChatCompletionsPath,
+        RequestProfile = Definition.RequestProfile
+    };
 
+    /// <summary>Wraps the protocol client with provider-specific operation behavior.</summary>
     protected virtual IChatClient WrapChatClient(
         IChatClient innerClient,
-        ProviderClientConfig config,
+        EffectiveProviderClientConfig config,
         Uri endpoint,
-        TConfig? providerConfig)
-        => new OpenAICompatibleConfiguredChatClient<TConfig>(
+        TConfig? providerConfig) => new OpenAICompatibleConfiguredChatClient<TConfig>(
             innerClient,
             ProviderKey,
             config.ModelName,
             Definition.ProviderUri ?? endpoint,
             providerConfig);
 
+    /// <summary>Applies authentication and safe configured headers.</summary>
     protected virtual void ConfigureHttpClient(
         HttpClient httpClient,
-        ProviderClientConfig config,
+        EffectiveProviderClientConfig config,
         string? apiKey)
     {
         if (!string.IsNullOrWhiteSpace(apiKey))
-        {
-            httpClient.DefaultRequestHeaders.Authorization =
-                new AuthenticationHeaderValue("Bearer", apiKey);
-        }
-
-        if (config.CustomHeaders is null)
-        {
-            return;
-        }
-
+            httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
         foreach (var header in config.CustomHeaders)
-        {
             httpClient.DefaultRequestHeaders.TryAddWithoutValidation(header.Key, header.Value);
-        }
     }
 
-    protected static Uri EnsureTrailingSlash(Uri endpoint)
-        => endpoint.AbsoluteUri.EndsWith("/", StringComparison.Ordinal)
+    /// <summary>Normalizes a base endpoint for relative protocol paths.</summary>
+    protected static Uri EnsureTrailingSlash(Uri endpoint) =>
+        endpoint.AbsoluteUri.EndsWith("/", StringComparison.Ordinal)
             ? endpoint
             : new Uri(endpoint.AbsoluteUri + "/", UriKind.Absolute);
 
-    private string? ResolveApiKey(ProviderClientConfig config, ISecretResolver? secretResolver)
+    private static string? GetApiKey(ProviderCredentialBindingContext binding, bool required)
     {
-        if (!string.IsNullOrWhiteSpace(config.ApiKey))
-        {
-            return config.ApiKey;
-        }
-
-        if (!Definition.RequiresApiKey)
-        {
+        if (binding is not ProviderCredentialBindingContext.ConstructionTime construction)
+            throw new InvalidOperationException("OpenAI-compatible clients require a construction-time credential.");
+        if (construction.Lease.Credential is ProviderCredential.Anonymous && !required)
             return null;
-        }
-
-        if (secretResolver is null)
-        {
-            throw new InvalidOperationException(
-                "ISecretResolver is required for provider initialization when no apiKey is supplied. " +
-                "Ensure the agent builder is properly configured with secret resolution.");
-        }
-
-        return secretResolver.RequireAsync(
-                Definition.ApiKeySecretKey,
-                DisplayName,
-                config.ApiKey,
-                CancellationToken.None)
-            .GetAwaiter()
-            .GetResult();
+        if (construction.Lease.Credential is not ProviderCredential.ApiKey apiKey)
+            throw new InvalidOperationException("The provider requires an API-key credential.");
+        return apiKey.Value.Value.ToString();
     }
 
-    private Uri ResolveEndpoint(ProviderClientConfig config, ISecretResolver? secretResolver)
+    private sealed class OpenAICompatibleClientOwner(IChatClient client, HttpClient httpClient) : IAsyncDisposable
     {
-        var endpointValue = config.Endpoint;
-        if (string.IsNullOrWhiteSpace(endpointValue) &&
-            !string.IsNullOrWhiteSpace(Definition.EndpointSecretKey) &&
-            secretResolver is not null)
-        {
-            endpointValue = secretResolver.ResolveOrDefaultAsync(
-                    Definition.EndpointSecretKey,
-                    config.Endpoint,
-                    CancellationToken.None)
-                .GetAwaiter()
-                .GetResult();
-        }
+        private IChatClient? _client = client;
+        private HttpClient? _httpClient = httpClient;
 
-        return string.IsNullOrWhiteSpace(endpointValue)
-            ? Definition.DefaultEndpoint
-            : EnsureTrailingSlash(new Uri(endpointValue, UriKind.Absolute));
+        public async ValueTask DisposeAsync()
+        {
+            var currentClient = Interlocked.Exchange(ref _client, null);
+            var currentHttp = Interlocked.Exchange(ref _httpClient, null);
+            try
+            {
+                if (currentClient is IAsyncDisposable asyncDisposable)
+                    await asyncDisposable.DisposeAsync().ConfigureAwait(false);
+                else
+                    currentClient?.Dispose();
+            }
+            finally
+            {
+                currentHttp?.Dispose();
+            }
+        }
     }
 }

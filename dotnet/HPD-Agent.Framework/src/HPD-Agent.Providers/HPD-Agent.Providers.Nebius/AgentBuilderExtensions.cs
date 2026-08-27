@@ -9,7 +9,7 @@ public static class NebiusAgentBuilderExtensions
     public static AgentBuilder WithNebius(
         this AgentBuilder builder,
         string model = NebiusProvider.DefaultChatModel,
-        string? apiKey = null,
+        ProviderAuthentication? authentication = null,
         string? endpoint = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -21,8 +21,11 @@ public static class NebiusAgentBuilderExtensions
 
         var chatConfig = new ChatClientConfig
         {
-            ProviderKey = "nebius",
-            ApiKey = apiKey,
+            Provider = new ProviderReference
+            {
+                Key = "nebius",
+                Authentication = authentication ?? new ApiKeyProviderAuthentication { SecretKey = "nebius:ApiKey" }
+            },
             Endpoint = endpoint,
             ModelName = model
         };
@@ -32,4 +35,6 @@ public static class NebiusAgentBuilderExtensions
 
         return builder;
     }
+    /// <summary>Configures Nebius with a literal runtime-only API key.</summary>
+    public static AgentBuilder WithNebius(this AgentBuilder builder, string model, ReadOnlySpan<char> apiKey, string? endpoint = null) => builder.WithNebius(model, builder.RegisterExplicitApiKey(apiKey), endpoint);
 }

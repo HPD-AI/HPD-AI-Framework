@@ -198,3 +198,6 @@ public sealed class HostedFilesClientConfig : ProviderClientConfig
 
 /// <summary>Common provider-family selection consumed by the leaf-owned voice-activity source contract.</summary>
 public sealed class VoiceActivityClientConfig : ProviderClientConfig;
+
+/// <summary>Common provider-family selection consumed by semantic end-of-turn detection.</summary>
+public sealed class EndOfTurnClientConfig : ProviderClientConfig;

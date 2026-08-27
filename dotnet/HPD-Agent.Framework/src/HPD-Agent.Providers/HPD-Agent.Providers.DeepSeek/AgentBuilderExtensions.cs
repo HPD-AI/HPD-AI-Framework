@@ -9,7 +9,7 @@ public static class DeepSeekAgentBuilderExtensions
     public static AgentBuilder WithDeepSeek(
         this AgentBuilder builder,
         string model = DeepSeekProvider.DefaultChatModel,
-        string? apiKey = null,
+        ProviderAuthentication? authentication = null,
         string? endpoint = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -21,8 +21,11 @@ public static class DeepSeekAgentBuilderExtensions
 
         var chatConfig = new ChatClientConfig
         {
-            ProviderKey = "deepseek",
-            ApiKey = apiKey,
+            Provider = new ProviderReference
+            {
+                Key = "deepseek",
+                Authentication = authentication ?? new ApiKeyProviderAuthentication { SecretKey = "deepseek:ApiKey" }
+            },
             Endpoint = endpoint,
             ModelName = model
         };
@@ -32,4 +35,8 @@ public static class DeepSeekAgentBuilderExtensions
 
         return builder;
     }
+
+    /// <summary>Configures DeepSeek with a literal runtime-only API key.</summary>
+    public static AgentBuilder WithDeepSeek(this AgentBuilder builder, string model, ReadOnlySpan<char> apiKey, string? endpoint = null) =>
+        builder.WithDeepSeek(model, builder.RegisterExplicitApiKey(apiKey), endpoint);
 }

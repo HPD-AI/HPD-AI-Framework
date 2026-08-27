@@ -1,5 +1,6 @@
 using FluentAssertions;
 using HPD.Agent;
+using HPD.Agent.Providers;
 using HPD.Agent.TUI.Models;
 using HPD.Agent.TUI.Runtime;
 using HPD.Agent.TUI.Views;
@@ -32,7 +33,7 @@ public sealed class RunConfigComposerTests
                     {
                         Clients = new AgentClientsConfig { Chat = new ChatClientConfig
                         {
-                            ProviderKey = "openrouter",
+                            Provider = new ProviderReference { Key = "openrouter" },
                             ModelName = "deepseek/deepseek-chat"
                         } }
                     };
@@ -44,7 +45,7 @@ public sealed class RunConfigComposerTests
 
         runtime.LastInput.Should().BeOfType<UserMessagesInputEvent>()
             .Which.RunConfig.Should().NotBeNull();
-        runtime.LastInput!.RunConfig!.Clients.Chat!.ProviderKey.Should().Be("openrouter");
+        runtime.LastInput!.RunConfig!.Clients.Chat!.Provider!.Key.Should().Be("openrouter");
         runtime.LastInput.RunConfig.Clients.Chat.ModelName.Should().Be("deepseek/deepseek-chat");
     }
 

@@ -9,7 +9,7 @@ public static class HyperbolicAgentBuilderExtensions
     public static AgentBuilder WithHyperbolic(
         this AgentBuilder builder,
         string model = HyperbolicProvider.DefaultChatModel,
-        string? apiKey = null,
+        ProviderAuthentication? authentication = null,
         string? endpoint = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -21,8 +21,11 @@ public static class HyperbolicAgentBuilderExtensions
 
         var chatConfig = new ChatClientConfig
         {
-            ProviderKey = "hyperbolic",
-            ApiKey = apiKey,
+            Provider = new ProviderReference
+            {
+                Key = "hyperbolic",
+                Authentication = authentication ?? new ApiKeyProviderAuthentication { SecretKey = "hyperbolic:ApiKey" }
+            },
             Endpoint = endpoint,
             ModelName = model
         };
@@ -32,4 +35,6 @@ public static class HyperbolicAgentBuilderExtensions
 
         return builder;
     }
+    /// <summary>Configures Hyperbolic with a literal runtime-only API key.</summary>
+    public static AgentBuilder WithHyperbolic(this AgentBuilder builder, string model, ReadOnlySpan<char> apiKey, string? endpoint = null) => builder.WithHyperbolic(model, builder.RegisterExplicitApiKey(apiKey), endpoint);
 }

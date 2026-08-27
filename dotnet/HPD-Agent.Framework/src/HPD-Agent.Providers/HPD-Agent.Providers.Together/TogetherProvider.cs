@@ -5,8 +5,6 @@ using System.Threading;
 using HPD.Agent;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
-using HPD.Agent.Secrets;
-using Microsoft.Extensions.DependencyInjection;
 using Meai = Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Providers.Together;
@@ -15,11 +13,15 @@ namespace HPD.Agent.Providers.Together;
 /// Together AI provider implementation using the tryAGI Together SDK.
 /// </summary>
 [HpdProvider("together", "Together AI")]
+[HpdProviderBackend("platform", ProviderAuthenticationKind.ApiKey, IsDefaultBackend = true, IsDefaultAuthentication = true, DefaultSecretKey = "together:ApiKey")]
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderFamily(ProviderClientFamily.Embeddings)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.OperationOptions, typeof(TogetherChatRequestOptions), typeof(TogetherJsonContext))]
 [HpdProviderSecretAlias("together:ApiKey", "TOGETHER_API_KEY")]
-internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvider, IProviderSecretAliasProvider
+internal class TogetherProvider : IProvider,
+    IProviderClientFactory<Meai.IChatClient>,
+    IProviderClientFactory<Meai.IEmbeddingGenerator>,
+    IProviderSecretAliasProvider
 {
     private static readonly Uri DefaultEndpoint = new("https://api.together.ai/v1");
     private const string DefaultChatModel = "meta-llama/Llama-3.3-70B-Instruct-Turbo";
@@ -39,32 +41,54 @@ internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvid
         };
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
-    public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
+    ProviderClientCredentialBinding IProviderClientFactory<Meai.IChatClient>.ResolveCredentialBinding(
+        ProviderClientBindingDescriptor descriptor) => ResolveBinding(descriptor);
+
+    ProviderClientCredentialBinding IProviderClientFactory<Meai.IEmbeddingGenerator>.ResolveCredentialBinding(
+        ProviderClientBindingDescriptor descriptor) => ResolveBinding(descriptor);
+
+    ValueTask<ProviderClientConstruction<Meai.IChatClient>> IProviderClientFactory<Meai.IChatClient>.CreateAsync(
+        ProviderClientConstructionContext context, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
+        var config = context.EffectiveConfig;
 
         if (string.IsNullOrWhiteSpace(config.ModelName))
         {
             throw new InvalidOperationException("For Together AI, the ModelName must be configured.");
         }
 
-        var client = CreateTogetherClient(config, services);
+        var client = CreateTogetherClient(context);
+        Meai.IChatClient configured = new TogetherConfiguredChatClient(client, config.ModelName);
 
-        return new TogetherConfiguredChatClient(client, config.ModelName);
+        return ValueTask.FromResult(new ProviderClientConstruction<Meai.IChatClient>
+        {
+            Client = configured,
+            Owner = ProviderClientConstructionUtilities.Own(configured)
+        });
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
-    public Meai.IEmbeddingGenerator CreateEmbeddingGenerator(ProviderClientConfig config, IServiceProvider? services = null)
+    ValueTask<ProviderClientConstruction<Meai.IEmbeddingGenerator>> IProviderClientFactory<Meai.IEmbeddingGenerator>.CreateAsync(
+        ProviderClientConstructionContext context, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
+        var config = context.EffectiveConfig;
 
-        var client = CreateTogetherClient(config, services);
+        var client = CreateTogetherClient(context);
         var modelName =
             !string.IsNullOrWhiteSpace(config.ModelName) ? config.ModelName :
             DefaultEmbeddingModel;
 
         Meai.IEmbeddingGenerator<string, Meai.Embedding<float>> generator = client;
-        return new TogetherConfiguredEmbeddingGenerator(generator, modelName);
+        Meai.IEmbeddingGenerator configured = new TogetherConfiguredEmbeddingGenerator(generator, modelName);
+        return ValueTask.FromResult(new ProviderClientConstruction<Meai.IEmbeddingGenerator>
+        {
+            Client = configured,
+            Owner = ProviderClientConstructionUtilities.Own(configured)
+        });
     }
 
     public IProviderErrorHandler CreateErrorHandler()
@@ -104,45 +128,35 @@ internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvid
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
-    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
+    public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
 
         var errors = new List<string>();
 
-        if (family == ProviderClientFamily.Chat && string.IsNullOrWhiteSpace(config.ModelName))
+        if (config.Family == ProviderClientFamily.Chat && string.IsNullOrWhiteSpace(config.ModelName))
         {
             errors.Add("Model name is required for Together AI");
         }
 
-
-        if (!string.IsNullOrWhiteSpace(config.Endpoint) &&
-            !Uri.IsWellFormedUriString(config.Endpoint, UriKind.Absolute))
-        {
-            errors.Add("Endpoint must be a valid, absolute URI");
-        }
 
         return errors.Count > 0
             ? ProviderValidationResult.Failure(errors.ToArray())
             : ProviderValidationResult.Success();
     }
 
-    private static global::Together.TogetherClient CreateTogetherClient(ProviderClientConfig config, IServiceProvider? services)
+    private static ProviderClientCredentialBinding ResolveBinding(ProviderClientBindingDescriptor descriptor)
     {
-        var secrets = services?.GetService<ISecretResolver>();
-        if (secrets is null)
-        {
-            throw new InvalidOperationException(
-                "ISecretResolver is required for provider initialization. " +
-                "Ensure the agent builder is properly configured with secret resolution.");
-        }
+        ArgumentNullException.ThrowIfNull(descriptor);
+        return ProviderClientCredentialBinding.ConstructionTime;
+    }
 
-        var apiKeyTask = secrets.RequireAsync("together:ApiKey", "Together AI", config.ApiKey, CancellationToken.None);
-        var apiKey = apiKeyTask.GetAwaiter().GetResult();
+    private static global::Together.TogetherClient CreateTogetherClient(ProviderClientConstructionContext context)
+    {
+        var apiKey = ProviderClientConstructionUtilities.GetRequiredApiKey(context.CredentialBinding);
+        var config = context.EffectiveConfig;
 
-        var endpoint = string.IsNullOrWhiteSpace(config.Endpoint)
-            ? DefaultEndpoint
-            : new Uri(config.Endpoint, UriKind.Absolute);
+        var endpoint = config.Endpoint ?? DefaultEndpoint;
 
         var client = new global::Together.TogetherClient(baseUri: endpoint);
         client.AuthorizeUsingBearer(apiKey);

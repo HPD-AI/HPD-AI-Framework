@@ -6,6 +6,7 @@ using System.Collections.Generic;
 namespace HPD.Agent.Providers.Nscale;
 
 [HpdProvider("nscale", "Nscale")]
+[HpdProviderBackend("platform", ProviderAuthenticationKind.ApiKey, IsDefaultBackend = true, IsDefaultAuthentication = true, DefaultSecretKey = "nscale:ApiKey")]
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(NscaleProviderConfig), typeof(NscaleJsonContext))]
 [HpdProviderSecretAlias("nscale:ApiKey", "NSCALE_API_KEY")]
@@ -54,6 +55,7 @@ internal sealed class NscaleProvider : OpenAICompatibleChatProviderBase<NscalePr
     };
 
     protected override OpenAICompatibleProviderDefinition Definition => ProviderDefinition;
+    protected override System.Text.Json.Serialization.Metadata.JsonTypeInfo<NscaleProviderConfig> ConfigurationTypeInfo => NscaleJsonContext.Default.NscaleProviderConfig;
 
     public override IProviderErrorHandler CreateErrorHandler()
         => new OpenAICompatibleErrorHandler(DisplayName);

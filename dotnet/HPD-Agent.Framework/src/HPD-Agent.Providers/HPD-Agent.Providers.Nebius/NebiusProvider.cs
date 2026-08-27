@@ -6,6 +6,7 @@ using System.Collections.Generic;
 namespace HPD.Agent.Providers.Nebius;
 
 [HpdProvider("nebius", "Nebius Token Factory")]
+[HpdProviderBackend("platform", ProviderAuthenticationKind.ApiKey, IsDefaultBackend = true, IsDefaultAuthentication = true, DefaultSecretKey = "nebius:ApiKey")]
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(NebiusProviderConfig), typeof(NebiusJsonContext))]
 [HpdProviderSecretAlias("nebius:ApiKey", "NEBIUS_API_KEY")]
@@ -57,6 +58,7 @@ internal sealed class NebiusProvider : OpenAICompatibleChatProviderBase<NebiusPr
     };
 
     protected override OpenAICompatibleProviderDefinition Definition => ProviderDefinition;
+    protected override System.Text.Json.Serialization.Metadata.JsonTypeInfo<NebiusProviderConfig> ConfigurationTypeInfo => NebiusJsonContext.Default.NebiusProviderConfig;
 
     public override IProviderErrorHandler CreateErrorHandler()
         => new OpenAICompatibleErrorHandler(DisplayName);

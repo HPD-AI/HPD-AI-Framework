@@ -6,6 +6,7 @@ using System.Collections.Generic;
 namespace HPD.Agent.Providers.NvidiaNim;
 
 [HpdProvider("nvidia-nim", "NVIDIA NIM")]
+[HpdProviderBackend("platform", ProviderAuthenticationKind.ApiKey, IsDefaultBackend = true, IsDefaultAuthentication = true, DefaultSecretKey = "nvidia-nim:ApiKey")]
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(NvidiaNimProviderConfig), typeof(NvidiaNimJsonContext))]
 [HpdProviderSecretAlias("nvidia-nim:ApiKey", "NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY")]
@@ -44,6 +45,7 @@ internal sealed class NvidiaNimProvider : OpenAICompatibleChatProviderBase<Nvidi
     };
 
     protected override OpenAICompatibleProviderDefinition Definition => ProviderDefinition;
+    protected override System.Text.Json.Serialization.Metadata.JsonTypeInfo<NvidiaNimProviderConfig> ConfigurationTypeInfo => NvidiaNimJsonContext.Default.NvidiaNimProviderConfig;
 
     public override IProviderErrorHandler CreateErrorHandler()
         => new OpenAICompatibleErrorHandler(DisplayName);

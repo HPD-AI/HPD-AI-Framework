@@ -4,19 +4,18 @@ using System.Threading;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
 using HPD.Agent.Providers.OpenAICompatible;
-using HPD.Agent.Secrets;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Agent.Providers.Moonshot;
 
 [HpdProvider("moonshot", "Moonshot")]
+[HpdProviderBackend("platform", ProviderAuthenticationKind.ApiKey, IsDefaultBackend = true, IsDefaultAuthentication = true, DefaultSecretKey = "moonshot:ApiKey")]
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(MoonshotProviderConfig), typeof(MoonshotJsonContext))]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.OperationOptions, typeof(MoonshotChatRequestOptions), typeof(MoonshotJsonContext))]
 [HpdProviderSecretAlias("moonshot:ApiKey", "MOONSHOT_API_KEY", "KIMI_API_KEY")]
 [HpdProviderSecretAlias("moonshot:Endpoint", "MOONSHOT_ENDPOINT", "MOONSHOT_BASE_URL", "KIMI_ENDPOINT", "KIMI_BASE_URL")]
-internal sealed class MoonshotProvider : IChatClientProvider, IProviderSecretAliasProvider
+internal sealed class MoonshotProvider : IProvider, IProviderClientFactory<IChatClient>, IProviderSecretAliasProvider
 {
     internal static readonly Uri DefaultEndpoint = new("https://api.moonshot.ai/v1/");
     internal const string DefaultChatModel = "kimi-k2.5";
@@ -52,35 +51,31 @@ internal sealed class MoonshotProvider : IChatClientProvider, IProviderSecretAli
         };
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
-    public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
+    public ProviderClientCredentialBinding ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor)
     {
-        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(descriptor);
+        return ProviderClientCredentialBinding.ConstructionTime;
+    }
 
-        var secrets = services?.GetService<ISecretResolver>();
-        if (secrets is null)
-        {
-            throw new InvalidOperationException(
-                "ISecretResolver is required for provider initialization. " +
-                "Ensure the agent builder is properly configured with secret resolution.");
-        }
-
-        var apiKey = await secrets.RequireAsync("moonshot:ApiKey", DisplayName, config.ApiKey, cancellationToken).ConfigureAwait(false);
-        var endpointValue = await secrets.ResolveOrDefaultAsync("moonshot:Endpoint", config.Endpoint, cancellationToken).ConfigureAwait(false);
-        var endpoint = string.IsNullOrWhiteSpace(endpointValue)
-            ? DefaultEndpoint
-            : EnsureTrailingSlash(new Uri(endpointValue, UriKind.Absolute));
+    public ValueTask<ProviderClientConstruction<IChatClient>> CreateAsync(
+        ProviderClientConstructionContext context,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
+        var config = context.EffectiveConfig;
+        var apiKey = ProviderClientConstructionUtilities.GetRequiredApiKey(context.CredentialBinding);
+        var endpoint = config.Endpoint is null ? DefaultEndpoint : EnsureTrailingSlash(config.Endpoint);
 
         var modelName = string.IsNullOrWhiteSpace(config.ModelName)
             ? DefaultChatModel
             : config.ModelName;
 
-        var httpClient = new HttpClient
-        {
-            BaseAddress = endpoint
-        };
+        var httpClient = context.Services.HttpClientFactory.CreateClient("hpd-provider-moonshot");
+        httpClient.BaseAddress = endpoint;
         httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
 
-        return new MoonshotChatClient(
+        IChatClient client = new MoonshotChatClient(
             httpClient,
             new OpenAICompatibleChatClientOptions
             {
@@ -90,6 +85,11 @@ internal sealed class MoonshotProvider : IChatClientProvider, IProviderSecretAli
                 DefaultModelId = modelName,
                 RequestProfile = ChatRequestProfile
             });
+        return ValueTask.FromResult(new ProviderClientConstruction<IChatClient>
+        {
+            Client = client,
+            Owner = ProviderClientConstructionUtilities.Own(client, httpClient)
+        });
     }
 
     public IProviderErrorHandler CreateErrorHandler() => new MoonshotErrorHandler();
@@ -122,23 +122,17 @@ internal sealed class MoonshotProvider : IChatClientProvider, IProviderSecretAli
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
-    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
+    public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
 
         var errors = new List<string>();
 
-        if (family != ProviderClientFamily.Chat)
+        if (config.Family != ProviderClientFamily.Chat)
         {
             errors.Add("Moonshot currently supports only the chat provider family");
         }
 
-
-        if (!string.IsNullOrWhiteSpace(config.Endpoint) &&
-            !Uri.IsWellFormedUriString(config.Endpoint, UriKind.Absolute))
-        {
-            errors.Add("Endpoint must be a valid, absolute URI");
-        }
 
         return errors.Count > 0
             ? ProviderValidationResult.Failure(errors.ToArray())

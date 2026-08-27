@@ -5,8 +5,6 @@ using System.Threading;
 using HPD.Agent;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
-using HPD.Agent.Secrets;
-using Microsoft.Extensions.DependencyInjection;
 using Meai = Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Providers.Cohere;
@@ -15,11 +13,15 @@ namespace HPD.Agent.Providers.Cohere;
 /// Cohere provider implementation using the tryAGI Cohere SDK.
 /// </summary>
 [HpdProvider("cohere", "Cohere")]
+[HpdProviderBackend("platform", ProviderAuthenticationKind.ApiKey, IsDefaultBackend = true, IsDefaultAuthentication = true, DefaultSecretKey = "cohere:ApiKey")]
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderFamily(ProviderClientFamily.Embeddings)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.OperationOptions, typeof(CohereChatRequestOptions), typeof(CohereJsonContext))]
 [HpdProviderSecretAlias("cohere:ApiKey", "COHERE_API_KEY")]
-internal class CohereProvider : IChatClientProvider, IEmbeddingGeneratorProvider, IProviderSecretAliasProvider
+internal class CohereProvider : IProvider,
+    IProviderClientFactory<Meai.IChatClient>,
+    IProviderClientFactory<Meai.IEmbeddingGenerator>,
+    IProviderSecretAliasProvider
 {
     private static readonly Uri DefaultEndpoint = new("https://api.cohere.com/");
 
@@ -37,32 +39,55 @@ internal class CohereProvider : IChatClientProvider, IEmbeddingGeneratorProvider
         };
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
-    public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
+    ProviderClientCredentialBinding IProviderClientFactory<Meai.IChatClient>.ResolveCredentialBinding(
+        ProviderClientBindingDescriptor descriptor) => ResolveBinding(descriptor);
+
+    ProviderClientCredentialBinding IProviderClientFactory<Meai.IEmbeddingGenerator>.ResolveCredentialBinding(
+        ProviderClientBindingDescriptor descriptor) => ResolveBinding(descriptor);
+
+    ValueTask<ProviderClientConstruction<Meai.IChatClient>> IProviderClientFactory<Meai.IChatClient>.CreateAsync(
+        ProviderClientConstructionContext context,
+        CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
+        var config = context.EffectiveConfig;
 
         if (string.IsNullOrWhiteSpace(config.ModelName))
         {
             throw new InvalidOperationException("For Cohere, the ModelName must be configured.");
         }
 
-        var client = CreateCohereClient(config, services);
-
-        return new CohereConfiguredChatClient(client, config.ModelName);
+        var client = CreateCohereClient(context);
+        Meai.IChatClient configured = new CohereConfiguredChatClient(client, config.ModelName);
+        return ValueTask.FromResult(new ProviderClientConstruction<Meai.IChatClient>
+        {
+            Client = configured,
+            Owner = ProviderClientConstructionUtilities.Own(configured)
+        });
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
-    public Meai.IEmbeddingGenerator CreateEmbeddingGenerator(ProviderClientConfig config, IServiceProvider? services = null)
+    ValueTask<ProviderClientConstruction<Meai.IEmbeddingGenerator>> IProviderClientFactory<Meai.IEmbeddingGenerator>.CreateAsync(
+        ProviderClientConstructionContext context,
+        CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
+        var config = context.EffectiveConfig;
 
-        var client = CreateCohereClient(config, services);
+        var client = CreateCohereClient(context);
         var modelName =
             !string.IsNullOrWhiteSpace(config.ModelName) ? config.ModelName :
             "embed-english-v3.0";
 
         Meai.IEmbeddingGenerator<string, Meai.Embedding<float>> generator = client;
-        return new CohereConfiguredEmbeddingGenerator(generator, modelName);
+        Meai.IEmbeddingGenerator configured = new CohereConfiguredEmbeddingGenerator(generator, modelName);
+        return ValueTask.FromResult(new ProviderClientConstruction<Meai.IEmbeddingGenerator>
+        {
+            Client = configured,
+            Owner = ProviderClientConstructionUtilities.Own(configured)
+        });
     }
 
     public IProviderErrorHandler CreateErrorHandler()
@@ -101,45 +126,33 @@ internal class CohereProvider : IChatClientProvider, IEmbeddingGeneratorProvider
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
-    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
+    public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
 
         var errors = new List<string>();
 
-        if (family == ProviderClientFamily.Chat && string.IsNullOrWhiteSpace(config.ModelName))
+        if (config.Family == ProviderClientFamily.Chat && string.IsNullOrWhiteSpace(config.ModelName))
         {
             errors.Add("Model name is required for Cohere");
         }
 
-
-        if (!string.IsNullOrWhiteSpace(config.Endpoint) &&
-            !Uri.IsWellFormedUriString(config.Endpoint, UriKind.Absolute))
-        {
-            errors.Add("Endpoint must be a valid, absolute URI");
-        }
 
         return errors.Count > 0
             ? ProviderValidationResult.Failure(errors.ToArray())
             : ProviderValidationResult.Success();
     }
 
-    private static global::Cohere.CohereClient CreateCohereClient(ProviderClientConfig config, IServiceProvider? services)
+    private static ProviderClientCredentialBinding ResolveBinding(ProviderClientBindingDescriptor descriptor)
     {
-        var secrets = services?.GetService<ISecretResolver>();
-        if (secrets is null)
-        {
-            throw new InvalidOperationException(
-                "ISecretResolver is required for provider initialization. " +
-                "Ensure the agent builder is properly configured with secret resolution.");
-        }
+        ArgumentNullException.ThrowIfNull(descriptor);
+        return ProviderClientCredentialBinding.ConstructionTime;
+    }
 
-        var apiKeyTask = secrets.RequireAsync("cohere:ApiKey", "Cohere", config.ApiKey, CancellationToken.None);
-        var apiKey = apiKeyTask.GetAwaiter().GetResult();
-
-        var endpoint = string.IsNullOrWhiteSpace(config.Endpoint)
-            ? DefaultEndpoint
-            : new Uri(config.Endpoint, UriKind.Absolute);
+    private static global::Cohere.CohereClient CreateCohereClient(ProviderClientConstructionContext context)
+    {
+        var apiKey = ProviderClientConstructionUtilities.GetRequiredApiKey(context.CredentialBinding);
+        var endpoint = context.EffectiveConfig.Endpoint ?? DefaultEndpoint;
 
         return new global::Cohere.CohereClient(apiKey, baseUri: endpoint);
     }

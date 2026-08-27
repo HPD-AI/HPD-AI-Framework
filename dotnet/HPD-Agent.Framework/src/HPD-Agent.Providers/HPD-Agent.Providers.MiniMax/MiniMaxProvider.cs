@@ -6,6 +6,7 @@ using System.Collections.Generic;
 namespace HPD.Agent.Providers.MiniMax;
 
 [HpdProvider("minimax", "MiniMax")]
+[HpdProviderBackend("platform", ProviderAuthenticationKind.ApiKey, IsDefaultBackend = true, IsDefaultAuthentication = true, DefaultSecretKey = "minimax:ApiKey")]
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(MiniMaxProviderConfig), typeof(MiniMaxJsonContext))]
 [HpdProviderSecretAlias("minimax:ApiKey", "MINIMAX_API_KEY")]
@@ -65,6 +66,7 @@ internal sealed class MiniMaxProvider : OpenAICompatibleChatProviderBase<MiniMax
     };
 
     protected override OpenAICompatibleProviderDefinition Definition => ProviderDefinition;
+    protected override System.Text.Json.Serialization.Metadata.JsonTypeInfo<MiniMaxProviderConfig> ConfigurationTypeInfo => MiniMaxJsonContext.Default.MiniMaxProviderConfig;
 
     public override IProviderErrorHandler CreateErrorHandler()
         => new OpenAICompatibleErrorHandler(DisplayName);

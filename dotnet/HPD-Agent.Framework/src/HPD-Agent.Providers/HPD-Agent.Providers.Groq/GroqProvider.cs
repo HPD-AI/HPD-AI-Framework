@@ -8,8 +8,6 @@ using HPD.Agent;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
 using HPD.Agent.Providers.OpenAICompatible;
-using HPD.Agent.Secrets;
-using Microsoft.Extensions.DependencyInjection;
 using Meai = Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Providers.Groq;
@@ -18,11 +16,12 @@ namespace HPD.Agent.Providers.Groq;
 /// Groq provider implementation using the shared OpenAI-compatible chat completions client.
 /// </summary>
 [HpdProvider("groq", "Groq", DocumentationUrl = "https://console.groq.com/docs/")]
+[HpdProviderBackend("platform", ProviderAuthenticationKind.ApiKey, IsDefaultBackend = true, IsDefaultAuthentication = true, DefaultSecretKey = "groq:ApiKey")]
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(GroqProviderConfig), typeof(GroqJsonContext))]
 [HpdProviderSecretAlias("groq:ApiKey", "GROQ_API_KEY")]
 [HpdProviderSecretAlias("groq:Endpoint", "GROQ_ENDPOINT")]
-internal sealed class GroqProvider : IChatClientProvider, IProviderSecretAliasProvider
+internal sealed class GroqProvider : IProvider, IProviderClientFactory<Meai.IChatClient>, IProviderSecretAliasProvider
 {
     internal static readonly Uri DefaultEndpoint = new("https://api.groq.com/openai/v1/");
     internal const string DefaultChatModel = "llama-3.3-70b-versatile";
@@ -60,37 +59,33 @@ internal sealed class GroqProvider : IChatClientProvider, IProviderSecretAliasPr
         };
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
-    public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
+    public ProviderClientCredentialBinding ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor)
     {
-        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(descriptor);
+        return ProviderClientCredentialBinding.ConstructionTime;
+    }
+
+    public ValueTask<ProviderClientConstruction<Meai.IChatClient>> CreateAsync(
+        ProviderClientConstructionContext context,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
+        var config = context.EffectiveConfig;
 
         if (string.IsNullOrWhiteSpace(config.ModelName))
         {
             throw new InvalidOperationException("For Groq, the ModelName must be configured.");
         }
 
-        var secrets = services?.GetService<ISecretResolver>();
-        if (secrets is null)
-        {
-            throw new InvalidOperationException(
-                "ISecretResolver is required for provider initialization. " +
-                "Ensure the agent builder is properly configured with secret resolution.");
-        }
+        var apiKey = ProviderClientConstructionUtilities.GetRequiredApiKey(context.CredentialBinding);
+        var endpoint = config.Endpoint is null ? DefaultEndpoint : EnsureTrailingSlash(config.Endpoint);
 
-        var apiKey = await secrets.RequireAsync("groq:ApiKey", "Groq API Key", config.ApiKey, cancellationToken).ConfigureAwait(false);
-        var endpointValue = await secrets.ResolveOrDefaultAsync("groq:Endpoint", config.Endpoint, cancellationToken).ConfigureAwait(false);
-
-        var endpoint = string.IsNullOrWhiteSpace(endpointValue)
-            ? DefaultEndpoint
-            : EnsureTrailingSlash(new Uri(endpointValue, UriKind.Absolute));
-
-        var httpClient = new HttpClient
-        {
-            BaseAddress = endpoint
-        };
+        var httpClient = context.Services.HttpClientFactory.CreateClient("hpd-provider-groq");
+        httpClient.BaseAddress = endpoint;
         httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
 
-        if (config.CustomHeaders is not null)
+        if (config.CustomHeaders.Count > 0)
         {
             foreach (var header in config.CustomHeaders)
             {
@@ -108,7 +103,12 @@ internal sealed class GroqProvider : IChatClientProvider, IProviderSecretAliasPr
             RequestProfile = ChatRequestProfile
         };
 
-        return new GroqConfiguredChatClient(new OpenAICompatibleChatClient(httpClient, options));
+        Meai.IChatClient configured = new GroqConfiguredChatClient(new OpenAICompatibleChatClient(httpClient, options));
+        return ValueTask.FromResult(new ProviderClientConstruction<Meai.IChatClient>
+        {
+            Client = configured,
+            Owner = ProviderClientConstructionUtilities.Own(httpClient, configured)
+        });
     }
 
     public IProviderErrorHandler CreateErrorHandler()
@@ -142,13 +142,13 @@ internal sealed class GroqProvider : IChatClientProvider, IProviderSecretAliasPr
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
-    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
+    public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
 
         var errors = new List<string>();
 
-        if (family != ProviderClientFamily.Chat)
+        if (config.Family != ProviderClientFamily.Chat)
         {
             errors.Add("Groq currently supports the chat client family.");
         }
@@ -158,12 +158,6 @@ internal sealed class GroqProvider : IChatClientProvider, IProviderSecretAliasPr
             errors.Add("Model name is required for Groq");
         }
 
-
-        if (!string.IsNullOrWhiteSpace(config.Endpoint) &&
-            !Uri.IsWellFormedUriString(config.Endpoint, UriKind.Absolute))
-        {
-            errors.Add("Endpoint must be a valid, absolute URI");
-        }
 
         return errors.Count > 0
             ? ProviderValidationResult.Failure(errors.ToArray())

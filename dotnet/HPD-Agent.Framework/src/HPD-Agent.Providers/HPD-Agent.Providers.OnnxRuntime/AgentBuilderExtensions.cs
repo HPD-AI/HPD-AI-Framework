@@ -37,7 +37,11 @@ public static class AgentBuilderExtensions
 
         var chatConfig = new ChatClientConfig
         {
-            ProviderKey = "onnx-runtime",
+            Provider = new ProviderReference
+            {
+                Key = "onnx-runtime",
+                Authentication = new AnonymousProviderAuthentication()
+            },
             ModelName = Path.GetFileName(modelPath)
         };
 

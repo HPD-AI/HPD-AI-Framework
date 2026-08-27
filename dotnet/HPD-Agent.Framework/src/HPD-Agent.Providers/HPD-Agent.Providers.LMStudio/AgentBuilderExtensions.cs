@@ -9,7 +9,6 @@ public static class LMStudioAgentBuilderExtensions
     public static AgentBuilder WithLMStudio(
         this AgentBuilder builder,
         string model = LMStudioProvider.DefaultChatModel,
-        string? apiKey = null,
         string? endpoint = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -21,8 +20,11 @@ public static class LMStudioAgentBuilderExtensions
 
         var chatConfig = new ChatClientConfig
         {
-            ProviderKey = "lmstudio",
-            ApiKey = apiKey,
+            Provider = new ProviderReference
+            {
+                Key = "lmstudio",
+                Authentication = new AnonymousProviderAuthentication()
+            },
             Endpoint = endpoint,
             ModelName = model
         };

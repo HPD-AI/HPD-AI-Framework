@@ -6,6 +6,7 @@ using System.Collections.Generic;
 namespace HPD.Agent.Providers.SiliconFlow;
 
 [HpdProvider("siliconflow", "SiliconFlow")]
+[HpdProviderBackend("platform", ProviderAuthenticationKind.ApiKey, IsDefaultBackend = true, IsDefaultAuthentication = true, DefaultSecretKey = "siliconflow:ApiKey")]
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(SiliconFlowProviderConfig), typeof(SiliconFlowJsonContext))]
 [HpdProviderSecretAlias("siliconflow:ApiKey", "SILICONFLOW_API_KEY")]
@@ -49,6 +50,7 @@ internal sealed class SiliconFlowProvider : OpenAICompatibleChatProviderBase<Sil
     };
 
     protected override OpenAICompatibleProviderDefinition Definition => ProviderDefinition;
+    protected override System.Text.Json.Serialization.Metadata.JsonTypeInfo<SiliconFlowProviderConfig> ConfigurationTypeInfo => SiliconFlowJsonContext.Default.SiliconFlowProviderConfig;
 
     public override IProviderErrorHandler CreateErrorHandler()
         => new OpenAICompatibleErrorHandler(DisplayName);

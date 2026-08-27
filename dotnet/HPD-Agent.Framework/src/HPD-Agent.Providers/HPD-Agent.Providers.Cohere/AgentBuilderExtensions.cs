@@ -15,7 +15,7 @@ public static class AgentBuilderExtensions
     public static AgentBuilder WithCohere(
         this AgentBuilder builder,
         string model = "command-r-plus",
-        string? apiKey = null,
+        ProviderAuthentication? authentication = null,
         string? endpoint = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -25,8 +25,11 @@ public static class AgentBuilderExtensions
 
         var chatConfig = new ChatClientConfig
         {
-            ProviderKey = "cohere",
-            ApiKey = apiKey,
+            Provider = new ProviderReference
+            {
+                Key = "cohere",
+                Authentication = authentication ?? new ApiKeyProviderAuthentication { SecretKey = "cohere:ApiKey" }
+            },
             Endpoint = endpoint,
             ModelName = model
         };
@@ -36,6 +39,10 @@ public static class AgentBuilderExtensions
 
         return builder;
     }
+
+    /// <summary>Configures Cohere chat with a literal runtime-only API key.</summary>
+    public static AgentBuilder WithCohere(this AgentBuilder builder, string model, ReadOnlySpan<char> apiKey, string? endpoint = null) =>
+        builder.WithCohere(model, builder.RegisterExplicitApiKey(apiKey), endpoint);
 
     /// <summary>
     /// Adds Cohere-specific runtime chat request options to the chat defaults.
@@ -73,7 +80,7 @@ public static class AgentBuilderExtensions
     public static AgentBuilder WithCohereEmbeddings(
         this AgentBuilder builder,
         string model = "embed-english-v3.0",
-        string? apiKey = null)
+        ProviderAuthentication? authentication = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
@@ -82,8 +89,11 @@ public static class AgentBuilderExtensions
 
         var embeddingConfig = new EmbeddingsClientConfig
         {
-            ProviderKey = "cohere",
-            ApiKey = apiKey,
+            Provider = new ProviderReference
+            {
+                Key = "cohere",
+                Authentication = authentication ?? new ApiKeyProviderAuthentication { SecretKey = "cohere:ApiKey" }
+            },
             ModelName = model
         };
 
@@ -91,4 +101,8 @@ public static class AgentBuilderExtensions
         builder.Config.SetClientConfig(ProviderClientFamily.Embeddings, embeddingConfig);
         return builder;
     }
+
+    /// <summary>Configures Cohere embeddings with a literal runtime-only API key.</summary>
+    public static AgentBuilder WithCohereEmbeddings(this AgentBuilder builder, string model, ReadOnlySpan<char> apiKey) =>
+        builder.WithCohereEmbeddings(model, builder.RegisterExplicitApiKey(apiKey));
 }

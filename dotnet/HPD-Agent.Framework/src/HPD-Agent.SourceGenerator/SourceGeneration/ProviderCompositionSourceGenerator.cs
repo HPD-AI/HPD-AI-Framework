@@ -37,8 +37,9 @@ public sealed class ProviderCompositionSourceGenerator : IIncrementalGenerator
                 return;
 
             var invalid = false;
-            foreach (var group in manifests.SelectMany(x => x.Families.Select(f => (x.ProviderKey, Family: f)))
-                         .GroupBy(x => x, ProviderFamilyComparer.Instance).Where(x => x.Count() > 1))
+            foreach (var group in manifests.SelectMany(x => x.Backends.SelectMany(
+                             backend => x.Families.Select(f => (x.ProviderKey, Backend: backend, Family: f))))
+                         .GroupBy(x => x, ProviderBackendFamilyComparer.Instance).Where(x => x.Count() > 1))
             {
                 context.ReportDiagnostic(Diagnostic.Create(DuplicateFamily, Location.None, group.Key.ProviderKey, group.Key.Family));
                 invalid = true;
@@ -129,21 +130,39 @@ public sealed class ProviderCompositionSourceGenerator : IIncrementalGenerator
             var families = attribute.ConstructorArguments[2].Values.Select(x => Convert.ToInt32(x.Value)).ToImmutableArray();
             var aliasesArg = attribute.NamedArguments.FirstOrDefault(x => x.Key == "Aliases").Value;
             var aliases = aliasesArg.IsNull ? ImmutableArray<string>.Empty : aliasesArg.Values.Select(x => (string)x.Value!).ToImmutableArray();
-            builder.Add(new ManifestInfo(type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), key, families, aliases));
+            var backendsArg = attribute.NamedArguments.FirstOrDefault(x => x.Key == "BackendKeys").Value;
+            var backends = backendsArg.IsNull ? ImmutableArray<string>.Empty : backendsArg.Values.Select(x => (string)x.Value!).ToImmutableArray();
+            builder.Add(new ManifestInfo(type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), key, families, aliases, backends));
         }
     }
 
-    private sealed record ManifestInfo(string ManifestType, string ProviderKey, ImmutableArray<int> Families, ImmutableArray<string> Aliases);
+    private sealed record ManifestInfo(
+        string ManifestType,
+        string ProviderKey,
+        ImmutableArray<int> Families,
+        ImmutableArray<string> Aliases,
+        ImmutableArray<string> Backends);
     private sealed class ManifestInfoComparer : IEqualityComparer<ManifestInfo>
     {
         public static ManifestInfoComparer Instance { get; } = new();
         public bool Equals(ManifestInfo? x, ManifestInfo? y) => x?.ManifestType == y?.ManifestType;
         public int GetHashCode(ManifestInfo obj) => StringComparer.Ordinal.GetHashCode(obj.ManifestType);
     }
-    private sealed class ProviderFamilyComparer : IEqualityComparer<(string ProviderKey, int Family)>
+    private sealed class ProviderBackendFamilyComparer : IEqualityComparer<(string ProviderKey, string Backend, int Family)>
     {
-        public static ProviderFamilyComparer Instance { get; } = new();
-        public bool Equals((string ProviderKey, int Family) x, (string ProviderKey, int Family) y) => x.Family == y.Family && StringComparer.OrdinalIgnoreCase.Equals(x.ProviderKey, y.ProviderKey);
-        public int GetHashCode((string ProviderKey, int Family) obj) => unchecked((StringComparer.OrdinalIgnoreCase.GetHashCode(obj.ProviderKey) * 397) ^ obj.Family);
+        public static ProviderBackendFamilyComparer Instance { get; } = new();
+        public bool Equals((string ProviderKey, string Backend, int Family) x, (string ProviderKey, string Backend, int Family) y) =>
+            x.Family == y.Family &&
+            StringComparer.OrdinalIgnoreCase.Equals(x.ProviderKey, y.ProviderKey) &&
+            StringComparer.OrdinalIgnoreCase.Equals(x.Backend, y.Backend);
+        public int GetHashCode((string ProviderKey, string Backend, int Family) obj)
+        {
+            unchecked
+            {
+                var hash = StringComparer.OrdinalIgnoreCase.GetHashCode(obj.ProviderKey);
+                hash = (hash * 397) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Backend);
+                return (hash * 397) ^ obj.Family;
+            }
+        }
     }
 }

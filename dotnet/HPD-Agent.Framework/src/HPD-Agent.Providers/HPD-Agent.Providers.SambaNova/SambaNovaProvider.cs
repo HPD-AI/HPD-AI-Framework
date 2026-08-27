@@ -6,6 +6,7 @@ using System.Collections.Generic;
 namespace HPD.Agent.Providers.SambaNova;
 
 [HpdProvider("sambanova", "SambaNova")]
+[HpdProviderBackend("platform", ProviderAuthenticationKind.ApiKey, IsDefaultBackend = true, IsDefaultAuthentication = true, DefaultSecretKey = "sambanova:ApiKey")]
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(SambaNovaProviderConfig), typeof(SambaNovaJsonContext))]
 [HpdProviderSecretAlias("sambanova:ApiKey", "SAMBANOVA_API_KEY")]
@@ -60,6 +61,7 @@ internal sealed class SambaNovaProvider : OpenAICompatibleChatProviderBase<Samba
     };
 
     protected override OpenAICompatibleProviderDefinition Definition => ProviderDefinition;
+    protected override System.Text.Json.Serialization.Metadata.JsonTypeInfo<SambaNovaProviderConfig> ConfigurationTypeInfo => SambaNovaJsonContext.Default.SambaNovaProviderConfig;
 
     public override IProviderErrorHandler CreateErrorHandler()
         => new OpenAICompatibleErrorHandler(DisplayName);

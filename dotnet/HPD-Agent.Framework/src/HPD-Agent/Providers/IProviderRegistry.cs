@@ -24,7 +24,7 @@ public interface IProviderRegistry
     /// <summary>
     /// Get a provider by key and required family contract.
     /// </summary>
-    TProvider? GetProvider<TProvider>(string providerKey) where TProvider : class, IProvider;
+    TProvider? GetProvider<TProvider>(string providerKey) where TProvider : class;
 
     /// <summary>
     /// Check if a provider is registered.

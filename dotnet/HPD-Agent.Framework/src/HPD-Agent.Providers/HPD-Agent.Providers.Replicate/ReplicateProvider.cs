@@ -12,8 +12,6 @@ using System.Threading.Tasks;
 using HPD.Agent;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
-using HPD.Agent.Secrets;
-using Microsoft.Extensions.DependencyInjection;
 using Meai = Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Providers.Replicate;
@@ -22,11 +20,14 @@ namespace HPD.Agent.Providers.Replicate;
 /// Replicate provider implementation scoped to HPD image generation.
 /// </summary>
 [HpdProvider("replicate", "Replicate")]
+[HpdProviderBackend("platform", ProviderAuthenticationKind.ApiKey, IsDefaultBackend = true, IsDefaultAuthentication = true, DefaultSecretKey = "replicate:ApiKey")]
 [HpdProviderFamily(ProviderClientFamily.ImageGeneration)]
 [HpdProviderPayload(ProviderClientFamily.ImageGeneration, ProviderPayloadKind.Configuration, typeof(ReplicateProviderConfig), typeof(ReplicateJsonContext))]
 [HpdProviderPayload(ProviderClientFamily.ImageGeneration, ProviderPayloadKind.OperationOptions, typeof(ReplicateImageOptions), typeof(ReplicateJsonContext))]
 [HpdProviderSecretAlias("replicate:ApiKey", "REPLICATE_API_KEY", "REPLICATE_API_TOKEN")]
-internal sealed class ReplicateProvider : IImageGeneratorProvider, IProviderSecretAliasProvider
+internal sealed class ReplicateProvider : IProvider,
+    IProviderClientFactory<Meai.IImageGenerator>,
+    IProviderSecretAliasProvider
 {
     internal const string DefaultModel = "black-forest-labs/flux-schnell";
     private static readonly Uri DefaultProviderUri = new("https://replicate.com/");
@@ -47,20 +48,36 @@ internal sealed class ReplicateProvider : IImageGeneratorProvider, IProviderSecr
         };
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
-    public Meai.IImageGenerator CreateImageGenerator(ProviderClientConfig config, IServiceProvider? services = null)
+    public ProviderClientCredentialBinding ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor)
     {
-        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(descriptor);
+        return ProviderClientCredentialBinding.ConstructionTime;
+    }
+
+    public ValueTask<ProviderClientConstruction<Meai.IImageGenerator>> CreateAsync(
+        ProviderClientConstructionContext context, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
+        var config = context.EffectiveConfig;
 
         var modelName = string.IsNullOrWhiteSpace(config.ModelName)
             ? DefaultModel
             : config.ModelName;
-        var replicateConfig = config.ProviderConfig as ReplicateProviderConfig;
-        var replicateOptions = (config as ImageGenerationClientConfig)?.ProviderOptions as ReplicateImageOptions;
-        var mediaType = (config as ImageGenerationClientConfig)?.MediaType;
+        var replicateConfig = config.ProviderConfiguration.CanonicalPayload.IsEmpty ? null :
+            JsonSerializer.Deserialize(config.ProviderConfiguration.CanonicalPayload.AsSpan(), ReplicateJsonContext.Default.ReplicateProviderConfig);
+        var replicateOptions = config.FamilyOperation.CanonicalPayload.IsEmpty ? null :
+            JsonSerializer.Deserialize(config.FamilyOperation.CanonicalPayload.AsSpan(), ReplicateJsonContext.Default.ReplicateImageOptions);
+        string? mediaType = null;
         var model = ParseModel(modelName!, replicateConfig?.ModelOwner);
-        var client = CreateReplicateClient(config, services);
+        var client = CreateReplicateClient(context);
+        Meai.IImageGenerator generator = new ReplicateImageGenerator(client, model.Owner, model.Name, replicateOptions, mediaType);
 
-        return new ReplicateImageGenerator(client, model.Owner, model.Name, replicateOptions, mediaType);
+        return ValueTask.FromResult(new ProviderClientConstruction<Meai.IImageGenerator>
+        {
+            Client = generator,
+            Owner = ProviderClientConstructionUtilities.Own(generator)
+        });
     }
 
     public IProviderErrorHandler CreateErrorHandler() => new ReplicateErrorHandler();
@@ -89,29 +106,25 @@ internal sealed class ReplicateProvider : IImageGeneratorProvider, IProviderSecr
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
-    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
+    public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
 
         var errors = new List<string>();
 
-        if (family != ProviderClientFamily.ImageGeneration)
+        if (config.Family != ProviderClientFamily.ImageGeneration)
             errors.Add("Replicate currently supports only image generation in HPD Agent.");
 
 
-        var replicateConfig = config.ProviderConfig as ReplicateProviderConfig;
+        var replicateConfig = config.ProviderConfiguration.CanonicalPayload.IsEmpty ? null :
+            JsonSerializer.Deserialize(config.ProviderConfiguration.CanonicalPayload.AsSpan(), ReplicateJsonContext.Default.ReplicateProviderConfig);
         var modelName = string.IsNullOrWhiteSpace(config.ModelName) ? DefaultModel : config.ModelName;
         if (replicateConfig?.ModelOwner is { Length: 0 })
             errors.Add("ModelOwner cannot be empty");
         ValidateModel(modelName!, replicateConfig?.ModelOwner, errors);
 
-        if (!string.IsNullOrWhiteSpace(config.Endpoint) &&
-            !Uri.IsWellFormedUriString(config.Endpoint, UriKind.Absolute))
-        {
-            errors.Add("Endpoint must be a valid, absolute URI");
-        }
-
-        if ((config as ImageGenerationClientConfig)?.ProviderOptions is ReplicateImageOptions options)
+        if (!config.FamilyOperation.CanonicalPayload.IsEmpty &&
+            JsonSerializer.Deserialize(config.FamilyOperation.CanonicalPayload.AsSpan(), ReplicateJsonContext.Default.ReplicateImageOptions) is { } options)
             ValidateProviderOptions(options, errors);
 
         return errors.Count > 0
@@ -140,21 +153,10 @@ internal sealed class ReplicateProvider : IImageGeneratorProvider, IProviderSecr
         }
     }
 
-    private static global::Replicate.ReplicateClient CreateReplicateClient(ProviderClientConfig config, IServiceProvider? services)
+    private static global::Replicate.ReplicateClient CreateReplicateClient(ProviderClientConstructionContext context)
     {
-        var secrets = services?.GetService<ISecretResolver>();
-        if (secrets is null)
-        {
-            throw new InvalidOperationException(
-                "ISecretResolver is required for provider initialization. " +
-                "Ensure the agent builder is properly configured with secret resolution.");
-        }
-
-        var apiKeyTask = secrets.RequireAsync("replicate:ApiKey", "Replicate", config.ApiKey, CancellationToken.None);
-        var apiKey = apiKeyTask.GetAwaiter().GetResult();
-        var endpoint = string.IsNullOrWhiteSpace(config.Endpoint)
-            ? new Uri("https://api.replicate.com/v1/")
-            : new Uri(config.Endpoint, UriKind.Absolute);
+        var apiKey = ProviderClientConstructionUtilities.GetRequiredApiKey(context.CredentialBinding);
+        var endpoint = context.EffectiveConfig.Endpoint ?? new Uri("https://api.replicate.com/v1/");
 
         var client = new global::Replicate.ReplicateClient(baseUri: endpoint);
         client.AuthorizeUsingBearer(apiKey);

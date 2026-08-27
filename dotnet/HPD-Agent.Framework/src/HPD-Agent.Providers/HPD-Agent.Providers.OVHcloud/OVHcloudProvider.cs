@@ -6,6 +6,7 @@ using System.Collections.Generic;
 namespace HPD.Agent.Providers.OVHcloud;
 
 [HpdProvider("ovhcloud", "OVHcloud AI Endpoints")]
+[HpdProviderBackend("platform", ProviderAuthenticationKind.ApiKey, IsDefaultBackend = true, IsDefaultAuthentication = true, DefaultSecretKey = "ovhcloud:ApiKey")]
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(OVHcloudProviderConfig), typeof(OVHcloudJsonContext))]
 [HpdProviderSecretAlias("ovhcloud:ApiKey", "OVHCLOUD_API_KEY")]
@@ -50,6 +51,7 @@ internal sealed class OVHcloudProvider : OpenAICompatibleChatProviderBase<OVHclo
     };
 
     protected override OpenAICompatibleProviderDefinition Definition => ProviderDefinition;
+    protected override System.Text.Json.Serialization.Metadata.JsonTypeInfo<OVHcloudProviderConfig> ConfigurationTypeInfo => OVHcloudJsonContext.Default.OVHcloudProviderConfig;
 
     public override IProviderErrorHandler CreateErrorHandler()
         => new OpenAICompatibleErrorHandler(DisplayName);

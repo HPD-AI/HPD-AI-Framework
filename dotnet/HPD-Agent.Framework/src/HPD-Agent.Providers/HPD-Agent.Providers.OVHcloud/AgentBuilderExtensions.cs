@@ -9,7 +9,7 @@ public static class OVHcloudAgentBuilderExtensions
     public static AgentBuilder WithOVHcloud(
         this AgentBuilder builder,
         string model = OVHcloudProvider.DefaultChatModel,
-        string? apiKey = null,
+        ProviderAuthentication? authentication = null,
         string? endpoint = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -21,8 +21,11 @@ public static class OVHcloudAgentBuilderExtensions
 
         var chatConfig = new ChatClientConfig
         {
-            ProviderKey = "ovhcloud",
-            ApiKey = apiKey,
+            Provider = new ProviderReference
+            {
+                Key = "ovhcloud",
+                Authentication = authentication ?? new ApiKeyProviderAuthentication { SecretKey = "ovhcloud:ApiKey" }
+            },
             Endpoint = endpoint,
             ModelName = model
         };
@@ -32,4 +35,6 @@ public static class OVHcloudAgentBuilderExtensions
 
         return builder;
     }
+    /// <summary>Configures OVHcloud with a literal runtime-only API key.</summary>
+    public static AgentBuilder WithOVHcloud(this AgentBuilder builder, string model, ReadOnlySpan<char> apiKey, string? endpoint = null) => builder.WithOVHcloud(model, builder.RegisterExplicitApiKey(apiKey), endpoint);
 }
