@@ -580,9 +580,15 @@ public record AgentTurnStartedEvent(int Iteration) : AgentEvent
 }
 
 /// <summary>
-/// Emitted when an agent turn completes
+/// Emitted when an agent turn completes.
+/// An agent turn represents one completed model call within the enclosing message turn.
 /// </summary>
-public record AgentTurnFinishedEvent(int Iteration) : AgentEvent
+public record AgentTurnFinishedEvent(
+    int Iteration,
+    UsageDetails? Usage,
+    string? ProviderKey,
+    string? ModelId,
+    string? ResponseId) : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
 }

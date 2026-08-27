@@ -2986,7 +2986,11 @@ public sealed partial class Agent : IAsyncDisposable
                                     when lifecycle.State is Middleware.AgentModelResponseState.Completed =>
                                     new ChatResponseUpdate { FinishReason = ChatFinishReason.Stop },
                                 Middleware.AgentAudioDeltaUpdate => null,
-                                Middleware.AgentUsageUpdate => null,
+                                Middleware.AgentUsageUpdate usage when usage.Usage is not null =>
+                                    new ChatResponseUpdate
+                                    {
+                                        Contents = [new UsageContent(usage.Usage)]
+                                    },
                                 _ => null
                             };
                         }
@@ -3411,6 +3415,35 @@ public sealed partial class Agent : IAsyncDisposable
                     // V2: Sync state after LLM call (middleware may have updated it)
                     state = agentContext.State;
 
+                    // Materialize and account for this model call exactly once before any
+                    // tool/non-tool branching or response-update clearing. ToChatResponse()
+                    // aggregates every MEAI UsageContent reported by this call.
+                    var iterationResponse = responseUpdates.Count > 0
+                        ? ConstructChatResponseFromUpdates(responseUpdates)
+                        : null;
+                    var iterationUsage = iterationResponse?.Usage;
+                    state = state.WithAccumulatedUsage(iterationUsage);
+                    agentContext.SyncState(state);
+
+                    var clientFamily = currentModelRequest?.Transport is Middleware.AgentModelTransport.Realtime
+                        ? Providers.ProviderClientFamily.Realtime
+                        : Providers.ProviderClientFamily.Chat;
+                    var resolvedClientConfig = Config?.ResolveClientConfig(
+                        clientFamily,
+                        effectiveRunConfig.Clients);
+
+                    yield return new AgentTurnFinishedEvent(
+                        state.Iteration,
+                        iterationUsage,
+                        resolvedClientConfig?.Provider?.Key,
+                        iterationResponse?.ModelId ?? resolvedClientConfig?.ModelName,
+                        iterationResponse?.ResponseId)
+                    {
+                        TraceId      = traceId,
+                        SpanId       = iterSpanId,
+                        ParentSpanId = turnSpanId
+                    };
+
                     // Check for early termination from BeforeIteration middleware (e.g., ContinuationPermissionMiddleware)
                     if (state.IsTerminated)
                     {
@@ -3487,6 +3520,7 @@ public sealed partial class Agent : IAsyncDisposable
                             }
 
                             // If not terminated, continue to next iteration without executing tools
+                            responseUpdates.Clear();
                             continue;
                         }
 
@@ -3651,12 +3685,9 @@ public sealed partial class Agent : IAsyncDisposable
                         // V2: Sync state after middleware
                         state = agentContext.State;
 
-                        var finalResponse = ConstructChatResponseFromUpdates(responseUpdates);
+                        var finalResponse = iterationResponse
+                            ?? ConstructChatResponseFromUpdates(responseUpdates);
                         lastResponse = finalResponse;
-
-                        // Accumulate token usage across iterations
-                        state = state.WithAccumulatedUsage(finalResponse.Usage);
-                        agentContext.SyncState(state);
 
                         // Add final assistant message to turnHistory before clearing responseUpdates
                         // This ensures the assistant's response is persisted to the session
@@ -3713,14 +3744,6 @@ public sealed partial class Agent : IAsyncDisposable
                     throw new InvalidOperationException($"Unknown decision type: {decision.GetType().Name}");
                 }
 
-                // Emit iteration end
-                yield return new AgentTurnFinishedEvent(state.Iteration)
-                {
-                    TraceId      = traceId,
-                    SpanId       = iterSpanId,
-                    ParentSpanId = turnSpanId
-                };
-
                 // Check if middleware signaled termination (e.g., circuit breaker, error threshold)
                 // This is a safety check in case the break statements inside nested blocks didn't exit properly
                 if (state.IsTerminated)
@@ -3736,9 +3759,6 @@ public sealed partial class Agent : IAsyncDisposable
             if (responseUpdates.Any())
             {
                 var finalResponse = ConstructChatResponseFromUpdates(responseUpdates);
-
-                // Accumulate usage from this final response
-                state = state.WithAccumulatedUsage(finalResponse.Usage);
 
                 if (finalResponse.Messages.Count > 0)
                 {

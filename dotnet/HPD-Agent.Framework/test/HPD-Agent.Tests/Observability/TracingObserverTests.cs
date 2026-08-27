@@ -72,7 +72,7 @@ public class TracingObserverTests : IDisposable
         };
 
     private static AgentTurnFinishedEvent IterFinished(int iteration = 1) =>
-        new AgentTurnFinishedEvent(iteration)
+        new AgentTurnFinishedEvent(iteration, null, null, null, null)
         {
             TraceId = TraceId,
             SpanId = IterSpanId,
@@ -468,7 +468,7 @@ public class TracingObserverTests : IDisposable
             SpanId = iterSpan1,
             ParentSpanId = TurnSpanId
         });
-        await EmitAsync(new AgentTurnFinishedEvent(1)
+        await EmitAsync(new AgentTurnFinishedEvent(1, null, null, null, null)
         {
             TraceId = TraceId,
             SpanId = iterSpan1
@@ -480,7 +480,7 @@ public class TracingObserverTests : IDisposable
             SpanId = iterSpan2,
             ParentSpanId = TurnSpanId
         });
-        await EmitAsync(new AgentTurnFinishedEvent(2)
+        await EmitAsync(new AgentTurnFinishedEvent(2, null, null, null, null)
         {
             TraceId = TraceId,
             SpanId = iterSpan2

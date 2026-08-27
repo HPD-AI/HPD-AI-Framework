@@ -232,6 +232,9 @@ class ThreadProjectionImpl implements ThreadProjection {
           sequenceNumber: known.threadSequenceNumber,
         }, known.agentName, known.timestamp);
         break;
+      case EventTypes.AGENT_TURN_FINISHED:
+        this.recordAgentTurnUsage(known.usage, known.timestamp);
+        break;
       case EventTypes.MESSAGE_TURN_FINISHED:
         this.finishWorkGroup(known.messageTurnId, 'worked', known.timestamp, undefined, known.usage);
         this.snapshot = refreshSnapshot({
@@ -428,6 +431,36 @@ class ThreadProjectionImpl implements ThreadProjection {
           }
         : this.snapshot.contextUsage,
     });
+  }
+
+  private recordAgentTurnUsage(
+    usage?: ThreadContextUsage['usage'] | null,
+    updatedAt?: string,
+  ): void {
+    if (!usage) return;
+
+    const work = findCurrentWorkGroup(this.snapshot, this.snapshot.currentTurnId);
+    if (!work) return;
+
+    const accumulated = addUsageDetails(work.usage, usage);
+    const updatedWork: ThreadWorkGroup = {
+      ...work,
+      usage: accumulated,
+    };
+
+    this.snapshot = refreshSnapshot({
+      ...this.snapshot,
+      workGroups: upsertWorkGroup(this.snapshot.workGroups, updatedWork),
+      timeline: upsertTimelineItem(this.snapshot.timeline, createWorkTimelineItem(updatedWork)),
+      contextUsage: {
+        usage: accumulated,
+        turnId: work.turnId,
+        conversationId: work.conversationId,
+        executionId: work.executionId,
+        updatedAt,
+      },
+    });
+    this.emit();
   }
 
   private onTextMessageStart(event: AgentEvent, messageId: string, role: string): void {
@@ -1052,6 +1085,36 @@ function cloneUsageDetails<T extends ThreadContextUsage['usage']>(usage: T): T {
     additionalCounts: usage.additionalCounts
       ? { ...usage.additionalCounts }
       : usage.additionalCounts,
+  };
+}
+
+function addUsageDetails(
+  current: ThreadContextUsage['usage'] | null | undefined,
+  next: ThreadContextUsage['usage'],
+): ThreadContextUsage['usage'] {
+  const add = (left: number | null | undefined, right: number | null | undefined) =>
+    left === null || left === undefined
+      ? right
+      : right === null || right === undefined
+        ? left
+        : left + right;
+
+  const additionalCounts = { ...(current?.additionalCounts ?? {}) };
+  for (const [key, value] of Object.entries(next.additionalCounts ?? {})) {
+    additionalCounts[key] = (additionalCounts[key] ?? 0) + value;
+  }
+
+  return {
+    inputTokenCount: add(current?.inputTokenCount, next.inputTokenCount),
+    outputTokenCount: add(current?.outputTokenCount, next.outputTokenCount),
+    totalTokenCount: add(current?.totalTokenCount, next.totalTokenCount),
+    cachedInputTokenCount: add(current?.cachedInputTokenCount, next.cachedInputTokenCount),
+    reasoningTokenCount: add(current?.reasoningTokenCount, next.reasoningTokenCount),
+    inputAudioTokenCount: add(current?.inputAudioTokenCount, next.inputAudioTokenCount),
+    inputTextTokenCount: add(current?.inputTextTokenCount, next.inputTextTokenCount),
+    outputAudioTokenCount: add(current?.outputAudioTokenCount, next.outputAudioTokenCount),
+    outputTextTokenCount: add(current?.outputTextTokenCount, next.outputTextTokenCount),
+    additionalCounts: Object.keys(additionalCounts).length > 0 ? additionalCounts : undefined,
   };
 }
 

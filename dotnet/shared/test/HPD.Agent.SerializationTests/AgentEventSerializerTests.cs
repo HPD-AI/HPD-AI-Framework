@@ -225,7 +225,7 @@ public class AgentEventSerializerTests
         Assert.Contains("\"iteration\":1", startJson);
 
         // AgentTurnFinishedEvent
-        var finishEvt = new AgentTurnFinishedEvent(1);
+        var finishEvt = new AgentTurnFinishedEvent(1, null, null, null, null);
         var finishJson = AgentEventSerializer.ToJson(finishEvt);
         Assert.Contains("\"type\":\"AGENT_TURN_FINISHED\"", finishJson);
     }
@@ -570,7 +570,7 @@ public class AgentEventSerializerFromJsonTests
     public void FromJson_AgentTurnFinishedEvent_RoundTrips()
     {
         // Arrange
-        var evt = new AgentTurnFinishedEvent(4);
+        var evt = new AgentTurnFinishedEvent(4, null, null, null, null);
 
         // Act
         var result = RoundTrip<AgentTurnFinishedEvent>(evt);
@@ -1092,7 +1092,7 @@ public class AgentEventSerializerFromJsonTests
         new MessageTurnFinishedEvent("turn-1", "conv-1", "Agent", TimeSpan.FromSeconds(1)),
         new MessageTurnErrorEvent("err"),
         new AgentTurnStartedEvent(1),
-        new AgentTurnFinishedEvent(1),
+        new AgentTurnFinishedEvent(1, null, null, null, null),
         new ToolCallStartEvent("c1", "Tool", "msg-1"),
         new ToolCallArgsEvent("c1", "{}"),
         new ToolCallEndEvent("c1", "msg-1", "Tool", "{}"),

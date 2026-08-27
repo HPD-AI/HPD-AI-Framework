@@ -84,6 +84,64 @@ describe('createThreadProjection', () => {
     });
   });
 
+  it('accumulates per-model-call usage and reconciles the final turn total', () => {
+    const projection = createThreadProjection();
+
+    projection.project({
+      type: EventTypes.MESSAGE_TURN_STARTED,
+      messageTurnId: 'turn-1',
+      conversationId: 'conv-1',
+      agentName: 'Agent',
+      timestamp: '2026-01-01T00:00:00.000Z',
+    });
+    projection.project({
+      type: EventTypes.AGENT_TURN_FINISHED,
+      iteration: 0,
+      usage: {
+        inputTokenCount: 100,
+        outputTokenCount: 20,
+        cachedInputTokenCount: 40,
+        reasoningTokenCount: 5,
+      },
+    });
+    projection.project({
+      type: EventTypes.AGENT_TURN_FINISHED,
+      iteration: 1,
+      usage: {
+        inputTokenCount: 200,
+        outputTokenCount: 30,
+        cachedInputTokenCount: 80,
+        reasoningTokenCount: 10,
+      },
+    });
+
+    expect(projection.getSnapshot().contextUsage?.usage).toMatchObject({
+      inputTokenCount: 300,
+      outputTokenCount: 50,
+      cachedInputTokenCount: 120,
+      reasoningTokenCount: 15,
+    });
+
+    projection.project({
+      type: EventTypes.MESSAGE_TURN_FINISHED,
+      messageTurnId: 'turn-1',
+      conversationId: 'conv-1',
+      agentName: 'Agent',
+      duration: 'PT1S',
+      usage: {
+        inputTokenCount: 300,
+        outputTokenCount: 50,
+        totalTokenCount: 350,
+        cachedInputTokenCount: 120,
+        reasoningTokenCount: 15,
+      },
+      timestamp: '2026-01-01T00:00:01.000Z',
+    });
+
+    expect(projection.getSnapshot().contextUsage?.usage.totalTokenCount).toBe(350);
+    expect(projection.getSnapshot().workGroups[0].usage?.totalTokenCount).toBe(350);
+  });
+
   it('rehydrates settled thread events through the same path as live projection', () => {
     const events: AgentEvent[] = [
       {

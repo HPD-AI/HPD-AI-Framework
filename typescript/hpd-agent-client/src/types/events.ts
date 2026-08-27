@@ -449,6 +449,10 @@ export interface AgentTurnStartedEvent extends BaseEvent {
 export interface AgentTurnFinishedEvent extends BaseEvent {
   type: typeof EventTypes.AGENT_TURN_FINISHED;
   iteration: number;
+  usage?: UsageDetails | null;
+  providerKey?: string | null;
+  modelId?: string | null;
+  responseId?: string | null;
 }
 
 export interface StateSnapshotEvent extends BaseEvent {

@@ -393,9 +393,32 @@ public class AgentEventSerializerTests
         Assert.Contains("\"iteration\":1", startJson);
 
         // AgentTurnFinishedEvent
-        var finishEvt = new AgentTurnFinishedEvent(1);
+        var finishEvt = new AgentTurnFinishedEvent(
+            1,
+            new UsageDetails
+            {
+                InputTokenCount = 100,
+                OutputTokenCount = 20,
+                CachedInputTokenCount = 40,
+                ReasoningTokenCount = 5,
+                AdditionalCounts = new AdditionalPropertiesDictionary<long> { ["provider_units"] = 7 }
+            },
+            "openai",
+            "gpt-5",
+            "resp-1");
         var finishJson = AgentEventSerializer.ToJson(finishEvt);
         Assert.Contains("\"type\":\"AGENT_TURN_FINISHED\"", finishJson);
+
+        var roundTripped = Assert.IsType<AgentTurnFinishedEvent>(AgentEventSerializer.FromJson(finishJson));
+        Assert.Equal(1, roundTripped.Iteration);
+        Assert.Equal(100, roundTripped.Usage?.InputTokenCount);
+        Assert.Equal(20, roundTripped.Usage?.OutputTokenCount);
+        Assert.Equal(40, roundTripped.Usage?.CachedInputTokenCount);
+        Assert.Equal(5, roundTripped.Usage?.ReasoningTokenCount);
+        Assert.Equal(7, roundTripped.Usage?.AdditionalCounts?["provider_units"]);
+        Assert.Equal("openai", roundTripped.ProviderKey);
+        Assert.Equal("gpt-5", roundTripped.ModelId);
+        Assert.Equal("resp-1", roundTripped.ResponseId);
     }
 
     [Fact]
