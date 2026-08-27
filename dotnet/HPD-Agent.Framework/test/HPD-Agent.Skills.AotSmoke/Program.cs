@@ -30,7 +30,7 @@ var exitCode = !functions.Any(function => function.Name == "aot_guidance") ? 1
     : functions.Any(function => function.AdditionalProperties?.ContainsKey(
         HPDCapabilityMetadata.AdditionalPropertiesKey) != true) ? 5
     : 0;
-agent.Dispose();
+await agent.DisposeAsync();
 return exitCode;
 
 public sealed partial class SkillAotSmokeHarness

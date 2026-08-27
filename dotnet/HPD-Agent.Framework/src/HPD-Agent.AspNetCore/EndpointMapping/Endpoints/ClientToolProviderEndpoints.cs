@@ -339,9 +339,9 @@ internal static class ClientToolProviderEndpoints
             case "provider.backgroundOperationOutcome":
                 var backgroundOutcome = JsonSerializer.Deserialize(
                     text,
-                    HPDJsonContext.Default.ClientToolProviderBackgroundOperationOutcomeMessage);
+                    HPDJsonContext.Default.ClientToolProviderOperationOutcomeMessage);
                 if (backgroundOutcome is not null &&
-                    !registry.TryResolveBackgroundOperationOutcome(clientRuntimeId, connectionId, backgroundOutcome))
+                    !registry.TryResolveOperationOutcome(clientRuntimeId, connectionId, backgroundOutcome))
                 {
                     await SendJsonAsync(
                         webSocket,
