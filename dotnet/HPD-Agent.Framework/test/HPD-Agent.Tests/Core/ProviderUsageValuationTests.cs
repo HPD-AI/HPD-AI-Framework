@@ -91,6 +91,53 @@ public sealed class ProviderUsageValuationTests
     }
 
     [Fact]
+    public async Task Cancelled_close_can_be_retried_after_registered_attempt_finishes()
+    {
+        var collector = new MessageTurnUsageCollector("turn-1");
+        var attempt = Attempt("operation-1");
+        collector.RegisterAttempt(attempt);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            async () => await collector.CloseAsync(cancellation.Token));
+
+        collector.TryAcceptCommitted(Measurement("source-1", "response-1") with
+        {
+            OperationId = attempt.OperationId
+        }).Should().BeTrue();
+        (await collector.CloseAsync()).Operations.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Inherited_background_context_cannot_observe_collector_after_close_and_nested_scope_restores_outer()
+    {
+        var outer = new MessageTurnUsageCollector("outer-turn");
+        var collector = new MessageTurnUsageCollector("turn-1");
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<MessageTurnUsageCollector?> inherited;
+        using (ProviderOperationAccountingScope.Push(outer))
+        {
+            using (ProviderOperationAccountingScope.Push(collector))
+            {
+                inherited = Task.Run(async () =>
+                {
+                    await release.Task;
+                    return ProviderOperationAccountingScope.Current;
+                });
+            }
+            ProviderOperationAccountingScope.Current.Should().BeSameAs(outer);
+        }
+
+        ProviderOperationAccountingScope.Current.Should().BeNull();
+        await collector.CloseAsync();
+        release.SetResult();
+        (await inherited).Should().BeNull();
+        var action = () => collector.RegisterAttempt(Attempt("late-operation"));
+        action.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
     public async Task Provider_reported_authority_requires_correlated_observation()
     {
         var measurement = Measurement("source-1", "response-1");
@@ -133,6 +180,10 @@ public sealed class ProviderUsageValuationTests
         ProviderOperationKind.ChatModelResponse, ProviderClientFamily.Chat,
         ProviderOperationOutcome.Succeeded, new UsageDetails { InputTokenCount = 1 },
         "openai", "gpt-test", responseId);
+
+    private static ProviderOperationAttempt Attempt(string operationId) => new(
+        operationId, null, 1, ProviderOperationKind.ChatModelResponse,
+        ProviderClientFamily.Chat, "openai", "gpt-test");
 
     private static ProviderUsageValuation Valuation(string source, string authority,
         ProviderUsageValuationAuthorityKind kind, decimal amount, string currency) => new(

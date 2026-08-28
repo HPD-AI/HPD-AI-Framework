@@ -180,7 +180,7 @@ public class SkillInstructionMiddlewareTests
         var afterContext = CreateAfterMessageTurnContext(context.State);
 
 
-        await middleware.BeforeMessageTurnAccountingCloseAsync(afterContext, CancellationToken.None);
+        await middleware.AfterMessageTurnAsync(afterContext, CancellationToken.None);
 
         // Assert - Check that middleware cleared active container instructions
 
@@ -302,7 +302,7 @@ public class SkillInstructionMiddlewareTests
         var afterContext = CreateAfterMessageTurnContext(context.State);
 
 
-        await middleware.BeforeMessageTurnAccountingCloseAsync(afterContext, CancellationToken.None);
+        await middleware.AfterMessageTurnAsync(afterContext, CancellationToken.None);
 
         // Assert - State updated to clear containers
 

@@ -201,6 +201,7 @@ namespace HPD.Agent.FFI;
 [JsonSerializable(typeof(TextMessageStartEvent))]
 [JsonSerializable(typeof(TextDeltaEvent))]
 [JsonSerializable(typeof(TextMessageEndEvent))]
+[JsonSerializable(typeof(ThreadMessageReplacedEvent))]
 [JsonSerializable(typeof(ReasoningMessageStartEvent))]
 [JsonSerializable(typeof(ReasoningDeltaEvent))]
 [JsonSerializable(typeof(ReasoningMessageEndEvent))]

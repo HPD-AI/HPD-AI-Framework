@@ -416,7 +416,7 @@ public class PIIMiddlewareTests
     }
 
     [Fact]
-    public async Task ApplyToOutput_WhenTrue_RedactsAssistantFinalResponseAndTurnHistory()
+    public async Task ApplyToOutput_WhenTrue_RedactsDurableHistoryWithoutMutatingPublishedFinalResponse()
     {
         // Arrange
         var middleware = new PIIMiddleware
@@ -432,13 +432,74 @@ public class PIIMiddlewareTests
             turnHistory: [turnHistoryMessage]);
 
         // Act
-        await middleware.BeforeMessageTurnAccountingCloseAsync(context, CancellationToken.None);
+        await middleware.AfterMessageTurnAsync(context, CancellationToken.None);
 
         // Assert
-        Assert.Contains("[EMAIL_REDACTED]", context.FinalResponse.Text);
-        Assert.DoesNotContain("agent@example.com", context.FinalResponse.Text);
+        Assert.Contains("agent@example.com", context.FinalResponse.Text);
         Assert.Contains("[EMAIL_REDACTED]", context.TurnHistory.Single().Text);
         Assert.DoesNotContain("agent@example.com", context.TurnHistory.Single().Text);
+    }
+
+    [Fact]
+    public async Task ApplyToOutput_RedactsStreamingTextBeforeItIsPublished()
+    {
+        var middleware = new PIIMiddleware { ApplyToOutput = true, EmailStrategy = PIIStrategy.Redact };
+        var request = V2.MiddlewareTestHelpers.CreateAgentModelTurnRequest();
+
+        async IAsyncEnumerable<AgentModelUpdate> Next(AgentModelTurnRequest _)
+        {
+            yield return new AgentTextDeltaUpdate("agent@");
+            await Task.Yield();
+            yield return new AgentTextDeltaUpdate("example.com", IsFinal: true);
+        }
+
+        var stream = middleware.WrapModelTurnStreamingAsync(request, Next, CancellationToken.None);
+        Assert.NotNull(stream);
+        var output = new List<AgentModelUpdate>();
+        await foreach (var update in stream!) output.Add(update);
+
+        Assert.Equal("[EMAIL_REDACTED]", string.Concat(output.OfType<AgentTextDeltaUpdate>().Select(update => update.Text)));
+    }
+
+    [Fact]
+    public async Task ApplyToOutput_UsesBoundedLookbehindWithoutWaitingForTheFinalChunk()
+    {
+        var middleware = new PIIMiddleware { ApplyToOutput = true };
+        var request = V2.MiddlewareTestHelpers.CreateAgentModelTurnRequest();
+
+        async IAsyncEnumerable<AgentModelUpdate> Next(AgentModelTurnRequest _)
+        {
+            yield return new AgentTextDeltaUpdate(new string('a', 430));
+            await Task.Yield();
+            yield return new AgentTextDeltaUpdate("world", IsFinal: true);
+        }
+
+        await using var enumerator = middleware.WrapModelTurnStreamingAsync(request, Next, CancellationToken.None)!.GetAsyncEnumerator();
+        Assert.True(await enumerator.MoveNextAsync());
+        Assert.Equal(new string('a', 46), Assert.IsType<AgentTextDeltaUpdate>(enumerator.Current).Text);
+        Assert.True(await enumerator.MoveNextAsync());
+        Assert.Equal(new string('a', 384) + "world", Assert.IsType<AgentTextDeltaUpdate>(enumerator.Current).Text);
+    }
+
+    [Fact]
+    public async Task ApplyToOutput_UnboundedCustomDetectorDoesNotLeakAcrossLargeChunkBoundary()
+    {
+        var middleware = new PIIMiddleware { ApplyToOutput = true };
+        middleware.AddCustomDetector("LongSecret", @"BEGIN-[a-z]{300}-END", PIIStrategy.Redact);
+        var request = V2.MiddlewareTestHelpers.CreateAgentModelTurnRequest();
+
+        async IAsyncEnumerable<AgentModelUpdate> Next(AgentModelTurnRequest _)
+        {
+            yield return new AgentTextDeltaUpdate("BEGIN-" + new string('a', 270));
+            await Task.Yield();
+            yield return new AgentTextDeltaUpdate(new string('a', 30) + "-END", IsFinal: true);
+        }
+
+        await using var enumerator = middleware.WrapModelTurnStreamingAsync(request, Next, CancellationToken.None)!.GetAsyncEnumerator();
+        Assert.True(await enumerator.MoveNextAsync());
+        Assert.Equal(string.Empty, Assert.IsType<AgentTextDeltaUpdate>(enumerator.Current).Text);
+        Assert.True(await enumerator.MoveNextAsync());
+        Assert.Equal("[LONGSECRET_REDACTED]", Assert.IsType<AgentTextDeltaUpdate>(enumerator.Current).Text);
     }
 
     [Fact]
@@ -456,7 +517,7 @@ public class PIIMiddlewareTests
             turnHistory: [new ChatMessage(ChatRole.Assistant, "Email agent@example.com")]);
 
         // Act
-        await middleware.BeforeMessageTurnAccountingCloseAsync(context, CancellationToken.None);
+        await middleware.AfterMessageTurnAsync(context, CancellationToken.None);
 
         // Assert
         Assert.Contains("agent@example.com", context.FinalResponse.Text);

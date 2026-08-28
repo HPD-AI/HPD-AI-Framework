@@ -70,6 +70,7 @@ public static partial class EventTypes
         public const string TEXT_MESSAGE_START = "TEXT_MESSAGE_START";
         public const string TEXT_DELTA = "TEXT_DELTA";
         public const string TEXT_MESSAGE_END = "TEXT_MESSAGE_END";
+        public const string THREAD_MESSAGE_REPLACED = "THREAD_MESSAGE_REPLACED";
         public const string USER_MESSAGE = "USER_MESSAGE";
         public const string USER_AUDIO_TRANSCRIPT_DELTA = "USER_AUDIO_TRANSCRIPT_DELTA";
         public const string USER_AUDIO_TRANSCRIPT_COMPLETED = "USER_AUDIO_TRANSCRIPT_COMPLETED";

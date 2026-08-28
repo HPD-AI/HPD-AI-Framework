@@ -35,6 +35,9 @@ public sealed class TurnEvaluationContext
     /// <summary>Prior turns — does not include the current turn's messages.</summary>
     public IReadOnlyList<ChatMessage> ConversationHistory { get; init; } = [];
 
+    /// <summary>Complete model-visible messages captured for this evaluated turn.</summary>
+    public IReadOnlyList<ChatMessage> EvaluationMessages { get; init; } = [];
+
     // ── Output ────────────────────────────────────────────────────────────────
 
     public string OutputText { get; init; } = string.Empty;
@@ -51,6 +54,8 @@ public sealed class TurnEvaluationContext
     // ── Performance ───────────────────────────────────────────────────────────
 
     public UsageDetails? TurnUsage { get; init; }
+    /// <summary>Complete heterogeneous provider usage from the committed terminal event.</summary>
+    public MessageTurnUsageSummary? MessageTurnUsage { get; init; }
     public IReadOnlyList<UsageDetails?> IterationUsage { get; init; } = [];
     public int IterationCount { get; init; }
     public TimeSpan Duration { get; init; }

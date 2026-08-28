@@ -704,8 +704,7 @@ public class ContainerMiddleware : IAgentMiddleware
         var state = context.GetMiddlewareState<ContainerMiddlewareState>();
         if (state != null && !state.ToolHarnessPipelines.IsEmpty)
         {
-            // Dispatch in reverse registration order (values() order is insertion order in ImmutableDictionary)
-            foreach (var pipeline in state.ToolHarnessPipelines.Values.Reverse())
+            foreach (var pipeline in state.EnumerateToolHarnessPipelinesInReverseActivationOrder())
             {
                 if (!pipeline.IsEmpty)
                     await pipeline.DispatchAfterIterationAsync(context, cancellationToken).ConfigureAwait(false);
@@ -729,7 +728,7 @@ public class ContainerMiddleware : IAgentMiddleware
     ///
     /// Filtering happens in BeforeIterationAsync for within-turn transparency only.
     /// </remarks>
-    public async Task BeforeMessageTurnAccountingCloseAsync(
+    public async Task AfterMessageTurnAsync(
         AfterMessageTurnContext context,
         CancellationToken cancellationToken)
     {
@@ -812,10 +811,10 @@ public class ContainerMiddleware : IAgentMiddleware
         // Done AFTER state update so pipelines see the final state for the turn.
         if (!collapsingState.ToolHarnessPipelines.IsEmpty)
         {
-            foreach (var pipeline in collapsingState.ToolHarnessPipelines.Values.Reverse())
+            foreach (var pipeline in collapsingState.EnumerateToolHarnessPipelinesInReverseActivationOrder())
             {
                 if (!pipeline.IsEmpty)
-                    await pipeline.DispatchBeforeMessageTurnAccountingCloseAsync(context, cancellationToken).ConfigureAwait(false);
+                    await pipeline.DispatchAfterMessageTurnAsync(context, cancellationToken).ConfigureAwait(false);
             }
         }
     }
@@ -844,7 +843,7 @@ public class ContainerMiddleware : IAgentMiddleware
             return;
 
         // Dispatch to all active toolharness pipelines in reverse order (error unwinding)
-        foreach (var pipeline in state.ToolHarnessPipelines.Values.Reverse())
+        foreach (var pipeline in state.EnumerateToolHarnessPipelinesInReverseActivationOrder())
         {
             if (!pipeline.IsEmpty)
                 await pipeline.DispatchOnErrorAsync(context, cancellationToken).ConfigureAwait(false);
@@ -1655,6 +1654,13 @@ public sealed record ContainerMiddlewareState
         = ImmutableDictionary<string, AgentMiddlewarePipeline>.Empty;
 
     /// <summary>
+    /// Toolharness names in activation order. This is kept separately because dictionary
+    /// enumeration order is not an ordering contract and After-style hooks must unwind deterministically.
+    /// </summary>
+    public ImmutableList<string> ToolHarnessPipelineActivationOrder { get; init; }
+        = ImmutableList<string>.Empty;
+
+    /// <summary>
     /// Records a container expansion (ToolHarness or skill).
     /// Adds to both session-level ExpandedContainers and turn-level ContainersExpandedThisTurn.
     /// </summary>
@@ -1701,13 +1707,32 @@ public sealed record ContainerMiddlewareState
     /// Stores an active scoped middleware pipeline for an expanded toolharness.
     /// </summary>
     public ContainerMiddlewareState WithToolHarnessPipeline(string toolharnessName, AgentMiddlewarePipeline pipeline)
-        => this with { ToolHarnessPipelines = ToolHarnessPipelines.SetItem(toolharnessName, pipeline) };
+        => this with
+        {
+            ToolHarnessPipelines = ToolHarnessPipelines.SetItem(toolharnessName, pipeline),
+            ToolHarnessPipelineActivationOrder = ToolHarnessPipelines.ContainsKey(toolharnessName)
+                ? ToolHarnessPipelineActivationOrder
+                : ToolHarnessPipelineActivationOrder.Add(toolharnessName)
+        };
 
     /// <summary>
     /// Removes the scoped middleware pipeline for a toolharness (called at turn cleanup).
     /// </summary>
     public ContainerMiddlewareState WithoutToolHarnessPipeline(string toolharnessName)
-        => this with { ToolHarnessPipelines = ToolHarnessPipelines.Remove(toolharnessName) };
+        => this with
+        {
+            ToolHarnessPipelines = ToolHarnessPipelines.Remove(toolharnessName),
+            ToolHarnessPipelineActivationOrder = ToolHarnessPipelineActivationOrder.Remove(toolharnessName)
+        };
+
+    internal IEnumerable<AgentMiddlewarePipeline> EnumerateToolHarnessPipelinesInReverseActivationOrder()
+    {
+        for (var i = ToolHarnessPipelineActivationOrder.Count - 1; i >= 0; i--)
+        {
+            if (ToolHarnessPipelines.TryGetValue(ToolHarnessPipelineActivationOrder[i], out var pipeline))
+                yield return pipeline;
+        }
+    }
 
     /// <summary>
     /// Clears all active container instructions (typically at end of message turn).
@@ -1735,6 +1760,7 @@ public sealed record ContainerMiddlewareState
             ContainersExpandedThisTurn = ImmutableHashSet<string>.Empty,
             RecoveredFunctionCalls = ImmutableDictionary<string, RecoveryInfo>.Empty,
             ToolHarnessPipelines = ImmutableDictionary<string, AgentMiddlewarePipeline>.Empty,
+            ToolHarnessPipelineActivationOrder = ImmutableList<string>.Empty,
             TurnCapabilityFunctions = []
         };
     }

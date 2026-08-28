@@ -699,7 +699,7 @@ public class ContainerMiddlewareTests
         var context = CreateAfterMessageTurnContext(state: state, turnHistory: turnHistory);
 
         // Act
-        await middleware.BeforeMessageTurnAccountingCloseAsync(context, CancellationToken.None);
+        await middleware.AfterMessageTurnAsync(context, CancellationToken.None);
 
         // Assert - Both messages remain with all calls/results (containers stay in history for cross-turn context)
         Assert.Equal(2, turnHistory.Count);
@@ -760,7 +760,7 @@ public class ContainerMiddlewareTests
                 }
             });
 
-        await middleware.BeforeMessageTurnAccountingCloseAsync(context, CancellationToken.None);
+        await middleware.AfterMessageTurnAsync(context, CancellationToken.None);
 
         var call = Assert.IsType<FunctionCallContent>(Assert.Single(turnHistory[0].Contents));
         Assert.Equal("Add", call.Name);
@@ -789,7 +789,7 @@ public class ContainerMiddlewareTests
         // TurnHistory managed by context - turnHistory;
 
         // Act
-        await middleware.BeforeMessageTurnAccountingCloseAsync(context, CancellationToken.None);
+        await middleware.AfterMessageTurnAsync(context, CancellationToken.None);
 
         // Assert: Text content should remain unchanged
         Assert.Equal(2, turnHistory.Count);
@@ -810,7 +810,7 @@ public class ContainerMiddlewareTests
         // TurnHistory managed by context - turnHistory;
 
         // Act & Assert - should not throw
-        await middleware.BeforeMessageTurnAccountingCloseAsync(context, CancellationToken.None);
+        await middleware.AfterMessageTurnAsync(context, CancellationToken.None);
         Assert.Empty(turnHistory);
     }
 
@@ -871,7 +871,7 @@ public class ContainerMiddlewareTests
         var context = CreateAfterMessageTurnContext(state: state, turnHistory: turnHistory);
 
         // Act
-        await middleware.BeforeMessageTurnAccountingCloseAsync(context, CancellationToken.None);
+        await middleware.AfterMessageTurnAsync(context, CancellationToken.None);
 
         // Assert: Both messages remain with all container and regular calls (containers stay in history for cross-turn context)
         Assert.Equal(2, turnHistory.Count);
@@ -927,7 +927,7 @@ public class ContainerMiddlewareTests
         var context = CreateAfterMessageTurnContext(state: state, turnHistory: turnHistory);
 
         // Act
-        await middleware.BeforeMessageTurnAccountingCloseAsync(context, CancellationToken.None);
+        await middleware.AfterMessageTurnAsync(context, CancellationToken.None);
 
         // Assert: All messages remain (containers stay in history for cross-turn context)
         Assert.Equal(4, turnHistory.Count);
@@ -1013,7 +1013,7 @@ public class ContainerMiddlewareTests
         var context = CreateAfterMessageTurnContext(state: state, turnHistory: turnHistory);
 
         // Act
-        await middleware.BeforeMessageTurnAccountingCloseAsync(context, CancellationToken.None);
+        await middleware.AfterMessageTurnAsync(context, CancellationToken.None);
 
         // Assert: All calls remain (containers stay in history for cross-turn context)
         Assert.Equal(2, turnHistory.Count);
@@ -1060,7 +1060,7 @@ public class ContainerMiddlewareTests
         // No EphemeralCallIds in Properties
 
         // Act
-        await middleware.BeforeMessageTurnAccountingCloseAsync(context, CancellationToken.None);
+        await middleware.AfterMessageTurnAsync(context, CancellationToken.None);
 
         // Assert: No filtering should occur
         Assert.Single(turnHistory);

@@ -311,7 +311,7 @@ Use `decimal` type for precision.";
         var afterContext = CreateAfterMessageTurnContext(context.State);
 
         // Act - Call AfterMessageTurnAsync (cleanup happens here now, not AfterIterationAsync)
-        await middleware.BeforeMessageTurnAccountingCloseAsync(afterContext, CancellationToken.None);
+        await middleware.AfterMessageTurnAsync(afterContext, CancellationToken.None);
 
         // Assert - Instructions should be cleared at end of message turn
         var pendingState = afterContext.State;

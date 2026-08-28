@@ -134,6 +134,15 @@ public sealed class MessageTurnUsageCollector
 
     public string MessageTurnId => _messageTurnId;
 
+    internal bool IsAcceptingRegistrations
+    {
+        get
+        {
+            lock (_gate)
+                return !_closing && _frozen is null;
+        }
+    }
+
     public bool TryAcceptCommitted(ProviderUsageMeasurement measurement)
     {
         ArgumentNullException.ThrowIfNull(measurement);
@@ -309,7 +318,8 @@ public static class ProviderOperationAccountingScope
 {
     private static readonly AsyncLocal<MessageTurnUsageCollector?> Ambient = new();
 
-    public static MessageTurnUsageCollector? Current => Ambient.Value;
+    public static MessageTurnUsageCollector? Current
+        => Ambient.Value is { IsAcceptingRegistrations: true } collector ? collector : null;
 
     internal static IDisposable Push(MessageTurnUsageCollector collector)
     {

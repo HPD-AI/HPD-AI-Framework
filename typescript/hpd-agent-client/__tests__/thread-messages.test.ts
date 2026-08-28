@@ -184,6 +184,30 @@ describe('thread message helpers', () => {
     ]);
   });
 
+  it('folds THREAD_MESSAGE_REPLACED into the durable message projection', () => {
+    const events: ThreadEvent[] = [
+      { type: EventTypes.TEXT_MESSAGE_START, messageId: 'a1', role: 'assistant' },
+      { type: EventTypes.TEXT_DELTA, messageId: 'a1', text: 'secret' },
+      {
+        type: EventTypes.THREAD_MESSAGE_REPLACED,
+        messageId: 'a1',
+        reason: 'pii-redaction',
+        replacement: {
+          messageId: 'a1',
+          role: 'assistant',
+          contents: [{ $type: 'text', text: 'redacted' }],
+          createdAt: '2026-08-28T00:00:00.000Z',
+        },
+      },
+    ];
+
+    expect(mapThreadMessages(projectThreadEventsToMessages(events))[0]).toMatchObject({
+      id: 'a1',
+      text: 'redacted',
+      contents: [{ $type: 'text', text: 'redacted' }],
+    });
+  });
+
   it('preserves HPD message policy from message and text-start events', () => {
     const events: ThreadEvent[] = [
       {

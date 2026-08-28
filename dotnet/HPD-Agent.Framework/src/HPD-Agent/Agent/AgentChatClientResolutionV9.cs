@@ -127,6 +127,7 @@ internal sealed class AgentChatClientResolver : IAsyncDisposable
     private int _disposed;
 
     internal ProviderComposition? Composition => _composition;
+    internal IProviderRegistry? ProviderRegistry => _providers;
 
     public AgentChatClientResolver(IProviderRegistry? providerRegistry, IServiceProvider? services)
     {

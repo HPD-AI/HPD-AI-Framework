@@ -562,10 +562,10 @@ public class HARNESScopedMiddlewareTests
         var middleware = BuildContainerMiddleware();
         var ctx = CreateAfterMessageTurnContextWithState(state);
 
-        await middleware.BeforeMessageTurnAccountingCloseAsync(ctx, CancellationToken.None);
+        await middleware.AfterMessageTurnAsync(ctx, CancellationToken.None);
 
         // Spy was called
-        Assert.Contains("Spy.BeforeMessageTurnAccountingClose", order);
+        Assert.Contains("Spy.AfterMessageTurn", order);
 
         // Pipelines cleared from state after the hook
         var finalState = ctx.GetMiddlewareState<ContainerMiddlewareState>();
@@ -588,13 +588,10 @@ public class HARNESScopedMiddlewareTests
         var middleware = BuildContainerMiddleware();
         var ctx = CreateAfterMessageTurnContextWithState(state);
 
-        await middleware.BeforeMessageTurnAccountingCloseAsync(ctx, CancellationToken.None);
+        await middleware.AfterMessageTurnAsync(ctx, CancellationToken.None);
 
-        // Both pipelines must have dispatched (ImmutableDictionary order is not guaranteed)
-        var afterCalls = globalOrder.Where(s => s.Contains("BeforeMessageTurnAccountingClose")).ToList();
-        Assert.Equal(2, afterCalls.Count);
-        Assert.Contains("A.BeforeMessageTurnAccountingClose", afterCalls);
-        Assert.Contains("B.BeforeMessageTurnAccountingClose", afterCalls);
+        var afterCalls = globalOrder.Where(s => s.Contains("AfterMessageTurn")).ToList();
+        Assert.Equal(["B.AfterMessageTurn", "A.AfterMessageTurn"], afterCalls);
     }
 
     [Fact]
@@ -648,11 +645,9 @@ public class HARNESScopedMiddlewareTests
         // Must not throw even though ToolHarnessB's handler throws
         await middleware.OnErrorAsync(ctx, CancellationToken.None);
 
-        // A and C recorded; B threw but was swallowed (ImmutableDictionary order is not guaranteed)
+        // C runs first, B throws, and A still runs as the reverse activation unwind continues.
         var onErrorCalls = order.Where(s => s.Contains("OnError")).ToList();
-        Assert.Equal(2, onErrorCalls.Count);
-        Assert.Contains("A.OnError", onErrorCalls);
-        Assert.Contains("C.OnError", onErrorCalls);
+        Assert.Equal(["C.OnError", "A.OnError"], onErrorCalls);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -682,8 +677,6 @@ public class HARNESScopedMiddlewareTests
         public Task AfterMessageTurnAsync(AfterMessageTurnContext ctx, CancellationToken ct)
         { log.Add($"{name}.AfterMessageTurn"); return Task.CompletedTask; }
 
-        public Task BeforeMessageTurnAccountingCloseAsync(AfterMessageTurnContext ctx, CancellationToken ct)
-        { log.Add($"{name}.BeforeMessageTurnAccountingClose"); return Task.CompletedTask; }
 
         public Task OnErrorAsync(ErrorContext ctx, CancellationToken ct)
         { log.Add($"{name}.OnError"); return Task.CompletedTask; }

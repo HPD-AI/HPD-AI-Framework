@@ -6,7 +6,8 @@ using Microsoft.Extensions.AI;
 namespace HPD.Agent.Evaluations.Tracing;
 
 /// <summary>
-/// Span tree for a single agent turn. Built in LiveEvaluationMiddleware.AfterMessageTurnAsync
+/// Span tree for a single agent turn. Prepared by LiveEvaluationMiddleware and finalized
+/// from the committed message-turn terminal event.
 /// using two sources:
 /// - Typed ChatMessage objects from TurnHistory (content, tool calls, reasoning, finish reason)
 /// - TurnEventBuffer populated by LiveEvaluationMiddleware through an HPD.Events

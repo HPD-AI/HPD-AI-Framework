@@ -98,6 +98,7 @@ export const EventTypes = {
   TEXT_MESSAGE_START: 'TEXT_MESSAGE_START',
   TEXT_DELTA: 'TEXT_DELTA',
   TEXT_MESSAGE_END: 'TEXT_MESSAGE_END',
+  THREAD_MESSAGE_REPLACED: 'THREAD_MESSAGE_REPLACED',
   USER_MESSAGE: 'USER_MESSAGE',
 
   // Reasoning (extended thinking)
@@ -835,6 +836,22 @@ export interface ToolCallEndEvent extends BaseEvent {
   argsJson: string;
 }
 
+export interface ThreadMessageReplacementSnapshot {
+  messageId: string;
+  role: string;
+  contents: import('./session.js').AIContent[];
+  authorName?: string | null;
+  createdAt?: string | null;
+  additionalProperties?: Record<string, unknown> | null;
+}
+
+export interface ThreadMessageReplacedEvent extends BaseEvent {
+  type: typeof EventTypes.THREAD_MESSAGE_REPLACED;
+  messageId: string;
+  replacement: ThreadMessageReplacementSnapshot;
+  reason: string;
+}
+
 export interface ToolResultPayload {
   text?: string;
   json?: unknown;
@@ -1071,6 +1088,7 @@ export type KnownAgentEvent =
   | TextMessageStartEvent
   | TextDeltaEvent
   | TextMessageEndEvent
+  | ThreadMessageReplacedEvent
   | UserMessageEvent
   // Reasoning Events
   | ReasoningMessageStartEvent

@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using FluentAssertions;
 using HPD.Agent.Providers;
+using HPD.Agent.Middleware;
 using HPD.Agent.Tests.Infrastructure;
 using Microsoft.Extensions.AI;
 
@@ -99,6 +100,149 @@ public class MessageTurnFinishedEventTests : AgentTestBase
         modelCall.ProviderKey.Should().Be("test");
         modelCall.ModelId.Should().Be("fake-model");
         modelCall.ResponseId.Should().Be("response-1");
+    }
+
+    [Fact]
+    public async Task AfterMessageTurn_FinalizesBeforeSuccessTerminalAndCompletion()
+    {
+        var order = new List<string>();
+        var fakeClient = new FakeChatClientWithUsage();
+        fakeClient.EnqueueResponse("done", 3, 2);
+        var agent = CreateAgentWithMiddlewares(client: fakeClient, middlewares: [new FinalizationOrderMiddleware(order)]);
+        using var subscription = agent.SubscribeAny(evt =>
+        {
+            if (evt is MessageTurnFinishedEvent) order.Add("finished");
+            if (evt is AgentCompletionEvent) order.Add("completion");
+            return ValueTask.CompletedTask;
+        });
+
+        await agent.RunAsync("hi", cancellationToken: TestCancellationToken);
+
+        Assert.True(order.IndexOf("after") < order.IndexOf("finished"));
+        Assert.True(order.IndexOf("finished") < order.IndexOf("completion"));
+        Assert.Equal(1, order.Count(item => item == "after"));
+    }
+
+    [Fact]
+    public async Task AfterMessageTurnFailure_EmitsErrorWithoutSuccessTerminal()
+    {
+        var events = new List<AgentEvent>();
+        var fakeClient = new FakeChatClientWithUsage();
+        fakeClient.EnqueueResponse("done", 3, 2);
+        var agent = CreateAgentWithMiddlewares(client: fakeClient, middlewares: [new FailingFinalizationMiddleware()]);
+        using var subscription = agent.SubscribeAny(evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        await Assert.ThrowsAnyAsync<Exception>(() => agent.RunAsync("hi", cancellationToken: TestCancellationToken));
+
+        Assert.Contains(events, evt => evt is MessageTurnErrorEvent);
+        Assert.DoesNotContain(events, evt => evt is MessageTurnFinishedEvent or AgentCompletionEvent);
+    }
+
+    [Fact]
+    public async Task FinalizerProviderAttempt_IsIncludedInSuccessfulTerminalUsage()
+    {
+        var fakeClient = new FakeChatClientWithUsage();
+        fakeClient.EnqueueResponse("done", 3, 2);
+        fakeClient.EnqueueResponse("finalized", 5, 4);
+        var agent = CreateAgentWithMiddlewares(client: fakeClient, middlewares: [new ProviderCallingFinalizer(false)]);
+
+        var result = await agent.RunAsync("hi", cancellationToken: TestCancellationToken);
+
+        Assert.Contains(result.Finished!.Usage.Operations, operation => operation.OperationKind == ProviderOperationKind.TextToSpeech);
+        Assert.Contains(result.Finished.Usage.Operations, operation => operation.OperationKind == ProviderOperationKind.ChatModelResponse);
+    }
+
+    [Fact]
+    public async Task FinalizerProviderAttempt_IsIncludedInErrorTerminalUsage()
+    {
+        var events = new List<AgentEvent>();
+        var fakeClient = new FakeChatClientWithUsage();
+        fakeClient.EnqueueResponse("done", 3, 2);
+        fakeClient.EnqueueResponse("finalized", 5, 4);
+        var agent = CreateAgentWithMiddlewares(client: fakeClient, middlewares: [new ProviderCallingFinalizer(true)]);
+        using var subscription = agent.SubscribeAny(evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        await Assert.ThrowsAnyAsync<Exception>(() => agent.RunAsync("hi", cancellationToken: TestCancellationToken));
+
+        var usage = Assert.Single(events.OfType<MessageTurnErrorEvent>()).Usage;
+        Assert.Contains(usage.Operations, operation => operation.OperationKind == ProviderOperationKind.TextToSpeech);
+        Assert.Contains(usage.Operations, operation => operation.OperationKind == ProviderOperationKind.ChatModelResponse);
+    }
+
+    [Fact]
+    public async Task FinalizerReplacementAndAssistantAppend_RoundTripThroughThreadJournal()
+    {
+        var store = new InMemorySessionStore();
+        var config = DefaultConfig();
+        config.SessionStore = store;
+        var fakeClient = new FakeChatClientWithUsage();
+        fakeClient.EnqueueResponse("secret", 3, 2);
+        var agent = CreateAgentWithMiddlewares(config, fakeClient, [new HistoryFinalizerMiddleware()]);
+        await agent.CreateSessionAsync("session-finalize", cancellationToken: TestCancellationToken);
+
+        await agent.RunAsync("hi", "session-finalize", "main", cancellationToken: TestCancellationToken);
+        var events = await store.CollectThreadEventsAsync("session-finalize", "main", TestCancellationToken);
+        var replacement = Assert.Single(events!.OfType<ThreadMessageReplacedEvent>());
+        Assert.Contains(events.OfType<TextMessageStartEvent>(), start => start.MessageId == replacement.MessageId);
+        var projected = await store.ProjectThreadAsync(
+            "session-finalize", "main", ThreadProjectionPurpose.ThreadHistory, TestCancellationToken);
+
+        Assert.Contains(events!, evt => evt is ThreadMessageReplacedEvent);
+        Assert.Contains(projected!.Messages, message => message.Text == "redacted");
+        Assert.Contains(projected.Messages, message => message.Text == "finalizer note");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FinalizerCannotRemoveOrReorderCommittedMessages(bool reorder)
+    {
+        var events = new List<AgentEvent>();
+        var config = DefaultConfig();
+        config.SessionStore = new InMemorySessionStore();
+        var fakeClient = new FakeChatClientWithUsage();
+        fakeClient.EnqueueResponse("done", 3, 2);
+        var agent = CreateAgentWithMiddlewares(config, fakeClient, [new InvalidHistoryFinalizer(reorder)]);
+        await agent.CreateSessionAsync("session-invalid-history", cancellationToken: TestCancellationToken);
+        using var subscription = agent.SubscribeAny(evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => agent.RunAsync("hi", "session-invalid-history", "main", cancellationToken: TestCancellationToken));
+
+        Assert.Contains(events, evt => evt is MessageTurnErrorEvent);
+        Assert.DoesNotContain(events, evt => evt is MessageTurnFinishedEvent or AgentCompletionEvent);
+    }
+
+    [Fact]
+    public async Task ReconciliationFailureSuppressesSuccessTerminal()
+    {
+        var events = new List<AgentEvent>();
+        var store = new InMemorySessionStore();
+        var config = DefaultConfig();
+        config.SessionStore = store;
+        var fakeClient = new FakeChatClientWithUsage();
+        fakeClient.EnqueueResponse("secret", 3, 2);
+        var agent = CreateAgentWithMiddlewares(config, fakeClient, [new DuplicateIdentityFinalizer()]);
+        await agent.CreateSessionAsync("session-reconcile-failure", cancellationToken: TestCancellationToken);
+        using var subscription = agent.SubscribeAny(evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => agent.RunAsync(
+            "hi", "session-reconcile-failure", "main", cancellationToken: TestCancellationToken));
+
+        Assert.Contains(events, evt => evt is MessageTurnErrorEvent);
+        Assert.DoesNotContain(events, evt => evt is MessageTurnFinishedEvent or AgentCompletionEvent);
+    }
+
+    [Fact]
+    public async Task FinalMiddlewareStateIsSynchronizedIntoTerminalEvent()
+    {
+        var fakeClient = new FakeChatClientWithUsage();
+        fakeClient.EnqueueResponse("done", 3, 2);
+        var agent = CreateAgentWithMiddlewares(client: fakeClient, middlewares: [new FinalStateMiddleware()]);
+
+        var result = await agent.RunAsync("hi", cancellationToken: TestCancellationToken);
+
+        Assert.Equal(42, result.Finished!.Iteration);
     }
 
     [Fact]
@@ -286,6 +430,82 @@ public class MessageTurnFinishedEventTests : AgentTestBase
             ProviderOperationKind.ChatModelResponse, ProviderClientFamily.Chat,
             ProviderOperationOutcome.Succeeded, usage, "test", "fake-model", "response-1")
     ]);
+
+    private sealed class FinalizationOrderMiddleware(List<string> order) : IAgentMiddleware
+    {
+        public Task AfterMessageTurnAsync(AfterMessageTurnContext context, CancellationToken cancellationToken)
+        {
+            order.Add("after");
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FailingFinalizationMiddleware : IAgentMiddleware
+    {
+        public Task AfterMessageTurnAsync(AfterMessageTurnContext context, CancellationToken cancellationToken)
+            => throw new InvalidOperationException("finalizer failed");
+    }
+
+    private sealed class ProviderCallingFinalizer(bool failAfterCall) : IAgentMiddleware
+    {
+        public async Task AfterMessageTurnAsync(AfterMessageTurnContext context, CancellationToken cancellationToken)
+        {
+            await ProviderOperationAccounting.ExecuteAsync(
+                ProviderOperationKind.TextToSpeech,
+                ProviderClientFamily.TextToSpeech,
+                "test-tts",
+                "voice-1",
+                () => Task.FromResult(new UsageDetails { OutputTokenCount = 4 }),
+                usage => usage);
+            if (failAfterCall) throw new InvalidOperationException("finalizer failed after provider call");
+        }
+    }
+
+    private sealed class HistoryFinalizerMiddleware : IAgentMiddleware
+    {
+        public Task AfterMessageTurnAsync(AfterMessageTurnContext context, CancellationToken cancellationToken)
+        {
+            var assistant = context.TurnHistory.Last(message => message.Role == ChatRole.Assistant);
+            Assert.NotNull(assistant.Contents.OfType<TextContent>().FirstOrDefault());
+            assistant.Contents.OfType<TextContent>().First().Text = "redacted";
+            context.TurnHistory.Add(new ChatMessage(ChatRole.Assistant, "finalizer note"));
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class InvalidHistoryFinalizer(bool reorder) : IAgentMiddleware
+    {
+        public Task AfterMessageTurnAsync(AfterMessageTurnContext context, CancellationToken cancellationToken)
+        {
+            if (reorder)
+                context.TurnHistory.Reverse();
+            else
+                context.TurnHistory.RemoveAt(0);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class DuplicateIdentityFinalizer : IAgentMiddleware
+    {
+        public Task AfterMessageTurnAsync(AfterMessageTurnContext context, CancellationToken cancellationToken)
+        {
+            var existing = context.TurnHistory[0];
+            context.TurnHistory.Add(new ChatMessage(existing.Role, existing.Contents)
+            {
+                MessageId = existing.MessageId
+            });
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FinalStateMiddleware : IAgentMiddleware
+    {
+        public Task AfterMessageTurnAsync(AfterMessageTurnContext context, CancellationToken cancellationToken)
+        {
+            context.UpdateState(state => state with { Iteration = 42 });
+            return Task.CompletedTask;
+        }
+    }
 
     private sealed class FakeChatClientWithUsage : IChatClient
     {

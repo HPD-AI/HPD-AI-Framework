@@ -9,7 +9,7 @@ namespace HPD.Agent.Evaluations.Tracing;
 /// Buffers agent events during a single message turn so LiveEvaluationMiddleware can
 /// reconstruct timing and permission data when building TurnTrace.
 ///
-/// Activated in BeforeMessageTurnAsync and consumed in AfterMessageTurnAsync.
+/// Activated in BeforeMessageTurnAsync, prepared in AfterMessageTurnAsync, and consumed on the terminal event.
 /// LiveEvaluationMiddleware populates this through an HPD.Events subscription
 /// running concurrently with the turn.
 ///
@@ -125,7 +125,7 @@ internal sealed class TurnEventBuffer
             _operationInputRounds.AddOrUpdate(operation.OperationId, 1, static (_, rounds) => rounds + 1);
     }
 
-    // ── Query methods (called from AfterMessageTurnAsync) ────────────────────
+    // ── Query methods (called when terminal capture completes) ───────────────
 
     public TimeSpan GetIterationDuration(int iteration)
     {

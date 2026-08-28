@@ -82,6 +82,67 @@ public class ThreadEventStoreTests : AgentTestBase
     }
 
     [Fact]
+    public void ThreadProjector_AppliesDurableMessageReplacement()
+    {
+        var thread = new Thread("session-1", "main", "test-agent");
+        var replacement = new ChatMessage(ChatRole.Assistant, "redacted") { MessageId = "assistant-1" };
+        var events = Sequence(
+        [
+            ThreadEventFactory.ThreadCreated(thread),
+            ThreadEventFactory.TextMessageStarted("session-1", "main", "turn-1", "assistant-1", ChatRole.Assistant.Value, 0),
+            ThreadEventFactory.TextDelta("session-1", "main", "turn-1", "assistant-1", "secret", 0),
+            ThreadEventFactory.TextMessageCompleted("session-1", "main", "turn-1", "assistant-1", 0),
+            new ThreadMessageReplacedEvent("assistant-1", replacement, "pii-redaction")
+            {
+                SessionId = "session-1",
+                ThreadId = "main"
+            }
+        ]);
+
+        var projected = ThreadProjector.Project("session-1", "main", events, ThreadProjectionPurpose.ThreadHistory);
+
+        Assert.Equal("redacted", Assert.Single(projected.Messages).Text);
+    }
+
+    [Fact]
+    public void ThreadProjector_RejectsReplacementForMissingMessage()
+    {
+        var thread = new Thread("session-1", "main", "test-agent");
+        var replacement = new ChatMessage(ChatRole.Assistant, "redacted") { MessageId = "missing" };
+        var events = Sequence([
+            ThreadEventFactory.ThreadCreated(thread),
+            new ThreadMessageReplacedEvent("missing", replacement, "test")
+            {
+                SessionId = "session-1",
+                ThreadId = "main"
+            }
+        ]);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            ThreadProjector.Project("session-1", "main", events, ThreadProjectionPurpose.ThreadHistory));
+    }
+
+    [Fact]
+    public void ThreadProjector_RejectsReplacementWithMismatchedIdentity()
+    {
+        var thread = new Thread("session-1", "main", "test-agent");
+        var replacement = new ChatMessage(ChatRole.Assistant, "redacted") { MessageId = "other" };
+        var events = Sequence([
+            ThreadEventFactory.ThreadCreated(thread),
+            ThreadEventFactory.TextMessageStarted("session-1", "main", "turn-1", "assistant-1", ChatRole.Assistant.Value, 0),
+            ThreadEventFactory.TextMessageCompleted("session-1", "main", "turn-1", "assistant-1", 0),
+            new ThreadMessageReplacedEvent("assistant-1", replacement, "test")
+            {
+                SessionId = "session-1",
+                ThreadId = "main"
+            }
+        ]);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            ThreadProjector.Project("session-1", "main", events, ThreadProjectionPurpose.ThreadHistory));
+    }
+
+    [Fact]
     public void ThreadProjector_CoalescesStreamingDeltasIntoDurableMessageContents()
     {
         var thread = new Thread("session-1", "main", "test-agent");

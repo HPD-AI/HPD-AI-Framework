@@ -233,7 +233,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
     private static bool IsRealtimeTransport(BeforeMessageTurnContext context)
         => context.RunConfig?.Clients.Transport is AgentModelTransportMode.Realtime;
 
-    public async Task BeforeMessageTurnAccountingCloseAsync(
+    public async Task AfterMessageTurnAsync(
         AfterMessageTurnContext context,
         CancellationToken cancellationToken)
     {

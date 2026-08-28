@@ -47,7 +47,7 @@ public static class EvalContext
     }
 
     /// <summary>
-    /// Clears the current eval context. Called by LiveEvaluationMiddleware after AfterMessageTurnAsync.
+    /// Clears the current eval context when terminal capture completes or fails.
     /// </summary>
     internal static void Deactivate()
     {

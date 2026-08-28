@@ -209,37 +209,6 @@ public class AgentMiddlewarePipeline
         }
     }
 
-    public async Task ExecuteBeforeMessageTurnAccountingCloseAsync(
-        AfterMessageTurnContext context,
-        CancellationToken cancellationToken)
-    {
-        context.Base.SetMiddlewareExecuting(true);
-        try
-        {
-            List<Exception>? exceptions = null;
-            foreach (var middleware in _reversedMiddlewares)
-            {
-                try
-                {
-                    await middleware.BeforeMessageTurnAccountingCloseAsync(context, cancellationToken)
-                        .ConfigureAwait(false);
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    exceptions ??= [];
-                    exceptions.Add(ex);
-                }
-            }
-
-            if (exceptions is not null)
-                throw new AggregateException("One or more before-accounting-close hooks failed", exceptions);
-        }
-        finally
-        {
-            context.Base.SetMiddlewareExecuting(false);
-        }
-    }
-
     //
     // ITERATION LEVEL
     //
@@ -553,14 +522,6 @@ public class AgentMiddlewarePipeline
         }
         if (exceptions != null)
             throw new AggregateException("One or more AfterMessageTurn hooks failed", exceptions);
-    }
-
-    internal async Task DispatchBeforeMessageTurnAccountingCloseAsync(
-        AfterMessageTurnContext context,
-        CancellationToken ct)
-    {
-        foreach (var middleware in _reversedMiddlewares)
-            await middleware.BeforeMessageTurnAccountingCloseAsync(context, ct).ConfigureAwait(false);
     }
 
     internal async Task DispatchBeforeIterationAsync(

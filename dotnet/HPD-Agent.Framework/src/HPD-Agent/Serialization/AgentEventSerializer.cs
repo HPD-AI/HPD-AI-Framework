@@ -74,6 +74,7 @@ public static partial class AgentEventSerializer
         [typeof(TextMessageStartEvent)] = EventTypes.Content.TEXT_MESSAGE_START,
         [typeof(TextDeltaEvent)] = EventTypes.Content.TEXT_DELTA,
         [typeof(TextMessageEndEvent)] = EventTypes.Content.TEXT_MESSAGE_END,
+        [typeof(ThreadMessageReplacedEvent)] = EventTypes.Content.THREAD_MESSAGE_REPLACED,
         [typeof(UserMessageEvent)] = EventTypes.Content.USER_MESSAGE,
         [typeof(UserAudioTranscriptDeltaEvent)] = EventTypes.Content.USER_AUDIO_TRANSCRIPT_DELTA,
         [typeof(UserAudioTranscriptCompletedEvent)] = EventTypes.Content.USER_AUDIO_TRANSCRIPT_COMPLETED,

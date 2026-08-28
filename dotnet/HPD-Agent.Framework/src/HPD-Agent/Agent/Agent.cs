@@ -866,12 +866,33 @@ public sealed partial class Agent : IAsyncDisposable
         Thread? thread,
         List<ChatMessage> turnHistory,
         IReadOnlyList<string?> messageIdsBeforeAfterTurn,
+        IReadOnlyDictionary<string, string> messageSnapshotsBeforeAfterTurn,
+        HPD.Events.IEventCoordinator eventCoordinator,
         CancellationToken cancellationToken)
     {
-        if (thread == null || turnHistory.Count == 0)
+        if (thread == null)
             return;
 
-        var changedMessages = new List<ChatMessage>();
+        var committedIds = messageIdsBeforeAfterTurn
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id!)
+            .ToArray();
+        var committedIdSet = committedIds.ToHashSet(StringComparer.Ordinal);
+        var finalizedExistingIds = turnHistory
+            .Select(message => message.MessageId)
+            .Where(id => id is not null && committedIdSet.Contains(id))
+            .Select(id => id!)
+            .ToArray();
+        if (finalizedExistingIds.Length != finalizedExistingIds.Distinct(StringComparer.Ordinal).Count())
+            throw new InvalidOperationException("AfterMessageTurnAsync produced duplicate committed message identities.");
+        if (!committedIds.SequenceEqual(finalizedExistingIds, StringComparer.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "AfterMessageTurnAsync cannot remove or reorder committed messages. Append messages or replace a message while preserving its MessageId.");
+        }
+
+        var replacementMessages = new List<ChatMessage>();
+        var appendedMessages = new List<ChatMessage>();
 
         for (var i = 0; i < turnHistory.Count; i++)
         {
@@ -890,20 +911,23 @@ public sealed partial class Agent : IAsyncDisposable
             var existingIndex = thread.Messages.FindIndex(existing => existing.MessageId == message.MessageId);
             if (existingIndex >= 0)
             {
-                if (!ReferenceEquals(thread.Messages[existingIndex], message))
+                if (messageSnapshotsBeforeAfterTurn.TryGetValue(message.MessageId!, out var before) &&
+                    !string.Equals(before, SerializeMessageSnapshot(message), StringComparison.Ordinal))
                 {
                     thread.Messages[existingIndex] = message;
-                    changedMessages.Add(message);
+                    replacementMessages.Add(message);
                 }
             }
             else
             {
+                if (message.GetPersistence() != AgentMessagePersistence.ThreadHistory)
+                    continue;
                 thread.Messages.Add(message);
-                changedMessages.Add(message);
+                appendedMessages.Add(message);
             }
         }
 
-        if (changedMessages.Count == 0)
+        if (replacementMessages.Count == 0 && appendedMessages.Count == 0)
             return;
 
         thread.LastActivity = DateTime.UtcNow;
@@ -918,14 +942,81 @@ public sealed partial class Agent : IAsyncDisposable
             await store.SaveSessionAsync(session, cancellationToken).ConfigureAwait(false);
         }
 
-        // Reconciled ChatMessage snapshots should not be re-expanded into thread events during
-        // normal turns; that would duplicate the events already appended to thread history.
+        var replacements = replacementMessages
+            .Select(message => (AgentEvent)new ThreadMessageReplacedEvent(
+                message.MessageId!,
+                CloneMessageForThread(message),
+                "after-message-turn-finalization"))
+            .ToArray();
+        var appendedEvents = appendedMessages
+            .SelectMany(message =>
+            {
+                AgentMessagePolicy.StampDefaults(message);
+                return ThreadMessageEventConverter.ToThreadEvents(
+                        thread.SessionId,
+                        thread.Id,
+                        message,
+                        clientInputId: null)
+                    .Select(EnrichOutputEvent);
+            });
+        var finalizationEvents = replacements.Concat(appendedEvents).ToArray();
+        if (finalizationEvents.Length > 0)
+        {
+            var publisher = new ThreadEventPublisher(store, eventCoordinator);
+            await publisher.CommitAndPublishAsync(
+                new ThreadKey(thread.SessionId, thread.Id),
+                finalizationEvents,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
     }
+
+    private static string SerializeMessageSnapshot(ChatMessage message)
+    {
+        var serializable = CloneMessageForThread(message);
+        serializable.AdditionalProperties = null;
+        var messageJson = JsonSerializer.Serialize(
+            serializable,
+            Serialization.AgentEventJsonContext.Default.MicrosoftExtensionsAiChatMessage);
+        if (message.AdditionalProperties is null || message.AdditionalProperties.Count == 0)
+            return messageJson;
+
+        var properties = string.Join(",", message.AdditionalProperties
+            .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+            .Select(pair => $"{JsonSerializer.Serialize(pair.Key)}:{CanonicalizeSnapshotValue(pair.Value)}"));
+        return $"{messageJson}|{{{properties}}}";
+    }
+
+    private static string CanonicalizeSnapshotValue(object? value)
+        => value switch
+        {
+            null => "null",
+            string text => JsonSerializer.Serialize(text),
+            bool boolean => boolean ? "true" : "false",
+            byte or sbyte or short or ushort or int or uint or long or ulong or float or double or decimal
+                => Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture)!,
+            JsonElement element => element.GetRawText(),
+            System.Collections.IDictionary dictionary => "{" + string.Join(",", dictionary.Keys.Cast<object>()
+                .OrderBy(key => Convert.ToString(key, System.Globalization.CultureInfo.InvariantCulture), StringComparer.Ordinal)
+                .Select(key => $"{CanonicalizeSnapshotValue(key)}:{CanonicalizeSnapshotValue(dictionary[key])}")) + "}",
+            System.Collections.IEnumerable sequence => "[" + string.Join(",", sequence.Cast<object?>().Select(CanonicalizeSnapshotValue)) + "]",
+            _ => JsonSerializer.Serialize(value.ToString())
+        };
 
     private static void EnsureMessageIdentity(ChatMessage message)
     {
         message.MessageId ??= Guid.NewGuid().ToString();
         message.CreatedAt ??= DateTimeOffset.UtcNow;
+    }
+
+    private static void CollapseDuplicateMessageSnapshots(List<ChatMessage> messages)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = messages.Count - 1; i >= 0; i--)
+        {
+            var messageId = messages[i].MessageId;
+            if (!string.IsNullOrWhiteSpace(messageId) && !seen.Add(messageId))
+                messages.RemoveAt(i);
+        }
     }
 
     private static bool ShouldCommitMessageSnapshotToThread(ChatMessage message)
@@ -2478,6 +2569,7 @@ public sealed partial class Agent : IAsyncDisposable
 
             // Collect all response updates to build final history
             var responseUpdates = new List<ChatResponseUpdate>();
+            string? currentAssistantMessageId = null;
 
             var effectiveRunConfig = runConfig ?? new AgentRunConfig();
             if (ResolveModelTransport(effectiveRunConfig) is Middleware.AgentModelTransport.Chat)
@@ -2650,6 +2742,7 @@ public sealed partial class Agent : IAsyncDisposable
 
                 // Generate message ID for this iteration
                 var assistantMessageId = Guid.NewGuid().ToString();
+                currentAssistantMessageId = assistantMessageId;
                 var iterSpanId         = GenerateSpanId();
 
                 // Emit iteration start
@@ -3674,7 +3767,10 @@ public sealed partial class Agent : IAsyncDisposable
                         var coalescedContents = CoalesceTextContents(assistantContents);
                         
                         // Create assistant message with tool calls
-                        var assistantMessage = new ChatMessage(ChatRole.Assistant, coalescedContents);
+                        var assistantMessage = new ChatMessage(ChatRole.Assistant, coalescedContents)
+                        {
+                            MessageId = assistantMessageId
+                        };
 
                         // Add to shared message list - visible to all contexts immediately
                         sharedMessages.Add(assistantMessage);
@@ -3695,7 +3791,10 @@ public sealed partial class Agent : IAsyncDisposable
                         // Add to history if there's ANY content (text OR tool calls)
                         if (historyContents.Count > 0)
                         {
-                            var historyMessage = new ChatMessage(ChatRole.Assistant, historyContents);
+                            var historyMessage = new ChatMessage(ChatRole.Assistant, historyContents)
+                            {
+                                MessageId = assistantMessageId
+                            };
                             turnHistory.Add(historyMessage);
                             await CommitThreadMessagesAsync(
                                 session,
@@ -3911,20 +4010,36 @@ public sealed partial class Agent : IAsyncDisposable
                         if (finalResponse.Messages.Count > 0)
                         {
                             var finalAssistantMessage = finalResponse.Messages[0];
+                            finalAssistantMessage.MessageId = assistantMessageId;
                             if (finalAssistantMessage.Contents.Count > 0)
                             {
-                                // Add to shared message list - visible to all contexts immediately
-                                sharedMessages.Add(finalAssistantMessage);
-
-                                // Add to turnHistory for session persistence
-                                turnHistory.Add(finalAssistantMessage);
-                                await CommitThreadMessagesAsync(
-                                    session,
-                                    thread,
-                                    [finalAssistantMessage],
-                                    clientInputId: null,
-                                    eventCoordinator,
-                                    effectiveCancellationToken).ConfigureAwait(false);
+                                var existingTurnIndex = turnHistory.FindIndex(
+                                    message => message.MessageId == assistantMessageId);
+                                if (existingTurnIndex >= 0)
+                                {
+                                    // Realtime transports may have already materialized this streamed
+                                    // assistant message. Preserve its journal identity and replace the
+                                    // in-memory snapshot instead of creating a duplicate identity.
+                                    turnHistory[existingTurnIndex] = finalAssistantMessage;
+                                    var existingSharedIndex = sharedMessages.FindIndex(
+                                        message => message.MessageId == assistantMessageId);
+                                    if (existingSharedIndex >= 0)
+                                        sharedMessages[existingSharedIndex] = finalAssistantMessage;
+                                    else
+                                        sharedMessages.Add(finalAssistantMessage);
+                                }
+                                else
+                                {
+                                    sharedMessages.Add(finalAssistantMessage);
+                                    turnHistory.Add(finalAssistantMessage);
+                                    await CommitThreadMessagesAsync(
+                                        session,
+                                        thread,
+                                        [finalAssistantMessage],
+                                        clientInputId: null,
+                                        eventCoordinator,
+                                        effectiveCancellationToken).ConfigureAwait(false);
+                                }
                             }
                         }
 
@@ -3980,6 +4095,8 @@ public sealed partial class Agent : IAsyncDisposable
                 if (finalResponse.Messages.Count > 0)
                 {
                     var finalAssistantMessage = finalResponse.Messages[0];
+                    if (currentAssistantMessageId is not null)
+                        finalAssistantMessage.MessageId = currentAssistantMessageId;
 
                     if (finalAssistantMessage.Contents.Count > 0)
                     {
@@ -4001,9 +4118,16 @@ public sealed partial class Agent : IAsyncDisposable
 
             // Provider work and durable turn-history rewrites must settle before accounting closes.
             agentContext.SyncState(state);
+            CollapseDuplicateMessageSnapshots(turnHistory);
             var messageIdsBeforeAccountingClose = turnHistory
                 .Select(message => message.MessageId)
                 .ToList();
+            var messageSnapshotsBeforeAccountingClose = turnHistory
+                .Where(message => !string.IsNullOrWhiteSpace(message.MessageId))
+                .ToDictionary(
+                    message => message.MessageId!,
+                    SerializeMessageSnapshot,
+                    StringComparer.Ordinal);
             Middleware.AfterMessageTurnContext? completedTurnContext = null;
             if (lastResponse is not null)
             {
@@ -4011,7 +4135,13 @@ public sealed partial class Agent : IAsyncDisposable
                     finalResponse: lastResponse,
                     turnHistory: turnHistory,
                     runConfig: effectiveRunConfig);
-                await turnPipeline.ExecuteBeforeMessageTurnAccountingCloseAsync(
+                // Async-iterator yields restore the caller's ExecutionContext between MoveNext calls.
+                // Re-establish the turn collector for the complete finalizer unwind so provider work
+                // dispatched by AfterMessageTurnAsync is owned by this closing message turn.
+                using var finalizationAccountingScope = accountingBridge?.Collector is { } finalizationCollector
+                    ? ProviderOperationAccountingScope.Push(finalizationCollector)
+                    : null;
+                await turnPipeline.ExecuteAfterMessageTurnAsync(
                     completedTurnContext,
                     effectiveCancellationToken).ConfigureAwait(false);
             }
@@ -4022,6 +4152,8 @@ public sealed partial class Agent : IAsyncDisposable
                 thread,
                 turnHistory,
                 messageIdsBeforeAccountingClose,
+                messageSnapshotsBeforeAccountingClose,
+                eventCoordinator,
                 effectiveCancellationToken).ConfigureAwait(false);
 
             // Emit MESSAGE TURN finished event after all turn-owned provider work has settled.
@@ -4036,7 +4168,10 @@ public sealed partial class Agent : IAsyncDisposable
             {
                 TraceId      = traceId,
                 SpanId       = turnSpanId,
-                ParentSpanId = null
+                ParentSpanId = null,
+                Iteration = state.Iteration,
+                TerminationReason = state.TerminationReason,
+                TurnMessageCount = turnHistory.Count
             };
 
             // Record orchestration telemetry metrics
@@ -4054,14 +4189,6 @@ public sealed partial class Agent : IAsyncDisposable
                 DateTimeOffset.UtcNow)
             { TraceId = traceId };
     
-            // Post-terminal middleware is observer/cleanup-only.
-            if (completedTurnContext is not null)
-            {
-                await turnPipeline.ExecuteAfterMessageTurnAsync(
-                    completedTurnContext,
-                    effectiveCancellationToken).ConfigureAwait(false);
-            }
-
             // PERSISTENCE: Save persistent middleware state ( split by scope)
             if (session != null)
             {
@@ -6936,6 +7063,7 @@ public sealed partial class Agent : IAsyncDisposable
             TextMessageStartEvent data => copiedMessageIds.Contains(data.MessageId),
             TextDeltaEvent data => copiedMessageIds.Contains(data.MessageId),
             TextMessageEndEvent data => copiedMessageIds.Contains(data.MessageId),
+            ThreadMessageReplacedEvent data => copiedMessageIds.Contains(data.MessageId),
             UserMessageEvent data => copiedMessageIds.Contains(data.MessageId),
             ReasoningMessageStartEvent data => copiedMessageIds.Contains(data.MessageId),
             ReasoningDeltaEvent data => copiedMessageIds.Contains(data.MessageId),

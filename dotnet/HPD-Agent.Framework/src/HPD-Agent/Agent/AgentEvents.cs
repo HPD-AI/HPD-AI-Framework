@@ -777,6 +777,12 @@ public record TextMessageEndEvent(string MessageId) : AgentEvent
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
 }
 
+/// <summary>Durably replaces the complete snapshot of an existing thread message.</summary>
+public sealed record ThreadMessageReplacedEvent(
+    string MessageId,
+    ChatMessage Replacement,
+    string Reason) : AgentEvent;
+
 /// <summary>
 /// Outbound, lean projection of a user input into the transcript stream.
 /// Emitted once per user message at commit time. Carries only the transcript

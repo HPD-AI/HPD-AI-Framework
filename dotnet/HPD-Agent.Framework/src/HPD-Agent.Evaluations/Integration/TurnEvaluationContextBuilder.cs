@@ -49,6 +49,7 @@ internal static class TurnEvaluationContextBuilder
             TurnIndex = CountPriorUserMessages(context.Thread),
             UserInput = userInput,
             ConversationHistory = conversationHistory,
+            EvaluationMessages = context.TurnHistory.ToArray(),
             OutputText = context.FinalResponse.Text ?? string.Empty,
             FinalResponse = context.FinalResponse,
             ReasoningText = reasoningText,

@@ -16,6 +16,25 @@ namespace HPD.Agent.Tests.Serialization;
 /// </summary>
 public class AgentEventSerializerTests
 {
+    [Fact]
+    public void ThreadMessageReplacedEvent_RoundTripsCanonicalReplacement()
+    {
+        var replacement = new ChatMessage(ChatRole.Assistant, "redacted")
+        {
+            MessageId = "assistant-1",
+            CreatedAt = DateTimeOffset.Parse("2026-08-28T12:00:00Z")
+        };
+        var evt = new ThreadMessageReplacedEvent("assistant-1", replacement, "pii-redaction");
+
+        var json = AgentEventSerializer.ToJson(evt);
+        var roundTripped = Assert.IsType<ThreadMessageReplacedEvent>(AgentEventSerializer.FromJson(json));
+
+        Assert.Contains("\"type\":\"THREAD_MESSAGE_REPLACED\"", json);
+        Assert.Equal("assistant-1", roundTripped.MessageId);
+        Assert.Equal("assistant-1", roundTripped.Replacement.MessageId);
+        Assert.Equal("redacted", roundTripped.Replacement.Text);
+        Assert.Equal("pii-redaction", roundTripped.Reason);
+    }
     [Theory]
     [InlineData(PlanUpdateType.Created)]
     [InlineData(PlanUpdateType.StepUpdated)]

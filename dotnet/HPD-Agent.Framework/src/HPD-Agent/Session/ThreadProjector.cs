@@ -165,6 +165,17 @@ public static class ThreadProjector
                 break;
             }
 
+            case ThreadMessageReplacedEvent data:
+            {
+                if (!string.Equals(data.MessageId, data.Replacement.MessageId, StringComparison.Ordinal))
+                    throw new InvalidOperationException("A thread-message replacement must preserve its message ID.");
+                if (!messages.ContainsKey(data.MessageId))
+                    throw new InvalidOperationException($"Cannot replace missing thread message '{data.MessageId}'.");
+                messages[data.MessageId] = MessageProjection.FromChatMessage(data.Replacement);
+                thread.LastActivity = evt.Timestamp.UtcDateTime;
+                break;
+            }
+
             case ReasoningMessageStartEvent data:
             {
                 GetMessage(messages, messageOrder, data.MessageId, ParseRole(data.Role))

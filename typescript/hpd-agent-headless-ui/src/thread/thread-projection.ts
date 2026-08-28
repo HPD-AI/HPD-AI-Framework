@@ -144,6 +144,9 @@ class ThreadProjectionImpl implements ThreadProjection {
       case EventTypes.TEXT_MESSAGE_END:
         this.onTextMessageEnd(known.messageId);
         break;
+      case EventTypes.THREAD_MESSAGE_REPLACED:
+        this.onThreadMessageReplaced(known.messageId, known.replacement);
+        break;
       case EventTypes.REASONING_MESSAGE_START:
         this.onReasoningMessageStart(known, known.messageId);
         break;
@@ -586,6 +589,34 @@ class ThreadProjectionImpl implements ThreadProjection {
       ...message,
       content: appendUniqueText(message.content, text),
       contents: [...message.contents, { $type: 'text', text }],
+    })));
+    this.emit();
+  }
+
+  private onThreadMessageReplaced(
+    messageId: string,
+    replacement: { messageId: string; role: string; contents: AIContent[]; authorName?: string | null; createdAt?: string | null; additionalProperties?: Record<string, unknown> | null },
+  ): void {
+    if (!replacement || replacement.messageId !== messageId || !messageExists(this.snapshot, messageId)) return;
+    const content = replacement.contents
+      .filter((item) => item.$type === 'text')
+      .map((item) => readStringProperty(item, 'text') ?? '')
+      .join('');
+    const reasoning = replacement.contents
+      .filter((item) => item.$type === 'reasoning')
+      .map((item) => readStringProperty(item, 'text') ?? '')
+      .join('');
+    this.snapshot = refreshSnapshot(updateMessageEverywhere(this.snapshot, messageId, (message) => ({
+      ...message,
+      role: replacement.role as MessageRole,
+      content,
+      reasoning: reasoning || undefined,
+      contents: [...replacement.contents],
+      additionalProperties: replacement.additionalProperties ?? undefined,
+      authorName: replacement.authorName ?? undefined,
+      timestamp: replacement.createdAt ? new Date(replacement.createdAt) : message.timestamp,
+      streaming: false,
+      thinking: false,
     })));
     this.emit();
   }
