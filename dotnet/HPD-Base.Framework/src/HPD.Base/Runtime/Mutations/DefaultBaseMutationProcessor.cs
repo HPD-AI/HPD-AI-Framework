@@ -483,6 +483,7 @@ internal sealed class DefaultBaseMutationProcessor(
         BaseCommittedRecordMutationKind committed;
         RecordPayload? proposed;
         ImmutableArray<string> changed;
+        ImmutableArray<string> removedWireNames = [];
         PolicyResourceKind resourceKind;
         RecordPayload? changedPayload;
 
@@ -505,7 +506,14 @@ internal sealed class DefaultBaseMutationProcessor(
                 committed = BaseCommittedRecordMutationKind.Patch;
                 changedPayload = command.UpdatePayload!.Payload;
                 proposed = BasePolicyRuntimeSimulation.MergePatchPayload(current.Payload, changedPayload);
-                changed = command.UpdatePayload.ChangedFields.ToImmutableArray();
+                OperationResult<(RecordPayload Payload, ImmutableArray<string> RemovedWireNames)> removal =
+                    ApplyRemovedFields(command.Collection, proposed, changedPayload, command.Patch.RemovedFieldIds);
+                if (!removal.IsSuccess() || removal.Value == default)
+                    return new OperationResult<BaseAtomicMutationPlanItem> { Status = removal.Status, Error = removal.Error };
+                proposed = removal.Value.Payload;
+                removedWireNames = removal.Value.RemovedWireNames;
+                changed = (command.UpdatePayload.ChangedFields ?? []).Concat(removal.Value.RemovedWireNames)
+                    .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToImmutableArray();
                 resourceKind = PolicyResourceKind.UpdatePayload;
                 break;
             case BaseRecordMutationKind.Replace:
@@ -573,7 +581,11 @@ internal sealed class DefaultBaseMutationProcessor(
             return new OperationResult<BaseAtomicMutationPlanItem> { Status = evaluated.Status, Error = evaluated.Error };
         }
         RecordPayload predicate = proposed ?? current!.Payload;
-        if (EnforceWritePolicy<RecordEnvelope>(predicate, changedPayload, evaluated.Value) is { } denied)
+        IEnumerable<string>? policyChangedFields = removedWireNames.IsEmpty
+            ? null
+            : BasePolicyRuntimeSimulation.PayloadFields(changedPayload!).Concat(removedWireNames)
+                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal);
+        if (EnforceWritePolicy<RecordEnvelope>(predicate, changedPayload, evaluated.Value, policyChangedFields) is { } denied)
             return new OperationResult<BaseAtomicMutationPlanItem> { Status = denied.Status, Error = denied.Error };
         if (proposed is not null && await EnforceCapturedRelationsAsync(
                 command, proposed, _captured[ordinal].RelationTargets, earlierItems, cancellationToken).ConfigureAwait(false) is { } relationError)
@@ -605,6 +617,7 @@ internal sealed class DefaultBaseMutationProcessor(
             RecordId = command.RecordId ?? command.Upsert?.Id ?? command.Create?.RequestedId ?? throw new InvalidOperationException(),
             RuntimeAssignedRecordId = command.RuntimeAssignedRecordId,
             ProposedPayload = proposed is null ? null : RecordCloneHelpers.ClonePayload(proposed),
+            RemovedFieldIds = command.Patch?.RemovedFieldIds ?? [],
             Delete = committed == BaseCommittedRecordMutationKind.Delete ? command.Delete! with { } : null,
             Current = current is null ? null : RecordCloneHelpers.CloneEnvelope(current),
             ChangedFields = changed,
@@ -612,6 +625,41 @@ internal sealed class DefaultBaseMutationProcessor(
             SubjectLifecycleTransition = command.SubjectLifecycleTransition,
             Operation = command.Context with { },
         });
+    }
+
+    private static OperationResult<(RecordPayload Payload, ImmutableArray<string> RemovedWireNames)> ApplyRemovedFields(
+        CollectionDefinition collection,
+        RecordPayload payload,
+        RecordPayload changedPayload,
+        ImmutableArray<string> removedFieldIds)
+    {
+        if (removedFieldIds.IsDefault
+            || !removedFieldIds.SequenceEqual(removedFieldIds.Order(StringComparer.Ordinal), StringComparer.Ordinal)
+            || removedFieldIds.Distinct(StringComparer.Ordinal).Count() != removedFieldIds.Length)
+            return OperationResults.ValidationFailed<(RecordPayload, ImmutableArray<string>)>(
+                Error("base.runtime.batch.itemInvalid", "The patch removal set is invalid.", ErrorCategory.Validation));
+        if (removedFieldIds.IsEmpty)
+            return OperationResults.Ok<(RecordPayload Payload, ImmutableArray<string> RemovedWireNames)>((payload, []));
+        if (payload.Kind != RecordPayloadKind.FieldMap || payload.Fields is null || collection.Fields is null)
+            return OperationResults.ValidationFailed<(RecordPayload, ImmutableArray<string>)>(
+                Error("base.runtime.batch.itemInvalid", "The patch removal set is invalid.", ErrorCategory.Validation));
+        var fields = payload.Fields.ToDictionary(static pair => pair.Key, static pair => pair.Value.Clone(), StringComparer.Ordinal);
+        var wireNames = ImmutableArray.CreateBuilder<string>(removedFieldIds.Length);
+        foreach (string fieldId in removedFieldIds)
+        {
+            FieldDefinition? field = collection.Fields.SingleOrDefault(candidate =>
+                string.Equals(candidate.Id, fieldId, StringComparison.Ordinal));
+            if (field is null || field.Presence != BaseFieldPresence.Optional
+                || field.Nullability != BaseFieldNullability.NonNullable
+                || field.ReadOnly
+                || (changedPayload.Fields?.ContainsKey(field.WireName) ?? false))
+                return OperationResults.ValidationFailed<(RecordPayload, ImmutableArray<string>)>(
+                    Error("base.runtime.batch.itemInvalid", "The patch removal set is invalid.", ErrorCategory.Validation));
+            fields.Remove(field.WireName);
+            wireNames.Add(field.WireName);
+        }
+        return OperationResults.Ok((new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = fields },
+            wireNames.MoveToImmutable()));
     }
 
     private static bool RevisionMatches(RecordEnvelope current, RevisionToken? expected) =>
@@ -1175,7 +1223,7 @@ internal sealed class DefaultBaseMutationProcessor(
         && RetirementEvidenceMatches(plan.SubjectRetirement, prepared.SubjectRetirement)
         && BaseTextAtomicMutationContract.PreparedMatches(plan.Text, prepared.Text)
         && BaseAtomicSchemaContract.PreparedMatches(plan.Schema, prepared.Schema)
-        && ValidateSubjectAuthorityEvidence(plan, prepared)
+        && ValidateSubjectAuthorityEvidence(plan, prepared, subjects)
         && prepared.SubjectValidations.Select((validation, index) =>
             validation.Ordinal == index
             && validation.MutationOrdinal == plan.SubjectValidations[index].MutationOrdinal
@@ -1195,7 +1243,10 @@ internal sealed class DefaultBaseMutationProcessor(
         && left.CanonicalLowerBound.AsSpan().SequenceEqual(right.CanonicalLowerBound.AsSpan())
         && left.CanonicalUpperBound.AsSpan().SequenceEqual(right.CanonicalUpperBound.AsSpan());
 
-    private bool ValidateSubjectAuthorityEvidence(BaseFinalizedAtomicExecutionPlan plan, BasePreparedAtomicExecution prepared)
+    internal static bool ValidateSubjectAuthorityEvidence(
+        BaseFinalizedAtomicExecutionPlan plan,
+        BasePreparedAtomicExecution prepared,
+        BaseSubjectContractRegistry subjects)
     {
         var expected = new Dictionary<(string Id, int Version), BaseGeneratedSubjectRegistration>();
         foreach (BaseAtomicMutationPlanItem item in plan.Items)
@@ -1542,13 +1593,23 @@ internal sealed class DefaultBaseMutationProcessor(
 
         var validated = command.UpdatePayload!;
         var proposedPayload = BasePolicyRuntimeSimulation.MergePatchPayload(existingResult.Value.Payload, validated.Payload);
+        OperationResult<(RecordPayload Payload, ImmutableArray<string> RemovedWireNames)> removal =
+            ApplyRemovedFields(command.Collection, proposedPayload, validated.Payload, command.Patch!.RemovedFieldIds);
+        if (!removal.IsSuccess() || removal.Value == default)
+            return FromFailure(command, removal);
+        proposedPayload = removal.Value.Payload;
+        ImmutableArray<string> changedFields = (validated.ChangedFields ?? []).Concat(removal.Value.RemovedWireNames)
+            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToImmutableArray();
+        ImmutableArray<string> policyChangedFields = BasePolicyRuntimeSimulation.PayloadFields(validated.Payload)
+            .Concat(removal.Value.RemovedWireNames).Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal).ToImmutableArray();
         var proposed = existingResult.Value with { Payload = proposedPayload };
         var policyResult = await EvaluateAsync(
             command, PolicyResourceKind.UpdatePayload, proposedPayload,
             existingResult.Value, proposed, cancellationToken).ConfigureAwait(false);
         if (!policyResult.IsSuccess() || policyResult.Value is null)
             return FromFailure(command, policyResult);
-        if (EnforceWritePolicy<RecordEnvelope>(proposedPayload, validated.Payload, policyResult.Value) is { } gate)
+        if (EnforceWritePolicy<RecordEnvelope>(proposedPayload, validated.Payload, policyResult.Value, policyChangedFields) is { } gate)
             return FromFailure(command, gate);
         if (await EnforceRelationsAsync(session, command, proposedPayload, cancellationToken).ConfigureAwait(false) is { } relationError)
             return Failure(command, RelationStatus(relationError), relationError);
@@ -1560,6 +1621,7 @@ internal sealed class DefaultBaseMutationProcessor(
             policyResult.Value,
             requested,
             upsertOutcome,
+            changedFields,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -1570,6 +1632,7 @@ internal sealed class DefaultBaseMutationProcessor(
         BasePolicyEvaluation policyResult,
         BaseRecordMutationKind requested,
         RecordUpsertOutcome? upsertOutcome,
+        ImmutableArray<string>? changedFields,
         CancellationToken cancellationToken)
     {
         var validated = command.UpdatePayload!;
@@ -1578,7 +1641,7 @@ internal sealed class DefaultBaseMutationProcessor(
             command.Collection,
             command.RecordId.GetValueOrDefault(),
             request,
-            SessionContext(command, requested, validated.ChangedFields),
+            SessionContext(command, requested, changedFields?.ToArray() ?? validated.ChangedFields),
             cancellationToken).ConfigureAwait(false);
         return NormalizeSession(command, result, policyResult, upsertOutcome);
     }
@@ -1764,6 +1827,7 @@ internal sealed class DefaultBaseMutationProcessor(
                 updatePolicy.Value,
                 BaseRecordMutationKind.Upsert,
                 RecordUpsertOutcome.Updated,
+                null,
                 cancellationToken).ConfigureAwait(false)
             : await WriteReplaceAsync(
                 session,
@@ -2299,7 +2363,8 @@ internal sealed class DefaultBaseMutationProcessor(
     private static OperationResult<T>? EnforceWritePolicy<T>(
         RecordPayload? predicatePayload,
         RecordPayload? changedPayload,
-        BasePolicyEvaluation? evaluation)
+        BasePolicyEvaluation? evaluation,
+        IEnumerable<string>? changedFields = null)
     {
         if (evaluation?.Decision.Constraints?.WriteCheck is { } writeCheck)
         {
@@ -2318,7 +2383,9 @@ internal sealed class DefaultBaseMutationProcessor(
 
         if (evaluation?.EffectiveWriteMask is not { } mask)
             return null;
-        var fields = changedPayload is null ? [] : BasePolicyRuntimeSimulation.PayloadFields(changedPayload);
+        string[] fields = changedFields is null
+            ? changedPayload is null ? [] : BasePolicyRuntimeSimulation.PayloadFields(changedPayload)
+            : [.. changedFields];
         var denied = mask.Mode switch
         {
             FieldMaskMode.Unspecified or FieldMaskMode.AllowAll => null,

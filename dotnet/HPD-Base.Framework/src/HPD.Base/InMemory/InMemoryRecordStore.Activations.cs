@@ -1767,7 +1767,7 @@ internal sealed partial class InMemoryRecordStore
         limits.MaximumReadIntervals > 0 && limits.MaximumIndexOperations > 0;
 
     private static byte[] ControlChecksum(string activationId, long generation, BaseActivationState state) =>
-        Hash($"base.activation.control.v2\0{activationId}\n{generation}\n{(int)state}");
+        BaseActivationControlChecksumContract.Create(activationId, generation, state).ToArray();
 
     private static byte[] Hash(string value) => SHA256.HashData(Encoding.UTF8.GetBytes(value));
 

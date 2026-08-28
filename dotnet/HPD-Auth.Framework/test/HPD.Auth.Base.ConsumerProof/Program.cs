@@ -9,6 +9,22 @@ _ = (Func<BaseSession, BaseExportedSubjectContract<AuthUserSubject>>)AuthSubject
 
 _ = ConsumerStoredSubjectRead.Definition;
 
+await HPD.Auth.Base.ConsumerProof.ProofHost.RunAsync(args.Contains("--sqlite", StringComparer.Ordinal));
+if (args.Contains("--print-manifest-identities", StringComparer.Ordinal))
+{
+    Console.WriteLine("selection\t" + BaseGeneratedGraphEvidence.SelectionProfile(
+        HPD.Auth.Base.ConsumerProof.SelectionProof.Identity));
+    Console.WriteLine("lifecycle\t" + BaseGeneratedGraphEvidence.LifecycleConsumer(
+        HPD.Auth.Base.ConsumerProof.LifecycleProof.LifecycleIdentity));
+    Console.WriteLine("retirement\t" + BaseGeneratedGraphEvidence.RetirementConsumer(
+        HPD.Auth.Base.ConsumerProof.LifecycleProof.RetirementIdentity));
+    Console.WriteLine("jsonRead\t" + BaseGeneratedGraphEvidence.RegisteredRead(
+        HPD.Auth.Base.ConsumerProof.ProofJsonRead.Handle));
+    Console.WriteLine("countRead\t" + BaseGeneratedGraphEvidence.RegisteredRead(
+        HPD.Auth.Base.ConsumerProof.ProofCountSummary.Handle));
+}
+HPD.Auth.Base.ConsumerProof.ProofManifest.Verify();
+
 [BaseCollection("consumer.customerProfiles", typeof(ConsumerJsonSerializerContext))]
 internal sealed partial record CustomerProfile
 {
@@ -38,8 +54,72 @@ internal sealed partial record ConsumerPrivateSubject
     PrivateRecordType = typeof(ConsumerPrivateSubject), AcquisitionGrantId = "consumer.subject.acquire",
     ValidationGrantId = "consumer.subject.validate", AdministrationGrantId = "consumer.subject.admin",
     ValidationPlanId = "consumer.subject.validate.v1", Scope = BaseSubjectScopeKind.Tenant,
-    ActiveFieldId = "active", TombstoneFieldId = "tombstoned", ScopeFieldId = "tenant")]
+    ActiveFieldId = "active", TombstoneFieldId = "tombstoned", ScopeFieldId = "tenant",
+    SupportsCoordinatedRetirement = true)]
 internal sealed partial class ConsumerSubject;
+
+[BaseCollection("consumer.otherPrivateSubjects", typeof(ConsumerJsonSerializerContext), SystemOwnerModuleId = "consumer.module")]
+internal sealed partial record ConsumerOtherPrivateSubject
+{
+    [BaseField("other.active")] public required bool Active { get; init; }
+    [BaseField("other.tombstoned")] public required bool Tombstoned { get; init; }
+    [BaseField("other.tenant")] public required string Tenant { get; init; }
+}
+
+[BaseExportedSubject("consumer.other-subject", OwningModuleId = "consumer.module",
+    PrivateRecordType = typeof(ConsumerOtherPrivateSubject), AcquisitionGrantId = "consumer.other-subject.acquire",
+    ValidationGrantId = "consumer.other-subject.validate", AdministrationGrantId = "consumer.other-subject.admin",
+    ValidationPlanId = "consumer.other-subject.validate.v1", Scope = BaseSubjectScopeKind.Tenant,
+    ActiveFieldId = "other.active", TombstoneFieldId = "other.tombstoned", ScopeFieldId = "other.tenant")]
+internal sealed partial class ConsumerOtherSubject;
+
+[BaseRead("consumer.other-subject.acquire", typeof(ConsumerJsonSerializerContext),
+    SourceAuthority = BaseRegisteredReadSourceAuthority.System,
+    Disclosure = BaseRegisteredReadDisclosure.ConfidentialProjection,
+    RequiredGrantId = "consumer.other-subject.acquire",
+    SystemSourceIds = ["consumer.otherPrivateSubjects"])]
+internal sealed partial record ConsumerOtherSubjectAcquire
+{
+    [BaseReadParameter("consumer.other-subject.acquire.id")]
+    public required BaseRecordId<ConsumerOtherPrivateSubject> SubjectId { get; init; }
+
+    public sealed partial record Row
+    {
+        [BaseReadField("consumer.other-subject.acquire.reference")]
+        public required BaseSubjectReference<ConsumerOtherSubject> Reference { get; init; }
+    }
+
+    public static void Configure(BaseReadDefinitionBuilder<ConsumerOtherSubjectAcquire, Row> read)
+    {
+        read.From(ConsumerOtherPrivateSubject.Collection, "subject", out BaseReadSource<ConsumerOtherPrivateSubject> subject)
+            .Where(subject.RecordId.Equal(read.Parameter(Parameters.SubjectId)))
+            .ProjectSubjectReference(Row.Fields.Reference, subject, ConsumerOtherSubject.HPDBaseSubjectRegistration);
+    }
+}
+
+[BaseRead("consumer.subject.acquire", typeof(ConsumerJsonSerializerContext),
+    SourceAuthority = BaseRegisteredReadSourceAuthority.System,
+    Disclosure = BaseRegisteredReadDisclosure.ConfidentialProjection,
+    RequiredGrantId = "consumer.subject.acquire",
+    SystemSourceIds = ["consumer.privateSubjects"])]
+internal sealed partial record ConsumerSubjectAcquire
+{
+    [BaseReadParameter("consumer.subject.acquire.id")]
+    public required BaseRecordId<ConsumerPrivateSubject> SubjectId { get; init; }
+
+    public sealed partial record Row
+    {
+        [BaseReadField("consumer.subject.acquire.reference")]
+        public required BaseSubjectReference<ConsumerSubject> Reference { get; init; }
+    }
+
+    public static void Configure(BaseReadDefinitionBuilder<ConsumerSubjectAcquire, Row> read)
+    {
+        read.From(ConsumerPrivateSubject.Collection, "subject", out BaseReadSource<ConsumerPrivateSubject> subject)
+            .Where(subject.RecordId.Equal(read.Parameter(Parameters.SubjectId)))
+            .ProjectSubjectReference(Row.Fields.Reference, subject, ConsumerSubject.HPDBaseSubjectRegistration);
+    }
+}
 
 [BaseCollection("consumer.storedSubjects", typeof(ConsumerJsonSerializerContext))]
 internal sealed partial record ConsumerStoredSubject
@@ -47,6 +127,10 @@ internal sealed partial record ConsumerStoredSubject
     [BaseField("reference")]
     [BaseSubjectReference(typeof(ConsumerSubject), Requirement = BaseSubjectReferenceRequirement.Exists)]
     public required BaseSubjectReference<ConsumerSubject> Reference { get; init; }
+
+    [BaseField("otherReference")]
+    [BaseSubjectReference(typeof(ConsumerOtherSubject), Requirement = BaseSubjectReferenceRequirement.Exists)]
+    public required BaseSubjectReference<ConsumerOtherSubject> OtherReference { get; init; }
 }
 
 [BaseRead("consumer.stored-subject", typeof(ConsumerJsonSerializerContext), RequiredGrantId = "consumer.subject.read")]
@@ -56,6 +140,9 @@ internal sealed partial record ConsumerStoredSubjectRead
     {
         [BaseReadField("consumer.stored-subject.row.reference")]
         public required BaseSubjectReference<ConsumerSubject> Reference { get; init; }
+
+        [BaseReadField("consumer.stored-subject.row.other-reference")]
+        public required BaseSubjectReference<ConsumerOtherSubject> OtherReference { get; init; }
     }
 
     public static void Configure(BaseReadDefinitionBuilder<ConsumerStoredSubjectRead, Row> read)
@@ -65,15 +152,41 @@ internal sealed partial record ConsumerStoredSubjectRead
                 Row.Fields.Reference,
                 stored,
                 ConsumerStoredSubject.Fields.Reference,
-                ConsumerSubject.HPDBaseSubjectRegistration);
+                ConsumerSubject.HPDBaseSubjectRegistration)
+            .ProjectStoredSubjectReference(
+                Row.Fields.OtherReference,
+                stored,
+                ConsumerStoredSubject.Fields.OtherReference,
+                ConsumerOtherSubject.HPDBaseSubjectRegistration);
     }
 }
 
 [JsonSerializable(typeof(CustomerProfile))]
 [JsonSerializable(typeof(ConsumerPrivateSubject))]
+[JsonSerializable(typeof(ConsumerOtherPrivateSubject))]
 [JsonSerializable(typeof(ConsumerStoredSubject))]
 [JsonSerializable(typeof(ConsumerStoredSubjectRead))]
 [JsonSerializable(typeof(ConsumerStoredSubjectRead.Row), TypeInfoPropertyName = "ConsumerStoredSubjectReadRow")]
+[JsonSerializable(typeof(ConsumerSubjectAcquire))]
+[JsonSerializable(typeof(ConsumerSubjectAcquire.Row), TypeInfoPropertyName = "ConsumerSubjectAcquireRow")]
+[JsonSerializable(typeof(ConsumerOtherSubjectAcquire))]
+[JsonSerializable(typeof(ConsumerOtherSubjectAcquire.Row), TypeInfoPropertyName = "ConsumerOtherSubjectAcquireRow")]
+[JsonSerializable(typeof(HPD.Auth.Base.ConsumerProof.IdentityAndGenerationRequest))]
+[JsonSerializable(typeof(HPD.Auth.Base.ConsumerProof.IdentityAndGenerationResult))]
+[JsonSerializable(typeof(HPD.Auth.Base.ConsumerProof.RequestControlRequest))]
+[JsonSerializable(typeof(HPD.Auth.Base.ConsumerProof.RequestControlResult))]
+[JsonSerializable(typeof(HPD.Auth.Base.ConsumerProof.StaticSetRequest))]
+[JsonSerializable(typeof(HPD.Auth.Base.ConsumerProof.StaticSetResult))]
+[JsonSerializable(typeof(HPD.Auth.Base.ConsumerProof.PresenceAndRemovalRequest))]
+[JsonSerializable(typeof(HPD.Auth.Base.ConsumerProof.PresenceAndRemovalResult))]
+[JsonSerializable(typeof(HPD.Auth.Base.ConsumerProof.ProofWorkItem))]
+[JsonSerializable(typeof(HPD.Auth.Base.ConsumerProof.ProofOwnerPatch))]
+[JsonSerializable(typeof(HPD.Auth.Base.ConsumerProof.ProofSelectionItem))]
+[JsonSerializable(typeof(HPD.Auth.Base.ConsumerProof.SemanticProofRequest))]
+[JsonSerializable(typeof(HPD.Auth.Base.ConsumerProof.SemanticEnsureProofResult))]
+[JsonSerializable(typeof(HPD.Auth.Base.ConsumerProof.SemanticRetireProofResult))]
+[JsonSerializable(typeof(HPD.Auth.Base.ConsumerProof.ProofActivationInput))]
+[JsonSerializable(typeof(HPD.Auth.Base.ConsumerProof.ProofActivationResult))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]

@@ -22,12 +22,19 @@ internal sealed class BaseActivationProviderExecutionGate : IDisposable, IAsyncD
     private readonly ConcurrentDictionary<long, Task> _retained = new();
     private long _sequence;
     private int _stopping;
+    private int _contractViolation;
 
     public BaseActivationProviderExecutionGate(BaseActivationOperationalState? state = null) =>
         _state = state ?? new BaseActivationOperationalState();
 
     internal int RetainedCount => _retained.Count;
-    internal bool IsQuarantined => !_retained.IsEmpty;
+    internal bool IsQuarantined => !_retained.IsEmpty || Volatile.Read(ref _contractViolation) != 0;
+
+    internal void QuarantineContractViolation()
+    {
+        if (Interlocked.Exchange(ref _contractViolation, 1) == 0)
+            _state.QuarantineContractViolation();
+    }
 
     internal async ValueTask<BaseActivationProviderCallResult<T>> ExecuteAsync<T>(
         Func<CancellationToken, ValueTask<T>> execute,
@@ -36,7 +43,7 @@ internal sealed class BaseActivationProviderExecutionGate : IDisposable, IAsyncD
         CancellationToken caller)
     {
         ArgumentNullException.ThrowIfNull(execute);
-        if (Volatile.Read(ref _stopping) != 0)
+        if (Volatile.Read(ref _stopping) != 0 || Volatile.Read(ref _contractViolation) != 0)
             return new(BaseActivationProviderCallOutcome.Capacity, default);
         try
         {

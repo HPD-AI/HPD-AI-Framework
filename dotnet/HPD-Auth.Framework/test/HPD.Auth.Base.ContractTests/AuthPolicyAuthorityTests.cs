@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using HPD.Auth.Base;
 using HPD.Base;
 using HPD.Base.Sqlite;
@@ -8,6 +9,30 @@ namespace HPD.Auth.Base.ContractTests;
 
 public sealed class AuthPolicyAuthorityTests
 {
+    [Fact]
+    public void CanonicalGraphArtifactMatchesCommittedAuthorityAndRejectsMutation()
+    {
+        using ServiceProvider provider = CreateProvider();
+        AuthBaseModuleOptions options = ModuleOptions();
+        byte[] artifact = AuthBaseGraphArtifact.Create(
+            provider.GetRequiredService<BaseLogicalSchema>(),
+            provider.GetRequiredService<HPDBaseStudioAuthoritySnapshot>(),
+            options);
+        Assert.Equal(
+            "5c2a30e2b74c99d06e640e84f5bc5b77607fe73b2a40e24072aab7fbb070b53c",
+            Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(artifact)));
+        byte[] committed = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "auth-base-graph-v2.json"));
+        AuthBaseGraphArtifact.Verify(committed,
+            provider.GetRequiredService<BaseLogicalSchema>(),
+            provider.GetRequiredService<HPDBaseStudioAuthoritySnapshot>(), options);
+
+        byte[] hostile = artifact.ToArray();
+        hostile[^2] ^= 1;
+        Assert.Throws<InvalidOperationException>(() => AuthBaseGraphArtifact.Verify(hostile,
+            provider.GetRequiredService<BaseLogicalSchema>(),
+            provider.GetRequiredService<HPDBaseStudioAuthoritySnapshot>(), options));
+    }
+
     [Fact]
     public async Task CompleteAuthGraphFinalizesWithSourceBoundCanonicalSettingsRead()
     {
@@ -89,6 +114,7 @@ public sealed class AuthPolicyAuthorityTests
     {
         var services = new ServiceCollection();
         services.AddLogging();
+        services.AddSingleton(TimeProvider.System);
         services.AddHPDBase(builder =>
         {
             builder.ConfigureSchema(options =>
@@ -107,6 +133,7 @@ public sealed class AuthPolicyAuthorityTests
                 options.DataSource = dataSource;
                 options.StoreId = "auth-contract-proof";
             }));
+            builder.Use(new AuthStorageProtectionProofExtension());
             builder.ConfigureSelectionMutations(new HPDBaseSelectionMutationOptions
             {
                 HostMaxima = Limits(),
@@ -115,7 +142,20 @@ public sealed class AuthPolicyAuthorityTests
                 MaximumRouteNameBytes = 128,
                 MaximumRequestBodyBytes = 1_048_576,
             });
-            AuthBaseModule.Install(builder);
+            AuthBaseModule.Install(builder, ModuleOptions());
+            builder.SetSemanticActivationRestoreSelection(new BaseSemanticActivationRestoreSelection
+            {
+                LogicalStoreId = "auth-contract-proof",
+                EnabledRestoreMode = BaseActivationRestoreMode.InPlaceRecovery,
+                SelectionGeneration = 1,
+                Identity = BaseMutationRequestIdentity.Create(
+                    "hpd.auth.contract-tests",
+                    "semantic-restore-selection",
+                    "semantic-restore-selection-v1",
+                    BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData(
+                        "hpd.auth.contract-tests.semantic-restore-selection.v1"u8))),
+                Checksum = [],
+            });
         });
         return services.BuildServiceProvider();
     }
@@ -163,4 +203,64 @@ public sealed class AuthPolicyAuthorityTests
         ExecutionTimeout = TimeSpan.FromSeconds(5),
         CallerCommitObservationTimeout = TimeSpan.FromSeconds(2),
     };
+
+    private static BaseStorageProtectionRequirement StorageRequirement() => new()
+    {
+        OwningModuleId = "hpd.auth",
+        PermittedGuarantees = [BaseStorageEncryptionGuarantee.ProviderDeclared],
+        Coverage = new BaseStorageProtectionCoverageRequirement
+        {
+            AuthoritativeRecords = [BaseStorageProtectionState.Protected],
+            Journal = [BaseStorageProtectionState.Protected],
+            Receipts = [BaseStorageProtectionState.Protected],
+            ProviderState = [BaseStorageProtectionState.Protected],
+            Indexes = [BaseStorageProtectionState.Protected],
+            TemporaryFiles = [BaseStorageProtectionState.Protected],
+            AuthoritativeBackups = [BaseStorageProtectionState.Protected],
+            AdministrativeExports = [BaseStorageProtectionState.Protected],
+            OrdinaryExports = [BaseStorageProtectionState.NotRetained],
+            ExternalFilesAndBlobs = [BaseStorageProtectionState.NotApplicable],
+        },
+        PermittedKeyOwners = [BaseStorageKeyOwner.Provider],
+        RequiredRotation = BaseStorageRotationSupport.Online,
+        MinimumVerification = BaseStorageVerificationStatus.ConfigurationValidated,
+    };
+
+    private static AuthBaseModuleOptions ModuleOptions() => new()
+    {
+        DataProtectionApplicationDiscriminatorDigest = BaseBinary.From(new byte[32]),
+        StorageProtectionRequirement = StorageRequirement(),
+    };
+
+    private sealed class AuthStorageProtectionProofExtension : IHPDBaseBuilderExtension
+    {
+        public string Id => "hpd.auth.contract-tests.storage-protection";
+
+        public ImmutableArray<BaseStorageProtectionCapability> StorageProtectionCapabilities =>
+        [new BaseStorageProtectionCapability
+        {
+            OwningModuleId = "hpd.auth",
+            Guarantee = BaseStorageEncryptionGuarantee.ProviderDeclared,
+            Coverage = new BaseStorageProtectionCoverage
+            {
+                AuthoritativeRecords = BaseStorageProtectionState.Protected,
+                Journal = BaseStorageProtectionState.Protected,
+                Receipts = BaseStorageProtectionState.Protected,
+                ProviderState = BaseStorageProtectionState.Protected,
+                Indexes = BaseStorageProtectionState.Protected,
+                TemporaryFiles = BaseStorageProtectionState.Protected,
+                AuthoritativeBackups = BaseStorageProtectionState.Protected,
+                AdministrativeExports = BaseStorageProtectionState.Protected,
+                OrdinaryExports = BaseStorageProtectionState.NotRetained,
+                ExternalFilesAndBlobs = BaseStorageProtectionState.NotApplicable,
+            },
+            KeyOwner = BaseStorageKeyOwner.Provider,
+            Rotation = BaseStorageRotationSupport.Online,
+            Verification = BaseStorageVerificationStatus.ConfigurationValidated,
+        }];
+
+        public void Configure(IServiceCollection services, IReadOnlyList<CollectionDefinition> collections)
+        {
+        }
+    }
 }

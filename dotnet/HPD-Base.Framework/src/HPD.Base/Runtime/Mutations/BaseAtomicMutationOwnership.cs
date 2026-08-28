@@ -287,6 +287,7 @@ internal static class BaseAtomicMutationOwnership
         EventId = new string(value.EventId.AsSpan()),
         Collection = FreezeCollection(value.Collection),
         ProposedPayload = value.ProposedPayload is null ? null : RecordCloneHelpers.ClonePayload(value.ProposedPayload),
+        RemovedFieldIds = value.RemovedFieldIds.Select(static field => new string(field.AsSpan())).ToImmutableArray(),
         Delete = value.Delete is null ? null : value.Delete with { },
         Current = value.Current is null ? null : RecordCloneHelpers.CloneEnvelope(value.Current),
         ChangedFields = value.ChangedFields.Select(static field => new string(field.AsSpan())).ToImmutableArray(),

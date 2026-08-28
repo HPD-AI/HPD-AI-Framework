@@ -1493,7 +1493,10 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (MutationModeFailure<DeleteResult>(collection, context.Operation) is { } modeError)
+        BaseOperationKind mutationModeOperation = context.Operation == BaseOperationKind.SelectionMutation
+            ? BaseOperationKind.Delete
+            : context.Operation;
+        if (MutationModeFailure<DeleteResult>(collection, mutationModeOperation) is { } modeError)
             return ValueTask.FromResult(modeError);
 
         if (InMemoryValidation.ValidateCollectionId<DeleteResult>(collection.Id) is { } collectionError)
@@ -1657,7 +1660,15 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 id.Value));
         }
 
-        if (request.Patch.Fields is null || request.Patch.Fields.Count == 0)
+        if (request.RemovedFieldIds.IsDefault
+            || !request.RemovedFieldIds.SequenceEqual(request.RemovedFieldIds.Order(StringComparer.Ordinal), StringComparer.Ordinal)
+            || request.RemovedFieldIds.Distinct(StringComparer.Ordinal).Count() != request.RemovedFieldIds.Length)
+        {
+            return ValueTask.FromResult(InMemoryResultFactory.Validation<RecordEnvelope>(
+                InMemoryErrorCodes.InvalidField,
+                "Patch removal identifiers are invalid.", id.Value));
+        }
+        if ((request.Patch.Fields is null || request.Patch.Fields.Count == 0) && request.RemovedFieldIds.IsEmpty)
         {
             return ValueTask.FromResult(InMemoryResultFactory.Validation<RecordEnvelope>(
                 InMemoryErrorCodes.EmptyPatch,
@@ -1665,7 +1676,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 id.Value));
         }
 
-        foreach (var field in request.Patch.Fields)
+        foreach (var field in request.Patch.Fields ?? [])
         {
             if (InMemoryValidation.ValidateFieldName<RecordEnvelope>(field.Key) is { } fieldError)
             {
@@ -1686,8 +1697,19 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         if (existingFields.Value is not { } fields)
             return ValueTask.FromResult(existingFields.Result!);
 
-        foreach (var field in request.Patch.Fields)
+        foreach (var field in request.Patch.Fields ?? [])
             fields[field.Key] = field.Value.Clone();
+        foreach (string fieldId in request.RemovedFieldIds)
+        {
+            FieldDefinition? field = collection.Fields?.SingleOrDefault(candidate =>
+                string.Equals(candidate.Id, fieldId, StringComparison.Ordinal));
+            if (field is null || field.Presence != BaseFieldPresence.Optional
+                || field.Nullability != BaseFieldNullability.NonNullable || field.ReadOnly
+                || (request.Patch.Fields?.ContainsKey(field.WireName) ?? false))
+                return ValueTask.FromResult(InMemoryResultFactory.Validation<RecordEnvelope>(
+                    InMemoryErrorCodes.InvalidField, "Patch removal identifiers are invalid.", id.Value));
+            fields.Remove(field.WireName);
+        }
 
         var updatedPayload = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = fields };
         var updated = MutateRecord(working, current, updatedPayload, context);
@@ -2765,6 +2787,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         {
             Supported = true, SerializableExecution = true, DurableReceipts = true,
             GenerationCells = true, AtomicRecordAndGenerationCommit = true,
+            MaximumRemovedFieldsPerMutation = 256,
             MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
         },
         Administration = new BaseAdministrationCapability
@@ -3435,7 +3458,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 Activations = capturedActivations,
                 SemanticActivation = capturedSemantic,
                 SubjectRetirement = retirementResult.Value,
-                ReadIntervals = intervals.MoveToImmutable(),
+                ReadIntervals = intervals.ToImmutable(),
                 Accounting = new BaseAtomicCaptureAccounting
                 {
                     Records = module.Records.Length, RelationTargetReads = module.RelationTargets.Length,
@@ -3712,8 +3735,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     BaseCapturedActivationItem capturedItem = captured.Activations.Items[ordinal];
                     BaseActivationCreateIntent intentItem = plan.Activations!.Items[ordinal];
                     byte[] payloadChecksum = SHA256.HashData(intentItem.CanonicalInput.AsSpan());
-                    byte[] controlChecksum = SHA256.HashData(Encoding.UTF8.GetBytes(
-                        $"{capturedItem.ActivationId}\n1\n{intentItem.EffectiveDueAt ?? intentItem.RequestedDueAt}"));
+                    byte[] controlChecksum = BaseActivationControlChecksumContract.Create(
+                        capturedItem.ActivationId, 1, BaseActivationState.Pending).ToArray();
                     activationDigest.AppendData(payloadChecksum);
                     activationDigest.AppendData(controlChecksum);
                     activationItems.Add(new BasePreparedActivationItem
@@ -4590,7 +4613,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                         RecordEnvelope? before = SnapshotRecord(item.Collection, item.RecordId);
                         OperationResult<RecordEnvelope> result = await _owner.PatchCoreAsync(
                             _working, item.Collection, item.RecordId,
-                            new RecordPatchRequest { Patch = PatchDelta(item), ExpectedRevision = before?.Metadata.Revision },
+                            new RecordPatchRequest { Patch = PatchDelta(item), RemovedFieldIds = item.RemovedFieldIds, ExpectedRevision = before?.Metadata.Revision },
                             item.Operation, token).ConfigureAwait(false);
                         mutation = ProjectMutation(result, item.Collection, context, item.Kind, before, result.Value, null, item.ChangedFields.ToArray());
                         break;
@@ -4846,6 +4869,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                         _working.ModuleGenerations.Remove(key);
                     else
                         _working.ModuleGenerations[key] = generation.Resulting.Value;
+                    if (generation.Disposition is BaseModuleGenerationPreparationDisposition.Created
+                        or BaseModuleGenerationPreparationDisposition.Incremented)
+                        writtenBytes = checked(writtenBytes + sizeof(long));
                 }
                 _capturedModuleGenerationKeys = null;
             }
@@ -4897,6 +4923,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                             intentItem.InitiallyEligible));
                         IndexActivation(_working, payload);
                         _working.ActivationIndexGeneration = checked(_working.ActivationIndexGeneration + 1);
+                        writtenBytes = checked(writtenBytes + intentItem.CanonicalInput.Length + 192L);
                     }
                     byte[] itemChecksum = SHA256.HashData(Encoding.UTF8.GetBytes(
                         $"{preparedItem.ActivationId}\n{preparedItem.ResultingGeneration}"));
@@ -4944,6 +4971,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             }
             long journalBytes = materialized.Sum(static fact =>
                 (long)JsonSerializer.SerializeToUtf8Bytes(fact, HPDBaseJsonSerializerContext.Default.BaseRecordMutationFact).LongLength);
+            _relationChecks = _capturedMutation?.Items.Sum(static item => item.RelationTargets.Length) ?? 0;
             long transient = checked(prepared.Accounting.TransientBytes + writtenBytes + factBytes + journalBytes);
             ImmutableArray<BaseModuleCommittedGeneration> generations = CommittedGenerations(prepared);
             var applied = new BaseProvisionalAtomicExecution
@@ -4989,6 +5017,11 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
 
         private OperationResult? ValidateUniqueIndexes(BaseFinalizedAtomicExecutionPlan plan)
         {
+            _uniqueChecks = checked(_uniqueChecks + plan.Items
+                .Where(static item => item.Kind != BaseCommittedRecordMutationKind.Delete)
+                .Sum(static item => item.Collection.Indexes?.Count(static index => index.Unique) ?? 0));
+            if (_uniqueChecks > plan.Limits.MaximumUniqueConstraintChecks)
+                return new OperationResult { Status = OperationStatus.ValidationFailed, Error = new BaseError { Code = BaseSchemaErrorCodes.BudgetExceeded, Message = "Schema work limit was exceeded.", Category = ErrorCategory.Validation } };
             foreach (CollectionDefinition collection in plan.Items.Select(static item => item.Collection).DistinctBy(static item => item.Id))
             {
                 if (!_working.Collections.TryGetValue(collection.Id, out InMemoryCollectionState? state)) continue;
@@ -4997,9 +5030,6 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     var keys = new HashSet<string>(StringComparer.Ordinal);
                     foreach (StoredRecord record in state.RecordsById.Values.OrderBy(static record => record.Id.Value, StringComparer.Ordinal))
                     {
-                        _uniqueChecks = checked(_uniqueChecks + 1);
-                        if (_uniqueChecks > plan.Limits.MaximumUniqueConstraintChecks)
-                            return new OperationResult { Status = OperationStatus.ValidationFailed, Error = new BaseError { Code = BaseSchemaErrorCodes.BudgetExceeded, Message = "Schema work limit was exceeded.", Category = ErrorCategory.Validation } };
                         if (!BaseLogicalIndexEvaluator.Includes(collection, index, record.Payload)) continue;
                         if (!keys.Add(Convert.ToHexString(BaseLogicalIndexEvaluator.Key(collection, index, record.Payload))))
                             return new OperationResult { Status = OperationStatus.Conflict, Error = new BaseError { Code = BaseSchemaErrorCodes.UniqueConstraintViolated, Message = "A unique constraint was violated.", Category = ErrorCategory.Conflict } };

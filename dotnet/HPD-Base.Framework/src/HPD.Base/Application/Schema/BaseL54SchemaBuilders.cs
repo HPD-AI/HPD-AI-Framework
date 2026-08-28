@@ -18,7 +18,8 @@ public sealed class BaseScalarConstraintBuilder<TValue>
     public BaseScalarConstraintBuilder<TValue> UInt64(ulong? minimum, ulong? maximum) { _value = _value with { MinimumUInt64 = minimum, MaximumUInt64 = maximum }; return this; }
     public BaseScalarConstraintBuilder<TValue> Decimal(BaseDecimalValue? minimum, BaseDecimalValue? maximum) { _value = _value with { MinimumDecimal = minimum, MaximumDecimal = maximum }; return this; }
     public BaseScalarConstraintBuilder<TValue> EnumLiterals(params ReadOnlySpan<string> values) { _value = _value with { AllowedEnumLiterals = [.. values.ToArray().Order(StringComparer.Ordinal)] }; return this; }
-    public BaseScalarConstraintBuilder<TValue> BinaryBytes(int maximum) { _value = _value with { MaximumBinaryBytes = maximum }; return this; }
+    public BaseScalarConstraintBuilder<TValue> BinaryBytes(int maximum) => BinaryBytes(0, maximum);
+    public BaseScalarConstraintBuilder<TValue> BinaryBytes(int minimum, int maximum) { _value = _value with { MinimumBinaryBytes = minimum, MaximumBinaryBytes = maximum }; return this; }
     public BaseScalarConstraintBuilder<TValue> CanonicalJson(int maximumBytes, BaseJsonShape? shape = null, int? maximumDepth = null, int? maximumArrayItems = null, int? maximumObjectProperties = null, int? maximumTotalNodes = null, int? maximumTotalStringUtf8Bytes = null, int? maximumTotalNameUtf8Bytes = null)
     {
         _value = _value with { MaximumCanonicalJsonBytes = maximumBytes, JsonShape = shape, MaximumJsonDepth = maximumDepth, MaximumJsonArrayItems = maximumArrayItems, MaximumJsonObjectProperties = maximumObjectProperties, MaximumJsonTotalNodes = maximumTotalNodes, MaximumJsonTotalStringUtf8Bytes = maximumTotalStringUtf8Bytes, MaximumJsonTotalNameUtf8Bytes = maximumTotalNameUtf8Bytes };

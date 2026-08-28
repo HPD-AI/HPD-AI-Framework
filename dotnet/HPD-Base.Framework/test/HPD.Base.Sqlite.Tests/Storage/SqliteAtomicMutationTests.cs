@@ -83,6 +83,7 @@ public sealed class SqliteAtomicMutationTests
                 RecordId.Create("one"),
                 new RecordPatchRequest
                 {
+                    RemovedFieldIds = [],
                     Patch = Payload("patched"),
                     ExpectedRevision = transactionRead.Value!.Metadata.Revision
                 },

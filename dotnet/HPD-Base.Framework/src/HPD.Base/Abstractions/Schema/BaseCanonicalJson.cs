@@ -53,6 +53,20 @@ public readonly struct BaseCanonicalJson : IEquatable<BaseCanonicalJson>
         return new BaseCanonicalJson(writer.WrittenSpan.ToArray());
     }
 
+    internal static byte[] Canonicalize(ReadOnlySpan<byte> utf8, BaseCanonicalJsonLimits limits)
+    {
+        ArgumentNullException.ThrowIfNull(limits);
+        ValidateLimits(limits);
+        if (utf8.Length > limits.MaximumCanonicalBytes) throw new FormatException(BaseSchemaErrorCodes.ScalarConstraintViolated);
+        JsonDocumentOptions options = new() { AllowTrailingCommas = false, CommentHandling = JsonCommentHandling.Disallow, MaxDepth = limits.MaximumDepth };
+        using JsonDocument document = JsonDocument.Parse(utf8.ToArray(), options);
+        var writer = new ArrayBufferWriter<byte>(Math.Min(utf8.Length, limits.MaximumCanonicalBytes));
+        var accounting = new Accounting(limits);
+        Write(document.RootElement, writer, 1, accounting);
+        if (writer.WrittenCount > limits.MaximumCanonicalBytes) throw new FormatException(BaseSchemaErrorCodes.ScalarConstraintViolated);
+        return writer.WrittenSpan.ToArray();
+    }
+
     /// <inheritdoc />
     public bool Equals(BaseCanonicalJson other) => IsValid && other.IsValid && _utf8!.AsSpan().SequenceEqual(other._utf8);
     /// <inheritdoc />

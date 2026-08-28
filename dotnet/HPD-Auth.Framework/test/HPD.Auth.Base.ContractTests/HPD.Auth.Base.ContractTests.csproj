@@ -26,4 +26,10 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="../../src/HPD.Auth.Base/auth-base-graph-v2.json"
+             Link="auth-base-graph-v2.json"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

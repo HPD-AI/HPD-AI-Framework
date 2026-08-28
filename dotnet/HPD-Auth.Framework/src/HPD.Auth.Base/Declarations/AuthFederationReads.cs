@@ -68,13 +68,13 @@ internal sealed partial record AuthSsoProviderSecretReadV1
         [BaseReadField("auth.read.ssoProviderSecret.v1.row.tenantId")] public required Guid TenantId { get; init; }
         [BaseReadField("auth.read.ssoProviderSecret.v1.row.providerId")] public required string ProviderId { get; init; }
         [BaseReadField("auth.read.ssoProviderSecret.v1.row.clientId")] public required string ClientId { get; init; }
-        [BaseReadField("auth.read.ssoProviderSecret.v1.row.clientSecret")] public required BaseBinary ClientSecret { get; init; }
+        [BaseReadField("auth.read.ssoProviderSecret.v1.row.clientSecret", MaximumBytes = 16384)] public required BaseBinary ClientSecret { get; init; }
         [BaseReadField("auth.read.ssoProviderSecret.v1.row.scopes")] public required string Scopes { get; init; }
         [BaseReadField("auth.read.ssoProviderSecret.v1.row.entityId")] public string? EntityId { get; init; }
         [BaseReadField("auth.read.ssoProviderSecret.v1.row.metadataXml")] public string? MetadataXml { get; init; }
         [BaseReadField("auth.read.ssoProviderSecret.v1.row.attributeMapping")] public BaseCanonicalJson? AttributeMapping { get; init; }
         [BaseReadField("auth.read.ssoProviderSecret.v1.row.nameIdFormat")] public string? NameIdFormat { get; init; }
-        [BaseReadField("auth.read.ssoProviderSecret.v1.row.signingCertificate")] public BaseBinary? SigningCertificate { get; init; }
+        [BaseReadField("auth.read.ssoProviderSecret.v1.row.signingCertificate", MaximumBytes = 65536)] public BaseBinary? SigningCertificate { get; init; }
         [BaseReadField("auth.read.ssoProviderSecret.v1.row.enabled")] public required bool Enabled { get; init; }
     }
 

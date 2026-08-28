@@ -601,7 +601,7 @@ public sealed class AtomicExecutionTests
             var patched = await session.PatchAsync(
                 firstCollection,
                 RecordId.Create("shared"),
-                new RecordPatchRequest { Patch = InMemoryTestData.Patch("title", "after") },
+                new RecordPatchRequest { Patch = InMemoryTestData.Patch("title", "after"), RemovedFieldIds = [] },
                 Context(BaseRecordMutationKind.Patch, "patch"),
                 token);
             var second = await session.CreateAsync(

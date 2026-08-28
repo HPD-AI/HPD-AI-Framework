@@ -1,5 +1,9 @@
+using System.Buffers;
+using System.Buffers.Binary;
 using System.Text.Json.Serialization.Metadata;
 using System.ComponentModel;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace HPD.Base;
 
@@ -122,10 +126,14 @@ public sealed class BaseReadDefinition<TParameters, TRow> : IBaseReadRegistratio
         if (SerializerRegistration is null) return;
         _parameterJsonTypeInfo = (JsonTypeInfo<TParameters>)owner.Resolve(this, typeof(TParameters));
         _rowJsonTypeInfo = (JsonTypeInfo<TRow>)owner.Resolve(this, typeof(TRow));
-        ParameterSerializerContractChecksum = BaseSerializerContract.Checksum(_parameterJsonTypeInfo,
-            ClientContract.Parameters.Select(static value => (value.Id, value.GeneratedName, value.WireName)), ParameterDeclarations);
-        RowSerializerContractChecksum = BaseSerializerContract.Checksum(_rowJsonTypeInfo,
-            ClientContract.Row.Select(static value => (value.Id, value.GeneratedName, value.WireName)), RowDeclarations);
+        ParameterSerializerContractChecksum = BaseReadGeneratedContract.BindScalarConstraints(
+            BaseSerializerContract.Checksum(_parameterJsonTypeInfo,
+                ClientContract.Parameters.Select(static value => (value.Id, value.GeneratedName, value.WireName)), ParameterDeclarations),
+            ClientContract.Parameters);
+        RowSerializerContractChecksum = BaseReadGeneratedContract.BindScalarConstraints(
+            BaseSerializerContract.Checksum(_rowJsonTypeInfo,
+                ClientContract.Row.Select(static value => (value.Id, value.GeneratedName, value.WireName)), RowDeclarations),
+            ClientContract.Row);
     }
     internal IReadOnlyList<BaseSerializerPropertyDeclaration>? ParameterDeclarations { get; set; }
     internal IReadOnlyList<BaseSerializerPropertyDeclaration>? RowDeclarations { get; set; }
@@ -242,6 +250,10 @@ public sealed record BaseReadClientProperty
     public required bool Array { get; init; }
     /// <summary>Gets whether the property may contain null.</summary>
     public required bool Nullable { get; init; }
+    /// <summary>Gets the minimum decoded byte length when this property is binary.</summary>
+    public int? MinimumBinaryBytes { get; init; }
+    /// <summary>Gets the maximum decoded byte length when this property is binary.</summary>
+    public int? MaximumBinaryBytes { get; init; }
 }
 
 internal sealed record BaseUntypedRegisteredReadResult
@@ -373,10 +385,12 @@ public static class BaseReadGeneratedContract
             SecretOutputFieldIds = Array.AsReadOnly(secret),
             SystemSourceIds = Array.AsReadOnly(systemSources),
         };
-        definition.ParameterSerializerContractChecksum = BaseSerializerContract.Checksum(parameterJson,
-            clientContract.Parameters.Select(static value => (value.Id, value.GeneratedName, value.WireName)));
-        definition.RowSerializerContractChecksum = BaseSerializerContract.Checksum(rowJson,
-            clientContract.Row.Select(static value => (value.Id, value.GeneratedName, value.WireName)));
+        definition.ParameterSerializerContractChecksum = BindScalarConstraints(
+            BaseSerializerContract.Checksum(parameterJson,
+                clientContract.Parameters.Select(static value => (value.Id, value.GeneratedName, value.WireName))), clientContract.Parameters);
+        definition.RowSerializerContractChecksum = BindScalarConstraints(
+            BaseSerializerContract.Checksum(rowJson,
+                clientContract.Row.Select(static value => (value.Id, value.GeneratedName, value.WireName))), clientContract.Row);
         return definition;
     }
 
@@ -448,6 +462,66 @@ public static class BaseReadGeneratedContract
     /// <summary>Encodes one generated supported scalar parameter.</summary>
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static QueryValue Value<TValue>(TValue value) => BaseQueryValue.From(value);
+
+    /// <summary>Encodes one binary value only after enforcing its installed decoded-byte range.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static QueryValue BinaryValue(BaseBinary value, int minimumBytes, int maximumBytes)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        ValidateBinaryRange(value.Length, minimumBytes, maximumBytes);
+        return Value(Convert.ToBase64String(value.ToArray()));
+    }
+
+    /// <summary>Decodes one canonical binary projection and enforces its installed decoded-byte range.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static BaseBinary ReadBinary(BaseRelationalRow row, string fieldId, int minimumBytes, int maximumBytes)
+    {
+        BaseBinary value = BaseBinary.FromBase64(Read<string>(row, fieldId));
+        ValidateBinaryRange(value.Length, minimumBytes, maximumBytes);
+        return value;
+    }
+
+    /// <summary>Binds exact scalar constraints into one registered-read serializer checksum.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static string BindScalarConstraints(string serializerChecksum, IReadOnlyList<BaseReadClientProperty> properties)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serializerChecksum);
+        ArgumentNullException.ThrowIfNull(properties);
+        var writer = new ArrayBufferWriter<byte>();
+        WriteChecksumValue(writer, "hpd.base.registered-read.scalar-contract.v1");
+        WriteChecksumValue(writer, serializerChecksum);
+        WriteChecksumInteger(writer, properties.Count);
+        foreach (BaseReadClientProperty property in properties)
+        {
+            ArgumentNullException.ThrowIfNull(property);
+            WriteChecksumValue(writer, property.Id);
+            WriteChecksumInteger(writer, property.MinimumBinaryBytes ?? -1);
+            WriteChecksumInteger(writer, property.MaximumBinaryBytes ?? -1);
+        }
+        return Convert.ToHexStringLower(SHA256.HashData(writer.WrittenSpan));
+    }
+
+    private static void ValidateBinaryRange(int length, int minimumBytes, int maximumBytes)
+    {
+        if (minimumBytes < 0 || maximumBytes is < 1 or > 1_048_576 || minimumBytes > maximumBytes ||
+            length < minimumBytes || length > maximumBytes)
+            throw new InvalidOperationException("The registered-read binary value is outside its installed decoded-byte range.");
+    }
+
+    private static void WriteChecksumValue(IBufferWriter<byte> writer, string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        byte[] bytes = Encoding.UTF8.GetBytes(value);
+        WriteChecksumInteger(writer, bytes.Length);
+        writer.Write(bytes);
+    }
+
+    private static void WriteChecksumInteger(IBufferWriter<byte> writer, int value)
+    {
+        Span<byte> bytes = writer.GetSpan(sizeof(int));
+        BinaryPrimitives.WriteInt32BigEndian(bytes, value);
+        writer.Advance(sizeof(int));
+    }
 
     /// <summary>Decodes one generated supported scalar projection value.</summary>
     [EditorBrowsable(EditorBrowsableState.Never)]

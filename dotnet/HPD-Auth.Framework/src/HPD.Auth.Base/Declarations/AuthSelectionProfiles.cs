@@ -1,6 +1,4 @@
 using System.Collections.Immutable;
-using System.Security.Cryptography;
-using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Base;
 
@@ -46,20 +44,9 @@ internal static class AuthSelectionProfiles
     internal static BaseGeneratedSelectionProfileIdentity MaintenanceRunsDeleteExpired { get; } = Identity(All[15]);
 
     private static BaseGeneratedSelectionProfileIdentity Identity(BaseSelectionOperationProfile profile)
-    {
-        byte[] canonical = JsonSerializer.SerializeToUtf8Bytes(profile, AuthSelectionProfileJsonContext.Default.BaseSelectionOperationProfile);
-        return BaseGeneratedSelectionProfiles.RegisterSelectionProfile(
+        => BaseGeneratedSelectionProfiles.RegisterSelectionProfile(
             BaseGeneratedModules.RegisterCollectionModule(profile.ApplicationId, profile.CollectionId),
-            new BaseGeneratedSelectionProfileDescriptor
-            {
-                ApplicationId = profile.ApplicationId,
-                CollectionId = profile.CollectionId,
-                ProfileId = profile.Id,
-                Version = profile.Version,
-                Kind = profile.MutationKind,
-                Checksum = Convert.ToHexStringLower(SHA256.HashData(canonical)),
-            });
-    }
+            profile);
 
     private static BaseSelectionOperationProfile Profile(
         string id,

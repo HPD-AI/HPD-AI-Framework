@@ -35,7 +35,7 @@ public abstract class RecordStoreCrudUnsupportedConformanceTests<TFixture> : Rec
             var result = await store.PatchAsync(
                 Collection,
                 id,
-                new RecordPatchRequest { Patch = RecordStoreConformanceData.Patch(("title", RecordStoreConformanceData.StringElement("two"))) },
+                new RecordPatchRequest { Patch = RecordStoreConformanceData.Patch(("title", RecordStoreConformanceData.StringElement("two"))), RemovedFieldIds = [] },
                 Operation(BaseOperationKind.Patch, id));
             RecordStoreConformanceAssertions.Failure(result, OperationStatus.Unsupported, OperationStatus.CapabilityUnavailable, OperationStatus.ValidationFailed);
         }

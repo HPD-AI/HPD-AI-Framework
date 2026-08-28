@@ -14,6 +14,7 @@ internal sealed class BaseActivationOperationalState
     internal void Complete() => Interlocked.Decrement(ref _active);
     internal void Quarantine() { Interlocked.Decrement(ref _active); Interlocked.Increment(ref _quarantined); }
     internal void ReleaseQuarantine() => Interlocked.Decrement(ref _quarantined);
+    internal void QuarantineContractViolation() => Interlocked.Increment(ref _quarantined);
     internal void EnterHandler() => Interlocked.Increment(ref _activeHandlers);
     internal void CompleteHandler() => Interlocked.Decrement(ref _activeHandlers);
     internal void QuarantineHandler() { Interlocked.Decrement(ref _activeHandlers); Interlocked.Increment(ref _quarantinedHandlers); }
@@ -59,7 +60,7 @@ internal sealed class BaseActivationHealthContributor(
             Code = degraded ? "base.activation.quarantined" : "base.activation.providerLifetime.ready",
             Severity = degraded ? DiagnosticSeverity.Warning : DiagnosticSeverity.Info,
             Message = degraded
-                ? "Bounded activation provider or handler work awaits late completion."
+                ? "Activation provider authority is quarantined or bounded work awaits late completion."
                 : "Activation provider ownership is reconciled.",
             Category = DiagnosticCategory.Capability, Visibility = VisibilityLevel.Admin,
             EmittedAt = timeProvider.GetUtcNow(), RelatedFeatureIds = ["base.activations"],

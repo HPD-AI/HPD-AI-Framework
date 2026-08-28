@@ -28,9 +28,12 @@ public static class BaseSerializerGeneratedContract
             .SingleOrDefault(attribute => string.Equals(attribute.Tool, "HPD.Base.Generators", StringComparison.Ordinal));
         Type? capabilityType = factory.Method.DeclaringType;
         Type? ownerType = capabilityType?.DeclaringType;
-        if (generated is null || !factory.Method.IsStatic || !factory.Method.IsAssembly || factory.Target is not null ||
-            capabilityType is null || !capabilityType.IsNestedPrivate || !capabilityType.IsAbstract || !capabilityType.IsSealed ||
-            !string.Equals(capabilityType.Name, "__HPDBaseSerializerFactory", StringComparison.Ordinal) || ownerType is null)
+        if (generated is null)
+            throw new InvalidOperationException("base.schema.serializer.generatedReceiptAttributeInvalid");
+        if (!factory.Method.IsStatic || !factory.Method.IsAssembly || factory.Target is not null)
+            throw new InvalidOperationException("base.schema.serializer.generatedReceiptMethodInvalid");
+        if (capabilityType is null || !capabilityType.IsNestedPrivate || !capabilityType.IsAbstract || !capabilityType.IsSealed ||
+            capabilityType.Name is not ("__HPDBaseSerializerFactory" or "__HPDBaseActivationSerializerFactory") || ownerType is null)
             throw new InvalidOperationException("base.schema.serializer.generatedReceiptInvalid");
         return new(typeof(TContext), ownerType, capabilityType, () => factory());
     }

@@ -214,6 +214,23 @@ internal static class BaseReadGenerator
 
             ITypeSymbol valueType = property.Type is IArrayTypeSymbol array ? array.ElementType : property.Type;
             ITypeSymbol unwrapped = UnwrapNullable(valueType);
+            bool binary = unwrapped.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::HPD.Base.BaseBinary";
+            long declaredMinimumBytes = NamedInt64(attribute, "MinimumBytes", 0);
+            long declaredMaximumBytes = NamedInt64(attribute, "MaximumBytes", 0);
+            if (binary
+                ? declaredMinimumBytes < 0 || declaredMaximumBytes is < 1 or > 1_048_576 || declaredMinimumBytes > declaredMaximumBytes
+                : declaredMinimumBytes != 0 || declaredMaximumBytes != 0)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    InvalidRead, Location(property), readId,
+                    binary
+                        ? $"binary member '{property.Name}' must declare MaximumBytes in 1..1048576 and MinimumBytes in 0..MaximumBytes"
+                        : $"non-binary member '{property.Name}' cannot declare binary byte limits"));
+                failed = true;
+                continue;
+            }
+            int minimumBytes = (int)declaredMinimumBytes;
+            int maximumBytes = (int)declaredMaximumBytes;
             List<EnumCase> enumCases = null;
             if (unwrapped.TypeKind == TypeKind.Enum && !TryEnumCases((INamedTypeSymbol)unwrapped, out enumCases))
             {
@@ -239,6 +256,8 @@ internal static class BaseReadGenerator
                 ValueType = unwrapped.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                 EnumCases = enumCases,
                 Kind = ValueKind(property.Type is IArrayTypeSymbol ? unwrapped : UnwrapNullable(property.Type)),
+                MinimumBytes = binary ? minimumBytes : (int?)null,
+                MaximumBytes = binary ? maximumBytes : (int?)null,
                 ContainerNullable = property.NullableAnnotation == NullableAnnotation.Annotated ||
                     property.Type is INamedTypeSymbol nullable && nullable.IsGenericType && nullable.ConstructedFrom.SpecialType == SpecialType.System_Nullable_T,
             });
@@ -331,7 +350,8 @@ internal static class BaseReadGenerator
             source.Append("                new global::HPD.Base.BaseRelationalReadParameter { Id = ").Append(Literal(member.Id))
                 .Append(", Kind = global::HPD.Base.QueryValueKind.").Append(member.IsArray ? "Array" : member.Kind);
             if (member.IsArray) source.Append(", ElementKind = global::HPD.Base.QueryValueKind.").Append(member.Kind).Append(", MaxItems = 256");
-            if (member.Kind is "String" or "Id") source.Append(", MaxLength = 4096");
+            if (member.Kind is ("String" or "Id") && member.MaximumBytes is null) source.Append(", MaxLength = 4096");
+            if (member.MaximumBytes is not null) source.Append(", MinimumBinaryBytes = ").Append(member.MinimumBytes).Append(", MaximumBinaryBytes = ").Append(member.MaximumBytes);
             source.Append(", Nullable = ").Append(member.ContainerNullable ? "true" : "false").AppendLine(" },");
         }
         source.Append("            }, new HPDBaseParameterCodec(), new HPDBaseRowCodec(), global::HPD.Base.BaseReadExposure.")
@@ -421,7 +441,9 @@ internal static class BaseReadGenerator
     {
         if (member.IsArray)
         {
-            string item = member.TypedRecordIdTarget == null
+            string item = member.MaximumBytes is not null
+                ? "global::HPD.Base.BaseReadGeneratedContract.BinaryValue(item, " + member.MinimumBytes + ", " + member.MaximumBytes + ")"
+                : member.TypedRecordIdTarget == null
                 ? "global::HPD.Base.BaseReadGeneratedContract.Value(item)"
                 : member.IsNullable
                     ? "item is { } value ? global::HPD.Base.BaseReadGeneratedContract.Value(value.Value) : global::HPD.Base.BaseReadGeneratedContract.Value<global::HPD.Base.RecordId?>(null)"
@@ -434,8 +456,8 @@ internal static class BaseReadGenerator
             return expression + " is { } value ? global::HPD.Base.BaseReadGeneratedContract.Value(value.Value) : global::HPD.Base.BaseReadGeneratedContract.Value<global::HPD.Base.RecordId?>(null)";
         if (member.ValueType == "global::HPD.Base.BaseBinary")
             return member.ContainerNullable
-                ? expression + " is { } __" + member.Name + " ? global::HPD.Base.BaseReadGeneratedContract.Value(global::System.Convert.ToBase64String(__" + member.Name + ".ToArray())) : global::HPD.Base.BaseReadGeneratedContract.Value<string?>(null)"
-                : "global::HPD.Base.BaseReadGeneratedContract.Value(global::System.Convert.ToBase64String(" + expression + ".ToArray()))";
+                ? expression + " is { } __" + member.Name + " ? global::HPD.Base.BaseReadGeneratedContract.BinaryValue(__" + member.Name + ", " + member.MinimumBytes + ", " + member.MaximumBytes + ") : global::HPD.Base.BaseReadGeneratedContract.Value<string?>(null)"
+                : "global::HPD.Base.BaseReadGeneratedContract.BinaryValue(" + expression + ", " + member.MinimumBytes + ", " + member.MaximumBytes + ")";
         if (member.ValueType == "global::HPD.Base.BaseModuleGeneration")
             return member.ContainerNullable
                 ? expression + " is { } __" + member.Name + " ? global::HPD.Base.BaseReadGeneratedContract.Value(__" + member.Name + ".ToCanonicalString()) : global::HPD.Base.BaseReadGeneratedContract.Value<string?>(null)"
@@ -503,7 +525,9 @@ internal static class BaseReadGenerator
         .Append(", WireName = __wire_").Append(prefix).Append('_').Append(member.Name)
         .Append(", Kind = global::HPD.Base.QueryValueKind.").Append(member.Kind)
         .Append(", Array = ").Append(member.IsArray ? "true" : "false")
-        .Append(", Nullable = ").Append(member.ContainerNullable ? "true" : "false").AppendLine(" },");
+        .Append(", Nullable = ").Append(member.ContainerNullable ? "true" : "false")
+        .Append(member.MaximumBytes is null ? string.Empty : ", MinimumBinaryBytes = " + member.MinimumBytes + ", MaximumBinaryBytes = " + member.MaximumBytes)
+        .AppendLine(" },");
 
     private static string Decode(MemberModel member)
     {
@@ -523,7 +547,7 @@ internal static class BaseReadGenerator
         }
         if (member.ValueType == "global::HPD.Base.BaseBinary")
         {
-            string binary = "global::HPD.Base.BaseBinary.FromBase64(global::HPD.Base.BaseReadGeneratedContract.Read<string>(row, " + Literal(member.Id) + "))";
+            string binary = "global::HPD.Base.BaseReadGeneratedContract.ReadBinary(row, " + Literal(member.Id) + ", " + member.MinimumBytes + ", " + member.MaximumBytes + ")";
             return member.ContainerNullable
                 ? "global::HPD.Base.BaseReadGeneratedContract.IsNull(row, " + Literal(member.Id) + ") ? null : " + binary
                 : binary;
@@ -672,6 +696,8 @@ internal static class BaseReadGenerator
         public string ValueType; /// <summary>Provides the kind value.</summary>
         public List<EnumCase> EnumCases;
         public string Kind; /// <summary>Provides the container nullable value.</summary>
+        public int? MinimumBytes;
+        public int? MaximumBytes;
         public bool ContainerNullable; }
     private sealed class EnumCase { public string Member; public string Wire; }
 }

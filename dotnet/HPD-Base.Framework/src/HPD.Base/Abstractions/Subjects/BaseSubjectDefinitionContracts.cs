@@ -9,6 +9,10 @@ public sealed record BaseSubjectReferenceDefinition
     public required int ContractVersion { get; init; }
     /// <summary>Gets the target exported-contract checksum.</summary>
     public required string ContractChecksum { get; init; }
+    /// <summary>Gets the canonical subject-identifier grammar.</summary>
+    public required BaseSubjectIdKind SubjectIdKind { get; init; }
+    /// <summary>Gets the maximum canonical UTF-8 subject-identifier length.</summary>
+    public required int MaximumSubjectIdUtf8Bytes { get; init; }
     /// <summary>Gets the logical validity required during mutation.</summary>
     public required BaseSubjectReferenceRequirement Requirement { get; init; }
     /// <summary>Gets the required provider validation guarantee.</summary>

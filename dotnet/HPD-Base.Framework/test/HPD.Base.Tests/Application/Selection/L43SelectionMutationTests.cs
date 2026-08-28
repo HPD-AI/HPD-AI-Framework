@@ -63,6 +63,40 @@ public sealed class L43SelectionMutationTests
     }
 
     [Fact]
+    public async Task SqliteDeleteSelectionOwnsPartialAndZeroCohortsWithoutCapacityAssumptions()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-l43-partial-{Guid.NewGuid():N}.db");
+        try
+        {
+            await using ServiceProvider provider = Build(path);
+            IBaseSchemaManager schemas = provider.GetRequiredService<IBaseSchemaManager>();
+            BaseSchemaPlan plan = (await schemas.PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite-l43" })).Value!;
+            (await schemas.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = plan.ProtectedArtifact })).IsSuccess().Should().BeTrue();
+            (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+            BaseCollectionSession<GeneratedProject> collection = provider.GetRequiredService<IBaseSessionFactory>()
+                .For(Admin()).Collection(GeneratedProject.Collection);
+            for (int index = 0; index < 2; index++)
+                (await collection.CreateAsync(RecordId.Create($"partial-{index}"),
+                    new GeneratedProject { OrganizationId = "partial", Name = $"item-{index}" })).RequireValue();
+            BaseDeleteSelectionProfile<GeneratedProject> profile = collection.GetDeleteSelectionProfile(DeleteIdentity());
+            BaseSelectionMutationResult partial = (await collection.Query()
+                .Where(GeneratedProject.Fields.OrganizationId.Equal("partial"))
+                .OrderBy(GeneratedProject.Fields.Name).ThenByRecordId().Take(8)
+                .DeleteSelectedAsync(profile, BasePreviousStateRequirement.None, Identity("partial"))).RequireValue();
+            partial.SelectedCount.Should().Be(2);
+            partial.MutatedCount.Should().Be(2);
+
+            BaseSelectionMutationResult zero = (await collection.Query()
+                .Where(GeneratedProject.Fields.OrganizationId.Equal("absent"))
+                .OrderBy(GeneratedProject.Fields.Name).ThenByRecordId().Take(8)
+                .DeleteSelectedAsync(profile, BasePreviousStateRequirement.None, Identity("zero-sqlite"))).RequireValue();
+            zero.SelectedCount.Should().Be(0);
+            zero.MutatedCount.Should().Be(0);
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact]
     public async Task ConcurrentSqliteSelectionsRemainSerializable()
     {
         string path = Path.Combine(Path.GetTempPath(), $"hpd-l43-concurrent-{Guid.NewGuid():N}.db");
@@ -119,7 +153,7 @@ public sealed class L43SelectionMutationTests
             if (ambiguous) fields[codeWire] = JsonSerializer.SerializeToElement("used");
             BaseResult<BaseSelectionMutationResult> result = await collection.Query().Where(L43UniqueItem.Fields.Group.Equal("change"))
                 .OrderBy(L43UniqueItem.Fields.Name).ThenByRecordId().Take(1)
-                .PatchSelectedAsync(profile, new RecordPatchRequest { Patch = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = fields } }, BasePreviousStateRequirement.None);
+                .PatchSelectedAsync(profile, new RecordPatchRequest { Patch = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = fields }, RemovedFieldIds = [] }, BasePreviousStateRequirement.None);
 
             BaseFailure<BaseSelectionMutationResult> failure = result.Should().BeOfType<BaseFailure<BaseSelectionMutationResult>>().Subject;
             failure.Error.Code.Should().Be(BaseSchemaErrorCodes.UniqueConstraintViolated);
@@ -383,6 +417,7 @@ public sealed class L43SelectionMutationTests
     private static RecordPatchRequest Patch(string name) => new()
     {
         Patch = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = new Dictionary<string, JsonElement> { ["name"] = JsonSerializer.SerializeToElement(name) } },
+        RemovedFieldIds = [],
     };
     private static RecordEnvelope Envelope(string id, string organization, string name) => new()
     {

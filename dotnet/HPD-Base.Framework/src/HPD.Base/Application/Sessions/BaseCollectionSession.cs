@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json.Serialization.Metadata;
 
 namespace HPD.Base;
@@ -140,7 +141,8 @@ public sealed class BaseCollectionSession<T>
         var request = new RecordPatchRequest
         {
             ExpectedRevision = expectedRevision,
-            Patch = BaseRecordCodec.Encode(patch, patchJsonTypeInfo),
+            RemovedFieldIds = [],
+            Patch = BaseRecordCodec.EncodePatch(patch, patchJsonTypeInfo),
         };
         var result = await _session.Runtime.PatchAsync(
             _collection.Id,
@@ -153,6 +155,58 @@ public sealed class BaseCollectionSession<T>
         return BaseResultMapper.Map(
             result,
             envelope => BaseRecordCodec.Decode(_session.Serializer(_collection), envelope));
+    }
+
+    /// <summary>Applies a typed merge patch and removes the supplied generated optional fields.</summary>
+    /// <typeparam name="TPatch">The source-generated patch DTO type.</typeparam>
+    /// <param name="id">The record identifier.</param>
+    /// <param name="patch">The assignment portion of the patch.</param>
+    /// <param name="patchJsonTypeInfo">The source-generated JSON authority for the patch DTO.</param>
+    /// <param name="removals">Opaque removal authorities created from fields of this record type.</param>
+    /// <param name="expectedRevision">The optional revision precondition.</param>
+    /// <param name="cancellationToken">The caller cancellation token.</param>
+    /// <returns>The canonical patched record result.</returns>
+    public async ValueTask<BaseResult<BaseRecord<T>>> PatchRemovingAsync<TPatch>(
+        RecordId id,
+        TPatch patch,
+        JsonTypeInfo<TPatch> patchJsonTypeInfo,
+        IReadOnlyCollection<BaseFieldRemoval<T>> removals,
+        RevisionToken? expectedRevision = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(removals);
+        if (MutationFailure<BaseRecord<T>>(BaseRecordMutationKind.Patch) is { } failure)
+            return failure;
+
+        var request = new RecordPatchRequest
+        {
+            ExpectedRevision = expectedRevision,
+            RemovedFieldIds = NormalizeRemovals(removals),
+            Patch = BaseRecordCodec.EncodePatch(patch, patchJsonTypeInfo),
+        };
+        var result = await _session.Runtime.PatchAsync(
+            _collection.Id,
+            id,
+            request,
+            _session.Principal,
+            _session.Operation(BaseOperationKind.Patch, _collection.Id, id),
+            cancellationToken).ConfigureAwait(false);
+
+        return BaseResultMapper.Map(
+            result,
+            envelope => BaseRecordCodec.Decode(_session.Serializer(_collection), envelope));
+    }
+
+    private static System.Collections.Immutable.ImmutableArray<string> NormalizeRemovals(
+        IReadOnlyCollection<BaseFieldRemoval<T>> removals)
+    {
+        if (removals.Count == 0)
+            throw new ArgumentException("At least one optional field removal is required.", nameof(removals));
+        return removals.Select(static removal => removal?.FieldId
+                ?? throw new ArgumentException("A field removal cannot be null.", nameof(removals)))
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToImmutableArray();
     }
 
     /// <summary>Deletes one record under an optional revision precondition.</summary>
@@ -237,7 +291,7 @@ public sealed class BaseCollectionSession<T>
         {
             Id = id,
             CreatePayload = BaseRecordCodec.Encode(createValue, _session.Serializer(_collection)),
-            UpdatePayload = BaseRecordCodec.Encode(patch, patchJsonTypeInfo),
+            UpdatePayload = BaseRecordCodec.EncodePatch(patch, patchJsonTypeInfo),
             UpdateMode = RecordUpsertUpdateMode.Patch,
             Condition = condition,
             ExpectedRevision = expectedRevision,

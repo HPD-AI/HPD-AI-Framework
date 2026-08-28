@@ -18,6 +18,7 @@ public abstract class RecordStorePatchReplaceConformanceTests<TFixture> : Record
             record.Id,
             new RecordPatchRequest
             {
+                RemovedFieldIds = [],
                 Patch = RecordStoreConformanceData.Patch(
                     ("title", RecordStoreConformanceData.StringElement("new")),
                     ("status", RecordStoreConformanceData.Element("null")))
@@ -66,14 +67,14 @@ public abstract class RecordStorePatchReplaceConformanceTests<TFixture> : Record
             var missingPatch = await store.PatchAsync(
                 Collection,
                 RecordId.Create("missing"),
-                new RecordPatchRequest { Patch = RecordStoreConformanceData.Patch(("title", RecordStoreConformanceData.StringElement("new"))) },
+                new RecordPatchRequest { Patch = RecordStoreConformanceData.Patch(("title", RecordStoreConformanceData.StringElement("new"))), RemovedFieldIds = [] },
                 Operation(BaseOperationKind.Patch, RecordId.Create("missing")));
             RecordStoreConformanceAssertions.Failure(missingPatch, OperationStatus.NotFound);
 
             var emptyPatch = await store.PatchAsync(
                 Collection,
                 unaffected.Id,
-                new RecordPatchRequest { Patch = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = [] } },
+                new RecordPatchRequest { Patch = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = [] }, RemovedFieldIds = [] },
                 Operation(BaseOperationKind.Patch, unaffected.Id));
             RecordStoreConformanceAssertions.Failure(emptyPatch, OperationStatus.ValidationFailed, OperationStatus.Unsupported);
         }

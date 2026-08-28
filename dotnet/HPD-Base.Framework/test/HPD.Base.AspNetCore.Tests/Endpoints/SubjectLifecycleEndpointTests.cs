@@ -94,7 +94,7 @@ public sealed class SubjectLifecycleEndpointTests
         created.IsSuccess().Should().BeTrue(created.Error?.Code);
         OperationResult<RecordEnvelope> changed = await runtime.PatchAsync(
             HttpPrivateSubjectRecord.Collection.Id, RecordId.Create("subject-1"),
-            new RecordPatchRequest { Patch = FieldPayload(("active", false)) },
+            new RecordPatchRequest { Patch = FieldPayload(("active", false)), RemovedFieldIds = [] },
             principal, Operation(applicationId, BaseOperationKind.Patch, HttpPrivateSubjectRecord.Collection.Id));
         changed.IsSuccess().Should().BeTrue(changed.Error?.Code);
 

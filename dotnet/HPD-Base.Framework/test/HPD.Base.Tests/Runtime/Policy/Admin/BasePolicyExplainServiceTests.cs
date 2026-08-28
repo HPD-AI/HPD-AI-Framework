@@ -283,7 +283,7 @@ public sealed class BasePolicyExplainServiceTests
                 Operation = BasePolicyExplainOperation.Patch,
                 CollectionId = "items",
                 RecordId = "rec_1",
-                Patch = new RecordPatchRequest { Patch = FieldMapPayload(("title", "new-secret")) },
+                Patch = new RecordPatchRequest { Patch = FieldMapPayload(("title", "new-secret")), RemovedFieldIds = [] },
                 Options = new BasePolicyExplainOptions { IncludeRedactedPayloadShape = true }
             },
             AdminPrincipal(),

@@ -60,9 +60,11 @@ try
         builder.AddCollection(items);
         builder.AddCollection(privateSubjects);
         builder.AddCollection(SmokeSubjectConsumerRecord.Collection);
+        builder.AddCollection(SqliteAotModuleRecord.Collection);
         builder.AddExportedSubject(SmokeSubject.HPDBaseSubjectRegistration);
         builder.AddSubjectLifecycleConsumer(lifecycleConsumer);
         builder.AddRead(SmokeAcquireSubject.Definition);
+        builder.AddRead(SmokeBinaryRead.Definition);
         builder.AddSubjectAcquisition(new BaseSubjectAcquisitionDefinition
         {
             Id = "hpd.base.sqlite.aot.subject.acquire.v1",
@@ -81,11 +83,15 @@ try
             Id = "hpd.base.sqlite.aot.allow", Version = 1, OwningModuleId = "hpd.base.sqlite.aot",
             EvaluatorContractId = "hpd.base.sqlite.aot.policy", EvaluatorContractVersion = 1, CompositionOrder = 0,
         });
-        foreach (string grantId in new[] { "hpd.base.sqlite.aot.subject.private", "hpd.base.sqlite.aot.subject.acquire", "hpd.base.sqlite.aot.subject.validate", "hpd.base.sqlite.aot.subject.rotate", "hpd.base.sqlite.aot.subject.lifecycle.read", "base.subjectLifecycle.feed.read", "base.subjectLifecycle.feed.checkpoint", "hpd.base.sqlite.aot.module.increment", "hpd.base.sqlite.aot.semantic.ensure-operation", "hpd.base.sqlite.aot.semantic.retire-operation", SemanticActivationSmoke.EnsureGrant, SemanticActivationSmoke.RetireGrant, SemanticActivationSmoke.MaintainGrant }.Concat(ActivationSmoke.GrantIds))
+        foreach (string grantId in new[] { "hpd.base.sqlite.aot.subject.private", "hpd.base.sqlite.aot.subject.acquire", "hpd.base.sqlite.aot.subject.validate", "hpd.base.sqlite.aot.subject.rotate", "hpd.base.sqlite.aot.subject.lifecycle.read", "base.subjectLifecycle.feed.read", "base.subjectLifecycle.feed.checkpoint", "hpd.base.sqlite.aot.module.increment", "hpd.base.sqlite.aot.module.records.source", "hpd.base.sqlite.aot.subject.verify", "hpd.base.sqlite.aot.semantic.ensure-operation", "hpd.base.sqlite.aot.semantic.retire-operation", SemanticActivationSmoke.EnsureGrant, SemanticActivationSmoke.RetireGrant, SemanticActivationSmoke.MaintainGrant }.Concat(ActivationSmoke.GrantIds))
             builder.AddStaticGrantAuthority(GrantDefinition(grantId, "hpd.base.sqlite.aot"), Grant(grantId, "sqlite-aot-service"));
         builder.AddActivation(ActivationSmoke.Registration);
+        builder.AddActivation(ActivationSmoke.MigrationTargetRegistration);
+        builder.AddActivationMigration(ActivationSmoke.Migration);
         builder.AddModuleGenerationCell(ModuleMutationSmoke.Cell);
+        builder.AddModuleGenerationCell(ModuleMutationSmoke.HostileCell);
         builder.AddModuleMutation(ModuleMutationSmoke.Definition, ModuleMutationSmoke.Identity);
+        builder.AddModuleMutation(SubjectModuleMutationSmoke.Definition, SubjectModuleMutationSmoke.Identity);
         builder.AddModuleMutation(SemanticEnsureMutationSmoke.Definition, SemanticEnsureMutationSmoke.Identity);
         builder.AddModuleMutation(SemanticRetirementMutationSmoke.Definition, SemanticRetirementMutationSmoke.Identity);
         builder.AddSemanticActivation(SemanticActivationSmoke.Registration);
@@ -137,6 +143,39 @@ try
         session.Activations.Get(ActivationSmoke.Registration.Identity);
     BaseInstalledActivationWorkerHandle<ActivationSmokeInput, ActivationSmokeResult> semanticWorker =
         session.Activations.GetWorker(ActivationSmoke.Registration.Identity);
+    OperationResult<BaseActivationEnqueueResult> migrationEnqueue = await semanticActivation.EnqueueAsync(
+        new ActivationSmokeInput { Value = "sqlite-native-aot-migration" },
+        BaseMutationRequestIdentity.Create("sqlite-aot", "activation-enqueue", "activation-migration-source-1",
+            BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("sqlite-aot-activation-migration-source"u8))));
+    Require(migrationEnqueue.IsSuccess() && migrationEnqueue.Value is not null,
+        "SQLite Native AOT migration source enqueue failed: " + migrationEnqueue.Error?.Code);
+    BaseActivationEnqueueResult migrationCreated = migrationEnqueue.Value!;
+    BaseResult<BaseActivationMigrationResult> activationMigration = await provider
+        .GetRequiredService<IHPDBaseAdministration>()
+        .MigrateActivationAsync(new BaseActivationAdministrationMigrationRequest
+        {
+            StoreId = "smoke.sqlite",
+            Principal = new PrincipalContext
+            {
+                AuthenticationState = PrincipalAuthenticationState.Service,
+                SubjectKind = AccessSubjectKind.ServicePrincipal,
+                SubjectId = "sqlite-aot-service",
+                CurrentTenantId = "tenant-a",
+            },
+            Scope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Tenant, Value = "tenant-a" },
+            MigrationId = ActivationSmoke.Migration.Definition.Id,
+            MigrationVersion = ActivationSmoke.Migration.Definition.Version,
+            ActivationId = migrationCreated.ActivationId,
+            ExpectedGeneration = 1,
+            Identity = BaseMutationRequestIdentity.Create("sqlite-aot", "activation-migrate", "activation-migrate-1",
+                BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("sqlite-aot-activation-migrate"u8))),
+        });
+    Require(activationMigration is BaseSuccess<BaseActivationMigrationResult> migrationSuccess
+            && migrationSuccess.Value.SourceActivationId == migrationCreated.ActivationId
+            && migrationSuccess.Value.SourceGeneration == 2
+            && migrationSuccess.Value.ReplacementGeneration == 1,
+        "SQLite Native AOT generated activation migration failed: "
+            + (activationMigration as BaseFailure<BaseActivationMigrationResult>)?.Error.Code);
     async ValueTask EnqueueSemanticParent(string value, string requestId)
     {
         OperationResult<BaseActivationEnqueueResult> enqueued = await semanticActivation.EnqueueAsync(
@@ -159,18 +198,57 @@ try
     BaseInstalledModuleMutationHandle<ModuleMutationSmokeRequest, ModuleMutationSmokeResult> module =
         session.ModuleMutations.Get(ModuleMutationSmoke.Identity);
     Guid moduleGuid = Guid.Parse("0f9a4bc4-f95f-4d9e-840c-35d6d81bed52");
+    Guid moduleCreateGuid = Guid.Parse("1f9a4bc4-f95f-4d9e-840c-35d6d81bed52");
+    Guid moduleDeleteGuid = Guid.Parse("2f9a4bc4-f95f-4d9e-840c-35d6d81bed52");
+    BaseCollectionSession<SqliteAotModuleRecord> moduleRecords = session.Collection(SqliteAotModuleRecord.Collection);
+    _ = (await moduleRecords.CreateAsync(RecordId.Create(moduleGuid.ToString("D")),
+        new SqliteAotModuleRecord { Name = "module", Status = "pending" })).RequireValue();
+    _ = (await moduleRecords.CreateAsync(RecordId.Create(moduleDeleteGuid.ToString("D")),
+        new SqliteAotModuleRecord { Name = "delete", Status = "pending" })).RequireValue();
     BaseBinary modulePayload = BaseBinary.From([1, 2, 3, 4]);
     BaseCanonicalJson moduleMetadata = BaseCanonicalJson.ParseAndValidate("{\"a\":1}"u8, new BaseCanonicalJsonLimits
     { MaximumCanonicalBytes = 256, MaximumDepth = 4, MaximumArrayItemsPerContainer = 8, MaximumObjectPropertiesPerContainer = 8, MaximumTotalNodes = 16, MaximumTotalStringUtf8Bytes = 64, MaximumTotalNameUtf8Bytes = 64 });
     BaseModuleMutationExecutionResult<ModuleMutationSmokeResult> moduleCommitted =
-        (await module.ExecuteAsync(new ModuleMutationSmokeRequest { Id = moduleGuid, Payload = modulePayload, Metadata = moduleMetadata, Mode = AotModuleMode.Ready }, moduleIdentity)).RequireValue();
+        (await module.ExecuteAsync(new ModuleMutationSmokeRequest { EventAt = DateTimeOffset.UnixEpoch, Id = moduleGuid, CreateId = moduleCreateGuid, DeleteId = moduleDeleteGuid, Payload = modulePayload, Metadata = moduleMetadata, Mode = AotModuleMode.Ready, EnableHostile = false, HostileId = " " }, moduleIdentity)).RequireValue();
     BaseModuleMutationExecutionResult<ModuleMutationSmokeResult> moduleDuplicate =
-        (await module.ExecuteAsync(new ModuleMutationSmokeRequest { Id = moduleGuid, Payload = modulePayload, Metadata = moduleMetadata, Mode = AotModuleMode.Ready }, moduleIdentity)).RequireValue();
+        (await module.ExecuteAsync(new ModuleMutationSmokeRequest { EventAt = DateTimeOffset.UnixEpoch, Id = moduleGuid, CreateId = moduleCreateGuid, DeleteId = moduleDeleteGuid, Payload = modulePayload, Metadata = moduleMetadata, Mode = AotModuleMode.Ready, EnableHostile = false, HostileId = " " }, moduleIdentity)).RequireValue();
     Require(moduleCommitted.Result.Generation.ToCanonicalString() == "1" && moduleCommitted.Result.Id == moduleGuid
         && moduleCommitted.Result.Mode == AotModuleMode.Ready && moduleCommitted.Result.Payload.Equals(modulePayload)
         && moduleCommitted.Disposition == BaseMutationRequestDisposition.Committed
         && moduleDuplicate.Result.Generation.ToCanonicalString() == "1" && moduleDuplicate.Disposition == BaseMutationRequestDisposition.Duplicate,
         "SQLite L50 generation commit or receipt replay failed.");
+    SqliteAotModuleRecord moduleRecord = (await moduleRecords.GetAsync(RecordId.Create(moduleGuid.ToString("D")))).RequireValue().Value;
+    Require(moduleRecord.Status is null && moduleRecord.ProcessedAt == DateTimeOffset.UnixEpoch,
+        "SQLite L50 optional-field removal or L69 value lift did not persist.");
+    Guid optionalModuleGuid = Guid.Parse("3f9a4bc4-f95f-4d9e-840c-35d6d81bed52");
+    Guid optionalCreateGuid = Guid.Parse("4f9a4bc4-f95f-4d9e-840c-35d6d81bed52");
+    Guid optionalDeleteGuid = Guid.Parse("5f9a4bc4-f95f-4d9e-840c-35d6d81bed52");
+    _ = (await moduleRecords.CreateAsync(RecordId.Create(optionalModuleGuid.ToString("D")),
+        new SqliteAotModuleRecord { Name = "module-present", Status = "pending" })).RequireValue();
+    _ = (await moduleRecords.CreateAsync(RecordId.Create(optionalDeleteGuid.ToString("D")),
+        new SqliteAotModuleRecord { Name = "delete-present", Status = "pending" })).RequireValue();
+    BaseMutationRequestIdentity optionalModuleIdentity = BaseMutationRequestIdentity.Create(
+        "aot", "module-increment", "module-request-present-1",
+        BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("sqlite-aot-module-request-present"u8)));
+    BaseModuleMutationExecutionResult<ModuleMutationSmokeResult> optionalModuleCommitted =
+        (await module.ExecuteAsync(new ModuleMutationSmokeRequest
+        {
+            EventAt = DateTimeOffset.UnixEpoch, Id = optionalModuleGuid, CreateId = optionalCreateGuid, DeleteId = optionalDeleteGuid,
+            Payload = modulePayload, Metadata = moduleMetadata, Mode = AotModuleMode.Ready,
+            EnableHostile = false, HostileId = " ", OptionalAt = DateTimeOffset.UnixEpoch,
+            OptionalTarget = BaseRecordId<SqliteAotModuleRecord>.Create(optionalModuleGuid.ToString("D")),
+        }, optionalModuleIdentity)).RequireValue();
+    Require(optionalModuleCommitted.Disposition == BaseMutationRequestDisposition.Committed,
+        "SQLite L68 present optional-value execution failed.");
+    if (string.Equals(Environment.GetEnvironmentVariable("HPD_BASE_L68_ONLY"), "1", StringComparison.Ordinal))
+    {
+        Require(!JsonSerializer.IsReflectionEnabledByDefault, "L68 Native AOT proof enabled JSON reflection fallback.");
+        return;
+    }
+    BaseResult<BaseRecord<SqliteAotModuleRecord>> moduleCreatedRecord = await moduleRecords.GetAsync(RecordId.Create(moduleCreateGuid.ToString("D")));
+    BaseResult<BaseRecord<SqliteAotModuleRecord>> moduleDeletedRecord = await moduleRecords.GetAsync(RecordId.Create(moduleDeleteGuid.ToString("D")));
+    Require(moduleCreatedRecord.RequireValue().Value.Name == "created" && moduleDeletedRecord is not BaseSuccess<BaseRecord<SqliteAotModuleRecord>>,
+        "SQLite typed record-ID create/delete did not persist.");
     BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create(
         "aot", "create-item", "request-1",
         BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("aot-request"u8)));
@@ -194,12 +272,16 @@ try
         new RecordCreateRequest
         {
             RequestedId = RecordId.Create("subject-1"),
-            Payload = JsonObjectPayload(("active", "true"), ("tombstoned", "false"), ("tenant", "\"tenant-a\"")),
+            Payload = JsonObjectPayload(("active", "true"), ("tombstoned", "false"), ("tenant", "\"tenant-a\""), ("nonce", "\"AQIDBA==\"")),
         },
         principal,
         Operation(BaseOperationKind.Create, privateSubjects.Id));
     Require(createdSubject.IsSuccess(), "Exported subject creation failed: " + createdSubject.Error?.Code);
 
+    BaseResult<SmokeBinaryRead.Row[]> binaryRead = await session.Reads.ToArrayAsync(
+        SmokeBinaryRead.Handle, new SmokeBinaryRead { Nonce = BaseBinary.From([1, 2, 3, 4]) });
+    Require(binaryRead.RequireValue().Single().Nonce.Equals(BaseBinary.From([1, 2, 3, 4])),
+        "SQLite bounded binary registered read failed.");
     BaseResult<SmokeAcquireSubject.Row[]> acquiredSubject = await session.Reads.ToArrayAsync(
         SmokeAcquireSubject.Handle,
         new SmokeAcquireSubject { SubjectId = BaseRecordId<SmokePrivateSubjectRecord>.Create("subject-1") });
@@ -221,13 +303,42 @@ try
         Operation(BaseOperationKind.Create, SmokeSubjectConsumerRecord.Collection.Id));
     Require(acceptedReference.IsSuccess(), "Validated subject reference mutation failed: " + acceptedReference.Error?.Code);
 
+    BaseInstalledModuleMutationHandle<SubjectModuleMutationSmokeRequest, SubjectModuleMutationSmokeResult> subjectOperation =
+        session.ModuleMutations.Get(SubjectModuleMutationSmoke.Identity);
+    BaseModuleMutationExecutionResult<SubjectModuleMutationSmokeResult> subjectOperationResult =
+        (await subjectOperation.ExecuteAsync(
+            new SubjectModuleMutationSmokeRequest { Subject = subjectReference },
+            BaseMutationRequestIdentity.Create("sqlite-aot", "subject-verify", "subject-verify-active",
+                BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("sqlite-aot-subject-verify-active"u8))))).RequireValue();
+    BaseMutationRequestIdentity activeSubjectIdentity = BaseMutationRequestIdentity.Create(
+        "sqlite-aot", "subject-verify", "subject-verify-replay",
+        BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("sqlite-aot-subject-verify-replay"u8)));
+    BaseModuleMutationExecutionResult<SubjectModuleMutationSmokeResult> replayCommitted =
+        (await subjectOperation.ExecuteAsync(new SubjectModuleMutationSmokeRequest { Subject = subjectReference }, activeSubjectIdentity)).RequireValue();
+    BaseModuleMutationExecutionResult<SubjectModuleMutationSmokeResult> replayDuplicate =
+        (await subjectOperation.ExecuteAsync(new SubjectModuleMutationSmokeRequest { Subject = subjectReference }, activeSubjectIdentity)).RequireValue();
+    BaseModuleMutationExecutionResult<SubjectModuleMutationSmokeResult> replayResolved =
+        (await subjectOperation.ResolveAsync(activeSubjectIdentity)).RequireValue();
+    Require(subjectOperationResult.Result.Subject.Equals(subjectReference)
+        && replayCommitted.Disposition == BaseMutationRequestDisposition.Committed
+        && replayDuplicate.Disposition == BaseMutationRequestDisposition.Duplicate
+        && replayResolved.Disposition == BaseMutationRequestDisposition.Duplicate,
+        "SQLite subject-only L50 authority or receipt replay failed.");
+
     OperationResult<RecordEnvelope> deactivatedSubject = await runtime.PatchAsync(
         privateSubjects.Id,
         RecordId.Create("subject-1"),
-        new RecordPatchRequest { Patch = FieldPatch("active", false) },
+        new RecordPatchRequest { Patch = FieldPatch("active", false), RemovedFieldIds = [] },
         principal,
         Operation(BaseOperationKind.Patch, privateSubjects.Id));
     Require(deactivatedSubject.IsSuccess(), "Subject deactivation failed: " + deactivatedSubject.Error?.Code);
+    BaseResult<BaseModuleMutationExecutionResult<SubjectModuleMutationSmokeResult>> inactiveSubjectOperation =
+        await subjectOperation.ExecuteAsync(
+            new SubjectModuleMutationSmokeRequest { Subject = subjectReference },
+            BaseMutationRequestIdentity.Create("sqlite-aot", "subject-verify", "subject-verify-inactive",
+                BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("sqlite-aot-subject-verify-inactive"u8))));
+    Require(inactiveSubjectOperation is not BaseSuccess<BaseModuleMutationExecutionResult<SubjectModuleMutationSmokeResult>>,
+        "SQLite subject-only L50 accepted inactive authority.");
     BaseGeneratedSubjectLifecycleConsumerIdentity<SmokeSubject> lifecycleIdentity =
         BaseGeneratedSubjectLifecycleConsumers.Register<SmokeSubject>(lifecycleConsumer, SmokeSubject.HPDBaseSubjectRegistration);
     BaseInstalledSubjectLifecycleConsumer<SmokeSubject> lifecycle = session.SubjectLifecycle.Get(lifecycleIdentity);
@@ -416,15 +527,20 @@ static BaseGrantAuthorityDefinition GrantDefinition(string id, string owner) => 
 };
 static AccessGrant Grant(string id, string subjectId) => new()
 {
-    Id = id, ApplicationId = "hpd.base.sqlite.aot", ModuleId = id == "hpd.base.sqlite.aot.module.increment" ? "hpd.base.sqlite.aot.module" : id.Contains("subjectLifecycle", StringComparison.Ordinal) || id.Contains("subject.lifecycle", StringComparison.Ordinal) ? "hpd.base.sqlite.aot.consumer" : "hpd.base.sqlite.aot",
-    Audience = HPDBaseEndpointAudience.Application,
+    Id = id, ApplicationId = "hpd.base.sqlite.aot", ModuleId = id is "hpd.base.sqlite.aot.module.increment" or "hpd.base.sqlite.aot.module.records.source" ? "hpd.base.sqlite.aot.module" : id.Contains("subjectLifecycle", StringComparison.Ordinal) || id.Contains("subject.lifecycle", StringComparison.Ordinal) ? "hpd.base.sqlite.aot.consumer" : "hpd.base.sqlite.aot",
+    Audience = id == "hpd.base.sqlite.aot.activation.migrate"
+        ? HPDBaseEndpointAudience.ControlPlane
+        : HPDBaseEndpointAudience.Application,
     Subject = new AccessSubject { Kind = AccessSubjectKind.ServicePrincipal, Id = subjectId, TenantId = "tenant-a" },
-    Action = id is SemanticActivationSmoke.EnsureGrant or SemanticActivationSmoke.RetireGrant or SemanticActivationSmoke.MaintainGrant
+    Action = id == "hpd.base.sqlite.aot.module.records.source" ? "hpd.base.sqlite.aot.module.records"
+        : id is SemanticActivationSmoke.EnsureGrant or SemanticActivationSmoke.RetireGrant or SemanticActivationSmoke.MaintainGrant
         ? SemanticActivationSmoke.DefinitionId
         : id.StartsWith("hpd.base.sqlite.aot.activation.", StringComparison.Ordinal)
         ? "hpd.base.sqlite.aot.activation"
         : id == "hpd.base.sqlite.aot.subject.lifecycle.read" ? "hpd.base.sqlite.aot.subject.lifecycle" : id,
-    Scope = id.Contains("subjectLifecycle", StringComparison.Ordinal) || id.Contains("subject.lifecycle", StringComparison.Ordinal)
+    Scope = id == "hpd.base.sqlite.aot.module.records.source"
+        ? new ResourceScope { Kind = ResourceScopeKind.Collection, CollectionId = "hpd.base.sqlite.aot.module.records", TenantId = "tenant-a" }
+        : id.Contains("subjectLifecycle", StringComparison.Ordinal) || id.Contains("subject.lifecycle", StringComparison.Ordinal)
         ? new ResourceScope { Kind = ResourceScopeKind.SubjectContract, SubjectContractId = "hpd.base.sqlite.aot.subject", SubjectContractVersion = 1, TenantId = "tenant-a" }
         : new ResourceScope { Kind = ResourceScopeKind.Runtime, TenantId = "tenant-a" },
 };
@@ -580,6 +696,32 @@ internal sealed partial record SmokePrivateSubjectRecord
 
     [BaseField("subject.tenant")]
     public required string Tenant { get; init; }
+
+    [BaseField("subject.nonce", MinimumBytes = 4, MaximumBytes = 4)]
+    public required BaseBinary Nonce { get; init; }
+}
+
+[BaseRead("hpd.base.sqlite.aot.binary", typeof(SmokeSubjectJsonContext),
+    SourceAuthority = BaseRegisteredReadSourceAuthority.System,
+    Disclosure = BaseRegisteredReadDisclosure.ConfidentialProjection,
+    RequiredGrantId = "hpd.base.sqlite.aot.subject.acquire",
+    ConfidentialOutputFieldIds = ["hpd.base.sqlite.aot.binary.nonce"],
+    SystemSourceIds = ["subject.private"])]
+internal sealed partial record SmokeBinaryRead
+{
+    [BaseReadParameter("hpd.base.sqlite.aot.binary.nonce", MinimumBytes = 4, MaximumBytes = 4)]
+    public required BaseBinary Nonce { get; init; }
+
+    public sealed partial record Row
+    {
+        [BaseReadField("hpd.base.sqlite.aot.binary.nonce", MinimumBytes = 4, MaximumBytes = 4)]
+        public required BaseBinary Nonce { get; init; }
+    }
+
+    public static void Configure(BaseReadDefinitionBuilder<SmokeBinaryRead, Row> read) => read
+        .From(SmokePrivateSubjectRecord.Collection, "subjects", out BaseReadSource<SmokePrivateSubjectRecord> subject)
+        .Where(subject.Field(SmokePrivateSubjectRecord.Fields.Nonce).Equal(read.Parameter(Parameters.Nonce)))
+        .Project(Row.Fields.Nonce, subject.Field(SmokePrivateSubjectRecord.Fields.Nonce));
 }
 
 [BaseExportedSubject("hpd.base.sqlite.aot.subject",
@@ -632,6 +774,8 @@ internal sealed partial record SmokeAcquireSubject
 [System.Text.Json.Serialization.JsonSerializable(typeof(SmokeSubjectConsumerRecord))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(SmokeAcquireSubject))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(SmokeAcquireSubject.Row), TypeInfoPropertyName = "SmokeAcquireSubjectRow")]
+[System.Text.Json.Serialization.JsonSerializable(typeof(SmokeBinaryRead))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(SmokeBinaryRead.Row), TypeInfoPropertyName = "SmokeBinaryReadRow")]
 internal sealed partial class SmokeSubjectJsonContext : System.Text.Json.Serialization.JsonSerializerContext;
 
 [System.Text.Json.Serialization.JsonSourceGenerationOptions(PropertyNamingPolicy = System.Text.Json.Serialization.JsonKnownNamingPolicy.CamelCase)]
@@ -641,4 +785,5 @@ internal sealed partial class SmokeJsonContext : System.Text.Json.Serialization.
 [System.Text.Json.Serialization.JsonSourceGenerationOptions(PropertyNamingPolicy = System.Text.Json.Serialization.JsonKnownNamingPolicy.CamelCase)]
 [System.Text.Json.Serialization.JsonSerializable(typeof(ActivationSmokeInput))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(ActivationSmokeResult))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(ActivationMigrationTargetInput))]
 internal sealed partial class SemanticSmokeJsonContext : System.Text.Json.Serialization.JsonSerializerContext;

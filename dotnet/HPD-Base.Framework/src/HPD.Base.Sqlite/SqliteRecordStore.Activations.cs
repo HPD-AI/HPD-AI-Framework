@@ -1989,7 +1989,8 @@ WHERE a.activation_id=$id AND a.state=$disposed
         limits.MaximumEvidenceBytes is > 0 and <= 16L * 1024 * 1024 && limits.MaximumTransientBytes is > 0 and <= 16L * 1024 * 1024 &&
         limits.MaximumReadIntervals > 0 && limits.MaximumIndexOperations > 0;
 
-    private static byte[] ActivationControlChecksum(string id, long generation, BaseActivationState state) => ActivationHash($"base.activation.control.v2\0{id}\n{generation}\n{(int)state}");
+    private static byte[] ActivationControlChecksum(string id, long generation, BaseActivationState state) =>
+        BaseActivationControlChecksumContract.Create(id, generation, state).ToArray();
 
     /// <inheritdoc />
     public async ValueTask<OperationResult<BaseActivationReceiptResolution>> ResolveReceiptAsync(

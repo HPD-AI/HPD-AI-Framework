@@ -265,6 +265,10 @@ public sealed record BaseRelationalReadParameter
     public int? MaxLength { get; init; }
     /// <summary>Gets the maximum number of array elements, when applicable.</summary>
     public int? MaxItems { get; init; }
+    /// <summary>Gets the minimum decoded byte length for a binary scalar or binary array element.</summary>
+    public int? MinimumBinaryBytes { get; init; }
+    /// <summary>Gets the maximum decoded byte length for a binary scalar or binary array element.</summary>
+    public int? MaximumBinaryBytes { get; init; }
     /// <summary>Gets the exact installed source-field authority for a canonical-JSON parameter.</summary>
     public BaseReadCanonicalJsonAuthority? CanonicalJsonAuthority { get; init; }
 }

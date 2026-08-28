@@ -12,7 +12,7 @@ internal sealed partial record AuthRecoveryCodeByDigestReadV1
     [BaseReadParameter("auth.read.recoveryCodeByDigest.v1.parameter.tenantId")] public required Guid TenantId { get; init; }
     [BaseReadParameter("auth.read.recoveryCodeByDigest.v1.parameter.userId")] public required BaseRecordId<AuthUserRecordV1> UserId { get; init; }
     [BaseReadParameter("auth.read.recoveryCodeByDigest.v1.parameter.digestKeyVersion")] public required int DigestKeyVersion { get; init; }
-    [BaseReadParameter("auth.read.recoveryCodeByDigest.v1.parameter.codeDigest")] public required BaseBinary CodeDigest { get; init; }
+    [BaseReadParameter("auth.read.recoveryCodeByDigest.v1.parameter.codeDigest", MaximumBytes = 32)] public required BaseBinary CodeDigest { get; init; }
 
     public sealed partial record Row
     {
@@ -46,7 +46,7 @@ internal sealed partial record AuthRefreshByDigestReadV1
     [BaseReadParameter("auth.read.refreshByDigest.v1.parameter.tenantId")] public required Guid TenantId { get; init; }
     [BaseReadParameter("auth.read.refreshByDigest.v1.parameter.digestAlgorithm")] public required AuthRefreshDigestAlgorithmV1 DigestAlgorithm { get; init; }
     [BaseReadParameter("auth.read.refreshByDigest.v1.parameter.digestKeyVersion")] public int? DigestKeyVersion { get; init; }
-    [BaseReadParameter("auth.read.refreshByDigest.v1.parameter.tokenDigest")] public required BaseBinary TokenDigest { get; init; }
+    [BaseReadParameter("auth.read.refreshByDigest.v1.parameter.tokenDigest", MaximumBytes = 32)] public required BaseBinary TokenDigest { get; init; }
 
     public sealed partial record Row
     {
@@ -55,9 +55,9 @@ internal sealed partial record AuthRefreshByDigestReadV1
         [BaseReadField("auth.read.refreshByDigest.v1.row.userId")] public required BaseRecordId<AuthUserRecordV1> UserId { get; init; }
         [BaseReadField("auth.read.refreshByDigest.v1.row.digestAlgorithm")] public required AuthRefreshDigestAlgorithmV1 DigestAlgorithm { get; init; }
         [BaseReadField("auth.read.refreshByDigest.v1.row.digestKeyVersion")] public int? DigestKeyVersion { get; init; }
-        [BaseReadField("auth.read.refreshByDigest.v1.row.tokenDigest")] public required BaseBinary TokenDigest { get; init; }
+        [BaseReadField("auth.read.refreshByDigest.v1.row.tokenDigest", MaximumBytes = 32)] public required BaseBinary TokenDigest { get; init; }
         [BaseReadField("auth.read.refreshByDigest.v1.row.jwtId")] public required string JwtId { get; init; }
-        [BaseReadField("auth.read.refreshByDigest.v1.row.securityStampDigest")] public required BaseBinary SecurityStampDigest { get; init; }
+        [BaseReadField("auth.read.refreshByDigest.v1.row.securityStampDigest", MaximumBytes = 32)] public required BaseBinary SecurityStampDigest { get; init; }
         [BaseReadField("auth.read.refreshByDigest.v1.row.securityGeneration")] public BaseModuleGeneration? SecurityGeneration { get; init; }
         [BaseReadField("auth.read.refreshByDigest.v1.row.expiresAt"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset ExpiresAt { get; init; }
         [BaseReadField("auth.read.refreshByDigest.v1.row.used")] public required bool Used { get; init; }
@@ -131,15 +131,15 @@ internal sealed partial record AuthRefreshDigestKeyVersionsReadV1
 internal sealed partial record AuthRefreshDeliveryReadV1
 {
     [BaseReadParameter("auth.read.refreshDelivery.v1.parameter.tenantId")] public required Guid TenantId { get; init; }
-    [BaseReadParameter("auth.read.refreshDelivery.v1.parameter.requestScopeDigest")] public required BaseBinary RequestScopeDigest { get; init; }
+    [BaseReadParameter("auth.read.refreshDelivery.v1.parameter.requestScopeDigest", MaximumBytes = 32)] public required BaseBinary RequestScopeDigest { get; init; }
 
     public sealed partial record Row
     {
         [BaseReadField("auth.read.refreshDelivery.v1.row.id")] public required string Id { get; init; }
         [BaseReadField("auth.read.refreshDelivery.v1.row.userId")] public required BaseRecordId<AuthUserRecordV1> UserId { get; init; }
         [BaseReadField("auth.read.refreshDelivery.v1.row.replacementId")] public required BaseRecordId<AuthRefreshTokenRecordV1> ReplacementId { get; init; }
-        [BaseReadField("auth.read.refreshDelivery.v1.row.requestScopeDigest")] public required BaseBinary RequestScopeDigest { get; init; }
-        [BaseReadField("auth.read.refreshDelivery.v1.row.protectedToken")] public required BaseBinary ProtectedToken { get; init; }
+        [BaseReadField("auth.read.refreshDelivery.v1.row.requestScopeDigest", MaximumBytes = 32)] public required BaseBinary RequestScopeDigest { get; init; }
+        [BaseReadField("auth.read.refreshDelivery.v1.row.protectedToken", MaximumBytes = 4096)] public required BaseBinary ProtectedToken { get; init; }
         [BaseReadField("auth.read.refreshDelivery.v1.row.protectorVersion")] public required int ProtectorVersion { get; init; }
         [BaseReadField("auth.read.refreshDelivery.v1.row.securityGeneration")] public required BaseModuleGeneration SecurityGeneration { get; init; }
         [BaseReadField("auth.read.refreshDelivery.v1.row.createdAt"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset CreatedAt { get; init; }

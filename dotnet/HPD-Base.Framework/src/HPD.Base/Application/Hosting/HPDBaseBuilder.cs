@@ -294,7 +294,7 @@ public sealed class HPDBaseBuilder
     }
 
     /// <summary>Registers one immutable durable exported-subject lifecycle consumer.</summary>
-    public HPDBaseBuilder AddSubjectLifecycleConsumer(BaseSubjectLifecycleConsumerDefinition definition)
+    internal HPDBaseBuilder AddSubjectLifecycleConsumer(BaseSubjectLifecycleConsumerDefinition definition)
     {
         EnsureMutable();
         ArgumentNullException.ThrowIfNull(definition);
@@ -302,8 +302,21 @@ public sealed class HPDBaseBuilder
         return this;
     }
 
+    /// <summary>Adds one opaque typed lifecycle-consumer identity to the finalized graph.</summary>
+    /// <typeparam name="TSubject">The exact exported-subject marker type.</typeparam>
+    /// <param name="identity">The generated lifecycle-consumer identity.</param>
+    /// <returns>This builder.</returns>
+    public HPDBaseBuilder AddSubjectLifecycleConsumer<TSubject>(
+        BaseGeneratedSubjectLifecycleConsumerIdentity<TSubject> identity)
+    {
+        EnsureMutable();
+        ArgumentNullException.ThrowIfNull(identity);
+        _subjectLifecycleConsumers.Add(BaseSubjectLifecycleRegistry.Normalize(identity.Definition));
+        return this;
+    }
+
     /// <summary>Registers one consumer-owned advisory or required retirement profile.</summary>
-    public HPDBaseBuilder AddSubjectRetirementConsumer(BaseSubjectRetirementConsumerDefinition definition)
+    internal HPDBaseBuilder AddSubjectRetirementConsumer(BaseSubjectRetirementConsumerDefinition definition)
     {
         EnsureMutable();
         ArgumentNullException.ThrowIfNull(definition);
@@ -311,12 +324,38 @@ public sealed class HPDBaseBuilder
         return this;
     }
 
+    /// <summary>Adds one opaque generated retirement-consumer identity to the finalized graph.</summary>
+    /// <typeparam name="TSubject">The exact exported-subject marker type.</typeparam>
+    /// <param name="identity">The generated required-consumer identity.</param>
+    /// <returns>This builder.</returns>
+    public HPDBaseBuilder AddSubjectRetirementConsumer<TSubject>(
+        BaseGeneratedSubjectRetirementConsumerIdentity<TSubject> identity)
+    {
+        EnsureMutable();
+        ArgumentNullException.ThrowIfNull(identity);
+        _subjectRetirementConsumers.Add(BaseSubjectRetirementRegistry.Normalize(identity.Definition));
+        return this;
+    }
+
     /// <summary>Registers one exporter-owned coordinated-retirement policy.</summary>
-    public HPDBaseBuilder AddSubjectRetirementPolicy(BaseSubjectRetirementPolicy policy)
+    internal HPDBaseBuilder AddSubjectRetirementPolicy(BaseSubjectRetirementPolicy policy)
     {
         EnsureMutable();
         ArgumentNullException.ThrowIfNull(policy);
         _subjectRetirementPolicies.Add(BaseSubjectRetirementRegistry.NormalizePolicy(policy));
+        return this;
+    }
+
+    /// <summary>Adds one opaque typed coordinated-retirement policy identity to the finalized graph.</summary>
+    /// <typeparam name="TSubject">The exact exported-subject marker type.</typeparam>
+    /// <param name="identity">The generated exporter-owned policy identity.</param>
+    /// <returns>This builder.</returns>
+    public HPDBaseBuilder AddSubjectRetirementPolicy<TSubject>(
+        BaseGeneratedSubjectRetirementPolicyIdentity<TSubject> identity)
+    {
+        EnsureMutable();
+        ArgumentNullException.ThrowIfNull(identity);
+        _subjectRetirementPolicies.Add(BaseSubjectRetirementRegistry.NormalizePolicy(identity.Policy));
         return this;
     }
 
@@ -372,7 +411,7 @@ public sealed class HPDBaseBuilder
             !CryptographicOperations.FixedTimeEquals(definition.Checksum.AsSpan(), registration.Identity.Checksum.Span))
             throw new InvalidOperationException("base.activation.definitionInvalid");
         if (!_activationRegistrations.TryAdd((definition.Id, definition.Version),
-            new BaseActivationRegistration<TInput, TResult>(registration with { Definition = definition })))
+            new BaseActivationRegistration<TInput, TResult>(registration.WithDefinition(definition))))
             throw new InvalidOperationException("base.activation.definitionDuplicate");
         _serializerMetadata.Add(registration.Identity);
         return this;
@@ -453,20 +492,29 @@ public sealed class HPDBaseBuilder
             || !CryptographicOperations.FixedTimeEquals(definition.Checksum.AsSpan(), registration.Identity.Checksum.Span))
             throw new InvalidOperationException("base.activation.definitionInvalid");
         if (!_activationRegistrations.TryAdd((definition.Id, definition.Version),
-            new BaseInstalledTransactionalActivationRegistration<TInput, TResult>(registration with { Definition = definition })))
+            new BaseInstalledTransactionalActivationRegistration<TInput, TResult>(registration.WithDefinition(definition))))
             throw new InvalidOperationException("base.activation.definitionDuplicate");
         _serializerMetadata.Add(registration.Identity);
         return this;
     }
 
     /// <summary>Registers one graph-owned durable schedule.</summary>
-    public HPDBaseBuilder AddSchedule(BaseScheduleDefinition definition)
+    internal HPDBaseBuilder AddSchedule(BaseScheduleDefinition definition)
     {
         EnsureMutable();
         BaseScheduleDefinition sealedDefinition = BaseScheduleDefinitionBuilder.Create(definition);
         if (!_activationSchedules.TryAdd((sealedDefinition.Id, sealedDefinition.Version), sealedDefinition))
             throw new InvalidOperationException("base.activation.scheduleDuplicate");
         return this;
+    }
+
+    /// <summary>Registers one source-generated graph-owned durable schedule.</summary>
+    /// <param name="registration">The opaque generated schedule registration.</param>
+    /// <returns>The same mutable builder.</returns>
+    public HPDBaseBuilder AddSchedule(BaseGeneratedScheduleRegistration registration)
+    {
+        ArgumentNullException.ThrowIfNull(registration);
+        return AddSchedule(registration.Definition);
     }
 
     /// <summary>Installs one exact compiled IANA time-zone authority for durable schedules.</summary>
@@ -630,11 +678,13 @@ public sealed class HPDBaseBuilder
         foreach (IBaseSerializerMetadataSource source in _serializerMetadata)
             if (source.CollectionDefinition is { } bound) _collections[bound.Id] = bound;
         CollectionDefinition[] collections = _collections.Values.ToArray();
+        BaseSubjectContractRegistry subjectRegistry = FinalizeSubjectGraph(collections);
         foreach (BaseRegisteredModuleMutationDefinition definition in _moduleMutations.Values)
         {
             _moduleMutationRegistrations.TryGetValue((definition.Id, definition.Version), out IBaseModuleMutationRegistration? registration);
             if (registration is null) throw new InvalidOperationException("base.moduleMutation.invalid");
             BaseModuleMutationContractValidator.ValidateDefinition(definition, _collections, _moduleGenerationCells, registration);
+            ValidateModuleSubjectAuthority(definition, registration, subjectRegistry);
             if (!BaseModuleMutationCapabilityContract.Supports(definition.Limits, provider.ModuleMutations))
                 throw new InvalidOperationException(BaseModuleMutationErrorCodes.CapabilityMissing);
         }
@@ -744,7 +794,6 @@ public sealed class HPDBaseBuilder
             if (schedule.Expression is BaseCronSchedule { TimeZoneId: var cronZone } && !timeZoneRegistry.Contains(cronZone)
                 || schedule.Expression is BaseCalendarSchedule { TimeZoneId: var calendarZone } && !timeZoneRegistry.Contains(calendarZone))
                 throw new InvalidOperationException("base.activation.timeZoneUnavailable");
-        BaseSubjectContractRegistry subjectRegistry = FinalizeSubjectGraph(collections);
         var subjectLifecycleRegistry = new BaseSubjectLifecycleRegistry(_subjectLifecycleConsumers, subjectRegistry);
         var subjectRetirementRegistry = new BaseSubjectRetirementRegistry(_subjectRetirementConsumers, _subjectRetirementPolicies, subjectLifecycleRegistry);
         if (!BaseSubjectRetirementCapabilityContract.Supports(subjectRetirementRegistry, provider.SubjectRetirement))
@@ -1130,9 +1179,20 @@ public sealed class HPDBaseBuilder
         {
             bool valid = ensureOperation
                 ? expression is not BaseModuleSemanticActivationRetirementDispositionExpression
-                : expression is not (BaseModuleSemanticActivationDispositionExpression or BaseModuleSemanticActivationIdExpression or BaseModuleSemanticActivationWasMaterializedExpression);
+                    && SemanticOperationKind(expression) == BaseSemanticActivationOperationKind.Ensure
+                : expression is not (BaseModuleSemanticActivationDispositionExpression or BaseModuleSemanticActivationIdExpression or BaseModuleSemanticActivationWasMaterializedExpression)
+                    && SemanticOperationKind(expression) == BaseSemanticActivationOperationKind.Retire;
             if (!valid) throw new InvalidOperationException("base.semanticActivation.contractInvalid");
         }
+
+        static BaseSemanticActivationOperationKind SemanticOperationKind(BaseModuleValueExpression expression) => expression switch
+        {
+            BaseModuleSemanticActivationDispositionExpression value => value.OperationKind,
+            BaseModuleSemanticActivationIdExpression value => value.OperationKind,
+            BaseModuleSemanticActivationWasMaterializedExpression value => value.OperationKind,
+            BaseModuleSemanticActivationRetirementDispositionExpression value => value.OperationKind,
+            _ => throw new InvalidOperationException("base.semanticActivation.contractInvalid"),
+        };
 
         IReadOnlyDictionary<string, BaseModuleGuard> guards = template.Guards.ToDictionary(static value => value.Id, StringComparer.Ordinal);
         foreach (BaseModuleSemanticActivationStateTest state in Enum.GetValues<BaseModuleSemanticActivationStateTest>())
@@ -1245,14 +1305,48 @@ public sealed class HPDBaseBuilder
         {
             BaseModuleDtoPropertyBinding[] bindings = registration.RequestBindings.Values
                 .Where(value => value.StablePropertyId == compaction.SubjectReferenceRequestPropertyId).ToArray();
-            Type? propertyType = bindings.Length == 1 ? bindings[0].PropertyType : null;
-            return propertyType?.IsGenericType == true
-                && propertyType.GetGenericTypeDefinition() == typeof(BaseSubjectReference<>)
-                && propertyType.GenericTypeArguments[0] == contracts[0].MarkerType
-                && bindings[0].Nullability == BaseFieldNullability.NonNullable;
+            BaseGeneratedModuleSubjectQualifier? qualifier = bindings.Length == 1
+                ? bindings[0].ScalarAuthority.ValueType.SubjectQualifier : null;
+            return bindings.Length == 1
+                && bindings[0].Presence == BaseFieldPresence.Required
+                && bindings[0].Nullability == BaseFieldNullability.NonNullable
+                && qualifier is not null
+                && qualifier.Requirement == BaseSubjectReferenceRequirement.Exists
+                && qualifier.Guarantee == BaseSubjectValidationGuarantee.TransactionSnapshot
+                && string.Equals(qualifier.ContractId, contracts[0].Definition.Id, StringComparison.Ordinal)
+                && qualifier.ContractVersion == contracts[0].Definition.Version
+                && string.Equals(qualifier.ContractChecksum, contracts[0].Checksum, StringComparison.Ordinal);
         }
         if (!Matches(ensure) || !Matches(retire))
             throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+    }
+
+    private static void ValidateModuleSubjectAuthority(
+        BaseRegisteredModuleMutationDefinition definition,
+        IBaseModuleMutationRegistration registration,
+        BaseSubjectContractRegistry subjects)
+    {
+        BaseModuleDtoPropertyBinding[] bindings = registration.RequestBindings.Values
+            .Concat(registration.ResultBindings.Values)
+            .Where(static binding => binding.ScalarAuthority.ValueType.Kind == BaseModuleValueKind.SubjectReference)
+            .ToArray();
+        string[] imported = bindings.Select(static binding => binding.ScalarAuthority.ValueType.SubjectQualifier!.ContractId)
+            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        if (!imported.SequenceEqual(definition.ImportedSubjectContractIds, StringComparer.Ordinal))
+            throw new InvalidOperationException("base.moduleMutation.invalid");
+        foreach (BaseModuleDtoPropertyBinding binding in bindings)
+        {
+            BaseGeneratedModuleSubjectQualifier qualifier = binding.ScalarAuthority.ValueType.SubjectQualifier
+                ?? throw new InvalidOperationException("base.moduleMutation.invalid");
+            BaseGeneratedSubjectRegistration installed = subjects.Find(qualifier.ContractId, qualifier.ContractVersion)
+                ?? throw new InvalidOperationException("base.moduleMutation.invalid");
+            if (qualifier.SubjectIdKind != installed.Definition.SubjectIdKind
+                || qualifier.MaximumSubjectIdUtf8Bytes != installed.Definition.MaximumSubjectIdUtf8Bytes
+                || !string.Equals(qualifier.ContractChecksum, installed.Checksum, StringComparison.Ordinal)
+                || qualifier.Guarantee != BaseSubjectValidationGuarantee.TransactionSnapshot
+                || !Enum.IsDefined(qualifier.Requirement))
+                throw new InvalidOperationException("base.moduleMutation.invalid");
+        }
     }
 
     private static bool HasSemanticProgramNodes(BaseModuleMutationTemplate template) =>
@@ -1263,7 +1357,11 @@ public sealed class HPDBaseBuilder
 
     private static IEnumerable<BaseModuleValueExpression> SemanticExpressions(BaseModuleValueExpression value)
     {
-        yield return value;
+        if (value is BaseModuleSemanticActivationDispositionExpression
+            or BaseModuleSemanticActivationIdExpression
+            or BaseModuleSemanticActivationWasMaterializedExpression
+            or BaseModuleSemanticActivationRetirementDispositionExpression)
+            yield return value;
         switch (value)
         {
             case BaseModuleObjectExpression obj:
@@ -1505,6 +1603,9 @@ public sealed class HPDBaseBuilder
                 BaseGeneratedSubjectRegistration? target = registry.Find(reference.ContractId, reference.ContractVersion);
                 if (target is null || !string.IsNullOrEmpty(reference.ContractChecksum) &&
                     !string.Equals(reference.ContractChecksum, target.Checksum, StringComparison.Ordinal) ||
+                    !Enum.IsDefined(reference.Requirement) ||
+                    reference.SubjectIdKind != target.Definition.SubjectIdKind ||
+                    reference.MaximumSubjectIdUtf8Bytes != target.Definition.MaximumSubjectIdUtf8Bytes ||
                     reference.Guarantee != BaseSubjectValidationGuarantee.TransactionSnapshot ||
                     reference.Requirement == BaseSubjectReferenceRequirement.Active &&
                     target.Definition.ValidationPlan.Active.Kind != BaseSubjectActiveBindingKind.RequiredBooleanField)

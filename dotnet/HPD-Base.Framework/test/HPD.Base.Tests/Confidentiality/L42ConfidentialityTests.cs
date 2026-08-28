@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Buffers;
+using System.Text;
 
 namespace HPD.Base.Tests.Confidentiality;
 
@@ -17,6 +19,47 @@ public sealed class L42ConfidentialityTests
         Assert.Equal(value, BaseBinary.FromBase64("AQID"));
         Assert.Throws<FormatException>(() => BaseBinary.FromBase64("AQID\n"));
         Assert.Throws<FormatException>(() => BaseBinary.FromBase64("AQI"));
+    }
+
+    [Fact]
+    public void BinaryConverterDecodesCanonicalBase64AfterJsonStringUnescaping()
+    {
+        BaseBinary value = BaseBinary.From([251]);
+        Assert.Equal(value, JsonSerializer.Deserialize<BaseBinary>("\"\\u002Bw==\""));
+    }
+
+    [Fact]
+    public void BinaryConverterBoundsSegmentedAndHostileEscapedTokensBeforeUnescaping()
+    {
+        var first = new SequenceSegment("\"\\u00"u8.ToArray());
+        var second = first.Append("2Bw==\""u8.ToArray());
+        var reader = new Utf8JsonReader(new ReadOnlySequence<byte>(first, 0, second, second.Memory.Length));
+        Assert.True(reader.Read());
+        BaseBinary segmented = new BaseBinaryJsonConverter().Read(ref reader, typeof(BaseBinary), new JsonSerializerOptions());
+        Assert.Equal(BaseBinary.From([251]), segmented);
+
+        const int maximumEncodedBytes = ((1_048_576 + 2) / 3) * 4;
+        byte[] hostile = Encoding.UTF8.GetBytes("\"" + new string('A', checked(maximumEncodedBytes * 6 + 1)) + "\"");
+        JsonException failure = Assert.Throws<JsonException>(() => DecodeBinary(hostile));
+        Assert.Equal(BaseBinaryErrorCodes.ValueTooLarge, failure.Message);
+    }
+
+    private static BaseBinary DecodeBinary(byte[] json)
+    {
+        var reader = new Utf8JsonReader(json);
+        Assert.True(reader.Read());
+        return new BaseBinaryJsonConverter().Read(ref reader, typeof(BaseBinary), new JsonSerializerOptions());
+    }
+
+    private sealed class SequenceSegment : ReadOnlySequenceSegment<byte>
+    {
+        internal SequenceSegment(ReadOnlyMemory<byte> memory) => Memory = memory;
+        internal SequenceSegment Append(ReadOnlyMemory<byte> memory)
+        {
+            var segment = new SequenceSegment(memory) { RunningIndex = RunningIndex + Memory.Length };
+            Next = segment;
+            return segment;
+        }
     }
 
     [Fact]

@@ -17,13 +17,80 @@ internal static class AuthGrantIds
     [
         "auth.subject.user.acquire", "auth.subject.user.validate", "auth.subject.user.admin",
         "auth.subject.role.acquire", "auth.subject.role.validate", "auth.subject.role.admin",
+        "base.subjectLifecycle.tombstone", "base.subjectLifecycle.feed.read",
+        "base.subjectLifecycle.feed.checkpoint", "base.subjectRetirement.acknowledge",
+        "base.subjectRetirement.barrier.inspect", "base.subjectRetirement.purge",
     ];
+
+    internal static readonly string[] Operations =
+    [
+        "auth.operation.user.create", "auth.operation.user.update", "auth.operation.user.security",
+        "auth.operation.role.mutate", "auth.operation.membership.mutate", "auth.operation.login.mutate",
+        "auth.operation.passkey.mutate", "auth.operation.refresh.issue", "auth.operation.refresh.rotate",
+        "auth.operation.session.mutate", "auth.operation.audit.append",
+        "auth.operation.cleanup.initialize.user", "auth.operation.cleanup.initialize.role",
+        "auth.operation.cleanup.advance", "auth.operation.cleanup.prepareRetirement",
+        "auth.operation.cleanup.retire.user", "auth.operation.cleanup.retire.role",
+    ];
+
+    internal static readonly string[] Semantic =
+    [
+        "auth.semantic.cleanup.user.ensure", "auth.semantic.cleanup.role.ensure",
+        "auth.semantic.cleanup.user.retire", "auth.semantic.cleanup.role.retire",
+        "auth.semantic.cleanup.user.maintain", "auth.semantic.cleanup.role.maintain",
+        "base.subjectLifecycle.finalizeRetirement",
+    ];
+
+    internal static readonly string[] ActivationDefinitions =
+    [
+        "hpd.auth.cleanup.user.v1", "hpd.auth.cleanup.role.v1",
+        "hpd.auth.cleanup.bootstrap.user.v1", "hpd.auth.cleanup.bootstrap.role.v1",
+        "hpd.auth.cleanup.semantic-retire.user.v1", "hpd.auth.cleanup.semantic-retire.role.v1",
+        "hpd.auth.cleanup.reconcile.v1", "hpd.auth.expiration.sessions.v1",
+        "hpd.auth.expiration.refresh-tokens.v1", "hpd.auth.expiration.deliveries.v1",
+        "hpd.auth.data-protection.refresh.v1",
+    ];
+
+    internal static readonly string[] Activation = ActivationDefinitions
+        .SelectMany(static id => new[]
+        {
+            id + ".enqueue", id + ".observe", id + ".claim", id + ".execute",
+            id + ".renew", id + ".complete", id + ".fail", id + ".cancel",
+            id + ".inspect", id + ".replay", id + ".migrate", id + ".reconcile",
+            id + ".retry", id + ".dispose", id + ".remove", id + ".repair",
+        })
+        .Order(StringComparer.Ordinal)
+        .ToArray();
+
+    internal static readonly string[] Schedule =
+    [
+        "hpd.auth.schedule.cleanup-reconcile.v1.manage", "hpd.auth.schedule.cleanup-reconcile.v1.materialize",
+        "hpd.auth.schedule.session-expiration.v1.manage", "hpd.auth.schedule.session-expiration.v1.materialize",
+        "hpd.auth.schedule.refresh-expiration.v1.manage", "hpd.auth.schedule.refresh-expiration.v1.materialize",
+        "hpd.auth.schedule.delivery-expiration.v1.manage", "hpd.auth.schedule.delivery-expiration.v1.materialize",
+        "hpd.auth.schedule.data-protection-refresh.v1.manage", "hpd.auth.schedule.data-protection-refresh.v1.materialize",
+    ];
+
+    internal static IEnumerable<string> All => Runtime
+        .Concat(SubjectLifecycle)
+        .Concat(Operations)
+        .Concat(Semantic)
+        .Concat(Activation)
+        .Concat(Schedule);
 
     internal static bool IsSystemGrant(string id) => id is
         "auth.admin.read" or "auth.admin.mutate" or
         "auth.dataProtection.read" or "auth.dataProtection.write" or
         "auth.cleanup.execute" or
+        "base.subjectLifecycle.tombstone" or "base.subjectLifecycle.feed.read" or
+        "base.subjectLifecycle.feed.checkpoint" or "base.subjectRetirement.acknowledge" or
+        "base.subjectRetirement.barrier.inspect" or "base.subjectRetirement.purge" or
         "auth.subject.user.admin" or "auth.subject.role.admin";
+
+    internal static bool IsSystemOnlyGrant(string id) =>
+        id.StartsWith("auth.operation.cleanup.", StringComparison.Ordinal)
+        || id.StartsWith("auth.semantic.cleanup.", StringComparison.Ordinal)
+        || id.StartsWith("hpd.auth.", StringComparison.Ordinal);
 }
 
 internal sealed class AuthGrantAuthoritySource(string grantId) : IBaseGrantAuthoritySource
@@ -41,12 +108,13 @@ internal sealed class AuthGrantAuthoritySource(string grantId) : IBaseGrantAutho
         BaseInstalledGrantRegistration registration = _registration
             ?? throw new InvalidOperationException("The Auth grant authority is not bound.");
 
-        bool service = context.Principal.AuthenticationState == PrincipalAuthenticationState.Service
+        bool service = !AuthGrantIds.IsSystemOnlyGrant(grantId)
+            && context.Principal.AuthenticationState == PrincipalAuthenticationState.Service
             && context.Principal.SubjectKind == AccessSubjectKind.ServicePrincipal
             && string.Equals(context.Principal.SubjectId, AuthBaseContract.ModuleId, StringComparison.Ordinal);
         bool system = context.Principal.AuthenticationState == PrincipalAuthenticationState.System
             && context.Principal.SubjectKind == AccessSubjectKind.System
-            && AuthGrantIds.IsSystemGrant(grantId);
+            && (AuthGrantIds.IsSystemGrant(grantId) || AuthGrantIds.IsSystemOnlyGrant(grantId));
         if (!service && !system)
             return ValueTask.CompletedTask;
 
@@ -147,7 +215,7 @@ internal static class AuthPolicyAuthorityInstaller
             CompositionOrder = 0,
         });
 
-        foreach (string grantId in AuthGrantIds.Runtime.Concat(AuthGrantIds.SubjectLifecycle))
+        foreach (string grantId in AuthGrantIds.All)
         {
             var source = new AuthGrantAuthoritySource(grantId);
             BaseInstalledGrantRegistration registration = builder.AddGrantAuthority(

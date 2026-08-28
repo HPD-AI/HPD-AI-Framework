@@ -148,6 +148,7 @@ public sealed class L45SubjectTransactionTests
     }
 
     private sealed class UserSubject;
+    private sealed class WrongSubject;
 
     [Fact]
     public async Task L47_ControlPlane_all_scope_inspection_uses_graph_installed_authority_receipt()
@@ -528,6 +529,47 @@ public sealed class L45SubjectTransactionTests
         Assert.False(result.IsSuccess());
         Assert.Equal(OperationStatus.CapabilityUnavailable, result.Status);
         Assert.Equal(BaseSubjectErrorCodes.LifecycleReconciliationUnavailable, result.Error?.Code);
+    }
+
+    [Fact]
+    public async Task Generated_lifecycle_and_retirement_authoring_reject_cross_marker_relabeling()
+    {
+        await using SubjectFixture fixture = Build(retirement: true);
+        BaseSubjectLifecycleConsumerDefinition lifecycle = LifecycleConsumer();
+
+        InvalidOperationException lifecycleFailure = Assert.Throws<InvalidOperationException>(() =>
+            BaseGeneratedSubjectLifecycleConsumers.Register<WrongSubject>(lifecycle, fixture.Registration));
+        Assert.Equal(BaseSubjectErrorCodes.LifecycleContractInvalid, lifecycleFailure.Message);
+
+        BaseSubjectLifecycleConsumerDefinition normalized = BaseSubjectLifecycleRegistry.Normalize(lifecycle);
+        string lifecycleChecksum = BaseSubjectLifecycleRegistry.Checksum(normalized, fixture.Registration.Checksum);
+        var fabricatedLifecycle = new BaseGeneratedSubjectLifecycleConsumerIdentity<WrongSubject>(
+            normalized, lifecycleChecksum);
+        BaseGeneratedSubjectRetirementConsumerIdentity<WrongSubject> fabricatedRetirement =
+            BaseGeneratedSubjectRetirementConsumers.RegisterRequired(
+                fabricatedLifecycle,
+                "example.profile",
+                BaseSubjectLifecycleConsumerAudience.Service,
+                "example.profile.retirement.v1",
+                1,
+                new string('a', 64),
+                "example.profile.retirement.acknowledge",
+                new BaseSubjectRetirementConsumerLimits
+                {
+                    MaximumAcknowledgementsPerCommit = 16,
+                    MaximumAcknowledgementRequestBytes = 65_536,
+                    MaximumReceiptBytes = 65_536,
+                    AcknowledgementTimeout = TimeSpan.FromSeconds(5),
+                    ReceiptResolutionTimeout = TimeSpan.FromSeconds(5),
+                });
+        InvalidOperationException policyFailure = Assert.Throws<InvalidOperationException>(() =>
+            BaseGeneratedSubjectRetirementPolicies.Register(
+                fixture.Registration,
+                TimeSpan.FromHours(1),
+                BaseSubjectRetirementTimeoutBehavior.Quarantine,
+                new BaseSubjectPurgeRetentionPolicy { MinimumTombstoneAge = TimeSpan.Zero },
+                fabricatedRetirement));
+        Assert.Equal(BaseSubjectRetirementErrorCodes.ContractInvalid, policyFailure.Message);
     }
 
     [Fact]
@@ -2019,6 +2061,7 @@ public sealed class L45SubjectTransactionTests
                 SubjectReference = new BaseSubjectReferenceDefinition
                 {
                     ContractId = "example.user", ContractVersion = 1, ContractChecksum = new string('0', 64),
+                    SubjectIdKind = BaseSubjectIdKind.OrdinalString, MaximumSubjectIdUtf8Bytes = 64,
                     Requirement = BaseSubjectReferenceRequirement.Active,
                     Guarantee = BaseSubjectValidationGuarantee.TransactionSnapshot,
                 },
@@ -2052,7 +2095,7 @@ public sealed class L45SubjectTransactionTests
         return new() { RequestedId = RecordId.Create(id), Payload = Payload(fields) };
     }
 
-    private static RecordPatchRequest Patch(params (string Name, object Value)[] fields) => new() { Patch = Payload(fields) };
+    private static RecordPatchRequest Patch(params (string Name, object Value)[] fields) => new() { Patch = Payload(fields), RemovedFieldIds = [] };
 
     private static async ValueTask<JsonElement> AcquireAsync(
         IRelationalReadStore store,
@@ -2094,7 +2137,7 @@ public sealed class L45SubjectTransactionTests
         Assert.True(result.IsSuccess(), result.Error?.Code);
         QueryValue value = Assert.Single(Assert.Single(result.Value!.Result.Rows).Fields).Value;
         return JsonSerializer.Deserialize<JsonElement>(
-            $$"""{"subjectId":"{{value.SubjectId}}","authorityEpoch":"{{value.SubjectAuthorityEpoch}}","incarnation":"{{value.SubjectIncarnation}}"}""");
+            $$"""{"authorityEpoch":"{{value.SubjectAuthorityEpoch}}","incarnation":"{{value.SubjectIncarnation}}","subjectId":"{{value.SubjectId}}"}""");
     }
 
     private static RecordPayload Payload(params (string Name, object Value)[] fields) => new()
@@ -2294,7 +2337,7 @@ public sealed class L45SubjectTransactionTests
             });
             Assert.True(result.IsSuccess(), result.Error?.Code);
             QueryValue value = Assert.Single(Assert.Single(result.Value!.Result.Rows).Fields).Value;
-            return JsonSerializer.Deserialize<JsonElement>($$"""{"subjectId":"{{value.SubjectId}}","authorityEpoch":"{{value.SubjectAuthorityEpoch}}","incarnation":"{{value.SubjectIncarnation}}"}""");
+            return JsonSerializer.Deserialize<JsonElement>($$"""{"authorityEpoch":"{{value.SubjectAuthorityEpoch}}","incarnation":"{{value.SubjectIncarnation}}","subjectId":"{{value.SubjectId}}"}""");
         }
         public ValueTask DisposeAsync()
         {

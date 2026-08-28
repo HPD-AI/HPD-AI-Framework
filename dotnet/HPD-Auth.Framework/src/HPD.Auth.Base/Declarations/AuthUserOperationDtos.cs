@@ -55,7 +55,7 @@ internal sealed record AuthChangePasswordV1
     [BaseField("auth.operation.user.password.tenantId"), JsonConverter(typeof(BaseCanonicalGuidJsonConverter))] public required Guid TenantId { get; init; }
     [BaseField("auth.operation.user.password.userId"), JsonConverter(typeof(BaseCanonicalGuidJsonConverter))] public required Guid UserId { get; init; }
     [BaseField("auth.operation.user.password.expectedRevision")] public required RevisionToken ExpectedRevision { get; init; }
-    [BaseField("auth.operation.user.password.passwordHash", MinimumUtf8Bytes = 1, MaximumUtf8Bytes = 4096, StringNormalization = BaseStringNormalizationRequirement.RequireNfc), BaseFieldConfidentiality(BaseFieldConfidentiality.Secret)] public required string PasswordHash { get; init; }
+    [BaseField("auth.operation.user.password.passwordHash", MaximumUtf8Bytes = 4096, StringNormalization = BaseStringNormalizationRequirement.RequireNfc), BaseFieldConfidentiality(BaseFieldConfidentiality.Secret)] public required string PasswordHash { get; init; }
     [BaseField("auth.operation.user.password.securityStamp", MinimumUtf8Bytes = 1, MaximumUtf8Bytes = 256, StringNormalization = BaseStringNormalizationRequirement.RequireNfc), BaseFieldConfidentiality(BaseFieldConfidentiality.Secret)] public required string SecurityStamp { get; init; }
     [BaseField("auth.operation.user.password.concurrencyStamp", MinimumUtf8Bytes = 1, MaximumUtf8Bytes = 256, StringNormalization = BaseStringNormalizationRequirement.RequireNfc)] public required string ConcurrencyStamp { get; init; }
     [BaseField("auth.operation.user.password.operationTime"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset OperationTime { get; init; }
@@ -66,7 +66,7 @@ internal sealed record AuthResetPasswordV1
     [BaseField("auth.operation.user.password.reset.tenantId"), JsonConverter(typeof(BaseCanonicalGuidJsonConverter))] public required Guid TenantId { get; init; }
     [BaseField("auth.operation.user.password.reset.userId"), JsonConverter(typeof(BaseCanonicalGuidJsonConverter))] public required Guid UserId { get; init; }
     [BaseField("auth.operation.user.password.reset.expectedRevision")] public required RevisionToken ExpectedRevision { get; init; }
-    [BaseField("auth.operation.user.password.reset.passwordHash", MinimumUtf8Bytes = 1, MaximumUtf8Bytes = 4096, StringNormalization = BaseStringNormalizationRequirement.RequireNfc), BaseFieldConfidentiality(BaseFieldConfidentiality.Secret)] public required string PasswordHash { get; init; }
+    [BaseField("auth.operation.user.password.reset.passwordHash", MaximumUtf8Bytes = 4096, StringNormalization = BaseStringNormalizationRequirement.RequireNfc), BaseFieldConfidentiality(BaseFieldConfidentiality.Secret)] public required string PasswordHash { get; init; }
     [BaseField("auth.operation.user.password.reset.securityStamp", MinimumUtf8Bytes = 1, MaximumUtf8Bytes = 256, StringNormalization = BaseStringNormalizationRequirement.RequireNfc), BaseFieldConfidentiality(BaseFieldConfidentiality.Secret)] public required string SecurityStamp { get; init; }
     [BaseField("auth.operation.user.password.reset.concurrencyStamp", MinimumUtf8Bytes = 1, MaximumUtf8Bytes = 256, StringNormalization = BaseStringNormalizationRequirement.RequireNfc)] public required string ConcurrencyStamp { get; init; }
     [BaseField("auth.operation.user.password.reset.lockoutEnabled")] public required bool LockoutEnabled { get; init; }

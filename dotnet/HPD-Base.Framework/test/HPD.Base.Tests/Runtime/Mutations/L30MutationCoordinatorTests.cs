@@ -465,7 +465,7 @@ public sealed class L30MutationCoordinatorTests
         CollectionId = "items",
         Kind = BaseRecordMutationKind.Patch,
         RecordId = RecordId.Create(recordId),
-        Patch = new RecordPatchRequest { Patch = Payload(("title", title)) }
+        Patch = new RecordPatchRequest { Patch = Payload(("title", title)), RemovedFieldIds = [] }
     };
 
     private static RecordCreateRequest Create(string requestedId) => new()

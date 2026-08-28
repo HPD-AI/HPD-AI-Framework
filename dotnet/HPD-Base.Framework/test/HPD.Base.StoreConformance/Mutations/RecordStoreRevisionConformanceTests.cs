@@ -28,6 +28,7 @@ public abstract class RecordStoreRevisionConformanceTests<TFixture> : RecordStor
             create.Value.Id,
             new RecordPatchRequest
             {
+                RemovedFieldIds = [],
                 ExpectedRevision = create.Value.Metadata.Revision,
                 Patch = RecordStoreConformanceData.Patch(("title", RecordStoreConformanceData.StringElement("patched")))
             },
@@ -76,6 +77,7 @@ public abstract class RecordStoreRevisionConformanceTests<TFixture> : RecordStor
             record.Id,
             new RecordPatchRequest
             {
+                RemovedFieldIds = [],
                 Patch = RecordStoreConformanceData.Patch(("title", RecordStoreConformanceData.StringElement("new"))),
                 ExpectedRevision = stale
             },
@@ -145,6 +147,7 @@ public abstract class RecordStoreRevisionConformanceTests<TFixture> : RecordStor
                 record.Id,
                 new RecordPatchRequest
                 {
+                    RemovedFieldIds = [],
                     ExpectedRevision = expected,
                     Patch = RecordStoreConformanceData.Patch(("title", RecordStoreConformanceData.StringElement("patched")))
                 },

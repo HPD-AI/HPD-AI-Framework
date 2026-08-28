@@ -188,9 +188,10 @@ public sealed class BaseOwnedMutationFact
     internal static BaseOwnedMutationFact FromCanonicalBytes(byte[] bytes, int codecVersion)
     {
         ArgumentNullException.ThrowIfNull(bytes);
-        BaseRecordMutationFact fact = JsonSerializer.Deserialize(bytes, HPDBaseJsonSerializerContext.Default.BaseRecordMutationFact)
+        ArgumentOutOfRangeException.ThrowIfLessThan(codecVersion, 1);
+        _ = JsonSerializer.Deserialize(bytes, HPDBaseJsonSerializerContext.Default.BaseRecordMutationFact)
             ?? throw new InvalidOperationException("The stored mutation fact is invalid.");
-        return Freeze(fact, codecVersion);
+        return new BaseOwnedMutationFact(codecVersion, bytes.ToArray());
     }
 }
 

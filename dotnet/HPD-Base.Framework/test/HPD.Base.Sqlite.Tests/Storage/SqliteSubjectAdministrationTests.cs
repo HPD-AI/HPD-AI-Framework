@@ -977,7 +977,7 @@ VALUES ('subject-restore','subject-restore-instance','baseline-1','checksum-1',1
     }
 
     private static JsonElement Reference(byte[] epoch, byte incarnation) => JsonSerializer.Deserialize<JsonElement>($$"""
-{"subjectId":"subject-one","authorityEpoch":"{{Encode(epoch)}}","incarnation":"{{Encode(Incarnation(incarnation))}}"}
+{"authorityEpoch":"{{Encode(epoch)}}","incarnation":"{{Encode(Incarnation(incarnation))}}","subjectId":"subject-one"}
 """);
 
     private static byte[] Incarnation(byte nonce)
@@ -1050,6 +1050,8 @@ VALUES ('subject-restore','subject-restore-instance','baseline-1','checksum-1',1
                     ContractId = "example.subject",
                     ContractVersion = 1,
                     ContractChecksum = checksum,
+                    SubjectIdKind = BaseSubjectIdKind.OrdinalString,
+                    MaximumSubjectIdUtf8Bytes = 256,
                     Requirement = BaseSubjectReferenceRequirement.Exists,
                     Guarantee = BaseSubjectValidationGuarantee.TransactionSnapshot,
                 },

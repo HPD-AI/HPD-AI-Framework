@@ -91,7 +91,7 @@ internal sealed partial record AuthCleanupWorkReadV1
     [BaseReadParameter("auth.read.cleanupWork.v1.parameter.tenantId")] public required Guid TenantId { get; init; }
     [BaseReadParameter("auth.read.cleanupWork.v1.parameter.subjectKind")] public required AuthCleanupSubjectKindV1 SubjectKind { get; init; }
     [BaseReadParameter("auth.read.cleanupWork.v1.parameter.subjectId")] public required Guid SubjectId { get; init; }
-    [BaseReadParameter("auth.read.cleanupWork.v1.parameter.incarnation")] public required BaseBinary Incarnation { get; init; }
+    [BaseReadParameter("auth.read.cleanupWork.v1.parameter.incarnation", MinimumBytes = 24, MaximumBytes = 24)] public required BaseBinary Incarnation { get; init; }
 
     public sealed partial record Row
     {
@@ -101,7 +101,7 @@ internal sealed partial record AuthCleanupWorkReadV1
         [BaseReadField("auth.read.cleanupWork.v1.row.subjectId")] public required Guid SubjectId { get; init; }
         [BaseReadField("auth.read.cleanupWork.v1.row.userSubject")] public BaseSubjectReference<AuthUserSubject>? UserSubject { get; init; }
         [BaseReadField("auth.read.cleanupWork.v1.row.roleSubject")] public BaseSubjectReference<AuthRoleSubject>? RoleSubject { get; init; }
-        [BaseReadField("auth.read.cleanupWork.v1.row.incarnation")] public required BaseBinary Incarnation { get; init; }
+        [BaseReadField("auth.read.cleanupWork.v1.row.incarnation", MinimumBytes = 24, MaximumBytes = 24)] public required BaseBinary Incarnation { get; init; }
         [BaseReadField("auth.read.cleanupWork.v1.row.tombstoneSequence")] public required long TombstoneSequence { get; init; }
         [BaseReadField("auth.read.cleanupWork.v1.row.tombstoneRevision")] public required string TombstoneRevision { get; init; }
         [BaseReadField("auth.read.cleanupWork.v1.row.workflowVersion")] public required int WorkflowVersion { get; init; }

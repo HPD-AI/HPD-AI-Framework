@@ -565,10 +565,12 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
         try
         {
             BaseRegisteredModuleMutationDefinition module = Definition();
-            var serializer = new Json(BaseSerializerGeneratedContract.CreateOptions(null));
             var moduleIdentity = new BaseGeneratedModuleMutationIdentity<Request, Result>(
-                module.Id, module.Version, module.Checksum.ToArray(), serializer.Request, serializer.Result, [],
-                [BaseModuleDtoPropertyBinding.Create<Result, string>("result.generation", nameof(Result.Generation), BaseGeneratedModuleScalarManifest.Primitive<string>())]);
+                module.Id, module.Version, module.Checksum.ToArray(),
+                SqliteActivationDtos.HPDBaseActivationDtoAuthority.InputTypeInfo,
+                SqliteActivationDtos.HPDBaseActivationDtoAuthority.ResultTypeInfo,
+                SqliteActivationDtos.HPDBaseActivationDtoAuthority.InputBindings.Values.ToArray(),
+                SqliteActivationDtos.HPDBaseActivationDtoAuthority.ResultBindings.Values.ToArray());
             BaseTransactionalActivationRegistration<Request, Result> activation = RuntimeActivation(module);
             BaseSemanticActivationKeyExpression expression = new BaseSemanticActivationKeyConstantExpression
             {
@@ -1358,16 +1360,10 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
         byte[] contractChecksum = SHA256.HashData("subject-contract"u8);
         BaseSemanticActivationKeyDefinition definition = SemanticDefinition() with
         {
-            Compaction = new BaseSemanticActivationSubjectRetirementCompaction
-            {
-                SubjectContract = new()
-                {
-                    ContractId = "test.subject", ContractVersion = 1,
-                    ContractChecksum = contractChecksum.ToImmutableArray(),
-                },
-                SubjectReferenceRequestPropertyId = "request.subject",
-                LifecycleRetirementGrantId = "subject.retire",
-            },
+            Compaction = new BaseSemanticActivationSubjectRetirementCompaction(
+                new BaseSemanticActivationSubjectContractIdentity(
+                    "test.subject", 1, contractChecksum.ToImmutableArray()),
+                "request.subject", "subject.retire"),
             Checksum = SHA256.HashData("semantic-definition-compaction"u8).ToImmutableArray(),
         };
         var lifetime = new BaseSemanticActivationSubjectLifetimeBinding
@@ -1473,7 +1469,9 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
         insert.Parameters.Add("$epoch", SqliteType.Blob).Value = lifetime.AuthorityEpoch.ToArray();
         insert.Parameters.Add("$incarnation", SqliteType.Blob).Value = lifetime.Incarnation.ToArray();
         insert.Parameters.AddWithValue("$lifetime", lifetime.Incarnation.LifetimeGeneration);
-        insert.Parameters.AddWithValue("$position", retired.RetirementPosition);
+        // Final subject retirement is published after semantic retirement in the
+        // supported public lifecycle ordering.
+        insert.Parameters.AddWithValue("$position", checked(retired.RetirementPosition + 1));
         insert.Parameters.AddWithValue("$receipt", Convert.ToHexStringLower(SHA256.HashData("subject-terminal"u8)));
         (await insert.ExecuteNonQueryAsync()).Should().Be(1);
     }
@@ -1696,10 +1694,10 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
     };
 
     private static BaseTransactionalActivationRegistration<Request, Result> RuntimeActivation(
-        BaseRegisteredModuleMutationDefinition module) => BaseActivationDefinitionBuilder.CreateTransactional(new BaseActivationDefinition
+        BaseRegisteredModuleMutationDefinition module) => BaseActivationDefinitionBuilder.CreateGeneratedTransactional(new BaseActivationDefinitionDraft
         {
             Id = "module.semantic.child", Version = 1, OwningModuleId = "module",
-            ExecutionClass = BaseActivationExecutionClass.TransactionalOperation, InputTypeId = "request", ResultTypeId = "result",
+            ExecutionClass = BaseActivationExecutionClass.TransactionalOperation,
             Grants = new BaseActivationGrantSet
             {
                 Enqueue = "activation.enqueue", Observe = "activation.observe", Claim = "activation.claim", Execute = "activation.execute",
@@ -1723,9 +1721,7 @@ SELECT definition_id,binding_id,key_digest,3,slot_generation,$authority FROM hpd
                 OperationId = module.Id, OperationVersion = module.Version,
                 OperationChecksum = Convert.ToHexStringLower(module.Checksum.ToArray()),
             },
-            Checksum = [],
-        }, Json.Default.Request, Json.Default.Result, [],
-        [BaseModuleDtoPropertyBinding.Create<Result, string>("result.generation", nameof(Result.Generation), BaseGeneratedModuleScalarManifest.Primitive<string>())]);
+        }, SqliteActivationDtos.HPDBaseActivationDtoAuthority);
 
     private static DefaultBaseModuleMutationRuntime RuntimeSemantic(
         SqliteRecordStore store,

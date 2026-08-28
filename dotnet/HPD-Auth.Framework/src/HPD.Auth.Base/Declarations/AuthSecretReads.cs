@@ -86,8 +86,8 @@ internal sealed partial record AuthDataProtectionKeysReadV1
         [BaseReadField("auth.read.dataProtectionKeys.v1.row.id")] public required string Id { get; init; }
         [BaseReadField("auth.read.dataProtectionKeys.v1.row.applicationDiscriminator")] public required string ApplicationDiscriminator { get; init; }
         [BaseReadField("auth.read.dataProtectionKeys.v1.row.friendlyName")] public required string FriendlyName { get; init; }
-        [BaseReadField("auth.read.dataProtectionKeys.v1.row.canonicalXml")] public required BaseBinary CanonicalXml { get; init; }
-        [BaseReadField("auth.read.dataProtectionKeys.v1.row.contentDigest")] public required BaseBinary ContentDigest { get; init; }
+        [BaseReadField("auth.read.dataProtectionKeys.v1.row.canonicalXml", MaximumBytes = 262144)] public required BaseBinary CanonicalXml { get; init; }
+        [BaseReadField("auth.read.dataProtectionKeys.v1.row.contentDigest", MaximumBytes = 32)] public required BaseBinary ContentDigest { get; init; }
         [BaseReadField("auth.read.dataProtectionKeys.v1.row.createdAt"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset CreatedAt { get; init; }
         [BaseReadField("auth.read.dataProtectionKeys.v1.row.formatVersion")] public required int FormatVersion { get; init; }
     }
@@ -120,7 +120,7 @@ internal sealed partial record AuthDataProtectionKeysReadV1
     SystemSourceIds = ["auth.passkeys"])]
 internal sealed partial record AuthPasskeyByDigestReadV1
 {
-    [BaseReadParameter("auth.read.passkeyByDigest.v1.parameter.credentialDigest")]
+    [BaseReadParameter("auth.read.passkeyByDigest.v1.parameter.credentialDigest", MaximumBytes = 32)]
     public required BaseBinary CredentialDigest { get; init; }
 
     [BaseReadParameter("auth.read.passkeyByDigest.v1.parameter.tenantHint")]
@@ -131,9 +131,9 @@ internal sealed partial record AuthPasskeyByDigestReadV1
         [BaseReadField("auth.read.passkeyByDigest.v1.row.id")] public required string Id { get; init; }
         [BaseReadField("auth.read.passkeyByDigest.v1.row.tenantId")] public required Guid TenantId { get; init; }
         [BaseReadField("auth.read.passkeyByDigest.v1.row.userId")] public required BaseRecordId<AuthUserRecordV1> UserId { get; init; }
-        [BaseReadField("auth.read.passkeyByDigest.v1.row.credentialDigest")] public required BaseBinary CredentialDigest { get; init; }
-        [BaseReadField("auth.read.passkeyByDigest.v1.row.credentialId")] public required BaseBinary CredentialId { get; init; }
-        [BaseReadField("auth.read.passkeyByDigest.v1.row.publicKey")] public required BaseBinary PublicKey { get; init; }
+        [BaseReadField("auth.read.passkeyByDigest.v1.row.credentialDigest", MaximumBytes = 32)] public required BaseBinary CredentialDigest { get; init; }
+        [BaseReadField("auth.read.passkeyByDigest.v1.row.credentialId", MaximumBytes = 1024)] public required BaseBinary CredentialId { get; init; }
+        [BaseReadField("auth.read.passkeyByDigest.v1.row.publicKey", MaximumBytes = 16384)] public required BaseBinary PublicKey { get; init; }
         [BaseReadField("auth.read.passkeyByDigest.v1.row.signatureCounter")] public required long SignatureCounter { get; init; }
         [BaseReadField("auth.read.passkeyByDigest.v1.row.userVerified")] public required bool UserVerified { get; init; }
         [BaseReadField("auth.read.passkeyByDigest.v1.row.isDiscoverable")] public required bool IsDiscoverable { get; init; }

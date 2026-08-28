@@ -74,6 +74,11 @@ public static class BaseClosedEnumGeneratedContract
             && untyped.TryGetWire(value, out wire);
     }
 
+    internal static bool MatchesWireLiterals(Type enumType, IReadOnlyList<string> wireLiterals) =>
+        Authorities.TryGetValue(enumType, out object? authority)
+        && authority is IBaseClosedEnumGeneratedAuthority untyped
+        && untyped.MatchesWireLiterals(wireLiterals);
+
     private static bool Equivalent<TEnum>(IReadOnlyDictionary<TEnum, string> left, IReadOnlyDictionary<TEnum, string> right) where TEnum : struct, Enum =>
         left.Count == right.Count && left.All(item => right.TryGetValue(item.Key, out string? wire) && string.Equals(item.Value, wire, StringComparison.Ordinal));
 }
@@ -81,6 +86,7 @@ public static class BaseClosedEnumGeneratedContract
 internal interface IBaseClosedEnumGeneratedAuthority
 {
     bool TryGetWire(object value, out string wire);
+    bool MatchesWireLiterals(IReadOnlyList<string> wireLiterals);
 }
 
 internal sealed class BaseClosedEnumGeneratedAuthority<TEnum> : IBaseClosedEnumGeneratedAuthority where TEnum : struct, Enum
@@ -103,4 +109,9 @@ internal sealed class BaseClosedEnumGeneratedAuthority<TEnum> : IBaseClosedEnumG
         wire = string.Empty;
         return false;
     }
+
+
+    bool IBaseClosedEnumGeneratedAuthority.MatchesWireLiterals(IReadOnlyList<string> wireLiterals) =>
+        wireLiterals.Count == FromWire.Count
+        && wireLiterals.All(FromWire.ContainsKey);
 }

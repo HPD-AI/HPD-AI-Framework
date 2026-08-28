@@ -55,7 +55,8 @@ public sealed class ContractHardeningTests
             Content = JsonContent.Create(new RecordPatchRequest
             {
                 ExpectedRevision = new RevisionToken("body"),
-                Patch = TestBaseApp.Patch("title", "patched")
+                Patch = TestBaseApp.Patch("title", "patched"),
+                RemovedFieldIds = []
             }, HPDBaseJsonSerializerContext.Default.RecordPatchRequest)
         };
         patchRequest.Headers.TryAddWithoutValidation(BaseHttpHeaders.IfMatch, "\"header\"");

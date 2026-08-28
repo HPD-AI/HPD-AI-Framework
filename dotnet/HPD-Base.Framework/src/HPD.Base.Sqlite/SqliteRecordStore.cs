@@ -1368,6 +1368,7 @@ FROM {_names.MutationJournal};
         {
             Supported = true, SerializableExecution = true, DurableReceipts = true,
             GenerationCells = true, AtomicRecordAndGenerationCommit = true,
+            MaximumRemovedFieldsPerMutation = 256,
             MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
         },
         Administration = administration,

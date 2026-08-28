@@ -22,6 +22,7 @@ public sealed class RuntimeIntegrationTests
             create.Value!.Id,
             new RecordPatchRequest
             {
+                RemovedFieldIds = [],
                 Patch = InMemoryTestData.Patch("title", "patched"),
                 ExpectedRevision = create.Value.Metadata.Revision
             },

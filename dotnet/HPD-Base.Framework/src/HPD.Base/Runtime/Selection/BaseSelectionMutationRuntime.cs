@@ -620,6 +620,7 @@ internal sealed class BaseSelectionMutationProcessor(
                     ? BaseRecordMutationKind.Patch : BaseRecordMutationKind.Delete,
                 RecordId = record.Id,
                 ProposedPayload = proposed,
+                RemovedFieldIds = patch?.RemovedFieldIds ?? [],
                 Delete = profile.MutationKind == BaseSelectionMutationKind.Delete
                     ? new RecordDeleteRequest { ReturnPrevious = true, ExpectedRevision = record.Metadata.Revision }
                     : null,

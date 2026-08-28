@@ -39,6 +39,7 @@ internal static class BaseLogicalSchemaFactory
             RecordTargetCollectionId = field.RecordTargetCollectionId,
             Confidentiality = field.Confidentiality,
             Disclosure = BaseConfidentialityPolicy.Clone(field.Disclosure ?? BaseConfidentialityPolicy.Default(field.Confidentiality)),
+            MinimumBytes = field.MinimumBytes,
             MaximumBytes = field.MaximumBytes,
             SubjectReference = field.SubjectReference is null ? null : field.SubjectReference with { },
         })).OrderBy(static value => value.Id, StringComparer.Ordinal).ToArray();
@@ -157,12 +158,14 @@ internal static class BaseLogicalSchemaFactory
             Write(writer, (int)value.Confidentiality); Write(writer, (int)value.Disclosure.RecordRead); Write(writer, (int)value.Disclosure.AuthoritativeHistory);
             Write(writer, (int)value.Disclosure.Event); Write(writer, (int)value.Disclosure.Realtime); Write(writer, (int)value.Disclosure.Diagnostic);
             Write(writer, (int)value.Disclosure.AuthoritativeBackup); Write(writer, (int)value.Disclosure.AdministrativeDataExport);
-            Write(writer, (int)value.Disclosure.OrdinaryDataExport); Write(writer, (int)value.Disclosure.Indexing); Write(writer, value.MaximumBytes ?? -1);
+            Write(writer, (int)value.Disclosure.OrdinaryDataExport); Write(writer, (int)value.Disclosure.Indexing);
+            Write(writer, value.MinimumBytes ?? -1); Write(writer, value.MaximumBytes ?? -1);
             if (value.SubjectReference is null) Write(writer, 0);
             else
             {
                 Write(writer, 1); Write(writer, value.SubjectReference.ContractId); Write(writer, value.SubjectReference.ContractVersion);
-                Write(writer, value.SubjectReference.ContractChecksum); Write(writer, (int)value.SubjectReference.Requirement);
+                Write(writer, value.SubjectReference.ContractChecksum); Write(writer, (int)value.SubjectReference.SubjectIdKind);
+                Write(writer, value.SubjectReference.MaximumSubjectIdUtf8Bytes); Write(writer, (int)value.SubjectReference.Requirement);
                 Write(writer, (int)value.SubjectReference.Guarantee);
             }
         }

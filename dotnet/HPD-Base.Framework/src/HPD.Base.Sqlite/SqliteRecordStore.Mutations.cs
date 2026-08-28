@@ -2090,8 +2090,8 @@ WHERE excluded.slot_generation>=slot_generation;
                     BaseCapturedActivationItem capturedItem = captured.Activations.Items[ordinal];
                     BaseActivationCreateIntent intentItem = plan.Activations!.Items[ordinal];
                     byte[] payloadChecksum = SHA256.HashData(intentItem.CanonicalInput.AsSpan());
-                    byte[] controlChecksum = SHA256.HashData(Encoding.UTF8.GetBytes(
-                        $"{capturedItem.ActivationId}\n1\n{intentItem.EffectiveDueAt ?? intentItem.RequestedDueAt}"));
+                    byte[] controlChecksum = BaseActivationControlChecksumContract.Create(
+                        capturedItem.ActivationId, 1, BaseActivationState.Pending).ToArray();
                     activationDigest.AppendData(payloadChecksum); activationDigest.AppendData(controlChecksum);
                     activationItems.Add(new BasePreparedActivationItem
                     {
@@ -2967,6 +2967,7 @@ WHERE excluded.slot_generation>=slot_generation;
                         item.RecordId,
                         item.Current?.Metadata.Revision,
                         PatchDelta(item),
+                        item.RemovedFieldIds,
                         replace: false,
                         BaseCommittedRecordMutationKind.Patch,
                         context,
@@ -2976,6 +2977,7 @@ WHERE excluded.slot_generation>=slot_generation;
                         item.RecordId,
                         item.Current?.Metadata.Revision,
                         item.ProposedPayload!,
+                        [],
                         replace: true,
                         BaseCommittedRecordMutationKind.Replace,
                         context,
@@ -4237,7 +4239,7 @@ WHERE excluded.slot_generation>=slot_generation;
                 return SelectionFailure(OperationStatus.ValidationFailed,
                     "base.provider.selection.limitExceeded", ErrorCategory.Validation);
             int selectedCount = records.Count;
-            ImmutableArray<BaseOwnedSelectedRecord> selectedRecords = records.MoveToImmutable();
+            ImmutableArray<BaseOwnedSelectedRecord> selectedRecords = records.ToImmutable();
             var interval = new BaseAtomicReadIntervalEvidence
             {
                 LogicalAccessPathId = $"collection:{request.Collection.Id}",
@@ -4379,6 +4381,7 @@ WHERE excluded.slot_generation>=slot_generation;
                     id,
                     request.ExpectedRevision,
                     request.Patch,
+                    request.RemovedFieldIds,
                     replace: false,
                     BaseCommittedRecordMutationKind.Patch,
                     context,
@@ -4399,6 +4402,7 @@ WHERE excluded.slot_generation>=slot_generation;
                     id,
                     request.ExpectedRevision,
                     request.Payload,
+                    [],
                     replace: true,
                     BaseCommittedRecordMutationKind.Replace,
                     context,
@@ -4478,9 +4482,9 @@ WHERE excluded.slot_generation>=slot_generation;
             ArgumentNullException.ThrowIfNull(request);BaseSubjectFinalPurgeRequest command=request.Request;BaseSubjectRetirementPolicy? policy=_owner._options.SubjectRetirementPolicies.SingleOrDefault(value=>value.ContractId==command.ContractId&&value.ContractVersion==command.ContractVersion);BaseExportedSubjectDefinition? definition=_owner._options.ExportedSubjects.SingleOrDefault(value=>value.Id==command.ContractId&&value.Version==command.ContractVersion);if(policy is null||definition is null||policy.PolicyChecksum!=request.RetirementPolicyChecksum||BaseSubjectContractGraph.Checksum(definition)!=request.ContractChecksum||policy.PurgeRetention.MinimumTombstoneAge!=request.MinimumTombstoneAge)return RetirementFailure<BaseSubjectRetirementPurgeApplied>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid,OperationStatus.CapabilityUnavailable,ErrorCategory.Capability);BaseProtectedSubjectScope scope=ProtectScope(request.Scope);BaseSubjectRetirementBarrier? barrier=await ReadRetirementBarrierAsync(scope,command.ContractId,command.ContractVersion,command.SubjectId,command.AuthorityEpoch,command.Incarnation,token).ConfigureAwait(false);if(barrier is null||barrier.TombstoneSequence!=command.ExpectedTombstoneSequence||barrier.Generation!=command.ExpectedBarrierGeneration||barrier.BarrierChecksum!=command.ExpectedBarrierChecksum||barrier.State is not(BaseSubjectRetirementBarrierState.Satisfied or BaseSubjectRetirementBarrierState.Overridden)||barrier.RequiredConsumerSetChecksum!=BaseSubjectRetirementRegistry.AcceptedSetChecksum(policy.AcceptedConsumers)||request.ObservedAtUtc<checked(barrier.CreatedAtUtc+request.MinimumTombstoneAge))return RetirementFailure<BaseSubjectRetirementPurgeApplied>("base.subjectRetirement.purgeConflict",OperationStatus.Conflict,ErrorCategory.Conflict);
             string? collectionId=null;RecordId? recordId=null;long sequence=0;await using(SqliteCommand lifetime=_connection.CreateCommand()){lifetime.Transaction=_transaction;lifetime.CommandTimeout=CommandTimeoutSeconds();lifetime.CommandText=$"SELECT private_collection_id,private_record_id,subject_sequence FROM {_owner._names.SubjectLifetimes} WHERE scope_kind=$scopeKind AND scope_index_digest=$scopeDigest AND contract_id=$contract AND contract_version=$version AND subject_id=$subject AND incarnation=$incarnation AND lifecycle_state=$state;";AddRetirementKey(lifetime,scope,command.ContractId,command.ContractVersion,command.SubjectId,command.AuthorityEpoch,command.Incarnation);lifetime.Parameters.AddWithValue("$state",(int)BaseSubjectLifecycleState.Tombstoned);await using SqliteDataReader reader=await lifetime.ExecuteReaderAsync(token).ConfigureAwait(false);if(await reader.ReadAsync(token).ConfigureAwait(false)){collectionId=reader.GetString(0);recordId=RecordId.Create(reader.GetString(1));sequence=reader.GetInt64(2);}}if(collectionId is null||recordId is null)return RetirementFailure<BaseSubjectRetirementPurgeApplied>("base.subjectRetirement.purgeConflict",OperationStatus.Conflict,ErrorCategory.Conflict);CollectionDefinition? collection=(_owner._options.Collections??[]).SingleOrDefault(value=>value.Id==collectionId);if(collection is null)return RetirementFailure<BaseSubjectRetirementPurgeApplied>(BaseSubjectRetirementErrorCodes.ProviderContractInvalid,OperationStatus.CapabilityUnavailable,ErrorCategory.Capability);
             var memberships=ImmutableArray.CreateBuilder<BaseSubjectLifecycleMembershipPlanItem>();foreach(BaseSubjectLifecycleConsumerDefinition consumer in _owner._options.SubjectLifecycleConsumers.Where(value=>value.ContractId==command.ContractId&&value.ContractVersion==command.ContractVersion&&value.ObservedStates.Contains(BaseSubjectLifecycleState.Retired))){await using SqliteCommand projection=_connection.CreateCommand();projection.Transaction=_transaction;projection.CommandTimeout=CommandTimeoutSeconds();projection.CommandText=$"SELECT consumer_checksum,projection_generation FROM {_owner._names.SubjectLifecycleConsumers} WHERE consumer_id=$consumer AND consumer_version=$version AND state=0;";projection.Parameters.AddWithValue("$consumer",consumer.Id);projection.Parameters.AddWithValue("$version",consumer.Version);await using SqliteDataReader reader=await projection.ExecuteReaderAsync(token).ConfigureAwait(false);if(await reader.ReadAsync(token).ConfigureAwait(false))memberships.Add(new(){ConsumerId=consumer.Id,ConsumerVersion=consumer.Version,ConsumerChecksum=reader.GetString(0),ProjectionGeneration=reader.GetInt64(1),MatchedObservedState=BaseSubjectLifecycleState.Retired});}
-            var context=new RecordMutationSessionContext{ItemId="subject-retirement-purge",RequestedOperation=BaseRecordMutationKind.Delete,EventId=Guid.NewGuid().ToString("N"),Operation=request.Operation,ChangedFields=[]};OperationResult<RecordMutationSessionResult> deleted=await DeleteCoreAsync(collection,recordId.Value,new(){ExpectedRevision=command.ExpectedPrivateRevision,ReturnPrevious=true},context,token).ConfigureAwait(false);if(!deleted.IsSuccess()||deleted.Value is null)return new(){Status=deleted.Status,Error=deleted.Error};var lifecyclePlan=new BaseSubjectLifecyclePlanItem{ContractId=command.ContractId,ContractVersion=command.ContractVersion,ContractChecksum=request.ContractChecksum,Kind=BaseSubjectLifecycleMutationKind.Retire,SubjectId=command.SubjectId,PreviousState=BaseSubjectLifecycleState.Tombstoned,ResultingState=BaseSubjectLifecycleState.Retired,PublishFact=true,Memberships=memberships.MoveToImmutable()};var item=new BaseAtomicMutationPlanItem{Ordinal=0,ItemId="subject-retirement-purge",EventId=context.EventId,Collection=collection,Kind=BaseCommittedRecordMutationKind.Delete,RequestedKind=BaseRecordMutationKind.Delete,RecordId=recordId.Value,Delete=new(){ExpectedRevision=command.ExpectedPrivateRevision,ReturnPrevious=true},Current=deleted.Value.Mutation.Before,ChangedFields=[],SubjectLifecycle=lifecyclePlan,Operation=request.Operation};OperationResult<BaseSubjectLifecycleCommitEvidence> lifecycle=await ApplySubjectLifecycleAsync(item,lifecyclePlan,null,deleted.Value.Mutation.JournalPosition,token).ConfigureAwait(false);if(!lifecycle.IsSuccess()||lifecycle.Value is null)return new(){Status=lifecycle.Status,Error=lifecycle.Error};BaseRecordMutationFact fact=deleted.Value.Mutation with{SubjectLifecycle=lifecycle.Value};
+            var context=new RecordMutationSessionContext{ItemId="subject-retirement-purge",RequestedOperation=BaseRecordMutationKind.Delete,EventId=Guid.NewGuid().ToString("N"),Operation=request.Operation,ChangedFields=[]};OperationResult<RecordMutationSessionResult> deleted=await DeleteCoreAsync(collection,recordId.Value,new(){ExpectedRevision=command.ExpectedPrivateRevision,ReturnPrevious=true},context,token).ConfigureAwait(false);if(!deleted.IsSuccess()||deleted.Value is null)return new(){Status=deleted.Status,Error=deleted.Error};var lifecyclePlan=new BaseSubjectLifecyclePlanItem{ContractId=command.ContractId,ContractVersion=command.ContractVersion,ContractChecksum=request.ContractChecksum,Kind=BaseSubjectLifecycleMutationKind.Retire,SubjectId=command.SubjectId,PreviousState=BaseSubjectLifecycleState.Tombstoned,ResultingState=BaseSubjectLifecycleState.Retired,PublishFact=true,Memberships=memberships.ToImmutable()};var item=new BaseAtomicMutationPlanItem{Ordinal=0,ItemId="subject-retirement-purge",EventId=context.EventId,Collection=collection,Kind=BaseCommittedRecordMutationKind.Delete,RequestedKind=BaseRecordMutationKind.Delete,RecordId=recordId.Value,RemovedFieldIds=[],Delete=new(){ExpectedRevision=command.ExpectedPrivateRevision,ReturnPrevious=true},Current=deleted.Value.Mutation.Before,ChangedFields=[],SubjectLifecycle=lifecyclePlan,Operation=request.Operation};OperationResult<BaseSubjectLifecycleCommitEvidence> lifecycle=await ApplySubjectLifecycleAsync(item,lifecyclePlan,null,deleted.Value.Mutation.JournalPosition,token).ConfigureAwait(false);if(!lifecycle.IsSuccess()||lifecycle.Value is null)return new(){Status=lifecycle.Status,Error=lifecycle.Error};BaseRecordMutationFact fact=deleted.Value.Mutation with{SubjectLifecycle=lifecycle.Value};
             var acknowledgements=ImmutableArray.CreateBuilder<BaseSubjectTerminalAcknowledgement>();await using(SqliteCommand rows=_connection.CreateCommand()){rows.Transaction=_transaction;rows.CommandTimeout=CommandTimeoutSeconds();rows.CommandText=$"SELECT consumer_id,consumer_version,consumer_checksum,through_sequence,disposition,retirement_position FROM {_owner._names.SubjectRetirementAcknowledgements} WHERE scope_kind=$scopeKind AND scope_index_digest=$scopeDigest AND contract_id=$contract AND contract_version=$version AND subject_id=$subject AND authority_epoch=$epoch AND incarnation=$incarnation ORDER BY consumer_id,consumer_version;";AddRetirementKey(rows,scope,command.ContractId,command.ContractVersion,command.SubjectId,command.AuthorityEpoch,command.Incarnation);await using SqliteDataReader reader=await rows.ExecuteReaderAsync(token).ConfigureAwait(false);while(await reader.ReadAsync(token).ConfigureAwait(false))acknowledgements.Add(new(){ConsumerId=reader.GetString(0),ConsumerVersion=reader.GetInt32(1),ConsumerChecksum=reader.GetString(2),ThroughSubjectSequence=reader.GetInt64(3),Disposition=(BaseSubjectAcknowledgementDisposition)reader.GetInt32(4),AcknowledgedPosition=new(reader.GetInt64(5))});}
-            var terminal=new BaseSubjectRetirementTerminalReceipt{ContractId=command.ContractId,ContractVersion=command.ContractVersion,SubjectId=command.SubjectId,Scope=scope,AuthorityEpoch=command.AuthorityEpoch,Incarnation=command.Incarnation,TombstoneSequence=barrier.TombstoneSequence,AuthorizingState=barrier.State,FinalBarrierGeneration=barrier.Generation,FinalBarrierChecksum=barrier.BarrierChecksum,RequiredConsumerSetChecksum=barrier.RequiredConsumerSetChecksum,Acknowledgements=acknowledgements.MoveToImmutable(),RetiredPosition=deleted.Value.Mutation.JournalPosition,PurgedAtUtc=request.ObservedAtUtc,ReceiptChecksum=string.Empty};terminal=terminal with{ReceiptChecksum=BaseSubjectRetirementRegistry.TerminalChecksum(terminal)};byte[] acknowledgementBytes=Encoding.UTF8.GetBytes(string.Join('\n',terminal.Acknowledgements.Select(static value=>$"{value.ConsumerId}\0{value.ConsumerVersion}\0{value.ConsumerChecksum}\0{value.ThroughSubjectSequence}\0{(int)value.Disposition}\0{value.AcknowledgedPosition.Value}")));
+            var terminal=new BaseSubjectRetirementTerminalReceipt{ContractId=command.ContractId,ContractVersion=command.ContractVersion,SubjectId=command.SubjectId,Scope=scope,AuthorityEpoch=command.AuthorityEpoch,Incarnation=command.Incarnation,TombstoneSequence=barrier.TombstoneSequence,AuthorizingState=barrier.State,FinalBarrierGeneration=barrier.Generation,FinalBarrierChecksum=barrier.BarrierChecksum,RequiredConsumerSetChecksum=barrier.RequiredConsumerSetChecksum,Acknowledgements=acknowledgements.ToImmutable(),RetiredPosition=deleted.Value.Mutation.JournalPosition,PurgedAtUtc=request.ObservedAtUtc,ReceiptChecksum=string.Empty};terminal=terminal with{ReceiptChecksum=BaseSubjectRetirementRegistry.TerminalChecksum(terminal)};byte[] acknowledgementBytes=Encoding.UTF8.GetBytes(string.Join('\n',terminal.Acknowledgements.Select(static value=>$"{value.ConsumerId}\0{value.ConsumerVersion}\0{value.ConsumerChecksum}\0{value.ThroughSubjectSequence}\0{(int)value.Disposition}\0{value.AcknowledgedPosition.Value}")));
             await using(SqliteCommand insert=_connection.CreateCommand()){insert.Transaction=_transaction;insert.CommandTimeout=CommandTimeoutSeconds();insert.CommandText=$"INSERT INTO {_owner._names.SubjectRetirementTerminals}(scope_kind,scope_index_digest,protected_scope_value,contract_id,contract_version,subject_id,authority_epoch,incarnation,tombstone_sequence,authorizing_state,final_barrier_generation,final_barrier_checksum,required_consumer_set_checksum,acknowledgements_blob,retired_position,purged_at,receipt_checksum) VALUES($scopeKind,$scopeDigest,$scopeValue,$contract,$version,$subject,$epoch,$incarnation,$sequence,$state,$generation,$barrierChecksum,$set,$acknowledgements,$position,$purged,$receipt) ON CONFLICT(scope_kind,scope_index_digest,contract_id,contract_version,subject_id) DO UPDATE SET protected_scope_value=excluded.protected_scope_value,authority_epoch=excluded.authority_epoch,incarnation=excluded.incarnation,tombstone_sequence=excluded.tombstone_sequence,authorizing_state=excluded.authorizing_state,final_barrier_generation=excluded.final_barrier_generation,final_barrier_checksum=excluded.final_barrier_checksum,required_consumer_set_checksum=excluded.required_consumer_set_checksum,acknowledgements_blob=excluded.acknowledgements_blob,retired_position=excluded.retired_position,purged_at=excluded.purged_at,receipt_checksum=excluded.receipt_checksum;";insert.Parameters.AddWithValue("$scopeKind",(int)scope.Kind);insert.Parameters.Add("$scopeDigest",SqliteType.Blob).Value=scope.IndexDigest;insert.Parameters.Add("$scopeValue",SqliteType.Blob).Value=scope.ProtectedCanonicalValue;insert.Parameters.AddWithValue("$contract",command.ContractId);insert.Parameters.AddWithValue("$version",command.ContractVersion);insert.Parameters.AddWithValue("$subject",command.SubjectId.Value);insert.Parameters.Add("$epoch",SqliteType.Blob).Value=command.AuthorityEpoch.ToArray();insert.Parameters.Add("$incarnation",SqliteType.Blob).Value=command.Incarnation.ToArray();insert.Parameters.AddWithValue("$sequence",barrier.TombstoneSequence);insert.Parameters.AddWithValue("$state",(int)barrier.State);insert.Parameters.AddWithValue("$generation",barrier.Generation);insert.Parameters.AddWithValue("$barrierChecksum",barrier.BarrierChecksum);insert.Parameters.AddWithValue("$set",barrier.RequiredConsumerSetChecksum);insert.Parameters.Add("$acknowledgements",SqliteType.Blob).Value=acknowledgementBytes;insert.Parameters.AddWithValue("$position",deleted.Value.Mutation.JournalPosition.Value);insert.Parameters.AddWithValue("$purged",request.ObservedAtUtc.ToString("O",CultureInfo.InvariantCulture));insert.Parameters.AddWithValue("$receipt",terminal.ReceiptChecksum);await insert.ExecuteNonQueryAsync(token).ConfigureAwait(false);}
             foreach(string table in new[]{_owner._names.SubjectRetirementAcknowledgements,_owner._names.SubjectRetirementBarriers}){await using SqliteCommand remove=_connection.CreateCommand();remove.Transaction=_transaction;remove.CommandTimeout=CommandTimeoutSeconds();remove.CommandText=$"DELETE FROM {table} WHERE scope_kind=$scopeKind AND scope_index_digest=$scopeDigest AND contract_id=$contract AND contract_version=$version AND subject_id=$subject AND authority_epoch=$epoch AND incarnation=$incarnation;";AddRetirementKey(remove,scope,command.ContractId,command.ContractVersion,command.SubjectId,command.AuthorityEpoch,command.Incarnation);await remove.ExecuteNonQueryAsync(token).ConfigureAwait(false);}long publicationPosition=await NextRetirementPositionAsync(token).ConfigureAwait(false);await WriteRetirementPublicationAsync(scope,new(){Position=new(publicationPosition),Kind=BaseSubjectRetirementPublicationKind.SubjectPurged,Purged=new(){ContractId=command.ContractId,ContractVersion=command.ContractVersion,SubjectId=command.SubjectId,AuthorityEpoch=command.AuthorityEpoch,Incarnation=command.Incarnation,TombstoneSequence=barrier.TombstoneSequence,FinalBarrierGeneration=barrier.Generation,FinalBarrierChecksum=barrier.BarrierChecksum,TerminalReceiptChecksum=terminal.ReceiptChecksum,RetiredLifecyclePosition=deleted.Value.Mutation.JournalPosition}},token).ConfigureAwait(false);long retiredSequence=checked(sequence+1);return OperationResults.Ok(new BaseSubjectRetirementPurgeApplied{Result=new(){Outcome=BaseSubjectRetirementMutationOutcome.Applied,RetiredSubjectSequence=retiredSequence,RetiredPosition=deleted.Value.Mutation.JournalPosition,TerminalReceiptChecksum=terminal.ReceiptChecksum},Mutation=fact,Terminal=terminal});
         });
@@ -4916,6 +4920,7 @@ WHERE excluded.slot_generation>=slot_generation;
             RecordId id,
             RevisionToken? expectedRevision,
             RecordPayload payload,
+            ImmutableArray<string> removedFieldIds,
             bool replace,
             BaseCommittedRecordMutationKind committedOperation,
             RecordMutationSessionContext context,
@@ -4929,8 +4934,19 @@ WHERE excluded.slot_generation>=slot_generation;
                 return registrationError;
             if (SqliteValidation.ValidateRecordId<RecordMutationSessionResult>(id) is { } idError)
                 return idError;
-            if (_owner.ValidatePayload<RecordMutationSessionResult>(collection, payload) is { } payloadError)
+            bool removalOnlyPatch = !replace && !removedFieldIds.IsDefaultOrEmpty
+                && payload.Kind == RecordPayloadKind.FieldMap && (payload.Fields?.Count ?? 0) == 0;
+            if (!removalOnlyPatch
+                && _owner.ValidatePayload<RecordMutationSessionResult>(collection, payload) is { } payloadError)
                 return payloadError;
+            if (removedFieldIds.IsDefault
+                || !removedFieldIds.SequenceEqual(removedFieldIds.Order(StringComparer.Ordinal), StringComparer.Ordinal)
+                || removedFieldIds.Distinct(StringComparer.Ordinal).Count() != removedFieldIds.Length
+                || (replace && !removedFieldIds.IsEmpty))
+                return SqliteResultFactory.Validation<RecordMutationSessionResult>(
+                    SqliteErrorCodes.InvalidField,
+                    "Patch removal identifiers are invalid.",
+                    id.Value);
             if (!SqliteRecordMapper.TryParseRevision(expectedRevision, out var expected))
                 return SqliteResultFactory.Validation<RecordMutationSessionResult>(
                     SqliteErrorCodes.InvalidRevisionToken,
@@ -4961,6 +4977,27 @@ WHERE excluded.slot_generation>=slot_generation;
             var nextPayload = replace
                 ? SqliteRecordSerializer.Clone(payload)
                 : SqliteRecordSerializer.Merge(before.Payload, payload);
+            if (!replace && !removedFieldIds.IsEmpty)
+            {
+                if (nextPayload.Kind != RecordPayloadKind.FieldMap || nextPayload.Fields is null)
+                    return SqliteResultFactory.Validation<RecordMutationSessionResult>(
+                        SqliteErrorCodes.InvalidField,
+                        "Patch removal identifiers are invalid.",
+                        id.Value);
+                foreach (string fieldId in removedFieldIds)
+                {
+                    FieldDefinition? field = collection.Fields?.SingleOrDefault(candidate =>
+                        string.Equals(candidate.Id, fieldId, StringComparison.Ordinal));
+                    if (field is null || field.Presence != BaseFieldPresence.Optional
+                        || field.Nullability != BaseFieldNullability.NonNullable || field.ReadOnly
+                        || (payload.Fields?.ContainsKey(field.WireName) ?? false))
+                        return SqliteResultFactory.Validation<RecordMutationSessionResult>(
+                            SqliteErrorCodes.InvalidField,
+                            "Patch removal identifiers are invalid.",
+                            id.Value);
+                    nextPayload.Fields.Remove(field.WireName);
+                }
+            }
             SqlitePhysicalModel.CollectionModel physical = _owner._physical.Collection(collection.Id);
             await using var command = _connection.CreateCommand();
             command.Transaction = _transaction;
@@ -5023,7 +5060,7 @@ WHERE excluded.slot_generation>=slot_generation;
             RecordMutationSessionContext context,
             CancellationToken cancellationToken)
         {
-            if (MutationModeFailure(collection, context.Operation.Operation) is { } modeError)
+            if (MutationModeFailure(collection, BaseOperationKind.Delete) is { } modeError)
                 return modeError;
             if (SqliteValidation.ValidateCollectionId<RecordMutationSessionResult>(collection.Id) is { } collectionError)
                 return collectionError;

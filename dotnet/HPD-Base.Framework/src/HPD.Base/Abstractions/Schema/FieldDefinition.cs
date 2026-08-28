@@ -42,7 +42,9 @@ public sealed record FieldDefinition
     public BaseFieldConfidentiality Confidentiality { get; init; } = BaseFieldConfidentiality.Public;
     /// <summary>Gets the normalized complete disclosure policy.</summary>
     public BaseFieldDisclosurePolicy? Disclosure { get; init; }
-    /// <summary>Gets the decoded byte limit for a binary field.</summary>
+    /// <summary>Gets the decoded byte minimum for a binary field.</summary>
+    public int? MinimumBytes { get; init; }
+    /// <summary>Gets the decoded byte maximum for a binary field.</summary>
     public int? MaximumBytes { get; init; }
     /// <summary>Gets or sets default.</summary>
     public DefaultValueDescriptor? Default { get; init; }

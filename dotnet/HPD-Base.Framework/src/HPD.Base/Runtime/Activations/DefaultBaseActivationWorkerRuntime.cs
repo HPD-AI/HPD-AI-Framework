@@ -69,7 +69,7 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
             return CopyFailure<BaseActivationDispatchResult, BaseTransactionalActivationCandidate>(read);
         BaseTransactionalActivationCandidate candidate = read.Value;
         if (!CandidateMatches(candidate, definition, now.CapturedUtc))
-            return Failure<BaseActivationDispatchResult>(OperationStatus.StoreError, "base.activation.providerContractInvalid", ErrorCategory.Store);
+            return ProviderContractInvalid<BaseActivationDispatchResult>();
         string targetKind;
         string targetId;
         int targetVersion;
@@ -392,7 +392,7 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
         if (!result.IsSuccess() || result.Value is null) return result;
         return ClaimsEqual(result.Value.Claim, claim) && result.Value.Lease.LeaseRevision == checked(lease.LeaseRevision + 1)
             ? result
-            : Failure<BaseActivationRenewResult>(OperationStatus.StoreError, "base.activation.providerContractInvalid", ErrorCategory.Store);
+            : ProviderContractInvalid<BaseActivationRenewResult>();
     }
 
     public ValueTask<OperationResult<BaseActivationTransitionResult>> CompleteAsync(
@@ -574,7 +574,7 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
             && value.Accounting.TransientBytes <= definition.Limits.Provider.MaximumTransientBytes;
         return valid
             ? resolved
-            : Failure<BaseActivationReceiptResolution>(OperationStatus.StoreError, "base.activation.providerContractInvalid", ErrorCategory.Store);
+            : ProviderContractInvalid<BaseActivationReceiptResolution>();
     }
 
     private async ValueTask<bool> IsReplayAuthorizedAsync(
@@ -727,7 +727,7 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
         return values.Length == 1 ? values[0] : null;
     }
 
-    private static OperationResult<BaseActivationDueObservation> ValidateObservation(
+    private OperationResult<BaseActivationDueObservation> ValidateObservation(
         OperationResult<BaseActivationDueObservation> result,
         BaseActivationExecutionLimits limits)
     {
@@ -736,10 +736,10 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
         bool valid = value.Token.Value is { Length: > 0 } && value.Intervals.Length is > 0 &&
             value.Intervals.Length <= limits.MaximumReadIntervals && value.Accounting.Candidates <= limits.MaximumCandidates &&
             value.Accounting.EvidenceBytes <= limits.MaximumEvidenceBytes && value.Accounting.TransientBytes <= limits.MaximumTransientBytes;
-        return valid ? result : Failure<BaseActivationDueObservation>(OperationStatus.StoreError, "base.activation.providerContractInvalid", ErrorCategory.Store);
+        return valid ? result : ProviderContractInvalid<BaseActivationDueObservation>();
     }
 
-    private static OperationResult<BaseActivationClaimResult> ValidateClaim(
+    private OperationResult<BaseActivationClaimResult> ValidateClaim(
         OperationResult<BaseActivationClaimResult> result,
         BaseActivationDefinition definition,
         BaseActivationWorkerAuthority worker)
@@ -753,7 +753,7 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
             claimed.Claim.FencingToken.Length == 32 && claimed.Lease.LeaseRevision > 0 && claimed.Lease.LeaseExpiresAt > claimed.Attempt.StartedAt &&
             claimed.Intervals.Length > 0 && claimed.Accounting.EvidenceBytes <= definition.Limits.Provider.MaximumEvidenceBytes &&
             worker.Definitions.Length == 1;
-        return valid ? result : Failure<BaseActivationClaimResult>(OperationStatus.StoreError, "base.activation.providerContractInvalid", ErrorCategory.Store);
+        return valid ? result : ProviderContractInvalid<BaseActivationClaimResult>();
     }
 
     private static bool CandidateMatches(
@@ -811,6 +811,12 @@ internal sealed class DefaultBaseActivationWorkerRuntime(
         ulong sample = System.Buffers.Binary.BinaryPrimitives.ReadUInt64BigEndian(digest);
         return checked(Math.Min(profile.MaximumDelayMilliseconds, delay + (long)(sample % checked((ulong)maximumJitter + 1))));
     }
+    private OperationResult<T> ProviderContractInvalid<T>()
+    {
+        providerGate.QuarantineContractViolation();
+        return BaseActivationFailureContract.ProviderContractInvalid<T>();
+    }
+
     private static OperationResult<T> Failure<T>(OperationStatus status, string code, ErrorCategory category) => new()
     { Status = status, Error = new BaseError { Code = code, Message = "The activation operation could not be completed.", Category = category } };
     private static OperationResult<T> CopyFailure<T, TSource>(OperationResult<TSource> source) => new()

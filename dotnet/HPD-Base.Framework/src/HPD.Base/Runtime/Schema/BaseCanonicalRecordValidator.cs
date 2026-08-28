@@ -65,7 +65,8 @@ public static class BaseCanonicalRecordValidator
     {
         if (value.ValueKind != JsonValueKind.String) return false;
         byte[] bytes = Convert.FromBase64String(value.GetString()!);
-        return constraints.MaximumBinaryBytes is not { } maximum || bytes.Length <= maximum;
+        return bytes.Length >= (constraints.MinimumBinaryBytes ?? 0)
+            && (constraints.MaximumBinaryBytes is not { } maximum || bytes.Length <= maximum);
     }
 
     private static bool Int32(JsonElement value, BaseScalarConstraintSet constraints) => value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out int item) && (constraints.MinimumInt32 is not { } minimum || item >= minimum) && (constraints.MaximumInt32 is not { } maximum || item <= maximum);

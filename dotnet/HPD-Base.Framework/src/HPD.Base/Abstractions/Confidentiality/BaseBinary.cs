@@ -46,12 +46,20 @@ public sealed class BaseBinaryJsonConverter : JsonConverter<BaseBinary>
     /// <inheritdoc />
     public override BaseBinary Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
-        if (reader.TokenType != JsonTokenType.String || reader.HasValueSequence)
+        const int maximumEncodedBytes = ((MaximumDecodedBytes + 2) / 3) * 4;
+        const long maximumEscapedTokenBytes = (long)maximumEncodedBytes * 6;
+        if (reader.TokenType != JsonTokenType.String)
             throw new JsonException(BaseBinaryErrorCodes.EncodingInvalid);
-        ReadOnlySpan<byte> encoded = reader.ValueSpan;
-        if (encoded.Length > ((MaximumDecodedBytes + 2) / 3) * 4 || encoded.Length % 4 != 0)
-            throw new JsonException(encoded.Length > MaximumDecodedBytes ? BaseBinaryErrorCodes.ValueTooLarge : BaseBinaryErrorCodes.EncodingInvalid);
-        string text = Encoding.UTF8.GetString(encoded);
+        long rawTokenBytes = reader.HasValueSequence ? reader.ValueSequence.Length : reader.ValueSpan.Length;
+        if (rawTokenBytes > maximumEscapedTokenBytes)
+            throw new JsonException(BaseBinaryErrorCodes.ValueTooLarge);
+        if (reader.GetString() is not { } text)
+            throw new JsonException(BaseBinaryErrorCodes.EncodingInvalid);
+        int encodedBytes = Encoding.UTF8.GetByteCount(text);
+        if (encodedBytes > maximumEncodedBytes)
+            throw new JsonException(BaseBinaryErrorCodes.ValueTooLarge);
+        if (encodedBytes % 4 != 0)
+            throw new JsonException(BaseBinaryErrorCodes.EncodingInvalid);
         try { return Decode(text); }
         catch (ArgumentOutOfRangeException exception) { throw new JsonException(BaseBinaryErrorCodes.ValueTooLarge, exception); }
         catch (FormatException exception) { throw new JsonException(BaseBinaryErrorCodes.EncodingInvalid, exception); }

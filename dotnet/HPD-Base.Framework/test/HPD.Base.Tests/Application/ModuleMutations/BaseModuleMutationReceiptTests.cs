@@ -5,6 +5,47 @@ namespace HPD.Base.Tests.Application.ModuleMutations;
 
 public sealed class BaseModuleMutationReceiptTests
 {
+    [Fact]
+    public void Owned_mutation_fact_retains_validated_canonical_bytes_without_reserialization()
+    {
+        var fact = new BaseRecordMutationFact
+        {
+            RequestedOperation = BaseRecordMutationKind.Delete,
+            CommittedOperation = BaseCommittedRecordMutationKind.Delete,
+            Collection = new CollectionDefinition
+            {
+                Id = "proof.records", Name = "proof.records", Kind = "base",
+                SchemaMode = SchemaMode.Loose, UnknownFields = UnknownFieldPolicy.Preserve,
+                SerializerContractChecksum = new string('a', 64),
+            },
+            Event = new EventReference { EventId = "event-1", Type = BaseEventTypes.RecordDeleted },
+            ChangedFields = ["status"],
+        };
+        byte[] canonical = BaseOwnedMutationFact.Freeze(fact, 1).CopyCanonicalBytes();
+
+        BaseOwnedMutationFact restored = BaseOwnedMutationFact.FromCanonicalBytes(canonical, 1);
+        var receipt = new BaseAtomicReceiptResult
+        {
+            Kind = BaseAtomicReceiptResultKind.ModuleMutation,
+            Mutations = [restored],
+            ModuleMutation = new BaseModuleMutationReceiptResult
+            {
+                OperationId = "proof.operation", OperationVersion = 1,
+                Disposition = BaseMutationRequestDisposition.Committed,
+                Outcome = BaseModuleMutationOutcome.Committed,
+                Generations = [], CanonicalResultBytes = "{}"u8.ToArray().ToImmutableArray(),
+            },
+        };
+        byte[] receiptBytes = JsonSerializer.SerializeToUtf8Bytes(
+            BaseAtomicReceiptWire.From(receipt), HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire);
+        BaseAtomicReceiptResult replayed = JsonSerializer.Deserialize(
+            receiptBytes, HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire)!.Materialize();
+
+        restored.CopyCanonicalBytes().Should().Equal(canonical);
+        restored.MaterializeOwned().Collection.SerializerContractChecksum.Should().Be(new string('a', 64));
+        replayed.Mutations.Should().ContainSingle().Which.CopyCanonicalBytes().Should().Equal(canonical);
+    }
+
     [Theory]
     [InlineData(BaseSemanticActivationMaintenanceDisposition.Completed, BaseMutationRequestDisposition.Committed, true)]
     [InlineData(BaseSemanticActivationMaintenanceDisposition.Completed, BaseMutationRequestDisposition.Duplicate, false)]

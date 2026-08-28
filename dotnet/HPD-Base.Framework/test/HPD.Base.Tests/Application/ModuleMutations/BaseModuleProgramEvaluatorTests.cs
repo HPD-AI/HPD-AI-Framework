@@ -30,7 +30,19 @@ public sealed class BaseModuleProgramEvaluatorTests
             typeof(BaseModuleRecordCapture), typeof(BaseModuleGenerationCapture),
             typeof(BaseModuleRevisionEqualsGuard), typeof(BaseModuleFieldEqualsGuard),
             typeof(BaseModuleFieldComparisonGuard), typeof(BaseModuleFieldPresenceGuard),
-            typeof(BaseModuleGenerationGuard), typeof(BaseModuleCreateStatement),
+            typeof(BaseModuleGenerationGuard), typeof(BaseModuleValueEqualsGuard),
+            typeof(BaseModuleValueComparisonGuard), typeof(BaseModuleValuePresenceGuard),
+            typeof(BaseModuleSetGuard), typeof(BaseModulePrecondition),
+            typeof(BaseModuleRecordIdConversionExpression),
+            typeof(BaseModuleGenerationKeyFromGuidExpression),
+            typeof(BaseModuleMissingExpression), typeof(BaseModulePresenceLiftExpression),
+            typeof(BaseModuleConditionalExpression), typeof(BaseModuleCoalesceExpression),
+            typeof(BaseModuleIncarnationBytesExpression),
+            typeof(BaseModuleSemanticActivationDispositionExpression),
+            typeof(BaseModuleSemanticActivationIdExpression),
+            typeof(BaseModuleSemanticActivationWasMaterializedExpression),
+            typeof(BaseModuleSemanticActivationRetirementDispositionExpression),
+            typeof(BaseModuleCreateStatement),
             typeof(BaseModulePatchStatement), typeof(BaseModuleReplaceStatement),
             typeof(BaseModuleDeleteStatement), typeof(BaseModuleUpsertStatement),
             typeof(BaseModuleResultProjection),
@@ -40,7 +52,8 @@ public sealed class BaseModuleProgramEvaluatorTests
             type.GetConstructors(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
                 .Should().BeEmpty(type.FullName);
 
-        opaqueNodes.SelectMany(static type => type.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+        opaqueNodes.Where(static type => !typeof(BaseModuleValueExpression).IsAssignableFrom(type))
+            .SelectMany(static type => type.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
             .Should().NotContain(property => forbidden.Contains(property.PropertyType),
                 "opaque graph nodes must not reveal reusable raw expressions or authority");
     }
@@ -190,7 +203,7 @@ public sealed class BaseModuleProgramEvaluatorTests
     public void Canonical_checksum_matches_the_locked_template_byte_vector()
     {
         string actual = Convert.ToHexString(GenerationDefinition().Checksum.ToArray());
-        actual.Should().Be("D231AC568882B77CCA96DDF60AE9C2CF11016F17488AAE90AA69F3CBC938E8C5");
+        actual.Should().Be("4A7B2BFFC1E34976A4125D9BAB73336FCF3C8DC97078206A41DF3CBEFC4B5386");
     }
 
     [Fact]
@@ -221,8 +234,9 @@ public sealed class BaseModuleProgramEvaluatorTests
             },
         };
 
-        Convert.ToHexString(BaseModuleMutationContract.ComputeChecksum(definition).ToArray())
-            .Should().Be("2EBF822D81AFF749F2CD4C35DD80E3A771E0137F61BADB56F4E2B7440BA0C514");
+        string ordered = Convert.ToHexString(BaseModuleMutationContract.ComputeChecksum(definition).ToArray());
+        ordered
+            .Should().Be("36E7991690CE7E36124D8637B70D5AD5AF4E1068D97C0E970AB26DAF1329F5DA");
     }
 
     [Fact]
@@ -360,6 +374,7 @@ public sealed class BaseModuleProgramEvaluatorTests
                 Captures = [BaseModuleMutationTemplateBuilder.CaptureGenerationRaw(
                     "generation", "module.generation", null, BaseModuleGenerationAbsenceBehavior.AllowEither)],
                 Guards = [],
+                Preconditions = [],
                 Body = BaseModuleMutationTemplateBuilder.Block(
                     BaseModuleMutationTemplateBuilder.IncrementGeneration("increment", "generation", true)),
                 Result = BaseModuleMutationTemplateBuilder.ResultRaw(
@@ -498,6 +513,7 @@ public sealed class BaseModuleProgramEvaluatorTests
                     new BaseModuleGenerationCapture { Id = "b", CellId = "module.b", Absence = BaseModuleGenerationAbsenceBehavior.AllowEither },
                 ],
                 Guards = [new BaseModuleGenerationGuard { Id = "choose-a", CaptureId = "a", Comparison = BaseModuleGenerationComparisonKind.MustBeMissing }],
+                Preconditions = [],
                 Body = BaseModuleMutationTemplateBuilder.Block(new BaseModuleIfStatement
                 {
                     Id = "choose", GuardId = "choose-a",
@@ -613,7 +629,10 @@ public sealed class BaseModuleProgramEvaluatorTests
         BaseRegisteredModuleMutationDefinition definition = CreateDefinition();
         definition = BaseModuleMutationContract.Seal(definition with
         {
-            Limits = definition.Limits with { MaximumStatements = 513 },
+            Limits = definition.Limits with
+            {
+                MaximumStatements = checked(BaseModuleMutationPlatform.MaximumLimits.MaximumStatements + 1),
+            },
         });
 
         Action validate = () => BaseModuleMutationContractValidator.ValidateDefinition(
@@ -782,8 +801,140 @@ public sealed class BaseModuleProgramEvaluatorTests
         result.Should().BeOfType<BaseSuccess<BaseModuleMutationExecutionResult<CreateResult>>>(
             result is BaseFailure<BaseModuleMutationExecutionResult<CreateResult>> failure ? failure.Error.Code : string.Empty);
         result.RequireValue().Result.Id.Should().Be("record-1");
+        BaseResult<BaseModuleMutationExecutionResult<CreateResult>> replay = await runtime.ExecuteAsync(
+            session, definition, CreateIdentity(), new CreateRequest { Id = "record-1", Name = "Ada" }, requestIdentity, null, default);
+        replay.RequireValue().Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
+        replay.RequireValue().Result.Id.Should().Be("record-1");
         OperationResult<RecordEnvelope> stored = await store.GetAsync(collection, RecordId.Create("record-1"), session.Operation(BaseOperationKind.Get, collection.Id));
         stored.Value!.Payload.Fields!["name"].GetString().Should().Be("Grace");
+    }
+
+    [Theory]
+    [InlineData(RecordMutationExecutionOutcome.RollbackConfirmed, "base.runtime.transaction.timeout", "base.runtime.transaction.timeout")]
+    [InlineData(RecordMutationExecutionOutcome.RollbackConfirmed, "hostile.provider.prose", BaseModuleMutationErrorCodes.StoreError)]
+    [InlineData(RecordMutationExecutionOutcome.Indeterminate, "hostile.provider.prose", BaseModuleMutationErrorCodes.CommitIndeterminate)]
+    public async Task L50_provider_failure_never_exposes_provisional_state_result_or_receipt(
+        RecordMutationExecutionOutcome outcome, string providerCode, string expectedCode)
+    {
+        CollectionDefinition collection = ModuleCollection();
+        var store = new FakeRecordStore("module-store", includeAtomicRequestCapability: true)
+        {
+            ForcedOutcomeAfterProcessing = outcome,
+            ForcedOutcomeError = new BaseError
+            {
+                Code = providerCode,
+                Message = "Hostile provider prose must not become a successful result.",
+                Category = ErrorCategory.Store,
+            },
+        };
+        var stores = new DefaultRecordStoreRegistry();
+        stores.Add(new RecordStoreRegistration
+        {
+            StoreId = "module-store", Store = store, CollectionIds = [collection.Id],
+        });
+        BaseRegisteredModuleMutationDefinition definition = CreateDefinition();
+        var runtime = new DefaultBaseModuleMutationRuntime(
+            stores, new BaseCollectionRegistry(new Dictionary<string, CollectionDefinition> { [collection.Id] = collection }),
+            new BaseModuleMutationRegistry([definition], []), new DefaultBaseSchemaValidator(),
+            Policy("module.create", "module.records.source"),
+            new DefaultBaseResultNormalizer(NullLogger<DefaultBaseResultNormalizer>.Instance),
+            new BaseSubjectContractRegistry([]), TimeProvider.System);
+        var session = new BaseSession(null!, TimeProvider.System,
+            new PrincipalContext
+            {
+                AuthenticationState = PrincipalAuthenticationState.System,
+                SubjectKind = AccessSubjectKind.System,
+                SubjectId = "system",
+            },
+            new BaseSessionOptions { Audience = HPDBaseEndpointAudience.ControlPlane },
+            applicationId: "module.application");
+        BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create(
+            "module", "provider-failure", outcome.ToString(), BaseMutationRequestFingerprint.Create(new byte[32]));
+
+        BaseResult<BaseModuleMutationExecutionResult<CreateResult>> result = await runtime.ExecuteAsync(
+            session, definition, CreateIdentity(), new CreateRequest { Id = "provisional", Name = "Ada" },
+            identity, null, default);
+
+        result.Should().BeOfType<BaseFailure<BaseModuleMutationExecutionResult<CreateResult>>>()
+            .Which.Error.Code.Should().Be(expectedCode);
+        (await store.GetAsync(collection, RecordId.Create("provisional"),
+            session.Operation(BaseOperationKind.Get, collection.Id))).Status.Should().Be(OperationStatus.NotFound);
+        BaseResult<BaseModuleMutationExecutionResult<CreateResult>> receipt = await runtime.ResolveAsync(
+            session, definition, CreateIdentity(), identity, default);
+        receipt.Should().BeOfType<BaseFailure<BaseModuleMutationExecutionResult<CreateResult>>>()
+            .Which.Error.Code.Should().Be(BaseModuleMutationErrorCodes.ReceiptUnavailable);
+    }
+
+    [Theory]
+    [InlineData("collection")]
+    [InlineData("collection-descriptor")]
+    [InlineData("payload")]
+    [InlineData("changed-fields")]
+    [InlineData("resource")]
+    public async Task L50_rejects_hostile_mutation_fact_before_commit(string hostility)
+    {
+        CollectionDefinition collection = ModuleCollection();
+        var store = new FakeRecordStore("module-store", includeAtomicRequestCapability: true)
+        {
+            MutationFactTransform = fact => hostility switch
+            {
+                "collection" => fact with
+                {
+                    After = fact.After is null ? null : fact.After with { CollectionId = "hostile.collection" },
+                },
+                "collection-descriptor" => fact with
+                {
+                    Collection = fact.Collection with { DisplayName = "Hostile same-ID descriptor" },
+                },
+                "payload" => fact with
+                {
+                    After = fact.After is null ? null : fact.After with
+                    {
+                        Payload = new RecordPayload
+                        {
+                            Kind = RecordPayloadKind.FieldMap,
+                            Fields = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+                            {
+                                ["name"] = JsonSerializer.SerializeToElement("hostile"),
+                            },
+                        },
+                    },
+                },
+                "changed-fields" => fact with { ChangedFields = ["hostile.field"] },
+                "resource" => fact with { Event = fact.Event with { Resource = "hostile.resource" } },
+                _ => throw new ArgumentOutOfRangeException(nameof(hostility)),
+            },
+        };
+        var stores = new DefaultRecordStoreRegistry();
+        stores.Add(new RecordStoreRegistration
+        {
+            StoreId = "module-store", Store = store, CollectionIds = [collection.Id],
+        });
+        BaseRegisteredModuleMutationDefinition definition = CreateDefinition();
+        var runtime = new DefaultBaseModuleMutationRuntime(
+            stores, new BaseCollectionRegistry(new Dictionary<string, CollectionDefinition> { [collection.Id] = collection }),
+            new BaseModuleMutationRegistry([definition], []), new DefaultBaseSchemaValidator(),
+            Policy("module.create", "module.records.source"),
+            new DefaultBaseResultNormalizer(NullLogger<DefaultBaseResultNormalizer>.Instance),
+            new BaseSubjectContractRegistry([]), TimeProvider.System);
+        var session = new BaseSession(null!, TimeProvider.System,
+            new PrincipalContext
+            {
+                AuthenticationState = PrincipalAuthenticationState.System,
+                SubjectKind = AccessSubjectKind.System,
+                SubjectId = "system",
+            }, new BaseSessionOptions { Audience = HPDBaseEndpointAudience.ControlPlane },
+            applicationId: "module.application");
+
+        BaseResult<BaseModuleMutationExecutionResult<CreateResult>> result = await runtime.ExecuteAsync(
+            session, definition, CreateIdentity(), new CreateRequest { Id = "hostile", Name = "Ada" },
+            BaseMutationRequestIdentity.Create("module", "hostile-fact", "one",
+                BaseMutationRequestFingerprint.Create(new byte[32])), null, default);
+
+        result.Should().BeOfType<BaseFailure<BaseModuleMutationExecutionResult<CreateResult>>>()
+            .Which.Error.Code.Should().Be(BaseModuleMutationErrorCodes.ProviderContractInvalid);
+        (await store.GetAsync(collection, RecordId.Create("hostile"),
+            session.Operation(BaseOperationKind.Get, collection.Id))).Status.Should().Be(OperationStatus.NotFound);
     }
 
     [Fact]
@@ -811,6 +962,270 @@ public sealed class BaseModuleProgramEvaluatorTests
             .Which.Error.Code.Should().Be(BaseModuleMutationErrorCodes.Unauthorized);
         (await store.GetAsync(collection, RecordId.Create("record-denied"), session.Operation(BaseOperationKind.Get, collection.Id)))
             .Status.Should().Be(OperationStatus.NotFound);
+    }
+
+    [Fact]
+    public async Task L50_rejects_hostile_delete_previous_before_commit()
+    {
+        CollectionDefinition collection = ModuleCollection();
+        var store = new FakeRecordStore("module-store", includeAtomicRequestCapability: true)
+        {
+            AtomicProvisionalTransform = provisional => provisional with
+            {
+                Facts = provisional.Facts.Select((owned, index) =>
+                {
+                    BaseRecordMutationFact fact = owned.MaterializeOwned();
+                    if (fact.CommittedOperation != BaseCommittedRecordMutationKind.Delete)
+                        return owned;
+                    return BaseOwnedMutationFact.Freeze(fact with
+                    {
+                        Delete = fact.Delete! with
+                        {
+                            Previous = new RecordEnvelope
+                            {
+                                CollectionId = collection.Id,
+                                Id = RecordId.Create("hostile-previous"),
+                                Payload = new RecordPayload
+                                {
+                                    Kind = RecordPayloadKind.FieldMap,
+                                    Fields = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+                                    {
+                                        ["name"] = JsonSerializer.SerializeToElement("hostile"),
+                                    },
+                                },
+                                Metadata = new RecordMetadata(),
+                            },
+                        },
+                    }, checked(index + 1));
+                }).ToImmutableArray(),
+            },
+        };
+        var stores = new DefaultRecordStoreRegistry();
+        stores.Add(new RecordStoreRegistration
+        {
+            StoreId = "module-store", Store = store, CollectionIds = [collection.Id],
+        });
+        BaseRegisteredModuleMutationDefinition source = CreateDefinition();
+        BaseRegisteredModuleMutationDefinition definition = BaseModuleMutationContract.Seal(source with
+        {
+            Template = source.Template with
+            {
+                Body = source.Template.Body with
+                {
+                    Statements =
+                    [
+                        .. source.Template.Body.Statements,
+                        new BaseModuleDeleteStatement
+                        {
+                            Id = "delete", CollectionId = collection.Id,
+                            RecordId = RecordIdFromRequest("delete-id"),
+                        },
+                    ],
+                },
+            },
+        });
+        var runtime = new DefaultBaseModuleMutationRuntime(
+            stores, new BaseCollectionRegistry(new Dictionary<string, CollectionDefinition> { [collection.Id] = collection }),
+            new BaseModuleMutationRegistry([definition], []), new DefaultBaseSchemaValidator(),
+            Policy("module.create", "module.records.source"),
+            new DefaultBaseResultNormalizer(NullLogger<DefaultBaseResultNormalizer>.Instance),
+            new BaseSubjectContractRegistry([]), TimeProvider.System);
+        var session = new BaseSession(null!, TimeProvider.System,
+            new PrincipalContext
+            {
+                AuthenticationState = PrincipalAuthenticationState.System,
+                SubjectKind = AccessSubjectKind.System,
+                SubjectId = "system",
+            }, new BaseSessionOptions { Audience = HPDBaseEndpointAudience.ControlPlane },
+            applicationId: "module.application");
+
+        BaseResult<BaseModuleMutationExecutionResult<CreateResult>> result = await runtime.ExecuteAsync(
+            session, definition, CreateIdentity(), new CreateRequest { Id = "hostile-delete", Name = "Ada" },
+            BaseMutationRequestIdentity.Create("module", "hostile-delete", "one",
+                BaseMutationRequestFingerprint.Create(new byte[32])), null, default);
+
+        result.Should().BeOfType<BaseFailure<BaseModuleMutationExecutionResult<CreateResult>>>()
+            .Which.Error.Code.Should().Be(BaseModuleMutationErrorCodes.ProviderContractInvalid);
+        (await store.GetAsync(collection, RecordId.Create("hostile-delete"),
+            session.Operation(BaseOperationKind.Get, collection.Id))).Status.Should().Be(OperationStatus.NotFound);
+    }
+
+    [Theory]
+    [InlineData("authority")]
+    [InlineData("fact-bytes")]
+    [InlineData("written-bytes")]
+    [InlineData("transient-bytes")]
+    [InlineData("relation-checks")]
+    [InlineData("unique-checks")]
+    [InlineData("retirement-publications")]
+    [InlineData("retirement-publication-bytes")]
+    [InlineData("journal-order")]
+    [InlineData("published-at")]
+    public async Task L50_rejects_hostile_provisional_authority_and_accounting(string hostility)
+    {
+        CollectionDefinition collection = ModuleCollection();
+        var store = new FakeRecordStore("module-store", includeAtomicRequestCapability: true)
+        {
+            AtomicProvisionalTransform = provisional => hostility switch
+            {
+                "authority" => provisional with
+                {
+                    Authority = provisional.Authority with { StoreInstanceId = "hostile.store" },
+                },
+                "fact-bytes" => provisional with
+                {
+                    Accounting = provisional.Accounting with
+                    {
+                        FactBytes = checked(provisional.Accounting.FactBytes + 1),
+                    },
+                },
+                "written-bytes" => provisional with { Accounting = provisional.Accounting with { WrittenBytes = checked(provisional.Accounting.WrittenBytes + 1) } },
+                "transient-bytes" => provisional with { Accounting = provisional.Accounting with { TransientBytes = checked(provisional.Accounting.TransientBytes + 1) } },
+                "relation-checks" => provisional with { Accounting = provisional.Accounting with { RelationChecks = checked(provisional.Accounting.RelationChecks + 1) } },
+                "unique-checks" => provisional with { Accounting = provisional.Accounting with { UniqueConstraintChecks = checked(provisional.Accounting.UniqueConstraintChecks + 1) } },
+                "retirement-publications" => provisional with { Accounting = provisional.Accounting with { RetirementPublications = checked(provisional.Accounting.RetirementPublications + 1) } },
+                "retirement-publication-bytes" => provisional with { Accounting = provisional.Accounting with { RetirementPublicationBytes = checked(provisional.Accounting.RetirementPublicationBytes + 1) } },
+                "journal-order" => provisional with
+                {
+                    Facts = provisional.Facts.Select((owned, index) =>
+                    {
+                        BaseRecordMutationFact fact = owned.MaterializeOwned();
+                        return BaseOwnedMutationFact.Freeze(fact with
+                        {
+                            JournalPosition = new BaseMutationJournalPosition(1),
+                        }, checked(index + 1));
+                    }).ToImmutableArray(),
+                },
+                "published-at" => provisional with
+                {
+                    Facts = provisional.Facts.Select((owned, index) =>
+                    {
+                        BaseRecordMutationFact fact = owned.MaterializeOwned();
+                        return BaseOwnedMutationFact.Freeze(fact with
+                        {
+                            Event = fact.Event with { PublishedAt = null },
+                        }, checked(index + 1));
+                    }).ToImmutableArray(),
+                },
+                _ => throw new ArgumentOutOfRangeException(nameof(hostility)),
+            },
+        };
+        var stores = new DefaultRecordStoreRegistry();
+        stores.Add(new RecordStoreRegistration
+        {
+            StoreId = "module-store", Store = store, CollectionIds = [collection.Id],
+        });
+        BaseRegisteredModuleMutationDefinition definition = CreateDefinition();
+        var runtime = new DefaultBaseModuleMutationRuntime(
+            stores, new BaseCollectionRegistry(new Dictionary<string, CollectionDefinition> { [collection.Id] = collection }),
+            new BaseModuleMutationRegistry([definition], []), new DefaultBaseSchemaValidator(),
+            Policy("module.create", "module.records.source"),
+            new DefaultBaseResultNormalizer(NullLogger<DefaultBaseResultNormalizer>.Instance),
+            new BaseSubjectContractRegistry([]), TimeProvider.System);
+        var session = new BaseSession(null!, TimeProvider.System,
+            new PrincipalContext
+            {
+                AuthenticationState = PrincipalAuthenticationState.System,
+                SubjectKind = AccessSubjectKind.System,
+                SubjectId = "system",
+            }, new BaseSessionOptions { Audience = HPDBaseEndpointAudience.ControlPlane },
+            applicationId: "module.application");
+
+        BaseResult<BaseModuleMutationExecutionResult<CreateResult>> result = await runtime.ExecuteAsync(
+            session, definition, CreateIdentity(), new CreateRequest { Id = "hostile-provisional", Name = "Ada" },
+            BaseMutationRequestIdentity.Create("module", "hostile-provisional", hostility,
+                BaseMutationRequestFingerprint.Create(new byte[32])), null, default);
+
+        result.Should().BeOfType<BaseFailure<BaseModuleMutationExecutionResult<CreateResult>>>()
+            .Which.Error.Code.Should().Be(BaseModuleMutationErrorCodes.ProviderContractInvalid);
+        (await store.GetAsync(collection, RecordId.Create("hostile-provisional"),
+            session.Operation(BaseOperationKind.Get, collection.Id))).Status.Should().Be(OperationStatus.NotFound);
+    }
+
+    [Fact]
+    public async Task L50_rejects_hostile_captured_record_evidence_before_planning()
+    {
+        CollectionDefinition collection = ModuleCollection();
+        var store = new FakeRecordStore("module-store", includeAtomicRequestCapability: true)
+        {
+            AtomicCaptureTransform = captured => captured with
+            {
+                ModuleRecords = captured.ModuleRecords.SetItem(0,
+                    captured.ModuleRecords[0] with { CollectionId = "hostile.collection" }),
+            },
+        };
+        var stores = new DefaultRecordStoreRegistry();
+        stores.Add(new RecordStoreRegistration
+        {
+            StoreId = "module-store", Store = store, CollectionIds = [collection.Id],
+        });
+        BaseRegisteredModuleMutationDefinition definition = CreateDefinition();
+        var runtime = new DefaultBaseModuleMutationRuntime(
+            stores, new BaseCollectionRegistry(new Dictionary<string, CollectionDefinition> { [collection.Id] = collection }),
+            new BaseModuleMutationRegistry([definition], []), new DefaultBaseSchemaValidator(),
+            Policy("module.create", "module.records.source"),
+            new DefaultBaseResultNormalizer(NullLogger<DefaultBaseResultNormalizer>.Instance),
+            new BaseSubjectContractRegistry([]), TimeProvider.System);
+        var session = new BaseSession(null!, TimeProvider.System,
+            new PrincipalContext
+            {
+                AuthenticationState = PrincipalAuthenticationState.System,
+                SubjectKind = AccessSubjectKind.System,
+                SubjectId = "system",
+            }, new BaseSessionOptions { Audience = HPDBaseEndpointAudience.ControlPlane },
+            applicationId: "module.application");
+
+        BaseResult<BaseModuleMutationExecutionResult<CreateResult>> result = await runtime.ExecuteAsync(
+            session, definition, CreateIdentity(), new CreateRequest { Id = "hostile-capture", Name = "Ada" },
+            BaseMutationRequestIdentity.Create("module", "hostile-capture", "one",
+                BaseMutationRequestFingerprint.Create(new byte[32])), null, default);
+
+        result.Should().BeOfType<BaseFailure<BaseModuleMutationExecutionResult<CreateResult>>>()
+            .Which.Error.Code.Should().Be(BaseModuleMutationErrorCodes.ProviderContractInvalid);
+        (await store.GetAsync(collection, RecordId.Create("hostile-capture"),
+            session.Operation(BaseOperationKind.Get, collection.Id))).Status.Should().Be(OperationStatus.NotFound);
+    }
+
+    [Fact]
+    public async Task L50_rejects_hostile_captured_generation_evidence_before_planning()
+    {
+        var store = new FakeRecordStore("module-store", includeAtomicRequestCapability: true)
+        {
+            AtomicCaptureTransform = captured => captured with
+            {
+                Generations = captured.Generations.SetItem(0,
+                    captured.Generations[0] with { CellId = "hostile.cell" }),
+            },
+        };
+        var stores = new DefaultRecordStoreRegistry();
+        stores.Add(new RecordStoreRegistration { StoreId = "module-store", Store = store });
+        BaseModuleGenerationCellDefinition cell = new()
+        {
+            Id = "module.generation", Version = 1, OwningModuleId = "module",
+            Scope = BaseModuleGenerationScope.Application,
+            MaximumKeyUtf8Bytes = 32, MaximumCellsPerOperation = 1,
+        };
+        BaseRegisteredModuleMutationDefinition definition = GenerationDefinition();
+        var runtime = new DefaultBaseModuleMutationRuntime(
+            stores, new BaseCollectionRegistry(new Dictionary<string, CollectionDefinition>()),
+            new BaseModuleMutationRegistry([definition], [cell]), null!, Policy("module.increment"),
+            null!, new BaseSubjectContractRegistry([]), TimeProvider.System);
+        var session = new BaseSession(null!, TimeProvider.System,
+            new PrincipalContext
+            {
+                AuthenticationState = PrincipalAuthenticationState.System,
+                SubjectKind = AccessSubjectKind.System,
+                SubjectId = "system",
+            }, new BaseSessionOptions { Audience = HPDBaseEndpointAudience.ControlPlane },
+            applicationId: "module.application");
+
+        BaseResult<BaseModuleMutationExecutionResult<GenerationResult>> result = await runtime.ExecuteAsync(
+            session, definition, GenerationIdentity(), new GenerationRequest(),
+            BaseMutationRequestIdentity.Create("module", "hostile-generation", "one",
+                BaseMutationRequestFingerprint.Create(new byte[32])), null, default);
+
+        result.Should().BeOfType<BaseFailure<BaseModuleMutationExecutionResult<GenerationResult>>>()
+            .Which.Error.Code.Should().Be(BaseModuleMutationErrorCodes.ProviderContractInvalid);
     }
 
     [Fact]
@@ -954,11 +1369,11 @@ public sealed class BaseModuleProgramEvaluatorTests
             null!, policy, null!, new BaseSubjectContractRegistry([]), TimeProvider.System);
         BaseActivationGrantSet grants = TransactionalActivationGrants();
         BaseTransactionalActivationRegistration<GenerationRequest, GenerationResult> activation =
-            BaseActivationDefinitionBuilder.CreateTransactional(new BaseActivationDefinition
+            BaseActivationDefinitionBuilder.CreateGeneratedTransactional(new BaseActivationDefinitionDraft
             {
                 Id = "module.transactional", Version = 1, OwningModuleId = "module",
                 ExecutionClass = BaseActivationExecutionClass.TransactionalOperation,
-                InputTypeId = "request", ResultTypeId = "result", Grants = grants, SourceGrantIds = [],
+                Grants = grants, SourceGrantIds = [],
                 Retry = new BaseActivationRetryProfile
                 {
                     MaximumAttempts = 1, InitialDelayMilliseconds = 1, MaximumDelayMilliseconds = 1,
@@ -978,10 +1393,7 @@ public sealed class BaseModuleProgramEvaluatorTests
                     OperationId = moduleDefinition.Id, OperationVersion = moduleDefinition.Version,
                     OperationChecksum = Convert.ToHexStringLower(moduleDefinition.Checksum.ToArray()),
                 },
-                Checksum = [],
-            }, EvaluatorJsonContext.Default.GenerationRequest, EvaluatorJsonContext.Default.GenerationResult, [],
-            [BaseModuleDtoPropertyBinding.Create<GenerationResult, string>(
-                "result.generation", nameof(GenerationResult.Generation), BaseGeneratedModuleScalarManifest.Primitive<string>())]);
+            }, EvaluatorActivationDtos.HPDBaseActivationDtoAuthority);
         ServiceProvider services = new ServiceCollection()
             .AddSingleton<IBaseModuleMutationRuntime>(moduleRuntime)
             .BuildServiceProvider();
@@ -1073,6 +1485,281 @@ public sealed class BaseModuleProgramEvaluatorTests
             out ImmutableArray<byte> bytes);
         result.Amount.Should().Be(41);
         bytes.Should().Equal("{\"Amount\":41}"u8.ToArray());
+    }
+
+    [Fact]
+    public void Typed_record_id_conversion_preserves_the_exact_generated_target_authority()
+    {
+        BaseModuleValue<Guid> guid = new(new BaseModuleConstantExpression
+        {
+            Id = "request-guid",
+            ResultType = Type<Guid>(),
+            CanonicalBaseJson = "\"00112233-4455-6677-8899-aabbccddeeff\""u8.ToArray().ToImmutableArray(),
+        });
+
+        BaseModuleValue<BaseRecordId<L67Record>> converted =
+            BaseModuleMutationTemplateBuilder.RecordIdFromGuid<L67Record>("record-id", guid);
+
+        converted.Authority.Kind.Should().Be(BaseModuleValueKind.RecordId);
+        converted.Authority.RecordTargetCollectionId.Should().Be("l67-records");
+        var evaluator = new BaseModuleProgramEvaluator<EvaluatorRequest, EvaluatorResult>(
+            Definition(), Identity(), new EvaluatorRequest { Amount = 0, Enabled = true }, null,
+            new Dictionary<string, CollectionDefinition>());
+        evaluator.Evaluate(converted.Expression).Value.GetString()
+            .Should().Be("00112233-4455-6677-8899-aabbccddeeff");
+    }
+
+    [Fact]
+    public void Sha256_string_identity_uses_the_closed_domain_and_length_framing()
+    {
+        const string sourceText = "activation-001";
+        BaseModuleValue<string> source = BaseModuleMutationTemplateBuilder.Constant(
+            "source", L67Record.Fields.Name.ConstantAuthority, sourceText);
+        BaseModuleValue<string> identity = BaseModuleMutationTemplateBuilder.Sha256HexStringIdentity(
+            "identity", L67Record.Fields.HashId.ModuleMutation, "base.test.identity.v1", source);
+        var evaluator = new BaseModuleProgramEvaluator<EvaluatorRequest, EvaluatorResult>(
+            Definition(), Identity(), new EvaluatorRequest { Amount = 0, Enabled = true }, null,
+            new Dictionary<string, CollectionDefinition>());
+
+        byte[] domain = System.Text.Encoding.UTF8.GetBytes("base.test.identity.v1");
+        byte[] value = System.Text.Encoding.UTF8.GetBytes(sourceText);
+        byte[] preimage = new byte[domain.Length + 1 + 4 + value.Length];
+        domain.CopyTo(preimage, 0);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(
+            preimage.AsSpan(domain.Length + 1, 4), checked((uint)value.Length));
+        value.CopyTo(preimage, domain.Length + 5);
+
+        evaluator.Evaluate(identity.Expression).Value.GetString().Should().Be(
+            Convert.ToHexStringLower(SHA256.HashData(preimage)));
+        identity.Authority.Constraints!.MinimumUtf8Bytes.Should().Be(64);
+        identity.Authority.Constraints.MaximumUtf8Bytes.Should().Be(64);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("contains space")]
+    [InlineData("contains\0nul")]
+    public void Sha256_string_identity_rejects_noncanonical_domains(string domain)
+    {
+        BaseModuleValue<string> source = BaseModuleMutationTemplateBuilder.Constant(
+            "source", L67Record.Fields.Name.ConstantAuthority, "value");
+
+        Action build = () => BaseModuleMutationTemplateBuilder.Sha256HexStringIdentity(
+            "identity", L67Record.Fields.HashId.ModuleMutation, domain, source);
+
+        build.Should().Throw<InvalidOperationException>();
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(256)]
+    public void Canonical_string_record_id_conversion_accepts_exact_positive_boundaries(int length)
+    {
+        string value = new('a', length);
+        BaseModuleValue<string> source = new(new BaseModuleConstantExpression
+        {
+            Id = "source",
+            ResultType = Type<string>(),
+            CanonicalBaseJson = JsonSerializer.SerializeToUtf8Bytes(value).ToImmutableArray(),
+        });
+        BaseModuleValue<BaseRecordId<L67Record>> converted =
+            BaseModuleMutationTemplateBuilder.RecordIdFromString<L67Record>("record-id", source);
+        var evaluator = new BaseModuleProgramEvaluator<EvaluatorRequest, EvaluatorResult>(
+            Definition(), Identity(), new EvaluatorRequest { Amount = 0, Enabled = true }, null,
+            new Dictionary<string, CollectionDefinition>());
+
+        evaluator.Evaluate(converted.Expression).Value.GetString().Should().Be(value);
+    }
+
+    [Fact]
+    public void Record_id_conversion_checksum_is_sensitive_to_conversion_and_target_authority()
+    {
+        BaseModuleValue<string> source = new(new BaseModuleConstantExpression
+        {
+            Id = "source",
+            ResultType = Type<string>(),
+            CanonicalBaseJson = "\"record-one\""u8.ToArray().ToImmutableArray(),
+        });
+        BaseModuleValue<BaseRecordId<L67Record>> converted =
+            BaseModuleMutationTemplateBuilder.RecordIdFromString<L67Record>("record-id", source);
+        BaseRegisteredModuleMutationDefinition first = DefinitionWithResultExpression(converted.Expression);
+        BaseRegisteredModuleMutationDefinition second = DefinitionWithResultExpression(
+            new BaseModuleRecordIdConversionExpression
+            {
+                Id = "record-id",
+                ResultType = RecordIdType("other-l67-records"),
+                Conversion = BaseModuleRecordIdConversionKind.CanonicalString,
+                Source = source.Expression,
+            });
+
+        BaseModuleMutationContract.ComputeChecksum(first).Should()
+            .NotBe(BaseModuleMutationContract.ComputeChecksum(second));
+    }
+
+    [Fact]
+    public void Invalid_record_id_string_is_rejected_before_provider_influence()
+    {
+        BaseModuleValue<string> source = new(new BaseModuleConstantExpression
+        {
+            Id = "source",
+            ResultType = Type<string>(),
+            CanonicalBaseJson = "\"\""u8.ToArray().ToImmutableArray(),
+        });
+        BaseModuleValue<BaseRecordId<L67Record>> converted =
+            BaseModuleMutationTemplateBuilder.RecordIdFromString<L67Record>("record-id", source);
+        var evaluator = new BaseModuleProgramEvaluator<EvaluatorRequest, EvaluatorResult>(
+            Definition(), Identity(), new EvaluatorRequest { Amount = 0, Enabled = true }, Captured(),
+            new Dictionary<string, CollectionDefinition>());
+
+        Action act = () => evaluator.Evaluate(converted.Expression);
+
+        act.Should().Throw<BaseModuleScalarContractException>()
+            .Which.ProviderInfluenced.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Invalid_host_record_id_constant_fails_definition_validation()
+    {
+        BaseRegisteredModuleMutationDefinition valid = CreateDefinition();
+        BaseModuleRecordCapture capture = valid.Template.Captures.OfType<BaseModuleRecordCapture>().Single();
+        var invalidConversion = new BaseModuleRecordIdConversionExpression
+        {
+            Id = "invalid-record-id",
+            ResultType = RecordIdType("module-records"),
+            Conversion = BaseModuleRecordIdConversionKind.CanonicalString,
+            Source = new BaseModuleConstantExpression
+            {
+                Id = "invalid-record-id-source",
+                ResultType = Type<string>(),
+                CanonicalBaseJson = "\"\""u8.ToArray().ToImmutableArray(),
+            },
+        };
+        BaseRegisteredModuleMutationDefinition invalid = BaseModuleMutationContract.Seal(valid with
+        {
+            Template = valid.Template with
+            {
+                Captures = [capture with { RecordId = invalidConversion }],
+            },
+            Checksum = BaseModuleMutationChecksum.Create(new byte[32]),
+        });
+
+        Action validate = () => BaseModuleMutationContractValidator.ValidateDefinition(
+            invalid,
+            new Dictionary<string, CollectionDefinition> { ["module-records"] = ModuleCollection() },
+            new Dictionary<string, BaseModuleGenerationCellDefinition>(),
+            new BaseModuleMutationRegistration<CreateRequest, CreateResult>(invalid, CreateIdentity()));
+
+        validate.Should().Throw<InvalidOperationException>().WithMessage("base.moduleMutation.invalid");
+    }
+
+    [Fact]
+    public void Request_conversion_failure_is_not_reclassified_by_unrelated_or_unselected_provider_state()
+    {
+        var requestSource = new BaseModuleRequestPropertyExpression
+        {
+            Id = "request-id",
+            ResultType = Dto<string>("request.id").ValueType,
+            Property = new BaseModuleRequestPropertyReference
+            {
+                StablePropertyPath = ["request.id"],
+                Authority = Dto<string>("request.id"),
+            },
+        };
+        var providerSource = new BaseModuleCapturedFieldExpression
+        {
+            Id = "provider-name",
+            ResultType = Type<string>(),
+            Field = new BaseModuleCapturedFieldReference
+            {
+                CaptureId = "existing", StableFieldId = "field.name", Authority = Type<string>(),
+            },
+        };
+        var selectedRequest = new BaseModuleConditionalExpression
+        {
+            Id = "selected-request",
+            ResultType = requestSource.ResultType,
+            GuardId = "enabled",
+            WhenTrue = requestSource,
+            WhenFalse = providerSource,
+        };
+        var conversion = new BaseModuleRecordIdConversionExpression
+        {
+            Id = "converted-request",
+            ResultType = RecordIdType("module-records"),
+            Conversion = BaseModuleRecordIdConversionKind.CanonicalString,
+            Source = selectedRequest,
+        };
+        var evaluator = new BaseModuleProgramEvaluator<CreateRequest, CreateResult>(
+            Definition(), CreateIdentity(), new CreateRequest { Id = "", Name = "request" }, Captured(),
+            new Dictionary<string, CollectionDefinition>
+            {
+                ["records"] = new CollectionDefinition
+                {
+                    Id = "records", Name = "records", Kind = BaseCollectionKinds.Document,
+                    SchemaMode = SchemaMode.Strict, UnknownFields = UnknownFieldPolicy.Reject,
+                    Fields = [new FieldDefinition { Id = "field.name", ApplicationName = "Name", WireName = "name", Type = "string" }],
+                },
+            });
+
+        Action act = () => evaluator.Evaluate(conversion);
+
+        act.Should().Throw<BaseModuleScalarContractException>()
+            .Which.ProviderInfluenced.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Hostile_captured_record_id_source_is_provider_influenced()
+    {
+        BaseCapturedAtomicExecution captured = Captured();
+        BaseCapturedModuleRecord record = captured.ModuleRecords[0];
+        captured = captured with
+        {
+            ModuleRecords = [record with
+            {
+                Current = record.Current! with
+                {
+                    Payload = new RecordPayload
+                    {
+                        Kind = RecordPayloadKind.FieldMap,
+                        Fields = new Dictionary<string, JsonElement>
+                        {
+                            ["name"] = JsonSerializer.SerializeToElement(""),
+                        },
+                    },
+                },
+            }],
+        };
+        var conversion = new BaseModuleRecordIdConversionExpression
+        {
+            Id = "captured-record-id",
+            ResultType = RecordIdType("module-records"),
+            Conversion = BaseModuleRecordIdConversionKind.CanonicalString,
+            Source = new BaseModuleCapturedFieldExpression
+            {
+                Id = "captured-record-id-source",
+                ResultType = Type<string>(),
+                Field = new BaseModuleCapturedFieldReference
+                {
+                    CaptureId = "existing", StableFieldId = "field.name", Authority = Type<string>(),
+                },
+            },
+        };
+        var evaluator = new BaseModuleProgramEvaluator<EvaluatorRequest, EvaluatorResult>(
+            Definition(), Identity(), new EvaluatorRequest { Amount = 0, Enabled = true }, captured,
+            new Dictionary<string, CollectionDefinition>
+            {
+                ["records"] = new CollectionDefinition
+                {
+                    Id = "records", Name = "records", Kind = BaseCollectionKinds.Document,
+                    SchemaMode = SchemaMode.Strict, UnknownFields = UnknownFieldPolicy.Reject,
+                    Fields = [new FieldDefinition { Id = "field.name", ApplicationName = "Name", WireName = "name", Type = "string" }],
+                },
+            });
+
+        Action act = () => evaluator.Evaluate(conversion);
+
+        act.Should().Throw<BaseModuleScalarContractException>()
+            .Which.ProviderInfluenced.Should().BeTrue();
     }
 
     [Fact]
@@ -1271,6 +1958,14 @@ public sealed class BaseModuleProgramEvaluatorTests
                         },
                     },
                 ],
+                Body = new BaseModuleMutationBlock
+                {
+                    Statements =
+                    [
+                        BaseModuleMutationTemplateBuilder.Require("require-ordered-date", "ordered-date", "proof.ordered-date"),
+                        .. source.Template.Body.Statements,
+                    ],
+                },
             },
         });
         CollectionDefinition sourceCollection = ModuleCollection();
@@ -1291,6 +1986,40 @@ public sealed class BaseModuleProgramEvaluatorTests
 
         if (expected) validate.Should().NotThrow();
         else validate.Should().Throw<InvalidOperationException>().WithMessage(BaseModuleMutationErrorCodes.Invalid);
+    }
+
+    [Fact]
+    public void Graph_validation_rejects_declared_but_unreachable_guards()
+    {
+        BaseRegisteredModuleMutationDefinition source = CreateDefinition();
+        BaseRegisteredModuleMutationDefinition definition = BaseModuleMutationContract.Seal(source with
+        {
+            Template = source.Template with
+            {
+                Guards =
+                [
+                    new BaseModuleValueEqualsGuard
+                    {
+                        Id = "unused-guard",
+                        Left = new BaseModuleConstantExpression
+                        {
+                            Id = "unused-left", ResultType = Type<bool>(), CanonicalBaseJson = "true"u8.ToArray().ToImmutableArray(),
+                        },
+                        Right = new BaseModuleConstantExpression
+                        {
+                            Id = "unused-right", ResultType = Type<bool>(), CanonicalBaseJson = "true"u8.ToArray().ToImmutableArray(),
+                        },
+                    },
+                ],
+            },
+        });
+
+        Action validate = () => BaseModuleMutationContractValidator.ValidateDefinition(
+            definition,
+            new Dictionary<string, CollectionDefinition> { ["module-records"] = ModuleCollection() },
+            new Dictionary<string, BaseModuleGenerationCellDefinition>());
+
+        validate.Should().Throw<InvalidOperationException>().WithMessage(BaseModuleMutationErrorCodes.Invalid);
     }
 
     private static bool EvaluateOrdered(string typeId, string fieldType, System.Text.Json.JsonElement capturedValue, ReadOnlySpan<byte> expectedJson)
@@ -1371,7 +2100,9 @@ public sealed class BaseModuleProgramEvaluatorTests
 
     private static BaseGeneratedModuleMutationIdentity<GenerationRequest, GenerationResult> GenerationIdentity() => new(
         "module.increment", 1, new byte[32], EvaluatorJsonContext.Default.GenerationRequest,
-        EvaluatorJsonContext.Default.GenerationResult, [],
+        EvaluatorJsonContext.Default.GenerationResult,
+        [BaseModuleDtoPropertyBinding.Create<GenerationRequest, string>(
+            "generation.request.scope", nameof(GenerationRequest.Scope), BaseGeneratedModuleScalarManifest.Primitive<string>())],
         [BaseModuleDtoPropertyBinding.Create<GenerationResult, string>("result.generation", nameof(GenerationResult.Generation), BaseGeneratedModuleScalarManifest.Primitive<string>())]);
 
     private static BaseGeneratedModuleMutationIdentity<CreateRequest, CreateResult> CreateIdentity() => new(
@@ -1391,15 +2122,16 @@ public sealed class BaseModuleProgramEvaluatorTests
         GenerationCellIds = [], ImportedSubjectContractIds = [],
         Template = new BaseModuleMutationTemplate
         {
-            Captures = [new BaseModuleRecordCapture { Id = "record", CollectionId = "module-records", Presence = BaseModuleCapturePresence.RequireMissing, RecordId = Request("request.id", "id") }],
+            Captures = [new BaseModuleRecordCapture { Id = "record", CollectionId = "module-records", Presence = BaseModuleCapturePresence.RequireMissing, RecordId = RecordIdFromRequest("id") }],
             Guards = [],
+            Preconditions = [],
             Body = new BaseModuleMutationBlock
             {
                 Statements =
                 [
                     new BaseModuleCreateStatement
                     {
-                        Id = "create", CollectionId = "module-records", RecordId = Request("request.id", "create-id"),
+                        Id = "create", CollectionId = "module-records", RecordId = RecordIdFromRequest("create-id"),
                         Payload = new BaseModuleObjectExpression
                         {
                             Id = "payload", Properties =
@@ -1408,7 +2140,7 @@ public sealed class BaseModuleProgramEvaluatorTests
                     },
                     new BaseModulePatchStatement
                     {
-                        Id = "patch", CollectionId = "module-records", RecordId = Request("request.id", "patch-id"),
+                        Id = "patch", CollectionId = "module-records", RecordId = RecordIdFromRequest("patch-id"),
                         Patch = new BaseModuleObjectExpression
                         {
                             Id = "patch-payload", Properties =
@@ -1596,6 +2328,7 @@ public sealed class BaseModuleProgramEvaluatorTests
                 },
             ],
             Guards = [],
+            Preconditions = [],
             Body = new BaseModuleMutationBlock
             {
                 Statements = [new BaseModuleIncrementGenerationStatement { Id = "increment", CaptureId = "generation", CreateIfAbsent = true }],
@@ -1627,6 +2360,9 @@ public sealed class BaseModuleProgramEvaluatorTests
         MaximumGenerationCaptures = 8, MaximumRecordMutations = 8, MaximumGenerationReads = 8,
         MaximumGenerationComparisons = 8, MaximumGenerationIncrements = 8, MaximumGuardNodes = 8,
         MaximumGuardDepth = 8, MaximumStatements = 8, MaximumBranches = 8, MaximumExpressionNodes = 32,
+        MaximumPreconditions = 8, MaximumRequestGuardEvaluations = 32,
+        MaximumStaticSetMembers = 128, MaximumStaticSetComparisons = 8_128,
+        MaximumDisabledCaptures = 8, MaximumRemovedFields = 8,
         MaximumReadIntervals = 16, MaximumSubjectValidations = 8, MaximumAuthorityReads = 16,
         MaximumRelationChecks = 8, MaximumUniqueConstraintChecks = 8, MaximumRequestBytes = 4096,
         MaximumSelectedBytes = 4096, MaximumGenerationBytes = 4096, MaximumEvidenceBytes = 4096,
@@ -1656,6 +2392,7 @@ public sealed class BaseModuleProgramEvaluatorTests
                     MustBePresent = true,
                 },
             ],
+            Preconditions = [],
             Body = new BaseModuleMutationBlock
             {
                 Statements = [new BaseModuleRequireStatement { Id = "require", GuardId = "enabled", RequirementId = "enabled" }],
@@ -1702,6 +2439,48 @@ public sealed class BaseModuleProgramEvaluatorTests
         BaseFieldNullability? nullability = null) =>
         BaseModuleValueAuthorityContract.Primitive<TValue>(nullability: nullability);
 
+    private static BaseModuleValueType RecordIdType(string collectionId)
+    {
+        BaseScalarCodecAuthority codec = BaseGeneratedSchemaRegistration.ScalarCodec(BaseScalarKind.RecordId);
+        var constraints = new BaseScalarConstraintSet
+        {
+            MinimumUtf8Bytes = 1,
+            MaximumUtf8Bytes = 256,
+            StringNormalization = BaseStringNormalizationRequirement.RequireNfc,
+        };
+        BaseScalarConstraintChecksum checksum = BaseGeneratedSchemaRegistration.ScalarConstraintChecksum(
+            "module-records", "record-id", BaseFieldPresence.Required,
+            BaseFieldNullability.NonNullable, codec, constraints);
+        return BaseModuleValueAuthorityContract.Create(
+            BaseModuleValueKind.RecordId, BaseFieldPresence.Required,
+            BaseFieldNullability.NonNullable, codec, constraints, checksum, collectionId);
+    }
+
+    private static BaseModuleRecordIdConversionExpression RecordIdFromRequest(string id) => new()
+    {
+        Id = id,
+        ResultType = RecordIdType("module-records"),
+        Conversion = BaseModuleRecordIdConversionKind.CanonicalString,
+        Source = Request("request.id", id + ".source"),
+    };
+
+    private static BaseRegisteredModuleMutationDefinition DefinitionWithResultExpression(
+        BaseModuleValueExpression expression) => Definition() with
+        {
+            Limits = Limits(),
+            Template = Definition().Template with
+            {
+                Result = new BaseModuleResultProjection
+                {
+                    Value = new BaseModuleObjectExpression
+                    {
+                        Id = "result",
+                        Properties = [new BaseModuleObjectPropertyExpression { StablePropertyId = "result.amount", Value = expression }],
+                    },
+                },
+            },
+        };
+
     private static BaseModuleDtoScalarAuthority Dto<TValue>(params string[] path) =>
         BaseGeneratedModuleScalarManifest.Primitive<TValue>().Seal(path);
 
@@ -1744,11 +2523,29 @@ public sealed record EvaluatorResult
     public required long Amount { get; init; }
 }
 
-public sealed record GenerationRequest;
-public sealed record GenerationResult { public required string Generation { get; init; } }
+public sealed record GenerationRequest
+{
+    [BaseField("generation.request.scope", MaximumUtf8Bytes = 32), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)]
+    public string Scope { get; init; } = "application";
+}
+public sealed record GenerationResult
+{
+    [BaseField("generation.result.value", MaximumUtf8Bytes = 32), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)]
+    public required string Generation { get; init; }
+}
 public sealed record CreateRequest { public required string Id { get; init; } public required string Name { get; init; } }
 public sealed record CreateResult { public required string Id { get; init; } }
 public sealed record UnsupportedResult { public required DateTimeOffset Id { get; init; } }
+
+[BaseCollection("l67-records", typeof(EvaluatorJsonContext))]
+public sealed partial record L67Record
+{
+    [BaseField("l67-record.hash-id", MinimumUtf8Bytes = 64, MaximumUtf8Bytes = 64)]
+    public required string HashId { get; init; }
+
+    [BaseField("l67-record.name")]
+    public required string Name { get; init; }
+}
 
 [JsonSerializable(typeof(EvaluatorRequest))]
 [JsonSerializable(typeof(EvaluatorResult))]
@@ -1757,4 +2554,9 @@ public sealed record UnsupportedResult { public required DateTimeOffset Id { get
 [JsonSerializable(typeof(CreateRequest))]
 [JsonSerializable(typeof(CreateResult))]
 [JsonSerializable(typeof(UnsupportedResult))]
+[JsonSerializable(typeof(L67Record))]
 internal sealed partial class EvaluatorJsonContext : JsonSerializerContext;
+
+[BaseActivationDtoAuthority("module.transactional.dto", 1, "module", "request", "result",
+    typeof(EvaluatorJsonContext), typeof(GenerationRequest), typeof(GenerationResult))]
+internal static partial class EvaluatorActivationDtos;

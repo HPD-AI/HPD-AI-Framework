@@ -11,6 +11,7 @@ public sealed class MutationContractTests
         using var document = JsonDocument.Parse("""{"title":"updated"}""");
         var patch = new RecordPatchRequest
         {
+            RemovedFieldIds = [],
             Patch = new RecordPayload
             {
                 Kind = RecordPayloadKind.FieldMap,

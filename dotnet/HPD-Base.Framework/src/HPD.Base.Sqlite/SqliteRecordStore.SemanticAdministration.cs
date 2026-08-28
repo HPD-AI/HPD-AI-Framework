@@ -745,8 +745,10 @@ LIMIT $take;
             || request.Limits.MaximumRows > installedRows
             || request.Limits.MaximumBytes > capability.MaximumTransientBytes)
             return false;
-        long maximumPages = checked((request.Limits.MaximumRows + request.Limits.PageSize - 1) / request.Limits.PageSize);
-        return request.Limits.MaximumPages <= maximumPages;
+        // Maintenance can consist of multiple independently paged phases (for
+        // example, compaction staging followed by authority rebinding). Every
+        // non-empty page consumes at least one row from the aggregate row budget.
+        return request.Limits.MaximumPages <= request.Limits.MaximumRows;
     }
 
     private static bool ValidDefinition(BaseSemanticActivationDefinitionKey value) =>
@@ -885,7 +887,7 @@ SELECT
             binding = value;
         }
         await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction;
-        command.CommandText = $"SELECT 1 FROM {_names.SubjectTerminalLifetimes} WHERE scope_kind=$kind AND scope_index_digest=$scope AND contract_id=$contract AND contract_version=$version AND subject_id=$subject AND retired_authority_epoch=$epoch AND retired_incarnation=$incarnation AND retired_lifetime_generation=$generation AND retired_position<=$position LIMIT 1;";
+        command.CommandText = $"SELECT 1 FROM {_names.SubjectTerminalLifetimes} WHERE scope_kind=$kind AND scope_index_digest=$scope AND contract_id=$contract AND contract_version=$version AND subject_id=$subject AND retired_authority_epoch=$epoch AND retired_incarnation=$incarnation AND retired_lifetime_generation=$generation AND retired_position>=$position LIMIT 1;";
         command.Parameters.AddWithValue("$kind", (int)binding.Kind); command.Parameters.Add("$scope", SqliteType.Blob).Value = binding.SeekDigest.ToArray();
         command.Parameters.AddWithValue("$contract", lifetime.ContractId); command.Parameters.AddWithValue("$version", lifetime.ContractVersion);
         command.Parameters.AddWithValue("$subject", lifetime.SubjectId.Value); command.Parameters.Add("$epoch", SqliteType.Blob).Value = lifetime.AuthorityEpoch.ToArray();

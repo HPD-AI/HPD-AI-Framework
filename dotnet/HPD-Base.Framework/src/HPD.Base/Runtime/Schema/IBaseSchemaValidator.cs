@@ -35,6 +35,8 @@ public sealed record BasePayloadValidationRequest
     public RecordPayload? Payload { get; init; }
     /// <summary>Gets or sets the patch.</summary>
     public RecordPayload? Patch { get; init; }
+    /// <summary>Gets the stable field identifiers removed by a patch.</summary>
+    public System.Collections.Immutable.ImmutableArray<string> RemovedFieldIds { get; init; } = [];
     /// <summary>Gets or sets the write mask.</summary>
     public FieldMask? WriteMask { get; init; }
 }

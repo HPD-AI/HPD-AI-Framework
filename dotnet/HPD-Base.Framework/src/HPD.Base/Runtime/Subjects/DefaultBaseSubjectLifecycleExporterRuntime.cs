@@ -31,7 +31,7 @@ internal sealed class DefaultBaseSubjectLifecycleExporterRuntime(
         {
             ItemId = "subject-lifecycle-tombstone", CollectionId = selectedCollection.Id, Kind = BaseRecordMutationKind.Patch,
             RecordId = RecordId.Create(request.Subject.SubjectId.Value),
-            Patch = new RecordPatchRequest { Patch = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = fields }, ExpectedRevision = request.ExpectedPrivateRevision },
+            Patch = new RecordPatchRequest { Patch = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = fields }, RemovedFieldIds = [], ExpectedRevision = request.ExpectedPrivateRevision },
             OperationOverride = BaseOperationKind.SubjectLifecycleTombstone,
             SubjectLifecycleTransition = Transition(request.Subject, null, BaseSubjectLifecycleState.Tombstoned),
         }, cancellationToken).ConfigureAwait(false);

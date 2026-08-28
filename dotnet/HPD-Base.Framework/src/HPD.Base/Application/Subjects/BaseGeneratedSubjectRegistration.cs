@@ -26,6 +26,9 @@ public sealed class BaseGeneratedSubjectRegistration
 public static class BaseGeneratedSubjects
 {
     /// <summary>Creates one immutable generated exported-subject installation receipt.</summary>
+    /// <typeparam name="TSubject">The generated exported-subject marker type.</typeparam>
+    /// <param name="definition">The complete generated subject definition.</param>
+    /// <returns>A deeply owned installation receipt.</returns>
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     public static BaseGeneratedSubjectRegistration Register<TSubject>(BaseExportedSubjectDefinition definition)
     {
@@ -34,6 +37,101 @@ public static class BaseGeneratedSubjects
         return new BaseGeneratedSubjectRegistration(typeof(TSubject), normalized,
             BaseSubjectContractGraph.Checksum(normalized),
             BaseSubjectContractNormalizer.NormalizePlan(normalized.ValidationPlan).Checksum);
+    }
+}
+
+/// <summary>Contains exact generated subject authority admitted by a module DTO property.</summary>
+[System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+public sealed class BaseGeneratedModuleSubjectQualifier
+{
+    internal BaseGeneratedModuleSubjectQualifier(string contractId, int contractVersion, string contractChecksum,
+        BaseSubjectIdKind subjectIdKind, int maximumSubjectIdUtf8Bytes,
+        BaseSubjectReferenceRequirement requirement, BaseSubjectValidationGuarantee guarantee)
+    {
+        BaseApplicationId.Validate(contractId, nameof(contractId));
+        if (contractVersion < 1 || contractChecksum.Length != 64
+            || !contractChecksum.All(static value => value is >= '0' and <= '9' or >= 'a' and <= 'f')
+            || !Enum.IsDefined(subjectIdKind) || maximumSubjectIdUtf8Bytes is < 1 or > 256
+            || !Enum.IsDefined(requirement) || guarantee != BaseSubjectValidationGuarantee.TransactionSnapshot)
+            throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+        ContractId = new string(contractId.AsSpan()); ContractVersion = contractVersion;
+        ContractChecksum = new string(contractChecksum.AsSpan()); SubjectIdKind = subjectIdKind;
+        MaximumSubjectIdUtf8Bytes = maximumSubjectIdUtf8Bytes; Requirement = requirement; Guarantee = guarantee;
+        CodecId = "hpd.base.subject-reference.v1";
+        CodecChecksum = SHA256.HashData(Encoding.ASCII.GetBytes(CodecId));
+        var writer = new ArrayBufferWriter<byte>();
+        writer.Write(new byte[] { 1 });
+        Write(writer, ContractId); WriteInt64(writer, ContractVersion); Write(writer, ContractChecksum);
+        WriteInt64(writer, (long)SubjectIdKind); WriteInt64(writer, MaximumSubjectIdUtf8Bytes);
+        WriteInt64(writer, (long)Requirement); WriteInt64(writer, (long)Guarantee);
+        Write(writer, CodecId); Write(writer, CodecChecksum);
+        QualifierChecksum = SHA256.HashData(writer.WrittenSpan);
+    }
+    internal string ContractId { get; }
+    internal int ContractVersion { get; }
+    internal string ContractChecksum { get; }
+    internal BaseSubjectIdKind SubjectIdKind { get; }
+    internal int MaximumSubjectIdUtf8Bytes { get; }
+    internal BaseSubjectReferenceRequirement Requirement { get; }
+    internal BaseSubjectValidationGuarantee Guarantee { get; }
+    internal string CodecId { get; }
+    internal byte[] CodecChecksum { get; }
+    internal byte[] QualifierChecksum { get; }
+
+    internal BaseGeneratedModuleSubjectQualifier Copy() => new(
+        ContractId, ContractVersion, ContractChecksum, SubjectIdKind,
+        MaximumSubjectIdUtf8Bytes, Requirement, Guarantee);
+
+    private static void Write(ArrayBufferWriter<byte> writer, string value) => Write(writer, Encoding.UTF8.GetBytes(value));
+    private static void Write(ArrayBufferWriter<byte> writer, ReadOnlySpan<byte> value)
+    {
+        Span<byte> length = writer.GetSpan(sizeof(uint));
+        BinaryPrimitives.WriteUInt32BigEndian(length, checked((uint)value.Length)); writer.Advance(sizeof(uint));
+        writer.Write(value);
+    }
+    private static void WriteInt64(ArrayBufferWriter<byte> writer, long value)
+    {
+        Span<byte> destination = writer.GetSpan(sizeof(long));
+        BinaryPrimitives.WriteInt64BigEndian(destination, value); writer.Advance(sizeof(long));
+    }
+}
+
+/// <summary>Publishes and resolves reflection-free generated subject authority.</summary>
+public static class BaseGeneratedSubjectAuthority
+{
+    /// <summary>Publishes the one generated subject receipt for a closed marker.</summary>
+    /// <typeparam name="TSubject">The generated exported-subject marker type.</typeparam>
+    /// <param name="registration">The generator-owned subject registration.</param>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public static void Publish<TSubject>(BaseGeneratedSubjectRegistration registration)
+    {
+        ArgumentNullException.ThrowIfNull(registration);
+        if (registration.MarkerType != typeof(TSubject) || Holder<TSubject>.Registration is not null)
+            throw new InvalidOperationException(BaseSubjectErrorCodes.RegistrationConflict);
+        Holder<TSubject>.Registration = registration;
+    }
+
+    /// <summary>Resolves one exact qualifier from generated marker authority.</summary>
+    /// <typeparam name="TSubject">The generated exported-subject marker type.</typeparam>
+    /// <param name="requirement">The required subject lifecycle state.</param>
+    /// <param name="guarantee">The required validation guarantee.</param>
+    /// <returns>A deeply owned module-property qualifier.</returns>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public static BaseGeneratedModuleSubjectQualifier Resolve<TSubject>(
+        BaseSubjectReferenceRequirement requirement, BaseSubjectValidationGuarantee guarantee)
+    {
+        BaseGeneratedSubjectRegistration registration = Holder<TSubject>.Registration
+            ?? throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+        if (!Enum.IsDefined(requirement) || !Enum.IsDefined(guarantee))
+            throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+        BaseExportedSubjectDefinition definition = registration.Definition;
+        return new BaseGeneratedModuleSubjectQualifier(definition.Id, definition.Version, registration.Checksum,
+            definition.SubjectIdKind, definition.MaximumSubjectIdUtf8Bytes, requirement, guarantee);
+    }
+
+    private static class Holder<TSubject>
+    {
+        internal static BaseGeneratedSubjectRegistration? Registration;
     }
 }
 

@@ -657,18 +657,50 @@ public sealed partial class SqliteModuleMutationTests
 
     private static BaseScheduleDefinition Schedule(int version, BaseScheduleOverlapPolicy policy, byte[] overlap)
     {
-        byte[] input = "scheduled"u8.ToArray();
-        return BaseScheduleDefinitionBuilder.Create(new BaseScheduleDefinition
+        return BaseScheduleDefinitionBuilder.CreateGenerated(new BaseScheduleDefinitionDraft
         {
             Id = "test.schedule", Version = version, OwningModuleId = "test", ManageGrantId = "schedule.manage",
-            MaterializeGrantId = "schedule.materialize", Activation = ActivationDefinition(), CanonicalInput = input.ToImmutableArray(),
-            InputChecksum = System.Security.Cryptography.SHA256.HashData(input).ToImmutableArray(), Expression = new BaseOnceSchedule(version),
+            MaterializeGrantId = "schedule.materialize", Expression = new BaseOnceSchedule(version),
             GapPolicy = BaseTimeGapPolicy.Skip, TimeOverlapPolicy = BaseTimeOverlapPolicy.EarlierOffset,
             MisfirePolicy = BaseScheduleMisfirePolicy.RunAll, ActivationOverlapPolicy = policy,
             OverlapKeyKind = BaseScheduleOverlapKeyKind.CanonicalConcurrencyKey, ConcurrencyKey = overlap.ToImmutableArray(),
-            Priority = 0, MaximumSplayMilliseconds = 0, Checksum = [],
-        });
+            Priority = 0, MaximumSplayMilliseconds = 0,
+        }, ScheduleTarget, SqliteActivationDtos.HPDBaseActivationDtoAuthority, new Request()).Definition;
     }
+
+    private static BaseActivationHandlerRegistration<Request, Result> ScheduleTarget { get; } =
+        BaseActivationDefinitionBuilder.CreateGenerated(new BaseActivationDefinitionDraft
+        {
+            Id = "test.activation", Version = 1, OwningModuleId = "module",
+            ExecutionClass = BaseActivationExecutionClass.AtLeastOnceWorker,
+            Grants = new BaseActivationGrantSet
+            {
+                Enqueue = "activation.enqueue", Observe = "activation.observe", Claim = "activation.claim",
+                Execute = "activation.execute", Renew = "activation.renew", Complete = "activation.complete",
+                Fail = "activation.fail", Cancel = "activation.cancel", Inspect = "activation.inspect",
+                Replay = "activation.replay", Migrate = "activation.migrate", Reconcile = "activation.reconcile",
+                Retry = "activation.retry", Dispose = "activation.dispose", Remove = "activation.remove", Repair = "activation.repair",
+            },
+            SourceGrantIds = [],
+            Retry = new BaseActivationRetryProfile
+            {
+                MaximumAttempts = 1, InitialDelayMilliseconds = 1, MaximumDelayMilliseconds = 1,
+                MultiplierNumerator = 1, MultiplierDenominator = 1, JitterBasisPoints = 0, RetryableFailureCodes = [],
+            },
+            Limits = new BaseActivationLimits
+            {
+                MaximumInputBytes = 4096, MaximumResultBytes = 4096, MaximumAttempts = 1,
+                MaximumRenewalsPerAttempt = 1, MaximumChildrenPerAttempt = 1, MaximumLineageDepth = 1,
+                LeaseDuration = TimeSpan.FromMinutes(1), HandlerTimeout = TimeSpan.FromMinutes(1),
+                Provider = ActivationLimits(), AtomicCreation = ExecutionLimits(),
+            },
+            Handler = new BaseActivationHandlerDraft
+            {
+                Id = "test.activation.handler", Version = 1, FactoryId = "test.activation.handler.factory",
+                WorkerSubjectKind = AccessSubjectKind.System,
+                SemanticAuthority = BaseActivationHandlerSemanticAuthority.Create("test.activation.handler.semantics", 1),
+            },
+        }, SqliteActivationDtos.HPDBaseActivationDtoAuthority, static _ => new ScheduleHandler());
 
     [Fact]
     public async Task Activation_prune_pages_emit_exact_durable_floors_without_self_blocking()
@@ -1297,8 +1329,11 @@ public sealed partial class SqliteModuleMutationTests
     }
 
     private static BaseGeneratedModuleMutationIdentity<Request, Result> Identity() => new(
-        "module.increment", 1, new byte[32], Json.Default.Request, Json.Default.Result, [],
-        [BaseModuleDtoPropertyBinding.Create<Result, string>("result.generation", nameof(Result.Generation), BaseGeneratedModuleScalarManifest.Primitive<string>())]);
+        "module.increment", 1, new byte[32],
+        SqliteActivationDtos.HPDBaseActivationDtoAuthority.InputTypeInfo,
+        SqliteActivationDtos.HPDBaseActivationDtoAuthority.ResultTypeInfo,
+        SqliteActivationDtos.HPDBaseActivationDtoAuthority.InputBindings.Values.ToArray(),
+        SqliteActivationDtos.HPDBaseActivationDtoAuthority.ResultBindings.Values.ToArray());
 
     private static BaseRegisteredModuleMutationDefinition Definition() => BaseModuleMutationContract.Seal(new()
     {
@@ -1309,6 +1344,7 @@ public sealed partial class SqliteModuleMutationTests
         {
             Captures = [new BaseModuleGenerationCapture { Id = "generation", CellId = "module.generation", Absence = BaseModuleGenerationAbsenceBehavior.AllowEither }],
             Guards = [],
+            Preconditions = [],
             Body = new BaseModuleMutationBlock { Statements = [new BaseModuleIncrementGenerationStatement { Id = "increment", CaptureId = "generation", CreateIfAbsent = true }] },
             Result = new BaseModuleResultProjection
             {
@@ -1337,6 +1373,7 @@ public sealed partial class SqliteModuleMutationTests
         MaximumCaptures = 8, MaximumRecordCaptures = 8, MaximumRelationTargetCaptures = 8, MaximumGenerationCaptures = 8,
         MaximumRecordMutations = 8, MaximumGenerationReads = 8, MaximumGenerationComparisons = 8, MaximumGenerationIncrements = 8,
         MaximumGuardNodes = 8, MaximumGuardDepth = 8, MaximumStatements = 8, MaximumBranches = 8, MaximumExpressionNodes = 32,
+        MaximumPreconditions = 8, MaximumRequestGuardEvaluations = 16, MaximumStaticSetMembers = 16, MaximumStaticSetComparisons = 120, MaximumDisabledCaptures = 8, MaximumRemovedFields = 8,
         MaximumReadIntervals = 16, MaximumSubjectValidations = 8, MaximumAuthorityReads = 16, MaximumRelationChecks = 8,
         MaximumUniqueConstraintChecks = 8, MaximumRequestBytes = 4096, MaximumSelectedBytes = 4096, MaximumGenerationBytes = 4096,
         MaximumEvidenceBytes = 4096, MaximumWrittenBytes = 4096, MaximumFactBytes = 4096, MaximumJournalBytes = 4096,
@@ -1386,7 +1423,11 @@ public sealed partial class SqliteModuleMutationTests
     }
 
     private static BaseActivationDefinitionKey ActivationDefinition() => new()
-    { Id = "test.activation", Version = 1, Checksum = new byte[32].ToImmutableArray() };
+    {
+        Id = ScheduleTarget.Definition.Id,
+        Version = ScheduleTarget.Definition.Version,
+        Checksum = ScheduleTarget.Definition.Checksum,
+    };
 
     private static BaseOwnedScopeSeekAuthority ActivationScope() => new()
     {
@@ -1511,10 +1552,7 @@ public sealed partial class SqliteModuleMutationTests
                 Items = [new BaseActivationCreateIntent
                 {
                     Ordinal = 0,
-                    Definition = new BaseActivationDefinitionKey
-                    {
-                        Id = "test.activation", Version = 1, Checksum = new byte[32].ToImmutableArray(),
-                    },
+                    Definition = ActivationDefinition(),
                     CanonicalInput = input.ToImmutableArray(),
                     InputChecksum = System.Security.Cryptography.SHA256.HashData(input).ToImmutableArray(),
                     Scope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Global },
@@ -1580,11 +1618,29 @@ public sealed partial class SqliteModuleMutationTests
             Category = ErrorCategory.Store,
         });
 
-    public sealed record Request;
-    public sealed record Result { public required string Generation { get; init; } }
+    public sealed record Request
+    {
+        [BaseField("sqlite.activation.request.scope", MaximumUtf8Bytes = 32), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)]
+        public string Scope { get; init; } = "application";
+    }
+    public sealed record Result
+    {
+        [BaseField("result.generation", MaximumUtf8Bytes = 32), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)]
+        public required string Generation { get; init; }
+    }
     [JsonSerializable(typeof(Request))]
     [JsonSerializable(typeof(Result))]
     internal sealed partial class Json : JsonSerializerContext;
+
+    private sealed class ScheduleHandler : IBaseActivationHandler<Request, Result>
+    {
+        public ValueTask<BaseActivationHandlerResult<Result>> ExecuteAsync(
+            BaseActivationContext context, Request input, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new BaseActivationHandlerResult<Result>
+            {
+                Result = new Result { Generation = input.Scope },
+            });
+    }
 
     private sealed class AllowPolicyEvaluator : IPolicyEvaluator
     {
@@ -1592,3 +1648,7 @@ public sealed partial class SqliteModuleMutationTests
             ValueTask.FromResult(new PolicyDecision { Effect = PolicyEffect.Allow, Outcome = PolicyOutcome.Allowed });
     }
 }
+
+[BaseActivationDtoAuthority("sqlite.activation.dto", 1, "module", "request", "result",
+    typeof(SqliteModuleMutationTests.Json), typeof(SqliteModuleMutationTests.Request), typeof(SqliteModuleMutationTests.Result))]
+internal static partial class SqliteActivationDtos;

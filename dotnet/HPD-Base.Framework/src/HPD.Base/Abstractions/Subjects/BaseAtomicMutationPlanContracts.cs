@@ -452,6 +452,8 @@ public sealed record BaseAtomicMutationPlanItem
     public bool RuntimeAssignedRecordId { get; init; }
     /// <summary>Gets the canonical proposed record payload for create/update.</summary>
     public RecordPayload? ProposedPayload { get; init; }
+    /// <summary>Gets the owned ordinal stable field identifiers removed by a patch.</summary>
+    public required ImmutableArray<string> RemovedFieldIds { get; init; }
     /// <summary>Gets the canonical delete request for delete.</summary>
     public RecordDeleteRequest? Delete { get; init; }
     /// <summary>Gets the transaction-bound current record when required.</summary>

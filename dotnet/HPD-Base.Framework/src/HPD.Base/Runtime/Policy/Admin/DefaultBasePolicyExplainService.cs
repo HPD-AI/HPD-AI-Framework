@@ -342,7 +342,8 @@ internal sealed class DefaultBasePolicyExplainService : IBasePolicyExplainServic
             Collection = collection,
             Principal = principal,
             Operation = context,
-            Patch = request.Patch.Patch
+            Patch = request.Patch.Patch,
+            RemovedFieldIds = request.Patch.RemovedFieldIds
         }, cancellationToken).ConfigureAwait(false);
         if (!validation.IsSuccess() || validation.Value is null)
         {

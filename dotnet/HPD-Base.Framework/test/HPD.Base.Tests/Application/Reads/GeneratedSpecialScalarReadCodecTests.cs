@@ -466,6 +466,123 @@ public sealed class GeneratedSpecialScalarReadCodecTests
         decode.Should().Throw<FormatException>();
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(17)]
+    public void GeneratedCodecRejectsBinaryOutsideExactDecodedRange(int length)
+    {
+        var row = new BaseRelationalRow
+        {
+            Fields =
+            [
+                Field("special.row.binary", Convert.ToBase64String(new byte[length])),
+                Field("special.row.generation", "7"),
+                Field("special.row.mode", "enabled-wire"),
+                Field("special.row.revision", "test:1"),
+            ],
+        };
+
+        ((Action)(() => SpecialScalarRead.Definition.RowCodec.Decode(row)))
+            .Should().Throw<InvalidOperationException>();
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(17)]
+    public async Task HostileProviderBinaryOutsideExactDecodedRangeFailsBeforeApplicationMaterialization(int length)
+    {
+        var store = new HostileScalarReadStore("hostile-binary.row.binary", Convert.ToBase64String(new byte[length]));
+        var services = new ServiceCollection().AddLogging();
+        services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>()
+            .AddTestStaticGrant("special.read")
+            .AddCollection(SpecialScalarRecord.Collection)
+            .AddRead(HostileBinaryRead.Definition)
+            .UseStore(TestStoreProvider.Create(store, relational: true)));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+        BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
+        {
+            AuthenticationState = PrincipalAuthenticationState.System,
+            SubjectKind = AccessSubjectKind.System,
+            SubjectId = "hostile-binary-test",
+        });
+
+        BaseResult<BasePage<HostileBinaryRead.Row>> result = await session.Reads.ExecuteAsync(
+            HostileBinaryRead.Handle, new HostileBinaryRead(), BaseReadPageRequest.Create(1, 1));
+
+        result.Should().BeOfType<BaseFailure<BasePage<HostileBinaryRead.Row>>>()
+            .Which.Error.Code.Should().Be("base.relational.read.resultInvalid");
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(17)]
+    public void GeneratedParameterCodecRejectsBinaryOutsideExactDecodedRange(int length)
+    {
+        Action encode = () => SpecialScalarRead.Definition.ParameterCodec.Encode(new SpecialScalarRead
+        {
+            Binary = BaseBinary.From(new byte[length]),
+        });
+
+        encode.Should().Throw<InvalidOperationException>();
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(17)]
+    public async Task BinaryParameterBoundsFailBeforeProviderInfluence(int length)
+    {
+        var store = new HostileScalarReadStore("binary-equality.row.binary", "AQID");
+        var services = new ServiceCollection().AddLogging();
+        services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>()
+            .AddTestStaticGrant("special.read")
+            .AddCollection(SpecialScalarRecord.Collection)
+            .AddRead(BinaryEqualityRead.Definition)
+            .UseStore(TestStoreProvider.Create(store, relational: true)));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+        BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
+        {
+            AuthenticationState = PrincipalAuthenticationState.System,
+            SubjectKind = AccessSubjectKind.System,
+            SubjectId = "binary-parameter-test",
+        });
+
+        BaseResult<BasePage<BinaryEqualityRead.Row>> result = await session.Reads.ExecuteAsync(
+            BinaryEqualityRead.Handle,
+            new BinaryEqualityRead { Binary = BaseBinary.From(new byte[length]) },
+            BaseReadPageRequest.Create(1, 1));
+
+        result.Should().BeOfType<BaseFailure<BasePage<BinaryEqualityRead.Row>>>()
+            .Which.Error.Code.Should().Be("base.relational.read.invalid");
+        store.Calls.Should().Be(0);
+    }
+
+    [Fact]
+    public void BinaryBoundsParticipateInRegisteredReadScalarChecksum()
+    {
+        const string serializer = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        string first = BaseReadGeneratedContract.BindScalarConstraints(serializer,
+        [
+            new BaseReadClientProperty
+            {
+                Id = "binary", GeneratedName = "Binary", WireName = "binary", Kind = QueryValueKind.String,
+                Array = false, Nullable = false, MinimumBinaryBytes = 1, MaximumBinaryBytes = 16,
+            },
+        ]);
+        string second = BaseReadGeneratedContract.BindScalarConstraints(serializer,
+        [
+            new BaseReadClientProperty
+            {
+                Id = "binary", GeneratedName = "Binary", WireName = "binary", Kind = QueryValueKind.String,
+                Array = false, Nullable = false, MinimumBinaryBytes = 2, MaximumBinaryBytes = 16,
+            },
+        ]);
+
+        first.Should().NotBe(second);
+        first.Should().MatchRegex("^[0-9a-f]{64}$");
+    }
+
     [Fact]
     public void GeneratedCodecRejectsHostileUnknownEnumLiteral()
     {
@@ -570,6 +687,7 @@ public sealed class GeneratedSpecialScalarReadCodecTests
                 .AddCollection(SpecialScalarRecord.Collection)
                 .AddRead(ModuleGenerationOnlyRead.Definition)
                 .AddRead(CanonicalJsonRead.Definition)
+                .AddRead(BinaryEqualityRead.Definition)
                 .UseStore(SqliteStore.Configure(options =>
                 {
                     options.StoreId = "special-scalar-sqlite";
@@ -623,6 +741,10 @@ public sealed class GeneratedSpecialScalarReadCodecTests
             CanonicalJsonRead.Row jsonRow = (await session.Reads.ToArrayAsync(
                 CanonicalJsonRead.Handle, new CanonicalJsonRead { Json = Json("{\"value\":true}") })).RequireValue().Single();
             jsonRow.Json.Should().Be(Json("{\"value\":true}"));
+            BinaryEqualityRead.Row binaryRow = (await session.Reads.ToArrayAsync(
+                BinaryEqualityRead.Handle, new BinaryEqualityRead { Binary = BaseBinary.From([1, 2, 3]) }))
+                .RequireValue().Single();
+            binaryRow.Binary.Should().Be(BaseBinary.From([1, 2, 3]));
         }
         finally
         {
@@ -730,6 +852,7 @@ public sealed class GeneratedSpecialScalarReadCodecTests
     private sealed class HostileScalarReadStore(string fieldId, string value)
         : FakeRecordStore("hostile-special-scalars"), IRelationalReadStore
     {
+        public int Calls { get; private set; }
         public RelationalReadCapability RelationalReads { get; } = new()
         {
             Supported = true,
@@ -738,8 +861,10 @@ public sealed class GeneratedSpecialScalarReadCodecTests
             MaxAggregates = 8, MaxProjectionFields = 16, MaxSortFields = 8, MaxResultRows = 1_000, MaxResultBytes = 4 * 1024 * 1024,
             SnapshotConsistency = true, CompleteDependencyEvidence = true,
         };
-        public ValueTask<OperationResult<BaseRelationalReadExecutionResult>> ExecuteReadAsync(BaseRelationalReadExecutionRequest request, CancellationToken cancellationToken = default) =>
-            ValueTask.FromResult(OperationResults.Ok(new BaseRelationalReadExecutionResult
+        public ValueTask<OperationResult<BaseRelationalReadExecutionResult>> ExecuteReadAsync(BaseRelationalReadExecutionRequest request, CancellationToken cancellationToken = default)
+        {
+            Calls++;
+            return ValueTask.FromResult(OperationResults.Ok(new BaseRelationalReadExecutionResult
             {
                 Result = new BaseRelationalReadResult
                 {
@@ -748,6 +873,7 @@ public sealed class GeneratedSpecialScalarReadCodecTests
                 },
                 DependencyEvidence = [new BaseReadDependencyEvidence { CollectionId = SpecialScalarRecord.Collection.Id }],
             }));
+        }
     }
 
     private sealed class HostileCanonicalJsonReadStore(byte[] bytes, bool canonicalJsonValues = true)
@@ -843,6 +969,20 @@ internal sealed partial record HostileEnumRead
             .Project(Row.Fields.Mode, record.Field(SpecialScalarRecord.Fields.Mode));
 }
 
+[BaseRead("hostile-binary", typeof(SpecialScalarReadJsonContext), RequiredGrantId = "special.read")]
+internal sealed partial record HostileBinaryRead
+{
+    public sealed partial record Row
+    {
+        [BaseReadField("hostile-binary.row.binary", MinimumBytes = 1, MaximumBytes = 16)]
+        public required BaseBinary Binary { get; init; }
+    }
+
+    public static void Configure(BaseReadDefinitionBuilder<HostileBinaryRead, Row> read) =>
+        read.From(SpecialScalarRecord.Collection, "record", out BaseReadSource<SpecialScalarRecord> record)
+            .Project(Row.Fields.Binary, record.Field(SpecialScalarRecord.Fields.Binary));
+}
+
 [BaseRead("closed-enum-literal", typeof(SpecialScalarReadJsonContext), RequiredGrantId = "special.read")]
 internal sealed partial record ClosedEnumLiteralRead
 {
@@ -860,13 +1000,13 @@ internal sealed partial record ClosedEnumLiteralRead
 [BaseRead("special-scalars", typeof(SpecialScalarReadJsonContext), RequiredGrantId = "special.read")]
 internal sealed partial record SpecialScalarRead
 {
-    [BaseReadParameter("special.binary")] public BaseBinary? Binary { get; init; }
+    [BaseReadParameter("special.binary", MinimumBytes = 1, MaximumBytes = 16)] public BaseBinary? Binary { get; init; }
     [BaseReadParameter("special.generation")] public BaseModuleGeneration? Generation { get; init; }
     [BaseReadParameter("special.mode")] public SpecialScalarMode? Mode { get; init; }
 
     public sealed partial record Row
     {
-        [BaseReadField("special.row.binary")] public required BaseBinary Binary { get; init; }
+        [BaseReadField("special.row.binary", MinimumBytes = 1, MaximumBytes = 16)] public required BaseBinary Binary { get; init; }
         [BaseReadField("special.row.generation")] public required BaseModuleGeneration Generation { get; init; }
         [BaseReadField("special.row.mode")] public required SpecialScalarMode Mode { get; init; }
         [BaseReadField("special.row.revision")] public required RevisionToken Revision { get; init; }
@@ -880,6 +1020,24 @@ internal sealed partial record SpecialScalarRead
             .Project(Row.Fields.Mode, record.Field(SpecialScalarRecord.Fields.Mode))
             .Project(Row.Fields.Revision, record.Revision);
     }
+}
+
+[BaseRead("binary-equality", typeof(SpecialScalarReadJsonContext), RequiredGrantId = "special.read")]
+internal sealed partial record BinaryEqualityRead
+{
+    [BaseReadParameter("binary-equality.parameter", MinimumBytes = 1, MaximumBytes = 16)]
+    public required BaseBinary Binary { get; init; }
+
+    public sealed partial record Row
+    {
+        [BaseReadField("binary-equality.row.binary", MinimumBytes = 1, MaximumBytes = 16)]
+        public required BaseBinary Binary { get; init; }
+    }
+
+    public static void Configure(BaseReadDefinitionBuilder<BinaryEqualityRead, Row> read) => read
+        .From(SpecialScalarRecord.Collection, "record", out BaseReadSource<SpecialScalarRecord> record)
+        .Where(record.Field(SpecialScalarRecord.Fields.Binary).Equal(read.Parameter(Parameters.Binary)))
+        .Project(Row.Fields.Binary, record.Field(SpecialScalarRecord.Fields.Binary));
 }
 
 [BaseRead("canonical-json", typeof(SpecialScalarReadJsonContext), RequiredGrantId = "special.read")]
@@ -904,7 +1062,7 @@ internal sealed partial record CanonicalJsonRead
 [BaseCollection("special-scalar-records", typeof(SpecialScalarReadJsonContext))]
 internal sealed partial record SpecialScalarRecord
 {
-    [BaseField("binary", MaximumBytes = 16)] public required BaseBinary Binary { get; init; }
+    [BaseField("binary", MinimumBytes = 1, MaximumBytes = 16)] public required BaseBinary Binary { get; init; }
     [BaseField("json", MaximumCanonicalJsonBytes = 128, JsonShape = BaseJsonShape.Object, MaximumJsonDepth = 4, MaximumJsonArrayItems = 8,
         MaximumJsonObjectProperties = 8, MaximumJsonTotalNodes = 16, MaximumJsonTotalStringUtf8Bytes = 128,
         MaximumJsonTotalNameUtf8Bytes = 128)] public required BaseCanonicalJson Json { get; init; }
@@ -1055,10 +1213,14 @@ internal sealed partial class ManualCanonicalJsonContext : JsonSerializerContext
 
 [JsonSerializable(typeof(SpecialScalarRead))]
 [JsonSerializable(typeof(SpecialScalarRead.Row), TypeInfoPropertyName = "SpecialScalarReadRow")]
+[JsonSerializable(typeof(BinaryEqualityRead))]
+[JsonSerializable(typeof(BinaryEqualityRead.Row), TypeInfoPropertyName = "BinaryEqualityReadRow")]
 [JsonSerializable(typeof(CanonicalJsonRead))]
 [JsonSerializable(typeof(CanonicalJsonRead.Row), TypeInfoPropertyName = "CanonicalJsonReadRow")]
 [JsonSerializable(typeof(HostileEnumRead))]
 [JsonSerializable(typeof(HostileEnumRead.Row), TypeInfoPropertyName = "HostileEnumReadRow")]
+[JsonSerializable(typeof(HostileBinaryRead))]
+[JsonSerializable(typeof(HostileBinaryRead.Row), TypeInfoPropertyName = "HostileBinaryReadRow")]
 [JsonSerializable(typeof(ClosedEnumLiteralRead))]
 [JsonSerializable(typeof(ClosedEnumLiteralRead.Row), TypeInfoPropertyName = "ClosedEnumLiteralReadRow")]
 [JsonSerializable(typeof(ModuleGenerationOnlyRead))]

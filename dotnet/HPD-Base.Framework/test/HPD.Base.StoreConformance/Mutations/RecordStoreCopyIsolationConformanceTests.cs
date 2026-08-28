@@ -93,6 +93,7 @@ public abstract class RecordStoreCopyIsolationConformanceTests<TFixture> : Recor
                 record.Id,
                 new RecordPatchRequest
                 {
+                    RemovedFieldIds = [],
                     Patch = new RecordPayload
                     {
                         Kind = RecordPayloadKind.FieldMap,

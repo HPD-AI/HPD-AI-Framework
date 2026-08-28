@@ -232,7 +232,8 @@ public sealed class RuntimeTelemetryTests
 
     private static RecordPatchRequest PatchRequest() => new()
     {
-        Patch = Payload("patched")
+        Patch = Payload("patched"),
+        RemovedFieldIds = []
     };
 
     private static RecordReplaceRequest ReplaceRequest() => new()

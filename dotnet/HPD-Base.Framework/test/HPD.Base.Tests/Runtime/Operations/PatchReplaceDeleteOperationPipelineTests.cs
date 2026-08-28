@@ -17,6 +17,7 @@ public sealed class PatchReplaceDeleteOperationPipelineTests
             RecordId.Create("rec_1"),
             new RecordPatchRequest
             {
+                RemovedFieldIds = [],
                 Patch = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = [] }
             },
             RuntimeTestData.AnonymousPrincipal,
@@ -24,6 +25,69 @@ public sealed class PatchReplaceDeleteOperationPipelineTests
             CancellationToken.None);
 
         Assert.Equal(OperationStatus.ValidationFailed, result.Status);
+        Assert.Equal(0, store.PatchCalls);
+    }
+
+    [Fact]
+    public async Task RemovalOnlyPatchParticipatesInWriteMaskBeforeStoreCall()
+    {
+        var store = new FakeRecordStore("primary");
+        store.AddRecord(ExistingRecord("rec_1", ("title", "old"), ("status", "active")));
+        using var provider = OperationTestServices.Build(
+            store,
+            new ConstrainedPolicyEvaluator(writeMask: new FieldMask
+            {
+                Mode = FieldMaskMode.IncludeOnly,
+                Include = ["title"]
+            }),
+            fields:
+            [
+                new FieldDefinition { Id = "title", ApplicationName = "title", WireName = "title", Type = BaseFieldTypes.String },
+                new FieldDefinition
+                {
+                    Id = "status", ApplicationName = "status", WireName = "status", Type = BaseFieldTypes.String,
+                    Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable
+                },
+            ]);
+
+        var result = await provider.GetRequiredService<IBaseRecordRuntime>().PatchAsync(
+            "items",
+            RecordId.Create("rec_1"),
+            new RecordPatchRequest
+            {
+                Patch = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = [] },
+                RemovedFieldIds = ["status"]
+            },
+            RuntimeTestData.AnonymousPrincipal,
+            RuntimeTestData.Operation(BaseOperationKind.Patch),
+            CancellationToken.None);
+
+        Assert.Equal(OperationStatus.PolicyDenied, result.Status);
+        Assert.Equal("base.runtime.policy.writeMask.denied", result.Error!.Code);
+        Assert.Equal(0, store.PatchCalls);
+    }
+
+    [Fact]
+    public async Task InvalidRemovalFailsBeforeProviderInfluence()
+    {
+        var store = new FakeRecordStore("primary");
+        using var provider = OperationTestServices.Build(store);
+
+        var result = await provider.GetRequiredService<IBaseRecordRuntime>().PatchAsync(
+            "items",
+            RecordId.Create("rec_1"),
+            new RecordPatchRequest
+            {
+                Patch = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = [] },
+                RemovedFieldIds = ["unknown"]
+            },
+            RuntimeTestData.AnonymousPrincipal,
+            RuntimeTestData.Operation(BaseOperationKind.Patch),
+            CancellationToken.None);
+
+        Assert.Equal(OperationStatus.ValidationFailed, result.Status);
+        Assert.Equal("base.runtime.patch.removalsInvalid", result.Error!.Code);
+        Assert.Equal(0, store.GetCalls);
         Assert.Equal(0, store.PatchCalls);
     }
 
@@ -38,6 +102,7 @@ public sealed class PatchReplaceDeleteOperationPipelineTests
             RecordId.Create("rec_1"),
             new RecordPatchRequest
             {
+                RemovedFieldIds = [],
                 Patch = FieldMapPayload("title", "updated"),
                 ExpectedRevision = new RevisionToken("rev_1")
             },
@@ -61,6 +126,7 @@ public sealed class PatchReplaceDeleteOperationPipelineTests
             RecordId.Create("rec_1"),
             new RecordPatchRequest
             {
+                RemovedFieldIds = [],
                 Patch = FieldMapPayload("title", "updated"),
                 ExpectedRevision = new RevisionToken("rev_1")
             },
@@ -111,7 +177,7 @@ public sealed class PatchReplaceDeleteOperationPipelineTests
         var result = await provider.GetRequiredService<IBaseRecordRuntime>().PatchAsync(
             "items",
             RecordId.Create("rec_1"),
-            new RecordPatchRequest { Patch = FieldMapPayload("title", "original") },
+            new RecordPatchRequest { Patch = FieldMapPayload("title", "original"), RemovedFieldIds = [] },
             RuntimeTestData.AnonymousPrincipal,
             RuntimeTestData.Operation(BaseOperationKind.Patch),
             CancellationToken.None);
@@ -135,7 +201,7 @@ public sealed class PatchReplaceDeleteOperationPipelineTests
         var result = await provider.GetRequiredService<IBaseRecordRuntime>().PatchAsync(
             "items",
             RecordId.Create("rec_1"),
-            new RecordPatchRequest { Patch = FieldMapPayload("title", "new") },
+            new RecordPatchRequest { Patch = FieldMapPayload("title", "new"), RemovedFieldIds = [] },
             RuntimeTestData.AnonymousPrincipal,
             RuntimeTestData.Operation(BaseOperationKind.Patch),
             CancellationToken.None);
@@ -173,7 +239,7 @@ public sealed class PatchReplaceDeleteOperationPipelineTests
         var result = await provider.GetRequiredService<IBaseRecordRuntime>().PatchAsync(
             "items",
             RecordId.Create("rec_1"),
-            new RecordPatchRequest { Patch = FieldMapPayload("title", "new") },
+            new RecordPatchRequest { Patch = FieldMapPayload("title", "new"), RemovedFieldIds = [] },
             RuntimeTestData.AnonymousPrincipal,
             RuntimeTestData.Operation(BaseOperationKind.Patch),
             CancellationToken.None);
@@ -192,7 +258,7 @@ public sealed class PatchReplaceDeleteOperationPipelineTests
         var result = await provider.GetRequiredService<IBaseRecordRuntime>().PatchAsync(
             "items",
             RecordId.Create("rec_1"),
-            new RecordPatchRequest { Patch = FieldMapPayload("title", "new") },
+            new RecordPatchRequest { Patch = FieldMapPayload("title", "new"), RemovedFieldIds = [] },
             RuntimeTestData.AnonymousPrincipal,
             RuntimeTestData.Operation(BaseOperationKind.Patch),
             CancellationToken.None);

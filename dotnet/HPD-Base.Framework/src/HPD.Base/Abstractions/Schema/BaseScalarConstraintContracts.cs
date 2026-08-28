@@ -67,6 +67,7 @@ public sealed record BaseScalarConstraintSet
     public BaseDecimalValue? MinimumDecimal { get; init; }
     public BaseDecimalValue? MaximumDecimal { get; init; }
     public ImmutableArray<string> AllowedEnumLiterals { get; init; } = [];
+    public int? MinimumBinaryBytes { get; init; }
     public int? MaximumBinaryBytes { get; init; }
     public int? MaximumCanonicalJsonBytes { get; init; }
     public BaseJsonShape? JsonShape { get; init; }

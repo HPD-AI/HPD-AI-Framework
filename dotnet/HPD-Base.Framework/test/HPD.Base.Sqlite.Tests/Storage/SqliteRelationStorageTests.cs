@@ -42,7 +42,7 @@ public sealed class SqliteRelationStorageTests
 
             (await ReadLinksAsync(path)).Should().Equal(("p1", "u1", 0L), ("p1", "u2", 1L));
 
-            (await store.PatchAsync(source, RecordId.Create("p1"), new RecordPatchRequest { Patch = Members("u2") }, Operation(BaseOperationKind.Patch, "projects", "p1"))).Status.Should().Be(OperationStatus.Updated);
+            (await store.PatchAsync(source, RecordId.Create("p1"), new RecordPatchRequest { Patch = Members("u2"), RemovedFieldIds = [] }, Operation(BaseOperationKind.Patch, "projects", "p1"))).Status.Should().Be(OperationStatus.Updated);
             (await ReadLinksAsync(path)).Should().Equal(("p1", "u2", 0L));
 
             var restricted = await store.DeleteAsync(target, RecordId.Create("u2"), new RecordDeleteRequest(), Operation(BaseOperationKind.Delete, "users", "u2"));

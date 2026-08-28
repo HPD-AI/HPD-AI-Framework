@@ -201,7 +201,7 @@ internal static class BaseSerializerContract
         type == typeof(float) || type == typeof(double) || type == typeof(decimal) || type == typeof(Guid) ||
         type == typeof(DateTime) || type == typeof(DateTimeOffset) || type == typeof(JsonElement) ||
         type == typeof(BaseBinary) || type == typeof(BaseCanonicalJson) || type == typeof(BaseVector) || type == typeof(RecordId) ||
-        type == typeof(BaseModuleGeneration) || type == typeof(RevisionToken) ||
+        type == typeof(BaseModuleGeneration) || type == typeof(RevisionToken) || type == typeof(BaseSubjectIncarnation) ||
         type.IsGenericType && type.GetGenericTypeDefinition() == typeof(BaseSubjectReference<>) ||
         type.IsGenericType && type.GetGenericTypeDefinition() == typeof(BaseRecordId<>);
 
@@ -215,6 +215,9 @@ internal static class BaseSerializerContract
         return (definition.FullName ?? definition.Name) + "[" +
             string.Join(",", type.GetGenericArguments().Select(CanonicalType)) + "]";
     }
+
+    /// <summary>Returns the L44 canonical CLR type identity without assembly-version coupling.</summary>
+    internal static string CanonicalTypeIdentity(Type type) => CanonicalType(type);
     private static bool IsClosedEnumConverter(JsonPropertyInfo property)
     {
         if (property.CustomConverter is null) return false;

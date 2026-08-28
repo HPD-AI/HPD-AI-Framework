@@ -38,7 +38,10 @@ internal static class BaseApplicationGraphValidator
                 try { disclosure = BaseConfidentialityPolicy.Normalize(field.Confidentiality, field.Disclosure); }
                 catch (InvalidOperationException) { throw Invalid($"Field '{field.Id}' has an invalid confidentiality contract."); }
                 bool binary = string.Equals(field.Format, "base64", StringComparison.Ordinal);
-                if (binary != (field.MaximumBytes is not null) || binary && field.MaximumBytes is < 1 or > 1_048_576)
+                if (binary != (field.MaximumBytes is not null)
+                    || binary && (field.MinimumBytes is null or < 0 || field.MaximumBytes is < 1 or > 1_048_576
+                        || field.MinimumBytes > field.MaximumBytes)
+                    || !binary && field.MinimumBytes is not null)
                     throw Invalid($"Field '{field.Id}' has an invalid binary contract.");
                 int fieldOrdinal = Array.FindIndex(fields, candidate => string.Equals(candidate.Id, field.Id, StringComparison.Ordinal));
                 if (disclosure.Indexing == BaseIndexDisclosure.Forbidden && (collection.Indexes ?? []).Any(index => index.Parts.Any(part => part.FieldOrdinal == fieldOrdinal)))
@@ -132,6 +135,7 @@ internal static class BaseApplicationGraphValidator
         Dictionary<string, BaseRelationalReadParameter> parameters = Unique(plan.Parameters, static parameter => parameter.Id, "read parameter");
         if (parameters.Values.Any(parameter => !ValidParameter(parameter, options)))
             throw Invalid($"Read '{registration.Id}' contains an invalid parameter definition.");
+        ValidateBinaryReadContracts(registration, plan, sources, collections, parameters);
         int nodes = Count(plan.Predicate) + Count(plan.Having) + plan.CompoundCountBranches.Sum(static branch => Count(branch.Predicate));
         if (nodes > options.MaxPredicateNodes || Depth(plan.Predicate) > options.MaxPredicateDepth || Depth(plan.Having) > options.MaxPredicateDepth)
             throw Invalid($"Read '{registration.Id}' exceeds predicate limits.");
@@ -438,19 +442,70 @@ internal static class BaseApplicationGraphValidator
     private static bool ValidParameter(BaseRelationalReadParameter parameter, HPDBaseRelationalOptions options)
     {
         if (string.IsNullOrWhiteSpace(parameter.Id) || parameter.Id.Length > 128) return false;
+        bool binary = parameter.MaximumBinaryBytes is not null;
+        if (binary
+            ? parameter.MinimumBinaryBytes is < 0 || parameter.MaximumBinaryBytes is < 1 or > 1_048_576 ||
+                parameter.MinimumBinaryBytes > parameter.MaximumBinaryBytes || parameter.MaxLength is not null ||
+                parameter.Kind != QueryValueKind.String &&
+                (parameter.Kind != QueryValueKind.Array || parameter.ElementKind != QueryValueKind.String)
+            : parameter.MinimumBinaryBytes is not null)
+            return false;
         if (parameter.Kind == QueryValueKind.Array)
             return parameter.ElementKind is not null and not QueryValueKind.Array and not QueryValueKind.Null &&
                 parameter.MaxItems is > 0 && parameter.MaxItems <= options.MaxParameterArrayItems &&
                 (parameter.ElementKind is QueryValueKind.String or QueryValueKind.Id
-                    ? parameter.MaxLength is > 0 && parameter.MaxLength <= options.MaxParameterStringLength
+                    ? binary || parameter.MaxLength is > 0 && parameter.MaxLength <= options.MaxParameterStringLength
                     : parameter.MaxLength is null);
         return parameter.ElementKind is null && parameter.MaxItems is null &&
             (parameter.Kind is QueryValueKind.String or QueryValueKind.Id
-                ? parameter.MaxLength is > 0 && parameter.MaxLength <= options.MaxParameterStringLength
+                ? binary || parameter.MaxLength is > 0 && parameter.MaxLength <= options.MaxParameterStringLength
                 : parameter.MaxLength is null) &&
             (parameter.Kind == QueryValueKind.CanonicalJson
                 ? parameter.CanonicalJsonAuthority is { } authority && BaseReadCanonicalJsonAuthorityContract.Valid(authority)
                 : parameter.CanonicalJsonAuthority is null);
+    }
+
+    private static void ValidateBinaryReadContracts(
+        IBaseReadRegistration registration,
+        BaseRelationalReadPlan plan,
+        IReadOnlyDictionary<string, BaseRelationalReadSource> sources,
+        IReadOnlyDictionary<string, CollectionDefinition> collections,
+        IReadOnlyDictionary<string, BaseRelationalReadParameter> parameters)
+    {
+        IReadOnlyDictionary<string, BaseReadClientProperty> parameterProperties = registration.ClientContract.Parameters
+            .ToDictionary(static value => value.Id, StringComparer.Ordinal);
+        if (parameterProperties.Count != parameters.Count || parameters.Any(pair =>
+                !parameterProperties.TryGetValue(pair.Key, out BaseReadClientProperty? property) ||
+                property.MinimumBinaryBytes != pair.Value.MinimumBinaryBytes ||
+                property.MaximumBinaryBytes != pair.Value.MaximumBinaryBytes))
+            throw Invalid("A registered-read parameter scalar contract does not match its generated client contract.");
+
+        IReadOnlyDictionary<string, BaseReadClientProperty> rowProperties = registration.ClientContract.Row
+            .ToDictionary(static value => value.Id, StringComparer.Ordinal);
+        foreach (BaseReadClientProperty property in rowProperties.Values)
+        {
+            bool binary = property.MaximumBinaryBytes is not null;
+            if (binary
+                ? property.Kind != QueryValueKind.String || property.Array || property.MinimumBinaryBytes is < 0 ||
+                    property.MaximumBinaryBytes is < 1 or > 1_048_576 || property.MinimumBinaryBytes > property.MaximumBinaryBytes
+                : property.MinimumBinaryBytes is not null)
+                throw Invalid("A registered-read result scalar contract is invalid.");
+        }
+        foreach (BaseRelationalReadProjection projection in plan.Projection)
+        {
+            if (!rowProperties.TryGetValue(projection.FieldId, out BaseReadClientProperty? output))
+                throw Invalid("A registered-read projection is absent from its generated client contract.");
+            if (output.MaximumBinaryBytes is null) continue;
+            if (projection.Operand.Kind != BaseRelationalOperandKind.SourceField ||
+                !sources.TryGetValue(projection.Operand.SourceId!, out BaseRelationalReadSource? source))
+                throw Invalid("A binary registered-read result must be an exact source-field projection.");
+            FieldDefinition field = collections[source.CollectionId].Fields!.Single(candidate =>
+                string.Equals(candidate.Id, projection.Operand.FieldId, StringComparison.Ordinal));
+            if (field.ScalarKind != BaseScalarKind.Binary ||
+                field.ScalarConstraints?.MinimumBinaryBytes != output.MinimumBinaryBytes ||
+                field.ScalarConstraints?.MaximumBinaryBytes != output.MaximumBinaryBytes)
+                throw Invalid("A binary registered-read result does not match its installed source-field bounds.");
+        }
     }
 
     private static void ValidateCanonicalJsonReadContracts(

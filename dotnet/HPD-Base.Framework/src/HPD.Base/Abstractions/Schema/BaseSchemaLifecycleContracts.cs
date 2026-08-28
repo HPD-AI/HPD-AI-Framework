@@ -198,7 +198,9 @@ public sealed record BaseLogicalField
     public BaseFieldConfidentiality Confidentiality { get; init; }
     /// <summary>Gets the normalized complete disclosure policy.</summary>
     public required BaseFieldDisclosurePolicy Disclosure { get; init; }
-    /// <summary>Gets the decoded binary limit when this is a binary field.</summary>
+    /// <summary>Gets the decoded binary minimum when this is a binary field.</summary>
+    public int? MinimumBytes { get; init; }
+    /// <summary>Gets the decoded binary maximum when this is a binary field.</summary>
     public int? MaximumBytes { get; init; }
     /// <summary>Gets the exported-subject reference contract when this is a reference field.</summary>
     public BaseSubjectReferenceDefinition? SubjectReference { get; init; }

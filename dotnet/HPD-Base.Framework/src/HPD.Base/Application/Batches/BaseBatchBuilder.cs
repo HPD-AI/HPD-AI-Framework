@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json.Serialization.Metadata;
 
 namespace HPD.Base;
@@ -137,7 +138,56 @@ public sealed class BaseBatchBuilder
             Patch = new RecordPatchRequest
             {
                 ExpectedRevision = expectedRevision,
-                Patch = BaseRecordCodec.Encode(patch, patchJsonTypeInfo),
+                RemovedFieldIds = [],
+                Patch = BaseRecordCodec.EncodePatch(patch, patchJsonTypeInfo),
+            },
+        });
+        return new BaseBatchItem<T>(
+            _owner,
+            itemId,
+            collection,
+            BaseRecordMutationKind.Patch);
+    }
+
+    /// <summary>Adds a typed patch that removes generated optional fields.</summary>
+    /// <typeparam name="T">The persisted record type.</typeparam>
+    /// <typeparam name="TPatch">The source-generated patch DTO type.</typeparam>
+    /// <param name="collection">The collection contract.</param>
+    /// <param name="id">The record identifier.</param>
+    /// <param name="patch">The assignment portion of the patch.</param>
+    /// <param name="patchJsonTypeInfo">The source-generated JSON authority for the patch DTO.</param>
+    /// <param name="removals">Opaque removal authorities created from optional fields of this record type.</param>
+    /// <param name="expectedRevision">The optional revision precondition.</param>
+    /// <returns>The typed batch item handle.</returns>
+    public BaseBatchItem<T> PatchRemoving<T, TPatch>(
+        BaseCollection<T> collection,
+        RecordId id,
+        TPatch patch,
+        JsonTypeInfo<TPatch> patchJsonTypeInfo,
+        IReadOnlyCollection<BaseFieldRemoval<T>> removals,
+        RevisionToken? expectedRevision = null)
+    {
+        ArgumentNullException.ThrowIfNull(removals);
+        if (removals.Count == 0)
+            throw new ArgumentException("At least one optional field removal is required.", nameof(removals));
+        EnsureMutable();
+        EnsureCollectionAllows(collection.Definition, BaseRecordMutationKind.Patch);
+        string itemId = NextItemId();
+        _items.Add(new BaseRecordBatchItem
+        {
+            ItemId = itemId,
+            CollectionId = collection.Id,
+            Kind = BaseRecordMutationKind.Patch,
+            RecordId = id,
+            Patch = new RecordPatchRequest
+            {
+                ExpectedRevision = expectedRevision,
+                RemovedFieldIds = removals.Select(static removal => removal?.FieldId
+                        ?? throw new ArgumentException("A field removal cannot be null.", nameof(removals)))
+                    .Distinct(StringComparer.Ordinal)
+                    .Order(StringComparer.Ordinal)
+                    .ToImmutableArray(),
+                Patch = BaseRecordCodec.EncodePatch(patch, patchJsonTypeInfo),
             },
         });
         return new BaseBatchItem<T>(
@@ -169,7 +219,7 @@ public sealed class BaseBatchBuilder
             {
                 Id = id,
                 CreatePayload = BaseRecordCodec.Encode(createValue, _session.Serializer(collection)),
-                UpdatePayload = BaseRecordCodec.Encode(patch, patchJsonTypeInfo),
+                UpdatePayload = BaseRecordCodec.EncodePatch(patch, patchJsonTypeInfo),
                 UpdateMode = RecordUpsertUpdateMode.Patch,
                 Condition = condition,
                 ExpectedRevision = expectedRevision,

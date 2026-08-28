@@ -419,11 +419,12 @@ public static class BaseSemanticActivationCertificationContract
     public static ImmutableArray<byte> ModuleMutationCapabilityChecksum(BaseModuleMutationCapability value)
     {
         ArgumentNullException.ThrowIfNull(value);
-        using var stream = new MemoryStream(); Text(stream, "base.moduleMutation.capability.v1\0");
+        using var stream = new MemoryStream(); Text(stream, "base.moduleMutation.capability.v2\0");
         stream.WriteByte(value.Supported ? (byte)1 : (byte)0); stream.WriteByte(value.SerializableExecution ? (byte)1 : (byte)0);
         stream.WriteByte(value.DurableReceipts ? (byte)1 : (byte)0); stream.WriteByte(value.GenerationCells ? (byte)1 : (byte)0);
         stream.WriteByte(value.AtomicRecordAndGenerationCommit ? (byte)1 : (byte)0);
         foreach (long item in BaseSemanticActivationCertificationEncoding.ModuleLimits(value.MaximumLimits)) I64(stream, item);
+        I32(stream, value.MaximumRemovedFieldsPerMutation);
         return SHA256.HashData(stream.ToArray()).ToImmutableArray();
     }
 
@@ -626,6 +627,9 @@ internal static class BaseSemanticActivationCertificationEncoding
         yield return value.MaximumGenerationCaptures; yield return value.MaximumRecordMutations; yield return value.MaximumGenerationReads;
         yield return value.MaximumGenerationComparisons; yield return value.MaximumGenerationIncrements; yield return value.MaximumGuardNodes;
         yield return value.MaximumGuardDepth; yield return value.MaximumStatements; yield return value.MaximumBranches; yield return value.MaximumExpressionNodes;
+        yield return value.MaximumPreconditions; yield return value.MaximumRequestGuardEvaluations;
+        yield return value.MaximumStaticSetMembers; yield return value.MaximumStaticSetComparisons;
+        yield return value.MaximumDisabledCaptures; yield return value.MaximumRemovedFields;
         yield return value.MaximumReadIntervals; yield return value.MaximumSubjectValidations; yield return value.MaximumAuthorityReads;
         yield return value.MaximumRelationChecks; yield return value.MaximumUniqueConstraintChecks; yield return value.MaximumRequestBytes;
         yield return value.MaximumSelectedBytes; yield return value.MaximumGenerationBytes; yield return value.MaximumEvidenceBytes;

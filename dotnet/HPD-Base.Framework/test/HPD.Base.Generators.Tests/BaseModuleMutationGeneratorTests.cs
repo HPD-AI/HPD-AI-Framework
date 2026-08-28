@@ -11,6 +11,45 @@ namespace HPD.Base.Generators.Tests;
 public sealed class BaseModuleMutationGeneratorTests
 {
     [Fact]
+    public void EmitsOpaqueActivationDtoAuthorityFromFlatGeneratedRoots()
+    {
+        Result result = Run("""
+            using HPD.Base;
+            using System.Text.Json;
+            using System.Text.Json.Serialization;
+            [BaseActivationDtoAuthority("work.activation.dto", 1, "work", "work.input.v1", "work.result.v1",
+                typeof(AppJsonContext), typeof(Input), typeof(Output))]
+            public static partial class WorkActivationDtos;
+            public sealed record Input
+            {
+                [BaseField("work.input.id", MinimumUtf8Bytes=1, MaximumUtf8Bytes=64)]
+                [BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)]
+                public required string Id { get; init; }
+            }
+            public sealed record Output
+            {
+                [BaseField("work.result.digest", MinimumBytes=32, MaximumBytes=32)]
+                [BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)]
+                public required BaseBinary Digest { get; init; }
+            }
+            [JsonSerializable(typeof(Input))]
+            [JsonSerializable(typeof(Output))]
+            public sealed partial class AppJsonContext : JsonSerializerContext;
+            """);
+
+        result.Diagnostics.Should().BeEmpty();
+        result.Source.Should().Contain("BaseGeneratedActivationDtoAuthority<global::Input, global::Output>")
+            .And.Contain("BaseGeneratedActivationDtos.Register<global::Input, global::Output>")
+            .And.Contain("\"work.activation.dto\", 1, \"work\", \"work.input.v1\", \"work.result.v1\"")
+            .And.Contain("MinimumBinaryBytes = 32")
+            .And.Contain("MaximumBinaryBytes = 32");
+        result.CompilationDiagnostics.Where(static value => value.Severity == Microsoft.CodeAnalysis.DiagnosticSeverity.Error
+            && value.Id != "CS1729"
+            && value.Location.SourceTree?.FilePath.Contains("HPDBaseActivationDto", StringComparison.Ordinal) == true)
+            .Should().BeEmpty(result.Source);
+    }
+
+    [Fact]
     public void InternalGraphOwnedOperationRemainsInternal()
     {
         Result result = Run("""
@@ -183,6 +222,115 @@ public sealed class BaseModuleMutationGeneratorTests
             .And.Contain("MaximumBinaryBytes = 4096")
             .And.Contain("MaximumCanonicalJsonBytes = 8192")
             .And.Contain("AllowedEnumLiterals = [\"done\", \"ready\"]");
+    }
+
+    [Fact]
+    public void EmitsOptionalNonNullValueAuthorityWithoutTreatingAbsenceAsNullability()
+    {
+        Result result = Run("""
+            using HPD.Base;
+            using System;
+            using System.Text.Json.Serialization;
+            [BaseCollection("work.targets", typeof(AppJsonContext))]
+            public sealed partial record WorkTarget
+            {
+                [BaseField("work.targets.id", MinimumUtf8Bytes=1, MaximumUtf8Bytes=64)]
+                public required string Id { get; init; }
+            }
+            public enum ProcessingMode { [JsonStringEnumMemberName("ready")] Ready }
+            [BaseRegisteredModuleMutation("work.optional", typeof(AppJsonContext), typeof(Request), typeof(Result), OwningModuleId="work", GrantId="work.optional")]
+            public static partial class OptionalOperation { internal static BaseRegisteredModuleMutationDefinition Definition => throw null!; }
+            public sealed record Request
+            {
+                [BaseField("request.instant", Presence=BaseFieldPresence.Optional, Nullability=BaseFieldNullability.NonNullable)]
+                [JsonConverter(typeof(BaseUtcDateTimeJsonConverter))]
+                public DateTimeOffset? Instant { get; init; }
+                [BaseField("request.target", Presence=BaseFieldPresence.Optional, Nullability=BaseFieldNullability.NonNullable)]
+                public BaseRecordId<WorkTarget>? Target { get; init; }
+                [BaseField("request.guid", Presence=BaseFieldPresence.Optional, Nullability=BaseFieldNullability.NonNullable)]
+                [JsonConverter(typeof(BaseCanonicalNullableGuidJsonConverter))]
+                public Guid? CorrelationId { get; init; }
+                [BaseField("request.count", Presence=BaseFieldPresence.Optional, Nullability=BaseFieldNullability.NonNullable)]
+                public int? Count { get; init; }
+                [BaseField("request.mode", Presence=BaseFieldPresence.Optional, Nullability=BaseFieldNullability.NonNullable, AllowedEnumLiterals=new[] { "ready" })]
+                [JsonConverter(typeof(BaseClosedEnumJsonConverter<ProcessingMode>))]
+                public ProcessingMode? Mode { get; init; }
+            }
+            public sealed record Result
+            {
+                [BaseField("result.ok")]
+                public required bool Ok { get; init; }
+            }
+            [JsonSerializable(typeof(WorkTarget))]
+            [JsonSerializable(typeof(Request))]
+            [JsonSerializable(typeof(Result))]
+            [JsonSourceGenerationOptions(DefaultIgnoreCondition=JsonIgnoreCondition.WhenWritingNull)]
+            public sealed partial class AppJsonContext : JsonSerializerContext;
+            """);
+
+        result.Diagnostics.Should().BeEmpty();
+        result.CompilationDiagnostics.Where(static value => value.Severity == Microsoft.CodeAnalysis.DiagnosticSeverity.Error
+            && value.Id != "CS1729"
+            && value.Location.SourceTree?.FilePath.Contains("HPDBaseModuleMutation", StringComparison.Ordinal) == true)
+            .Should().BeEmpty(result.Source);
+        result.Source.Should().Contain("BaseModuleRequestProperty<global::Request, global::System.DateTimeOffset?> Instant")
+            .And.Contain("(global::HPD.Base.BaseFieldPresence)1, (global::HPD.Base.BaseFieldNullability)0")
+            .And.Contain("BaseModuleRequestProperty<global::Request, global::HPD.Base.BaseRecordId<global::WorkTarget>?> Target")
+            .And.Contain("BaseRecordIdJsonConverterFactory.Register<global::WorkTarget>()")
+            .And.Contain("BaseModuleRequestProperty<global::Request, global::System.Guid?> CorrelationId")
+            .And.Contain("BaseModuleRequestProperty<global::Request, int?> Count")
+            .And.Contain("BaseModuleRequestProperty<global::Request, global::ProcessingMode?> Mode")
+            .And.Contain("JsonIgnoreCondition.WhenWritingNull");
+    }
+
+    [Fact]
+    public void EmitsGeneratedSubjectReferenceAndIncarnationAuthorityWithoutRawContracts()
+    {
+        Result result = Run("""
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseCollection("private.users", typeof(AppJsonContext), Name="users", System=true, SystemOwnerModuleId="identity")]
+            public sealed partial record UserRecord
+            {
+                [BaseField("user.active")] public required bool Active { get; init; }
+                [BaseField("user.tombstoned")] public required bool Tombstoned { get; init; }
+            }
+            [BaseExportedSubject("identity.user", OwningModuleId="identity", PrivateRecordType=typeof(UserRecord),
+                AcquisitionGrantId="identity.user.acquire", ValidationGrantId="identity.user.validate",
+                AdministrationGrantId="identity.user.admin", ValidationPlanId="identity.user.validation",
+                ActiveFieldId="user.active", TombstoneFieldId="user.tombstoned")]
+            public partial class UserSubject;
+            [BaseRegisteredModuleMutation("identity.subject", typeof(AppJsonContext), typeof(Request), typeof(Result),
+                OwningModuleId="identity", GrantId="identity.subject")]
+            public static partial class Operation { internal static BaseRegisteredModuleMutationDefinition Definition => throw null!; }
+            public sealed record Request
+            {
+                [BaseField("request.subject")]
+                [BaseSubjectReference(typeof(UserSubject), Requirement=BaseSubjectReferenceRequirement.Exists)]
+                public required BaseSubjectReference<UserSubject> Subject { get; init; }
+                [BaseField("request.incarnation")]
+                public required BaseSubjectIncarnation Incarnation { get; init; }
+            }
+            public sealed record Result
+            {
+                [BaseField("result.subject")]
+                [BaseSubjectReference(typeof(UserSubject), Requirement=BaseSubjectReferenceRequirement.Exists)]
+                public required BaseSubjectReference<UserSubject> Subject { get; init; }
+            }
+            [JsonSerializable(typeof(Request))]
+            [JsonSerializable(typeof(Result))]
+            [JsonSerializable(typeof(UserRecord))]
+            public sealed partial class AppJsonContext : JsonSerializerContext;
+            """);
+
+        result.Diagnostics.Should().BeEmpty();
+        result.CompilationDiagnostics.Where(static value => value.Severity == Microsoft.CodeAnalysis.DiagnosticSeverity.Error
+            && value.Id != "CS1729"
+            && value.Location.SourceTree?.FilePath.Contains("HPDBase", StringComparison.Ordinal) == true)
+            .Should().BeEmpty(result.Source);
+        result.Source.Should().Contain("BaseGeneratedModuleScalarManifest.Subject<global::UserSubject>")
+            .And.Contain("BaseGeneratedModuleScalarManifest.SubjectIncarnation()")
+            .And.NotContain("ContractChecksum = \"identity.user");
     }
 
     private static Result Run(string source)

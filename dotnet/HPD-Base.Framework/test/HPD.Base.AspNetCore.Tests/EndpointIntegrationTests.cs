@@ -65,6 +65,7 @@ public sealed class EndpointIntegrationTests
         var patch = await client.PatchAsync($"/base/collections/items/records/{created.Id.Value}", JsonContent.Create(new RecordPatchRequest
         {
             Patch = TestBaseApp.Patch("title", "patched"),
+            RemovedFieldIds = [],
             ExpectedRevision = created.Metadata.Revision
         }, HPDBaseJsonSerializerContext.Default.RecordPatchRequest));
         patch.StatusCode.Should().Be(HttpStatusCode.OK);

@@ -2,17 +2,43 @@ using HPD.Base;
 
 namespace HPD.Auth.Base;
 
+/// <summary>Contains immutable host authority required to finalize the HPD Auth Base graph.</summary>
+public sealed record AuthBaseModuleOptions
+{
+    /// <summary>Gets the exact 32-byte digest of the installed Data Protection application discriminator.</summary>
+    public required BaseBinary DataProtectionApplicationDiscriminatorDigest { get; init; }
+
+    /// <summary>Gets the host-selected exact storage-protection requirement owned by HPD Auth.</summary>
+    public required BaseStorageProtectionRequirement StorageProtectionRequirement { get; init; }
+}
+
 /// <summary>Installs the currently declared private HPD Auth authority graph into HPD Base.</summary>
 public static class AuthBaseModule
 {
     /// <summary>Installs HPD Auth collections and exported subject contracts.</summary>
     /// <param name="builder">The application Base builder.</param>
+    /// <param name="options">The immutable Auth graph-finalization authority.</param>
     /// <returns>The same builder.</returns>
-    public static HPDBaseBuilder Install(HPDBaseBuilder builder)
+    public static HPDBaseBuilder Install(HPDBaseBuilder builder, AuthBaseModuleOptions options)
     {
         ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(options.DataProtectionApplicationDiscriminatorDigest);
+        ArgumentNullException.ThrowIfNull(options.StorageProtectionRequirement);
+        if (options.DataProtectionApplicationDiscriminatorDigest.Length != 32)
+            throw new ArgumentException(
+                "The Data Protection application discriminator digest must contain exactly 32 bytes.",
+                nameof(options));
+        if (!string.Equals(options.StorageProtectionRequirement.OwningModuleId,
+                AuthBaseContract.ModuleId, StringComparison.Ordinal))
+            throw new ArgumentException(
+                "The storage-protection requirement must be owned by HPD Auth.",
+                nameof(options));
+
+        BaseStorageProtectionRequirement storageProtection = Own(options.StorageProtectionRequirement);
 
         AuthPolicyAuthorityInstaller.Install(builder);
+        builder.RequireStorageProtection(storageProtection);
         builder.ConfigureRelational(options => options.MaxSources = Math.Max(options.MaxSources, 12));
 
         builder
@@ -76,6 +102,110 @@ public static class AuthBaseModule
         foreach (BaseSelectionOperationProfile profile in AuthSelectionProfiles.All)
             builder.AddSelectionOperationProfile(profile);
 
+        builder.AddModuleMutation(
+            AuthCreateUserOperationV1.Definition,
+            AuthCreateUserOperationV1.Identity);
+        builder.AddModuleMutation(
+            AuthUpdateUserProfileOperationV1.Definition,
+            AuthUpdateUserProfileOperationV1.Identity);
+        builder.AddModuleMutation(
+            AuthCreateRoleOperationV1.Definition,
+            AuthCreateRoleOperationV1.Identity);
+        builder.AddModuleMutation(
+            AuthRenameRoleOperationV1.Definition,
+            AuthRenameRoleOperationV1.Identity);
+        builder.AddModuleMutation(
+            AuthMembershipAddOperationV1.Definition,
+            AuthMembershipAddOperationV1.Identity);
+        builder.AddModuleMutation(
+            AuthMembershipRemoveOperationV1.Definition,
+            AuthMembershipRemoveOperationV1.Identity);
+        builder.AddModuleMutation(
+            AuthLoginLinkOperationV1.Definition,
+            AuthLoginLinkOperationV1.Identity);
+        builder.AddModuleMutation(
+            AuthLoginUnlinkOperationV1.Definition,
+            AuthLoginUnlinkOperationV1.Identity);
+        builder.AddModuleMutation(
+            AuthChangePasswordOperationV1.Definition,
+            AuthChangePasswordOperationV1.Identity);
+        builder.AddModuleMutation(
+            AuthResetPasswordOperationV1.Definition,
+            AuthResetPasswordOperationV1.Identity);
+        builder.AddModuleMutation(
+            AuthSetSecurityStateOperationV1.Definition,
+            AuthSetSecurityStateOperationV1.Identity);
+        builder.AddModuleMutation(
+            AuthAuditAppendOperationV1.Definition,
+            AuthAuditAppendOperationV1.Identity);
+        builder.AddModuleMutation(
+            AuthPasskeyRecordAssertionOperationV1.Definition,
+            AuthPasskeyRecordAssertionOperationV1.Identity);
+        builder.AddModuleMutation(
+            AuthSessionCreateOperationV1.Definition,
+            AuthSessionCreateOperationV1.Identity);
+        builder.AddModuleMutation(
+            AuthSessionTouchOperationV1.Definition,
+            AuthSessionTouchOperationV1.Identity);
+        builder.AddModuleMutation(
+            AuthRefreshIssueOperationV1.Definition,
+            AuthRefreshIssueOperationV1.Identity);
+        builder.AddModuleMutation(
+            AuthRefreshRotateOperationV1.Definition,
+            AuthRefreshRotateOperationV1.Identity);
+        builder.AddModuleMutation(
+            AuthRecoveryCodeConsumeOperationV1.Definition,
+            AuthRecoveryCodeConsumeOperationV1.Identity);
+        builder.AddModuleMutation(
+            AuthRecoveryCodesReplaceOperationV1.Definition,
+            AuthRecoveryCodesReplaceOperationV1.Identity);
+        builder.AddModuleMutation(
+            AuthPasskeyRegisterOperationV1.Definition,
+            AuthPasskeyRegisterOperationV1.Identity);
+        builder.AddModuleMutation(
+            AuthMaintenanceRunInitializeOperationV1.Definition,
+            AuthMaintenanceRunInitializeOperationV1.Identity);
+        builder.AddModuleMutation(
+            AuthCleanupReconcileCursorOperationV1.Definition,
+            AuthCleanupReconcileCursorOperationV1.Identity);
+        builder.AddModuleMutation(
+            AuthCleanupAdvanceOperationV1.Definition,
+            AuthCleanupAdvanceOperationV1.Identity);
+        builder.AddModuleMutation(
+            AuthCleanupPrepareRetirementOperationV1.Definition,
+            AuthCleanupPrepareRetirementOperationV1.Identity);
+        builder.AddModuleMutation(
+            AuthUserCleanupInitializeOperationV1.Definition,
+            AuthUserCleanupInitializeOperationV1.Identity);
+        builder.AddModuleMutation(
+            AuthRoleCleanupInitializeOperationV1.Definition,
+            AuthRoleCleanupInitializeOperationV1.Identity);
+        builder.AddModuleMutation(
+            AuthUserCleanupRetireOperationV1.Definition,
+            AuthUserCleanupRetireOperationV1.Identity);
+        builder.AddModuleMutation(
+            AuthRoleCleanupRetireOperationV1.Definition,
+            AuthRoleCleanupRetireOperationV1.Identity);
+        builder
+            .AddActivation(AuthCleanupActivationDeclarations.User)
+            .AddActivation(AuthCleanupActivationDeclarations.Role)
+            .AddActivation(AuthLifecycleActivationDeclarations.BootstrapUser)
+            .AddActivation(AuthLifecycleActivationDeclarations.BootstrapRole)
+            .AddActivation(AuthLifecycleActivationDeclarations.RetireUser)
+            .AddActivation(AuthLifecycleActivationDeclarations.RetireRole)
+            .AddActivation(AuthLifecycleActivationDeclarations.Reconcile)
+            .AddActivation(AuthLifecycleActivationDeclarations.Sessions)
+            .AddActivation(AuthLifecycleActivationDeclarations.RefreshTokens)
+            .AddActivation(AuthLifecycleActivationDeclarations.Deliveries)
+            .AddActivation(AuthLifecycleActivationDeclarations.DataProtection);
+
+        builder
+            .AddSemanticActivation(AuthCleanupSemanticActivations.User)
+            .AddSemanticActivation(AuthCleanupSemanticActivations.Role);
+
+        foreach (BaseGeneratedScheduleRegistration schedule in AuthScheduleDeclarations.Create(
+            options.DataProtectionApplicationDiscriminatorDigest))
+            builder.AddSchedule(schedule);
         return builder;
     }
 
@@ -87,5 +217,25 @@ public static class AuthBaseModule
         Scope = BaseModuleGenerationScope.TenantAndKey,
         MaximumKeyUtf8Bytes = 36,
         MaximumCellsPerOperation = 1,
+    };
+
+    private static BaseStorageProtectionRequirement Own(BaseStorageProtectionRequirement value) => value with
+    {
+        OwningModuleId = new string(value.OwningModuleId.AsSpan()),
+        PermittedGuarantees = [.. value.PermittedGuarantees],
+        PermittedKeyOwners = [.. value.PermittedKeyOwners],
+        Coverage = value.Coverage with
+        {
+            AuthoritativeRecords = [.. value.Coverage.AuthoritativeRecords],
+            Journal = [.. value.Coverage.Journal],
+            Receipts = [.. value.Coverage.Receipts],
+            ProviderState = [.. value.Coverage.ProviderState],
+            Indexes = [.. value.Coverage.Indexes],
+            TemporaryFiles = [.. value.Coverage.TemporaryFiles],
+            AuthoritativeBackups = [.. value.Coverage.AuthoritativeBackups],
+            AdministrativeExports = [.. value.Coverage.AdministrativeExports],
+            OrdinaryExports = [.. value.Coverage.OrdinaryExports],
+            ExternalFilesAndBlobs = [.. value.Coverage.ExternalFilesAndBlobs],
+        },
     };
 }

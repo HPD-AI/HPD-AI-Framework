@@ -668,11 +668,14 @@ internal static class BaseCollectionGenerator
                 }
                 field.Disclosure = requiredDisclosureNames.Select(name => (int)disclosureAttribute.NamedArguments.Single(pair => pair.Key == name).Value.Value!).ToArray();
             }
+            field.MinimumBytes = (int)GetNamedInt64(fieldAttribute, "MinimumBytes", 0);
             field.MaximumBytes = (int)GetNamedInt64(fieldAttribute, "MaximumBytes", 0);
             bool binary = property.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::HPD.Base.BaseBinary";
-            if (binary != (field.MaximumBytes > 0) || binary && field.MaximumBytes > 1_048_576)
+            if (binary != (field.MaximumBytes > 0)
+                || binary && (field.MinimumBytes < 0 || field.MinimumBytes > field.MaximumBytes || field.MaximumBytes > 1_048_576)
+                || !binary && field.MinimumBytes != 0)
             {
-                context.ReportDiagnostic(Diagnostic.Create(InvalidField, GetLocation(property), collectionId, property.Name, "binary fields require MaximumBytes from 1 through 1048576 and other fields forbid it"));
+                context.ReportDiagnostic(Diagnostic.Create(InvalidField, GetLocation(property), collectionId, property.Name, "binary fields require MinimumBytes from 0 through MaximumBytes and MaximumBytes from 1 through 1048576; other fields forbid both"));
                 return null;
             }
 
@@ -1331,6 +1334,18 @@ internal static class BaseCollectionGenerator
                     .Append(").BindField(Fields.").Append(EscapeIdentifier(field.PropertyName)).Append(", ")
                     .Append(Literal(model.CollectionId)).Append(", ").Append(Literal(field.Id)).AppendLine(");");
             }
+            else if (field.SubjectReference is not null)
+            {
+                source.Append("                global::HPD.Base.BaseGeneratedModuleScalarManifest.Subject<")
+                    .Append(field.SubjectReference.MarkerType).Append(">((global::HPD.Base.BaseSubjectReferenceRequirement)")
+                    .Append(field.SubjectReference.Requirement).Append(", (global::HPD.Base.BaseSubjectValidationGuarantee)")
+                    .Append(field.SubjectReference.Guarantee)
+                    .Append(", global::HPD.Base.BaseFieldPresence.").Append(field.Required ? "Required" : "Optional")
+                    .Append(", global::HPD.Base.BaseFieldNullability.").Append(field.Nullable ? "Nullable" : "NonNullable")
+                    .Append(").BindField(Fields.")
+                    .Append(EscapeIdentifier(field.PropertyName)).Append(", ").Append(Literal(model.CollectionId))
+                    .Append(", ").Append(Literal(field.Id)).AppendLine(");");
+            }
         }
 
         source.AppendLine("            },");
@@ -1426,7 +1441,11 @@ internal static class BaseCollectionGenerator
             }
             else
                 source.Append("                        Disclosure = global::HPD.Base.BaseFieldDisclosurePolicies.For((global::HPD.Base.BaseFieldConfidentiality)").Append(field.Confidentiality).AppendLine("),");
-            if (field.MaximumBytes > 0) source.Append("                        MaximumBytes = ").Append(field.MaximumBytes).AppendLine(",");
+            if (field.MaximumBytes > 0)
+            {
+                source.Append("                        MinimumBytes = ").Append(field.MinimumBytes).AppendLine(",");
+                source.Append("                        MaximumBytes = ").Append(field.MaximumBytes).AppendLine(",");
+            }
             if (field.Relation != null)
             {
                 source.AppendLine("                        Relation = new global::HPD.Base.RelationDefinition");
@@ -1461,6 +1480,8 @@ internal static class BaseCollectionGenerator
                 source.Append("                            ContractId = ").Append(Literal(field.SubjectReference.ContractId)).AppendLine(",");
                 source.Append("                            ContractVersion = ").Append(field.SubjectReference.ContractVersion).AppendLine(",");
                 source.AppendLine("                            ContractChecksum = \"\",");
+                source.Append("                            SubjectIdKind = (global::HPD.Base.BaseSubjectIdKind)").Append(field.SubjectReference.SubjectIdKind).AppendLine(",");
+                source.Append("                            MaximumSubjectIdUtf8Bytes = ").Append(field.SubjectReference.MaximumSubjectIdBytes).AppendLine(",");
                 source.Append("                            Requirement = (global::HPD.Base.BaseSubjectReferenceRequirement)").Append(field.SubjectReference.Requirement).AppendLine(",");
                 source.Append("                            Guarantee = (global::HPD.Base.BaseSubjectValidationGuarantee)").Append(field.SubjectReference.Guarantee).AppendLine(",");
                 source.AppendLine("                        },");
@@ -1473,7 +1494,7 @@ internal static class BaseCollectionGenerator
     private static void RenderScalarConstraints(StringBuilder source, FieldModel field, string indent)
     {
         void Optional(string name, object value) { if (value is not null) source.Append(indent).Append(name).Append(" = ").Append(Convert.ToString(value, CultureInfo.InvariantCulture)).AppendLine(","); }
-        if (field.MaximumBytes > 0) Optional("MaximumBinaryBytes", field.MaximumBytes);
+        if (field.MaximumBytes > 0) { Optional("MinimumBinaryBytes", field.MinimumBytes); Optional("MaximumBinaryBytes", field.MaximumBytes); }
         bool moduleGeneration = ScalarKind(field) == "ModuleGeneration";
         Optional("MinimumUtf8Bytes", field.SchemaType == "id" || moduleGeneration ? 1 : field.MinimumUtf8Bytes);
         Optional("MaximumUtf8Bytes", field.SchemaType == "id" ? 256 : moduleGeneration ? 19 : field.MaximumUtf8Bytes);
@@ -2402,6 +2423,8 @@ internal static class BaseCollectionGenerator
         public int Confidentiality;
         /// <summary>Provides the seven optional disclosure values.</summary>
         public int[] Disclosure;
+        /// <summary>Provides the binary minimum.</summary>
+        public int MinimumBytes;
         /// <summary>Provides the binary maximum.</summary>
         public int MaximumBytes;
         public int? MinimumUtf8Bytes;

@@ -71,6 +71,8 @@ public sealed class BaseCollectionGeneratorTests
         result.Diagnostics.Should().BeEmpty();
         result.GeneratedSource.Should().Contain("queued-wire");
         result.GeneratedSource.Should().Contain("archived-wire");
+        result.GeneratedSource.Should().Contain("BaseClosedEnumGeneratedContract.Register<global::ProcessingMode>");
+        result.GeneratedSource.Should().Contain("new global::ProcessingMode[]");
     }
 
     [Theory]

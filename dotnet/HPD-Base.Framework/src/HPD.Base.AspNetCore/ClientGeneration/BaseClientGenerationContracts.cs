@@ -271,6 +271,7 @@ public sealed record BaseClientTypeNode
     /// <summary>Gets the referenced element type for an array node.</summary>
     public string? ElementTypeId { get; init; }
     /// <summary>Gets the maximum byte count for a bytes node.</summary>
+    public int? MinBytes { get; init; }
     public int? MaxBytes { get; init; }
     /// <summary>Gets the maximum array item count.</summary>
     public int? MaxItems { get; init; }

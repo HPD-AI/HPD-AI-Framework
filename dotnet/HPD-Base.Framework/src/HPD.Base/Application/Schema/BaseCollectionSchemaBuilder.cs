@@ -320,6 +320,8 @@ internal abstract class FieldEntry
         internal RelationDefinition? Relation { get; set; }
         internal BaseFieldConfidentiality Confidentiality { get; set; } = BaseFieldConfidentiality.Public;
         internal BaseFieldDisclosurePolicy? Disclosure { get; set; }
+        internal int MinimumBytes { get; set; }
+        internal bool MinimumBytesAssigned { get; set; }
         internal int? MaximumBytes { get; set; }
         internal bool ConfidentialityAssigned { get; set; }
         internal bool DisclosureAssigned { get; set; }
@@ -351,7 +353,11 @@ internal sealed class FieldEntry<TValue>(string collectionId, string id, string 
                     MaximumUtf8Bytes = 19,
                     StringNormalization = null,
                 },
-                _ => MaximumBytes is null ? ScalarConstraints : ScalarConstraints with { MaximumBinaryBytes = MaximumBytes },
+                _ => MaximumBytes is null ? ScalarConstraints : ScalarConstraints with
+                {
+                    MinimumBinaryBytes = MinimumBytes,
+                    MaximumBinaryBytes = MaximumBytes,
+                },
             };
             BaseScalarCodecAuthority? codec = ScalarKind is null ? null : ScalarKind == BaseScalarKind.ClosedEnum
                 ? BaseSchemaContract.Codec(ScalarKind.Value, BaseSchemaContract.EnumQualifier(System.Enum.GetNames(Nullable.GetUnderlyingType(typeof(TValue)) ?? typeof(TValue))))
@@ -377,6 +383,7 @@ internal sealed class FieldEntry<TValue>(string collectionId, string id, string 
             },
             Confidentiality = Confidentiality,
             Disclosure = BaseConfidentialityPolicy.Normalize(Confidentiality, Disclosure),
+            MinimumBytes = MaximumBytes is null ? null : MinimumBytes,
             MaximumBytes = MaximumBytes,
             };
         }
@@ -558,9 +565,21 @@ public sealed class BaseSchemaFieldBuilder<TRecord, TValue>
     /// <summary>Sets the mandatory decoded byte limit for a binary field.</summary>
     public BaseSchemaFieldBuilder<TRecord, TValue> MaximumBytes(int maximumBytes)
     {
-        if (typeof(TValue) != typeof(BaseBinary) || maximumBytes is < 1 or > 1_048_576 || _entry.MaximumBytes is not null)
+        if (typeof(TValue) != typeof(BaseBinary) || maximumBytes is < 1 or > 1_048_576
+            || maximumBytes < _entry.MinimumBytes || _entry.MaximumBytes is not null)
             throw new InvalidOperationException(BaseConfidentialityErrorCodes.ContractInvalid);
         _entry.MaximumBytes = maximumBytes;
+        return this;
+    }
+
+    /// <summary>Sets the decoded byte minimum for a binary field.</summary>
+    public BaseSchemaFieldBuilder<TRecord, TValue> MinimumBytes(int minimumBytes)
+    {
+        if (typeof(TValue) != typeof(BaseBinary) || minimumBytes is < 0 or > 1_048_576
+            || _entry.MinimumBytesAssigned || _entry.MaximumBytes is { } maximum && minimumBytes > maximum)
+            throw new InvalidOperationException(BaseConfidentialityErrorCodes.ContractInvalid);
+        _entry.MinimumBytesAssigned = true;
+        _entry.MinimumBytes = minimumBytes;
         return this;
     }
 }

@@ -60,6 +60,22 @@ public sealed class ModuleMutationEndpointTests
         firstBody.Should().Be("{\"disposition\":\"new\",\"outcome\":\"committed\",\"result\":{\"Generation\":\"1\"}}");
         duplicateBody.Should().Be("{\"disposition\":\"duplicate\",\"outcome\":\"duplicate\",\"result\":{\"Generation\":\"1\"}}");
 
+        using HttpResponseMessage explicitNull = await client.SendAsync(Request("null", "{\"OptionalAt\":null}"));
+        explicitNull.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        using HttpResponseMessage present = await client.SendAsync(Request("two",
+            "{\"OptionalNumber\":7,\"OptionalAt\":\"2026-08-27T00:00:00.0000000Z\"}"));
+        using HttpResponseMessage reordered = await client.SendAsync(Request("two",
+            "{ \"OptionalAt\" : \"2026-08-27T00:00:00.0000000Z\", \"OptionalNumber\" : 7 }"));
+        present.StatusCode.Should().Be(HttpStatusCode.OK);
+        reordered.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await present.Content.ReadAsStringAsync()).Should().Contain("\"Generation\":\"2\"");
+        (await reordered.Content.ReadAsStringAsync()).Should().Contain("\"disposition\":\"duplicate\"");
+
+        using HttpResponseMessage changedFingerprint = await client.SendAsync(Request("two",
+            "{\"OptionalNumber\":8,\"OptionalAt\":\"2026-08-27T00:00:00.0000000Z\"}"));
+        changedFingerprint.StatusCode.Should().Be(HttpStatusCode.Conflict);
+
         using HttpResponseMessage malformed = await client.PostAsync(
             "/base/module-mutations/v1/module.increment:execute", new StringContent("[]", Encoding.UTF8, "application/json"));
         malformed.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -98,6 +114,7 @@ internal static class ModuleMutationEndpointFixture
     {
         MaximumCaptures = 8, MaximumRecordCaptures = 8, MaximumRelationTargetCaptures = 8, MaximumGenerationCaptures = 8, MaximumRecordMutations = 8,
         MaximumGenerationReads = 8, MaximumGenerationComparisons = 8, MaximumGenerationIncrements = 8, MaximumGuardNodes = 8, MaximumGuardDepth = 8,
+        MaximumPreconditions = 8, MaximumRequestGuardEvaluations = 16, MaximumStaticSetMembers = 16, MaximumStaticSetComparisons = 120, MaximumDisabledCaptures = 8, MaximumRemovedFields = 8,
         MaximumStatements = 8, MaximumBranches = 8, MaximumExpressionNodes = 32, MaximumReadIntervals = 16, MaximumSubjectValidations = 8,
         MaximumAuthorityReads = 16, MaximumRelationChecks = 8, MaximumUniqueConstraintChecks = 8, MaximumRequestBytes = 4096,
         MaximumSelectedBytes = 4096, MaximumGenerationBytes = 4096, MaximumEvidenceBytes = 4096, MaximumWrittenBytes = 4096,
@@ -117,7 +134,7 @@ public static partial class ModuleIncrement
             Template = new BaseModuleMutationTemplate
             {
                 Captures = [new BaseModuleGenerationCapture { Id = "generation", CellId = "module.generation", Absence = BaseModuleGenerationAbsenceBehavior.AllowEither }],
-                Guards = [], Body = new BaseModuleMutationBlock { Statements = [new BaseModuleIncrementGenerationStatement { Id = "increment", CaptureId = "generation", CreateIfAbsent = true }] },
+                Guards = [], Preconditions = [], Body = new BaseModuleMutationBlock { Statements = [new BaseModuleIncrementGenerationStatement { Id = "increment", CaptureId = "generation", CreateIfAbsent = true }] },
                 Result = BaseModuleMutationTemplateBuilder.Result(
                     BaseModuleMutationTemplateBuilder.ResultObject<ModuleIncrementResult>("result",
                         BaseModuleMutationTemplateBuilder.Property(
@@ -129,8 +146,16 @@ public static partial class ModuleIncrement
     });
 }
 
-public sealed record ModuleIncrementRequest { [BaseField("module.request.marker")] public string? Marker { get; init; } }
+public sealed record ModuleIncrementRequest
+{
+    [BaseField("module.request.optional-at", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable)]
+    [JsonConverter(typeof(BaseUtcDateTimeJsonConverter))]
+    public DateTimeOffset? OptionalAt { get; init; }
+    [BaseField("module.request.optional-number", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable)]
+    public int? OptionalNumber { get; init; }
+}
 public sealed record ModuleIncrementResult { [BaseField("module.result.generation")] public required BaseModuleGeneration Generation { get; init; } }
 [JsonSerializable(typeof(ModuleIncrementRequest))]
 [JsonSerializable(typeof(ModuleIncrementResult))]
+[JsonSourceGenerationOptions(DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 public sealed partial class ModuleMutationJsonContext : JsonSerializerContext;

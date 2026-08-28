@@ -40,6 +40,7 @@ public static class SqliteStore
             {
                 Supported = true, SerializableExecution = true, DurableReceipts = true,
                 GenerationCells = true, AtomicRecordAndGenerationCommit = true,
+                MaximumRemovedFieldsPerMutation = 256,
                 MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
             },
             TextSearch = BaseTextPlatform.ProviderCapability(BaseTextProviderClass.CoLocatedTransactional),
@@ -75,6 +76,7 @@ public static class SqliteStore
     {
         Supported = true, SerializableExecution = true, DurableReceipts = true, GenerationCells = true,
         AtomicRecordAndGenerationCommit = true, MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
+        MaximumRemovedFieldsPerMutation = 256,
     };
 
     private sealed class Installer(HPDBaseSqliteOptions configured) : IHPDBaseStoreInstaller

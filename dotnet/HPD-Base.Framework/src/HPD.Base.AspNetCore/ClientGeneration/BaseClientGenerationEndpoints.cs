@@ -576,15 +576,12 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
                     && read.Plan.CompoundCountBranches.All(branch => string.Equals(branch.DiscriminatorOutputFieldId, property.Id, StringComparison.Ordinal));
                 BaseClientTypeNode node = compoundDiscriminator
                     ? new() { Kind = "enum", Values = read.Plan.CompoundCountBranches.Select(static branch => branch.Discriminator).ToArray() }
+                    : property.MaximumBinaryBytes is { } maximumBinaryBytes
+                    ? new() { Kind = "bytes", Wire = "base64", MinBytes = property.MinimumBinaryBytes, MaxBytes = maximumBinaryBytes }
                     : jsonAuthority is not null
                     ? CanonicalJsonNode(jsonAuthority)
                     : operand?.Kind == BaseRelationalOperandKind.SubjectReference
-                    ? SubjectNode(new BaseSubjectReferenceDefinition
-                    {
-                        ContractId = operand.SubjectContractId!, ContractVersion = operand.SubjectContractVersion!.Value,
-                        ContractChecksum = string.Empty, Requirement = BaseSubjectReferenceRequirement.Exists,
-                        Guarantee = BaseSubjectValidationGuarantee.TransactionSnapshot,
-                    }, subjects)
+                    ? SubjectNode(operand.SubjectContractId!, operand.SubjectContractVersion!.Value, subjects)
                     : ReadScalar(property.Kind);
                 yield return new BaseClientNamedTypeDescriptor { Id = scalarId, Node = node };
                 if (property.Array) yield return new BaseClientNamedTypeDescriptor { Id = valueId, Node = new BaseClientTypeNode { Kind = "array", ElementTypeId = scalarId, MinItems = 0, MaxItems = 256 } };
@@ -710,13 +707,19 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
         "decimal" => new() { Kind = "decimal", Wire = "decimal-string" },
         "id" => new() { Kind = "string", Format = "record-id", MinLength = 1, MaxLength = 256 },
         "datetime" or "instant" => new() { Kind = "string", Format = "utc-instant", MinLength = 1, MaxLength = 64 },
-        _ when string.Equals(field.Format, "base64", StringComparison.Ordinal) => new() { Kind = "bytes", Wire = "base64", MaxBytes = field.MaximumBytes },
+        _ when string.Equals(field.Format, "base64", StringComparison.Ordinal) => new()
+        {
+            Kind = "bytes", Wire = "base64", MinBytes = field.MinimumBytes ?? 0, MaxBytes = field.MaximumBytes,
+        },
         _ => new() { Kind = "string", Format = "plain", MinLength = 0, MaxLength = 65536 }
     };
 
     private static BaseClientTypeNode SubjectNode(BaseSubjectReferenceDefinition reference, BaseLogicalExportedSubject[] subjects)
+        => SubjectNode(reference.ContractId, reference.ContractVersion, subjects);
+
+    private static BaseClientTypeNode SubjectNode(string contractId, int contractVersion, BaseLogicalExportedSubject[] subjects)
     {
-        BaseLogicalExportedSubject contract = subjects.Single(value => value.Id == reference.ContractId && value.Version == reference.ContractVersion);
+        BaseLogicalExportedSubject contract = subjects.Single(value => value.Id == contractId && value.Version == contractVersion);
         return new BaseClientTypeNode
         {
             Kind = "subjectReference",

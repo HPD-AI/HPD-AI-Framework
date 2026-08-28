@@ -50,6 +50,27 @@ public sealed class BaseCanonicalJsonTests
     }
 
     [Fact]
+    public void Canonicalizer_enforces_every_independent_limit_at_maximum_plus_one()
+    {
+        BaseCanonicalJsonLimits limits = new()
+        {
+            MaximumCanonicalBytes = 32, MaximumDepth = 2, MaximumTotalNodes = 5,
+            MaximumTotalStringUtf8Bytes = 2, MaximumTotalNameUtf8Bytes = 2,
+            MaximumArrayItemsPerContainer = 2, MaximumObjectPropertiesPerContainer = 2,
+        };
+
+        Assert.Equal("{\"a\":1,\"b\":2}", Encoding.UTF8.GetString(
+            BaseCanonicalJson.Canonicalize("{\"b\":2,\"a\":1}"u8, limits)));
+        Assert.Throws<FormatException>(() => BaseCanonicalJson.Canonicalize("[[0]]"u8, limits));
+        Assert.Throws<FormatException>(() => BaseCanonicalJson.Canonicalize("[0,1,2]"u8, limits));
+        Assert.Throws<FormatException>(() => BaseCanonicalJson.Canonicalize("{\"a\":1,\"b\":2,\"c\":3}"u8, limits));
+        Assert.Throws<FormatException>(() => BaseCanonicalJson.Canonicalize("{\"a\":[0,1],\"b\":2}"u8, limits));
+        Assert.Throws<FormatException>(() => BaseCanonicalJson.Canonicalize("\"abc\""u8, limits));
+        Assert.Throws<FormatException>(() => BaseCanonicalJson.Canonicalize("{\"abc\":1}"u8, limits));
+        Assert.Throws<FormatException>(() => BaseCanonicalJson.Canonicalize(new byte[33], limits));
+    }
+
+    [Fact]
     public void SourceGeneratedConverterEmbedsCanonicalValueWithoutAnEnvelope()
     {
         BaseCanonicalJson value = BaseCanonicalJson.ParseAndValidate("{\"a\":1}"u8, Limits);

@@ -121,7 +121,7 @@ static async Task VerifyProjectionAsync(WebApplication app, bool verifySelection
                 {
                     Sort = [new QuerySort { Field = "id", Direction = QuerySortDirection.Asc }], Take = 1,
                 },
-                Patch = new RecordPatchRequest { Patch = Patch("selected") },
+                Patch = new RecordPatchRequest { Patch = Patch("selected"), RemovedFieldIds = [] },
                 PreviousState = BasePreviousStateRequirement.None,
             },
             HPDBaseAspNetCoreJsonSerializerContext.Default.BaseMergePatchSelectionHttpRequest);
@@ -154,7 +154,7 @@ static async Task VerifyProjectionAsync(WebApplication app, bool verifySelection
                             CollectionId = "items",
                             Kind = BaseRecordMutationKind.Patch,
                             RecordId = RecordId.Create("aot-batch"),
-                            Patch = new RecordPatchRequest { Patch = Patch("after") }
+                            Patch = new RecordPatchRequest { Patch = Patch("after"), RemovedFieldIds = [] }
                         }
                     ]
                 };

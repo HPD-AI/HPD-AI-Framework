@@ -289,7 +289,10 @@ public sealed class BaseSubjectReferenceJsonConverterFactory : JsonConverterFact
     }
 
     /// <inheritdoc />
-    public override bool CanConvert(Type typeToConvert) => typeToConvert.IsGenericType && typeToConvert.GetGenericTypeDefinition() == typeof(BaseSubjectReference<>);
+    public override bool CanConvert(Type typeToConvert)
+    {
+        lock (Sync) return Converters.ContainsKey(typeToConvert);
+    }
 
     /// <inheritdoc />
     public override JsonConverter CreateConverter(Type typeToConvert, JsonSerializerOptions options)
@@ -309,11 +312,7 @@ public sealed class BaseSubjectReferenceJsonConverterFactory : JsonConverterFact
         public override BaseSubjectReference<TSubject> Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
             if (reader.TokenType != JsonTokenType.StartObject ||
-                !reader.Read() || reader.TokenType != JsonTokenType.PropertyName || !reader.ValueTextEquals("subjectId") ||
-                !reader.Read() || reader.TokenType != JsonTokenType.String)
-                throw new JsonException(BaseSubjectErrorCodes.ReferenceInvalid);
-            string subject = reader.GetString()!;
-            if (!reader.Read() || reader.TokenType != JsonTokenType.PropertyName || !reader.ValueTextEquals("authorityEpoch") ||
+                !reader.Read() || reader.TokenType != JsonTokenType.PropertyName || !reader.ValueTextEquals("authorityEpoch") ||
                 !reader.Read() || reader.TokenType != JsonTokenType.String)
                 throw new JsonException(BaseSubjectErrorCodes.ReferenceInvalid);
             string epoch = reader.GetString()!;
@@ -321,6 +320,10 @@ public sealed class BaseSubjectReferenceJsonConverterFactory : JsonConverterFact
                 !reader.Read() || reader.TokenType != JsonTokenType.String)
                 throw new JsonException(BaseSubjectErrorCodes.ReferenceInvalid);
             string incarnation = reader.GetString()!;
+            if (!reader.Read() || reader.TokenType != JsonTokenType.PropertyName || !reader.ValueTextEquals("subjectId") ||
+                !reader.Read() || reader.TokenType != JsonTokenType.String)
+                throw new JsonException(BaseSubjectErrorCodes.ReferenceInvalid);
+            string subject = reader.GetString()!;
             if (!reader.Read() || reader.TokenType != JsonTokenType.EndObject)
                 throw new JsonException(BaseSubjectErrorCodes.ReferenceInvalid);
             try
@@ -339,9 +342,9 @@ public sealed class BaseSubjectReferenceJsonConverterFactory : JsonConverterFact
         public override void Write(Utf8JsonWriter writer, BaseSubjectReference<TSubject> value, JsonSerializerOptions options)
         {
             writer.WriteStartObject();
-            writer.WriteString("subjectId", value.SubjectId.Value);
             writer.WriteString("authorityEpoch", value.AuthorityEpoch.ToBase64Url());
             writer.WriteString("incarnation", value.Incarnation.ToBase64Url());
+            writer.WriteString("subjectId", value.SubjectId.Value);
             writer.WriteEndObject();
         }
     }
@@ -385,9 +388,9 @@ internal static class BaseSubjectReferenceEncoding
             return false;
         JsonProperty[] properties = value.EnumerateObject().ToArray();
         if (properties.Length != 3
-            || !string.Equals(properties[0].Name, "subjectId", StringComparison.Ordinal)
-            || !string.Equals(properties[1].Name, "authorityEpoch", StringComparison.Ordinal)
-            || !string.Equals(properties[2].Name, "incarnation", StringComparison.Ordinal)
+            || !string.Equals(properties[0].Name, "authorityEpoch", StringComparison.Ordinal)
+            || !string.Equals(properties[1].Name, "incarnation", StringComparison.Ordinal)
+            || !string.Equals(properties[2].Name, "subjectId", StringComparison.Ordinal)
             || properties.Any(static property => property.Value.ValueKind != JsonValueKind.String))
         {
             return false;
@@ -395,9 +398,9 @@ internal static class BaseSubjectReferenceEncoding
 
         try
         {
-            if (!BaseSubjectAuthorityEpoch.Parse(properties[1].Value.GetString()!).Equals(expected))
+            if (!BaseSubjectAuthorityEpoch.Parse(properties[0].Value.GetString()!).Equals(expected))
                 return false;
-            _ = BaseSubjectReferenceEncoding.Decode(properties[2].Value.GetString()!, 24);
+            _ = BaseSubjectReferenceEncoding.Decode(properties[1].Value.GetString()!, 24);
         }
         catch (Exception exception) when (exception is FormatException or ArgumentException)
         {
@@ -408,9 +411,9 @@ internal static class BaseSubjectReferenceEncoding
         using (var writer = new Utf8JsonWriter(buffer))
         {
             writer.WriteStartObject();
-            writer.WriteString("subjectId", properties[0].Value.GetString());
             writer.WriteString("authorityEpoch", replacement.ToBase64Url());
-            writer.WriteString("incarnation", properties[2].Value.GetString());
+            writer.WriteString("incarnation", properties[1].Value.GetString());
+            writer.WriteString("subjectId", properties[2].Value.GetString());
             writer.WriteEndObject();
         }
         using JsonDocument document = JsonDocument.Parse(buffer.WrittenMemory);

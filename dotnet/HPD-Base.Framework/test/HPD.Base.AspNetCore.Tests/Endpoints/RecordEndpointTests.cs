@@ -24,7 +24,8 @@ public sealed class RecordEndpointTests
         var patch = await client.PatchAsync($"/base/collections/items/records/{created.Id.Value}", JsonContent.Create(new RecordPatchRequest
         {
             ExpectedRevision = created.Metadata.Revision,
-            Patch = TestBaseApp.Patch("title", "beta")
+            Patch = TestBaseApp.Patch("title", "beta"),
+            RemovedFieldIds = []
         }, HPDBaseJsonSerializerContext.Default.RecordPatchRequest));
         patch.StatusCode.Should().Be(HttpStatusCode.OK);
         var patched = await app.ReadBaseJsonAsync<RecordEnvelope>(patch.Content);
@@ -171,7 +172,8 @@ public sealed class RecordEndpointTests
                             RecordId = RecordId.Create("batch-route"),
                             Patch = new RecordPatchRequest
                             {
-                                Patch = TestBaseApp.Patch("title", "two")
+                                Patch = TestBaseApp.Patch("title", "two"),
+                                RemovedFieldIds = []
                             }
                         }
                     ]

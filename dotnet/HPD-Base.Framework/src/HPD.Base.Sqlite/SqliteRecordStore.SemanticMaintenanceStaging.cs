@@ -286,8 +286,10 @@ public sealed partial class SqliteRecordStore
             pages = checked(pages + 1);
             long priorPages = priorRows == 0 ? 0 : checked((priorRows + request.Limits.PageSize - 1) / request.Limits.PageSize);
             if (checked(priorPages + pages) > request.Limits.MaximumPages)
+            {
                 throw new SemanticMaintenanceBlockedException(BaseSemanticActivationErrorCodes.BudgetExceeded,
                     "The semantic activation operation exceeded its installed limits.");
+            }
             foreach (var row in page)
             {
                 byte[] replacement = RebindSemanticAuthority(row.Definition, row.State, row.Authority,
@@ -295,8 +297,10 @@ public sealed partial class SqliteRecordStore
                 bytes = checked(bytes + row.Binding.LongLength + row.Key.LongLength + row.Authority.LongLength + replacement.LongLength);
                 rows = checked(rows + 1); after = row.Rotation;
                 if (checked(priorRows + rows) > request.Limits.MaximumRows || checked(priorBytes + bytes) > request.Limits.MaximumBytes)
+                {
                     throw new SemanticMaintenanceBlockedException(BaseSemanticActivationErrorCodes.BudgetExceeded,
                         "The semantic activation operation exceeded its installed limits.");
+                }
                 await using SqliteCommand update = connection.CreateCommand(); update.Transaction = transaction;
                 update.CommandText = $"UPDATE {_names.SemanticActivationSlots} SET authority_json=$next WHERE rotation_id=$rotation AND authority_json=$prior;";
                 update.Parameters.Add("$next", SqliteType.Blob).Value = replacement; update.Parameters.AddWithValue("$rotation", row.Rotation);

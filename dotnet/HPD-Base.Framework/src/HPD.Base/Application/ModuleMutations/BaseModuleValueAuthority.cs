@@ -37,6 +37,10 @@ public enum BaseModuleValueKind
     ModuleGeneration = 14,
     /// <summary>L50-only optimistic revision token.</summary>
     Revision = 15,
+    /// <summary>Generated restore-aware exported-subject reference.</summary>
+    SubjectReference = 16,
+    /// <summary>Opaque exported-subject lifetime incarnation.</summary>
+    SubjectIncarnation = 17,
 }
 
 /// <summary>Contains one immutable graph-owned module value authority.</summary>
@@ -49,7 +53,8 @@ public sealed class BaseModuleValueType
         BaseScalarCodecAuthority? codec,
         BaseScalarConstraintSet? constraints,
         BaseScalarConstraintChecksum? constraintChecksum,
-        string? recordTargetCollectionId)
+        string? recordTargetCollectionId,
+        BaseGeneratedModuleSubjectQualifier? subjectQualifier = null)
     {
         Kind = kind;
         Presence = presence;
@@ -58,6 +63,7 @@ public sealed class BaseModuleValueType
         _constraints = constraints is null ? null : BaseModuleValueAuthorityContract.Clone(constraints);
         ConstraintChecksum = constraintChecksum;
         RecordTargetCollectionId = recordTargetCollectionId is null ? null : new string(recordTargetCollectionId.AsSpan());
+        SubjectQualifier = subjectQualifier?.Copy();
     }
 
     /// <summary>Gets the closed module value kind.</summary>
@@ -74,6 +80,8 @@ public sealed class BaseModuleValueType
     public BaseScalarConstraintChecksum? ConstraintChecksum { get; }
     /// <summary>Gets the exact target collection for a typed record ID.</summary>
     public string? RecordTargetCollectionId { get; }
+    /// <summary>Gets generated subject authority when this is a subject-reference value.</summary>
+    internal BaseGeneratedModuleSubjectQualifier? SubjectQualifier { get; }
 
     private readonly BaseScalarCodecAuthority? _codec;
     private readonly BaseScalarConstraintSet? _constraints;
@@ -129,10 +137,31 @@ public sealed class BaseModuleDtoScalarAuthority
 
 internal static class BaseModuleValueAuthorityContract
 {
+    internal static BaseModuleValueType CanonicalGuidGenerationKey()
+    {
+        BaseScalarCodecAuthority codec = BaseGeneratedSchemaRegistration.ScalarCodec(BaseScalarKind.String);
+        var constraints = new BaseScalarConstraintSet
+        {
+            MinimumUtf8Bytes = 36,
+            MaximumUtf8Bytes = 36,
+            StringNormalization = BaseStringNormalizationRequirement.RequireNfc,
+        };
+        BaseScalarConstraintChecksum checksum = BaseGeneratedSchemaRegistration.ScalarConstraintChecksum(
+            "hpd.base.module.proving", "generation-guid-key", BaseFieldPresence.Required,
+            BaseFieldNullability.NonNullable, codec, constraints);
+        return Create(BaseModuleValueKind.String, BaseFieldPresence.Required,
+            BaseFieldNullability.NonNullable, codec, constraints, checksum);
+    }
+
     internal static BaseModuleValueType RecordId<TRecord>()
     {
         BaseScalarCodecAuthority codec = BaseGeneratedSchemaRegistration.ScalarCodec(BaseScalarKind.RecordId);
-        var constraints = new BaseScalarConstraintSet();
+        var constraints = new BaseScalarConstraintSet
+        {
+            MinimumUtf8Bytes = 1,
+            MaximumUtf8Bytes = 256,
+            StringNormalization = BaseStringNormalizationRequirement.RequireNfc,
+        };
         BaseScalarConstraintChecksum checksum = BaseGeneratedSchemaRegistration.ScalarConstraintChecksum(
             "hpd.base.module.proving", "record-id", BaseFieldPresence.Required,
             BaseFieldNullability.NonNullable, codec, constraints);
@@ -189,6 +218,30 @@ internal static class BaseModuleValueAuthorityContract
         return leftWriter.WrittenSpan.SequenceEqual(rightWriter.WrittenSpan);
     }
 
+    internal static bool SameUnderlyingAuthority(BaseModuleValueType? left, BaseModuleValueType? right)
+    {
+        if (left is null || right is null) return left is null && right is null;
+        if (left.Kind != right.Kind || left.Nullability != right.Nullability
+            || !string.Equals(left.RecordTargetCollectionId, right.RecordTargetCollectionId, StringComparison.Ordinal))
+            return false;
+        if (left.SubjectQualifier is not null || right.SubjectQualifier is not null)
+        {
+            if (left.SubjectQualifier is null || right.SubjectQualifier is null) return false;
+            var normalizedLeft = new BaseModuleValueType(left.Kind, BaseFieldPresence.Required,
+                left.Nullability, null, null, null, left.RecordTargetCollectionId, left.SubjectQualifier);
+            var normalizedRight = new BaseModuleValueType(right.Kind, BaseFieldPresence.Required,
+                right.Nullability, null, null, null, right.RecordTargetCollectionId, right.SubjectQualifier);
+            return StructurallyEquals(normalizedLeft, normalizedRight);
+        }
+        if (left.Codec is null || right.Codec is null || left.Constraints is null || right.Constraints is null)
+            return left.Codec is null && right.Codec is null
+                && left.Constraints is null && right.Constraints is null;
+        return BaseSchemaContract.ScalarAuthorityCompatible(
+                left.Codec, left.Constraints, right.Codec, right.Constraints)
+            && BaseSchemaContract.ScalarAuthorityCompatible(
+                right.Codec, right.Constraints, left.Codec, left.Constraints);
+    }
+
     internal static bool ValueCompatible(BaseModuleValueType? source, BaseModuleValueType? destination)
     {
         if (source is null || destination is null) return source is null && destination is null;
@@ -196,7 +249,9 @@ internal static class BaseModuleValueAuthorityContract
             || source.Nullability != destination.Nullability
             || source.RecordTargetCollectionId != destination.RecordTargetCollectionId)
             return false;
-        if (source.Kind == BaseModuleValueKind.Revision) return true;
+        if (source.Kind is BaseModuleValueKind.Revision or BaseModuleValueKind.SubjectReference
+            or BaseModuleValueKind.SubjectIncarnation)
+            return StructurallyEquals(source, destination);
         if (source.Codec is null || destination.Codec is null || source.Constraints is null || destination.Constraints is null)
             return false;
         return BaseSchemaContract.ScalarAuthorityCompatible(
@@ -205,6 +260,15 @@ internal static class BaseModuleValueAuthorityContract
 
     internal static BaseModuleValueType FromField(FieldDefinition field)
     {
+        if (field.SubjectReference is { } subject)
+        {
+            var qualifier = new BaseGeneratedModuleSubjectQualifier(
+                subject.ContractId, subject.ContractVersion, subject.ContractChecksum,
+                subject.SubjectIdKind, subject.MaximumSubjectIdUtf8Bytes,
+                subject.Requirement, subject.Guarantee);
+            return Create(BaseModuleValueKind.SubjectReference, field.Presence, field.Nullability,
+                null, null, null, subjectQualifier: qualifier);
+        }
         if (field.ScalarKind is not { } scalarKind || scalarKind == BaseScalarKind.FrozenArray
             || field.ScalarCodec is null || field.ScalarConstraints is null || field.ScalarConstraintChecksum is null)
             throw new InvalidOperationException("base.moduleMutation.invalid");
@@ -225,9 +289,10 @@ internal static class BaseModuleValueAuthorityContract
         BaseScalarCodecAuthority? codec,
         BaseScalarConstraintSet? constraints,
         BaseScalarConstraintChecksum? constraintChecksum,
-        string? recordTargetCollectionId = null)
+        string? recordTargetCollectionId = null,
+        BaseGeneratedModuleSubjectQualifier? subjectQualifier = null)
     {
-        var value = new BaseModuleValueType(kind, presence, nullability, codec, constraints, constraintChecksum, recordTargetCollectionId);
+        var value = new BaseModuleValueType(kind, presence, nullability, codec, constraints, constraintChecksum, recordTargetCollectionId, subjectQualifier);
         var writer = new System.Buffers.ArrayBufferWriter<byte>();
         BaseSchemaContract.WriteModuleValueType(writer, value);
         return value;
@@ -244,7 +309,7 @@ internal static class BaseModuleValueAuthorityContract
 
     internal static BaseModuleValueType Clone(BaseModuleValueType value) => new(
         value.Kind, value.Presence, value.Nullability, value.OwnedCodec, value.OwnedConstraints,
-        value.ConstraintChecksum, value.RecordTargetCollectionId);
+        value.ConstraintChecksum, value.RecordTargetCollectionId, value.SubjectQualifier);
 
     internal static BaseScalarCodecAuthority Clone(BaseScalarCodecAuthority value) => value with
     {

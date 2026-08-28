@@ -22,7 +22,7 @@ public sealed class BaseReadGeneratorTests
                 [BaseReadParameter("binary.read.id")] public required string Id { get; init; }
                 public sealed partial record Row
                 {
-                    [BaseReadField("binary.read.payload")] public required BaseBinary Payload { get; init; }
+                    [BaseReadField("binary.read.payload", MinimumBytes = 4, MaximumBytes = 16)] public required BaseBinary Payload { get; init; }
                 }
                 public static void Configure(BaseReadDefinitionBuilder<BinaryRead, Row> read) { }
             }
@@ -34,8 +34,35 @@ public sealed class BaseReadGeneratorTests
         var result = Run(source);
 
         result.Diagnostics.Should().BeEmpty();
-        result.Source.Should().Contain("BaseBinary.FromBase64")
-            .And.Contain("QueryValueKind.String");
+        result.Source.Should().Contain("ReadBinary(row, \"binary.read.payload\", 4, 16)")
+            .And.Contain("MinimumBinaryBytes = 4, MaximumBinaryBytes = 16");
+    }
+
+    [Theory]
+    [InlineData("[BaseReadField(\"binary.read.payload\")]", "BaseBinary")]
+    [InlineData("[BaseReadField(\"binary.read.payload\", MinimumBytes = 17, MaximumBytes = 16)]", "BaseBinary")]
+    [InlineData("[BaseReadField(\"binary.read.payload\", MaximumBytes = 1048577)]", "BaseBinary")]
+    [InlineData("[BaseReadField(\"binary.read.payload\", MaximumBytes = 16)]", "string")]
+    public void BinaryBoundsAreMandatoryExactAndBinaryOnly(string declaration, string type)
+    {
+        string source = $$"""
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseRead("binary.read", typeof(AppJsonContext), RequiredGrantId = "binary.read")]
+            internal partial record BinaryRead
+            {
+                public sealed partial record Row
+                {
+                    {{declaration}} public required {{type}} Payload { get; init; }
+                }
+                public static void Configure(BaseReadDefinitionBuilder<BinaryRead, Row> read) { }
+            }
+            [JsonSerializable(typeof(BinaryRead), TypeInfoPropertyName = "BinaryRead")]
+            [JsonSerializable(typeof(BinaryRead.Row), TypeInfoPropertyName = "BinaryReadRow")]
+            internal partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        Run(source).Diagnostics.Should().ContainSingle(diagnostic => diagnostic.Id == "HPDBASE020");
     }
 
     [Fact]

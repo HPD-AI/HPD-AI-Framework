@@ -1,6 +1,17 @@
+using System.Collections.Immutable;
+
 namespace HPD.Base;
 
+/// <summary>Contains one inert exporter-owned coordinated-retirement policy identity.</summary>
+/// <typeparam name="TSubject">The exact exported-subject marker type.</typeparam>
+public sealed class BaseGeneratedSubjectRetirementPolicyIdentity<TSubject>
+{
+    internal BaseGeneratedSubjectRetirementPolicyIdentity(BaseSubjectRetirementPolicy policy) => Policy = policy;
+    internal BaseSubjectRetirementPolicy Policy { get; }
+}
+
 /// <summary>Contains one inert generator-owned retirement consumer identity.</summary>
+/// <typeparam name="TSubject">The exact exported-subject marker type.</typeparam>
 public sealed class BaseGeneratedSubjectRetirementConsumerIdentity<TSubject>
 {
     internal BaseGeneratedSubjectRetirementConsumerIdentity(BaseGeneratedSubjectLifecycleConsumerIdentity<TSubject> lifecycle, BaseSubjectRetirementConsumerDefinition definition, string checksum)
@@ -15,11 +26,112 @@ public static class BaseGeneratedSubjectRetirementConsumers
 {
     /// <summary>Creates one immutable generated retirement identity.</summary>
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
-    public static BaseGeneratedSubjectRetirementConsumerIdentity<TSubject> Register<TSubject>(BaseGeneratedSubjectLifecycleConsumerIdentity<TSubject> lifecycle, BaseSubjectRetirementConsumerDefinition definition)
+    internal static BaseGeneratedSubjectRetirementConsumerIdentity<TSubject> Register<TSubject>(BaseGeneratedSubjectLifecycleConsumerIdentity<TSubject> lifecycle, BaseSubjectRetirementConsumerDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(lifecycle); BaseSubjectRetirementConsumerDefinition normalized=BaseSubjectRetirementRegistry.Normalize(definition);
         if(normalized.ConsumerId!=lifecycle.Definition.Id||normalized.ConsumerVersion!=lifecycle.Definition.Version||normalized.LifecycleConsumerChecksum!=lifecycle.Checksum)throw new InvalidOperationException(BaseSubjectRetirementErrorCodes.RegistrationConflict);
         return new(lifecycle,normalized,BaseSubjectRetirementRegistry.ConsumerChecksum(normalized));
+    }
+
+    /// <summary>Creates one immutable required retirement consumer from opaque lifecycle authority.</summary>
+    /// <typeparam name="TSubject">The exact generated exported-subject marker type.</typeparam>
+    /// <param name="lifecycle">The generated lifecycle-consumer identity.</param>
+    /// <param name="owningModuleId">The installed consumer module.</param>
+    /// <param name="audience">The exact lifecycle audience.</param>
+    /// <param name="retirementProfileId">The stable retirement-profile identifier.</param>
+    /// <param name="retirementProfileVersion">The positive retirement-profile version.</param>
+    /// <param name="retirementProfileChecksum">The canonical retirement-profile checksum.</param>
+    /// <param name="acknowledgementGrantId">The exact acknowledgement grant.</param>
+    /// <param name="limits">The immutable acknowledgement limits.</param>
+    /// <returns>The opaque typed retirement-consumer identity.</returns>
+    public static BaseGeneratedSubjectRetirementConsumerIdentity<TSubject> RegisterRequired<TSubject>(
+        BaseGeneratedSubjectLifecycleConsumerIdentity<TSubject> lifecycle,
+        string owningModuleId,
+        BaseSubjectLifecycleConsumerAudience audience,
+        string retirementProfileId,
+        int retirementProfileVersion,
+        string retirementProfileChecksum,
+        string acknowledgementGrantId,
+        BaseSubjectRetirementConsumerLimits limits)
+    {
+        ArgumentNullException.ThrowIfNull(lifecycle);
+        return Register(lifecycle, new BaseSubjectRetirementConsumerDefinition
+        {
+            ConsumerId = lifecycle.Definition.Id,
+            ConsumerVersion = lifecycle.Definition.Version,
+            OwningModuleId = owningModuleId,
+            Audience = audience,
+            LifecycleConsumerChecksum = lifecycle.Checksum,
+            RetirementProfileId = retirementProfileId,
+            RetirementProfileVersion = retirementProfileVersion,
+            RetirementProfileChecksum = retirementProfileChecksum,
+            Participation = BaseSubjectRetirementParticipation.RequiredBeforePurge,
+            AcknowledgementGrantId = acknowledgementGrantId,
+            Limits = limits,
+        });
+    }
+}
+
+/// <summary>Seals exporter-owned retirement policies from opaque typed consumer authority.</summary>
+public static class BaseGeneratedSubjectRetirementPolicies
+{
+    /// <summary>Creates one canonical required-consumer policy without exposing checksum inputs.</summary>
+    /// <typeparam name="TSubject">The exact generated exported-subject marker type.</typeparam>
+    /// <param name="subject">The generated exported-subject registration.</param>
+    /// <param name="coordinationWindow">The bounded coordination window.</param>
+    /// <param name="timeoutBehavior">The closed timeout behavior.</param>
+    /// <param name="purgeRetention">The minimum authoritative tombstone retention.</param>
+    /// <param name="consumers">The exact required consumer identities.</param>
+    /// <returns>The opaque typed policy identity accepted by the application builder.</returns>
+    public static BaseGeneratedSubjectRetirementPolicyIdentity<TSubject> Register<TSubject>(
+        BaseGeneratedSubjectRegistration subject,
+        TimeSpan coordinationWindow,
+        BaseSubjectRetirementTimeoutBehavior timeoutBehavior,
+        BaseSubjectPurgeRetentionPolicy purgeRetention,
+        params BaseGeneratedSubjectRetirementConsumerIdentity<TSubject>[] consumers)
+    {
+        ArgumentNullException.ThrowIfNull(subject);
+        ArgumentNullException.ThrowIfNull(purgeRetention);
+        ArgumentNullException.ThrowIfNull(consumers);
+        if (subject.MarkerType != typeof(TSubject)
+            || !subject.Definition.SupportsCoordinatedRetirement || consumers.Any(static value => value is null))
+            throw new InvalidOperationException(BaseSubjectRetirementErrorCodes.ContractInvalid);
+        ImmutableArray<BaseAcceptedRetirementConsumer> accepted = [.. consumers.Select(identity =>
+        {
+            BaseSubjectRetirementConsumerDefinition definition = identity.Definition;
+            if (!string.Equals(identity.Lifecycle.Definition.ContractId, subject.Definition.Id, StringComparison.Ordinal)
+                || identity.Lifecycle.Definition.ContractVersion != subject.Definition.Version
+                || definition.Participation != BaseSubjectRetirementParticipation.RequiredBeforePurge)
+                throw new InvalidOperationException(BaseSubjectRetirementErrorCodes.RegistrationConflict);
+            return new BaseAcceptedRetirementConsumer
+            {
+                ConsumerId = definition.ConsumerId,
+                ConsumerVersion = definition.ConsumerVersion,
+                OwningModuleId = definition.OwningModuleId,
+                Audience = definition.Audience,
+                LifecycleConsumerChecksum = definition.LifecycleConsumerChecksum,
+                RetirementProfileId = definition.RetirementProfileId,
+                RetirementProfileVersion = definition.RetirementProfileVersion,
+                RetirementProfileChecksum = definition.RetirementProfileChecksum,
+                Participation = definition.Participation,
+                AcknowledgementGrantId = definition.AcknowledgementGrantId,
+                Limits = definition.Limits with { },
+                RetirementConsumerChecksum = identity.Checksum,
+            };
+        }).OrderBy(static value => value.ConsumerId, StringComparer.Ordinal)
+            .ThenBy(static value => value.ConsumerVersion)];
+        var draft = new BaseSubjectRetirementPolicy
+        {
+            ContractId = subject.Definition.Id,
+            ContractVersion = subject.Definition.Version,
+            AcceptedConsumers = accepted,
+            CoordinationWindow = coordinationWindow,
+            TimeoutBehavior = timeoutBehavior,
+            PurgeRetention = purgeRetention with { },
+            PolicyChecksum = string.Empty,
+        };
+        string checksum = BaseSubjectRetirementRegistry.PolicyChecksum(draft);
+        return new(BaseSubjectRetirementRegistry.NormalizePolicy(draft with { PolicyChecksum = checksum }));
     }
 }
 
@@ -89,6 +201,7 @@ public sealed class BaseSubjectRetirementSession
 }
 
 /// <summary>Executes one exact installed retirement consumer without exposing provider authority.</summary>
+/// <typeparam name="TSubject">The exact exported-subject marker type.</typeparam>
 public sealed class BaseInstalledSubjectRetirementConsumer<TSubject>
 {
     private readonly BaseSession _session;private readonly IBaseSubjectRetirementRuntime _runtime;private readonly BaseInstalledSubjectRetirementConsumer _installed;private readonly BaseInstalledSubjectLifecycleConsumer<TSubject> _lifecycle;

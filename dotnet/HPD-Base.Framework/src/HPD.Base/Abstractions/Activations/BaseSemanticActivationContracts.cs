@@ -26,24 +26,32 @@ public enum BaseSemanticActivationSlotState
 }
 
 /// <summary>Classifies the outcome of ensuring one semantic activation.</summary>
+[JsonConverter(typeof(BaseClosedEnumJsonConverter<BaseSemanticActivationEnsureDisposition>))]
 public enum BaseSemanticActivationEnsureDisposition
 {
     /// <summary>The operation created the slot and activation.</summary>
+    [JsonStringEnumMemberName("created")]
     Created = 1,
     /// <summary>The operation resolved the existing live activation.</summary>
+    [JsonStringEnumMemberName("existing")]
     Existing = 2,
     /// <summary>The identity is terminal and cannot be materialized again.</summary>
+    [JsonStringEnumMemberName("retired")]
     Retired = 3,
 }
 
 /// <summary>Classifies the outcome of retiring one semantic activation.</summary>
+[JsonConverter(typeof(BaseClosedEnumJsonConverter<BaseSemanticActivationRetirementDisposition>))]
 public enum BaseSemanticActivationRetirementDisposition
 {
     /// <summary>The operation retired the live slot.</summary>
+    [JsonStringEnumMemberName("retiredNow")]
     RetiredNow = 1,
     /// <summary>The slot was already retired.</summary>
+    [JsonStringEnumMemberName("alreadyRetired")]
     AlreadyRetired = 2,
     /// <summary>The slot already contains compacted absence authority.</summary>
+    [JsonStringEnumMemberName("alreadyCompacted")]
     AlreadyCompacted = 3,
 }
 

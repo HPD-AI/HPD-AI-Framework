@@ -138,28 +138,24 @@ public sealed partial class ActivationRuntimeTests
     [Fact]
     public void Transactional_activation_is_handler_free_and_target_bound()
     {
-        BaseActivationDefinition worker = Registration().Definition;
-        BaseTransactionalActivationRegistration<Input, Result> registration = BaseActivationDefinitionBuilder.CreateTransactional(
-            worker with
+        BaseTransactionalActivationRegistration<Input, Result> registration =
+            BaseActivationDefinitionBuilder.CreateGeneratedTransactional(
+            DefinitionDraft("test.activation.transactional", BaseActivationExecutionClass.TransactionalOperation) with
             {
-                Id = "test.activation.transactional",
-                ExecutionClass = BaseActivationExecutionClass.TransactionalOperation,
-                Handler = null,
-                TransactionalTarget = new BaseModuleMutationActivationTarget
+                Handler = null, TransactionalTarget = new BaseModuleMutationActivationTarget
                 {
                     OperationId = "test.module.operation",
                     OperationVersion = 1,
                     OperationChecksum = new string('a', 64),
                 },
-                Checksum = [],
-            }, Json.Default.Input, Json.Default.Result, InputBindings(), ResultBindings());
+            }, RuntimeActivationDtos.HPDBaseActivationDtoAuthority);
 
         registration.Definition.Handler.Should().BeNull();
         registration.Definition.TransactionalTarget.Should().BeOfType<BaseModuleMutationActivationTarget>();
         registration.Definition.Checksum.Should().HaveCount(32);
-        Action invalid = () => BaseActivationDefinitionBuilder.CreateTransactional(
-            worker with { ExecutionClass = BaseActivationExecutionClass.TransactionalOperation, TransactionalTarget = null, Handler = null, Checksum = [] },
-            Json.Default.Input, Json.Default.Result, InputBindings(), ResultBindings());
+        Action invalid = () => BaseActivationDefinitionBuilder.CreateGeneratedTransactional(
+            DefinitionDraft("test.activation.transactional.invalid", BaseActivationExecutionClass.TransactionalOperation) with
+            { TransactionalTarget = null, Handler = null }, RuntimeActivationDtos.HPDBaseActivationDtoAuthority);
         invalid.Should().Throw<InvalidOperationException>().WithMessage("base.activation.definitionInvalid");
     }
 
@@ -295,13 +291,8 @@ public sealed partial class ActivationRuntimeTests
         var stores = new DefaultRecordStoreRegistry();
         stores.Add(new RecordStoreRegistration { StoreId = "activation-store", Store = store });
         DefaultBasePolicyOrchestrator policy = Policy();
-        BaseActivationHandlerRegistration<Input, Result> ordinary = Registration();
-        BaseActivationHandlerRegistration<Input, Result> registration = BaseActivationDefinitionBuilder.Create(
-            ordinary.Definition with
-            {
-                ExecutionClass = BaseActivationExecutionClass.AtMostOnceEffect,
-                Checksum = [],
-            }, Json.Default.Input, Json.Default.Result, InputBindings(), ResultBindings(), static _ => new Handler());
+        BaseActivationHandlerRegistration<Input, Result> registration =
+            Registration(BaseActivationExecutionClass.AtMostOnceEffect);
         var registry = new BaseActivationRegistry([new BaseActivationRegistration<Input, Result>(registration)]);
         var enqueue = new DefaultBaseActivationRuntime(stores, policy, TimeProvider.System);
         var worker = new DefaultBaseActivationWorkerRuntime(
@@ -373,21 +364,7 @@ public sealed partial class ActivationRuntimeTests
         BaseActivationHandlerRegistration<Input, Result> target = Registration();
         long due = DateTimeOffset.UtcNow.AddMinutes(-1).ToUnixTimeMilliseconds();
         byte[] concurrencyKey = SHA256.HashData("test-overlap"u8);
-        BaseScheduleDefinition schedule = BaseScheduleDefinitionBuilder.Create(new BaseScheduleDefinition
-        {
-            Id = "test.schedule", Version = 1, OwningModuleId = "test.module",
-            ManageGrantId = "test.schedule.manage", MaterializeGrantId = "test.schedule.materialize",
-            Activation = new BaseActivationDefinitionKey { Id = target.Definition.Id, Version = target.Definition.Version, Checksum = target.Definition.Checksum },
-            CanonicalInput = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new Input("scheduled"), Json.Default.Input).ToImmutableArray(),
-            InputChecksum = [], Expression = new BaseOnceSchedule(due),
-            GapPolicy = BaseTimeGapPolicy.Skip, TimeOverlapPolicy = BaseTimeOverlapPolicy.EarlierOffset,
-            MisfirePolicy = BaseScheduleMisfirePolicy.RunAll, ActivationOverlapPolicy = BaseScheduleOverlapPolicy.Allow,
-            OverlapKeyKind = BaseScheduleOverlapKeyKind.CanonicalConcurrencyKey, ConcurrencyKey = concurrencyKey.ToImmutableArray(),
-            Priority = 0, MaximumSplayMilliseconds = 0, Checksum = [],
-        } with
-        {
-            InputChecksum = SHA256.HashData(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new Input("scheduled"), Json.Default.Input)).ToImmutableArray(),
-        });
+        BaseScheduleDefinition schedule = Schedule(target, 1, due, BaseScheduleOverlapPolicy.Allow, concurrencyKey);
         var runtime = new DefaultBaseScheduleRuntime(stores, Policy(),
             new BaseActivationAcceptedTimeAuthority(TimeProvider.System),
             new BaseActivationRegistry([new BaseActivationRegistration<Input, Result>(target)]), new BaseTimeZoneRegistry(null));
@@ -412,11 +389,8 @@ public sealed partial class ActivationRuntimeTests
         advanced.Value!.Occurrences.Should().ContainSingle();
         advanced.Value.Occurrences[0].Disposition.Should().BeOfType<BaseOccurrenceMaterialized>();
 
-        BaseScheduleDefinition skippedSchedule = BaseScheduleDefinitionBuilder.Create(schedule with
-        {
-            Version = 2, Expression = new BaseOnceSchedule(due + 1),
-            ActivationOverlapPolicy = BaseScheduleOverlapPolicy.SkipWhileActive, Checksum = [],
-        });
+        BaseScheduleDefinition skippedSchedule = Schedule(
+            target, 2, due + 1, BaseScheduleOverlapPolicy.SkipWhileActive, concurrencyKey);
         (await runtime.MutateAsync(Session(), skippedSchedule, BaseScheduleMutationKind.Create, null,
             Identity("schedule-create", "two"), default)).IsSuccess().Should().BeTrue();
         OperationResult<BaseScheduleMaintenancePage> skipped = await runtime.AdvanceAsync(
@@ -424,11 +398,8 @@ public sealed partial class ActivationRuntimeTests
         skipped.IsSuccess().Should().BeTrue(skipped.Error?.Code);
         skipped.Value!.Occurrences[0].Disposition.Should().BeOfType<BaseOccurrenceSkippedOverlap>();
 
-        BaseScheduleDefinition replacementSchedule = BaseScheduleDefinitionBuilder.Create(schedule with
-        {
-            Version = 3, Expression = new BaseOnceSchedule(due + 2),
-            ActivationOverlapPolicy = BaseScheduleOverlapPolicy.CancelPrevious, Checksum = [],
-        });
+        BaseScheduleDefinition replacementSchedule = Schedule(
+            target, 3, due + 2, BaseScheduleOverlapPolicy.CancelPrevious, concurrencyKey);
         (await runtime.MutateAsync(Session(), replacementSchedule, BaseScheduleMutationKind.Create, null,
             Identity("schedule-create", "three"), default)).IsSuccess().Should().BeTrue();
         OperationResult<BaseScheduleMaintenancePage> replacement = await runtime.AdvanceAsync(
@@ -437,12 +408,55 @@ public sealed partial class ActivationRuntimeTests
         replacement.Value!.Occurrences[0].Disposition.Should().BeOfType<BaseOccurrenceMaterialized>();
     }
 
-    private static BaseActivationHandlerRegistration<Input, Result> Registration() =>
-        BaseActivationDefinitionBuilder.Create(new BaseActivationDefinition
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Schedule_provider_input_tampering_is_rejected_before_materialization_and_quarantines_gate(
+        bool tamperChecksum)
+    {
+        var retained = new InMemoryRecordStore();
+        var hostile = new HostileScheduleProvider(retained);
+        var stores = new DefaultRecordStoreRegistry();
+        stores.Add(new RecordStoreRegistration { StoreId = "activation-store", Store = hostile });
+        BaseActivationHandlerRegistration<Input, Result> target = Registration();
+        long due = DateTimeOffset.UtcNow.AddMinutes(-1).ToUnixTimeMilliseconds();
+        BaseScheduleDefinition schedule = Schedule(
+            target, 41, due, BaseScheduleOverlapPolicy.Allow, SHA256.HashData("hostile-schedule"u8));
+        var gate = new BaseActivationProviderExecutionGate();
+        var runtime = new DefaultBaseScheduleRuntime(stores, Policy(),
+            new BaseActivationAcceptedTimeAuthority(TimeProvider.System),
+            new BaseActivationRegistry([new BaseActivationRegistration<Input, Result>(target)]),
+            new BaseTimeZoneRegistry(null), gate);
+
+        (await runtime.MutateAsync(Session(), schedule, BaseScheduleMutationKind.Create, null,
+            Identity("hostile-schedule-create", tamperChecksum.ToString()), default)).IsSuccess().Should().BeTrue();
+        hostile.TamperChecksum = tamperChecksum;
+        hostile.TamperScheduleInput = true;
+
+        OperationResult<BaseScheduleMaintenancePage> rejected = await runtime.AdvanceAsync(
+            Session(), schedule, Identity("hostile-schedule-advance", tamperChecksum.ToString()), default);
+
+        rejected.IsSuccess().Should().BeFalse();
+        rejected.Error!.Code.Should().Be("base.activation.providerContractInvalid");
+        hostile.AdvanceCalls.Should().Be(0);
+        gate.IsQuarantined.Should().BeTrue();
+
+        OperationResult<BaseScheduleAuthority> quarantined = await runtime.ReadAsync(Session(), schedule, default);
+        quarantined.IsSuccess().Should().BeFalse();
+        quarantined.Error!.Code.Should().Be("base.activation.quarantined");
+    }
+
+    private static BaseActivationHandlerRegistration<Input, Result> Registration(
+        BaseActivationExecutionClass executionClass = BaseActivationExecutionClass.AtLeastOnceWorker) =>
+        BaseActivationDefinitionBuilder.CreateGenerated(
+            DefinitionDraft("test.activation", executionClass),
+            RuntimeActivationDtos.HPDBaseActivationDtoAuthority,
+            static _ => new Handler());
+
+    private static BaseActivationDefinitionDraft DefinitionDraft(
+        string id, BaseActivationExecutionClass executionClass) => new()
         {
-            Id = "test.activation", Version = 1, OwningModuleId = "test.module",
-            ExecutionClass = BaseActivationExecutionClass.AtLeastOnceWorker,
-            InputTypeId = "test.input", ResultTypeId = "test.result",
+            Id = id, Version = 1, OwningModuleId = "test.module", ExecutionClass = executionClass,
             Grants = Grants(),
             SourceGrantIds = [],
             Retry = new BaseActivationRetryProfile
@@ -458,14 +472,27 @@ public sealed partial class ActivationRuntimeTests
                 LeaseDuration = TimeSpan.FromMinutes(1), HandlerTimeout = TimeSpan.FromMinutes(5),
                 Provider = ProviderLimits(), AtomicCreation = AtomicLimits(),
             },
-            Handler = new BaseActivationHandlerBinding
+            Handler = new BaseActivationHandlerDraft
             {
                 Id = "test.handler", Version = 1, FactoryId = "test.handler.factory",
-                InputTypeId = "test.input", ResultTypeId = "test.result", WorkerSubjectKind = AccessSubjectKind.System,
-                Checksum = new byte[32].ToImmutableArray(),
+                WorkerSubjectKind = AccessSubjectKind.System,
+                SemanticAuthority = BaseActivationHandlerSemanticAuthority.Create("test.handler.semantics", 1),
             },
-            Checksum = [],
-        }, Json.Default.Input, Json.Default.Result, InputBindings(), ResultBindings(), static _ => new Handler());
+        };
+
+    private static BaseScheduleDefinition Schedule(
+        BaseActivationHandlerRegistration<Input, Result> target, int version, long due,
+        BaseScheduleOverlapPolicy overlapPolicy, byte[] concurrencyKey) =>
+        BaseScheduleDefinitionBuilder.CreateGenerated(new BaseScheduleDefinitionDraft
+        {
+            Id = "test.schedule", Version = version, OwningModuleId = "test.module",
+            ManageGrantId = "test.schedule.manage", MaterializeGrantId = "test.schedule.materialize",
+            Expression = new BaseOnceSchedule(due), GapPolicy = BaseTimeGapPolicy.Skip,
+            TimeOverlapPolicy = BaseTimeOverlapPolicy.EarlierOffset,
+            MisfirePolicy = BaseScheduleMisfirePolicy.RunAll, ActivationOverlapPolicy = overlapPolicy,
+            OverlapKeyKind = BaseScheduleOverlapKeyKind.CanonicalConcurrencyKey,
+            ConcurrencyKey = concurrencyKey.ToImmutableArray(), Priority = 0, MaximumSplayMilliseconds = 0,
+        }, target, RuntimeActivationDtos.HPDBaseActivationDtoAuthority, new Input("scheduled")).Definition;
 
     private static IReadOnlyList<BaseModuleDtoPropertyBinding> InputBindings() =>
         [BaseModuleDtoPropertyBinding.Create<Input, string>("test.input.value", "value", BaseGeneratedModuleScalarManifest.Primitive<string>())];
@@ -550,8 +577,20 @@ public sealed partial class ActivationRuntimeTests
     private static BaseAtomicMutationExecutionLimits AtomicLimits() =>
         DefaultBaseModuleMutationRuntime.ResolveExecutionLimits(BaseModuleMutationPlatform.MaximumLimits);
 
-    public sealed record Input(string Value);
-    public sealed record Result(string Value);
+    public sealed record Input
+    {
+        [BaseField("test.input.value", MaximumUtf8Bytes = 256), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)]
+        public required string Value { get; init; }
+        [System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
+        public Input(string value) => Value = value;
+    }
+    public sealed record Result
+    {
+        [BaseField("test.result.value", MaximumUtf8Bytes = 256), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)]
+        public required string Value { get; init; }
+        [System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
+        public Result(string value) => Value = value;
+    }
 
     private sealed class Handler : IBaseActivationHandler<Input, Result>
     {
@@ -566,7 +605,93 @@ public sealed partial class ActivationRuntimeTests
             ValueTask.FromResult(new PolicyDecision { Effect = PolicyEffect.Allow, Outcome = PolicyOutcome.Allowed });
     }
 
+    private sealed class HostileScheduleProvider(InMemoryRecordStore inner) : IRecordStore, IBaseActivationProvider
+    {
+        public bool TamperScheduleInput { get; set; }
+        public bool TamperChecksum { get; set; }
+        public int AdvanceCalls { get; private set; }
+        public StoreCapabilityDescriptor Capabilities => inner.Capabilities;
+        public BaseActivationProviderDescriptor Descriptor => ((IBaseActivationProvider)inner).Descriptor;
+
+        public ValueTask<OperationResult<RecordPage>> ListAsync(CollectionDefinition collection, RecordQuery query,
+            OperationContext context, CancellationToken cancellationToken = default) =>
+            inner.ListAsync(collection, query, context, cancellationToken);
+        public ValueTask<OperationResult<RecordEnvelope>> GetAsync(CollectionDefinition collection, RecordId id,
+            OperationContext context, CancellationToken cancellationToken = default) =>
+            inner.GetAsync(collection, id, context, cancellationToken);
+        public ValueTask<OperationResult<BaseActivationDependencyResult>> ReadDependenciesAsync(BaseActivationDependencyRequest request,
+            CancellationToken cancellationToken = default) => inner.ReadDependenciesAsync(request, cancellationToken);
+        public ValueTask<OperationResult<BaseActivationDueObservation>> ObserveDueAsync(BaseActivationDueObservationRequest request,
+            CancellationToken cancellationToken = default) => inner.ObserveDueAsync(request, cancellationToken);
+        public ValueTask<BaseDueWaitResult> WaitForDueChangeAsync(BaseDueObservationToken token, DateTimeOffset deadline,
+            CancellationToken cancellationToken = default) => inner.WaitForDueChangeAsync(token, deadline, cancellationToken);
+        public ValueTask<OperationResult<BaseActivationClaimResult>> TryClaimNextAsync(BaseActivationClaimRequest request,
+            CancellationToken cancellationToken = default) => inner.TryClaimNextAsync(request, cancellationToken);
+        public ValueTask<OperationResult<BaseTransactionalActivationCandidate>> ReadTransactionalCandidateAsync(
+            BaseTransactionalActivationCandidateRequest request, CancellationToken cancellationToken = default) =>
+            inner.ReadTransactionalCandidateAsync(request, cancellationToken);
+        public ValueTask<OperationResult<BaseActivationRenewResult>> RenewAsync(BaseActivationRenewRequest request,
+            CancellationToken cancellationToken = default) => inner.RenewAsync(request, cancellationToken);
+        public ValueTask<OperationResult<BaseExecutorRegistrationResult>> RegisterExecutorAsync(BaseExecutorRegistrationRequest request,
+            CancellationToken cancellationToken = default) => inner.RegisterExecutorAsync(request, cancellationToken);
+        public ValueTask<OperationResult<BaseExecutorHeartbeatResult>> HeartbeatExecutorAsync(BaseExecutorHeartbeatRequest request,
+            CancellationToken cancellationToken = default) => inner.HeartbeatExecutorAsync(request, cancellationToken);
+        public ValueTask<OperationResult<BaseExecutorRetirementResult>> RetireExecutorAsync(BaseExecutorRetirementRequest request,
+            CancellationToken cancellationToken = default) => inner.RetireExecutorAsync(request, cancellationToken);
+        public ValueTask<OperationResult<BaseActivationTransitionResult>> TransitionAsync(BaseActivationTransitionRequest request,
+            CancellationToken cancellationToken = default) => inner.TransitionAsync(request, cancellationToken);
+
+        public async ValueTask<OperationResult<BaseScheduleAuthority>> ReadScheduleAsync(string scheduleId, int scheduleVersion,
+            CancellationToken cancellationToken = default)
+        {
+            OperationResult<BaseScheduleAuthority> result = await inner.ReadScheduleAsync(scheduleId, scheduleVersion, cancellationToken);
+            if (!TamperScheduleInput || !result.IsSuccess() || result.Value is null) return result;
+            BaseScheduleDefinition definition = result.Value.Definition;
+            definition = TamperChecksum
+                ? definition with { InputChecksum = Enumerable.Repeat((byte)0xA5, 32).ToImmutableArray() }
+                : definition with { CanonicalInput = "{\"value\":\"tampered\"}"u8.ToArray().ToImmutableArray() };
+            return result with { Value = result.Value with { Definition = definition } };
+        }
+
+        public ValueTask<OperationResult<BaseScheduleMutationResult>> MutateScheduleAsync(BaseScheduleMutationRequest request,
+            CancellationToken cancellationToken = default) => inner.MutateScheduleAsync(request, cancellationToken);
+        public ValueTask<OperationResult<BaseScheduleMaintenancePage>> AdvanceSchedulesAsync(BaseScheduleMaintenanceRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            AdvanceCalls++;
+            return inner.AdvanceSchedulesAsync(request, cancellationToken);
+        }
+        public ValueTask<OperationResult<BaseScheduleCancellationMaintenancePage>> AdvanceScheduleCancellationAsync(
+            BaseScheduleCancellationMaintenanceRequest request, CancellationToken cancellationToken = default) =>
+            inner.AdvanceScheduleCancellationAsync(request, cancellationToken);
+        public ValueTask<OperationResult<BaseActivationAdministrationPage>> ReadAdministrationAsync(
+            BaseActivationAdministrationQueryRequest request, CancellationToken cancellationToken = default) =>
+            inner.ReadAdministrationAsync(request, cancellationToken);
+        public ValueTask<OperationResult<BaseActivationMigrationCandidate>> ReadMigrationCandidateAsync(
+            BaseActivationMigrationCandidateRequest request, CancellationToken cancellationToken = default) =>
+            inner.ReadMigrationCandidateAsync(request, cancellationToken);
+        public ValueTask<OperationResult<BaseActivationMigrationResult>> MigrateAsync(BaseActivationMigrationRequest request,
+            CancellationToken cancellationToken = default) => inner.MigrateAsync(request, cancellationToken);
+        public ValueTask<OperationResult<BaseActivationReceiptResolution>> ResolveReceiptAsync(
+            BaseActivationReceiptResolutionRequest request, CancellationToken cancellationToken = default) =>
+            inner.ResolveReceiptAsync(request, cancellationToken);
+        public ValueTask<OperationResult<BaseActivationMaintenancePage>> AdvanceMaintenanceAsync(
+            BaseActivationMaintenanceRequest request, CancellationToken cancellationToken = default) =>
+            inner.AdvanceMaintenanceAsync(request, cancellationToken);
+        public ValueTask<OperationResult<BaseActivationPrunePage>> PruneAsync(BaseActivationPruneRequest request,
+            CancellationToken cancellationToken = default) => inner.PruneAsync(request, cancellationToken);
+        public ValueTask<OperationResult<BaseActivationIndeterminateResolution>> ResolveIndeterminateAsync(
+            BaseActivationIndeterminateRequest request, CancellationToken cancellationToken = default) =>
+            inner.ResolveIndeterminateAsync(request, cancellationToken);
+        public ValueTask<OperationResult<BaseActivationQuarantinePage>> ReadQuarantineAsync(BaseActivationQuarantineRequest request,
+            CancellationToken cancellationToken = default) => inner.ReadQuarantineAsync(request, cancellationToken);
+    }
+
     [JsonSerializable(typeof(Input))]
     [JsonSerializable(typeof(Result))]
     internal sealed partial class Json : JsonSerializerContext;
 }
+
+[BaseActivationDtoAuthority("test.activation.dto", 1, "test.module", "test.input", "test.result",
+    typeof(ActivationRuntimeTests.Json), typeof(ActivationRuntimeTests.Input), typeof(ActivationRuntimeTests.Result))]
+internal static partial class RuntimeActivationDtos;

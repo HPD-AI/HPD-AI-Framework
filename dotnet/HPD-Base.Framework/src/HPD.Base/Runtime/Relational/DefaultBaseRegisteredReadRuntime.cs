@@ -252,7 +252,8 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
                 || evidenceBytes > request.MaxResultBytes))
             return Failure<TRow>(OperationStatus.StoreError, "base.relational.read.limitExceeded", "The provider returned an over-limit registered read result.");
         ResultValidation resultValidation = ValidateResult(plan, execution.Result,
-            request with { MaxResultBytes = checked((int)(request.MaxResultBytes - evidenceBytes)) }, capability, _options);
+            request with { MaxResultBytes = checked((int)(request.MaxResultBytes - evidenceBytes)) },
+            definition.ClientContract.Row, capability, _options);
         if (resultValidation != ResultValidation.Valid)
             return Failure<TRow>(OperationStatus.StoreError,
                 resultValidation == ResultValidation.LimitExceeded ? "base.relational.read.limitExceeded" : "base.relational.read.resultInvalid",
@@ -328,6 +329,7 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
         BaseRelationalReadPlan plan,
         BaseRelationalReadResult result,
         BaseRelationalReadExecutionRequest request,
+        IReadOnlyList<BaseReadClientProperty> rowContract,
         RelationalReadCapability capability,
         HPDBaseRelationalOptions options)
     {
@@ -345,7 +347,14 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
                 return ResultValidation.Invalid;
             foreach (BaseRelationalFieldValue field in row.Fields)
             {
-                if (!ValidValue(field.Value, options, capability, allowArray: true)) return ResultValidation.Invalid;
+                BaseReadClientProperty? output = rowContract.SingleOrDefault(item => string.Equals(item.Id, field.FieldId, StringComparison.Ordinal));
+                if (output is null) return ResultValidation.Invalid;
+                int maximumTextLength = output.MaximumBinaryBytes is { } maximumBinary
+                    ? CanonicalBase64Length(maximumBinary)
+                    : options.MaxParameterStringLength;
+                if (!ValidValue(field.Value, options, capability, allowArray: true, maximumTextLength) ||
+                    output.MaximumBinaryBytes is not null && !BinaryWithin(output.MinimumBinaryBytes, output.MaximumBinaryBytes, field.Value))
+                    return ResultValidation.Invalid;
                 BaseRelationalReadProjection projection = plan.Projection.Single(item =>
                     string.Equals(item.FieldId, field.FieldId, StringComparison.Ordinal));
                 if (field.Value.Kind == QueryValueKind.CanonicalJson &&
@@ -678,9 +687,15 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
             .OrderBy(static id => id, StringComparer.Ordinal).ToArray();
         if (!actualIds.SequenceEqual(expectedIds.OrderBy(static id => id, StringComparer.Ordinal), StringComparer.Ordinal))
             return false;
-        if (!values.All(value => ValidValue(value.Value, options, capability, allowArray: true))) return false;
         IReadOnlyDictionary<string, BaseRelationalReadParameter> byId = definitions.ToDictionary(static parameter => parameter.Id, StringComparer.Ordinal);
-        return values.All(value => Matches(byId[value.ParameterId], value.Value));
+        return values.All(value =>
+        {
+            BaseRelationalReadParameter definition = byId[value.ParameterId];
+            int maximumTextLength = definition.MaximumBinaryBytes is { } maximumBinary
+                ? CanonicalBase64Length(maximumBinary)
+                : options.MaxParameterStringLength;
+            return ValidValue(value.Value, options, capability, allowArray: true, maximumTextLength) && Matches(definition, value.Value);
+        });
 
         static bool Matches(BaseRelationalReadParameter definition, QueryValue value)
         {
@@ -688,8 +703,11 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
             if (value.Kind != definition.Kind) return false;
             if (value.Kind == QueryValueKind.Array)
                 return value.Array is { } items && definition.MaxItems is { } maxItems && items.Length <= maxItems &&
-                    items.All(item => item.Kind == definition.ElementKind && WithinLength(definition, item));
-            return WithinLength(definition, value) && (value.Kind != QueryValueKind.CanonicalJson
+                    items.All(item => item.Kind == definition.ElementKind && WithinLength(definition, item) &&
+                        (definition.MaximumBinaryBytes is null || BinaryWithin(definition.MinimumBinaryBytes, definition.MaximumBinaryBytes, item)));
+            return WithinLength(definition, value) &&
+                (definition.MaximumBinaryBytes is null || BinaryWithin(definition.MinimumBinaryBytes, definition.MaximumBinaryBytes, value)) &&
+                (value.Kind != QueryValueKind.CanonicalJson
                 || definition.CanonicalJsonAuthority is { } authority && CanonicalJsonValue(value, authority));
         }
 
@@ -775,7 +793,12 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
     private static bool Ordered(QueryValueKind? kind) => kind is QueryValueKind.String or QueryValueKind.Integer or QueryValueKind.Number or QueryValueKind.Decimal or QueryValueKind.DateTime or QueryValueKind.Id;
     private static bool Compatible(QueryValueKind? left, QueryValueKind? right) => left is not null && right is not null && (left == right || Numeric(left) && Numeric(right) || left == QueryValueKind.Null || right == QueryValueKind.Null);
 
-    private static bool ValidValue(QueryValue? value, HPDBaseRelationalOptions options, RelationalReadCapability capability, bool allowArray)
+    private static bool ValidValue(
+        QueryValue? value,
+        HPDBaseRelationalOptions options,
+        RelationalReadCapability capability,
+        bool allowArray,
+        int? maximumTextLength = null)
     {
         if (value is null) return false;
         if (!capability.ValueKinds.Contains(value.Kind)) return false;
@@ -789,7 +812,7 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
         return value.Kind switch
         {
             QueryValueKind.Null => branches == 0,
-            QueryValueKind.String => branches == 1 && value.String is string text && text.Length <= options.MaxParameterStringLength,
+            QueryValueKind.String => branches == 1 && value.String is string text && text.Length <= (maximumTextLength ?? options.MaxParameterStringLength),
             QueryValueKind.Boolean => branches == 1 && value.Boolean is not null,
             QueryValueKind.Integer => branches == 1 && value.Integer is not null,
             QueryValueKind.Number => branches == 1 && value.Number is { } number && double.IsFinite(number),
@@ -798,7 +821,7 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
             QueryValueKind.Id => branches == 1 && value.Id is { } id && id.Length <= options.MaxParameterStringLength && RecordId.TryParse(id, out _),
             QueryValueKind.Array => branches == 1 && allowArray && value.Array is { } array &&
                 array.Length <= options.MaxParameterArrayItems &&
-                array.All(item => item.Kind != QueryValueKind.Array && ValidValue(item, options, capability, allowArray: false)),
+                array.All(item => item.Kind != QueryValueKind.Array && ValidValue(item, options, capability, allowArray: false, maximumTextLength)),
             QueryValueKind.SubjectReference => branches == 1 && value.SubjectId is not null
                 && value.SubjectIdKind is { } subjectKind && Enum.IsDefined(subjectKind)
                 && value.SubjectIdMaximumUtf8Bytes is >= 1 and <= 256
@@ -807,6 +830,23 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
                 && CanonicalJsonValue(value),
             _ => false,
         };
+    }
+
+    private static int CanonicalBase64Length(int decodedBytes) => checked(((decodedBytes + 2) / 3) * 4);
+
+    private static bool BinaryWithin(int? minimumBytes, int? maximumBytes, QueryValue value)
+    {
+        if (minimumBytes is not { } minimum || maximumBytes is not { } maximum || value.Kind != QueryValueKind.String || value.String is null)
+            return false;
+        try
+        {
+            BaseBinary binary = BaseBinary.FromBase64(value.String);
+            return binary.Length >= minimum && binary.Length <= maximum;
+        }
+        catch (Exception exception) when (exception is ArgumentException or FormatException or InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     private static bool CanonicalJsonValue(QueryValue value)

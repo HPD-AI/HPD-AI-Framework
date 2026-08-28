@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Security.Cryptography;
+using System.Text;
 
 namespace HPD.Base;
 
@@ -100,13 +101,37 @@ internal static class BaseSchemaContract
         WriteUInt64(writer, checked((ulong)value.Kind));
         WriteUInt64(writer, checked((ulong)value.Presence));
         WriteUInt64(writer, checked((ulong)value.Nullability));
-        if (value.Kind == BaseModuleValueKind.Revision)
+        if (value.Kind == BaseModuleValueKind.SubjectReference)
+        {
+            if (value.Presence is not (BaseFieldPresence.Required or BaseFieldPresence.Optional)
+                || value.Nullability is not (BaseFieldNullability.NonNullable or BaseFieldNullability.Nullable)
+                || value.OwnedCodec is not null || value.OwnedConstraints is not null || value.ConstraintChecksum is not null
+                || value.RecordTargetCollectionId is not null || value.SubjectQualifier is not { } subject)
+                throw Invalid();
+            Write(writer, false); Write(writer, false); Write(writer, false); Write(writer, false);
+            Write(writer, true); WriteSubjectQualifier(writer, subject);
+            return;
+        }
+        if (value.Kind == BaseModuleValueKind.SubjectIncarnation)
         {
             if (value.Presence != BaseFieldPresence.Required || value.Nullability != BaseFieldNullability.NonNullable
+                || value.OwnedCodec is not null || value.OwnedConstraints is not null || value.ConstraintChecksum is not null
+                || value.RecordTargetCollectionId is not null || value.SubjectQualifier is not null)
+                throw Invalid();
+            Write(writer, false); Write(writer, false); Write(writer, false); Write(writer, false); Write(writer, false);
+            Write(writer, "hpd.base.subject-incarnation.base64url.v1");
+            writer.Write(SHA256.HashData(Encoding.ASCII.GetBytes("hpd.base.subject-incarnation.base64url.v1")));
+            WriteUInt64(writer, 24); WriteUInt64(writer, 32);
+            return;
+        }
+        if (value.Kind == BaseModuleValueKind.Revision)
+        {
+            if (value.Presence is not (BaseFieldPresence.Required or BaseFieldPresence.Optional)
+                || value.Nullability != BaseFieldNullability.NonNullable
                 || value.OwnedCodec is not null || value.OwnedConstraints is not null
                 || value.ConstraintChecksum is not null || value.RecordTargetCollectionId is not null)
                 throw Invalid();
-            Write(writer, false); Write(writer, false); Write(writer, false); Write(writer, false);
+            Write(writer, false); Write(writer, false); Write(writer, false); Write(writer, false); Write(writer, false);
             return;
         }
 
@@ -124,6 +149,17 @@ internal static class BaseSchemaContract
         Write(writer, true); WriteConstraints(writer, constraints);
         Write(writer, true); writer.Write(checksum.ToArray());
         Write(writer, recordId); if (recordId) Write(writer, value.RecordTargetCollectionId!);
+        Write(writer, false);
+    }
+
+    private static void WriteSubjectQualifier(ArrayBufferWriter<byte> writer, BaseGeneratedModuleSubjectQualifier value)
+    {
+        writer.Write(new byte[] { 1 });
+        Write(writer, value.ContractId); WriteUInt64(writer, checked((ulong)value.ContractVersion));
+        Write(writer, value.ContractChecksum); WriteUInt64(writer, checked((ulong)value.SubjectIdKind));
+        WriteUInt64(writer, checked((ulong)value.MaximumSubjectIdUtf8Bytes));
+        WriteUInt64(writer, checked((ulong)value.Requirement)); WriteUInt64(writer, checked((ulong)value.Guarantee));
+        Write(writer, value.CodecId); writer.Write(value.CodecChecksum); writer.Write(value.QualifierChecksum);
     }
 
     internal static string EnumQualifier(IEnumerable<string> literals)
@@ -184,7 +220,9 @@ internal static class BaseSchemaContract
         Range(value.MinimumInt32, value.MaximumInt32); Range(value.MinimumInt64, value.MaximumInt64);
         Range(value.MinimumUInt32, value.MaximumUInt32); Range(value.MinimumUInt64, value.MaximumUInt64);
         if (value.MinimumDecimal is { } minDecimal && value.MaximumDecimal is { } maxDecimal && Compare(minDecimal, maxDecimal) > 0) throw Invalid();
-        NonNegative(value.MaximumBinaryBytes); NonNegative(value.MaximumCanonicalJsonBytes); NonNegative(value.MaximumJsonDepth);
+        NonNegative(value.MinimumBinaryBytes); NonNegative(value.MaximumBinaryBytes); Range(value.MinimumBinaryBytes, value.MaximumBinaryBytes);
+        if (value.MinimumBinaryBytes is > 1_048_576 || value.MaximumBinaryBytes is > 1_048_576) throw Invalid();
+        NonNegative(value.MaximumCanonicalJsonBytes); NonNegative(value.MaximumJsonDepth);
         NonNegative(value.MaximumJsonArrayItems); NonNegative(value.MaximumJsonObjectProperties); NonNegative(value.MaximumJsonTotalNodes);
         NonNegative(value.MaximumJsonTotalStringUtf8Bytes); NonNegative(value.MaximumJsonTotalNameUtf8Bytes);
         NonNegative(value.MinimumCollectionItems); NonNegative(value.MaximumCollectionItems); Range(value.MinimumCollectionItems, value.MaximumCollectionItems);
@@ -217,7 +255,7 @@ internal static class BaseSchemaContract
         if (value.MinimumUInt64 is not null || value.MaximumUInt64 is not null) result.Add(BaseScalarConstraintKind.UInt64Range);
         if (value.MinimumDecimal is not null || value.MaximumDecimal is not null) result.Add(BaseScalarConstraintKind.DecimalRange);
         if (!value.AllowedEnumLiterals.IsDefaultOrEmpty) result.Add(BaseScalarConstraintKind.EnumLiterals);
-        if (value.MaximumBinaryBytes is not null) result.Add(BaseScalarConstraintKind.BinaryBytes);
+        if (value.MinimumBinaryBytes is not null || value.MaximumBinaryBytes is not null) result.Add(BaseScalarConstraintKind.BinaryBytes);
         if (value.MaximumCanonicalJsonBytes is not null || value.JsonShape is not null || value.MaximumJsonDepth is not null || value.MaximumJsonArrayItems is not null || value.MaximumJsonObjectProperties is not null || value.MaximumJsonTotalNodes is not null || value.MaximumJsonTotalStringUtf8Bytes is not null || value.MaximumJsonTotalNameUtf8Bytes is not null) result.Add(BaseScalarConstraintKind.CanonicalJson);
         if (value.MinimumCollectionItems is not null || value.MaximumCollectionItems is not null) result.Add(BaseScalarConstraintKind.CollectionItems);
         return result;
@@ -385,7 +423,7 @@ internal static class BaseSchemaContract
         WriteOptional(writer, value.MinimumInt32); WriteOptional(writer, value.MaximumInt32); WriteOptional(writer, value.MinimumInt64); WriteOptional(writer, value.MaximumInt64);
         WriteOptional(writer, value.MinimumUInt32); WriteOptional(writer, value.MaximumUInt32); WriteOptional(writer, value.MinimumUInt64); WriteOptional(writer, value.MaximumUInt64);
         WriteDecimal(writer, value.MinimumDecimal); WriteDecimal(writer, value.MaximumDecimal); WriteUInt32(writer, checked((uint)value.AllowedEnumLiterals.Length)); foreach (string item in value.AllowedEnumLiterals) Write(writer, item);
-        WriteOptional(writer, value.MaximumBinaryBytes); WriteOptional(writer, value.MaximumCanonicalJsonBytes); WriteOptional(writer, value.JsonShape is null ? null : (int)value.JsonShape.Value);
+        WriteOptional(writer, value.MinimumBinaryBytes); WriteOptional(writer, value.MaximumBinaryBytes); WriteOptional(writer, value.MaximumCanonicalJsonBytes); WriteOptional(writer, value.JsonShape is null ? null : (int)value.JsonShape.Value);
         WriteOptional(writer, value.MaximumJsonDepth); WriteOptional(writer, value.MaximumJsonArrayItems); WriteOptional(writer, value.MaximumJsonObjectProperties); WriteOptional(writer, value.MaximumJsonTotalNodes);
         WriteOptional(writer, value.MaximumJsonTotalStringUtf8Bytes); WriteOptional(writer, value.MaximumJsonTotalNameUtf8Bytes); WriteOptional(writer, value.MinimumCollectionItems); WriteOptional(writer, value.MaximumCollectionItems);
     }

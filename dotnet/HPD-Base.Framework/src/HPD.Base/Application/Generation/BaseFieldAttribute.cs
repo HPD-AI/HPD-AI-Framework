@@ -123,6 +123,9 @@ public sealed class BaseFieldAttribute(string id) : Attribute
     /// <summary>Gets or sets the maximum total UTF-8 bytes in canonical JSON property names.</summary>
     public int MaximumJsonTotalNameUtf8Bytes { get; set; } = -1;
 
+    /// <summary>Gets or sets the decoded-byte minimum for a binary field.</summary>
+    public int MinimumBytes { get; set; }
+
     /// <summary>Gets or sets the mandatory decoded-byte maximum for a binary field.</summary>
     public int MaximumBytes { get; set; }
 

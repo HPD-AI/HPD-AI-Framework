@@ -8,17 +8,19 @@ namespace HPD.Base;
 internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
     BaseRegisteredModuleMutationDefinition definition,
     BaseGeneratedModuleMutationIdentity<TRequest, TResult> identity,
-    TRequest request,
+    JsonElement request,
     BaseAtomicMutationIntent intent,
     BaseModuleMutationCaptureExtension extension,
     BaseActivationGuard? activationGuard,
     BaseActivationCreationExtension? activationCreation,
     BaseAtomicSemanticActivationExtension? semanticActivation,
+    string? semanticSubjectReferencePropertyId,
     BaseAtomicMutationExecutionLimits limits,
     IReadOnlyDictionary<string, CollectionDefinition> collections,
     PrincipalContext principal,
     OperationContext operation,
     BasePolicyEvaluation operationPolicy,
+    IReadOnlyDictionary<string, bool> establishedRequestGuards,
     IBaseSchemaValidator schemaValidator,
     IBasePolicyOrchestrator policy,
     IBaseResultNormalizer normalizer,
@@ -63,12 +65,13 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             || !BaseAtomicSchemaContract.CapturedMatches(captureRequest.Schema, evidence.Schema, evidence.Authority,
                 collections.Values, BaseAtomicSchemaContract.ModuleItems(evidence.ModuleRecords))
             || (semanticActivation is null) != (evidence.SemanticActivation is null))
-            return Failed(Error("base.moduleMutation.captureEvidenceInvalid", ErrorCategory.Store));
+            return Failed(Error(BaseModuleMutationErrorCodes.ProviderContractInvalid, ErrorCategory.Store));
         BaseAtomicSemanticActivationExtension? finalizedSemantic;
         try { finalizedSemantic = FinalizeSemantic(semanticActivation, evidence.SemanticActivation, semanticMigrations); }
         catch { return Failed(Error("base.semanticActivation.captureEvidenceInvalid", ErrorCategory.Store)); }
 
-        var evaluator = new BaseModuleProgramEvaluator<TRequest, TResult>(definition, identity, request, evidence, collections);
+        var evaluator = new BaseModuleProgramEvaluator<TRequest, TResult>(
+            definition, identity, request, evidence, collections, definition.Limits, establishedRequestGuards);
         var increments = ImmutableArray.CreateBuilder<BaseModuleGenerationIncrement>();
         var selectedStatements = ImmutableArray.CreateBuilder<BaseModuleStatement>();
         var comparisons = ImmutableArray.CreateBuilder<BaseModuleGenerationComparison>();
@@ -86,6 +89,8 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         }
         catch (BaseModuleScalarContractException exception) when (exception.ProviderInfluenced)
         { return Failed(Error(BaseModuleMutationErrorCodes.ProviderContractInvalid, ErrorCategory.Store)); }
+        catch (BaseModuleRequestLimitException)
+        { return Failed(Error(BaseModuleMutationErrorCodes.LimitExceeded, ErrorCategory.Validation)); }
         catch (OverflowException) { return Failed(Error(BaseModuleMutationErrorCodes.LimitExceeded, ErrorCategory.Validation)); }
         catch { return Failed(Error("base.moduleMutation.programInvalid", ErrorCategory.Validation)); }
 
@@ -107,6 +112,21 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             .FinalizeCapturedCommandsAsync(capturedItems, cancellationToken).ConfigureAwait(false);
         if (!recordPlan.IsSuccess() || recordPlan.Value is null)
             return Failed(recordPlan.Error ?? Error(BaseModuleMutationErrorCodes.Invalid, ErrorCategory.Validation));
+        ImmutableArray<BaseSubjectReferenceValidationPlanItem> subjectValidations;
+        try
+        {
+            subjectValidations = AddRequestSubjectValidations(
+                recordPlan.Value.SubjectValidations, definition, evaluator, operation, subjects);
+            subjectValidations = AddSemanticSubjectValidation(
+                subjectValidations, finalizedSemantic,
+                semanticSubjectReferencePropertyId, operation, subjects);
+        }
+        catch
+        {
+            return Failed(Error("base.semanticActivation.contractInvalid", ErrorCategory.Validation));
+        }
+        if (subjectValidations.Length > limits.MaximumSubjectValidations)
+            return Failed(Error(BaseModuleMutationErrorCodes.LimitExceeded, ErrorCategory.Validation));
         if (!BaseAtomicPolicyAuthority.IsAdmissible([operationPolicy, .. recordPlan.Value.PolicyEvaluations]))
             return Failed(Error(BaseModuleMutationErrorCodes.Unauthorized, ErrorCategory.Authorization));
 
@@ -141,7 +161,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         ImmutableArray<BaseModuleGenerationComparison> orderedComparisons = comparisons.ToImmutable()
             .OrderBy(static value => value.CaptureOrdinal).ThenBy(static value => value.Kind).ToImmutableArray();
         string recordPlanDigest = BaseAtomicPolicyAuthority.BindPlanDigest(DefaultBaseMutationProcessor.ComputePlanDigest(
-            intent.IntentDigest, evidence.CaptureDigest, recordPlan.Value.Items, recordPlan.Value.SubjectValidations), policyDigest);
+            intent.IntentDigest, evidence.CaptureDigest, recordPlan.Value.Items, subjectValidations), policyDigest);
         BaseSubjectRetirementProjectionPlan? retirementPlan = recordPlanner.BuildRetirementPlan(recordPlan.Value.Items, retirement);
         BaseFinalizedTextMutationExtension? textPlan = BaseTextAtomicMutationContract.Finalize(recordPlan.Value.Items);
         BaseAtomicSchemaFinalizedExtension? schemaPlan;
@@ -164,7 +184,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             PolicyAuthorityDigest = policyDigest,
             Authority = intent.Authority,
             Items = recordPlan.Value.Items,
-            SubjectValidations = recordPlan.Value.SubjectValidations,
+            SubjectValidations = subjectValidations,
             SubjectRetirement = retirementPlan,
             Text = textPlan,
             Activations = activationCreation,
@@ -186,12 +206,16 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         BaseFinalizedAtomicExecutionPlan providerPlan = BaseAtomicMutationOwnership.FreezePlan(retainedPlan);
         OperationResult<BasePreparedAtomicExecution> prepared = await provider
             .PrepareAtomicExecutionAsync(evidence, providerPlan, cancellationToken).ConfigureAwait(false);
-        if (!prepared.IsSuccess() || prepared.Value is null || !PreparedMatches(retainedPlan, evidence, prepared.Value))
-            return Failed(prepared.Error ?? Error("base.moduleMutation.preparedEvidenceInvalid", ErrorCategory.Store));
+        if (!prepared.IsSuccess() || prepared.Value is null || !PreparedMatches(retainedPlan, evidence, prepared.Value, subjects))
+            return Failed(prepared.Error ?? Error(BaseModuleMutationErrorCodes.ProviderContractInvalid, ErrorCategory.Store));
+        if (prepared.Value.SubjectValidations.Any(static validation => validation.State == BaseSubjectValidationState.Invalid)
+            && !InvalidSubjectValidationsCoveredByCompactedAbsence(
+                subjectValidations, prepared.Value, finalizedSemantic, evidence.SemanticActivation, subjects))
+            return Failed(Error(BaseSubjectErrorCodes.ReferenceInvalid, ErrorCategory.Validation));
         OperationResult<BaseProvisionalAtomicExecution> applied = await provider
             .ApplyPreparedAtomicExecutionAsync(prepared.Value, cancellationToken).ConfigureAwait(false);
         if (!applied.IsSuccess() || applied.Value is null || !AppliedMatches(retainedPlan, evidence, prepared.Value, applied.Value))
-            return Failed(applied.Error ?? Error("base.moduleMutation.appliedEvidenceInvalid", ErrorCategory.Store));
+            return Failed(applied.Error ?? Error(BaseModuleMutationErrorCodes.ProviderContractInvalid, ErrorCategory.Store));
 
         IReadOnlyDictionary<string, BaseModuleCommittedGeneration> committedGenerations = applied.Value.Generations
             .ToDictionary(static value => value.CaptureId, StringComparer.Ordinal);
@@ -423,6 +447,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             RecordPayload? createPayload = null;
             RecordPayload? updatePayload = null;
             RevisionToken? expected = null;
+            ImmutableArray<string> removedFieldIds = [];
             BaseRecordMutationKind kind;
             RecordUpsertUpdateMode upsertMode = RecordUpsertUpdateMode.Patch;
             switch (statement)
@@ -435,6 +460,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
                     kind = BaseRecordMutationKind.Patch;
                     updatePayload = Payload(evaluator.Object(patch.Patch, collection));
                     expected = Revision(patch.ExpectedRevision, evaluator);
+                    removedFieldIds = patch.RemovedFieldIds;
                     break;
                 case BaseModuleReplaceStatement replace:
                     kind = BaseRecordMutationKind.Replace;
@@ -473,6 +499,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
                     ? await schemaValidator.ValidatePatchAsync(new BasePayloadValidationRequest
                     {
                         Collection = collection, Principal = principal, Operation = operation, Patch = updatePayload,
+                        RemovedFieldIds = removedFieldIds,
                     }, cancellationToken).ConfigureAwait(false)
                     : await schemaValidator.ValidateReplaceAsync(new BasePayloadValidationRequest
                     {
@@ -484,10 +511,21 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             commands[index] = new BaseMutationCommand
             {
                 Index = index, ItemId = statement.Id, CollectionId = collectionId, Kind = kind,
-                Collection = collection, Context = operation, EventId = Guid.NewGuid().ToString("N"), Store = null!,
+                Collection = collection, Context = operation with { Operation = kind switch
+                {
+                    BaseRecordMutationKind.Create => BaseOperationKind.Create,
+                    BaseRecordMutationKind.Patch => BaseOperationKind.Patch,
+                    BaseRecordMutationKind.Replace => BaseOperationKind.Replace,
+                    BaseRecordMutationKind.Delete => BaseOperationKind.Delete,
+                    BaseRecordMutationKind.Upsert => BaseOperationKind.Upsert,
+                    _ => throw new InvalidOperationException("The module mutation kind is invalid."),
+                } }, EventId = Guid.NewGuid().ToString("N"), Store = null!,
                 Create = createPayload is null ? null : new RecordCreateRequest { Payload = createPayload, RequestedId = recordId },
                 RecordId = recordId,
-                Patch = kind == BaseRecordMutationKind.Patch ? new RecordPatchRequest { Patch = updatePayload!, ExpectedRevision = expected } : null,
+                Patch = kind == BaseRecordMutationKind.Patch ? new RecordPatchRequest
+                {
+                    Patch = updatePayload!, RemovedFieldIds = removedFieldIds, ExpectedRevision = expected,
+                } : null,
                 Replace = kind == BaseRecordMutationKind.Replace ? new RecordReplaceRequest { Payload = updatePayload!, ExpectedRevision = expected } : null,
                 Delete = kind == BaseRecordMutationKind.Delete ? new RecordDeleteRequest { ExpectedRevision = expected, ReturnPrevious = false } : null,
                 Upsert = kind == BaseRecordMutationKind.Upsert ? new RecordUpsertRequest
@@ -699,6 +737,224 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
                 return false;
         }
         return true;
+    }
+
+    private static ImmutableArray<BaseSubjectReferenceValidationPlanItem> AddSemanticSubjectValidation(
+        ImmutableArray<BaseSubjectReferenceValidationPlanItem> existing,
+        BaseAtomicSemanticActivationExtension? semantic,
+        string? sourcePropertyId,
+        OperationContext operation,
+        BaseSubjectContractRegistry contracts)
+    {
+        BaseSemanticActivationSubjectLifetimeBinding? lifetime = semantic?.Operation switch
+        {
+            BaseSemanticActivationEnsureIntent ensure => ensure.SubjectLifetime,
+            BaseSemanticActivationRetireIntent retire => retire.SubjectLifetime,
+            _ => null,
+        };
+        if (lifetime is null)
+            return existing;
+        if (string.IsNullOrWhiteSpace(sourcePropertyId))
+            throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+
+        BaseGeneratedSubjectRegistration contract = contracts.Find(lifetime.ContractId, lifetime.ContractVersion)
+            ?? throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+        if (!CryptographicOperations.FixedTimeEquals(
+                Convert.FromHexString(contract.Checksum), lifetime.ContractChecksum.AsSpan()))
+            throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+        string? scope = contract.Definition.Scope switch
+        {
+            BaseSubjectScopeKind.Global => null,
+            BaseSubjectScopeKind.Tenant => operation.TenantId,
+            BaseSubjectScopeKind.Project => operation.ProjectId,
+            _ => throw new InvalidOperationException("base.semanticActivation.contractInvalid"),
+        };
+        if (contract.Definition.Scope != BaseSubjectScopeKind.Global && string.IsNullOrWhiteSpace(scope))
+            throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+
+        BaseSubjectValidationPlanDefinition validation = contract.Definition.ValidationPlan;
+        var item = new BaseSubjectReferenceValidationPlanItem
+        {
+            MutationOrdinal = -1,
+            SourceFieldId = new string(sourcePropertyId.AsSpan()),
+            ValidationPlanId = new string(validation.Id.AsSpan()),
+            ValidationPlanVersion = validation.Version,
+            Requirement = BaseSubjectReferenceRequirement.Exists,
+            Reference = new BaseOwnedSubjectReference(
+                lifetime.SubjectId, lifetime.AuthorityEpoch, lifetime.Incarnation),
+            Scope = new BaseOwnedSubjectScopeEvidence
+            {
+                Kind = contract.Definition.Scope,
+                Value = scope is null ? null : new string(scope.AsSpan()),
+            },
+        };
+        int duplicateOrdinal = FindVirtualSubjectValidation(existing, item);
+        if (duplicateOrdinal >= 0)
+        {
+            BaseSubjectReferenceValidationPlanItem duplicate = existing[duplicateOrdinal];
+            return existing.SetItem(duplicateOrdinal, duplicate with
+            {
+                Requirement = duplicate.Requirement == BaseSubjectReferenceRequirement.Active
+                    ? duplicate.Requirement : item.Requirement,
+                SourceFieldId = string.CompareOrdinal(duplicate.SourceFieldId, item.SourceFieldId) <= 0
+                    ? duplicate.SourceFieldId : item.SourceFieldId,
+            });
+        }
+        if (existing.Length >= validation.Limits.MaximumReferencesPerMutation
+            || existing.Count(candidate => candidate.MutationOrdinal == -1)
+                >= validation.Limits.MaximumReferencesPerRecord
+            || existing.Select(static candidate => (candidate.ValidationPlanId, candidate.ValidationPlanVersion))
+                .Append((validation.Id, validation.Version)).Distinct().Count()
+                > validation.Limits.MaximumValidationPlansPerMutation)
+            throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+        return existing.Add(item);
+    }
+
+    private static bool InvalidSubjectValidationsCoveredByCompactedAbsence(
+        ImmutableArray<BaseSubjectReferenceValidationPlanItem> planned,
+        BasePreparedAtomicExecution prepared,
+        BaseAtomicSemanticActivationExtension? semantic,
+        BaseCapturedSemanticActivationEvidence? captured,
+        BaseSubjectContractRegistry contracts)
+    {
+        if (semantic?.Operation is not (BaseSemanticActivationEnsureIntent or BaseSemanticActivationRetireIntent)
+            || captured is not { State: BaseSemanticActivationCapturedState.CompactedAbsent, Absent: not null }
+            || prepared.SemanticActivation is not
+            {
+                PriorState: BaseSemanticActivationCapturedState.CompactedAbsent,
+                ResultingState: BaseSemanticActivationSlotState.CompactedAbsent,
+            })
+            return false;
+
+        BaseSemanticActivationSubjectLifetimeBinding lifetime = semantic.Operation switch
+        {
+            BaseSemanticActivationEnsureIntent ensure => ensure.SubjectLifetime!,
+            BaseSemanticActivationRetireIntent retire => retire.SubjectLifetime!,
+            _ => throw new InvalidOperationException("base.semanticActivation.contractInvalid"),
+        };
+        BaseGeneratedSubjectRegistration? contract = contracts.Find(lifetime.ContractId, lifetime.ContractVersion);
+        if (contract is null)
+            return false;
+        BaseSubjectValidationPlanDefinition validation = contract.Definition.ValidationPlan;
+
+        bool found = false;
+        for (int index = 0; index < prepared.SubjectValidations.Length; index++)
+        {
+            if (prepared.SubjectValidations[index].State != BaseSubjectValidationState.Invalid)
+                continue;
+            found = true;
+            BaseSubjectReferenceValidationPlanItem item = planned[index];
+            if (item.MutationOrdinal != -1
+                || item.Requirement != BaseSubjectReferenceRequirement.Exists
+                || item.ValidationPlanId != validation.Id
+                || item.ValidationPlanVersion != validation.Version
+                || !item.Reference.SubjectId.Equals(lifetime.SubjectId)
+                || !item.Reference.AuthorityEpoch.Equals(lifetime.AuthorityEpoch)
+                || !item.Reference.Incarnation.Equals(lifetime.Incarnation))
+                return false;
+        }
+        return found;
+    }
+
+    private static ImmutableArray<BaseSubjectReferenceValidationPlanItem> AddRequestSubjectValidations(
+        ImmutableArray<BaseSubjectReferenceValidationPlanItem> existing,
+        BaseRegisteredModuleMutationDefinition definition,
+        BaseModuleProgramEvaluator<TRequest, TResult> evaluator,
+        OperationContext operation,
+        BaseSubjectContractRegistry contracts)
+    {
+        BaseModuleRequestPropertyExpression[] references = BaseModuleMutationContractValidator
+            .Expressions(definition.Template)
+            .OfType<BaseModuleRequestPropertyExpression>()
+            .Where(static expression => expression.ResultType?.Kind == BaseModuleValueKind.SubjectReference)
+            .DistinctBy(static expression => string.Join('\0', expression.Property.StablePropertyPath), StringComparer.Ordinal)
+            .OrderBy(static expression => string.Join('\0', expression.Property.StablePropertyPath), StringComparer.Ordinal)
+            .ToArray();
+        foreach (BaseModuleRequestPropertyExpression expression in references)
+        {
+            BaseGeneratedModuleSubjectQualifier qualifier = expression.ResultType?.SubjectQualifier
+                ?? throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+            BaseModuleProgramValue value = evaluator.Evaluate(expression);
+            if (!value.Present || value.IsNull)
+                continue;
+            BaseGeneratedSubjectRegistration contract = contracts.Find(qualifier.ContractId, qualifier.ContractVersion)
+                ?? throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+            if (!string.Equals(contract.Checksum, qualifier.ContractChecksum, StringComparison.Ordinal)
+                || !definition.ImportedSubjectContractIds.Contains(qualifier.ContractId, StringComparer.Ordinal))
+                throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+            var decoded = BaseSubjectReferenceEncoding.DecodeElement(
+                value.Value, qualifier.SubjectIdKind, qualifier.MaximumSubjectIdUtf8Bytes);
+            string? scope = contract.Definition.Scope switch
+            {
+                BaseSubjectScopeKind.Global => null,
+                BaseSubjectScopeKind.Tenant => operation.TenantId,
+                BaseSubjectScopeKind.Project => operation.ProjectId,
+                _ => throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid),
+            };
+            if (contract.Definition.Scope != BaseSubjectScopeKind.Global && string.IsNullOrWhiteSpace(scope))
+                throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+
+            BaseSubjectValidationPlanDefinition validation = contract.Definition.ValidationPlan;
+            var item = new BaseSubjectReferenceValidationPlanItem
+            {
+                MutationOrdinal = -1,
+                SourceFieldId = "request." + string.Join('.', expression.Property.StablePropertyPath),
+                ValidationPlanId = new string(validation.Id.AsSpan()),
+                ValidationPlanVersion = validation.Version,
+                Requirement = qualifier.Requirement,
+                Reference = new BaseOwnedSubjectReference(
+                    decoded.SubjectId, decoded.AuthorityEpoch, decoded.Incarnation),
+                Scope = new BaseOwnedSubjectScopeEvidence
+                {
+                    Kind = contract.Definition.Scope,
+                    Value = scope is null ? null : new string(scope.AsSpan()),
+                },
+            };
+            int duplicateOrdinal = FindVirtualSubjectValidation(existing, item);
+            if (duplicateOrdinal >= 0)
+            {
+                BaseSubjectReferenceValidationPlanItem duplicate = existing[duplicateOrdinal];
+                existing = existing.SetItem(duplicateOrdinal, duplicate with
+                {
+                    Requirement = duplicate.Requirement == BaseSubjectReferenceRequirement.Active
+                        ? duplicate.Requirement : item.Requirement,
+                    SourceFieldId = string.CompareOrdinal(duplicate.SourceFieldId, item.SourceFieldId) <= 0
+                        ? duplicate.SourceFieldId : item.SourceFieldId,
+                });
+                continue;
+            }
+            if (existing.Length >= validation.Limits.MaximumReferencesPerMutation
+                || existing.Count(candidate => candidate.MutationOrdinal == -1)
+                    >= validation.Limits.MaximumReferencesPerRecord
+                || existing.Select(static candidate => (candidate.ValidationPlanId, candidate.ValidationPlanVersion))
+                    .Append((validation.Id, validation.Version)).Distinct().Count()
+                    > validation.Limits.MaximumValidationPlansPerMutation)
+                throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+            existing = existing.Add(item);
+        }
+        return existing;
+    }
+
+    private static bool VirtualSubjectValidationMatches(
+        BaseSubjectReferenceValidationPlanItem left,
+        BaseSubjectReferenceValidationPlanItem right) =>
+        left.MutationOrdinal == -1 && right.MutationOrdinal == -1
+        && left.ValidationPlanId == right.ValidationPlanId
+        && left.ValidationPlanVersion == right.ValidationPlanVersion
+        && left.Reference.SubjectId.Equals(right.Reference.SubjectId)
+        && left.Reference.AuthorityEpoch.Equals(right.Reference.AuthorityEpoch)
+        && left.Reference.Incarnation.Equals(right.Reference.Incarnation)
+        && left.Scope.Kind == right.Scope.Kind
+        && left.Scope.Value == right.Scope.Value;
+
+    private static int FindVirtualSubjectValidation(
+        ImmutableArray<BaseSubjectReferenceValidationPlanItem> existing,
+        BaseSubjectReferenceValidationPlanItem item)
+    {
+        for (int ordinal = 0; ordinal < existing.Length; ordinal++)
+            if (VirtualSubjectValidationMatches(existing[ordinal], item))
+                return ordinal;
+        return -1;
     }
 
     internal static BaseAtomicSemanticActivationExtension? FinalizeSemantic(
@@ -1073,7 +1329,11 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         return hash.GetHashAndReset();
     }
 
-    private static bool PreparedMatches(BaseFinalizedAtomicExecutionPlan plan, BaseCapturedAtomicExecution captured, BasePreparedAtomicExecution prepared)
+    private static bool PreparedMatches(
+        BaseFinalizedAtomicExecutionPlan plan,
+        BaseCapturedAtomicExecution captured,
+        BasePreparedAtomicExecution prepared,
+        BaseSubjectContractRegistry subjects)
     {
         BaseFinalizedModuleMutationExtension? module = plan.Module;
         if (module is null || prepared.Kind != BaseAtomicMutationExecutionKind.ModuleMutation
@@ -1085,6 +1345,13 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             || prepared.Accounting.GenerationComparisons != module.Comparisons.Length
             || prepared.Accounting.GenerationIncrements != module.Increments.Length
             || prepared.Accounting.ReadIntervals != prepared.ReadIntervals.Length
+            || prepared.SubjectValidations.Length != plan.SubjectValidations.Length
+            || !DefaultBaseMutationProcessor.ValidateSubjectAuthorityEvidence(plan, prepared, subjects)
+            || !prepared.SubjectValidations.Select((validation, index) =>
+                validation.Ordinal == index
+                && validation.MutationOrdinal == plan.SubjectValidations[index].MutationOrdinal
+                && string.Equals(validation.SourceFieldId, plan.SubjectValidations[index].SourceFieldId, StringComparison.Ordinal)
+                && Enum.IsDefined(validation.State)).All(static valid => valid)
             || !PreparedActivationMatches(plan.Activations, captured.Activations, prepared.Activations)
             || !PreparedSemanticMatches(plan.SemanticActivation, captured.SemanticActivation, prepared.SemanticActivation)
             || !DefaultBaseMutationProcessor.RetirementEvidenceMatches(plan.SubjectRetirement, prepared.SubjectRetirement)
@@ -1263,6 +1530,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         BaseFinalizedModuleMutationExtension? module = plan.Module;
         if (module is null || applied.Kind != BaseAtomicMutationExecutionKind.ModuleMutation
             || !string.Equals(applied.PlanDigest, plan.PlanDigest, StringComparison.Ordinal)
+            || !AuthorityMatches(applied.Authority, prepared.Authority)
             || applied.Facts.Length != plan.Items.Length
             || applied.Generations.Length != module.Increments.Length
             || !DefaultBaseMutationProcessor.RetirementEvidenceMatches(plan.SubjectRetirement, applied.SubjectRetirement)
@@ -1270,6 +1538,8 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             || !AppliedSemanticMatches(plan.SemanticActivation, captured.SemanticActivation, prepared.SemanticActivation, applied.SemanticActivation)
             || !BaseTextAtomicMutationContract.AppliedMatches(plan.Text, prepared.Text, applied.Text, applied.Facts)
             || !BaseAtomicSchemaContract.ProvisionalMatches(plan.Schema, applied.Schema))
+            return false;
+        if (!ProvisionalAccountingMatches(plan, captured, prepared, applied))
             return false;
         for (int index = 0; index < applied.Generations.Length; index++)
         {
@@ -1285,7 +1555,201 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
                 || actual.Previous is null && actual.Resulting.ToCanonicalString() != "1")
                 return false;
         }
+        long previousJournalPosition = 0;
+        for (int index = 0; index < applied.Facts.Length; index++)
+        {
+            BaseRecordMutationFact materialized;
+            try { materialized = applied.Facts[index].MaterializeOwned(); }
+            catch { return false; }
+            if (materialized.JournalPosition.Value <= previousJournalPosition)
+                return false;
+            previousJournalPosition = materialized.JournalPosition.Value;
+            if (!MutationFactMatches(plan.Items[index], applied.Facts[index]))
+                return false;
+        }
         return true;
+    }
+
+    private static bool MutationFactMatches(BaseAtomicMutationPlanItem item, BaseOwnedMutationFact owned)
+    {
+        BaseRecordMutationFact fact;
+        try { fact = owned.MaterializeOwned(); }
+        catch { return false; }
+        if (fact.Event is null
+            || fact.ItemId != item.ItemId
+            || fact.RequestedOperation != item.RequestedKind
+            || fact.CommittedOperation != item.Kind
+            || !CollectionMatches(fact.Collection, item.Collection)
+            || fact.Event.EventId != item.EventId
+            || !Enum.IsDefined(fact.Event.Guarantee)
+            || fact.Event.Guarantee != EventDeliveryGuarantee.Transactional
+            || fact.Event.Stream != "base.mutations"
+            || fact.Event.Resource is not null
+            || fact.Event.PublishedAt is null
+            || fact.JournalPosition.Value <= 0
+            || fact.Event.Type != item.Kind switch
+            {
+                BaseCommittedRecordMutationKind.Create => BaseEventTypes.RecordCreated,
+                BaseCommittedRecordMutationKind.Patch => BaseEventTypes.RecordPatched,
+                BaseCommittedRecordMutationKind.Replace => BaseEventTypes.RecordUpdated,
+                BaseCommittedRecordMutationKind.Delete => BaseEventTypes.RecordDeleted,
+                _ => string.Empty,
+            }
+            || !EnvelopeMatches(fact.Before, item.Current)
+            || !RecordMatches(fact.After, item)
+            || fact.After is not null && !PayloadMatches(fact.After.Payload, item.ProposedPayload)
+            || fact.ChangedFields is null
+            || !fact.ChangedFields.SequenceEqual(item.ChangedFields, StringComparer.Ordinal))
+            return false;
+        if (item.RequestedKind != BaseRecordMutationKind.Upsert && fact.UpsertOutcome is not null)
+            return false;
+        return item.Kind switch
+        {
+            BaseCommittedRecordMutationKind.Create => fact.Before is null && fact.After is not null && fact.Delete is null,
+            BaseCommittedRecordMutationKind.Patch or BaseCommittedRecordMutationKind.Replace =>
+                fact.Before is not null && fact.After is not null && fact.Delete is null,
+            BaseCommittedRecordMutationKind.Delete => fact.Before is not null && fact.After is null
+                && fact.Delete is { Deleted: true } deletion && deletion.Id == item.RecordId
+                && (item.Delete?.ReturnPrevious == true
+                    ? EnvelopeMatches(deletion.Previous, fact.Before)
+                    : deletion.Previous is null),
+            _ => false,
+        };
+
+        static bool RecordMatches(RecordEnvelope? record, BaseAtomicMutationPlanItem expected) =>
+            record is null || record.CollectionId == expected.Collection.Id && record.Id == expected.RecordId;
+    }
+
+    private static bool CollectionMatches(CollectionDefinition actual, CollectionDefinition expected)
+    {
+        try
+        {
+            return CanonicalBytes(actual).AsSpan().SequenceEqual(CanonicalBytes(expected));
+        }
+        catch { return false; }
+
+        static byte[] CanonicalBytes(CollectionDefinition value)
+        {
+            byte[] encoded = JsonSerializer.SerializeToUtf8Bytes(
+                value, HPDBaseJsonSerializerContext.Default.CollectionDefinition);
+            CollectionDefinition normalized = JsonSerializer.Deserialize(
+                encoded, HPDBaseJsonSerializerContext.Default.CollectionDefinition)
+                ?? throw new JsonException();
+            return JsonSerializer.SerializeToUtf8Bytes(
+                normalized, HPDBaseJsonSerializerContext.Default.CollectionDefinition);
+        }
+    }
+
+    private static bool ProvisionalAccountingMatches(
+        BaseFinalizedAtomicExecutionPlan plan,
+        BaseCapturedAtomicExecution captured,
+        BasePreparedAtomicExecution prepared,
+        BaseProvisionalAtomicExecution applied)
+    {
+        BaseProvisionalAtomicMutationAccounting value = applied.Accounting;
+        long factBytes;
+        long journalBytes;
+        long writtenBytes;
+        try
+        {
+            factBytes = applied.Facts.Sum(static fact => (long)fact.EncodedLength);
+            BaseRecordMutationFact[] facts = applied.Facts.Select(static fact => fact.MaterializeOwned()).ToArray();
+            journalBytes = facts.Sum(static fact => (long)JsonSerializer.SerializeToUtf8Bytes(
+                fact, HPDBaseJsonSerializerContext.Default.BaseRecordMutationFact).LongLength);
+            writtenBytes = facts.Sum(static fact => fact.After is null
+                ? Encoding.UTF8.GetByteCount(fact.Before!.Id.Value) + sizeof(long)
+                : (long)JsonSerializer.SerializeToUtf8Bytes(
+                    fact.After, HPDBaseJsonSerializerContext.Default.RecordEnvelope).LongLength);
+        }
+        catch { return false; }
+        long expectedTransient;
+        int relationChecks;
+        int uniqueChecks;
+        int retirementPublications;
+        long retirementPublicationBytes;
+        try
+        {
+            writtenBytes = checked(writtenBytes
+                + prepared.Generations.Count(static generation => generation.Disposition is
+                    BaseModuleGenerationPreparationDisposition.Created or BaseModuleGenerationPreparationDisposition.Incremented) * 8L
+                + (plan.Activations?.Items.Select((item, index) =>
+                    captured.Activations!.Items[index].Exists ? 0L : item.CanonicalInput.Length + 192L).Sum() ?? 0L));
+            relationChecks = captured.Items.Sum(static item => item.RelationTargets.Length);
+            uniqueChecks = plan.Items.Where(static item => item.Kind != BaseCommittedRecordMutationKind.Delete)
+                .Sum(static item => item.Collection.Indexes?.Count(static index => index.Unique) ?? 0);
+            retirementPublications = prepared.SubjectRetirement?.Items.Length ?? 0;
+            retirementPublicationBytes = prepared.SubjectRetirement?.Items.Sum(static item =>
+            {
+                BaseSubjectRetirementBarrier barrier = item.Resulting;
+                BaseSubjectRetirementPublicationFact publication = BaseSubjectRetirementRegistry.SealPublication(new()
+                {
+                    Position = new BaseSubjectRetirementPosition(item.PublicationPosition),
+                    Kind = BaseSubjectRetirementPublicationKind.BarrierCreated,
+                    Barrier = new BaseSubjectBarrierPublication
+                    {
+                        ContractId = barrier.ContractId, ContractVersion = barrier.ContractVersion,
+                        SubjectId = barrier.SubjectId, AuthorityEpoch = barrier.AuthorityEpoch,
+                        Incarnation = barrier.Incarnation, TombstoneSequence = barrier.TombstoneSequence,
+                        PreviousGeneration = 0, PublishedGeneration = barrier.Generation,
+                    },
+                }, item.ProtectedScope);
+                return BaseSubjectCanonicalRetainedWork.MeasureRetirementPublication(publication);
+            }) ?? 0L;
+            expectedTransient = checked(prepared.Accounting.TransientBytes + writtenBytes + factBytes + journalBytes);
+        }
+        catch { return false; }
+        BaseAtomicMutationExecutionLimits limits = plan.Limits;
+        return value.WrittenBytes == writtenBytes
+            && value.FactBytes == factBytes
+            && value.JournalBytes == journalBytes
+            && value.GenerationBytes == prepared.Accounting.GenerationBytes
+            && value.AuthorityReads == prepared.Accounting.AuthorityReads
+            && value.ReadIntervals == prepared.ReadIntervals.Length
+            && value.SelectedBytes == prepared.Accounting.SelectedBytes
+            && value.EvidenceBytes == prepared.Accounting.EvidenceBytes
+            && value.RetirementBarrierReads == prepared.Accounting.RetirementBarrierReads
+            && value.RetirementAcknowledgementReads == prepared.Accounting.RetirementAcknowledgementReads
+            && value.RetirementProjections == prepared.Accounting.RetirementProjections
+            && value.RetirementEvidenceBytes == prepared.Accounting.RetirementEvidenceBytes
+            && value.RelationChecks == relationChecks
+            && value.UniqueConstraintChecks == uniqueChecks
+            && value.RetirementPublications == retirementPublications
+            && value.RetirementPublicationBytes == retirementPublicationBytes
+            && value.WrittenBytes <= limits.MaximumWrittenBytes
+            && value.FactBytes <= limits.MaximumFactBytes
+            && value.JournalBytes <= limits.MaximumJournalBytes
+            && value.GenerationBytes <= limits.MaximumGenerationBytes
+            && value.TransientBytes == expectedTransient
+            && value.TransientBytes <= limits.MaximumTransientBytes;
+    }
+
+    private static bool EnvelopeMatches(RecordEnvelope? actual, RecordEnvelope? expected)
+    {
+        if (actual is null || expected is null) return actual is null && expected is null;
+        if (actual.CollectionId != expected.CollectionId || actual.Id != expected.Id
+            || !PayloadMatches(actual.Payload, expected.Payload)) return false;
+        RecordMetadata authority = expected.Metadata;
+        RecordMetadata supplied = actual.Metadata;
+        return (authority.CreatedAt is null || authority.CreatedAt == supplied.CreatedAt)
+            && (authority.UpdatedAt is null || authority.UpdatedAt == supplied.UpdatedAt)
+            && (authority.Revision is null || authority.Revision == supplied.Revision)
+            && (authority.ETag is null || string.Equals(authority.ETag, supplied.ETag, StringComparison.Ordinal))
+            && (authority.StoreId is null || string.Equals(authority.StoreId, supplied.StoreId, StringComparison.Ordinal))
+            && (authority.Tags is null || supplied.Tags is not null
+                && authority.Tags.Count == supplied.Tags.Count
+                && authority.Tags.All(pair => supplied.Tags.TryGetValue(pair.Key, out string? value)
+                    && string.Equals(pair.Value, value, StringComparison.Ordinal)));
+    }
+
+    private static bool PayloadMatches(RecordPayload actual, RecordPayload? expected)
+    {
+        if (expected is null || actual.Kind != expected.Kind) return false;
+        if (actual.Kind == RecordPayloadKind.Json)
+            return JsonElement.DeepEquals(actual.Json, expected.Json);
+        if (actual.Fields is null || expected.Fields is null || actual.Fields.Count != expected.Fields.Count)
+            return actual.Fields is null && expected.Fields is null;
+        return actual.Fields.All(pair => expected.Fields.TryGetValue(pair.Key, out JsonElement value)
+            && JsonElement.DeepEquals(pair.Value, value));
     }
 
     private static bool AppliedSemanticMatches(

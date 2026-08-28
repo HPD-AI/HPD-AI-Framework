@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 namespace HPD.Base;
 
 /// <summary>Contains one inert generator-owned lifecycle-consumer identity.</summary>
+/// <typeparam name="TSubject">The exact exported-subject marker type.</typeparam>
 public sealed class BaseGeneratedSubjectLifecycleConsumerIdentity<TSubject>
 {
     internal BaseGeneratedSubjectLifecycleConsumerIdentity(BaseSubjectLifecycleConsumerDefinition definition, string checksum)
@@ -15,14 +16,60 @@ public sealed class BaseGeneratedSubjectLifecycleConsumerIdentity<TSubject>
 public static class BaseGeneratedSubjectLifecycleConsumers
 {
     /// <summary>Creates one immutable generated consumer identity.</summary>
+    /// <typeparam name="TSubject">The exact generated exported-subject marker type.</typeparam>
+    /// <param name="definition">The complete lifecycle-consumer definition.</param>
+    /// <param name="subject">The generated exported-subject registration.</param>
+    /// <returns>The opaque typed lifecycle-consumer identity.</returns>
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
-    public static BaseGeneratedSubjectLifecycleConsumerIdentity<TSubject> Register<TSubject>(BaseSubjectLifecycleConsumerDefinition definition, BaseGeneratedSubjectRegistration subject)
+    internal static BaseGeneratedSubjectLifecycleConsumerIdentity<TSubject> Register<TSubject>(BaseSubjectLifecycleConsumerDefinition definition, BaseGeneratedSubjectRegistration subject)
     {
         ArgumentNullException.ThrowIfNull(subject);
         BaseSubjectLifecycleConsumerDefinition normalized = BaseSubjectLifecycleRegistry.Normalize(definition);
-        if (normalized.ContractId != subject.Definition.Id || normalized.ContractVersion != subject.Definition.Version)
+        if (subject.MarkerType != typeof(TSubject)
+            || normalized.ContractId != subject.Definition.Id || normalized.ContractVersion != subject.Definition.Version)
             throw new InvalidOperationException(BaseSubjectErrorCodes.LifecycleContractInvalid);
         return new(normalized, BaseSubjectLifecycleRegistry.Checksum(normalized, subject.Checksum));
+    }
+
+    /// <summary>Creates one opaque typed lifecycle-consumer identity from stable declarative authority.</summary>
+    /// <typeparam name="TSubject">The exact exported-subject marker type.</typeparam>
+    /// <param name="subject">The generated exported-subject registration.</param>
+    /// <param name="id">The stable consumer identifier.</param>
+    /// <param name="version">The positive consumer version.</param>
+    /// <param name="owningModuleId">The owning module identifier.</param>
+    /// <param name="audience">The closed worker audience.</param>
+    /// <param name="observedStates">The exact observed lifecycle states.</param>
+    /// <param name="deliveryGrantId">The exact delivery grant.</param>
+    /// <param name="reconciliationGrantId">The optional reconciliation grant.</param>
+    /// <param name="limits">The immutable lifecycle execution limits.</param>
+    /// <returns>The opaque typed lifecycle-consumer identity.</returns>
+    public static BaseGeneratedSubjectLifecycleConsumerIdentity<TSubject> Register<TSubject>(
+        BaseGeneratedSubjectRegistration subject,
+        string id,
+        int version,
+        string owningModuleId,
+        BaseSubjectLifecycleConsumerAudience audience,
+        IEnumerable<BaseSubjectLifecycleState> observedStates,
+        string deliveryGrantId,
+        string? reconciliationGrantId,
+        BaseSubjectLifecycleConsumerLimits limits)
+    {
+        ArgumentNullException.ThrowIfNull(subject);
+        ArgumentNullException.ThrowIfNull(observedStates);
+        ArgumentNullException.ThrowIfNull(limits);
+        return Register<TSubject>(new BaseSubjectLifecycleConsumerDefinition
+        {
+            Id = id,
+            Version = version,
+            OwningModuleId = owningModuleId,
+            Audience = audience,
+            ContractId = subject.Definition.Id,
+            ContractVersion = subject.Definition.Version,
+            ObservedStates = observedStates.ToImmutableArray(),
+            DeliveryGrantId = deliveryGrantId,
+            ReconciliationGrantId = reconciliationGrantId,
+            Limits = limits,
+        }, subject);
     }
 }
 
@@ -48,6 +95,7 @@ public sealed class BaseSubjectLifecycleSession
 }
 
 /// <summary>Reads one exact installed lifecycle consumer through its owning session.</summary>
+/// <typeparam name="TSubject">The exact exported-subject marker type.</typeparam>
 public sealed class BaseInstalledSubjectLifecycleConsumer<TSubject>
 {
     private readonly IBaseSubjectLifecycleRuntime _runtime; private readonly BaseSession _session;

@@ -5,6 +5,18 @@ namespace HPD.Base.Tests.Application.Activations;
 public sealed class BaseSemanticActivationRegistryTests
 {
     [Fact]
+    public void Subject_retirement_compaction_authority_is_externally_inert()
+    {
+        typeof(BaseSemanticActivationSubjectRetirementCompaction).GetConstructors().Should().BeEmpty();
+        typeof(BaseSemanticActivationSubjectContractIdentity).GetConstructors().Should().BeEmpty();
+        typeof(BaseSemanticActivationSubjectRetirementCompaction).GetProperties()
+            .Where(static property => property.DeclaringType == typeof(BaseSemanticActivationSubjectRetirementCompaction))
+            .Should().OnlyContain(static property => property.SetMethod == null || !property.SetMethod.IsPublic);
+        typeof(BaseSemanticActivationSubjectContractIdentity).GetProperties()
+            .Should().OnlyContain(static property => property.SetMethod == null || !property.SetMethod.IsPublic);
+    }
+
+    [Fact]
     public void Certification_profile_and_installed_receipt_bind_every_provider_layer()
     {
         BaseSemanticActivationCapability semantic = BaseSemanticActivationCapabilityContract.BuiltIn(durable: true);
@@ -78,10 +90,8 @@ public sealed class BaseSemanticActivationRegistryTests
     public void Closed_key_compiler_is_deterministic_and_property_bound()
     {
         BaseSemanticActivationKeyDefinition definition = Installed();
-        var options = new System.Text.Json.JsonSerializerOptions
-        {
-            TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver(),
-        };
+        System.Text.Json.JsonSerializerOptions options = BaseSerializerGeneratedContract.CreateOptions(null);
+        options.TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver();
         var binding = new BaseModuleDtoPropertyBinding(
             ["value"], typeof(Request), typeof(string), BaseFieldConfidentiality.Public,
             BaseRecordDisclosure.Include, BaseGeneratedModuleScalarManifest.Primitive<string>(),
@@ -320,6 +330,7 @@ public sealed class BaseSemanticActivationRegistryTests
     {
         Supported = true, SerializableExecution = true, DurableReceipts = true, GenerationCells = true,
         AtomicRecordAndGenerationCommit = true, MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
+        MaximumRemovedFieldsPerMutation = 256,
     };
     private sealed record Request(string Value);
     private sealed class Marker;

@@ -79,7 +79,8 @@ internal sealed class BaseModuleMutationRegistration<TRequest, TResult>(
         ArgumentNullException.ThrowIfNull(principal);
         TRequest? request = System.Text.Json.JsonSerializer.Deserialize(requestJson.Span, identity.RequestTypeInfo);
         if (request is null) throw new InvalidOperationException("base.moduleMutation.invalid");
-        byte[] canonical = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(request, identity.RequestTypeInfo);
+        byte[] canonical = DefaultBaseModuleMutationRuntime.CanonicalRequest(requestJson.Span, definition.Limits.MaximumRequestBytes);
+        BaseModuleProgramEvaluator<TRequest, TResult>.ValidateDto(canonical, identity.RequestBindings, providerInfluenced: false);
         using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
         Add(hash, "base.moduleMutation.http.v1"u8); Add(hash, System.Text.Encoding.UTF8.GetBytes(Id));
         Span<byte> version = stackalloc byte[8]; System.Buffers.Binary.BinaryPrimitives.WriteInt64BigEndian(version, Version); Add(hash, version);
@@ -98,8 +99,10 @@ internal sealed class BaseModuleMutationRegistration<TRequest, TResult>(
         try { request = System.Text.Json.JsonSerializer.Deserialize(requestJson.Span, identity.RequestTypeInfo); }
         catch { return Failure(OperationStatus.ValidationFailed, BaseModuleMutationErrorCodes.Invalid, ErrorCategory.Validation); }
         if (request is null) return Failure(OperationStatus.ValidationFailed, BaseModuleMutationErrorCodes.Invalid, ErrorCategory.Validation);
-        BaseResult<BaseModuleMutationExecutionResult<TResult>> result = await session.ModuleMutations.Get(identity)
-            .ExecuteAsync(request, requestIdentity, options, cancellationToken).ConfigureAwait(false);
+        if (session.Services.GetService(typeof(IBaseModuleMutationRuntime)) is not DefaultBaseModuleMutationRuntime runtime)
+            return Failure(OperationStatus.Unsupported, BaseModuleMutationErrorCodes.CapabilityMissing, ErrorCategory.Unsupported);
+        BaseResult<BaseModuleMutationExecutionResult<TResult>> result = await runtime.ExecuteWireAsync(
+            session, definition, identity, request, requestJson, requestIdentity, options, cancellationToken).ConfigureAwait(false);
         if (result is BaseFailure<BaseModuleMutationExecutionResult<TResult>> failure)
             return new BaseFailure<BaseUntypedModuleMutationExecutionResult>(failure.Status, failure.Error, failure.Warnings, failure.Diagnostics);
         var success = (BaseSuccess<BaseModuleMutationExecutionResult<TResult>>)result;
@@ -125,8 +128,8 @@ internal sealed class BaseModuleMutationRegistration<TRequest, TResult>(
         if (request is null) return Failure(OperationStatus.ValidationFailed, BaseModuleMutationErrorCodes.Invalid, ErrorCategory.Validation);
         if (session.Services.GetService(typeof(IBaseModuleMutationRuntime)) is not DefaultBaseModuleMutationRuntime runtime)
             return Failure(OperationStatus.Unsupported, BaseModuleMutationErrorCodes.CapabilityMissing, ErrorCategory.Unsupported);
-        BaseResult<BaseModuleMutationExecutionResult<TResult>> result = await runtime.ExecuteTransactionalAsync(
-            session, definition, identity, request, requestIdentity, activation, cancellationToken).ConfigureAwait(false);
+        BaseResult<BaseModuleMutationExecutionResult<TResult>> result = await runtime.ExecuteWireTransactionalAsync(
+            session, definition, identity, request, requestJson, requestIdentity, activation, cancellationToken).ConfigureAwait(false);
         if (result is BaseFailure<BaseModuleMutationExecutionResult<TResult>> failure)
             return new BaseFailure<BaseUntypedModuleMutationExecutionResult>(failure.Status, failure.Error, failure.Warnings, failure.Diagnostics);
         var success = (BaseSuccess<BaseModuleMutationExecutionResult<TResult>>)result;
@@ -206,6 +209,15 @@ public sealed class BaseGeneratedModuleMutationIdentity<TRequest, TResult> : IBa
     private BaseSerializerContextRegistration Registration { get; }
     internal IReadOnlyList<BaseSerializerPropertyDeclaration> SerializerDeclarations => Declarations;
     private IReadOnlyList<BaseSerializerPropertyDeclaration> Declarations { get; }
+
+    internal byte[] ComputeRequestSerializerChecksum()
+    {
+        System.Text.Json.Serialization.Metadata.JsonTypeInfo<TRequest> request = _request
+            ?? (Registration.CreateOwned().GetTypeInfo(typeof(TRequest))
+                as System.Text.Json.Serialization.Metadata.JsonTypeInfo<TRequest>)
+            ?? throw new InvalidOperationException("base.schema.serializer.ownerRequired");
+        return Convert.FromHexString(BaseSerializerContract.GraphFingerprint(request, Declarations));
+    }
     IReadOnlyList<System.Text.Json.Serialization.Metadata.JsonTypeInfo> IBaseSerializerMetadataSource.Roots => [];
     bool IBaseSerializerMetadataSource.Generated => true;
     BaseSerializerContextRegistration? IBaseSerializerMetadataSource.Registration => Registration;
@@ -255,6 +267,11 @@ public sealed class BaseGeneratedModuleScalarManifest
         BaseField<TRecord, TValue> field, string collectionId, string fieldId)
     {
         ArgumentNullException.ThrowIfNull(field);
+        if (Kind is BaseModuleValueKind.SubjectReference or BaseModuleValueKind.SubjectIncarnation)
+        {
+            field.BindModuleMutation(SpecialValueType());
+            return field;
+        }
         if (Kind is BaseModuleValueKind.Revision or BaseModuleValueKind.FrozenArray)
             throw new InvalidOperationException("base.moduleMutation.invalid");
         BaseScalarKind scalarKind = (BaseScalarKind)(int)Kind;
@@ -275,6 +292,17 @@ public sealed class BaseGeneratedModuleScalarManifest
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     public BaseModuleRequestProperty<TRequest, TValue> RequestProperty<TRequest, TValue>(params string[] stablePropertyPath) =>
         new(Seal(stablePropertyPath));
+
+    /// <summary>Creates one generated activation-input property handle from this inert manifest.</summary>
+    /// <typeparam name="TInput">The generated activation input type.</typeparam>
+    /// <typeparam name="TValue">The exact generated property type.</typeparam>
+    /// <param name="ownerChecksum">The exact generated DTO authority checksum.</param>
+    /// <param name="stablePropertyPath">The generator-owned stable property path.</param>
+    /// <returns>An opaque activation-input property handle.</returns>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public BaseActivationInputProperty<TInput, TValue> ActivationInputProperty<TInput, TValue>(
+        ReadOnlyMemory<byte> ownerChecksum, params string[] stablePropertyPath) =>
+        new(Seal(stablePropertyPath), ownerChecksum);
 
     /// <summary>Creates one generated result-property handle from this inert manifest.</summary>
     /// <typeparam name="TResult">The generated result type.</typeparam>
@@ -307,6 +335,51 @@ public sealed class BaseGeneratedModuleScalarManifest
         return new(kind, presence, nullability, new BaseScalarConstraintSet());
     }
 
+    /// <summary>Creates generated subject-reference module authority.</summary>
+    /// <typeparam name="TSubject">The generated exported-subject marker type.</typeparam>
+    /// <param name="requirement">The required subject lifecycle state.</param>
+    /// <param name="guarantee">The required transaction validation guarantee.</param>
+    /// <returns>An inert generated scalar manifest.</returns>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public static BaseGeneratedModuleScalarManifest Subject<TSubject>(
+        BaseSubjectReferenceRequirement requirement, BaseSubjectValidationGuarantee guarantee) =>
+        new(BaseGeneratedSubjectAuthority.Resolve<TSubject>(requirement, guarantee));
+
+    /// <summary>Creates generated persisted subject-reference authority with exact field presence.</summary>
+    /// <typeparam name="TSubject">The generated exported-subject marker type.</typeparam>
+    /// <param name="requirement">The required subject lifecycle state.</param>
+    /// <param name="guarantee">The transaction validation guarantee.</param>
+    /// <param name="presence">The persisted field presence contract.</param>
+    /// <param name="nullability">The persisted field nullability contract.</param>
+    /// <returns>An inert generated scalar manifest.</returns>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public static BaseGeneratedModuleScalarManifest Subject<TSubject>(
+        BaseSubjectReferenceRequirement requirement, BaseSubjectValidationGuarantee guarantee,
+        BaseFieldPresence presence, BaseFieldNullability nullability) =>
+        new(BaseGeneratedSubjectAuthority.Resolve<TSubject>(requirement, guarantee), presence, nullability);
+
+    /// <summary>Creates generated subject-incarnation module authority.</summary>
+    /// <returns>An inert generated scalar manifest.</returns>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public static BaseGeneratedModuleScalarManifest SubjectIncarnation() =>
+        new(BaseModuleValueKind.SubjectIncarnation, BaseFieldPresence.Required,
+            BaseFieldNullability.NonNullable, new BaseScalarConstraintSet());
+
+    private BaseGeneratedModuleScalarManifest(BaseGeneratedModuleSubjectQualifier qualifier)
+    {
+        Kind = BaseModuleValueKind.SubjectReference; Presence = BaseFieldPresence.Required;
+        Nullability = BaseFieldNullability.NonNullable; Constraints = new BaseScalarConstraintSet();
+        SubjectQualifier = qualifier;
+    }
+
+    private BaseGeneratedModuleScalarManifest(BaseGeneratedModuleSubjectQualifier qualifier,
+        BaseFieldPresence presence, BaseFieldNullability nullability)
+    {
+        Kind = BaseModuleValueKind.SubjectReference; Presence = presence;
+        Nullability = nullability; Constraints = new BaseScalarConstraintSet();
+        SubjectQualifier = qualifier;
+    }
+
     /// <summary>Initializes generator-emitted scalar metadata.</summary>
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     public BaseGeneratedModuleScalarManifest(
@@ -331,9 +404,12 @@ public sealed class BaseGeneratedModuleScalarManifest
     internal BaseScalarConstraintSet Constraints { get; }
     internal string? CodecQualifier { get; }
     internal string? RecordTargetCollectionId { get; }
+    internal BaseGeneratedModuleSubjectQualifier? SubjectQualifier { get; }
 
     internal BaseModuleDtoScalarAuthority Seal(IReadOnlyList<string> stablePropertyPath)
     {
+        if (Kind is BaseModuleValueKind.SubjectReference or BaseModuleValueKind.SubjectIncarnation)
+            return BaseModuleValueAuthorityContract.CreateDto(stablePropertyPath, SpecialValueType());
         if (Kind == BaseModuleValueKind.Revision)
         {
             BaseModuleValueType revision = BaseModuleValueAuthorityContract.Create(
@@ -353,6 +429,15 @@ public sealed class BaseGeneratedModuleScalarManifest
             Kind, Presence, Nullability, codec, Constraints, checksum, RecordTargetCollectionId);
         return BaseModuleValueAuthorityContract.CreateDto(stablePropertyPath, value);
     }
+
+    private BaseModuleValueType SpecialValueType() => Kind switch
+    {
+        BaseModuleValueKind.SubjectReference => BaseModuleValueAuthorityContract.Create(
+            Kind, Presence, Nullability, null, null, null, subjectQualifier: SubjectQualifier),
+        BaseModuleValueKind.SubjectIncarnation => BaseModuleValueAuthorityContract.Create(
+            Kind, Presence, Nullability, null, null, null),
+        _ => throw new InvalidOperationException("base.moduleMutation.invalid"),
+    };
 }
 
 /// <summary>Binds one stable DTO property identity to exact graph-owned serializer metadata.</summary>
@@ -477,6 +562,8 @@ public static class BaseGeneratedModuleMutations
 
 internal static class BaseModuleMutationContractValidator
 {
+    private const int MaximumExecutionPaths = 8_192;
+
     internal static void ValidateCell(BaseModuleGenerationCellDefinition value)
     {
         BaseApplicationId.Validate(value.Id, nameof(value));
@@ -565,7 +652,7 @@ internal static class BaseModuleMutationContractValidator
                     || !request.Property.Authority.AuthorityChecksum.Equals(binding.ScalarAuthority.AuthorityChecksum)
                     || !BaseModuleValueAuthorityContract.StructurallyEquals(request.Property.Authority.ValueType, expression.ResultType)
                     || string.IsNullOrWhiteSpace(binding.ApplicationName)
-                    || binding.PropertyType is null || !TypeMatches(binding.PropertyType, binding.ScalarAuthority.ValueType))
+                    || binding.PropertyType is null || !ClrTypeMatches(binding.PropertyType, binding.ScalarAuthority.ValueType))
                     throw new InvalidOperationException("base.moduleMutation.invalid");
             }
             if (expression is BaseModuleCapturedFieldExpression captured)
@@ -584,13 +671,41 @@ internal static class BaseModuleMutationContractValidator
                     throw new InvalidOperationException("base.moduleMutation.invalid");
             }
             if (expression is BaseModuleConditionalExpression conditional
-                && (!BaseModuleValueAuthorityContract.StructurallyEquals(conditional.ResultType, conditional.WhenTrue.ResultType)
-                    || !BaseModuleValueAuthorityContract.StructurallyEquals(conditional.ResultType, conditional.WhenFalse.ResultType)))
+                && (!BaseModuleValueAuthorityContract.ValueCompatible(conditional.WhenTrue.ResultType, conditional.ResultType)
+                    || !BaseModuleValueAuthorityContract.ValueCompatible(conditional.WhenFalse.ResultType, conditional.ResultType)))
                 throw new InvalidOperationException("base.moduleMutation.invalid");
             if (expression is BaseModuleCoalesceExpression coalesce
                 && coalesce.Values.Any(value => !SameUnderlyingType(coalesce.ResultType, value.ResultType)))
                 throw new InvalidOperationException("base.moduleMutation.invalid");
             if (expression is BaseModuleConstantExpression constant && !ConstantCanonicalMatches(constant))
+                throw new InvalidOperationException("base.moduleMutation.invalid");
+            if (expression is BaseModuleRecordIdConversionExpression conversion
+                && (conversion.ResultType?.Kind != BaseModuleValueKind.RecordId
+                    || conversion.ResultType.RecordTargetCollectionId is null
+                    || conversion.Source.ResultType is null
+                    || conversion.Source.ResultType.Presence != BaseFieldPresence.Required
+                    || conversion.Source.ResultType.Nullability != BaseFieldNullability.NonNullable
+                    || conversion.Conversion == BaseModuleRecordIdConversionKind.CanonicalGuidD
+                        && conversion.Source.ResultType.Kind != BaseModuleValueKind.Guid
+                    || conversion.Conversion == BaseModuleRecordIdConversionKind.CanonicalString
+                        && conversion.Source.ResultType.Kind != BaseModuleValueKind.String
+                    || conversion.Conversion is not (BaseModuleRecordIdConversionKind.CanonicalGuidD
+                        or BaseModuleRecordIdConversionKind.CanonicalString)))
+                throw new InvalidOperationException("base.moduleMutation.invalid");
+            if (expression is BaseModuleRecordIdConversionExpression conversionWithConstants
+                && !RecordIdConversionConstantsValid(conversionWithConstants))
+                throw new InvalidOperationException("base.moduleMutation.invalid");
+            if (expression is BaseModuleSha256HexStringIdentityExpression identity
+                && (identity.ResultType is not { Kind: BaseModuleValueKind.String,
+                        Presence: BaseFieldPresence.Required,
+                        Nullability: BaseFieldNullability.NonNullable }
+                    || identity.ResultType.Constraints?.MinimumUtf8Bytes != 64
+                    || identity.ResultType.Constraints.MaximumUtf8Bytes != 64
+                    || identity.Source.ResultType is not { Kind: BaseModuleValueKind.String,
+                        Presence: BaseFieldPresence.Required,
+                        Nullability: BaseFieldNullability.NonNullable }
+                    || string.IsNullOrEmpty(identity.Domain) || identity.Domain.Length > 128
+                    || identity.Domain.Any(static character => character is < (char)0x21 or > (char)0x7e)))
                 throw new InvalidOperationException("base.moduleMutation.invalid");
         }
 
@@ -600,7 +715,7 @@ internal static class BaseModuleMutationContractValidator
             throw new InvalidOperationException("base.moduleMutation.invalid");
         foreach (BaseModuleObjectPropertyExpression property in template.Result.Value.Properties)
             if (!registration.ResultBindings.TryGetValue(property.StablePropertyId, out BaseModuleDtoPropertyBinding? resultBinding)
-                || resultBinding.PropertyType is not null && (!TypeMatches(resultBinding.PropertyType, resultBinding.ScalarAuthority.ValueType)
+                || resultBinding.PropertyType is not null && (!ClrTypeMatches(resultBinding.PropertyType, resultBinding.ScalarAuthority.ValueType)
                     || !BaseModuleValueAuthorityContract.ValueCompatible(property.Value.ResultType, resultBinding.ScalarAuthority.ValueType)))
                 throw new InvalidOperationException("base.moduleMutation.invalid");
 
@@ -625,7 +740,18 @@ internal static class BaseModuleMutationContractValidator
                 BaseModuleUpsertStatement value => value.ExpectedRevision,
                 _ => null,
             };
+            string? statementCollectionId = statement switch
+            {
+                BaseModuleCreateStatement value => value.CollectionId,
+                BaseModulePatchStatement value => value.CollectionId,
+                BaseModuleReplaceStatement value => value.CollectionId,
+                BaseModuleDeleteStatement value => value.CollectionId,
+                BaseModuleUpsertStatement value => value.CollectionId,
+                _ => null,
+            };
             if ((recordId is not null && recordId.ResultType?.Kind is not (BaseModuleValueKind.RecordId or BaseModuleValueKind.String))
+                || recordId?.ResultType?.Kind == BaseModuleValueKind.RecordId
+                    && !string.Equals(recordId.ResultType.RecordTargetCollectionId, statementCollectionId, StringComparison.Ordinal)
                 || (revision is not null && revision.ResultType?.Kind != BaseModuleValueKind.Revision))
                 throw new InvalidOperationException("base.moduleMutation.invalid");
             switch (statement)
@@ -664,39 +790,45 @@ internal static class BaseModuleMutationContractValidator
                 throw new InvalidOperationException("base.moduleMutation.invalid");
         }
 
-        static bool TypeMatches(Type type, BaseModuleValueType authority)
-        {
-            Type? nullable = Nullable.GetUnderlyingType(type);
-            Type actual = nullable ?? type;
-            if ((nullable is not null) != (authority.Nullability == BaseFieldNullability.Nullable) && actual.IsValueType) return false;
-            return authority.Kind switch
-            {
-                BaseModuleValueKind.String => actual == typeof(string),
-                BaseModuleValueKind.Boolean => actual == typeof(bool),
-                BaseModuleValueKind.Int32 => actual == typeof(int),
-                BaseModuleValueKind.Int64 => actual == typeof(long),
-                BaseModuleValueKind.UInt32 => actual == typeof(uint),
-                BaseModuleValueKind.UInt64 => actual == typeof(ulong),
-                BaseModuleValueKind.Decimal => actual == typeof(decimal),
-                BaseModuleValueKind.Guid => actual == typeof(Guid),
-                BaseModuleValueKind.UtcDateTime => actual == typeof(DateTimeOffset),
-                BaseModuleValueKind.Binary => actual == typeof(BaseBinary),
-                BaseModuleValueKind.CanonicalJson => actual == typeof(BaseCanonicalJson),
-                BaseModuleValueKind.ClosedEnum => actual.IsEnum,
-                BaseModuleValueKind.ModuleGeneration => actual == typeof(BaseModuleGeneration),
-                BaseModuleValueKind.Revision => actual == typeof(RevisionToken),
-                BaseModuleValueKind.RecordId => actual == typeof(RecordId)
-                    || actual.IsGenericType && actual.GetGenericTypeDefinition() == typeof(BaseRecordId<>),
-                _ => false,
-            };
-        }
-
         static bool SameUnderlyingType(BaseModuleValueType? left, BaseModuleValueType? right) =>
             left is not null && right is not null && left.Kind == right.Kind
             && left.RecordTargetCollectionId == right.RecordTargetCollectionId
             && left.Codec?.CodecChecksum.Equals(right.Codec?.CodecChecksum) == true
             && left.ConstraintChecksum?.Equals(right.ConstraintChecksum) == true;
 
+    }
+
+    internal static bool ClrTypeMatches(Type type, BaseModuleValueType authority)
+    {
+        Type? nullable = Nullable.GetUnderlyingType(type);
+        Type actual = nullable ?? type;
+        bool wrapperRequired = authority.Presence == BaseFieldPresence.Optional
+            || authority.Nullability == BaseFieldNullability.Nullable;
+        if ((nullable is not null) != wrapperRequired && actual.IsValueType) return false;
+        return authority.Kind switch
+        {
+            BaseModuleValueKind.String => actual == typeof(string),
+            BaseModuleValueKind.Boolean => actual == typeof(bool),
+            BaseModuleValueKind.Int32 => actual == typeof(int),
+            BaseModuleValueKind.Int64 => actual == typeof(long),
+            BaseModuleValueKind.UInt32 => actual == typeof(uint),
+            BaseModuleValueKind.UInt64 => actual == typeof(ulong),
+            BaseModuleValueKind.Decimal => actual == typeof(decimal),
+            BaseModuleValueKind.Guid => actual == typeof(Guid),
+            BaseModuleValueKind.UtcDateTime => actual == typeof(DateTimeOffset),
+            BaseModuleValueKind.Binary => actual == typeof(BaseBinary),
+            BaseModuleValueKind.CanonicalJson => actual == typeof(BaseCanonicalJson),
+            BaseModuleValueKind.ClosedEnum => BaseClosedEnumGeneratedContract.MatchesWireLiterals(
+                    actual, authority.Constraints?.AllowedEnumLiterals ?? []),
+            BaseModuleValueKind.ModuleGeneration => actual == typeof(BaseModuleGeneration),
+            BaseModuleValueKind.Revision => actual == typeof(RevisionToken),
+            BaseModuleValueKind.RecordId => actual == typeof(RecordId) && authority.RecordTargetCollectionId is null
+                || BaseGeneratedRecordTypeContract.MatchesRecordIdType(actual, authority.RecordTargetCollectionId),
+            BaseModuleValueKind.SubjectReference => actual.IsGenericType
+                && actual.GetGenericTypeDefinition() == typeof(BaseSubjectReference<>),
+            BaseModuleValueKind.SubjectIncarnation => actual == typeof(BaseSubjectIncarnation),
+            _ => false,
+        };
     }
 
     private static bool ConstantCanonicalMatches(BaseModuleConstantExpression value)
@@ -738,7 +870,50 @@ internal static class BaseModuleMutationContractValidator
         }
     }
 
-    private static IEnumerable<BaseModuleValueExpression> Expressions(BaseModuleMutationTemplate template)
+    private static bool RecordIdConversionConstantsValid(BaseModuleRecordIdConversionExpression conversion)
+    {
+        foreach (BaseModuleConstantExpression constant in Constants(conversion.Source))
+        {
+            try
+            {
+                using System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(constant.CanonicalBaseJson.ToArray());
+                if (document.RootElement.ValueKind != System.Text.Json.JsonValueKind.String)
+                    return false;
+                string? text = document.RootElement.GetString();
+                if (text is null) return false;
+                if (conversion.Conversion == BaseModuleRecordIdConversionKind.CanonicalGuidD)
+                {
+                    if (!Guid.TryParseExact(text, "D", out Guid parsed)
+                        || !string.Equals(parsed.ToString("D", System.Globalization.CultureInfo.InvariantCulture), text, StringComparison.Ordinal))
+                        return false;
+                }
+                else if (conversion.Conversion == BaseModuleRecordIdConversionKind.CanonicalString)
+                {
+                    if (!RecordId.TryParse(text, out _)) return false;
+                }
+                else return false;
+            }
+            catch { return false; }
+        }
+        return true;
+
+        static IEnumerable<BaseModuleConstantExpression> Constants(BaseModuleValueExpression expression)
+        {
+            if (expression is BaseModuleConstantExpression constant) yield return constant;
+            IEnumerable<BaseModuleValueExpression> children = expression switch
+            {
+                BaseModuleCoalesceExpression coalesce => coalesce.Values,
+                BaseModuleConditionalExpression conditional => [conditional.WhenTrue, conditional.WhenFalse],
+                BaseModuleBinaryNumericExpression numeric => [numeric.Left, numeric.Right],
+                _ => [],
+            };
+            foreach (BaseModuleValueExpression child in children)
+                foreach (BaseModuleConstantExpression nested in Constants(child))
+                    yield return nested;
+        }
+    }
+
+    internal static IEnumerable<BaseModuleValueExpression> Expressions(BaseModuleMutationTemplate template)
     {
         foreach (BaseModuleCapture capture in template.Captures)
             foreach (BaseModuleValueExpression value in capture switch
@@ -754,6 +929,10 @@ internal static class BaseModuleMutationContractValidator
                 BaseModuleFieldEqualsGuard item => Walk(item.Expected).Prepend(new BaseModuleCapturedFieldExpression { Id = item.Id + ".field", ResultType = item.Field.Authority, Field = item.Field }),
                 BaseModuleFieldComparisonGuard item => Walk(item.Expected).Prepend(new BaseModuleCapturedFieldExpression { Id = item.Id + ".field", ResultType = item.Field.Authority, Field = item.Field }),
                 BaseModuleGenerationGuard { Expected: { } expected } => Walk(expected),
+                BaseModuleValueEqualsGuard item => Walk(item.Left).Concat(Walk(item.Right)),
+                BaseModuleValueComparisonGuard item => Walk(item.Left).Concat(Walk(item.Right)),
+                BaseModuleValuePresenceGuard item => Walk(item.Value),
+                BaseModuleSetGuard item => SetValues(item),
                 _ => [],
             }) yield return value;
         var statements = new List<BaseModuleStatement>(); Collect(template.Body, statements);
@@ -781,11 +960,25 @@ internal static class BaseModuleMutationContractValidator
                 BaseModuleCoalesceExpression item => item.Values,
                 BaseModuleConditionalExpression item => [item.WhenTrue, item.WhenFalse],
                 BaseModuleBinaryNumericExpression item => [item.Left, item.Right],
+                BaseModuleRecordIdConversionExpression item => [item.Source],
+                BaseModuleGenerationKeyFromGuidExpression item => [item.Source],
+                BaseModulePresenceLiftExpression item => [item.Source],
+                BaseModuleIncarnationBytesExpression item => [item.Source],
+                BaseModuleSha256HexStringIdentityExpression item => [item.Source],
                 BaseModuleObjectExpression item => item.Properties.Select(static property => property.Value),
                 _ => [],
             };
             foreach (BaseModuleValueExpression child in children)
                 foreach (BaseModuleValueExpression value in Walk(child)) yield return value;
+        }
+
+        static IEnumerable<BaseModuleValueExpression> SetValues(BaseModuleSetGuard guard)
+        {
+            foreach (BaseModuleStaticSetMember member in guard.Left.Members)
+                foreach (BaseModuleValueExpression value in Walk(member.Value)) yield return value;
+            if (guard.Right is not null)
+                foreach (BaseModuleStaticSetMember member in guard.Right.Members)
+                    foreach (BaseModuleValueExpression value in Walk(member.Value)) yield return value;
         }
     }
 
@@ -801,9 +994,15 @@ internal static class BaseModuleMutationContractValidator
             || !Within(value.MaximumGenerationIncrements, 128)
             || !Within(value.MaximumGuardNodes, 1_024)
             || !Within(value.MaximumGuardDepth, 32)
-            || !Within(value.MaximumStatements, 512)
-            || !Within(value.MaximumBranches, 64)
+            || !Within(value.MaximumStatements, 1_024)
+            || !Within(value.MaximumBranches, 128)
             || !Within(value.MaximumExpressionNodes, 2_048)
+            || !WithinAllowZero(value.MaximumPreconditions, 256)
+            || !WithinAllowZero(value.MaximumRequestGuardEvaluations, 8_192)
+            || !WithinAllowZero(value.MaximumStaticSetMembers, 512)
+            || value.MaximumStaticSetComparisons is < 0 or > 131_072
+            || !WithinAllowZero(value.MaximumDisabledCaptures, 512)
+            || !WithinAllowZero(value.MaximumRemovedFields, 256)
             || !Within(value.MaximumReadIntervals, 1_024)
             || !Within(value.MaximumSubjectValidations, 1_024)
             || !Within(value.MaximumAuthorityReads, 2_048)
@@ -827,6 +1026,7 @@ internal static class BaseModuleMutationContractValidator
             throw new InvalidOperationException("base.moduleMutation.invalid");
 
         static bool Within(int actual, int maximum) => actual is >= 1 && actual <= maximum;
+        static bool WithinAllowZero(int actual, int maximum) => actual is >= 0 && actual <= maximum;
         static bool WithinBytes(long actual, long maximum) => actual is >= 1 && actual <= maximum;
         static bool WithinDeadline(TimeSpan actual, TimeSpan maximum) => actual > TimeSpan.Zero && actual <= maximum;
     }
@@ -839,6 +1039,7 @@ internal static class BaseModuleMutationContractValidator
     {
         ArgumentNullException.ThrowIfNull(template);
         if (template.Captures.Length > limits.MaximumCaptures || template.Guards.Length > limits.MaximumGuardNodes
+            || template.Preconditions.Length > limits.MaximumPreconditions
             || template.Captures.OfType<BaseModuleRecordCapture>().Count() > limits.MaximumRecordCaptures
             || template.Captures.OfType<BaseModuleGenerationCapture>().Count() > limits.MaximumGenerationCaptures)
             throw new InvalidOperationException("base.moduleMutation.invalid");
@@ -849,6 +1050,7 @@ internal static class BaseModuleMutationContractValidator
         HashSet<string> recordCaptures = template.Captures.OfType<BaseModuleRecordCapture>().Select(static value => value.Id).ToHashSet(StringComparer.Ordinal);
         HashSet<string> generationCaptures = template.Captures.OfType<BaseModuleGenerationCapture>().Select(static value => value.Id).ToHashSet(StringComparer.Ordinal);
         HashSet<string> guards = template.Guards.Select(static value => value.Id).ToHashSet(StringComparer.Ordinal);
+        Dictionary<string, BaseModuleGuard> guardMap = template.Guards.ToDictionary(static value => value.Id, StringComparer.Ordinal);
         foreach (BaseModuleCapture capture in template.Captures)
         {
             BaseApplicationId.Validate(capture.Id, nameof(template));
@@ -856,10 +1058,28 @@ internal static class BaseModuleMutationContractValidator
             {
                 case BaseModuleRecordCapture record when collections.ContainsKey(record.CollectionId) && Enum.IsDefined(record.Presence):
                     ValidateExpression(record.RecordId, captures, guards, captureKey: true, resultOnly: false, 1, limits, new());
+                    if (record.RecordId.ResultType?.Kind == BaseModuleValueKind.RecordId
+                        && !string.Equals(record.RecordId.ResultType.RecordTargetCollectionId, record.CollectionId, StringComparison.Ordinal))
+                        throw new InvalidOperationException("base.moduleMutation.invalid");
                     break;
                 case BaseModuleGenerationCapture generation when cells.ContainsKey(generation.CellId) && Enum.IsDefined(generation.Absence):
+                    BaseModuleGenerationCellDefinition cell = cells[generation.CellId];
+                    bool keyed = cell.Scope is BaseModuleGenerationScope.TenantAndKey or BaseModuleGenerationScope.ProjectAndKey;
+                    if (keyed != (generation.Key is not null))
+                        throw new InvalidOperationException("base.moduleMutation.invalid");
                     if (generation.Key is not null)
+                    {
                         ValidateExpression(generation.Key, captures, guards, captureKey: true, resultOnly: false, 1, limits, new());
+                        if (generation.Key.ResultType?.Kind != BaseModuleValueKind.String
+                            || generation.Key.ResultType.Presence != BaseFieldPresence.Required
+                            || generation.Key.ResultType.Nullability != BaseFieldNullability.NonNullable
+                            || generation.Key.ResultType.Constraints?.MinimumUtf8Bytes is not { } minimum
+                            || minimum < 1
+                            || generation.Key.ResultType.Constraints?.MaximumUtf8Bytes is not { } maximum
+                            || maximum < minimum
+                            || maximum > cell.MaximumKeyUtf8Bytes)
+                            throw new InvalidOperationException("base.moduleMutation.invalid");
+                    }
                     break;
                 default: throw new InvalidOperationException("base.moduleMutation.invalid");
             }
@@ -879,7 +1099,7 @@ internal static class BaseModuleMutationContractValidator
                 case BaseModuleFieldComparisonGuard value when recordCaptures.Contains(value.Field.CaptureId)
                     && Enum.IsDefined(value.Comparison)
                     && OrderedScalar(value.Field.Authority.Kind)
-                    && BaseModuleValueAuthorityContract.StructurallyEquals(value.Field.Authority, value.Expected.ResultType):
+                    && BaseModuleValueAuthorityContract.SameUnderlyingAuthority(value.Field.Authority, value.Expected.ResultType):
                     ValidateExpression(value.Expected, captures, guards, false, false, 1, limits, new()); break;
                 case BaseModuleFieldPresenceGuard value when recordCaptures.Contains(value.Field.CaptureId) && Enum.IsDefined(value.Test): break;
                 case BaseModuleGenerationGuard value when generationCaptures.Contains(value.CaptureId) && Enum.IsDefined(value.Comparison):
@@ -888,6 +1108,19 @@ internal static class BaseModuleMutationContractValidator
                     if (value.Expected is not null) ValidateExpression(value.Expected, captures, guards, false, false, 1, limits, new());
                     break;
                 case BaseModuleSemanticActivationStateGuard value when Enum.IsDefined(value.Test): break;
+                case BaseModuleValueEqualsGuard value
+                    when BaseModuleValueAuthorityContract.SameUnderlyingAuthority(value.Left.ResultType, value.Right.ResultType):
+                    ValidateExpression(value.Left, captures, guards, false, false, 1, limits, new());
+                    ValidateExpression(value.Right, captures, guards, false, false, 1, limits, new()); break;
+                case BaseModuleValueComparisonGuard value when Enum.IsDefined(value.Comparison)
+                    && value.Left.ResultType is { } ordered
+                    && OrderedTypedScalar(ordered.Kind)
+                    && BaseModuleValueAuthorityContract.SameUnderlyingAuthority(value.Left.ResultType, value.Right.ResultType):
+                    ValidateExpression(value.Left, captures, guards, false, false, 1, limits, new());
+                    ValidateExpression(value.Right, captures, guards, false, false, 1, limits, new()); break;
+                case BaseModuleValuePresenceGuard value when Enum.IsDefined(value.Test):
+                    ValidateExpression(value.Value, captures, guards, false, false, 1, limits, new()); break;
+                case BaseModuleSetGuard value when ValidateStaticSetGuard(value, captures, guards, guardMap, limits): break;
                 case BaseModuleLogicalGuard value when Enum.IsDefined(value.Kind)
                     && ((value.Kind is BaseModuleLogicalGuardKind.And or BaseModuleLogicalGuardKind.Or
                             && value.ChildGuardIds.Length is >= 2 and <= 64)
@@ -896,13 +1129,51 @@ internal static class BaseModuleMutationContractValidator
             }
         }
         ValidateGuardCycles(template.Guards, guards, limits.MaximumGuardDepth);
+        int staticMembers = 0;
+        var staticSetIds = new HashSet<string>(StringComparer.Ordinal);
+        var staticSetInstances = new HashSet<BaseModuleStaticSet>(ReferenceEqualityComparer.Instance);
+        foreach (BaseModuleSetGuard setGuard in template.Guards.OfType<BaseModuleSetGuard>())
+        {
+            AddStaticSet(setGuard.Left);
+            if (setGuard.Right is { } right) AddStaticSet(right);
+        }
+        if (staticMembers > limits.MaximumStaticSetMembers)
+            throw new InvalidOperationException("base.moduleMutation.invalid");
+
+        void AddStaticSet(BaseModuleStaticSet set)
+        {
+            if (!staticSetIds.Add(set.Id) || !staticSetInstances.Add(set))
+                throw new InvalidOperationException("base.moduleMutation.invalid");
+            staticMembers = checked(staticMembers + set.Members.Length);
+        }
+        foreach (BaseModuleCapture capture in template.Captures)
+            if (capture.EnableGuardId is not null
+                && (!guardMap.ContainsKey(capture.EnableGuardId)
+                    || !RequestOnlyGuard(capture.EnableGuardId, guardMap, new())))
+                throw new InvalidOperationException("base.moduleMutation.invalid");
+        if (template.Preconditions.Select(static value => value.Id).Distinct(StringComparer.Ordinal).Count()
+            != template.Preconditions.Length)
+            throw new InvalidOperationException("base.moduleMutation.invalid");
+        foreach (BaseModulePrecondition precondition in template.Preconditions)
+        {
+            BaseApplicationId.Validate(precondition.Id, nameof(template));
+            BaseApplicationId.Validate(precondition.RequirementId, nameof(template));
+            if (!guardMap.ContainsKey(precondition.GuardId)
+                || !RequestOnlyGuard(precondition.GuardId, guardMap, new()))
+                throw new InvalidOperationException("base.moduleMutation.invalid");
+        }
         var statements = new List<BaseModuleStatement>();
         Collect(template.Body, statements);
+        if (!AllGuardsReachable(template, guardMap))
+            throw new InvalidOperationException("base.moduleMutation.invalid");
         if (statements.Count > limits.MaximumStatements
             || statements.OfType<BaseModuleIfStatement>().Count() > limits.MaximumBranches
             || statements.Count(static value => value is BaseModuleCreateStatement or BaseModulePatchStatement
                 or BaseModuleReplaceStatement or BaseModuleDeleteStatement or BaseModuleUpsertStatement) > limits.MaximumRecordMutations
             || statements.Select(static value => value.Id).Distinct(StringComparer.Ordinal).Count() != statements.Count)
+            throw new InvalidOperationException("base.moduleMutation.invalid");
+        if (statements.OfType<BaseModulePatchStatement>().Sum(static statement => statement.RemovedFieldIds.Length)
+            > limits.MaximumRemovedFields)
             throw new InvalidOperationException("base.moduleMutation.invalid");
         HashSet<string> expressionIds = new(StringComparer.Ordinal);
         HashSet<string> incrementedCaptures = new(StringComparer.Ordinal);
@@ -920,7 +1191,8 @@ internal static class BaseModuleMutationContractValidator
                     ValidateExpression(value.RecordId, captures, guards, false, false, 1, limits, expressionIds);
                     ValidateExpression(value.Payload, captures, guards, false, false, 1, limits, expressionIds); break;
                 case BaseModulePatchStatement value when collections.ContainsKey(value.CollectionId):
-                    ValidateWrite(value.RecordId, value.Patch, value.ExpectedRevision); break;
+                    ValidateWrite(value.RecordId, value.Patch, value.ExpectedRevision);
+                    ValidateRemovals(value, collections[value.CollectionId]); break;
                 case BaseModuleReplaceStatement value when collections.ContainsKey(value.CollectionId):
                     ValidateWrite(value.RecordId, value.Payload, value.ExpectedRevision); break;
                 case BaseModuleDeleteStatement value when collections.ContainsKey(value.CollectionId):
@@ -943,12 +1215,147 @@ internal static class BaseModuleMutationContractValidator
         ValidateExpression(template.Result.Value, captures, guards, false, true, 1, limits, expressionIds,
             resultStatements, resultGenerations);
         ValidateResultPaths(template.Result.Value, paths);
+        ValidateCaptureDominance(template.Body, new HashSet<string>(StringComparer.Ordinal));
+        ValidateDominatedExpression(template.Result.Value, new HashSet<string>(StringComparer.Ordinal));
+
+        void RequireDominatedCapture(string captureId, HashSet<string> trueGuards)
+        {
+            BaseModuleCapture capture = template.Captures.Single(value => value.Id == captureId);
+            if (capture.EnableGuardId is { } enable && !trueGuards.Contains(enable))
+                throw new InvalidOperationException("base.moduleMutation.invalid");
+        }
+
+        void ValidateDominatedGuard(string guardId, HashSet<string> trueGuards, HashSet<string>? visited = null)
+        {
+            visited ??= new(StringComparer.Ordinal);
+            if (!visited.Add(guardId)) return;
+            BaseModuleGuard guard = guardMap[guardId];
+            switch (guard)
+            {
+                case BaseModuleRecordPresenceGuard value: RequireDominatedCapture(value.CaptureId, trueGuards); break;
+                case BaseModuleRevisionEqualsGuard value:
+                    RequireDominatedCapture(value.CaptureId, trueGuards); ValidateDominatedExpression(value.Expected, trueGuards); break;
+                case BaseModuleFieldEqualsGuard value:
+                    RequireDominatedCapture(value.Field.CaptureId, trueGuards); ValidateDominatedExpression(value.Expected, trueGuards); break;
+                case BaseModuleFieldComparisonGuard value:
+                    RequireDominatedCapture(value.Field.CaptureId, trueGuards); ValidateDominatedExpression(value.Expected, trueGuards); break;
+                case BaseModuleFieldPresenceGuard value: RequireDominatedCapture(value.Field.CaptureId, trueGuards); break;
+                case BaseModuleGenerationGuard value:
+                    RequireDominatedCapture(value.CaptureId, trueGuards);
+                    if (value.Expected is not null) ValidateDominatedExpression(value.Expected, trueGuards);
+                    break;
+                case BaseModuleLogicalGuard value:
+                    foreach (string child in value.ChildGuardIds) ValidateDominatedGuard(child, trueGuards, visited);
+                    break;
+                case BaseModuleValueEqualsGuard value:
+                    ValidateDominatedExpression(value.Left, trueGuards); ValidateDominatedExpression(value.Right, trueGuards); break;
+                case BaseModuleValueComparisonGuard value:
+                    ValidateDominatedExpression(value.Left, trueGuards); ValidateDominatedExpression(value.Right, trueGuards); break;
+                case BaseModuleValuePresenceGuard value: ValidateDominatedExpression(value.Value, trueGuards); break;
+                case BaseModuleSetGuard value:
+                    foreach (BaseModuleStaticSetMember member in value.Left.Members) ValidateSetMember(member, trueGuards);
+                    foreach (BaseModuleStaticSetMember member in value.Right?.Members ?? []) ValidateSetMember(member, trueGuards);
+                    break;
+            }
+
+            void ValidateSetMember(BaseModuleStaticSetMember member, HashSet<string> activeGuards)
+            {
+                if (member.EnableGuardId is not { } enable)
+                {
+                    ValidateDominatedExpression(member.Value, activeGuards);
+                    return;
+                }
+
+                ValidateDominatedGuard(enable, activeGuards, visited);
+                var enabled = new HashSet<string>(activeGuards, StringComparer.Ordinal) { enable };
+                ValidateDominatedExpression(member.Value, enabled);
+            }
+        }
+
+        void ValidateDominatedExpression(BaseModuleValueExpression expression, HashSet<string> trueGuards)
+        {
+            switch (expression)
+            {
+                case BaseModuleCapturedRecordIdExpression value: RequireDominatedCapture(value.CaptureId, trueGuards); break;
+                case BaseModuleCapturedRevisionExpression value: RequireDominatedCapture(value.CaptureId, trueGuards); break;
+                case BaseModuleCapturedFieldExpression value: RequireDominatedCapture(value.Field.CaptureId, trueGuards); break;
+                case BaseModuleCapturedGenerationExpression value: RequireDominatedCapture(value.CaptureId, trueGuards); break;
+                case BaseModuleResultingGenerationExpression value: RequireDominatedCapture(value.CaptureId, trueGuards); break;
+                case BaseModuleRecordIdConversionExpression value: ValidateDominatedExpression(value.Source, trueGuards); break;
+                case BaseModuleGenerationKeyFromGuidExpression value: ValidateDominatedExpression(value.Source, trueGuards); break;
+                case BaseModulePresenceLiftExpression value: ValidateDominatedExpression(value.Source, trueGuards); break;
+                case BaseModuleIncarnationBytesExpression value: ValidateDominatedExpression(value.Source, trueGuards); break;
+                case BaseModuleSha256HexStringIdentityExpression value: ValidateDominatedExpression(value.Source, trueGuards); break;
+                case BaseModuleCoalesceExpression value:
+                    foreach (BaseModuleValueExpression child in value.Values) ValidateDominatedExpression(child, trueGuards); break;
+                case BaseModuleConditionalExpression value:
+                    ValidateDominatedGuard(value.GuardId, trueGuards);
+                    var selected = new HashSet<string>(trueGuards, StringComparer.Ordinal) { value.GuardId };
+                    ValidateDominatedExpression(value.WhenTrue, selected);
+                    ValidateDominatedExpression(value.WhenFalse, trueGuards);
+                    break;
+                case BaseModuleBinaryNumericExpression value:
+                    ValidateDominatedExpression(value.Left, trueGuards); ValidateDominatedExpression(value.Right, trueGuards); break;
+                case BaseModuleObjectExpression value:
+                    foreach (BaseModuleObjectPropertyExpression property in value.Properties) ValidateDominatedExpression(property.Value, trueGuards); break;
+            }
+        }
+
+        void ValidateCaptureDominance(BaseModuleMutationBlock block, HashSet<string> trueGuards)
+        {
+            foreach (BaseModuleStatement statement in block.Statements)
+            {
+                switch (statement)
+                {
+                    case BaseModuleIfStatement branch:
+                        ValidateDominatedGuard(branch.GuardId, trueGuards);
+                        var selected = new HashSet<string>(trueGuards, StringComparer.Ordinal) { branch.GuardId };
+                        ValidateCaptureDominance(branch.WhenTrue, selected);
+                        ValidateCaptureDominance(branch.WhenFalse, trueGuards);
+                        break;
+                    case BaseModuleRequireStatement require: ValidateDominatedGuard(require.GuardId, trueGuards); break;
+                    case BaseModuleIncrementGenerationStatement increment: RequireDominatedCapture(increment.CaptureId, trueGuards); break;
+                    case BaseModuleCreateStatement create:
+                        ValidateDominatedExpression(create.RecordId, trueGuards); ValidateDominatedExpression(create.Payload, trueGuards); break;
+                    case BaseModulePatchStatement patch:
+                        ValidateDominatedExpression(patch.RecordId, trueGuards); ValidateDominatedExpression(patch.Patch, trueGuards);
+                        if (patch.ExpectedRevision is not null) ValidateDominatedExpression(patch.ExpectedRevision, trueGuards); break;
+                    case BaseModuleReplaceStatement replace:
+                        ValidateDominatedExpression(replace.RecordId, trueGuards); ValidateDominatedExpression(replace.Payload, trueGuards);
+                        if (replace.ExpectedRevision is not null) ValidateDominatedExpression(replace.ExpectedRevision, trueGuards); break;
+                    case BaseModuleDeleteStatement delete:
+                        ValidateDominatedExpression(delete.RecordId, trueGuards);
+                        if (delete.ExpectedRevision is not null) ValidateDominatedExpression(delete.ExpectedRevision, trueGuards); break;
+                    case BaseModuleUpsertStatement upsert:
+                        ValidateDominatedExpression(upsert.RecordId, trueGuards); ValidateDominatedExpression(upsert.Create, trueGuards);
+                        ValidateDominatedExpression(upsert.Update, trueGuards);
+                        if (upsert.ExpectedRevision is not null) ValidateDominatedExpression(upsert.ExpectedRevision, trueGuards); break;
+                }
+            }
+        }
 
         void ValidateWrite(BaseModuleValueExpression id, BaseModuleObjectExpression payload, BaseModuleValueExpression? revision)
         {
             ValidateExpression(id, captures, guards, false, false, 1, limits, expressionIds);
             ValidateExpression(payload, captures, guards, false, false, 1, limits, expressionIds);
             if (revision is not null) ValidateExpression(revision, captures, guards, false, false, 1, limits, expressionIds);
+        }
+
+        static void ValidateRemovals(BaseModulePatchStatement patch, CollectionDefinition collection)
+        {
+            if (patch.RemovedFieldIds.IsDefault
+                || !patch.RemovedFieldIds.SequenceEqual(patch.RemovedFieldIds.Order(StringComparer.Ordinal), StringComparer.Ordinal)
+                || patch.RemovedFieldIds.Distinct(StringComparer.Ordinal).Count() != patch.RemovedFieldIds.Length
+                || patch.Patch.Properties.Any(property => patch.RemovedFieldIds.Contains(property.StablePropertyId, StringComparer.Ordinal)))
+                throw new InvalidOperationException("base.moduleMutation.invalid");
+            foreach (string fieldId in patch.RemovedFieldIds)
+            {
+                FieldDefinition? field = collection.Fields?.SingleOrDefault(candidate =>
+                    string.Equals(candidate.Id, fieldId, StringComparison.Ordinal));
+                if (field is null || field.Presence != BaseFieldPresence.Optional
+                    || field.Nullability != BaseFieldNullability.NonNullable || field.ReadOnly)
+                    throw new InvalidOperationException("base.moduleMutation.invalid");
+            }
         }
 
         List<(Dictionary<string, bool> Decisions, HashSet<string> Statements, HashSet<string> Generations)> ExecutionPaths(BaseModuleMutationBlock block)
@@ -966,7 +1373,8 @@ internal static class BaseModuleMutationContractValidator
                         Expand(path, branch.WhenFalse, branch.GuardId, false, expanded);
                     }
                     current = expanded;
-                    if (current.Count > 4_096) throw new InvalidOperationException("base.moduleMutation.invalid");
+                    if (current.Count > MaximumExecutionPaths)
+                        throw new InvalidOperationException("base.moduleMutation.invalid");
                 }
                 else foreach (var path in current) Assign(path, statement);
             }
@@ -1038,6 +1446,192 @@ internal static class BaseModuleMutationContractValidator
     private static bool OrderedScalar(BaseModuleValueKind kind) => kind is BaseModuleValueKind.Int64
         or BaseModuleValueKind.Decimal or BaseModuleValueKind.UtcDateTime;
 
+    private static bool OrderedTypedScalar(BaseModuleValueKind kind) => kind is BaseModuleValueKind.Int32
+        or BaseModuleValueKind.Int64 or BaseModuleValueKind.UInt32 or BaseModuleValueKind.UInt64
+        or BaseModuleValueKind.Decimal or BaseModuleValueKind.Guid or BaseModuleValueKind.UtcDateTime
+        or BaseModuleValueKind.String;
+
+    private static bool PresenceLiftCompatible(BaseModuleValueType source, BaseModuleValueType destination) =>
+        BaseModuleValueAuthorityContract.SameUnderlyingAuthority(source, destination);
+
+    private static bool ValidateStaticSetGuard(
+        BaseModuleSetGuard guard,
+        HashSet<string> captures,
+        HashSet<string> guards,
+        IReadOnlyDictionary<string, BaseModuleGuard> guardMap,
+        BaseModuleMutationLimits limits)
+    {
+        if (guard.Predicate is not (BaseModuleStaticSetPredicateKind.AllDistinct
+                or BaseModuleStaticSetPredicateKind.StrictlyIncreasing
+                or BaseModuleStaticSetPredicateKind.Disjoint)
+            || guard.Predicate == BaseModuleStaticSetPredicateKind.Disjoint != (guard.Right is not null)
+            || guard.Predicate == BaseModuleStaticSetPredicateKind.StrictlyIncreasing
+                && !OrderedTypedScalar(guard.Left.ElementType.Kind))
+            return false;
+        if (!ValidateSet(guard.Left)) return false;
+        if (guard.Right is not null
+            && (!BaseModuleValueAuthorityContract.SameUnderlyingAuthority(
+                    guard.Left.ElementType, guard.Right.ElementType)
+                || !ValidateSet(guard.Right))) return false;
+        return true;
+
+        bool ValidateSet(BaseModuleStaticSet set)
+        {
+            try { BaseApplicationId.Validate(set.Id, nameof(guard)); }
+            catch { return false; }
+            if (set.Members.Length > 256
+                || set.Members.Select(static member => member.Id).Distinct(StringComparer.Ordinal).Count()
+                    != set.Members.Length)
+                return false;
+            foreach (BaseModuleStaticSetMember member in set.Members)
+            {
+                try { BaseApplicationId.Validate(member.Id, nameof(guard)); }
+                catch { return false; }
+                if (!BaseModuleValueAuthorityContract.SameUnderlyingAuthority(set.ElementType, member.Value.ResultType)
+                    || member.EnableGuardId is not null
+                        && (!guardMap.ContainsKey(member.EnableGuardId)
+                            || !RequestOnlyGuard(member.EnableGuardId, guardMap, new())))
+                    return false;
+                try { ValidateExpression(member.Value, captures, guards, false, false, 1, limits, new()); }
+                catch { return false; }
+            }
+            return true;
+        }
+    }
+
+    private static bool RequestOnlyGuard(
+        string id,
+        IReadOnlyDictionary<string, BaseModuleGuard> guards,
+        HashSet<string> active)
+    {
+        if (!guards.TryGetValue(id, out BaseModuleGuard? guard) || !active.Add(id)) return false;
+        bool result = guard switch
+        {
+            BaseModuleValueEqualsGuard value => RequestOnlyExpression(value.Left, guards, active)
+                && RequestOnlyExpression(value.Right, guards, active),
+            BaseModuleValueComparisonGuard value => RequestOnlyExpression(value.Left, guards, active)
+                && RequestOnlyExpression(value.Right, guards, active),
+            BaseModuleValuePresenceGuard value => RequestOnlyExpression(value.Value, guards, active),
+            BaseModuleSetGuard value => SetRequestOnly(value.Left)
+                && (value.Right is null || SetRequestOnly(value.Right)),
+            BaseModuleLogicalGuard logical => logical.ChildGuardIds.All(child => RequestOnlyGuard(child, guards, active)),
+            _ => false,
+        };
+        active.Remove(id);
+        return result;
+
+        bool SetRequestOnly(BaseModuleStaticSet set) => set.Members.All(member =>
+            (member.EnableGuardId is null || RequestOnlyGuard(member.EnableGuardId, guards, active))
+            && RequestOnlyExpression(member.Value, guards, active));
+    }
+
+    internal static bool IsRequestOnlyGuard(
+        string id,
+        IReadOnlyDictionary<string, BaseModuleGuard> guards) =>
+        RequestOnlyGuard(id, guards, new HashSet<string>(StringComparer.Ordinal));
+
+    private static bool AllGuardsReachable(BaseModuleMutationTemplate template, IReadOnlyDictionary<string, BaseModuleGuard> guards)
+    {
+        var reachable = new HashSet<string>(StringComparer.Ordinal);
+        foreach (BaseModuleCapture capture in template.Captures)
+        {
+            Add(capture.EnableGuardId);
+            if (capture is BaseModuleRecordCapture record) AddExpression(record.RecordId);
+            if (capture is BaseModuleGenerationCapture { Key: { } key }) AddExpression(key);
+        }
+        foreach (BaseModulePrecondition precondition in template.Preconditions) Add(precondition.GuardId);
+        AddBlock(template.Body);
+        AddExpression(template.Result.Value);
+        return reachable.Count == guards.Count;
+
+        void Add(string? id)
+        {
+            if (id is null || !reachable.Add(id) || !guards.TryGetValue(id, out BaseModuleGuard? guard)) return;
+            if (guard is BaseModuleLogicalGuard logical)
+                foreach (string child in logical.ChildGuardIds) Add(child);
+            if (guard is BaseModuleSetGuard set)
+            {
+                AddSet(set.Left);
+                if (set.Right is { } right) AddSet(right);
+            }
+            foreach (BaseModuleValueExpression expression in (IEnumerable<BaseModuleValueExpression>)(guard switch
+            {
+                BaseModuleRevisionEqualsGuard value => [value.Expected],
+                BaseModuleFieldEqualsGuard value => [value.Expected],
+                BaseModuleFieldComparisonGuard value => [value.Expected],
+                BaseModuleGenerationGuard { Expected: { } expected } => [expected],
+                BaseModuleValueEqualsGuard value => [value.Left, value.Right],
+                BaseModuleValueComparisonGuard value => [value.Left, value.Right],
+                BaseModuleValuePresenceGuard value => [value.Value],
+                _ => [],
+            })) AddExpression(expression);
+        }
+
+        void AddSet(BaseModuleStaticSet set)
+        {
+            foreach (BaseModuleStaticSetMember member in set.Members)
+            {
+                Add(member.EnableGuardId);
+                AddExpression(member.Value);
+            }
+        }
+
+        void AddBlock(BaseModuleMutationBlock block)
+        {
+            foreach (BaseModuleStatement statement in block.Statements)
+            {
+                switch (statement)
+                {
+                    case BaseModuleIfStatement branch: Add(branch.GuardId); AddBlock(branch.WhenTrue); AddBlock(branch.WhenFalse); break;
+                    case BaseModuleRequireStatement require: Add(require.GuardId); break;
+                    case BaseModuleCreateStatement create: AddExpression(create.RecordId); AddExpression(create.Payload); break;
+                    case BaseModulePatchStatement patch: AddExpression(patch.RecordId); AddExpression(patch.Patch); AddExpression(patch.ExpectedRevision); break;
+                    case BaseModuleReplaceStatement replace: AddExpression(replace.RecordId); AddExpression(replace.Payload); AddExpression(replace.ExpectedRevision); break;
+                    case BaseModuleDeleteStatement delete: AddExpression(delete.RecordId); AddExpression(delete.ExpectedRevision); break;
+                    case BaseModuleUpsertStatement upsert: AddExpression(upsert.RecordId); AddExpression(upsert.Create); AddExpression(upsert.Update); AddExpression(upsert.ExpectedRevision); break;
+                }
+            }
+        }
+
+        void AddExpression(BaseModuleValueExpression? expression)
+        {
+            switch (expression)
+            {
+                case null: return;
+                case BaseModuleConditionalExpression value: Add(value.GuardId); AddExpression(value.WhenTrue); AddExpression(value.WhenFalse); break;
+                case BaseModuleCoalesceExpression value: foreach (BaseModuleValueExpression child in value.Values) AddExpression(child); break;
+                case BaseModuleBinaryNumericExpression value: AddExpression(value.Left); AddExpression(value.Right); break;
+                case BaseModuleRecordIdConversionExpression value: AddExpression(value.Source); break;
+                case BaseModuleGenerationKeyFromGuidExpression value: AddExpression(value.Source); break;
+                case BaseModulePresenceLiftExpression value: AddExpression(value.Source); break;
+                case BaseModuleIncarnationBytesExpression value: AddExpression(value.Source); break;
+                case BaseModuleSha256HexStringIdentityExpression value: AddExpression(value.Source); break;
+                case BaseModuleObjectExpression value: foreach (BaseModuleObjectPropertyExpression property in value.Properties) AddExpression(property.Value); break;
+            }
+        }
+    }
+
+    private static bool RequestOnlyExpression(
+        BaseModuleValueExpression expression,
+        IReadOnlyDictionary<string, BaseModuleGuard> guards,
+        HashSet<string> active) => expression switch
+    {
+        BaseModuleRequestPropertyExpression or BaseModuleConstantExpression => true,
+        BaseModuleRecordIdConversionExpression conversion => RequestOnlyExpression(conversion.Source, guards, active),
+        BaseModuleGenerationKeyFromGuidExpression generation => RequestOnlyExpression(generation.Source, guards, active),
+        BaseModuleMissingExpression => true,
+        BaseModulePresenceLiftExpression lift => RequestOnlyExpression(lift.Source, guards, active),
+        BaseModuleIncarnationBytesExpression conversion => RequestOnlyExpression(conversion.Source, guards, active),
+        BaseModuleSha256HexStringIdentityExpression identity => RequestOnlyExpression(identity.Source, guards, active),
+        BaseModuleCoalesceExpression coalesce => coalesce.Values.All(value => RequestOnlyExpression(value, guards, active)),
+        BaseModuleConditionalExpression conditional => RequestOnlyGuard(conditional.GuardId, guards, active)
+            && RequestOnlyExpression(conditional.WhenTrue, guards, active)
+            && RequestOnlyExpression(conditional.WhenFalse, guards, active),
+        BaseModuleBinaryNumericExpression numeric => RequestOnlyExpression(numeric.Left, guards, active)
+            && RequestOnlyExpression(numeric.Right, guards, active),
+        _ => false,
+    };
+
     private static void ValidateGuardCycles(ImmutableArray<BaseModuleGuard> values, HashSet<string> ids, int maximumDepth)
     {
         Dictionary<string, BaseModuleGuard> map = values.ToDictionary(static value => value.Id, StringComparer.Ordinal);
@@ -1045,9 +1639,54 @@ internal static class BaseModuleMutationContractValidator
         void Visit(string id, HashSet<string> active, int depth)
         {
             if (depth > maximumDepth || !active.Add(id)) throw new InvalidOperationException("base.moduleMutation.invalid");
-            if (map[id] is BaseModuleLogicalGuard logical)
-                foreach (string child in logical.ChildGuardIds) Visit(child, active, depth + 1);
+            foreach (string child in GuardDependencies(map[id])) Visit(child, active, depth + 1);
             active.Remove(id);
+        }
+
+        static IEnumerable<string> GuardDependencies(BaseModuleGuard guard)
+        {
+            if (guard is BaseModuleLogicalGuard logical)
+                foreach (string child in logical.ChildGuardIds) yield return child;
+            foreach (BaseModuleValueExpression expression in GuardExpressions(guard))
+                foreach (string child in ExpressionDependencies(expression)) yield return child;
+            if (guard is BaseModuleSetGuard set)
+            {
+                foreach (BaseModuleStaticSetMember member in set.Left.Members.Concat(set.Right?.Members ?? []))
+                    if (member.EnableGuardId is { } enable) yield return enable;
+            }
+        }
+
+        static IEnumerable<BaseModuleValueExpression> GuardExpressions(BaseModuleGuard guard) => guard switch
+        {
+            BaseModuleRevisionEqualsGuard value => [value.Expected],
+            BaseModuleFieldEqualsGuard value => [value.Expected],
+            BaseModuleFieldComparisonGuard value => [value.Expected],
+            BaseModuleGenerationGuard { Expected: { } expected } => [expected],
+            BaseModuleValueEqualsGuard value => [value.Left, value.Right],
+            BaseModuleValueComparisonGuard value => [value.Left, value.Right],
+            BaseModuleValuePresenceGuard value => [value.Value],
+            BaseModuleSetGuard value => [.. value.Left.Members.Select(static member => member.Value),
+                .. (value.Right?.Members ?? []).Select(static member => member.Value)],
+            _ => [],
+        };
+
+        static IEnumerable<string> ExpressionDependencies(BaseModuleValueExpression expression)
+        {
+            if (expression is BaseModuleConditionalExpression conditional) yield return conditional.GuardId;
+            foreach (BaseModuleValueExpression child in expression switch
+            {
+                BaseModuleRecordIdConversionExpression value => [value.Source],
+                BaseModuleGenerationKeyFromGuidExpression value => [value.Source],
+                BaseModulePresenceLiftExpression value => [value.Source],
+                BaseModuleIncarnationBytesExpression value => [value.Source],
+                BaseModuleSha256HexStringIdentityExpression value => [value.Source],
+                BaseModuleConditionalExpression value => [value.WhenTrue, value.WhenFalse],
+                BaseModuleCoalesceExpression value => value.Values,
+                BaseModuleBinaryNumericExpression value => [value.Left, value.Right],
+                BaseModuleObjectExpression value => [.. value.Properties.Select(static property => property.Value)],
+                _ => [],
+            })
+                foreach (string dependency in ExpressionDependencies(child)) yield return dependency;
         }
     }
 
@@ -1069,7 +1708,9 @@ internal static class BaseModuleMutationContractValidator
             throw new InvalidOperationException("base.moduleMutation.invalid");
         BaseApplicationId.Validate(value.Id, nameof(value));
         if (!expressionIds.Add(value.Id)) throw new InvalidOperationException("base.moduleMutation.invalid");
-        if (captureKey && value is not (BaseModuleRequestPropertyExpression or BaseModuleConstantExpression))
+        if (captureKey && value is not (BaseModuleRequestPropertyExpression or BaseModuleConstantExpression
+            or BaseModuleRecordIdConversionExpression or BaseModuleGenerationKeyFromGuidExpression
+            or BaseModuleSha256HexStringIdentityExpression))
             throw new InvalidOperationException("base.moduleMutation.invalid");
         if (!resultOnly && value is BaseModuleCommittedRecordIdExpression or BaseModuleCommittedRevisionExpression
             or BaseModuleCommittedUpsertDispositionExpression or BaseModuleResultingGenerationExpression
@@ -1090,10 +1731,72 @@ internal static class BaseModuleMutationContractValidator
             case BaseModuleCommittedUpsertDispositionExpression committed when resultOnly && definiteStatements?.Contains(committed.StatementId) == true: break;
             case BaseModuleResultingGenerationExpression generation when resultOnly
                 && definiteGenerations?.Contains(generation.CaptureId) == true: break;
-            case BaseModuleSemanticActivationDispositionExpression when resultOnly: break;
-            case BaseModuleSemanticActivationIdExpression when resultOnly: break;
-            case BaseModuleSemanticActivationWasMaterializedExpression when resultOnly: break;
-            case BaseModuleSemanticActivationRetirementDispositionExpression when resultOnly: break;
+            case BaseModuleSemanticActivationDispositionExpression semantic when resultOnly
+                && semantic.OperationKind == BaseSemanticActivationOperationKind.Ensure
+                && ClosedEnumAuthority(semantic.ResultType, ["created", "existing", "retired"]): break;
+            case BaseModuleSemanticActivationIdExpression semantic when resultOnly
+                && semantic.OperationKind == BaseSemanticActivationOperationKind.Ensure
+                && semantic.ResultType is { Kind: BaseModuleValueKind.String,
+                    Presence: BaseFieldPresence.Optional, Nullability: BaseFieldNullability.NonNullable }
+                && semantic.ResultType.Constraints?.MaximumUtf8Bytes >= 64: break;
+            case BaseModuleSemanticActivationWasMaterializedExpression semantic when resultOnly
+                && semantic.OperationKind == BaseSemanticActivationOperationKind.Ensure
+                && semantic.ResultType is { Kind: BaseModuleValueKind.Boolean,
+                    Presence: BaseFieldPresence.Required, Nullability: BaseFieldNullability.NonNullable }: break;
+            case BaseModuleSemanticActivationRetirementDispositionExpression semantic when resultOnly
+                && semantic.OperationKind == BaseSemanticActivationOperationKind.Retire
+                && ClosedEnumAuthority(semantic.ResultType, ["alreadyCompacted", "alreadyRetired", "retiredNow"]): break;
+            case BaseModuleRecordIdConversionExpression conversion
+                when conversion.Conversion is BaseModuleRecordIdConversionKind.CanonicalGuidD
+                    or BaseModuleRecordIdConversionKind.CanonicalString
+                && conversion.ResultType?.Kind == BaseModuleValueKind.RecordId
+                && conversion.ResultType.Presence == BaseFieldPresence.Required
+                && conversion.ResultType.Nullability == BaseFieldNullability.NonNullable
+                && conversion.ResultType.RecordTargetCollectionId is not null
+                && conversion.Source.ResultType?.Kind == (conversion.Conversion == BaseModuleRecordIdConversionKind.CanonicalGuidD
+                    ? BaseModuleValueKind.Guid : BaseModuleValueKind.String)
+                && conversion.Source.ResultType.Presence == BaseFieldPresence.Required
+                && conversion.Source.ResultType.Nullability == BaseFieldNullability.NonNullable
+                && RecordIdConversionConstantsValid(conversion):
+                Child(conversion.Source); break;
+            case BaseModuleGenerationKeyFromGuidExpression generation
+                when generation.ResultType is { Kind: BaseModuleValueKind.String,
+                    Presence: BaseFieldPresence.Required,
+                    Nullability: BaseFieldNullability.NonNullable }
+                && generation.ResultType.Constraints?.MinimumUtf8Bytes == 36
+                && generation.ResultType.Constraints.MaximumUtf8Bytes == 36
+                && generation.Source.ResultType is { Kind: BaseModuleValueKind.Guid,
+                    Presence: BaseFieldPresence.Required,
+                    Nullability: BaseFieldNullability.NonNullable }:
+                Child(generation.Source); break;
+            case BaseModuleMissingExpression missing
+                when missing.ResultType?.Presence == BaseFieldPresence.Optional: break;
+            case BaseModulePresenceLiftExpression lift
+                when lift.ResultType?.Presence == BaseFieldPresence.Optional
+                && lift.Source.ResultType?.Presence == BaseFieldPresence.Required
+                && PresenceLiftCompatible(lift.Source.ResultType, lift.ResultType):
+                Child(lift.Source); break;
+            case BaseModuleIncarnationBytesExpression incarnation
+                when incarnation.ResultType is { Kind: BaseModuleValueKind.Binary,
+                    Presence: BaseFieldPresence.Required,
+                    Nullability: BaseFieldNullability.NonNullable }
+                && incarnation.ResultType.Constraints?.MinimumBinaryBytes == 24
+                && incarnation.ResultType.Constraints.MaximumBinaryBytes == 24
+                && incarnation.Source.ResultType is { Kind: BaseModuleValueKind.SubjectIncarnation,
+                    Presence: BaseFieldPresence.Required,
+                    Nullability: BaseFieldNullability.NonNullable }:
+                Child(incarnation.Source); break;
+            case BaseModuleSha256HexStringIdentityExpression identity
+                when identity.ResultType is { Kind: BaseModuleValueKind.String,
+                    Presence: BaseFieldPresence.Required,
+                    Nullability: BaseFieldNullability.NonNullable }
+                && identity.ResultType.Constraints?.MinimumUtf8Bytes == 64
+                && identity.ResultType.Constraints.MaximumUtf8Bytes == 64
+                && identity.Source.ResultType is { Kind: BaseModuleValueKind.String,
+                    Presence: BaseFieldPresence.Required,
+                    Nullability: BaseFieldNullability.NonNullable }
+                && ValidIdentityDomain(identity.Domain):
+                Child(identity.Source); break;
             case BaseModuleCoalesceExpression coalesce when coalesce.Values.Length is >= 2 and <= 16:
                 foreach (BaseModuleValueExpression child in coalesce.Values) Child(child); break;
             case BaseModuleConditionalExpression conditional when guards.Contains(conditional.GuardId):
@@ -1108,8 +1811,19 @@ internal static class BaseModuleMutationContractValidator
         }
         if (expressionIds.Count > limits.MaximumExpressionNodes)
             throw new InvalidOperationException("base.moduleMutation.invalid");
-        void Child(BaseModuleValueExpression child) => ValidateExpression(child, captures, guards, false, resultOnly,
+        void Child(BaseModuleValueExpression child) => ValidateExpression(child, captures, guards,
+            captureKey && value is (BaseModuleRecordIdConversionExpression or BaseModuleGenerationKeyFromGuidExpression
+                or BaseModuleSha256HexStringIdentityExpression), resultOnly,
             depth + 1, limits, expressionIds, definiteStatements, definiteGenerations);
+
+        static bool ValidIdentityDomain(string domain) =>
+            !string.IsNullOrEmpty(domain) && domain.Length <= 128
+            && domain.All(static character => character is >= (char)0x21 and <= (char)0x7e);
+
+        static bool ClosedEnumAuthority(BaseModuleValueType? authority, string[] literals) =>
+            authority is { Kind: BaseModuleValueKind.ClosedEnum,
+                Presence: BaseFieldPresence.Required, Nullability: BaseFieldNullability.NonNullable }
+            && authority.Constraints?.AllowedEnumLiterals.SequenceEqual(literals, StringComparer.Ordinal) == true;
     }
 
     private static void Collect(BaseModuleMutationBlock block, List<BaseModuleStatement> output)

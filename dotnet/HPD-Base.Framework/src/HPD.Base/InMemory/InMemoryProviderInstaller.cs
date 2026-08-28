@@ -29,6 +29,7 @@ internal sealed class InMemoryProviderInstaller(HPDBaseInMemoryStoreOptions conf
             {
                 Supported = true, SerializableExecution = true, DurableReceipts = true,
                 GenerationCells = true, AtomicRecordAndGenerationCommit = true,
+                MaximumRemovedFieldsPerMutation = 256,
                 MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
             },
             TextSearch = BaseTextPlatform.ProviderCapability(BaseTextProviderClass.CoLocatedTransactional),
@@ -57,6 +58,7 @@ internal sealed class InMemoryProviderInstaller(HPDBaseInMemoryStoreOptions conf
     {
         Supported = true, SerializableExecution = true, DurableReceipts = true, GenerationCells = true,
         AtomicRecordAndGenerationCommit = true, MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
+        MaximumRemovedFieldsPerMutation = 256,
     };
 
     public HPDBaseStoreRegistrationReceipt Configure(HPDBaseStoreInstallationContext context)

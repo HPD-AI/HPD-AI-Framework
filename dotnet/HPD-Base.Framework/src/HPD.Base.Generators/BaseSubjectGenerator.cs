@@ -102,6 +102,13 @@ internal static class BaseSubjectGenerator
         source.AppendLine("            Access = global::HPD.Base.BaseSubjectValidationAccessShape.ContractAndSubjectPrimaryKeys,");
         source.AppendLine("            Limits = global::HPD.Base.BaseSubjectValidationLimits.Default,");
         source.AppendLine("        },"); source.AppendLine("    });");
+        source.AppendLine("    [global::System.Runtime.CompilerServices.ModuleInitializer]");
+        source.AppendLine("    internal static void PublishHPDBaseSubjectAuthority()");
+        source.AppendLine("    {");
+        source.Append("        global::HPD.Base.BaseGeneratedSubjectAuthority.Publish<").Append(type).AppendLine(">(__registration);");
+        source.Append("        global::HPD.Base.BaseSubjectReferenceJsonConverterFactory.Register<").Append(type)
+            .Append(">((global::HPD.Base.BaseSubjectIdKind)").Append(idKind).Append(", ").Append(maximumIdBytes).AppendLine(");");
+        source.AppendLine("    }");
         source.AppendLine("    /// <summary>Gets the generated immutable installation receipt for the exporting module.</summary>");
         source.AppendLine("    [global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
         source.AppendLine("    public static global::HPD.Base.BaseGeneratedSubjectRegistration HPDBaseSubjectRegistration => __registration;");

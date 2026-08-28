@@ -19,10 +19,91 @@ internal static class BaseModuleMutationGenerator
     private const string FieldAttribute = "HPD.Base.BaseFieldAttribute";
     private const string ConfidentialityAttribute = "HPD.Base.BaseFieldConfidentialityAttribute";
     private const string DisclosureAttribute = "HPD.Base.BaseFieldDisclosureAttribute";
+    private const string SubjectReferenceAttribute = "HPD.Base.BaseSubjectReferenceAttribute";
     private static readonly DiagnosticDescriptor Invalid = new(
         "HPDBASE0500", "Invalid registered module mutation",
         "Registered module mutation '{0}' is invalid: {1}",
         "HPD.Base.Generation", DiagnosticSeverity.Error, true);
+    private static readonly DiagnosticDescriptor InvalidActivation = new(
+        "HPDBASE7200", "Invalid activation DTO authority",
+        "Activation DTO authority '{0}' is invalid: {1}",
+        "HPD.Base.Generation", DiagnosticSeverity.Error, true);
+
+    internal static void GenerateActivationCombined(
+        SourceProductionContext context,
+        ImmutableArray<INamedTypeSymbol> candidates,
+        ImmutableDictionary<INamedTypeSymbol, ContextValidationResult> contexts)
+    {
+        var identities = new HashSet<(string Id, int Version)>();
+        var typeIds = new Dictionary<string, INamedTypeSymbol>(StringComparer.Ordinal);
+        foreach (INamedTypeSymbol symbol in candidates.Distinct(SymbolEqualityComparer.Default).OfType<INamedTypeSymbol>()
+            .OrderBy(static value => value.ToDisplayString(), StringComparer.Ordinal))
+        {
+            AttributeData attribute = symbol.GetAttributes().First(value =>
+                value.AttributeClass?.ToDisplayString() == "HPD.Base.BaseActivationDtoAuthorityAttribute");
+            string id = attribute.ConstructorArguments.ElementAtOrDefault(0).Value as string ?? string.Empty;
+            int version = attribute.ConstructorArguments.ElementAtOrDefault(1).Value is int v ? v : 0;
+            string owner = attribute.ConstructorArguments.ElementAtOrDefault(2).Value as string ?? string.Empty;
+            string inputTypeId = attribute.ConstructorArguments.ElementAtOrDefault(3).Value as string ?? string.Empty;
+            string resultTypeId = attribute.ConstructorArguments.ElementAtOrDefault(4).Value as string ?? string.Empty;
+            INamedTypeSymbol? serializerContext = attribute.ConstructorArguments.ElementAtOrDefault(5).Value as INamedTypeSymbol;
+            INamedTypeSymbol? input = attribute.ConstructorArguments.ElementAtOrDefault(6).Value as INamedTypeSymbol;
+            INamedTypeSymbol? result = attribute.ConstructorArguments.ElementAtOrDefault(7).Value as INamedTypeSymbol;
+            ContextValidationResult? validation = null;
+            bool valid = symbol.TypeKind == TypeKind.Class && symbol.IsStatic && symbol.Arity == 0 && Partial(symbol)
+                && symbol.DeclaredAccessibility is Accessibility.Public or Accessibility.Internal
+                && ValidId(id) && ValidId(owner) && ValidId(inputTypeId) && ValidId(resultTypeId) && version > 0
+                && identities.Add((id, version)) && serializerContext is not null && input is not null && result is not null
+                && input.TypeKind == TypeKind.Class && !input.IsAbstract && input.Arity == 0
+                && result.TypeKind == TypeKind.Class && !result.IsAbstract && result.Arity == 0
+                && contexts.TryGetValue(serializerContext, out validation)
+                && validation.IsValid && validation.Roots.Contains(input, SymbolEqualityComparer.Default)
+                && validation.Roots.Contains(result, SymbolEqualityComparer.Default)
+                && BindTypeId(inputTypeId, input) && BindTypeId(resultTypeId, result);
+            if (!valid)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(InvalidActivation, symbol.Locations.FirstOrDefault(),
+                    id.Length == 0 ? symbol.Name : id, "identity, type IDs, DTO roots, and serializer context must be unique and graph-owned"));
+                context.AddSource(Sanitize(symbol) + ".HPDBaseActivationDtoRecovery.g.cs",
+                    SourceText.From(RenderActivationRecovery(symbol, input, result), Encoding.UTF8));
+                continue;
+            }
+
+            ImmutableArray<ContextGraphProperty> inputGraph = validation!.UnionGraph.PropertiesForRoot(input!);
+            ImmutableArray<ContextGraphProperty> resultGraph = validation.UnionGraph.PropertiesForRoot(result!);
+            int namingPolicy = int.Parse(validation.OptionReceipt.Single(static value =>
+                value.StartsWith("PropertyNamingPolicy=", StringComparison.Ordinal)).Split('=')[1]);
+            List<PropertyBinding> inputBindings = Bindings(input!, inputGraph, includeNested: false, namingPolicy);
+            List<PropertyBinding> resultBindings = Bindings(result!, resultGraph, includeNested: false, namingPolicy);
+            bool flat = inputGraph.All(property => SymbolEqualityComparer.Default.Equals(property.DeclaringType, input))
+                && resultGraph.All(property => SymbolEqualityComparer.Default.Equals(property.DeclaringType, result));
+            if (!flat || inputBindings.Count is < 1 or > 128 || resultBindings.Count is < 1 or > 128
+                || inputBindings.Count + resultBindings.Count > 256
+                || !CanonicalGuidConverters(inputGraph) || !CanonicalGuidConverters(resultGraph)
+                || !SpecialAuthoritiesValid(inputBindings.Concat(resultBindings)))
+            {
+                context.ReportDiagnostic(Diagnostic.Create(InvalidActivation, symbol.Locations.FirstOrDefault(), id,
+                    "V1 admits only bounded flat scalar DTOs with exact generated converter authority"));
+                context.AddSource(Sanitize(symbol) + ".HPDBaseActivationDtoRecovery.g.cs",
+                    SourceText.From(RenderActivationRecovery(symbol, input, result), Encoding.UTF8));
+                continue;
+            }
+            ImmutableArray<ContextGraphProperty> properties = inputGraph.AddRange(resultGraph)
+                .GroupBy(static property => property.CanonicalKey, StringComparer.Ordinal).Select(static group => group.First())
+                .OrderBy(static property => property.CanonicalKey, StringComparer.Ordinal).ToImmutableArray();
+            bool omitNullValues = validation.OptionReceipt.Single(static value =>
+                value.StartsWith("DefaultIgnoreCondition=", StringComparison.Ordinal)).EndsWith("=3", StringComparison.Ordinal);
+            context.AddSource(Sanitize(symbol) + ".HPDBaseActivationDto.g.cs", SourceText.From(
+                RenderActivation(symbol, serializerContext!, input!, result!, id, version, owner, inputTypeId,
+                    resultTypeId, properties, inputBindings, resultBindings, validation.OptionReceipt, omitNullValues), Encoding.UTF8));
+        }
+
+        bool BindTypeId(string typeId, INamedTypeSymbol type)
+        {
+            if (!typeIds.TryGetValue(typeId, out INamedTypeSymbol? existing)) { typeIds.Add(typeId, type); return true; }
+            return SymbolEqualityComparer.Default.Equals(existing, type);
+        }
+    }
 
     internal static void GenerateCombined(
         SourceProductionContext context,
@@ -60,11 +141,14 @@ internal static class BaseModuleMutationGenerator
                 .GroupBy(static property => property.CanonicalKey, StringComparer.Ordinal).Select(static group => group.First())
                 .OrderBy(static property => property.CanonicalKey, StringComparer.Ordinal).ToImmutableArray();
             int namingPolicy = int.Parse(validation.OptionReceipt.Single(static value => value.StartsWith("PropertyNamingPolicy=", StringComparison.Ordinal)).Split('=')[1]);
+            bool omitNullValues = validation.OptionReceipt.Single(static value =>
+                value.StartsWith("DefaultIgnoreCondition=", StringComparison.Ordinal)).EndsWith("=3", StringComparison.Ordinal);
             List<PropertyBinding> requestBindings = Bindings(request, validation.UnionGraph.PropertiesForRoot(request), includeNested: true, namingPolicy);
             List<PropertyBinding> resultBindings = Bindings(result, validation.UnionGraph.PropertiesForRoot(result), includeNested: false, namingPolicy);
             if (requestBindings.Count == 0 || resultBindings.Count == 0
                 || !CanonicalGuidConverters(validation.UnionGraph.PropertiesForRoot(request))
-                || !CanonicalGuidConverters(validation.UnionGraph.PropertiesForRoot(result)))
+                || !CanonicalGuidConverters(validation.UnionGraph.PropertiesForRoot(result))
+                || !SpecialAuthoritiesValid(requestBindings.Concat(resultBindings)))
             {
                 context.ReportDiagnostic(Diagnostic.Create(Invalid, symbol.Locations.FirstOrDefault(), id,
                     "request and result DTO properties must carry stable BaseField identities and exact canonical GUID converters"));
@@ -72,7 +156,7 @@ internal static class BaseModuleMutationGenerator
                 continue;
             }
             context.AddSource(Sanitize(symbol) + ".HPDBaseModuleMutation.g.cs",
-                SourceText.From(Render(symbol, serializerContext, request, result, properties, requestBindings, resultBindings), Encoding.UTF8));
+                SourceText.From(Render(symbol, serializerContext, request, result, properties, requestBindings, resultBindings, namingPolicy, omitNullValues), Encoding.UTF8));
         }
     }
 
@@ -95,11 +179,48 @@ internal static class BaseModuleMutationGenerator
         return true;
     }
 
+    private static bool SpecialAuthoritiesValid(IEnumerable<PropertyBinding> bindings)
+    {
+        foreach (PropertyBinding binding in bindings)
+        {
+            ITypeSymbol type = binding.PropertyType;
+            string display = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            bool binary = display == "global::HPD.Base.BaseBinary";
+            int binaryMinimum = NamedInt(binding.Field, "MinimumBytes", 0);
+            int binaryMaximum = NamedInt(binding.Field, "MaximumBytes", 0);
+            if (binary != (binaryMaximum > 0)
+                || binary && (binaryMinimum < 0 || binaryMinimum > binaryMaximum || binaryMaximum > 1_048_576)
+                || !binary && binaryMinimum != 0)
+                return false;
+            bool incarnation = display == "global::HPD.Base.BaseSubjectIncarnation";
+            bool subject = type is INamedTypeSymbol named && named.IsGenericType
+                && named.ConstructedFrom.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+                    == "global::HPD.Base.BaseSubjectReference<TSubject>";
+            if (!subject && !incarnation) continue;
+            if (binding.Nullable || NamedEnum(binding.Field, "Presence", 0) != 0
+                || NamedEnum(binding.Field, "Nullability", 0) != 0)
+                return false;
+            if (subject)
+            {
+                IPropertySymbol property = binding.DeclaringType.GetMembers(binding.Name).OfType<IPropertySymbol>().Single();
+                AttributeData? reference = property.GetAttributes().SingleOrDefault(value =>
+                    value.AttributeClass?.ToDisplayString() == SubjectReferenceAttribute);
+                if (reference is null || reference.ConstructorArguments.ElementAtOrDefault(0).Value is not INamedTypeSymbol marker
+                    || !SymbolEqualityComparer.Default.Equals(marker, ((INamedTypeSymbol)type).TypeArguments[0])
+                    || marker.GetAttributes().All(value => value.AttributeClass?.ToDisplayString() != "HPD.Base.BaseExportedSubjectAttribute"))
+                    return false;
+            }
+        }
+        return true;
+    }
+
     private static string Render(INamedTypeSymbol symbol, INamedTypeSymbol context, INamedTypeSymbol request, INamedTypeSymbol result,
-        ImmutableArray<ContextGraphProperty> properties, List<PropertyBinding> requestBindings, List<PropertyBinding> resultBindings)
+        ImmutableArray<ContextGraphProperty> properties, List<PropertyBinding> requestBindings, List<PropertyBinding> resultBindings,
+        int namingPolicy, bool omitNullValues)
     {
         var source = Header(symbol);
         AppendClosedEnumAuthorities(source, requestBindings.Concat(resultBindings));
+        AppendRecordIdAuthorities(source, requestBindings.Concat(resultBindings));
         AppendPropertyHandles(source, request, result, requestBindings, resultBindings);
         source.AppendLine("    /// <summary>Gets inert generated registration evidence for this operation.</summary>");
         source.Append("    public static global::HPD.Base.BaseGeneratedModuleMutationIdentity<").Append(Type(request)).Append(", ").Append(Type(result))
@@ -120,7 +241,11 @@ internal static class BaseModuleMutationGenerator
         source.Append("        return global::HPD.Base.BaseGeneratedSemanticActivations.Register<").Append(Type(request)).Append(", ").Append(Type(result)).Append(", TDefinition>(definition.Id, definition.Version, definition.OwningApplicationId, definition.OwningModuleId, definition.Checksum.AsSpan(), definition.Limits.MaximumCanonicalKeyBytes, Identity, expression);\n    }\n");
         source.AppendLine("    private static class __HPDBaseSerializerFactory\n    {");
         source.AppendLine("        [global::System.CodeDom.Compiler.GeneratedCode(\"HPD.Base.Generators\", \"50\")]");
-        source.Append("        internal static ").Append(Type(context)).AppendLine(" Create() => new(global::HPD.Base.BaseSerializerGeneratedContract.CreateOptions(null));");
+        source.Append("        internal static ").Append(Type(context)).Append(" Create() => new(global::HPD.Base.BaseSerializerGeneratedContract.CreateOptions(")
+            .Append(NamingPolicy(namingPolicy)).Append(", ")
+            .Append(omitNullValues
+                ? "global::System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull"
+                : "global::System.Text.Json.Serialization.JsonIgnoreCondition.Never").AppendLine("));");
         source.AppendLine("    }");
         source.AppendLine("}");
         return source.ToString();
@@ -150,6 +275,25 @@ internal static class BaseModuleMutationGenerator
         }
     }
 
+    private static void AppendRecordIdAuthorities(StringBuilder source, IEnumerable<PropertyBinding> bindings)
+    {
+        foreach (INamedTypeSymbol target in bindings.Select(static binding =>
+            binding.PropertyType is INamedTypeSymbol nullable && nullable.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T
+                ? nullable.TypeArguments[0] : binding.PropertyType)
+            .OfType<INamedTypeSymbol>()
+            .Where(static type => type.IsGenericType && type.ConstructedFrom.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+                == "global::HPD.Base.BaseRecordId<TRecord>")
+            .Select(static type => (INamedTypeSymbol)type.TypeArguments[0])
+            .GroupBy(static type => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), StringComparer.Ordinal)
+            .Select(static group => group.First()))
+        {
+            source.AppendLine("    [global::System.Runtime.CompilerServices.ModuleInitializer]");
+            source.Append("    internal static void RegisterHPDBaseModuleRecordId_").Append(Sanitize(target))
+                .Append("() => global::HPD.Base.BaseRecordIdJsonConverterFactory.Register<")
+                .Append(Type(target)).AppendLine(">();");
+        }
+    }
+
     private static void AppendPropertyHandles(
         StringBuilder source,
         INamedTypeSymbol request,
@@ -170,9 +314,9 @@ internal static class BaseModuleMutationGenerator
                 string name = HandleName(binding, used);
                 source.Append("        /// <summary>Gets the exact scalar handle for <c>").Append(string.Join("/", binding.Path)).AppendLine("</c>.</summary>");
                 source.Append("        public static global::HPD.Base.BaseModule").Append(request ? "RequestProperty" : "ResultProperty")
-                    .Append('<').Append(Type(owner)).Append(", ").Append(Type(binding.PropertyType)).Append("> ").Append(name)
+                    .Append('<').Append(Type(owner)).Append(", ").Append(HandleType(binding)).Append("> ").Append(name)
                     .Append(" { get; } = ").Append(Manifest(binding)).Append('.').Append(request ? "RequestProperty" : "ResultProperty")
-                    .Append('<').Append(Type(owner)).Append(", ").Append(Type(binding.PropertyType)).Append(">(");
+                    .Append('<').Append(Type(owner)).Append(", ").Append(HandleType(binding)).Append(">(");
                 source.Append(string.Join(", ", binding.Path.Select(Literal))).AppendLine(");");
             }
             source.AppendLine("    }");
@@ -288,6 +432,21 @@ internal static class BaseModuleMutationGenerator
         if (type is INamedTypeSymbol nullable && nullable.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T)
             type = nullable.TypeArguments[0];
         string display = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        if (type is INamedTypeSymbol subjectReference && subjectReference.IsGenericType
+            && subjectReference.ConstructedFrom.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+                == "global::HPD.Base.BaseSubjectReference<TSubject>")
+        {
+            IPropertySymbol property = binding.DeclaringType.GetMembers(binding.Name).OfType<IPropertySymbol>().Single();
+            AttributeData authority = property.GetAttributes().Single(value =>
+                value.AttributeClass?.ToDisplayString() == SubjectReferenceAttribute);
+            int requirement = NamedEnum(authority, "Requirement", 0);
+            int guarantee = NamedEnum(authority, "Guarantee", 0);
+            return "global::HPD.Base.BaseGeneratedModuleScalarManifest.Subject<" + Type(subjectReference.TypeArguments[0])
+                + ">((global::HPD.Base.BaseSubjectReferenceRequirement)" + requirement
+                + ", (global::HPD.Base.BaseSubjectValidationGuarantee)" + guarantee + ")";
+        }
+        if (display == "global::HPD.Base.BaseSubjectIncarnation")
+            return "global::HPD.Base.BaseGeneratedModuleScalarManifest.SubjectIncarnation()";
         string kind = type.SpecialType switch
         {
             SpecialType.System_String => "String", SpecialType.System_Boolean => "Boolean",
@@ -349,7 +508,13 @@ internal static class BaseModuleMutationGenerator
         if (maximumDecimal.Length != 0) constraints.Add("MaximumDecimal = global::HPD.Base.BaseGeneratedSchemaRegistration.Decimal(" + Literal(maximumDecimal) + ")");
         if (!literals.IsDefaultOrEmpty)
             constraints.Add("AllowedEnumLiterals = [" + string.Join(", ", literals.Select(value => (string)value.Value!).OrderBy(static value => value, StringComparer.Ordinal).Select(Literal)) + "]");
-        OptionalPositive("MaximumBytes", "MaximumBinaryBytes");
+        if (binding.Field.NamedArguments.FirstOrDefault(value => value.Key == "MaximumBytes").Value.Value is int binaryMaximum
+            && binaryMaximum > 0)
+        {
+            int binaryMinimum = NamedInt(binding.Field, "MinimumBytes", 0);
+            constraints.Add("MinimumBinaryBytes = " + binaryMinimum.ToString(CultureInfo.InvariantCulture));
+            constraints.Add("MaximumBinaryBytes = " + binaryMaximum.ToString(CultureInfo.InvariantCulture));
+        }
         OptionalPositive("MaximumCanonicalJsonBytes", "MaximumCanonicalJsonBytes");
         if (binding.Field.NamedArguments.Any(value => value.Key == "JsonShape"))
             constraints.Add("JsonShape = (global::HPD.Base.BaseJsonShape)" + NamedEnum(binding.Field, "JsonShape", 0));
@@ -390,6 +555,108 @@ internal static class BaseModuleMutationGenerator
         return output.ToString();
     }
 
+    private static string RenderActivation(
+        INamedTypeSymbol symbol,
+        INamedTypeSymbol context,
+        INamedTypeSymbol input,
+        INamedTypeSymbol result,
+        string id,
+        int version,
+        string owner,
+        string inputTypeId,
+        string resultTypeId,
+        ImmutableArray<ContextGraphProperty> properties,
+        List<PropertyBinding> inputBindings,
+        List<PropertyBinding> resultBindings,
+        ImmutableArray<string> optionReceipt,
+        bool omitNullValues)
+    {
+        StringBuilder source = Header(symbol);
+        AppendClosedEnumAuthorities(source, inputBindings.Concat(resultBindings));
+        AppendRecordIdAuthorities(source, inputBindings.Concat(resultBindings));
+        AppendActivationInputPropertyHandles(source, input, inputBindings);
+        source.Append("    public static global::HPD.Base.BaseGeneratedActivationDtoAuthority<")
+            .Append(Type(input)).Append(", ").Append(Type(result))
+            .AppendLine("> HPDBaseActivationDtoAuthority { get; } = CreateHPDBaseActivationDtoAuthority();");
+        source.Append("    private static global::HPD.Base.BaseGeneratedActivationDtoAuthority<")
+            .Append(Type(input)).Append(", ").Append(Type(result))
+            .AppendLine("> CreateHPDBaseActivationDtoAuthority()\n    {");
+        source.AppendLine("        var registration = global::HPD.Base.BaseSerializerGeneratedContract.RegisterContext(__HPDBaseActivationSerializerFactory.Create);");
+        source.Append("        return global::HPD.Base.BaseGeneratedActivationDtos.Register<")
+            .Append(Type(input)).Append(", ").Append(Type(result)).Append(">(")
+            .Append(Literal(id)).Append(", ").Append(version.ToString(CultureInfo.InvariantCulture)).Append(", ")
+            .Append(Literal(owner)).Append(", ").Append(Literal(inputTypeId)).Append(", ").Append(Literal(resultTypeId))
+            .AppendLine(", registration,");
+        AppendDeclarations(source, properties);
+        AppendBindings(source, inputBindings, trailingComma: true);
+        AppendBindings(source, resultBindings, trailingComma: true);
+        source.AppendLine("            new string[]");
+        source.AppendLine("            {");
+        foreach (string option in optionReceipt.OrderBy(static value => value, StringComparer.Ordinal))
+            source.Append("                ").Append(Literal(option)).AppendLine(",");
+        source.AppendLine("            });");
+        source.AppendLine("    }");
+        source.AppendLine("    private static class __HPDBaseActivationSerializerFactory");
+        source.AppendLine("    {");
+        source.AppendLine("        [global::System.CodeDom.Compiler.GeneratedCode(\"HPD.Base.Generators\", \"72\")]");
+        int namingPolicy = int.Parse(optionReceipt.Single(static value =>
+            value.StartsWith("PropertyNamingPolicy=", StringComparison.Ordinal)).Split('=')[1]);
+        source.Append("        internal static ").Append(Type(context))
+            .Append(" Create() => new(global::HPD.Base.BaseSerializerGeneratedContract.CreateOptions(")
+            .Append(NamingPolicy(namingPolicy)).Append(", ")
+            .Append(omitNullValues ? "global::System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull"
+                : "global::System.Text.Json.Serialization.JsonIgnoreCondition.Never").AppendLine("));");
+        source.AppendLine("    }");
+        source.AppendLine("}");
+        return source.ToString();
+    }
+
+    private static string NamingPolicy(int value) => value switch
+    {
+        1 => "global::System.Text.Json.JsonNamingPolicy.CamelCase",
+        2 => "global::System.Text.Json.JsonNamingPolicy.SnakeCaseLower",
+        3 => "global::System.Text.Json.JsonNamingPolicy.SnakeCaseUpper",
+        4 => "global::System.Text.Json.JsonNamingPolicy.KebabCaseLower",
+        5 => "global::System.Text.Json.JsonNamingPolicy.KebabCaseUpper",
+        _ => "null",
+    };
+
+    private static string RenderActivationRecovery(
+        INamedTypeSymbol symbol,
+        INamedTypeSymbol? input,
+        INamedTypeSymbol? result)
+    {
+        StringBuilder source = Header(symbol);
+        if (input is not null && result is not null)
+            source.Append("    public static global::HPD.Base.BaseGeneratedActivationDtoAuthority<")
+                .Append(Type(input)).Append(", ").Append(Type(result))
+                .AppendLine("> HPDBaseActivationDtoAuthority => throw new global::System.InvalidOperationException(\"base.activation.dtoAuthorityInvalid\");");
+        source.AppendLine("}");
+        return source.ToString();
+    }
+
+    private static void AppendActivationInputPropertyHandles(
+        StringBuilder source,
+        INamedTypeSymbol input,
+        List<PropertyBinding> bindings)
+    {
+        source.AppendLine("    /// <summary>Provides exact generated activation-input property handles.</summary>");
+        source.AppendLine("    public static class InputProperties\n    {");
+        var used = new HashSet<string>(StringComparer.Ordinal);
+        foreach (PropertyBinding binding in bindings)
+        {
+            string name = HandleName(binding, used);
+            source.Append("        /// <summary>Gets the exact scalar handle for <c>")
+                .Append(string.Join("/", binding.Path)).AppendLine("</c>.</summary>");
+            source.Append("        public static global::HPD.Base.BaseActivationInputProperty<")
+                .Append(Type(input)).Append(", ").Append(HandleType(binding)).Append("> ").Append(name)
+                .Append(" { get; } = ").Append(Manifest(binding)).Append(".ActivationInputProperty<")
+                .Append(Type(input)).Append(", ").Append(HandleType(binding)).Append(">(HPDBaseActivationDtoAuthority.InputDtoAuthorityChecksum, ")
+                .Append(string.Join(", ", binding.Path.Select(Literal))).AppendLine(");");
+        }
+        source.AppendLine("    }");
+    }
+
     private static string RenderRecovery(INamedTypeSymbol symbol, INamedTypeSymbol? request, INamedTypeSymbol? result)
     {
         var source = Header(symbol);
@@ -417,6 +684,12 @@ internal static class BaseModuleMutationGenerator
     }
     private static bool ValidId(string value) => !string.IsNullOrWhiteSpace(value) && Encoding.UTF8.GetByteCount(value) <= 256 && value.All(character => !char.IsControl(character));
     private static string Type(ITypeSymbol symbol) => symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+
+    private static string HandleType(PropertyBinding binding)
+    {
+        string type = Type(binding.PropertyType);
+        return binding.Nullable && binding.PropertyType.IsReferenceType ? type + "?" : type;
+    }
     private static string Literal(string value) => SymbolDisplay.FormatLiteral(value ?? string.Empty, true);
     private static string Sanitize(INamedTypeSymbol symbol) => new(symbol.ToDisplayString().Select(character => char.IsLetterOrDigit(character) ? character : '_').ToArray());
     private sealed class PropertyBinding

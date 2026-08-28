@@ -274,7 +274,11 @@ internal sealed class DefaultHPDBaseAdministration(
                 Compact = null, Remove = null,
             }, OperationStatus.Ok, null, null, null, null);
         int pageSize = Math.Min(256, provider.SemanticActivationCapability.MaximumMaintenancePageSize);
-        long requiredPages = authority.ExaminedRows / pageSize + (authority.ExaminedRows % pageSize == 0 ? 0 : 1);
+        long authorityPages = authority.ExaminedRows / pageSize + (authority.ExaminedRows % pageSize == 0 ? 0 : 1);
+        // Compaction first stages the selected authority and then rebinds the complete
+        // surviving authority graph. Both passes consume the installed page budget.
+        long requiredPages = checked(authorityPages * 2);
+        long requiredRows = checked(authority.ExaminedRows * 2);
         if (requiredPages > int.MaxValue)
             return SemanticAdminFailure<BaseSemanticActivationControlDescriptor>(OperationStatus.ValidationFailed,
                 BaseSemanticActivationErrorCodes.BudgetExceeded, ErrorCategory.Validation);
@@ -282,7 +286,7 @@ internal sealed class DefaultHPDBaseAdministration(
         {
             PageSize = pageSize,
             MaximumPages = checked((int)Math.Max(1, requiredPages)),
-            MaximumRows = authority.ExaminedRows,
+            MaximumRows = requiredRows,
             MaximumBytes = Math.Min(provider.SemanticActivationCapability.MaximumTransientBytes,
                 Math.Max(authority.CanonicalBytes, installed.Limits.Execution.MaximumTransientBytes)),
             Deadline = installed.Limits.Deadlines.MaintenanceTimeout,
@@ -1032,19 +1036,39 @@ internal sealed class DefaultHPDBaseAdministration(
                 SourceDefinition = migration.Definition.Source, ActivationId = request.ActivationId,
                 ExpectedGeneration = request.ExpectedGeneration, AcceptedTime = accepted, Limits = source.Limits.Provider,
             }, token), source.Limits.Provider.AcquisitionTimeout, source.Limits.Provider.TransactionTimeout, cancellationToken).ConfigureAwait(false);
-        if (candidateCall.Outcome != BaseActivationProviderCallOutcome.Completed || candidateCall.Value?.Value is not { } candidate)
+        if (candidateCall.Outcome != BaseActivationProviderCallOutcome.Completed)
             return ActivationPageFailure<BaseActivationMigrationResult>(
                 candidateCall.Outcome is BaseActivationProviderCallOutcome.TimedOut or BaseActivationProviderCallOutcome.Capacity
-                    ? OperationStatus.CapabilityUnavailable : candidateCall.Value?.Status ?? OperationStatus.StoreError,
-                candidateCall.Value?.Error?.Code ?? "base.activation.migrationConflict",
-                candidateCall.Value?.Error?.Category ?? ErrorCategory.Store);
+                    ? OperationStatus.CapabilityUnavailable : OperationStatus.StoreError,
+                "base.activation.migrationConflict", ErrorCategory.Store);
+        if (candidateCall.Value is null || candidateCall.Value.IsSuccess() && candidateCall.Value.Value is null)
+            return ActivationProviderContractInvalid<BaseActivationMigrationResult>();
+        if (!candidateCall.Value.IsSuccess())
+            return NormalizeMigrationProviderFailure<BaseActivationMigrationResult, BaseActivationMigrationCandidate>(candidateCall.Value,
+                candidatePhase: true);
+        BaseActivationMigrationCandidate candidate = candidateCall.Value.Value!;
         if (candidate.ActivationId != request.ActivationId || candidate.Generation != request.ExpectedGeneration
-            || candidate.InputChecksum.Length != 32 || candidate.ControlChecksum.Length != 32
+            || candidate.SourceDefinition.Id != migration.Definition.Source.Id
+            || candidate.SourceDefinition.Version != migration.Definition.Source.Version
+            || !CryptographicOperations.FixedTimeEquals(
+                candidate.SourceDefinition.Checksum.AsSpan(), migration.Definition.Source.Checksum.AsSpan())
+            || candidate.State is not (BaseActivationState.Pending or BaseActivationState.RetryPending
+                or BaseActivationState.Exhausted or BaseActivationState.Cancelled)
+            || candidate.InputChecksum.Length != 32
+            || !BaseActivationControlChecksumContract.Matches(
+                candidate.ControlChecksum.AsSpan(), candidate.ActivationId, candidate.Generation, candidate.State)
             || !CryptographicOperations.FixedTimeEquals(SHA256.HashData(candidate.CanonicalInput.AsSpan()), candidate.InputChecksum.AsSpan())
-            || candidate.CanonicalInput.Length > source.Limits.MaximumInputBytes)
-            return ActivationPageFailure<BaseActivationMigrationResult>(OperationStatus.StoreError, "base.activation.providerContractInvalid", ErrorCategory.Store);
+            || candidate.CanonicalInput.Length > source.Limits.MaximumInputBytes
+            || candidate.Accounting.EvidenceBytes != checked(
+                candidate.CanonicalInput.Length + candidate.InputChecksum.Length + candidate.ControlChecksum.Length)
+            || !AccountingValid(candidate.Accounting, 1, source.Limits.Provider))
+            return ActivationProviderContractInvalid<BaseActivationMigrationResult>();
         ImmutableArray<byte> replacementInput;
         try { replacementInput = migration.Project(candidate.CanonicalInput.AsSpan()); }
+        catch (BaseActivationDtoContractException exception) when (exception.Code == "base.activation.providerContractInvalid")
+        {
+            return ActivationProviderContractInvalid<BaseActivationMigrationResult>();
+        }
         catch (JsonException)
         { return ActivationPageFailure<BaseActivationMigrationResult>(OperationStatus.ValidationFailed, "base.activation.migrationInvalid", ErrorCategory.Validation); }
         if (replacementInput.Length > target.Limits.MaximumInputBytes)
@@ -1071,16 +1095,25 @@ internal sealed class DefaultHPDBaseAdministration(
                 MigrationChecksum = migration.Definition.Checksum, AcceptedTime = accepted,
                 Identity = request.Identity, Limits = source.Limits.Provider,
             }, token), source.Limits.Provider.AcquisitionTimeout, source.Limits.Provider.TransactionTimeout, cancellationToken).ConfigureAwait(false);
-        if (migrated.Outcome != BaseActivationProviderCallOutcome.Completed || migrated.Value is null)
+        if (migrated.Outcome != BaseActivationProviderCallOutcome.Completed)
             return ActivationPageFailure<BaseActivationMigrationResult>(OperationStatus.StoreError, "base.activation.storeError", ErrorCategory.Store);
+        if (migrated.Value is null || migrated.Value.IsSuccess() && migrated.Value.Value is null)
+            return ActivationProviderContractInvalid<BaseActivationMigrationResult>();
         if (migrated.Value.IsSuccess() && migrated.Value.Value is { } committed
             && (committed.SourceActivationId != request.ActivationId
                 || committed.SourceGeneration != request.ExpectedGeneration + 1
-                || committed.SourceControlChecksum.Length != 32
+                || !BaseActivationControlChecksumContract.Matches(
+                    committed.SourceControlChecksum.AsSpan(), request.ActivationId,
+                    request.ExpectedGeneration + 1, BaseActivationState.Migrated)
                 || committed.ReplacementActivationId != replacementId || committed.ReplacementGeneration != 1
-                || committed.ReplacementControlChecksum.Length != 32
+                || !BaseActivationControlChecksumContract.Matches(
+                    committed.ReplacementControlChecksum.AsSpan(), replacementId, 1, BaseActivationState.Pending)
+                || committed.Disposition is not (BaseMutationRequestDisposition.Committed or BaseMutationRequestDisposition.Duplicate)
                 || !AccountingValid(committed.Accounting, 1, source.Limits.Provider)))
-            return ActivationPageFailure<BaseActivationMigrationResult>(OperationStatus.StoreError, "base.activation.providerContractInvalid", ErrorCategory.Store);
+            return ActivationProviderContractInvalid<BaseActivationMigrationResult>();
+        if (!migrated.Value.IsSuccess())
+            return NormalizeMigrationProviderFailure<BaseActivationMigrationResult, BaseActivationMigrationResult>(migrated.Value,
+                candidatePhase: false);
         return BaseResultMapper.Map<BaseActivationMigrationResult, BaseActivationMigrationResult>(migrated.Value, static value => value);
     }
 
@@ -1248,6 +1281,35 @@ internal sealed class DefaultHPDBaseAdministration(
 
     private static BaseFailure<TResult> ActivationPageFailure<TResult>(OperationStatus status, string code, ErrorCategory category) =>
         new(status, new BaseError { Code = code, Message = "The activation administration request could not be completed.", Category = category }, null, null);
+
+    private BaseFailure<TResult> ActivationProviderContractInvalid<TResult>()
+    {
+        activationProviderGate.QuarantineContractViolation();
+        OperationResult<TResult> result = BaseActivationFailureContract.ProviderContractInvalid<TResult>();
+        return new(result.Status, result.Error!, null, null);
+    }
+
+    private BaseFailure<TResult> NormalizeMigrationProviderFailure<TResult, TProviderResult>(
+        OperationResult<TProviderResult> result,
+        bool candidatePhase)
+    {
+        BaseError? error = result.Error;
+        bool accepted = error is not null && (
+            result.Status == OperationStatus.Conflict
+                && error.Category == ErrorCategory.Conflict
+                && error.Code == "base.activation.migrationConflict"
+            || candidatePhase
+                && result.Status == OperationStatus.ValidationFailed
+                && error.Category == ErrorCategory.Validation
+                && error.Code == "base.activation.budgetExceeded"
+            || !candidatePhase
+                && result.Status == OperationStatus.CapabilityUnavailable
+                && error.Category == ErrorCategory.Capability
+                && error.Code == "base.activation.capacityUnavailable");
+        return accepted
+            ? ActivationPageFailure<TResult>(result.Status, error!.Code, error.Category)
+            : ActivationProviderContractInvalid<TResult>();
+    }
 
     private static bool CanonicallyOrdered(ImmutableArray<BaseActivationAdministrationItem> items)
     {

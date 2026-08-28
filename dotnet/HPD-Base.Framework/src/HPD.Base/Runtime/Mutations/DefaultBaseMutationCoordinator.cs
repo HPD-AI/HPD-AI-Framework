@@ -969,7 +969,8 @@ internal sealed class DefaultBaseMutationCoordinator(
                 Collection = collection,
                 Principal = principal,
                 Operation = context,
-                Patch = patchRequest.Patch
+                Patch = patchRequest.Patch,
+                RemovedFieldIds = patchRequest.RemovedFieldIds
             }, cancellationToken).ConfigureAwait(false);
             if (!validation.IsSuccess() || validation.Value is null)
                 return Failure<BaseMutationCommand, BaseValidatedPayload>(validation);
@@ -1007,7 +1008,8 @@ internal sealed class DefaultBaseMutationCoordinator(
                     Collection = collection,
                     Principal = principal,
                     Operation = context,
-                    Patch = upsertRequest.UpdatePayload
+                    Patch = upsertRequest.UpdatePayload,
+                    RemovedFieldIds = []
                 }, cancellationToken).ConfigureAwait(false)
                 : await schemaValidator.ValidateReplaceAsync(new BasePayloadValidationRequest
                 {
@@ -1044,6 +1046,7 @@ internal sealed class DefaultBaseMutationCoordinator(
                 ? new RecordPatchRequest
                 {
                     Patch = preparedUpsert.UpdatePayload,
+                    RemovedFieldIds = [],
                     ExpectedRevision = preparedUpsert.ExpectedRevision
                 }
                 : item.Patch,
