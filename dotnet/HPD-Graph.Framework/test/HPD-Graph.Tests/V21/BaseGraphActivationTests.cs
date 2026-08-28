@@ -80,7 +80,7 @@ public sealed class BaseGraphActivationTests
     {
         BaseGraphActivationDefinition definition = BaseGraphActivationRegistration.Create(
             Graph("graph-scheduled", "4.0.0", "scheduled"), 4, Grants(), Limits(), []);
-        BaseScheduleDefinition schedule = definition.CreateSchedule(new GraphScheduleConfig
+        BaseGeneratedScheduleRegistration registration = definition.CreateSchedule(new GraphScheduleConfig
         {
             CronExpression = "0 */5 * * * *",
             TimeZoneId = "UTC",
@@ -88,10 +88,44 @@ public sealed class BaseGraphActivationTests
             ConcurrencyPolicy = ScheduleConcurrencyPolicyConfig.CancelPrevious,
         }, "graph-scheduled.timer", 1, "graph.schedule.manage", "graph.schedule.materialize");
 
+        BaseScheduleDefinition schedule = registration.Definition;
         schedule.Activation.Id.Should().Be(definition.Registration.Definition.Id);
         schedule.MisfirePolicy.Should().Be(BaseScheduleMisfirePolicy.RunAll);
         schedule.ActivationOverlapPolicy.Should().Be(BaseScheduleOverlapPolicy.CancelPrevious);
         schedule.Checksum.Should().HaveCount(32);
+    }
+
+    [Fact]
+    public async Task Scheduled_graph_activation_finalizes_all_production_targets_and_schedule()
+    {
+        BaseGraphActivationDefinition definition = BaseGraphActivationRegistration.Create(
+            Graph("graph-scheduled-installed", "4.1.0", "scheduled-installed"), 4, Grants(), Limits(), []);
+        BaseGeneratedScheduleRegistration schedule = definition.CreateSchedule(new GraphScheduleConfig
+        {
+            CronExpression = "0 */5 * * * *",
+            TimeZoneId = "UTC",
+            MisfirePolicy = ScheduleMisfirePolicyConfig.RunOnce,
+            ConcurrencyPolicy = ScheduleConcurrencyPolicyConfig.SkipIfRunning,
+        }, "graph-scheduled-installed.timer", 1, "graph.schedule.manage", "graph.schedule.materialize");
+        var services = new ServiceCollection();
+        services.AddLogging();
+
+        services.AddHPDBase(builder => builder
+            .AddGraphPersistence()
+            .AddScheduledGraphActivation(definition, schedule));
+
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
+        {
+            AuthenticationState = PrincipalAuthenticationState.System,
+            SubjectId = "graph-test",
+        });
+
+        session.Activations.Get(definition.Registration.Identity).Should().NotBeNull();
+        session.Activations.Get(definition.ResumeRegistration.Identity).Should().NotBeNull();
+        session.Activations.Get(definition.PollingResumeRegistration.Identity).Should().NotBeNull();
+        session.Activations.Get(definition.OperatorResumeRegistration.Identity).Should().NotBeNull();
+        session.Activations.GetSchedule(schedule.Identity).Should().NotBeNull();
     }
 
     private static GraphConfig Graph(string id, string version, string description) => new()

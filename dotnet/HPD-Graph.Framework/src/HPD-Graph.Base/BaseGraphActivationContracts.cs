@@ -20,46 +20,82 @@ namespace HPD.Graph.Base;
 public sealed record BaseGraphActivationInput
 {
     /// <summary>Gets the exact graph definition identity.</summary>
+    [BaseField("hpd.graph.activation.input.graphId", MaximumUtf8Bytes = 256), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)]
     public required string GraphId { get; init; }
     /// <summary>Gets the exact graph semantic version.</summary>
+    [BaseField("hpd.graph.activation.input.graphVersion", MaximumUtf8Bytes = 256), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)]
     public required string GraphVersion { get; init; }
     /// <summary>Gets the SHA-256 checksum of the installed graph definition.</summary>
-    public required ImmutableArray<byte> GraphChecksum { get; init; }
+    [BaseField("hpd.graph.activation.input.graphChecksum", MinimumBytes = 32, MaximumBytes = 32), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)]
+    public required BaseBinary GraphChecksum { get; init; }
     /// <summary>Gets the stable logical execution identity.</summary>
+    [BaseField("hpd.graph.activation.input.executionId", MaximumUtf8Bytes = 256), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)]
     public required string ExecutionId { get; init; }
     /// <summary>Gets canonical graph input encoded as UTF-8 JSON.</summary>
-    public required ImmutableArray<byte> CanonicalInput { get; init; }
+    [BaseField("hpd.graph.activation.input.canonicalInput", MaximumCanonicalJsonBytes = 1_048_576, JsonShape = BaseJsonShape.ObjectOrArray,
+        MaximumJsonDepth = 64, MaximumJsonArrayItems = 16_384, MaximumJsonObjectProperties = 16_384,
+        MaximumJsonTotalNodes = 65_536, MaximumJsonTotalStringUtf8Bytes = 1_048_576, MaximumJsonTotalNameUtf8Bytes = 1_048_576)]
+    [BaseFieldConfidentiality(BaseFieldConfidentiality.Confidential)]
+    [BaseFieldDisclosure(RecordRead = BaseRecordDisclosure.Omit, Event = BaseProjectionDisclosure.Omit,
+        Realtime = BaseProjectionDisclosure.Omit, Diagnostic = BaseProjectionDisclosure.Omit,
+        AdministrativeDataExport = BaseProjectionDisclosure.Omit, OrdinaryDataExport = BaseProjectionDisclosure.Omit,
+        Indexing = BaseIndexDisclosure.Forbidden)]
+    public required BaseCanonicalJson CanonicalInput { get; init; }
     /// <summary>Gets the optional logical interval start as Unix milliseconds.</summary>
+    [BaseField("hpd.graph.activation.input.logicalIntervalStart", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)]
     public long? LogicalIntervalStart { get; init; }
     /// <summary>Gets the optional logical interval end as Unix milliseconds.</summary>
+    [BaseField("hpd.graph.activation.input.logicalIntervalEnd", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)]
     public long? LogicalIntervalEnd { get; init; }
     /// <summary>Gets the optional authoritative checkpoint identity used for resumption.</summary>
+    [BaseField("hpd.graph.activation.input.checkpointId", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable, MaximumUtf8Bytes = 256), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)]
     public string? CheckpointId { get; init; }
     /// <summary>Gets the immutable canonical checkpoint snapshot committed with this activation.</summary>
-    public string? CanonicalCheckpoint { get; init; }
+    [BaseField("hpd.graph.activation.input.canonicalCheckpoint", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable,
+        MaximumCanonicalJsonBytes = 1_048_576, JsonShape = BaseJsonShape.ObjectOrArray, MaximumJsonDepth = 64,
+        MaximumJsonArrayItems = 16_384, MaximumJsonObjectProperties = 16_384, MaximumJsonTotalNodes = 65_536,
+        MaximumJsonTotalStringUtf8Bytes = 1_048_576, MaximumJsonTotalNameUtf8Bytes = 1_048_576)]
+    [BaseFieldConfidentiality(BaseFieldConfidentiality.Confidential)]
+    [BaseFieldDisclosure(RecordRead = BaseRecordDisclosure.Omit, Event = BaseProjectionDisclosure.Omit,
+        Realtime = BaseProjectionDisclosure.Omit, Diagnostic = BaseProjectionDisclosure.Omit,
+        AdministrativeDataExport = BaseProjectionDisclosure.Omit, OrdinaryDataExport = BaseProjectionDisclosure.Omit,
+        Indexing = BaseIndexDisclosure.Forbidden)]
+    public BaseCanonicalJson? CanonicalCheckpoint { get; init; }
     /// <summary>Gets the SHA-256 checksum of <see cref="CanonicalCheckpoint"/>.</summary>
-    public ImmutableArray<byte> CheckpointChecksum { get; init; }
+    [BaseField("hpd.graph.activation.input.checkpointChecksum", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable,
+        MinimumBytes = 32, MaximumBytes = 32), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)]
+    public BaseBinary? CheckpointChecksum { get; init; }
 }
 
 /// <summary>Contains one closed durable graph-execution activation result.</summary>
 public sealed record BaseGraphActivationResult
 {
     /// <summary>Gets the stable logical execution identity.</summary>
+    [BaseField("hpd.graph.activation.result.executionId", MaximumUtf8Bytes = 256), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)]
     public required string ExecutionId { get; init; }
     /// <summary>Gets the terminal graph execution state.</summary>
+    [BaseField("hpd.graph.activation.result.outcome", AllowedEnumLiterals = ["checkpointed", "succeeded"]), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)]
     public required BaseGraphActivationOutcome Outcome { get; init; }
     /// <summary>Gets the canonical checksum of completed node identities.</summary>
-    public required ImmutableArray<byte> CompletedNodesChecksum { get; init; }
+    [BaseField("hpd.graph.activation.result.completedNodesChecksum", MinimumBytes = 32, MaximumBytes = 32), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)]
+    public required BaseBinary CompletedNodesChecksum { get; init; }
 }
 
 /// <summary>Defines the terminal outcome of one graph activation.</summary>
+[JsonConverter(typeof(BaseClosedEnumJsonConverter<BaseGraphActivationOutcome>))]
 public enum BaseGraphActivationOutcome
 {
     /// <summary>The graph completed successfully.</summary>
-    Succeeded = 0,
+    [JsonStringEnumMemberName("succeeded")] Succeeded = 0,
     /// <summary>The current activation checkpointed and atomically delegated continuation.</summary>
-    Checkpointed = 1,
+    [JsonStringEnumMemberName("checkpointed")] Checkpointed = 1,
 }
+
+[BaseActivationDtoAuthority(
+    "hpd.graph.activation.dto.v1", 1, "hpd.graph",
+    "hpd.graph.type.activation-input.v1", "hpd.graph.type.activation-result.v1",
+    typeof(BaseGraphActivationJsonContext), typeof(BaseGraphActivationInput), typeof(BaseGraphActivationResult))]
+internal static partial class BaseGraphActivationDtos;
 
 /// <summary>Contains one sealed graph activation registration and its input authority.</summary>
 public sealed class BaseGraphActivationDefinition
@@ -118,21 +154,22 @@ public sealed class BaseGraphActivationDefinition
         {
             GraphId = GraphId,
             GraphVersion = GraphVersion,
-            GraphChecksum = GraphChecksum.ToArray().ToImmutableArray(),
+            GraphChecksum = BaseBinary.From(GraphChecksum.Span),
             ExecutionId = new string(executionId.AsSpan()),
-            CanonicalInput = canonicalInput.ToArray().ToImmutableArray(),
+            CanonicalInput = BaseCanonicalJson.ParseAndValidate(canonicalInput.Span, BaseGraphActivationRegistration.CanonicalJsonLimits),
             LogicalIntervalStart = logicalIntervalStart,
             LogicalIntervalEnd = logicalIntervalEnd,
             CheckpointId = checkpointId is null ? null : new string(checkpointId.AsSpan()),
-            CanonicalCheckpoint = canonicalCheckpoint is null ? null : new string(canonicalCheckpoint.AsSpan()),
+            CanonicalCheckpoint = canonicalCheckpoint is null ? null : BaseCanonicalJson.ParseAndValidate(
+                Encoding.UTF8.GetBytes(canonicalCheckpoint), BaseGraphActivationRegistration.CanonicalJsonLimits),
             CheckpointChecksum = canonicalCheckpoint is null
-                ? []
-                : SHA256.HashData(Encoding.UTF8.GetBytes(canonicalCheckpoint)).ToImmutableArray(),
+                ? null
+                : BaseBinary.From(SHA256.HashData(Encoding.UTF8.GetBytes(canonicalCheckpoint))),
         };
     }
 
     /// <summary>Creates one durable Base schedule targeting this exact graph activation.</summary>
-    public BaseScheduleDefinition CreateSchedule(
+    public BaseGeneratedScheduleRegistration CreateSchedule(
         GraphScheduleConfig schedule,
         string scheduleId,
         int scheduleVersion,
@@ -151,7 +188,6 @@ public sealed class BaseGraphActivationDefinition
             : "{}"u8.ToArray();
         byte[] canonicalSeed = BaseGraphActivationRegistration.CanonicalJson(seedBytes);
         BaseGraphActivationInput input = CreateInput($"schedule:{scheduleId}", canonicalSeed);
-        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(input, BaseGraphActivationSerializer.Context.BaseGraphActivationInput);
         BaseScheduleMisfirePolicy misfire = schedule.MisfirePolicy switch
         {
             ScheduleMisfirePolicyConfig.Skip => BaseScheduleMisfirePolicy.Skip,
@@ -167,21 +203,13 @@ public sealed class BaseGraphActivationDefinition
             ScheduleConcurrencyPolicyConfig.CancelPrevious => BaseScheduleOverlapPolicy.CancelPrevious,
             _ => throw new InvalidOperationException("hpd.graph.activation.scheduleInvalid"),
         };
-        return BaseScheduleDefinitionBuilder.Create(new BaseScheduleDefinition
+        return BaseScheduleDefinitionBuilder.CreateGenerated(new BaseScheduleDefinitionDraft
         {
             Id = scheduleId,
             Version = scheduleVersion,
             OwningModuleId = "hpd.graph",
             ManageGrantId = manageGrantId,
             MaterializeGrantId = materializeGrantId,
-            Activation = new BaseActivationDefinitionKey
-            {
-                Id = Registration.Definition.Id,
-                Version = Registration.Definition.Version,
-                Checksum = Registration.Definition.Checksum.ToArray().ToImmutableArray(),
-            },
-            CanonicalInput = bytes.ToImmutableArray(),
-            InputChecksum = SHA256.HashData(bytes).ToImmutableArray(),
             Expression = new BaseCronSchedule(schedule.CronExpression, schedule.TimeZoneId),
             GapPolicy = BaseTimeGapPolicy.NextValid,
             TimeOverlapPolicy = BaseTimeOverlapPolicy.Both,
@@ -190,14 +218,24 @@ public sealed class BaseGraphActivationDefinition
             OverlapKeyKind = BaseScheduleOverlapKeyKind.Schedule,
             Priority = priority,
             MaximumSplayMilliseconds = maximumSplayMilliseconds,
-            Checksum = [],
-        });
+        }, Registration, BaseGraphActivationDtos.HPDBaseActivationDtoAuthority, input);
     }
 }
 
 /// <summary>Builds exact HPD-Graph activation registrations for HPD.Base.</summary>
 public static class BaseGraphActivationRegistration
 {
+    internal static BaseCanonicalJsonLimits CanonicalJsonLimits { get; } = new()
+    {
+        MaximumCanonicalBytes = 1_048_576,
+        MaximumDepth = 64,
+        MaximumTotalNodes = 65_536,
+        MaximumTotalStringUtf8Bytes = 1_048_576,
+        MaximumTotalNameUtf8Bytes = 1_048_576,
+        MaximumArrayItemsPerContainer = 16_384,
+        MaximumObjectPropertiesPerContainer = 16_384,
+    };
+
     /// <summary>Creates one graph-version-bound activation and Native-AOT-safe handler factory.</summary>
     public static BaseGraphActivationDefinition Create(
         GraphConfig graph,
@@ -222,15 +260,12 @@ public static class BaseGraphActivationRegistration
             bool checkpointRequired)
         {
             string definitionId = $"hpd.graph.{role}.{graph.GraphId}";
-            byte[] handlerChecksum = HandlerChecksum(definitionId, graph.GraphVersion, graphChecksum);
-            var definition = new BaseActivationDefinition
+            var definition = new BaseActivationDefinitionDraft
             {
                 Id = definitionId,
                 Version = definitionVersion,
                 OwningModuleId = "hpd.graph",
                 ExecutionClass = BaseActivationExecutionClass.AtLeastOnceWorker,
-                InputTypeId = "hpd.graph.activation.input",
-                ResultTypeId = "hpd.graph.activation.result",
                 Grants = grants,
                 SourceGrantIds = sourceGrantIds,
                 Retry = new BaseActivationRetryProfile
@@ -244,24 +279,18 @@ public static class BaseGraphActivationRegistration
                     RetryableFailureCodes = ["hpd.graph.execution.transient"],
                 },
                 Limits = limits,
-                Handler = new BaseActivationHandlerBinding
+                Handler = new BaseActivationHandlerDraft
                 {
                     Id = $"hpd.graph.{role}-handler",
                     Version = 1,
                     FactoryId = $"hpd.graph.{role}-handler.{graph.GraphId}.{graph.GraphVersion}",
-                    InputTypeId = "hpd.graph.activation.input",
-                    ResultTypeId = "hpd.graph.activation.result",
                     WorkerSubjectKind = AccessSubjectKind.ServicePrincipal,
-                    Checksum = handlerChecksum.ToImmutableArray(),
+                    SemanticAuthority = BaseActivationHandlerSemanticAuthority.Create(
+                        $"hpd.graph.{role}.graph-config", 1, graphBytes),
                 },
-                Checksum = [],
             };
-            return BaseActivationDefinitionBuilder.Create(
-                definition,
-                BaseGraphActivationSerializer.Context.BaseGraphActivationInput,
-                BaseGraphActivationSerializer.Context.BaseGraphActivationResult,
-                InputBindings(),
-                ResultBindings(),
+            return BaseActivationDefinitionBuilder.CreateGenerated(
+                definition, BaseGraphActivationDtos.HPDBaseActivationDtoAuthority,
                 services => new BaseGraphActivationHandler(services, retained, graphChecksum,
                     resumeIdentity ?? throw new InvalidOperationException("hpd.graph.activation.definitionInvalid"),
                     checkpointRequired));
@@ -279,39 +308,6 @@ public static class BaseGraphActivationRegistration
         return new BaseGraphActivationDefinition(
             initial, resume, pollingResume, operatorResume,
             graphChecksum, graph.GraphId, graph.GraphVersion);
-    }
-
-    private static IReadOnlyList<BaseModuleDtoPropertyBinding> InputBindings() =>
-    [
-        BaseModuleDtoPropertyBinding.Create<BaseGraphActivationInput, string>("hpd.graph.activation.input.graphId", "graphId", BaseFieldConfidentiality.Internal),
-        BaseModuleDtoPropertyBinding.Create<BaseGraphActivationInput, string>("hpd.graph.activation.input.graphVersion", "graphVersion", BaseFieldConfidentiality.Internal),
-        BaseModuleDtoPropertyBinding.Create<BaseGraphActivationInput, ImmutableArray<byte>>("hpd.graph.activation.input.graphChecksum", "graphChecksum", BaseFieldConfidentiality.Internal),
-        BaseModuleDtoPropertyBinding.Create<BaseGraphActivationInput, string>("hpd.graph.activation.input.executionId", "executionId", BaseFieldConfidentiality.Internal),
-        BaseModuleDtoPropertyBinding.Create<BaseGraphActivationInput, ImmutableArray<byte>>("hpd.graph.activation.input.canonicalInput", "canonicalInput", BaseFieldConfidentiality.Confidential, BaseRecordDisclosure.Omit),
-        BaseModuleDtoPropertyBinding.Create<BaseGraphActivationInput, long?>("hpd.graph.activation.input.logicalIntervalStart", "logicalIntervalStart", BaseFieldConfidentiality.Internal, nullable: true),
-        BaseModuleDtoPropertyBinding.Create<BaseGraphActivationInput, long?>("hpd.graph.activation.input.logicalIntervalEnd", "logicalIntervalEnd", BaseFieldConfidentiality.Internal, nullable: true),
-        BaseModuleDtoPropertyBinding.Create<BaseGraphActivationInput, string?>("hpd.graph.activation.input.checkpointId", "checkpointId", BaseFieldConfidentiality.Internal, nullable: true),
-        BaseModuleDtoPropertyBinding.Create<BaseGraphActivationInput, string?>("hpd.graph.activation.input.canonicalCheckpoint", "canonicalCheckpoint", BaseFieldConfidentiality.Confidential, BaseRecordDisclosure.Omit, nullable: true),
-        BaseModuleDtoPropertyBinding.Create<BaseGraphActivationInput, ImmutableArray<byte>>("hpd.graph.activation.input.checkpointChecksum", "checkpointChecksum", BaseFieldConfidentiality.Internal),
-    ];
-
-    private static IReadOnlyList<BaseModuleDtoPropertyBinding> ResultBindings() =>
-    [
-        BaseModuleDtoPropertyBinding.Create<BaseGraphActivationResult, string>("hpd.graph.activation.result.executionId", "executionId", BaseFieldConfidentiality.Internal),
-        BaseModuleDtoPropertyBinding.Create<BaseGraphActivationResult, BaseGraphActivationOutcome>("hpd.graph.activation.result.outcome", "outcome", BaseFieldConfidentiality.Internal),
-        BaseModuleDtoPropertyBinding.Create<BaseGraphActivationResult, ImmutableArray<byte>>("hpd.graph.activation.result.completedNodesChecksum", "completedNodesChecksum", BaseFieldConfidentiality.Internal),
-    ];
-
-    private static byte[] HandlerChecksum(string id, string version, byte[] graphChecksum)
-    {
-        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        hash.AppendData("hpd.graph.activation.handler.v1\0"u8);
-        hash.AppendData(Encoding.UTF8.GetBytes(id));
-        hash.AppendData([0]);
-        hash.AppendData(Encoding.UTF8.GetBytes(version));
-        hash.AppendData([0]);
-        hash.AppendData(graphChecksum);
-        return hash.GetHashAndReset();
     }
 
     private static byte[] CanonicalGraphBytes(GraphConfig graph)
@@ -376,21 +372,21 @@ internal sealed class BaseGraphActivationHandler(
     {
         if (!string.Equals(input.GraphId, graph.GraphId, StringComparison.Ordinal)
             || !string.Equals(input.GraphVersion, graph.GraphVersion, StringComparison.Ordinal)
-            || !CryptographicOperations.FixedTimeEquals(input.GraphChecksum.AsSpan(), graphChecksum)
+            || !CryptographicOperations.FixedTimeEquals(input.GraphChecksum.ToArray(), graphChecksum)
             || string.IsNullOrWhiteSpace(input.ExecutionId)
-            || input.CanonicalInput.IsDefault
+            || !input.CanonicalInput.IsValid
             || checkpointRequired != (input.CheckpointId is not null)
             || (input.CheckpointId is null) != (input.CanonicalCheckpoint is null)
-            || input.CanonicalCheckpoint is not null && (input.CheckpointChecksum.Length != 32
+            || input.CanonicalCheckpoint is not null && (input.CheckpointChecksum?.Length != 32
                 || !CryptographicOperations.FixedTimeEquals(
-                    SHA256.HashData(Encoding.UTF8.GetBytes(input.CanonicalCheckpoint)), input.CheckpointChecksum.AsSpan())))
+                    SHA256.HashData(input.CanonicalCheckpoint.Value.Utf8.Span), input.CheckpointChecksum.ToArray())))
             return new BaseActivationHandlerResult<BaseGraphActivationResult>
             { FailureCode = "hpd.graph.execution.contractInvalid", Retryable = false };
 
         string executionId = context.OccurrenceId ?? input.ExecutionId;
         var runtimeGraph = new GraphConfigCompiler().Compile(graph);
         var graphContext = new GraphContext(executionId, runtimeGraph, services, enableSharedData: true);
-        SeedInput(graphContext, input.CanonicalInput.AsSpan());
+        SeedInput(graphContext, input.CanonicalInput.Utf8.Span);
         graphContext.SharedData?["base.activation.id"] = context.Claim.ActivationId;
         if (context.OccurrenceId is not null)
             graphContext.SharedData?["base.activation.occurrenceId"] = context.OccurrenceId;
@@ -402,7 +398,7 @@ internal sealed class BaseGraphActivationHandler(
             graphContext.SharedData?["base.activation.logicalIntervalEnd"] = intervalEnd;
         GraphCheckpoint? seed = input.CanonicalCheckpoint is null
             ? null
-            : GraphCheckpointCodec.Deserialize(input.CanonicalCheckpoint);
+            : GraphCheckpointCodec.Deserialize(Encoding.UTF8.GetString(input.CanonicalCheckpoint.Value.Utf8.Span));
         var checkpointStore = new ActivationCheckpointStore(seed);
         var orchestrator = new GraphOrchestrator<GraphContext>(
             services,
@@ -432,14 +428,14 @@ internal sealed class BaseGraphActivationHandler(
             {
                 GraphId = input.GraphId,
                 GraphVersion = input.GraphVersion,
-                GraphChecksum = input.GraphChecksum.ToArray().ToImmutableArray(),
+                GraphChecksum = BaseBinary.From(input.GraphChecksum.ToArray()),
                 ExecutionId = input.ExecutionId,
-                CanonicalInput = input.CanonicalInput.ToArray().ToImmutableArray(),
+                CanonicalInput = input.CanonicalInput,
                 LogicalIntervalStart = input.LogicalIntervalStart,
                 LogicalIntervalEnd = input.LogicalIntervalEnd,
                 CheckpointId = checkpoint.CheckpointId,
-                CanonicalCheckpoint = canonicalCheckpoint,
-                CheckpointChecksum = SHA256.HashData(checkpointBytes).ToImmutableArray(),
+                CanonicalCheckpoint = BaseCanonicalJson.ParseAndValidate(checkpointBytes, BaseGraphActivationRegistration.CanonicalJsonLimits),
+                CheckpointChecksum = BaseBinary.From(SHA256.HashData(checkpointBytes)),
             };
             BaseModuleMutationExecutionOptions options = context.GuardModuleMutationAndCreateActivation(
                 "graph-checkpoint", 1, fingerprint,
@@ -488,7 +484,7 @@ internal sealed class BaseGraphActivationHandler(
             {
                 ExecutionId = executionId,
                 Outcome = outcome,
-                CompletedNodesChecksum = completed.ToImmutableArray(),
+                CompletedNodesChecksum = BaseBinary.From(completed),
             },
         };
     }
@@ -550,6 +546,7 @@ internal sealed class BaseGraphActivationHandler(
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(BaseGraphActivationInput))]
 [JsonSerializable(typeof(BaseGraphActivationResult))]
@@ -561,5 +558,5 @@ public partial class BaseGraphActivationJsonContext : JsonSerializerContext;
 internal static class BaseGraphActivationSerializer
 {
     internal static BaseGraphActivationJsonContext Context { get; } = new(
-        BaseSerializerGeneratedContract.CreateOptions(JsonNamingPolicy.CamelCase));
+        BaseSerializerGeneratedContract.CreateOptions(JsonNamingPolicy.CamelCase, JsonIgnoreCondition.WhenWritingNull));
 }
