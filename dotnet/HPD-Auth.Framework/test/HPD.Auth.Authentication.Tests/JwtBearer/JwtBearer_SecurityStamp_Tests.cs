@@ -53,13 +53,13 @@ public class JwtBearer_SecurityStamp_Tests
             opts.Jwt.AccessTokenLifetime  = TimeSpan.FromMinutes(15);
             opts.Jwt.RefreshTokenLifetime = TimeSpan.FromDays(14);
         })
-        .UseInMemorySqliteForTests()
+        .UseBaseTestHost()
         .AddAuthentication();
 
         builder.Services.AddAuthorization();
 
         var app = builder.Build();
-        app.Services.InitializeHPDAuthDevelopmentDatabaseAsync().GetAwaiter().GetResult();
+        app.Services.InitializeHPDAuthBaseTestHostAsync().GetAwaiter().GetResult();
 
         app.UseRouting();
         app.UseAuthentication();

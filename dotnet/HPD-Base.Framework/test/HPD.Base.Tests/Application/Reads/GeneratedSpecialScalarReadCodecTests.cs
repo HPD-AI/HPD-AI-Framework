@@ -869,9 +869,10 @@ public sealed class GeneratedSpecialScalarReadCodecTests
                 Result = new BaseRelationalReadResult
                 {
                     Rows = [new BaseRelationalRow { Fields = [Field(fieldId, value)] }],
-                    Page = new PageInfo { Page = 1, PerPage = 1, Limit = 1 }, Count = 1, SchemaGeneration = request.Plan.SchemaGeneration,
+                    Page = new PageInfo { Page = 1, PerPage = 1, Limit = 1 }, Count = 1,
                 },
                 DependencyEvidence = [new BaseReadDependencyEvidence { CollectionId = SpecialScalarRecord.Collection.Id }],
+                SnapshotAuthority = TestRelationalReadAuthority.Create(request),
             }));
         }
     }
@@ -904,9 +905,9 @@ public sealed class GeneratedSpecialScalarReadCodecTests
                         Value = new QueryValue { Kind = QueryValueKind.CanonicalJson, CanonicalJsonUtf8 = ImmutableArray.Create(bytes) },
                     }] }],
                     Page = new PageInfo { Page = 1, PerPage = 1, Limit = 1 }, Count = 1,
-                    SchemaGeneration = request.Plan.SchemaGeneration,
                 },
                 DependencyEvidence = [new BaseReadDependencyEvidence { CollectionId = SpecialScalarRecord.Collection.Id }],
+                SnapshotAuthority = TestRelationalReadAuthority.Create(request),
             }));
         }
     }

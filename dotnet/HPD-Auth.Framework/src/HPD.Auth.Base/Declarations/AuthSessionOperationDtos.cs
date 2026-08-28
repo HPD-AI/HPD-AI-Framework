@@ -9,7 +9,6 @@ internal sealed record AuthSessionCreateV1
     [BaseField("auth.operation.session.create.tenantId"), JsonConverter(typeof(BaseCanonicalGuidJsonConverter))] public required Guid TenantId { get; init; }
     [BaseField("auth.operation.session.create.userId"), JsonConverter(typeof(BaseCanonicalGuidJsonConverter))] public required Guid UserId { get; init; }
     [BaseField("auth.operation.session.create.expectedUserRevision")] public required RevisionToken ExpectedUserRevision { get; init; }
-    [BaseField("auth.operation.session.create.expectedSecurityGeneration")] public required BaseModuleGeneration ExpectedSecurityGeneration { get; init; }
     [BaseField("auth.operation.session.create.aal", AllowedEnumLiterals = ["aal1", "aal2", "aal3"]), JsonConverter(typeof(BaseClosedEnumJsonConverter<AuthSessionAssuranceLevelV1>))] public required AuthSessionAssuranceLevelV1 Aal { get; init; }
     [BaseField("auth.operation.session.create.brokerSessionId", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable, MaximumUtf8Bytes = 256, StringNormalization = BaseStringNormalizationRequirement.RequireNfc)] public string? BrokerSessionId { get; init; }
     [BaseField("auth.operation.session.create.brokerUserId", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable, MaximumUtf8Bytes = 256, StringNormalization = BaseStringNormalizationRequirement.RequireNfc)] public string? BrokerUserId { get; init; }
@@ -46,7 +45,6 @@ internal sealed record AuthSessionTouchV1
     [BaseField("auth.operation.session.touch.userId"), JsonConverter(typeof(BaseCanonicalGuidJsonConverter))] public required Guid UserId { get; init; }
     [BaseField("auth.operation.session.touch.expectedUserRevision")] public required RevisionToken ExpectedUserRevision { get; init; }
     [BaseField("auth.operation.session.touch.expectedSessionRevision")] public required RevisionToken ExpectedSessionRevision { get; init; }
-    [BaseField("auth.operation.session.touch.expectedSecurityGeneration")] public required BaseModuleGeneration ExpectedSecurityGeneration { get; init; }
     [BaseField("auth.operation.session.touch.lastActiveAt"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset LastActiveAt { get; init; }
     [BaseField("auth.operation.session.touch.ipAddress", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable, MaximumUtf8Bytes = 45, StringNormalization = BaseStringNormalizationRequirement.RequireNfc)] public string? IpAddress { get; init; }
     [BaseField("auth.operation.session.touch.userAgent", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable, MaximumUtf8Bytes = 1024, StringNormalization = BaseStringNormalizationRequirement.RequireNfc)] public string? UserAgent { get; init; }

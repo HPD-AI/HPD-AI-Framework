@@ -37,7 +37,7 @@ internal static partial class AuthRecoveryCodesReplaceOperationV1
             .. Enumerable.Range(0, CohortSize).Select(PriorIdSentinelGuard),
             .. Enumerable.Range(0, CohortSize).Select(PriorInactiveGuard),
         ];
-        BaseModuleGuard[] authorityGuards = [SecurityGenerationMatches(), UserActive(), UserNotDeleted(), UserRevision(), UserTenant()];
+        BaseModuleGuard[] authorityGuards = [UserActive(), UserNotDeleted(), UserRevision(), UserTenant()];
         BaseModuleGuard[] setGuards =
         [
             BaseModuleMutationTemplateBuilder.Disjoint("hpd.auth.recovery-codes.replace.guard.setDisjoint", NewSet("disjointNew"), PriorSet("disjointPrior")),
@@ -64,7 +64,7 @@ internal static partial class AuthRecoveryCodesReplaceOperationV1
                     .. Enumerable.Range(0, CohortSize).Select(PriorCapture),
                     SecurityGeneration(), User(), UserGeneration(),
                 ],
-                Guards = [.. slotGuards, newCountGuard, .. remainingSlotGuards, authorityGuards[0], .. setGuards, .. authorityGuards.Skip(1)],
+                Guards = [.. slotGuards, newCountGuard, .. remainingSlotGuards, .. setGuards, .. authorityGuards],
                 Preconditions =
                 [
                     BaseModuleMutationTemplateBuilder.Precondition("hpd.auth.recovery-codes.replace.precondition.newCountPositive", "hpd.auth.recovery-codes.replace.guard.newCountPositive", "auth.recoveryCodes.empty"),
@@ -76,7 +76,7 @@ internal static partial class AuthRecoveryCodesReplaceOperationV1
                 {
                     Statements =
                     [
-                        Require("securityGeneration", "auth.credential.generationMismatch"), Require("userActive", "auth.user.inactive"),
+                        Require("userActive", "auth.user.inactive"),
                         Require("userNotDeleted", "auth.user.deleted"), Require("userRevision", "auth.user.revisionMismatch"), Require("userTenant", "auth.user.scopeMismatch"),
                         NewBranch(0), PriorBranch(0), PatchUser(),
                         BaseModuleMutationTemplateBuilder.IncrementGeneration("hpd.auth.recovery-codes.replace.statement.129.incrementSecurityGeneration", SecurityCapture, false),
@@ -130,7 +130,6 @@ internal static partial class AuthRecoveryCodesReplaceOperationV1
     private static BaseModuleGenerationCapture UserGeneration() => BaseModuleMutationTemplateBuilder.CaptureGeneration(UserGenerationCapture, "hpd.auth.user-state-generation.v1", GenerationKey("user"), BaseModuleGenerationAbsenceBehavior.RequireExisting);
     private static BaseModuleValue<BaseRecordId<AuthUserRecordV1>> UserId(string suffix) => BaseModuleMutationTemplateBuilder.RecordIdFromGuid<AuthUserRecordV1>($"hpd.auth.recovery-codes.replace.expression.userId.{suffix}", BaseModuleMutationTemplateBuilder.Request($"hpd.auth.recovery-codes.replace.expression.userIdSource.{suffix}", RequestProperties.UserId));
     private static BaseModuleGenerationKey GenerationKey(string suffix) => BaseModuleMutationTemplateBuilder.GenerationKeyFromGuid($"hpd.auth.recovery-codes.replace.expression.generationKey.{suffix}", BaseModuleMutationTemplateBuilder.Request($"hpd.auth.recovery-codes.replace.expression.generationUserId.{suffix}", RequestProperties.UserId));
-    private static BaseModuleGenerationGuard SecurityGenerationMatches() => BaseModuleMutationTemplateBuilder.Generation("hpd.auth.recovery-codes.replace.guard.securityGeneration", SecurityCapture, BaseModuleGenerationComparisonKind.MustEqual, BaseModuleMutationTemplateBuilder.Request("hpd.auth.recovery-codes.replace.expression.securityGeneration.000", RequestProperties.ExpectedSecurityGeneration));
     private static BaseModuleFieldEqualsGuard UserActive() => UserBoolean("userActive", AuthUserRecordV1.Fields.IsActive.ModuleMutation, AuthUserRecordV1.Fields.IsActive.ConstantAuthority, true);
     private static BaseModuleFieldEqualsGuard UserNotDeleted() => UserBoolean("userNotDeleted", AuthUserRecordV1.Fields.IsDeleted.ModuleMutation, AuthUserRecordV1.Fields.IsDeleted.ConstantAuthority, false);
     private static BaseModuleRevisionEqualsGuard UserRevision() => BaseModuleMutationTemplateBuilder.RevisionEquals("hpd.auth.recovery-codes.replace.guard.userRevision", UserCapture, BaseModuleMutationTemplateBuilder.Request("hpd.auth.recovery-codes.replace.expression.userRevision.000", RequestProperties.ExpectedUserRevision));
@@ -190,14 +189,14 @@ internal static partial class AuthRecoveryCodeConsumeOperationV1
         Template = new BaseModuleMutationTemplate
         {
             Captures = [Code(), SecurityGeneration(), User()],
-            Guards = [CodeDigest(), CodeRevision(), CodeTenant(), CodeUser(), SecurityGenerationMatches(), UserActive(), UserNotDeleted(), UserRevision(), UserTenant()], Preconditions = [],
+            Guards = [CodeDigest(), CodeRevision(), CodeTenant(), CodeUser(), UserActive(), UserNotDeleted(), UserRevision(), UserTenant()], Preconditions = [],
             Body = new BaseModuleMutationBlock
             {
                 Statements =
                 [
                     Require("codeDigest", "auth.recoveryCode.invalid"), Require("codeRevision", "auth.recoveryCode.invalid"),
                     Require("codeTenant", "auth.recoveryCode.invalid"), Require("codeUser", "auth.recoveryCode.invalid"),
-                    Require("securityGeneration", "auth.credential.generationMismatch"), Require("userActive", "auth.user.inactive"),
+                    Require("userActive", "auth.user.inactive"),
                     Require("userNotDeleted", "auth.user.deleted"), Require("userRevision", "auth.user.revisionMismatch"),
                     Require("userTenant", "auth.user.scopeMismatch"),
                     BaseModuleMutationTemplateBuilder.Delete<AuthRecoveryCodeRecordV1>("hpd.auth.recovery-code.consume.statement.000.deleteCode", CodeId("delete"), Req("deleteRevision", RequestProperties.ExpectedCodeRevision)),
@@ -220,7 +219,6 @@ internal static partial class AuthRecoveryCodeConsumeOperationV1
     private static BaseModuleRevisionEqualsGuard CodeRevision() => BaseModuleMutationTemplateBuilder.RevisionEquals("hpd.auth.recovery-code.consume.guard.codeRevision", CodeCapture, Req("codeRevision", RequestProperties.ExpectedCodeRevision));
     private static BaseModuleFieldEqualsGuard CodeTenant() => Tenant("codeTenant", CodeCapture, AuthRecoveryCodeRecordV1.Fields.TenantId.ModuleMutation);
     private static BaseModuleFieldEqualsGuard CodeUser() => BaseModuleMutationTemplateBuilder.FieldEquals("hpd.auth.recovery-code.consume.guard.codeUser", CodeCapture, AuthRecoveryCodeRecordV1.Fields.UserId.ModuleMutation, UserId("codeGuard"));
-    private static BaseModuleGenerationGuard SecurityGenerationMatches() => BaseModuleMutationTemplateBuilder.Generation("hpd.auth.recovery-code.consume.guard.securityGeneration", SecurityCapture, BaseModuleGenerationComparisonKind.MustEqual, Req("securityGeneration", RequestProperties.ExpectedSecurityGeneration));
     private static BaseModuleFieldEqualsGuard UserActive() => UserBoolean("userActive", AuthUserRecordV1.Fields.IsActive.ModuleMutation, AuthUserRecordV1.Fields.IsActive.ConstantAuthority, true);
     private static BaseModuleFieldEqualsGuard UserNotDeleted() => UserBoolean("userNotDeleted", AuthUserRecordV1.Fields.IsDeleted.ModuleMutation, AuthUserRecordV1.Fields.IsDeleted.ConstantAuthority, false);
     private static BaseModuleRevisionEqualsGuard UserRevision() => BaseModuleMutationTemplateBuilder.RevisionEquals("hpd.auth.recovery-code.consume.guard.userRevision", UserCapture, Req("userRevision", RequestProperties.ExpectedUserRevision));

@@ -33,7 +33,7 @@ public class TokenService_RefreshAsync_Tests
         {
             var user     = await ServiceProviderBuilder.CreateUserAsync(scope1);
             var svc      = scope1.ServiceProvider.GetRequiredService<ITokenService>();
-            var response = await svc.GenerateTokensAsync(user);
+            var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
             originalToken = response.RefreshToken;
         }
 
@@ -58,7 +58,7 @@ public class TokenService_RefreshAsync_Tests
         {
             var user     = await ServiceProviderBuilder.CreateUserAsync(scope1);
             var svc      = scope1.ServiceProvider.GetRequiredService<ITokenService>();
-            var response = await svc.GenerateTokensAsync(user);
+            var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
             originalToken = response.RefreshToken;
         }
 
@@ -88,7 +88,7 @@ public class TokenService_RefreshAsync_Tests
         {
             var user     = await ServiceProviderBuilder.CreateUserAsync(scope1);
             var svc      = scope1.ServiceProvider.GetRequiredService<ITokenService>();
-            var response = await svc.GenerateTokensAsync(user);
+            var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
             originalToken = response.RefreshToken;
         }
 
@@ -112,7 +112,7 @@ public class TokenService_RefreshAsync_Tests
         {
             var user     = await ServiceProviderBuilder.CreateUserAsync(scope1);
             var svc      = scope1.ServiceProvider.GetRequiredService<ITokenService>();
-            var response = await svc.GenerateTokensAsync(user);
+            var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
             originalToken = response.RefreshToken;
         }
 
@@ -158,7 +158,7 @@ public class TokenService_RefreshAsync_Tests
         {
             var user     = await ServiceProviderBuilder.CreateUserAsync(scope1);
             var svc      = scope1.ServiceProvider.GetRequiredService<ITokenService>();
-            var response = await svc.GenerateTokensAsync(user);
+            var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
             originalToken = response.RefreshToken;
         }
 
@@ -191,7 +191,7 @@ public class TokenService_RefreshAsync_Tests
         {
             var user     = await ServiceProviderBuilder.CreateUserAsync(scope1);
             var svc      = scope1.ServiceProvider.GetRequiredService<ITokenService>();
-            var response = await svc.GenerateTokensAsync(user);
+            var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
             originalToken = response.RefreshToken;
         }
 
@@ -223,7 +223,7 @@ public class TokenService_RefreshAsync_Tests
         {
             var user     = await ServiceProviderBuilder.CreateUserAsync(scope1);
             var svc      = scope1.ServiceProvider.GetRequiredService<ITokenService>();
-            var response = await svc.GenerateTokensAsync(user);
+            var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
             originalToken = response.RefreshToken;
         }
 
@@ -258,7 +258,7 @@ public class TokenService_RefreshAsync_Tests
             var user     = await ServiceProviderBuilder.CreateUserAsync(scope1);
             userId       = user.Id;
             var svc      = scope1.ServiceProvider.GetRequiredService<ITokenService>();
-            var response = await svc.GenerateTokensAsync(user);
+            var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
             originalToken = response.RefreshToken;
         }
 
@@ -293,7 +293,7 @@ public class TokenService_RefreshAsync_Tests
             var user     = await ServiceProviderBuilder.CreateUserAsync(scope1);
             userId       = user.Id;
             var svc      = scope1.ServiceProvider.GetRequiredService<ITokenService>();
-            var response = await svc.GenerateTokensAsync(user);
+            var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
             originalToken = response.RefreshToken;
         }
 
@@ -328,7 +328,7 @@ public class TokenService_RefreshAsync_Tests
             var user     = await ServiceProviderBuilder.CreateUserAsync(scope1);
             userId       = user.Id;
             var svc      = scope1.ServiceProvider.GetRequiredService<ITokenService>();
-            var response = await svc.GenerateTokensAsync(user);
+            var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
             originalToken = response.RefreshToken;
         }
 

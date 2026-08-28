@@ -47,6 +47,7 @@ internal sealed partial record AuthUsersInRoleReadV1
         [BaseReadField("auth.read.usersInRole.v1.row.lastLoginIp")] public string? LastLoginIp { get; init; }
         [BaseReadField("auth.read.usersInRole.v1.row.subscriptionTier")] public required string SubscriptionTier { get; init; }
         [BaseReadField("auth.read.usersInRole.v1.row.emailConfirmedAt"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public DateTimeOffset? EmailConfirmedAt { get; init; }
+        [BaseReadField("auth.read.usersInRole.v1.row.revision")] public required RevisionToken Revision { get; init; }
     }
 
     public static void Configure(BaseReadDefinitionBuilder<AuthUsersInRoleReadV1, Row> read)
@@ -88,6 +89,7 @@ internal sealed partial record AuthUsersInRoleReadV1
             .Project(Row.Fields.LastLoginIp, user.Field(AuthUserRecordV1.Fields.LastLoginIp))
             .Project(Row.Fields.SubscriptionTier, user.Field(AuthUserRecordV1.Fields.SubscriptionTier))
             .Project(Row.Fields.EmailConfirmedAt, user.Field(AuthUserRecordV1.Fields.EmailConfirmedAt))
+            .Project(Row.Fields.Revision, user.Revision)
             .OrderBy(user.Field(AuthUserRecordV1.Fields.NormalizedUserName), QuerySortDirection.Asc, QueryNullOrder.First)
             .OrderBy(user.Field(AuthUserRecordV1.Fields.Id))
             .Limits(200, 524_288, 12, 750);

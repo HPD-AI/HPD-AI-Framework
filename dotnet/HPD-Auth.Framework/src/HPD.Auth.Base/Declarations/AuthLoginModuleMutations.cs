@@ -41,14 +41,13 @@ internal static partial class AuthLoginLinkOperationV1
             Template = new BaseModuleMutationTemplate
             {
                 Captures = [IdentityRecord(), Login(), User(), UserGenerationRecord()],
-                Guards = [UserActive(), UserGeneration(), UserNotDeleted(), UserRevision(), UserTenant()],
+                Guards = [UserActive(), UserNotDeleted(), UserRevision(), UserTenant()],
                 Preconditions = [],
                 Body = new BaseModuleMutationBlock
                 {
                     Statements =
                     [
                         AuthModuleMutationDefaults.Require("hpd.auth.login.link", "userActive", "auth.user.inactive"),
-                        AuthModuleMutationDefaults.Require("hpd.auth.login.link", "userGeneration", "auth.user.generationMismatch"),
                         AuthModuleMutationDefaults.Require("hpd.auth.login.link", "userNotDeleted", "auth.user.deleted"),
                         AuthModuleMutationDefaults.Require("hpd.auth.login.link", "userRevision", "auth.user.revisionMismatch"),
                         AuthModuleMutationDefaults.Require("hpd.auth.login.link", "userTenant", "auth.user.scopeMismatch"),
@@ -99,9 +98,6 @@ internal static partial class AuthLoginLinkOperationV1
         BaseModuleGenerationAbsenceBehavior.RequireExisting);
     private static BaseModuleFieldEqualsGuard UserActive() => BooleanGuard(
         "userActive", AuthUserRecordV1.Fields.IsActive.ModuleMutation, AuthUserRecordV1.Fields.IsActive.ConstantAuthority, true);
-    private static BaseModuleGenerationGuard UserGeneration() => BaseModuleMutationTemplateBuilder.Generation(
-        "hpd.auth.login.link.guard.userGeneration", UserGenerationCapture, BaseModuleGenerationComparisonKind.MustEqual,
-        BaseModuleMutationTemplateBuilder.Request("hpd.auth.login.link.expression.expectedUserGeneration.000", RequestProperties.ExpectedUserGeneration));
     private static BaseModuleFieldEqualsGuard UserNotDeleted() => BooleanGuard(
         "userNotDeleted", AuthUserRecordV1.Fields.IsDeleted.ModuleMutation, AuthUserRecordV1.Fields.IsDeleted.ConstantAuthority, false);
     private static BaseModuleRevisionEqualsGuard UserRevision() => BaseModuleMutationTemplateBuilder.RevisionEquals(
@@ -180,7 +176,7 @@ internal static partial class AuthLoginUnlinkOperationV1
                 Guards =
                 [
                     IdentityProvider(), IdentityRevision(), IdentityTenant(), IdentityUser(), LoginRevision(), LoginTenant(),
-                    LoginUser(), UserGeneration(), UserRevision(), UserTenant(),
+                    LoginUser(), UserRevision(), UserTenant(),
                 ],
                 Preconditions = [],
                 Body = new BaseModuleMutationBlock
@@ -194,7 +190,6 @@ internal static partial class AuthLoginUnlinkOperationV1
                         AuthModuleMutationDefaults.Require("hpd.auth.login.unlink", "loginRevision", "auth.login.revisionMismatch"),
                         AuthModuleMutationDefaults.Require("hpd.auth.login.unlink", "loginTenant", "auth.login.scopeMismatch"),
                         AuthModuleMutationDefaults.Require("hpd.auth.login.unlink", "loginUser", "auth.login.scopeMismatch"),
-                        AuthModuleMutationDefaults.Require("hpd.auth.login.unlink", "userGeneration", "auth.user.generationMismatch"),
                         AuthModuleMutationDefaults.Require("hpd.auth.login.unlink", "userRevision", "auth.user.revisionMismatch"),
                         AuthModuleMutationDefaults.Require("hpd.auth.login.unlink", "userTenant", "auth.user.scopeMismatch"),
                         BaseModuleMutationTemplateBuilder.Delete(
@@ -261,9 +256,6 @@ internal static partial class AuthLoginUnlinkOperationV1
         "loginTenant", LoginCapture, AuthUserLoginRecordV1.Fields.TenantId.ModuleMutation);
     private static BaseModuleFieldEqualsGuard LoginUser() => BaseModuleMutationTemplateBuilder.FieldEquals(
         "hpd.auth.login.unlink.guard.loginUser", LoginCapture, AuthUserLoginRecordV1.Fields.UserId.ModuleMutation, UserId("loginGuard"));
-    private static BaseModuleGenerationGuard UserGeneration() => BaseModuleMutationTemplateBuilder.Generation(
-        "hpd.auth.login.unlink.guard.userGeneration", UserGenerationCapture, BaseModuleGenerationComparisonKind.MustEqual,
-        BaseModuleMutationTemplateBuilder.Request("hpd.auth.login.unlink.expression.expectedUserGeneration.000", RequestProperties.ExpectedUserGeneration));
     private static BaseModuleRevisionEqualsGuard UserRevision() => RevisionGuard(
         "userRevision", UserCapture, RequestProperties.ExpectedUserRevision);
     private static BaseModuleFieldEqualsGuard UserTenant() => TenantGuard(

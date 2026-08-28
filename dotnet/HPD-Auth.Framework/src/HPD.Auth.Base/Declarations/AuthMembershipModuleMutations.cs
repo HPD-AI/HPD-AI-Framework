@@ -18,9 +18,7 @@ internal static partial class AuthMembershipAddOperationV1
     private const string MembershipCapture = "hpd.auth.membership.add.capture.membership";
     private const string MembershipGenerationCapture = "hpd.auth.membership.add.capture.membershipGen";
     private const string RoleCapture = "hpd.auth.membership.add.capture.role";
-    private const string RoleGenerationCapture = "hpd.auth.membership.add.capture.roleGen";
     private const string UserCapture = "hpd.auth.membership.add.capture.user";
-    private const string UserGenerationCapture = "hpd.auth.membership.add.capture.userGen";
     private const string CreateStatement = "hpd.auth.membership.add.statement.000.createMembership";
 
     internal static BaseRegisteredModuleMutationDefinition Definition { get; } = BaseModuleMutationContract.Seal(
@@ -38,24 +36,22 @@ internal static partial class AuthMembershipAddOperationV1
                 new BaseModuleSystemSourceGrant { CollectionId = AuthUserRoleRecordV1.Collection.Id, GrantId = "auth.identity.mutate" },
                 new BaseModuleSystemSourceGrant { CollectionId = AuthUserRecordV1.Collection.Id, GrantId = "auth.identity.mutate" },
             ],
-            GenerationCellIds = ["hpd.auth.membership-generation.v1", "hpd.auth.role-state-generation.v1", "hpd.auth.user-state-generation.v1"],
+            GenerationCellIds = ["hpd.auth.membership-generation.v1"],
             ImportedSubjectContractIds = [],
             Template = new BaseModuleMutationTemplate
             {
-                Captures = [Membership(), MembershipGeneration(), Role(), RoleGenerationRecord(), User(), UserGenerationRecord()],
-                Guards = [RoleActive(), RoleGeneration(), RoleNotDeleted(), RoleRevision(), RoleTenant(), UserActive(), UserGeneration(), UserNotDeleted(), UserRevision(), UserTenant()],
+                Captures = [Membership(), MembershipGeneration(), Role(), User()],
+                Guards = [RoleActive(), RoleNotDeleted(), RoleRevision(), RoleTenant(), UserActive(), UserNotDeleted(), UserRevision(), UserTenant()],
                 Preconditions = [],
                 Body = new BaseModuleMutationBlock
                 {
                     Statements =
                     [
                         AuthModuleMutationDefaults.Require("hpd.auth.membership.add", "roleActive", "auth.role.inactive"),
-                        AuthModuleMutationDefaults.Require("hpd.auth.membership.add", "roleGeneration", "auth.role.generationMismatch"),
                         AuthModuleMutationDefaults.Require("hpd.auth.membership.add", "roleNotDeleted", "auth.role.deleted"),
                         AuthModuleMutationDefaults.Require("hpd.auth.membership.add", "roleRevision", "auth.role.revisionMismatch"),
                         AuthModuleMutationDefaults.Require("hpd.auth.membership.add", "roleTenant", "auth.role.scopeMismatch"),
                         AuthModuleMutationDefaults.Require("hpd.auth.membership.add", "userActive", "auth.user.inactive"),
-                        AuthModuleMutationDefaults.Require("hpd.auth.membership.add", "userGeneration", "auth.user.generationMismatch"),
                         AuthModuleMutationDefaults.Require("hpd.auth.membership.add", "userNotDeleted", "auth.user.deleted"),
                         AuthModuleMutationDefaults.Require("hpd.auth.membership.add", "userRevision", "auth.user.revisionMismatch"),
                         AuthModuleMutationDefaults.Require("hpd.auth.membership.add", "userTenant", "auth.user.scopeMismatch"),
@@ -109,22 +105,12 @@ internal static partial class AuthMembershipAddOperationV1
         BaseModuleGenerationAbsenceBehavior.AllowEither);
     private static BaseModuleRecordCapture Role() => BaseModuleMutationTemplateBuilder.CaptureRecord(
         RoleCapture, RoleId("capture"), BaseModuleCapturePresence.RequirePresent);
-    private static BaseModuleGenerationCapture RoleGenerationRecord() => BaseModuleMutationTemplateBuilder.CaptureGeneration(
-        RoleGenerationCapture, "hpd.auth.role-state-generation.v1", GenerationKey(RequestProperties.RoleId, "role"),
-        BaseModuleGenerationAbsenceBehavior.RequireExisting);
     private static BaseModuleRecordCapture User() => BaseModuleMutationTemplateBuilder.CaptureRecord(
         UserCapture, UserId("capture"), BaseModuleCapturePresence.RequirePresent);
-    private static BaseModuleGenerationCapture UserGenerationRecord() => BaseModuleMutationTemplateBuilder.CaptureGeneration(
-        UserGenerationCapture, "hpd.auth.user-state-generation.v1", GenerationKey(RequestProperties.UserId, "user"),
-        BaseModuleGenerationAbsenceBehavior.RequireExisting);
 
     private static BaseModuleFieldEqualsGuard RoleActive() => BooleanGuard(
         "hpd.auth.membership.add.guard.roleActive", RoleCapture, AuthRoleRecordV1.Fields.IsActive.ModuleMutation,
         AuthRoleRecordV1.Fields.IsActive.ConstantAuthority, true);
-    private static BaseModuleGenerationGuard RoleGeneration() => BaseModuleMutationTemplateBuilder.Generation(
-        "hpd.auth.membership.add.guard.roleGeneration", RoleGenerationCapture, BaseModuleGenerationComparisonKind.MustEqual,
-        BaseModuleMutationTemplateBuilder.Request(
-            "hpd.auth.membership.add.expression.expectedRoleGeneration.000", RequestProperties.ExpectedRoleGeneration));
     private static BaseModuleFieldEqualsGuard RoleNotDeleted() => BooleanGuard(
         "hpd.auth.membership.add.guard.roleNotDeleted", RoleCapture, AuthRoleRecordV1.Fields.IsDeleted.ModuleMutation,
         AuthRoleRecordV1.Fields.IsDeleted.ConstantAuthority, false);
@@ -138,10 +124,6 @@ internal static partial class AuthMembershipAddOperationV1
     private static BaseModuleFieldEqualsGuard UserActive() => BooleanGuard(
         "hpd.auth.membership.add.guard.userActive", UserCapture, AuthUserRecordV1.Fields.IsActive.ModuleMutation,
         AuthUserRecordV1.Fields.IsActive.ConstantAuthority, true);
-    private static BaseModuleGenerationGuard UserGeneration() => BaseModuleMutationTemplateBuilder.Generation(
-        "hpd.auth.membership.add.guard.userGeneration", UserGenerationCapture, BaseModuleGenerationComparisonKind.MustEqual,
-        BaseModuleMutationTemplateBuilder.Request(
-            "hpd.auth.membership.add.expression.expectedUserGeneration.000", RequestProperties.ExpectedUserGeneration));
     private static BaseModuleFieldEqualsGuard UserNotDeleted() => BooleanGuard(
         "hpd.auth.membership.add.guard.userNotDeleted", UserCapture, AuthUserRecordV1.Fields.IsDeleted.ModuleMutation,
         AuthUserRecordV1.Fields.IsDeleted.ConstantAuthority, false);
@@ -185,9 +167,7 @@ internal static partial class AuthMembershipRemoveOperationV1
     private const string MembershipCapture = "hpd.auth.membership.remove.capture.membership";
     private const string MembershipGenerationCapture = "hpd.auth.membership.remove.capture.membershipGen";
     private const string RoleCapture = "hpd.auth.membership.remove.capture.role";
-    private const string RoleGenerationCapture = "hpd.auth.membership.remove.capture.roleGen";
     private const string UserCapture = "hpd.auth.membership.remove.capture.user";
-    private const string UserGenerationCapture = "hpd.auth.membership.remove.capture.userGen";
 
     internal static BaseRegisteredModuleMutationDefinition Definition { get; } = BaseModuleMutationContract.Seal(
         new BaseRegisteredModuleMutationDefinition
@@ -204,34 +184,31 @@ internal static partial class AuthMembershipRemoveOperationV1
                 new BaseModuleSystemSourceGrant { CollectionId = AuthUserRoleRecordV1.Collection.Id, GrantId = "auth.identity.mutate" },
                 new BaseModuleSystemSourceGrant { CollectionId = AuthUserRecordV1.Collection.Id, GrantId = "auth.identity.mutate" },
             ],
-            GenerationCellIds = ["hpd.auth.membership-generation.v1", "hpd.auth.role-state-generation.v1", "hpd.auth.user-state-generation.v1"],
+            GenerationCellIds = ["hpd.auth.membership-generation.v1"],
             ImportedSubjectContractIds = [],
             Template = new BaseModuleMutationTemplate
             {
-                Captures = [Membership(), MembershipGenerationRecord(), Role(), RoleGenerationRecord(), User(), UserGenerationRecord()],
+                Captures = [Membership(), MembershipGenerationRecord(), Role(), User()],
                 Guards =
                 [
-                    MembershipGeneration(), MembershipRevision(), MembershipRole(), MembershipTenant(), MembershipUser(),
-                    RoleActive(), RoleGeneration(), RoleNotDeleted(), RoleRevision(), RoleTenant(),
-                    UserActive(), UserGeneration(), UserNotDeleted(), UserRevision(), UserTenant(),
+                    MembershipRevision(), MembershipRole(), MembershipTenant(), MembershipUser(),
+                    RoleActive(), RoleNotDeleted(), RoleRevision(), RoleTenant(),
+                    UserActive(), UserNotDeleted(), UserRevision(), UserTenant(),
                 ],
                 Preconditions = [],
                 Body = new BaseModuleMutationBlock
                 {
                     Statements =
                     [
-                        AuthModuleMutationDefaults.Require("hpd.auth.membership.remove", "membershipGeneration", "auth.membership.generationMismatch"),
                         AuthModuleMutationDefaults.Require("hpd.auth.membership.remove", "membershipRevision", "auth.membership.revisionMismatch"),
                         AuthModuleMutationDefaults.Require("hpd.auth.membership.remove", "membershipRole", "auth.membership.scopeMismatch"),
                         AuthModuleMutationDefaults.Require("hpd.auth.membership.remove", "membershipTenant", "auth.membership.scopeMismatch"),
                         AuthModuleMutationDefaults.Require("hpd.auth.membership.remove", "membershipUser", "auth.membership.scopeMismatch"),
                         AuthModuleMutationDefaults.Require("hpd.auth.membership.remove", "roleActive", "auth.role.inactive"),
-                        AuthModuleMutationDefaults.Require("hpd.auth.membership.remove", "roleGeneration", "auth.role.generationMismatch"),
                         AuthModuleMutationDefaults.Require("hpd.auth.membership.remove", "roleNotDeleted", "auth.role.deleted"),
                         AuthModuleMutationDefaults.Require("hpd.auth.membership.remove", "roleRevision", "auth.role.revisionMismatch"),
                         AuthModuleMutationDefaults.Require("hpd.auth.membership.remove", "roleTenant", "auth.role.scopeMismatch"),
                         AuthModuleMutationDefaults.Require("hpd.auth.membership.remove", "userActive", "auth.user.inactive"),
-                        AuthModuleMutationDefaults.Require("hpd.auth.membership.remove", "userGeneration", "auth.user.generationMismatch"),
                         AuthModuleMutationDefaults.Require("hpd.auth.membership.remove", "userNotDeleted", "auth.user.deleted"),
                         AuthModuleMutationDefaults.Require("hpd.auth.membership.remove", "userRevision", "auth.user.revisionMismatch"),
                         AuthModuleMutationDefaults.Require("hpd.auth.membership.remove", "userTenant", "auth.user.scopeMismatch"),
@@ -276,15 +253,8 @@ internal static partial class AuthMembershipRemoveOperationV1
         MembershipGenerationCapture, "hpd.auth.membership-generation.v1", GenerationKey(RequestProperties.UserId, "membership"), BaseModuleGenerationAbsenceBehavior.RequireExisting);
     private static BaseModuleRecordCapture Role() => BaseModuleMutationTemplateBuilder.CaptureRecord(
         RoleCapture, RoleId("capture"), BaseModuleCapturePresence.RequirePresent);
-    private static BaseModuleGenerationCapture RoleGenerationRecord() => BaseModuleMutationTemplateBuilder.CaptureGeneration(
-        RoleGenerationCapture, "hpd.auth.role-state-generation.v1", GenerationKey(RequestProperties.RoleId, "role"), BaseModuleGenerationAbsenceBehavior.RequireExisting);
     private static BaseModuleRecordCapture User() => BaseModuleMutationTemplateBuilder.CaptureRecord(
         UserCapture, UserId("capture"), BaseModuleCapturePresence.RequirePresent);
-    private static BaseModuleGenerationCapture UserGenerationRecord() => BaseModuleMutationTemplateBuilder.CaptureGeneration(
-        UserGenerationCapture, "hpd.auth.user-state-generation.v1", GenerationKey(RequestProperties.UserId, "user"), BaseModuleGenerationAbsenceBehavior.RequireExisting);
-
-    private static BaseModuleGenerationGuard MembershipGeneration() => GenerationGuard(
-        "membershipGeneration", MembershipGenerationCapture, RequestProperties.ExpectedMembershipGeneration);
     private static BaseModuleRevisionEqualsGuard MembershipRevision() => BaseModuleMutationTemplateBuilder.RevisionEquals(
         "hpd.auth.membership.remove.guard.membershipRevision", MembershipCapture,
         BaseModuleMutationTemplateBuilder.Request("hpd.auth.membership.remove.expression.membershipRevision.000", RequestProperties.ExpectedMembershipRevision));
@@ -297,8 +267,6 @@ internal static partial class AuthMembershipRemoveOperationV1
         "hpd.auth.membership.remove.guard.membershipUser", MembershipCapture, AuthUserRoleRecordV1.Fields.UserId.ModuleMutation, UserId("guard"));
     private static BaseModuleFieldEqualsGuard RoleActive() => BooleanGuard(
         "roleActive", RoleCapture, AuthRoleRecordV1.Fields.IsActive.ModuleMutation, AuthRoleRecordV1.Fields.IsActive.ConstantAuthority, true);
-    private static BaseModuleGenerationGuard RoleGeneration() => GenerationGuard(
-        "roleGeneration", RoleGenerationCapture, RequestProperties.ExpectedRoleGeneration);
     private static BaseModuleFieldEqualsGuard RoleNotDeleted() => BooleanGuard(
         "roleNotDeleted", RoleCapture, AuthRoleRecordV1.Fields.IsDeleted.ModuleMutation, AuthRoleRecordV1.Fields.IsDeleted.ConstantAuthority, false);
     private static BaseModuleRevisionEqualsGuard RoleRevision() => RevisionGuard(
@@ -307,8 +275,6 @@ internal static partial class AuthMembershipRemoveOperationV1
         "roleTenant", RoleCapture, AuthRoleRecordV1.Fields.TenantId.ModuleMutation);
     private static BaseModuleFieldEqualsGuard UserActive() => BooleanGuard(
         "userActive", UserCapture, AuthUserRecordV1.Fields.IsActive.ModuleMutation, AuthUserRecordV1.Fields.IsActive.ConstantAuthority, true);
-    private static BaseModuleGenerationGuard UserGeneration() => GenerationGuard(
-        "userGeneration", UserGenerationCapture, RequestProperties.ExpectedUserGeneration);
     private static BaseModuleFieldEqualsGuard UserNotDeleted() => BooleanGuard(
         "userNotDeleted", UserCapture, AuthUserRecordV1.Fields.IsDeleted.ModuleMutation, AuthUserRecordV1.Fields.IsDeleted.ConstantAuthority, false);
     private static BaseModuleRevisionEqualsGuard UserRevision() => RevisionGuard(
@@ -316,10 +282,6 @@ internal static partial class AuthMembershipRemoveOperationV1
     private static BaseModuleFieldEqualsGuard UserTenant() => TenantGuard(
         "userTenant", UserCapture, AuthUserRecordV1.Fields.TenantId.ModuleMutation);
 
-    private static BaseModuleGenerationGuard GenerationGuard(string name, string capture,
-        BaseModuleRequestProperty<AuthMembershipRemoveV1, BaseModuleGeneration> expected) => BaseModuleMutationTemplateBuilder.Generation(
-        $"hpd.auth.membership.remove.guard.{name}", capture, BaseModuleGenerationComparisonKind.MustEqual,
-        BaseModuleMutationTemplateBuilder.Request($"hpd.auth.membership.remove.expression.{name}.000", expected));
     private static BaseModuleRevisionEqualsGuard RevisionGuard(string name, string capture,
         BaseModuleRequestProperty<AuthMembershipRemoveV1, RevisionToken> expected) => BaseModuleMutationTemplateBuilder.RevisionEquals(
         $"hpd.auth.membership.remove.guard.{name}", capture,

@@ -1114,6 +1114,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
                 FieldDefinition? field = collection.Fields?.SingleOrDefault(value => string.Equals(value.Id, property.StablePropertyId, StringComparison.Ordinal));
                 if (field?.Relation is not { OwningSide: BaseRelationOwningSide.Source } relation) continue;
                 BaseModuleProgramValue target = evaluator.Evaluate(property.Value);
+                if (target.Value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined) continue;
                 IEnumerable<string> ids = target.Value.ValueKind == JsonValueKind.Array
                     ? target.Value.EnumerateArray().Select(static value => value.GetString() ?? throw new InvalidOperationException()).ToArray()
                     : [target.Value.GetString() ?? throw new InvalidOperationException()];

@@ -97,7 +97,7 @@ internal sealed class BaseSubjectRetirementRegistry
     internal static BaseSubjectRetirementPolicy NormalizePolicy(BaseSubjectRetirementPolicy value)
     {
         ArgumentNullException.ThrowIfNull(value); ValidateId(value.ContractId); ValidateChecksum(value.PolicyChecksum);
-        if (value.ContractVersion < 1 || !Enum.IsDefined(value.TimeoutBehavior)
+        if (value.ContractVersion < 1 || !Enum.IsDefined(value.TimeoutBehavior) || !Enum.IsDefined(value.FinalPurgeExecutionMode)
             || value.CoordinationWindow < TimeSpan.FromMinutes(1) || value.CoordinationWindow > TimeSpan.FromDays(30)
             || value.PurgeRetention is null || value.PurgeRetention.MinimumTombstoneAge < TimeSpan.Zero || value.PurgeRetention.MinimumTombstoneAge > TimeSpan.FromDays(365)
             || value.AcceptedConsumers.IsDefault || value.AcceptedConsumers.Length > 32)
@@ -126,6 +126,7 @@ internal sealed class BaseSubjectRetirementRegistry
         Write(writer, value.AcceptedConsumers.Length);
         foreach (BaseAcceptedRetirementConsumer item in value.AcceptedConsumers) Write(writer, item.RetirementConsumerChecksum);
         Write(writer, value.CoordinationWindow.Ticks); Write(writer, (int)value.TimeoutBehavior); Write(writer, value.PurgeRetention.MinimumTombstoneAge.Ticks);
+        Write(writer, (int)value.FinalPurgeExecutionMode);
         return Convert.ToHexStringLower(SHA256.HashData(writer.WrittenSpan));
     }
 

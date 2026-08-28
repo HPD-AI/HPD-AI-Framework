@@ -2,6 +2,7 @@ using HPD.Auth.Audit.Extensions;
 using HPD.Auth.Authentication.Extensions;
 using HPD.Auth.Core.Entities;
 using HPD.Auth.Extensions;
+using HPD.Auth.Testing;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.TestHost;
@@ -53,7 +54,7 @@ internal sealed class AuthWebApplicationFactory : IAsyncDisposable
                 o.Jwt.Secret = "SuperSecretKeyForTestingPurposesOnly1234567890!";
                 o.Jwt.AccessTokenLifetime = TimeSpan.FromHours(1);
             })
-            .UseInMemorySqliteForTests()
+            .UseBaseTestHost(appName)
             .AddAuthentication()
             .AddAudit();
 
@@ -62,7 +63,7 @@ internal sealed class AuthWebApplicationFactory : IAsyncDisposable
 
         _app = builder.Build();
 
-        _app.Services.InitializeHPDAuthDevelopmentDatabaseAsync().GetAwaiter().GetResult();
+        _app.Services.InitializeHPDAuthBaseTestHostAsync(appName).GetAwaiter().GetResult();
 
         _app.UseHPDAuth();
         _app.UseAuthEventObserver();

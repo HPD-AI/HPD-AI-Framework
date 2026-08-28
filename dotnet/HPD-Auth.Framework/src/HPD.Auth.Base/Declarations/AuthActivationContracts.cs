@@ -14,8 +14,12 @@ internal sealed record AuthUserCleanupInputV1
     [BaseField("auth.activation.cleanup.user.incarnation")] public required BaseSubjectIncarnation Incarnation { get; init; }
     [BaseField("auth.activation.cleanup.user.tombstoneSequence", MinimumInt64 = 1, HasMinimumInt64 = true)] public required long TombstoneSequence { get; init; }
     [BaseField("auth.activation.cleanup.user.tombstoneRevision", MaximumUtf8Bytes = 256)] public required string TombstoneRevision { get; init; }
-    [BaseField("auth.activation.cleanup.user.barrierId", MaximumUtf8Bytes = 128)] public required string BarrierId { get; init; }
-    [BaseField("auth.activation.cleanup.user.barrierChecksum", MinimumUtf8Bytes = 64, MaximumUtf8Bytes = 64)] public required string BarrierChecksum { get; init; }
+    [BaseField("auth.activation.cleanup.user.barrierId", Presence = BaseFieldPresence.Optional,
+        Nullability = BaseFieldNullability.NonNullable, MaximumUtf8Bytes = 128)]
+    public string? BarrierId { get; init; }
+    [BaseField("auth.activation.cleanup.user.barrierChecksum", Presence = BaseFieldPresence.Optional,
+        Nullability = BaseFieldNullability.NonNullable, MinimumUtf8Bytes = 64, MaximumUtf8Bytes = 64)]
+    public string? BarrierChecksum { get; init; }
     [BaseField("auth.activation.cleanup.user.workflowVersion", MinimumInt32 = 1, HasMinimumInt32 = true, MaximumInt32 = 1, HasMaximumInt32 = true)] public required int WorkflowVersion { get; init; }
 }
 
@@ -30,8 +34,12 @@ internal sealed record AuthRoleCleanupInputV1
     [BaseField("auth.activation.cleanup.role.incarnation")] public required BaseSubjectIncarnation Incarnation { get; init; }
     [BaseField("auth.activation.cleanup.role.tombstoneSequence", MinimumInt64 = 1, HasMinimumInt64 = true)] public required long TombstoneSequence { get; init; }
     [BaseField("auth.activation.cleanup.role.tombstoneRevision", MaximumUtf8Bytes = 256)] public required string TombstoneRevision { get; init; }
-    [BaseField("auth.activation.cleanup.role.barrierId", MaximumUtf8Bytes = 128)] public required string BarrierId { get; init; }
-    [BaseField("auth.activation.cleanup.role.barrierChecksum", MinimumUtf8Bytes = 64, MaximumUtf8Bytes = 64)] public required string BarrierChecksum { get; init; }
+    [BaseField("auth.activation.cleanup.role.barrierId", Presence = BaseFieldPresence.Optional,
+        Nullability = BaseFieldNullability.NonNullable, MaximumUtf8Bytes = 128)]
+    public string? BarrierId { get; init; }
+    [BaseField("auth.activation.cleanup.role.barrierChecksum", Presence = BaseFieldPresence.Optional,
+        Nullability = BaseFieldNullability.NonNullable, MinimumUtf8Bytes = 64, MaximumUtf8Bytes = 64)]
+    public string? BarrierChecksum { get; init; }
     [BaseField("auth.activation.cleanup.role.workflowVersion", MinimumInt32 = 1, HasMinimumInt32 = true, MaximumInt32 = 1, HasMaximumInt32 = true)] public required int WorkflowVersion { get; init; }
 }
 

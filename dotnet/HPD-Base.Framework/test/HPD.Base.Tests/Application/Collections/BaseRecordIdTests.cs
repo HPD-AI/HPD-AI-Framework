@@ -205,6 +205,40 @@ public sealed class BaseRecordIdTests
     }
 
     [Fact]
+    public async Task TypedRecordIdentifierIsAcceptedAsAQueryLiteral()
+    {
+        var services = new ServiceCollection().AddLogging();
+        services.AddHPDBase(builder => builder
+            .AddTestPolicyAuthority<AllowPolicyEvaluator>()
+            .AddCollection(TypedIdOwner.Collection)
+            .AddCollection(TypedIdDocument.Collection));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+        var principal = new PrincipalContext
+        {
+            AuthenticationState = PrincipalAuthenticationState.Authenticated,
+            SubjectId = "typed-query-user",
+        };
+        BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(principal);
+        BaseRecordId<TypedIdOwner> ownerId = BaseRecordId<TypedIdOwner>.Create("owner_1");
+        (await session.Collection(TypedIdOwner.Collection).CreateAsync(
+            ownerId.Value,
+            new TypedIdOwner { Name = "Owner" })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdOwner>>>();
+        (await session.Collection(TypedIdDocument.Collection).CreateAsync(
+            RecordId.Create("document_1"),
+            new TypedIdDocument { OwnerId = ownerId })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdDocument>>>();
+
+        BaseResult<BaseRecord<TypedIdDocument>[]> result = await session
+            .Collection(TypedIdDocument.Collection)
+            .Query()
+            .Where(TypedIdDocument.Fields.OwnerId.Equal(ownerId))
+            .ToArrayAsync(10);
+
+        result.Should().BeOfType<BaseSuccess<BaseRecord<TypedIdDocument>[]>>();
+        result.RequireValue().Should().ContainSingle(record => record.Id.Value == "document_1");
+    }
+
+    [Fact]
     public async Task InMemoryBatchesMultipleRootsAndExpandsNestedRelationsBeforeFieldSelection()
     {
         var services = new ServiceCollection().AddLogging();

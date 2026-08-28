@@ -141,6 +141,8 @@ public sealed record BaseSubjectRetirementPolicy
     public required BaseSubjectRetirementTimeoutBehavior TimeoutBehavior { get; init; }
 /// <summary>Defines PurgeRetention for coordinated subject retirement.</summary>
     public required BaseSubjectPurgeRetentionPolicy PurgeRetention { get; init; }
+    /// <summary>Gets whether final purge requires an activation-owned same-transaction guard.</summary>
+    public required BaseSubjectFinalExecutionMode FinalPurgeExecutionMode { get; init; }
 /// <summary>Defines PolicyChecksum for coordinated subject retirement.</summary>
     public required string PolicyChecksum { get; init; }
 }
@@ -1330,6 +1332,8 @@ public sealed record BaseSubjectRetirementTerminalReceipt
 /// <summary>Defines certified provider bounds for coordinated retirement.</summary>
 public sealed record BaseSubjectRetirementCapability
 {
+    /// <summary>Gets whether final purge can validate an activation guard in the same transaction.</summary>
+    public required bool ActivationGuardedFinalPurgeSupported { get; init; }
 /// <summary>Defines TransactionalBarrierSupported for coordinated subject retirement.</summary>
     public required bool TransactionalBarrierSupported { get; init; }
 /// <summary>Defines TransactionalFinalPurgeSupported for coordinated subject retirement.</summary>
@@ -1376,6 +1380,7 @@ public static class BaseSubjectRetirementProviderCapabilities
 /// <summary>Defines BuiltIn for coordinated subject retirement.</summary>
     public static BaseSubjectRetirementCapability BuiltIn { get; } = new()
     {
+        ActivationGuardedFinalPurgeSupported = true,
         TransactionalBarrierSupported = true,
         TransactionalFinalPurgeSupported = true,
         MaximumRequiredConsumersPerContract = 32,

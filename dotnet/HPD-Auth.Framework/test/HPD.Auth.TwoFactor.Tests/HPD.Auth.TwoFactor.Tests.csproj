@@ -30,6 +30,7 @@
     <ProjectReference Include="..\..\src\HPD.Auth.TwoFactor\HPD.Auth.TwoFactor.csproj" />
     <ProjectReference Include="..\..\src\HPD.Auth.Authentication\HPD.Auth.Authentication.csproj" />
     <ProjectReference Include="..\..\src\HPD.Auth.Audit\HPD.Auth.Audit.csproj" />
+    <ProjectReference Include="..\HPD.Auth.Testing\HPD.Auth.Testing.csproj" />
   </ItemGroup>
 
 </Project>

@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\HPD.Auth.Admin\HPD.Auth.Admin.csproj" />
+    <ProjectReference Include="..\HPD.Auth.Testing\HPD.Auth.Testing.csproj" />
   </ItemGroup>
 
 </Project>

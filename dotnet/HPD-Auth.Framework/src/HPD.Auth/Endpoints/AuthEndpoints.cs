@@ -247,7 +247,10 @@ public static class AuthEndpoints
         }
 
         // Email confirmation not required — issue tokens immediately.
-        var tokenResponse = await tokenService.GenerateTokensAsync(user, ct);
+        var tokenResponse = await tokenService.GenerateTokensAsync(
+            user,
+            TokenIssuanceIdentityHttp.Create(httpContext, "auth.signup"),
+            ct);
         return AuthEndpointJson.Ok(tokenResponse, HPDAuthJsonSerializerContext.Default.TokenResponse);
     }
 

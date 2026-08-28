@@ -173,7 +173,7 @@ internal static class BaseSubjectContractGraph
     internal static BaseExportedSubjectDefinition Normalize(BaseExportedSubjectDefinition value)
     {
         ArgumentNullException.ThrowIfNull(value);
-        if (value.ValidationPlan is null)
+        if (value.ValidationPlan is null || value.TombstoneMetadata?.Instant is null || value.TombstoneMetadata.Sequence is null)
             throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
         try
         {
@@ -189,9 +189,20 @@ internal static class BaseSubjectContractGraph
             throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid, exception);
         }
         if (value.Version < 1 || !Enum.IsDefined(value.SubjectIdKind) || !Enum.IsDefined(value.Scope) ||
+            !Enum.IsDefined(value.FinalRetirementExecutionMode) ||
             value.MaximumSubjectIdUtf8Bytes is < 1 or > 256 || value.Audiences is null || value.Audiences.Length == 0 ||
             value.Audiences.Any(static audience => !Enum.IsDefined(audience)) ||
             value.Audiences.Distinct().Count() != value.Audiences.Length)
+            throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+
+        BaseSubjectTombstoneInstantBinding instant = NormalizeInstant(value.TombstoneMetadata.Instant);
+        BaseSubjectTombstoneSequenceBinding sequence = NormalizeSequence(value.TombstoneMetadata.Sequence);
+        string? activeFieldId = value.ValidationPlan.Active?.FieldId;
+        string? scopeFieldId = value.ValidationPlan.Scope?.FieldId;
+        string?[] reserved = [value.TombstoneFieldId, activeFieldId, scopeFieldId];
+        if (instant.FieldId is not null && reserved.Contains(instant.FieldId, StringComparer.Ordinal)
+            || sequence.FieldId is not null && (reserved.Contains(sequence.FieldId, StringComparer.Ordinal)
+                || string.Equals(sequence.FieldId, instant.FieldId, StringComparison.Ordinal)))
             throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
 
         BaseSubjectValidationPlanDefinition initialPlan = value.ValidationPlan with
@@ -207,6 +218,7 @@ internal static class BaseSubjectContractGraph
             AcquisitionGrantId = Copy(value.AcquisitionGrantId), ValidationGrantId = Copy(value.ValidationGrantId),
             AdministrationGrantId = Copy(value.AdministrationGrantId),
             TombstoneFieldId = Copy(value.TombstoneFieldId),
+            TombstoneMetadata = new BaseSubjectTombstoneMetadataDefinition { Instant = instant, Sequence = sequence },
             Audiences = [.. value.Audiences.Order()], ValidationPlan = normalizedPlan,
         };
         string checksum = Checksum(initial);
@@ -222,6 +234,9 @@ internal static class BaseSubjectContractGraph
         Write(writer, value.OwningModuleId); Write(writer, (int)value.SubjectIdKind); Write(writer, value.MaximumSubjectIdUtf8Bytes);
         Write(writer, (int)value.Scope); Write(writer, value.AcquisitionGrantId); Write(writer, value.ValidationGrantId); Write(writer, value.AdministrationGrantId);
         Write(writer, value.TombstoneFieldId); Write(writer, value.SupportsCoordinatedRetirement ? 1 : 0);
+        Write(writer, (int)value.TombstoneMetadata.Instant.Kind); Write(writer, value.TombstoneMetadata.Instant.FieldId);
+        Write(writer, (int)value.TombstoneMetadata.Sequence.Kind); Write(writer, value.TombstoneMetadata.Sequence.FieldId);
+        Write(writer, (int)value.FinalRetirementExecutionMode);
         foreach (HPDBaseEndpointAudience audience in value.Audiences) Write(writer, (int)audience);
         BaseSubjectValidationPlanDefinition plan = value.ValidationPlan;
         Write(writer, plan.Id); Write(writer, plan.Version); Write(writer, plan.PrivateCollectionId); Write(writer, (int)plan.SubjectId);
@@ -236,6 +251,30 @@ internal static class BaseSubjectContractGraph
     }
 
     private static string Copy(string value) => new(value.AsSpan());
+    private static BaseSubjectTombstoneInstantBinding NormalizeInstant(BaseSubjectTombstoneInstantBinding value)
+    {
+        if (!Enum.IsDefined(value.Kind) || value.Kind == BaseSubjectTombstoneMetadataBindingKind.NotStored && value.FieldId is not null
+            || value.Kind == BaseSubjectTombstoneMetadataBindingKind.RequiredField && value.FieldId is null)
+            throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+        if (value.FieldId is not null)
+        {
+            try { BaseApplicationId.Validate(value.FieldId, nameof(value)); }
+            catch (ArgumentException exception) { throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid, exception); }
+        }
+        return value with { FieldId = value.FieldId is null ? null : Copy(value.FieldId) };
+    }
+    private static BaseSubjectTombstoneSequenceBinding NormalizeSequence(BaseSubjectTombstoneSequenceBinding value)
+    {
+        if (!Enum.IsDefined(value.Kind) || value.Kind == BaseSubjectTombstoneMetadataBindingKind.NotStored && value.FieldId is not null
+            || value.Kind == BaseSubjectTombstoneMetadataBindingKind.RequiredField && value.FieldId is null)
+            throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+        if (value.FieldId is not null)
+        {
+            try { BaseApplicationId.Validate(value.FieldId, nameof(value)); }
+            catch (ArgumentException exception) { throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid, exception); }
+        }
+        return value with { FieldId = value.FieldId is null ? null : Copy(value.FieldId) };
+    }
     private static void Write(ArrayBufferWriter<byte> writer, string? value)
     {
         Span<byte> tag = writer.GetSpan(1); tag[0] = value is null ? (byte)0 : (byte)1; writer.Advance(1);

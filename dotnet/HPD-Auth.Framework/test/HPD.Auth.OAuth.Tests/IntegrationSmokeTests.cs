@@ -4,6 +4,7 @@ using HPD.Auth.Extensions;
 using HPD.Auth.OAuth.Extensions;
 using HPD.Auth.OAuth.Handlers;
 using HPD.Auth.OAuth.Services;
+using HPD.Auth.Testing;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -57,10 +58,11 @@ public class IntegrationSmokeTests : IAsyncDisposable
         builder.Services.AddScoped<HPD.Auth.Core.Interfaces.ITokenService>(
             _ => NSubstitute.Substitute.For<HPD.Auth.Core.Interfaces.ITokenService>());
 
+        string appName = $"SmokeTest_{Guid.NewGuid():N}";
         builder.Services
             .AddHPDAuth(o =>
             {
-                o.AppName = $"SmokeTest_{Guid.NewGuid():N}";
+                o.AppName = appName;
                 o.Password.RequireDigit             = false;
                 o.Password.RequireLowercase         = false;
                 o.Password.RequireUppercase         = false;
@@ -68,7 +70,7 @@ public class IntegrationSmokeTests : IAsyncDisposable
                 o.Password.RequiredLength           = 1;
                 configure?.Invoke(o);
             })
-            .UseInMemorySqliteForTests()
+            .UseBaseTestHost(appName)
             .AddOAuth();
 
         builder.Services.AddAuthentication(opts =>
@@ -91,7 +93,7 @@ public class IntegrationSmokeTests : IAsyncDisposable
     public async Task DI_ResolvesExternalLoginHandlerAndProviderService_WithoutException()
     {
         _app = CreateBuilder().Build();
-        await _app.Services.InitializeHPDAuthDevelopmentDatabaseAsync();
+        await _app.Services.InitializeHPDAuthBaseTestHostAsync("oauth-smoke");
         await _app.StartAsync();
 
         using var scope = _app.Services.CreateScope();
@@ -117,6 +119,7 @@ public class IntegrationSmokeTests : IAsyncDisposable
         // Map endpoints so their patterns are visible in EndpointDataSource.
         _app.MapHPDOAuthEndpoints();
 
+        await _app.Services.InitializeHPDAuthBaseTestHostAsync("oauth-smoke");
         await _app.StartAsync();
 
         // Retrieve the EndpointDataSource and verify the route patterns.
@@ -166,13 +169,13 @@ public class IntegrationSmokeTests : IAsyncDisposable
                     ClientSecret = "test-google-client-secret",
                 };
             })
-            .UseInMemorySqliteForTests()
+            .UseBaseTestHost(appName)
             .AddOAuth();
 
         builder.Services.AddAuthorization();
 
         _app = builder.Build();
-        await _app.Services.InitializeHPDAuthDevelopmentDatabaseAsync();
+        await _app.Services.InitializeHPDAuthBaseTestHostAsync(appName);
         await _app.StartAsync();
 
         var schemeProvider = _app.Services.GetRequiredService<IAuthenticationSchemeProvider>();

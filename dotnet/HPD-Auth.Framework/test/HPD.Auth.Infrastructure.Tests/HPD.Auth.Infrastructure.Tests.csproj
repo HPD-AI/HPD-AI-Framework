@@ -25,6 +25,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\HPD.Auth.Core\HPD.Auth.Core.csproj" />
     <ProjectReference Include="..\..\src\HPD.Auth.Infrastructure\HPD.Auth.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\HPD.Auth.Base\HPD.Auth.Base.csproj" />
+    <ProjectReference Include="..\..\..\HPD-Base.Framework\src\HPD.Base.Sqlite\HPD.Base.Sqlite.csproj" />
   </ItemGroup>
 
 </Project>

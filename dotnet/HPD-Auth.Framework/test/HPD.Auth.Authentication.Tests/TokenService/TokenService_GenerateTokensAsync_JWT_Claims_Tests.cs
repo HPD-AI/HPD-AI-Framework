@@ -36,7 +36,7 @@ public class TokenService_GenerateTokensAsync_JWT_Claims_Tests
         using var scope = ServiceProviderBuilder.CreateScope(configure);
         var user     = await ServiceProviderBuilder.CreateUserAsync(scope, configureUser);
         var svc      = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response = await svc.GenerateTokensAsync(user);
+        var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
         var jwt      = DecodeJwt(response.AccessToken);
         return (response, jwt);
     }
@@ -50,7 +50,7 @@ public class TokenService_GenerateTokensAsync_JWT_Claims_Tests
         using var scope = ServiceProviderBuilder.CreateScope();
         var user      = await ServiceProviderBuilder.CreateUserAsync(scope);
         var svc       = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response  = await svc.GenerateTokensAsync(user);
+        var response  = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
         var jwt       = DecodeJwt(response.AccessToken);
 
         jwt.Subject.Should().Be(user.Id.ToString());
@@ -65,7 +65,7 @@ public class TokenService_GenerateTokensAsync_JWT_Claims_Tests
         using var scope = ServiceProviderBuilder.CreateScope();
         var user      = await ServiceProviderBuilder.CreateUserAsync(scope);
         var svc       = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response  = await svc.GenerateTokensAsync(user);
+        var response  = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
         var jwt       = DecodeJwt(response.AccessToken);
 
         var emailClaim = jwt.Claims.FirstOrDefault(c => c.Type == JwtRegisteredClaimNames.Email);
@@ -82,7 +82,7 @@ public class TokenService_GenerateTokensAsync_JWT_Claims_Tests
         using var scope = ServiceProviderBuilder.CreateScope();
         var user      = await ServiceProviderBuilder.CreateUserAsync(scope);
         var svc       = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response  = await svc.GenerateTokensAsync(user);
+        var response  = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
         var jwt       = DecodeJwt(response.AccessToken);
 
         var jti = jwt.Claims.FirstOrDefault(c => c.Type == JwtRegisteredClaimNames.Jti);
@@ -100,7 +100,7 @@ public class TokenService_GenerateTokensAsync_JWT_Claims_Tests
         using var scope = ServiceProviderBuilder.CreateScope();
         var user      = await ServiceProviderBuilder.CreateUserAsync(scope);
         var svc       = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response  = await svc.GenerateTokensAsync(user);
+        var response  = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
         var jwt       = DecodeJwt(response.AccessToken);
 
         // ClaimTypes.NameIdentifier maps to the long URI form in JWT claims.
@@ -120,7 +120,7 @@ public class TokenService_GenerateTokensAsync_JWT_Claims_Tests
         using var scope = ServiceProviderBuilder.CreateScope();
         var user      = await ServiceProviderBuilder.CreateUserAsync(scope);
         var svc       = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response  = await svc.GenerateTokensAsync(user);
+        var response  = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
         var jwt       = DecodeJwt(response.AccessToken);
 
         var instanceId = jwt.Claims.FirstOrDefault(c => c.Type == "instance_id");
@@ -137,7 +137,7 @@ public class TokenService_GenerateTokensAsync_JWT_Claims_Tests
         using var scope = ServiceProviderBuilder.CreateScope();
         var user      = await ServiceProviderBuilder.CreateUserAsync(scope, u => u.SubscriptionTier = "enterprise");
         var svc       = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response  = await svc.GenerateTokensAsync(user);
+        var response  = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
         var jwt       = DecodeJwt(response.AccessToken);
 
         var tier = jwt.Claims.FirstOrDefault(c => c.Type == "subscription_tier");
@@ -162,7 +162,7 @@ public class TokenService_GenerateTokensAsync_JWT_Claims_Tests
         await userManager.AddToRoleAsync(user, "User");
 
         var svc      = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response = await svc.GenerateTokensAsync(user);
+        var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
         var jwt      = DecodeJwt(response.AccessToken);
 
         var roles = jwt.Claims
@@ -183,7 +183,7 @@ public class TokenService_GenerateTokensAsync_JWT_Claims_Tests
         using var scope = ServiceProviderBuilder.CreateScope();
         var user     = await ServiceProviderBuilder.CreateUserAsync(scope);
         var svc      = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response = await svc.GenerateTokensAsync(user);
+        var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
         var jwt      = DecodeJwt(response.AccessToken);
 
         var roles = jwt.Claims
@@ -210,7 +210,7 @@ public class TokenService_GenerateTokensAsync_JWT_Claims_Tests
 
         var user     = await ServiceProviderBuilder.CreateUserAsync(scope);
         var svc      = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response = await svc.GenerateTokensAsync(user);
+        var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
         var jwt      = DecodeJwt(response.AccessToken);
 
         jwt.Claims.Should().Contain(c => c.Type == "custom_claim" && c.Value == "custom_value");
@@ -230,7 +230,7 @@ public class TokenService_GenerateTokensAsync_JWT_Claims_Tests
         var user = await ServiceProviderBuilder.CreateUserAsync(scope);
         var svc  = scope.ServiceProvider.GetRequiredService<ITokenService>();
 
-        Func<Task> act = () => svc.GenerateTokensAsync(user);
+        Func<Task> act = () => svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
         await act.Should().NotThrowAsync();
     }
 
@@ -243,7 +243,7 @@ public class TokenService_GenerateTokensAsync_JWT_Claims_Tests
         using var scope = ServiceProviderBuilder.CreateScope();
         var user     = await ServiceProviderBuilder.CreateUserAsync(scope);
         var svc      = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response = await svc.GenerateTokensAsync(user);
+        var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
         var jwt      = DecodeJwt(response.AccessToken);
 
         jwt.Issuer.Should().Be(TokenServiceFixture.DefaultIssuer);
@@ -258,7 +258,7 @@ public class TokenService_GenerateTokensAsync_JWT_Claims_Tests
         using var scope = ServiceProviderBuilder.CreateScope();
         var user     = await ServiceProviderBuilder.CreateUserAsync(scope);
         var svc      = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response = await svc.GenerateTokensAsync(user);
+        var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
         var jwt      = DecodeJwt(response.AccessToken);
 
         jwt.Audiences.Should().Contain(TokenServiceFixture.DefaultAudience);
@@ -279,7 +279,7 @@ public class TokenService_GenerateTokensAsync_JWT_Claims_Tests
         var before   = DateTime.UtcNow;
         var user     = await ServiceProviderBuilder.CreateUserAsync(scope);
         var svc      = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response = await svc.GenerateTokensAsync(user);
+        var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
         var jwt      = DecodeJwt(response.AccessToken);
         var after    = DateTime.UtcNow;
 
@@ -298,7 +298,7 @@ public class TokenService_GenerateTokensAsync_JWT_Claims_Tests
         using var scope = ServiceProviderBuilder.CreateScope();
         var user     = await ServiceProviderBuilder.CreateUserAsync(scope);
         var svc      = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response = await svc.GenerateTokensAsync(user);
+        var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
         var jwt      = DecodeJwt(response.AccessToken);
 
         jwt.Header.Alg.Should().Be(SecurityAlgorithms.HmacSha256);
@@ -313,7 +313,7 @@ public class TokenService_GenerateTokensAsync_JWT_Claims_Tests
         using var scope = ServiceProviderBuilder.CreateScope();
         var user     = await ServiceProviderBuilder.CreateUserAsync(scope);
         var svc      = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response = await svc.GenerateTokensAsync(user);
+        var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
 
         var handler = new JwtSecurityTokenHandler();
         var key     = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(TokenServiceFixture.DefaultSecret));

@@ -9,7 +9,7 @@ namespace HPD.Auth.Base;
     RequiredGrantId = "auth.identity.secret.password",
     Disclosure = BaseRegisteredReadDisclosure.SecretProjection,
     SourceAuthority = BaseRegisteredReadSourceAuthority.System,
-    SecretOutputFieldIds = ["auth.read.userPassword.v1.row.passwordHash"],
+    SecretOutputFieldIds = ["auth.read.userPassword.v1.row.passwordHash", "auth.read.userPassword.v1.row.securityStamp"],
     SystemSourceIds = ["auth.users"])]
 internal sealed partial record AuthUserPasswordReadV1
 {
@@ -22,17 +22,23 @@ internal sealed partial record AuthUserPasswordReadV1
     public sealed partial record Row
     {
         [BaseReadField("auth.read.userPassword.v1.row.passwordHash")]
-        public required string PasswordHash { get; init; }
+        public string? PasswordHash { get; init; }
+
+        [BaseReadField("auth.read.userPassword.v1.row.securityStamp")]
+        public required string SecurityStamp { get; init; }
+
+        [BaseReadField("auth.read.userPassword.v1.row.revision")]
+        public required RevisionToken Revision { get; init; }
     }
 
     public static void Configure(BaseReadDefinitionBuilder<AuthUserPasswordReadV1, Row> read)
     {
         read.From(AuthUserRecordV1.Collection, "user", out BaseReadSource<AuthUserRecordV1> user)
             .Where(user.Field(AuthUserRecordV1.Fields.TenantId).Equal(read.Parameter(Parameters.TenantId))
-                .And(user.Field(AuthUserRecordV1.Fields.Id).Equal(read.Parameter(Parameters.UserId)))
-                .And(user.Field(AuthUserRecordV1.Fields.PasswordHash).IsDefined())
-                .And(user.Field(AuthUserRecordV1.Fields.PasswordHash).IsNull().Not()))
+                .And(user.Field(AuthUserRecordV1.Fields.Id).Equal(read.Parameter(Parameters.UserId))))
             .Project(Row.Fields.PasswordHash, user.Field(AuthUserRecordV1.Fields.PasswordHash))
+            .Project(Row.Fields.SecurityStamp, user.Field(AuthUserRecordV1.Fields.SecurityStamp))
+            .Project(Row.Fields.Revision, user.Revision)
             .OrderBy(user.Field(AuthUserRecordV1.Fields.Id))
             .Limits(1, 8_192, 6, 250);
     }
@@ -54,6 +60,7 @@ internal sealed partial record AuthUserTwoFactorSecretsReadV1
     public sealed partial record Row
     {
         [BaseReadField("auth.read.userTwoFactorSecrets.v1.row.authenticatorKey")] public string? AuthenticatorKey { get; init; }
+        [BaseReadField("auth.read.userTwoFactorSecrets.v1.row.revision")] public required RevisionToken Revision { get; init; }
     }
 
     public static void Configure(BaseReadDefinitionBuilder<AuthUserTwoFactorSecretsReadV1, Row> read)
@@ -62,6 +69,7 @@ internal sealed partial record AuthUserTwoFactorSecretsReadV1
             .Where(user.Field(AuthUserRecordV1.Fields.TenantId).Equal(read.Parameter(Parameters.TenantId))
                 .And(user.Field(AuthUserRecordV1.Fields.Id).Equal(read.Parameter(Parameters.UserId))))
             .Project(Row.Fields.AuthenticatorKey, user.Field(AuthUserRecordV1.Fields.AuthenticatorKey))
+            .Project(Row.Fields.Revision, user.Revision)
             .OrderBy(user.Field(AuthUserRecordV1.Fields.Id))
             .Limits(1, 49_152, 6, 250);
     }
@@ -115,8 +123,8 @@ internal sealed partial record AuthDataProtectionKeysReadV1
     RequiredGrantId = "auth.identity.secret.passkey",
     Disclosure = BaseRegisteredReadDisclosure.SecretProjection,
     SourceAuthority = BaseRegisteredReadSourceAuthority.System,
-    ConfidentialOutputFieldIds = ["auth.read.passkeyByDigest.v1.row.credentialDigest", "auth.read.passkeyByDigest.v1.row.tenantId"],
-    SecretOutputFieldIds = ["auth.read.passkeyByDigest.v1.row.credentialId", "auth.read.passkeyByDigest.v1.row.publicKey"],
+    ConfidentialOutputFieldIds = ["auth.read.passkeyByDigest.v1.row.credentialDigest", "auth.read.passkeyByDigest.v1.row.name", "auth.read.passkeyByDigest.v1.row.tenantId"],
+    SecretOutputFieldIds = ["auth.read.passkeyByDigest.v1.row.attestationObject", "auth.read.passkeyByDigest.v1.row.clientDataJson", "auth.read.passkeyByDigest.v1.row.credentialId", "auth.read.passkeyByDigest.v1.row.publicKey"],
     SystemSourceIds = ["auth.passkeys"])]
 internal sealed partial record AuthPasskeyByDigestReadV1
 {
@@ -137,6 +145,14 @@ internal sealed partial record AuthPasskeyByDigestReadV1
         [BaseReadField("auth.read.passkeyByDigest.v1.row.signatureCounter")] public required long SignatureCounter { get; init; }
         [BaseReadField("auth.read.passkeyByDigest.v1.row.userVerified")] public required bool UserVerified { get; init; }
         [BaseReadField("auth.read.passkeyByDigest.v1.row.isDiscoverable")] public required bool IsDiscoverable { get; init; }
+        [BaseReadField("auth.read.passkeyByDigest.v1.row.name")] public string? Name { get; init; }
+        [BaseReadField("auth.read.passkeyByDigest.v1.row.createdAt"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset CreatedAt { get; init; }
+        [BaseReadField("auth.read.passkeyByDigest.v1.row.transports")] public required BaseCanonicalJson Transports { get; init; }
+        [BaseReadField("auth.read.passkeyByDigest.v1.row.backupEligible")] public required bool BackupEligible { get; init; }
+        [BaseReadField("auth.read.passkeyByDigest.v1.row.backedUp")] public required bool BackedUp { get; init; }
+        [BaseReadField("auth.read.passkeyByDigest.v1.row.attestationObject", MaximumBytes = 65536)] public required BaseBinary AttestationObject { get; init; }
+        [BaseReadField("auth.read.passkeyByDigest.v1.row.clientDataJson", MaximumBytes = 65536)] public required BaseBinary ClientDataJson { get; init; }
+        [BaseReadField("auth.read.passkeyByDigest.v1.row.revision")] public required RevisionToken Revision { get; init; }
     }
 
     public static void Configure(BaseReadDefinitionBuilder<AuthPasskeyByDigestReadV1, Row> read)
@@ -154,6 +170,14 @@ internal sealed partial record AuthPasskeyByDigestReadV1
             .Project(Row.Fields.SignatureCounter, passkey.Field(AuthPasskeyRecordV1.Fields.SignatureCounter))
             .Project(Row.Fields.UserVerified, passkey.Field(AuthPasskeyRecordV1.Fields.UserVerified))
             .Project(Row.Fields.IsDiscoverable, passkey.Field(AuthPasskeyRecordV1.Fields.IsDiscoverable))
+            .Project(Row.Fields.Name, passkey.Field(AuthPasskeyRecordV1.Fields.Name))
+            .Project(Row.Fields.CreatedAt, passkey.Field(AuthPasskeyRecordV1.Fields.CreatedAt))
+            .Project(Row.Fields.Transports, passkey.Field(AuthPasskeyRecordV1.Fields.Transports))
+            .Project(Row.Fields.BackupEligible, passkey.Field(AuthPasskeyRecordV1.Fields.BackupEligible))
+            .Project(Row.Fields.BackedUp, passkey.Field(AuthPasskeyRecordV1.Fields.BackedUp))
+            .Project(Row.Fields.AttestationObject, passkey.Field(AuthPasskeyRecordV1.Fields.AttestationObject))
+            .Project(Row.Fields.ClientDataJson, passkey.Field(AuthPasskeyRecordV1.Fields.ClientDataJson))
+            .Project(Row.Fields.Revision, passkey.Revision)
             .OrderBy(passkey.Field(AuthPasskeyRecordV1.Fields.Id))
             .Limits(1, 32_768, 10, 250);
     }

@@ -183,7 +183,7 @@ public sealed class L48SubjectRetirementTests
         {
             Id = "example.subject", Version = 1, OwningModuleId = "example.exporter", Scope = BaseSubjectScopeKind.Tenant,
             SubjectIdKind = BaseSubjectIdKind.OrdinalString, MaximumSubjectIdUtf8Bytes = 128,
-            TombstoneFieldId="tombstoned",SupportsCoordinatedRetirement=true,Audiences=[HPDBaseEndpointAudience.Application],
+            TombstoneFieldId="tombstoned",TombstoneMetadata=new(){Instant=new(){Kind=BaseSubjectTombstoneMetadataBindingKind.NotStored},Sequence=new(){Kind=BaseSubjectTombstoneMetadataBindingKind.NotStored}},FinalRetirementExecutionMode=BaseSubjectFinalExecutionMode.OrdinaryOrActivationGuarded,SupportsCoordinatedRetirement=true,Audiences=[HPDBaseEndpointAudience.Application],
             ValidationPlan = new BaseSubjectValidationPlanDefinition { Id="example.subject.validation",Version=1,ContractId = "example.subject", ContractVersion = 1, ContractChecksum = Hex('1'), PrivateCollectionId = "private.subjects", SubjectId=BaseSubjectIdBinding.RecordId,Active=new(){Kind=BaseSubjectActiveBindingKind.RequiredBooleanField,FieldId="active",ActiveValue=true},Scope=new(){Kind=BaseSubjectScopeBindingKind.RequiredTenantField,FieldId="tenant"},Access=BaseSubjectValidationAccessShape.ContractAndSubjectPrimaryKeys,Limits=BaseSubjectValidationLimits.Default },
             AcquisitionGrantId = "subject.acquire", ValidationGrantId = "subject.validate", AdministrationGrantId = "subject.admin",
         });
@@ -213,13 +213,13 @@ public sealed class L48SubjectRetirementTests
         BaseSubjectRetirementPolicy policy = new()
         {
             ContractId = "example.subject", ContractVersion = 1, AcceptedConsumers = [accepted], CoordinationWindow = TimeSpan.FromHours(1),
-            TimeoutBehavior = BaseSubjectRetirementTimeoutBehavior.Quarantine, PurgeRetention = new BaseSubjectPurgeRetentionPolicy { MinimumTombstoneAge = TimeSpan.Zero }, PolicyChecksum = Hex('0'),
+            TimeoutBehavior = BaseSubjectRetirementTimeoutBehavior.Quarantine, PurgeRetention = new BaseSubjectPurgeRetentionPolicy { MinimumTombstoneAge = TimeSpan.Zero }, FinalPurgeExecutionMode = BaseSubjectFinalExecutionMode.OrdinaryOrActivationGuarded, PolicyChecksum = Hex('0'),
         };
         policy = policy with { PolicyChecksum = BaseSubjectRetirementRegistry.PolicyChecksum(policy with { PolicyChecksum = string.Empty }) };
         return (lifecycle, consumer, policy);
     }
 
-    private static BaseGeneratedSubjectRegistration Subject()=>BaseGeneratedSubjects.Register<object>(new BaseExportedSubjectDefinition{Id="example.subject",Version=1,OwningModuleId="example.exporter",Scope=BaseSubjectScopeKind.Tenant,SubjectIdKind=BaseSubjectIdKind.OrdinalString,MaximumSubjectIdUtf8Bytes=128,TombstoneFieldId="tombstoned",SupportsCoordinatedRetirement=true,Audiences=[HPDBaseEndpointAudience.Application],ValidationPlan=new(){Id="example.subject.validation",Version=1,ContractId="example.subject",ContractVersion=1,ContractChecksum=Hex('1'),PrivateCollectionId="private.subjects",SubjectId=BaseSubjectIdBinding.RecordId,Active=new(){Kind=BaseSubjectActiveBindingKind.RequiredBooleanField,FieldId="active",ActiveValue=true},Scope=new(){Kind=BaseSubjectScopeBindingKind.RequiredTenantField,FieldId="tenant"},Access=BaseSubjectValidationAccessShape.ContractAndSubjectPrimaryKeys,Limits=BaseSubjectValidationLimits.Default},AcquisitionGrantId="subject.acquire",ValidationGrantId="subject.validate",AdministrationGrantId="subject.admin"});
+    private static BaseGeneratedSubjectRegistration Subject()=>BaseGeneratedSubjects.Register<object>(new BaseExportedSubjectDefinition{Id="example.subject",Version=1,OwningModuleId="example.exporter",Scope=BaseSubjectScopeKind.Tenant,SubjectIdKind=BaseSubjectIdKind.OrdinalString,MaximumSubjectIdUtf8Bytes=128,TombstoneFieldId="tombstoned",TombstoneMetadata=new(){Instant=new(){Kind=BaseSubjectTombstoneMetadataBindingKind.NotStored},Sequence=new(){Kind=BaseSubjectTombstoneMetadataBindingKind.NotStored}},FinalRetirementExecutionMode=BaseSubjectFinalExecutionMode.OrdinaryOrActivationGuarded,SupportsCoordinatedRetirement=true,Audiences=[HPDBaseEndpointAudience.Application],ValidationPlan=new(){Id="example.subject.validation",Version=1,ContractId="example.subject",ContractVersion=1,ContractChecksum=Hex('1'),PrivateCollectionId="private.subjects",SubjectId=BaseSubjectIdBinding.RecordId,Active=new(){Kind=BaseSubjectActiveBindingKind.RequiredBooleanField,FieldId="active",ActiveValue=true},Scope=new(){Kind=BaseSubjectScopeBindingKind.RequiredTenantField,FieldId="tenant"},Access=BaseSubjectValidationAccessShape.ContractAndSubjectPrimaryKeys,Limits=BaseSubjectValidationLimits.Default},AcquisitionGrantId="subject.acquire",ValidationGrantId="subject.validate",AdministrationGrantId="subject.admin"});
 
     private static BaseSubjectRetirementBarrier Barrier() => new()
     {

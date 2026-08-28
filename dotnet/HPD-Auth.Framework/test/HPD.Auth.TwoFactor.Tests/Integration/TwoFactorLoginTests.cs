@@ -462,7 +462,7 @@ internal class TwoFactorLoginWebFactory : IAsyncDisposable
                 o.Password.RequireNonAlphanumeric = false;
                 o.Password.RequiredLength = 6;
             })
-            .UseInMemorySqliteForTests()
+            .UseBaseTestHost()
             .AddAudit()            // registers IAuthEventPublisher
             .AddAuthentication()   // registers ITokenService + cookie schemes
             .AddTwoFactor();
@@ -470,7 +470,7 @@ internal class TwoFactorLoginWebFactory : IAsyncDisposable
         builder.Services.AddAuthorization();
 
         var app = builder.Build();
-        app.Services.InitializeHPDAuthDevelopmentDatabaseAsync().GetAwaiter().GetResult();
+        app.Services.InitializeHPDAuthBaseTestHostAsync().GetAwaiter().GetResult();
 
         app.UseAuthentication();
         app.UseAuthorization();

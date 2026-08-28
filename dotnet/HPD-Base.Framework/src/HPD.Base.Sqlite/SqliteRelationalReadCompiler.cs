@@ -110,6 +110,8 @@ internal sealed class SqliteRelationalReadCompiler(
     {
         BaseRelationalOperand left = Required(node.Left);
         BaseRelationalOperand right = Required(node.Right);
+        if (node.Operator is FilterOperator.Contains or FilterOperator.StartsWith or FilterOperator.EndsWith)
+            return StringPredicate(node.Operator, left, right, plan);
         string operation = node.Operator switch
         {
             FilterOperator.Equal => " IS ",
@@ -117,6 +119,24 @@ internal sealed class SqliteRelationalReadCompiler(
             _ => Compare(node.Operator),
         };
         return Present(left) + " AND " + Present(right) + " AND " + Operand(left, plan) + operation + Operand(right, plan);
+    }
+
+    private string StringPredicate(
+        FilterOperator operation,
+        BaseRelationalOperand left,
+        BaseRelationalOperand right,
+        BaseRelationalReadPlan plan)
+    {
+        string leftSql = Operand(left, plan);
+        string rightSql = Operand(right, plan);
+        string comparison = operation switch
+        {
+            FilterOperator.Contains => $"instr({leftSql},{rightSql}) > 0",
+            FilterOperator.StartsWith => $"instr({leftSql},{rightSql}) = 1",
+            FilterOperator.EndsWith => $"(length({rightSql}) = 0 OR substr({leftSql},-length({rightSql})) IS {rightSql})",
+            _ => throw new InvalidOperationException(),
+        };
+        return Present(left) + " AND " + Present(right) + " AND " + comparison;
     }
 
     private string In(BaseRelationalPredicate node, BaseRelationalReadPlan plan)

@@ -27,6 +27,7 @@ internal sealed partial record AuthExternalIdentityReadV1
         [BaseReadField("auth.read.externalIdentity.v1.row.lastSyncAt"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public DateTimeOffset? LastSyncAt { get; init; }
         [BaseReadField("auth.read.externalIdentity.v1.row.createdAt"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset CreatedAt { get; init; }
         [BaseReadField("auth.read.externalIdentity.v1.row.updatedAt"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public DateTimeOffset? UpdatedAt { get; init; }
+        [BaseReadField("auth.read.externalIdentity.v1.row.revision")] public required RevisionToken Revision { get; init; }
     }
 
     public static void Configure(BaseReadDefinitionBuilder<AuthExternalIdentityReadV1, Row> read)
@@ -46,6 +47,7 @@ internal sealed partial record AuthExternalIdentityReadV1
             .Project(Row.Fields.LastSyncAt, identity.Field(AuthUserIdentityRecordV1.Fields.LastSyncAt))
             .Project(Row.Fields.CreatedAt, identity.Field(AuthUserIdentityRecordV1.Fields.CreatedAt))
             .Project(Row.Fields.UpdatedAt, identity.Field(AuthUserIdentityRecordV1.Fields.UpdatedAt))
+            .Project(Row.Fields.Revision, identity.Revision)
             .OrderBy(identity.Field(AuthUserIdentityRecordV1.Fields.Id))
             .Limits(1, 131_072, 10, 500);
     }

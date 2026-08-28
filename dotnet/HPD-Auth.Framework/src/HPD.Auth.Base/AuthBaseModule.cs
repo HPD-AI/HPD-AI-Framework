@@ -15,6 +15,14 @@ public sealed record AuthBaseModuleOptions
 /// <summary>Installs the currently declared private HPD Auth authority graph into HPD Base.</summary>
 public static class AuthBaseModule
 {
+    /// <summary>Installs the complete HPD Auth identity module into an HPD Base graph.</summary>
+    /// <param name="builder">The application Base builder.</param>
+    /// <param name="options">The immutable Auth graph-finalization authority.</param>
+    /// <returns>The same builder.</returns>
+    public static HPDBaseBuilder AddHPDAuthIdentityModule(
+        this HPDBaseBuilder builder,
+        AuthBaseModuleOptions options) => Install(builder, options);
+
     /// <summary>Installs HPD Auth collections and exported subject contracts.</summary>
     /// <param name="builder">The application Base builder.</param>
     /// <param name="options">The immutable Auth graph-finalization authority.</param>
@@ -70,6 +78,19 @@ public static class AuthBaseModule
             .AddModuleGenerationCell(GenerationCell("hpd.auth.user-state-generation.v1"))
             .AddExportedSubject(AuthUserSubject.HPDBaseSubjectRegistration)
             .AddExportedSubject(AuthRoleSubject.HPDBaseSubjectRegistration)
+            .AddSubjectAcquisition(new BaseSubjectAcquisitionDefinition
+            {
+                Id = "hpd.auth.user-subject.acquire.v1",
+                Version = 1,
+                ContractId = "hpd.auth.user-subject",
+                ContractVersion = 1,
+                RegisteredReadId = "auth.read.userSubject.acquire.v1",
+                RequiredGrantId = "auth.subject.user.acquire",
+                Audience = HPDBaseEndpointAudience.Application,
+                MaximumResults = 1,
+            })
+            .AddRead(AuthUserSubjectAcquisitionReadV1.Definition)
+            .AddRead(AuthUserByIdReadV1.Definition)
             .AddRead(AuthUserByNormalizedNameReadV1.Definition)
             .AddRead(AuthUserByNormalizedEmailReadV1.Definition)
             .AddRead(AuthUsersInRoleReadV1.Definition)
@@ -77,10 +98,13 @@ public static class AuthBaseModule
             .AddRead(AuthUserTwoFactorSecretsReadV1.Definition)
             .AddRead(AuthDataProtectionKeysReadV1.Definition)
             .AddRead(AuthPasskeyByDigestReadV1.Definition)
+            .AddRead(AuthUserPasskeysReadV1.Definition)
             .AddRead(AuthUserTokenSecretReadV1.Definition)
             .AddRead(AuthUserClaimsReadV1.Definition)
+            .AddRead(AuthUsersForClaimReadV1.Definition)
             .AddRead(AuthRoleClaimsReadV1.Definition)
             .AddRead(AuthTenantSettingsReadV1.Definition)
+            .AddRead(AuthRoleByIdReadV1.Definition)
             .AddRead(AuthRoleByNormalizedNameReadV1.Definition)
             .AddRead(AuthUserRolesReadV1.Definition)
             .AddRead(AuthUserLoginsReadV1.Definition)
@@ -90,6 +114,7 @@ public static class AuthBaseModule
             .AddRead(AuthExternalIdentityReadV1.Definition)
             .AddRead(AuthSsoProviderSecretReadV1.Definition)
             .AddRead(AuthRecoveryCodeByDigestReadV1.Definition)
+            .AddRead(AuthRecoveryCodesForUserReadV1.Definition)
             .AddRead(AuthRefreshByDigestReadV1.Definition)
             .AddRead(AuthRefreshDigestKeyVersionsReadV1.Definition)
             .AddRead(AuthRefreshDeliveryReadV1.Definition)
@@ -97,7 +122,13 @@ public static class AuthBaseModule
             .AddRead(AuthCleanupWorkReadV1.Definition)
             .AddRead(AuthMaintenanceRunReadV1.Definition)
             .AddRead(AuthTombstonedUsersForReconciliationReadV1.Definition)
-            .AddRead(AuthTombstonedRolesForReconciliationReadV1.Definition);
+            .AddRead(AuthTombstonedRolesForReconciliationReadV1.Definition)
+            .AddRead(AuthAdminUsersCreatedAtAscReadV1.Definition)
+            .AddRead(AuthAdminUsersCreatedAtDescReadV1.Definition)
+            .AddRead(AuthAdminUsersEmailAscReadV1.Definition)
+            .AddRead(AuthAdminUsersEmailDescReadV1.Definition)
+            .AddRead(AuthAdminUsersLastLoginAtAscReadV1.Definition)
+            .AddRead(AuthAdminUsersLastLoginAtDescReadV1.Definition);
 
         foreach (BaseSelectionOperationProfile profile in AuthSelectionProfiles.All)
             builder.AddSelectionOperationProfile(profile);
@@ -129,6 +160,9 @@ public static class AuthBaseModule
         builder.AddModuleMutation(
             AuthChangePasswordOperationV1.Definition,
             AuthChangePasswordOperationV1.Identity);
+        builder.AddModuleMutation(
+            AuthRemovePasswordOperationV1.Definition,
+            AuthRemovePasswordOperationV1.Identity);
         builder.AddModuleMutation(
             AuthResetPasswordOperationV1.Definition,
             AuthResetPasswordOperationV1.Identity);
@@ -162,6 +196,9 @@ public static class AuthBaseModule
         builder.AddModuleMutation(
             AuthPasskeyRegisterOperationV1.Definition,
             AuthPasskeyRegisterOperationV1.Identity);
+        builder.AddModuleMutation(
+            AuthPasskeyRemoveOperationV1.Definition,
+            AuthPasskeyRemoveOperationV1.Identity);
         builder.AddModuleMutation(
             AuthMaintenanceRunInitializeOperationV1.Definition,
             AuthMaintenanceRunInitializeOperationV1.Identity);

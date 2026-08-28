@@ -27,6 +27,7 @@ internal sealed partial record AuthRoleByNormalizedNameReadV1
         [BaseReadField("auth.read.roleByNormalizedName.v1.row.tombstoneGeneration")] public required long TombstoneGeneration { get; init; }
         [BaseReadField("auth.read.roleByNormalizedName.v1.row.createdAt"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset CreatedAt { get; init; }
         [BaseReadField("auth.read.roleByNormalizedName.v1.row.updatedAt"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset UpdatedAt { get; init; }
+        [BaseReadField("auth.read.roleByNormalizedName.v1.row.revision")] public required RevisionToken Revision { get; init; }
     }
 
     public static void Configure(BaseReadDefinitionBuilder<AuthRoleByNormalizedNameReadV1, Row> read)
@@ -46,6 +47,7 @@ internal sealed partial record AuthRoleByNormalizedNameReadV1
             .Project(Row.Fields.TombstoneGeneration, role.Field(AuthRoleRecordV1.Fields.TombstoneGeneration))
             .Project(Row.Fields.CreatedAt, role.Field(AuthRoleRecordV1.Fields.CreatedAt))
             .Project(Row.Fields.UpdatedAt, role.Field(AuthRoleRecordV1.Fields.UpdatedAt))
+            .Project(Row.Fields.Revision, role.Revision)
             .OrderBy(role.Field(AuthRoleRecordV1.Fields.Id))
             .Limits(1, 32_768, 8, 250);
     }
@@ -63,10 +65,12 @@ internal sealed partial record AuthUserRolesReadV1
 
     public sealed partial record Row
     {
+        [BaseReadField("auth.read.userRoles.v1.row.id")] public required string Id { get; init; }
         [BaseReadField("auth.read.userRoles.v1.row.tenantId")] public required Guid TenantId { get; init; }
         [BaseReadField("auth.read.userRoles.v1.row.roleId")] public required BaseRecordId<AuthRoleRecordV1> RoleId { get; init; }
         [BaseReadField("auth.read.userRoles.v1.row.name")] public string? Name { get; init; }
         [BaseReadField("auth.read.userRoles.v1.row.normalizedName")] public string? NormalizedName { get; init; }
+        [BaseReadField("auth.read.userRoles.v1.row.revision")] public required RevisionToken Revision { get; init; }
     }
 
     public static void Configure(BaseReadDefinitionBuilder<AuthUserRolesReadV1, Row> read)
@@ -75,10 +79,12 @@ internal sealed partial record AuthUserRolesReadV1
             .Join(AuthRoleRecordV1.Collection, "role", membership.Field(AuthUserRoleRecordV1.Fields.RoleId), BaseFields.RecordId, BaseJoinKind.Inner, out BaseReadSource<AuthRoleRecordV1> role)
             .Where(membership.Field(AuthUserRoleRecordV1.Fields.TenantId).Equal(read.Parameter(Parameters.TenantId))
                 .And(membership.Field(AuthUserRoleRecordV1.Fields.UserId).Equal(read.Parameter(Parameters.UserId))))
+            .Project(Row.Fields.Id, membership.Field(AuthUserRoleRecordV1.Fields.Id))
             .Project(Row.Fields.TenantId, membership.Field(AuthUserRoleRecordV1.Fields.TenantId))
             .Project(Row.Fields.RoleId, membership.Field(AuthUserRoleRecordV1.Fields.RoleId))
             .Project(Row.Fields.Name, role.Field(AuthRoleRecordV1.Fields.Name))
             .Project(Row.Fields.NormalizedName, role.Field(AuthRoleRecordV1.Fields.NormalizedName))
+            .Project(Row.Fields.Revision, membership.Revision)
             .OrderBy(role.Field(AuthRoleRecordV1.Fields.NormalizedName), QuerySortDirection.Asc, QueryNullOrder.First)
             .OrderBy(role.Field(AuthRoleRecordV1.Fields.Id))
             .Limits(256, 262_144, 12, 500);
@@ -104,6 +110,7 @@ internal sealed partial record AuthUserLoginsReadV1
         [BaseReadField("auth.read.userLogins.v1.row.providerKey")] public required string ProviderKey { get; init; }
         [BaseReadField("auth.read.userLogins.v1.row.providerDisplayName")] public string? ProviderDisplayName { get; init; }
         [BaseReadField("auth.read.userLogins.v1.row.createdAt"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset CreatedAt { get; init; }
+        [BaseReadField("auth.read.userLogins.v1.row.revision")] public required RevisionToken Revision { get; init; }
     }
 
     public static void Configure(BaseReadDefinitionBuilder<AuthUserLoginsReadV1, Row> read)
@@ -118,6 +125,7 @@ internal sealed partial record AuthUserLoginsReadV1
             .Project(Row.Fields.ProviderKey, login.Field(AuthUserLoginRecordV1.Fields.ProviderKey))
             .Project(Row.Fields.ProviderDisplayName, login.Field(AuthUserLoginRecordV1.Fields.ProviderDisplayName))
             .Project(Row.Fields.CreatedAt, login.Field(AuthUserLoginRecordV1.Fields.CreatedAt))
+            .Project(Row.Fields.Revision, login.Revision)
             .OrderBy(login.Field(AuthUserLoginRecordV1.Fields.LoginProvider))
             .OrderBy(login.Field(AuthUserLoginRecordV1.Fields.Id))
             .Limits(64, 131_072, 8, 500);

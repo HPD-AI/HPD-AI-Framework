@@ -1444,7 +1444,7 @@
       "version": 1
     }
   ],
-  "applicationGraphChecksum": "934d74f9221bb4392771c3417109cea5a51c416c1e731d3b85c844692e1de56b",
+  "applicationGraphChecksum": "c559c09330b397b09c759095f31c8d78d87b2540e28c72882e480277793ae67e",
   "applicationId": "hpd.auth.identity.v1",
   "artifactVersion": 2,
   "coordinatedRetirementCapabilities": [
@@ -1483,6 +1483,48 @@
       "version": 1
     },
     {
+      "checksum": "528c63714389cf7291b63c0dade17c270e09c36ed9e7ff5afe7d0f9377893f0e",
+      "id": "auth.read.adminUsers.createdAt.asc.v1",
+      "kind": "registeredRead",
+      "owningModuleId": "hpd.auth.identity.v1",
+      "version": 1
+    },
+    {
+      "checksum": "e5ef3f7a5f429acaca0cc1809c244d31cb714ad254f5b9e0b484f5ec30292b14",
+      "id": "auth.read.adminUsers.createdAt.desc.v1",
+      "kind": "registeredRead",
+      "owningModuleId": "hpd.auth.identity.v1",
+      "version": 1
+    },
+    {
+      "checksum": "7b48af1accec03da76f42c35b4764c118401f27a76b6a334220bb4b665c0c774",
+      "id": "auth.read.adminUsers.email.asc.v1",
+      "kind": "registeredRead",
+      "owningModuleId": "hpd.auth.identity.v1",
+      "version": 1
+    },
+    {
+      "checksum": "184aa82122ce0bf78bc5268b526acc66982c794894ee629370df7f9ba70a054f",
+      "id": "auth.read.adminUsers.email.desc.v1",
+      "kind": "registeredRead",
+      "owningModuleId": "hpd.auth.identity.v1",
+      "version": 1
+    },
+    {
+      "checksum": "4d7ac6ba6f5bf291e82f52a221af969b66a911cbc3898072705aa58fe664e910",
+      "id": "auth.read.adminUsers.lastLoginAt.asc.v1",
+      "kind": "registeredRead",
+      "owningModuleId": "hpd.auth.identity.v1",
+      "version": 1
+    },
+    {
+      "checksum": "804299e339b437e067c7cafe8dc4c71bd86d2e223453cca86dc7c0f8d4d8515b",
+      "id": "auth.read.adminUsers.lastLoginAt.desc.v1",
+      "kind": "registeredRead",
+      "owningModuleId": "hpd.auth.identity.v1",
+      "version": 1
+    },
+    {
       "checksum": "1b7a3856723764993a01e3f1484a316cdfd5e6e2f1d04c3a824f209b6659425d",
       "id": "auth.read.audit.v1",
       "kind": "registeredRead",
@@ -1511,7 +1553,7 @@
       "version": 1
     },
     {
-      "checksum": "3912d51ba32d43e4bc42b142c120b92cae980d1c00653f08b094f902cb9f0ef8",
+      "checksum": "4b2afa66323444cecece496292054202fecd052c3696f9e8fc41caa8cbdf50c1",
       "id": "auth.read.externalIdentity.v1",
       "kind": "registeredRead",
       "owningModuleId": "hpd.auth.identity.v1",
@@ -1525,7 +1567,7 @@
       "version": 1
     },
     {
-      "checksum": "10f67336716be155ef52f31a1e29bcb14796f4b0500b484f244d9afb7262c23f",
+      "checksum": "4342cf47a1f68da8c4ad4e5a87484f7cea3fafd20b322ae06877a05ba8d7d209",
       "id": "auth.read.passkeyByDigest.v1",
       "kind": "registeredRead",
       "owningModuleId": "hpd.auth.identity.v1",
@@ -1539,14 +1581,21 @@
       "version": 1
     },
     {
-      "checksum": "8ebd608e33c2286851d42e993caaa32eaf2fd32c1404595bfe65d8a2458120ca",
+      "checksum": "559cf1675842ec4b00df32f8531f61990ecf3d0d90161c10e89ed05fa573df95",
+      "id": "auth.read.recoveryCodesForUser.v1",
+      "kind": "registeredRead",
+      "owningModuleId": "hpd.auth.identity.v1",
+      "version": 1
+    },
+    {
+      "checksum": "0f4d73350cf412c6c5654fb12ec381d0a92a471d635e4ff63c75d4de740601fd",
       "id": "auth.read.refreshByDigest.v1",
       "kind": "registeredRead",
       "owningModuleId": "hpd.auth.identity.v1",
       "version": 1
     },
     {
-      "checksum": "4124d79e0eb03b16f8040edcd3b5f4d44acba36f4d1302171d230fd30513500a",
+      "checksum": "66ea891b4c813566c1ae9f30c0a3e29ae20d09f7d480faea9b3655b1d41876f8",
       "id": "auth.read.refreshDelivery.v1",
       "kind": "registeredRead",
       "owningModuleId": "hpd.auth.identity.v1",
@@ -1560,14 +1609,21 @@
       "version": 1
     },
     {
-      "checksum": "762ddecf2c844ca0692af2d3e74bc049d29e5172a4b2fc2aa45e79ce7f831f6e",
+      "checksum": "3ad47bfd97be44634705254fe38551e5158e632465c2b5ba2a199f11fce3d0e0",
+      "id": "auth.read.roleById.v1",
+      "kind": "registeredRead",
+      "owningModuleId": "hpd.auth.identity.v1",
+      "version": 1
+    },
+    {
+      "checksum": "0f334eeca720d178013e1d05acde1c1da5a6ae9905c75e95f665d356f80d1eb7",
       "id": "auth.read.roleByNormalizedName.v1",
       "kind": "registeredRead",
       "owningModuleId": "hpd.auth.identity.v1",
       "version": 1
     },
     {
-      "checksum": "2fcd16a6a8246b7f2e8e41230bd14406f1afe7bb3df7678d2aa94040915b6610",
+      "checksum": "2773e701e8f36f83adeba30a1cae1002e66b1b5af82979a6d6f8ed14da3e127c",
       "id": "auth.read.roleClaims.v1",
       "kind": "registeredRead",
       "owningModuleId": "hpd.auth.identity.v1",
@@ -1602,42 +1658,56 @@
       "version": 1
     },
     {
-      "checksum": "1c9b01553a885cc8e8152208c0fad2f123316b5c27e82176d3a35a66379d6c71",
+      "checksum": "c5c35574a3c2a43c56a69854630109abaaed5ed00d7b7f0efc1cbce321b71dee",
+      "id": "auth.read.userById.v1",
+      "kind": "registeredRead",
+      "owningModuleId": "hpd.auth.identity.v1",
+      "version": 1
+    },
+    {
+      "checksum": "bd244163281909a27a7cdafc6273c58ccd212ee975db88cac6fa2d1ea10a0e95",
       "id": "auth.read.userByNormalizedEmail.v1",
       "kind": "registeredRead",
       "owningModuleId": "hpd.auth.identity.v1",
       "version": 1
     },
     {
-      "checksum": "4c5ad6e36c3a4187ade2d6a16d934da4618af10653b5b892d76b6a06db76168a",
+      "checksum": "a219909e069b3fe2f9aca1fe759edf67b36872f43e9a379660b724683906030c",
       "id": "auth.read.userByNormalizedName.v1",
       "kind": "registeredRead",
       "owningModuleId": "hpd.auth.identity.v1",
       "version": 1
     },
     {
-      "checksum": "c47c1b005574a5482835e7907bc3d9ab723e6dd64e5a486f13fed4ceb603157f",
+      "checksum": "bc1df7ebba6f87daa5587d9bd4915f444798641a993ac29fd8904deceebbcfc4",
       "id": "auth.read.userClaims.v1",
       "kind": "registeredRead",
       "owningModuleId": "hpd.auth.identity.v1",
       "version": 1
     },
     {
-      "checksum": "6730a88787de8fa570b181d54a07b66fb648cc11fbcd79c0d696a071c88111d6",
+      "checksum": "910ef84ea0828177f78a43a11f571d76e2d779c4b5443d505c0959bd27e50fb1",
       "id": "auth.read.userLogins.v1",
       "kind": "registeredRead",
       "owningModuleId": "hpd.auth.identity.v1",
       "version": 1
     },
     {
-      "checksum": "1c5ca3be0c0e344a5893730913f3817f7d226756f4e28efdb332f0b95a8ccf19",
+      "checksum": "42c88e9d6a82ea16427d6516043047b7b0463509be7a7c1c95e255a6760d451a",
+      "id": "auth.read.userPasskeys.v1",
+      "kind": "registeredRead",
+      "owningModuleId": "hpd.auth.identity.v1",
+      "version": 1
+    },
+    {
+      "checksum": "3ef3291983a777fc18c993a06c14d8e018893ba9347a0e5a9cbf427f4f25dbe1",
       "id": "auth.read.userPassword.v1",
       "kind": "registeredRead",
       "owningModuleId": "hpd.auth.identity.v1",
       "version": 1
     },
     {
-      "checksum": "381488a4a1094d48d091c8a7d807a2812450f761001e41049fe66441f47b8b6b",
+      "checksum": "cf1d96d8fec50c137faa0f5743050d2f95433843079b00dc5ee7103cf25f34f4",
       "id": "auth.read.userRoles.v1",
       "kind": "registeredRead",
       "owningModuleId": "hpd.auth.identity.v1",
@@ -1651,14 +1721,21 @@
       "version": 1
     },
     {
-      "checksum": "eee85bdc62a81d3710245781f494544b704a420cbcfd27e1e9f56c77fc0c3ac6",
+      "checksum": "717fdda915853713658291c25085b394d7d58c368021a798bb59a7461644fdba",
       "id": "auth.read.userTwoFactorSecrets.v1",
       "kind": "registeredRead",
       "owningModuleId": "hpd.auth.identity.v1",
       "version": 1
     },
     {
-      "checksum": "de6513733293167c592d996615bda7633b10665dcff95938ca98d6f25fa083e3",
+      "checksum": "d65acfbbb8e3bb0eb3357aa6f28f5e096d9cc7ada9e978bacea95cb2779938d5",
+      "id": "auth.read.usersForClaim.v1",
+      "kind": "registeredRead",
+      "owningModuleId": "hpd.auth.identity.v1",
+      "version": 1
+    },
+    {
+      "checksum": "c642f451474deb5e7e0ca779b10f2734a19f854c639a01ff874199c48837c125",
       "id": "auth.read.usersInRole.v1",
       "kind": "registeredRead",
       "owningModuleId": "hpd.auth.identity.v1",
@@ -1833,14 +1910,14 @@
       "version": 1
     },
     {
-      "checksum": "71db1c843351442df8794182a59094500db7435fdfde0e118921390d066fe8d0",
+      "checksum": "f62d2afe9315bbec27c3ddc1aa9dcb76822d7ebf8a643fd763bb23ba2adab410",
       "id": "hpd.auth.login.link.v1",
       "kind": "moduleMutation",
       "owningModuleId": "hpd.auth",
       "version": 1
     },
     {
-      "checksum": "f22452e5f6d8e06a156b0d68e7c8170e7d6367c30dac24622c23a037da4e70ce",
+      "checksum": "3447113a81f334e404a01ce78e93acffd4c806aea1c1d4eee481c70d88d60cb2",
       "id": "hpd.auth.login.unlink.v1",
       "kind": "moduleMutation",
       "owningModuleId": "hpd.auth",
@@ -1854,56 +1931,63 @@
       "version": 1
     },
     {
-      "checksum": "5153916b8d5b07ffe29181053c8d4828999824bef58bdc482baee951fbdcabb2",
+      "checksum": "b933eae70033878f5ad1781195ff9a8ec452c31efb535de06eca84207a2efc45",
       "id": "hpd.auth.membership.add.v1",
       "kind": "moduleMutation",
       "owningModuleId": "hpd.auth",
       "version": 1
     },
     {
-      "checksum": "0528ac269b454b6cbadd355b1714cdb0f379f239a007dbdbf61f428e7c63345c",
+      "checksum": "2b46500da5533c759133e375ee07d62c917863869145a0eb2f9ce1e61699309b",
       "id": "hpd.auth.membership.remove.v1",
       "kind": "moduleMutation",
       "owningModuleId": "hpd.auth",
       "version": 1
     },
     {
-      "checksum": "da66f88e80ef9a053718cc460b5aa710c3a4f467c6ab8f0b2c6f98d4fad8af5c",
+      "checksum": "967c6f9630bb373a750dda6897e612fe643f82b187a7753b81676670b1b785a3",
       "id": "hpd.auth.passkey.record-assertion.v1",
       "kind": "moduleMutation",
       "owningModuleId": "hpd.auth",
       "version": 1
     },
     {
-      "checksum": "d34756734420d6a9b4fb2d6d06960448958680305885a4498b284dca30690f25",
+      "checksum": "bbfbb6b994b42cc989f6c669b50e5b5e231b8613b2eb8c32131954e432cc0f43",
       "id": "hpd.auth.passkey.register.v1",
       "kind": "moduleMutation",
       "owningModuleId": "hpd.auth",
       "version": 1
     },
     {
-      "checksum": "7725bd39a6a994d6289af77aa6ea50df3e7db5eced7b1917a0f4a3302bffd55e",
+      "checksum": "d5ea40f29a26d8eaee16d6dbf535993d5b5788561719d14c0166875ebe77a041",
+      "id": "hpd.auth.passkey.remove.v1",
+      "kind": "moduleMutation",
+      "owningModuleId": "hpd.auth",
+      "version": 1
+    },
+    {
+      "checksum": "f4043e427dde26a769d8106f1faeeb8ee1885c37dd6aeb7bd89e2cd65029d8fa",
       "id": "hpd.auth.recovery-code.consume.v1",
       "kind": "moduleMutation",
       "owningModuleId": "hpd.auth",
       "version": 1
     },
     {
-      "checksum": "51ee7584b83e74753b3e174dd7db7b469cbd3f150f38a1212fd1aff17c8a396a",
+      "checksum": "92761bb58da664dac7934436daf98965f8d60b64b1fcb66be096d8636876bbe0",
       "id": "hpd.auth.recovery-codes.replace.v1",
       "kind": "moduleMutation",
       "owningModuleId": "hpd.auth",
       "version": 1
     },
     {
-      "checksum": "f50b4654fc9df47110fcd088b126777e146d31df9e1b23716dd4f43bcac46c3c",
+      "checksum": "45442fd06bd4cee2c253354679392b97ffad6f8fcd4defa19819a02695b2ca26",
       "id": "hpd.auth.refresh.issue.v1",
       "kind": "moduleMutation",
       "owningModuleId": "hpd.auth",
       "version": 1
     },
     {
-      "checksum": "afcbdc68e362f42cc157655d5b18e20f42f208ed0603ae390f96c096fd659fcc",
+      "checksum": "54f613cd56307ee9063a3e16a4dd48d62ff1ba5bf3fd44f579135f66b4f9076c",
       "id": "hpd.auth.refresh.rotate.v1",
       "kind": "moduleMutation",
       "owningModuleId": "hpd.auth",
@@ -1917,28 +2001,28 @@
       "version": 1
     },
     {
-      "checksum": "766fc10a63756da6f6e57a9050288cde9ca6d02c6659fc0be36d7815cf3d3887",
+      "checksum": "b4471b2a06c384767c867dfd9cb51cb9b5af868fa9e7f0ad61f1d1500babcbdd",
       "id": "hpd.auth.role.rename.v1",
       "kind": "moduleMutation",
       "owningModuleId": "hpd.auth",
       "version": 1
     },
     {
-      "checksum": "5d5316fab050367765eec2e0840cda833b074ac68ec3041c59cef996585c1517",
+      "checksum": "04c584eaa119c1f9950cf1d2f50e6cd89ef10cefd090ac075e8f7f644d0fbff3",
       "id": "hpd.auth.session.create.v1",
       "kind": "moduleMutation",
       "owningModuleId": "hpd.auth",
       "version": 1
     },
     {
-      "checksum": "ccbd898124ff6cf0b0a55e4d8e2709b81c43d56d197b574bf7b25369429e9def",
+      "checksum": "610228be580fc9cfb7b1175d44684bdc6156e98a7b41c76b53da8c726d40b5c7",
       "id": "hpd.auth.session.touch.v1",
       "kind": "moduleMutation",
       "owningModuleId": "hpd.auth",
       "version": 1
     },
     {
-      "checksum": "53973070d592b73da1f47f57ffe9be3484812d960f760b427cda3387736c6d7a",
+      "checksum": "f5ae17792c8356fa78674669c0248816436ef116a005357773e84a92191421d0",
       "id": "hpd.auth.user.change-password.v1",
       "kind": "moduleMutation",
       "owningModuleId": "hpd.auth",
@@ -1947,6 +2031,13 @@
     {
       "checksum": "0c6204b829917da6fd4573f7a4e308554b310aeca8fb0d6ecb0a5ddd1d6222e8",
       "id": "hpd.auth.user.create.v1",
+      "kind": "moduleMutation",
+      "owningModuleId": "hpd.auth",
+      "version": 1
+    },
+    {
+      "checksum": "e07d0a24bd11dd44c8c3abb0bb7b52ca0034049f4a5373e77abf6cc1ec7c5a91",
+      "id": "hpd.auth.user.remove-password.v1",
       "kind": "moduleMutation",
       "owningModuleId": "hpd.auth",
       "version": 1
@@ -1966,7 +2057,7 @@
       "version": 1
     },
     {
-      "checksum": "fc7a96c42cb4c0cfb207475d34848c35a91fafde20b9fefa2ef10ec51f8fabbb",
+      "checksum": "aa35380ec319725993ad6aa1d3a66beba62a8d42840c6c12c94bcbf273f6d7f2",
       "id": "hpd.auth.user.update-profile.v1",
       "kind": "moduleMutation",
       "owningModuleId": "hpd.auth",
@@ -4618,7 +4709,7 @@
   ],
   "logicalSchema": {
     "applicationId": "hpd.auth.identity.v1",
-    "canonicalChecksum": "5467d01859b145ffecda4f40b784772730e205649c4102ce54ae660f40ff7c70",
+    "canonicalChecksum": "3fda69369538dfe452198ba104c42bf20b80cf07c011b5a4ab26bbccfa796150",
     "collections": [
       {
         "id": "auth.cleanupWork",
@@ -4658,7 +4749,7 @@
       {
         "id": "auth.passkeys",
         "name": "auth.passkeys",
-        "serializerContractChecksum": "d2f61a07aec625a414f7c0dd685a9576525d0350a1e4c9404e607782fb03598f",
+        "serializerContractChecksum": "5669d05a8309f8e9403ddb142099d1e665c3cf1eeb86b75d3fe22736168c81c9",
         "system": true,
         "systemOwnerModuleId": "hpd.auth"
       },
@@ -4672,7 +4763,7 @@
       {
         "id": "auth.refreshTokenDeliveries",
         "name": "auth.refreshTokenDeliveries",
-        "serializerContractChecksum": "1caf71a3f10035f3f537a43b0f7e192b22b2fa9be736d4d33eed40a82aa46715",
+        "serializerContractChecksum": "e456132be0962bd9f238154ed6bf1fec69ea2248b0f562d4d194cf2568cdb00a",
         "system": true,
         "systemOwnerModuleId": "hpd.auth"
       },
@@ -6361,6 +6452,122 @@
         "type": "string"
       },
       {
+        "applicationName": "AttestationObject",
+        "collectionId": "auth.passkeys",
+        "confidentiality": "Secret",
+        "disclosure": {
+          "administrativeDataExport": "Omit",
+          "authoritativeBackup": "PreserveAuthoritativeValue",
+          "authoritativeHistory": "AuthoritativeRequired",
+          "diagnostic": "Omit",
+          "event": "Omit",
+          "indexing": "Forbidden",
+          "ordinaryDataExport": "Omit",
+          "realtime": "Omit",
+          "recordRead": "Omit"
+        },
+        "id": "auth.passkeys.attestationObject",
+        "maximumBytes": 65536,
+        "minimumBytes": 0,
+        "nullability": "NonNullable",
+        "presence": "Required",
+        "scalarCodecChecksum": {
+          "isValid": true
+        },
+        "scalarConstraintChecksum": {
+          "isValid": true
+        },
+        "scalarKind": "Binary",
+        "storedName": "attestationObject",
+        "type": "string"
+      },
+      {
+        "applicationName": "BackedUp",
+        "collectionId": "auth.passkeys",
+        "confidentiality": "Internal",
+        "disclosure": {
+          "administrativeDataExport": "Include",
+          "authoritativeBackup": "PreserveAuthoritativeValue",
+          "authoritativeHistory": "AuthoritativeRequired",
+          "diagnostic": "Omit",
+          "event": "Omit",
+          "indexing": "DeclaredOperators",
+          "ordinaryDataExport": "Omit",
+          "realtime": "Omit",
+          "recordRead": "Include"
+        },
+        "id": "auth.passkeys.backedUp",
+        "nullability": "NonNullable",
+        "presence": "Required",
+        "scalarCodecChecksum": {
+          "isValid": true
+        },
+        "scalarConstraintChecksum": {
+          "isValid": true
+        },
+        "scalarKind": "Boolean",
+        "storedName": "backedUp",
+        "type": "boolean"
+      },
+      {
+        "applicationName": "BackupEligible",
+        "collectionId": "auth.passkeys",
+        "confidentiality": "Internal",
+        "disclosure": {
+          "administrativeDataExport": "Include",
+          "authoritativeBackup": "PreserveAuthoritativeValue",
+          "authoritativeHistory": "AuthoritativeRequired",
+          "diagnostic": "Omit",
+          "event": "Omit",
+          "indexing": "DeclaredOperators",
+          "ordinaryDataExport": "Omit",
+          "realtime": "Omit",
+          "recordRead": "Include"
+        },
+        "id": "auth.passkeys.backupEligible",
+        "nullability": "NonNullable",
+        "presence": "Required",
+        "scalarCodecChecksum": {
+          "isValid": true
+        },
+        "scalarConstraintChecksum": {
+          "isValid": true
+        },
+        "scalarKind": "Boolean",
+        "storedName": "backupEligible",
+        "type": "boolean"
+      },
+      {
+        "applicationName": "ClientDataJson",
+        "collectionId": "auth.passkeys",
+        "confidentiality": "Secret",
+        "disclosure": {
+          "administrativeDataExport": "Omit",
+          "authoritativeBackup": "PreserveAuthoritativeValue",
+          "authoritativeHistory": "AuthoritativeRequired",
+          "diagnostic": "Omit",
+          "event": "Omit",
+          "indexing": "Forbidden",
+          "ordinaryDataExport": "Omit",
+          "realtime": "Omit",
+          "recordRead": "Omit"
+        },
+        "id": "auth.passkeys.clientDataJson",
+        "maximumBytes": 65536,
+        "minimumBytes": 0,
+        "nullability": "NonNullable",
+        "presence": "Required",
+        "scalarCodecChecksum": {
+          "isValid": true
+        },
+        "scalarConstraintChecksum": {
+          "isValid": true
+        },
+        "scalarKind": "Binary",
+        "storedName": "clientDataJson",
+        "type": "string"
+      },
+      {
         "applicationName": "CreatedAt",
         "collectionId": "auth.passkeys",
         "confidentiality": "Internal",
@@ -6645,6 +6852,34 @@
         "scalarKind": "Guid",
         "storedName": "tenantId",
         "type": "string"
+      },
+      {
+        "applicationName": "Transports",
+        "collectionId": "auth.passkeys",
+        "confidentiality": "Internal",
+        "disclosure": {
+          "administrativeDataExport": "Include",
+          "authoritativeBackup": "PreserveAuthoritativeValue",
+          "authoritativeHistory": "AuthoritativeRequired",
+          "diagnostic": "Omit",
+          "event": "Omit",
+          "indexing": "DeclaredOperators",
+          "ordinaryDataExport": "Omit",
+          "realtime": "Omit",
+          "recordRead": "Include"
+        },
+        "id": "auth.passkeys.transports",
+        "nullability": "NonNullable",
+        "presence": "Required",
+        "scalarCodecChecksum": {
+          "isValid": true
+        },
+        "scalarConstraintChecksum": {
+          "isValid": true
+        },
+        "scalarKind": "CanonicalJson",
+        "storedName": "transports",
+        "type": "object"
       },
       {
         "applicationName": "UserId",
@@ -6989,6 +7224,36 @@
         "type": "string"
       },
       {
+        "applicationName": "ProtectionAssociatedData",
+        "collectionId": "auth.refreshTokenDeliveries",
+        "confidentiality": "Confidential",
+        "disclosure": {
+          "administrativeDataExport": "Omit",
+          "authoritativeBackup": "PreserveAuthoritativeValue",
+          "authoritativeHistory": "AuthoritativeRequired",
+          "diagnostic": "Omit",
+          "event": "Omit",
+          "indexing": "EqualityOnly",
+          "ordinaryDataExport": "Omit",
+          "realtime": "Omit",
+          "recordRead": "Omit"
+        },
+        "id": "auth.refreshTokenDeliveries.protectionAssociatedData",
+        "maximumBytes": 4096,
+        "minimumBytes": 0,
+        "nullability": "NonNullable",
+        "presence": "Required",
+        "scalarCodecChecksum": {
+          "isValid": true
+        },
+        "scalarConstraintChecksum": {
+          "isValid": true
+        },
+        "scalarKind": "Binary",
+        "storedName": "protectionAssociatedData",
+        "type": "string"
+      },
+      {
         "applicationName": "ProtectorVersion",
         "collectionId": "auth.refreshTokenDeliveries",
         "confidentiality": "Internal",
@@ -7044,6 +7309,36 @@
         "scalarKind": "RecordId",
         "storedName": "replacementId",
         "type": "id"
+      },
+      {
+        "applicationName": "RequestFingerprint",
+        "collectionId": "auth.refreshTokenDeliveries",
+        "confidentiality": "Confidential",
+        "disclosure": {
+          "administrativeDataExport": "Omit",
+          "authoritativeBackup": "PreserveAuthoritativeValue",
+          "authoritativeHistory": "AuthoritativeRequired",
+          "diagnostic": "Omit",
+          "event": "Omit",
+          "indexing": "EqualityOnly",
+          "ordinaryDataExport": "Omit",
+          "realtime": "Omit",
+          "recordRead": "Omit"
+        },
+        "id": "auth.refreshTokenDeliveries.requestFingerprint",
+        "maximumBytes": 32,
+        "minimumBytes": 0,
+        "nullability": "NonNullable",
+        "presence": "Required",
+        "scalarCodecChecksum": {
+          "isValid": true
+        },
+        "scalarConstraintChecksum": {
+          "isValid": true
+        },
+        "scalarKind": "Binary",
+        "storedName": "requestFingerprint",
+        "type": "string"
       },
       {
         "applicationName": "RequestScopeDigest",
@@ -12367,7 +12662,7 @@
           {
             "collation": "OrdinalBinary",
             "direction": "Ascending",
-            "fieldOrdinal": 2,
+            "fieldOrdinal": 6,
             "nullOrder": "MissingThenNullThenValue"
           }
         ],
@@ -12394,25 +12689,25 @@
           {
             "collation": "OrdinalBinary",
             "direction": "Ascending",
-            "fieldOrdinal": 10,
+            "fieldOrdinal": 14,
             "nullOrder": "MissingThenNullThenValue"
           },
           {
             "collation": "OrdinalBinary",
             "direction": "Ascending",
-            "fieldOrdinal": 11,
+            "fieldOrdinal": 16,
             "nullOrder": "MissingThenNullThenValue"
           },
           {
             "collation": "OrdinalBinary",
             "direction": "Ascending",
-            "fieldOrdinal": 1,
+            "fieldOrdinal": 5,
             "nullOrder": "MissingThenNullThenValue"
           },
           {
             "collation": "OrdinalBinary",
             "direction": "Ascending",
-            "fieldOrdinal": 4,
+            "fieldOrdinal": 8,
             "nullOrder": "MissingThenNullThenValue"
           }
         ],
@@ -12438,7 +12733,7 @@
           {
             "collation": "OrdinalBinary",
             "direction": "Ascending",
-            "fieldOrdinal": 8,
+            "fieldOrdinal": 10,
             "nullOrder": "MissingThenNullThenValue"
           },
           {
@@ -13371,6 +13666,222 @@
       },
       {
         "canonicalJsonAuthorityChecksums": [
+          "d1e96b6e33391972ca2122141a34bc54d0e6a441492e5230888b53b0d926fafb",
+          "64f87a2852efbb4fd116eee93a7935ae0857826598d0183f1b4f819967c9e0bf",
+          "2791a63abc1ddccbc5bdac9e5ecec287105db59af629478833822c7aaf606b47"
+        ],
+        "id": "auth.read.adminUsers.createdAt.asc.v1",
+        "maximumExecutionMilliseconds": 2000,
+        "maximumOffset": 100000,
+        "paginationMode": "PageAndOffset",
+        "parameterSerializerContractChecksum": "377dd9ccca845da8ee73bf87b1164a3b79b5c7193856242462991e9c128b5731",
+        "projectionFieldIds": [
+          "auth.read.adminUsers.createdAt.asc.v1.row.id",
+          "auth.read.adminUsers.createdAt.asc.v1.row.email",
+          "auth.read.adminUsers.createdAt.asc.v1.row.emailConfirmed",
+          "auth.read.adminUsers.createdAt.asc.v1.row.firstName",
+          "auth.read.adminUsers.createdAt.asc.v1.row.lastName",
+          "auth.read.adminUsers.createdAt.asc.v1.row.displayName",
+          "auth.read.adminUsers.createdAt.asc.v1.row.subscriptionTier",
+          "auth.read.adminUsers.createdAt.asc.v1.row.isActive",
+          "auth.read.adminUsers.createdAt.asc.v1.row.isDeleted",
+          "auth.read.adminUsers.createdAt.asc.v1.row.lastLoginAt",
+          "auth.read.adminUsers.createdAt.asc.v1.row.lastLoginIp",
+          "auth.read.adminUsers.createdAt.asc.v1.row.createdAt",
+          "auth.read.adminUsers.createdAt.asc.v1.row.userMetadata",
+          "auth.read.adminUsers.createdAt.asc.v1.row.appMetadata",
+          "auth.read.adminUsers.createdAt.asc.v1.row.requiredActions",
+          "auth.read.adminUsers.createdAt.asc.v1.row.lockoutEnd"
+        ],
+        "rowSerializerContractChecksum": "a235283bd72fda09fce206081ec7c910e2502351bb827936950719ed9419aed8",
+        "sourceIds": [
+          "auth.users",
+          "auth.userRoles"
+        ],
+        "topology": "Ordinary"
+      },
+      {
+        "canonicalJsonAuthorityChecksums": [
+          "d1e96b6e33391972ca2122141a34bc54d0e6a441492e5230888b53b0d926fafb",
+          "64f87a2852efbb4fd116eee93a7935ae0857826598d0183f1b4f819967c9e0bf",
+          "2791a63abc1ddccbc5bdac9e5ecec287105db59af629478833822c7aaf606b47"
+        ],
+        "id": "auth.read.adminUsers.createdAt.desc.v1",
+        "maximumExecutionMilliseconds": 2000,
+        "maximumOffset": 100000,
+        "paginationMode": "PageAndOffset",
+        "parameterSerializerContractChecksum": "1496bd233db30500e358e0097e2464328e3c274e548c05ac93ee33f718180ba1",
+        "projectionFieldIds": [
+          "auth.read.adminUsers.createdAt.desc.v1.row.id",
+          "auth.read.adminUsers.createdAt.desc.v1.row.email",
+          "auth.read.adminUsers.createdAt.desc.v1.row.emailConfirmed",
+          "auth.read.adminUsers.createdAt.desc.v1.row.firstName",
+          "auth.read.adminUsers.createdAt.desc.v1.row.lastName",
+          "auth.read.adminUsers.createdAt.desc.v1.row.displayName",
+          "auth.read.adminUsers.createdAt.desc.v1.row.subscriptionTier",
+          "auth.read.adminUsers.createdAt.desc.v1.row.isActive",
+          "auth.read.adminUsers.createdAt.desc.v1.row.isDeleted",
+          "auth.read.adminUsers.createdAt.desc.v1.row.lastLoginAt",
+          "auth.read.adminUsers.createdAt.desc.v1.row.lastLoginIp",
+          "auth.read.adminUsers.createdAt.desc.v1.row.createdAt",
+          "auth.read.adminUsers.createdAt.desc.v1.row.userMetadata",
+          "auth.read.adminUsers.createdAt.desc.v1.row.appMetadata",
+          "auth.read.adminUsers.createdAt.desc.v1.row.requiredActions",
+          "auth.read.adminUsers.createdAt.desc.v1.row.lockoutEnd"
+        ],
+        "rowSerializerContractChecksum": "467a9a3ae915aae49aa47ae37af7f0e4b1f7a309adffd34f19f09d2facde1104",
+        "sourceIds": [
+          "auth.users",
+          "auth.userRoles"
+        ],
+        "topology": "Ordinary"
+      },
+      {
+        "canonicalJsonAuthorityChecksums": [
+          "d1e96b6e33391972ca2122141a34bc54d0e6a441492e5230888b53b0d926fafb",
+          "64f87a2852efbb4fd116eee93a7935ae0857826598d0183f1b4f819967c9e0bf",
+          "2791a63abc1ddccbc5bdac9e5ecec287105db59af629478833822c7aaf606b47"
+        ],
+        "id": "auth.read.adminUsers.email.asc.v1",
+        "maximumExecutionMilliseconds": 2000,
+        "maximumOffset": 100000,
+        "paginationMode": "PageAndOffset",
+        "parameterSerializerContractChecksum": "961b34c015d548bd3834983474cf5209b4468389e3e79f0367e6efda6673f974",
+        "projectionFieldIds": [
+          "auth.read.adminUsers.email.asc.v1.row.id",
+          "auth.read.adminUsers.email.asc.v1.row.email",
+          "auth.read.adminUsers.email.asc.v1.row.emailConfirmed",
+          "auth.read.adminUsers.email.asc.v1.row.firstName",
+          "auth.read.adminUsers.email.asc.v1.row.lastName",
+          "auth.read.adminUsers.email.asc.v1.row.displayName",
+          "auth.read.adminUsers.email.asc.v1.row.subscriptionTier",
+          "auth.read.adminUsers.email.asc.v1.row.isActive",
+          "auth.read.adminUsers.email.asc.v1.row.isDeleted",
+          "auth.read.adminUsers.email.asc.v1.row.lastLoginAt",
+          "auth.read.adminUsers.email.asc.v1.row.lastLoginIp",
+          "auth.read.adminUsers.email.asc.v1.row.createdAt",
+          "auth.read.adminUsers.email.asc.v1.row.userMetadata",
+          "auth.read.adminUsers.email.asc.v1.row.appMetadata",
+          "auth.read.adminUsers.email.asc.v1.row.requiredActions",
+          "auth.read.adminUsers.email.asc.v1.row.lockoutEnd"
+        ],
+        "rowSerializerContractChecksum": "f0117fd97765dfef392d96498d9929f4b6cbf80a5b80e788b9b3abb9e2332ab2",
+        "sourceIds": [
+          "auth.users",
+          "auth.userRoles"
+        ],
+        "topology": "Ordinary"
+      },
+      {
+        "canonicalJsonAuthorityChecksums": [
+          "d1e96b6e33391972ca2122141a34bc54d0e6a441492e5230888b53b0d926fafb",
+          "64f87a2852efbb4fd116eee93a7935ae0857826598d0183f1b4f819967c9e0bf",
+          "2791a63abc1ddccbc5bdac9e5ecec287105db59af629478833822c7aaf606b47"
+        ],
+        "id": "auth.read.adminUsers.email.desc.v1",
+        "maximumExecutionMilliseconds": 2000,
+        "maximumOffset": 100000,
+        "paginationMode": "PageAndOffset",
+        "parameterSerializerContractChecksum": "c66186cc355344c7ebf54c7e4a6855e67f924b0130f51fdc787b0660a6b4f349",
+        "projectionFieldIds": [
+          "auth.read.adminUsers.email.desc.v1.row.id",
+          "auth.read.adminUsers.email.desc.v1.row.email",
+          "auth.read.adminUsers.email.desc.v1.row.emailConfirmed",
+          "auth.read.adminUsers.email.desc.v1.row.firstName",
+          "auth.read.adminUsers.email.desc.v1.row.lastName",
+          "auth.read.adminUsers.email.desc.v1.row.displayName",
+          "auth.read.adminUsers.email.desc.v1.row.subscriptionTier",
+          "auth.read.adminUsers.email.desc.v1.row.isActive",
+          "auth.read.adminUsers.email.desc.v1.row.isDeleted",
+          "auth.read.adminUsers.email.desc.v1.row.lastLoginAt",
+          "auth.read.adminUsers.email.desc.v1.row.lastLoginIp",
+          "auth.read.adminUsers.email.desc.v1.row.createdAt",
+          "auth.read.adminUsers.email.desc.v1.row.userMetadata",
+          "auth.read.adminUsers.email.desc.v1.row.appMetadata",
+          "auth.read.adminUsers.email.desc.v1.row.requiredActions",
+          "auth.read.adminUsers.email.desc.v1.row.lockoutEnd"
+        ],
+        "rowSerializerContractChecksum": "78831ecff1d890d76d6d528fa0eeb76029477269fbfa59a5a03c87d9c6820036",
+        "sourceIds": [
+          "auth.users",
+          "auth.userRoles"
+        ],
+        "topology": "Ordinary"
+      },
+      {
+        "canonicalJsonAuthorityChecksums": [
+          "d1e96b6e33391972ca2122141a34bc54d0e6a441492e5230888b53b0d926fafb",
+          "64f87a2852efbb4fd116eee93a7935ae0857826598d0183f1b4f819967c9e0bf",
+          "2791a63abc1ddccbc5bdac9e5ecec287105db59af629478833822c7aaf606b47"
+        ],
+        "id": "auth.read.adminUsers.lastLoginAt.asc.v1",
+        "maximumExecutionMilliseconds": 2000,
+        "maximumOffset": 100000,
+        "paginationMode": "PageAndOffset",
+        "parameterSerializerContractChecksum": "bf3fddadb78cedfdb1f52a5cab26395b81428a2b8cd01abc46b8810365d78023",
+        "projectionFieldIds": [
+          "auth.read.adminUsers.lastLoginAt.asc.v1.row.id",
+          "auth.read.adminUsers.lastLoginAt.asc.v1.row.email",
+          "auth.read.adminUsers.lastLoginAt.asc.v1.row.emailConfirmed",
+          "auth.read.adminUsers.lastLoginAt.asc.v1.row.firstName",
+          "auth.read.adminUsers.lastLoginAt.asc.v1.row.lastName",
+          "auth.read.adminUsers.lastLoginAt.asc.v1.row.displayName",
+          "auth.read.adminUsers.lastLoginAt.asc.v1.row.subscriptionTier",
+          "auth.read.adminUsers.lastLoginAt.asc.v1.row.isActive",
+          "auth.read.adminUsers.lastLoginAt.asc.v1.row.isDeleted",
+          "auth.read.adminUsers.lastLoginAt.asc.v1.row.lastLoginAt",
+          "auth.read.adminUsers.lastLoginAt.asc.v1.row.lastLoginIp",
+          "auth.read.adminUsers.lastLoginAt.asc.v1.row.createdAt",
+          "auth.read.adminUsers.lastLoginAt.asc.v1.row.userMetadata",
+          "auth.read.adminUsers.lastLoginAt.asc.v1.row.appMetadata",
+          "auth.read.adminUsers.lastLoginAt.asc.v1.row.requiredActions",
+          "auth.read.adminUsers.lastLoginAt.asc.v1.row.lockoutEnd"
+        ],
+        "rowSerializerContractChecksum": "a5cb4b64044dcdc95026531c72f6ec712e1c0f9809a6571b0dda169b7765195e",
+        "sourceIds": [
+          "auth.users",
+          "auth.userRoles"
+        ],
+        "topology": "Ordinary"
+      },
+      {
+        "canonicalJsonAuthorityChecksums": [
+          "d1e96b6e33391972ca2122141a34bc54d0e6a441492e5230888b53b0d926fafb",
+          "64f87a2852efbb4fd116eee93a7935ae0857826598d0183f1b4f819967c9e0bf",
+          "2791a63abc1ddccbc5bdac9e5ecec287105db59af629478833822c7aaf606b47"
+        ],
+        "id": "auth.read.adminUsers.lastLoginAt.desc.v1",
+        "maximumExecutionMilliseconds": 2000,
+        "maximumOffset": 100000,
+        "paginationMode": "PageAndOffset",
+        "parameterSerializerContractChecksum": "450901124ee42675526083146ab175e6ebf7d6ddb3f374a257751972329f2070",
+        "projectionFieldIds": [
+          "auth.read.adminUsers.lastLoginAt.desc.v1.row.id",
+          "auth.read.adminUsers.lastLoginAt.desc.v1.row.email",
+          "auth.read.adminUsers.lastLoginAt.desc.v1.row.emailConfirmed",
+          "auth.read.adminUsers.lastLoginAt.desc.v1.row.firstName",
+          "auth.read.adminUsers.lastLoginAt.desc.v1.row.lastName",
+          "auth.read.adminUsers.lastLoginAt.desc.v1.row.displayName",
+          "auth.read.adminUsers.lastLoginAt.desc.v1.row.subscriptionTier",
+          "auth.read.adminUsers.lastLoginAt.desc.v1.row.isActive",
+          "auth.read.adminUsers.lastLoginAt.desc.v1.row.isDeleted",
+          "auth.read.adminUsers.lastLoginAt.desc.v1.row.lastLoginAt",
+          "auth.read.adminUsers.lastLoginAt.desc.v1.row.lastLoginIp",
+          "auth.read.adminUsers.lastLoginAt.desc.v1.row.createdAt",
+          "auth.read.adminUsers.lastLoginAt.desc.v1.row.userMetadata",
+          "auth.read.adminUsers.lastLoginAt.desc.v1.row.appMetadata",
+          "auth.read.adminUsers.lastLoginAt.desc.v1.row.requiredActions",
+          "auth.read.adminUsers.lastLoginAt.desc.v1.row.lockoutEnd"
+        ],
+        "rowSerializerContractChecksum": "12c4f0055feb7d0368b7f82ff2cca3f36b3c0bf89c8707a1bc10341d23ce4ada",
+        "sourceIds": [
+          "auth.users",
+          "auth.userRoles"
+        ],
+        "topology": "Ordinary"
+      },
+      {
+        "canonicalJsonAuthorityChecksums": [
           "26a945bd6dc0cd10a1822a342f0c0557027a0df9bdd21446e7fc2a2bf8ff6a09"
         ],
         "id": "auth.read.audit.v1",
@@ -13401,7 +13912,7 @@
       },
       {
         "canonicalJsonAuthorityChecksums": [],
-        "compoundChecksum": "9d30213534506b836e930b85530fbc8f00d891bc25acc71da91a3a232dfa6194",
+        "compoundChecksum": "780839cd1843c9950b51750cb4278d7184b0b2848e79535776fffb3ea1ddcaae",
         "id": "auth.read.cleanupDependents.v1",
         "maximumExecutionMilliseconds": 1000,
         "maximumOffset": 0,
@@ -13500,9 +14011,10 @@
           "auth.read.externalIdentity.v1.row.federationSourceId",
           "auth.read.externalIdentity.v1.row.lastSyncAt",
           "auth.read.externalIdentity.v1.row.createdAt",
-          "auth.read.externalIdentity.v1.row.updatedAt"
+          "auth.read.externalIdentity.v1.row.updatedAt",
+          "auth.read.externalIdentity.v1.row.revision"
         ],
-        "rowSerializerContractChecksum": "ad387b29b5ba5fe006fd22a5f70e1accbd93b740cfded917f8015138764c2b3c",
+        "rowSerializerContractChecksum": "d4450551c2a92ed8ffdead513f078b67f6dfafbc3ca0ef58251a34512866bce0",
         "sourceIds": [
           "auth.userIdentities"
         ],
@@ -13529,7 +14041,9 @@
         "topology": "Ordinary"
       },
       {
-        "canonicalJsonAuthorityChecksums": [],
+        "canonicalJsonAuthorityChecksums": [
+          "85791832e541169f4a4d2cbec4033ec4c2f151c10fe244a53fd4df36f14ba370"
+        ],
         "id": "auth.read.passkeyByDigest.v1",
         "maximumExecutionMilliseconds": 250,
         "maximumOffset": 0,
@@ -13544,9 +14058,17 @@
           "auth.read.passkeyByDigest.v1.row.publicKey",
           "auth.read.passkeyByDigest.v1.row.signatureCounter",
           "auth.read.passkeyByDigest.v1.row.userVerified",
-          "auth.read.passkeyByDigest.v1.row.isDiscoverable"
+          "auth.read.passkeyByDigest.v1.row.isDiscoverable",
+          "auth.read.passkeyByDigest.v1.row.name",
+          "auth.read.passkeyByDigest.v1.row.createdAt",
+          "auth.read.passkeyByDigest.v1.row.transports",
+          "auth.read.passkeyByDigest.v1.row.backupEligible",
+          "auth.read.passkeyByDigest.v1.row.backedUp",
+          "auth.read.passkeyByDigest.v1.row.attestationObject",
+          "auth.read.passkeyByDigest.v1.row.clientDataJson",
+          "auth.read.passkeyByDigest.v1.row.revision"
         ],
-        "rowSerializerContractChecksum": "8b03c524cf812c94d42e42be90efaab7f0a359843d3b7b0528cf9006e20bae67",
+        "rowSerializerContractChecksum": "59c19b3c798aa72866873ee81cd4963b44c285e4180194653413e7dc93b9184c",
         "sourceIds": [
           "auth.passkeys"
         ],
@@ -13572,6 +14094,24 @@
       },
       {
         "canonicalJsonAuthorityChecksums": [],
+        "id": "auth.read.recoveryCodesForUser.v1",
+        "maximumExecutionMilliseconds": 500,
+        "maximumOffset": 0,
+        "paginationMode": "PageOnly",
+        "parameterSerializerContractChecksum": "78218995f8f60bdbba0415d03be0d5089149739605349f3b5da4e2e10c5378c7",
+        "projectionFieldIds": [
+          "auth.read.recoveryCodesForUser.v1.row.id",
+          "auth.read.recoveryCodesForUser.v1.row.digestKeyVersion",
+          "auth.read.recoveryCodesForUser.v1.row.revision"
+        ],
+        "rowSerializerContractChecksum": "14b6a038ee1cdf4cab6b5818c4988b2c80b8880eb1723c7259a1be541e934357",
+        "sourceIds": [
+          "auth.recoveryCodes"
+        ],
+        "topology": "Ordinary"
+      },
+      {
+        "canonicalJsonAuthorityChecksums": [],
         "id": "auth.read.refreshByDigest.v1",
         "maximumExecutionMilliseconds": 250,
         "maximumOffset": 0,
@@ -13590,9 +14130,10 @@
           "auth.read.refreshByDigest.v1.row.expiresAt",
           "auth.read.refreshByDigest.v1.row.used",
           "auth.read.refreshByDigest.v1.row.revoked",
-          "auth.read.refreshByDigest.v1.row.replacementId"
+          "auth.read.refreshByDigest.v1.row.replacementId",
+          "auth.read.refreshByDigest.v1.row.revision"
         ],
-        "rowSerializerContractChecksum": "16bbf3680f992a4f2bacebbf3acc7a6650e46307156f1ccf5e9d18a2065ff7ab",
+        "rowSerializerContractChecksum": "4342c54e95b784d2aea40efc0dda2a51832fa250c7bf7a6729f887fdfb3b5646",
         "sourceIds": [
           "auth.refreshTokens"
         ],
@@ -13610,16 +14151,21 @@
           "auth.read.refreshDelivery.v1.row.userId",
           "auth.read.refreshDelivery.v1.row.replacementId",
           "auth.read.refreshDelivery.v1.row.requestScopeDigest",
+          "auth.read.refreshDelivery.v1.row.requestFingerprint",
           "auth.read.refreshDelivery.v1.row.protectedToken",
+          "auth.read.refreshDelivery.v1.row.protectionAssociatedData",
           "auth.read.refreshDelivery.v1.row.protectorVersion",
           "auth.read.refreshDelivery.v1.row.securityGeneration",
           "auth.read.refreshDelivery.v1.row.createdAt",
           "auth.read.refreshDelivery.v1.row.expiresAt",
-          "auth.read.refreshDelivery.v1.row.state"
+          "auth.read.refreshDelivery.v1.row.state",
+          "auth.read.refreshDelivery.v1.row.jwtId",
+          "auth.read.refreshDelivery.v1.row.refreshExpiresAt"
         ],
-        "rowSerializerContractChecksum": "6245e44a7e6908e7adc8022eef90ca9a65a1f1a8387b03a772cd1cbea60600f2",
+        "rowSerializerContractChecksum": "440f1b5e2baf1f272b8403fc6c413d9d81e1b26152cf60a1e7eca180798776fd",
         "sourceIds": [
-          "auth.refreshTokenDeliveries"
+          "auth.refreshTokenDeliveries",
+          "auth.refreshTokens"
         ],
         "topology": "Ordinary"
       },
@@ -13636,6 +14182,34 @@
         "rowSerializerContractChecksum": "4dd2789a35c6fb20e00cb272350584bf5ff10f038f09677430c2f1a1d7f3cfd7",
         "sourceIds": [
           "auth.refreshTokens"
+        ],
+        "topology": "Ordinary"
+      },
+      {
+        "canonicalJsonAuthorityChecksums": [],
+        "id": "auth.read.roleById.v1",
+        "maximumExecutionMilliseconds": 250,
+        "maximumOffset": 0,
+        "paginationMode": "PageOnly",
+        "parameterSerializerContractChecksum": "60e1bed6af96754d266114a0c2647bd333d39f37dcc358445a16155563538770",
+        "projectionFieldIds": [
+          "auth.read.roleById.v1.row.id",
+          "auth.read.roleById.v1.row.tenantId",
+          "auth.read.roleById.v1.row.name",
+          "auth.read.roleById.v1.row.normalizedName",
+          "auth.read.roleById.v1.row.concurrencyStamp",
+          "auth.read.roleById.v1.row.description",
+          "auth.read.roleById.v1.row.isActive",
+          "auth.read.roleById.v1.row.isDeleted",
+          "auth.read.roleById.v1.row.deletedAt",
+          "auth.read.roleById.v1.row.tombstoneGeneration",
+          "auth.read.roleById.v1.row.createdAt",
+          "auth.read.roleById.v1.row.updatedAt",
+          "auth.read.roleById.v1.row.revision"
+        ],
+        "rowSerializerContractChecksum": "83fac95666dd2bcb58d2a243dbdc8d2d66cff7052fb16bc2803066cd7ef04711",
+        "sourceIds": [
+          "auth.roles"
         ],
         "topology": "Ordinary"
       },
@@ -13658,9 +14232,10 @@
           "auth.read.roleByNormalizedName.v1.row.deletedAt",
           "auth.read.roleByNormalizedName.v1.row.tombstoneGeneration",
           "auth.read.roleByNormalizedName.v1.row.createdAt",
-          "auth.read.roleByNormalizedName.v1.row.updatedAt"
+          "auth.read.roleByNormalizedName.v1.row.updatedAt",
+          "auth.read.roleByNormalizedName.v1.row.revision"
         ],
-        "rowSerializerContractChecksum": "2c1be2a35cfa153e08058fbb9fc4d18907cedb8f6b6d57a0317376dd795c0bf1",
+        "rowSerializerContractChecksum": "b52f7e463c608cfb71bb5f85b52a019ae911f20998832e931ccbbd19ee4eb94b",
         "sourceIds": [
           "auth.roles"
         ],
@@ -13682,9 +14257,10 @@
           "auth.read.roleClaims.v1.row.issuer",
           "auth.read.roleClaims.v1.row.originalIssuer",
           "auth.read.roleClaims.v1.row.valueType",
-          "auth.read.roleClaims.v1.row.createdAt"
+          "auth.read.roleClaims.v1.row.createdAt",
+          "auth.read.roleClaims.v1.row.revision"
         ],
-        "rowSerializerContractChecksum": "bad70902cd578d354a50ea788774a1237dc9f7630838180f26802fe5e5c39d6c",
+        "rowSerializerContractChecksum": "0ae7b4550c48ce7bf73efbefe85f7956ae3a0d9b1086d175f577ea65bef4c1bc",
         "sourceIds": [
           "auth.roleClaims"
         ],
@@ -13785,6 +14361,58 @@
           "64f87a2852efbb4fd116eee93a7935ae0857826598d0183f1b4f819967c9e0bf",
           "2791a63abc1ddccbc5bdac9e5ecec287105db59af629478833822c7aaf606b47"
         ],
+        "id": "auth.read.userById.v1",
+        "maximumExecutionMilliseconds": 250,
+        "maximumOffset": 0,
+        "paginationMode": "PageOnly",
+        "parameterSerializerContractChecksum": "9aea9b39ffa433cbf69879dfb3aef39962cd430e229dc0e5e1a04e7364144a45",
+        "projectionFieldIds": [
+          "auth.read.userById.v1.row.id",
+          "auth.read.userById.v1.row.tenantId",
+          "auth.read.userById.v1.row.userName",
+          "auth.read.userById.v1.row.normalizedUserName",
+          "auth.read.userById.v1.row.email",
+          "auth.read.userById.v1.row.normalizedEmail",
+          "auth.read.userById.v1.row.emailConfirmed",
+          "auth.read.userById.v1.row.concurrencyStamp",
+          "auth.read.userById.v1.row.phoneNumber",
+          "auth.read.userById.v1.row.phoneNumberConfirmed",
+          "auth.read.userById.v1.row.twoFactorEnabled",
+          "auth.read.userById.v1.row.lockoutEnd",
+          "auth.read.userById.v1.row.lockoutEnabled",
+          "auth.read.userById.v1.row.accessFailedCount",
+          "auth.read.userById.v1.row.audience",
+          "auth.read.userById.v1.row.userMetadata",
+          "auth.read.userById.v1.row.appMetadata",
+          "auth.read.userById.v1.row.requiredActions",
+          "auth.read.userById.v1.row.firstName",
+          "auth.read.userById.v1.row.lastName",
+          "auth.read.userById.v1.row.displayName",
+          "auth.read.userById.v1.row.avatarUrl",
+          "auth.read.userById.v1.row.isActive",
+          "auth.read.userById.v1.row.isDeleted",
+          "auth.read.userById.v1.row.deletedAt",
+          "auth.read.userById.v1.row.tombstoneGeneration",
+          "auth.read.userById.v1.row.createdAt",
+          "auth.read.userById.v1.row.updatedAt",
+          "auth.read.userById.v1.row.lastLoginAt",
+          "auth.read.userById.v1.row.lastLoginIp",
+          "auth.read.userById.v1.row.subscriptionTier",
+          "auth.read.userById.v1.row.emailConfirmedAt",
+          "auth.read.userById.v1.row.revision"
+        ],
+        "rowSerializerContractChecksum": "bf6394bb99aec39daa4006b600f00919d9a932be1a26c79eab883f3239066a8d",
+        "sourceIds": [
+          "auth.users"
+        ],
+        "topology": "Ordinary"
+      },
+      {
+        "canonicalJsonAuthorityChecksums": [
+          "d1e96b6e33391972ca2122141a34bc54d0e6a441492e5230888b53b0d926fafb",
+          "64f87a2852efbb4fd116eee93a7935ae0857826598d0183f1b4f819967c9e0bf",
+          "2791a63abc1ddccbc5bdac9e5ecec287105db59af629478833822c7aaf606b47"
+        ],
         "id": "auth.read.userByNormalizedEmail.v1",
         "maximumExecutionMilliseconds": 250,
         "maximumOffset": 0,
@@ -13822,9 +14450,10 @@
           "auth.read.userByNormalizedEmail.v1.row.lastLoginAt",
           "auth.read.userByNormalizedEmail.v1.row.lastLoginIp",
           "auth.read.userByNormalizedEmail.v1.row.subscriptionTier",
-          "auth.read.userByNormalizedEmail.v1.row.emailConfirmedAt"
+          "auth.read.userByNormalizedEmail.v1.row.emailConfirmedAt",
+          "auth.read.userByNormalizedEmail.v1.row.revision"
         ],
-        "rowSerializerContractChecksum": "ed36bf658b4542fd920edbcdffc87337194ff3af63e6e04b3216906b040956fb",
+        "rowSerializerContractChecksum": "fc3d33d0a959e2eb10e65ae40350087ba1df6dae9b17492f6dc69163386c4b3a",
         "sourceIds": [
           "auth.users"
         ],
@@ -13873,9 +14502,10 @@
           "auth.read.userByNormalizedName.v1.row.lastLoginAt",
           "auth.read.userByNormalizedName.v1.row.lastLoginIp",
           "auth.read.userByNormalizedName.v1.row.subscriptionTier",
-          "auth.read.userByNormalizedName.v1.row.emailConfirmedAt"
+          "auth.read.userByNormalizedName.v1.row.emailConfirmedAt",
+          "auth.read.userByNormalizedName.v1.row.revision"
         ],
-        "rowSerializerContractChecksum": "1afb05e73ec01c4d2ce24db2a09ca06b31e3b4dd77b2053cc8546e67a3287f73",
+        "rowSerializerContractChecksum": "00d298812f20e73ced40c11cf16b07ec942d6385667949ff666809a85fa833b0",
         "sourceIds": [
           "auth.users"
         ],
@@ -13897,9 +14527,10 @@
           "auth.read.userClaims.v1.row.issuer",
           "auth.read.userClaims.v1.row.originalIssuer",
           "auth.read.userClaims.v1.row.valueType",
-          "auth.read.userClaims.v1.row.createdAt"
+          "auth.read.userClaims.v1.row.createdAt",
+          "auth.read.userClaims.v1.row.revision"
         ],
-        "rowSerializerContractChecksum": "ea20696fffcd7467e7b3234da19b932a9f9381c1d5a48665d58f117e01cb44d9",
+        "rowSerializerContractChecksum": "018093254223cb067d129653caf978873bb27613606c55295c75ee1e5f525e97",
         "sourceIds": [
           "auth.userClaims"
         ],
@@ -13919,11 +14550,43 @@
           "auth.read.userLogins.v1.row.loginProvider",
           "auth.read.userLogins.v1.row.providerKey",
           "auth.read.userLogins.v1.row.providerDisplayName",
-          "auth.read.userLogins.v1.row.createdAt"
+          "auth.read.userLogins.v1.row.createdAt",
+          "auth.read.userLogins.v1.row.revision"
         ],
-        "rowSerializerContractChecksum": "7d655276dc39c345a23c659aa56b310c5508ed389cb76abae968098bb77efc5f",
+        "rowSerializerContractChecksum": "5725c5156fb4214b907670b627b9eb461b308de69f7ba4e240a1a7020910a166",
         "sourceIds": [
           "auth.userLogins"
+        ],
+        "topology": "Ordinary"
+      },
+      {
+        "canonicalJsonAuthorityChecksums": [
+          "85791832e541169f4a4d2cbec4033ec4c2f151c10fe244a53fd4df36f14ba370"
+        ],
+        "id": "auth.read.userPasskeys.v1",
+        "maximumExecutionMilliseconds": 750,
+        "maximumOffset": 0,
+        "paginationMode": "PageOnly",
+        "parameterSerializerContractChecksum": "cd5cbc600626b755c7490c380ee959978c7a23c835d6367aa0d0ce5db3f359a8",
+        "projectionFieldIds": [
+          "auth.read.userPasskeys.v1.row.id",
+          "auth.read.userPasskeys.v1.row.tenantId",
+          "auth.read.userPasskeys.v1.row.credentialId",
+          "auth.read.userPasskeys.v1.row.publicKey",
+          "auth.read.userPasskeys.v1.row.signatureCounter",
+          "auth.read.userPasskeys.v1.row.name",
+          "auth.read.userPasskeys.v1.row.transports",
+          "auth.read.userPasskeys.v1.row.userVerified",
+          "auth.read.userPasskeys.v1.row.backupEligible",
+          "auth.read.userPasskeys.v1.row.backedUp",
+          "auth.read.userPasskeys.v1.row.attestationObject",
+          "auth.read.userPasskeys.v1.row.clientDataJson",
+          "auth.read.userPasskeys.v1.row.createdAt",
+          "auth.read.userPasskeys.v1.row.revision"
+        ],
+        "rowSerializerContractChecksum": "b9ba69e13a5a04d01fa2a915a32256cd56959cdb6d28f9fd33679ff46586c6ea",
+        "sourceIds": [
+          "auth.passkeys"
         ],
         "topology": "Ordinary"
       },
@@ -13935,9 +14598,11 @@
         "paginationMode": "PageOnly",
         "parameterSerializerContractChecksum": "1c2a92d114104e9bd4c3ebbf0c3025d5cc630c375a8672f5164d5b9107acfb97",
         "projectionFieldIds": [
-          "auth.read.userPassword.v1.row.passwordHash"
+          "auth.read.userPassword.v1.row.passwordHash",
+          "auth.read.userPassword.v1.row.securityStamp",
+          "auth.read.userPassword.v1.row.revision"
         ],
-        "rowSerializerContractChecksum": "28cf60692fa67d1082b87ee1d628badb1a13e76edd554dad30275f07f933296b",
+        "rowSerializerContractChecksum": "1b7adb7e09fdbb002261ce78798f33dbb4680ec9b6101653a617363784aa7155",
         "sourceIds": [
           "auth.users"
         ],
@@ -13951,12 +14616,14 @@
         "paginationMode": "PageOnly",
         "parameterSerializerContractChecksum": "c2378954d71a811e7111b6dff30573d4f052c405ee7287050c88206cf4396192",
         "projectionFieldIds": [
+          "auth.read.userRoles.v1.row.id",
           "auth.read.userRoles.v1.row.tenantId",
           "auth.read.userRoles.v1.row.roleId",
           "auth.read.userRoles.v1.row.name",
-          "auth.read.userRoles.v1.row.normalizedName"
+          "auth.read.userRoles.v1.row.normalizedName",
+          "auth.read.userRoles.v1.row.revision"
         ],
-        "rowSerializerContractChecksum": "0f82a0440e984cc99667768c7f6ff7061ce1cd74c400982d7e05d50b519003e7",
+        "rowSerializerContractChecksum": "abb7e216d01214c8b90e0475089b4a1f247f9600720af90fd33fa36e187e77d8",
         "sourceIds": [
           "auth.userRoles",
           "auth.roles"
@@ -13987,11 +14654,28 @@
         "paginationMode": "PageOnly",
         "parameterSerializerContractChecksum": "1dae0eff81442bc9d4cc26b32547bbaedf7c73b52b4d9318ffbe31b3015cebfc",
         "projectionFieldIds": [
-          "auth.read.userTwoFactorSecrets.v1.row.authenticatorKey"
+          "auth.read.userTwoFactorSecrets.v1.row.authenticatorKey",
+          "auth.read.userTwoFactorSecrets.v1.row.revision"
         ],
-        "rowSerializerContractChecksum": "fed6b479a73fad971916a9c4b83cea8f2120af7f0e997fcb01864ac0967f3ed8",
+        "rowSerializerContractChecksum": "abd8b4b8d2a83b559122e009c97c3bb68ed80b831882e7433f32e63d33ff17de",
         "sourceIds": [
           "auth.users"
+        ],
+        "topology": "Ordinary"
+      },
+      {
+        "canonicalJsonAuthorityChecksums": [],
+        "id": "auth.read.usersForClaim.v1",
+        "maximumExecutionMilliseconds": 500,
+        "maximumOffset": 0,
+        "paginationMode": "PageOnly",
+        "parameterSerializerContractChecksum": "daffba6208eef2599bc29867744513c4adafbdd8d65a8822dea296600b5b73f7",
+        "projectionFieldIds": [
+          "auth.read.usersForClaim.v1.row.userId"
+        ],
+        "rowSerializerContractChecksum": "2ad10d8142d1410701e4d7b9006730d92173763b3b53d64077c62949cb1443bf",
+        "sourceIds": [
+          "auth.userClaims"
         ],
         "topology": "Ordinary"
       },
@@ -14038,9 +14722,10 @@
           "auth.read.usersInRole.v1.row.lastLoginAt",
           "auth.read.usersInRole.v1.row.lastLoginIp",
           "auth.read.usersInRole.v1.row.subscriptionTier",
-          "auth.read.usersInRole.v1.row.emailConfirmedAt"
+          "auth.read.usersInRole.v1.row.emailConfirmedAt",
+          "auth.read.usersInRole.v1.row.revision"
         ],
-        "rowSerializerContractChecksum": "54c2d8e2869a6b9c5876b539b5160f70cc47c33ff25e966480b23d4f6c475ad8",
+        "rowSerializerContractChecksum": "25c520ae925ae500efcad9424cd525bd52a19273f7338cc700e0062fffc6c4b4",
         "sourceIds": [
           "auth.userRoles",
           "auth.users"
@@ -14389,7 +15074,7 @@
     "textIndexes": [],
     "vectorIndexes": []
   },
-  "logicalSchemaChecksum": "5467d01859b145ffecda4f40b784772730e205649c4102ce54ae660f40ff7c70",
+  "logicalSchemaChecksum": "3fda69369538dfe452198ba104c42bf20b80cf07c011b5a4ab26bbccfa796150",
   "moduleMutations": [
     {
       "audience": 0,
@@ -14937,7 +15622,7 @@
     },
     {
       "audience": 0,
-      "checksum": "71db1c843351442df8794182a59094500db7435fdfde0e118921390d066fe8d0",
+      "checksum": "f62d2afe9315bbec27c3ddc1aa9dcb76822d7ebf8a643fd763bb23ba2adab410",
       "generationCellIds": [
         "hpd.auth.user-state-generation.v1"
       ],
@@ -15016,7 +15701,7 @@
     },
     {
       "audience": 0,
-      "checksum": "f22452e5f6d8e06a156b0d68e7c8170e7d6367c30dac24622c23a037da4e70ce",
+      "checksum": "3447113a81f334e404a01ce78e93acffd4c806aea1c1d4eee481c70d88d60cb2",
       "generationCellIds": [
         "hpd.auth.user-state-generation.v1"
       ],
@@ -15162,11 +15847,9 @@
     },
     {
       "audience": 0,
-      "checksum": "5153916b8d5b07ffe29181053c8d4828999824bef58bdc482baee951fbdcabb2",
+      "checksum": "b933eae70033878f5ad1781195ff9a8ec452c31efb535de06eca84207a2efc45",
       "generationCellIds": [
-        "hpd.auth.membership-generation.v1",
-        "hpd.auth.role-state-generation.v1",
-        "hpd.auth.user-state-generation.v1"
+        "hpd.auth.membership-generation.v1"
       ],
       "grantId": "auth.operation.membership.mutate",
       "id": "hpd.auth.membership.add.v1",
@@ -15243,11 +15926,9 @@
     },
     {
       "audience": 0,
-      "checksum": "0528ac269b454b6cbadd355b1714cdb0f379f239a007dbdbf61f428e7c63345c",
+      "checksum": "2b46500da5533c759133e375ee07d62c917863869145a0eb2f9ce1e61699309b",
       "generationCellIds": [
-        "hpd.auth.membership-generation.v1",
-        "hpd.auth.role-state-generation.v1",
-        "hpd.auth.user-state-generation.v1"
+        "hpd.auth.membership-generation.v1"
       ],
       "grantId": "auth.operation.membership.mutate",
       "id": "hpd.auth.membership.remove.v1",
@@ -15324,7 +16005,7 @@
     },
     {
       "audience": 0,
-      "checksum": "da66f88e80ef9a053718cc460b5aa710c3a4f467c6ab8f0b2c6f98d4fad8af5c",
+      "checksum": "967c6f9630bb373a750dda6897e612fe643f82b187a7753b81676670b1b785a3",
       "generationCellIds": [
         "hpd.auth.user-security-generation.v1"
       ],
@@ -15398,7 +16079,7 @@
     },
     {
       "audience": 0,
-      "checksum": "d34756734420d6a9b4fb2d6d06960448958680305885a4498b284dca30690f25",
+      "checksum": "bbfbb6b994b42cc989f6c669b50e5b5e231b8613b2eb8c32131954e432cc0f43",
       "generationCellIds": [
         "hpd.auth.user-security-generation.v1",
         "hpd.auth.user-state-generation.v1"
@@ -15473,7 +16154,82 @@
     },
     {
       "audience": 0,
-      "checksum": "7725bd39a6a994d6289af77aa6ea50df3e7db5eced7b1917a0f4a3302bffd55e",
+      "checksum": "d5ea40f29a26d8eaee16d6dbf535993d5b5788561719d14c0166875ebe77a041",
+      "generationCellIds": [
+        "hpd.auth.user-security-generation.v1",
+        "hpd.auth.user-state-generation.v1"
+      ],
+      "grantId": "auth.operation.passkey.mutate",
+      "id": "hpd.auth.passkey.remove.v1",
+      "importedSubjectContractIds": [],
+      "limits": {
+        "deadlines": {
+          "acquisitionTimeout": "00:00:02",
+          "commitObservationTimeout": "00:00:02",
+          "receiptResolutionTimeout": "00:00:05",
+          "transactionTimeout": "00:00:05"
+        },
+        "maximumAuthorityReads": 32,
+        "maximumBranches": 8,
+        "maximumCaptures": 16,
+        "maximumDisabledCaptures": 128,
+        "maximumEvidenceBytes": 1048576,
+        "maximumExpressionNodes": 128,
+        "maximumFactBytes": 2097152,
+        "maximumGenerationBytes": 65536,
+        "maximumGenerationCaptures": 4,
+        "maximumGenerationComparisons": 4,
+        "maximumGenerationIncrements": 4,
+        "maximumGenerationReads": 4,
+        "maximumGuardDepth": 8,
+        "maximumGuardNodes": 64,
+        "maximumJournalBytes": 2621440,
+        "maximumPreconditions": 64,
+        "maximumReadIntervals": 64,
+        "maximumReceiptBytes": 2621440,
+        "maximumRecordCaptures": 12,
+        "maximumRecordMutations": 12,
+        "maximumRelationChecks": 32,
+        "maximumRelationTargetCaptures": 16,
+        "maximumRemovedFields": 64,
+        "maximumRequestBytes": 262144,
+        "maximumRequestGuardEvaluations": 128,
+        "maximumResultBytes": 65536,
+        "maximumSelectedBytes": 1048576,
+        "maximumStatements": 24,
+        "maximumStaticSetComparisons": 8192,
+        "maximumStaticSetMembers": 128,
+        "maximumSubjectValidations": 8,
+        "maximumTransientBytes": 8388608,
+        "maximumUniqueConstraintChecks": 32,
+        "maximumWrittenBytes": 1048576
+      },
+      "owningModuleId": "hpd.auth",
+      "receiptPolicy": {
+        "formatVersion": 1,
+        "lifetime": "1.00:00:00"
+      },
+      "requestTypeId": "hpd.auth.type.auth-passkey-remove-v1.v1",
+      "resultTypeId": "hpd.auth.type.auth-passkey-remove-result-v1.v1",
+      "systemCollectionIds": [
+        "auth.passkeys",
+        "auth.users"
+      ],
+      "systemSourceGrants": [
+        {
+          "collectionId": "auth.passkeys",
+          "grantId": "auth.identity.secret.passkey"
+        },
+        {
+          "collectionId": "auth.users",
+          "grantId": "auth.identity.mutate"
+        }
+      ],
+      "version": 1
+    },
+    {
+      "audience": 0,
+      "checksum": "f4043e427dde26a769d8106f1faeeb8ee1885c37dd6aeb7bd89e2cd65029d8fa",
       "generationCellIds": [
         "hpd.auth.user-security-generation.v1"
       ],
@@ -15547,7 +16303,7 @@
     },
     {
       "audience": 0,
-      "checksum": "51ee7584b83e74753b3e174dd7db7b469cbd3f150f38a1212fd1aff17c8a396a",
+      "checksum": "92761bb58da664dac7934436daf98965f8d60b64b1fcb66be096d8636876bbe0",
       "generationCellIds": [
         "hpd.auth.user-security-generation.v1",
         "hpd.auth.user-state-generation.v1"
@@ -15622,7 +16378,7 @@
     },
     {
       "audience": 0,
-      "checksum": "f50b4654fc9df47110fcd088b126777e146d31df9e1b23716dd4f43bcac46c3c",
+      "checksum": "45442fd06bd4cee2c253354679392b97ffad6f8fcd4defa19819a02695b2ca26",
       "generationCellIds": [
         "hpd.auth.user-security-generation.v1"
       ],
@@ -15701,7 +16457,7 @@
     },
     {
       "audience": 0,
-      "checksum": "afcbdc68e362f42cc157655d5b18e20f42f208ed0603ae390f96c096fd659fcc",
+      "checksum": "54f613cd56307ee9063a3e16a4dd48d62ff1ba5bf3fd44f579135f66b4f9076c",
       "generationCellIds": [
         "hpd.auth.user-security-generation.v1"
       ],
@@ -15849,7 +16605,7 @@
     },
     {
       "audience": 0,
-      "checksum": "766fc10a63756da6f6e57a9050288cde9ca6d02c6659fc0be36d7815cf3d3887",
+      "checksum": "b4471b2a06c384767c867dfd9cb51cb9b5af868fa9e7f0ad61f1d1500babcbdd",
       "generationCellIds": [
         "hpd.auth.role-state-generation.v1"
       ],
@@ -15918,7 +16674,7 @@
     },
     {
       "audience": 0,
-      "checksum": "5d5316fab050367765eec2e0840cda833b074ac68ec3041c59cef996585c1517",
+      "checksum": "04c584eaa119c1f9950cf1d2f50e6cd89ef10cefd090ac075e8f7f644d0fbff3",
       "generationCellIds": [
         "hpd.auth.user-security-generation.v1"
       ],
@@ -15992,7 +16748,7 @@
     },
     {
       "audience": 0,
-      "checksum": "ccbd898124ff6cf0b0a55e4d8e2709b81c43d56d197b574bf7b25369429e9def",
+      "checksum": "610228be580fc9cfb7b1175d44684bdc6156e98a7b41c76b53da8c726d40b5c7",
       "generationCellIds": [
         "hpd.auth.user-security-generation.v1"
       ],
@@ -16066,7 +16822,7 @@
     },
     {
       "audience": 0,
-      "checksum": "53973070d592b73da1f47f57ffe9be3484812d960f760b427cda3387736c6d7a",
+      "checksum": "f5ae17792c8356fa78674669c0248816436ef116a005357773e84a92191421d0",
       "generationCellIds": [
         "hpd.auth.user-security-generation.v1",
         "hpd.auth.user-state-generation.v1"
@@ -16193,6 +16949,76 @@
       },
       "requestTypeId": "hpd.auth.type.auth-create-user-v1.v1",
       "resultTypeId": "hpd.auth.type.auth-create-user-result-v1.v1",
+      "systemCollectionIds": [
+        "auth.users"
+      ],
+      "systemSourceGrants": [
+        {
+          "collectionId": "auth.users",
+          "grantId": "auth.identity.mutate"
+        }
+      ],
+      "version": 1
+    },
+    {
+      "audience": 0,
+      "checksum": "e07d0a24bd11dd44c8c3abb0bb7b52ca0034049f4a5373e77abf6cc1ec7c5a91",
+      "generationCellIds": [
+        "hpd.auth.user-security-generation.v1",
+        "hpd.auth.user-state-generation.v1"
+      ],
+      "grantId": "auth.operation.user.security",
+      "id": "hpd.auth.user.remove-password.v1",
+      "importedSubjectContractIds": [],
+      "limits": {
+        "deadlines": {
+          "acquisitionTimeout": "00:00:02",
+          "commitObservationTimeout": "00:00:02",
+          "receiptResolutionTimeout": "00:00:05",
+          "transactionTimeout": "00:00:05"
+        },
+        "maximumAuthorityReads": 32,
+        "maximumBranches": 8,
+        "maximumCaptures": 16,
+        "maximumDisabledCaptures": 128,
+        "maximumEvidenceBytes": 1048576,
+        "maximumExpressionNodes": 128,
+        "maximumFactBytes": 2097152,
+        "maximumGenerationBytes": 65536,
+        "maximumGenerationCaptures": 4,
+        "maximumGenerationComparisons": 4,
+        "maximumGenerationIncrements": 4,
+        "maximumGenerationReads": 4,
+        "maximumGuardDepth": 8,
+        "maximumGuardNodes": 64,
+        "maximumJournalBytes": 2621440,
+        "maximumPreconditions": 64,
+        "maximumReadIntervals": 64,
+        "maximumReceiptBytes": 2621440,
+        "maximumRecordCaptures": 12,
+        "maximumRecordMutations": 12,
+        "maximumRelationChecks": 32,
+        "maximumRelationTargetCaptures": 16,
+        "maximumRemovedFields": 64,
+        "maximumRequestBytes": 262144,
+        "maximumRequestGuardEvaluations": 128,
+        "maximumResultBytes": 65536,
+        "maximumSelectedBytes": 1048576,
+        "maximumStatements": 24,
+        "maximumStaticSetComparisons": 8192,
+        "maximumStaticSetMembers": 128,
+        "maximumSubjectValidations": 8,
+        "maximumTransientBytes": 8388608,
+        "maximumUniqueConstraintChecks": 32,
+        "maximumWrittenBytes": 1048576
+      },
+      "owningModuleId": "hpd.auth",
+      "receiptPolicy": {
+        "formatVersion": 1,
+        "lifetime": "1.00:00:00"
+      },
+      "requestTypeId": "hpd.auth.type.auth-remove-password-v1.v1",
+      "resultTypeId": "hpd.auth.type.auth-security-mutation-result-v1.v1",
       "systemCollectionIds": [
         "auth.users"
       ],
@@ -16346,7 +17172,7 @@
     },
     {
       "audience": 0,
-      "checksum": "fc7a96c42cb4c0cfb207475d34848c35a91fafde20b9fefa2ef10ec51f8fabbb",
+      "checksum": "aa35380ec319725993ad6aa1d3a66beba62a8d42840c6c12c94bcbf273f6d7f2",
       "generationCellIds": [
         "hpd.auth.user-state-generation.v1"
       ],

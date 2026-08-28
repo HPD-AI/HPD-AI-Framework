@@ -79,16 +79,8 @@ internal sealed class BaseModuleMutationRegistration<TRequest, TResult>(
         ArgumentNullException.ThrowIfNull(principal);
         TRequest? request = System.Text.Json.JsonSerializer.Deserialize(requestJson.Span, identity.RequestTypeInfo);
         if (request is null) throw new InvalidOperationException("base.moduleMutation.invalid");
-        byte[] canonical = DefaultBaseModuleMutationRuntime.CanonicalRequest(requestJson.Span, definition.Limits.MaximumRequestBytes);
-        BaseModuleProgramEvaluator<TRequest, TResult>.ValidateDto(canonical, identity.RequestBindings, providerInfluenced: false);
-        using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
-        Add(hash, "base.moduleMutation.http.v1"u8); Add(hash, System.Text.Encoding.UTF8.GetBytes(Id));
-        Span<byte> version = stackalloc byte[8]; System.Buffers.Binary.BinaryPrimitives.WriteInt64BigEndian(version, Version); Add(hash, version);
-        Add(hash, canonical); Add(hash, System.Text.Encoding.UTF8.GetBytes(principal.SubjectId ?? string.Empty));
-        Add(hash, System.Text.Encoding.UTF8.GetBytes(principal.CurrentTenantId ?? string.Empty));
-        string scope = $"module:{Id}|tenant:{principal.CurrentTenantId ?? string.Empty}";
-        return BaseMutationRequestIdentity.Create(scope, Id, idempotencyKey,
-            BaseMutationRequestFingerprint.Create(hash.GetHashAndReset()));
+        return BaseModuleMutationRequestIdentityContract.Create(
+            definition, identity, request, requestJson, idempotencyKey, principal);
     }
 
     public async ValueTask<BaseResult<BaseUntypedModuleMutationExecutionResult>> ExecuteAsync(
@@ -145,11 +137,61 @@ internal sealed class BaseModuleMutationRegistration<TRequest, TResult>(
     private static BaseFailure<BaseUntypedModuleMutationExecutionResult> Failure(OperationStatus status, string code, ErrorCategory category) =>
         new(status, new BaseError { Code = code, Message = "The module mutation request is invalid.", Category = category }, null, null);
 
-    private static void Add(System.Security.Cryptography.IncrementalHash hash, ReadOnlySpan<byte> value)
+}
+
+internal static class BaseModuleMutationRequestIdentityContract
+{
+    internal static BaseMutationRequestIdentity Create<TRequest, TResult>(
+        BaseRegisteredModuleMutationDefinition definition,
+        BaseGeneratedModuleMutationIdentity<TRequest, TResult> identity,
+        TRequest request,
+        string idempotencyKey,
+        PrincipalContext principal)
+    {
+        byte[] wire = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(request, identity.RequestTypeInfo);
+        return Create(definition, identity, request, wire, idempotencyKey, principal);
+    }
+
+    internal static BaseMutationRequestIdentity Create<TRequest, TResult>(
+        BaseRegisteredModuleMutationDefinition definition,
+        BaseGeneratedModuleMutationIdentity<TRequest, TResult> identity,
+        TRequest request,
+        ReadOnlyMemory<byte> requestJson,
+        string idempotencyKey,
+        PrincipalContext principal)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(identity);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentException.ThrowIfNullOrWhiteSpace(idempotencyKey);
+        ArgumentNullException.ThrowIfNull(principal);
+        byte[] canonical = DefaultBaseModuleMutationRuntime.CanonicalRequest(
+            requestJson.Span, definition.Limits.MaximumRequestBytes);
+        BaseModuleProgramEvaluator<TRequest, TResult>.ValidateDto(
+            canonical, identity.RequestBindings, providerInfluenced: false);
+        using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(
+            System.Security.Cryptography.HashAlgorithmName.SHA256);
+        Add(hash, "base.moduleMutation.http.v1"u8);
+        Add(hash, System.Text.Encoding.UTF8.GetBytes(definition.Id));
+        Span<byte> version = stackalloc byte[8];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt64BigEndian(version, definition.Version);
+        Add(hash, version);
+        Add(hash, canonical);
+        Add(hash, System.Text.Encoding.UTF8.GetBytes(principal.SubjectId ?? string.Empty));
+        Add(hash, System.Text.Encoding.UTF8.GetBytes(principal.CurrentTenantId ?? string.Empty));
+        string scope = $"module:{definition.Id}|tenant:{principal.CurrentTenantId ?? string.Empty}";
+        return BaseMutationRequestIdentity.Create(scope, definition.Id, idempotencyKey,
+            BaseMutationRequestFingerprint.Create(hash.GetHashAndReset()));
+    }
+
+    private static void Add(
+        System.Security.Cryptography.IncrementalHash hash,
+        ReadOnlySpan<byte> value)
     {
         Span<byte> length = stackalloc byte[4];
         System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(length, value.Length);
-        hash.AppendData(length); hash.AppendData(value);
+        hash.AppendData(length);
+        hash.AppendData(value);
     }
 }
 

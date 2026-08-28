@@ -279,9 +279,10 @@ public sealed class GeneratedReadTests
         {
             Result = new BaseRelationalReadResult
             {
-                Rows = [], Page = new PageInfo { Offset = 2, Limit = 1 }, Count = 0, SchemaGeneration = 0,
+                Rows = [], Page = new PageInfo { Offset = 2, Limit = 1 }, Count = 0,
             },
             DependencyEvidence = [new BaseReadDependencyEvidence { CollectionId = ReadProject.Collection.Id }],
+            SnapshotAuthority = null!,
         };
         BaseFailure<BasePage<ProjectNameRead.Row>> hostile = (await session.Reads.ExecuteOffsetAsync(
             ProjectNameRead.Handle, new ProjectNameRead { Name = "alpha" }, BaseReadOffsetRequest.Create(1, 1)))
@@ -308,9 +309,10 @@ public sealed class GeneratedReadTests
                 Result = new BaseRelationalReadResult
                 {
                     Rows = rows, Page = new PageInfo { Offset = offset, Limit = limit, HasMore = hasMore },
-                    Count = count, SchemaGeneration = 0,
+                    Count = count,
                 },
                 DependencyEvidence = [new BaseReadDependencyEvidence { CollectionId = ReadProject.Collection.Id }],
+                SnapshotAuthority = null!,
             };
             BaseFailure<BasePage<ProjectNameRead.Row>> incomplete = (await session.Reads.ExecuteOffsetAsync(
                 ProjectNameRead.Handle, new ProjectNameRead { Name = "alpha" }, BaseReadOffsetRequest.Create(offset, limit)))
@@ -323,14 +325,66 @@ public sealed class GeneratedReadTests
             Result = new BaseRelationalReadResult
             {
                 Rows = [], Page = new PageInfo { Page = 1, PerPage = 10, Offset = 0, HasMore = true },
-                Count = 5, SchemaGeneration = 0,
+                Count = 5,
             },
             DependencyEvidence = [new BaseReadDependencyEvidence { CollectionId = ReadProject.Collection.Id }],
+            SnapshotAuthority = null!,
         };
         BaseFailure<BasePage<ProjectNameRead.Row>> mixedPage = (await session.Reads.ExecuteAsync(
             ProjectNameRead.Handle, new ProjectNameRead { Name = "alpha" }, BaseReadPageRequest.Create(1, 10)))
             .Should().BeOfType<BaseFailure<BasePage<ProjectNameRead.Row>>>().Subject;
         mixedPage.Error.Code.Should().Be("base.relational.read.resultInvalid");
+    }
+
+    [Fact]
+    public async Task AuthorityTerminalReturnsProviderSnapshotAuthorityAndRejectsHostileAuthority()
+    {
+        var store = new RelationalReadStore();
+        var services = new ServiceCollection().AddLogging();
+        services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>()
+            .AddCollection(ReadProject.Collection)
+            .AddRead(ProjectNameRead.Definition)
+            .UseStore(TestStoreProvider.Create(store, relational: true)));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+        BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
+        {
+            AuthenticationState = PrincipalAuthenticationState.System,
+        });
+
+        BaseRegisteredReadFirstResult<ProjectNameRead.Row> accepted = (await session.Reads.FirstWithAuthorityAsync(
+            ProjectNameRead.Handle, new ProjectNameRead { Name = "alpha" })).RequireValue();
+        accepted.Item.Should().NotBeNull();
+        accepted.Authority.ApplicationId.Should().Be(store.Request!.ApplicationId);
+        accepted.Authority.LogicalStoreId.Should().Be(store.Request.LogicalStoreId);
+        accepted.Authority.StoreInstanceId.Should().Be("generated-read-test-store");
+        accepted.Authority.Collections.Select(static item => item.CollectionId)
+            .Should().Equal(ReadProject.Collection.Id);
+        accepted.Authority.AuthorityChecksum.Should().HaveCount(32);
+
+        store.PreserveResponseAuthority = true;
+        BaseRelationalReadExecutionRequest request = store.Request!;
+        store.Response = new BaseRelationalReadExecutionResult
+        {
+            Result = new BaseRelationalReadResult
+            {
+                Rows = [], Page = new PageInfo { Page = 1, PerPage = 1 }, Count = 0,
+            },
+            DependencyEvidence = [new BaseReadDependencyEvidence { CollectionId = ReadProject.Collection.Id }],
+            SnapshotAuthority = BaseRelationalReadSnapshotAuthorityContract.Create(
+                "hostile-application", request.LogicalStoreId, "generated-read-test-store", 0,
+                request.Plan.SchemaGeneration, request.LogicalSchemaChecksum,
+                [new BaseRelationalCollectionSnapshotAuthority
+                {
+                    CollectionId = ReadProject.Collection.Id,
+                    CollectionGeneration = 0,
+                }]),
+        };
+        BaseFailure<BaseRegisteredReadFirstResult<ProjectNameRead.Row>> hostile =
+            (await session.Reads.FirstWithAuthorityAsync(
+                ProjectNameRead.Handle, new ProjectNameRead { Name = "alpha" }))
+            .Should().BeOfType<BaseFailure<BaseRegisteredReadFirstResult<ProjectNameRead.Row>>>().Subject;
+        hostile.Error.Code.Should().Be("base.relational.read.schemaNotReady");
     }
 
     [Fact]
@@ -387,9 +441,9 @@ public sealed class GeneratedReadTests
                 Rows = rows,
                 Page = new PageInfo { Page = 1, PerPage = 20 },
                 Count = rows.Length,
-                SchemaGeneration = 0,
             },
             DependencyEvidence = evidence,
+            SnapshotAuthority = null!,
         };
     }
 
@@ -599,9 +653,10 @@ public sealed class GeneratedReadTests
             Result = new BaseRelationalReadResult
             {
                 Rows = Enumerable.Repeat(row, 1_001).ToArray(),
-                Page = new PageInfo { Limit = 1_000 }, Count = 1_001, SchemaGeneration = 0,
+                Page = new PageInfo { Limit = 1_000 }, Count = 1_001,
             },
             DependencyEvidence = [new BaseReadDependencyEvidence { CollectionId = ReadProject.Collection.Id }],
+            SnapshotAuthority = null!,
         };
         var services = new ServiceCollection().AddLogging();
                 services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>()
@@ -658,9 +713,13 @@ public sealed class GeneratedReadTests
         IRelationalReadStore inMemory = (IRelationalReadStore)provider
             .GetRequiredService<IRecordStoreRegistry>().GetStoreForCollection(ReadProject.Collection.Id)!;
         long generation = provider.GetRequiredService<IHPDBaseApplication>().CurrentReadiness!.SchemaGeneration!.Value;
+        var readAuthority = ProviderAuthority(provider, ReadProject.Collection.Id);
         OperationResult<BaseRelationalReadExecutionResult> overLimit = await inMemory.ExecuteReadAsync(
             new BaseRelationalReadExecutionRequest
             {
+                ApplicationId = readAuthority.ApplicationId,
+                LogicalStoreId = readAuthority.LogicalStoreId,
+                LogicalSchemaChecksum = readAuthority.LogicalSchemaChecksum,
                 Plan = ProjectSummaryRead.Definition.Plan with { SchemaGeneration = generation },
                 ParameterValues =
                 [
@@ -729,9 +788,13 @@ public sealed class GeneratedReadTests
             .Payload.Fields![poisonWireName] = JsonSerializer.SerializeToElement("poison-must-not-project");
 
         long generation = provider.GetRequiredService<IHPDBaseApplication>().CurrentReadiness!.SchemaGeneration!.Value;
+        var readAuthority = ProviderAuthority(provider, L60BoundedProjectionRecord.Collection.Id);
         async ValueTask<OperationResult<BaseRelationalReadExecutionResult>> Execute(BaseRelationalReadPlan plan) =>
             await store.ExecuteReadAsync(new BaseRelationalReadExecutionRequest
             {
+                ApplicationId = readAuthority.ApplicationId,
+                LogicalStoreId = readAuthority.LogicalStoreId,
+                LogicalSchemaChecksum = readAuthority.LogicalSchemaChecksum,
                 Plan = plan with { SchemaGeneration = generation },
                 ParameterValues = [],
                 SourcePolicies = plan.Sources.Select(source => new BaseRelationalReadSourcePolicy
@@ -857,8 +920,12 @@ public sealed class GeneratedReadTests
 
             SqliteRecordStore store = provider.GetRequiredService<SqliteRecordStore>();
             long generation = provider.GetRequiredService<IHPDBaseApplication>().CurrentReadiness!.SchemaGeneration!.Value;
+            var readAuthority = ProviderAuthority(provider, ReadProject.Collection.Id);
             OperationResult<BaseRelationalReadExecutionResult> overLimit = await store.ExecuteReadAsync(new BaseRelationalReadExecutionRequest
             {
+                ApplicationId = readAuthority.ApplicationId,
+                LogicalStoreId = readAuthority.LogicalStoreId,
+                LogicalSchemaChecksum = readAuthority.LogicalSchemaChecksum,
                 Plan = ProjectSummaryRead.Definition.Plan with { SchemaGeneration = generation },
                 ParameterValues = [new BaseRelationalParameterValue { ParameterId = "project-summary.owner-id", Value = new QueryValue { Kind = QueryValueKind.Id, Id = ownerId.Value.Value } }],
                 SourcePolicies = ProjectSummaryRead.Definition.Plan.Sources.Select(source => new BaseRelationalReadSourcePolicy { SourceId = source.Id, CollectionId = source.CollectionId }).ToArray(),
@@ -870,6 +937,9 @@ public sealed class GeneratedReadTests
             overLimit.Value.Should().BeNull("providers must not expose a partial buffered page");
             OperationResult<BaseRelationalReadExecutionResult> stale = await store.ExecuteReadAsync(new BaseRelationalReadExecutionRequest
             {
+                ApplicationId = readAuthority.ApplicationId,
+                LogicalStoreId = readAuthority.LogicalStoreId,
+                LogicalSchemaChecksum = readAuthority.LogicalSchemaChecksum,
                 Plan = ProjectSummaryRead.Definition.Plan with { SchemaGeneration = 99 },
                 ParameterValues = [new BaseRelationalParameterValue { ParameterId = "project-summary.owner-id", Value = new QueryValue { Kind = QueryValueKind.Id, Id = ownerId.Value.Value } }],
                 SourcePolicies = ProjectSummaryRead.Definition.Plan.Sources.Select(source => new BaseRelationalReadSourcePolicy { SourceId = source.Id, CollectionId = source.CollectionId }).ToArray(),
@@ -900,6 +970,16 @@ public sealed class GeneratedReadTests
             stores.Add(new RecordStoreRegistration { StoreId = "split-b", Store = second, CollectionIds = [ReadTask.Collection.Id] });
             return ValueTask.CompletedTask;
         }
+    }
+
+    private static (string ApplicationId, string LogicalStoreId, BaseSchemaAuthorityChecksum LogicalSchemaChecksum)
+        ProviderAuthority(IServiceProvider provider, string collectionId)
+    {
+        HPDBaseInstalledFeatures installed = provider.GetRequiredService<HPDBaseInstalledFeatures>();
+        RecordStoreRegistration registration = provider.GetRequiredService<IRecordStoreRegistry>()
+            .GetRegistrationForCollection(collectionId)!;
+        return (installed.LogicalSchema.ApplicationId, registration.StoreId,
+            BaseSchemaAuthorityChecksum.ParseHex(installed.LogicalSchema.CanonicalChecksum));
     }
 
     private sealed class RelationalReadStore : FakeRecordStore, IRelationalReadStore
@@ -937,6 +1017,7 @@ public sealed class GeneratedReadTests
 
         public BaseRelationalReadExecutionRequest? Request { get; private set; }
         public BaseRelationalReadExecutionResult? Response { get; set; }
+        public bool PreserveResponseAuthority { get; set; }
 
         public ValueTask<OperationResult<BaseRelationalReadExecutionResult>> ExecuteReadAsync(
             BaseRelationalReadExecutionRequest request,
@@ -955,7 +1036,7 @@ public sealed class GeneratedReadTests
                 },
                 _ => new PageInfo { Limit = 20, HasMore = false },
             };
-            return ValueTask.FromResult(OperationResults.Ok(Response ?? new BaseRelationalReadExecutionResult
+            BaseRelationalReadExecutionResult response = Response ?? new BaseRelationalReadExecutionResult
             {
                 Result = new BaseRelationalReadResult
                 {
@@ -969,11 +1050,29 @@ public sealed class GeneratedReadTests
                     }],
                     Page = page,
                     Count = 1,
-                    SchemaGeneration = 0,
                 },
                 DependencyEvidence = [new BaseReadDependencyEvidence { CollectionId = ReadProject.Collection.Id }],
-            }));
+                SnapshotAuthority = Authority(request),
+            };
+            return ValueTask.FromResult(OperationResults.Ok(PreserveResponseAuthority
+                ? response
+                : response with { SnapshotAuthority = Authority(request) }));
         }
+
+        private static BaseRelationalReadSnapshotAuthority Authority(BaseRelationalReadExecutionRequest request) =>
+            BaseRelationalReadSnapshotAuthorityContract.Create(
+                request.ApplicationId,
+                request.LogicalStoreId,
+                "generated-read-test-store",
+                restoreEpoch: 0,
+                request.Plan.SchemaGeneration,
+                request.LogicalSchemaChecksum,
+                request.Plan.Sources.Select(static source => source.CollectionId).Distinct(StringComparer.Ordinal)
+                    .Order(StringComparer.Ordinal).Select(static id => new BaseRelationalCollectionSnapshotAuthority
+                    {
+                        CollectionId = id,
+                        CollectionGeneration = 0,
+                    }));
     }
 
     private sealed class SourceMaskPolicyEvaluator : IPolicyEvaluator

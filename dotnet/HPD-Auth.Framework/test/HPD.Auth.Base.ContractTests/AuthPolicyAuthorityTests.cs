@@ -18,8 +18,11 @@ public sealed class AuthPolicyAuthorityTests
             provider.GetRequiredService<BaseLogicalSchema>(),
             provider.GetRequiredService<HPDBaseStudioAuthoritySnapshot>(),
             options);
+        string? explicitOutput = Environment.GetEnvironmentVariable("HPD_AUTH_GRAPH_OUTPUT");
+        if (!string.IsNullOrWhiteSpace(explicitOutput))
+            File.WriteAllBytes(explicitOutput, artifact);
         Assert.Equal(
-            "5c2a30e2b74c99d06e640e84f5bc5b77607fe73b2a40e24072aab7fbb070b53c",
+            "3271f4e862c54f74089ff1938841acfd5dd7d66fb2243ac91e6b6ee83bd10554",
             Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(artifact)));
         byte[] committed = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "auth-base-graph-v2.json"));
         AuthBaseGraphArtifact.Verify(committed,

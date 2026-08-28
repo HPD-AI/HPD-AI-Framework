@@ -715,13 +715,12 @@ internal static class BaseSemanticActivationKeyCompiler
                 foreach (BaseSemanticActivationKeyExpression child in tuple.Elements) Write(child, root, authority, output);
                 break;
             case BaseSemanticActivationKeyPropertyExpression property:
-                JsonElement current = root; var path = new List<string>();
-                foreach (string stableId in property.Property.StablePropertyPath)
+                JsonElement current = root;
+                string path = string.Join('\0', property.Property.StablePropertyPath);
+                if (!authority.RequestBindings.TryGetValue(path, out BaseModuleDtoPropertyBinding? binding))
+                    throw new InvalidOperationException("base.semanticActivation.contractInvalid");
+                foreach (string wireName in binding.WirePropertyPath)
                 {
-                    path.Add(stableId);
-                    if (!authority.RequestBindings.TryGetValue(string.Join('\0', path), out BaseModuleDtoPropertyBinding? binding))
-                        throw new InvalidOperationException("base.semanticActivation.contractInvalid");
-                    string wireName = binding.WirePropertyPath[path.Count - 1];
                     if (current.ValueKind != JsonValueKind.Object || !current.TryGetProperty(wireName, out current))
                         throw new InvalidOperationException("base.semanticActivation.keyInvalid");
                 }

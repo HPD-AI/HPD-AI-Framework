@@ -10,16 +10,21 @@
     <AssemblyName>HPD.Auth.Infrastructure</AssemblyName>
     <IsPackable>true</IsPackable>
     <PackageId>HPD-Auth-Infrastructure</PackageId>
-    <Description>Infrastructure stores, EF Core persistence, and data protection support for HPD-Auth.</Description>
-    <PackageTags>auth;identity;efcore;infrastructure;hpd</PackageTags>
+    <Description>HPD Base-backed identity, credential, session, audit, and data-protection infrastructure for HPD-Auth.</Description>
+    <PackageTags>auth;identity;base;infrastructure;aot;hpd</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="../HPD.Auth.Core/HPD.Auth.Core.csproj" />
-    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.10" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.10" />
-    <PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" Version="10.0.10" />
-    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
+    <ProjectReference Include="../HPD.Auth.Base/HPD.Auth.Base.csproj" />
+    <ProjectReference Include="../../../HPD-Base.Framework/src/HPD.Base/HPD.Base.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>HPD.Auth.Infrastructure.Tests</_Parameter1>
+    </AssemblyAttribute>
   </ItemGroup>
 
 </Project>

@@ -1488,6 +1488,39 @@ public sealed class BaseModuleProgramEvaluatorTests
     }
 
     [Fact]
+    public void Nested_request_edges_resolve_from_the_generated_leaf_binding()
+    {
+        BaseModuleDtoPropertyBinding binding = BaseModuleDtoPropertyBinding.CreatePathWire<
+            NestedEvaluatorRequest, long>(
+                ["request.wrapper", "request.wrapper.amount"],
+                nameof(NestedEvaluatorValue.Amount),
+                [nameof(NestedEvaluatorRequest.Wrapper), nameof(NestedEvaluatorValue.Amount)],
+                BaseGeneratedModuleScalarManifest.Primitive<long>());
+        var identity = new BaseGeneratedModuleMutationIdentity<NestedEvaluatorRequest, EvaluatorResult>(
+            "module.nested", 1, new byte[32], EvaluatorJsonContext.Default.NestedEvaluatorRequest,
+            EvaluatorJsonContext.Default.EvaluatorResult, [binding],
+            [BaseModuleDtoPropertyBinding.Create<EvaluatorResult, long>(
+                "result.amount", nameof(EvaluatorResult.Amount), BaseGeneratedModuleScalarManifest.Primitive<long>())]);
+        var evaluator = new BaseModuleProgramEvaluator<NestedEvaluatorRequest, EvaluatorResult>(
+            Definition(), identity,
+            new NestedEvaluatorRequest { Wrapper = new NestedEvaluatorValue { Amount = 41 } },
+            Captured(), new Dictionary<string, CollectionDefinition>());
+
+        BaseModuleProgramValue value = evaluator.Evaluate(new BaseModuleRequestPropertyExpression
+        {
+            Id = "nested-amount",
+            ResultType = binding.ScalarAuthority.ValueType,
+            Property = new BaseModuleRequestPropertyReference
+            {
+                StablePropertyPath = ["request.wrapper", "request.wrapper.amount"],
+                Authority = binding.ScalarAuthority,
+            },
+        });
+
+        value.Value.GetInt64().Should().Be(41);
+    }
+
+    [Fact]
     public void Typed_record_id_conversion_preserves_the_exact_generated_target_authority()
     {
         BaseModuleValue<Guid> guid = new(new BaseModuleConstantExpression
@@ -2523,6 +2556,16 @@ public sealed record EvaluatorResult
     public required long Amount { get; init; }
 }
 
+public sealed record NestedEvaluatorRequest
+{
+    public required NestedEvaluatorValue Wrapper { get; init; }
+}
+
+public sealed record NestedEvaluatorValue
+{
+    public required long Amount { get; init; }
+}
+
 public sealed record GenerationRequest
 {
     [BaseField("generation.request.scope", MaximumUtf8Bytes = 32), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)]
@@ -2549,6 +2592,7 @@ public sealed partial record L67Record
 
 [JsonSerializable(typeof(EvaluatorRequest))]
 [JsonSerializable(typeof(EvaluatorResult))]
+[JsonSerializable(typeof(NestedEvaluatorRequest))]
 [JsonSerializable(typeof(GenerationRequest))]
 [JsonSerializable(typeof(GenerationResult))]
 [JsonSerializable(typeof(CreateRequest))]

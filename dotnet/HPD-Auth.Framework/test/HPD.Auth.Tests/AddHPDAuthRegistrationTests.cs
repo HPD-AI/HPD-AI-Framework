@@ -2,8 +2,7 @@ using FluentAssertions;
 using HPD.Auth.Core.Entities;
 using HPD.Auth.Core.Audit;
 using HPD.Auth.Core.Interfaces;
-using HPD.Auth.Infrastructure.Data;
-using HPD.Auth.Infrastructure.Stores;
+using HPD.Base;
 using HPD.Auth.Tests.Helpers;
 using HPD.Events;
 using Microsoft.Extensions.Caching.Memory;
@@ -31,7 +30,6 @@ public class AddHPDAuthRegistrationTests
         var service = scope.ServiceProvider.GetService<IAuthAuditReader>();
 
         service.Should().NotBeNull();
-        service.Should().BeOfType<AuthAuditStore>();
         scope.ServiceProvider.GetService<IAuthAuditWriter>().Should().BeSameAs(service);
     }
 
@@ -46,7 +44,6 @@ public class AddHPDAuthRegistrationTests
         var service = scope.ServiceProvider.GetService<ISessionManager>();
 
         service.Should().NotBeNull();
-        service.Should().BeOfType<SessionStore>();
     }
 
     // ── 1.3 ──────────────────────────────────────────────────────────────────────
@@ -60,7 +57,6 @@ public class AddHPDAuthRegistrationTests
         var service = scope.ServiceProvider.GetService<IRefreshTokenStore>();
 
         service.Should().NotBeNull();
-        service.Should().BeOfType<RefreshTokenStore>();
     }
 
     // ── 1.3b ─────────────────────────────────────────────────────────────────────
@@ -105,14 +101,14 @@ public class AddHPDAuthRegistrationTests
     // ── 1.5 ──────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void AddHPDAuth_Registers_HPDAuthDbContext()
+    public void AddHPDAuth_Registers_BaseSessionFactory()
     {
         var sp = ServiceProviderBuilder.Build(appName: "Reg_DbContext");
         using var scope = sp.CreateScope();
 
-        var dbContext = scope.ServiceProvider.GetService<HPDAuthDbContext>();
+        var sessions = scope.ServiceProvider.GetService<IBaseSessionFactory>();
 
-        dbContext.Should().NotBeNull();
+        sessions.Should().NotBeNull();
     }
 
     // ── 1.6 ──────────────────────────────────────────────────────────────────────

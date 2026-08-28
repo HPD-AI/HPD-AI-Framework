@@ -1,5 +1,7 @@
 using HPD.Auth.Core.Entities;
 using HPD.Auth.Core.Interfaces;
+using HPD.Auth.Core.Models;
+using HPD.Auth.Endpoints;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
@@ -86,17 +88,9 @@ public static class TwoFactorLoginEndpoints
         // Step 2/3: Use recovery code or TOTP code path.
         if (!string.IsNullOrEmpty(request.RecoveryCode))
         {
-            // Identity generates recovery codes in "AAAAA-BBBBB" format.  Users may
-            // paste them with extra hyphens or spaces.  We normalise by stripping all
-            // hyphens and spaces from BOTH the submitted code AND each stored code,
-            // then look up the canonical stored form so Identity's own redemption
-            // logic (which compares exact strings) still works correctly.
-            var submittedNorm = StripFormatting(request.RecoveryCode);
-            var canonical = await FindCanonicalRecoveryCodeAsync(user, submittedNorm, userManager);
-
-            result = canonical is not null
-                ? await signInManager.TwoFactorRecoveryCodeSignInAsync(canonical)
-                : SignInResult.Failed;
+            // The authoritative recovery-code store applies the one canonical
+            // formatting rule before its keyed digest lookup and atomic consume.
+            result = await signInManager.TwoFactorRecoveryCodeSignInAsync(request.RecoveryCode);
         }
         else
         {
@@ -134,7 +128,10 @@ public static class TwoFactorLoginEndpoints
         user.LastLoginIp = httpContext.Connection.RemoteIpAddress?.ToString();
         await userManager.UpdateAsync(user);
 
-        var tokens = await tokenService.GenerateTokensAsync(user, ct);
+        var tokens = await tokenService.GenerateTokensAsync(
+            user,
+            TokenIssuanceIdentityHttp.Create(httpContext, "auth.two-factor"),
+            ct);
 
         // Warn the user if their recovery code count is critically low.
         var recoveryCodesLeft = await userManager.CountRecoveryCodesAsync(user);
@@ -154,36 +151,6 @@ public static class TwoFactorLoginEndpoints
             requiredActions = user.RequiredActions,
             warnings = BuildWarnings(recoveryCodesLeft)
         });
-    }
-
-    private static string StripFormatting(string code) =>
-        code.Replace(" ", string.Empty).Replace("-", string.Empty).Trim();
-
-    /// <summary>
-    /// Reads the user's stored recovery codes (joined by ";") and finds the one
-    /// whose normalised form matches <paramref name="normalizedSubmitted"/>.
-    /// Returns the canonical stored code (with its original formatting) so that
-    /// <see cref="SignInManager{TUser}.TwoFactorRecoveryCodeSignInAsync"/> can
-    /// redeem it by exact-string match.
-    /// Returns <see langword="null"/> if no match is found.
-    /// </summary>
-    private static async Task<string?> FindCanonicalRecoveryCodeAsync(
-        ApplicationUser user,
-        string normalizedSubmitted,
-        UserManager<ApplicationUser> userManager)
-    {
-        // Identity stores recovery codes as a single ";"-joined token in UserTokens.
-        // The public API exposes CountRecoveryCodesAsync but not the raw list.
-        // We retrieve them via the authentication token accessor.
-        var mergedCodes = await userManager.GetAuthenticationTokenAsync(
-            user, "[AspNetUserStore]", "RecoveryCodes");
-
-        if (string.IsNullOrEmpty(mergedCodes))
-            return null;
-
-        return mergedCodes
-            .Split(';', StringSplitOptions.RemoveEmptyEntries)
-            .FirstOrDefault(c => StripFormatting(c) == normalizedSubmitted);
     }
 
     private static IEnumerable<string> BuildWarnings(int recoveryCodesLeft)

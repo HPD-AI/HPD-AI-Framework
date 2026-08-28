@@ -602,12 +602,13 @@ public sealed class CompoundCountReadTests
                 {
                     Rows = rows,
                     Page = new PageInfo { Limit = rows.Length, HasMore = false }, Count = rows.Length,
-                    SchemaGeneration = hostility == CompoundHostility.ResultGenerationRace
-                        ? request.Plan.SchemaGeneration + 1 : request.Plan.SchemaGeneration,
                 },
                 DependencyEvidence = request.Plan.Sources.Select(static source => source.CollectionId).Distinct(StringComparer.Ordinal)
                     .Order(StringComparer.Ordinal).Select(static id => new BaseReadDependencyEvidence { CollectionId = id }).ToArray(),
                 CompoundBranches = evidence,
+                SnapshotAuthority = TestRelationalReadAuthority.Create(request,
+                    hostility == CompoundHostility.ResultGenerationRace
+                        ? request.Plan.SchemaGeneration + 1 : request.Plan.SchemaGeneration),
             }));
         }
     }

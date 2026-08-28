@@ -47,7 +47,7 @@ public static class HPDAuthAuditBuilderExtensions
 
         // AddHPDAuth registers the coordinator for core auth endpoint emission.
         // Keep this fallback for hosts/tests that call AddAudit without AddHPDAuth.
-        services.AddHPDEvents(options => options.Lifetime = HPDEventsServiceLifetime.Scoped);
+        services.AddHPDEvents(options => options.Lifetime = HPDEventsServiceLifetime.Singleton);
 
         if (builder.Options.Features.EnableAuditLog)
         {

@@ -1,5 +1,6 @@
 using HPD.Auth.Core.Entities;
 using HPD.Auth.Core.Interfaces;
+using HPD.Auth.Core.Models;
 using HPD.Auth.Core.Options;
 using Microsoft.AspNetCore.Identity;
 using Moq;
@@ -42,6 +43,9 @@ internal static class TokenServiceFixture
     // In-memory refresh token store — backs tests that need real persistence.
     // ─────────────────────────────────────────────────────────────────────────
     public static InMemoryRefreshTokenStore CreateStore() => new();
+
+    public static TokenIssuanceIdentity Issuance() =>
+        TokenIssuanceIdentity.CreateEphemeral("auth.test");
 
     // ─────────────────────────────────────────────────────────────────────────
     // Build a minimal UserManager mock.

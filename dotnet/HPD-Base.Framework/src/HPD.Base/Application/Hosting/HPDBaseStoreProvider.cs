@@ -501,6 +501,11 @@ public sealed class HPDBaseStoreInstallationContext
     private static BaseExportedSubjectDefinition CloneSubject(BaseExportedSubjectDefinition value) => value with
     {
         TombstoneFieldId = new string(value.TombstoneFieldId.AsSpan()),
+        TombstoneMetadata = new BaseSubjectTombstoneMetadataDefinition
+        {
+            Instant = value.TombstoneMetadata.Instant with { FieldId = value.TombstoneMetadata.Instant.FieldId is null ? null : new string(value.TombstoneMetadata.Instant.FieldId.AsSpan()) },
+            Sequence = value.TombstoneMetadata.Sequence with { FieldId = value.TombstoneMetadata.Sequence.FieldId is null ? null : new string(value.TombstoneMetadata.Sequence.FieldId.AsSpan()) },
+        },
         Audiences = value.Audiences.ToArray(),
         ValidationPlan = value.ValidationPlan with
         {

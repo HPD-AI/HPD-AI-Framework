@@ -24,6 +24,7 @@ internal sealed partial record AuthUserClaimsReadV1
         [BaseReadField("auth.read.userClaims.v1.row.originalIssuer")] public required string OriginalIssuer { get; init; }
         [BaseReadField("auth.read.userClaims.v1.row.valueType")] public required string ValueType { get; init; }
         [BaseReadField("auth.read.userClaims.v1.row.createdAt"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset CreatedAt { get; init; }
+        [BaseReadField("auth.read.userClaims.v1.row.revision")] public required RevisionToken Revision { get; init; }
     }
 
     public static void Configure(BaseReadDefinitionBuilder<AuthUserClaimsReadV1, Row> read)
@@ -40,6 +41,7 @@ internal sealed partial record AuthUserClaimsReadV1
             .Project(Row.Fields.OriginalIssuer, claim.Field(AuthUserClaimRecordV1.Fields.OriginalIssuer))
             .Project(Row.Fields.ValueType, claim.Field(AuthUserClaimRecordV1.Fields.ValueType))
             .Project(Row.Fields.CreatedAt, claim.Field(AuthUserClaimRecordV1.Fields.CreatedAt))
+            .Project(Row.Fields.Revision, claim.Revision)
             .OrderBy(claim.Field(AuthUserClaimRecordV1.Fields.Id))
             .Limits(256, 262_144, 8, 500);
     }
@@ -66,6 +68,7 @@ internal sealed partial record AuthRoleClaimsReadV1
         [BaseReadField("auth.read.roleClaims.v1.row.originalIssuer")] public required string OriginalIssuer { get; init; }
         [BaseReadField("auth.read.roleClaims.v1.row.valueType")] public required string ValueType { get; init; }
         [BaseReadField("auth.read.roleClaims.v1.row.createdAt"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset CreatedAt { get; init; }
+        [BaseReadField("auth.read.roleClaims.v1.row.revision")] public required RevisionToken Revision { get; init; }
     }
 
     public static void Configure(BaseReadDefinitionBuilder<AuthRoleClaimsReadV1, Row> read)
@@ -82,6 +85,7 @@ internal sealed partial record AuthRoleClaimsReadV1
             .Project(Row.Fields.OriginalIssuer, claim.Field(AuthRoleClaimRecordV1.Fields.OriginalIssuer))
             .Project(Row.Fields.ValueType, claim.Field(AuthRoleClaimRecordV1.Fields.ValueType))
             .Project(Row.Fields.CreatedAt, claim.Field(AuthRoleClaimRecordV1.Fields.CreatedAt))
+            .Project(Row.Fields.Revision, claim.Revision)
             .OrderBy(claim.Field(AuthRoleClaimRecordV1.Fields.Id))
             .Limits(256, 262_144, 8, 500);
     }

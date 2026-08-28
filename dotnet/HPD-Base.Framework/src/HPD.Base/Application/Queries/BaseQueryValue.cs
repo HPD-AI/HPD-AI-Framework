@@ -72,6 +72,11 @@ internal static class BaseQueryValue
                 Kind = QueryValueKind.Id,
                 Id = id.Value,
             },
+            IBaseRecordIdValue id => new QueryValue
+            {
+                Kind = QueryValueKind.Id,
+                Id = id.CanonicalValue,
+            },
             BaseModuleGeneration generation => new QueryValue
             {
                 Kind = QueryValueKind.String,

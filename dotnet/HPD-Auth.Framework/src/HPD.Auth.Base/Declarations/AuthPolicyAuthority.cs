@@ -82,7 +82,7 @@ internal static class AuthGrantIds
         "auth.admin.read" or "auth.admin.mutate" or
         "auth.dataProtection.read" or "auth.dataProtection.write" or
         "auth.cleanup.execute" or
-        "base.subjectLifecycle.tombstone" or "base.subjectLifecycle.feed.read" or
+        "base.subjectLifecycle.feed.read" or
         "base.subjectLifecycle.feed.checkpoint" or "base.subjectRetirement.acknowledge" or
         "base.subjectRetirement.barrier.inspect" or "base.subjectRetirement.purge" or
         "auth.subject.user.admin" or "auth.subject.role.admin";
@@ -132,9 +132,13 @@ internal sealed class AuthGrantAuthoritySource(string grantId) : IBaseGrantAutho
             "auth.subject.role.acquire" => ("hpd.auth.role-subject", (int?)1, "subject.acquire"),
             "auth.subject.role.validate" => ("hpd.auth.role-subject", (int?)1, "subject.validate"),
             "auth.subject.role.admin" => ("hpd.auth.role-subject", (int?)1, grantId),
+            "base.subjectLifecycle.tombstone" when context.Operation.CollectionId is "hpd.auth.user-subject" or "hpd.auth.role-subject" =>
+                (context.Operation.CollectionId, (int?)1, grantId),
             _ => ((string?)null, (int?)null, context.Operation.CollectionId),
         };
         bool subjectGrant = contractId is not null;
+        bool collectionGrant = !subjectGrant
+            && AuthPolicyCollections.IsAuthOwned(context.Operation.CollectionId);
         return new AccessGrant
         {
             Id = grantId,
@@ -150,7 +154,10 @@ internal sealed class AuthGrantAuthoritySource(string grantId) : IBaseGrantAutho
             Action = action,
             Scope = new ResourceScope
             {
-                Kind = subjectGrant ? ResourceScopeKind.SubjectContract : ResourceScopeKind.Runtime,
+                Kind = subjectGrant
+                    ? ResourceScopeKind.SubjectContract
+                    : collectionGrant ? ResourceScopeKind.Collection : ResourceScopeKind.Runtime,
+                CollectionId = collectionGrant ? context.Operation.CollectionId : null,
                 SubjectContractId = contractId,
                 SubjectContractVersion = contractVersion,
                 TenantId = context.Operation.TenantId,
@@ -180,19 +187,34 @@ internal sealed class AuthTenantPolicyEvaluator : IPolicyEvaluator
             return ValueTask.FromResult(PolicyDecision.Deny(
                 "auth.policy.tenantRequired", "A valid Auth tenant is required."));
 
-        FilterExpression tenant = new()
+        FilterExpression tenantRecordFilter = new()
+        {
+            Kind = FilterNodeKind.Compare,
+            Field = request.Resource.Kind == PolicyResourceKind.Query
+                ? request.Collection.Id + ".tenantId"
+                : "tenantId",
+            Operator = FilterOperator.Equal,
+            Value = new QueryValue { Kind = QueryValueKind.Id, Id = tenantId.ToString("D") },
+        };
+        FilterExpression tenantWriteCheck = new()
         {
             Kind = FilterNodeKind.Compare,
             Field = "tenantId",
             Operator = FilterOperator.Equal,
             Value = new QueryValue { Kind = QueryValueKind.Id, Id = tenantId.ToString("D") },
         };
-        return ValueTask.FromResult(PolicyDecision.Allow().WithRecordFilter(tenant).WithWriteCheck(tenant));
+        return ValueTask.FromResult(PolicyDecision.Allow()
+            .WithRecordFilter(tenantRecordFilter)
+            .WithWriteCheck(tenantWriteCheck));
     }
 }
 
 internal static class AuthPolicyCollections
 {
+    internal static bool IsAuthOwned(string id) => IsTenantOwned(id) || id is
+        "auth.dataProtectionKeys" or "auth.importState" or
+        "auth.maintenanceCursor" or "auth.maintenanceRuns";
+
     internal static bool IsTenantOwned(string id) => id is
         "auth.users" or "auth.roles" or "auth.userClaims" or "auth.roleClaims" or
         "auth.userRoles" or "auth.userLogins" or "auth.userTokens" or "auth.recoveryCodes" or

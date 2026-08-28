@@ -32,7 +32,7 @@ public class TokenService_ArgumentValidation_Tests
         using var scope = ServiceProviderBuilder.CreateScope();
         var svc = scope.ServiceProvider.GetRequiredService<ITokenService>();
 
-        Func<Task> act = () => svc.GenerateTokensAsync(null!);
+        Func<Task> act = () => svc.GenerateTokensAsync(null!, TokenServiceFixture.Issuance());
 
         await act.Should().ThrowAsync<ArgumentNullException>();
     }
@@ -123,7 +123,7 @@ public class TokenService_ArgumentValidation_Tests
         var user    = await ServiceProviderBuilder.CreateUserAsync(scope);
         var svc     = scope.ServiceProvider.GetRequiredService<ITokenService>();
         var before  = DateTimeOffset.UtcNow;
-        var response = await svc.GenerateTokensAsync(user);
+        var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
         var after   = DateTimeOffset.UtcNow;
 
         // ExpiresIn must equal the configured lifetime in seconds.
@@ -158,7 +158,7 @@ public class TokenService_ArgumentValidation_Tests
         {
             var user = await ServiceProviderBuilder.CreateUserAsync(scope1);
             var svc  = scope1.ServiceProvider.GetRequiredService<ITokenService>();
-            var r    = await svc.GenerateTokensAsync(user);
+            var r    = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
             var jwt  = new JwtSecurityTokenHandler().ReadJwtToken(r.AccessToken);
             jti1     = jwt.Id;
         }
@@ -169,7 +169,7 @@ public class TokenService_ArgumentValidation_Tests
         {
             var user = await ServiceProviderBuilder.CreateUserAsync(scope2);
             var svc  = scope2.ServiceProvider.GetRequiredService<ITokenService>();
-            var r    = await svc.GenerateTokensAsync(user);
+            var r    = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
             var jwt  = new JwtSecurityTokenHandler().ReadJwtToken(r.AccessToken);
             jti2     = jwt.Id;
         }

@@ -385,8 +385,134 @@ public sealed record BaseRelationalReadResult
     public required PageInfo Page { get; init; }
     /// <summary>Gets or sets count.</summary>
     public long? Count { get; init; }
-    /// <summary>Gets or sets schema Generation.</summary>
-    public long SchemaGeneration { get; init; }
+}
+
+/// <summary>Captures one source collection generation inside a relational-read snapshot.</summary>
+public sealed record BaseRelationalCollectionSnapshotAuthority
+{
+    /// <summary>Gets the stable contributing collection identifier.</summary>
+    public required string CollectionId { get; init; }
+    /// <summary>Gets the non-negative collection generation observed with the read.</summary>
+    public required long CollectionGeneration { get; init; }
+}
+
+/// <summary>Captures the complete store and schema authority observed with one relational read.</summary>
+public sealed record BaseRelationalReadSnapshotAuthority
+{
+    /// <summary>Gets the installed application identifier.</summary>
+    public required string ApplicationId { get; init; }
+    /// <summary>Gets the selected logical store identifier.</summary>
+    public required string LogicalStoreId { get; init; }
+    /// <summary>Gets the current provider store-instance identifier.</summary>
+    public required string StoreInstanceId { get; init; }
+    /// <summary>Gets the restore epoch observed inside the read snapshot.</summary>
+    public required long RestoreEpoch { get; init; }
+    /// <summary>Gets the accepted schema generation observed inside the read snapshot.</summary>
+    public required long SchemaGeneration { get; init; }
+    /// <summary>Gets the accepted complete logical-schema checksum.</summary>
+    public required BaseSchemaAuthorityChecksum LogicalSchemaChecksum { get; init; }
+    /// <summary>Gets every contributing collection generation in ordinal identifier order.</summary>
+    public required BaseRelationalCollectionSnapshotAuthority[] Collections { get; init; }
+    /// <summary>Gets the Runtime-defined checksum over the complete authority tuple.</summary>
+    public required BaseSchemaAuthorityChecksum AuthorityChecksum { get; init; }
+}
+
+/// <summary>Creates and validates canonical relational-read snapshot authority.</summary>
+public static class BaseRelationalReadSnapshotAuthorityContract
+{
+    private static ReadOnlySpan<byte> Domain => "hpd.base.registered-read.snapshot-authority.v1"u8;
+
+    /// <summary>Creates one recursively owned canonical snapshot authority.</summary>
+    public static BaseRelationalReadSnapshotAuthority Create(
+        string applicationId,
+        string logicalStoreId,
+        string storeInstanceId,
+        long restoreEpoch,
+        long schemaGeneration,
+        BaseSchemaAuthorityChecksum logicalSchemaChecksum,
+        IEnumerable<BaseRelationalCollectionSnapshotAuthority> collections)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(applicationId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(logicalStoreId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(storeInstanceId);
+        ArgumentNullException.ThrowIfNull(collections);
+        if (restoreEpoch < 0 || schemaGeneration < 0 || !logicalSchemaChecksum.IsValid)
+            throw new ArgumentOutOfRangeException(nameof(schemaGeneration));
+        BaseRelationalCollectionSnapshotAuthority[] owned = collections.Select(static value => new BaseRelationalCollectionSnapshotAuthority
+        {
+            CollectionId = new string(value.CollectionId.AsSpan()),
+            CollectionGeneration = value.CollectionGeneration,
+        }).ToArray();
+        if (owned.Length == 0 || owned.Any(static value => string.IsNullOrWhiteSpace(value.CollectionId) || value.CollectionGeneration < 0)
+            || !owned.SequenceEqual(owned.OrderBy(static value => value.CollectionId, StringComparer.Ordinal))
+            || owned.Select(static value => value.CollectionId).Distinct(StringComparer.Ordinal).Count() != owned.Length)
+            throw new ArgumentException("Registered-read collection authority is invalid.", nameof(collections));
+        byte[] checksum = Checksum(applicationId, logicalStoreId, storeInstanceId, restoreEpoch,
+            schemaGeneration, logicalSchemaChecksum, owned);
+        return new BaseRelationalReadSnapshotAuthority
+        {
+            ApplicationId = new string(applicationId.AsSpan()),
+            LogicalStoreId = new string(logicalStoreId.AsSpan()),
+            StoreInstanceId = new string(storeInstanceId.AsSpan()),
+            RestoreEpoch = restoreEpoch,
+            SchemaGeneration = schemaGeneration,
+            LogicalSchemaChecksum = BaseSchemaAuthorityChecksum.Create(logicalSchemaChecksum.ToArray()),
+            Collections = owned,
+            AuthorityChecksum = BaseSchemaAuthorityChecksum.Create(checksum),
+        };
+    }
+
+    /// <summary>Returns whether a provider value is canonical and checksum-valid.</summary>
+    public static bool IsValid(BaseRelationalReadSnapshotAuthority? value)
+    {
+        if (value is null || string.IsNullOrWhiteSpace(value.ApplicationId)
+            || string.IsNullOrWhiteSpace(value.LogicalStoreId) || string.IsNullOrWhiteSpace(value.StoreInstanceId)
+            || value.RestoreEpoch < 0 || value.SchemaGeneration < 0 || !value.LogicalSchemaChecksum.IsValid
+            || !value.AuthorityChecksum.IsValid || value.Collections is null || value.Collections.Length == 0
+            || value.Collections.Any(static item => string.IsNullOrWhiteSpace(item.CollectionId) || item.CollectionGeneration < 0)
+            || !value.Collections.SequenceEqual(value.Collections.OrderBy(static item => item.CollectionId, StringComparer.Ordinal))
+            || value.Collections.Select(static item => item.CollectionId).Distinct(StringComparer.Ordinal).Count() != value.Collections.Length)
+            return false;
+        byte[] expected = Checksum(value.ApplicationId, value.LogicalStoreId, value.StoreInstanceId,
+            value.RestoreEpoch, value.SchemaGeneration, value.LogicalSchemaChecksum, value.Collections);
+        return CryptographicOperations.FixedTimeEquals(expected, value.AuthorityChecksum.ToArray());
+    }
+
+    private static byte[] Checksum(
+        string applicationId,
+        string logicalStoreId,
+        string storeInstanceId,
+        long restoreEpoch,
+        long schemaGeneration,
+        BaseSchemaAuthorityChecksum logicalSchemaChecksum,
+        IReadOnlyList<BaseRelationalCollectionSnapshotAuthority> collections)
+    {
+        var writer = new ArrayBufferWriter<byte>();
+        Write(writer, Domain); Write(writer, Encoding.UTF8.GetBytes(applicationId.Normalize(NormalizationForm.FormC)));
+        Write(writer, Encoding.UTF8.GetBytes(logicalStoreId.Normalize(NormalizationForm.FormC)));
+        Write(writer, Encoding.UTF8.GetBytes(storeInstanceId.Normalize(NormalizationForm.FormC)));
+        I64(writer, restoreEpoch); I64(writer, schemaGeneration); Write(writer, logicalSchemaChecksum.ToArray());
+        I32(writer, collections.Count);
+        foreach (BaseRelationalCollectionSnapshotAuthority collection in collections)
+        {
+            Write(writer, Encoding.UTF8.GetBytes(collection.CollectionId.Normalize(NormalizationForm.FormC)));
+            I64(writer, collection.CollectionGeneration);
+        }
+        return SHA256.HashData(writer.WrittenSpan);
+    }
+
+    private static void Write(IBufferWriter<byte> writer, ReadOnlySpan<byte> value)
+    {
+        I32(writer, value.Length); writer.Write(value);
+    }
+    private static void I32(IBufferWriter<byte> writer, int value)
+    {
+        Span<byte> target = writer.GetSpan(4); BinaryPrimitives.WriteInt32BigEndian(target, value); writer.Advance(4);
+    }
+    private static void I64(IBufferWriter<byte> writer, long value)
+    {
+        Span<byte> target = writer.GetSpan(8); BinaryPrimitives.WriteInt64BigEndian(target, value); writer.Advance(8);
+    }
 }
 
 /// <summary>Binds one closed request value to a stable parameter identifier.</summary>
@@ -414,6 +540,12 @@ public sealed record BaseRelationalReadSourcePolicy
 /// <summary>Defines one bounded provider execution request.</summary>
 public sealed record BaseRelationalReadExecutionRequest
 {
+    /// <summary>Gets the installed application identifier.</summary>
+    public required string ApplicationId { get; init; }
+    /// <summary>Gets the selected logical store identifier.</summary>
+    public required string LogicalStoreId { get; init; }
+    /// <summary>Gets the expected complete logical-schema checksum.</summary>
+    public required BaseSchemaAuthorityChecksum LogicalSchemaChecksum { get; init; }
     /// <summary>Gets or sets plan.</summary>
     public required BaseRelationalReadPlan Plan { get; init; }
     /// <summary>Gets or sets parameter Values.</summary>
@@ -441,6 +573,8 @@ public sealed record BaseRelationalReadExecutionResult
     public required BaseReadDependencyEvidence[] DependencyEvidence { get; init; }
     /// <summary>Gets exact evidence for every installed compound branch.</summary>
     public BaseRelationalCompoundBranchEvidence[] CompoundBranches { get; init; } = [];
+    /// <summary>Gets the complete authority captured inside the provider read snapshot.</summary>
+    public required BaseRelationalReadSnapshotAuthority SnapshotAuthority { get; init; }
 }
 
 /// <summary>Describes trusted same-snapshot evidence before Runtime protection.</summary>

@@ -19,6 +19,7 @@ internal sealed partial class InMemoryRecordStore
         [
             FilterOperator.Equal, FilterOperator.NotEqual, FilterOperator.LessThan,
             FilterOperator.LessThanOrEqual, FilterOperator.GreaterThan, FilterOperator.GreaterThanOrEqual,
+            FilterOperator.Contains, FilterOperator.StartsWith, FilterOperator.EndsWith,
         ],
         ValueKinds = Enum.GetValues<QueryValueKind>(),
         CanonicalJsonValues = true,
@@ -165,9 +166,9 @@ internal sealed partial class InMemoryRecordStore
                     ? new PageInfo { Offset = offset, Limit = perPage, HasMore = total > offset && total - offset > resultRows.Length }
                     : new PageInfo { Page = plan.Window?.Page ?? 1, PerPage = perPage, HasMore = total > offset && total - offset > resultRows.Length },
                 Count = total,
-                SchemaGeneration = plan.SchemaGeneration,
             },
             DependencyEvidence = DependencyEvidence(plan, snapshot),
+            SnapshotAuthority = SnapshotAuthority(request, snapshot),
         };
     }
 
@@ -213,11 +214,36 @@ internal sealed partial class InMemoryRecordStore
             Result = new BaseRelationalReadResult
             {
                 Rows = rows.ToArray(), Page = new PageInfo { Page = 1, PerPage = rows.Count, Limit = rows.Count, HasMore = false }, Count = rows.Count,
-                SchemaGeneration = plan.SchemaGeneration,
             },
             DependencyEvidence = dependencies,
             CompoundBranches = evidence,
+            SnapshotAuthority = SnapshotAuthority(request, snapshot),
         };
+    }
+
+    private BaseRelationalReadSnapshotAuthority SnapshotAuthority(
+        BaseRelationalReadExecutionRequest request,
+        InMemoryStoreState snapshot)
+    {
+        BaseSchemaAuthorityChecksum schemaChecksum = BaseSchemaAuthorityChecksum.Create(
+            request.LogicalSchemaChecksum.ToArray());
+        BaseRelationalCollectionSnapshotAuthority[] collections = request.Plan.Sources
+            .Select(static source => source.CollectionId)
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .Select(id => new BaseRelationalCollectionSnapshotAuthority
+            {
+                CollectionId = id,
+                CollectionGeneration = snapshot.Collections.GetValueOrDefault(id)?.PurgeGeneration ?? 0,
+            }).ToArray();
+        return BaseRelationalReadSnapshotAuthorityContract.Create(
+            request.ApplicationId,
+            _options.StoreId,
+            _options.StoreId,
+            restoreEpoch: 0,
+            schemaGeneration: request.Plan.SchemaGeneration,
+            schemaChecksum,
+            collections);
     }
 
     internal static bool TryAccumulateRelationalResultBytes(long current, long additional, out long total)
@@ -470,6 +496,12 @@ internal sealed partial class InMemoryRecordStore
             FilterOperator.LessThanOrEqual => comparison <= 0,
             FilterOperator.GreaterThan => comparison > 0,
             FilterOperator.GreaterThanOrEqual => comparison >= 0,
+            FilterOperator.Contains => left.Kind == QueryValueKind.String && right.Kind == QueryValueKind.String
+                && (left.String ?? string.Empty).Contains(right.String ?? string.Empty, StringComparison.Ordinal),
+            FilterOperator.StartsWith => left.Kind == QueryValueKind.String && right.Kind == QueryValueKind.String
+                && (left.String ?? string.Empty).StartsWith(right.String ?? string.Empty, StringComparison.Ordinal),
+            FilterOperator.EndsWith => left.Kind == QueryValueKind.String && right.Kind == QueryValueKind.String
+                && (left.String ?? string.Empty).EndsWith(right.String ?? string.Empty, StringComparison.Ordinal),
             _ => throw new InvalidOperationException(),
         };
     }

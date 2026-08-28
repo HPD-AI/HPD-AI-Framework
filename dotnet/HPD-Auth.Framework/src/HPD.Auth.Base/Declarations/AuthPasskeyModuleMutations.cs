@@ -15,7 +15,10 @@ internal static partial class AuthPasskeyRegisterOperationV1
     private const string UserCapture = "hpd.auth.passkey.register.capture.user";
     private const string UserGenerationCapture = "hpd.auth.passkey.register.capture.userGen";
     private const string CreateStatement = "hpd.auth.passkey.register.statement.000.createPasskey";
+    private const string UpdateStatement = "hpd.auth.passkey.register.statement.000.updatePasskey";
     private const string PatchStatement = "hpd.auth.passkey.register.statement.001.patchUser";
+    private const string PasskeyMissingGuard = "hpd.auth.passkey.register.guard.passkeyMissing";
+    private const string PasskeyPresentGuard = "hpd.auth.passkey.register.guard.passkeyPresent";
 
     internal static BaseRegisteredModuleMutationDefinition Definition { get; } = BaseModuleMutationContract.Seal(
         new BaseRegisteredModuleMutationDefinition
@@ -35,19 +38,31 @@ internal static partial class AuthPasskeyRegisterOperationV1
             Template = new BaseModuleMutationTemplate
             {
                 Captures = [Passkey(), SecurityGeneration(), User(), UserGeneration()],
-                Guards = [SecurityGenerationMatches(), UserActive(), UserGenerationMatches(), UserNotDeleted(), UserRevision(), UserTenant()],
+                Guards =
+                [
+                    PasskeyCredentialDigest(), PasskeyMissing(), PasskeyPresent(), PasskeyTenant(), PasskeyUser(),
+                    UserActive(), UserNotDeleted(), UserRevision(), UserTenant(),
+                ],
                 Preconditions = [],
                 Body = new BaseModuleMutationBlock
                 {
                     Statements =
                     [
-                        Require("securityGeneration", "auth.credential.generationMismatch"),
                         Require("userActive", "auth.user.inactive"),
-                        Require("userGeneration", "auth.user.generationMismatch"),
                         Require("userNotDeleted", "auth.user.deleted"),
                         Require("userRevision", "auth.user.revisionMismatch"),
                         Require("userTenant", "auth.user.scopeMismatch"),
-                        CreatePasskey(), PatchUser(),
+                        BaseModuleMutationTemplateBuilder.If(
+                            "hpd.auth.passkey.register.statement.000.branch",
+                            PasskeyMissingGuard,
+                            BaseModuleMutationTemplateBuilder.Block(CreatePasskey()),
+                            BaseModuleMutationTemplateBuilder.Block(
+                                Require("passkeyPresent", "auth.passkey.conflict"),
+                                Require("passkeyCredentialDigest", "auth.passkey.conflict"),
+                                Require("passkeyTenant", "auth.passkey.scopeMismatch"),
+                                Require("passkeyUser", "auth.passkey.scopeMismatch"),
+                                UpdatePasskey())),
+                        PatchUser(),
                         BaseModuleMutationTemplateBuilder.IncrementGeneration("hpd.auth.passkey.register.statement.002.incrementSecurityGeneration", SecurityGenerationCapture, false),
                         BaseModuleMutationTemplateBuilder.IncrementGeneration("hpd.auth.passkey.register.statement.003.incrementUserGeneration", UserGenerationCapture, false),
                     ],
@@ -57,7 +72,11 @@ internal static partial class AuthPasskeyRegisterOperationV1
                     BaseModuleMutationTemplateBuilder.Property(ResultProperties.PasskeyId,
                         BaseModuleMutationTemplateBuilder.Request("hpd.auth.passkey.register.expression.resultPasskeyId.000", RequestProperties.PasskeyId)),
                     BaseModuleMutationTemplateBuilder.Property(ResultProperties.PasskeyRevision,
-                        BaseModuleMutationTemplateBuilder.CommittedRevision("hpd.auth.passkey.register.expression.passkeyRevision.000", CreateStatement)),
+                        BaseModuleMutationTemplateBuilder.Conditional(
+                            "hpd.auth.passkey.register.expression.passkeyRevision.000",
+                            PasskeyMissingGuard,
+                            BaseModuleMutationTemplateBuilder.CommittedRevision("hpd.auth.passkey.register.expression.passkeyRevision.created", CreateStatement),
+                            BaseModuleMutationTemplateBuilder.CommittedRevision("hpd.auth.passkey.register.expression.passkeyRevision.updated", UpdateStatement))),
                     BaseModuleMutationTemplateBuilder.Property(ResultProperties.SecurityGeneration,
                         BaseModuleMutationTemplateBuilder.ResultingGeneration("hpd.auth.passkey.register.expression.securityGeneration.000", SecurityGenerationCapture)),
                     BaseModuleMutationTemplateBuilder.Property(ResultProperties.UserGeneration,
@@ -75,24 +94,36 @@ internal static partial class AuthPasskeyRegisterOperationV1
         $"hpd.auth.passkey.register.expression.userId.{suffix}", BaseModuleMutationTemplateBuilder.Request($"hpd.auth.passkey.register.expression.userIdSource.{suffix}", RequestProperties.UserId));
     private static BaseModuleGenerationKey GenerationKey(string suffix) => BaseModuleMutationTemplateBuilder.GenerationKeyFromGuid(
         $"hpd.auth.passkey.register.expression.generationKey.{suffix}", BaseModuleMutationTemplateBuilder.Request($"hpd.auth.passkey.register.expression.generationUserId.{suffix}", RequestProperties.UserId));
-    private static BaseModuleRecordCapture Passkey() => BaseModuleMutationTemplateBuilder.CaptureRecord(PasskeyCapture, PasskeyId("capture"), BaseModuleCapturePresence.RequireMissing);
+    private static BaseModuleRecordCapture Passkey() => BaseModuleMutationTemplateBuilder.CaptureRecord(PasskeyCapture, PasskeyId("capture"), BaseModuleCapturePresence.AllowEither);
     private static BaseModuleGenerationCapture SecurityGeneration() => BaseModuleMutationTemplateBuilder.CaptureGeneration(SecurityGenerationCapture,
         "hpd.auth.user-security-generation.v1", GenerationKey("security"), BaseModuleGenerationAbsenceBehavior.RequireExisting);
     private static BaseModuleRecordCapture User() => BaseModuleMutationTemplateBuilder.CaptureRecord(UserCapture, UserId("capture"), BaseModuleCapturePresence.RequirePresent);
     private static BaseModuleGenerationCapture UserGeneration() => BaseModuleMutationTemplateBuilder.CaptureGeneration(UserGenerationCapture,
         "hpd.auth.user-state-generation.v1", GenerationKey("user"), BaseModuleGenerationAbsenceBehavior.RequireExisting);
-    private static BaseModuleGenerationGuard SecurityGenerationMatches() => Generation("securityGeneration", SecurityGenerationCapture, RequestProperties.ExpectedSecurityGeneration);
     private static BaseModuleFieldEqualsGuard UserActive() => UserBoolean("userActive", AuthUserRecordV1.Fields.IsActive.ModuleMutation, AuthUserRecordV1.Fields.IsActive.ConstantAuthority, true);
-    private static BaseModuleGenerationGuard UserGenerationMatches() => Generation("userGeneration", UserGenerationCapture, RequestProperties.ExpectedUserGeneration);
     private static BaseModuleFieldEqualsGuard UserNotDeleted() => UserBoolean("userNotDeleted", AuthUserRecordV1.Fields.IsDeleted.ModuleMutation, AuthUserRecordV1.Fields.IsDeleted.ConstantAuthority, false);
     private static BaseModuleRevisionEqualsGuard UserRevision() => BaseModuleMutationTemplateBuilder.RevisionEquals("hpd.auth.passkey.register.guard.userRevision", UserCapture,
         BaseModuleMutationTemplateBuilder.Request("hpd.auth.passkey.register.expression.expectedUserRevision.000", RequestProperties.ExpectedUserRevision));
     private static BaseModuleFieldEqualsGuard UserTenant() => BaseModuleMutationTemplateBuilder.FieldEquals("hpd.auth.passkey.register.guard.userTenant", UserCapture,
         AuthUserRecordV1.Fields.TenantId.ModuleMutation, BaseModuleMutationTemplateBuilder.Request("hpd.auth.passkey.register.expression.userTenant.000", RequestProperties.TenantId));
+    private static BaseModuleRecordPresenceGuard PasskeyMissing() => BaseModuleMutationTemplateBuilder.RecordPresent(PasskeyMissingGuard, PasskeyCapture, false);
+    private static BaseModuleRecordPresenceGuard PasskeyPresent() => BaseModuleMutationTemplateBuilder.RecordPresent(PasskeyPresentGuard, PasskeyCapture, true);
+    private static BaseModuleFieldEqualsGuard PasskeyCredentialDigest() => BaseModuleMutationTemplateBuilder.FieldEquals(
+        "hpd.auth.passkey.register.guard.passkeyCredentialDigest", PasskeyCapture, AuthPasskeyRecordV1.Fields.CredentialDigest.ModuleMutation,
+        BaseModuleMutationTemplateBuilder.Request("hpd.auth.passkey.register.expression.passkeyCredentialDigest.000", RequestProperties.CredentialDigest));
+    private static BaseModuleFieldEqualsGuard PasskeyTenant() => BaseModuleMutationTemplateBuilder.FieldEquals(
+        "hpd.auth.passkey.register.guard.passkeyTenant", PasskeyCapture, AuthPasskeyRecordV1.Fields.TenantId.ModuleMutation,
+        BaseModuleMutationTemplateBuilder.Request("hpd.auth.passkey.register.expression.passkeyTenant.000", RequestProperties.TenantId));
+    private static BaseModuleFieldEqualsGuard PasskeyUser() => BaseModuleMutationTemplateBuilder.FieldEquals(
+        "hpd.auth.passkey.register.guard.passkeyUser", PasskeyCapture, AuthPasskeyRecordV1.Fields.UserId.ModuleMutation, UserId("guard"));
 
     private static BaseModuleCreateStatement CreatePasskey() => BaseModuleMutationTemplateBuilder.Create(CreateStatement, PasskeyId("create"),
         BaseModuleMutationTemplateBuilder.Object<AuthPasskeyRecordV1>("hpd.auth.passkey.register.expression.passkey.000",
             PasskeyField(AuthPasskeyRecordV1.Fields.AaGuid, RequestProperties.AaGuid, "aaGuid"),
+            PasskeyField(AuthPasskeyRecordV1.Fields.AttestationObject, RequestProperties.AttestationObject, "attestationObject"),
+            PasskeyField(AuthPasskeyRecordV1.Fields.BackedUp, RequestProperties.BackedUp, "backedUp"),
+            PasskeyField(AuthPasskeyRecordV1.Fields.BackupEligible, RequestProperties.BackupEligible, "backupEligible"),
+            PasskeyField(AuthPasskeyRecordV1.Fields.ClientDataJson, RequestProperties.ClientDataJson, "clientDataJson"),
             PasskeyField(AuthPasskeyRecordV1.Fields.CreatedAt, RequestProperties.OperationTime, "createdAt"),
             PasskeyField(AuthPasskeyRecordV1.Fields.CredentialDigest, RequestProperties.CredentialDigest, "credentialDigest"),
             PasskeyField(AuthPasskeyRecordV1.Fields.CredentialId, RequestProperties.CredentialId, "credentialId"),
@@ -102,8 +133,25 @@ internal static partial class AuthPasskeyRegisterOperationV1
             PasskeyField(AuthPasskeyRecordV1.Fields.PublicKey, RequestProperties.PublicKey, "publicKey"),
             PasskeyField(AuthPasskeyRecordV1.Fields.SignatureCounter, RequestProperties.SignatureCounter, "signatureCounter"),
             PasskeyField(AuthPasskeyRecordV1.Fields.TenantId, RequestProperties.TenantId, "tenantId"),
+            PasskeyField(AuthPasskeyRecordV1.Fields.Transports, RequestProperties.Transports, "transports"),
             BaseModuleMutationTemplateBuilder.Field(AuthPasskeyRecordV1.Fields.UserId, UserId("payload")),
             PasskeyField(AuthPasskeyRecordV1.Fields.UserVerified, RequestProperties.UserVerified, "userVerified")));
+    private static BaseModulePatchStatement UpdatePasskey() => BaseModuleMutationTemplateBuilder.Patch(UpdateStatement, PasskeyId("update"),
+        BaseModuleMutationTemplateBuilder.Object<AuthPasskeyRecordV1>("hpd.auth.passkey.register.expression.passkeyUpdate.000",
+            PasskeyField(AuthPasskeyRecordV1.Fields.AaGuid, RequestProperties.AaGuid, "update.aaGuid"),
+            PasskeyField(AuthPasskeyRecordV1.Fields.AttestationObject, RequestProperties.AttestationObject, "update.attestationObject"),
+            PasskeyField(AuthPasskeyRecordV1.Fields.BackedUp, RequestProperties.BackedUp, "update.backedUp"),
+            PasskeyField(AuthPasskeyRecordV1.Fields.BackupEligible, RequestProperties.BackupEligible, "update.backupEligible"),
+            PasskeyField(AuthPasskeyRecordV1.Fields.ClientDataJson, RequestProperties.ClientDataJson, "update.clientDataJson"),
+            PasskeyField(AuthPasskeyRecordV1.Fields.CredentialDigest, RequestProperties.CredentialDigest, "update.credentialDigest"),
+            PasskeyField(AuthPasskeyRecordV1.Fields.CredentialId, RequestProperties.CredentialId, "update.credentialId"),
+            PasskeyField(AuthPasskeyRecordV1.Fields.IsDiscoverable, RequestProperties.IsDiscoverable, "update.isDiscoverable"),
+            PasskeyField(AuthPasskeyRecordV1.Fields.Name, RequestProperties.Name, "update.name"),
+            PasskeyField(AuthPasskeyRecordV1.Fields.PublicKey, RequestProperties.PublicKey, "update.publicKey"),
+            PasskeyField(AuthPasskeyRecordV1.Fields.SignatureCounter, RequestProperties.SignatureCounter, "update.signatureCounter"),
+            PasskeyField(AuthPasskeyRecordV1.Fields.Transports, RequestProperties.Transports, "update.transports"),
+            PasskeyField(AuthPasskeyRecordV1.Fields.UserVerified, RequestProperties.UserVerified, "update.userVerified")),
+        BaseModuleMutationTemplateBuilder.CapturedRevision("hpd.auth.passkey.register.expression.passkeyUpdateRevision.000", PasskeyCapture));
     private static BaseModulePatchStatement PatchUser() => BaseModuleMutationTemplateBuilder.Patch(PatchStatement, UserId("patch"),
         BaseModuleMutationTemplateBuilder.Object<AuthUserRecordV1>("hpd.auth.passkey.register.expression.userPatch.000",
             UserField(AuthUserRecordV1.Fields.ConcurrencyStamp, RequestProperties.ConcurrencyStamp, "concurrencyStamp"),
@@ -111,9 +159,6 @@ internal static partial class AuthPasskeyRegisterOperationV1
             UserField(AuthUserRecordV1.Fields.UpdatedAt, RequestProperties.OperationTime, "updatedAt")),
         BaseModuleMutationTemplateBuilder.Request("hpd.auth.passkey.register.expression.userPatchRevision.000", RequestProperties.ExpectedUserRevision));
 
-    private static BaseModuleGenerationGuard Generation(string suffix, string capture, BaseModuleRequestProperty<AuthPasskeyRegisterV1, BaseModuleGeneration> property) =>
-        BaseModuleMutationTemplateBuilder.Generation($"hpd.auth.passkey.register.guard.{suffix}", capture, BaseModuleGenerationComparisonKind.MustEqual,
-            BaseModuleMutationTemplateBuilder.Request($"hpd.auth.passkey.register.expression.{suffix}.000", property));
     private static BaseModuleFieldEqualsGuard UserBoolean(string suffix, BaseModuleCapturedField<AuthUserRecordV1, bool> field,
         BaseModuleConstantAuthority<bool> authority, bool value) => BaseModuleMutationTemplateBuilder.FieldEquals($"hpd.auth.passkey.register.guard.{suffix}", UserCapture, field,
             BaseModuleMutationTemplateBuilder.Constant($"hpd.auth.passkey.register.expression.{suffix}.000", authority, value));
@@ -125,6 +170,105 @@ internal static partial class AuthPasskeyRegisterOperationV1
     private static BaseModuleFieldValue<AuthUserRecordV1> UserField<T>(BaseField<AuthUserRecordV1, T> field,
         BaseModuleRequestProperty<AuthPasskeyRegisterV1, T> property, string suffix) => BaseModuleMutationTemplateBuilder.Field(field,
             BaseModuleMutationTemplateBuilder.Request($"hpd.auth.passkey.register.expression.{suffix}.000", property));
+}
+
+[BaseRegisteredModuleMutation("hpd.auth.passkey.remove.v1", typeof(AuthBaseJsonSerializerContext),
+    typeof(AuthPasskeyRemoveV1), typeof(AuthPasskeyRemoveResultV1), Version = 1,
+    OwningModuleId = AuthBaseContract.ModuleId, GrantId = "auth.operation.passkey.mutate")]
+internal static partial class AuthPasskeyRemoveOperationV1
+{
+    private const string PasskeyCapture = "hpd.auth.passkey.remove.capture.passkey";
+    private const string SecurityGenerationCapture = "hpd.auth.passkey.remove.capture.securityGen";
+    private const string UserCapture = "hpd.auth.passkey.remove.capture.user";
+    private const string UserGenerationCapture = "hpd.auth.passkey.remove.capture.userGen";
+    private const string DeleteStatement = "hpd.auth.passkey.remove.statement.000.deletePasskey";
+    private const string PatchStatement = "hpd.auth.passkey.remove.statement.001.patchUser";
+
+    internal static BaseRegisteredModuleMutationDefinition Definition { get; } = BaseModuleMutationContract.Seal(
+        new BaseRegisteredModuleMutationDefinition
+        {
+            Id = "hpd.auth.passkey.remove.v1", Version = 1,
+            OwningModuleId = AuthBaseContract.ModuleId, GrantId = "auth.operation.passkey.mutate",
+            Audience = BaseModuleMutationAudience.Service,
+            RequestTypeId = "hpd.auth.type.auth-passkey-remove-v1.v1",
+            ResultTypeId = "hpd.auth.type.auth-passkey-remove-result-v1.v1",
+            SystemCollectionIds = [AuthPasskeyRecordV1.Collection.Id, AuthUserRecordV1.Collection.Id],
+            SystemSourceGrants =
+            [
+                new BaseModuleSystemSourceGrant { CollectionId = AuthPasskeyRecordV1.Collection.Id, GrantId = "auth.identity.secret.passkey" },
+                new BaseModuleSystemSourceGrant { CollectionId = AuthUserRecordV1.Collection.Id, GrantId = "auth.identity.mutate" },
+            ],
+            GenerationCellIds = ["hpd.auth.user-security-generation.v1", "hpd.auth.user-state-generation.v1"], ImportedSubjectContractIds = [],
+            Template = new BaseModuleMutationTemplate
+            {
+                Captures = [Passkey(), SecurityGeneration(), User(), UserGeneration()],
+                Guards = [PasskeyRevision(), PasskeyTenant(), PasskeyUser(), UserActive(), UserNotDeleted(), UserRevision(), UserTenant()],
+                Preconditions = [],
+                Body = BaseModuleMutationTemplateBuilder.Block(
+                    Require("passkeyRevision", "auth.passkey.revisionMismatch"),
+                    Require("passkeyTenant", "auth.passkey.scopeMismatch"),
+                    Require("passkeyUser", "auth.passkey.scopeMismatch"),
+                    Require("userActive", "auth.user.inactive"),
+                    Require("userNotDeleted", "auth.user.deleted"),
+                    Require("userRevision", "auth.user.revisionMismatch"),
+                    Require("userTenant", "auth.user.scopeMismatch"),
+                    BaseModuleMutationTemplateBuilder.Delete(DeleteStatement, PasskeyId("delete"),
+                        BaseModuleMutationTemplateBuilder.Request("hpd.auth.passkey.remove.expression.expectedPasskeyRevision.delete", RequestProperties.ExpectedPasskeyRevision)),
+                    BaseModuleMutationTemplateBuilder.Patch(PatchStatement, UserId("patch"),
+                        BaseModuleMutationTemplateBuilder.Object<AuthUserRecordV1>("hpd.auth.passkey.remove.expression.userPatch",
+                            BaseModuleMutationTemplateBuilder.Field(AuthUserRecordV1.Fields.ConcurrencyStamp,
+                                BaseModuleMutationTemplateBuilder.Request("hpd.auth.passkey.remove.expression.concurrencyStamp", RequestProperties.ConcurrencyStamp)),
+                            BaseModuleMutationTemplateBuilder.Field(AuthUserRecordV1.Fields.SecurityStamp,
+                                BaseModuleMutationTemplateBuilder.Request("hpd.auth.passkey.remove.expression.securityStamp", RequestProperties.SecurityStamp)),
+                            BaseModuleMutationTemplateBuilder.Field(AuthUserRecordV1.Fields.UpdatedAt,
+                                BaseModuleMutationTemplateBuilder.Request("hpd.auth.passkey.remove.expression.operationTime", RequestProperties.OperationTime))),
+                        BaseModuleMutationTemplateBuilder.Request("hpd.auth.passkey.remove.expression.expectedUserRevision.patch", RequestProperties.ExpectedUserRevision)),
+                    BaseModuleMutationTemplateBuilder.IncrementGeneration("hpd.auth.passkey.remove.statement.002.incrementSecurityGeneration", SecurityGenerationCapture, false),
+                    BaseModuleMutationTemplateBuilder.IncrementGeneration("hpd.auth.passkey.remove.statement.003.incrementUserGeneration", UserGenerationCapture, false)),
+                Result = BaseModuleMutationTemplateBuilder.Result(BaseModuleMutationTemplateBuilder.ResultObject(
+                    "hpd.auth.passkey.remove.expression.result",
+                    BaseModuleMutationTemplateBuilder.Property(ResultProperties.PasskeyId,
+                        BaseModuleMutationTemplateBuilder.Request("hpd.auth.passkey.remove.expression.result.passkeyId", RequestProperties.PasskeyId)),
+                    BaseModuleMutationTemplateBuilder.Property(ResultProperties.SecurityGeneration,
+                        BaseModuleMutationTemplateBuilder.ResultingGeneration("hpd.auth.passkey.remove.expression.result.securityGeneration", SecurityGenerationCapture)),
+                    BaseModuleMutationTemplateBuilder.Property(ResultProperties.UserGeneration,
+                        BaseModuleMutationTemplateBuilder.ResultingGeneration("hpd.auth.passkey.remove.expression.result.userGeneration", UserGenerationCapture)),
+                    BaseModuleMutationTemplateBuilder.Property(ResultProperties.UserRevision,
+                        BaseModuleMutationTemplateBuilder.CommittedRevision("hpd.auth.passkey.remove.expression.result.userRevision", PatchStatement)))),
+            },
+            Limits = AuthModuleMutationDefaults.Limits(), ReceiptPolicy = AuthModuleMutationDefaults.Receipt(),
+            Checksum = BaseModuleMutationChecksum.Create(new byte[BaseModuleMutationChecksum.Length]),
+        });
+
+    private static BaseModuleValue<BaseRecordId<AuthPasskeyRecordV1>> PasskeyId(string suffix) => BaseModuleMutationTemplateBuilder.RecordIdFromString<AuthPasskeyRecordV1>(
+        $"hpd.auth.passkey.remove.expression.passkeyId.{suffix}", BaseModuleMutationTemplateBuilder.Request($"hpd.auth.passkey.remove.expression.passkeyIdSource.{suffix}", RequestProperties.PasskeyId));
+    private static BaseModuleValue<BaseRecordId<AuthUserRecordV1>> UserId(string suffix) => BaseModuleMutationTemplateBuilder.RecordIdFromGuid<AuthUserRecordV1>(
+        $"hpd.auth.passkey.remove.expression.userId.{suffix}", BaseModuleMutationTemplateBuilder.Request($"hpd.auth.passkey.remove.expression.userIdSource.{suffix}", RequestProperties.UserId));
+    private static BaseModuleGenerationKey GenerationKey(string suffix) => BaseModuleMutationTemplateBuilder.GenerationKeyFromGuid(
+        $"hpd.auth.passkey.remove.expression.generationKey.{suffix}", BaseModuleMutationTemplateBuilder.Request($"hpd.auth.passkey.remove.expression.generationUserId.{suffix}", RequestProperties.UserId));
+    private static BaseModuleRecordCapture Passkey() => BaseModuleMutationTemplateBuilder.CaptureRecord(PasskeyCapture, PasskeyId("capture"), BaseModuleCapturePresence.RequirePresent);
+    private static BaseModuleGenerationCapture SecurityGeneration() => BaseModuleMutationTemplateBuilder.CaptureGeneration(SecurityGenerationCapture,
+        "hpd.auth.user-security-generation.v1", GenerationKey("security"), BaseModuleGenerationAbsenceBehavior.RequireExisting);
+    private static BaseModuleRecordCapture User() => BaseModuleMutationTemplateBuilder.CaptureRecord(UserCapture, UserId("capture"), BaseModuleCapturePresence.RequirePresent);
+    private static BaseModuleGenerationCapture UserGeneration() => BaseModuleMutationTemplateBuilder.CaptureGeneration(UserGenerationCapture,
+        "hpd.auth.user-state-generation.v1", GenerationKey("user"), BaseModuleGenerationAbsenceBehavior.RequireExisting);
+    private static BaseModuleRevisionEqualsGuard PasskeyRevision() => BaseModuleMutationTemplateBuilder.RevisionEquals("hpd.auth.passkey.remove.guard.passkeyRevision", PasskeyCapture,
+        BaseModuleMutationTemplateBuilder.Request("hpd.auth.passkey.remove.expression.expectedPasskeyRevision.guard", RequestProperties.ExpectedPasskeyRevision));
+    private static BaseModuleFieldEqualsGuard PasskeyTenant() => BaseModuleMutationTemplateBuilder.FieldEquals("hpd.auth.passkey.remove.guard.passkeyTenant", PasskeyCapture,
+        AuthPasskeyRecordV1.Fields.TenantId.ModuleMutation, BaseModuleMutationTemplateBuilder.Request("hpd.auth.passkey.remove.expression.passkeyTenant", RequestProperties.TenantId));
+    private static BaseModuleFieldEqualsGuard PasskeyUser() => BaseModuleMutationTemplateBuilder.FieldEquals("hpd.auth.passkey.remove.guard.passkeyUser", PasskeyCapture,
+        AuthPasskeyRecordV1.Fields.UserId.ModuleMutation, UserId("guard"));
+    private static BaseModuleFieldEqualsGuard UserActive() => UserBoolean("userActive", AuthUserRecordV1.Fields.IsActive.ModuleMutation, AuthUserRecordV1.Fields.IsActive.ConstantAuthority, true);
+    private static BaseModuleFieldEqualsGuard UserNotDeleted() => UserBoolean("userNotDeleted", AuthUserRecordV1.Fields.IsDeleted.ModuleMutation, AuthUserRecordV1.Fields.IsDeleted.ConstantAuthority, false);
+    private static BaseModuleRevisionEqualsGuard UserRevision() => BaseModuleMutationTemplateBuilder.RevisionEquals("hpd.auth.passkey.remove.guard.userRevision", UserCapture,
+        BaseModuleMutationTemplateBuilder.Request("hpd.auth.passkey.remove.expression.expectedUserRevision.guard", RequestProperties.ExpectedUserRevision));
+    private static BaseModuleFieldEqualsGuard UserTenant() => BaseModuleMutationTemplateBuilder.FieldEquals("hpd.auth.passkey.remove.guard.userTenant", UserCapture,
+        AuthUserRecordV1.Fields.TenantId.ModuleMutation, BaseModuleMutationTemplateBuilder.Request("hpd.auth.passkey.remove.expression.userTenant", RequestProperties.TenantId));
+    private static BaseModuleFieldEqualsGuard UserBoolean(string suffix, BaseModuleCapturedField<AuthUserRecordV1, bool> field,
+        BaseModuleConstantAuthority<bool> authority, bool value) => BaseModuleMutationTemplateBuilder.FieldEquals($"hpd.auth.passkey.remove.guard.{suffix}", UserCapture, field,
+            BaseModuleMutationTemplateBuilder.Constant($"hpd.auth.passkey.remove.expression.{suffix}", authority, value));
+    private static BaseModuleRequireStatement Require(string suffix, string requirement) => BaseModuleMutationTemplateBuilder.Require(
+        $"hpd.auth.passkey.remove.require.{suffix}", $"hpd.auth.passkey.remove.guard.{suffix}", requirement);
 }
 
 [BaseRegisteredModuleMutation("hpd.auth.passkey.record-assertion.v1", typeof(AuthBaseJsonSerializerContext),
@@ -158,7 +302,7 @@ internal static partial class AuthPasskeyRecordAssertionOperationV1
                 Guards =
                 [
                     CounterIncreases(), CounterSupported(), CounterUnsupported(), PasskeyRevision(), PasskeyTenant(), PasskeyUser(),
-                    PresentedCounterZero(), SecurityGenerationMatches(), StoredCounterZero(), UserActive(), UserNotDeleted(),
+                    PresentedCounterZero(), StoredCounterZero(), UserActive(), UserNotDeleted(),
                     UserRevision(), UserTenant(),
                 ],
                 Preconditions = [],
@@ -169,7 +313,6 @@ internal static partial class AuthPasskeyRecordAssertionOperationV1
                         Require("passkeyRevision", "auth.passkey.revisionMismatch"),
                         Require("passkeyTenant", "auth.passkey.scopeMismatch"),
                         Require("passkeyUser", "auth.passkey.scopeMismatch"),
-                        Require("securityGeneration", "auth.credential.generationMismatch"),
                         Require("userActive", "auth.user.inactive"),
                         Require("userNotDeleted", "auth.user.deleted"),
                         Require("userRevision", "auth.user.revisionMismatch"),
@@ -238,9 +381,6 @@ internal static partial class AuthPasskeyRecordAssertionOperationV1
     private static BaseModuleFieldEqualsGuard PasskeyTenant() => Tenant("passkeyTenant", PasskeyCapture, AuthPasskeyRecordV1.Fields.TenantId.ModuleMutation);
     private static BaseModuleFieldEqualsGuard PasskeyUser() => BaseModuleMutationTemplateBuilder.FieldEquals(
         "hpd.auth.passkey.assert.guard.passkeyUser", PasskeyCapture, AuthPasskeyRecordV1.Fields.UserId.ModuleMutation, UserId("passkeyGuard"));
-    private static BaseModuleGenerationGuard SecurityGenerationMatches() => BaseModuleMutationTemplateBuilder.Generation(
-        "hpd.auth.passkey.assert.guard.securityGeneration", SecurityGenerationCapture, BaseModuleGenerationComparisonKind.MustEqual,
-        BaseModuleMutationTemplateBuilder.Request("hpd.auth.passkey.assert.expression.expectedSecurityGeneration.000", RequestProperties.ExpectedSecurityGeneration));
     private static BaseModuleFieldEqualsGuard UserActive() => UserBoolean("userActive", AuthUserRecordV1.Fields.IsActive.ModuleMutation, AuthUserRecordV1.Fields.IsActive.ConstantAuthority, true);
     private static BaseModuleFieldEqualsGuard UserNotDeleted() => UserBoolean("userNotDeleted", AuthUserRecordV1.Fields.IsDeleted.ModuleMutation, AuthUserRecordV1.Fields.IsDeleted.ConstantAuthority, false);
     private static BaseModuleRevisionEqualsGuard UserRevision() => Revision("userRevision", UserCapture, RequestProperties.ExpectedUserRevision);

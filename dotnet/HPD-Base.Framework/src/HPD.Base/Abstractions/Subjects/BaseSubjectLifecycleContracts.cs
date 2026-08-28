@@ -254,6 +254,10 @@ public sealed record BaseSubjectLifecycleConsumerDefinition
 /// <summary>Defines the provider's certified lifecycle capabilities.</summary>
 public sealed record BaseSubjectLifecycleCapability
 {
+    /// <summary>Gets whether Runtime-authored tombstone metadata commits with the lifecycle transition.</summary>
+    public required bool AtomicTombstoneMetadataSupported { get; init; }
+    /// <summary>Gets whether a final retirement can validate an activation guard in the same transaction.</summary>
+    public required bool ActivationGuardedFinalRetirementSupported { get; init; }
     /// <summary>Gets whether lifecycle publication is transactional with source mutation.</summary>
     public required bool TransactionalPublicationSupported { get; init; }
     /// <summary>Gets whether each consumer owns an independent cursor.</summary>
@@ -278,6 +282,8 @@ public static class BaseSubjectLifecycleProviderCapabilities
     /// <summary>Gets the built-in InMemory and SQLite capability.</summary>
     public static BaseSubjectLifecycleCapability BuiltIn { get; } = new()
     {
+        AtomicTombstoneMetadataSupported = true,
+        ActivationGuardedFinalRetirementSupported = true,
         TransactionalPublicationSupported = true,
         IndependentCursorSupported = true,
         ReconciliationSupported = false,

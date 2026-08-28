@@ -63,6 +63,7 @@ internal sealed partial record AuthRefreshByDigestReadV1
         [BaseReadField("auth.read.refreshByDigest.v1.row.used")] public required bool Used { get; init; }
         [BaseReadField("auth.read.refreshByDigest.v1.row.revoked")] public required bool Revoked { get; init; }
         [BaseReadField("auth.read.refreshByDigest.v1.row.replacementId")] public BaseRecordId<AuthRefreshTokenRecordV1>? ReplacementId { get; init; }
+        [BaseReadField("auth.read.refreshByDigest.v1.row.revision")] public required RevisionToken Revision { get; init; }
     }
 
     public static void Configure(BaseReadDefinitionBuilder<AuthRefreshByDigestReadV1, Row> read)
@@ -87,6 +88,7 @@ internal sealed partial record AuthRefreshByDigestReadV1
             .Project(Row.Fields.Used, token.Field(AuthRefreshTokenRecordV1.Fields.Used))
             .Project(Row.Fields.Revoked, token.Field(AuthRefreshTokenRecordV1.Fields.Revoked))
             .Project(Row.Fields.ReplacementId, token.Field(AuthRefreshTokenRecordV1.Fields.ReplacementId))
+            .Project(Row.Fields.Revision, token.Revision)
             .OrderBy(token.Field(AuthRefreshTokenRecordV1.Fields.Id))
             .Limits(1, 32_768, 10, 250);
     }
@@ -125,9 +127,9 @@ internal sealed partial record AuthRefreshDigestKeyVersionsReadV1
 [BaseRead("auth.read.refreshDelivery.v1", typeof(AuthBaseTokenReadJsonSerializerContext),
     RequiredGrantId = "auth.token.delivery", Disclosure = BaseRegisteredReadDisclosure.SecretProjection,
     SourceAuthority = BaseRegisteredReadSourceAuthority.System,
-    ConfidentialOutputFieldIds = ["auth.read.refreshDelivery.v1.row.requestScopeDigest"],
+    ConfidentialOutputFieldIds = ["auth.read.refreshDelivery.v1.row.requestScopeDigest", "auth.read.refreshDelivery.v1.row.requestFingerprint", "auth.read.refreshDelivery.v1.row.protectionAssociatedData", "auth.read.refreshDelivery.v1.row.jwtId"],
     SecretOutputFieldIds = ["auth.read.refreshDelivery.v1.row.protectedToken"],
-    SystemSourceIds = ["auth.refreshTokenDeliveries"])]
+    SystemSourceIds = ["auth.refreshTokenDeliveries", "auth.refreshTokens"])]
 internal sealed partial record AuthRefreshDeliveryReadV1
 {
     [BaseReadParameter("auth.read.refreshDelivery.v1.parameter.tenantId")] public required Guid TenantId { get; init; }
@@ -139,29 +141,40 @@ internal sealed partial record AuthRefreshDeliveryReadV1
         [BaseReadField("auth.read.refreshDelivery.v1.row.userId")] public required BaseRecordId<AuthUserRecordV1> UserId { get; init; }
         [BaseReadField("auth.read.refreshDelivery.v1.row.replacementId")] public required BaseRecordId<AuthRefreshTokenRecordV1> ReplacementId { get; init; }
         [BaseReadField("auth.read.refreshDelivery.v1.row.requestScopeDigest", MaximumBytes = 32)] public required BaseBinary RequestScopeDigest { get; init; }
+        [BaseReadField("auth.read.refreshDelivery.v1.row.requestFingerprint", MaximumBytes = 32)] public required BaseBinary RequestFingerprint { get; init; }
         [BaseReadField("auth.read.refreshDelivery.v1.row.protectedToken", MaximumBytes = 4096)] public required BaseBinary ProtectedToken { get; init; }
+        [BaseReadField("auth.read.refreshDelivery.v1.row.protectionAssociatedData", MaximumBytes = 4096)] public required BaseBinary ProtectionAssociatedData { get; init; }
         [BaseReadField("auth.read.refreshDelivery.v1.row.protectorVersion")] public required int ProtectorVersion { get; init; }
         [BaseReadField("auth.read.refreshDelivery.v1.row.securityGeneration")] public required BaseModuleGeneration SecurityGeneration { get; init; }
         [BaseReadField("auth.read.refreshDelivery.v1.row.createdAt"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset CreatedAt { get; init; }
         [BaseReadField("auth.read.refreshDelivery.v1.row.expiresAt"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset ExpiresAt { get; init; }
         [BaseReadField("auth.read.refreshDelivery.v1.row.state")] public required AuthRefreshDeliveryStateV1 State { get; init; }
+        [BaseReadField("auth.read.refreshDelivery.v1.row.jwtId")] public required string JwtId { get; init; }
+        [BaseReadField("auth.read.refreshDelivery.v1.row.refreshExpiresAt"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset RefreshExpiresAt { get; init; }
     }
 
     public static void Configure(BaseReadDefinitionBuilder<AuthRefreshDeliveryReadV1, Row> read)
     {
         read.From(AuthRefreshTokenDeliveryRecordV1.Collection, "delivery", out BaseReadSource<AuthRefreshTokenDeliveryRecordV1> delivery)
+            .Join(AuthRefreshTokenRecordV1.Collection, "replacement",
+                delivery.Field(AuthRefreshTokenDeliveryRecordV1.Fields.ReplacementId), BaseFields.RecordId,
+                BaseJoinKind.Inner, out BaseReadSource<AuthRefreshTokenRecordV1> replacement)
             .Where(delivery.Field(AuthRefreshTokenDeliveryRecordV1.Fields.TenantId).Equal(read.Parameter(Parameters.TenantId))
                 .And(delivery.Field(AuthRefreshTokenDeliveryRecordV1.Fields.RequestScopeDigest).Equal(read.Parameter(Parameters.RequestScopeDigest))))
             .Project(Row.Fields.Id, delivery.Field(AuthRefreshTokenDeliveryRecordV1.Fields.Id))
             .Project(Row.Fields.UserId, delivery.Field(AuthRefreshTokenDeliveryRecordV1.Fields.UserId))
             .Project(Row.Fields.ReplacementId, delivery.Field(AuthRefreshTokenDeliveryRecordV1.Fields.ReplacementId))
             .Project(Row.Fields.RequestScopeDigest, delivery.Field(AuthRefreshTokenDeliveryRecordV1.Fields.RequestScopeDigest))
+            .Project(Row.Fields.RequestFingerprint, delivery.Field(AuthRefreshTokenDeliveryRecordV1.Fields.RequestFingerprint))
             .Project(Row.Fields.ProtectedToken, delivery.Field(AuthRefreshTokenDeliveryRecordV1.Fields.ProtectedToken))
+            .Project(Row.Fields.ProtectionAssociatedData, delivery.Field(AuthRefreshTokenDeliveryRecordV1.Fields.ProtectionAssociatedData))
             .Project(Row.Fields.ProtectorVersion, delivery.Field(AuthRefreshTokenDeliveryRecordV1.Fields.ProtectorVersion))
             .Project(Row.Fields.SecurityGeneration, delivery.Field(AuthRefreshTokenDeliveryRecordV1.Fields.SecurityGeneration))
             .Project(Row.Fields.CreatedAt, delivery.Field(AuthRefreshTokenDeliveryRecordV1.Fields.CreatedAt))
             .Project(Row.Fields.ExpiresAt, delivery.Field(AuthRefreshTokenDeliveryRecordV1.Fields.ExpiresAt))
             .Project(Row.Fields.State, delivery.Field(AuthRefreshTokenDeliveryRecordV1.Fields.State))
+            .Project(Row.Fields.JwtId, replacement.Field(AuthRefreshTokenRecordV1.Fields.JwtId))
+            .Project(Row.Fields.RefreshExpiresAt, replacement.Field(AuthRefreshTokenRecordV1.Fields.ExpiresAt))
             .OrderBy(delivery.Field(AuthRefreshTokenDeliveryRecordV1.Fields.Id))
             .Limits(1, 16_384, 8, 250);
     }

@@ -1,5 +1,7 @@
 using HPD.Auth.Core.Entities;
 using HPD.Auth.Core.Interfaces;
+using HPD.Auth.Core.Models;
+using System.Security.Cryptography;
 
 namespace HPD.Auth.Authentication.Tests.Helpers;
 
@@ -11,18 +13,60 @@ internal sealed class InMemoryRefreshTokenStore : IRefreshTokenStore
 {
     private readonly List<RefreshToken> _tokens = new();
 
-    public Task<RefreshToken?> GetByTokenAsync(string token, CancellationToken ct = default)
-        => Task.FromResult(_tokens.FirstOrDefault(t => t.Token == token));
-
-    public Task CreateAsync(RefreshToken token, CancellationToken ct = default)
+    public Task<RefreshTokenPersistenceResult> IssueAsync(RefreshTokenIssueRequest request, CancellationToken ct = default)
     {
-        _tokens.Add(token);
-        return Task.CompletedTask;
+        string tokenValue = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+        string jwtId = Guid.NewGuid().ToString();
+        _tokens.Add(new RefreshToken
+        {
+            Id = Guid.NewGuid(), Token = tokenValue, UserId = request.UserId, JwtId = jwtId,
+            SecurityStamp = request.SecurityStamp, ExpiresAt = request.ExpiresAt.UtcDateTime,
+            CreatedAt = DateTime.UtcNow,
+        });
+        return Task.FromResult(new RefreshTokenPersistenceResult
+        {
+            Token = tokenValue, UserId = request.UserId, JwtId = jwtId, ExpiresAt = request.ExpiresAt,
+        });
     }
 
-    public Task UpdateAsync(RefreshToken token, CancellationToken ct = default)
-        // Entity is updated in-place since we hold a reference — nothing to do.
-        => Task.CompletedTask;
+    public Task<RefreshTokenInspection?> InspectAsync(string token, CancellationToken ct = default)
+    {
+        RefreshToken? found = _tokens.FirstOrDefault(candidate => candidate.Token == token);
+        return Task.FromResult(found is null || found.IsUsed || found.IsRevoked || found.ExpiresAt <= DateTime.UtcNow
+            ? null
+            : new RefreshTokenInspection { UserId = found.UserId, ExpiresAt = new DateTimeOffset(found.ExpiresAt, TimeSpan.Zero) });
+    }
+
+    public Task<RefreshTokenPersistenceResult?> RotateAsync(RefreshTokenRotateRequest request, CancellationToken ct = default)
+    {
+        RefreshToken? predecessor = _tokens.FirstOrDefault(candidate => candidate.Token == request.PredecessorToken);
+        if (predecessor is null || predecessor.IsUsed || predecessor.IsRevoked
+            || predecessor.ExpiresAt <= DateTime.UtcNow || predecessor.SecurityStamp != request.SecurityStamp)
+            return Task.FromResult<RefreshTokenPersistenceResult?>(null);
+        predecessor.IsUsed = true;
+        string tokenValue = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+        string jwtId = Guid.NewGuid().ToString();
+        _tokens.Add(new RefreshToken
+        {
+            Id = Guid.NewGuid(), Token = tokenValue, UserId = predecessor.UserId,
+            InstanceId = predecessor.InstanceId, JwtId = jwtId, SecurityStamp = request.SecurityStamp,
+            ExpiresAt = request.ExpiresAt.UtcDateTime, CreatedAt = DateTime.UtcNow,
+        });
+        return Task.FromResult<RefreshTokenPersistenceResult?>(new RefreshTokenPersistenceResult
+        {
+            Token = tokenValue, UserId = predecessor.UserId, JwtId = jwtId, ExpiresAt = request.ExpiresAt,
+        });
+    }
+
+    public Task<bool> RevokeAsync(string token, CancellationToken ct = default)
+    {
+        RefreshToken? found = _tokens.FirstOrDefault(candidate => candidate.Token == token);
+        if (found is null)
+            return Task.FromResult(false);
+        found.IsRevoked = true;
+        found.RevokedAt = DateTime.UtcNow;
+        return Task.FromResult(true);
+    }
 
     public Task RevokeAllForUserAsync(Guid userId, CancellationToken ct = default)
     {
@@ -38,4 +82,28 @@ internal sealed class InMemoryRefreshTokenStore : IRefreshTokenStore
     // Test helpers
     public IReadOnlyList<RefreshToken> All => _tokens.AsReadOnly();
     public IReadOnlyList<RefreshToken> ForUser(Guid userId) => _tokens.Where(t => t.UserId == userId).ToList();
+    internal RefreshToken? Find(string token) => _tokens.FirstOrDefault(candidate => candidate.Token == token);
+}
+
+internal static class RefreshTokenStoreTestInspectionExtensions
+{
+    internal static Task<RefreshToken?> GetByTokenAsync(
+        this IRefreshTokenStore store,
+        string token,
+        CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult(((InMemoryRefreshTokenStore)store).Find(token));
+    }
+
+    internal static Task UpdateAsync(
+        this IRefreshTokenStore store,
+        RefreshToken token,
+        CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        _ = (InMemoryRefreshTokenStore)store;
+        _ = token;
+        return Task.CompletedTask;
+    }
 }

@@ -180,14 +180,14 @@ public class AdminUsersTests : IAsyncLifetime
         body.Users.Should().HaveCount(5);
     }
 
-    // 1.12 — per_page=1000 is clamped to 500
+    // 1.12 — per_page=1000 is clamped to the registered-read authority ceiling
     [Fact]
-    public async Task ListUsers_OverCapPerPage_ClampedTo500()
+    public async Task ListUsers_OverCapPerPage_ClampedTo200()
     {
         var resp = await _admin.GetAsync("/api/admin/users?per_page=1000");
         resp.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await resp.ReadJsonAsync<AdminUserListResponse>();
-        body!.PerPage.Should().Be(500);
+        body!.PerPage.Should().Be(200);
     }
 
     // 1.13 — sort=email&order=asc

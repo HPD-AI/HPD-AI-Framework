@@ -1551,6 +1551,17 @@ public sealed class HPDBaseBuilder
             if (plan.Scope.Kind != BaseSubjectScopeBindingKind.Global &&
                 (!fields.TryGetValue(plan.Scope.FieldId!, out FieldDefinition? scope) || scope.Type != "string" || scope.Presence != BaseFieldPresence.Required || scope.Nullability != BaseFieldNullability.NonNullable))
                 throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+            BaseSubjectTombstoneMetadataDefinition metadata = contract.TombstoneMetadata;
+            if (metadata.Instant.Kind == BaseSubjectTombstoneMetadataBindingKind.RequiredField &&
+                (!fields.TryGetValue(metadata.Instant.FieldId!, out FieldDefinition? instant) || instant.Type != BaseFieldTypes.String ||
+                 instant.ScalarKind != BaseScalarKind.UtcDateTime || instant.Presence != BaseFieldPresence.Optional ||
+                 instant.Nullability != BaseFieldNullability.NonNullable))
+                throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+            if (metadata.Sequence.Kind == BaseSubjectTombstoneMetadataBindingKind.RequiredField &&
+                (!fields.TryGetValue(metadata.Sequence.FieldId!, out FieldDefinition? sequence) || sequence.Type != BaseFieldTypes.Integer ||
+                 sequence.Presence != BaseFieldPresence.Required || sequence.Nullability != BaseFieldNullability.NonNullable ||
+                 sequence.ScalarKind != BaseScalarKind.Int64 || sequence.ScalarConstraints?.MinimumInt64 != 0))
+                throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
             if (contract.Scope switch
                 {
                     BaseSubjectScopeKind.Global => plan.Scope.Kind != BaseSubjectScopeBindingKind.Global,

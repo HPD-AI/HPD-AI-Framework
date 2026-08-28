@@ -42,12 +42,61 @@ public sealed record BaseExportedSubjectDefinition
     public required string AdministrationGrantId { get; init; }
     /// <summary>Gets the stable required Boolean tombstone-state field ID.</summary>
     public required string TombstoneFieldId { get; init; }
+    /// <summary>Gets the exact private-field bindings for Runtime-authored tombstone evidence.</summary>
+    public required BaseSubjectTombstoneMetadataDefinition TombstoneMetadata { get; init; }
+    /// <summary>Gets whether final retirement requires an activation-owned same-transaction guard.</summary>
+    public required BaseSubjectFinalExecutionMode FinalRetirementExecutionMode { get; init; }
     /// <summary>Gets whether the contract permits coordinated retirement.</summary>
     public required bool SupportsCoordinatedRetirement { get; init; }
     /// <summary>Gets the audiences to which this contract may be projected.</summary>
     public required HPDBaseEndpointAudience[] Audiences { get; init; }
     /// <summary>Gets the closed transaction-local validation plan.</summary>
     public required BaseSubjectValidationPlanDefinition ValidationPlan { get; init; }
+}
+
+/// <summary>Defines how Runtime-authored tombstone evidence is persisted in the private subject record.</summary>
+public sealed record BaseSubjectTombstoneMetadataDefinition
+{
+    /// <summary>Gets the accepted tombstone-instant binding.</summary>
+    public required BaseSubjectTombstoneInstantBinding Instant { get; init; }
+    /// <summary>Gets the resulting lifecycle-sequence binding.</summary>
+    public required BaseSubjectTombstoneSequenceBinding Sequence { get; init; }
+}
+
+/// <summary>Defines the accepted tombstone-instant field binding.</summary>
+public sealed record BaseSubjectTombstoneInstantBinding
+{
+    /// <summary>Gets the closed binding kind.</summary>
+    public required BaseSubjectTombstoneMetadataBindingKind Kind { get; init; }
+    /// <summary>Gets the stable private field ID when storage is required.</summary>
+    public string? FieldId { get; init; }
+}
+
+/// <summary>Defines the resulting lifecycle-sequence field binding.</summary>
+public sealed record BaseSubjectTombstoneSequenceBinding
+{
+    /// <summary>Gets the closed binding kind.</summary>
+    public required BaseSubjectTombstoneMetadataBindingKind Kind { get; init; }
+    /// <summary>Gets the stable private field ID when storage is required.</summary>
+    public string? FieldId { get; init; }
+}
+
+/// <summary>Identifies whether one tombstone evidence value is stored in the private record.</summary>
+public enum BaseSubjectTombstoneMetadataBindingKind
+{
+    /// <summary>The value remains durable lifecycle evidence but is not stored in a private field.</summary>
+    NotStored = 0,
+    /// <summary>A required non-null private field stores the Runtime-authored value.</summary>
+    RequiredField = 1,
+}
+
+/// <summary>Defines whether a subject's final destructive path requires activation-fence authority.</summary>
+public enum BaseSubjectFinalExecutionMode
+{
+    /// <summary>Allows ordinary authorized execution or activation-guarded execution.</summary>
+    OrdinaryOrActivationGuarded = 0,
+    /// <summary>Requires a current activation guard validated in the destructive transaction.</summary>
+    ActivationGuardRequired = 1,
 }
 
 /// <summary>Defines the only supported subject-identifier binding.</summary>

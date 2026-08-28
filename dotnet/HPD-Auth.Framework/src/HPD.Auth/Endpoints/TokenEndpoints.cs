@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using HPD.Auth.Core.Entities;
 using HPD.Auth.Core.Events;
 using HPD.Auth.Core.Interfaces;
+using HPD.Auth.Core.Models;
 using HPD.Auth.Core.Options;
 using HPD.Auth.Serialization;
 using HPD.Events;
@@ -106,13 +107,16 @@ public static class TokenEndpoints
 
         var ipAddress = httpContext.Connection.RemoteIpAddress?.ToString();
         var userAgent = httpContext.Request.Headers.UserAgent.ToString();
+        TokenIssuanceIdentity issuanceIdentity = TokenIssuanceIdentityHttp.Create(
+            httpContext,
+            grantType == "password" ? "auth.token.password" : "auth.token.refresh");
 
         return grantType switch
         {
             "password"      => await HandlePasswordGrantAsync(
                                    username, password, userManager, signInManager,
                                    tokenService, eventCoordinator,
-                                   ipAddress, userAgent, ct),
+                                   ipAddress, userAgent, issuanceIdentity, ct),
             "refresh_token" => await HandleRefreshGrantAsync(
                                    refreshToken, tokenService,
                                    ipAddress, userAgent, ct),
@@ -134,6 +138,7 @@ public static class TokenEndpoints
         IEventCoordinator eventCoordinator,
         string? ipAddress,
         string? userAgent,
+        TokenIssuanceIdentity issuanceIdentity,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
@@ -207,7 +212,10 @@ public static class TokenEndpoints
         user.Updated = DateTime.UtcNow;
         await userManager.UpdateAsync(user);
 
-        var tokenResponse = await tokenService.GenerateTokensAsync(user, ct);
+        var tokenResponse = await tokenService.GenerateTokensAsync(
+            user,
+            issuanceIdentity,
+            ct);
 
         await eventCoordinator.EmitAsync(new UserLoggedInEvent
         {

@@ -350,13 +350,11 @@ internal sealed class BaseModuleProgramEvaluator<TRequest, TResult>
     private BaseModuleProgramValue RequestProperty(BaseModuleRequestPropertyReference reference)
     {
         JsonElement current = _request;
-        var path = new List<string>();
-        foreach (string stableId in reference.StablePropertyPath)
+        string path = string.Join('\0', reference.StablePropertyPath);
+        if (!_identity.RequestBindings.TryGetValue(path, out BaseModuleDtoPropertyBinding? binding))
+            throw new InvalidOperationException("base.moduleMutation.invalid");
+        foreach (string wireName in binding.WirePropertyPath)
         {
-            path.Add(stableId);
-            if (!_identity.RequestBindings.TryGetValue(string.Join('\0', path), out BaseModuleDtoPropertyBinding? binding))
-                throw new InvalidOperationException("base.moduleMutation.invalid");
-            string wireName = binding.WirePropertyPath[^1];
             if (current.ValueKind != JsonValueKind.Object || !current.TryGetProperty(wireName, out current))
                 return BaseModuleProgramValue.Missing(BaseModuleProgramValueProvenance.Request);
         }

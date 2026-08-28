@@ -568,6 +568,7 @@ public sealed class L45SubjectTransactionTests
                 TimeSpan.FromHours(1),
                 BaseSubjectRetirementTimeoutBehavior.Quarantine,
                 new BaseSubjectPurgeRetentionPolicy { MinimumTombstoneAge = TimeSpan.Zero },
+                BaseSubjectFinalExecutionMode.OrdinaryOrActivationGuarded,
                 fabricatedRetirement));
         Assert.Equal(BaseSubjectRetirementErrorCodes.ContractInvalid, policyFailure.Message);
     }
@@ -1840,12 +1841,12 @@ public sealed class L45SubjectTransactionTests
                     ],
                     Page = new PageInfo { Page = 1, PerPage = 1, Limit = 1 },
                     Count = 1,
-                    SchemaGeneration = request.Plan.SchemaGeneration,
                 },
                 DependencyEvidence =
                 [
                     new BaseReadDependencyEvidence { CollectionId = L45SqliteProfile.Collection.Id },
                 ],
+                SnapshotAuthority = TestRelationalReadAuthority.Create(request),
             }));
         }
     }
@@ -1984,7 +1985,7 @@ public sealed class L45SubjectTransactionTests
 
     private static BaseSubjectRetirementPolicy RetirementPolicy(BaseSubjectRetirementConsumerDefinition consumer,string checksum)=>new()
     {
-        ContractId="example.user",ContractVersion=1,AcceptedConsumers=[new(){ConsumerId=consumer.ConsumerId,ConsumerVersion=consumer.ConsumerVersion,OwningModuleId=consumer.OwningModuleId,Audience=consumer.Audience,LifecycleConsumerChecksum=consumer.LifecycleConsumerChecksum,RetirementProfileId=consumer.RetirementProfileId,RetirementProfileVersion=consumer.RetirementProfileVersion,RetirementProfileChecksum=consumer.RetirementProfileChecksum,Participation=consumer.Participation,AcknowledgementGrantId=consumer.AcknowledgementGrantId,Limits=consumer.Limits,RetirementConsumerChecksum=checksum}],CoordinationWindow=TimeSpan.FromHours(1),TimeoutBehavior=BaseSubjectRetirementTimeoutBehavior.Quarantine,PurgeRetention=new(){MinimumTombstoneAge=TimeSpan.Zero},PolicyChecksum=new string('0',64),
+        ContractId="example.user",ContractVersion=1,AcceptedConsumers=[new(){ConsumerId=consumer.ConsumerId,ConsumerVersion=consumer.ConsumerVersion,OwningModuleId=consumer.OwningModuleId,Audience=consumer.Audience,LifecycleConsumerChecksum=consumer.LifecycleConsumerChecksum,RetirementProfileId=consumer.RetirementProfileId,RetirementProfileVersion=consumer.RetirementProfileVersion,RetirementProfileChecksum=consumer.RetirementProfileChecksum,Participation=consumer.Participation,AcknowledgementGrantId=consumer.AcknowledgementGrantId,Limits=consumer.Limits,RetirementConsumerChecksum=checksum}],CoordinationWindow=TimeSpan.FromHours(1),TimeoutBehavior=BaseSubjectRetirementTimeoutBehavior.Quarantine,PurgeRetention=new(){MinimumTombstoneAge=TimeSpan.Zero},FinalPurgeExecutionMode=BaseSubjectFinalExecutionMode.OrdinaryOrActivationGuarded,PolicyChecksum=new string('0',64),
     };
 
     private static BaseSubjectLifecycleProviderReadRequest LifecycleReadRequest(SubjectFixture fixture, BaseSubjectLifecycleConsumerDefinition consumer) => new()
@@ -2075,6 +2076,8 @@ public sealed class L45SubjectTransactionTests
         SubjectIdKind = BaseSubjectIdKind.OrdinalString, MaximumSubjectIdUtf8Bytes = 64,
         Scope = BaseSubjectScopeKind.Tenant, AcquisitionGrantId = "example.user.acquire",
         ValidationGrantId = "example.user.validate", AdministrationGrantId = "example.user.admin", TombstoneFieldId = "user.tombstoned",
+        TombstoneMetadata = new() { Instant = new() { Kind = BaseSubjectTombstoneMetadataBindingKind.NotStored }, Sequence = new() { Kind = BaseSubjectTombstoneMetadataBindingKind.NotStored } },
+        FinalRetirementExecutionMode = BaseSubjectFinalExecutionMode.OrdinaryOrActivationGuarded,
         SupportsCoordinatedRetirement = coordinatedRetirement, Audiences = [HPDBaseEndpointAudience.Application],
         ValidationPlan = new BaseSubjectValidationPlanDefinition
         {
@@ -2105,6 +2108,9 @@ public sealed class L45SubjectTransactionTests
     {
         OperationResult<BaseRelationalReadExecutionResult> result = await store.ExecuteReadAsync(new BaseRelationalReadExecutionRequest
         {
+            ApplicationId = "hpd.base.application",
+            LogicalStoreId = store.Capabilities.StoreId,
+            LogicalSchemaChecksum = BaseSchemaAuthorityChecksum.Create(new byte[32]),
             Plan = new BaseRelationalReadPlan
             {
                 Id = "test.acquire", Topology = BaseRelationalReadTopology.Ordinary, SchemaGeneration = 1,
@@ -2316,6 +2322,9 @@ public sealed class L45SubjectTransactionTests
             };
             OperationResult<BaseRelationalReadExecutionResult> result = await Store.ExecuteReadAsync(new BaseRelationalReadExecutionRequest
             {
+                ApplicationId = "hpd.base.application",
+                LogicalStoreId = Store.Capabilities.StoreId,
+                LogicalSchemaChecksum = BaseSchemaAuthorityChecksum.Create(new byte[32]),
                 Plan = new BaseRelationalReadPlan
                 {
                     Id = "test.acquire", Topology = BaseRelationalReadTopology.Ordinary, SchemaGeneration = 1,

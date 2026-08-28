@@ -22,11 +22,11 @@ internal sealed partial record AuthUserRecordV1
 {
     [BaseField("auth.users.id", Operators = BaseFieldOperator.Equal | BaseFieldOperator.Order), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required Guid Id { get; init; }
     [BaseField("auth.users.tenantId", Operators = BaseFieldOperator.Equal | BaseFieldOperator.Order), BaseFieldConfidentiality(BaseFieldConfidentiality.Confidential)] public required Guid TenantId { get; init; }
-    [BaseField("auth.users.userName", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable, MaximumUtf8Bytes = 256, StringNormalization = BaseStringNormalizationRequirement.RequireNfc), BaseFieldConfidentiality(BaseFieldConfidentiality.Confidential)] public string? UserName { get; init; }
+    [BaseField("auth.users.userName", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable, MaximumUtf8Bytes = 256, StringNormalization = BaseStringNormalizationRequirement.RequireNfc, Operators = BaseFieldOperator.Text), BaseFieldConfidentiality(BaseFieldConfidentiality.Confidential)] public string? UserName { get; init; }
     [BaseField("auth.users.normalizedUserName", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable, MaximumUtf8Bytes = 256, StringNormalization = BaseStringNormalizationRequirement.RequireNfc, Operators = BaseFieldOperator.Equal | BaseFieldOperator.Order), BaseFieldConfidentiality(BaseFieldConfidentiality.Confidential)] public string? NormalizedUserName { get; init; }
-    [BaseField("auth.users.email", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable, MaximumUtf8Bytes = 320, StringNormalization = BaseStringNormalizationRequirement.RequireNfc), BaseFieldConfidentiality(BaseFieldConfidentiality.Confidential)] public string? Email { get; init; }
+    [BaseField("auth.users.email", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable, MaximumUtf8Bytes = 320, StringNormalization = BaseStringNormalizationRequirement.RequireNfc, Operators = BaseFieldOperator.Text | BaseFieldOperator.Order), BaseFieldConfidentiality(BaseFieldConfidentiality.Confidential)] public string? Email { get; init; }
     [BaseField("auth.users.normalizedEmail", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable, MaximumUtf8Bytes = 320, StringNormalization = BaseStringNormalizationRequirement.RequireNfc), BaseFieldConfidentiality(BaseFieldConfidentiality.Confidential)] public string? NormalizedEmail { get; init; }
-    [BaseField("auth.users.emailConfirmed"), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required bool EmailConfirmed { get; init; }
+    [BaseField("auth.users.emailConfirmed", Operators = BaseFieldOperator.Equal), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required bool EmailConfirmed { get; init; }
     [BaseField("auth.users.passwordHash", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable, MaximumUtf8Bytes = 4096, StringNormalization = BaseStringNormalizationRequirement.RequireNfc), BaseFieldConfidentiality(BaseFieldConfidentiality.Secret)] public string? PasswordHash { get; init; }
     [BaseField("auth.users.securityStamp", MinimumUtf8Bytes = 1, MaximumUtf8Bytes = 256, StringNormalization = BaseStringNormalizationRequirement.RequireNfc), BaseFieldConfidentiality(BaseFieldConfidentiality.Secret)] public required string SecurityStamp { get; init; }
     [BaseField("auth.users.concurrencyStamp", MinimumUtf8Bytes = 1, MaximumUtf8Bytes = 256, StringNormalization = BaseStringNormalizationRequirement.RequireNfc), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required string ConcurrencyStamp { get; init; }
@@ -41,17 +41,17 @@ internal sealed partial record AuthUserRecordV1
     [BaseField("auth.users.userMetadata", MaximumCanonicalJsonBytes = 32768, JsonShape = BaseJsonShape.Object, MaximumJsonDepth = 16, MaximumJsonArrayItems = 1024, MaximumJsonObjectProperties = 1024, MaximumJsonTotalNodes = 4096, MaximumJsonTotalStringUtf8Bytes = 32768, MaximumJsonTotalNameUtf8Bytes = 32768), BaseFieldConfidentiality(BaseFieldConfidentiality.Confidential)] public required BaseCanonicalJson UserMetadata { get; init; }
     [BaseField("auth.users.appMetadata", MaximumCanonicalJsonBytes = 32768, JsonShape = BaseJsonShape.Object, MaximumJsonDepth = 16, MaximumJsonArrayItems = 1024, MaximumJsonObjectProperties = 1024, MaximumJsonTotalNodes = 4096, MaximumJsonTotalStringUtf8Bytes = 32768, MaximumJsonTotalNameUtf8Bytes = 32768), BaseFieldConfidentiality(BaseFieldConfidentiality.Confidential)] public required BaseCanonicalJson AppMetadata { get; init; }
     [BaseField("auth.users.requiredActions", MaximumCanonicalJsonBytes = 4096, JsonShape = BaseJsonShape.Array, MaximumJsonDepth = 2, MaximumJsonArrayItems = 32, MaximumJsonObjectProperties = 1, MaximumJsonTotalNodes = 33, MaximumJsonTotalStringUtf8Bytes = 4096, MaximumJsonTotalNameUtf8Bytes = 1), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required BaseCanonicalJson RequiredActions { get; init; }
-    [BaseField("auth.users.firstName", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable, MaximumUtf8Bytes = 100, StringNormalization = BaseStringNormalizationRequirement.RequireNfc), BaseFieldConfidentiality(BaseFieldConfidentiality.Confidential)] public string? FirstName { get; init; }
-    [BaseField("auth.users.lastName", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable, MaximumUtf8Bytes = 100, StringNormalization = BaseStringNormalizationRequirement.RequireNfc), BaseFieldConfidentiality(BaseFieldConfidentiality.Confidential)] public string? LastName { get; init; }
+    [BaseField("auth.users.firstName", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable, MaximumUtf8Bytes = 100, StringNormalization = BaseStringNormalizationRequirement.RequireNfc, Operators = BaseFieldOperator.Text), BaseFieldConfidentiality(BaseFieldConfidentiality.Confidential)] public string? FirstName { get; init; }
+    [BaseField("auth.users.lastName", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable, MaximumUtf8Bytes = 100, StringNormalization = BaseStringNormalizationRequirement.RequireNfc, Operators = BaseFieldOperator.Text), BaseFieldConfidentiality(BaseFieldConfidentiality.Confidential)] public string? LastName { get; init; }
     [BaseField("auth.users.displayName", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable, MaximumUtf8Bytes = 500, StringNormalization = BaseStringNormalizationRequirement.RequireNfc), BaseFieldConfidentiality(BaseFieldConfidentiality.Confidential)] public string? DisplayName { get; init; }
     [BaseField("auth.users.avatarUrl", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable, MaximumUtf8Bytes = 2048, StringNormalization = BaseStringNormalizationRequirement.RequireNfc), BaseFieldConfidentiality(BaseFieldConfidentiality.Confidential)] public string? AvatarUrl { get; init; }
-    [BaseField("auth.users.isActive"), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required bool IsActive { get; init; }
+    [BaseField("auth.users.isActive", Operators = BaseFieldOperator.Equal), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required bool IsActive { get; init; }
     [BaseField("auth.users.isDeleted", Operators = BaseFieldOperator.Equal), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required bool IsDeleted { get; init; }
     [BaseField("auth.users.deletedAt", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public DateTimeOffset? DeletedAt { get; init; }
     [BaseField("auth.users.tombstoneGeneration", MinimumInt64 = 0, HasMinimumInt64 = true), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required long TombstoneGeneration { get; init; }
-    [BaseField("auth.users.createdAt"), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset CreatedAt { get; init; }
+    [BaseField("auth.users.createdAt", Operators = BaseFieldOperator.Order), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset CreatedAt { get; init; }
     [BaseField("auth.users.updatedAt"), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset UpdatedAt { get; init; }
-    [BaseField("auth.users.lastLoginAt", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable), BaseFieldConfidentiality(BaseFieldConfidentiality.Confidential), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public DateTimeOffset? LastLoginAt { get; init; }
+    [BaseField("auth.users.lastLoginAt", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable, Operators = BaseFieldOperator.Order), BaseFieldConfidentiality(BaseFieldConfidentiality.Confidential), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public DateTimeOffset? LastLoginAt { get; init; }
     [BaseField("auth.users.lastLoginIp", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable, MaximumUtf8Bytes = 45, StringNormalization = BaseStringNormalizationRequirement.RequireNfc), BaseFieldConfidentiality(BaseFieldConfidentiality.Confidential)] public string? LastLoginIp { get; init; }
     [BaseField("auth.users.subscriptionTier", MaximumUtf8Bytes = 50, StringNormalization = BaseStringNormalizationRequirement.RequireNfc), BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required string SubscriptionTier { get; init; }
     [BaseField("auth.users.emailConfirmedAt", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable), BaseFieldConfidentiality(BaseFieldConfidentiality.Confidential), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public DateTimeOffset? EmailConfirmedAt { get; init; }
@@ -97,6 +97,9 @@ internal sealed partial record AuthRoleRecordV1
     ScopeFieldId = "auth.users.tenantId",
     ActiveFieldId = "auth.users.isActive",
     TombstoneFieldId = "auth.users.isDeleted",
+    TombstoneInstantFieldId = "auth.users.deletedAt",
+    TombstoneSequenceFieldId = "auth.users.tombstoneGeneration",
+    FinalRetirementExecutionMode = BaseSubjectFinalExecutionMode.ActivationGuardRequired,
     Audiences = [HPDBaseEndpointAudience.Application],
     SupportsCoordinatedRetirement = true)]
 public sealed partial class AuthUserSubject;
@@ -117,6 +120,9 @@ public sealed partial class AuthUserSubject;
     ScopeFieldId = "auth.roles.tenantId",
     ActiveFieldId = "auth.roles.isActive",
     TombstoneFieldId = "auth.roles.isDeleted",
+    TombstoneInstantFieldId = "auth.roles.deletedAt",
+    TombstoneSequenceFieldId = "auth.roles.tombstoneGeneration",
+    FinalRetirementExecutionMode = BaseSubjectFinalExecutionMode.ActivationGuardRequired,
     Audiences = [HPDBaseEndpointAudience.Application],
     SupportsCoordinatedRetirement = true)]
 public sealed partial class AuthRoleSubject;
@@ -153,6 +159,7 @@ internal static class AuthBaseContract
 [JsonSerializable(typeof(AuthUpdateUserProfileV1))]
 [JsonSerializable(typeof(AuthUpdateUserProfileResultV1))]
 [JsonSerializable(typeof(AuthChangePasswordV1))]
+[JsonSerializable(typeof(AuthRemovePasswordV1))]
 [JsonSerializable(typeof(AuthResetPasswordV1))]
 [JsonSerializable(typeof(AuthSetSecurityStateV1))]
 [JsonSerializable(typeof(AuthSecurityMutationResultV1))]
@@ -172,6 +179,8 @@ internal static class AuthBaseContract
 [JsonSerializable(typeof(AuthAuditAppendResultV1))]
 [JsonSerializable(typeof(AuthPasskeyRegisterV1))]
 [JsonSerializable(typeof(AuthPasskeyRegisterResultV1))]
+[JsonSerializable(typeof(AuthPasskeyRemoveV1))]
+[JsonSerializable(typeof(AuthPasskeyRemoveResultV1))]
 [JsonSerializable(typeof(AuthPasskeyRecordAssertionV1))]
 [JsonSerializable(typeof(AuthPasskeyAssertionResultV1))]
 [JsonSerializable(typeof(AuthSessionCreateV1))]

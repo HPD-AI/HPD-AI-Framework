@@ -4,20 +4,15 @@ using HPD.Auth.Core.Interfaces;
 using HPD.Auth.Core.Audit;
 using HPD.Auth.Core.Options;
 using HPD.Auth.Serialization;
-using HPD.Auth.Infrastructure.Data;
+using HPD.Auth.Infrastructure.Base;
 using HPD.Events;
 using HPD.Events.DependencyInjection;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
-using Microsoft.Data.Sqlite;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -33,8 +28,7 @@ namespace HPD.Auth.Extensions;
 ///     options.AppName = "MyApp";
 ///     options.Password.RequiredLength = 12;
 ///     options.Lockout.MaxFailedAttempts = 3;
-/// })
-/// .UseSqlite(connectionString);
+/// });
 /// </code>
 ///
 /// After calling AddHPDAuth() you may chain additional registrations via the returned
@@ -55,9 +49,8 @@ public static class HPDAuthServiceCollectionExtensions
     /// 6. Register infrastructure required by auth endpoints, including memory cache and event coordination.
     /// 7. Register no-op email and SMS senders (replaced by real implementations via TryAdd semantics).
     ///
-    /// Storage is intentionally not implicit. Call a storage extension such as
-    /// <see cref="UseSqlite(IHPDAuthBuilder, string)"/> or
-    /// <see cref="UseInMemorySqliteForTests(IHPDAuthBuilder)"/> on the returned builder.
+    /// HPD Auth storage is supplied by the host's HPD Base application graph. Install
+    /// <c>AuthBaseModule</c> while configuring HPD Base before building the provider.
     /// </summary>
     /// <param name="services">The application's <see cref="IServiceCollection"/>.</param>
     /// <param name="configure">
@@ -86,14 +79,6 @@ public static class HPDAuthServiceCollectionExtensions
         // Also register via IOptions<T> pattern so ConfigureOptions and the options
         // validation pipeline works correctly for consumers that inject IOptions<HPDAuthOptions>.
         services.Configure<HPDAuthOptions>(o => configure(o));
-
-        services.AddOptions<HPDAuthStorageOptions>()
-            .Validate(static o => o.IsConfigured,
-                "HPD.Auth storage is required. Chain a storage provider such as UseSqlite(...) after AddHPDAuth(...).")
-            .ValidateOnStart();
-        services.TryAddEnumerable(
-            ServiceDescriptor.Singleton<IValidateOptions<HPDAuthStorageOptions>,
-                HPDAuthStorageOptionsValidator>());
 
         // ── Step 2: Register ITenantContext ───────────────────────────────────────
         // Default: single-tenant mode — always returns Guid.Empty.
@@ -136,36 +121,15 @@ public static class HPDAuthServiceCollectionExtensions
             .AddSignInManager()
             .AddDefaultTokenProviders();
 
-        services.TryAddScoped<IUserStore<ApplicationUser>,
-            UserStore<ApplicationUser, ApplicationRole, HPDAuthDbContext, Guid,
-                IdentityUserClaim<Guid>,
-                IdentityUserRole<Guid>,
-                IdentityUserLogin<Guid>,
-                IdentityUserToken<Guid>,
-                IdentityRoleClaim<Guid>,
-                IdentityUserPasskey<Guid>>>();
-
-        services.TryAddScoped<IRoleStore<ApplicationRole>,
-            RoleStore<ApplicationRole, HPDAuthDbContext, Guid,
-                IdentityUserRole<Guid>,
-                IdentityRoleClaim<Guid>>>();
-
         // ── Step 4: Register ASP.NET Data Protection ──────────────────────────────
         // Persist encryption keys to the configured database so they survive app
         // restarts and are shared across load-balanced nodes. The application name
         // scopes the key ring to this app, preventing cross-app cookie/token forgery.
         services.AddDataProtection()
-            .SetApplicationName(options.AppName)
-            .PersistKeysToDbContext<HPDAuthDbContext>();
+            .SetApplicationName(options.AppName);
 
         // ── Step 5: Register HPD store implementations ────────────────────────────
-        services.AddScoped<HPD.Auth.Infrastructure.Stores.AuthAuditStore>();
-        services.AddScoped<IAuthAuditWriter>(static provider =>
-            provider.GetRequiredService<HPD.Auth.Infrastructure.Stores.AuthAuditStore>());
-        services.AddScoped<IAuthAuditReader>(static provider =>
-            provider.GetRequiredService<HPD.Auth.Infrastructure.Stores.AuthAuditStore>());
-        services.AddScoped<ISessionManager, HPD.Auth.Infrastructure.Stores.SessionStore>();
-        services.AddScoped<IRefreshTokenStore, HPD.Auth.Infrastructure.Stores.RefreshTokenStore>();
+        services.AddHPDAuthBaseStores();
 
         // ── Step 6: Register auth endpoint infrastructure ───────────────────────
         // Register source-generated JSON metadata for Minimal API request/response
@@ -182,7 +146,7 @@ public static class HPDAuthServiceCollectionExtensions
         // Core auth endpoints emit AuthEvent instances for signup, login, logout,
         // password reset, etc. The coordinator is required even when callers do not
         // opt into the audit package; AddAudit() only attaches observers.
-        services.AddHPDEvents(options => options.Lifetime = HPDEventsServiceLifetime.Scoped);
+        services.AddHPDEvents(options => options.Lifetime = HPDEventsServiceLifetime.Singleton);
 
         // ── Step 7: Register no-op email and SMS senders ─────────────────────────
         // TryAdd ensures these are skipped if the caller has already registered a
@@ -195,175 +159,6 @@ public static class HPDAuthServiceCollectionExtensions
         services.TryAddScoped<IHPDAuthSmsSender, NoOpSmsSender>();
 
         return new HPDAuthBuilder(services, options);
-    }
-
-    /// <summary>
-    /// Configures HPD.Auth to store identity, session, audit, refresh-token, and
-    /// Data Protection state in SQLite.
-    /// </summary>
-    /// <param name="builder">The HPD.Auth builder returned by <see cref="AddHPDAuth(IServiceCollection, Action{HPDAuthOptions})"/>.</param>
-    /// <param name="connectionString">The SQLite connection string for the auth database.</param>
-    /// <returns>The same <see cref="IHPDAuthBuilder"/> for fluent chaining.</returns>
-    public static IHPDAuthBuilder UseSqlite(
-        this IHPDAuthBuilder builder,
-        string connectionString)
-    {
-        ArgumentNullException.ThrowIfNull(builder);
-        if (string.IsNullOrWhiteSpace(connectionString))
-            throw new ArgumentException("A SQLite connection string is required.", nameof(connectionString));
-
-        builder.Services.Configure<HPDAuthStorageOptions>(o =>
-        {
-            o.IsConfigured = true;
-            o.ProviderName = "sqlite";
-            o.IsEphemeral = false;
-        });
-
-        builder.Services.AddDbContext<HPDAuthDbContext>((_, dbOptions) =>
-        {
-            dbOptions.UseSqlite(connectionString)
-                // HPDAuthDbContext has runtime tenant query filters. EF migration
-                // snapshots do not produce schema operations for those filters, so
-                // MigrateAsync can otherwise fail on a non-schema model warning.
-                .ConfigureWarnings(warnings => warnings.Ignore(RelationalEventId.PendingModelChangesWarning));
-        }, ServiceLifetime.Scoped);
-
-        return builder;
-    }
-
-    /// <summary>
-    /// Configures HPD.Auth to use a shared SQLite in-memory database for tests.
-    /// This storage is process-local and must not be used for production hosts.
-    /// </summary>
-    /// <param name="builder">The HPD.Auth builder returned by <see cref="AddHPDAuth(IServiceCollection, Action{HPDAuthOptions})"/>.</param>
-    /// <returns>The same <see cref="IHPDAuthBuilder"/> for fluent chaining.</returns>
-    public static IHPDAuthBuilder UseInMemorySqliteForTests(this IHPDAuthBuilder builder)
-    {
-        ArgumentNullException.ThrowIfNull(builder);
-
-        var sqliteConnectionString = new SqliteConnectionStringBuilder
-        {
-            DataSource = $"file:{builder.Options.AppName}?mode=memory&cache=shared",
-            ForeignKeys = true
-        }.ToString();
-
-        var keepAliveConnection = new SqliteConnection(sqliteConnectionString);
-        keepAliveConnection.Open();
-
-        builder.Services.Configure<HPDAuthStorageOptions>(o =>
-        {
-            o.IsConfigured = true;
-            o.ProviderName = "sqlite-memory";
-            o.IsEphemeral = true;
-        });
-
-        builder.Services.AddSingleton(keepAliveConnection);
-        builder.Services.AddDbContext<HPDAuthDbContext>((sp, dbOptions) =>
-        {
-            dbOptions.UseSqlite(sp.GetRequiredService<SqliteConnection>())
-                // See UseSqlite: tenant query filters are runtime policy, not schema.
-                .ConfigureWarnings(warnings => warnings.Ignore(RelationalEventId.PendingModelChangesWarning));
-        }, ServiceLifetime.Scoped);
-
-        return builder;
-    }
-
-    /// <summary>
-    /// Creates the configured HPD.Auth database schema for development and tests.
-    /// Production hosts should use an explicit migration pipeline instead.
-    /// </summary>
-    /// <param name="serviceProvider">The application service provider.</param>
-    /// <param name="cancellationToken">A token that can cancel schema initialization.</param>
-    /// <returns>A task that completes when the database has been initialized.</returns>
-    public static async Task InitializeHPDAuthDevelopmentDatabaseAsync(
-        this IServiceProvider serviceProvider,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(serviceProvider);
-
-        using var scope = serviceProvider.CreateScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<HPDAuthDbContext>();
-        await dbContext.Database.EnsureCreatedAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Applies pending HPD.Auth database migrations for the configured storage provider.
-    /// Production hosts should call this from an explicit deployment or startup
-    /// migration step, not from arbitrary request handling.
-    /// </summary>
-    /// <param name="serviceProvider">The application service provider.</param>
-    /// <param name="cancellationToken">A token that can cancel migration application.</param>
-    /// <returns>A task that completes when pending migrations have been applied.</returns>
-    public static async Task MigrateHPDAuthDatabaseAsync(
-        this IServiceProvider serviceProvider,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(serviceProvider);
-
-        using var scope = serviceProvider.CreateScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<HPDAuthDbContext>();
-        await dbContext.Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Verifies that the configured HPD.Auth database has no pending migrations.
-    /// Production hosts can call this after their deployment migration step to fail
-    /// startup before serving traffic against an old schema.
-    /// </summary>
-    /// <param name="serviceProvider">The application service provider.</param>
-    /// <param name="cancellationToken">A token that can cancel migration inspection.</param>
-    /// <returns>A task that completes when the database is confirmed current.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when one or more migrations are pending.</exception>
-    public static async Task ValidateHPDAuthDatabaseMigratedAsync(
-        this IServiceProvider serviceProvider,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(serviceProvider);
-
-        using var scope = serviceProvider.CreateScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<HPDAuthDbContext>();
-        var pendingMigrations = await dbContext.Database.GetPendingMigrationsAsync(cancellationToken).ConfigureAwait(false);
-        var pending = pendingMigrations.ToArray();
-        if (pending.Length > 0)
-        {
-            throw new InvalidOperationException(
-                "HPD.Auth database has pending migrations: " +
-                string.Join(", ", pending) +
-                ". Apply migrations before serving production traffic.");
-        }
-    }
-
-    private sealed class HPDAuthStorageOptions
-    {
-        public bool IsConfigured { get; set; }
-
-        public string? ProviderName { get; set; }
-
-        public bool IsEphemeral { get; set; }
-    }
-
-    private sealed class HPDAuthStorageOptionsValidator : IValidateOptions<HPDAuthStorageOptions>
-    {
-        private readonly IServiceProvider _serviceProvider;
-
-        public HPDAuthStorageOptionsValidator(IServiceProvider serviceProvider)
-        {
-            _serviceProvider = serviceProvider;
-        }
-
-        public ValidateOptionsResult Validate(string? name, HPDAuthStorageOptions options)
-        {
-            var environment = _serviceProvider.GetService<IHostEnvironment>();
-            if (environment is null || !environment.IsProduction() || !options.IsEphemeral)
-            {
-                return ValidateOptionsResult.Success;
-            }
-
-            return ValidateOptionsResult.Fail(
-                "HPD.Auth production hosts must use durable auth storage. " +
-                "UseSqlite(...) or another durable provider is required; " +
-                "UseInMemorySqliteForTests() is only for tests.");
-        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────────

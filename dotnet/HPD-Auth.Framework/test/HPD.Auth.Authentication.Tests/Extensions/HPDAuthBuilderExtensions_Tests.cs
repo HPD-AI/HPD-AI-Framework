@@ -34,10 +34,10 @@ public class HPDAuthBuilderExtensions_Tests
             opts.Jwt.Issuer          = TokenServiceFixture.DefaultIssuer;
             opts.Jwt.Audience        = TokenServiceFixture.DefaultAudience;
         })
-        .UseInMemorySqliteForTests()
+        .UseBaseTestHost()
         .AddAuthentication();
         var serviceProvider = services.BuildServiceProvider();
-        serviceProvider.InitializeHPDAuthDevelopmentDatabaseAsync().GetAwaiter().GetResult();
+        serviceProvider.InitializeHPDAuthBaseTestHostAsync().GetAwaiter().GetResult();
 
         return serviceProvider;
     }
@@ -51,10 +51,10 @@ public class HPDAuthBuilderExtensions_Tests
             opts.AppName    = Guid.NewGuid().ToString();
             opts.Jwt.Secret = null;  // cookie-only
         })
-        .UseInMemorySqliteForTests()
+        .UseBaseTestHost()
         .AddAuthentication();
         var serviceProvider = services.BuildServiceProvider();
-        serviceProvider.InitializeHPDAuthDevelopmentDatabaseAsync().GetAwaiter().GetResult();
+        serviceProvider.InitializeHPDAuthBaseTestHostAsync().GetAwaiter().GetResult();
 
         return serviceProvider;
     }
@@ -136,7 +136,7 @@ public class HPDAuthBuilderExtensions_Tests
         await userManager.CreateAsync(user, "Test@1234!");
 
         var svc      = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        var response = await svc.GenerateTokensAsync(user);
+        var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
 
         response.AccessToken.Should().BeEmpty();
     }
@@ -274,7 +274,7 @@ public class HPDAuthBuilderExtensions_Tests
             opts.AppName    = Guid.NewGuid().ToString();
             opts.Jwt.Secret = TokenServiceFixture.DefaultSecret;
         })
-        .UseInMemorySqliteForTests()
+        .UseBaseTestHost()
         .AddAuthentication();
 
         var descriptor = services.First(d => d.ServiceType == typeof(ITokenService));

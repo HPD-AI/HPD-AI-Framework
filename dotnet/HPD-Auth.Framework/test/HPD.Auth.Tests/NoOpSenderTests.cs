@@ -1,6 +1,7 @@
 using FluentAssertions;
 using HPD.Auth.Core.Interfaces;
 using HPD.Auth.Extensions;
+using HPD.Auth.Testing;
 using HPD.Auth.Tests.Helpers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
@@ -94,7 +95,7 @@ public class NoOpSenderTests
         services.AddLogging(builder => builder.AddProvider(loggerProvider));
         services
             .AddHPDAuth(o => o.AppName = "NoOp_Safe_Logs")
-            .UseInMemorySqliteForTests();
+            .UseBaseTestHost("NoOp_Safe_Logs");
 
         using var sp = services.BuildServiceProvider();
         using var scope = sp.CreateScope();

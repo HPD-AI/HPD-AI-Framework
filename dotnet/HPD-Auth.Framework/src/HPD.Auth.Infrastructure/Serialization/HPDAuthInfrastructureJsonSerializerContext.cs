@@ -12,9 +12,10 @@ namespace HPD.Auth.Infrastructure.Serialization;
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     WriteIndented = false)]
 [JsonSerializable(typeof(List<string>))]
+[JsonSerializable(typeof(string[]))]
 [JsonSerializable(typeof(Dictionary<string, string?>))]
 [JsonSerializable(typeof(JsonElement))]
-[JsonSerializable(typeof(AuthAuditFactPersistence[]))]
+[JsonSerializable(typeof(AuthExternalIdentityProfilePatch))]
 internal partial class HPDAuthInfrastructureJsonSerializerContext : JsonSerializerContext
 {
 }

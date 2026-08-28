@@ -53,6 +53,13 @@ public readonly struct BaseCanonicalJson : IEquatable<BaseCanonicalJson>
         return new BaseCanonicalJson(writer.WrittenSpan.ToArray());
     }
 
+    /// <summary>Parses ordinary JSON, applies the BASE canonical encoding, and enforces every supplied resource ceiling.</summary>
+    /// <param name="utf8">The JSON document encoded as strict UTF-8.</param>
+    /// <param name="limits">The complete canonical JSON resource ceilings.</param>
+    /// <returns>An immutable canonical JSON value.</returns>
+    public static BaseCanonicalJson ParseAndCanonicalize(ReadOnlySpan<byte> utf8, BaseCanonicalJsonLimits limits) =>
+        new(Canonicalize(utf8, limits));
+
     internal static byte[] Canonicalize(ReadOnlySpan<byte> utf8, BaseCanonicalJsonLimits limits)
     {
         ArgumentNullException.ThrowIfNull(limits);

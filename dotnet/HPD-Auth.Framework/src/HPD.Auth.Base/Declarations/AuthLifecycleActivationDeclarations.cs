@@ -100,6 +100,46 @@ internal sealed record AuthDataProtectionRefreshResultV1
     public required long CacheGeneration { get; init; }
 }
 
+/// <summary>Refreshes the provider-I/O-free Auth Data Protection cache.</summary>
+internal interface IAuthDataProtectionCacheRefresh
+{
+    /// <summary>Reloads the bounded key snapshot and returns its new process-local generation.</summary>
+    ValueTask<long> RefreshAsync(CancellationToken cancellationToken);
+}
+
+internal sealed class AuthDataProtectionRefreshHandler(IAuthDataProtectionCacheRefresh cache)
+    : IBaseActivationHandler<AuthDataProtectionRefreshInputV1, AuthDataProtectionRefreshResultV1>
+{
+    public async ValueTask<BaseActivationHandlerResult<AuthDataProtectionRefreshResultV1>> ExecuteAsync(
+        BaseActivationContext context,
+        AuthDataProtectionRefreshInputV1 input,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(input);
+        try
+        {
+            long generation = await cache.RefreshAsync(cancellationToken).ConfigureAwait(false);
+            return new BaseActivationHandlerResult<AuthDataProtectionRefreshResultV1>
+            {
+                Result = new AuthDataProtectionRefreshResultV1 { CacheGeneration = generation },
+            };
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            return new BaseActivationHandlerResult<AuthDataProtectionRefreshResultV1>
+            {
+                FailureCode = "auth.persistence.unavailable",
+                Retryable = true,
+            };
+        }
+    }
+}
+
 internal sealed class AuthDeclarationHandler<TInput, TResult> : IBaseActivationHandler<TInput, TResult>
 {
     public ValueTask<BaseActivationHandlerResult<TResult>> ExecuteAsync(
@@ -188,24 +228,31 @@ internal static class AuthLifecycleActivationDeclarations
             AuthCleanupReconcileDtos.HPDBaseActivationDtoAuthority, reconciliation: true);
 
     internal static BaseActivationHandlerRegistration<AuthExpirationTriggerInputV1, AuthExpirationResultV1> Sessions { get; } =
-        Create("hpd.auth.expiration.sessions.v1", "hpd.auth.handler.expiration.sessions",
-            "hpd.auth.factory.expiration.sessions.v1", ["auth.cleanup.execute", "auth.session.mutate"],
+        CreateExpiration("hpd.auth.expiration.sessions.v1", "hpd.auth.handler.expiration.sessions",
+            "hpd.auth.factory.expiration.sessions.v1",
+            ["auth.cleanup.execute", "auth.operation.cleanup.advance", "auth.session.mutate"],
             AuthExpirationDtos.HPDBaseActivationDtoAuthority);
 
     internal static BaseActivationHandlerRegistration<AuthExpirationTriggerInputV1, AuthExpirationResultV1> RefreshTokens { get; } =
-        Create("hpd.auth.expiration.refresh-tokens.v1", "hpd.auth.handler.expiration.refresh-tokens",
-            "hpd.auth.factory.expiration.refresh-tokens.v1", ["auth.cleanup.execute", "auth.token.mutate"],
+        CreateExpiration("hpd.auth.expiration.refresh-tokens.v1", "hpd.auth.handler.expiration.refresh-tokens",
+            "hpd.auth.factory.expiration.refresh-tokens.v1",
+            ["auth.cleanup.execute", "auth.operation.cleanup.advance", "auth.token.mutate"],
             AuthExpirationDtos.HPDBaseActivationDtoAuthority);
 
     internal static BaseActivationHandlerRegistration<AuthExpirationTriggerInputV1, AuthExpirationResultV1> Deliveries { get; } =
-        Create("hpd.auth.expiration.deliveries.v1", "hpd.auth.handler.expiration.deliveries",
-            "hpd.auth.factory.expiration.deliveries.v1", ["auth.cleanup.execute", "auth.token.delivery"],
+        CreateExpiration("hpd.auth.expiration.deliveries.v1", "hpd.auth.handler.expiration.deliveries",
+            "hpd.auth.factory.expiration.deliveries.v1",
+            ["auth.cleanup.execute", "auth.operation.cleanup.advance", "auth.token.delivery"],
             AuthExpirationDtos.HPDBaseActivationDtoAuthority);
 
     internal static BaseActivationHandlerRegistration<AuthDataProtectionRefreshInputV1, AuthDataProtectionRefreshResultV1> DataProtection { get; } =
-        Create("hpd.auth.data-protection.refresh.v1", "hpd.auth.handler.data-protection.refresh",
+        AuthActivationDefinitionFactory.Create(
+            "hpd.auth.data-protection.refresh.v1", "hpd.auth.handler.data-protection.refresh",
             "hpd.auth.factory.data-protection.refresh.v1", ["auth.dataProtection.read"],
-            AuthDataProtectionRefreshDtos.HPDBaseActivationDtoAuthority);
+            AuthDataProtectionRefreshDtos.HPDBaseActivationDtoAuthority,
+            services => new AuthDataProtectionRefreshHandler(
+                services.GetService(typeof(IAuthDataProtectionCacheRefresh)) as IAuthDataProtectionCacheRefresh
+                    ?? throw new InvalidOperationException("auth.dataProtection.cacheNotInstalled")));
 
     private static BaseActivationHandlerRegistration<TInput, TResult> Create<TInput, TResult>(
         string id,
@@ -217,6 +264,16 @@ internal static class AuthLifecycleActivationDeclarations
         bool reconciliation = false) =>
         AuthActivationDefinitionFactory.Create(id, handlerId, factoryId, sourceGrants, authority,
             static _ => new AuthDeclarationHandler<TInput, TResult>(), semanticRetirement, reconciliation);
+
+    private static BaseActivationHandlerRegistration<AuthExpirationTriggerInputV1, AuthExpirationResultV1> CreateExpiration(
+        string id,
+        string handlerId,
+        string factoryId,
+        IEnumerable<string> sourceGrants,
+        BaseGeneratedActivationDtoAuthority<AuthExpirationTriggerInputV1, AuthExpirationResultV1> authority) =>
+        AuthActivationDefinitionFactory.Create(id, handlerId, factoryId, sourceGrants, authority,
+            services => new AuthExpirationActivationHandler(
+                services.GetService(typeof(TimeProvider)) as TimeProvider ?? TimeProvider.System));
 }
 
 internal static class AuthScheduleDeclarations

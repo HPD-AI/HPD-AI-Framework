@@ -19,6 +19,7 @@ public sealed partial class SqliteRecordStore
             FilterOperator.Equal, FilterOperator.NotEqual, FilterOperator.LessThan,
             FilterOperator.LessThanOrEqual, FilterOperator.GreaterThan,
             FilterOperator.GreaterThanOrEqual,
+            FilterOperator.Contains, FilterOperator.StartsWith, FilterOperator.EndsWith,
         ],
         ValueKinds = Enum.GetValues<QueryValueKind>(),
         CanonicalJsonValues = true,
@@ -126,6 +127,8 @@ public sealed partial class SqliteRecordStore
                 }
                 BaseReadDependencyEvidence[] dependencies = await ReadRelationalDependenciesAsync(
                     connection, transaction, request, execution.Token).ConfigureAwait(false);
+                BaseRelationalReadSnapshotAuthority snapshotAuthority = await ReadRelationalSnapshotAuthorityAsync(
+                    connection, transaction, request, execution.Token).ConfigureAwait(false);
                 await transaction.CommitAsync(execution.Token).ConfigureAwait(false);
                 return OperationResults.Ok(new BaseRelationalReadExecutionResult
                 {
@@ -136,9 +139,9 @@ public sealed partial class SqliteRecordStore
                             ? new PageInfo { Offset = offset, Limit = limit, HasMore = count > offset && count - offset > rows.Count }
                             : new PageInfo { Page = window?.Page ?? 1, PerPage = limit, HasMore = count > offset && count - offset > rows.Count },
                         Count = count,
-                        SchemaGeneration = request.Plan.SchemaGeneration,
                     },
                     DependencyEvidence = dependencies,
+                    SnapshotAuthority = snapshotAuthority,
                 });
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -228,17 +231,72 @@ public sealed partial class SqliteRecordStore
         if (!BaseRelationalReadEvidenceAccounting.TryMeasure(dependencies, evidence, out long evidenceBytes)
             || !TryAccumulateRelationalResultBytes(bytes, evidenceBytes, out bytes) || bytes > request.MaxResultBytes)
             return RelationalFailure("base.relational.read.limitExceeded", "SQLite relational result limits were exceeded.");
+        BaseRelationalReadSnapshotAuthority snapshotAuthority = await ReadRelationalSnapshotAuthorityAsync(
+            connection, transaction, request, execution.Token).ConfigureAwait(false);
         await transaction.CommitAsync(execution.Token).ConfigureAwait(false);
         return OperationResults.Ok(new BaseRelationalReadExecutionResult
         {
             Result = new BaseRelationalReadResult
             {
                 Rows = rows.ToArray(), Page = new PageInfo { Page = 1, PerPage = rows.Count, Limit = rows.Count, HasMore = false }, Count = rows.Count,
-                SchemaGeneration = request.Plan.SchemaGeneration,
             },
             DependencyEvidence = dependencies,
             CompoundBranches = evidence,
+            SnapshotAuthority = snapshotAuthority,
         });
+    }
+
+    private async ValueTask<BaseRelationalReadSnapshotAuthority> ReadRelationalSnapshotAuthorityAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        BaseRelationalReadExecutionRequest request,
+        CancellationToken cancellationToken)
+    {
+        string storeInstanceId;
+        long restoreEpoch;
+        long schemaGeneration;
+        BaseSchemaAuthorityChecksum logicalSchemaChecksum;
+        await using (SqliteCommand command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandTimeout = RelationalTimeoutSeconds(request.ExecutionTimeout);
+            command.CommandText = $"SELECT i.store_instance_id,b.checksum,b.generation,COALESCE((SELECT CAST(value AS INTEGER) FROM {_names.ProviderState} WHERE key='restore_epoch'),0) FROM {_names.SchemaIdentity} i JOIN {_names.SchemaBaseline} b ON b.application_id=$application WHERE i.singleton=1;";
+            command.Parameters.AddWithValue("$application", request.ApplicationId);
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false) || reader.IsDBNull(0)
+                || reader.IsDBNull(1) || reader.IsDBNull(2) || reader.IsDBNull(3))
+                throw new InvalidDataException("base.relational.read.authorityInvalid");
+            storeInstanceId = reader.GetString(0);
+            logicalSchemaChecksum = BaseSchemaAuthorityChecksum.ParseHex(reader.GetString(1));
+            schemaGeneration = reader.GetInt64(2);
+            restoreEpoch = reader.GetInt64(3);
+        }
+        var collections = new List<BaseRelationalCollectionSnapshotAuthority>();
+        foreach (string collectionId in request.Plan.Sources.Select(static source => source.CollectionId)
+                     .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
+        {
+            await using SqliteCommand command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandTimeout = RelationalTimeoutSeconds(request.ExecutionTimeout);
+            command.CommandText = $"SELECT purge_generation FROM {_names.Collections} WHERE collection_id=$collection;";
+            command.Parameters.AddWithValue("$collection", collectionId);
+            object? value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            if (value is null or DBNull)
+                throw new InvalidDataException("base.relational.read.authorityInvalid");
+            collections.Add(new BaseRelationalCollectionSnapshotAuthority
+            {
+                CollectionId = collectionId,
+                CollectionGeneration = Convert.ToInt64(value, CultureInfo.InvariantCulture),
+            });
+        }
+        return BaseRelationalReadSnapshotAuthorityContract.Create(
+            request.ApplicationId,
+            _options.StoreId,
+            storeInstanceId,
+            restoreEpoch,
+            schemaGeneration,
+            logicalSchemaChecksum,
+            collections);
     }
 
     internal static bool TryAccumulateRelationalResultBytes(long current, long additional, out long total)

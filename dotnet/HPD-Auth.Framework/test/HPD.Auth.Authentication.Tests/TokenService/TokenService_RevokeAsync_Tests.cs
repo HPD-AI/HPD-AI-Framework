@@ -9,11 +9,8 @@ namespace HPD.Auth.Authentication.Tests.TokenService;
 /// <summary>
 /// Tests 51–59: RevokeAsync and RevokeAllForUserAsync (TESTS.md §1.7–1.8).
 ///
-/// Each test simulates multiple HTTP requests by using separate DI scopes
-/// from the same ServiceProvider. This avoids EF Core change-tracker conflicts
-/// that occur when the same DbContext instance is used for both Add and Update
-/// on the same entity — a situation that does not happen in production where
-/// each request gets a fresh scoped DbContext.
+/// Each test simulates multiple HTTP requests by using separate DI scopes from the
+/// same service provider, matching the production scoped-store lifetime.
 /// </summary>
 [Trait("Category", "TokenService")]
 [Trait("Section", "1.7-1.8-RevokeAsync")]
@@ -32,7 +29,7 @@ public class TokenService_RevokeAsync_Tests
         {
             var user     = await ServiceProviderBuilder.CreateUserAsync(scope1);
             var svc      = scope1.ServiceProvider.GetRequiredService<ITokenService>();
-            var response = await svc.GenerateTokensAsync(user);
+            var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
             refreshTokenValue = response.RefreshToken;
         }
 
@@ -56,7 +53,7 @@ public class TokenService_RevokeAsync_Tests
         {
             var user     = await ServiceProviderBuilder.CreateUserAsync(scope1);
             var svc      = scope1.ServiceProvider.GetRequiredService<ITokenService>();
-            var response = await svc.GenerateTokensAsync(user);
+            var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
             refreshTokenValue = response.RefreshToken;
         }
 
@@ -86,7 +83,7 @@ public class TokenService_RevokeAsync_Tests
         {
             var user     = await ServiceProviderBuilder.CreateUserAsync(scope1);
             var svc      = scope1.ServiceProvider.GetRequiredService<ITokenService>();
-            var response = await svc.GenerateTokensAsync(user);
+            var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
             refreshTokenValue = response.RefreshToken;
         }
 
@@ -131,7 +128,7 @@ public class TokenService_RevokeAsync_Tests
         {
             var user     = await ServiceProviderBuilder.CreateUserAsync(scope1);
             var svc      = scope1.ServiceProvider.GetRequiredService<ITokenService>();
-            var response = await svc.GenerateTokensAsync(user);
+            var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
             refreshTokenValue = response.RefreshToken;
         }
 
@@ -164,11 +161,11 @@ public class TokenService_RevokeAsync_Tests
             var user = await ServiceProviderBuilder.CreateUserAsync(scope1);
             userId   = user.Id;
             var svc  = scope1.ServiceProvider.GetRequiredService<ITokenService>();
-            var r1   = await svc.GenerateTokensAsync(user);
+            var r1   = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
             t1Val    = r1.RefreshToken;
-            var r2   = await svc.GenerateTokensAsync(user);
+            var r2   = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
             t2Val    = r2.RefreshToken;
-            var r3   = await svc.GenerateTokensAsync(user);
+            var r3   = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
             t3Val    = r3.RefreshToken;
         }
 
@@ -206,8 +203,8 @@ public class TokenService_RevokeAsync_Tests
             var userB = await ServiceProviderBuilder.CreateUserAsync(scope1);
             userAId   = userA.Id;
             var svc   = scope1.ServiceProvider.GetRequiredService<ITokenService>();
-            await svc.GenerateTokensAsync(userA);
-            var rB = await svc.GenerateTokensAsync(userB);
+            await svc.GenerateTokensAsync(userA, TokenServiceFixture.Issuance());
+            var rB = await svc.GenerateTokensAsync(userB, TokenServiceFixture.Issuance());
             rBVal  = rB.RefreshToken;
         }
 
@@ -240,9 +237,9 @@ public class TokenService_RevokeAsync_Tests
             var user = await ServiceProviderBuilder.CreateUserAsync(scope1);
             userId   = user.Id;
             var svc  = scope1.ServiceProvider.GetRequiredService<ITokenService>();
-            var r1   = await svc.GenerateTokensAsync(user);
+            var r1   = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
             t1Val    = r1.RefreshToken;
-            var r2   = await svc.GenerateTokensAsync(user);
+            var r2   = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
             t2Val    = r2.RefreshToken;
         }
 
@@ -287,9 +284,9 @@ public class TokenService_RevokeAsync_Tests
             var user = await ServiceProviderBuilder.CreateUserAsync(scope1);
             userId   = user.Id;
             var svc  = scope1.ServiceProvider.GetRequiredService<ITokenService>();
-            var r1   = await svc.GenerateTokensAsync(user);
+            var r1   = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
             r1Val    = r1.RefreshToken;
-            var r2   = await svc.GenerateTokensAsync(user);
+            var r2   = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
             r2Val    = r2.RefreshToken;
         }
 

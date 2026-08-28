@@ -154,28 +154,38 @@ internal static partial class AuthCreateUserOperationV1
         BaseModuleMutationTemplateBuilder.Create(CreateUserStatement, UserId("create"),
             BaseModuleMutationTemplateBuilder.Object<AuthUserRecordV1>(
                 "hpd.auth.user.create.expression.payload.000",
-                Constant(AuthUserRecordV1.Fields.AccessFailedCount, 0, "accessFailedCount"),
-                Constant(AuthUserRecordV1.Fields.AppMetadata, EmptyObject(), "appMetadata"),
+                Field(AuthUserRecordV1.Fields.AccessFailedCount, RequestProperties.AccessFailedCount, "accessFailedCount"),
+                Field(AuthUserRecordV1.Fields.AppMetadata, RequestProperties.AppMetadata, "appMetadata"),
+                Field(AuthUserRecordV1.Fields.Audience, RequestProperties.Audience, "audience"),
+                Field(AuthUserRecordV1.Fields.AvatarUrl, RequestProperties.AvatarUrl, "avatarUrl"),
                 Field(AuthUserRecordV1.Fields.ConcurrencyStamp, RequestProperties.ConcurrencyStamp, "concurrencyStamp"),
                 Field(AuthUserRecordV1.Fields.CreatedAt, RequestProperties.OperationTime, "createdAt"),
+                Field(AuthUserRecordV1.Fields.DisplayName, RequestProperties.DisplayName, "displayName"),
                 Field(AuthUserRecordV1.Fields.Email, RequestProperties.Email, "email"),
-                Constant(AuthUserRecordV1.Fields.EmailConfirmed, false, "emailConfirmed"),
+                Field(AuthUserRecordV1.Fields.EmailConfirmed, RequestProperties.EmailConfirmed, "emailConfirmed"),
+                Field(AuthUserRecordV1.Fields.EmailConfirmedAt, RequestProperties.EmailConfirmedAt, "emailConfirmedAt"),
+                Field(AuthUserRecordV1.Fields.FirstName, RequestProperties.FirstName, "firstName"),
                 Field(AuthUserRecordV1.Fields.Id, RequestProperties.UserId, "id"),
-                Constant(AuthUserRecordV1.Fields.IsActive, true, "isActive"),
+                Field(AuthUserRecordV1.Fields.IsActive, RequestProperties.IsActive, "isActive"),
                 Constant(AuthUserRecordV1.Fields.IsDeleted, false, "isDeleted"),
+                Field(AuthUserRecordV1.Fields.LastLoginAt, RequestProperties.LastLoginAt, "lastLoginAt"),
+                Field(AuthUserRecordV1.Fields.LastLoginIp, RequestProperties.LastLoginIp, "lastLoginIp"),
+                Field(AuthUserRecordV1.Fields.LastName, RequestProperties.LastName, "lastName"),
                 Field(AuthUserRecordV1.Fields.LockoutEnabled, RequestProperties.LockoutEnabled, "lockoutEnabled"),
+                Field(AuthUserRecordV1.Fields.LockoutEnd, RequestProperties.LockoutEnd, "lockoutEnd"),
                 Field(AuthUserRecordV1.Fields.NormalizedEmail, RequestProperties.NormalizedEmail, "normalizedEmail"),
                 Field(AuthUserRecordV1.Fields.NormalizedUserName, RequestProperties.NormalizedUserName, "normalizedUserName"),
                 Field(AuthUserRecordV1.Fields.PasswordHash, RequestProperties.PasswordHash, "passwordHash"),
-                Constant(AuthUserRecordV1.Fields.PhoneNumberConfirmed, false, "phoneNumberConfirmed"),
-                Constant(AuthUserRecordV1.Fields.RequiredActions, EmptyActions(), "requiredActions"),
+                Field(AuthUserRecordV1.Fields.PhoneNumber, RequestProperties.PhoneNumber, "phoneNumber"),
+                Field(AuthUserRecordV1.Fields.PhoneNumberConfirmed, RequestProperties.PhoneNumberConfirmed, "phoneNumberConfirmed"),
+                Field(AuthUserRecordV1.Fields.RequiredActions, RequestProperties.RequiredActions, "requiredActions"),
                 Field(AuthUserRecordV1.Fields.SecurityStamp, RequestProperties.SecurityStamp, "securityStamp"),
-                Constant(AuthUserRecordV1.Fields.SubscriptionTier, "free", "subscriptionTier"),
+                Field(AuthUserRecordV1.Fields.SubscriptionTier, RequestProperties.SubscriptionTier, "subscriptionTier"),
                 Field(AuthUserRecordV1.Fields.TenantId, RequestProperties.TenantId, "tenantId"),
                 Constant(AuthUserRecordV1.Fields.TombstoneGeneration, 0L, "tombstoneGeneration"),
-                Constant(AuthUserRecordV1.Fields.TwoFactorEnabled, false, "twoFactorEnabled"),
+                Field(AuthUserRecordV1.Fields.TwoFactorEnabled, RequestProperties.TwoFactorEnabled, "twoFactorEnabled"),
                 Field(AuthUserRecordV1.Fields.UpdatedAt, RequestProperties.OperationTime, "updatedAt"),
-                Constant(AuthUserRecordV1.Fields.UserMetadata, EmptyObject(), "userMetadata"),
+                Field(AuthUserRecordV1.Fields.UserMetadata, RequestProperties.UserMetadata, "userMetadata"),
                 Field(AuthUserRecordV1.Fields.UserName, RequestProperties.UserName, "userName")));
 
     private static BaseModuleIncrementGenerationStatement IncrementUserGeneration() =>
@@ -196,11 +206,6 @@ internal static partial class AuthCreateUserOperationV1
         string id) => BaseModuleMutationTemplateBuilder.Field(field,
             BaseModuleMutationTemplateBuilder.Constant($"hpd.auth.user.create.expression.{id}.000", field.ConstantAuthority, value));
 
-    private static BaseCanonicalJson EmptyActions() => BaseCanonicalJson.ParseAndValidate("[]"u8,
-        new BaseCanonicalJsonLimits { MaximumCanonicalBytes = 4_096, MaximumDepth = 2, MaximumArrayItemsPerContainer = 32, MaximumObjectPropertiesPerContainer = 1, MaximumTotalNodes = 33, MaximumTotalStringUtf8Bytes = 4_096, MaximumTotalNameUtf8Bytes = 1 });
-
-    private static BaseCanonicalJson EmptyObject() => BaseCanonicalJson.ParseAndValidate("{}"u8,
-        new BaseCanonicalJsonLimits { MaximumCanonicalBytes = 32_768, MaximumDepth = 16, MaximumArrayItemsPerContainer = 1_024, MaximumObjectPropertiesPerContainer = 1_024, MaximumTotalNodes = 4_096, MaximumTotalStringUtf8Bytes = 32_768, MaximumTotalNameUtf8Bytes = 32_768 });
 }
 
 [BaseRegisteredModuleMutation(
@@ -280,16 +285,27 @@ internal static partial class AuthUpdateUserProfileOperationV1
     private static BaseModulePatchStatement Patch() => BaseModuleMutationTemplateBuilder.Patch(
         PatchStatement, UserId("patch"), BaseModuleMutationTemplateBuilder.Object<AuthUserRecordV1>(
             "hpd.auth.user.update-profile.expression.patch.000",
+            Field(AuthUserRecordV1.Fields.AppMetadata, RequestProperties.AppMetadata, "appMetadata"),
+            Field(AuthUserRecordV1.Fields.Audience, RequestProperties.Audience, "audience"),
             Field(AuthUserRecordV1.Fields.AvatarUrl, RequestProperties.AvatarUrl, "avatarUrl"),
             Field(AuthUserRecordV1.Fields.ConcurrencyStamp, RequestProperties.ConcurrencyStamp, "concurrencyStamp"),
             Field(AuthUserRecordV1.Fields.DisplayName, RequestProperties.DisplayName, "displayName"),
             Field(AuthUserRecordV1.Fields.Email, RequestProperties.Email, "email"),
+            Field(AuthUserRecordV1.Fields.EmailConfirmed, RequestProperties.EmailConfirmed, "emailConfirmed"),
+            Field(AuthUserRecordV1.Fields.EmailConfirmedAt, RequestProperties.EmailConfirmedAt, "emailConfirmedAt"),
             Field(AuthUserRecordV1.Fields.FirstName, RequestProperties.FirstName, "firstName"),
+            Field(AuthUserRecordV1.Fields.IsActive, RequestProperties.IsActive, "isActive"),
+            Field(AuthUserRecordV1.Fields.LastLoginAt, RequestProperties.LastLoginAt, "lastLoginAt"),
+            Field(AuthUserRecordV1.Fields.LastLoginIp, RequestProperties.LastLoginIp, "lastLoginIp"),
             Field(AuthUserRecordV1.Fields.LastName, RequestProperties.LastName, "lastName"),
             Field(AuthUserRecordV1.Fields.NormalizedEmail, RequestProperties.NormalizedEmail, "normalizedEmail"),
             Field(AuthUserRecordV1.Fields.NormalizedUserName, RequestProperties.NormalizedUserName, "normalizedUserName"),
             Field(AuthUserRecordV1.Fields.PhoneNumber, RequestProperties.PhoneNumber, "phoneNumber"),
+            Field(AuthUserRecordV1.Fields.PhoneNumberConfirmed, RequestProperties.PhoneNumberConfirmed, "phoneNumberConfirmed"),
+            Field(AuthUserRecordV1.Fields.RequiredActions, RequestProperties.RequiredActions, "requiredActions"),
+            Field(AuthUserRecordV1.Fields.SubscriptionTier, RequestProperties.SubscriptionTier, "subscriptionTier"),
             Field(AuthUserRecordV1.Fields.UpdatedAt, RequestProperties.OperationTime, "updatedAt"),
+            Field(AuthUserRecordV1.Fields.UserMetadata, RequestProperties.UserMetadata, "userMetadata"),
             Field(AuthUserRecordV1.Fields.UserName, RequestProperties.UserName, "userName")),
         BaseModuleMutationTemplateBuilder.Request("hpd.auth.user.update-profile.expression.patchRevision.000", RequestProperties.ExpectedRevision));
     private static BaseModuleFieldValue<AuthUserRecordV1> Field<T>(BaseField<AuthUserRecordV1, T> field,
@@ -434,14 +450,13 @@ internal static partial class AuthRenameRoleOperationV1
             Template = new BaseModuleMutationTemplate
             {
                 Captures = [Role(), RoleGeneration()],
-                Guards = [Active(), Generation(), NotDeleted(), Revision()],
+                Guards = [Active(), NotDeleted(), Revision()],
                 Preconditions = [],
                 Body = new BaseModuleMutationBlock
                 {
                     Statements =
                     [
                         AuthModuleMutationDefaults.Require("hpd.auth.role.rename", "active", "auth.role.inactive"),
-                        AuthModuleMutationDefaults.Require("hpd.auth.role.rename", "generation", "auth.role.generationMismatch"),
                         AuthModuleMutationDefaults.Require("hpd.auth.role.rename", "notDeleted", "auth.role.deleted"),
                         AuthModuleMutationDefaults.Require("hpd.auth.role.rename", "revision", "auth.role.revisionMismatch"),
                         PatchRole(),
@@ -484,10 +499,6 @@ internal static partial class AuthRenameRoleOperationV1
         "hpd.auth.role.rename.guard.active", RoleCapture, AuthRoleRecordV1.Fields.IsActive.ModuleMutation,
         BaseModuleMutationTemplateBuilder.Constant("hpd.auth.role.rename.expression.active.000", AuthRoleRecordV1.Fields.IsActive.ConstantAuthority, true));
 
-    private static BaseModuleGenerationGuard Generation() => BaseModuleMutationTemplateBuilder.Generation(
-        "hpd.auth.role.rename.guard.generation", RoleGenerationCapture, BaseModuleGenerationComparisonKind.MustEqual,
-        BaseModuleMutationTemplateBuilder.Request("hpd.auth.role.rename.expression.expectedRoleGeneration.000", RequestProperties.ExpectedRoleGeneration));
-
     private static BaseModuleFieldEqualsGuard NotDeleted() => BaseModuleMutationTemplateBuilder.FieldEquals(
         "hpd.auth.role.rename.guard.notDeleted", RoleCapture, AuthRoleRecordV1.Fields.IsDeleted.ModuleMutation,
         BaseModuleMutationTemplateBuilder.Constant("hpd.auth.role.rename.expression.notDeleted.000", AuthRoleRecordV1.Fields.IsDeleted.ConstantAuthority, false));
@@ -525,7 +536,7 @@ internal static partial class AuthChangePasswordOperationV1
     private const string SecurityGenerationCapture = "hpd.auth.user.change-password.capture.securityGen";
     private const string UserCapture = "hpd.auth.user.change-password.capture.user";
     private const string UserGenerationCapture = "hpd.auth.user.change-password.capture.userGen";
-    private const string PatchStatement = "hpd.auth.user.change-password.statement.000.patchUser";
+    private const string PatchSetStatement = "hpd.auth.user.change-password.statement.000.patchSetPassword";
 
     internal static BaseRegisteredModuleMutationDefinition Definition { get; } =
         BaseModuleMutationContract.Seal(new BaseRegisteredModuleMutationDefinition
@@ -550,7 +561,7 @@ internal static partial class AuthChangePasswordOperationV1
                         AuthModuleMutationDefaults.Require("hpd.auth.user.change-password", "active", "auth.user.inactive"),
                         AuthModuleMutationDefaults.Require("hpd.auth.user.change-password", "notDeleted", "auth.user.deleted"),
                         AuthModuleMutationDefaults.Require("hpd.auth.user.change-password", "revision", "auth.user.revisionMismatch"),
-                        Patch(),
+                        PatchSet(),
                         BaseModuleMutationTemplateBuilder.IncrementGeneration(
                             "hpd.auth.user.change-password.statement.001.incrementUserGeneration", UserGenerationCapture, false),
                         BaseModuleMutationTemplateBuilder.IncrementGeneration(
@@ -562,7 +573,7 @@ internal static partial class AuthChangePasswordOperationV1
                         "hpd.auth.user.change-password.expression.result.000",
                         BaseModuleMutationTemplateBuilder.Property(ResultProperties.Revision,
                             BaseModuleMutationTemplateBuilder.CommittedRevision(
-                                "hpd.auth.user.change-password.expression.revision.000", PatchStatement)),
+                                "hpd.auth.user.change-password.expression.revision.000", PatchSetStatement)),
                         BaseModuleMutationTemplateBuilder.Property(ResultProperties.SecurityGeneration,
                             BaseModuleMutationTemplateBuilder.ResultingGeneration(
                                 "hpd.auth.user.change-password.expression.securityGeneration.000", SecurityGenerationCapture)),
@@ -603,9 +614,9 @@ internal static partial class AuthChangePasswordOperationV1
         "hpd.auth.user.change-password.guard.revision", UserCapture,
         BaseModuleMutationTemplateBuilder.Request("hpd.auth.user.change-password.expression.expectedRevision.000", RequestProperties.ExpectedRevision));
 
-    private static BaseModulePatchStatement Patch() => BaseModuleMutationTemplateBuilder.Patch(
-        PatchStatement, UserId("patch"), BaseModuleMutationTemplateBuilder.Object<AuthUserRecordV1>(
-            "hpd.auth.user.change-password.expression.patch.000",
+    private static BaseModulePatchStatement PatchSet() => BaseModuleMutationTemplateBuilder.Patch(
+        PatchSetStatement, UserId("set"), BaseModuleMutationTemplateBuilder.Object<AuthUserRecordV1>(
+            "hpd.auth.user.change-password.expression.setPatch.000",
             Field(AuthUserRecordV1.Fields.ConcurrencyStamp, RequestProperties.ConcurrencyStamp, "concurrencyStamp"),
             BaseModuleMutationTemplateBuilder.Field(AuthUserRecordV1.Fields.PasswordHash,
                 BaseModuleMutationTemplateBuilder.LiftOptional(
@@ -621,6 +632,108 @@ internal static partial class AuthChangePasswordOperationV1
     private static BaseModuleFieldValue<AuthUserRecordV1> Field<T>(BaseField<AuthUserRecordV1, T> field,
         BaseModuleRequestProperty<AuthChangePasswordV1, T> property, string id) => BaseModuleMutationTemplateBuilder.Field(
         field, BaseModuleMutationTemplateBuilder.Request($"hpd.auth.user.change-password.expression.{id}.000", property));
+}
+
+[BaseRegisteredModuleMutation(
+    "hpd.auth.user.remove-password.v1",
+    typeof(AuthBaseJsonSerializerContext),
+    typeof(AuthRemovePasswordV1),
+    typeof(AuthSecurityMutationResultV1),
+    Version = 1,
+    OwningModuleId = AuthBaseContract.ModuleId,
+    GrantId = "auth.operation.user.security")]
+internal static partial class AuthRemovePasswordOperationV1
+{
+    private const string SecurityGenerationCapture = "hpd.auth.user.remove-password.capture.securityGen";
+    private const string UserCapture = "hpd.auth.user.remove-password.capture.user";
+    private const string UserGenerationCapture = "hpd.auth.user.remove-password.capture.userGen";
+    private const string PatchStatement = "hpd.auth.user.remove-password.statement.000.patchUser";
+
+    internal static BaseRegisteredModuleMutationDefinition Definition { get; } =
+        BaseModuleMutationContract.Seal(new BaseRegisteredModuleMutationDefinition
+        {
+            Id = "hpd.auth.user.remove-password.v1", Version = 1,
+            OwningModuleId = AuthBaseContract.ModuleId, GrantId = "auth.operation.user.security",
+            Audience = BaseModuleMutationAudience.Service,
+            RequestTypeId = "hpd.auth.type.auth-remove-password-v1.v1",
+            ResultTypeId = "hpd.auth.type.auth-security-mutation-result-v1.v1",
+            SystemCollectionIds = [AuthUserRecordV1.Collection.Id],
+            SystemSourceGrants = [new BaseModuleSystemSourceGrant { CollectionId = AuthUserRecordV1.Collection.Id, GrantId = "auth.identity.mutate" }],
+            GenerationCellIds = ["hpd.auth.user-security-generation.v1", "hpd.auth.user-state-generation.v1"],
+            ImportedSubjectContractIds = [],
+            Template = new BaseModuleMutationTemplate
+            {
+                Captures = [SecurityGeneration(), User(), UserGeneration()],
+                Guards = [Active(), NotDeleted(), Revision()], Preconditions = [],
+                Body = new BaseModuleMutationBlock
+                {
+                    Statements =
+                    [
+                        AuthModuleMutationDefaults.Require("hpd.auth.user.remove-password", "active", "auth.user.inactive"),
+                        AuthModuleMutationDefaults.Require("hpd.auth.user.remove-password", "notDeleted", "auth.user.deleted"),
+                        AuthModuleMutationDefaults.Require("hpd.auth.user.remove-password", "revision", "auth.user.revisionMismatch"),
+                        Patch(),
+                        BaseModuleMutationTemplateBuilder.IncrementGeneration(
+                            "hpd.auth.user.remove-password.statement.001.incrementUserGeneration", UserGenerationCapture, false),
+                        BaseModuleMutationTemplateBuilder.IncrementGeneration(
+                            "hpd.auth.user.remove-password.statement.002.incrementSecurityGeneration", SecurityGenerationCapture, false),
+                    ],
+                },
+                Result = BaseModuleMutationTemplateBuilder.Result(
+                    BaseModuleMutationTemplateBuilder.ResultObject(
+                        "hpd.auth.user.remove-password.expression.result.000",
+                        BaseModuleMutationTemplateBuilder.Property(ResultProperties.Revision,
+                            BaseModuleMutationTemplateBuilder.CommittedRevision(
+                                "hpd.auth.user.remove-password.expression.revision.000", PatchStatement)),
+                        BaseModuleMutationTemplateBuilder.Property(ResultProperties.SecurityGeneration,
+                            BaseModuleMutationTemplateBuilder.ResultingGeneration(
+                                "hpd.auth.user.remove-password.expression.securityGeneration.000", SecurityGenerationCapture)),
+                        BaseModuleMutationTemplateBuilder.Property(ResultProperties.UserGeneration,
+                            BaseModuleMutationTemplateBuilder.ResultingGeneration(
+                                "hpd.auth.user.remove-password.expression.userGeneration.000", UserGenerationCapture)))),
+            },
+            Limits = AuthModuleMutationDefaults.Limits(), ReceiptPolicy = AuthModuleMutationDefaults.Receipt(),
+            Checksum = BaseModuleMutationChecksum.Create(new byte[BaseModuleMutationChecksum.Length]),
+        });
+
+    private static BaseModuleValue<BaseRecordId<AuthUserRecordV1>> UserId(string suffix) =>
+        BaseModuleMutationTemplateBuilder.RecordIdFromGuid<AuthUserRecordV1>(
+            $"hpd.auth.user.remove-password.expression.userId.{suffix}",
+            BaseModuleMutationTemplateBuilder.Request(
+                $"hpd.auth.user.remove-password.expression.requestUserId.{suffix}", RequestProperties.UserId));
+
+    private static BaseModuleGenerationKey GenerationKey(string suffix) =>
+        BaseModuleMutationTemplateBuilder.GenerationKeyFromGuid(
+            $"hpd.auth.user.remove-password.expression.generationKey.{suffix}",
+            BaseModuleMutationTemplateBuilder.Request(
+                $"hpd.auth.user.remove-password.expression.generationUserId.{suffix}", RequestProperties.UserId));
+
+    private static BaseModuleGenerationCapture SecurityGeneration() => BaseModuleMutationTemplateBuilder.CaptureGeneration(
+        SecurityGenerationCapture, "hpd.auth.user-security-generation.v1", GenerationKey("security"), BaseModuleGenerationAbsenceBehavior.RequireExisting);
+    private static BaseModuleRecordCapture User() => BaseModuleMutationTemplateBuilder.CaptureRecord(
+        UserCapture, UserId("capture"), BaseModuleCapturePresence.RequirePresent);
+    private static BaseModuleGenerationCapture UserGeneration() => BaseModuleMutationTemplateBuilder.CaptureGeneration(
+        UserGenerationCapture, "hpd.auth.user-state-generation.v1", GenerationKey("user"), BaseModuleGenerationAbsenceBehavior.RequireExisting);
+    private static BaseModuleFieldEqualsGuard Active() => BaseModuleMutationTemplateBuilder.FieldEquals(
+        "hpd.auth.user.remove-password.guard.active", UserCapture, AuthUserRecordV1.Fields.IsActive.ModuleMutation,
+        BaseModuleMutationTemplateBuilder.Constant("hpd.auth.user.remove-password.expression.active.000", AuthUserRecordV1.Fields.IsActive.ConstantAuthority, true));
+    private static BaseModuleFieldEqualsGuard NotDeleted() => BaseModuleMutationTemplateBuilder.FieldEquals(
+        "hpd.auth.user.remove-password.guard.notDeleted", UserCapture, AuthUserRecordV1.Fields.IsDeleted.ModuleMutation,
+        BaseModuleMutationTemplateBuilder.Constant("hpd.auth.user.remove-password.expression.notDeleted.000", AuthUserRecordV1.Fields.IsDeleted.ConstantAuthority, false));
+    private static BaseModuleRevisionEqualsGuard Revision() => BaseModuleMutationTemplateBuilder.RevisionEquals(
+        "hpd.auth.user.remove-password.guard.revision", UserCapture,
+        BaseModuleMutationTemplateBuilder.Request("hpd.auth.user.remove-password.expression.expectedRevision.000", RequestProperties.ExpectedRevision));
+    private static BaseModulePatchStatement Patch() => BaseModuleMutationTemplateBuilder.Patch(
+        PatchStatement, UserId("patch"), BaseModuleMutationTemplateBuilder.Object<AuthUserRecordV1>(
+            "hpd.auth.user.remove-password.expression.patch.000",
+            Field(AuthUserRecordV1.Fields.ConcurrencyStamp, RequestProperties.ConcurrencyStamp, "concurrencyStamp"),
+            BaseModuleMutationTemplateBuilder.Remove(AuthUserRecordV1.Fields.PasswordHash.ModuleMutation),
+            Field(AuthUserRecordV1.Fields.SecurityStamp, RequestProperties.SecurityStamp, "securityStamp"),
+            Field(AuthUserRecordV1.Fields.UpdatedAt, RequestProperties.OperationTime, "updatedAt")),
+        BaseModuleMutationTemplateBuilder.Request("hpd.auth.user.remove-password.expression.patchRevision.000", RequestProperties.ExpectedRevision));
+    private static BaseModuleFieldValue<AuthUserRecordV1> Field<T>(BaseField<AuthUserRecordV1, T> field,
+        BaseModuleRequestProperty<AuthRemovePasswordV1, T> property, string id) => BaseModuleMutationTemplateBuilder.Field(
+        field, BaseModuleMutationTemplateBuilder.Request($"hpd.auth.user.remove-password.expression.{id}.000", property));
 }
 
 [BaseRegisteredModuleMutation(
@@ -742,7 +855,8 @@ internal static partial class AuthSetSecurityStateOperationV1
     private const string SecurityGenerationCapture = "hpd.auth.user.set-security-state.capture.securityGen";
     private const string UserCapture = "hpd.auth.user.set-security-state.capture.user";
     private const string UserGenerationCapture = "hpd.auth.user.set-security-state.capture.userGen";
-    private const string PatchStatement = "hpd.auth.user.set-security-state.statement.000.patchUser";
+    private const string PatchClearStatement = "hpd.auth.user.set-security-state.statement.000.patchUserClearLockout";
+    private const string PatchValueStatement = "hpd.auth.user.set-security-state.statement.001.patchUserWithLockout";
 
     internal static BaseRegisteredModuleMutationDefinition Definition { get; } = BaseModuleMutationContract.Seal(
         new BaseRegisteredModuleMutationDefinition
@@ -759,7 +873,7 @@ internal static partial class AuthSetSecurityStateOperationV1
             Template = new BaseModuleMutationTemplate
             {
                 Captures = [SecurityGeneration(), User(), UserGeneration()],
-                Guards = [Active(), NotDeleted(), Revision()], Preconditions = [],
+                Guards = [Active(), ClearLockoutEnd(), NotDeleted(), Revision()], Preconditions = [],
                 Body = new BaseModuleMutationBlock
                 {
                     Statements =
@@ -767,7 +881,11 @@ internal static partial class AuthSetSecurityStateOperationV1
                         AuthModuleMutationDefaults.Require("hpd.auth.user.set-security-state", "active", "auth.user.inactive"),
                         AuthModuleMutationDefaults.Require("hpd.auth.user.set-security-state", "notDeleted", "auth.user.deleted"),
                         AuthModuleMutationDefaults.Require("hpd.auth.user.set-security-state", "revision", "auth.user.revisionMismatch"),
-                        Patch(),
+                        BaseModuleMutationTemplateBuilder.If(
+                            "hpd.auth.user.set-security-state.statement.lockoutBranch",
+                            "hpd.auth.user.set-security-state.guard.clearLockoutEnd",
+                            BaseModuleMutationTemplateBuilder.Block(Patch(clearLockoutEnd: true)),
+                            BaseModuleMutationTemplateBuilder.Block(Patch(clearLockoutEnd: false))),
                         BaseModuleMutationTemplateBuilder.IncrementGeneration(
                             "hpd.auth.user.set-security-state.statement.001.incrementUserGeneration", UserGenerationCapture, false),
                         BaseModuleMutationTemplateBuilder.IncrementGeneration(
@@ -778,8 +896,13 @@ internal static partial class AuthSetSecurityStateOperationV1
                     BaseModuleMutationTemplateBuilder.ResultObject(
                         "hpd.auth.user.set-security-state.expression.result.000",
                         BaseModuleMutationTemplateBuilder.Property(ResultProperties.Revision,
-                            BaseModuleMutationTemplateBuilder.CommittedRevision(
-                                "hpd.auth.user.set-security-state.expression.revision.000", PatchStatement)),
+                            BaseModuleMutationTemplateBuilder.Conditional(
+                                "hpd.auth.user.set-security-state.expression.revision.000",
+                                "hpd.auth.user.set-security-state.guard.clearLockoutEnd",
+                                BaseModuleMutationTemplateBuilder.CommittedRevision(
+                                    "hpd.auth.user.set-security-state.expression.revision.clear", PatchClearStatement),
+                                BaseModuleMutationTemplateBuilder.CommittedRevision(
+                                    "hpd.auth.user.set-security-state.expression.revision.value", PatchValueStatement))),
                         BaseModuleMutationTemplateBuilder.Property(ResultProperties.SecurityGeneration,
                             BaseModuleMutationTemplateBuilder.ResultingGeneration(
                                 "hpd.auth.user.set-security-state.expression.securityGeneration.000", SecurityGenerationCapture)),
@@ -808,6 +931,13 @@ internal static partial class AuthSetSecurityStateOperationV1
     private static BaseModuleFieldEqualsGuard Active() => BaseModuleMutationTemplateBuilder.FieldEquals(
         "hpd.auth.user.set-security-state.guard.active", UserCapture, AuthUserRecordV1.Fields.IsActive.ModuleMutation,
         BaseModuleMutationTemplateBuilder.Constant("hpd.auth.user.set-security-state.expression.active.000", AuthUserRecordV1.Fields.IsActive.ConstantAuthority, true));
+    private static BaseModuleValueEqualsGuard ClearLockoutEnd() => BaseModuleMutationTemplateBuilder.ValueEquals(
+        "hpd.auth.user.set-security-state.guard.clearLockoutEnd",
+        BaseModuleMutationTemplateBuilder.Request(
+            "hpd.auth.user.set-security-state.expression.clearLockoutEnd.left", RequestProperties.ClearLockoutEnd),
+        BaseModuleMutationTemplateBuilder.Constant(
+            "hpd.auth.user.set-security-state.expression.clearLockoutEnd.right",
+            RequestProperties.ClearLockoutEnd.ConstantAuthority, true));
     private static BaseModuleFieldEqualsGuard NotDeleted() => BaseModuleMutationTemplateBuilder.FieldEquals(
         "hpd.auth.user.set-security-state.guard.notDeleted", UserCapture, AuthUserRecordV1.Fields.IsDeleted.ModuleMutation,
         BaseModuleMutationTemplateBuilder.Constant("hpd.auth.user.set-security-state.expression.notDeleted.000", AuthUserRecordV1.Fields.IsDeleted.ConstantAuthority, false));
@@ -815,18 +945,25 @@ internal static partial class AuthSetSecurityStateOperationV1
         "hpd.auth.user.set-security-state.guard.revision", UserCapture,
         BaseModuleMutationTemplateBuilder.Request("hpd.auth.user.set-security-state.expression.expectedRevision.000", RequestProperties.ExpectedRevision));
 
-    private static BaseModulePatchStatement Patch() => BaseModuleMutationTemplateBuilder.Patch(
-        PatchStatement, UserId("patch"), BaseModuleMutationTemplateBuilder.Object<AuthUserRecordV1>(
-            "hpd.auth.user.set-security-state.expression.patch.000",
-            Field(AuthUserRecordV1.Fields.AccessFailedCount, RequestProperties.AccessFailedCount, "accessFailedCount"),
-            Field(AuthUserRecordV1.Fields.AuthenticatorKey, RequestProperties.AuthenticatorKey, "authenticatorKey"),
-            Field(AuthUserRecordV1.Fields.ConcurrencyStamp, RequestProperties.ConcurrencyStamp, "concurrencyStamp"),
-            Field(AuthUserRecordV1.Fields.LockoutEnabled, RequestProperties.LockoutEnabled, "lockoutEnabled"),
-            Field(AuthUserRecordV1.Fields.LockoutEnd, RequestProperties.LockoutEnd, "lockoutEnd"),
-            Field(AuthUserRecordV1.Fields.SecurityStamp, RequestProperties.SecurityStamp, "securityStamp"),
-            Field(AuthUserRecordV1.Fields.TwoFactorEnabled, RequestProperties.TwoFactorEnabled, "twoFactorEnabled"),
-            Field(AuthUserRecordV1.Fields.UpdatedAt, RequestProperties.OperationTime, "updatedAt")),
-        BaseModuleMutationTemplateBuilder.Request("hpd.auth.user.set-security-state.expression.patchRevision.000", RequestProperties.ExpectedRevision));
+    private static BaseModulePatchStatement Patch(bool clearLockoutEnd)
+    {
+        string branch = clearLockoutEnd ? "clear" : "value";
+        return BaseModuleMutationTemplateBuilder.Patch(
+        clearLockoutEnd ? PatchClearStatement : PatchValueStatement,
+        UserId(clearLockoutEnd ? "patchClear" : "patchValue"), BaseModuleMutationTemplateBuilder.Object<AuthUserRecordV1>(
+            $"hpd.auth.user.set-security-state.expression.patch.{branch}",
+            Field(AuthUserRecordV1.Fields.AccessFailedCount, RequestProperties.AccessFailedCount, $"accessFailedCount.{branch}"),
+            Field(AuthUserRecordV1.Fields.AuthenticatorKey, RequestProperties.AuthenticatorKey, $"authenticatorKey.{branch}"),
+            Field(AuthUserRecordV1.Fields.ConcurrencyStamp, RequestProperties.ConcurrencyStamp, $"concurrencyStamp.{branch}"),
+            Field(AuthUserRecordV1.Fields.LockoutEnabled, RequestProperties.LockoutEnabled, $"lockoutEnabled.{branch}"),
+            clearLockoutEnd
+                ? BaseModuleMutationTemplateBuilder.Remove(AuthUserRecordV1.Fields.LockoutEnd.ModuleMutation)
+                : Field(AuthUserRecordV1.Fields.LockoutEnd, RequestProperties.LockoutEnd, $"lockoutEnd.{branch}"),
+            Field(AuthUserRecordV1.Fields.SecurityStamp, RequestProperties.SecurityStamp, $"securityStamp.{branch}"),
+            Field(AuthUserRecordV1.Fields.TwoFactorEnabled, RequestProperties.TwoFactorEnabled, $"twoFactorEnabled.{branch}"),
+            Field(AuthUserRecordV1.Fields.UpdatedAt, RequestProperties.OperationTime, $"updatedAt.{branch}")),
+        BaseModuleMutationTemplateBuilder.Request($"hpd.auth.user.set-security-state.expression.patchRevision.{branch}", RequestProperties.ExpectedRevision));
+    }
 
     private static BaseModuleFieldValue<AuthUserRecordV1> Field<T>(BaseField<AuthUserRecordV1, T> field,
         BaseModuleRequestProperty<AuthSetSecurityStateV1, T> property, string id) => BaseModuleMutationTemplateBuilder.Field(

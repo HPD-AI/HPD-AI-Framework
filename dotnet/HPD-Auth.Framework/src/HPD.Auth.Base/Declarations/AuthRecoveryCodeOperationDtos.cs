@@ -148,7 +148,6 @@ internal sealed partial record AuthRecoveryCodesReplaceV1
     [BaseField("auth.operation.recoveryCodes.replace.prior62")] public required AuthRecoveryPriorSlotV1 Prior62 { get; init; }
     [BaseField("auth.operation.recoveryCodes.replace.prior63")] public required AuthRecoveryPriorSlotV1 Prior63 { get; init; }
     [BaseField("auth.operation.recoveryCodes.replace.concurrencyStamp", MinimumUtf8Bytes = 1, MaximumUtf8Bytes = 256, StringNormalization = BaseStringNormalizationRequirement.RequireNfc)] public required string ConcurrencyStamp { get; init; }
-    [BaseField("auth.operation.recoveryCodes.replace.expectedSecurityGeneration")] public required BaseModuleGeneration ExpectedSecurityGeneration { get; init; }
     [BaseField("auth.operation.recoveryCodes.replace.expectedUserRevision")] public required RevisionToken ExpectedUserRevision { get; init; }
     [BaseField("auth.operation.recoveryCodes.replace.newCount", HasMinimumInt32 = true, MinimumInt32 = 0, HasMaximumInt32 = true, MaximumInt32 = 64)] public required int NewCount { get; init; }
     [BaseField("auth.operation.recoveryCodes.replace.operationTime"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset OperationTime { get; init; }
@@ -164,7 +163,6 @@ internal sealed record AuthRecoveryCodeConsumeV1
     [BaseField("auth.operation.recoveryCode.consume.codeId", MinimumUtf8Bytes = 64, MaximumUtf8Bytes = 64)] public required string CodeId { get; init; }
     [BaseField("auth.operation.recoveryCode.consume.concurrencyStamp", MinimumUtf8Bytes = 1, MaximumUtf8Bytes = 256, StringNormalization = BaseStringNormalizationRequirement.RequireNfc)] public required string ConcurrencyStamp { get; init; }
     [BaseField("auth.operation.recoveryCode.consume.expectedCodeRevision")] public required RevisionToken ExpectedCodeRevision { get; init; }
-    [BaseField("auth.operation.recoveryCode.consume.expectedSecurityGeneration")] public required BaseModuleGeneration ExpectedSecurityGeneration { get; init; }
     [BaseField("auth.operation.recoveryCode.consume.expectedUserRevision")] public required RevisionToken ExpectedUserRevision { get; init; }
     [BaseField("auth.operation.recoveryCode.consume.operationTime"), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public required DateTimeOffset OperationTime { get; init; }
     [BaseField("auth.operation.recoveryCode.consume.securityStamp", MinimumUtf8Bytes = 1, MaximumUtf8Bytes = 256, StringNormalization = BaseStringNormalizationRequirement.RequireNfc), BaseFieldConfidentiality(BaseFieldConfidentiality.Secret)] public required string SecurityStamp { get; init; }

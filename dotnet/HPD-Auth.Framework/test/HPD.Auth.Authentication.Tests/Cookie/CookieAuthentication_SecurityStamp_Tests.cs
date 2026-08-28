@@ -52,13 +52,13 @@ public class CookieAuthentication_SecurityStamp_Tests
             opts.Cookie.UseSlidingExpiration    = useSlidingExpiration;
             opts.Cookie.SlidingExpiration       = slidingDuration ?? TimeSpan.FromMinutes(30);
         })
-        .UseInMemorySqliteForTests()
+        .UseBaseTestHost()
         .AddAuthentication();
 
         builder.Services.AddAuthorization();
 
         var app = builder.Build();
-        app.Services.InitializeHPDAuthDevelopmentDatabaseAsync().GetAwaiter().GetResult();
+        app.Services.InitializeHPDAuthBaseTestHostAsync().GetAwaiter().GetResult();
         app.UseRouting();
         app.UseAuthentication();
         app.UseAuthorization();

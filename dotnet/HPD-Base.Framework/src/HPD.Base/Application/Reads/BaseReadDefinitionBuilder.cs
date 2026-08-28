@@ -73,6 +73,41 @@ public sealed class BaseReadOperand<TValue> : IBaseReadOperand
     }
 }
 
+/// <summary>Creates closed string predicates for registered-read operands.</summary>
+public static class BaseReadStringOperandExtensions
+{
+    /// <summary>Builds an ordinal contains predicate over a string source.</summary>
+    public static BaseReadPredicate Contains(
+        this BaseReadOperand<string> operand,
+        BaseReadOperand<string> value) => Compare(operand, value, FilterOperator.Contains);
+
+    /// <summary>Builds an ordinal prefix predicate over a string source.</summary>
+    public static BaseReadPredicate StartsWith(
+        this BaseReadOperand<string> operand,
+        BaseReadOperand<string> value) => Compare(operand, value, FilterOperator.StartsWith);
+
+    /// <summary>Builds an ordinal suffix predicate over a string source.</summary>
+    public static BaseReadPredicate EndsWith(
+        this BaseReadOperand<string> operand,
+        BaseReadOperand<string> value) => Compare(operand, value, FilterOperator.EndsWith);
+
+    private static BaseReadPredicate Compare(
+        BaseReadOperand<string> operand,
+        BaseReadOperand<string> value,
+        FilterOperator @operator)
+    {
+        ArgumentNullException.ThrowIfNull(operand);
+        ArgumentNullException.ThrowIfNull(value);
+        return new BaseReadPredicate(new BaseRelationalPredicate
+        {
+            Kind = FilterNodeKind.Compare,
+            Operator = @operator,
+            Left = operand.Operand,
+            Right = value.Operand,
+        });
+    }
+}
+
 /// <summary>Represents one typed registered read source.</summary>
 public sealed class BaseReadSource<TRecord>
 {
@@ -236,6 +271,7 @@ public sealed class BaseReadCountBranchBuilder<TParameters, TRecord>
             throw new InvalidOperationException(BaseSchemaErrorCodes.ContractInvalid);
         return new(new BaseRelationalOperand { Kind = BaseRelationalOperandKind.Literal, Literal = new QueryValue { Kind = QueryValueKind.String, String = wire } });
     }
+
     /// <summary>References this branch's canonical record identifier.</summary>
     public BaseReadOperand<BaseRecordId<TRecord>> RecordId => _source.RecordId;
     /// <summary>Installs the branch's sole predicate.</summary>
@@ -398,6 +434,20 @@ public sealed class BaseReadDefinitionBuilder<TParameters, TRow>
         if (!_parameters.ContainsKey(parameter.Id))
             throw new InvalidOperationException($"Read parameter '{parameter.Id}' is not declared.");
         return new BaseReadOperand<TValue>(new BaseRelationalOperand
+        {
+            Kind = BaseRelationalOperandKind.Parameter,
+            ParameterId = parameter.Id,
+        });
+    }
+
+    /// <summary>References one canonical GUID parameter as a typed record identifier for an exact target collection.</summary>
+    public BaseReadOperand<BaseRecordId<TTarget>> RecordIdParameter<TTarget>(
+        BaseReadParameter<TParameters, Guid> parameter)
+    {
+        ArgumentNullException.ThrowIfNull(parameter);
+        if (!_parameters.ContainsKey(parameter.Id))
+            throw new InvalidOperationException($"Read parameter '{parameter.Id}' is not declared.");
+        return new BaseReadOperand<BaseRecordId<TTarget>>(new BaseRelationalOperand
         {
             Kind = BaseRelationalOperandKind.Parameter,
             ParameterId = parameter.Id,

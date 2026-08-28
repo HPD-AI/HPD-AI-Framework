@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using FluentAssertions;
 using HPD.Auth.Core.Entities;
 using HPD.Auth.Tests.Helpers;
@@ -144,7 +145,9 @@ public class UserEndpointTests
         using var scope = factory.Services.CreateScope();
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         var user = await userManager.FindByEmailAsync("meta@example.com");
-        user!.UserMetadata.Should().Be(newMetadata);
+        using var expectedMetadata = JsonDocument.Parse(newMetadata);
+        using var actualMetadata = JsonDocument.Parse(user!.UserMetadata);
+        JsonElement.DeepEquals(actualMetadata.RootElement, expectedMetadata.RootElement).Should().BeTrue();
     }
 
     // Scenario 6: Does NOT update appMetadata (field is ignored for security)
@@ -155,16 +158,19 @@ public class UserEndpointTests
         await using var factory = new AuthWebApplicationFactory(appName: "UpdateUser_AppMeta");
         var client = factory.CreateClient();
 
-        await client.PostAsJsonAsync("/api/auth/signup",
-            new { email = "appmeta@example.com", password = "Password1!" });
-
-        // Set AppMetadata directly via UserManager
+        // Seed the system-owned value at creation; ordinary profile updates are not
+        // an authority for app metadata.
         using (var scope = factory.Services.CreateScope())
         {
             var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-            var user = await userManager.FindByEmailAsync("appmeta@example.com");
-            user!.AppMetadata = "{\"subscription\":\"free\"}";
-            await userManager.UpdateAsync(user);
+            var user = new ApplicationUser
+            {
+                UserName = "appmeta@example.com",
+                Email = "appmeta@example.com",
+                AppMetadata = "{\"subscription\":\"free\"}",
+            };
+            IdentityResult created = await userManager.CreateAsync(user, "Password1!");
+            created.Succeeded.Should().BeTrue();
         }
 
         var accessToken = await client.GetAccessTokenAsync("appmeta@example.com");

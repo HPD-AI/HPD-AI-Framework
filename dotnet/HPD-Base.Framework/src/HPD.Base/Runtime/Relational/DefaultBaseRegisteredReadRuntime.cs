@@ -1,6 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using System.Collections.Immutable;
 using System.Security.Cryptography;
+using System.Text;
 
 namespace HPD.Base;
 
@@ -192,8 +194,21 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
             return Failure<TRow>(OperationStatus.ValidationFailed, "base.relational.read.invalid", "Registered read parameter types are incompatible with the registered plan.");
 
         var plan = definition.Plan with { Window = window is null ? null : window with { }, SchemaGeneration = generation };
+        string applicationId = installed?.LogicalSchema.ApplicationId ?? "hpd.base.application";
+        RecordStoreRegistration? storeRegistration = stores.GetRegistrationForCollection(plan.Sources[0].CollectionId);
+        if (storeRegistration is null)
+            return Failure<TRow>(OperationStatus.CapabilityUnavailable, "base.relational.read.storeAuthorityUnavailable", "Registered read store authority is unavailable.");
+        string logicalStoreId = storeRegistration.StoreId;
+        BaseSchemaAuthorityChecksum logicalSchemaChecksum = installed is not null
+            ? BaseSchemaAuthorityChecksum.ParseHex(installed.LogicalSchema.CanonicalChecksum)
+            : BaseSchemaAuthorityChecksum.Create(SHA256.HashData(Encoding.UTF8.GetBytes(
+                HPDBaseStoreInstallationContext.ComputeSchemaDigest(collections.Collections.Values
+                    .OrderBy(static value => value.Id, StringComparer.Ordinal).ToArray()))));
         var request = new BaseRelationalReadExecutionRequest
         {
+            ApplicationId = applicationId,
+            LogicalStoreId = logicalStoreId,
+            LogicalSchemaChecksum = logicalSchemaChecksum,
             Plan = plan,
             ParameterValues = encoded,
             SourcePolicies = sourcePolicies.ToArray(),
@@ -242,7 +257,7 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
         try { execution = OwnExecution(result.Value); }
         catch { return Failure<TRow>(OperationStatus.StoreError, "base.relational.read.resultInvalid", "The provider returned an invalid registered read result."); }
         BaseApplicationReadiness? completedReadiness = application?.CurrentReadiness;
-        if (execution.Result.SchemaGeneration != generation ||
+        if (!ValidSnapshotAuthority(execution.SnapshotAuthority, request, generation) ||
             (completedReadiness is not null &&
                 (completedReadiness.State != BaseApplicationReadinessState.Ready || completedReadiness.SchemaGeneration != generation)))
             return Failure<TRow>(OperationStatus.CapabilityUnavailable, "base.relational.read.schemaNotReady", "The registered read schema generation is not ready.");
@@ -285,6 +300,7 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
             {
                 Page = new BasePage<TRow> { Items = rows, Page = execution.Result.Page, Count = execution.Result.Count is { } count ? new CountInfo { Mode = QueryCountMode.Exact, Total = count, IsExact = true } : null },
                 Dependencies = new BaseDependencySet { References = protectedDependencies },
+                Authority = PublicAuthority(execution.SnapshotAuthority),
             },
             Warnings = result.Warnings,
             Diagnostics = result.Diagnostics,
@@ -522,7 +538,6 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
             }).ToArray(),
             Count = value.Result.Count,
             Page = value.Result.Page with { },
-            SchemaGeneration = value.Result.SchemaGeneration,
         },
         DependencyEvidence = value.DependencyEvidence.Select(static evidence => evidence with
         {
@@ -535,6 +550,54 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
             BranchId = new string(evidence.BranchId.AsSpan()),
             BranchChecksum = BaseSchemaAuthorityChecksum.Create(evidence.BranchChecksum.ToArray()),
         }).ToArray(),
+        SnapshotAuthority = new BaseRelationalReadSnapshotAuthority
+        {
+            ApplicationId = new string(value.SnapshotAuthority.ApplicationId.AsSpan()),
+            LogicalStoreId = new string(value.SnapshotAuthority.LogicalStoreId.AsSpan()),
+            StoreInstanceId = new string(value.SnapshotAuthority.StoreInstanceId.AsSpan()),
+            RestoreEpoch = value.SnapshotAuthority.RestoreEpoch,
+            SchemaGeneration = value.SnapshotAuthority.SchemaGeneration,
+            LogicalSchemaChecksum = BaseSchemaAuthorityChecksum.Create(value.SnapshotAuthority.LogicalSchemaChecksum.ToArray()),
+            Collections = value.SnapshotAuthority.Collections.Select(static collection => new BaseRelationalCollectionSnapshotAuthority
+            {
+                CollectionId = new string(collection.CollectionId.AsSpan()),
+                CollectionGeneration = collection.CollectionGeneration,
+            }).ToArray(),
+            AuthorityChecksum = BaseSchemaAuthorityChecksum.Create(value.SnapshotAuthority.AuthorityChecksum.ToArray()),
+        },
+    };
+
+    private static bool ValidSnapshotAuthority(
+        BaseRelationalReadSnapshotAuthority authority,
+        BaseRelationalReadExecutionRequest request,
+        long schemaGeneration)
+    {
+        string[] expectedCollections = request.Plan.Sources.Select(static source => source.CollectionId)
+            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        return BaseRelationalReadSnapshotAuthorityContract.IsValid(authority)
+            && string.Equals(authority.ApplicationId, request.ApplicationId, StringComparison.Ordinal)
+            && string.Equals(authority.LogicalStoreId, request.LogicalStoreId, StringComparison.Ordinal)
+            && authority.SchemaGeneration == schemaGeneration
+            && authority.LogicalSchemaChecksum.Equals(request.LogicalSchemaChecksum)
+            && authority.Collections.Select(static value => value.CollectionId)
+                .SequenceEqual(expectedCollections, StringComparer.Ordinal);
+    }
+
+    private static BaseRegisteredReadSnapshotAuthority PublicAuthority(
+        BaseRelationalReadSnapshotAuthority authority) => new()
+    {
+        ApplicationId = new string(authority.ApplicationId.AsSpan()),
+        LogicalStoreId = new string(authority.LogicalStoreId.AsSpan()),
+        StoreInstanceId = new string(authority.StoreInstanceId.AsSpan()),
+        RestoreEpoch = authority.RestoreEpoch,
+        SchemaGeneration = authority.SchemaGeneration,
+        LogicalSchemaChecksum = authority.LogicalSchemaChecksum.ToArray().ToImmutableArray(),
+        Collections = authority.Collections.Select(static value => new BaseRegisteredReadCollectionAuthority
+        {
+            CollectionId = new string(value.CollectionId.AsSpan()),
+            CollectionGeneration = value.CollectionGeneration,
+        }).ToImmutableArray(),
+        AuthorityChecksum = authority.AuthorityChecksum.ToArray().ToImmutableArray(),
     };
 
     private static QueryValue OwnValue(QueryValue value) => value with
@@ -720,7 +783,8 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
         BaseRelationalParameterValue[] parameters,
         IReadOnlyDictionary<string, CollectionDefinition> collections)
     {
-        var parameterKinds = parameters.ToDictionary(static value => value.ParameterId, static value => value.Value, StringComparer.Ordinal);
+        var parameterValues = parameters.ToDictionary(static value => value.ParameterId, static value => value.Value, StringComparer.Ordinal);
+        var parameterKinds = plan.Parameters.ToDictionary(static value => value.Id, static value => value.Kind, StringComparer.Ordinal);
         var sources = plan.Sources.ToDictionary(static source => source.Id, StringComparer.Ordinal);
         var aggregates = plan.Aggregates.ToDictionary(static aggregate => aggregate.Id, StringComparer.Ordinal);
         QueryValueKind? Kind(BaseRelationalOperand operand) => operand.Kind switch
@@ -729,7 +793,7 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
             BaseRelationalOperandKind.RecordRevision => QueryValueKind.String,
             BaseRelationalOperandKind.SourceField => FieldKind((collections[sources[operand.SourceId!].CollectionId].Fields ?? [])
                 .Single(field => field.Id == operand.FieldId)),
-            BaseRelationalOperandKind.Parameter => parameterKinds[operand.ParameterId!].Kind,
+            BaseRelationalOperandKind.Parameter => parameterKinds[operand.ParameterId!],
             BaseRelationalOperandKind.Literal => operand.Literal!.Kind,
             BaseRelationalOperandKind.Aggregate => AggregateKind(aggregates[operand.AggregateId!]),
             BaseRelationalOperandKind.StoredSubjectReference => QueryValueKind.SubjectReference,
@@ -759,7 +823,7 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
                 return Compatible(left, right) && (predicate.Operator is FilterOperator.Equal or FilterOperator.NotEqual || Ordered(left) && Ordered(right));
             QueryValue array = predicate.Right!.Kind switch
             {
-                BaseRelationalOperandKind.Parameter => parameterKinds[predicate.Right.ParameterId!],
+                BaseRelationalOperandKind.Parameter => parameterValues[predicate.Right.ParameterId!],
                 BaseRelationalOperandKind.Literal => predicate.Right.Literal!,
                 _ => null!,
             };

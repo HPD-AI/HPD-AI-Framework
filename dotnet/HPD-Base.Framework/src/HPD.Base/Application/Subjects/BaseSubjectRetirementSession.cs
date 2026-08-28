@@ -81,6 +81,7 @@ public static class BaseGeneratedSubjectRetirementPolicies
     /// <param name="coordinationWindow">The bounded coordination window.</param>
     /// <param name="timeoutBehavior">The closed timeout behavior.</param>
     /// <param name="purgeRetention">The minimum authoritative tombstone retention.</param>
+    /// <param name="finalPurgeExecutionMode">The authority required by the final purge path.</param>
     /// <param name="consumers">The exact required consumer identities.</param>
     /// <returns>The opaque typed policy identity accepted by the application builder.</returns>
     public static BaseGeneratedSubjectRetirementPolicyIdentity<TSubject> Register<TSubject>(
@@ -88,6 +89,7 @@ public static class BaseGeneratedSubjectRetirementPolicies
         TimeSpan coordinationWindow,
         BaseSubjectRetirementTimeoutBehavior timeoutBehavior,
         BaseSubjectPurgeRetentionPolicy purgeRetention,
+        BaseSubjectFinalExecutionMode finalPurgeExecutionMode,
         params BaseGeneratedSubjectRetirementConsumerIdentity<TSubject>[] consumers)
     {
         ArgumentNullException.ThrowIfNull(subject);
@@ -128,6 +130,7 @@ public static class BaseGeneratedSubjectRetirementPolicies
             CoordinationWindow = coordinationWindow,
             TimeoutBehavior = timeoutBehavior,
             PurgeRetention = purgeRetention with { },
+            FinalPurgeExecutionMode = finalPurgeExecutionMode,
             PolicyChecksum = string.Empty,
         };
         string checksum = BaseSubjectRetirementRegistry.PolicyChecksum(draft);

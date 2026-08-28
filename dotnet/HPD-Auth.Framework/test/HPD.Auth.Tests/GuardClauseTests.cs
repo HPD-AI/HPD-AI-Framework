@@ -54,44 +54,6 @@ public class GuardClauseTests
             .WithMessage("*HPD.Auth storage is required*");
     }
 
-    [Fact]
-    public async Task AddHPDAuth_With_InMemoryStorage_Fails_Production_Host_Startup()
-    {
-        using var host = Host.CreateDefaultBuilder()
-            .UseEnvironment(Environments.Production)
-            .ConfigureServices(services =>
-            {
-                services.AddHttpContextAccessor();
-                services
-                    .AddHPDAuth(o => o.AppName = "ProductionInMemoryStorage")
-                    .UseInMemorySqliteForTests();
-            })
-            .Build();
-
-        var act = () => host.StartAsync();
-
-        await act.Should().ThrowAsync<OptionsValidationException>()
-            .WithMessage("*production hosts must use durable auth storage*");
-    }
-
-    [Fact]
-    public async Task AddHPDAuth_With_InMemoryStorage_Allows_Development_Host_Startup()
-    {
-        using var host = Host.CreateDefaultBuilder()
-            .UseEnvironment(Environments.Development)
-            .ConfigureServices(services =>
-            {
-                services.AddHttpContextAccessor();
-                services
-                    .AddHPDAuth(o => o.AppName = "DevelopmentInMemoryStorage")
-                    .UseInMemorySqliteForTests();
-            })
-            .Build();
-
-        await host.StartAsync();
-        await host.StopAsync();
-    }
-
     // ── UseHPDAuth ────────────────────────────────────────────────────────────────
 
     [Fact]

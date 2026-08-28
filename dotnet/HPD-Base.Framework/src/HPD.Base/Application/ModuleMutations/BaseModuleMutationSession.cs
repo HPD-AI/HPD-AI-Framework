@@ -48,6 +48,19 @@ public sealed class BaseInstalledModuleMutationHandle<TRequest, TResult>
         _identity = identity;
     }
 
+    /// <summary>Creates one request identity from the complete installed source-generated request.</summary>
+    /// <param name="request">The complete typed request.</param>
+    /// <param name="idempotencyKey">The caller-owned bounded logical-attempt key.</param>
+    /// <returns>An identity bound to the operation, canonical request, principal, and tenant.</returns>
+    public BaseMutationRequestIdentity CreateRequestIdentity(
+        TRequest request,
+        string idempotencyKey)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return BaseModuleMutationRequestIdentityContract.Create(
+            _definition, _identity, request, idempotencyKey, _session.Principal);
+    }
+
     /// <summary>Executes one identified registered module mutation.</summary>
     public ValueTask<BaseResult<BaseModuleMutationExecutionResult<TResult>>> ExecuteAsync(
         TRequest request,

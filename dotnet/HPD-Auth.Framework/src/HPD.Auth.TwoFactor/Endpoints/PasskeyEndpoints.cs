@@ -1,5 +1,7 @@
 using HPD.Auth.Core.Entities;
 using HPD.Auth.Core.Interfaces;
+using HPD.Auth.Core.Models;
+using HPD.Auth.Endpoints;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
@@ -259,7 +261,10 @@ public static class PasskeyEndpoints
         user.LastLoginIp = httpContext.Connection.RemoteIpAddress?.ToString();
         await userManager.UpdateAsync(user);
 
-        var tokens = await tokenService.GenerateTokensAsync(user, ct);
+        var tokens = await tokenService.GenerateTokensAsync(
+            user,
+            TokenIssuanceIdentityHttp.Create(httpContext, "auth.passkey"),
+            ct);
 
         // Include any pending required actions in the response.
         if (user.HasPendingActions)

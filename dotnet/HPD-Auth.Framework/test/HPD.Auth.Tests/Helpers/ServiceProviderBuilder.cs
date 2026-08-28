@@ -1,5 +1,6 @@
 using HPD.Auth.Core.Options;
 using HPD.Auth.Extensions;
+using HPD.Auth.Testing;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -31,10 +32,10 @@ internal static class ServiceProviderBuilder
                 o.AppName = appName;
                 configure?.Invoke(o);
             })
-            .UseInMemorySqliteForTests();
+            .UseBaseTestHost(appName);
 
         var serviceProvider = services.BuildServiceProvider();
-        serviceProvider.InitializeHPDAuthDevelopmentDatabaseAsync().GetAwaiter().GetResult();
+        serviceProvider.InitializeHPDAuthBaseTestHostAsync(appName).GetAwaiter().GetResult();
 
         return serviceProvider;
     }

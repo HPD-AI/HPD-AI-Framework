@@ -8,6 +8,17 @@ namespace HPD.Base.Tests.Schema;
 
 public sealed class BaseCanonicalJsonTests
 {
+    [Fact]
+    public void ParseAndCanonicalize_orders_object_properties_and_owns_the_result()
+    {
+        byte[] input = "{\"z\":1,\"a\":2}"u8.ToArray();
+
+        BaseCanonicalJson value = BaseCanonicalJson.ParseAndCanonicalize(input, Limits);
+        input.AsSpan().Fill((byte)'x');
+
+        Assert.Equal("{\"a\":2,\"z\":1}"u8.ToArray(), value.Utf8.ToArray());
+    }
+
     private static readonly BaseCanonicalJsonLimits Limits = new()
     {
         MaximumCanonicalBytes = 1024, MaximumDepth = 8, MaximumTotalNodes = 64,

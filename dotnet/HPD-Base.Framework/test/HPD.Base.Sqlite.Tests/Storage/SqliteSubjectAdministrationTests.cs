@@ -1071,6 +1071,8 @@ VALUES ('subject-restore','subject-restore-instance','baseline-1','checksum-1',1
         ValidationGrantId = "example.subject.validate",
         AdministrationGrantId = "example.subject.admin",
         TombstoneFieldId = "subject.tombstoned",
+        TombstoneMetadata = new() { Instant = new() { Kind = BaseSubjectTombstoneMetadataBindingKind.NotStored }, Sequence = new() { Kind = BaseSubjectTombstoneMetadataBindingKind.NotStored } },
+        FinalRetirementExecutionMode = BaseSubjectFinalExecutionMode.OrdinaryOrActivationGuarded,
         SupportsCoordinatedRetirement = false,
         Audiences = [HPDBaseEndpointAudience.Application],
         ValidationPlan = new BaseSubjectValidationPlanDefinition

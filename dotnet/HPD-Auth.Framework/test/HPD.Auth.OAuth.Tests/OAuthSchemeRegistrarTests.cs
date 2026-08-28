@@ -2,6 +2,7 @@ using FluentAssertions;
 using HPD.Auth.Core.Options;
 using HPD.Auth.Extensions;
 using HPD.Auth.OAuth.Extensions;
+using HPD.Auth.Testing;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -54,10 +55,11 @@ public class OAuthSchemeRegistrarTests : IAsyncDisposable
         builder.Services.AddScoped<HPD.Auth.Core.Interfaces.ITokenService>(
             _ => NSubstitute.Substitute.For<HPD.Auth.Core.Interfaces.ITokenService>());
 
+        string appName = $"SchemeTest_{Guid.NewGuid():N}";
         builder.Services
             .AddHPDAuth(o =>
             {
-                o.AppName                           = $"SchemeTest_{Guid.NewGuid():N}";
+                o.AppName                           = appName;
                 o.Password.RequireDigit             = false;
                 o.Password.RequireLowercase         = false;
                 o.Password.RequireUppercase         = false;
@@ -65,13 +67,13 @@ public class OAuthSchemeRegistrarTests : IAsyncDisposable
                 o.Password.RequiredLength           = 1;
                 configureOAuth(o.OAuth);
             })
-            .UseInMemorySqliteForTests()
+            .UseBaseTestHost(appName)
             .AddOAuth();
 
         builder.Services.AddAuthorization();
 
         _app = builder.Build();
-        await _app.Services.InitializeHPDAuthDevelopmentDatabaseAsync();
+        await _app.Services.InitializeHPDAuthBaseTestHostAsync(appName);
         await _app.StartAsync();
 
         return _app.Services.GetRequiredService<IAuthenticationSchemeProvider>();

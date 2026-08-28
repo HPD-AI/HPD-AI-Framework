@@ -51,13 +51,13 @@ public class Integration_Cookie_Tests
             opts.Cookie.CookieName           = ".HPDTest.Auth";
             opts.Cookie.UseSlidingExpiration = false;
         })
-        .UseInMemorySqliteForTests()
+        .UseBaseTestHost()
         .AddAuthentication();
 
         builder.Services.AddAuthorization();
 
         var app = builder.Build();
-        app.Services.InitializeHPDAuthDevelopmentDatabaseAsync().GetAwaiter().GetResult();
+        app.Services.InitializeHPDAuthBaseTestHostAsync().GetAwaiter().GetResult();
         app.UseRouting();
         app.UseAuthentication();
         app.UseAuthorization();

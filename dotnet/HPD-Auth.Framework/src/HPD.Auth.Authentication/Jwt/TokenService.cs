@@ -1,6 +1,5 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using HPD.Auth.Core.Entities;
@@ -52,20 +51,31 @@ internal sealed class TokenService : ITokenService
     /// <inheritdoc />
     public async Task<TokenResponse> GenerateTokensAsync(
         ApplicationUser user,
+        TokenIssuanceIdentity identity,
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(user);
+        ArgumentNullException.ThrowIfNull(identity);
 
-        var jti = Guid.NewGuid().ToString();
-        var now = DateTime.UtcNow;
+        var now = DateTimeOffset.UtcNow;
         var accessExpiry = now + _options.Jwt.AccessTokenLifetime;
 
         // ── 1. Build claims ───────────────────────────────────────────────────
+        var securityStamp = await _userManager.GetSecurityStampAsync(user);
+        var persisted = await _refreshTokenStore.IssueAsync(new RefreshTokenIssueRequest
+        {
+            UserId = user.Id,
+            SecurityStamp = securityStamp,
+            ExpiresAt = now + _options.Jwt.RefreshTokenLifetime,
+            RequestScope = identity.RequestScope,
+            IdempotencyKey = identity.IdempotencyKey,
+        }, ct);
+
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Sub,   user.Id.ToString()),
             new(JwtRegisteredClaimNames.Email, user.Email ?? string.Empty),
-            new(JwtRegisteredClaimNames.Jti,   jti),
+            new(JwtRegisteredClaimNames.Jti,   persisted.JwtId),
             new(ClaimTypes.NameIdentifier,     user.Id.ToString()),
             new("instance_id",                 user.InstanceId.ToString()),
             new("subscription_tier",           user.SubscriptionTier),
@@ -74,7 +84,6 @@ internal sealed class TokenService : ITokenService
         // Embed the security stamp so OnTokenValidated can do instant revocation checks.
         // ValidateSecurityStampAsync reads "AspNet.Identity.SecurityStamp" from the principal;
         // without it the stamp comparison is null == <guid> → always false → every token rejected.
-        var securityStamp = await _userManager.GetSecurityStampAsync(user);
         claims.Add(new Claim("AspNet.Identity.SecurityStamp", securityStamp));
 
         // Add role claims via UserManager (avoids loading the navigation property).
@@ -102,35 +111,16 @@ internal sealed class TokenService : ITokenService
                 issuer: _options.Jwt.Issuer,
                 audience: _options.Jwt.Audience,
                 claims: claims,
-                notBefore: now,
-                expires: accessExpiry,
+                notBefore: now.UtcDateTime,
+                expires: accessExpiry.UtcDateTime,
                 signingCredentials: credentials);
 
             accessToken = new JwtSecurityTokenHandler().WriteToken(jwt);
         }
 
-        // ── 3. Generate opaque refresh token ──────────────────────────────────
-        var refreshTokenValue = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
-
-        var refreshTokenEntity = new RefreshToken
-        {
-            Id            = Guid.NewGuid(),
-            Token         = refreshTokenValue,
-            UserId        = user.Id,
-            InstanceId    = user.InstanceId,
-            JwtId         = jti,
-            SecurityStamp = securityStamp,
-            ExpiresAt     = now + _options.Jwt.RefreshTokenLifetime,
-            CreatedAt     = now,
-            IsUsed        = false,
-            IsRevoked     = false,
-        };
-
-        await _refreshTokenStore.CreateAsync(refreshTokenEntity, ct);
-
-        // ── 4. Compose TokenResponse ──────────────────────────────────────────
+        // ── 3. Compose TokenResponse ──────────────────────────────────────────
         var expiresInSeconds = (int)_options.Jwt.AccessTokenLifetime.TotalSeconds;
-        var expiresAt        = new DateTimeOffset(accessExpiry, TimeSpan.Zero).ToUnixTimeSeconds();
+        var expiresAt        = accessExpiry.ToUnixTimeSeconds();
 
         var userDto = BuildUserDto(user);
 
@@ -140,7 +130,7 @@ internal sealed class TokenService : ITokenService
             TokenType    = "bearer",
             ExpiresIn    = expiresInSeconds,
             ExpiresAt    = expiresAt,
-            RefreshToken = refreshTokenValue,
+            RefreshToken = persisted.Token,
             User         = userDto,
         };
     }
@@ -157,37 +147,31 @@ internal sealed class TokenService : ITokenService
         ArgumentException.ThrowIfNullOrEmpty(refreshToken);
 
         // ── 1. Load the stored token ──────────────────────────────────────────
-        var stored = await _refreshTokenStore.GetByTokenAsync(refreshToken, ct);
+        var stored = await _refreshTokenStore.InspectAsync(refreshToken, ct);
 
         // ── 2. Validate all failure conditions ────────────────────────────────
         if (stored is null)
             return null;
 
-        if (stored.IsUsed)
-            return null;
-
-        if (stored.IsRevoked)
-            return null;
-
-        if (stored.ExpiresAt < DateTime.UtcNow)
-            return null;
-
-        // ── 3. Mark old token as used (one-time-use rotation) ─────────────────
-        stored.IsUsed = true;
-        await _refreshTokenStore.UpdateAsync(stored, ct);
-
-        // ── 4. Validate the associated user is still active ───────────────────
+        // ── 2. Validate the associated user is still active ───────────────────
         var user = await _userManager.FindByIdAsync(stored.UserId.ToString());
         if (user is null || !user.IsActive || user.IsDeleted)
             return null;
 
-        // ── 5. Validate security stamp (detects global logout / password reset) ─
+        // ── 3. Validate security stamp and atomically rotate ───────────────────
         var currentStamp = await _userManager.GetSecurityStampAsync(user);
-        if (stored.SecurityStamp != currentStamp)
+        var now = DateTimeOffset.UtcNow;
+        var persisted = await _refreshTokenStore.RotateAsync(new RefreshTokenRotateRequest
+        {
+            PredecessorToken = refreshToken,
+            SecurityStamp = currentStamp,
+            ExpiresAt = now + _options.Jwt.RefreshTokenLifetime,
+        }, ct);
+        if (persisted is null)
             return null;
 
-        // ── 6. Issue a new token pair ─────────────────────────────────────────
-        return await GenerateTokensAsync(user, ct);
+        // ── 4. Issue the access token bound to the committed replacement ──────
+        return await BuildResponseAsync(user, currentStamp, persisted, now);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -199,15 +183,7 @@ internal sealed class TokenService : ITokenService
     {
         ArgumentException.ThrowIfNullOrEmpty(refreshToken);
 
-        var stored = await _refreshTokenStore.GetByTokenAsync(refreshToken, ct);
-        if (stored is null)
-            return false;
-
-        stored.IsRevoked = true;
-        stored.RevokedAt = DateTime.UtcNow;
-        await _refreshTokenStore.UpdateAsync(stored, ct);
-
-        return true;
+        return await _refreshTokenStore.RevokeAsync(refreshToken, ct);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -239,6 +215,50 @@ internal sealed class TokenService : ITokenService
             RequiredActions  = user.RequiredActions,
             CreatedAt        = user.Created,
             SubscriptionTier = user.SubscriptionTier,
+        };
+    }
+
+    private async Task<TokenResponse> BuildResponseAsync(
+        ApplicationUser user,
+        string securityStamp,
+        RefreshTokenPersistenceResult persisted,
+        DateTimeOffset now)
+    {
+        var accessExpiry = now + _options.Jwt.AccessTokenLifetime;
+        var claims = new List<Claim>
+        {
+            new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+            new(JwtRegisteredClaimNames.Email, user.Email ?? string.Empty),
+            new(JwtRegisteredClaimNames.Jti, persisted.JwtId),
+            new(ClaimTypes.NameIdentifier, user.Id.ToString()),
+            new("instance_id", user.InstanceId.ToString()),
+            new("subscription_tier", user.SubscriptionTier),
+            new("AspNet.Identity.SecurityStamp", securityStamp),
+        };
+        foreach (string role in await _userManager.GetRolesAsync(user))
+            claims.Add(new Claim(ClaimTypes.Role, role));
+        if (_options.AdditionalClaimsFactory is not null)
+            await _options.AdditionalClaimsFactory(user, claims);
+
+        string accessToken = string.Empty;
+        if (!string.IsNullOrEmpty(_options.Jwt.Secret))
+        {
+            var credentials = new SigningCredentials(
+                new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_options.Jwt.Secret)),
+                SecurityAlgorithms.HmacSha256);
+            var jwt = new JwtSecurityToken(_options.Jwt.Issuer, _options.Jwt.Audience, claims,
+                now.UtcDateTime, accessExpiry.UtcDateTime, credentials);
+            accessToken = new JwtSecurityTokenHandler().WriteToken(jwt);
+        }
+
+        return new TokenResponse
+        {
+            AccessToken = accessToken,
+            TokenType = "bearer",
+            ExpiresIn = (int)_options.Jwt.AccessTokenLifetime.TotalSeconds,
+            ExpiresAt = accessExpiry.ToUnixTimeSeconds(),
+            RefreshToken = persisted.Token,
+            User = BuildUserDto(user),
         };
     }
 

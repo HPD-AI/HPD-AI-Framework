@@ -209,6 +209,8 @@ public sealed class L45SubjectReferenceValueTests
         ValidationGrantId = "hpd.auth.user.validate",
         AdministrationGrantId = "hpd.auth.user.admin",
         TombstoneFieldId = "user.tombstoned",
+        TombstoneMetadata = new() { Instant = new() { Kind = BaseSubjectTombstoneMetadataBindingKind.NotStored }, Sequence = new() { Kind = BaseSubjectTombstoneMetadataBindingKind.NotStored } },
+        FinalRetirementExecutionMode = BaseSubjectFinalExecutionMode.OrdinaryOrActivationGuarded,
         SupportsCoordinatedRetirement = false,
         Audiences = [HPDBaseEndpointAudience.Application],
         ValidationPlan = new BaseSubjectValidationPlanDefinition

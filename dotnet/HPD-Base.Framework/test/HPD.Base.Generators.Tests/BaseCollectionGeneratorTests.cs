@@ -140,6 +140,72 @@ public sealed class BaseCollectionGeneratorTests
     }
 
     [Fact]
+    public void ExportedSubjectLowersTombstoneMetadataAndFinalExecutionAuthority()
+    {
+        const string source = """
+            using HPD.Base;
+            using System;
+            using System.Text.Json.Serialization;
+
+            [BaseCollection("profiles", typeof(AppJsonContext), System = true, SystemOwnerModuleId = "example.module")]
+            public sealed partial record Profile
+            {
+                [BaseField("profile.active")] public required bool Active { get; init; }
+                [BaseField("profile.tombstoned")] public required bool Tombstoned { get; init; }
+                [BaseField("profile.tombstonedAt", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable)]
+                [JsonConverter(typeof(BaseUtcDateTimeJsonConverter))]
+                public DateTimeOffset? TombstonedAt { get; init; }
+                [BaseField("profile.tombstoneSequence", MinimumInt64 = 0, HasMinimumInt64 = true)]
+                public required long TombstoneSequence { get; init; }
+            }
+
+            [BaseExportedSubject("example.subject", OwningModuleId = "example.module", PrivateRecordType = typeof(Profile),
+                AcquisitionGrantId = "example.subject.acquire", ValidationGrantId = "example.subject.validate",
+                AdministrationGrantId = "example.subject.admin", ValidationPlanId = "example.subject.validation",
+                ActiveFieldId = "profile.active", TombstoneFieldId = "profile.tombstoned",
+                TombstoneInstantFieldId = "profile.tombstonedAt", TombstoneSequenceFieldId = "profile.tombstoneSequence",
+                FinalRetirementExecutionMode = BaseSubjectFinalExecutionMode.ActivationGuardRequired)]
+            public sealed partial class Subject;
+
+            [JsonSerializable(typeof(Profile))]
+            public sealed partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        GeneratorResult result = Run(source);
+
+        result.Diagnostics.Should().BeEmpty();
+        result.GeneratedSource.Should().Contain("TombstoneMetadata = new global::HPD.Base.BaseSubjectTombstoneMetadataDefinition");
+        result.GeneratedSource.Should().Contain("FieldId = \"profile.tombstonedAt\"");
+        result.GeneratedSource.Should().Contain("FieldId = \"profile.tombstoneSequence\"");
+        result.GeneratedSource.Should().Contain("FinalRetirementExecutionMode = (global::HPD.Base.BaseSubjectFinalExecutionMode)1");
+    }
+
+    [Fact]
+    public void ExportedSubjectRejectsAliasedTombstoneMetadataFields()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseCollection("profiles", typeof(AppJsonContext))]
+            public sealed partial record Profile
+            {
+                [BaseField("profile.active")] public required bool Active { get; init; }
+                [BaseField("profile.tombstoned")] public required bool Tombstoned { get; init; }
+            }
+            [BaseExportedSubject("example.subject", OwningModuleId = "example.module", PrivateRecordType = typeof(Profile),
+                AcquisitionGrantId = "example.subject.acquire", ValidationGrantId = "example.subject.validate",
+                AdministrationGrantId = "example.subject.admin", ValidationPlanId = "example.subject.validation",
+                ActiveFieldId = "profile.active", TombstoneFieldId = "profile.tombstoned",
+                TombstoneInstantFieldId = "profile.tombstoned", TombstoneSequenceFieldId = "profile.tombstoned")]
+            public sealed partial class Subject;
+            [JsonSerializable(typeof(Profile))]
+            public sealed partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        Run(source).Diagnostics.Should().Contain(item => item.Id == "HPDBASE0460");
+    }
+
+    [Fact]
     public void BinaryAndConfidentialityLowerToTheCanonicalSchemaContract()
     {
         const string source = """
