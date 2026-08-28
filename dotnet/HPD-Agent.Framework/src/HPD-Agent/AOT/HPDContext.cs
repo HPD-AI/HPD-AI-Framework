@@ -106,6 +106,8 @@ using Microsoft.Extensions.AI;
 [JsonSerializable(typeof(ProviderClientConfig))]
 [JsonSerializable(typeof(string))]
 [JsonSerializable(typeof(CollapsingConfig))]
+[JsonSerializable(typeof(CollapsingRunPolicy))]
+[JsonSerializable(typeof(ContainerRecoveryHistoryMode))]
 [JsonSerializable(typeof(HPD.Agent.ReasoningOptions))]
 [JsonSerializable(typeof(HPD.Agent.ReasoningEffort))]
 [JsonSerializable(typeof(HPD.Agent.ReasoningOutput))]

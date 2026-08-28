@@ -22,6 +22,7 @@ internal static class AgentRunConfigSnapshot
         nameof(AgentRunConfig.UploadStrategy),
         nameof(AgentRunConfig.Audio),
         nameof(AgentRunConfig.Compaction),
+        nameof(AgentRunConfig.Collapsing),
         nameof(AgentRunConfig.StructuredOutput),
         nameof(AgentRunConfig.RuntimeTools),
         nameof(AgentRunConfig.RuntimeToolMode),
@@ -192,6 +193,9 @@ internal static class AgentRunConfigSnapshot
             }
         };
     }
+
+    internal static CollapsingRunPolicy? CloneCollapsing(CollapsingRunPolicy? source)
+        => source is null ? null : source with { };
 
     private static CompactionSpecification CloneSpecification(
         CompactionSpecification source,

@@ -43,6 +43,11 @@ public sealed class AgentRunConfigSnapshotTests
                 Properties = new Dictionary<string, object> { ["opaque"] = opaque }
             },
             StructuredOutput = new StructuredOutputOptions { UnionTypes = [typeof(string)] },
+            Collapsing = new CollapsingRunPolicy
+            {
+                EnableErrorRecovery = true,
+                RecoveryHistoryMode = ContainerRecoveryHistoryMode.Preserve
+            },
             Evaluations = evaluations
         };
 
@@ -55,6 +60,8 @@ public sealed class AgentRunConfigSnapshotTests
         Assert.NotSame(source.Context!.Properties, snapshot.Context!.Properties);
         Assert.Same(opaque, snapshot.Context.Properties!["opaque"]);
         Assert.NotSame(source.StructuredOutput!.UnionTypes, snapshot.StructuredOutput!.UnionTypes);
+        Assert.NotSame(source.Collapsing, snapshot.Collapsing);
+        Assert.Equal(ContainerRecoveryHistoryMode.Preserve, snapshot.Collapsing!.RecoveryHistoryMode);
         Assert.NotSame(evaluations, snapshot.Evaluations);
     }
 

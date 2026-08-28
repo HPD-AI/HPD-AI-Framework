@@ -65,6 +65,8 @@ namespace HPD.Agent.Hosting.Serialization;
 [JsonSerializable(typeof(ThreadHistoryCompactionCheckpointEvent))]
 // Run config DTO graph used by StreamTextRequest
 [JsonSerializable(typeof(AgentRunConfig))]
+[JsonSerializable(typeof(CollapsingRunPolicy))]
+[JsonSerializable(typeof(ContainerRecoveryHistoryMode))]
 [JsonSerializable(typeof(CompactionConfig))]
 [JsonSerializable(typeof(CompactionRunPolicy))]
 [JsonSerializable(typeof(AutomaticCompactionPolicy))]

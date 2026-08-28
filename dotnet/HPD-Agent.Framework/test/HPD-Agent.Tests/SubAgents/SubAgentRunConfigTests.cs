@@ -123,6 +123,7 @@ public sealed class SubAgentRunConfigTests
         {
             Audio = new AudioRunConfig { ContentType = "audio/pcm" },
             Compaction = new CompactionRunPolicy(),
+            Collapsing = new CollapsingRunPolicy { EnableErrorRecovery = false },
             StructuredOutput = new StructuredOutputOptions { UnionTypes = [typeof(string)] }
         };
 
@@ -132,6 +133,8 @@ public sealed class SubAgentRunConfigTests
 
         child.Audio.Should().NotBeSameAs(parent.Audio);
         child.Compaction.Should().NotBeSameAs(parent.Compaction);
+        child.Collapsing.Should().NotBeSameAs(parent.Collapsing);
+        child.Collapsing!.EnableErrorRecovery.Should().BeFalse();
         child.StructuredOutput.Should().NotBeSameAs(parent.StructuredOutput);
         child.StructuredOutput!.UnionTypes.Should().NotBeSameAs(parent.StructuredOutput!.UnionTypes);
     }

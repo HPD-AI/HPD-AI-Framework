@@ -276,6 +276,144 @@ public class ContainerMiddlewareTests
     }
 
     [Fact]
+    public async Task BeforeToolExecution_ErrorRecoveryDisabled_DoesNotExpandHiddenMember()
+    {
+        var (container, members) = CreateCollapsedToolHarness("MathToolHarness", "Math tools", "Add");
+        var middleware = new ContainerMiddleware(
+            new List<AITool> { container, members[0] },
+            ImmutableHashSet<string>.Empty,
+            config: new CollapsingConfig { EnableErrorRecovery = true });
+        var runConfig = new AgentRunConfig
+        {
+            Collapsing = new CollapsingRunPolicy { EnableErrorRecovery = false }
+        };
+        var context = CreateBeforeToolExecutionContext(
+            toolCalls: [CreateToolCall("Add")],
+            runConfig: runConfig);
+
+        await middleware.BeforeToolExecutionAsync(context, CancellationToken.None);
+
+        var state = context.State.MiddlewareState.GetState<ContainerMiddlewareState>(
+            "HPD.Agent.ContainerMiddlewareState");
+        Assert.True(state is null || state.ExpandedContainers.IsEmpty);
+        Assert.True(state is null || state.RecoveredFunctionCalls.IsEmpty);
+    }
+
+    [Fact]
+    public async Task BeforeToolExecution_ErrorRecoveryDisabled_DoesNotExpandContainerCalledWithArguments()
+    {
+        var (container, _) = CreateCollapsedToolHarness("MathToolHarness", "Math tools", "Add");
+        var middleware = new ContainerMiddleware(
+            new List<AITool> { container },
+            ImmutableHashSet<string>.Empty,
+            config: new CollapsingConfig { EnableErrorRecovery = false });
+        var call = new FunctionCallContent(
+            "call-with-args",
+            "MathToolHarness",
+            new Dictionary<string, object?> { ["value"] = 1 });
+        var context = CreateBeforeToolExecutionContext(toolCalls: [call]);
+
+        await middleware.BeforeToolExecutionAsync(context, CancellationToken.None);
+
+        var state = context.State.MiddlewareState.GetState<ContainerMiddlewareState>(
+            "HPD.Agent.ContainerMiddlewareState");
+        Assert.True(state is null || state.ExpandedContainers.IsEmpty);
+        Assert.True(state is null || state.RecoveredFunctionCalls.IsEmpty);
+    }
+
+    [Fact]
+    public async Task ErrorRecoveryDisabled_QualifiedCallIsNotRecoveredOrSuppressed()
+    {
+        var (container, memberFunctions) = CreateCollapsedToolHarness(
+            "MathToolHarness", "Math tools", "Add");
+        var middleware = new ContainerMiddleware(
+            new List<AITool> { container, memberFunctions[0] },
+            ImmutableHashSet<string>.Empty,
+            config: new CollapsingConfig { EnableErrorRecovery = false });
+        var toolContext = CreateBeforeToolExecutionContext(
+            toolCalls: [new FunctionCallContent("qualified", "MathToolHarness.Add")]);
+
+        await middleware.BeforeToolExecutionAsync(toolContext, CancellationToken.None);
+
+        var state = toolContext.State.MiddlewareState.GetState<ContainerMiddlewareState>(
+            "HPD.Agent.ContainerMiddlewareState");
+        Assert.True(state is null || state.ExpandedContainers.IsEmpty);
+        Assert.True(state is null || state.RecoveredFunctionCalls.IsEmpty);
+
+        var functionContext = CreateAgentContext(toolContext.State).AsBeforeFunction(
+            function: null,
+            callId: "qualified",
+            arguments: new Dictionary<string, object?>(),
+            runConfig: new AgentRunConfig());
+        await middleware.BeforeFunctionAsync(functionContext, CancellationToken.None);
+
+        Assert.Null(functionContext.OverrideResult);
+    }
+
+    [Fact]
+    public async Task BeforeToolExecution_ValidActivationStillExpandsWhenRecoveryDisabled()
+    {
+        var (container, _) = CreateCollapsedToolHarness("MathToolHarness", "Math tools", "Add");
+        var middleware = new ContainerMiddleware(
+            new List<AITool> { container },
+            ImmutableHashSet<string>.Empty,
+            config: new CollapsingConfig { EnableErrorRecovery = false });
+        var context = CreateBeforeToolExecutionContext(
+            toolCalls: [CreateToolCall("MathToolHarness")]);
+
+        await middleware.BeforeToolExecutionAsync(context, CancellationToken.None);
+
+        var state = context.State.MiddlewareState.GetState<ContainerMiddlewareState>(
+            "HPD.Agent.ContainerMiddlewareState");
+        Assert.NotNull(state);
+        Assert.Contains("MathToolHarness", state!.ExpandedContainers);
+        Assert.Empty(state.RecoveredFunctionCalls);
+    }
+
+    [Fact]
+    public async Task BeforeIteration_HidingDisabled_PreservesToolHarnessInteractionMessages()
+    {
+        var (container, memberFunctions) = CreateCollapsedToolHarness(
+            "MathToolHarness", "Math tools", "Add");
+        var tools = new List<AITool> { container, memberFunctions[0] };
+        var middleware = new ContainerMiddleware(
+            tools,
+            ImmutableHashSet<string>.Empty,
+            config: new CollapsingConfig { HideToolHarnessInteractionsWithinTurn = true });
+        var messages = new List<ChatMessage>
+        {
+            new(ChatRole.Assistant, [new FunctionCallContent("activate", "MathToolHarness")]),
+            new(ChatRole.Tool, [new FunctionResultContent("activate", "expanded")])
+        };
+        var loopState = CreateEmptyState();
+        var containerState = new ContainerMiddlewareState().WithExpandedContainer("MathToolHarness");
+        loopState = loopState with
+        {
+            MiddlewareState = loopState.MiddlewareState.SetState(
+                "HPD.Agent.ContainerMiddlewareState", containerState)
+        };
+        var context = CreateContext(
+            loopState,
+            new ChatOptions { Tools = tools },
+            messages,
+            new AgentRunConfig
+            {
+                Collapsing = new CollapsingRunPolicy
+                {
+                    HideToolHarnessInteractionsWithinTurn = false
+                }
+            });
+
+        await middleware.BeforeIterationAsync(context, CancellationToken.None);
+
+        Assert.Equal(2, messages.Count);
+        Assert.Contains(messages[0].Contents, content =>
+            content is FunctionCallContent call && call.CallId == "activate");
+        Assert.Contains(messages[1].Contents, content =>
+            content is FunctionResultContent result && result.CallId == "activate");
+    }
+
+    [Fact]
     public async Task BeforeToolExecution_SkillWithSystemPrompt_StoresInstructions()
     {
         // Arrange
@@ -909,14 +1047,18 @@ public class ContainerMiddlewareTests
             CancellationToken.None);
     }
 
-    private static BeforeIterationContext CreateContext(AgentLoopState? state = null, ChatOptions? options = null)
+    private static BeforeIterationContext CreateContext(
+        AgentLoopState? state = null,
+        ChatOptions? options = null,
+        List<ChatMessage>? messages = null,
+        AgentRunConfig? runConfig = null)
     {
         var agentContext = CreateAgentContext(state);
         return agentContext.AsBeforeIteration(
             iteration: 0,
-            messages: new List<ChatMessage>(),
+            messages: messages ?? new List<ChatMessage>(),
             options: options ?? new ChatOptions { Tools = new List<AITool>() },
-            runConfig: new AgentRunConfig());
+            runConfig: runConfig ?? new AgentRunConfig());
     }
 
     private static BeforeIterationContext CreateIterationContext(AgentLoopState? state = null, ChatOptions? options = null)
@@ -932,13 +1074,14 @@ public class ContainerMiddlewareTests
     private static BeforeToolExecutionContext CreateBeforeToolExecutionContext(
         ChatMessage? response = null,
         List<FunctionCallContent>? toolCalls = null,
-        AgentLoopState? state = null)
+        AgentLoopState? state = null,
+        AgentRunConfig? runConfig = null)
     {
         var agentContext = CreateAgentContext(state);
         response ??= new ChatMessage(ChatRole.Assistant, []);
         toolCalls ??= new List<FunctionCallContent>();
 
-        return agentContext.AsBeforeToolExecution(response, toolCalls, new AgentRunConfig());
+        return agentContext.AsBeforeToolExecution(response, toolCalls, runConfig ?? new AgentRunConfig());
     }
 
     private static AfterMessageTurnContext CreateAfterMessageTurnContext(

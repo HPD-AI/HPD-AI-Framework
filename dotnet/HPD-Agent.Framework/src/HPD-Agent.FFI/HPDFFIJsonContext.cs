@@ -132,6 +132,8 @@ namespace HPD.Agent.FFI;
 [JsonSerializable(typeof(AutomaticCompactionPolicy))]
 [JsonSerializable(typeof(CompactionCommitMode))]
 [JsonSerializable(typeof(AgentRunConfig))]
+[JsonSerializable(typeof(CollapsingRunPolicy))]
+[JsonSerializable(typeof(ContainerRecoveryHistoryMode))]
 [JsonSerializable(typeof(AgentSecurityRunConfig))]
 [JsonSerializable(typeof(AgentSandboxRunConfig))]
 [JsonSerializable(typeof(AgentApprovalPolicy))]

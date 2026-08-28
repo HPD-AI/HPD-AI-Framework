@@ -62,6 +62,8 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(Security.AgentCapabilityRequestEvent))]
 [JsonSerializable(typeof(Security.AgentCapabilityResponseEvent))]
 [JsonSerializable(typeof(CompactionRunPolicy))]
+[JsonSerializable(typeof(CollapsingRunPolicy))]
+[JsonSerializable(typeof(ContainerRecoveryHistoryMode))]
 [JsonSerializable(typeof(CompactionSpecification))]
 [JsonSerializable(typeof(AutomaticCompactionPolicy))]
 [JsonSerializable(typeof(ThreadContextUsage))]

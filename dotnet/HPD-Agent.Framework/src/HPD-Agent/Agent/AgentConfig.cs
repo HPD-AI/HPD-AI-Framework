@@ -958,6 +958,37 @@ public class ToolSelectionConfig
 }
 
 /// <summary>
+/// Controls how a recovered container interaction is represented in durable turn history.
+/// </summary>
+public enum ContainerRecoveryHistoryMode
+{
+    /// <summary>Preserves the recovered call and its post-recovery result exactly as recorded.</summary>
+    Preserve,
+
+    /// <summary>Rewrites the recovered interaction as the ideal container activation sequence.</summary>
+    Rewrite
+}
+
+/// <summary>
+/// Per-run overrides for container recovery and model-visible history behavior.
+/// Null properties inherit their corresponding values from <see cref="CollapsingConfig"/>.
+/// </summary>
+public sealed record CollapsingRunPolicy
+{
+    /// <summary>Gets whether invalid container-related calls are automatically recovered.</summary>
+    public bool? EnableErrorRecovery { get; init; }
+
+    /// <summary>Gets how recovered interactions are recorded in durable turn history.</summary>
+    public ContainerRecoveryHistoryMode? RecoveryHistoryMode { get; init; }
+
+    /// <summary>
+    /// Gets whether ToolHarness activation and recovered interactions are hidden from later model
+    /// iterations in the same message turn.
+    /// </summary>
+    public bool? HideToolHarnessInteractionsWithinTurn { get; init; }
+}
+
+/// <summary>
 /// Configuration for Collapsing feature.
 /// Controls hierarchical organization of functions to reduce token usage.
 /// </summary>
@@ -994,11 +1025,30 @@ public class CollapsingConfig
 
     /// <summary>
     /// Enable automatic error recovery for [Collapse] containers (Container Transparency V2).
-    /// When true, calling a hidden function automatically expands its parent container silently.
+    /// When true, hidden child calls, qualified function names, and container activations with
+    /// unexpected arguments can automatically expand the appropriate parent container.
     /// This allows smaller models to work seamlessly without understanding container mechanics.
     /// Default: true (enabled).
     /// </summary>
     public bool EnableErrorRecovery { get; set; } = true;
+
+    /// <summary>
+    /// Controls whether recovered calls and results are preserved or rewritten in durable turn history.
+    /// Default: <see cref="ContainerRecoveryHistoryMode.Rewrite"/> for compatibility with the existing
+    /// reinforcement behavior.
+    /// </summary>
+    public ContainerRecoveryHistoryMode RecoveryHistoryMode { get; set; }
+        = ContainerRecoveryHistoryMode.Rewrite;
+
+    /// <summary>
+    /// Whether ToolHarness activation and recovered interactions are hidden from later model iterations
+    /// in the same message turn. Disabling this together with
+    /// <see cref="RecoveryHistoryMode"/> set to <see cref="ContainerRecoveryHistoryMode.Preserve"/>
+    /// keeps conversation messages append-only for better prompt-prefix reuse. The complete model request
+    /// can still change because tool visibility and injected instructions are dynamic. Default: true for
+    /// compatibility with existing immediate-transparency behavior.
+    /// </summary>
+    public bool HideToolHarnessInteractionsWithinTurn { get; set; } = true;
 
     /// <summary>
     /// Optional post-expansion instructions for specific MCP servers.

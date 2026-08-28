@@ -207,7 +207,9 @@ public class ContainerMiddleware : IAgentMiddleware
 
         // Remove [Collapse] container calls/results from the messages that will be sent to the LLM
         // This implements "immediate transparency" - containers disappear even within the same turn
-        if (hasTools && collapsingState.ContainersExpandedThisTurn.Count > 0)
+        if (hasTools &&
+            collapsingState.ContainersExpandedThisTurn.Count > 0 &&
+            ResolveHideToolHarnessInteractionsWithinTurn(context.RunConfig))
         {
             FilterCollapseContainersFromMessages(context, collapsingState);
 
@@ -314,6 +316,7 @@ public class ContainerMiddleware : IAgentMiddleware
 
         // Get current state to check which containers are already expanded
         var currentState = context.GetMiddlewareState<ContainerMiddlewareState>() ?? new ContainerMiddlewareState();
+        var recoveryEnabled = ResolveErrorRecoveryEnabled(context.RunConfig);
 
         var containersToExpand = new HashSet<string>();
         var containerInstructions = new Dictionary<string, ContainerInstructionSet>();
@@ -338,11 +341,20 @@ public class ContainerMiddleware : IAgentMiddleware
                     continue;
                 }
 
+                var hasArguments = toolCall.Arguments is { Count: > 0 };
+                if (hasArguments && !recoveryEnabled)
+                {
+                    _logger?.LogDebug(
+                        "Container '{Container}' was called with arguments while error recovery is disabled",
+                        toolCall.Name);
+                    continue;
+                }
+
                 foreach(var e in expansions) containersToExpand.Add(e);
                 foreach(var i in instructions) containerInstructions[i.Key] = i.Value;
 
                 // Check if this container was called with arguments (error case)
-                if (toolCall.Arguments != null && !string.IsNullOrWhiteSpace(toolCall.Arguments.ToString()))
+                if (hasArguments)
                 {
                     // Container should be called with no arguments
                     _logger?.LogInformation("Recovery: Container '{Container}' called with arguments, marking for history rewriting", toolCall.Name);
@@ -357,6 +369,9 @@ public class ContainerMiddleware : IAgentMiddleware
 
                 continue; // Found a match, move to next tool
             }
+
+            if (!recoveryEnabled)
+                continue;
 
             // 2. Recovery Check A: Hidden Item? (e.g., "Add" -> "MathToolHarness")
             if (_itemToContainerMap.TryGetValue(toolCall.Name, out var parentContainer))
@@ -757,7 +772,9 @@ public class ContainerMiddleware : IAgentMiddleware
 
         // For all recovery types, rewrite history to show the CORRECT pattern
         // This teaches the LLM through reinforcement for the NEXT message turn
-        if (collapsingState.RecoveredFunctionCalls.Any(r =>
+        if (ResolveErrorRecoveryEnabled(context.RunConfig) &&
+            ResolveRecoveryHistoryMode(context.RunConfig) == ContainerRecoveryHistoryMode.Rewrite &&
+            collapsingState.RecoveredFunctionCalls.Any(r =>
                 r.Value.Type == RecoveryType.QualifiedName ||
                 r.Value.Type == RecoveryType.ContainerWithArguments ||
                 r.Value.Type == RecoveryType.HiddenItem) &&
@@ -870,6 +887,18 @@ public class ContainerMiddleware : IAgentMiddleware
     //═════════════════════════════════════════════════════════════════════════════════════════════════
     // HELPER METHODS
     //═════════════════════════════════════════════════════════════════════════════════════════════════
+
+    private bool ResolveErrorRecoveryEnabled(AgentRunConfig runConfig)
+        => runConfig.Collapsing?.EnableErrorRecovery
+            ?? _config.EnableErrorRecovery;
+
+    private ContainerRecoveryHistoryMode ResolveRecoveryHistoryMode(AgentRunConfig runConfig)
+        => runConfig.Collapsing?.RecoveryHistoryMode
+            ?? _config.RecoveryHistoryMode;
+
+    private bool ResolveHideToolHarnessInteractionsWithinTurn(AgentRunConfig runConfig)
+        => runConfig.Collapsing?.HideToolHarnessInteractionsWithinTurn
+            ?? _config.HideToolHarnessInteractionsWithinTurn;
 
     /// <summary>
     /// Removes stale container protocol sections from ChatOptions.Instructions.

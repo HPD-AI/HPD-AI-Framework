@@ -224,6 +224,16 @@ public class AgentRunConfig
 
     #endregion
 
+    #region Collapsing
+
+    /// <summary>
+    /// Gets or sets per-run overrides for container recovery and model-visible history behavior.
+    /// Null means use the agent's configured collapsing defaults.
+    /// </summary>
+    public CollapsingRunPolicy? Collapsing { get; set; }
+
+    #endregion
+
     #region Structured Output
 
     /// <summary>

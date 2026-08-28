@@ -32,11 +32,14 @@ public enum SubAgentRunConfigFields
     /// <summary>Structured output and custom streaming output behavior.</summary>
     Output = 1 << 6,
 
+    /// <summary>Per-run container recovery and model-visible history behavior.</summary>
+    Collapsing = 1 << 7,
+
     /// <summary>
     /// The framework default: inherit the execution environment without replacing the child agent's
     /// instructions, tools, input, output contract, or evaluation behavior.
     /// </summary>
-    Default = Permissions | Execution | Compaction | Context,
+    Default = Permissions | Execution | Compaction | Context | Collapsing,
 
     /// <summary>Inherits every run-configuration group.</summary>
     All = Default | Instructions | Tools | Output
@@ -303,6 +306,9 @@ internal static class AgentRunConfigInheritance
 
         if (Has(fields, SubAgentRunConfigFields.Compaction))
             result.Compaction = AgentRunConfigSnapshot.CloneCompaction(source.Compaction, composition);
+
+        if (Has(fields, SubAgentRunConfigFields.Collapsing))
+            result.Collapsing = AgentRunConfigSnapshot.CloneCollapsing(source.Collapsing);
 
         if (Has(fields, SubAgentRunConfigFields.Context))
         {
