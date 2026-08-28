@@ -164,7 +164,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         _activeThreadExecutionId = null;
         _scopeIsDurable = false;
         _scope = scope;
-        _state = new AgentTuiSessionState(scope, _registry);
+        _state = new AgentTuiSessionState(scope, _registry, RequestRender);
         AgentTuiPerformanceDiagnostics.ConfigureFromEnvironment(_state.State);
         _state.Shell.Runtime = _runtime;
         _state.Shell.SwitchScopeAsync = SwitchScopeAsync;

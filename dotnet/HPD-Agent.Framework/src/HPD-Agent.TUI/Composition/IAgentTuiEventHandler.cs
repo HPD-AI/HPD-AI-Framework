@@ -11,7 +11,8 @@ public sealed class AgentTuiEventContext
         AgentTuiNavigationModel navigation,
         HpdAgentTuiRegistry registry,
         AgentTuiStateBag state,
-        AgentTuiEventDeliveryMode deliveryMode = AgentTuiEventDeliveryMode.Live)
+        AgentTuiEventDeliveryMode deliveryMode = AgentTuiEventDeliveryMode.Live,
+        Action? requestRender = null)
     {
         Scope = scope ?? throw new ArgumentNullException(nameof(scope));
         Shell = shell ?? throw new ArgumentNullException(nameof(shell));
@@ -19,6 +20,7 @@ public sealed class AgentTuiEventContext
         Registry = registry ?? throw new ArgumentNullException(nameof(registry));
         State = state ?? throw new ArgumentNullException(nameof(state));
         DeliveryMode = deliveryMode;
+        RequestRender = requestRender ?? (static () => { });
     }
 
     public AgentTuiRuntimeScope Scope { get; }
@@ -32,6 +34,9 @@ public sealed class AgentTuiEventContext
     public AgentTuiStateBag State { get; }
 
     public AgentTuiEventDeliveryMode DeliveryMode { get; }
+
+    /// <summary>Requests a new frame after asynchronous projection work changes visible state.</summary>
+    public Action RequestRender { get; }
 }
 
 public interface IAgentTuiEventHandler
