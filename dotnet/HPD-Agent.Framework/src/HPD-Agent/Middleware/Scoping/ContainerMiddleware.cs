@@ -729,7 +729,7 @@ public class ContainerMiddleware : IAgentMiddleware
     ///
     /// Filtering happens in BeforeIterationAsync for within-turn transparency only.
     /// </remarks>
-    public async Task AfterMessageTurnAsync(
+    public async Task BeforeMessageTurnAccountingCloseAsync(
         AfterMessageTurnContext context,
         CancellationToken cancellationToken)
     {
@@ -808,14 +808,14 @@ public class ContainerMiddleware : IAgentMiddleware
             context.UpdateMiddlewareState<ContainerMiddlewareState>(_ => updatedCollapsing);
         }
 
-        // ToolHarness-scoped middleware (015): dispatch AfterMessageTurnAsync to active pipelines (reverse order)
+        // ToolHarness-scoped middleware finalizes before turn accounting closes.
         // Done AFTER state update so pipelines see the final state for the turn.
         if (!collapsingState.ToolHarnessPipelines.IsEmpty)
         {
             foreach (var pipeline in collapsingState.ToolHarnessPipelines.Values.Reverse())
             {
                 if (!pipeline.IsEmpty)
-                    await pipeline.DispatchAfterMessageTurnAsync(context, cancellationToken).ConfigureAwait(false);
+                    await pipeline.DispatchBeforeMessageTurnAccountingCloseAsync(context, cancellationToken).ConfigureAwait(false);
             }
         }
     }

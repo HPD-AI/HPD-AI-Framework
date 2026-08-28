@@ -699,7 +699,7 @@ public class ContainerMiddlewareTests
         var context = CreateAfterMessageTurnContext(state: state, turnHistory: turnHistory);
 
         // Act
-        await middleware.AfterMessageTurnAsync(context, CancellationToken.None);
+        await middleware.BeforeMessageTurnAccountingCloseAsync(context, CancellationToken.None);
 
         // Assert - Both messages remain with all calls/results (containers stay in history for cross-turn context)
         Assert.Equal(2, turnHistory.Count);
@@ -719,6 +719,53 @@ public class ContainerMiddlewareTests
         Assert.Contains(toolMsg.Contents, c => c is FunctionResultContent frc && frc.CallId == "call1");
         Assert.Contains(toolMsg.Contents, c => c is FunctionResultContent frc && frc.CallId == "call2");
         Assert.Contains(toolMsg.Contents, c => c is FunctionResultContent frc && frc.CallId == "call3");
+    }
+
+    [Fact]
+    public async Task AfterMessageTurn_RecoveryHistoryPreserve_LeavesRecoveredInteractionUnchanged()
+    {
+        var (container, memberFunctions) = CreateCollapsedToolHarness(
+            "MathToolHarness", "Math tools", "Add");
+        var middleware = new ContainerMiddleware(
+            new List<AITool> { container, memberFunctions[0] },
+            ImmutableHashSet<string>.Empty,
+            config: new CollapsingConfig
+            {
+                RecoveryHistoryMode = ContainerRecoveryHistoryMode.Rewrite
+            });
+        var turnHistory = new List<ChatMessage>
+        {
+            new(ChatRole.Assistant, [new FunctionCallContent("recovered", "Add")]),
+            new(ChatRole.Tool, [new FunctionResultContent("recovered", string.Empty)])
+        };
+        var loopState = CreateEmptyState();
+        var containerState = new ContainerMiddlewareState()
+            .WithExpandedContainer("MathToolHarness")
+            .WithRecoveredFunction(
+                "recovered",
+                new RecoveryInfo(RecoveryType.HiddenItem, "MathToolHarness", "Add"));
+        loopState = loopState with
+        {
+            MiddlewareState = loopState.MiddlewareState.SetState(
+                "HPD.Agent.ContainerMiddlewareState", containerState)
+        };
+        var context = CreateAfterMessageTurnContext(
+            loopState,
+            turnHistory,
+            new AgentRunConfig
+            {
+                Collapsing = new CollapsingRunPolicy
+                {
+                    RecoveryHistoryMode = ContainerRecoveryHistoryMode.Preserve
+                }
+            });
+
+        await middleware.BeforeMessageTurnAccountingCloseAsync(context, CancellationToken.None);
+
+        var call = Assert.IsType<FunctionCallContent>(Assert.Single(turnHistory[0].Contents));
+        Assert.Equal("Add", call.Name);
+        var result = Assert.IsType<FunctionResultContent>(Assert.Single(turnHistory[1].Contents));
+        Assert.Equal(string.Empty, result.Result);
     }
 
     [Fact]
@@ -742,7 +789,7 @@ public class ContainerMiddlewareTests
         // TurnHistory managed by context - turnHistory;
 
         // Act
-        await middleware.AfterMessageTurnAsync(context, CancellationToken.None);
+        await middleware.BeforeMessageTurnAccountingCloseAsync(context, CancellationToken.None);
 
         // Assert: Text content should remain unchanged
         Assert.Equal(2, turnHistory.Count);
@@ -763,7 +810,7 @@ public class ContainerMiddlewareTests
         // TurnHistory managed by context - turnHistory;
 
         // Act & Assert - should not throw
-        await middleware.AfterMessageTurnAsync(context, CancellationToken.None);
+        await middleware.BeforeMessageTurnAccountingCloseAsync(context, CancellationToken.None);
         Assert.Empty(turnHistory);
     }
 
@@ -824,7 +871,7 @@ public class ContainerMiddlewareTests
         var context = CreateAfterMessageTurnContext(state: state, turnHistory: turnHistory);
 
         // Act
-        await middleware.AfterMessageTurnAsync(context, CancellationToken.None);
+        await middleware.BeforeMessageTurnAccountingCloseAsync(context, CancellationToken.None);
 
         // Assert: Both messages remain with all container and regular calls (containers stay in history for cross-turn context)
         Assert.Equal(2, turnHistory.Count);
@@ -880,7 +927,7 @@ public class ContainerMiddlewareTests
         var context = CreateAfterMessageTurnContext(state: state, turnHistory: turnHistory);
 
         // Act
-        await middleware.AfterMessageTurnAsync(context, CancellationToken.None);
+        await middleware.BeforeMessageTurnAccountingCloseAsync(context, CancellationToken.None);
 
         // Assert: All messages remain (containers stay in history for cross-turn context)
         Assert.Equal(4, turnHistory.Count);
@@ -966,7 +1013,7 @@ public class ContainerMiddlewareTests
         var context = CreateAfterMessageTurnContext(state: state, turnHistory: turnHistory);
 
         // Act
-        await middleware.AfterMessageTurnAsync(context, CancellationToken.None);
+        await middleware.BeforeMessageTurnAccountingCloseAsync(context, CancellationToken.None);
 
         // Assert: All calls remain (containers stay in history for cross-turn context)
         Assert.Equal(2, turnHistory.Count);
@@ -1013,7 +1060,7 @@ public class ContainerMiddlewareTests
         // No EphemeralCallIds in Properties
 
         // Act
-        await middleware.AfterMessageTurnAsync(context, CancellationToken.None);
+        await middleware.BeforeMessageTurnAccountingCloseAsync(context, CancellationToken.None);
 
         // Assert: No filtering should occur
         Assert.Single(turnHistory);
@@ -1086,13 +1133,14 @@ public class ContainerMiddlewareTests
 
     private static AfterMessageTurnContext CreateAfterMessageTurnContext(
         AgentLoopState? state = null,
-        List<ChatMessage>? turnHistory = null)
+        List<ChatMessage>? turnHistory = null,
+        AgentRunConfig? runConfig = null)
     {
         var agentContext = CreateAgentContext(state);
         var finalResponse = new ChatResponse(new ChatMessage(ChatRole.Assistant, "Test response"));
         turnHistory ??= new List<ChatMessage>();
 
-        return agentContext.AsAfterMessageTurn(finalResponse, turnHistory, new AgentRunConfig());
+        return agentContext.AsAfterMessageTurn(finalResponse, turnHistory, runConfig ?? new AgentRunConfig());
     }
 
     private static (AIFunction Container, AIFunction[] Members) CreateCollapsedToolHarness(
