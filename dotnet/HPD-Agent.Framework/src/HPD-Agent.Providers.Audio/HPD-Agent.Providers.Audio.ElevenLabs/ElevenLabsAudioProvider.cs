@@ -4,12 +4,12 @@
 using System.Text.Json;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
-using HPD.Agent.Secrets;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Providers.Audio.ElevenLabs;
 
 [HpdProvider("elevenlabs", "ElevenLabs Audio")]
+[HpdProviderBackend("platform", ProviderAuthenticationKind.ApiKey, IsDefaultBackend = true, IsDefaultAuthentication = true, DefaultSecretKey = "elevenlabs:ApiKey")]
 [HpdProviderFamily(ProviderClientFamily.TextToSpeech)]
 [HpdProviderFamily(ProviderClientFamily.SpeechToText)]
 [HpdProviderPayload(ProviderClientFamily.TextToSpeech, ProviderPayloadKind.Configuration, typeof(ElevenLabsTtsConfig), typeof(ElevenLabsTtsJsonContext))]
@@ -17,7 +17,9 @@ namespace HPD.Agent.Providers.Audio.ElevenLabs;
 [HpdProviderPayload(ProviderClientFamily.TextToSpeech, ProviderPayloadKind.OperationOptions, typeof(ElevenLabsTtsOptions), typeof(ElevenLabsTtsJsonContext))]
 [HpdProviderPayload(ProviderClientFamily.SpeechToText, ProviderPayloadKind.OperationOptions, typeof(ElevenLabsSttOptions), typeof(ElevenLabsTtsJsonContext))]
 [HpdProviderSecretAlias("elevenlabs:ApiKey", "ELEVENLABS_API_KEY")]
-public sealed class ElevenLabsAudioProvider : ITextToSpeechClientProvider, ISpeechToTextClientProvider
+public sealed class ElevenLabsAudioProvider : IProvider,
+    IProviderClientFactory<ITextToSpeechClient>,
+    IProviderClientFactory<ISpeechToTextClient>
 {
     public const string Key = "elevenlabs";
     public const string DefaultBaseUrl = "https://api.elevenlabs.io/v1";
@@ -32,22 +34,23 @@ public sealed class ElevenLabsAudioProvider : ITextToSpeechClientProvider, ISpee
 
     public string DisplayName => "ElevenLabs Audio";
 
-    public ISpeechToTextClient CreateSpeechToTextClient(
-        ProviderClientConfig config,
-        IServiceProvider? services = null)
-    {
-        ArgumentNullException.ThrowIfNull(config);
+    ProviderClientCredentialBinding IProviderClientFactory<ISpeechToTextClient>.ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor) => ResolveBinding(descriptor);
+    ProviderClientCredentialBinding IProviderClientFactory<ITextToSpeechClient>.ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor) => ResolveBinding(descriptor);
 
+    ValueTask<ProviderClientConstruction<ISpeechToTextClient>> IProviderClientFactory<ISpeechToTextClient>.CreateAsync(
+        ProviderClientConstructionContext context, CancellationToken cancellationToken)
+    {
+        ValidateContext(context, cancellationToken);
+        var config = context.EffectiveConfig;
         var providerConfig = ReadSttProviderConfig(config);
-        var providerOptions = (config as SpeechToTextClientConfig)?.ProviderOptions as ElevenLabsSttOptions;
-        var familyConfig = config as SpeechToTextClientConfig;
+        var providerOptions = ReadSttOptions(config);
         var runtimeSettings = new ElevenLabsSttRuntimeSettings
         {
-            BaseUrl = config.Endpoint,
+            BaseUrl = config.Endpoint?.AbsoluteUri,
             WebSocketBaseUrl = providerConfig.WebSocketBaseUrl,
             DefaultModelId = FirstNonWhiteSpace(config.ModelName, DefaultSpeechToTextModel),
             RealtimeModelId = providerOptions?.RealtimeModelId,
-            LanguageCode = familyConfig?.SpeechLanguage,
+            LanguageCode = config.FamilyDefaults.Language,
             Diarize = providerOptions?.Diarize,
             TagAudioEvents = providerOptions?.TagAudioEvents,
             TimestampsGranularity = providerOptions?.TimestampsGranularity,
@@ -64,28 +67,27 @@ public sealed class ElevenLabsAudioProvider : ITextToSpeechClientProvider, ISpee
             EnableLogging = providerOptions?.EnableLogging,
             StreamingChunkSizeBytes = providerOptions?.StreamingChunkSizeBytes
         };
-        var apiKey = ResolveApiKey(config, services, "speech-to-text");
-        var httpClient = services?.GetService(typeof(HttpClient)) as HttpClient;
-        return new ElevenLabsSpeechToTextClient(apiKey, runtimeSettings, httpClient);
+        var apiKey = ProviderClientConstructionUtilities.GetRequiredApiKey(context.CredentialBinding);
+        var httpClient = context.Services.HttpClientFactory.CreateClient("hpd.elevenlabs.speech-to-text");
+        ISpeechToTextClient client = new ElevenLabsSpeechToTextClient(apiKey, runtimeSettings, httpClient);
+        return Construct(client, httpClient);
     }
 
-    public ITextToSpeechClient CreateTextToSpeechClient(
-        ProviderClientConfig config,
-        IServiceProvider? services = null)
+    ValueTask<ProviderClientConstruction<ITextToSpeechClient>> IProviderClientFactory<ITextToSpeechClient>.CreateAsync(
+        ProviderClientConstructionContext context, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(config);
-
+        ValidateContext(context, cancellationToken);
+        var config = context.EffectiveConfig;
         var providerConfig = ReadProviderConfig(config);
-        var providerOptions = (config as TextToSpeechClientConfig)?.ProviderOptions as ElevenLabsTtsOptions;
-        var familyConfig = config as TextToSpeechClientConfig;
+        var providerOptions = ReadTtsOptions(config);
         var runtimeSettings = new ElevenLabsTtsRuntimeSettings
         {
-            BaseUrl = config.Endpoint,
+            BaseUrl = config.Endpoint?.AbsoluteUri,
             WebSocketBaseUrl = providerConfig.WebSocketBaseUrl,
             DefaultModelId = FirstNonWhiteSpace(config.ModelName, DefaultTextToSpeechModel),
-            DefaultVoiceId = FirstNonWhiteSpace(familyConfig?.VoiceId, DefaultVoiceId),
-            OutputFormat = FirstNonWhiteSpace(familyConfig?.AudioFormat, DefaultOutputFormat),
-            Speed = familyConfig?.Speed,
+            DefaultVoiceId = FirstNonWhiteSpace(config.FamilyDefaults.VoiceId, DefaultVoiceId),
+            OutputFormat = FirstNonWhiteSpace(config.FamilyDefaults.MediaType, DefaultOutputFormat),
+            Speed = config.FamilyDefaults.Speed,
             Stability = providerOptions?.Stability,
             SimilarityBoost = providerOptions?.SimilarityBoost,
             Style = providerOptions?.Style,
@@ -96,9 +98,10 @@ public sealed class ElevenLabsAudioProvider : ITextToSpeechClientProvider, ISpee
             SyncAlignment = providerOptions?.SyncAlignment,
             InactivityTimeout = providerOptions?.InactivityTimeout
         };
-        var apiKey = ResolveApiKey(config, services, "text-to-speech");
-        var httpClient = services?.GetService(typeof(HttpClient)) as HttpClient;
-        return new ElevenLabsTextToSpeechClient(apiKey, runtimeSettings, httpClient);
+        var apiKey = ProviderClientConstructionUtilities.GetRequiredApiKey(context.CredentialBinding);
+        var httpClient = context.Services.HttpClientFactory.CreateClient("hpd.elevenlabs.text-to-speech");
+        ITextToSpeechClient client = new ElevenLabsTextToSpeechClient(apiKey, runtimeSettings, httpClient);
+        return Construct(client, httpClient);
     }
 
     public IProviderErrorHandler CreateErrorHandler() => new ElevenLabsErrorHandler();
@@ -150,21 +153,20 @@ public sealed class ElevenLabsAudioProvider : ITextToSpeechClientProvider, ISpee
     };
 
     public ProviderValidationResult ValidateConfiguration(
-        ProviderClientConfig config,
-        ProviderClientFamily family)
+        EffectiveProviderClientConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
 
         var errors = new List<string>();
 
-        if (family is not (ProviderClientFamily.SpeechToText or ProviderClientFamily.TextToSpeech))
+        if (config.Family is not (ProviderClientFamily.SpeechToText or ProviderClientFamily.TextToSpeech))
         {
-            errors.Add($"ElevenLabs audio does not support provider family '{family}'.");
+            errors.Add($"ElevenLabs audio does not support provider family '{config.Family}'.");
         }
 
-        if (config.ProviderConfig is not null)
+        if (!config.ProviderConfiguration.CanonicalPayload.IsEmpty)
         {
-            if (family == ProviderClientFamily.SpeechToText)
+            if (config.Family == ProviderClientFamily.SpeechToText)
             {
                 _ = ReadSttProviderConfig(config);
             }
@@ -174,14 +176,7 @@ public sealed class ElevenLabsAudioProvider : ITextToSpeechClientProvider, ISpee
             }
         }
 
-        if (string.IsNullOrWhiteSpace(config.ApiKey) &&
-            string.IsNullOrWhiteSpace(System.Environment.GetEnvironmentVariable("ELEVENLABS_API_KEY")))
-        {
-            var label = family == ProviderClientFamily.SpeechToText ? "speech-to-text" : "text-to-speech";
-            errors.Add($"ElevenLabs API key is required for {label}.");
-        }
-
-        if ((config as TextToSpeechClientConfig)?.ProviderOptions is ElevenLabsTtsOptions options)
+        if (config.Family == ProviderClientFamily.TextToSpeech && ReadTtsOptions(config) is { } options)
         {
             AddRangeError(errors, options.Stability, "stability");
             AddRangeError(errors, options.SimilarityBoost, "similarityBoost");
@@ -193,51 +188,31 @@ public sealed class ElevenLabsAudioProvider : ITextToSpeechClientProvider, ISpee
             : ProviderValidationResult.Failure(errors.ToArray());
     }
 
-    private static string ResolveApiKey(
-        ProviderClientConfig config,
-        IServiceProvider? services,
-        string familyLabel)
-    {
-        var configured = FirstNonWhiteSpace(config.ApiKey);
-        if (configured is not null)
-        {
-            return configured;
-        }
+    private static ElevenLabsTtsConfig ReadProviderConfig(EffectiveProviderClientConfig config) =>
+        config.ProviderConfiguration.CanonicalPayload.IsEmpty ? new ElevenLabsTtsConfig() :
+            JsonSerializer.Deserialize(config.ProviderConfiguration.CanonicalPayload.AsSpan(), ElevenLabsTtsJsonContext.Default.ElevenLabsTtsConfig) ?? new ElevenLabsTtsConfig();
 
-        var secrets = services?.GetService(typeof(ISecretResolver)) as ISecretResolver;
-        if (secrets is not null)
-        {
-            var resolved = secrets
-                .ResolveAsync("elevenlabs:ApiKey", CancellationToken.None)
-                .GetAwaiter()
-                .GetResult();
-            if (!string.IsNullOrWhiteSpace(resolved?.Value))
-            {
-                return resolved.Value.Value;
-            }
-        }
+    private static ElevenLabsSttConfig ReadSttProviderConfig(EffectiveProviderClientConfig config) =>
+        config.ProviderConfiguration.CanonicalPayload.IsEmpty ? new ElevenLabsSttConfig() :
+            JsonSerializer.Deserialize(config.ProviderConfiguration.CanonicalPayload.AsSpan(), ElevenLabsTtsJsonContext.Default.ElevenLabsSttConfig) ?? new ElevenLabsSttConfig();
 
-        var environmentValue = System.Environment.GetEnvironmentVariable("ELEVENLABS_API_KEY");
-        if (!string.IsNullOrWhiteSpace(environmentValue))
-        {
-            return environmentValue;
-        }
+    private static ElevenLabsTtsOptions? ReadTtsOptions(EffectiveProviderClientConfig config) =>
+        config.FamilyOperation.CanonicalPayload.IsEmpty ? null :
+            JsonSerializer.Deserialize(config.FamilyOperation.CanonicalPayload.AsSpan(), ElevenLabsTtsJsonContext.Default.ElevenLabsTtsOptions);
 
-        throw new InvalidOperationException(
-            $"ElevenLabs API key is required for {familyLabel}. " +
-            "Set ProviderClientConfig.ApiKey, provide an ISecretResolver with key " +
-            "'elevenlabs:ApiKey', or set ELEVENLABS_API_KEY.");
-    }
+    private static ElevenLabsSttOptions? ReadSttOptions(EffectiveProviderClientConfig config) =>
+        config.FamilyOperation.CanonicalPayload.IsEmpty ? null :
+            JsonSerializer.Deserialize(config.FamilyOperation.CanonicalPayload.AsSpan(), ElevenLabsTtsJsonContext.Default.ElevenLabsSttOptions);
 
-    private static ElevenLabsTtsConfig ReadProviderConfig(ProviderClientConfig config)
-    {
-        return config.ProviderConfig as ElevenLabsTtsConfig ?? new ElevenLabsTtsConfig();
-    }
+    private static ProviderClientCredentialBinding ResolveBinding(ProviderClientBindingDescriptor descriptor)
+    { ArgumentNullException.ThrowIfNull(descriptor); return ProviderClientCredentialBinding.ConstructionTime; }
 
-    private static ElevenLabsSttConfig ReadSttProviderConfig(ProviderClientConfig config)
-    {
-        return config.ProviderConfig as ElevenLabsSttConfig ?? new ElevenLabsSttConfig();
-    }
+    private static void ValidateContext(ProviderClientConstructionContext context, CancellationToken cancellationToken)
+    { ArgumentNullException.ThrowIfNull(context); cancellationToken.ThrowIfCancellationRequested(); }
+
+    private static ValueTask<ProviderClientConstruction<TClient>> Construct<TClient>(TClient client, HttpClient httpClient) where TClient : class =>
+        ValueTask.FromResult(new ProviderClientConstruction<TClient>
+        { Client = client, Owner = ProviderClientConstructionUtilities.Own(httpClient, client) });
 
     private static void AddRangeError(List<string> errors, double? value, string name)
     {

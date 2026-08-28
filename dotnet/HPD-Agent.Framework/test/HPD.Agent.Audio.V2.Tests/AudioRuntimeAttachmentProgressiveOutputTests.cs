@@ -127,7 +127,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         }
 
         var afterContext = CreateAfterMessageTurnContext("Hello there. Second sentence.", contentStore);
-        await attachment.AfterMessageTurnAsync(afterContext, CancellationToken.None);
+        await attachment.BeforeMessageTurnAccountingCloseAsync(afterContext, CancellationToken.None);
 
         Assert.Equal(2, tts.Texts.Count);
         Assert.Contains("Hello there.", tts.Texts);
@@ -158,7 +158,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             "Final response was produced without progressive synthesis.",
             contentStore,
             responseId: "response-final-unsynthesized");
-        await attachment.AfterMessageTurnAsync(afterContext, CancellationToken.None);
+        await attachment.BeforeMessageTurnAccountingCloseAsync(afterContext, CancellationToken.None);
 
         Assert.Equal(3, tts.Texts.Count);
         Assert.Contains("Hello there.", tts.Texts);

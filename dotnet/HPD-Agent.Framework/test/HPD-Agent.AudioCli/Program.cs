@@ -333,11 +333,21 @@ foreach (var tool in realtimeMathTools)
     builder.WithNativeFunction(tool);
 }
 
+ProviderAuthentication openAiAuthentication = string.IsNullOrWhiteSpace(apiKey)
+    ? new ApiKeyProviderAuthentication { SecretKey = "openai:ApiKey" }
+    : builder.RegisterExplicitApiKey(apiKey.AsSpan());
+ProviderAuthentication elevenLabsAuthentication = string.IsNullOrWhiteSpace(elevenLabsApiKey)
+    ? new ApiKeyProviderAuthentication { SecretKey = "elevenlabs:ApiKey" }
+    : builder.RegisterExplicitApiKey(elevenLabsApiKey.AsSpan());
+
 builder.Config.SetChatClientConfig(new ChatClientConfig
 {
-    ProviderKey = OpenAIAudioProvider.Key,
+    Provider = new ProviderReference
+    {
+        Key = OpenAIAudioProvider.Key,
+        Authentication = openAiAuthentication
+    },
     ModelName = chatModel,
-    ApiKey = apiKey,
     Endpoint = openAIEndpoint
 });
 
@@ -347,9 +357,12 @@ if (realtimeRequested)
         ProviderClientFamily.Realtime,
         new RealtimeClientConfig
         {
-            ProviderKey = OpenAIAudioProvider.Key,
+            Provider = new ProviderReference
+            {
+                Key = OpenAIAudioProvider.Key,
+                Authentication = openAiAuthentication
+            },
             ModelName = realtimeModel,
-            ApiKey = apiKey,
             Endpoint = openAIEndpoint
         });
 }
@@ -370,9 +383,12 @@ if (ttsRequested)
 
     var ttsProviderConfig = new TextToSpeechClientConfig
     {
-        ProviderKey = ElevenLabsAudioProvider.Key,
+        Provider = new ProviderReference
+        {
+            Key = ElevenLabsAudioProvider.Key,
+            Authentication = elevenLabsAuthentication
+        },
         ModelName = ttsModel!,
-        ApiKey = elevenLabsApiKey,
         VoiceId = ttsVoice,
         AudioFormat = ttsFormat,
         Speed = ttsSpeed.HasValue ? (float)ttsSpeed.Value : null
@@ -388,16 +404,22 @@ if (ttsRequested)
 var sttProviderConfig = sttUsesElevenLabs
     ? new SpeechToTextClientConfig
     {
-        ProviderKey = ElevenLabsAudioProvider.Key,
+        Provider = new ProviderReference
+        {
+            Key = ElevenLabsAudioProvider.Key,
+            Authentication = elevenLabsAuthentication
+        },
         ModelName = sttModel,
-        ApiKey = elevenLabsApiKey,
         SpeechLanguage = language
     }
     : new SpeechToTextClientConfig
     {
-        ProviderKey = OpenAIAudioProvider.Key,
+        Provider = new ProviderReference
+        {
+            Key = OpenAIAudioProvider.Key,
+            Authentication = openAiAuthentication
+        },
         ModelName = sttModel,
-        ApiKey = apiKey,
         Endpoint = openAIEndpoint
     };
 if (sttUsesElevenLabs)
@@ -433,9 +455,15 @@ builder.Config.SetClientConfig(ProviderClientFamily.SpeechToText, sttProviderCon
 
 if (options.SttStreamingSmoke)
 {
-    await RunStreamingSttSmokeAsync(
+    await using var smokeAgent = await builder.BuildAsync();
+    var familyRuntime = new ProviderFamilyClientRuntime(
+        ProviderCompositionHost.Current
+            ?? throw new InvalidOperationException("Generated provider composition is unavailable."),
         builder.ProviderRegistry,
-        sttProviderConfig,
+        builder.ServiceProvider ?? throw new InvalidOperationException("Provider runtime services are unavailable."));
+    await RunStreamingSttSmokeAsync(
+        familyRuntime,
+        builder.Config,
         audioPaths,
         options.SttSampleRate,
         language);
@@ -481,16 +509,6 @@ var audioOptions = new AudioRuntimeAttachmentOptions
     AssistantOutputFormat = ttsFormat,
     AssistantOutputSpeed = ttsSpeed
 };
-audioOptions.UseSpeechToTextProvider(
-    builder.ProviderRegistry,
-    new InputMediaSpeechToTextProviderOptions
-    {
-        ProviderKey = sttProviderConfig.ProviderKey,
-        ModelId = sttModel,
-        SpeechLanguage = language,
-        TextLanguage = textLanguage,
-        ProviderConfig = sttProviderConfig
-    });
 var audioAttachment = new AudioRuntimeAttachment(audioOptions);
 
 builder
@@ -1041,8 +1059,8 @@ static string ExtensionFor(string mediaType) =>
     };
 
 static async Task RunStreamingSttSmokeAsync(
-    IProviderRegistry providerRegistry,
-    ProviderClientConfig providerConfig,
+    ProviderFamilyClientRuntime familyRuntime,
+    AgentConfig agentConfig,
     IReadOnlyList<string> audioPaths,
     int? sampleRate,
     string? language)
@@ -1053,11 +1071,15 @@ static async Task RunStreamingSttSmokeAsync(
         return;
     }
 
-    var provider = providerRegistry.GetRequiredProvider<ISpeechToTextClientProvider>(
-        providerConfig.ProviderKey ?? throw new InvalidOperationException("STT provider key is required."));
-    using var client = provider.CreateSpeechToTextClient(providerConfig);
+    var construction = await familyRuntime.CreateAsync<ISpeechToTextClient>(
+        agentConfig,
+        ProviderClientFamily.SpeechToText);
+    await using var owner = construction.Owner;
+    var client = construction.Client;
+    var providerConfig = agentConfig.Clients.SpeechToText
+        ?? throw new InvalidOperationException("STT provider configuration is required.");
 
-    Console.WriteLine($"[stt-streaming-smoke] provider={providerConfig.ProviderKey} model={providerConfig.ModelName} sampleRate={sampleRate ?? 16000}");
+    Console.WriteLine($"[stt-streaming-smoke] provider={providerConfig.Provider?.Key} model={providerConfig.ModelName} sampleRate={sampleRate ?? 16000}");
 
     for (var index = 0; index < audioPaths.Count; index++)
     {

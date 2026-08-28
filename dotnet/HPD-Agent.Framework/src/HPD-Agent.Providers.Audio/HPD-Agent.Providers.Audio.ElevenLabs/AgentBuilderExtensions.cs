@@ -16,7 +16,7 @@ public static class AgentBuilderExtensions
     public static AgentBuilder WithElevenLabsSpeechToText(
         this AgentBuilder builder,
         string? model = null,
-        string? apiKey = null,
+        ProviderAuthentication? authentication = null,
         string? language = null,
         Action<ElevenLabsSttConfig>? configureClient = null,
         Action<ElevenLabsSttOptions>? configureOptions = null)
@@ -30,8 +30,11 @@ public static class AgentBuilderExtensions
 
         var clientConfig = new SpeechToTextClientConfig
         {
-            ProviderKey = ElevenLabsAudioProvider.Key,
-            ApiKey = apiKey,
+            Provider = new ProviderReference
+            {
+                Key = ElevenLabsAudioProvider.Key,
+                Authentication = authentication ?? new ApiKeyProviderAuthentication { SecretKey = "elevenlabs:ApiKey" }
+            },
             ModelName = model,
             SpeechLanguage = language,
             ProviderConfig = providerConfig,
@@ -42,13 +45,17 @@ public static class AgentBuilderExtensions
         return builder;
     }
 
+    /// <summary>Configures ElevenLabs speech-to-text with a literal runtime-only API key.</summary>
+    public static AgentBuilder WithElevenLabsSpeechToText(this AgentBuilder builder, string? model, ReadOnlySpan<char> apiKey, string? language = null, Action<ElevenLabsSttConfig>? configureClient = null, Action<ElevenLabsSttOptions>? configureOptions = null) =>
+        builder.WithElevenLabsSpeechToText(model, builder.RegisterExplicitApiKey(apiKey), language, configureClient, configureOptions);
+
     /// <summary>
     /// Configures ElevenLabs as the text-to-speech provider.
     /// </summary>
     public static AgentBuilder WithElevenLabsTextToSpeech(
         this AgentBuilder builder,
         string? model = null,
-        string? apiKey = null,
+        ProviderAuthentication? authentication = null,
         string? voice = null,
         string? outputFormat = null,
         float? speed = null,
@@ -64,8 +71,11 @@ public static class AgentBuilderExtensions
 
         var clientConfig = new TextToSpeechClientConfig
         {
-            ProviderKey = ElevenLabsAudioProvider.Key,
-            ApiKey = apiKey,
+            Provider = new ProviderReference
+            {
+                Key = ElevenLabsAudioProvider.Key,
+                Authentication = authentication ?? new ApiKeyProviderAuthentication { SecretKey = "elevenlabs:ApiKey" }
+            },
             ModelName = model,
             VoiceId = voice,
             AudioFormat = outputFormat,
@@ -77,4 +87,8 @@ public static class AgentBuilderExtensions
         builder.Config.SetClientConfig(ProviderClientFamily.TextToSpeech, clientConfig);
         return builder;
     }
+
+    /// <summary>Configures ElevenLabs text-to-speech with a literal runtime-only API key.</summary>
+    public static AgentBuilder WithElevenLabsTextToSpeech(this AgentBuilder builder, string? model, ReadOnlySpan<char> apiKey, string? voice = null, string? outputFormat = null, float? speed = null, Action<ElevenLabsTtsConfig>? configureClient = null, Action<ElevenLabsTtsOptions>? configureOptions = null) =>
+        builder.WithElevenLabsTextToSpeech(model, builder.RegisterExplicitApiKey(apiKey), voice, outputFormat, speed, configureClient, configureOptions);
 }

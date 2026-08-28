@@ -2,15 +2,8 @@ using HPD.Agent.Providers;
 
 namespace HPD.Agent.Audio.ProviderContracts.VoiceActivity;
 
-/// <summary>Creates one typed voice-activity source product for the selected provider family.</summary>
-public interface IVoiceActivitySourceProviderV1 : IProvider
-{
-    /// <summary>Creates a source from the captured provider configuration and lifecycle context.</summary>
-    VoiceActivitySourceProductV1 CreateVoiceActivitySource(
-        ProviderClientConfig configuration,
-        ProviderComponentLifetimeContext context,
-        IServiceProvider? services = null);
-}
+/// <summary>Creates one typed voice-activity source through the uniform asynchronous provider factory contract.</summary>
+public interface IVoiceActivitySourceProviderV1 : IProvider, IProviderClientFactory<VoiceActivitySourceProductV1>;
 
 /// <summary>Closes the two executable voice-activity source ownership models.</summary>
 public abstract record VoiceActivitySourceProductV1
@@ -45,44 +38,6 @@ public abstract record VoiceActivitySourceProductV1
 
         /// <summary>Gets the provider-owned source.</summary>
         public ITransferredVoiceActivitySourceV1 Source { get; }
-    }
-}
-
-/// <summary>Creates the typed Audio product from one already-resolved provider-family handle.</summary>
-public static class VoiceActivitySourceProviderBindingV1
-{
-    /// <summary>Binds a statically supplied provider using its declared voice-activity lifetime.</summary>
-    public static VoiceActivitySourceProductV1 Create(
-        IVoiceActivitySourceProviderV1 provider,
-        ProviderClientConfig configuration,
-        ProviderComponentLifetimeContext context,
-        IServiceProvider? services = null)
-    {
-        ArgumentNullException.ThrowIfNull(provider);
-        ArgumentNullException.ThrowIfNull(configuration);
-        ArgumentNullException.ThrowIfNull(context);
-        if (!provider.GetMetadata().Families.TryGetValue(ProviderClientFamily.VoiceActivityDetection, out var descriptor))
-            throw new ArgumentException("The provider does not declare voice activity detection.", nameof(provider));
-
-        return Create(new ResolvedProviderFamily<IVoiceActivitySourceProviderV1>(provider,
-            ProviderClientFamily.VoiceActivityDetection, configuration, descriptor.Lifetime), context, services);
-    }
-
-    /// <summary>Creates the product without another registry lookup or mutable configuration handoff.</summary>
-    public static VoiceActivitySourceProductV1 Create(
-        ResolvedProviderFamily<IVoiceActivitySourceProviderV1> resolved,
-        ProviderComponentLifetimeContext context,
-        IServiceProvider? services = null)
-    {
-        ArgumentNullException.ThrowIfNull(resolved);
-        ArgumentNullException.ThrowIfNull(context);
-        if (resolved.Family != ProviderClientFamily.VoiceActivityDetection)
-            throw new ArgumentException("The resolved family is not voice activity detection.", nameof(resolved));
-        if (context.Lifetime != resolved.Lifetime)
-            throw new ArgumentException("The component lifecycle context contradicts the resolved family handle.", nameof(context));
-
-        return resolved.Provider.CreateVoiceActivitySource(resolved.Configuration, context, services)
-            ?? throw new InvalidOperationException("The voice activity provider returned no source product.");
     }
 }
 
@@ -162,38 +117,5 @@ public static class VoiceActivitySourceMiddlewarePipelineV1
             current = registration.Middleware.Wrap(current, context)
                 ?? throw new InvalidOperationException($"Voice activity middleware '{registration.Key}' returned no product.");
         return current;
-    }
-}
-
-/// <summary>Projects host, provider, agent and run layers into one Voice Activity family plan.</summary>
-public static class VoiceActivityProviderConfigurationV1
-{
-    /// <summary>Resolves Audio provider configuration using the shared family precedence law.</summary>
-    public static ResolvedProviderFamilyPlan Resolve(
-        IProviderDescriptorRegistry descriptors,
-        ProviderClientConfig? hostFallback,
-        ProviderClientConfig? providerProfile,
-        ProviderClientConfig? agentDefault,
-        ProviderClientConfig? runOverride) =>
-        ProviderFamilyPlanResolver.Resolve(ProviderClientFamily.VoiceActivityDetection, descriptors,
-            hostFallback, providerProfile, agentDefault, runOverride);
-
-    /// <summary>Creates an independent provider construction configuration from a resolved plan.</summary>
-    public static ProviderClientConfig ToConfiguration(ResolvedProviderFamilyPlan plan)
-    {
-        ArgumentNullException.ThrowIfNull(plan);
-        if (plan.Family != ProviderClientFamily.VoiceActivityDetection)
-            throw new ArgumentException("The resolved plan is not for voice activity detection.", nameof(plan));
-        return new ProviderClientConfig
-        {
-            ProviderKey = plan.ProviderKey,
-            ModelName = plan.ModelName,
-            Endpoint = plan.Endpoint,
-            AuthenticationKey = plan.AuthenticationKey,
-            CustomHeaders = plan.CustomHeaders is null
-                ? null
-                : new Dictionary<string, string>(plan.CustomHeaders, StringComparer.OrdinalIgnoreCase),
-            ProviderConfig = plan.ProviderConfig,
-        };
     }
 }

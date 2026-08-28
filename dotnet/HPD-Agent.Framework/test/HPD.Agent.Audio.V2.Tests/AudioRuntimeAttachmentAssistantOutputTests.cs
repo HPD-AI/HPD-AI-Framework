@@ -43,7 +43,7 @@ public sealed class AudioRuntimeAttachmentAssistantOutputTests
                 }));
             });
 
-        await attachment.AfterMessageTurnAsync(context, CancellationToken.None);
+        await attachment.BeforeMessageTurnAccountingCloseAsync(context, CancellationToken.None);
 
         Assert.Empty(attachment.LastOutputResults);
         Assert.Empty(readyEvents);
@@ -60,7 +60,7 @@ public sealed class AudioRuntimeAttachmentAssistantOutputTests
         });
         var context = CreateAfterMessageTurnContext("authority is required");
 
-        await attachment.AfterMessageTurnAsync(context, CancellationToken.None);
+        await attachment.BeforeMessageTurnAccountingCloseAsync(context, CancellationToken.None);
 
         Assert.Empty(attachment.LastOutputResults);
         Assert.Empty(attachment.LastOutputLedger);
@@ -101,7 +101,7 @@ public sealed class AudioRuntimeAttachmentAssistantOutputTests
                 }));
             });
 
-        await attachment.AfterMessageTurnAsync(context, CancellationToken.None);
+        await attachment.BeforeMessageTurnAccountingCloseAsync(context, CancellationToken.None);
 
         var result = Assert.Single(attachment.LastOutputResults);
         Assert.Equal(AssistantTextToSpeechOutputStatus.SynthesizedNotPlayed, result.Status);
@@ -184,7 +184,7 @@ public sealed class AudioRuntimeAttachmentAssistantOutputTests
                 }));
             });
 
-        await attachment.AfterMessageTurnAsync(context, CancellationToken.None);
+        await attachment.BeforeMessageTurnAccountingCloseAsync(context, CancellationToken.None);
 
         var result = Assert.Single(attachment.LastOutputResults);
         Assert.Equal(AssistantTextToSpeechOutputStatus.SynthesisFailedTextOnly, result.Status);
@@ -238,7 +238,7 @@ public sealed class AudioRuntimeAttachmentAssistantOutputTests
                 }));
             });
 
-        await attachment.AfterMessageTurnAsync(context, CancellationToken.None);
+        await attachment.BeforeMessageTurnAccountingCloseAsync(context, CancellationToken.None);
 
         var result = Assert.Single(attachment.LastOutputResults);
         Assert.Equal(AssistantTextToSpeechOutputStatus.SynthesisFailedTextOnly, result.Status);
@@ -280,7 +280,7 @@ public sealed class AudioRuntimeAttachmentAssistantOutputTests
                 }));
             });
 
-        await attachment.AfterMessageTurnAsync(context, CancellationToken.None);
+        await attachment.BeforeMessageTurnAccountingCloseAsync(context, CancellationToken.None);
 
         var result = Assert.Single(attachment.LastOutputResults);
         Assert.Equal(AssistantTextToSpeechOutputStatus.SynthesizedNotPlayed, result.Status);

@@ -28,7 +28,8 @@ public sealed class AudioFunctionCallingValidationTests
         });
         chatClient.EnqueueTextResponse("The answer is 20.");
 
-        var agent = await new AgentBuilder(CreateConfig(store), new TestProviderRegistry(chatClient))
+        var agent = await new AgentBuilder(CreateConfig(store))
+            .WithChatClient(chatClient)
             .WithName("audio-function-validation-agent")
             .WithToolHarness<MathToolHarness>()
             .BuildAsync();
@@ -117,7 +118,7 @@ public sealed class AudioFunctionCallingValidationTests
             {
                 Chat = new ChatClientConfig
                 {
-                    ProviderKey = "test",
+                    Provider = new ProviderReference { Key = "test" },
                     ModelName = "test-model"
                 }
             },
@@ -214,61 +215,4 @@ public sealed class AudioFunctionCallingValidationTests
         private sealed record QueuedResponse(string? Text, FunctionCallContent? ToolCall);
     }
 
-    private sealed class TestProviderRegistry(IChatClient chatClient) : IProviderRegistry
-    {
-        public IProvider? GetProvider(string providerKey)
-            => string.Equals(providerKey, "test", StringComparison.Ordinal)
-                ? new TestChatClientProvider(chatClient)
-                : null;
-
-        public TProvider? GetProvider<TProvider>(string providerKey)
-            where TProvider : class, IProvider
-            => GetProvider(providerKey) as TProvider;
-
-        public IReadOnlyCollection<string> GetRegisteredProviders() => ["test"];
-
-        public void Register(IProvider provider)
-        {
-        }
-
-        public bool IsRegistered(string providerKey) => string.Equals(providerKey, "test", StringComparison.Ordinal);
-
-        public void Clear()
-        {
-        }
-    }
-
-    private sealed class TestChatClientProvider(IChatClient chatClient) : IChatClientProvider
-    {
-        public string ProviderKey => "test";
-
-        public string DisplayName => "Test Provider";
-
-        public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
-            => chatClient;
-
-        public IProviderErrorHandler CreateErrorHandler() => new GenericErrorHandler();
-
-        public ProviderMetadata GetMetadata()
-            => new()
-            {
-                ProviderKey = ProviderKey,
-                DisplayName = DisplayName,
-                Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
-                {
-                    [ProviderClientFamily.Chat] = new()
-                    {
-                        Family = ProviderClientFamily.Chat,
-                        Capabilities = new Dictionary<string, object?>
-                        {
-                            ["SupportsStreaming"] = true,
-                            ["SupportsFunctionCalling"] = true
-                        }
-                    }
-                }
-            };
-
-        public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
-            => ProviderValidationResult.Success();
-    }
 }

@@ -19,9 +19,9 @@
     <Compile Include="Runtime/LiveKitTransportSessionRuntime.cs" />
     <Compile Include="Runtime/LiveKitAudioOutputSinkAdapter.cs" />
     <InternalsVisibleTo Include="HPD-Agent.Audio.LiveKit.SourceGenerator.Tests" />
-    <ProjectReference Include="../../../shared/src/HPD-RealtimeMedia/src/HPD-Audio.Primitives/HPD-Audio.Primitives.csproj" />
+    <ProjectReference Include="../../../../shared/src/HPD-RealtimeMedia/src/HPD-Audio.Primitives/HPD-Audio.Primitives.csproj" />
     <ProjectReference Include="../HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
-    <ProjectReference Include="../HPD-Agent.Audio.LiveKit.SourceGenerator/HPD-Agent.Audio.LiveKit.SourceGenerator.csproj"
+    <ProjectReference Include="../../HPD-Agent.Audio.LiveKit.SourceGenerator/HPD-Agent.Audio.LiveKit.SourceGenerator.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false"
                       GlobalPropertiesToRemove="PublishAot;SelfContained;RuntimeIdentifier"

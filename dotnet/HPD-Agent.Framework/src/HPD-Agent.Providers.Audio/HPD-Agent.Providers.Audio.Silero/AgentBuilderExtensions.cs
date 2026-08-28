@@ -36,7 +36,11 @@ public static class AgentBuilderExtensions
             ProviderClientFamily.VoiceActivityDetection,
             new VoiceActivityClientConfig
             {
-                ProviderKey = SileroAudioProvider.Key,
+                Provider = new ProviderReference
+                {
+                    Key = SileroAudioProvider.Key,
+                    Authentication = new AnonymousProviderAuthentication()
+                },
                 ModelName = model ?? SileroAudioProvider.DefaultModel,
                 ProviderConfig = options
             });

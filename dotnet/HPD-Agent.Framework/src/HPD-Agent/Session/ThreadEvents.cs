@@ -367,13 +367,15 @@ public static class ThreadEventFactory
         int iteration,
         string? terminationReason,
         TimeSpan duration,
-        int turnMessageCount) =>
+        int turnMessageCount,
+        MessageTurnUsageSummary usage) =>
         Scope(sessionId, threadId, new MessageTurnFinishedEvent(
             messageTurnId,
             conversationId,
             agentId,
             agentName,
-            duration)
+            duration,
+            usage)
         {
             Iteration = iteration,
             TerminationReason = terminationReason,
@@ -383,14 +385,14 @@ public static class ThreadEventFactory
     public static AgentEvent TurnFailed(
         string sessionId,
         string threadId,
-        string? messageTurnId,
+        string messageTurnId,
         string? conversationId,
         string agentId,
         string agentName,
-        Exception exception) =>
-        Scope(sessionId, threadId, new MessageTurnErrorEvent(exception.Message, exception)
+        Exception exception,
+        MessageTurnUsageSummary usage) =>
+        Scope(sessionId, threadId, new MessageTurnErrorEvent(messageTurnId, exception.Message, usage, exception)
         {
-            MessageTurnId = messageTurnId,
             ConversationId = conversationId,
             AgentId = agentId,
             AgentName = agentName,

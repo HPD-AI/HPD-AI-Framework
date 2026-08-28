@@ -21,6 +21,8 @@ public enum ProviderRoleV1 : ushort
     TextToSpeech = 7,
     /// <summary>Voice activity detection.</summary>
     Vad = 8,
+    /// <summary>Semantic end-of-turn detection.</summary>
+    EndOfTurn = 9,
 }
 
 /// <summary>Identifies the lifetime policy declared by a provider catalog contribution.</summary>

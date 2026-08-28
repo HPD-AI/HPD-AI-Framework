@@ -4,11 +4,13 @@
 using HPD.Agent.Audio.ProviderContracts.VoiceActivity;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
+using System.Text.Json;
 
 namespace HPD.Agent.Providers.Audio.Silero;
 
 /// <summary>Creates isolated stream-local Silero VAD sources over one validated ONNX model host.</summary>
 [HpdProvider(Key, "Silero VAD")]
+[HpdProviderBackend("local", ProviderAuthenticationKind.Anonymous, IsDefaultBackend = true, IsDefaultAuthentication = true)]
 [HpdProviderFamily(ProviderClientFamily.VoiceActivityDetection,
     Lifetime = ProviderFamilyLifetime.StatefulPerAudioSession)]
 [HpdProviderPayload(ProviderClientFamily.VoiceActivityDetection, ProviderPayloadKind.Configuration,
@@ -25,18 +27,27 @@ public sealed class SileroAudioProvider : IVoiceActivitySourceProviderV1, IDispo
     public string ProviderKey => Key;
     public string DisplayName => "Silero VAD";
 
-    public VoiceActivitySourceProductV1 CreateVoiceActivitySource(
-        ProviderClientConfig configuration,
-        ProviderComponentLifetimeContext context,
-        IServiceProvider? services = null)
+    /// <inheritdoc />
+    public ProviderClientCredentialBinding ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor)
     {
-        ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(descriptor);
+        return ProviderClientCredentialBinding.ConstructionTime;
+    }
+
+    /// <inheritdoc />
+    public ValueTask<ProviderClientConstruction<VoiceActivitySourceProductV1>> CreateAsync(
+        ProviderClientConstructionContext context,
+        CancellationToken cancellationToken = default)
+    {
         ArgumentNullException.ThrowIfNull(context);
-        if (context.Lifetime != ProviderFamilyLifetime.StatefulPerAudioSession)
+        cancellationToken.ThrowIfCancellationRequested();
+        if (context.EffectiveConfig.Family != ProviderClientFamily.VoiceActivityDetection)
+            throw new ArgumentException("The effective provider family is not voice activity detection.", nameof(context));
+        if (context.Lifetime.Lifetime != ProviderFamilyLifetime.StatefulPerAudioSession)
             throw new ArgumentException("Silero requires one isolated source per audio session.", nameof(context));
-        var options = RequireOptions(configuration);
-        var validation = ValidateConfiguration(configuration, ProviderClientFamily.VoiceActivityDetection);
-        if (!validation.IsValid) throw new ArgumentException(string.Join(" ", validation.Errors), nameof(configuration));
+        var options = ReadOptions(context.EffectiveConfig);
+        var validation = ValidateConfiguration(context.EffectiveConfig);
+        if (!validation.IsValid) throw new ArgumentException(string.Join(" ", validation.Errors), nameof(context));
         var identity = $"{Path.GetFullPath(options.ModelPath!)}|{options.ModelSha256}|{options.IntraOpThreads}";
         lock (_gate)
         {
@@ -50,7 +61,13 @@ public sealed class SileroAudioProvider : IVoiceActivitySourceProviderV1, IDispo
             {
                 throw new InvalidOperationException("A Silero provider instance cannot change its model host identity.");
             }
-            return new VoiceActivitySourceProductV1.BorrowedSynchronous(_host.CreateSource());
+            VoiceActivitySourceProductV1 product = new VoiceActivitySourceProductV1.BorrowedSynchronous(_host.CreateSource());
+            var construction = new ProviderClientConstruction<VoiceActivitySourceProductV1>
+            {
+                Client = product,
+                Owner = ProviderClientConstructionUtilities.Own()
+            };
+            return ValueTask.FromResult(construction);
         }
     }
 
@@ -84,15 +101,22 @@ public sealed class SileroAudioProvider : IVoiceActivitySourceProviderV1, IDispo
         }
     };
 
-    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
+    public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
         var errors = new List<string>();
-        if (family != ProviderClientFamily.VoiceActivityDetection)
-            errors.Add($"Silero does not support provider family '{family}'.");
-        if (config.ProviderConfig is not SileroVadOptions options)
-            errors.Add("SileroVadOptions are required in ProviderConfig.");
-        else
+        if (config.Family != ProviderClientFamily.VoiceActivityDetection)
+            errors.Add($"Silero does not support provider family '{config.Family}'.");
+        SileroVadOptions? options = null;
+        try
+        {
+            options = ReadOptions(config);
+        }
+        catch (Exception exception) when (exception is ArgumentException or JsonException)
+        {
+            errors.Add("SileroVadOptions are required in provider configuration.");
+        }
+        if (options is not null)
         {
             if (string.IsNullOrWhiteSpace(options.ModelPath)) errors.Add("An explicit local Silero ONNX model path is required.");
             else if (!File.Exists(options.ModelPath)) errors.Add("The configured Silero ONNX model does not exist.");
@@ -115,9 +139,13 @@ public sealed class SileroAudioProvider : IVoiceActivitySourceProviderV1, IDispo
         }
     }
 
-    private static SileroVadOptions RequireOptions(ProviderClientConfig configuration) =>
-        configuration.ProviderConfig as SileroVadOptions
-        ?? throw new ArgumentException("SileroVadOptions are required in ProviderConfig.", nameof(configuration));
+    private static SileroVadOptions ReadOptions(EffectiveProviderClientConfig configuration) =>
+        configuration.ProviderConfiguration.CanonicalPayload.IsEmpty
+            ? throw new ArgumentException("SileroVadOptions are required in provider configuration.", nameof(configuration))
+            : JsonSerializer.Deserialize(
+                configuration.ProviderConfiguration.CanonicalPayload.AsSpan(),
+                SileroJsonContext.Default.SileroVadOptions)
+                ?? throw new ArgumentException("SileroVadOptions are required in provider configuration.", nameof(configuration));
 
     private static bool IsSha256(string? value) => value is { Length: 64 } &&
         value.All(static character => character is >= '0' and <= '9' or >= 'a' and <= 'f');

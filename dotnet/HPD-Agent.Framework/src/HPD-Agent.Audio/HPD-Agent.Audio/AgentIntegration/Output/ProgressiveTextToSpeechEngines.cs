@@ -449,6 +449,7 @@ internal sealed class SegmentTextToSpeechEngine : ProgressiveTextToSpeechEngineB
                 CreateTextToSpeechRequest(segment, responseId, Options.OutputOptions),
                 new TextToSpeechSynthesisContext
                 {
+                    MessageTurnId = Options.MessageTurnId,
                     SessionId = Options.SessionId,
                     Thread = Options.Thread,
                     Correlation = CreateCorrelation(),

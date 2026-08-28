@@ -113,6 +113,7 @@ public sealed class AssistantFinalTextToSpeechOutputService
             textToSpeechRequest,
             new TextToSpeechSynthesisContext
             {
+                MessageTurnId = request.MessageTurnId,
                 SessionId = request.SessionId,
                 Thread = request.Thread,
                 Correlation = correlation,
@@ -217,6 +218,8 @@ public sealed class AssistantFinalTextToSpeechOutputService
 
 public sealed record AssistantFinalTextToSpeechOutputRequest
 {
+    public required string MessageTurnId { get; init; }
+
     public required AudioSessionId SessionId { get; init; }
 
     public required ThreadRef Thread { get; init; }

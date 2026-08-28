@@ -228,6 +228,8 @@ internal sealed class S6ProgressiveOutputParticipantV2
 
 internal sealed record S6ProgressiveOutputParticipantOptionsV2
 {
+    public required string MessageTurnId { get; init; }
+
     public required AudioSessionId SessionId { get; init; }
 
     public required ThreadRef Thread { get; init; }
