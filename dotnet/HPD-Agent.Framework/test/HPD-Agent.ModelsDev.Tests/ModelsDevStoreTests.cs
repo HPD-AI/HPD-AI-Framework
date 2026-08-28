@@ -22,6 +22,19 @@ public sealed class ModelsDevStoreTests
     }
 
     [Fact]
+    public async Task Missing_cost_tiers_are_normalized_to_an_empty_collection()
+    {
+        const string json = """
+        {"deepseek":{"models":{"deepseek-v4":{"cost":{"input":1,"output":2}}}}}
+        """;
+        using var http = new HttpClient(new SequenceHandler(Response(HttpStatusCode.OK, json)));
+
+        var snapshot = await new ModelsDevStore(http, new ModelsDevOptions { UseDiskCache = false }).GetSnapshotAsync();
+
+        snapshot.Database.Providers["deepseek"].Models["deepseek-v4"].Cost!.Tiers.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Fresh_cache_is_reused_without_http_call()
     {
         var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
@@ -82,6 +95,22 @@ public sealed class ModelsDevStoreTests
         await action.Should().ThrowAsync<System.Text.Json.JsonException>();
     }
 
+    [Theory]
+    [InlineData("null")]
+    [InlineData("{\"tier\":null,\"input\":3,\"output\":4}")]
+    public async Task Null_tier_entries_and_selectors_are_rejected_as_invalid_catalog_data(string tier)
+    {
+        var json = "{\"openai\":{\"models\":{\"bad\":{\"cost\":{\"input\":1,\"output\":2,\"tiers\":["
+            + tier
+            + "]}}}}}";
+        using var http = new HttpClient(new SequenceHandler(Response(HttpStatusCode.OK, json)));
+        var store = new ModelsDevStore(http, new ModelsDevOptions { UseDiskCache = false, MaxTransientRetries = 0 });
+
+        Func<Task> action = () => store.GetSnapshotAsync().AsTask();
+
+        await action.Should().ThrowAsync<System.Text.Json.JsonException>();
+    }
+
     private static HttpResponseMessage Response(HttpStatusCode status, string? json = null, string? etag = null)
     {
         var response = new HttpResponseMessage(status);
@@ -91,7 +120,7 @@ public sealed class ModelsDevStoreTests
     }
 
     private const string SampleJson = """
-    {"openai":{"models":{"gpt-4o":{"name":"GPT-4o","cost":{"input":2.5,"output":10,"reasoning":15,"cache_read":1.25,"cache_write":3,"input_audio":20,"output_audio":40,"tiers":[{"tier":{"type":"input","size":200000},"input":5,"output":20}]}}}}}
+    {"openai":{"models":{"gpt-4o":{"name":"GPT-4o","cost":{"input":2.5,"output":10,"reasoning":15,"cache_read":1.25,"cache_write":3,"input_audio":20,"output_audio":40,"tiers":[{"tier":{"type":"context","size":200000},"input":5,"output":20}]}}}}}
     """;
 
     private sealed class SequenceHandler(params HttpResponseMessage[] responses) : HttpMessageHandler

@@ -38,8 +38,8 @@ public sealed class ModelsDevUsageEstimatorTests
             Input = 1m, Output = 2m,
             Tiers =
             [
-                new() { Tier = new() { Type = "input", Size = 100 }, Input = 3m, Output = 4m },
-                new() { Tier = new() { Type = "input", Size = 200 }, Input = 5m, Output = 6m }
+                new() { Tier = new() { Type = "context", Size = 100 }, Input = 3m, Output = 4m },
+                new() { Tier = new() { Type = "context", Size = 200 }, Input = 5m, Output = 6m }
             ]
         });
 
@@ -54,7 +54,7 @@ public sealed class ModelsDevUsageEstimatorTests
         var estimator = CreateEstimator(new ModelsDevCost
         {
             Input = 1m, Output = 2m,
-            Tiers = [new() { Tier = new() { Type = "input", Size = 100 }, Input = 3m, Output = 4m }]
+            Tiers = [new() { Tier = new() { Type = "context", Size = 100 }, Input = 3m, Output = 4m }]
         });
 
         var result = await estimator.ValueAsync(new(Input(new UsageDetails { OutputTokenCount = 10 }), []));

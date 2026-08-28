@@ -55,6 +55,8 @@ public sealed class ModelsDevModel
 
 public sealed class ModelsDevCost
 {
+    private IReadOnlyList<ModelsDevCostTier> _tiers = [];
+
     [JsonPropertyName("input")]
     public required decimal Input { get; init; }
 
@@ -77,7 +79,11 @@ public sealed class ModelsDevCost
     public decimal? OutputAudio { get; init; }
 
     [JsonPropertyName("tiers")]
-    public IReadOnlyList<ModelsDevCostTier> Tiers { get; init; } = [];
+    public IReadOnlyList<ModelsDevCostTier> Tiers
+    {
+        get => _tiers;
+        init => _tiers = value ?? [];
+    }
 }
 
 public sealed class ModelsDevCostTier

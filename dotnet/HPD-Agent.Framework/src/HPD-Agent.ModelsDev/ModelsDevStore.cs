@@ -246,7 +246,8 @@ public sealed partial class ModelsDevStore : IModelsDevCatalog
             var thresholds = new HashSet<long>();
             foreach (var tier in model.Cost.Tiers)
             {
-                if (!string.Equals(tier.Tier.Type, "input", StringComparison.OrdinalIgnoreCase)
+                if (tier?.Tier is null
+                    || !string.Equals(tier.Tier.Type, "context", StringComparison.OrdinalIgnoreCase)
                     || tier.Tier.Size < 0 || !thresholds.Add(tier.Tier.Size))
                     throw new JsonException($"Invalid pricing tier for {providerId}/{modelId}.");
                 ValidateRates(tier.Input, tier.Output, tier.Reasoning, tier.CacheRead,
