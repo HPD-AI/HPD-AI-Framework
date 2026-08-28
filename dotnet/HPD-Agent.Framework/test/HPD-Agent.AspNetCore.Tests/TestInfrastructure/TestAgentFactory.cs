@@ -132,9 +132,9 @@ internal class TestProviderRegistry : IProviderRegistry
 }
 
 /// <summary>
-/// Test implementation of IChatClientProvider that returns the provided chat client.
+/// Test implementation of the uniform asynchronous chat factory contract.
 /// </summary>
-internal class TestChatClientProvider : IChatClientProvider
+internal class TestChatClientProvider : IProvider, IProviderClientFactory<IChatClient>
 {
     private readonly IChatClient _chatClient;
 
@@ -146,10 +146,9 @@ internal class TestChatClientProvider : IChatClientProvider
     public string ProviderKey => "test";
     public string DisplayName => "Test Provider";
 
-    public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
-    {
-        return _chatClient;
-    }
+    public ProviderClientCredentialBinding ResolveCredentialBinding(ProviderClientBindingDescriptor descriptor) => ProviderClientCredentialBinding.RequestTime;
+    public ValueTask<ProviderClientConstruction<IChatClient>> CreateAsync(ProviderClientConstructionContext context, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(new ProviderClientConstruction<IChatClient> { Client = _chatClient, Owner = ProviderClientConstructionUtilities.Own() });
 
     public HPD.Agent.ErrorHandling.IProviderErrorHandler CreateErrorHandler()
     {
@@ -177,7 +176,7 @@ internal class TestChatClientProvider : IChatClientProvider
         };
     }
 
-    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
+    public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config)
     {
         return ProviderValidationResult.Success();
     }

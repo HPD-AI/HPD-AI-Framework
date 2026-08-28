@@ -90,6 +90,10 @@ public sealed class ProviderFamilyClientRuntime
         }
 
         var credentialSource = _services.GetRequiredService<IProviderCredentialSource>();
+        var bindingDescriptor = new ProviderClientBindingDescriptor
+        {
+            EffectiveConfig = effective
+        };
         var plan = await credentialSource.PrepareAsync(new ProviderCredentialRequest
         {
             ProviderKey = providerKey,
@@ -97,16 +101,9 @@ public sealed class ProviderFamilyClientRuntime
             Family = family,
             Authentication = effective.Provider.Authentication.Configuration,
             AuthorizationScope = scope,
-            Audience = new ProviderCredentialAudience
-            {
-                Resource = effective.Endpoint,
-                Scopes = effective.Provider.Authentication.Scopes
-            }
+            Audience = factory.ResolveCredentialAudience(bindingDescriptor)
         }, cancellationToken).ConfigureAwait(false);
-        var binding = factory.ResolveCredentialBinding(new ProviderClientBindingDescriptor
-        {
-            EffectiveConfig = effective
-        });
+        var binding = factory.ResolveCredentialBinding(bindingDescriptor);
         IProviderCredentialLease? credential = null;
         try
         {

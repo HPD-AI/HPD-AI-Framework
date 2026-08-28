@@ -156,10 +156,11 @@ public sealed partial class Agent
                 string.Join("; ", validation.Errors),
                 providerKey);
 
-        var binding = factory.ResolveCredentialBinding(new ProviderClientBindingDescriptor
+        var bindingDescriptor = new ProviderClientBindingDescriptor
         {
             EffectiveConfig = effective
-        });
+        };
+        var binding = factory.ResolveCredentialBinding(bindingDescriptor);
         var credentialSource = _serviceProvider?.GetService<IProviderCredentialSource>()
             ?? throw new InvalidOperationException("IProviderCredentialSource is required for provider construction.");
         var scope = _serviceProvider?.GetService<ProviderAuthorizationScope>()
@@ -194,11 +195,7 @@ public sealed partial class Agent
             Family = family,
             Authentication = effective.Provider.Authentication.Configuration,
             AuthorizationScope = scope,
-            Audience = new ProviderCredentialAudience
-            {
-                Resource = effective.Endpoint,
-                Scopes = effective.Provider.Authentication.Scopes
-            }
+            Audience = factory.ResolveCredentialAudience(bindingDescriptor)
         }, cancellationToken).ConfigureAwait(false);
         if (!composition.Descriptors.TryGet(providerKey, out var providerDescriptor) || providerDescriptor is null)
             throw new InvalidOperationException($"Provider descriptor '{providerKey}' is not registered.");

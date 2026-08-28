@@ -112,7 +112,7 @@ public class PIIMiddleware : IAgentMiddleware
     /// <summary>
     /// Optionally scans output messages for PII after the agent responds.
     /// </summary>
-    public async Task AfterMessageTurnAsync(
+    public async Task BeforeMessageTurnAccountingCloseAsync(
         AfterMessageTurnContext context,
         CancellationToken cancellationToken)
     {

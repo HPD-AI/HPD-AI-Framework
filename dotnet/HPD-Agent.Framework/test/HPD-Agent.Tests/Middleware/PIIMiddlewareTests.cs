@@ -432,7 +432,7 @@ public class PIIMiddlewareTests
             turnHistory: [turnHistoryMessage]);
 
         // Act
-        await middleware.AfterMessageTurnAsync(context, CancellationToken.None);
+        await middleware.BeforeMessageTurnAccountingCloseAsync(context, CancellationToken.None);
 
         // Assert
         Assert.Contains("[EMAIL_REDACTED]", context.FinalResponse.Text);
@@ -456,7 +456,7 @@ public class PIIMiddlewareTests
             turnHistory: [new ChatMessage(ChatRole.Assistant, "Email agent@example.com")]);
 
         // Act
-        await middleware.AfterMessageTurnAsync(context, CancellationToken.None);
+        await middleware.BeforeMessageTurnAccountingCloseAsync(context, CancellationToken.None);
 
         // Assert
         Assert.Contains("agent@example.com", context.FinalResponse.Text);

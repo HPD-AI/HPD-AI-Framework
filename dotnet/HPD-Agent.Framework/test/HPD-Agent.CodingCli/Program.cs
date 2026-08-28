@@ -1,5 +1,6 @@
 using HPD.Agent;
 using HPD.Agent.Middleware;
+using HPD.Agent.Providers.OpenRouter;
 using HPD.Agent.Serialization;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.Sandbox.Local;
@@ -367,20 +368,17 @@ static bool TryConfigureProvider(
         OpenRouter API key is required.
 
         Set OPENROUTER_API_KEY, or add this to appsettings.json:
-          "Providers": { "openrouter": { "ProviderKey": "openrouter", "ModelName": "deepseek/deepseek-v4-pro", "ApiKey": "..." } }
+          "OpenRouter": { "ApiKey": "..." }
 
         """;
         return false;
     }
 
-    builder.Config.SetChatClientConfig(new ChatClientConfig
-    {
-        ProviderKey = "openrouter",
-        ModelName = options.Model
+    builder.WithOpenRouter(
+        options.Model
             ?? System.Environment.GetEnvironmentVariable("OPENROUTER_MODEL")
             ?? "deepseek/deepseek-v4-pro",
-        ApiKey = apiKey
-    });
+        apiKey);
 
     error = null;
     return true;

@@ -643,7 +643,7 @@ public class ThreadTreeV3Tests : AgentTestBase
         await store.AppendThreadEventAsync(sessionId, threadId,
             ThreadEventFactory.TextMessageCompleted(sessionId, threadId, turnId, "assistant-final", 0));
         await store.AppendThreadEventAsync(sessionId, threadId,
-            ThreadEventFactory.TurnCompleted(sessionId, threadId, turnId, sessionId, "agent-1", "Agent", 1, "done", TimeSpan.FromMilliseconds(10), 4));
+            ThreadEventFactory.TurnCompleted(sessionId, threadId, turnId, sessionId, "agent-1", "Agent", 1, "done", TimeSpan.FromMilliseconds(10), 4, MessageTurnUsageSummary.Empty));
     }
 
     private static async Task AppendCompletedTextRunAsync(
@@ -676,7 +676,7 @@ public class ThreadTreeV3Tests : AgentTestBase
         await store.AppendThreadEventAsync(sessionId, threadId,
             ThreadEventFactory.TextMessageCompleted(sessionId, threadId, turnId, "assistant-1", 0));
         await store.AppendThreadEventAsync(sessionId, threadId,
-            ThreadEventFactory.TurnCompleted(sessionId, threadId, turnId, sessionId, "agent-1", "Agent", 1, "done", TimeSpan.FromMilliseconds(10), 2));
+            ThreadEventFactory.TurnCompleted(sessionId, threadId, turnId, sessionId, "agent-1", "Agent", 1, "done", TimeSpan.FromMilliseconds(10), 2, MessageTurnUsageSummary.Empty));
         await store.AppendThreadEventAsync(sessionId, threadId,
             new ThreadExecutionFinishedEvent(
                 threadExecutionId,

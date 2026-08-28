@@ -37,7 +37,7 @@ public class ContainerInstructionLifecycleStressTests
 
         // Simulate end of Turn 1
         var afterTurn1Context = CreateAfterMessageTurnContext(turn1State);
-        await middleware.AfterMessageTurnAsync(afterTurn1Context, CancellationToken.None);
+        await middleware.BeforeMessageTurnAccountingCloseAsync(afterTurn1Context, CancellationToken.None);
 
         // Get updated state after turn cleanup
         var turn2State = afterTurn1Context.GetMiddlewareState<ContainerMiddlewareState>() ?? new ContainerMiddlewareState();
@@ -79,7 +79,7 @@ public class ContainerInstructionLifecycleStressTests
 
         // Simulate end of Turn 1
         var afterTurn1Context = CreateAfterMessageTurnContext(turn1State);
-        await middleware.AfterMessageTurnAsync(afterTurn1Context, CancellationToken.None);
+        await middleware.BeforeMessageTurnAccountingCloseAsync(afterTurn1Context, CancellationToken.None);
         var turn2State = afterTurn1Context.GetMiddlewareState<ContainerMiddlewareState>() ?? new ContainerMiddlewareState();
 
         // Turn 2: New message turn
@@ -273,7 +273,7 @@ public class ContainerInstructionLifecycleStressTests
         Assert.Contains("CODING INSTRUCTIONS", turn1Context.Options!.Instructions!);
 
         var afterTurn1 = CreateAfterMessageTurnContext(turn1State);
-        await middleware.AfterMessageTurnAsync(afterTurn1, CancellationToken.None);
+        await middleware.BeforeMessageTurnAccountingCloseAsync(afterTurn1, CancellationToken.None);
 
         // Turn 2: MathToolHarness (CodingToolHarness cleared)
         var turn2State = new ContainerMiddlewareState() // Fresh state
@@ -287,7 +287,7 @@ public class ContainerInstructionLifecycleStressTests
         Assert.DoesNotContain("CODING INSTRUCTIONS", turn2Context.Options.Instructions); // Turn 1 cleared
 
         var afterTurn2 = CreateAfterMessageTurnContext(turn2State);
-        await middleware.AfterMessageTurnAsync(afterTurn2, CancellationToken.None);
+        await middleware.BeforeMessageTurnAccountingCloseAsync(afterTurn2, CancellationToken.None);
 
         // Turn 3: No containers (both cleared)
         var turn3State = new ContainerMiddlewareState(); // Empty

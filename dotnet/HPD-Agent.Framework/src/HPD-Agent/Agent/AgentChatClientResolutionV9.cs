@@ -276,10 +276,11 @@ internal sealed class AgentChatClientResolver : IAsyncDisposable
                 "ProviderConfigurationInvalid", "clients.chat",
                 string.Join("; ", validation.Errors), effective.Provider.Backend.ProviderKey);
 
-        var binding = factory.ResolveCredentialBinding(new ProviderClientBindingDescriptor
+        var bindingDescriptor = new ProviderClientBindingDescriptor
         {
             EffectiveConfig = effective
-        });
+        };
+        var binding = factory.ResolveCredentialBinding(bindingDescriptor);
         var credentialSource = _services?.GetService<IProviderCredentialSource>()
             ?? throw new InvalidOperationException("IProviderCredentialSource is required for provider construction.");
         var scope = _services?.GetService<ProviderAuthorizationScope>()
@@ -314,11 +315,7 @@ internal sealed class AgentChatClientResolver : IAsyncDisposable
             Family = ProviderClientFamily.Chat,
             Authentication = effective.Provider.Authentication.Configuration,
             AuthorizationScope = scope,
-            Audience = new ProviderCredentialAudience
-            {
-                Resource = effective.Endpoint,
-                Scopes = effective.Provider.Authentication.Scopes
-            }
+            Audience = factory.ResolveCredentialAudience(bindingDescriptor)
         }, cancellationToken).ConfigureAwait(false);
         var bindsModel = composition.Descriptors.TryGet(effective.Provider.Backend.ProviderKey, out var descriptor) &&
             descriptor!.Backends[effective.Provider.Backend.BackendKey].Families[ProviderClientFamily.Chat].BindsModelToClient;

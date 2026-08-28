@@ -5,6 +5,7 @@ using HPD.Agent.Providers;
 using Microsoft.Extensions.AI;
 using OpenAI;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace HPD.Agent.Providers.OpenAI;
 
@@ -101,6 +102,18 @@ internal sealed class OpenAICodexProvider :
         return ProviderClientCredentialBinding.RequestTime;
     }
 
+    ProviderCredentialAudience IProviderClientFactory<IChatClient>.ResolveCredentialAudience(
+        ProviderClientBindingDescriptor descriptor)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+        return new ProviderCredentialAudience
+        {
+            Resource = _responsesEndpoint,
+            Audience = _responsesEndpoint.AbsoluteUri,
+            Scopes = descriptor.EffectiveConfig.Provider.Authentication.Scopes
+        };
+    }
+
     ValueTask<ProviderClientConstruction<IChatClient>> IProviderClientFactory<IChatClient>.CreateAsync(
         ProviderClientConstructionContext context,
         CancellationToken cancellationToken)
@@ -145,12 +158,25 @@ internal sealed class OpenAICodexProvider :
                 throw new InvalidOperationException("The experimental Codex transport permits only the Responses operation.");
             if (request.Content is not null)
             {
+                var contentHeaders = request.Content.Headers
+                    .Where(static header => !string.Equals(header.Key, "Content-Length", StringComparison.OrdinalIgnoreCase))
+                    .Select(static header => (header.Key, Values: header.Value.ToArray()))
+                    .ToArray();
                 var body = await request.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
                 using var document = JsonDocument.Parse(body);
                 if (!document.RootElement.TryGetProperty("stream", out var stream) || stream.ValueKind != JsonValueKind.True)
                     throw new NotSupportedException(
                         "The experimental Codex endpoint requires streaming Responses requests. " +
                         "Use the streaming IChatClient operation.");
+                var normalized = JsonNode.Parse(body) as JsonObject
+                    ?? throw new JsonException("The Codex Responses request must be a JSON object.");
+                normalized["store"] = false;
+                request.Content = new StringContent(
+                    normalized.ToJsonString(),
+                    System.Text.Encoding.UTF8,
+                    "application/json");
+                foreach (var header in contentHeaders)
+                    request.Content.Headers.TryAddWithoutValidation(header.Key, header.Values);
             }
             request.RequestUri = endpoint;
             request.Headers.Authorization = null;
@@ -158,7 +184,51 @@ internal sealed class OpenAICodexProvider :
             if (lease.Credential is not ProviderCredential.SignedRequest signed)
                 throw new InvalidOperationException("The experimental Codex backend requires a signed-request credential.");
             await signed.Lease.Signer.SignAsync(request, cancellationToken).ConfigureAwait(false);
-            return await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            var response = await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode && response.Content is not null)
+            {
+                var contentHeaders = response.Content.Headers
+                    .Select(header => (header.Key, Values: header.Value.ToArray()))
+                    .ToArray();
+                var body = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+                response.Content = new ByteArrayContent(body);
+                foreach (var header in contentHeaders)
+                    response.Content.Headers.TryAddWithoutValidation(header.Key, header.Values);
+                try
+                {
+                    using var error = JsonDocument.Parse(body);
+                    if (error.RootElement.TryGetProperty("error", out var value))
+                    {
+                        var code = value.TryGetProperty("code", out var codeValue)
+                            ? codeValue.GetString()
+                            : null;
+                        var message = value.TryGetProperty("message", out var messageValue)
+                            ? messageValue.GetString()
+                            : null;
+                        Console.Error.WriteLine(
+                            $"Codex request rejected ({(int)response.StatusCode}, {code ?? "unknown"}): {message ?? "No message."}");
+                    }
+                    else
+                    {
+                        var code = error.RootElement.TryGetProperty("code", out var codeValue)
+                            ? codeValue.ToString()
+                            : "unknown";
+                        var message = error.RootElement.TryGetProperty("detail", out var detailValue)
+                            ? detailValue.ToString()
+                            : error.RootElement.TryGetProperty("message", out var messageValue)
+                                ? messageValue.ToString()
+                                : "No message.";
+                        Console.Error.WriteLine(
+                            $"Codex request rejected ({(int)response.StatusCode}, {code}): {message}");
+                    }
+                }
+                catch (JsonException)
+                {
+                    Console.Error.WriteLine(
+                        $"Codex request rejected ({(int)response.StatusCode}) with a non-JSON response.");
+                }
+            }
+            return response;
         }
     }
 

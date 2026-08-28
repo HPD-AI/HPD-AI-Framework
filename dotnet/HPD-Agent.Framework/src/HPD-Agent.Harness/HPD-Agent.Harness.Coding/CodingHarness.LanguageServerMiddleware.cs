@@ -169,7 +169,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
         return Task.CompletedTask;
     }
 
-    public Task AfterMessageTurnAsync(AfterMessageTurnContext context, CancellationToken cancellationToken)
+    public Task BeforeMessageTurnAccountingCloseAsync(AfterMessageTurnContext context, CancellationToken cancellationToken)
     {
         if (!_options.Enabled)
             return Task.CompletedTask;

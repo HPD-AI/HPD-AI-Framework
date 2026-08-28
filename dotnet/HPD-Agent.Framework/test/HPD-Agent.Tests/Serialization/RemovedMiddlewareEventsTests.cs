@@ -80,7 +80,7 @@ public class RemovedMiddlewareEventsTests
     [Fact]
     public void Serializer_StillHandles_MessageTurnFinishedEvent()
     {
-        var evt = new MessageTurnFinishedEvent("t-1", "c-1", "Agent", TimeSpan.FromSeconds(1));
+        var evt = new MessageTurnFinishedEvent("t-1", "c-1", "agent-1", "Agent", TimeSpan.FromSeconds(1), MessageTurnUsageSummary.Empty);
         var json = AgentEventSerializer.ToJson(evt);
 
         json.Should().Contain("MESSAGE_TURN_FINISHED");

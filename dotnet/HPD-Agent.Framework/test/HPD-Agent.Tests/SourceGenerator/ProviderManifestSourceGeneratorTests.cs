@@ -75,6 +75,50 @@ public sealed class ProviderManifestSourceGeneratorTests
     }
 
     [Fact]
+    public void SameProviderBackendImplementations_EmitBackendScopedFactories()
+    {
+        const string source = """
+            using System;
+            using HPD.Agent.ErrorHandling;
+            using HPD.Agent.Providers;
+
+            namespace GeneratedProviders;
+
+            [HpdProvider("openai", "OpenAI")]
+            [HpdProviderFamily(ProviderClientFamily.Chat)]
+            [HpdProviderBackend("platform", ProviderAuthenticationKind.ApiKey, Families = new[] { ProviderClientFamily.Chat })]
+            internal sealed class OpenAIPlatformProvider : IProvider
+            {
+                public string ProviderKey => "openai";
+                public string DisplayName => "OpenAI";
+                public IProviderErrorHandler CreateErrorHandler() => throw new NotSupportedException();
+                public ProviderMetadata GetMetadata() => new();
+                public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config) => ProviderValidationResult.Success();
+            }
+
+            [HpdProvider("openai", "OpenAI")]
+            [HpdProviderFamily(ProviderClientFamily.Chat)]
+            [HpdProviderBackend("codex", ProviderAuthenticationKind.OAuth, Families = new[] { ProviderClientFamily.Chat })]
+            internal sealed class OpenAICodexProvider : IProvider
+            {
+                public string ProviderKey => "openai";
+                public string DisplayName => "OpenAI";
+                public IProviderErrorHandler CreateErrorHandler() => throw new NotSupportedException();
+                public ProviderMetadata GetMetadata() => new();
+                public ProviderValidationResult ValidateConfiguration(EffectiveProviderClientConfig config) => ProviderValidationResult.Success();
+            }
+            """;
+
+        var (generated, diagnostics) = Run(source);
+
+        Assert.Empty(diagnostics.Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Contains("new string[] { \"platform\" }", generated);
+        Assert.Contains("new string[] { \"codex\" }", generated);
+        Assert.Contains("static () => new global::GeneratedProviders.OpenAIPlatformProvider()", generated);
+        Assert.Contains("static () => new global::GeneratedProviders.OpenAICodexProvider()", generated);
+    }
+
+    [Fact]
     public void ManifestMarker_EmitsClosedHostComposition()
     {
         const string source = """

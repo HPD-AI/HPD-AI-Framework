@@ -13,7 +13,7 @@ internal sealed class ConsoleModelsDevModelCatalog(
         AgentTuiModelCatalogContext context,
         CancellationToken cancellationToken = default)
     {
-        var database = await store.GetDatabaseAsync(cancellationToken);
+        var database = (await store.GetSnapshotAsync(cancellationToken: cancellationToken)).Database;
         var providers = new List<AgentTuiProviderChoice>();
 
         foreach (var (modelsDevProviderId, hpdProviderKey) in mappings.ModelsDevToHpd)
@@ -49,7 +49,7 @@ internal sealed class ConsoleModelsDevModelCatalog(
             return [];
         }
 
-        var database = await store.GetDatabaseAsync(cancellationToken);
+        var database = (await store.GetSnapshotAsync(cancellationToken: cancellationToken)).Database;
         if (!database.Providers.TryGetValue(modelsDevProviderId, out var provider))
         {
             return [];

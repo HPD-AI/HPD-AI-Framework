@@ -581,7 +581,9 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
             {
                 // Emit error event
                 await eventCoordinator.EmitAsync(new MessageTurnErrorEvent(
+                    MessageTurnId: executionId,
                     ErrorMessage: ex.Message,
+                    Usage: MessageTurnUsageSummary.Empty,
                     Exception: ex), CancellationToken.None).ConfigureAwait(false);
             }
             finally

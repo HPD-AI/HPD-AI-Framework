@@ -562,10 +562,10 @@ public class HARNESScopedMiddlewareTests
         var middleware = BuildContainerMiddleware();
         var ctx = CreateAfterMessageTurnContextWithState(state);
 
-        await middleware.AfterMessageTurnAsync(ctx, CancellationToken.None);
+        await middleware.BeforeMessageTurnAccountingCloseAsync(ctx, CancellationToken.None);
 
         // Spy was called
-        Assert.Contains("Spy.AfterMessageTurn", order);
+        Assert.Contains("Spy.BeforeMessageTurnAccountingClose", order);
 
         // Pipelines cleared from state after the hook
         var finalState = ctx.GetMiddlewareState<ContainerMiddlewareState>();
@@ -588,13 +588,13 @@ public class HARNESScopedMiddlewareTests
         var middleware = BuildContainerMiddleware();
         var ctx = CreateAfterMessageTurnContextWithState(state);
 
-        await middleware.AfterMessageTurnAsync(ctx, CancellationToken.None);
+        await middleware.BeforeMessageTurnAccountingCloseAsync(ctx, CancellationToken.None);
 
         // Both pipelines must have dispatched (ImmutableDictionary order is not guaranteed)
-        var afterCalls = globalOrder.Where(s => s.Contains("AfterMessageTurn")).ToList();
+        var afterCalls = globalOrder.Where(s => s.Contains("BeforeMessageTurnAccountingClose")).ToList();
         Assert.Equal(2, afterCalls.Count);
-        Assert.Contains("A.AfterMessageTurn", afterCalls);
-        Assert.Contains("B.AfterMessageTurn", afterCalls);
+        Assert.Contains("A.BeforeMessageTurnAccountingClose", afterCalls);
+        Assert.Contains("B.BeforeMessageTurnAccountingClose", afterCalls);
     }
 
     [Fact]
@@ -681,6 +681,9 @@ public class HARNESScopedMiddlewareTests
 
         public Task AfterMessageTurnAsync(AfterMessageTurnContext ctx, CancellationToken ct)
         { log.Add($"{name}.AfterMessageTurn"); return Task.CompletedTask; }
+
+        public Task BeforeMessageTurnAccountingCloseAsync(AfterMessageTurnContext ctx, CancellationToken ct)
+        { log.Add($"{name}.BeforeMessageTurnAccountingClose"); return Task.CompletedTask; }
 
         public Task OnErrorAsync(ErrorContext ctx, CancellationToken ct)
         { log.Add($"{name}.OnError"); return Task.CompletedTask; }

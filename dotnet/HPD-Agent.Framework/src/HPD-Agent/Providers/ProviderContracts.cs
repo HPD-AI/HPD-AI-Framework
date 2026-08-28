@@ -127,6 +127,18 @@ public sealed record ProviderClientConstructionContext
 /// <summary>Creates one provider client family using the uniform asynchronous contract.</summary>
 public interface IProviderClientFactory<TClient> where TClient : class
 {
+    /// <summary>Resolves the protected credential audience for this backend and client family.</summary>
+    /// <remarks>
+    /// The default maps the configured endpoint and authentication scopes. A backend whose
+    /// credential resource is protocol-owned rather than user-configured must override it.
+    /// </remarks>
+    ProviderCredentialAudience ResolveCredentialAudience(
+        ProviderClientBindingDescriptor descriptor) => new()
+        {
+            Resource = descriptor.EffectiveConfig.Endpoint,
+            Scopes = descriptor.EffectiveConfig.Provider.Authentication.Scopes
+        };
+
     /// <summary>Resolves credential binding without side effects before cache lookup.</summary>
     ProviderClientCredentialBinding ResolveCredentialBinding(
         ProviderClientBindingDescriptor descriptor);
