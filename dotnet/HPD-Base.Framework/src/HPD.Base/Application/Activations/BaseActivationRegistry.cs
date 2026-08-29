@@ -33,10 +33,12 @@ public sealed record BaseActivationLimits
     public required long MaximumResultBytes { get; init; }
     /// <summary>Gets the maximum attempts.</summary>
     public required int MaximumAttempts { get; init; }
-    /// <summary>Gets the maximum renewals per attempt.</summary>
-    public required int MaximumRenewalsPerAttempt { get; init; }
-    /// <summary>Gets the maximum guarded children per attempt.</summary>
-    public required int MaximumChildrenPerAttempt { get; init; }
+    /// <summary>Gets the maximum durable yields.</summary>
+    public required long MaximumYields { get; init; }
+    /// <summary>Gets the maximum renewals per execution slice.</summary>
+    public required int MaximumRenewalsPerSlice { get; init; }
+    /// <summary>Gets the maximum guarded children per execution slice.</summary>
+    public required int MaximumChildrenPerSlice { get; init; }
     /// <summary>Gets the maximum lineage depth.</summary>
     public required int MaximumLineageDepth { get; init; }
     /// <summary>Gets the default lease duration.</summary>
@@ -140,6 +142,8 @@ public sealed record BaseActivationGrantSet
     public required string Complete { get; init; }
     /// <summary>Gets the exact failed-attempt grant identity.</summary>
     public required string Fail { get; init; }
+    /// <summary>Gets the exact durable-yield grant identity.</summary>
+    public required string Yield { get; init; }
     /// <summary>Gets the exact cancellation grant identity.</summary>
     public required string Cancel { get; init; }
     /// <summary>Gets the exact inspection grant identity.</summary>
@@ -158,6 +162,26 @@ public sealed record BaseActivationGrantSet
     public required string Remove { get; init; }
     /// <summary>Gets the exact repair grant identity.</summary>
     public required string Repair { get; init; }
+}
+
+/// <summary>Identifies whether physical activation-receipt deletion requires authenticated backup coverage.</summary>
+public enum BaseActivationProtectedBackupCoverage
+{
+    /// <summary>Receipt compaction does not require a protected-backup checkpoint.</summary>
+    NotRequired = 0,
+    /// <summary>Receipt compaction requires a checkpoint covering the exact receipt-chain prefix.</summary>
+    Required = 1,
+}
+
+/// <summary>Defines exact duplicate-resolution and protected-backup floors for activation receipts.</summary>
+public sealed record BaseActivationReceiptRetentionPolicy
+{
+    /// <summary>Gets the closed policy format version; L76 requires exactly one.</summary>
+    public required int FormatVersion { get; init; }
+    /// <summary>Gets the exact whole-millisecond duplicate-resolution lifetime.</summary>
+    public required TimeSpan DuplicateResolutionLifetime { get; init; }
+    /// <summary>Gets whether authenticated protected-backup coverage is required before deletion.</summary>
+    public required BaseActivationProtectedBackupCoverage ProtectedBackupCoverage { get; init; }
 }
 
 /// <summary>Defines one graph-installed durable activation.</summary>
@@ -191,6 +215,8 @@ public sealed record BaseActivationDefinition
     public required ImmutableArray<string> SourceGrantIds { get; init; }
     /// <summary>Gets deterministic retry policy.</summary>
     public required BaseActivationRetryProfile Retry { get; init; }
+    /// <summary>Gets exact activation-receipt retention authority.</summary>
+    public required BaseActivationReceiptRetentionPolicy ReceiptRetention { get; init; }
     /// <summary>Gets effective definition limits.</summary>
     public required BaseActivationLimits Limits { get; init; }
     /// <summary>Gets the worker handler binding, forbidden for transactional operations.</summary>
@@ -218,6 +244,8 @@ public sealed record BaseActivationDefinitionDraft
     public required ImmutableArray<string> SourceGrantIds { get; init; }
     /// <summary>Gets retry authority.</summary>
     public required BaseActivationRetryProfile Retry { get; init; }
+    /// <summary>Gets exact activation-receipt retention authority.</summary>
+    public required BaseActivationReceiptRetentionPolicy ReceiptRetention { get; init; }
     /// <summary>Gets exact execution limits.</summary>
     public required BaseActivationLimits Limits { get; init; }
     /// <summary>Gets the worker handler draft.</summary>
@@ -335,6 +363,27 @@ public sealed class BaseActivationContext
     /// <summary>Gets installed registered reads through this activation's principal-bound session.</summary>
     public BaseSessionReads Reads => _session.Reads;
 
+    /// <summary>
+    /// Creates the exact installed L50 request identity for a child operation without
+    /// exposing the activation's principal-bound session or provider authority.
+    /// </summary>
+    /// <typeparam name="TRequest">The generated request type.</typeparam>
+    /// <typeparam name="TResult">The generated result type.</typeparam>
+    /// <param name="operation">The installed generated operation identity.</param>
+    /// <param name="request">The complete request.</param>
+    /// <param name="idempotencyKey">The stable child-attempt key.</param>
+    /// <returns>An identity bound to the activation principal, tenant, operation, and request.</returns>
+    public BaseMutationRequestIdentity CreateModuleMutationRequestIdentity<TRequest, TResult>(
+        BaseGeneratedModuleMutationIdentity<TRequest, TResult> operation,
+        TRequest request,
+        string idempotencyKey)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentException.ThrowIfNullOrWhiteSpace(idempotencyKey);
+        return _session.ModuleMutations.Get(operation).CreateRequestIdentity(request, idempotencyKey);
+    }
+
     /// <summary>Renews the current lease and atomically publishes its replacement observation.</summary>
     public async ValueTask<OperationResult<BaseActivationLeaseObservation>> RenewAsync(
         CancellationToken cancellationToken = default)
@@ -383,7 +432,10 @@ public sealed class BaseActivationContext
         BaseApplicationId.Validate(stepId, nameof(stepId));
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(childOrdinal);
         return BaseMutationRequestIdentity.Create(
-            $"activation:{Claim.ActivationId}", stepId, childOrdinal.ToString(System.Globalization.CultureInfo.InvariantCulture), fingerprint);
+            $"activation:{Claim.ActivationId}:slice:{Claim.ExecutionSliceOrdinal.ToString(System.Globalization.CultureInfo.InvariantCulture)}",
+            stepId,
+            childOrdinal.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            fingerprint);
     }
 
     /// <summary>Creates one same-store fence for a receipt-safe child operation.</summary>
@@ -454,6 +506,34 @@ public sealed class BaseActivationContext
     {
         ArgumentNullException.ThrowIfNull(identity);
         return (options ?? new BaseSelectionMutationExecutionOptions()) with
+        {
+            ActivationGuard = GuardChild(stepId, childOrdinal, identity.Fingerprint),
+        };
+    }
+
+    /// <summary>Creates final-retirement execution options fenced to this exact live claim.</summary>
+    public BaseSubjectFinalRetirementExecutionOptions GuardSubjectFinalRetirement(
+        string stepId,
+        int childOrdinal,
+        BaseMutationRequestIdentity identity,
+        BaseSubjectFinalRetirementExecutionOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        return (options ?? new BaseSubjectFinalRetirementExecutionOptions()) with
+        {
+            ActivationGuard = GuardChild(stepId, childOrdinal, identity.Fingerprint),
+        };
+    }
+
+    /// <summary>Creates final-purge execution options fenced to this exact live claim.</summary>
+    public BaseSubjectFinalPurgeExecutionOptions GuardSubjectFinalPurge(
+        string stepId,
+        int childOrdinal,
+        BaseMutationRequestIdentity identity,
+        BaseSubjectFinalPurgeExecutionOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        return (options ?? new BaseSubjectFinalPurgeExecutionOptions()) with
         {
             ActivationGuard = GuardChild(stepId, childOrdinal, identity.Fingerprint),
         };
@@ -530,6 +610,8 @@ public sealed class BaseActivationContext
                 Version = activation.Version,
                 Checksum = activation.Checksum.ToArray().ToImmutableArray(),
             },
+            MaximumYields = activation.MaximumYields,
+            ReceiptRetention = activation.ReceiptRetention with { },
             CanonicalInput = canonicalInput.ToImmutableArray(),
             InputChecksum = inputChecksum.ToImmutableArray(),
             Scope = Scope with { },
@@ -633,15 +715,33 @@ public sealed class BaseActivationContext
     }
 }
 
-/// <summary>Contains the closed result returned by a worker handler.</summary>
-public sealed record BaseActivationHandlerResult<TResult>
+/// <summary>Base of the closed activation-handler result union.</summary>
+public abstract record BaseActivationHandlerResult<TResult>
 {
-    /// <summary>Gets the successful result when completion was selected.</summary>
-    public TResult? Result { get; init; }
-    /// <summary>Gets the stable safe failure code when failure was selected.</summary>
-    public string? FailureCode { get; init; }
+    private protected BaseActivationHandlerResult() { }
+}
+
+/// <summary>Reports successful logical completion.</summary>
+public sealed record BaseActivationSucceeded<TResult> : BaseActivationHandlerResult<TResult>
+{
+    /// <summary>Gets the successful result.</summary>
+    public required TResult Result { get; init; }
+}
+
+/// <summary>Reports one stable failed handler outcome.</summary>
+public sealed record BaseActivationFailed<TResult> : BaseActivationHandlerResult<TResult>
+{
+    /// <summary>Gets the stable safe failure code.</summary>
+    public required string FailureCode { get; init; }
     /// <summary>Gets whether the failure may enter deterministic retry.</summary>
-    public bool Retryable { get; init; }
+    public required bool Retryable { get; init; }
+}
+
+/// <summary>Reports committed bounded progress that must resume as the same activation.</summary>
+public sealed record BaseActivationYielded<TResult> : BaseActivationHandlerResult<TResult>
+{
+    /// <summary>Gets the closed durable-yield request.</summary>
+    public required BaseActivationYield Yield { get; init; }
 }
 
 /// <summary>Contains an inert source-generated activation registration identity.</summary>
@@ -657,6 +757,7 @@ public sealed class BaseActivationRegistrationIdentity<TInput, TResult> : IBaseS
         string id,
         int version,
         ReadOnlyMemory<byte> checksum,
+        BaseActivationReceiptRetentionPolicy receiptRetention,
         JsonTypeInfo<TInput> input,
         JsonTypeInfo<TResult> result,
         IReadOnlyList<BaseModuleDtoPropertyBinding> inputBindings,
@@ -664,6 +765,8 @@ public sealed class BaseActivationRegistrationIdentity<TInput, TResult> : IBaseS
     {
         Id = new string(id.AsSpan());
         Version = version;
+        MaximumYields = 0;
+        ReceiptRetention = receiptRetention with { };
         Checksum = checksum.ToArray();
         _legacyInput = input;
         _legacyResult = result;
@@ -676,7 +779,8 @@ public sealed class BaseActivationRegistrationIdentity<TInput, TResult> : IBaseS
         BaseGeneratedActivationDtoAuthority<TInput, TResult> authority)
     {
         _authority = authority;
-        Id = definition.Id; Version = definition.Version; Checksum = definition.Checksum.ToArray();
+        Id = definition.Id; Version = definition.Version; MaximumYields = definition.Limits.MaximumYields;
+        ReceiptRetention = definition.ReceiptRetention with { }; Checksum = definition.Checksum.ToArray();
         InputBindings = authority.InputBindings.Values.ToArray(); ResultBindings = authority.ResultBindings.Values.ToArray();
         _registration = authority.SerializerRegistration; _declarations = authority.SerializerDeclarations;
     }
@@ -689,6 +793,10 @@ public sealed class BaseActivationRegistrationIdentity<TInput, TResult> : IBaseS
     public string Id { get; }
     /// <summary>Gets the definition version.</summary>
     public int Version { get; }
+    /// <summary>Gets the immutable maximum durable yields.</summary>
+    public long MaximumYields { get; }
+    /// <summary>Gets immutable activation-receipt retention authority.</summary>
+    public BaseActivationReceiptRetentionPolicy ReceiptRetention { get; }
     /// <summary>Gets the canonical definition checksum.</summary>
     public ReadOnlyMemory<byte> Checksum { get; }
     /// <summary>Gets source-generated input metadata.</summary>
@@ -816,7 +924,8 @@ public static class BaseActivationDefinitionBuilder
             DtoAuthorityChecksum = authority.DtoAuthorityChecksum.ToArray().ToImmutableArray(),
             InputDisclosureChecksum = authority.InputDisclosureChecksum.ToArray().ToImmutableArray(),
             ResultDisclosureChecksum = authority.ResultDisclosureChecksum.ToArray().ToImmutableArray(),
-            Grants = draft.Grants, SourceGrantIds = draft.SourceGrantIds, Retry = draft.Retry, Limits = draft.Limits,
+            Grants = draft.Grants, SourceGrantIds = draft.SourceGrantIds, Retry = draft.Retry,
+            ReceiptRetention = draft.ReceiptRetention, Limits = draft.Limits,
             Handler = new BaseActivationHandlerBinding
             {
                 Id = handler.Id, Version = handler.Version, FactoryId = handler.FactoryId,
@@ -853,7 +962,8 @@ public static class BaseActivationDefinitionBuilder
             DtoAuthorityChecksum = authority.DtoAuthorityChecksum.ToArray().ToImmutableArray(),
             InputDisclosureChecksum = authority.InputDisclosureChecksum.ToArray().ToImmutableArray(),
             ResultDisclosureChecksum = authority.ResultDisclosureChecksum.ToArray().ToImmutableArray(),
-            Grants = draft.Grants, SourceGrantIds = draft.SourceGrantIds, Retry = draft.Retry, Limits = draft.Limits,
+            Grants = draft.Grants, SourceGrantIds = draft.SourceGrantIds, Retry = draft.Retry,
+            ReceiptRetention = draft.ReceiptRetention, Limits = draft.Limits,
             Handler = null, TransactionalTarget = draft.TransactionalTarget, Checksum = [],
         });
         return new BaseTransactionalActivationRegistration<TInput, TResult>(
@@ -872,12 +982,17 @@ public static class BaseActivationDefinitionBuilder
         AppendHandler(hash, handler.FactoryId); AppendHandler(hash, (int)handler.WorkerSubjectKind);
         AppendHandler(hash, handler.SemanticAuthority.Id); AppendHandler(hash, handler.SemanticAuthority.Version);
         AppendHandler(hash, handler.SemanticAuthority.Checksum.Span); AppendHandler(hash, authority.DtoAuthorityChecksum.Span);
+        AppendHandler(hash, definition.ReceiptRetention.FormatVersion);
+        AppendHandler(hash, definition.ReceiptRetention.DuplicateResolutionLifetime.Ticks);
+        AppendHandler(hash, (int)definition.ReceiptRetention.ProtectedBackupCoverage);
         return hash.GetHashAndReset();
     }
 
     private static void AppendHandler(IncrementalHash hash, string value) => AppendHandler(hash, Encoding.UTF8.GetBytes(value));
     private static void AppendHandler(IncrementalHash hash, int value)
     { Span<byte> bytes = stackalloc byte[4]; System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(bytes, value); hash.AppendData(bytes); }
+    private static void AppendHandler(IncrementalHash hash, long value)
+    { Span<byte> bytes = stackalloc byte[8]; System.Buffers.Binary.BinaryPrimitives.WriteInt64BigEndian(bytes, value); hash.AppendData(bytes); }
     private static void AppendHandler(IncrementalHash hash, ReadOnlySpan<byte> value)
     { Span<byte> size = stackalloc byte[4]; System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(size, value.Length); hash.AppendData(size); hash.AppendData(value); }
 
@@ -904,7 +1019,8 @@ public static class BaseActivationDefinitionBuilder
         return new BaseActivationHandlerRegistration<TInput, TResult>(
             sealedDefinition,
             new BaseActivationRegistrationIdentity<TInput, TResult>(
-                sealedDefinition.Id, sealedDefinition.Version, sealedDefinition.Checksum.ToArray(), input, result,
+                sealedDefinition.Id, sealedDefinition.Version, sealedDefinition.Checksum.ToArray(),
+                sealedDefinition.ReceiptRetention, input, result,
                 inputBindings, resultBindings),
             factory);
     }
@@ -930,7 +1046,8 @@ public static class BaseActivationDefinitionBuilder
         return new BaseTransactionalActivationRegistration<TInput, TResult>(
             sealedDefinition,
             new BaseActivationRegistrationIdentity<TInput, TResult>(
-                sealedDefinition.Id, sealedDefinition.Version, sealedDefinition.Checksum.ToArray(), input, result,
+                sealedDefinition.Id, sealedDefinition.Version, sealedDefinition.Checksum.ToArray(),
+                sealedDefinition.ReceiptRetention, input, result,
                 inputBindings, resultBindings));
     }
 
@@ -1127,6 +1244,7 @@ internal static class BaseActivationContract
                 RetryableFailureCodes = source.Retry.RetryableFailureCodes.Order(StringComparer.Ordinal)
                     .Select(static value => new string(value.AsSpan())).ToImmutableArray(),
             },
+            ReceiptRetention = source.ReceiptRetention with { },
             Limits = source.Limits with { Provider = source.Limits.Provider with { }, AtomicCreation = source.Limits.AtomicCreation with { Deadlines = source.Limits.AtomicCreation.Deadlines with { } } },
             Handler = source.Handler is null ? null : source.Handler with
             {
@@ -1189,9 +1307,17 @@ internal static class BaseActivationContract
                 throw new InvalidOperationException("base.activation.definitionInvalid");
         }
         ValidateTarget(value.TransactionalTarget);
-        if (value.Retry.MaximumAttempts is < 1 or > 1024 || value.Limits.MaximumAttempts != value.Retry.MaximumAttempts ||
+        long receiptLifetimeTicks = value.ReceiptRetention.DuplicateResolutionLifetime.Ticks;
+        if (value.ReceiptRetention.FormatVersion != 1
+            || !Enum.IsDefined(value.ReceiptRetention.ProtectedBackupCoverage)
+            || receiptLifetimeTicks % TimeSpan.TicksPerMillisecond != 0
+            || value.ReceiptRetention.DuplicateResolutionLifetime < TimeSpan.FromHours(1)
+            || value.ReceiptRetention.DuplicateResolutionLifetime > TimeSpan.FromDays(90)
+            || value.Retry.MaximumAttempts is < 1 or > 1024 || value.Limits.MaximumAttempts != value.Retry.MaximumAttempts ||
             value.Limits.MaximumInputBytes is < 1 or > 4L * 1024 * 1024 || value.Limits.MaximumResultBytes is < 1 or > 4L * 1024 * 1024 ||
-            value.Limits.MaximumRenewalsPerAttempt is < 1 or > 4096 || value.Limits.MaximumChildrenPerAttempt is < 1 or > 4096 ||
+            value.Limits.MaximumYields is < 0 or > 1_000_000 ||
+            value.ExecutionClass != BaseActivationExecutionClass.AtLeastOnceWorker && value.Limits.MaximumYields != 0 ||
+            value.Limits.MaximumRenewalsPerSlice is < 1 or > 4096 || value.Limits.MaximumChildrenPerSlice is < 1 or > 4096 ||
             value.Limits.HandlerTimeout <= TimeSpan.Zero || value.Limits.HandlerTimeout > TimeSpan.FromHours(24) ||
             value.Retry.InitialDelayMilliseconds < 0 || value.Retry.MaximumDelayMilliseconds < value.Retry.InitialDelayMilliseconds ||
             value.Retry.MultiplierNumerator <= 0 || value.Retry.MultiplierDenominator <= 0 || value.Retry.JitterBasisPoints is < 0 or > 10_000)
@@ -1212,15 +1338,19 @@ internal static class BaseActivationContract
         Append(hash, value.InputDisclosureChecksum.AsSpan()); Append(hash, value.ResultDisclosureChecksum.AsSpan());
         Append(hash, value.Grants.Enqueue); Append(hash, value.Grants.Observe); Append(hash, value.Grants.Claim);
         Append(hash, value.Grants.Execute); Append(hash, value.Grants.Renew); Append(hash, value.Grants.Complete);
-        Append(hash, value.Grants.Fail); Append(hash, value.Grants.Cancel); Append(hash, value.Grants.Inspect);
+        Append(hash, value.Grants.Fail); Append(hash, value.Grants.Yield); Append(hash, value.Grants.Cancel); Append(hash, value.Grants.Inspect);
         Append(hash, value.Grants.Replay); Append(hash, value.Grants.Migrate); Append(hash, value.Grants.Reconcile); Append(hash, value.Grants.Retry);
         Append(hash, value.Grants.Dispose); Append(hash, value.Grants.Remove); Append(hash, value.Grants.Repair);
         foreach (string grant in value.SourceGrantIds) Append(hash, grant);
         Append(hash, value.Retry.MaximumAttempts); Append(hash, value.Retry.InitialDelayMilliseconds); Append(hash, value.Retry.MaximumDelayMilliseconds);
         Append(hash, value.Retry.MultiplierNumerator); Append(hash, value.Retry.MultiplierDenominator); Append(hash, value.Retry.JitterBasisPoints);
         foreach (string code in value.Retry.RetryableFailureCodes) Append(hash, code);
+        Append(hash, value.ReceiptRetention.FormatVersion);
+        Append(hash, value.ReceiptRetention.DuplicateResolutionLifetime.Ticks);
+        Append(hash, (int)value.ReceiptRetention.ProtectedBackupCoverage);
         Append(hash, value.Limits.MaximumInputBytes); Append(hash, value.Limits.MaximumResultBytes); Append(hash, value.Limits.MaximumAttempts);
-        Append(hash, value.Limits.MaximumRenewalsPerAttempt); Append(hash, value.Limits.MaximumChildrenPerAttempt); Append(hash, value.Limits.MaximumLineageDepth);
+        Append(hash, value.Limits.MaximumYields);
+        Append(hash, value.Limits.MaximumRenewalsPerSlice); Append(hash, value.Limits.MaximumChildrenPerSlice); Append(hash, value.Limits.MaximumLineageDepth);
         Append(hash, value.Limits.LeaseDuration.Ticks); Append(hash, value.Limits.HandlerTimeout.Ticks);
         if (generated) { AppendProviderLimits(hash, value.Limits.Provider); AppendAtomicLimits(hash, value.Limits.AtomicCreation); }
         if (value.Handler is not null)
@@ -1314,7 +1444,7 @@ internal static class BaseActivationContract
             Enqueue = new string(value.Enqueue.AsSpan()), Observe = new string(value.Observe.AsSpan()),
             Claim = new string(value.Claim.AsSpan()), Execute = new string(value.Execute.AsSpan()),
             Renew = new string(value.Renew.AsSpan()), Complete = new string(value.Complete.AsSpan()),
-            Fail = new string(value.Fail.AsSpan()), Cancel = new string(value.Cancel.AsSpan()),
+            Fail = new string(value.Fail.AsSpan()), Yield = new string(value.Yield.AsSpan()), Cancel = new string(value.Cancel.AsSpan()),
             Inspect = new string(value.Inspect.AsSpan()), Replay = new string(value.Replay.AsSpan()),
             Migrate = new string(value.Migrate.AsSpan()), Reconcile = new string(value.Reconcile.AsSpan()),
             Retry = new string(value.Retry.AsSpan()),
@@ -1329,7 +1459,7 @@ internal static class BaseActivationContract
         BaseApplicationId.Validate(value.Enqueue, nameof(value.Enqueue)); BaseApplicationId.Validate(value.Observe, nameof(value.Observe));
         BaseApplicationId.Validate(value.Claim, nameof(value.Claim)); BaseApplicationId.Validate(value.Execute, nameof(value.Execute));
         BaseApplicationId.Validate(value.Renew, nameof(value.Renew)); BaseApplicationId.Validate(value.Complete, nameof(value.Complete));
-        BaseApplicationId.Validate(value.Fail, nameof(value.Fail)); BaseApplicationId.Validate(value.Cancel, nameof(value.Cancel));
+        BaseApplicationId.Validate(value.Fail, nameof(value.Fail)); BaseApplicationId.Validate(value.Yield, nameof(value.Yield)); BaseApplicationId.Validate(value.Cancel, nameof(value.Cancel));
         BaseApplicationId.Validate(value.Inspect, nameof(value.Inspect)); BaseApplicationId.Validate(value.Replay, nameof(value.Replay));
         BaseApplicationId.Validate(value.Migrate, nameof(value.Migrate)); BaseApplicationId.Validate(value.Reconcile, nameof(value.Reconcile));
         BaseApplicationId.Validate(value.Retry, nameof(value.Retry));

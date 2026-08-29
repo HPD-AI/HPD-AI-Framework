@@ -103,7 +103,7 @@ public class AddHPDAuthRegistrationTests
     [Fact]
     public void AddHPDAuth_Registers_BaseSessionFactory()
     {
-        var sp = ServiceProviderBuilder.Build(appName: "Reg_DbContext");
+        var sp = ServiceProviderBuilder.Build(appName: "Reg_BaseSessionFactory");
         using var scope = sp.CreateScope();
 
         var sessions = scope.ServiceProvider.GetService<IBaseSessionFactory>();

@@ -12,9 +12,7 @@ namespace HPD.Auth.Authentication.Tests.TokenService;
 /// Tests 40–50: RefreshAsync happy path and failure cases (TESTS.md §1.5–1.6).
 ///
 /// Multi-scope pattern: each logical "HTTP request" runs in its own DI scope,
-/// sharing the same in-memory EF database via a shared ServiceProvider.
-/// This avoids EF Core change-tracker identity conflicts when the same entity
-/// is Add'd in scope-1 and then Update'd in scope-2.
+/// sharing the same isolated Base authority via a shared ServiceProvider.
 /// </summary>
 [Trait("Category", "TokenService")]
 [Trait("Section", "1.5-1.6-RefreshAsync")]
@@ -70,9 +68,9 @@ public class TokenService_RefreshAsync_Tests
 
         using var scope3 = sp.CreateScope();
         var store  = scope3.ServiceProvider.GetRequiredService<IRefreshTokenStore>();
-        var stored = await store.GetByTokenAsync(originalToken);
+        var stored = await store.InspectAsync(originalToken);
 
-        stored!.IsUsed.Should().BeTrue();
+        stored.Should().BeNull();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -126,7 +124,7 @@ public class TokenService_RefreshAsync_Tests
 
         using var scope3 = sp.CreateScope();
         var store  = scope3.ServiceProvider.GetRequiredService<IRefreshTokenStore>();
-        var stored = await store.GetByTokenAsync(newToken);
+        var stored = await store.InspectAsync(newToken);
 
         stored.Should().NotBeNull();
     }
@@ -162,13 +160,11 @@ public class TokenService_RefreshAsync_Tests
             originalToken = response.RefreshToken;
         }
 
-        // Mark used in a second scope.
+        // Consume it once in a second scope.
         using (var scope2 = sp.CreateScope())
         {
-            var store  = scope2.ServiceProvider.GetRequiredService<IRefreshTokenStore>();
-            var stored = await store.GetByTokenAsync(originalToken);
-            stored!.IsUsed = true;
-            await store.UpdateAsync(stored);
+            var service = scope2.ServiceProvider.GetRequiredService<ITokenService>();
+            (await service.RefreshAsync(originalToken)).Should().NotBeNull();
         }
 
         using var scope3 = sp.CreateScope();
@@ -196,12 +192,8 @@ public class TokenService_RefreshAsync_Tests
         }
 
         using (var scope2 = sp.CreateScope())
-        {
-            var store  = scope2.ServiceProvider.GetRequiredService<IRefreshTokenStore>();
-            var stored = await store.GetByTokenAsync(originalToken);
-            stored!.IsRevoked = true;
-            await store.UpdateAsync(stored);
-        }
+            (await scope2.ServiceProvider.GetRequiredService<ITokenService>()
+                .RevokeAsync(originalToken)).Should().BeTrue();
 
         using var scope3 = sp.CreateScope();
         var result = await scope3.ServiceProvider.GetRequiredService<ITokenService>()
@@ -216,7 +208,8 @@ public class TokenService_RefreshAsync_Tests
     [Fact]
     public async Task RefreshAsync_Returns_Null_For_Expired_Token()
     {
-        using var sp = ServiceProviderBuilder.CreateProvider();
+        using var sp = ServiceProviderBuilder.CreateProvider(options =>
+            options.Jwt.RefreshTokenLifetime = TimeSpan.Zero);
 
         string originalToken;
         using (var scope1 = sp.CreateScope())
@@ -227,17 +220,8 @@ public class TokenService_RefreshAsync_Tests
             originalToken = response.RefreshToken;
         }
 
-        // Back-date expiry in second scope.
-        using (var scope2 = sp.CreateScope())
-        {
-            var store  = scope2.ServiceProvider.GetRequiredService<IRefreshTokenStore>();
-            var stored = await store.GetByTokenAsync(originalToken);
-            stored!.ExpiresAt = DateTime.UtcNow.AddDays(-1);
-            await store.UpdateAsync(stored);
-        }
-
-        using var scope3 = sp.CreateScope();
-        var result = await scope3.ServiceProvider.GetRequiredService<ITokenService>()
+        using var scope2 = sp.CreateScope();
+        var result = await scope2.ServiceProvider.GetRequiredService<ITokenService>()
             .RefreshAsync(originalToken);
 
         result.Should().BeNull();
@@ -337,8 +321,7 @@ public class TokenService_RefreshAsync_Tests
             var userManager = scope2.ServiceProvider
                 .GetRequiredService<UserManager<ApplicationUser>>();
             var u = await userManager.FindByIdAsync(userId.ToString());
-            u!.IsDeleted = true;
-            await userManager.UpdateAsync(u);
+            (await userManager.DeleteAsync(u!)).Succeeded.Should().BeTrue();
         }
 
         using var scope3 = sp.CreateScope();

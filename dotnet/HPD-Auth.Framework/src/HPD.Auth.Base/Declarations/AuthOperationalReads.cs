@@ -96,6 +96,7 @@ internal sealed partial record AuthCleanupWorkReadV1
     public sealed partial record Row
     {
         [BaseReadField("auth.read.cleanupWork.v1.row.id")] public required string Id { get; init; }
+        [BaseReadField("auth.read.cleanupWork.v1.row.revision")] public required RevisionToken Revision { get; init; }
         [BaseReadField("auth.read.cleanupWork.v1.row.tenantId")] public required Guid TenantId { get; init; }
         [BaseReadField("auth.read.cleanupWork.v1.row.subjectKind")] public required AuthCleanupSubjectKindV1 SubjectKind { get; init; }
         [BaseReadField("auth.read.cleanupWork.v1.row.subjectId")] public required Guid SubjectId { get; init; }
@@ -123,6 +124,7 @@ internal sealed partial record AuthCleanupWorkReadV1
                 .And(work.Field(AuthCleanupWorkRecordV1.Fields.SubjectId).Equal(read.Parameter(Parameters.SubjectId)))
                 .And(work.Field(AuthCleanupWorkRecordV1.Fields.Incarnation).Equal(read.Parameter(Parameters.Incarnation))))
             .Project(Row.Fields.Id, work.Field(AuthCleanupWorkRecordV1.Fields.Id))
+            .Project(Row.Fields.Revision, work.Revision)
             .Project(Row.Fields.TenantId, work.Field(AuthCleanupWorkRecordV1.Fields.TenantId))
             .Project(Row.Fields.SubjectKind, work.Field(AuthCleanupWorkRecordV1.Fields.SubjectKind))
             .Project(Row.Fields.SubjectId, work.Field(AuthCleanupWorkRecordV1.Fields.SubjectId))

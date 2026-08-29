@@ -150,6 +150,7 @@ internal static partial class AuthPasskeyRegisterOperationV1
             PasskeyField(AuthPasskeyRecordV1.Fields.PublicKey, RequestProperties.PublicKey, "update.publicKey"),
             PasskeyField(AuthPasskeyRecordV1.Fields.SignatureCounter, RequestProperties.SignatureCounter, "update.signatureCounter"),
             PasskeyField(AuthPasskeyRecordV1.Fields.Transports, RequestProperties.Transports, "update.transports"),
+            BaseModuleMutationTemplateBuilder.Field(AuthPasskeyRecordV1.Fields.UserId, UserId("update.payload")),
             PasskeyField(AuthPasskeyRecordV1.Fields.UserVerified, RequestProperties.UserVerified, "update.userVerified")),
         BaseModuleMutationTemplateBuilder.CapturedRevision("hpd.auth.passkey.register.expression.passkeyUpdateRevision.000", PasskeyCapture));
     private static BaseModulePatchStatement PatchUser() => BaseModuleMutationTemplateBuilder.Patch(PatchStatement, UserId("patch"),

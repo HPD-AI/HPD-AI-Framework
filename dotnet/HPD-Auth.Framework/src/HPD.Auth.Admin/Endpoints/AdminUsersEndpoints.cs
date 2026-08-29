@@ -59,7 +59,7 @@ public static class AdminUsersEndpoints
         group.MapDelete("/{id}", DeleteUserAsync)
              .RequireHPDControlPlaneCapability(app, HPDAuthAdminCapabilities.IdentityDelete)
              .WithName("AdminDeleteUser")
-             .WithSummary("Delete a user. Pass softDelete=true to soft-delete (sets IsDeleted flag).");
+             .WithSummary("Tombstone a user and durably schedule its bounded retirement workflow.");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -259,29 +259,15 @@ public static class AdminUsersEndpoints
         UserManager<ApplicationUser> userManager,
         IAuthAuditWriter auditWriter,
         IAuthCorrelationContext correlationContext,
-        bool softDelete = false,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
         if (user is null)
             return Results.NotFound();
 
-        if (softDelete)
-        {
-            user.IsDeleted = true;
-            user.DeletedAt = DateTime.UtcNow;
-            user.Updated = DateTime.UtcNow;
-
-            var updateResult = await userManager.UpdateAsync(user);
-            if (!updateResult.Succeeded)
-                return Results.BadRequest(updateResult.Errors);
-        }
-        else
-        {
-            var deleteResult = await userManager.DeleteAsync(user);
-            if (!deleteResult.Succeeded)
-                return Results.BadRequest(deleteResult.Errors);
-        }
+        var deleteResult = await userManager.DeleteAsync(user);
+        if (!deleteResult.Succeeded)
+            return Results.BadRequest(deleteResult.Errors);
 
         await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserDelete, correlationContext, user.Id, cancellationToken: ct);
 

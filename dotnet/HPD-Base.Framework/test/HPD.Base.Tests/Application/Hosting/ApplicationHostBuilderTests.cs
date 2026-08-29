@@ -540,6 +540,12 @@ public sealed class ApplicationHostBuilderTests
         try
         {
             var services = new ServiceCollection().AddLogging();
+            var firstRestoreObserver = new RecordingRestoreObserver();
+            var hostileRestoreObserver = new RecordingRestoreObserver(throwAfterObservation: true);
+            var lastRestoreObserver = new RecordingRestoreObserver();
+            services.AddSingleton<IBaseCommittedRestoreObserver>(firstRestoreObserver);
+            services.AddSingleton<IBaseCommittedRestoreObserver>(hostileRestoreObserver);
+            services.AddSingleton<IBaseCommittedRestoreObserver>(lastRestoreObserver);
             services.AddHPDBase(builder => builder
                 .ConfigureSchema(options => { options.ApplicationId = "administration-test"; options.PlanProtectionKey = Enumerable.Repeat((byte)0x72, 32).ToArray(); })
                 .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey { Id = 7, Key = tokenKey, IssueNotBefore = DateTimeOffset.UnixEpoch })
@@ -582,7 +588,7 @@ public sealed class ApplicationHostBuilderTests
             (await collection.ReplaceAsync(created.Id, new GeneratedProject { OrganizationId = "org", Name = "after" })).RequireValue();
 
             artifact.Position = 0;
-            BaseRestoreResult restored = (await application.Administration.RestoreAsync(artifact, new BaseRestoreRequest
+            BaseRestoreRequest restoreRequest = new()
             {
                 StoreId = "sqlite", Principal = administrator,
                 ExpectedCurrentStoreIdentityDigest = manifest.StoreIdentityDigest,
@@ -591,9 +597,27 @@ public sealed class ApplicationHostBuilderTests
                 RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
                 ConfirmDestructiveReplacement = true,
                 ScheduleRestoreDomain = BaseScheduleRestoreDomain.InPlaceRecovery,
-            })).RequireValue();
+            };
+            BaseResult<BaseRestoreResult> rejectedRestore = await application.Administration.RestoreAsync(
+                artifact, restoreRequest with { ConfirmDestructiveReplacement = false });
+            rejectedRestore.Should().BeOfType<BaseFailure<BaseRestoreResult>>();
+            firstRestoreObserver.Observed.Should().BeEmpty();
+            hostileRestoreObserver.Observed.Should().BeEmpty();
+            lastRestoreObserver.Observed.Should().BeEmpty();
+
+            artifact.Position = 0;
+            BaseSuccess<BaseRestoreResult> restoreSuccess = (await application.Administration.RestoreAsync(
+                artifact, restoreRequest)).Should().BeOfType<BaseSuccess<BaseRestoreResult>>().Subject;
+            BaseRestoreResult restored = restoreSuccess.Value;
 
             restored.RestoreEpoch.Should().Be(manifest.RestoreEpoch + 1);
+            restoreSuccess.Warnings.Should().ContainSingle(warning =>
+                warning.Code == "base.runtime.restoreObserverFailed"
+                && warning.Message == "A committed restore observer failed.");
+            firstRestoreObserver.Observed.Should().ContainSingle().Which.Should().Be(restored);
+            hostileRestoreObserver.Observed.Should().ContainSingle().Which.Should().Be(restored);
+            lastRestoreObserver.Observed.Should().ContainSingle().Which.Should().Be(restored);
+            firstRestoreObserver.Observed[0].Should().NotBeSameAs(lastRestoreObserver.Observed[0]);
             (await collection.GetAsync(created.Id)).RequireValue().Value.Name.Should().Be("before");
             OperationResult<RecordPage> invalidated = await rawStore.ListAsync(
                 GeneratedProject.Collection.Definition,
@@ -605,6 +629,23 @@ public sealed class ApplicationHostBuilderTests
         {
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             foreach (string candidate in Directory.GetFiles(Path.GetDirectoryName(path)!, Path.GetFileName(path) + "*")) File.Delete(candidate);
+        }
+    }
+
+    private sealed class RecordingRestoreObserver(bool throwAfterObservation = false)
+        : IBaseCommittedRestoreObserver
+    {
+        internal List<BaseRestoreResult> Observed { get; } = [];
+
+        public ValueTask ObserveAsync(
+            BaseRestoreResult restore,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Observed.Add(restore);
+            return throwAfterObservation
+                ? ValueTask.FromException(new InvalidOperationException("hostile observer"))
+                : ValueTask.CompletedTask;
         }
     }
 

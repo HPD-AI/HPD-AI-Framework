@@ -3008,6 +3008,35 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                         Current = target,
                     });
                 }
+                BaseCapturedSubjectLifecycleTransitionAuthority? lifecycleAuthority = null;
+                if (item.SubjectLifecycleTransition is { } transition)
+                {
+                    InMemorySubjectLifetimeState? lifetime = _working.SubjectLifetimes.Values.SingleOrDefault(value =>
+                        string.Equals(value.PrivateCollectionId, item.Collection.Id, StringComparison.Ordinal)
+                        && value.PrivateRecordId == item.RecordId
+                        && value.SubjectId.Equals(transition.Subject.SubjectId)
+                        && value.Incarnation.Equals(transition.Subject.Incarnation));
+                    InMemorySubjectContractState? contract = lifetime is null ? null : _working.SubjectContracts.GetValueOrDefault(
+                        SubjectContractKey(lifetime.ContractId, lifetime.ContractVersion));
+                    if (lifetime is null || contract is null || !contract.AuthorityEpoch.Equals(transition.Subject.AuthorityEpoch))
+                        return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
+                    lifecycleAuthority = new BaseCapturedSubjectLifecycleTransitionAuthority
+                    {
+                        ContractId = new string(lifetime.ContractId.AsSpan()), ContractVersion = lifetime.ContractVersion,
+                        ContractChecksum = new string(contract.ContractChecksum.AsSpan()), SubjectId = lifetime.SubjectId,
+                        AuthorityEpoch = contract.AuthorityEpoch, Incarnation = lifetime.Incarnation,
+                        CurrentState = lifetime.LifecycleState, CurrentSubjectSequence = lifetime.SubjectSequence,
+                    };
+                    byte[] lifecycleKey = System.Text.Encoding.UTF8.GetBytes(
+                        $"{lifetime.ContractId}\0{lifetime.ContractVersion}\0{item.RecordId.Value}\0{lifetime.SubjectSequence}");
+                    digest.AppendData(lifecycleKey);
+                    intervals.Add(new BaseAtomicReadIntervalEvidence
+                    {
+                        LogicalAccessPathId = $"subjectLifecycle:{lifetime.ContractId}:lifetime",
+                        CanonicalLowerBound = lifecycleKey.ToImmutableArray(), LowerInclusive = true,
+                        CanonicalUpperBound = lifecycleKey.ToImmutableArray(), UpperInclusive = true,
+                    });
+                }
                 items.Add(new BaseCapturedMutationItem
                 {
                     Ordinal = index,
@@ -3017,6 +3046,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     Disposition = disposition,
                     Current = current,
                     RelationTargets = relationTargets.MoveToImmutable(),
+                    SubjectLifecycleTransition = lifecycleAuthority,
                 });
                 intervals.Add(new BaseAtomicReadIntervalEvidence
                 {
@@ -3586,6 +3616,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             BaseActivationState? capturedActivationState = null;
             ImmutableArray<byte> capturedActivationChecksum = [];
             ImmutableArray<byte> capturedTerminalReceiptChecksum = [];
+            InMemoryActivationRow? capturedActivationRow = null;
             if (slot?.Live is not null)
             {
                 state = BaseSemanticActivationCapturedState.Live; live = slot.Live with { KeyDigest = keyDigest };
@@ -3595,6 +3626,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 capturedActivationState = mapped.State;
                 capturedActivationChecksum = mapped.ControlChecksum.ToArray().ToImmutableArray();
                 capturedTerminalReceiptChecksum = mapped.TerminalReceiptChecksum?.ToArray().ToImmutableArray() ?? [];
+                capturedActivationRow = mapped;
             }
             else if (slot?.Retired is not null) { state = BaseSemanticActivationCapturedState.Retired; retired = slot.Retired with { KeyDigest = keyDigest }; }
             else if (slot?.Absent is not null) { state = BaseSemanticActivationCapturedState.CompactedAbsent; absent = slot.Absent with { Key = keyDigest }; }
@@ -3616,6 +3648,14 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 State = state, ScopeDirectory = scopeCapture, Missing = missing, Live = live, Retired = retired, Absent = absent,
                 ActivationGeneration = capturedActivationGeneration, ActivationChecksum = capturedActivationChecksum,
                 ActivationState = capturedActivationState,
+                ActivationEffectiveDueAt = capturedActivationRow?.EffectiveDueAt,
+                ActivationYieldCount = capturedActivationRow?.YieldCount,
+                ActivationMaximumYields = capturedActivationRow?.MaximumYields,
+                ActivationExecutionSliceOrdinal = capturedActivationRow?.ExecutionSliceOrdinal,
+                ActivationAttemptStartedAt = capturedActivationRow?.AttemptStartedAt,
+                ActivationSliceStartedAt = capturedActivationRow?.SliceStartedAt,
+                ActivationTerminalYieldDisposition = capturedActivationRow?.YieldTerminalDisposition,
+                ActivationTerminalYieldFailureCode = capturedActivationRow?.YieldTerminalFailureCode,
                 ActivationTerminalReceiptChecksum = capturedTerminalReceiptChecksum,
                 ReadIntervals = semanticIntervals, Accounting = accounting, AcceptedTime = capture.AcceptedTime, Checksum = [],
             };
@@ -3736,7 +3776,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     BaseActivationCreateIntent intentItem = plan.Activations!.Items[ordinal];
                     byte[] payloadChecksum = SHA256.HashData(intentItem.CanonicalInput.AsSpan());
                     byte[] controlChecksum = BaseActivationControlChecksumContract.Create(
-                        capturedItem.ActivationId, 1, BaseActivationState.Pending).ToArray();
+                        capturedItem.ActivationId, 1, BaseActivationState.Pending,
+                        intentItem.EffectiveDueAt ?? intentItem.RequestedDueAt, 0,
+                        intentItem.MaximumYields, 0, null, null, null, null).ToArray();
                     activationDigest.AppendData(payloadChecksum);
                     activationDigest.AppendData(controlChecksum);
                     activationItems.Add(new BasePreparedActivationItem
@@ -3806,20 +3848,35 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 }
             }
             var lifetimes = new Dictionary<string, InMemorySubjectLifetimeState?>(StringComparer.Ordinal);
+            var contracts = new Dictionary<string, InMemorySubjectContractState?>(StringComparer.Ordinal);
+            var privateRecords = new Dictionary<string, RecordEnvelope?>(StringComparer.Ordinal);
             var overlays = new Dictionary<string, BasePreparedSubjectOverlayEvidence>(StringComparer.Ordinal);
             var lifecycleIncarnations = new Dictionary<int, BaseSubjectIncarnation>();
             var subjectAuthorities = new Dictionary<string, BaseSubjectTransactionAuthorityEvidence>(StringComparer.Ordinal);
             var intervals = captured.ReadIntervals.ToBuilder();
-            int authorityReads = captured.Accounting.Records;
+            var intervalKeys = captured.ReadIntervals.Select(static interval => string.Concat(
+                interval.LogicalAccessPathId, "\0", Convert.ToHexString(interval.CanonicalLowerBound.AsSpan()), "\0",
+                Convert.ToHexString(interval.CanonicalUpperBound.AsSpan()))).ToHashSet(StringComparer.Ordinal);
+            void AddInterval(string path, byte[] key)
+            {
+                string intervalKey = string.Concat(path, "\0", Convert.ToHexString(key), "\0", Convert.ToHexString(key));
+                if (intervalKeys.Add(intervalKey)) intervals.Add(ExactInterval(path, key));
+            }
+            int authorityReads = 0;
             long retainedBytes = checked(captured.Accounting.TransientBytes + CanonicalPlanRetainedBytes(plan));
             foreach (BaseAtomicMutationPlanItem item in plan.Items)
             {
                 if (item.SubjectLifecycle is not { } lifecycle) continue;
                 string contractKey = SubjectContractKey(lifecycle.ContractId, lifecycle.ContractVersion);
-                if (!_working.SubjectContracts.TryGetValue(contractKey, out InMemorySubjectContractState? contract)
+                if (!contracts.TryGetValue(contractKey, out InMemorySubjectContractState? contract))
+                {
+                    _working.SubjectContracts.TryGetValue(contractKey, out contract);
+                    contracts.Add(contractKey, contract);
+                    authorityReads = checked(authorityReads + 1);
+                }
+                if (contract is null
                     || !string.Equals(contract.ContractChecksum, lifecycle.ContractChecksum, StringComparison.Ordinal))
                     return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.SchemaGenerationChanged, OperationStatus.Conflict, ErrorCategory.Conflict));
-                authorityReads = checked(authorityReads + 1);
                 subjectAuthorities[contractKey] = SubjectAuthority(contract);
                 BaseExportedSubjectDefinition? definition = _owner._options.ExportedSubjects.FirstOrDefault(subject =>
                     string.Equals(subject.Id, lifecycle.ContractId, StringComparison.Ordinal) && subject.Version == lifecycle.ContractVersion);
@@ -3827,9 +3884,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid));
                 BaseOwnedSubjectScopeEvidence ownedScope = ScopeFor(item, lifecycle.ContractId, lifecycle.ContractVersion);
                 string subjectKey = _owner.SubjectKey(ownedScope, lifecycle.ContractId, lifecycle.ContractVersion, lifecycle.SubjectId);
-                intervals.Add(ExactInterval($"subject:{lifecycle.ContractId}:contract", System.Text.Encoding.UTF8.GetBytes(contractKey)));
-                intervals.Add(ExactInterval($"subject:{lifecycle.ContractId}:lifetime", System.Text.Encoding.UTF8.GetBytes(subjectKey)));
-                intervals.Add(ExactInterval($"subject:{lifecycle.ContractId}:record", System.Text.Encoding.UTF8.GetBytes(lifecycle.SubjectId.Value)));
+                AddInterval($"subject:{lifecycle.ContractId}:contract", System.Text.Encoding.UTF8.GetBytes(contractKey));
+                AddInterval($"subject:{lifecycle.ContractId}:lifetime", System.Text.Encoding.UTF8.GetBytes(subjectKey));
+                AddInterval($"subject:{lifecycle.ContractId}:record", System.Text.Encoding.UTF8.GetBytes(lifecycle.SubjectId.Value));
                 if (!lifetimes.TryGetValue(subjectKey, out InMemorySubjectLifetimeState? existingLifetime))
                 {
                     _working.SubjectLifetimes.TryGetValue(subjectKey, out existingLifetime);
@@ -3945,7 +4002,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                         string.Equals(validation.Scope.Value, originalScope.Value, StringComparison.Ordinal)))
                     {
                         lifetimes[originalKey] = null;
-                        intervals.Add(ExactInterval($"subject:{lifecycle.ContractId}:lifetime", System.Text.Encoding.UTF8.GetBytes(originalKey)));
+                        AddInterval($"subject:{lifecycle.ContractId}:lifetime", System.Text.Encoding.UTF8.GetBytes(originalKey));
                         overlays[originalKey] = new BasePreparedSubjectOverlayEvidence
                         {
                             ContractId = lifecycle.ContractId, ContractVersion = lifecycle.ContractVersion,
@@ -3971,9 +4028,14 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 RecordEnvelope? privateRecord = null;
                 if (valid)
                 {
-                    bool authorityPresent = _working.SubjectContracts.TryGetValue(
-                        SubjectContractKey(definition!.Id, definition.Version), out contract);
-                    authorityReads = checked(authorityReads + 1);
+                    string contractAuthorityKey = SubjectContractKey(definition!.Id, definition.Version);
+                    if (!contracts.TryGetValue(contractAuthorityKey, out contract))
+                    {
+                        _working.SubjectContracts.TryGetValue(contractAuthorityKey, out contract);
+                        contracts.Add(contractAuthorityKey, contract);
+                        authorityReads = checked(authorityReads + 1);
+                    }
+                    bool authorityPresent = contract is not null;
                     bool lifetimeKnown = lifetimes.TryGetValue(subjectKey, out lifetime);
                     if (!lifetimeKnown)
                     {
@@ -3985,11 +4047,18 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     if (contract is not null)
                         subjectAuthorities[SubjectContractKey(definition.Id, definition.Version)] = SubjectAuthority(contract);
                     if (lifetime is not null)
-                        privateRecord = ResolveFinalRecord(
-                            plan.Items,
-                            definition.ValidationPlan.PrivateCollectionId,
-                            lifetime.PrivateRecordId);
-                    authorityReads = checked(authorityReads + 1);
+                    {
+                        string privateRecordKey = $"{definition.ValidationPlan.PrivateCollectionId}\n{lifetime.PrivateRecordId.Value}";
+                        if (!privateRecords.TryGetValue(privateRecordKey, out privateRecord))
+                        {
+                            privateRecord = ResolveFinalRecord(
+                                plan.Items,
+                                definition.ValidationPlan.PrivateCollectionId,
+                                lifetime.PrivateRecordId);
+                            privateRecords.Add(privateRecordKey, privateRecord);
+                            authorityReads = checked(authorityReads + 1);
+                        }
+                    }
                     valid = authorityPresent
                         && lifetimePresent
                         && privateRecord is not null
@@ -4031,9 +4100,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     byte[] contractBytes = System.Text.Encoding.UTF8.GetBytes(SubjectContractKey(definition.Id, definition.Version));
                     byte[] subjectBytes = System.Text.Encoding.UTF8.GetBytes(subjectKey);
                     byte[] recordBytes = System.Text.Encoding.UTF8.GetBytes(validation.Reference.SubjectId.Value);
-                    intervals.Add(ExactInterval($"subject:{definition.Id}:contract", contractBytes));
-                    intervals.Add(ExactInterval($"subject:{definition.Id}:lifetime", subjectBytes));
-                    intervals.Add(ExactInterval($"subject:{definition.Id}:record", recordBytes));
+                    AddInterval($"subject:{definition.Id}:contract", contractBytes);
+                    AddInterval($"subject:{definition.Id}:lifetime", subjectBytes);
+                    AddInterval($"subject:{definition.Id}:record", recordBytes);
                     overlays[subjectKey] = new BasePreparedSubjectOverlayEvidence
                     {
                         ContractId = definition.Id,
@@ -4231,7 +4300,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 case (BaseSemanticActivationOperationKind.Retire, BaseSemanticActivationCapturedState.Live):
                     activationId = captured.Live!.ActivationId;
                     if (!_working.Activations.TryGetValue(activationId, out InMemoryActivationRow? row)
-                        || row.State is BaseActivationState.Pending or BaseActivationState.RetryPending or BaseActivationState.Claimed
+                        || row.State is BaseActivationState.Pending or BaseActivationState.RetryPending or BaseActivationState.YieldPending or BaseActivationState.Claimed
                             or BaseActivationState.EffectStarted or BaseActivationState.OutcomeUnknown
                         || row.TerminalReceiptChecksum is not { Length: 32 })
                         throw new InvalidOperationException("base.semanticActivation.activationNotTerminal");
@@ -4338,6 +4407,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             hash.AppendData(Encoding.UTF8.GetBytes(item.Definition.Id));
             hash.AppendData(BitConverter.GetBytes(item.Definition.Version).Reverse().ToArray());
             hash.AppendData(item.Definition.Checksum.AsSpan());
+            hash.AppendData(BitConverter.GetBytes(item.MaximumYields).Reverse().ToArray());
             hash.AppendData(item.InputChecksum.AsSpan());
             hash.AppendData(BitConverter.GetBytes(item.RequestedDueAt).Reverse().ToArray());
             hash.AppendData(BitConverter.GetBytes(item.EffectiveDueAt ?? item.RequestedDueAt).Reverse().ToArray());
@@ -4548,6 +4618,32 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             return wireName is not null && record.Payload.Fields?.TryGetValue(wireName, out value) == true;
         }
 
+        private static bool ValidTombstoneMetadata(
+            BaseAtomicMutationPlanItem item,
+            RecordEnvelope? record,
+            BaseExportedSubjectDefinition definition,
+            long sequence)
+        {
+            if (record?.Payload.Fields is not { } fields) return false;
+            if (definition.TombstoneMetadata.Sequence is { Kind: BaseSubjectTombstoneMetadataBindingKind.RequiredField, FieldId: { } sequenceId })
+            {
+                string? wire = item.Collection.Fields?.SingleOrDefault(field => field.Id == sequenceId)?.WireName;
+                if (wire is null || !fields.TryGetValue(wire, out JsonElement value)
+                    || value.ValueKind != JsonValueKind.Number || !value.TryGetInt64(out long stored) || stored != sequence)
+                    return false;
+            }
+            if (definition.TombstoneMetadata.Instant is { Kind: BaseSubjectTombstoneMetadataBindingKind.RequiredField, FieldId: { } instantId })
+            {
+                string? wire = item.Collection.Fields?.SingleOrDefault(field => field.Id == instantId)?.WireName;
+                string expected = item.Operation.Now.ToUniversalTime().ToString(
+                    "yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", System.Globalization.CultureInfo.InvariantCulture);
+                if (wire is null || !fields.TryGetValue(wire, out JsonElement value)
+                    || value.ValueKind != JsonValueKind.String || value.GetString() != expected)
+                    return false;
+            }
+            return true;
+        }
+
         public ValueTask<OperationResult<BaseProvisionalAtomicExecution>> ApplyPreparedAtomicExecutionAsync(
             BasePreparedAtomicExecution prepared,
             CancellationToken cancellationToken = default) => ExecuteAsync(cancellationToken, async token =>
@@ -4669,6 +4765,12 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                             ? checked((previousLifetime?.SubjectSequence ?? 0) + 1)
                             : previousLifetime?.SubjectSequence ?? 0;
                     if (incarnation.Equals(default(BaseSubjectIncarnation)) || sequence <= 0)
+                        return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                    BaseExportedSubjectDefinition? definition = (_owner._options.ExportedSubjects ?? []).SingleOrDefault(value =>
+                        value.Id == plannedLifecycle.ContractId && value.Version == plannedLifecycle.ContractVersion);
+                    if (definition is null || plannedLifecycle.ResultingState == BaseSubjectLifecycleState.Tombstoned
+                        && plannedLifecycle.PreviousState != BaseSubjectLifecycleState.Tombstoned
+                        && !ValidTombstoneMetadata(item, mutation.Value.Record, definition, sequence))
                         return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
                     committedLifecycle = new BaseSubjectLifecycleCommitEvidence
                     {
@@ -4896,10 +4998,13 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     }
                     else
                     {
+                        if (!TryReserveYieldReceiptSlots(_working, intentItem.MaximumYields))
+                            return SubjectFailure<BaseProvisionalAtomicExecution>("base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
                         var payload = new BaseActivationPayload
                         {
                             ActivationId = preparedItem.ActivationId,
                             Definition = intentItem.Definition with { Checksum = intentItem.Definition.Checksum.ToArray().ToImmutableArray() },
+                            ReceiptRetention = intentItem.ReceiptRetention with { },
                             CanonicalInput = intentItem.CanonicalInput.ToArray().ToImmutableArray(),
                             InputChecksum = intentItem.InputChecksum.ToArray().ToImmutableArray(),
                             Scope = intentItem.Scope with { },
@@ -4920,7 +5025,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                             intentItem.Priority,
                             intentItem.OverlapKey.IsDefaultOrEmpty ? null : intentItem.OverlapKey.ToArray(),
                             intentItem.OverlapPolicy,
-                            intentItem.InitiallyEligible));
+                            intentItem.InitiallyEligible,
+                            MaximumYields: intentItem.MaximumYields));
                         IndexActivation(_working, payload);
                         _working.ActivationIndexGeneration = checked(_working.ActivationIndexGeneration + 1);
                         writtenBytes = checked(writtenBytes + intentItem.CanonicalInput.Length + 192L);
@@ -5066,13 +5172,18 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 string activationId = semantic.ActivationId!;
                 byte[] fingerprint = SHA256.HashData(ensure.Activation.CanonicalInput.Concat(ensure.Activation.InputChecksum).ToArray());
                 byte[] payloadChecksum = SHA256.HashData(ensure.Activation.CanonicalInput.AsSpan());
-                byte[] controlChecksum = ControlChecksum(activationId, 1, BaseActivationState.Pending);
+                byte[] controlChecksum = ControlChecksum(activationId, 1, BaseActivationState.Pending,
+                    ensure.Due.CanonicalUnixMilliseconds, 0, ensure.Activation.Limits.MaximumYields,
+                    0, null, null, null, null);
                 if (_working.Activations.ContainsKey(activationId) || _working.SemanticActivationSlots.ContainsKey(semantic.SlotKey))
                     throw new InvalidOperationException("base.semanticActivation.conflict");
+                if (!TryReserveYieldReceiptSlots(_working, ensure.Activation.Limits.MaximumYields))
+                    throw new InvalidOperationException("base.activation.capacityUnavailable");
                 var payload = new BaseActivationPayload
                 {
                     ActivationId = activationId,
                     Definition = ensure.Activation.Definition with { Checksum = ensure.Activation.Definition.Checksum.ToArray().ToImmutableArray() },
+                    ReceiptRetention = ensure.Activation.ReceiptRetention with { },
                     CanonicalInput = ensure.Activation.CanonicalInput.ToArray().ToImmutableArray(), InputChecksum = ensure.Activation.InputChecksum.ToArray().ToImmutableArray(),
                     Scope = ensure.Scope with { Value = ensure.Scope.Value is null ? null : new string(ensure.Scope.Value.AsSpan()) },
                     RequestedDueAt = ensure.Due.CanonicalUnixMilliseconds, EffectiveDueAt = ensure.Due.CanonicalUnixMilliseconds,
@@ -5080,7 +5191,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 };
                 _working.Activations.Add(activationId, new InMemoryActivationRow(payload, BaseActivationState.Pending, 1,
                     ensure.Due.CanonicalUnixMilliseconds, ensure.Due.CanonicalUnixMilliseconds, fingerprint, controlChecksum,
-                    Priority: ensure.Activation.Priority, Eligible: ensure.Activation.InitiallyEligible));
+                    Priority: ensure.Activation.Priority, Eligible: ensure.Activation.InitiallyEligible,
+                    MaximumYields: ensure.Activation.Limits.MaximumYields));
                 IndexActivation(_working, payload);
                 _working.ActivationIndexGeneration = checked(_working.ActivationIndexGeneration + 1);
                 BaseSemanticActivationStoreAuthority store = _capturedMutation!.SemanticActivation!.Missing!.StoreAuthority;
@@ -5119,6 +5231,11 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     KeyDigest = retire.Key, ScopeBindingId = prior.ScopeBinding.BindingId,
                     SubjectLifetime = retire.SubjectLifetime, ActivationId = row.Payload.ActivationId,
                     TerminalState = row.State, TerminalActivationGeneration = row.Generation, TerminalActivationChecksum = row.ControlChecksum.ToImmutableArray(),
+                    TerminalEffectiveDueAt = row.EffectiveDueAt, TerminalYieldCount = row.YieldCount,
+                    TerminalMaximumYields = row.MaximumYields, TerminalExecutionSliceOrdinal = row.ExecutionSliceOrdinal,
+                    TerminalAttemptStartedAt = row.AttemptStartedAt, TerminalSliceStartedAt = row.SliceStartedAt,
+                    TerminalYieldDisposition = row.YieldTerminalDisposition,
+                    TerminalYieldFailureCode = row.YieldTerminalFailureCode,
                     CompletionOperationChecksum = Convert.FromHexString(retire.CompletionOperation.OperationChecksum).ToImmutableArray(),
                     CompletionReceiptChecksum = receiptChecksum.ToImmutableArray(), RetirementPosition = position,
                     SlotGeneration = semantic.ResultingGeneration, StoreAuthority = prior.StoreAuthority, Checksum = [],
@@ -5168,7 +5285,10 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     "base.activation.claimUnavailable", OperationStatus.Conflict, ErrorCategory.Conflict));
 
             long generation = checked(row.Generation + 1);
-            byte[] controlChecksum = ControlChecksum(row.Payload.ActivationId, generation, BaseActivationState.Succeeded);
+            byte[] controlChecksum = ControlChecksum(row.Payload.ActivationId, generation,
+                BaseActivationState.Succeeded, row.EffectiveDueAt, row.YieldCount,
+                row.MaximumYields, row.ExecutionSliceOrdinal, row.AttemptStartedAt,
+                row.SliceStartedAt, null, null);
             long evidenceBytes = checked(System.Text.Encoding.UTF8.GetByteCount(row.Payload.ActivationId) + sizeof(long) + sizeof(int) + controlChecksum.Length);
             long transientBytes = evidenceBytes;
             if (candidate.Limits.MaximumIndexOperations < 2

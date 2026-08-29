@@ -143,7 +143,7 @@ public sealed partial class SqliteRecordStore
         string owner = request.SubjectKind is null ? "" : "activation_id=$subjectIdentity";
         string boundary = request.Identity is not null ? "receipt_key=$identity" : request.AfterIdentity is not null ? "receipt_key>$after" : "";
         string predicate = owner.Length == 0 && boundary.Length == 0 ? "" : "WHERE " + owner + (owner.Length > 0 && boundary.Length > 0 ? " AND " : "") + boundary + " ";
-        command.CommandText = $"SELECT receipt_key,operation_kind,fingerprint,result_checksum,activation_id FROM {_names.ActivationReceipts} " + predicate +
+        command.CommandText = $"SELECT receipt_key,operation_kind,fingerprint,result_checksum,activation_id FROM {_names.ActivationInstanceReceipts} " + predicate +
             "ORDER BY receipt_key LIMIT $take;";
         BindIdentity(command, request); if (request.SubjectKind is not null) command.Parameters.AddWithValue("$subjectIdentity", request.SubjectIdentity!);
         command.Parameters.AddWithValue("$take", request.Identity is null ? request.Take + 1 : 1);

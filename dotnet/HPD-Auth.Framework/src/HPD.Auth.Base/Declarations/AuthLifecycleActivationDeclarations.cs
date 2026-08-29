@@ -120,7 +120,7 @@ internal sealed class AuthDataProtectionRefreshHandler(IAuthDataProtectionCacheR
         try
         {
             long generation = await cache.RefreshAsync(cancellationToken).ConfigureAwait(false);
-            return new BaseActivationHandlerResult<AuthDataProtectionRefreshResultV1>
+            return new BaseActivationSucceeded<AuthDataProtectionRefreshResultV1>
             {
                 Result = new AuthDataProtectionRefreshResultV1 { CacheGeneration = generation },
             };
@@ -131,7 +131,7 @@ internal sealed class AuthDataProtectionRefreshHandler(IAuthDataProtectionCacheR
         }
         catch
         {
-            return new BaseActivationHandlerResult<AuthDataProtectionRefreshResultV1>
+            return new BaseActivationFailed<AuthDataProtectionRefreshResultV1>
             {
                 FailureCode = "auth.persistence.unavailable",
                 Retryable = true,
@@ -150,11 +150,121 @@ internal sealed class AuthDeclarationHandler<TInput, TResult> : IBaseActivationH
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(input);
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(new BaseActivationHandlerResult<TResult>
-        {
-            FailureCode = "auth.persistence.unavailable",
+        return ValueTask.FromResult<BaseActivationHandlerResult<TResult>>(new BaseActivationFailed<TResult>
+            {
+                FailureCode = "auth.persistence.unavailable",
             Retryable = true,
         });
+    }
+}
+
+internal sealed class AuthUserCleanupBootstrapHandler
+    : IBaseActivationHandler<AuthUserCleanupInitializeV1, AuthCleanupInitializeResultV1>
+{
+    public async ValueTask<BaseActivationHandlerResult<AuthCleanupInitializeResultV1>> ExecuteAsync(
+        BaseActivationContext context,
+        AuthUserCleanupInitializeV1 input,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(input);
+        BaseMutationRequestIdentity identity = context.CreateModuleMutationRequestIdentity(
+            AuthUserCleanupInitializeOperationV1.Identity, input,
+            $"cleanup-bootstrap:user:{input.CleanupWorkId}");
+        BaseSemanticActivationKey<AuthUserCleanupSemanticDefinitionV1> semanticKey =
+            context.CreateSemanticActivationKey(AuthCleanupSemanticActivations.User.KeyIdentity, input);
+        BaseGeneratedSubjectRegistration subjectContract = AuthUserSubject.HPDBaseSubjectRegistration;
+        AuthUserCleanupInputV1 cleanupInput = new()
+        {
+            TenantId = input.TenantId,
+            SubjectContractId = subjectContract.Id,
+            SubjectContractVersion = subjectContract.Version,
+            SubjectContractChecksum = subjectContract.ContractChecksum,
+            SubjectId = input.SubjectId,
+            Subject = input.Subject,
+            Incarnation = input.Incarnation,
+            TombstoneSequence = input.TombstoneSequence,
+            TombstoneRevision = input.TombstoneRevision,
+            WorkflowVersion = input.WorkflowVersion,
+        };
+        BaseModuleMutationExecutionOptions options = context.GuardModuleMutationAndEnsureActivation<
+            AuthUserCleanupInputV1, AuthCleanupResultV1, AuthUserCleanupSemanticDefinitionV1>(
+            "cleanup-bootstrap-user", 1, identity.Fingerprint,
+            AuthCleanupActivationDeclarations.User.Identity, cleanupInput, input.TombstonedAt, semanticKey);
+        BaseResult<BaseModuleMutationExecutionResult<AuthCleanupInitializeResultV1>> result =
+            await context.ExecuteModuleMutationAsync(
+                AuthUserCleanupInitializeOperationV1.Identity, input, identity, options, cancellationToken)
+                .ConfigureAwait(false);
+        return BootstrapResult(result);
+    }
+
+    private static BaseActivationHandlerResult<AuthCleanupInitializeResultV1> BootstrapResult(
+        BaseResult<BaseModuleMutationExecutionResult<AuthCleanupInitializeResultV1>> result)
+    {
+        return result switch
+        {
+            BaseSuccess<BaseModuleMutationExecutionResult<AuthCleanupInitializeResultV1>> success => new BaseActivationSucceeded<AuthCleanupInitializeResultV1>()
+            {
+                Result = success.Value.Result,
+            },
+            _ => new BaseActivationFailed<AuthCleanupInitializeResultV1>()
+            {
+                FailureCode = "auth.persistence.unavailable",
+                Retryable = result.Status == OperationStatus.StoreError,
+            },
+        };
+    }
+}
+
+internal sealed class AuthRoleCleanupBootstrapHandler
+    : IBaseActivationHandler<AuthRoleCleanupInitializeV1, AuthCleanupInitializeResultV1>
+{
+    public async ValueTask<BaseActivationHandlerResult<AuthCleanupInitializeResultV1>> ExecuteAsync(
+        BaseActivationContext context,
+        AuthRoleCleanupInitializeV1 input,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(input);
+        BaseMutationRequestIdentity identity = context.CreateModuleMutationRequestIdentity(
+            AuthRoleCleanupInitializeOperationV1.Identity, input,
+            $"cleanup-bootstrap:role:{input.CleanupWorkId}");
+        BaseSemanticActivationKey<AuthRoleCleanupSemanticDefinitionV1> semanticKey =
+            context.CreateSemanticActivationKey(AuthCleanupSemanticActivations.Role.KeyIdentity, input);
+        BaseGeneratedSubjectRegistration subjectContract = AuthRoleSubject.HPDBaseSubjectRegistration;
+        AuthRoleCleanupInputV1 cleanupInput = new()
+        {
+            TenantId = input.TenantId,
+            SubjectContractId = subjectContract.Id,
+            SubjectContractVersion = subjectContract.Version,
+            SubjectContractChecksum = subjectContract.ContractChecksum,
+            SubjectId = input.SubjectId,
+            Subject = input.Subject,
+            Incarnation = input.Incarnation,
+            TombstoneSequence = input.TombstoneSequence,
+            TombstoneRevision = input.TombstoneRevision,
+            WorkflowVersion = input.WorkflowVersion,
+        };
+        BaseModuleMutationExecutionOptions options = context.GuardModuleMutationAndEnsureActivation<
+            AuthRoleCleanupInputV1, AuthCleanupResultV1, AuthRoleCleanupSemanticDefinitionV1>(
+            "cleanup-bootstrap-role", 1, identity.Fingerprint,
+            AuthCleanupActivationDeclarations.Role.Identity, cleanupInput, input.TombstonedAt, semanticKey);
+        BaseResult<BaseModuleMutationExecutionResult<AuthCleanupInitializeResultV1>> result =
+            await context.ExecuteModuleMutationAsync(
+                AuthRoleCleanupInitializeOperationV1.Identity, input, identity, options, cancellationToken)
+                .ConfigureAwait(false);
+        return result switch
+        {
+            BaseSuccess<BaseModuleMutationExecutionResult<AuthCleanupInitializeResultV1>> success => new BaseActivationSucceeded<AuthCleanupInitializeResultV1>()
+            {
+                Result = success.Value.Result,
+            },
+            _ => new BaseActivationFailed<AuthCleanupInitializeResultV1>()
+            {
+                FailureCode = "auth.persistence.unavailable",
+                Retryable = result.Status == OperationStatus.StoreError,
+            },
+        };
     }
 }
 
@@ -198,14 +308,18 @@ internal static class AuthLifecycleActivationDeclarations
     internal static BaseActivationHandlerRegistration<AuthUserCleanupInitializeV1, AuthCleanupInitializeResultV1> BootstrapUser { get; } =
         Create("hpd.auth.cleanup.bootstrap.user.v1", "hpd.auth.handler.cleanup.bootstrap.user",
             "hpd.auth.factory.cleanup.bootstrap.user.v1",
-            ["auth.cleanup.execute", "auth.operation.cleanup.initialize.user", "auth.semantic.cleanup.user.ensure"],
-            AuthUserCleanupBootstrapDtos.HPDBaseActivationDtoAuthority);
+            ["auth.cleanup.execute", "auth.operation.cleanup.initialize.user", "auth.semantic.cleanup.user.ensure",
+                "auth.subject.user.validate"],
+            AuthUserCleanupBootstrapDtos.HPDBaseActivationDtoAuthority,
+            static _ => new AuthUserCleanupBootstrapHandler());
 
     internal static BaseActivationHandlerRegistration<AuthRoleCleanupInitializeV1, AuthCleanupInitializeResultV1> BootstrapRole { get; } =
         Create("hpd.auth.cleanup.bootstrap.role.v1", "hpd.auth.handler.cleanup.bootstrap.role",
             "hpd.auth.factory.cleanup.bootstrap.role.v1",
-            ["auth.cleanup.execute", "auth.operation.cleanup.initialize.role", "auth.semantic.cleanup.role.ensure"],
-            AuthRoleCleanupBootstrapDtos.HPDBaseActivationDtoAuthority);
+            ["auth.cleanup.execute", "auth.operation.cleanup.initialize.role", "auth.semantic.cleanup.role.ensure",
+                "auth.subject.role.validate"],
+            AuthRoleCleanupBootstrapDtos.HPDBaseActivationDtoAuthority,
+            static _ => new AuthRoleCleanupBootstrapHandler());
 
     internal static BaseActivationHandlerRegistration<AuthUserCleanupInitializeV1, AuthCleanupRetirementResultV1> RetireUser { get; } =
         Create("hpd.auth.cleanup.semantic-retire.user.v1", "hpd.auth.handler.cleanup.semantic-retire.user",
@@ -224,6 +338,7 @@ internal static class AuthLifecycleActivationDeclarations
             "hpd.auth.factory.cleanup.reconcile.v1",
             ["auth.cleanup.execute", "auth.operation.cleanup.advance", "auth.operation.cleanup.initialize.role",
                 "auth.operation.cleanup.initialize.user", "auth.semantic.cleanup.role.ensure", "auth.semantic.cleanup.user.ensure",
+                "auth.subject.role.validate", "auth.subject.user.validate",
                 "hpd.auth.cleanup.role.v1.enqueue", "hpd.auth.cleanup.user.v1.enqueue"],
             AuthCleanupReconcileDtos.HPDBaseActivationDtoAuthority, reconciliation: true);
 
@@ -260,10 +375,11 @@ internal static class AuthLifecycleActivationDeclarations
         string factoryId,
         IEnumerable<string> sourceGrants,
         BaseGeneratedActivationDtoAuthority<TInput, TResult> authority,
+        Func<IServiceProvider, IBaseActivationHandler<TInput, TResult>>? handlerFactory = null,
         bool semanticRetirement = false,
         bool reconciliation = false) =>
         AuthActivationDefinitionFactory.Create(id, handlerId, factoryId, sourceGrants, authority,
-            static _ => new AuthDeclarationHandler<TInput, TResult>(), semanticRetirement, reconciliation);
+            handlerFactory ?? (static _ => new AuthDeclarationHandler<TInput, TResult>()), semanticRetirement, reconciliation);
 
     private static BaseActivationHandlerRegistration<AuthExpirationTriggerInputV1, AuthExpirationResultV1> CreateExpiration(
         string id,

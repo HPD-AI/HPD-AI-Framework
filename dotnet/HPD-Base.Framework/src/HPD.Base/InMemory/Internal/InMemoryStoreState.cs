@@ -56,6 +56,8 @@ internal sealed class InMemoryStoreState
     /// <summary>Gets non-prunable exact L51 prune authority by activation identity.</summary>
     public Dictionary<string, BaseActivationPruneEvidence> ActivationPruneFloors { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, SortedSet<string>> ActivationsByProtectedScope { get; } = new(StringComparer.Ordinal);
+    /// <summary>Gets disposed activation identities by exact protected scope and definition authority.</summary>
+    public Dictionary<string, SortedSet<string>> DisposedActivationsByAuthority { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets durable executor incarnations by application/host/process key.</summary>
     public Dictionary<string, InMemoryExecutorRow> Executors { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets current durable schedule authority by ID/version.</summary>
@@ -64,12 +66,26 @@ internal sealed class InMemoryStoreState
     public Dictionary<string, BaseScheduleOccurrenceFact> ScheduleOccurrences { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets durable cancel-previous maintenance state by deterministic identity.</summary>
     public Dictionary<string, InMemoryScheduleCancellationRow> ScheduleCancellations { get; } = new(StringComparer.Ordinal);
-    /// <summary>Gets durable activation-operation receipts by identified-request key.</summary>
-    public Dictionary<string, InMemoryActivationReceiptRow> ActivationReceipts { get; } = new(StringComparer.Ordinal);
+    /// <summary>Gets durable definition-bound activation-instance receipts by identified-request key.</summary>
+    public Dictionary<string, InMemoryActivationInstanceReceiptRow> ActivationInstanceReceipts { get; } = new(StringComparer.Ordinal);
+    /// <summary>Gets compact retained chain authority by original receipt sequence.</summary>
+    public SortedDictionary<long, BaseActivationCompactedReceiptFact> ActivationInstanceReceiptCompactionFacts { get; } = [];
+    /// <summary>Gets durable scheduler, executor, migration, and maintenance receipts by identified-request key.</summary>
+    public Dictionary<string, InMemoryActivationControlReceiptRow> ActivationControlReceipts { get; } = new(StringComparer.Ordinal);
+    /// <summary>Gets ordered authority for the activation-instance receipt chain.</summary>
+    public BaseActivationInstanceReceiptChainState ActivationInstanceReceiptChain { get; set; } =
+        BaseActivationInstanceReceiptChainContract.Create(
+            0, BaseActivationInstanceReceiptChainContract.ZeroOrderedChecksum.AsSpan(), 0);
     /// <summary>Gets the next positive executor generation.</summary>
     public long NextExecutorGeneration { get; set; }
     /// <summary>Gets or sets the generation invalidating finite due observations.</summary>
     public long ActivationIndexGeneration { get; set; }
+    /// <summary>Gets or sets the durable-yield reservation-state generation.</summary>
+    public long ActivationYieldReservationGeneration { get; set; }
+    /// <summary>Gets or sets currently reserved but unused yield-receipt slots.</summary>
+    public long ActivationYieldReservedUnusedSlots { get; set; }
+    /// <summary>Gets or sets retained used yield-receipt slots.</summary>
+    public long ActivationYieldRetainedUsedSlots { get; set; }
     /// <summary>Gets the shared record/control mutation journal by append position.</summary>
     public SortedDictionary<long, BaseMutationJournalEntry> MutationJournal { get; } = [];
 
@@ -84,6 +100,14 @@ internal sealed class InMemoryStoreState
             SubjectLifecycleDeliveryEpoch = SubjectLifecycleDeliveryEpoch,
             SubjectRetirementPosition = SubjectRetirementPosition,
             ActivationIndexGeneration = ActivationIndexGeneration,
+            ActivationYieldReservationGeneration = ActivationYieldReservationGeneration,
+            ActivationYieldReservedUnusedSlots = ActivationYieldReservedUnusedSlots,
+            ActivationYieldRetainedUsedSlots = ActivationYieldRetainedUsedSlots,
+            ActivationInstanceReceiptChain = ActivationInstanceReceiptChain with
+            {
+                OrderedChecksum = ActivationInstanceReceiptChain.OrderedChecksum.ToArray().ToImmutableArray(),
+                Checksum = ActivationInstanceReceiptChain.Checksum.ToArray().ToImmutableArray(),
+            },
             NextExecutorGeneration = NextExecutorGeneration,
         };
 
@@ -166,6 +190,8 @@ internal sealed class InMemoryStoreState
             });
         foreach ((string key, SortedSet<string> activationIds) in ActivationsByProtectedScope)
             clone.ActivationsByProtectedScope.Add(key, new SortedSet<string>(activationIds, StringComparer.Ordinal));
+        foreach ((string key, SortedSet<string> activationIds) in DisposedActivationsByAuthority)
+            clone.DisposedActivationsByAuthority.Add(key, new SortedSet<string>(activationIds, StringComparer.Ordinal));
         foreach ((string key, InMemoryExecutorRow executor) in Executors)
             clone.Executors.Add(key, executor.DeepClone());
         foreach ((string key, BaseScheduleAuthority schedule) in Schedules)
@@ -174,8 +200,20 @@ internal sealed class InMemoryStoreState
             clone.ScheduleOccurrences.Add(key, CloneOccurrence(occurrence));
         foreach ((string key, InMemoryScheduleCancellationRow cancellation) in ScheduleCancellations)
             clone.ScheduleCancellations.Add(key, cancellation.DeepClone());
-        foreach ((string key, InMemoryActivationReceiptRow receipt) in ActivationReceipts)
-            clone.ActivationReceipts.Add(key, receipt.DeepClone());
+        foreach ((string key, InMemoryActivationInstanceReceiptRow receipt) in ActivationInstanceReceipts)
+            clone.ActivationInstanceReceipts.Add(key, receipt.DeepClone());
+        foreach ((long sequence, BaseActivationCompactedReceiptFact fact) in ActivationInstanceReceiptCompactionFacts)
+            clone.ActivationInstanceReceiptCompactionFacts.Add(sequence, fact with
+            {
+                ReceiptKey = new string(fact.ReceiptKey.AsSpan()),
+                ReceiptAuthorityChecksum = fact.ReceiptAuthorityChecksum.ToArray().ToImmutableArray(),
+                PriorOrderedChecksum = fact.PriorOrderedChecksum.ToArray().ToImmutableArray(),
+                OrderedChecksum = fact.OrderedChecksum.ToArray().ToImmutableArray(),
+                CompactionReceiptKey = new string(fact.CompactionReceiptKey.AsSpan()),
+                Checksum = fact.Checksum.ToArray().ToImmutableArray(),
+            });
+        foreach ((string key, InMemoryActivationControlReceiptRow receipt) in ActivationControlReceipts)
+            clone.ActivationControlReceipts.Add(key, receipt.DeepClone());
         foreach ((long position, BaseMutationJournalEntry entry) in MutationJournal)
             clone.MutationJournal.Add(position, CloneJournalEntry(entry));
 
@@ -325,10 +363,49 @@ internal sealed record InMemoryScheduleCancellationRow(
     };
 }
 
-internal sealed record InMemoryActivationReceiptRow(string Kind, byte[] Fingerprint, byte[] Result)
+internal sealed record InMemoryActivationControlReceiptRow(
+    string Kind,
+    byte[] Fingerprint,
+    byte[] Result,
+    byte[] ResultChecksum,
+    byte[] AuthorityChecksum)
 {
-    internal InMemoryActivationReceiptRow DeepClone() => this with
-    { Fingerprint = Fingerprint.ToArray(), Result = Result.ToArray() };
+    internal InMemoryActivationControlReceiptRow DeepClone() => this with
+    {
+        Fingerprint = Fingerprint.ToArray(),
+        Result = Result.ToArray(),
+        ResultChecksum = ResultChecksum.ToArray(),
+        AuthorityChecksum = AuthorityChecksum.ToArray(),
+    };
+}
+
+internal sealed record InMemoryActivationInstanceReceiptRow(
+    string Kind,
+    string ActivationId,
+    BaseActivationDefinitionKey Definition,
+    BaseActivationReceiptRetentionPolicy Retention,
+    byte[] Fingerprint,
+    byte[] Result,
+    byte[] ResultChecksum,
+    byte[] AuthorityChecksum,
+    long CommittedAt,
+    long DuplicateResolveUntil,
+    long ReceiptSequence,
+    byte[] PriorOrderedChecksum,
+    byte[] OrderedChecksum)
+{
+    internal InMemoryActivationInstanceReceiptRow DeepClone() => this with
+    {
+        ActivationId = new string(ActivationId.AsSpan()),
+        Definition = Definition with { Checksum = Definition.Checksum.ToArray().ToImmutableArray() },
+        Retention = Retention with { },
+        Fingerprint = Fingerprint.ToArray(),
+        Result = Result.ToArray(),
+        ResultChecksum = ResultChecksum.ToArray(),
+        AuthorityChecksum = AuthorityChecksum.ToArray(),
+        PriorOrderedChecksum = PriorOrderedChecksum.ToArray(),
+        OrderedChecksum = OrderedChecksum.ToArray(),
+    };
 }
 
 internal sealed record InMemoryExecutorRow(
@@ -369,12 +446,20 @@ internal sealed record InMemoryActivationRow(
     BaseActivationLeaseObservation? Lease = null,
     byte[]? CanonicalResult = null,
     BaseEffectExecutionAuthority? Effect = null,
-    byte[]? TerminalReceiptChecksum = null)
+    byte[]? TerminalReceiptChecksum = null,
+    long YieldCount = 0,
+    long MaximumYields = 0,
+    long ExecutionSliceOrdinal = 0,
+    long? AttemptStartedAt = null,
+    long? SliceStartedAt = null,
+    BaseActivationYieldDisposition? YieldTerminalDisposition = null,
+    string? YieldTerminalFailureCode = null)
 {
     internal InMemoryActivationRow DeepClone() => new(
         Payload with
         {
             Definition = Payload.Definition with { Checksum = Payload.Definition.Checksum.ToArray().ToImmutableArray() },
+            ReceiptRetention = Payload.ReceiptRetention with { },
             CanonicalInput = Payload.CanonicalInput.ToArray().ToImmutableArray(),
             InputChecksum = Payload.InputChecksum.ToArray().ToImmutableArray(),
             Scope = Payload.Scope with { },
@@ -414,7 +499,10 @@ internal sealed record InMemoryActivationRow(
             },
             Checksum = Effect.Checksum.ToArray().ToImmutableArray(),
         },
-        TerminalReceiptChecksum is null ? null : [.. TerminalReceiptChecksum]);
+        TerminalReceiptChecksum is null ? null : [.. TerminalReceiptChecksum],
+        YieldCount, MaximumYields, ExecutionSliceOrdinal, AttemptStartedAt, SliceStartedAt,
+        YieldTerminalDisposition,
+        YieldTerminalFailureCode is null ? null : new string(YieldTerminalFailureCode.AsSpan()));
 }
 
 internal sealed record InMemorySubjectContractState(

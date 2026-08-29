@@ -13,7 +13,7 @@ internal static class ProofActivation
         "proof.activation.fail", "proof.activation.cancel", "proof.activation.inspect",
         "proof.activation.replay", "proof.activation.migrate", "proof.activation.reconcile",
         "proof.activation.retry", "proof.activation.dispose", "proof.activation.remove",
-        "proof.activation.repair",
+        "proof.activation.repair", "proof.activation.yield",
     ];
 
     internal static BaseActivationHandlerRegistration<ProofActivationInput, ProofActivationResult> Registration { get; } =
@@ -27,6 +27,7 @@ internal static class ProofActivation
                 Renew = GrantIds[4], Complete = GrantIds[5], Fail = GrantIds[6], Cancel = GrantIds[7],
                 Inspect = GrantIds[8], Replay = GrantIds[9], Migrate = GrantIds[10], Reconcile = GrantIds[11],
                 Retry = GrantIds[12], Dispose = GrantIds[13], Remove = GrantIds[14], Repair = GrantIds[15],
+                Yield = GrantIds[16],
             },
             SourceGrantIds = [],
             Retry = new BaseActivationRetryProfile
@@ -35,10 +36,16 @@ internal static class ProofActivation
                 MultiplierNumerator = 2, MultiplierDenominator = 1, JitterBasisPoints = 0,
                 RetryableFailureCodes = ["proof.activation.retryable"],
             },
+            ReceiptRetention = new BaseActivationReceiptRetentionPolicy
+            {
+                FormatVersion = 1,
+                DuplicateResolutionLifetime = TimeSpan.FromHours(24),
+                ProtectedBackupCoverage = BaseActivationProtectedBackupCoverage.NotRequired,
+            },
             Limits = new BaseActivationLimits
             {
-                MaximumInputBytes = 4096, MaximumResultBytes = 4096, MaximumAttempts = 3,
-                MaximumRenewalsPerAttempt = 4, MaximumChildrenPerAttempt = 4, MaximumLineageDepth = 4,
+                MaximumInputBytes = 4096, MaximumResultBytes = 4096, MaximumAttempts = 3, MaximumYields = 0,
+                MaximumRenewalsPerSlice = 4, MaximumChildrenPerSlice = 4, MaximumLineageDepth = 4,
                 LeaseDuration = TimeSpan.FromMinutes(1), HandlerTimeout = TimeSpan.FromSeconds(5),
                 Provider = ProviderLimits(), AtomicCreation = AtomicLimits(),
             },
@@ -121,6 +128,145 @@ internal static class ProofActivation
     };
 }
 
+internal static class ProofYieldActivation
+{
+    internal static readonly string[] GrantIds =
+    [
+        "proof.yield.enqueue", "proof.yield.observe", "proof.yield.claim", "proof.yield.execute",
+        "proof.yield.renew", "proof.yield.complete", "proof.yield.fail", "proof.yield.cancel",
+        "proof.yield.inspect", "proof.yield.replay", "proof.yield.migrate", "proof.yield.reconcile",
+        "proof.yield.retry", "proof.yield.dispose", "proof.yield.remove", "proof.yield.repair",
+        "proof.yield.yield",
+    ];
+
+    internal static BaseActivationHandlerRegistration<ProofActivationInput, ProofActivationResult> Registration { get; } =
+        BaseActivationDefinitionBuilder.CreateGenerated(new BaseActivationDefinitionDraft
+        {
+            Id = "proof.yield.v1",
+            Version = 1,
+            OwningModuleId = "proof.module",
+            ExecutionClass = BaseActivationExecutionClass.AtLeastOnceWorker,
+            Grants = new BaseActivationGrantSet
+            {
+                Enqueue = GrantIds[0], Observe = GrantIds[1], Claim = GrantIds[2], Execute = GrantIds[3],
+                Renew = GrantIds[4], Complete = GrantIds[5], Fail = GrantIds[6], Cancel = GrantIds[7],
+                Inspect = GrantIds[8], Replay = GrantIds[9], Migrate = GrantIds[10], Reconcile = GrantIds[11],
+                Retry = GrantIds[12], Dispose = GrantIds[13], Remove = GrantIds[14], Repair = GrantIds[15],
+                Yield = GrantIds[16],
+            },
+            SourceGrantIds = [],
+            Retry = new BaseActivationRetryProfile
+            {
+                MaximumAttempts = 1,
+                InitialDelayMilliseconds = 100,
+                MaximumDelayMilliseconds = 100,
+                MultiplierNumerator = 1,
+                MultiplierDenominator = 1,
+                JitterBasisPoints = 0,
+                RetryableFailureCodes = [],
+            },
+            ReceiptRetention = new BaseActivationReceiptRetentionPolicy
+            {
+                FormatVersion = 1,
+                DuplicateResolutionLifetime = TimeSpan.FromHours(24),
+                ProtectedBackupCoverage = BaseActivationProtectedBackupCoverage.NotRequired,
+            },
+            Limits = new BaseActivationLimits
+            {
+                MaximumInputBytes = 4096,
+                MaximumResultBytes = 4096,
+                MaximumAttempts = 1,
+                MaximumYields = 6,
+                MaximumRenewalsPerSlice = 1,
+                MaximumChildrenPerSlice = 1,
+                MaximumLineageDepth = 1,
+                LeaseDuration = TimeSpan.FromMinutes(1),
+                HandlerTimeout = TimeSpan.FromSeconds(5),
+                Provider = new BaseActivationExecutionLimits
+                {
+                    MaximumCandidates = 8,
+                    MaximumInputBytes = 4096,
+                    MaximumResultBytes = 4096,
+                    MaximumEvidenceBytes = 8192,
+                    MaximumTransientBytes = 16384,
+                    MaximumReadIntervals = 8,
+                    MaximumIndexOperations = 16,
+                    AcquisitionTimeout = TimeSpan.FromSeconds(5),
+                    TransactionTimeout = TimeSpan.FromSeconds(5),
+                    CommitObservationTimeout = TimeSpan.FromSeconds(5),
+                    ReceiptResolutionTimeout = TimeSpan.FromSeconds(5),
+                },
+                AtomicCreation = ProofYieldAtomicLimits(),
+            },
+            Handler = new BaseActivationHandlerDraft
+            {
+                Id = "proof.yield.handler",
+                Version = 1,
+                FactoryId = "proof.yield.handler.factory",
+                WorkerSubjectKind = AccessSubjectKind.ServicePrincipal,
+                SemanticAuthority = BaseActivationHandlerSemanticAuthority.Create("proof.yield.handler.semantics", 1),
+            },
+        }, ProofActivationDtos.HPDBaseActivationDtoAuthority, static _ => new ProofYieldActivationHandler());
+
+    private static BaseAtomicMutationExecutionLimits ProofYieldAtomicLimits() => new()
+    {
+        MaximumItems = 1, MaximumQueryNodes = 1, MaximumQueryDepth = 1, MaximumLiteralValues = 1,
+        MaximumSelectedRecords = 1, MaximumProducedMutations = 1, MaximumQueryExecutions = 1,
+        MaximumPreviousStateRequirements = 1, MaximumRecordCaptures = 1, MaximumRelationTargetCaptures = 1,
+        MaximumSelectedBytes = 4096, MaximumEvidenceBytes = 8192, MaximumTransientBytes = 16384,
+        MaximumReadIntervals = 8, MaximumSubjectValidations = 1, MaximumAuthorityReads = 8,
+        MaximumRelationChecks = 1, MaximumUniqueConstraintChecks = 1, MaximumRequestBytes = 4096,
+        MaximumGenerationBytes = 4096, MaximumWrittenBytes = 4096, MaximumFactBytes = 4096,
+        MaximumJournalBytes = 4096, MaximumReceiptBytes = 8192, MaximumResultBytes = 4096,
+        MaximumGenerationReads = 1, MaximumGenerationComparisons = 1, MaximumGenerationIncrements = 1,
+        MaximumGuardNodes = 1, MaximumExpressionNodes = 1, MaximumStatements = 1, MaximumBranches = 1,
+        MaximumGuardDepth = 1, MaximumRetirementProjections = 1, MaximumRetirementBarrierReads = 1,
+        MaximumRetirementAcknowledgementReads = 1, MaximumRetirementPublications = 1,
+        MaximumRetirementEvidenceBytes = 4096, MaximumRetirementPublicationBytes = 4096,
+        Deadlines = new BaseAtomicMutationDeadlines
+        {
+            AcquisitionTimeout = TimeSpan.FromSeconds(5), TransactionTimeout = TimeSpan.FromSeconds(5),
+            CommitObservationTimeout = TimeSpan.FromSeconds(5), ReceiptResolutionTimeout = TimeSpan.FromSeconds(5),
+        },
+    };
+}
+
+internal sealed class ProofYieldActivationHandler
+    : IBaseActivationHandler<ProofActivationInput, ProofActivationResult>
+{
+    public ValueTask<BaseActivationHandlerResult<ProofActivationResult>> ExecuteAsync(
+        BaseActivationContext context,
+        ProofActivationInput input,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        int targetYieldCount = int.Parse(
+            input.Value.AsSpan("yield:".Length),
+            System.Globalization.NumberStyles.None,
+            System.Globalization.CultureInfo.InvariantCulture);
+        ProofActivation.ObserveContinuation(
+            $"yield:{context.Claim.YieldCount.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+        if (context.Claim.YieldCount >= targetYieldCount)
+            return ValueTask.FromResult<BaseActivationHandlerResult<ProofActivationResult>>(
+                new BaseActivationSucceeded<ProofActivationResult>
+                {
+                    Result = new ProofActivationResult { Value = input.Value },
+                });
+        byte[] progress = System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(
+                $"proof.activation.yield.v1\n{input.Value}\n{context.Claim.YieldCount.ToString(System.Globalization.CultureInfo.InvariantCulture)}"));
+        return ValueTask.FromResult<BaseActivationHandlerResult<ProofActivationResult>>(
+            new BaseActivationYielded<ProofActivationResult>
+            {
+                Yield = new BaseActivationYield
+                {
+                    ResumeAt = null,
+                    ProgressFingerprint = BaseActivationProgressFingerprint.Create(progress),
+                },
+            });
+    }
+}
+
 [BaseActivationDtoAuthority(
     "proof.activation.dto.v1", 1, "proof.module", "proof.activation.input", "proof.activation.result",
     typeof(ConsumerJsonSerializerContext), typeof(ProofActivationInput), typeof(ProofActivationResult))]
@@ -177,8 +323,9 @@ internal sealed class ProofActivationHandler : IBaseActivationHandler<ProofActiv
             {
                 ProofActivation.ObserveContinuation("error:"
                     + (first as BaseFailure<BaseModuleMutationExecutionResult<RequestControlResult>>)?.Error.Code);
-                return new BaseActivationHandlerResult<ProofActivationResult>
-                { FailureCode = "proof.activation.continuationFailed", Retryable = false };
+                return new BaseActivationFailed<ProofActivationResult>
+            {
+                FailureCode = "proof.activation.continuationFailed", Retryable = false };
             }
         }
         if (input.Value.StartsWith("l50-child:", StringComparison.Ordinal))
@@ -198,15 +345,17 @@ internal sealed class ProofActivationHandler : IBaseActivationHandler<ProofActiv
                 await context.ExecuteModuleMutationAsync(
                     RequestControlProof.Identity, request, identity, options, cancellationToken);
             if (result is BaseFailure<BaseModuleMutationExecutionResult<RequestControlResult>> failure)
-                return new BaseActivationHandlerResult<ProofActivationResult>
-                { FailureCode = failure.Error.Code, Retryable = false };
+                return new BaseActivationFailed<ProofActivationResult>
+            {
+                FailureCode = failure.Error.Code, Retryable = false };
             BaseMutationRequestFingerprint conflict = BaseMutationRequestFingerprint.Create(
                 System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(input.Value + ":conflict")));
             try
             {
                 _ = context.GuardModuleMutation("l50-child", 1, conflict);
-                return new BaseActivationHandlerResult<ProofActivationResult>
-                { FailureCode = "proof.activation.conflictMissing", Retryable = false };
+                return new BaseActivationFailed<ProofActivationResult>
+            {
+                FailureCode = "proof.activation.conflictMissing", Retryable = false };
             }
             catch (InvalidOperationException exception) when (
                 string.Equals(exception.Message, "base.activation.childIdentityConflict", StringComparison.Ordinal))
@@ -230,8 +379,9 @@ internal sealed class ProofActivationHandler : IBaseActivationHandler<ProofActiv
             if (result is BaseFailure<BaseSelectionMutationResult> failure)
             {
                 ProofActivation.ObserveContinuation("l43-error:" + failure.Error.Code);
-                return new BaseActivationHandlerResult<ProofActivationResult>
-                { FailureCode = failure.Error.Code, Retryable = false };
+                return new BaseActivationFailed<ProofActivationResult>
+            {
+                FailureCode = failure.Error.Code, Retryable = false };
             }
         }
         if (input.Value.StartsWith("l30-remove:", StringComparison.Ordinal))
@@ -250,8 +400,9 @@ internal sealed class ProofActivationHandler : IBaseActivationHandler<ProofActiv
                 [ProofOwner.Fields.Note.Removal()]);
             BaseResult<BaseBatchResult> result = await batch.CommitAsync(cancellationToken);
             if (result is BaseFailure<BaseBatchResult> failure)
-                return new BaseActivationHandlerResult<ProofActivationResult>
-                { FailureCode = failure.Error.Code, Retryable = false };
+                return new BaseActivationFailed<ProofActivationResult>
+            {
+                FailureCode = failure.Error.Code, Retryable = false };
         }
         if (string.Equals(input.Value, "lifecycle", StringComparison.Ordinal))
         {
@@ -260,8 +411,9 @@ internal sealed class ProofActivationHandler : IBaseActivationHandler<ProofActiv
             await using IAsyncEnumerator<BaseSubjectRequiredLifecycleDelivery<ConsumerSubject>> deliveries =
                 retirement.ReadRequiredAsync(cancellationToken).GetAsyncEnumerator(cancellationToken);
             if (!await deliveries.MoveNextAsync())
-                return new BaseActivationHandlerResult<ProofActivationResult>
-                { FailureCode = "proof.lifecycle.deliveryMissing", Retryable = false };
+                return new BaseActivationFailed<ProofActivationResult>
+            {
+                FailureCode = "proof.lifecycle.deliveryMissing", Retryable = false };
             BaseSubjectRequiredLifecycleDelivery<ConsumerSubject> delivery = deliveries.Current;
             BaseActivationGuard acknowledgementGuard = context.GuardRetirementAcknowledgement(
                 "retirement-acknowledgement", 1, delivery.AcknowledgementIdentity);
@@ -272,8 +424,9 @@ internal sealed class ProofActivationHandler : IBaseActivationHandler<ProofActiv
                 acknowledgementGuard,
                 cancellationToken);
             if (acknowledged is not BaseSuccess<BaseSubjectAcknowledgementResult> acknowledgement)
-                return new BaseActivationHandlerResult<ProofActivationResult>
-                { FailureCode = ((BaseFailure<BaseSubjectAcknowledgementResult>)acknowledged).Error.Code, Retryable = false };
+                return new BaseActivationFailed<ProofActivationResult>
+            {
+                FailureCode = ((BaseFailure<BaseSubjectAcknowledgementResult>)acknowledged).Error.Code, Retryable = false };
 
             // Response-loss replay is resolved while the delivered lifecycle fact remains
             // unadvanced. Advancing the L47 checkpoint intentionally invalidates the old L48
@@ -285,8 +438,9 @@ internal sealed class ProofActivationHandler : IBaseActivationHandler<ProofActiv
             {
                 LifecycleProof.ObserveError(
                     ((BaseFailure<BaseSubjectAcknowledgementResult>)replayedAcknowledgement).Error.Code);
-                return new BaseActivationHandlerResult<ProofActivationResult>
-                { FailureCode = "proof.lifecycle.acknowledgementReplayFailed", Retryable = false };
+                return new BaseActivationFailed<ProofActivationResult>
+            {
+                FailureCode = "proof.lifecycle.acknowledgementReplayFailed", Retryable = false };
             }
 
             BaseInstalledSubjectLifecycleConsumer<ConsumerSubject> lifecycle =
@@ -299,8 +453,9 @@ internal sealed class ProofActivationHandler : IBaseActivationHandler<ProofActiv
                 checkpointGuard,
                 cancellationToken);
             if (advanced is not BaseSuccess<BaseSubjectLifecycleCheckpointResult> checkpoint)
-                return new BaseActivationHandlerResult<ProofActivationResult>
-                { FailureCode = ((BaseFailure<BaseSubjectLifecycleCheckpointResult>)advanced).Error.Code, Retryable = false };
+                return new BaseActivationFailed<ProofActivationResult>
+            {
+                FailureCode = ((BaseFailure<BaseSubjectLifecycleCheckpointResult>)advanced).Error.Code, Retryable = false };
             LifecycleProof.Observe(acknowledgement.Value, checkpoint.Value);
 
             BaseResult<BaseSubjectLifecycleCheckpointResult> replayedCheckpoint = await lifecycle.AdvanceAsync(
@@ -310,8 +465,9 @@ internal sealed class ProofActivationHandler : IBaseActivationHandler<ProofActiv
             {
                 LifecycleProof.ObserveError(
                     ((BaseFailure<BaseSubjectLifecycleCheckpointResult>)replayedCheckpoint).Error.Code);
-                return new BaseActivationHandlerResult<ProofActivationResult>
-                { FailureCode = "proof.lifecycle.replayFailed", Retryable = false };
+                return new BaseActivationFailed<ProofActivationResult>
+            {
+                FailureCode = "proof.lifecycle.replayFailed", Retryable = false };
             }
             LifecycleProof.Observe(replayedAck.Value, replayedAdvance.Value);
         }
@@ -322,16 +478,18 @@ internal sealed class ProofActivationHandler : IBaseActivationHandler<ProofActiv
             await using IAsyncEnumerator<BaseSubjectLifecycleDelivery<ConsumerSubject>> deliveries =
                 lifecycle.ReadAsync(cancellationToken).GetAsyncEnumerator(cancellationToken);
             if (!await deliveries.MoveNextAsync())
-                return new BaseActivationHandlerResult<ProofActivationResult>
-                { FailureCode = "proof.lifecycle.deliveryMissing", Retryable = false };
+                return new BaseActivationFailed<ProofActivationResult>
+            {
+                FailureCode = "proof.lifecycle.deliveryMissing", Retryable = false };
             BaseSubjectLifecycleDelivery<ConsumerSubject> delivery = deliveries.Current;
             BaseResult<BaseSubjectLifecycleCheckpointResult> advanced = await lifecycle.AdvanceAsync(
                 delivery.Checkpoint, delivery.AdvanceIdentity,
                 context.GuardLifecycleCheckpoint("retired-lifecycle-checkpoint", 1, delivery.AdvanceIdentity),
                 cancellationToken);
             if (advanced is BaseFailure<BaseSubjectLifecycleCheckpointResult> failure)
-                return new BaseActivationHandlerResult<ProofActivationResult>
-                { FailureCode = failure.Error.Code, Retryable = false };
+                return new BaseActivationFailed<ProofActivationResult>
+            {
+                FailureCode = failure.Error.Code, Retryable = false };
         }
         int separator = input.Value.IndexOf(':');
         if (separator > 0 && input.Value[..separator] is "ensure" or "retire")
@@ -350,8 +508,9 @@ internal sealed class ProofActivationHandler : IBaseActivationHandler<ProofActiv
             else
             {
                 if (!SemanticProofRequests.TryGet(subjectId, out BaseSubjectReference<ConsumerSubject> retained))
-                    return new BaseActivationHandlerResult<ProofActivationResult>
-                    { FailureCode = "proof.semantic.authorityInvalid", Retryable = false };
+                    return new BaseActivationFailed<ProofActivationResult>
+            {
+                FailureCode = "proof.semantic.authorityInvalid", Retryable = false };
                 subject = retained;
             }
             var request = new SemanticProofRequest
@@ -396,11 +555,12 @@ internal sealed class ProofActivationHandler : IBaseActivationHandler<ProofActiv
             if (error is not null)
             {
                 SemanticProofObservations.Add(error);
-                return new BaseActivationHandlerResult<ProofActivationResult>
-                { FailureCode = error.Code, Retryable = false };
+                return new BaseActivationFailed<ProofActivationResult>
+            {
+                FailureCode = error.Code, Retryable = false };
             }
         }
-        return new BaseActivationHandlerResult<ProofActivationResult>
+        return new BaseActivationSucceeded<ProofActivationResult>
         {
             Result = new ProofActivationResult
             {

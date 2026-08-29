@@ -177,6 +177,8 @@ public sealed record BaseSemanticActivationCreateIntent
 {
     /// <summary>Gets the installed activation definition.</summary>
     public required BaseActivationDefinitionKey Definition { get; init; }
+    /// <summary>Gets the immutable activation-receipt retention policy pinned at creation.</summary>
+    public required BaseActivationReceiptRetentionPolicy ReceiptRetention { get; init; }
     /// <summary>Gets canonical activation input bytes.</summary>
     public required ImmutableArray<byte> CanonicalInput { get; init; }
     /// <summary>Gets the canonical input checksum.</summary>
@@ -295,7 +297,12 @@ public static class BaseSemanticActivationEvidenceContract
         return Hash("base.semanticActivation.retired.v1\0", System.Text.Encoding.UTF8.GetBytes(value.Definition.Id),
             Int64(value.Definition.Version), value.Definition.Checksum.ToArray(), key.ToArray(), value.ScopeBindingId.ToArray(), Lifetime(value.SubjectLifetime),
             System.Text.Encoding.UTF8.GetBytes(value.ActivationId), [(byte)value.TerminalState], Int64(value.TerminalActivationGeneration),
-            value.TerminalActivationChecksum.ToArray(), value.CompletionOperationChecksum.ToArray(), value.CompletionReceiptChecksum.ToArray(),
+            value.TerminalActivationChecksum.ToArray(), Int64(value.TerminalEffectiveDueAt), Int64(value.TerminalYieldCount),
+            Int64(value.TerminalMaximumYields), Int64(value.TerminalExecutionSliceOrdinal),
+            Int64(value.TerminalAttemptStartedAt ?? -1), Int64(value.TerminalSliceStartedAt ?? -1),
+            new byte[] { value.TerminalYieldDisposition is null ? (byte)0 : (byte)(1 + (int)value.TerminalYieldDisposition.Value) },
+            value.TerminalYieldFailureCode is null ? [] : System.Text.Encoding.UTF8.GetBytes(value.TerminalYieldFailureCode),
+            value.CompletionOperationChecksum.ToArray(), value.CompletionReceiptChecksum.ToArray(),
             Int64(value.RetirementPosition), Int64(value.SlotGeneration), value.StoreAuthority.Checksum.ToArray());
     }
 
@@ -320,6 +327,11 @@ public static class BaseSemanticActivationEvidenceContract
             value.Retired?.Checksum.ToArray() ?? [], value.Absent?.Checksum.ToArray() ?? [],
             Int64(value.ActivationGeneration ?? 0), value.ActivationChecksum.ToArray(), value.ActivationTerminalReceiptChecksum.ToArray(),
             new byte[] { value.ActivationState is null ? (byte)0 : (byte)value.ActivationState.Value },
+            Int64(value.ActivationEffectiveDueAt ?? -1), Int64(value.ActivationYieldCount ?? -1),
+            Int64(value.ActivationMaximumYields ?? -1), Int64(value.ActivationExecutionSliceOrdinal ?? -1),
+            Int64(value.ActivationAttemptStartedAt ?? -1), Int64(value.ActivationSliceStartedAt ?? -1),
+            new byte[] { value.ActivationTerminalYieldDisposition is null ? (byte)0 : (byte)(1 + (int)value.ActivationTerminalYieldDisposition.Value) },
+            value.ActivationTerminalYieldFailureCode is null ? [] : System.Text.Encoding.UTF8.GetBytes(value.ActivationTerminalYieldFailureCode),
             value.AcceptedTime.Checksum.ToArray(),
         };
         foreach (BaseSemanticActivationDefinitionMigrationAuthority migration in value.DefinitionMigrationChain)
@@ -381,10 +393,12 @@ public static class BaseSemanticActivationEvidenceContract
             value.ScopeBinding.Checksum.ToArray(), key.ToArray(), value.Live.Checksum.ToArray(),
             Int64(value.ActivationGeneration), new byte[] { (byte)value.ActivationState }, value.ActivationChecksum.ToArray(),
             value.ActivationTerminalReceiptChecksum.ToArray(), System.Text.Encoding.UTF8.GetBytes(value.TerminalReceipt.ReceiptKey),
-            System.Text.Encoding.UTF8.GetBytes(value.TerminalReceipt.OperationKind), value.TerminalReceipt.Fingerprint.ToArray(),
+            System.Text.Encoding.UTF8.GetBytes(value.TerminalReceipt.OperationKind),
+            Int32((int)value.TerminalReceipt.Kind), value.TerminalReceipt.Fingerprint.ToArray(),
             value.TerminalReceipt.ResultBytes.ToArray(), value.TerminalReceipt.ResultChecksum.ToArray(), value.TerminalReceipt.AuthorityChecksum.ToArray(),
-            value.TerminalActivation.Checksum.ToArray(),
         };
+        fields.AddRange(TerminalReceiptVariantFields(value.TerminalReceipt));
+        fields.Add(value.TerminalActivation.Checksum.ToArray());
         foreach (BaseAtomicReadIntervalEvidence interval in value.ReadIntervals)
         {
             fields.Add(System.Text.Encoding.UTF8.GetBytes(interval.LogicalAccessPathId)); fields.Add(interval.CanonicalLowerBound.ToArray());
@@ -455,13 +469,16 @@ public static class BaseSemanticActivationEvidenceContract
                 System.Text.Encoding.UTF8.GetBytes(request.StoreAuthority.LogicalStoreId),
                 System.Text.Encoding.UTF8.GetBytes(request.Definition.OwningModuleId),
                 System.Text.Encoding.UTF8.GetBytes(request.Definition.Id), value.ScopeBinding.BindingId.ToArray(), request.CanonicalKey.ToArray());
-            byte[] expectedControl = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
-                $"base.activation.control.v2\0{value.Live.ActivationId}\n{value.ActivationGeneration}\n{(int)value.ActivationState}"));
             byte[] scopeBound = System.Text.Encoding.UTF8.GetBytes($"{(int)request.Scope.Kind}\n{Convert.ToHexString(value.ScopeBinding.SeekDigest.AsSpan())}");
             byte[] slotBound = System.Text.Encoding.UTF8.GetBytes($"{request.Definition.Id}\n{Convert.ToHexString(value.ScopeBinding.BindingId.AsSpan())}\n{Convert.ToHexString(key)}");
             return key.SequenceEqual(expectedKey.AsSpan())
                 && string.Equals(value.Live.ActivationId, Convert.ToHexStringLower(expectedActivationId.AsSpan()), StringComparison.Ordinal)
-                && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(expectedControl, value.ActivationChecksum.AsSpan())
+                && BaseActivationControlChecksumContract.Matches(value.ActivationChecksum.AsSpan(), value.Live.ActivationId,
+                    value.TerminalActivation.Generation, value.TerminalActivation.State,
+                    value.TerminalActivation.EffectiveDueAt, value.TerminalActivation.YieldCount,
+                    value.TerminalActivation.MaximumYields, value.TerminalActivation.ExecutionSliceOrdinal,
+                    value.TerminalActivation.AttemptStartedAt, value.TerminalActivation.SliceStartedAt,
+                    value.TerminalActivation.TerminalYieldDisposition, value.TerminalActivation.TerminalYieldFailureCode)
                 && PreflightInterval(value.ReadIntervals[0], "base.semanticActivation.scope", scopeBound)
                 && PreflightInterval(value.ReadIntervals[1], "base.semanticActivation.slot", slotBound)
                 && PreflightInterval(value.ReadIntervals[2], "base.activation.byId", System.Text.Encoding.UTF8.GetBytes(value.Live.ActivationId))
@@ -523,9 +540,7 @@ public static class BaseSemanticActivationEvidenceContract
             + value.ActivationChecksum.Length + value.ActivationTerminalReceiptChecksum.Length
             + value.TerminalActivation.Payload.CanonicalInput.Length + value.TerminalActivation.Checksum.Length
             + (value.TerminalActivation.CanonicalResult?.Length ?? 0));
-        long receiptBytes = checked(System.Text.Encoding.UTF8.GetByteCount(value.TerminalReceipt.ReceiptKey)
-            + System.Text.Encoding.UTF8.GetByteCount(value.TerminalReceipt.OperationKind) + value.TerminalReceipt.Fingerprint.Length
-            + value.TerminalReceipt.ResultBytes.Length + value.TerminalReceipt.ResultChecksum.Length + value.TerminalReceipt.AuthorityChecksum.Length);
+        long receiptBytes = TerminalReceiptByteCount(value.TerminalReceipt);
         long evidenceBytes = checked(intervalBytes + value.ScopeBinding.Checksum.Length + value.Live.Checksum.Length
             + value.ActivationChecksum.Length + value.ActivationTerminalReceiptChecksum.Length
             + value.TerminalActivation.Checksum.Length);
@@ -614,24 +629,85 @@ public static class BaseSemanticActivationEvidenceContract
             || !receipt.AuthorityChecksum.AsSpan().SequenceEqual(value.ActivationTerminalReceiptChecksum.AsSpan())
             || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
                 System.Security.Cryptography.SHA256.HashData(receipt.ResultBytes.AsSpan()), receipt.ResultChecksum.AsSpan())) return false;
-        byte[] expectedAuthority = System.Security.Cryptography.SHA256.HashData(
-            System.Text.Encoding.UTF8.GetBytes(receipt.OperationKind).Concat(receipt.Fingerprint).Concat(receipt.ResultBytes).ToArray());
-        if (!System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(expectedAuthority, receipt.AuthorityChecksum.AsSpan())) return false;
-        BaseActivationTransitionResult? result = System.Text.Json.JsonSerializer.Deserialize(
-            receipt.ResultBytes.AsSpan(), HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult);
-        return result is not null && result.State == value.ActivationState && result.Generation == value.ActivationGeneration
-            && result.ControlChecksum.AsSpan().SequenceEqual(value.ActivationChecksum.AsSpan())
-            && receipt.OperationKind switch
+        if (receipt.Kind == BaseSemanticRecoveryTerminalReceiptKind.Migration)
+        {
+            if (receipt.Instance is not null || receipt.Migration?.Result is not { } migration
+                || receipt.OperationKind != "activation-migrated"
+                || migration.SourceActivationId != value.Live.ActivationId
+                || migration.SourceDefinition.Id != value.TerminalActivation.Payload.Definition.Id
+                || migration.SourceDefinition.Version != value.TerminalActivation.Payload.Definition.Version
+                || !migration.SourceDefinition.Checksum.AsSpan().SequenceEqual(
+                    value.TerminalActivation.Payload.Definition.Checksum.AsSpan())
+                || migration.SourceGeneration != value.ActivationGeneration
+                || !migration.SourceControlChecksum.AsSpan().SequenceEqual(value.ActivationChecksum.AsSpan())) return false;
+            ImmutableArray<byte> migrationAuthority = BaseActivationControlReceiptContract.AuthorityChecksum(
+                receipt.ReceiptKey, receipt.OperationKind, receipt.Fingerprint.AsSpan(), receipt.ResultChecksum.AsSpan());
+            return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                migrationAuthority.AsSpan(), receipt.AuthorityChecksum.AsSpan())
+                && value.ActivationState == BaseActivationState.Migrated;
+        }
+        if (receipt.Kind != BaseSemanticRecoveryTerminalReceiptKind.Instance || receipt.Migration is not null
+            || receipt.Instance is not { } instance || instance.ActivationId != value.Live.ActivationId
+            || instance.Definition.Id != value.TerminalActivation.Payload.Definition.Id
+            || instance.Definition.Version != value.TerminalActivation.Payload.Definition.Version
+            || !instance.Definition.Checksum.AsSpan().SequenceEqual(value.TerminalActivation.Payload.Definition.Checksum.AsSpan())
+            || instance.ReceiptRetention != value.TerminalActivation.Payload.ReceiptRetention
+            || instance.PriorOrderedChecksum.Length != 32 || instance.OrderedChecksum.Length != 32) return false;
+        ImmutableArray<byte> expectedAuthority = BaseActivationInstanceReceiptChainContract.ReceiptAuthorityChecksum(
+            receipt.ReceiptKey, receipt.OperationKind, instance.ActivationId, instance.Definition,
+            instance.ReceiptRetention, receipt.Fingerprint.AsSpan(), receipt.ResultChecksum.AsSpan(),
+            instance.CommittedAt, instance.DuplicateResolveUntil, instance.ReceiptSequence,
+            instance.PriorOrderedChecksum.AsSpan());
+        ImmutableArray<byte> expectedOrdered = BaseActivationInstanceReceiptChainContract.Append(
+            instance.ReceiptSequence, instance.PriorOrderedChecksum.AsSpan(), receipt.AuthorityChecksum.AsSpan(), receipt.ReceiptKey);
+        if (!System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(expectedAuthority.AsSpan(), receipt.AuthorityChecksum.AsSpan())
+            || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(expectedOrdered.AsSpan(), instance.OrderedChecksum.AsSpan())) return false;
+        BaseActivationTransitionResult? result = receipt.OperationKind == "activation-yielded-v1" ? null
+            : System.Text.Json.JsonSerializer.Deserialize(receipt.ResultBytes.AsSpan(), HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult);
+        BaseActivationYieldReceipt? yielded = receipt.OperationKind == "activation-yielded-v1"
+            ? System.Text.Json.JsonSerializer.Deserialize(receipt.ResultBytes.AsSpan(), HPDBaseJsonSerializerContext.Default.BaseActivationYieldReceipt) : null;
+        bool resultValid = result is not null
+            ? result.State == value.ActivationState && result.Generation == value.ActivationGeneration
+                && result.ControlChecksum.AsSpan().SequenceEqual(value.ActivationChecksum.AsSpan())
+            : yielded is not null && yielded.ResultingState == value.ActivationState
+                && yielded.ResultingGeneration == value.ActivationGeneration
+                && yielded.ControlChecksum.AsSpan().SequenceEqual(value.ActivationChecksum.AsSpan());
+        return resultValid && receipt.OperationKind switch
             {
                 "activation-completed" or "effect-completed" => value.ActivationState == BaseActivationState.Succeeded,
                 "activation-failed-terminal" => value.ActivationState == BaseActivationState.Exhausted,
                 "activation-cancelled" => value.ActivationState == BaseActivationState.Cancelled,
-                "activation-migrated" => value.ActivationState == BaseActivationState.Migrated,
                 "activation-disposed" => value.ActivationState == BaseActivationState.Disposed,
                 "effect-reconciled" => value.ActivationState is BaseActivationState.Succeeded or BaseActivationState.Exhausted,
+                "activation-yielded-v1" => value.ActivationState == BaseActivationState.Exhausted,
                 _ => false,
             };
     }
+
+    private static IEnumerable<byte[]> TerminalReceiptVariantFields(BaseSemanticRecoveryTerminalReceiptEvidence receipt)
+    {
+        if (receipt.Instance is { } instance)
+        {
+            yield return System.Text.Encoding.UTF8.GetBytes(instance.ActivationId);
+            yield return System.Text.Encoding.UTF8.GetBytes(instance.Definition.Id);
+            yield return Int32(instance.Definition.Version); yield return instance.Definition.Checksum.ToArray();
+            yield return Int32(instance.ReceiptRetention.FormatVersion);
+            yield return Int64(instance.ReceiptRetention.DuplicateResolutionLifetime.Ticks / TimeSpan.TicksPerMillisecond);
+            yield return Int32((int)instance.ReceiptRetention.ProtectedBackupCoverage);
+            yield return Int64(instance.CommittedAt); yield return Int64(instance.DuplicateResolveUntil);
+            yield return Int64(instance.ReceiptSequence); yield return instance.PriorOrderedChecksum.ToArray();
+            yield return instance.OrderedChecksum.ToArray();
+        }
+        if (receipt.Migration is { } migration)
+            yield return System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
+                migration.Result, HPDBaseJsonSerializerContext.Default.BaseActivationMigrationResult);
+    }
+
+    private static long TerminalReceiptByteCount(BaseSemanticRecoveryTerminalReceiptEvidence receipt) => checked(
+        System.Text.Encoding.UTF8.GetByteCount(receipt.ReceiptKey)
+        + System.Text.Encoding.UTF8.GetByteCount(receipt.OperationKind) + sizeof(int)
+        + receipt.Fingerprint.Length + receipt.ResultBytes.Length + receipt.ResultChecksum.Length + receipt.AuthorityChecksum.Length
+        + TerminalReceiptVariantFields(receipt).Sum(static field => (long)field.Length));
 
     private static byte[] RecoveryLifetime(BaseSemanticRecoverySubjectLifetimePreimage? value) => value is null ? [] :
         Hash("base.semanticRecovery.subjectLifetimePreimage.v1\0", System.Text.Encoding.UTF8.GetBytes(value.ContractId),
@@ -922,6 +998,22 @@ public sealed record BaseSemanticActivationRetirementAuthority
     public required long TerminalActivationGeneration { get; init; }
     /// <summary>Gets terminal activation checksum.</summary>
     public required ImmutableArray<byte> TerminalActivationChecksum { get; init; }
+    /// <summary>Gets the terminal activation effective due instant.</summary>
+    public required long TerminalEffectiveDueAt { get; init; }
+    /// <summary>Gets the terminal activation durable-yield count.</summary>
+    public required long TerminalYieldCount { get; init; }
+    /// <summary>Gets the terminal activation immutable yield maximum.</summary>
+    public required long TerminalMaximumYields { get; init; }
+    /// <summary>Gets the terminal activation execution-slice ordinal.</summary>
+    public required long TerminalExecutionSliceOrdinal { get; init; }
+    /// <summary>Gets the terminal activation logical-attempt start when present.</summary>
+    public long? TerminalAttemptStartedAt { get; init; }
+    /// <summary>Gets the terminal activation current-slice start when present.</summary>
+    public long? TerminalSliceStartedAt { get; init; }
+    /// <summary>Gets the terminal yield disposition when yield exhaustion caused termination.</summary>
+    public BaseActivationYieldDisposition? TerminalYieldDisposition { get; init; }
+    /// <summary>Gets the fixed terminal yield failure code when yield exhaustion caused termination.</summary>
+    public string? TerminalYieldFailureCode { get; init; }
     /// <summary>Gets the installed completion operation checksum.</summary>
     public required ImmutableArray<byte> CompletionOperationChecksum { get; init; }
     /// <summary>Gets the outer completion receipt checksum.</summary>
@@ -1011,6 +1103,22 @@ public sealed record BaseCapturedSemanticActivationEvidence
     public BaseActivationState? ActivationState { get; init; }
     /// <summary>Gets the mapped activation control checksum only while the slot is live.</summary>
     public ImmutableArray<byte> ActivationChecksum { get; init; }
+    /// <summary>Gets the mapped activation effective due instant only while the slot is live.</summary>
+    public long? ActivationEffectiveDueAt { get; init; }
+    /// <summary>Gets the mapped activation durable-yield count only while the slot is live.</summary>
+    public long? ActivationYieldCount { get; init; }
+    /// <summary>Gets the mapped activation immutable yield maximum only while the slot is live.</summary>
+    public long? ActivationMaximumYields { get; init; }
+    /// <summary>Gets the mapped activation execution-slice ordinal only while the slot is live.</summary>
+    public long? ActivationExecutionSliceOrdinal { get; init; }
+    /// <summary>Gets the mapped activation logical-attempt start when present.</summary>
+    public long? ActivationAttemptStartedAt { get; init; }
+    /// <summary>Gets the mapped activation current-slice start when present.</summary>
+    public long? ActivationSliceStartedAt { get; init; }
+    /// <summary>Gets the mapped terminal yield disposition when present.</summary>
+    public BaseActivationYieldDisposition? ActivationTerminalYieldDisposition { get; init; }
+    /// <summary>Gets the mapped fixed terminal yield failure code when present.</summary>
+    public string? ActivationTerminalYieldFailureCode { get; init; }
     /// <summary>Gets the mapped activation terminal receipt checksum when the live mapping is terminal.</summary>
     public ImmutableArray<byte> ActivationTerminalReceiptChecksum { get; init; }
     /// <summary>Gets the exact contiguous published migration chain used only for old-version terminal authority.</summary>

@@ -32,6 +32,22 @@ public sealed record BaseActivationMigrationCandidate
     public required long Generation { get; init; }
     /// <summary>Gets the current live state.</summary>
     public required BaseActivationState State { get; init; }
+    /// <summary>Gets the current effective due instant.</summary>
+    public required long EffectiveDueAt { get; init; }
+    /// <summary>Gets the committed durable-yield count.</summary>
+    public required long YieldCount { get; init; }
+    /// <summary>Gets the immutable pinned durable-yield maximum.</summary>
+    public required long MaximumYields { get; init; }
+    /// <summary>Gets the current execution-slice ordinal.</summary>
+    public required long ExecutionSliceOrdinal { get; init; }
+    /// <summary>Gets the logical-attempt start when the activation has been claimed.</summary>
+    public long? AttemptStartedAt { get; init; }
+    /// <summary>Gets the current-slice start when the activation has been claimed.</summary>
+    public long? SliceStartedAt { get; init; }
+    /// <summary>Gets the retained terminal yield disposition when present.</summary>
+    public BaseActivationYieldDisposition? TerminalYieldDisposition { get; init; }
+    /// <summary>Gets the retained safe terminal yield failure code when present.</summary>
+    public string? TerminalYieldFailureCode { get; init; }
     /// <summary>Gets the canonical source input.</summary>
     public required ImmutableArray<byte> CanonicalInput { get; init; }
     /// <summary>Gets the SHA-256 source-input checksum.</summary>
@@ -80,16 +96,26 @@ public sealed record BaseActivationMigrationResult
 {
     /// <summary>Gets the migrated source activation identity.</summary>
     public required string SourceActivationId { get; init; }
+    /// <summary>Gets the exact migrated source definition.</summary>
+    public required BaseActivationDefinitionKey SourceDefinition { get; init; }
     /// <summary>Gets the committed source generation.</summary>
     public required long SourceGeneration { get; init; }
     /// <summary>Gets the source control checksum.</summary>
     public required ImmutableArray<byte> SourceControlChecksum { get; init; }
     /// <summary>Gets the replacement activation identity.</summary>
     public required string ReplacementActivationId { get; init; }
+    /// <summary>Gets the exact replacement definition.</summary>
+    public required BaseActivationDefinitionKey ReplacementDefinition { get; init; }
     /// <summary>Gets the committed replacement generation.</summary>
     public required long ReplacementGeneration { get; init; }
     /// <summary>Gets the replacement control checksum.</summary>
     public required ImmutableArray<byte> ReplacementControlChecksum { get; init; }
+    /// <summary>Gets the installed migration identity.</summary>
+    public required string MigrationId { get; init; }
+    /// <summary>Gets the installed migration version.</summary>
+    public required int MigrationVersion { get; init; }
+    /// <summary>Gets the installed migration checksum.</summary>
+    public required ImmutableArray<byte> MigrationChecksum { get; init; }
     /// <summary>Gets provider accounting.</summary>
     public required BaseActivationAccounting Accounting { get; init; }
     /// <summary>Gets request disposition.</summary>

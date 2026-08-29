@@ -27,7 +27,33 @@ internal sealed partial record AuthUserSubjectAcquisitionReadV1
     }
 }
 
+[BaseRead("auth.read.roleSubject.acquire.v1", typeof(AuthSubjectAcquisitionReadJsonContext),
+    RequiredGrantId = "auth.subject.role.acquire",
+    Disclosure = BaseRegisteredReadDisclosure.ConfidentialProjection,
+    SourceAuthority = BaseRegisteredReadSourceAuthority.System,
+    SystemSourceIds = ["auth.roles"])]
+internal sealed partial record AuthRoleSubjectAcquisitionReadV1
+{
+    [BaseReadParameter("auth.read.roleSubject.acquire.v1.parameter.roleId")]
+    public required BaseRecordId<AuthRoleRecordV1> RoleId { get; init; }
+
+    public sealed partial record Row
+    {
+        [BaseReadField("auth.read.roleSubject.acquire.v1.row.reference")]
+        public required BaseSubjectReference<AuthRoleSubject> Reference { get; init; }
+    }
+
+    public static void Configure(BaseReadDefinitionBuilder<AuthRoleSubjectAcquisitionReadV1, Row> read)
+    {
+        read.From(AuthRoleRecordV1.Collection, "role", out BaseReadSource<AuthRoleRecordV1> role)
+            .Where(role.RecordId.Equal(read.Parameter(Parameters.RoleId)))
+            .ProjectSubjectReference(Row.Fields.Reference, role, AuthRoleSubject.HPDBaseSubjectRegistration);
+    }
+}
+
 [JsonSerializable(typeof(AuthUserSubjectAcquisitionReadV1))]
-[JsonSerializable(typeof(AuthUserSubjectAcquisitionReadV1.Row))]
+[JsonSerializable(typeof(AuthUserSubjectAcquisitionReadV1.Row), TypeInfoPropertyName = "AuthUserSubjectAcquisitionRowV1")]
+[JsonSerializable(typeof(AuthRoleSubjectAcquisitionReadV1))]
+[JsonSerializable(typeof(AuthRoleSubjectAcquisitionReadV1.Row), TypeInfoPropertyName = "AuthRoleSubjectAcquisitionRowV1")]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class AuthSubjectAcquisitionReadJsonContext : JsonSerializerContext;

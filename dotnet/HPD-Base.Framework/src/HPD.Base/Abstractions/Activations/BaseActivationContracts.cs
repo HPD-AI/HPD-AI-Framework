@@ -20,22 +20,24 @@ public enum BaseActivationState
     Pending = 0,
     /// <summary>The activation is waiting for its deterministic retry due time.</summary>
     RetryPending = 1,
+    /// <summary>The activation completed one successful slice and is waiting to resume.</summary>
+    YieldPending = 2,
     /// <summary>One current worker claim owns the activation.</summary>
-    Claimed = 2,
+    Claimed = 3,
     /// <summary>The external effect-start fact committed and automatic retry is forbidden.</summary>
-    EffectStarted = 3,
+    EffectStarted = 4,
     /// <summary>The activation completed successfully.</summary>
-    Succeeded = 4,
+    Succeeded = 5,
     /// <summary>The activation reached a terminal failure.</summary>
-    Exhausted = 5,
+    Exhausted = 6,
     /// <summary>Cancellation won the durable state transition.</summary>
-    Cancelled = 6,
+    Cancelled = 7,
     /// <summary>An external effect may or may not have occurred and requires reconciliation.</summary>
-    OutcomeUnknown = 7,
+    OutcomeUnknown = 8,
     /// <summary>An identified migration replaced the activation.</summary>
-    Migrated = 8,
+    Migrated = 9,
     /// <summary>Detailed state was pruned after immutable terminal evidence was retained.</summary>
-    Disposed = 9,
+    Disposed = 10,
 }
 
 /// <summary>Identifies one installed activation definition.</summary>
@@ -56,6 +58,18 @@ public sealed record BaseActivationClaimAuthority
     public required string ActivationId { get; init; }
     /// <summary>Gets the positive attempt number.</summary>
     public required int AttemptNumber { get; init; }
+    /// <summary>Gets the activation generation that committed this claim.</summary>
+    public required long ActivationGeneration { get; init; }
+    /// <summary>Gets the positive execution-slice ordinal.</summary>
+    public required long ExecutionSliceOrdinal { get; init; }
+    /// <summary>Gets the accepted start instant of the logical attempt as Unix milliseconds.</summary>
+    public required long AttemptStartedAt { get; init; }
+    /// <summary>Gets the accepted start instant of the current slice as Unix milliseconds.</summary>
+    public required long SliceStartedAt { get; init; }
+    /// <summary>Gets the number of previously committed durable yields.</summary>
+    public required long YieldCount { get; init; }
+    /// <summary>Gets the immutable maximum yields pinned at activation creation.</summary>
+    public required long MaximumYields { get; init; }
     /// <summary>Gets the positive claim epoch.</summary>
     public required long ClaimEpoch { get; init; }
     /// <summary>Gets the opaque 256-bit fencing token.</summary>
@@ -154,6 +168,8 @@ public sealed record BaseActivationPayload
     public required string ActivationId { get; init; }
     /// <summary>Gets the installed definition.</summary>
     public required BaseActivationDefinitionKey Definition { get; init; }
+    /// <summary>Gets the immutable activation-receipt retention policy pinned at creation.</summary>
+    public required BaseActivationReceiptRetentionPolicy ReceiptRetention { get; init; }
     /// <summary>Gets the canonical input bytes.</summary>
     public required ImmutableArray<byte> CanonicalInput { get; init; }
     /// <summary>Gets the canonical input checksum.</summary>
@@ -177,6 +193,10 @@ public sealed record BaseActivationCreateIntent
     public required int Ordinal { get; init; }
     /// <summary>Gets the exact installed definition.</summary>
     public required BaseActivationDefinitionKey Definition { get; init; }
+    /// <summary>Gets the immutable maximum durable yields reserved for the activation.</summary>
+    public required long MaximumYields { get; init; }
+    /// <summary>Gets the immutable activation-receipt retention policy pinned at creation.</summary>
+    public required BaseActivationReceiptRetentionPolicy ReceiptRetention { get; init; }
     /// <summary>Gets the canonical activation input.</summary>
     public required ImmutableArray<byte> CanonicalInput { get; init; }
     /// <summary>Gets the canonical input checksum.</summary>

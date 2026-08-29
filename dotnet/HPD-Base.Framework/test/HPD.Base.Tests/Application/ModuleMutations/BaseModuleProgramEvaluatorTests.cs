@@ -776,6 +776,130 @@ public sealed class BaseModuleProgramEvaluatorTests
     }
 
     [Fact]
+    public void Relation_target_identity_cannot_depend_on_provider_captured_values()
+    {
+        CollectionDefinition source = ModuleCollection() with
+        {
+            Fields =
+            [
+                .. ModuleCollection().Fields!,
+                new FieldDefinition
+                {
+                    Id = "field.owner", ApplicationName = "Owner", WireName = "owner", Type = BaseFieldTypes.String,
+                    Presence = BaseFieldPresence.Required,
+                    Relation = new RelationDefinition
+                    {
+                        Id = "module-record-owner", SourceCollectionId = "module-records",
+                        SourceFieldId = "field.owner", TargetCollectionId = "module-targets",
+                    },
+                },
+            ],
+        };
+        CollectionDefinition target = ModuleCollection() with
+        {
+            Id = "module-targets", Name = "module-targets",
+        };
+        BaseRegisteredModuleMutationDefinition valid = CreateDefinition();
+        BaseModuleCreateStatement create = valid.Template.Body.Statements.OfType<BaseModuleCreateStatement>().Single();
+        BaseRegisteredModuleMutationDefinition invalid = BaseModuleMutationContract.Seal(valid with
+        {
+            SystemCollectionIds = ["module-records", "module-targets"],
+            SystemSourceGrants =
+            [
+                .. valid.SystemSourceGrants,
+                new BaseModuleSystemSourceGrant
+                {
+                    CollectionId = "module-targets", GrantId = "module.targets.source",
+                },
+            ],
+            Template = valid.Template with
+            {
+                Body = valid.Template.Body with
+                {
+                    Statements =
+                    [
+                        create with
+                        {
+                            Payload = create.Payload with
+                            {
+                                Properties =
+                                [
+                                    .. create.Payload.Properties,
+                                    new BaseModuleObjectPropertyExpression
+                                    {
+                                        StablePropertyId = "field.owner",
+                                        Value = new BaseModuleCapturedFieldExpression
+                                        {
+                                            Id = "captured-relation-target",
+                                            ResultType = Type<string>(),
+                                            Field = new BaseModuleCapturedFieldReference
+                                            {
+                                                CaptureId = "record", StableFieldId = "field.name",
+                                                Authority = Type<string>(),
+                                            },
+                                        },
+                                    },
+                                ],
+                            },
+                        },
+                        .. valid.Template.Body.Statements.Skip(1),
+                    ],
+                },
+            },
+            Checksum = BaseModuleMutationChecksum.Create(new byte[32]),
+        });
+
+        Action validate = () => BaseModuleMutationContractValidator.ValidateDefinition(
+            invalid,
+            new Dictionary<string, CollectionDefinition>
+            {
+                [source.Id] = source,
+                [target.Id] = target,
+            },
+            new Dictionary<string, BaseModuleGenerationCellDefinition>(),
+            new BaseModuleMutationRegistration<CreateRequest, CreateResult>(invalid, CreateIdentity()));
+
+        validate.Should().Throw<InvalidOperationException>().WithMessage("base.moduleMutation.invalid");
+    }
+
+    [Fact]
+    public void Provider_dependent_capture_branch_retains_both_bounded_statement_paths()
+    {
+        const string guardId = "provider-record-present";
+        var guard = new BaseModuleRecordPresenceGuard
+        {
+            Id = guardId, CaptureId = "record", MustBePresent = true,
+        };
+        var body = new BaseModuleMutationBlock
+        {
+            Statements =
+            [
+                new BaseModuleIfStatement
+                {
+                    Id = "provider-branch", GuardId = guardId,
+                    WhenTrue = new BaseModuleMutationBlock
+                    {
+                        Statements = [new BaseModuleRequireStatement { Id = "present-path", GuardId = guardId, RequirementId = "present" }],
+                    },
+                    WhenFalse = new BaseModuleMutationBlock
+                    {
+                        Statements = [new BaseModuleRequireStatement { Id = "missing-path", GuardId = guardId, RequirementId = "missing" }],
+                    },
+                },
+            ],
+        };
+        var evaluator = new BaseModuleProgramEvaluator<EvaluatorRequest, EvaluatorResult>(
+            Definition(), Identity(), new EvaluatorRequest { Amount = 0, Enabled = true }, Captured(),
+            new Dictionary<string, CollectionDefinition>());
+
+        string[] statements = DefaultBaseModuleMutationRuntime.EnumerateCaptureStatements(
+                body, evaluator, new Dictionary<string, BaseModuleGuard> { [guardId] = guard })
+            .Select(static statement => statement.Id).ToArray();
+
+        statements.Should().Equal("present-path", "missing-path");
+    }
+
+    [Fact]
     public async Task Create_statement_uses_the_shared_L30_pipeline_and_commits_its_typed_result()
     {
         CollectionDefinition collection = ModuleCollection();
@@ -1380,10 +1504,15 @@ public sealed class BaseModuleProgramEvaluatorTests
                     MultiplierNumerator = 1, MultiplierDenominator = 1, JitterBasisPoints = 0,
                     RetryableFailureCodes = [],
                 },
+                ReceiptRetention = new BaseActivationReceiptRetentionPolicy
+                {
+                    FormatVersion = 1, DuplicateResolutionLifetime = TimeSpan.FromHours(24),
+                    ProtectedBackupCoverage = BaseActivationProtectedBackupCoverage.NotRequired,
+                },
                 Limits = new BaseActivationLimits
                 {
-                    MaximumInputBytes = 4096, MaximumResultBytes = 4096, MaximumAttempts = 1,
-                    MaximumRenewalsPerAttempt = 1, MaximumChildrenPerAttempt = 1, MaximumLineageDepth = 1,
+                    MaximumInputBytes = 4096, MaximumResultBytes = 4096, MaximumAttempts = 1, MaximumYields = 0,
+                    MaximumRenewalsPerSlice = 1, MaximumChildrenPerSlice = 1, MaximumLineageDepth = 1,
                     LeaseDuration = TimeSpan.FromMinutes(1), HandlerTimeout = TimeSpan.FromMinutes(1),
                     Provider = ActivationProviderLimits(), AtomicCreation = DefaultBaseModuleMutationRuntime.ResolveExecutionLimits(BaseModuleMutationPlatform.MaximumLimits),
                 },
@@ -1485,6 +1614,40 @@ public sealed class BaseModuleProgramEvaluatorTests
             out ImmutableArray<byte> bytes);
         result.Amount.Should().Be(41);
         bytes.Should().Equal("{\"Amount\":41}"u8.ToArray());
+    }
+
+    [Fact]
+    public void Scalar_equality_compares_JSON_values_instead_of_escape_spellings()
+    {
+        BaseRegisteredModuleMutationDefinition source = Definition();
+        BaseRegisteredModuleMutationDefinition definition = source with
+        {
+            Template = source.Template with
+            {
+                Guards =
+                [
+                    new BaseModuleValueEqualsGuard
+                    {
+                        Id = "escaped-string-equality",
+                        Left = new BaseModuleConstantExpression
+                        {
+                            Id = "literal-plus", ResultType = Type<string>(),
+                            CanonicalBaseJson = "\"A+B\""u8.ToArray().ToImmutableArray(),
+                        },
+                        Right = new BaseModuleConstantExpression
+                        {
+                            Id = "escaped-plus", ResultType = Type<string>(),
+                            CanonicalBaseJson = "\"A\\u002BB\""u8.ToArray().ToImmutableArray(),
+                        },
+                    },
+                ],
+            },
+        };
+        var evaluator = new BaseModuleProgramEvaluator<EvaluatorRequest, EvaluatorResult>(
+            definition, Identity(), new EvaluatorRequest { Amount = 0, Enabled = true }, null,
+            new Dictionary<string, CollectionDefinition>());
+
+        evaluator.Guard("escaped-string-equality").Should().BeTrue();
     }
 
     [Fact]
@@ -2258,7 +2421,7 @@ public sealed class BaseModuleProgramEvaluatorTests
         Enqueue = "module.transactional.enqueue", Observe = "module.transactional.observe",
         Claim = "module.transactional.claim", Execute = "module.transactional.execute",
         Renew = "module.transactional.renew", Complete = "module.transactional.complete",
-        Fail = "module.transactional.fail", Cancel = "module.transactional.cancel",
+        Fail = "module.transactional.fail", Yield = "module.transactional.yield", Cancel = "module.transactional.cancel",
         Inspect = "module.transactional.inspect", Replay = "module.transactional.replay",
         Migrate = "module.transactional.migrate", Reconcile = "module.transactional.reconcile",
         Retry = "module.transactional.retry", Dispose = "module.transactional.dispose",

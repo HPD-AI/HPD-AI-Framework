@@ -72,6 +72,56 @@ public sealed class AuthBaseRefreshTokenStoreTests
     }
 
     [Fact]
+    public async Task Data_protection_repository_invalidates_immediately_after_external_key_commit()
+    {
+        await using ServiceProvider provider = CreateProvider();
+        await InitializeAsync(provider);
+        HPDBaseDataProtectionXmlRepository repository = provider
+            .GetRequiredService<HPDBaseDataProtectionXmlRepository>();
+        await repository.StartAsync(CancellationToken.None);
+        try
+        {
+            repository.GetAllElements().Should().BeEmpty();
+            byte[] xml = "<key id=\"external\" />"u8.ToArray();
+            byte[] digest = SHA256.HashData(xml);
+            string id = AuthBaseDeterministicId.Create("HPD Auth Infrastructure Tests", "key-external");
+            BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
+            {
+                AuthenticationState = PrincipalAuthenticationState.System,
+                SubjectKind = AccessSubjectKind.System,
+                SubjectId = "hpd.auth",
+                AuthSource = "hpd.auth.data-protection.external-test.v1",
+            });
+            BaseBatchBuilder batch = session.Atomic(AuthBaseRuntime.MutationIdentity(
+                "hpd.auth.data-protection.external-test.v1", Guid.Empty, id,
+                Convert.ToHexStringLower(digest)));
+            var record = new AuthDataProtectionKeyRecordV1
+            {
+                Id = id,
+                ApplicationDiscriminator = "HPD Auth Infrastructure Tests",
+                FriendlyName = "key-external",
+                CanonicalXml = BaseBinary.From(xml),
+                ContentDigest = BaseBinary.From(digest),
+                CreatedAt = Now,
+                FormatVersion = 1,
+            };
+            batch.Create(AuthDataProtectionKeyRecordV1.Collection, RecordId.Create(id), record);
+            (await batch.CommitAsync()).RequireValue().RequireCommitted();
+
+            Action staleRead = () => repository.GetAllElements();
+            staleRead.Should().Throw<InvalidOperationException>()
+                .WithMessage("*not ready*");
+
+            (await repository.RefreshAsync(CancellationToken.None)).Should().BePositive();
+            repository.GetAllElements().Should().ContainSingle();
+        }
+        finally
+        {
+            await repository.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
     public async Task Session_expiration_activation_persists_cutoff_and_revokes_one_due_cohort()
     {
         await using ServiceProvider provider = CreateProvider();
@@ -215,6 +265,194 @@ public sealed class AuthBaseRefreshTokenStoreTests
         result.Users[0].InstanceId.Should().Be(TenantId);
     }
 
+    [Fact]
+    public async Task User_cleanup_drains_multiple_real_cohorts_by_yielding_the_same_activation()
+    {
+        await using ServiceProvider provider = CreateProvider();
+        await InitializeAsync(provider);
+        using IServiceScope scope = provider.CreateScope();
+        Guid userId = await CreateUserAsync(scope.ServiceProvider, "cleanup-user@example.invalid");
+        BaseSession system = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
+        {
+            AuthenticationState = PrincipalAuthenticationState.System,
+            SubjectKind = AccessSubjectKind.System,
+            SubjectId = "hpd.auth",
+            CurrentTenantId = TenantId.ToString("D"),
+            AuthSource = "hpd.auth.cleanup.test.v1",
+        });
+        BaseSession service = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
+        {
+            AuthenticationState = PrincipalAuthenticationState.Service,
+            SubjectKind = AccessSubjectKind.ServicePrincipal,
+            SubjectId = "hpd.auth",
+            CurrentTenantId = TenantId.ToString("D"),
+            AuthSource = "hpd.auth.cleanup.test.acquire.v1",
+        });
+        BaseResult<AuthUserSubjectAcquisitionReadV1.Row?> acquired = await service.Reads.FirstAsync(
+            AuthUserSubjectAcquisitionReadV1.Handle,
+            new AuthUserSubjectAcquisitionReadV1
+            {
+                UserId = BaseRecordId<AuthUserRecordV1>.Create(userId.ToString("D")),
+            });
+        BaseSubjectReference<AuthUserSubject> subject = acquired.RequireValue()!.Reference;
+        ISessionManager sessions = scope.ServiceProvider.GetRequiredService<ISessionManager>();
+        for (int index = 0; index < 201; index++)
+            _ = await sessions.CreateSessionAsync(userId, new SessionContext(
+                "127.0.0.1", $"cleanup-cohort-{index}", Lifetime: TimeSpan.FromDays(1)));
+        IUserStore<ApplicationUser> store = scope.ServiceProvider.GetRequiredService<IUserStore<ApplicationUser>>();
+        ApplicationUser user = (await store.FindByIdAsync(userId.ToString("D"), CancellationToken.None))!;
+
+        IdentityResult deleted = await store.DeleteAsync(user, CancellationToken.None);
+
+        deleted.Succeeded.Should().BeTrue(string.Join(',', deleted.Errors.Select(static error => error.Code)));
+        OperationResult<BaseActivationDispatchResult> dispatched = await system.Activations
+            .GetWorker(AuthLifecycleActivationDeclarations.BootstrapUser.Identity)
+            .RunOneAsync();
+        dispatched.IsSuccess().Should().BeTrue(dispatched.Error?.Code);
+        dispatched.Value!.State.Should().Be(BaseActivationState.Succeeded);
+
+        BaseResult<AuthCleanupWorkReadV1.Row?> work = await system.Reads.FirstAsync(
+            AuthCleanupWorkReadV1.Handle,
+            new AuthCleanupWorkReadV1
+            {
+                TenantId = TenantId,
+                SubjectKind = AuthCleanupSubjectKindV1.user,
+                SubjectId = userId,
+                Incarnation = BaseBinary.From(subject.Incarnation.ToArray()),
+            });
+        work.RequireValue().Should().NotBeNull();
+        work.RequireValue()!.State.Should().Be(AuthCleanupStateV1.draining);
+        work.RequireValue()!.Step.Should().Be(AuthCleanupStepV1.revokeSessions);
+        work.RequireValue()!.TombstoneSequence.Should().BeGreaterThan(0);
+
+        BaseInstalledActivationWorkerHandle<AuthUserCleanupInputV1, AuthCleanupResultV1> cleanupWorker =
+            system.Activations.GetWorker(AuthCleanupActivationDeclarations.User.Identity);
+        OperationResult<BaseActivationDispatchResult> firstCleanup = await cleanupWorker.RunOneAsync();
+        firstCleanup.IsSuccess().Should().BeTrue(firstCleanup.Error?.Code);
+        firstCleanup.Value!.State.Should().Be(BaseActivationState.YieldPending);
+        (await sessions.GetActiveSessionsAsync(userId)).Should().ContainSingle();
+
+        OperationResult<BaseActivationDispatchResult> secondCleanup = await cleanupWorker.RunOneAsync();
+        secondCleanup.IsSuccess().Should().BeTrue(secondCleanup.Error?.Code);
+        secondCleanup.Value!.State.Should().Be(BaseActivationState.YieldPending);
+        secondCleanup.Value.ActivationId.Should().Be(firstCleanup.Value.ActivationId);
+        (await sessions.GetActiveSessionsAsync(userId)).Should().BeEmpty();
+
+        OperationResult<BaseActivationDispatchResult> zeroDrainCleanup = await cleanupWorker.RunOneAsync();
+        zeroDrainCleanup.IsSuccess().Should().BeTrue(zeroDrainCleanup.Error?.Code);
+        zeroDrainCleanup.Value!.State.Should().Be(BaseActivationState.YieldPending);
+        zeroDrainCleanup.Value.ActivationId.Should().Be(firstCleanup.Value.ActivationId);
+        BaseResult<AuthCleanupWorkReadV1.Row?> advanced = await system.Reads.FirstAsync(
+            AuthCleanupWorkReadV1.Handle,
+            new AuthCleanupWorkReadV1
+            {
+                TenantId = TenantId,
+                SubjectKind = AuthCleanupSubjectKindV1.user,
+                SubjectId = userId,
+                Incarnation = BaseBinary.From(subject.Incarnation.ToArray()),
+            });
+        advanced.RequireValue()!.Step.Should().Be(AuthCleanupStepV1.revokeRefreshTokens);
+        advanced.RequireValue()!.CompletedSteps.Should().Be(1);
+    }
+
+    [Fact]
+    public void Completed_cleanup_advance_resolves_as_terminal_success_instead_of_consuming_another_yield()
+    {
+        var result = new AuthCleanupResultV1
+        {
+            Completed = true,
+            State = AuthCleanupStateV1.complete,
+            Step = AuthCleanupStepV1.finalizeSubject,
+            ChunkOrdinal = 42,
+            SelectedCount = 0,
+        };
+
+        BaseActivationHandlerResult<AuthCleanupResultV1> outcome =
+            AuthCleanupActivationHandler.ResolveAdvanceOutcome(
+                new string('a', 64), 65_535, new RevisionToken("complete-revision"),
+                AuthCleanupChildDispositionV1.allStepsComplete, result);
+
+        outcome.Should().BeOfType<BaseActivationSucceeded<AuthCleanupResultV1>>()
+            .Which.Result.Should().BeSameAs(result);
+    }
+
+    [Fact]
+    public async Task Role_tombstone_bootstrap_creates_cleanup_work_and_semantic_activation()
+    {
+        await using ServiceProvider provider = CreateProvider();
+        await InitializeAsync(provider);
+        using IServiceScope scope = provider.CreateScope();
+        IRoleStore<ApplicationRole> store = scope.ServiceProvider.GetRequiredService<IRoleStore<ApplicationRole>>();
+        var role = new ApplicationRole("cleanup-role")
+        {
+            Id = Guid.NewGuid(),
+            NormalizedName = "CLEANUP-ROLE",
+            ConcurrencyStamp = "cleanup-role-v1",
+        };
+        (await store.CreateAsync(role, CancellationToken.None)).Succeeded.Should().BeTrue();
+        BaseSession service = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
+        {
+            AuthenticationState = PrincipalAuthenticationState.Service,
+            SubjectKind = AccessSubjectKind.ServicePrincipal,
+            SubjectId = "hpd.auth",
+            CurrentTenantId = TenantId.ToString("D"),
+            AuthSource = "hpd.auth.cleanup.role.test.acquire.v1",
+        });
+        BaseResult<AuthRoleSubjectAcquisitionReadV1.Row?> acquired = await service.Reads.FirstAsync(
+            AuthRoleSubjectAcquisitionReadV1.Handle,
+            new AuthRoleSubjectAcquisitionReadV1
+            {
+                RoleId = BaseRecordId<AuthRoleRecordV1>.Create(role.Id.ToString("D")),
+            });
+        BaseSubjectReference<AuthRoleSubject> subject = acquired.RequireValue()!.Reference;
+
+        IdentityResult deleted = await store.DeleteAsync(role, CancellationToken.None);
+
+        deleted.Succeeded.Should().BeTrue(string.Join(',', deleted.Errors.Select(static error => error.Code)));
+        (await store.FindByIdAsync(role.Id.ToString("D"), CancellationToken.None)).Should().BeNull();
+        BaseSession system = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
+        {
+            AuthenticationState = PrincipalAuthenticationState.System,
+            SubjectKind = AccessSubjectKind.System,
+            SubjectId = "hpd.auth",
+            CurrentTenantId = TenantId.ToString("D"),
+            AuthSource = "hpd.auth.cleanup.role.test.v1",
+        });
+        OperationResult<BaseActivationDispatchResult> dispatched = await system.Activations
+            .GetWorker(AuthLifecycleActivationDeclarations.BootstrapRole.Identity)
+            .RunOneAsync();
+        dispatched.IsSuccess().Should().BeTrue(dispatched.Error?.Code);
+        dispatched.Value!.State.Should().Be(BaseActivationState.Succeeded);
+        BaseResult<AuthCleanupWorkReadV1.Row?> work = await system.Reads.FirstAsync(
+            AuthCleanupWorkReadV1.Handle,
+            new AuthCleanupWorkReadV1
+            {
+                TenantId = TenantId,
+                SubjectKind = AuthCleanupSubjectKindV1.role,
+                SubjectId = role.Id,
+                Incarnation = BaseBinary.From(subject.Incarnation.ToArray()),
+            });
+        work.RequireValue().Should().NotBeNull();
+        work.RequireValue()!.Step.Should().Be(AuthCleanupStepV1.deleteRoleClaims);
+
+        OperationResult<BaseActivationDispatchResult> cleanup = await system.Activations
+            .GetWorker(AuthCleanupActivationDeclarations.Role.Identity)
+            .RunOneAsync();
+        cleanup.IsSuccess().Should().BeTrue(cleanup.Error?.Code);
+        cleanup.Value!.State.Should().Be(BaseActivationState.YieldPending);
+        BaseResult<AuthCleanupWorkReadV1.Row?> advanced = await system.Reads.FirstAsync(
+            AuthCleanupWorkReadV1.Handle,
+            new AuthCleanupWorkReadV1
+            {
+                TenantId = TenantId,
+                SubjectKind = AuthCleanupSubjectKindV1.role,
+                SubjectId = role.Id,
+                Incarnation = BaseBinary.From(subject.Incarnation.ToArray()),
+            });
+        advanced.RequireValue()!.Step.Should().Be(AuthCleanupStepV1.deleteUserRoles);
+        advanced.RequireValue()!.CompletedSteps.Should().Be(1L << 14);
+    }
+
     private static async Task<Guid> CreateUserAsync(
         IServiceProvider services,
         string email = "refresh@test.invalid")
@@ -342,10 +580,10 @@ public sealed class AuthBaseRefreshTokenStoreTests
         MaximumSelectedRecords = 200, MaximumSelectedBytes = 1_048_576,
         MaximumProducedMutations = 200, MaximumQueryExecutions = 1,
         MaximumReadIntervals = 64, MaximumWrittenBytes = 1_048_576,
-        MaximumFactBytes = 2_097_152, MaximumJournalBytes = 2_621_440,
-        MaximumReceiptBytes = 2_621_440, MaximumRelationChecks = 400,
+        MaximumFactBytes = 8_388_608, MaximumJournalBytes = 8_388_608,
+        MaximumReceiptBytes = 8_388_608, MaximumRelationChecks = 400,
         MaximumUniqueConstraintChecks = 400, MaximumPreviousStateRequirements = 8,
-        MaximumTransientBytes = 8_388_608, MaximumResultBytes = 32_768,
+        MaximumTransientBytes = 16_777_216, MaximumResultBytes = 32_768,
         AcquisitionTimeout = TimeSpan.FromSeconds(2), ExecutionTimeout = TimeSpan.FromSeconds(5),
         CallerCommitObservationTimeout = TimeSpan.FromSeconds(2),
     };

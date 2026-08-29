@@ -270,7 +270,14 @@ internal static class BaseActivationCertificationScenario
                 StructuralDigest = SHA256.HashData(Encoding.UTF8.GetBytes("structural-" + id)).ToImmutableArray(),
                 Items = [new BaseActivationCreateIntent
                 {
-                    Ordinal = 0, Definition = definition, CanonicalInput = input.ToImmutableArray(),
+                    Ordinal = 0, Definition = definition, MaximumYields = 0,
+                    ReceiptRetention = new BaseActivationReceiptRetentionPolicy
+                    {
+                        FormatVersion = 1,
+                        DuplicateResolutionLifetime = TimeSpan.FromHours(24),
+                        ProtectedBackupCoverage = BaseActivationProtectedBackupCoverage.NotRequired,
+                    },
+                    CanonicalInput = input.ToImmutableArray(),
                     InputChecksum = SHA256.HashData(input).ToImmutableArray(),
                     Scope = new BaseOwnedSubjectScopeEvidence { Kind = scope.Kind }, RequestedDueAt = dueAt, EffectiveDueAt = dueAt,
                     Identity = Identity(id),

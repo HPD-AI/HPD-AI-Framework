@@ -69,7 +69,7 @@
       "construct": "guarded L47 checkpoint and delivery",
       "source": "LifecycleProof.cs:33",
       "handleId": "proof.lifecycle.consumer.v1@1",
-      "handleChecksum": "1dc3f363f5f5a7926e49cced85a7d06e6bcbd0bb1490502254842ebdd56ec72d",
+      "handleChecksum": "ca1a8c73e6f851a6318cb46d87cfc8d62870f4e8315afddf47fbffbca3173f61",
       "terminal": "BaseActivationContext.GuardSubjectLifecycleCheckpoint"
     },
     {
@@ -77,7 +77,7 @@
       "construct": "guarded L48 acknowledgement",
       "source": "LifecycleProof.cs:56",
       "handleId": "proof.retirement.profile.v1@1",
-      "handleChecksum": "ed43e6ee56d2957daccd9141c83647a13e2e61ea3ab9acbd6f8394dd21bf6dd5",
+      "handleChecksum": "ee6675af2ddbe9862429419ff6e97fe29f46489db96b26d3674e5a603b667e22",
       "terminal": "BaseActivationContext.GuardSubjectRetirementAcknowledgement"
     },
     {
@@ -93,15 +93,23 @@
       "construct": "L51 retry-stable continuation",
       "source": "ProofActivation.cs:185",
       "handleId": "proof.activation.v1@1",
-      "handleChecksum": "b0ea0ce84ccf02ab59d12e6d43aaac5ec006530f0323a3300b013aa1b37e5539",
+      "handleChecksum": "ae91b2670ba3e3993ee88147ef1a83c99bc4977767913ee0cabf58cbbe80623f",
       "terminal": "BaseActivationContext.GuardModuleMutationAndCreateActivation"
+    },
+    {
+      "rowId": "l76-durable-yield",
+      "construct": "L76 same-activation durable yield beyond lineage depth",
+      "source": "ProofActivation.cs:135",
+      "handleId": "proof.yield.v1@1",
+      "handleChecksum": "3cda3762552fadaf0b61052863c332e96714114dacd15e7040a7485446caea71",
+      "terminal": "BaseActivationYielded<ProofActivationResult>"
     },
     {
       "rowId": "l51-claim-fence-rejection",
       "construct": "L51 claim and hostile fence rejection",
       "source": "ProofHost.cs:76",
       "handleId": "proof.activation.v1@1",
-      "handleChecksum": "b0ea0ce84ccf02ab59d12e6d43aaac5ec006530f0323a3300b013aa1b37e5539",
+      "handleChecksum": "ae91b2670ba3e3993ee88147ef1a83c99bc4977767913ee0cabf58cbbe80623f",
       "terminal": "BaseInstalledActivationWorkerHandle<ProofActivationInput, ProofActivationResult>.CompleteAsync"
     },
     {
@@ -109,7 +117,7 @@
       "construct": "L51 schedule materialization and static input",
       "source": "ProofActivation.cs:68",
       "handleId": "proof.schedule.v1@1",
-      "handleChecksum": "da773dafe509bef25620eaca2a64aa18c0fd90e335c5706cb598eb1f6213dd0b",
+      "handleChecksum": "b9e30b67daa1701122c763b3bba31c62be9e75206b75236ca113aeaf8566798e",
       "terminal": "BaseInstalledScheduleHandle.CreateAsync"
     },
     {

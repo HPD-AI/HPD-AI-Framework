@@ -358,7 +358,7 @@ public sealed class BaseInstalledActivationWorkerHandle<TInput, TResult>
                 delivery.OccurrenceId,
                 delivery.RequestedDueAt,
                 delivery.EffectiveDueAt,
-                _definition.Limits.MaximumRenewalsPerAttempt,
+                _definition.Limits.MaximumRenewalsPerSlice,
                 (lease, renewCancellation) => _runtime.RenewAsync(
                     _session,
                     _definition,
@@ -370,8 +370,8 @@ public sealed class BaseInstalledActivationWorkerHandle<TInput, TResult>
                         lease.LeaseRevision.ToString(System.Globalization.CultureInfo.InvariantCulture)),
                     renewCancellation),
                 token,
-                _definition.Limits.MaximumChildrenPerAttempt,
-                _session), delivery.Input, token).AsTask(),
+                _definition.Limits.MaximumChildrenPerSlice,
+                _session.WithActivationProvenance(delivery.Claim)), delivery.Input, token).AsTask(),
             _definition.Limits.HandlerTimeout,
             cancellationToken).ConfigureAwait(false);
         if (effect is not null && execution.Outcome != BaseActivationHandlerExecutionOutcome.Completed)
@@ -386,9 +386,9 @@ public sealed class BaseInstalledActivationWorkerHandle<TInput, TResult>
         BaseActivationHandlerResult<TResult> handlerResult = execution.Value;
 
         byte[]? canonicalHandlerResult = null;
-        if (handlerResult.Result is not null)
+        if (handlerResult is BaseActivationSucceeded<TResult> succeeded)
         {
-            try { canonicalHandlerResult = _identity.CanonicalResult(handlerResult.Result); }
+            try { canonicalHandlerResult = _identity.CanonicalResult(succeeded.Result); }
             catch (BaseActivationDtoContractException exception) when (
                 exception.Code == "base.activation.handlerContractInvalid")
             {
@@ -417,7 +417,7 @@ public sealed class BaseInstalledActivationWorkerHandle<TInput, TResult>
         OperationResult<BaseActivationTransitionResult> transition;
         if (effect is not null)
         {
-            if (handlerResult.Result is null)
+            if (handlerResult is not BaseActivationSucceeded<TResult>)
                 return OperationResults.Ok(new BaseActivationDispatchResult
                 { Empty = false, ActivationId = delivery.ActivationId, State = BaseActivationState.EffectStarted });
             byte[] resultBytes = canonicalHandlerResult!;
@@ -426,16 +426,29 @@ public sealed class BaseInstalledActivationWorkerHandle<TInput, TResult>
                 Identity("effect-complete", effect.Checksum.AsSpan(), Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(resultBytes))),
                 cancellationToken).ConfigureAwait(false);
         }
-        else if (!string.IsNullOrWhiteSpace(handlerResult.FailureCode))
+        else if (handlerResult is BaseActivationFailed<TResult> failed)
         {
-            transition = await FailAsync(delivery, handlerResult.FailureCode, handlerResult.Retryable,
-                Identity("fail", delivery.Claim.FencingToken.AsSpan(), handlerResult.FailureCode), cancellationToken).ConfigureAwait(false);
+            transition = await FailAsync(delivery, failed.FailureCode, failed.Retryable,
+                Identity("fail", delivery.Claim.FencingToken.AsSpan(), failed.FailureCode), cancellationToken).ConfigureAwait(false);
         }
-        else if (handlerResult.Result is not null)
+        else if (handlerResult is BaseActivationSucceeded<TResult>)
         {
             byte[] resultBytes = canonicalHandlerResult!;
             transition = await CompleteCanonicalAsync(delivery, resultBytes,
                 Identity("complete", delivery.Claim.FencingToken.AsSpan(), Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(resultBytes))), cancellationToken).ConfigureAwait(false);
+        }
+        else if (handlerResult is BaseActivationYielded<TResult> yielded)
+        {
+            if (_definition.Limits.MaximumYields == 0)
+            {
+                transition = await FailAsync(delivery, "base.activation.yieldUnsupported", false,
+                    Identity("fail", delivery.Claim.FencingToken.AsSpan(), "yield-unsupported"), cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                transition = await _runtime.YieldAsync(
+                    _session, _definition, delivery.Claim, yielded.Yield, cancellationToken).ConfigureAwait(false);
+            }
         }
         else
         {
@@ -537,6 +550,9 @@ internal interface IBaseActivationWorkerRuntime
     ValueTask<OperationResult<BaseActivationTransitionResult>> FailAsync(
         BaseSession session, BaseActivationDefinition definition, BaseActivationClaimAuthority claim,
         string failureCode, bool retry, BaseMutationRequestIdentity identity, CancellationToken cancellationToken);
+    ValueTask<OperationResult<BaseActivationTransitionResult>> YieldAsync(
+        BaseSession session, BaseActivationDefinition definition, BaseActivationClaimAuthority claim,
+        BaseActivationYield yield, CancellationToken cancellationToken);
     ValueTask<OperationResult<BaseActivationTransitionResult>> CancelAsync(
         BaseSession session, BaseActivationDefinition definition, string activationId,
         long expectedGeneration, BaseCancellationPropagation propagation,

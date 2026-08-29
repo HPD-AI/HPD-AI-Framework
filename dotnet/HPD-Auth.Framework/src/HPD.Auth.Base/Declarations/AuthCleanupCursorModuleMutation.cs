@@ -18,7 +18,7 @@ internal static partial class AuthCleanupReconcileCursorOperationV1
     {
         Id = "hpd.auth.cleanup.reconcile-cursor.v1", Version = 1,
         OwningModuleId = AuthBaseContract.ModuleId, GrantId = "auth.operation.cleanup.advance",
-        Audience = BaseModuleMutationAudience.Service,
+        Audience = BaseModuleMutationAudience.System,
         RequestTypeId = "hpd.auth.type.auth-cleanup-reconcile-cursor-v1.v1",
         ResultTypeId = "hpd.auth.type.auth-cleanup-reconcile-cursor-result-v1.v1",
         SystemCollectionIds = [AuthMaintenanceCursorRecordV1.Collection.Id],

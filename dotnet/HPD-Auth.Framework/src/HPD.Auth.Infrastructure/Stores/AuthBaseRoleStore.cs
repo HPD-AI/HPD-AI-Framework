@@ -93,16 +93,78 @@ internal sealed class AuthBaseRoleStore(
     }
 
     /// <inheritdoc />
-    public Task<IdentityResult> DeleteAsync(ApplicationRole role, CancellationToken cancellationToken)
+    public async Task<IdentityResult> DeleteAsync(ApplicationRole role, CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(role);
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(IdentityResult.Failed(new IdentityError
+        AuthRoleAuthorityLease? authority = await ResolveAuthorityAsync(role, cancellationToken).ConfigureAwait(false);
+        if (authority is null)
+            return IdentityResult.Failed(errors.ConcurrencyFailure());
+
+        BaseSession session = runtime.OpenServiceSession();
+        BaseResult<AuthRoleSubjectAcquisitionReadV1.Row?> acquired = await session.Reads.FirstAsync(
+            AuthRoleSubjectAcquisitionReadV1.Handle,
+            new AuthRoleSubjectAcquisitionReadV1
+            {
+                RoleId = BaseRecordId<AuthRoleRecordV1>.Create(role.Id.ToString("D")),
+            }, cancellationToken).ConfigureAwait(false);
+        if (acquired is BaseFailure<AuthRoleSubjectAcquisitionReadV1.Row?> acquisitionFailure)
+            return AuthBaseIdentityErrorMapper.Role(acquisitionFailure, errors, role.Name);
+        if (acquired.RequireValue() is not { } acquiredRow)
+            return IdentityResult.Failed(errors.ConcurrencyFailure());
+
+        BaseSubjectReference<AuthRoleSubject> subject = acquiredRow.Reference;
+        BaseExportedSubjectContract<AuthRoleSubject> contract = AuthSubjects.Roles(session);
+        BaseMutationRequestIdentity tombstoneIdentity = AuthBaseRuntime.MutationIdentity(
+            "hpd.auth.role-subject.tombstone.v1", runtime.TenantId, role.Id.ToString("D"),
+            authority.Revision.Value, subject.Incarnation.ToBase64Url());
+        BaseResult<BaseSubjectTombstoneResult<AuthRoleSubject>> tombstoned = await contract.TombstoneAsync(new()
         {
-            Code = "auth.cleanup.pending",
-            Description = "Role deletion must complete through the durable Auth retirement workflow.",
-        }));
+            Subject = subject,
+            ExpectedPrivateRevision = authority.Revision,
+            Identity = tombstoneIdentity,
+        }, cancellationToken).ConfigureAwait(false);
+        if (tombstoned is BaseFailure<BaseSubjectTombstoneResult<AuthRoleSubject>> tombstoneFailure)
+            return AuthBaseIdentityErrorMapper.Role(tombstoneFailure, errors, role.Name);
+
+        BaseSubjectTombstoneResult<AuthRoleSubject> tombstone = tombstoned.RequireValue();
+        string cleanupWorkId = AuthBaseDeterministicId.CreateCleanupWork(
+            runtime.TenantId, "role", role.Id, contract, subject.Incarnation,
+            tombstone.Fact.Fact.SubjectSequence);
+        var initialize = new AuthRoleCleanupInitializeV1
+        {
+            CleanupWorkId = cleanupWorkId,
+            TenantId = runtime.TenantId,
+            SubjectId = role.Id,
+            Subject = subject,
+            Incarnation = subject.Incarnation,
+            TombstoneSequence = tombstone.Fact.Fact.SubjectSequence,
+            TombstoneRevision = tombstone.PrivateRevision.Value,
+            WorkflowVersion = 1,
+            TombstonedAt = tombstone.TombstonedAt,
+            RetirementReceiptScope = "auth.cleanup.initialize",
+            OperationTime = tombstone.TombstonedAt,
+        };
+        BaseInstalledActivationHandle<AuthRoleCleanupInitializeV1, AuthCleanupInitializeResultV1> bootstrap =
+            runtime.OpenLifecycleDispatcherSession().Activations.Get(
+                AuthLifecycleActivationDeclarations.BootstrapRole.Identity);
+        BaseMutationRequestIdentity bootstrapIdentity = AuthBaseRuntime.MutationIdentity(
+            "hpd.auth.cleanup.bootstrap.role.v1", runtime.TenantId, cleanupWorkId,
+            tombstone.PrivateRevision.Value,
+            tombstone.Fact.Fact.SubjectSequence.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        OperationResult<BaseActivationEnqueueResult> enqueued = await bootstrap
+            .EnqueueAsync(initialize, bootstrapIdentity, cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        if (!enqueued.IsSuccess())
+            return IdentityResult.Failed(new IdentityError
+            {
+                Code = "auth.persistence.unavailable",
+                Description = "The durable role cleanup workflow could not be scheduled.",
+            });
+
+        authority.Consumed = true;
+        return IdentityResult.Success;
     }
 
     /// <inheritdoc />
@@ -248,7 +310,7 @@ internal sealed class AuthBaseRoleStore(
             throw new AuthBasePersistenceException(AuthBaseIdentityErrorMapper.SafeReadCode(failure.Error));
         BaseRegisteredReadFirstResult<T> read = result.RequireValue();
         T? row = read.Item;
-        if (row is null)
+        if (row is null || row.IsDeleted)
             return null;
         var role = new ApplicationRole
         {

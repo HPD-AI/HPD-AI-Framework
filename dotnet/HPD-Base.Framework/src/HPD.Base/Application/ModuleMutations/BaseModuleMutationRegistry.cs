@@ -620,7 +620,8 @@ internal static class BaseModuleMutationContractValidator
         BaseRegisteredModuleMutationDefinition value,
         IReadOnlyDictionary<string, CollectionDefinition> collections,
         IReadOnlyDictionary<string, BaseModuleGenerationCellDefinition> cells,
-        IBaseModuleMutationRegistration? registration = null)
+        IBaseModuleMutationRegistration? registration = null,
+        IReadOnlyCollection<BaseGeneratedSubjectRegistration>? subjectContracts = null)
     {
         BaseApplicationId.Validate(value.Id, nameof(value));
         BaseApplicationId.Validate(value.OwningModuleId, nameof(value));
@@ -673,15 +674,18 @@ internal static class BaseModuleMutationContractValidator
         {
             if (registration.RequestTypeId != value.RequestTypeId || registration.ResultTypeId != value.ResultTypeId)
                 throw new InvalidOperationException("base.moduleMutation.invalid");
-            ValidateGraphBindings(value.Template, collections, registration);
+            ValidateGraphBindings(value.Template, collections, registration, subjectContracts ?? []);
         }
     }
 
     private static void ValidateGraphBindings(
         BaseModuleMutationTemplate template,
         IReadOnlyDictionary<string, CollectionDefinition> collections,
-        IBaseModuleMutationRegistration registration)
+        IBaseModuleMutationRegistration registration,
+        IReadOnlyCollection<BaseGeneratedSubjectRegistration> subjectContracts)
     {
+        Dictionary<string, BaseModuleGuard> guardMap = template.Guards
+            .ToDictionary(static value => value.Id, StringComparer.Ordinal);
         Dictionary<string, BaseModuleRecordCapture> recordCaptures = template.Captures.OfType<BaseModuleRecordCapture>()
             .ToDictionary(static value => value.Id, StringComparer.Ordinal);
         foreach (BaseModuleValueExpression expression in Expressions(template))
@@ -821,14 +825,27 @@ internal static class BaseModuleMutationContractValidator
         {
             if (!collections.TryGetValue(collectionId, out CollectionDefinition? collection) || collection.Fields is null)
                 throw new InvalidOperationException("base.moduleMutation.invalid");
+            HashSet<string> runtimeOwned = subjectContracts
+                .Where(subject => string.Equals(subject.Definition.ValidationPlan.PrivateCollectionId, collectionId, StringComparison.Ordinal))
+                .SelectMany(static subject => new[]
+                {
+                    subject.Definition.TombstoneMetadata.Instant.FieldId,
+                    subject.Definition.TombstoneMetadata.Sequence.FieldId,
+                })
+                .Where(static id => id is not null).Select(static id => id!).ToHashSet(StringComparer.Ordinal);
             HashSet<string> supplied = payload.Properties.Select(static value => value.StablePropertyId).ToHashSet(StringComparer.Ordinal);
             string[] expectedOrder = collection.Fields.Where(field => supplied.Contains(field.Id)).Select(static field => field.Id).ToArray();
             if (supplied.Count != payload.Properties.Length
                 || !payload.Properties.Select(static property => property.StablePropertyId).SequenceEqual(expectedOrder, StringComparer.Ordinal)
+                || supplied.Overlaps(runtimeOwned)
                 || payload.Properties.Any(property => !collection.Fields.Any(field => field.Id == property.StablePropertyId
                     && !field.ReadOnly && BaseModuleValueAuthorityContract.ValueCompatible(
                         property.Value.ResultType, BaseModuleValueAuthorityContract.FromField(field))))
-                || complete && collection.Fields.Any(field => field.Presence == BaseFieldPresence.Required && !field.ReadOnly && !supplied.Contains(field.Id)))
+                || payload.Properties.Any(property => collection.Fields.Single(field => field.Id == property.StablePropertyId)
+                    .Relation is { OwningSide: BaseRelationOwningSide.Source }
+                    && !IsRequestOnlyExpression(property.Value, guardMap))
+                || complete && collection.Fields.Any(field => field.Presence == BaseFieldPresence.Required && !field.ReadOnly
+                    && !runtimeOwned.Contains(field.Id) && !supplied.Contains(field.Id)))
                 throw new InvalidOperationException("base.moduleMutation.invalid");
         }
 
@@ -1571,6 +1588,11 @@ internal static class BaseModuleMutationContractValidator
         string id,
         IReadOnlyDictionary<string, BaseModuleGuard> guards) =>
         RequestOnlyGuard(id, guards, new HashSet<string>(StringComparer.Ordinal));
+
+    internal static bool IsRequestOnlyExpression(
+        BaseModuleValueExpression expression,
+        IReadOnlyDictionary<string, BaseModuleGuard> guards) =>
+        RequestOnlyExpression(expression, guards, new HashSet<string>(StringComparer.Ordinal));
 
     private static bool AllGuardsReachable(BaseModuleMutationTemplate template, IReadOnlyDictionary<string, BaseModuleGuard> guards)
     {

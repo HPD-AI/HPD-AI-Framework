@@ -378,6 +378,15 @@ internal struct BaseSubjectCanonicalRetainedWork
                 AddNullableRecord(ref counter, relation.Current);
                 retainedRecords.TryAdd(relation.TargetCollectionId + "\n" + relation.TargetRecordId.Value, relation.Current);
             }
+            counter.Add(1);
+            if (item.SubjectLifecycleTransition is { } lifecycle)
+            {
+                counter.AddContainer(); counter.AddString(lifecycle.ContractId); counter.AddInteger();
+                counter.AddString(lifecycle.ContractChecksum); counter.AddString(lifecycle.SubjectId.Value);
+                counter.AddBytes(lifecycle.AuthorityEpoch.ToArray().Length);
+                counter.AddBytes(lifecycle.Incarnation.ToArray().Length);
+                counter.AddInteger(); counter.AddInteger();
+            }
         }
         counter.AddSequence(lifecycleProjections?.Count ?? 0);
         if (lifecycleProjections is not null)

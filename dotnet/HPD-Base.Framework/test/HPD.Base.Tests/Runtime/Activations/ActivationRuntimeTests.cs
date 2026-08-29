@@ -30,10 +30,12 @@ public sealed partial class ActivationRuntimeTests
     {
         var claim = new BaseActivationClaimAuthority
         {
-            ActivationId = "activation", AttemptNumber = 1, ClaimEpoch = 1,
+            ActivationId = "activation", AttemptNumber = 1, ActivationGeneration = 1, ClaimEpoch = 1,
             FencingToken = new byte[32].ToImmutableArray(), WorkerIdentity = "worker",
             CancellationGeneration = 0, StoreInstanceId = "store", RestoreEpoch = 1,
             DefinitionChecksum = new byte[32].ToImmutableArray(),
+            ExecutionSliceOrdinal = 1, AttemptStartedAt = 1, SliceStartedAt = 1,
+            YieldCount = 0, MaximumYields = 0,
         };
         var initial = new BaseActivationLeaseObservation
         { LeaseRevision = 1, LeaseExpiresAt = 100, Checksum = new byte[32].ToImmutableArray() };
@@ -91,6 +93,61 @@ public sealed partial class ActivationRuntimeTests
     }
 
     [Fact]
+    public void Handler_context_derives_child_receipt_identity_from_the_exact_execution_slice()
+    {
+        BaseMutationRequestFingerprint fingerprint = BaseMutationRequestFingerprint.Create(
+            SHA256.HashData("slice-bound-child"u8));
+        BaseMutationRequestIdentity first = Context(maximumChildren: 1, executionSliceOrdinal: 1)
+            .DeriveChildIdentity("cohort", 1, fingerprint);
+        BaseMutationRequestIdentity second = Context(maximumChildren: 1, executionSliceOrdinal: 2)
+            .DeriveChildIdentity("cohort", 1, fingerprint);
+
+        first.Scope.Should().Be("activation:activation:slice:1");
+        second.Scope.Should().Be("activation:activation:slice:2");
+        second.Scope.Should().NotBe(first.Scope);
+    }
+
+    [Fact]
+    public void Activation_session_resolves_exact_declared_child_source_grants()
+    {
+        BaseActivationHandlerRegistration<Input, Result> registration =
+            BaseActivationDefinitionBuilder.CreateGenerated(
+                DefinitionDraft("test.activation.sources", BaseActivationExecutionClass.AtLeastOnceWorker) with
+                {
+                    SourceGrantIds = ["base.subjectLifecycle.finalizeRetirement", "example.user.retirement.purge.source"],
+                },
+                RuntimeActivationDtos.HPDBaseActivationDtoAuthority,
+                static _ => new Handler());
+        var registry = new BaseActivationRegistry([new BaseActivationRegistration<Input, Result>(registration)]);
+        using ServiceProvider services = new ServiceCollection().AddSingleton(registry).BuildServiceProvider();
+        var claim = new BaseActivationClaimAuthority
+        {
+            ActivationId = "activation", AttemptNumber = 1, ActivationGeneration = 1, ClaimEpoch = 1,
+            FencingToken = new byte[32].ToImmutableArray(), WorkerIdentity = "worker",
+            CancellationGeneration = 0, StoreInstanceId = "store", RestoreEpoch = 1,
+            DefinitionChecksum = registration.Definition.Checksum,
+            ExecutionSliceOrdinal = 1, AttemptStartedAt = 1, SliceStartedAt = 1,
+            YieldCount = 0, MaximumYields = 0,
+        };
+        BaseSession session = new BaseSession(null!, TimeProvider.System,
+            new PrincipalContext
+            {
+                AuthenticationState = PrincipalAuthenticationState.System,
+                SubjectKind = AccessSubjectKind.System,
+                SubjectId = "system",
+            },
+            new BaseSessionOptions { Audience = HPDBaseEndpointAudience.ControlPlane },
+            services: services,
+            applicationId: "activation-test").WithActivationProvenance(claim);
+
+        session.ActivationDeclaresSourceGrants("base.subjectLifecycle.finalizeRetirement").Should().BeTrue();
+        session.ActivationDeclaresSourceGrants(
+            "base.subjectLifecycle.finalizeRetirement",
+            "example.user.retirement.purge.source").Should().BeTrue();
+        session.ActivationDeclaresSourceGrants("base.subjectRetirement.purge").Should().BeFalse();
+    }
+
+    [Fact]
     public void Captured_guard_evidence_rejects_every_static_authority_substitution()
     {
         BaseActivationContext context = Context(maximumChildren: 1);
@@ -118,14 +175,16 @@ public sealed partial class ActivationRuntimeTests
             guard, evidence with { Checksum = SHA256.HashData("evidence"u8).ToImmutableArray() }).Should().BeFalse();
     }
 
-    private static BaseActivationContext Context(int maximumChildren)
+    private static BaseActivationContext Context(int maximumChildren, long executionSliceOrdinal = 1)
     {
         var claim = new BaseActivationClaimAuthority
         {
-            ActivationId = "activation", AttemptNumber = 1, ClaimEpoch = 1,
+            ActivationId = "activation", AttemptNumber = 1, ActivationGeneration = 1, ClaimEpoch = 1,
             FencingToken = new byte[32].ToImmutableArray(), WorkerIdentity = "worker",
             CancellationGeneration = 0, StoreInstanceId = "store", RestoreEpoch = 1,
             DefinitionChecksum = new byte[32].ToImmutableArray(),
+            ExecutionSliceOrdinal = executionSliceOrdinal, AttemptStartedAt = 1, SliceStartedAt = 1,
+            YieldCount = 0, MaximumYields = 0,
         };
         return new BaseActivationContext(
             new BaseActivationDefinitionKey { Id = "definition", Version = 1, Checksum = new byte[32].ToImmutableArray() },
@@ -465,10 +524,15 @@ public sealed partial class ActivationRuntimeTests
                 MultiplierNumerator = 2, MultiplierDenominator = 1, JitterBasisPoints = 0,
                 RetryableFailureCodes = ["test.retry"],
             },
+            ReceiptRetention = new BaseActivationReceiptRetentionPolicy
+            {
+                FormatVersion = 1, DuplicateResolutionLifetime = TimeSpan.FromHours(24),
+                ProtectedBackupCoverage = BaseActivationProtectedBackupCoverage.NotRequired,
+            },
             Limits = new BaseActivationLimits
             {
-                MaximumInputBytes = 4096, MaximumResultBytes = 4096, MaximumAttempts = 3,
-                MaximumRenewalsPerAttempt = 8, MaximumChildrenPerAttempt = 8, MaximumLineageDepth = 8,
+                MaximumInputBytes = 4096, MaximumResultBytes = 4096, MaximumAttempts = 3, MaximumYields = 0,
+                MaximumRenewalsPerSlice = 8, MaximumChildrenPerSlice = 8, MaximumLineageDepth = 8,
                 LeaseDuration = TimeSpan.FromMinutes(1), HandlerTimeout = TimeSpan.FromMinutes(5),
                 Provider = ProviderLimits(), AtomicCreation = AtomicLimits(),
             },
@@ -515,7 +579,7 @@ public sealed partial class ActivationRuntimeTests
         Enqueue = "test.activation.enqueue", Observe = "test.activation.observe",
         Claim = "test.activation.claim", Execute = "test.activation.execute",
         Renew = "test.activation.renew", Complete = "test.activation.complete",
-        Fail = "test.activation.fail", Cancel = "test.activation.cancel",
+        Fail = "test.activation.fail", Yield = "test.activation.yield", Cancel = "test.activation.cancel",
         Inspect = "test.activation.inspect", Replay = "test.activation.replay",
         Migrate = "test.activation.migrate", Reconcile = "test.activation.reconcile",
         Retry = "test.activation.retry",
@@ -596,7 +660,7 @@ public sealed partial class ActivationRuntimeTests
     {
         public ValueTask<BaseActivationHandlerResult<Result>> ExecuteAsync(
             BaseActivationContext context, Input input, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(new BaseActivationHandlerResult<Result> { Result = new Result(input.Value) });
+            ValueTask.FromResult<BaseActivationHandlerResult<Result>>(new BaseActivationSucceeded<Result> { Result = new Result(input.Value) });
     }
 
     private sealed class AllowPolicy : IPolicyEvaluator
@@ -612,6 +676,14 @@ public sealed partial class ActivationRuntimeTests
         public int AdvanceCalls { get; private set; }
         public StoreCapabilityDescriptor Capabilities => inner.Capabilities;
         public BaseActivationProviderDescriptor Descriptor => ((IBaseActivationProvider)inner).Descriptor;
+        public ValueTask<OperationResult<BaseActivationYieldReservationState>> ReadYieldReservationStateAsync(
+            CancellationToken cancellationToken = default) => inner.ReadYieldReservationStateAsync(cancellationToken);
+        public ValueTask<OperationResult<BaseActivationReceiptCompactionAuthority>> CaptureReceiptCompactionAuthorityAsync(
+            BaseActivationReceiptCompactionAuthorityRequest request, CancellationToken cancellationToken = default) =>
+            inner.CaptureReceiptCompactionAuthorityAsync(request, cancellationToken);
+        public ValueTask<OperationResult<BaseActivationReceiptCompactionResult>> CompactActivationReceiptsAsync(
+            BaseActivationReceiptCompactionRequest request, CancellationToken cancellationToken = default) =>
+            inner.CompactActivationReceiptsAsync(request, cancellationToken);
 
         public ValueTask<OperationResult<RecordPage>> ListAsync(CollectionDefinition collection, RecordQuery query,
             OperationContext context, CancellationToken cancellationToken = default) =>

@@ -95,6 +95,8 @@ internal sealed class DefaultBaseActivationRuntime(
                     Id = definition.Id, Version = definition.Version,
                     Checksum = definition.Checksum.ToArray().ToImmutableArray(),
                 },
+                MaximumYields = definition.Limits.MaximumYields,
+                ReceiptRetention = definition.ReceiptRetention with { },
                 CanonicalInput = inputBytes.ToImmutableArray(),
                 InputChecksum = inputChecksum.ToImmutableArray(),
                 Scope = scope,

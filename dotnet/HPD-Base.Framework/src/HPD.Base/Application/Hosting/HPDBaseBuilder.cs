@@ -683,7 +683,7 @@ public sealed class HPDBaseBuilder
         {
             _moduleMutationRegistrations.TryGetValue((definition.Id, definition.Version), out IBaseModuleMutationRegistration? registration);
             if (registration is null) throw new InvalidOperationException("base.moduleMutation.invalid");
-            BaseModuleMutationContractValidator.ValidateDefinition(definition, _collections, _moduleGenerationCells, registration);
+            BaseModuleMutationContractValidator.ValidateDefinition(definition, _collections, _moduleGenerationCells, registration, subjectRegistry.All);
             ValidateModuleSubjectAuthority(definition, registration, subjectRegistry);
             if (!BaseModuleMutationCapabilityContract.Supports(definition.Limits, provider.ModuleMutations))
                 throw new InvalidOperationException(BaseModuleMutationErrorCodes.CapabilityMissing);
@@ -801,6 +801,11 @@ public sealed class HPDBaseBuilder
         foreach (BaseGeneratedSubjectRegistration subject in subjectRegistry.All)
             if (!Fits(subject.Definition, provider.SubjectReferences))
                 throw new InvalidOperationException(BaseSubjectErrorCodes.GuaranteeUnavailable);
+        if ((subjectRegistry.All.Count != 0 && !provider.SubjectLifecycle.AtomicTombstoneMetadataSupported)
+            || (subjectRegistry.All.Any(static subject =>
+                subject.Definition.FinalRetirementExecutionMode == BaseSubjectFinalExecutionMode.ActivationGuardRequired)
+                && !provider.SubjectLifecycle.ActivationGuardedFinalRetirementSupported))
+            throw new InvalidOperationException(BaseSubjectErrorCodes.GuaranteeUnavailable);
         foreach (IGrouping<(string ContractId, int ContractVersion), BaseInstalledSubjectLifecycleConsumer> group in subjectLifecycleRegistry.All.GroupBy(static value => (value.Definition.ContractId, value.Definition.ContractVersion)))
         {
             if (group.Count() > provider.SubjectLifecycle.MaximumConsumersPerContract ||

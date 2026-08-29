@@ -92,6 +92,11 @@ public interface IHPDBaseAdministration
         BaseActivationAdministrationPruneRequest request,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Compacts one authorized page of expired activation-instance receipts.</summary>
+    ValueTask<BaseResult<BaseActivationReceiptCompactionResult>> CompactActivationReceiptsAsync(
+        BaseActivationAdministrationReceiptCompactionRequest request,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Atomically migrates one activation through an installed closed projection.</summary>
     ValueTask<BaseResult<BaseActivationMigrationResult>> MigrateActivationAsync(
         BaseActivationAdministrationMigrationRequest request,
@@ -455,6 +460,10 @@ public sealed record BaseRestoreResult
 public sealed record BaseBackupManifest
 {
     private string[] _logicalPartitions = [];
+    /// <summary>Gets the gap-free activation-instance receipt sequence captured by this artifact.</summary>
+    public required long ActivationInstanceReceiptSequence { get; init; }
+    /// <summary>Gets the ordered activation-instance receipt checksum through that sequence.</summary>
+    public required ImmutableArray<byte> ActivationInstanceReceiptOrderedChecksum { get; init; }
     /// <summary>Gets the contiguous external semantic-terminal publication sequence captured by this artifact.</summary>
     public required long SemanticTerminalPublicationSequence { get; init; }
     /// <summary>Gets the canonical ordered semantic-terminal publication checksum through that sequence.</summary>

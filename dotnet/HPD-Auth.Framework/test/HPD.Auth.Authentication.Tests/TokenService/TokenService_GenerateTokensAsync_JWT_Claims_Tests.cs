@@ -87,8 +87,7 @@ public class TokenService_GenerateTokensAsync_JWT_Claims_Tests
 
         var jti = jwt.Claims.FirstOrDefault(c => c.Type == JwtRegisteredClaimNames.Jti);
         jti.Should().NotBeNull();
-        Guid.TryParse(jti!.Value, out _).Should().BeTrue("jti must be a valid GUID");
-        jti.Value.Should().NotBeNullOrEmpty();
+        jti!.Value.Should().HaveLength(64).And.MatchRegex("^[0-9a-f]{64}$");
     }
 
     // ─────────────────────────────────────────────────────────────────────────

@@ -829,6 +829,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             Activation = new BaseSemanticActivationCreateIntent
             {
                 Definition = request.Activation with { Checksum = request.Activation.Checksum.ToArray().ToImmutableArray() },
+                ReceiptRetention = installed.ReceiptRetention with { },
                 CanonicalInput = request.CanonicalInput.ToArray().ToImmutableArray(), InputChecksum = request.InputChecksum.ToArray().ToImmutableArray(),
                 Scope = request.Scope with { Value = request.Scope.Value is null ? null : new string(request.Scope.Value.AsSpan()) }, Due = dueAuthority,
                 Priority = 0, InitiallyEligible = true,
@@ -1089,7 +1090,9 @@ internal sealed class DefaultBaseModuleMutationRuntime(
                 });
             }
         }
-        foreach (BaseModuleStatement statement in EnumerateActiveStatements(definition.Template.Body, evaluator))
+        IReadOnlyDictionary<string, BaseModuleGuard> guards = definition.Template.Guards
+            .ToDictionary(static value => value.Id, StringComparer.Ordinal);
+        foreach (BaseModuleStatement statement in EnumerateCaptureStatements(definition.Template.Body, evaluator, guards))
         {
             string? collectionId = statement switch
             {
@@ -1169,6 +1172,36 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             }
 
             yield return statement;
+        }
+    }
+
+    internal static IEnumerable<BaseModuleStatement> EnumerateCaptureStatements<TRequest, TResult>(
+        BaseModuleMutationBlock block,
+        BaseModuleProgramEvaluator<TRequest, TResult> evaluator,
+        IReadOnlyDictionary<string, BaseModuleGuard> guards)
+    {
+        foreach (BaseModuleStatement statement in block.Statements)
+        {
+            if (statement is not BaseModuleIfStatement branch)
+            {
+                yield return statement;
+                continue;
+            }
+
+            if (BaseModuleMutationContractValidator.IsRequestOnlyGuard(branch.GuardId, guards))
+            {
+                BaseModuleMutationBlock selected = evaluator.Guard(branch.GuardId)
+                    ? branch.WhenTrue
+                    : branch.WhenFalse;
+                foreach (BaseModuleStatement child in EnumerateCaptureStatements(selected, evaluator, guards))
+                    yield return child;
+                continue;
+            }
+
+            foreach (BaseModuleStatement child in EnumerateCaptureStatements(branch.WhenTrue, evaluator, guards))
+                yield return child;
+            foreach (BaseModuleStatement child in EnumerateCaptureStatements(branch.WhenFalse, evaluator, guards))
+                yield return child;
         }
     }
 

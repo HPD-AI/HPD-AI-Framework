@@ -339,7 +339,8 @@ public class PasskeyEndpointTests : IClassFixture<TwoFactorWebFactory>
         var idBase64 = WebEncoders.Base64UrlEncode(credentialId);
         var resp = await client.PatchJsonAsync($"/api/auth/passkeys/{idBase64}",
             new { name = "New Name" });
-        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+        string failureBody = await resp.Content.ReadAsStringAsync();
+        resp.StatusCode.Should().Be(HttpStatusCode.OK, failureBody);
 
         var body = await resp.ReadJsonElementAsync();
         body.GetProperty("name").GetString().Should().Be("New Name");

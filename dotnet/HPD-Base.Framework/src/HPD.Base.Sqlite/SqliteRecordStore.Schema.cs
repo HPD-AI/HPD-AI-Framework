@@ -220,7 +220,7 @@ public sealed partial class SqliteRecordStore
             {
                 await ExecuteSchemaCommandAsync(connection, "COMMIT;", request.CommitCompletionTimeout, CancellationToken.None).ConfigureAwait(false);
                 transaction = false;
-                return OperationResults.Ok(new BaseSchemaApplyResult { Outcome = BaseSchemaApplyOutcome.NoChanges, Generation = current.Generation, BaselineId = current.BaselineId, Checksum = current.Checksum, State = BaseSchemaMigrationState.Ready });
+                return OperationResults.Ok(new BaseSchemaApplyResult { Outcome = BaseSchemaApplyOutcome.NoChanges, Generation = current.Generation, BaselineId = current.BaselineId, Checksum = current.Checksum, State = BaseSchemaMigrationState.Ready, SubjectTombstoneMetadata = TombstoneMetadataReceipts(current.Generation) });
             }
 
             foreach (string statement in artifact.ExecutionStatements)
@@ -254,7 +254,7 @@ public sealed partial class SqliteRecordStore
             await ExecuteSchemaCommandAsync(connection, "COMMIT;", request.CommitCompletionTimeout, CancellationToken.None).ConfigureAwait(false);
             transaction = false;
             Volatile.Write(ref _schemaGeneration, generation);
-            return OperationResults.Ok(new BaseSchemaApplyResult { Outcome = BaseSchemaApplyOutcome.Applied, Generation = generation, BaselineId = envelope.TargetBaselineId, Checksum = artifact.TargetChecksum, State = BaseSchemaMigrationState.Ready });
+            return OperationResults.Ok(new BaseSchemaApplyResult { Outcome = BaseSchemaApplyOutcome.Applied, Generation = generation, BaselineId = envelope.TargetBaselineId, Checksum = artifact.TargetChecksum, State = BaseSchemaMigrationState.Ready, SubjectTombstoneMetadata = TombstoneMetadataReceipts(generation) });
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -276,6 +276,12 @@ public sealed partial class SqliteRecordStore
         }
         }
     }
+
+    private ImmutableArray<BaseSubjectTombstoneMetadataLoweringReceipt> TombstoneMetadataReceipts(long schemaGeneration) =>
+        [.. (_options.ExportedSubjects ?? []).OrderBy(static value => value.Id, StringComparer.Ordinal)
+            .ThenBy(static value => value.Version)
+            .Select(value => BaseSubjectTombstoneMetadataLowering.Create(
+                value, value.ValidationPlan.ContractChecksum, schemaGeneration))];
 
     private async ValueTask InitializeSubjectScopeProtectionAuthorityAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {

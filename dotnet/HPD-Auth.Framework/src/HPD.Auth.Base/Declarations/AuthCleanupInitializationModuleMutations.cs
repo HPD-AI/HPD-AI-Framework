@@ -225,7 +225,7 @@ internal static class AuthCleanupInitializationBuilder
         return BaseModuleMutationContract.Seal(new BaseRegisteredModuleMutationDefinition
         {
             Id = operationId, Version = 1, OwningModuleId = AuthBaseContract.ModuleId, GrantId = grantId,
-            Audience = BaseModuleMutationAudience.Service,
+            Audience = BaseModuleMutationAudience.System,
             RequestTypeId = $"hpd.auth.type.auth-{suffix}-cleanup-initialize-v1.v1",
             ResultTypeId = "hpd.auth.type.auth-cleanup-initialize-result-v1.v1",
             SystemCollectionIds = [AuthCleanupWorkRecordV1.Collection.Id],

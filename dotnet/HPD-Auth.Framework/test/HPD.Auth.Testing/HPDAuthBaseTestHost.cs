@@ -114,10 +114,10 @@ public static class HPDAuthBaseTestHost
         MaximumSelectedRecords = 200, MaximumSelectedBytes = 1_048_576,
         MaximumProducedMutations = 200, MaximumQueryExecutions = 1,
         MaximumReadIntervals = 64, MaximumWrittenBytes = 1_048_576,
-        MaximumFactBytes = 2_097_152, MaximumJournalBytes = 2_621_440,
-        MaximumReceiptBytes = 2_621_440, MaximumRelationChecks = 400,
+        MaximumFactBytes = 8_388_608, MaximumJournalBytes = 8_388_608,
+        MaximumReceiptBytes = 8_388_608, MaximumRelationChecks = 400,
         MaximumUniqueConstraintChecks = 400, MaximumPreviousStateRequirements = 8,
-        MaximumTransientBytes = 8_388_608, MaximumResultBytes = 32_768,
+        MaximumTransientBytes = 16_777_216, MaximumResultBytes = 32_768,
         AcquisitionTimeout = TimeSpan.FromSeconds(2), ExecutionTimeout = TimeSpan.FromSeconds(5),
         CallerCommitObservationTimeout = TimeSpan.FromSeconds(2),
     };

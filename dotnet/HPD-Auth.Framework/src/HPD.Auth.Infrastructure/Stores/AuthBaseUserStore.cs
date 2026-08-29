@@ -206,18 +206,56 @@ internal sealed partial class AuthBaseUserStore(
         BaseMutationRequestIdentity identity = AuthBaseRuntime.MutationIdentity(
             "hpd.auth.user-subject.tombstone.v1", runtime.TenantId, user.Id.ToString("D"),
             authority.Revision.Value, subject.Incarnation.ToBase64Url());
-        BaseResult<BaseSubjectLifecycleFact<AuthUserSubject>> result = await contract.TombstoneAsync(new()
+        BaseResult<BaseSubjectTombstoneResult<AuthUserSubject>> result = await contract.TombstoneAsync(new()
         {
             Subject = subject,
             ExpectedPrivateRevision = authority.Revision,
             Identity = identity,
         }, cancellationToken).ConfigureAwait(false);
-        if (result is BaseFailure<BaseSubjectLifecycleFact<AuthUserSubject>> failure)
+        if (result is BaseFailure<BaseSubjectTombstoneResult<AuthUserSubject>> failure)
             return AuthBaseIdentityErrorMapper.User(failure, errors, user.UserName, user.Email);
+
+        BaseSubjectTombstoneResult<AuthUserSubject> tombstone = result.RequireValue();
+        string cleanupWorkId = AuthBaseDeterministicId.CreateCleanupWork(
+            runtime.TenantId,
+            "user",
+            user.Id,
+            contract,
+            subject.Incarnation,
+            tombstone.Fact.Fact.SubjectSequence);
+        AuthUserCleanupInitializeV1 initialize = new()
+        {
+            CleanupWorkId = cleanupWorkId,
+            TenantId = runtime.TenantId,
+            SubjectId = user.Id,
+            Subject = subject,
+            Incarnation = subject.Incarnation,
+            TombstoneSequence = tombstone.Fact.Fact.SubjectSequence,
+            TombstoneRevision = tombstone.PrivateRevision.Value,
+            WorkflowVersion = 1,
+            TombstonedAt = tombstone.TombstonedAt,
+            RetirementReceiptScope = "auth.cleanup.initialize",
+            OperationTime = tombstone.TombstonedAt,
+        };
+        BaseSession dispatcher = runtime.OpenLifecycleDispatcherSession();
+        BaseInstalledActivationHandle<AuthUserCleanupInitializeV1, AuthCleanupInitializeResultV1> bootstrap =
+            dispatcher.Activations.Get(AuthLifecycleActivationDeclarations.BootstrapUser.Identity);
+        BaseMutationRequestIdentity bootstrapIdentity = AuthBaseRuntime.MutationIdentity(
+            "hpd.auth.cleanup.bootstrap.user.v1", runtime.TenantId, cleanupWorkId,
+            tombstone.PrivateRevision.Value, tombstone.Fact.Fact.SubjectSequence.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        OperationResult<BaseActivationEnqueueResult> enqueued = await bootstrap
+            .EnqueueAsync(initialize, bootstrapIdentity, cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        if (!enqueued.IsSuccess())
+            return IdentityResult.Failed(new IdentityError
+            {
+                Code = "auth.persistence.unavailable",
+                Description = "The durable cleanup workflow could not be scheduled.",
+            });
 
         user.IsActive = false;
         user.IsDeleted = true;
-        user.DeletedAt = runtime.GetUtcNow().UtcDateTime;
+        user.DeletedAt = tombstone.TombstonedAt.UtcDateTime;
         authority.Consumed = true;
         return IdentityResult.Success;
     }
@@ -233,7 +271,7 @@ internal sealed partial class AuthBaseUserStore(
             AuthUserByIdReadV1.Handle,
             new AuthUserByIdReadV1 { TenantId = runtime.TenantId, UserId = id },
             cancellationToken).ConfigureAwait(false);
-        return await HydrateSecretsAsync(MapRead(result), cancellationToken).ConfigureAwait(false);
+        return await VisibleUserAsync(MapRead(result), cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -250,7 +288,7 @@ internal sealed partial class AuthBaseUserStore(
                 TenantId = runtime.TenantId,
                 NormalizedName = normalizedUserName,
             }, cancellationToken).ConfigureAwait(false);
-        return await HydrateSecretsAsync(MapRead(result), cancellationToken).ConfigureAwait(false);
+        return await VisibleUserAsync(MapRead(result), cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -267,7 +305,16 @@ internal sealed partial class AuthBaseUserStore(
                 TenantId = runtime.TenantId,
                 NormalizedEmail = normalizedEmail,
             }, cancellationToken).ConfigureAwait(false);
-        return await HydrateSecretsAsync(MapRead(result), cancellationToken).ConfigureAwait(false);
+        return await VisibleUserAsync(MapRead(result), cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<ApplicationUser?> VisibleUserAsync(
+        ApplicationUser? user,
+        CancellationToken cancellationToken)
+    {
+        if (user is null || user.IsDeleted)
+            return null;
+        return await HydrateSecretsAsync(user, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />

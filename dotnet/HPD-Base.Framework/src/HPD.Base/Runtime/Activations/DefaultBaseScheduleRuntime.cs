@@ -277,6 +277,8 @@ internal sealed class DefaultBaseScheduleRuntime(
             {
                 Ordinal = 0,
                 Definition = schedule.Activation with { Checksum = schedule.Activation.Checksum.ToArray().ToImmutableArray() },
+                MaximumYields = target.Limits.MaximumYields,
+                ReceiptRetention = target.ReceiptRetention with { },
                 CanonicalInput = schedule.CanonicalInput.ToArray().ToImmutableArray(),
                 InputChecksum = schedule.InputChecksum.ToArray().ToImmutableArray(),
                 Scope = session.ActivationScope,

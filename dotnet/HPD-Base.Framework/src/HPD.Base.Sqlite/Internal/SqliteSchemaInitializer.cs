@@ -1,6 +1,9 @@
 using HPD.Base.Sqlite;
 using HPD.Base;
 using Microsoft.Data.Sqlite;
+using System.Collections.Immutable;
+using System.Security.Cryptography;
+using System.Text.Json;
 
 namespace HPD.Base.Sqlite;
 
@@ -52,6 +55,17 @@ INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('restore_epoch'
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('subject_lifecycle_delivery_epoch', '1');
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('subject_retirement_position', '0');
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_generation', '0');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_yield_reservation_format', '1');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_yield_reservation_generation', '0');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_yield_reservation_maximum', '1000000000000');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_yield_reserved_unused', '0');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_yield_retained_used', '0');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_yield_reservation_checksum', '{Convert.ToHexStringLower(BaseActivationYieldReservationContract.Create(0, 1_000_000_000_000, 0, 0).Checksum.AsSpan())}');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_instance_receipt_chain_format', '1');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_instance_receipt_chain_sequence', '0');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_instance_receipt_chain_ordered_checksum', '{Convert.ToHexStringLower(BaseActivationInstanceReceiptChainContract.ZeroOrderedChecksum.AsSpan())}');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_instance_receipt_chain_generation', '0');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_instance_receipt_chain_checksum', '{Convert.ToHexStringLower(BaseActivationInstanceReceiptChainContract.Create(0, BaseActivationInstanceReceiptChainContract.ZeroOrderedChecksum.AsSpan(), 0).Checksum.AsSpan())}');
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('semantic_terminal_publication_sequence', '0');
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('semantic_terminal_publication_checksum', '{Convert.ToHexStringLower(BaseSemanticRecoveryAuthorityContract.EmptyPublicationSetChecksum().AsSpan())}');
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_accepted_utc', '0');
@@ -265,6 +279,9 @@ CREATE TABLE IF NOT EXISTS {_names.Activations} (
   definition_id TEXT NOT NULL,
   definition_version INTEGER NOT NULL CHECK(definition_version > 0),
   definition_checksum BLOB NOT NULL CHECK(length(definition_checksum) = 32),
+  receipt_format_version INTEGER NOT NULL CHECK(receipt_format_version = 1),
+  receipt_duplicate_lifetime_ms INTEGER NOT NULL CHECK(receipt_duplicate_lifetime_ms BETWEEN 3600000 AND 7776000000),
+  receipt_backup_coverage INTEGER NOT NULL CHECK(receipt_backup_coverage IN (0,1)),
   canonical_input BLOB NOT NULL,
   input_checksum BLOB NOT NULL CHECK(length(input_checksum) = 32),
   scope_kind INTEGER NOT NULL,
@@ -283,6 +300,13 @@ CREATE TABLE IF NOT EXISTS {_names.Activations} (
   eligible INTEGER NOT NULL CHECK(eligible IN (0,1)),
   control_checksum BLOB NOT NULL CHECK(length(control_checksum) = 32),
   attempt_number INTEGER NOT NULL DEFAULT 0 CHECK(attempt_number >= 0),
+  execution_slice_ordinal INTEGER NOT NULL DEFAULT 0 CHECK(execution_slice_ordinal >= 0),
+  attempt_started_at INTEGER NULL,
+  slice_started_at INTEGER NULL,
+  yield_count INTEGER NOT NULL DEFAULT 0 CHECK(yield_count >= 0),
+  maximum_yields INTEGER NOT NULL DEFAULT 0 CHECK(maximum_yields BETWEEN 0 AND 1000000),
+  yield_terminal_disposition INTEGER NULL,
+  yield_terminal_failure_code TEXT NULL,
   claim_epoch INTEGER NOT NULL DEFAULT 0 CHECK(claim_epoch >= 0),
   claim_fence BLOB NULL,
   claim_worker TEXT NULL,
@@ -306,7 +330,7 @@ CREATE TABLE IF NOT EXISTS {_names.Executors} (
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.ActivationEffects} (
   activation_id TEXT NOT NULL PRIMARY KEY,
-  claim_attempt INTEGER NOT NULL, claim_epoch INTEGER NOT NULL, claim_fence BLOB NOT NULL CHECK(length(claim_fence)=32),
+  claim_attempt INTEGER NOT NULL, claim_activation_generation INTEGER NOT NULL, claim_slice INTEGER NOT NULL, claim_attempt_started_at INTEGER NOT NULL, claim_slice_started_at INTEGER NOT NULL, claim_yield_count INTEGER NOT NULL, claim_maximum_yields INTEGER NOT NULL, claim_epoch INTEGER NOT NULL, claim_fence BLOB NOT NULL CHECK(length(claim_fence)=32),
   claim_worker TEXT NOT NULL, cancellation_generation INTEGER NOT NULL, claim_store_id TEXT NOT NULL,
   claim_restore_epoch INTEGER NOT NULL, definition_checksum BLOB NOT NULL CHECK(length(definition_checksum)=32),
   executor_application TEXT NOT NULL, executor_host TEXT NOT NULL, executor_process TEXT NOT NULL,
@@ -333,12 +357,49 @@ CREATE TABLE IF NOT EXISTS {_names.ActivationScheduleCancellations} (
   high_activation_id TEXT NOT NULL, after_due_at INTEGER NULL, after_activation_id TEXT NULL,
   completed INTEGER NOT NULL CHECK(completed IN (0,1))
 ) WITHOUT ROWID;
-CREATE TABLE IF NOT EXISTS {_names.ActivationReceipts} (
+CREATE TABLE IF NOT EXISTS {_names.ActivationControlReceipts} (
   receipt_key TEXT NOT NULL PRIMARY KEY, operation_kind TEXT NOT NULL,
   fingerprint BLOB NOT NULL CHECK(length(fingerprint)=32), result_json BLOB NOT NULL,
   result_checksum BLOB NOT NULL CHECK(length(result_checksum)=32),
-  activation_id TEXT NULL,
-  authority_checksum BLOB NULL CHECK(authority_checksum IS NULL OR length(authority_checksum)=32)
+  authority_checksum BLOB NOT NULL CHECK(length(authority_checksum)=32)
+) WITHOUT ROWID;
+CREATE UNIQUE INDEX IF NOT EXISTS {_names.Prefix}activation_control_receipt_authority_idx ON {_names.ActivationControlReceipts}(authority_checksum);
+CREATE TABLE IF NOT EXISTS {_names.ActivationInstanceReceipts} (
+  receipt_key TEXT NOT NULL PRIMARY KEY, operation_kind TEXT NOT NULL,
+  activation_id TEXT NOT NULL, definition_id TEXT NOT NULL,
+  definition_version INTEGER NOT NULL CHECK(definition_version > 0),
+  definition_checksum BLOB NOT NULL CHECK(length(definition_checksum)=32),
+  receipt_format_version INTEGER NOT NULL CHECK(receipt_format_version=1),
+  receipt_duplicate_lifetime_ms INTEGER NOT NULL CHECK(receipt_duplicate_lifetime_ms BETWEEN 3600000 AND 7776000000),
+  receipt_backup_coverage INTEGER NOT NULL CHECK(receipt_backup_coverage IN (0,1)),
+  fingerprint BLOB NOT NULL CHECK(length(fingerprint)=32), result_json BLOB NOT NULL,
+  result_checksum BLOB NOT NULL CHECK(length(result_checksum)=32),
+  authority_checksum BLOB NOT NULL CHECK(length(authority_checksum)=32),
+  committed_at INTEGER NOT NULL CHECK(committed_at>=0),
+  duplicate_resolve_until INTEGER NOT NULL CHECK(duplicate_resolve_until>committed_at),
+  receipt_sequence INTEGER NOT NULL UNIQUE CHECK(receipt_sequence>0),
+  prior_ordered_checksum BLOB NOT NULL CHECK(length(prior_ordered_checksum)=32),
+  ordered_checksum BLOB NOT NULL CHECK(length(ordered_checksum)=32)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.ActivationInstanceReceiptCompactionFacts} (
+  receipt_sequence INTEGER NOT NULL PRIMARY KEY CHECK(receipt_sequence>0),
+  receipt_key TEXT NOT NULL UNIQUE,
+  authority_checksum BLOB NOT NULL CHECK(length(authority_checksum)=32),
+  prior_ordered_checksum BLOB NOT NULL CHECK(length(prior_ordered_checksum)=32),
+  ordered_checksum BLOB NOT NULL CHECK(length(ordered_checksum)=32),
+  compaction_receipt_key TEXT NOT NULL,
+  fact_checksum BLOB NOT NULL CHECK(length(fact_checksum)=32)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.ActivationBackupCoverageCheckpoints} (
+  artifact_id TEXT NOT NULL PRIMARY KEY,
+  artifact_sha256 BLOB NOT NULL CHECK(length(artifact_sha256)=32),
+  application_id TEXT NOT NULL, logical_store_id TEXT NOT NULL, store_instance_id TEXT NOT NULL,
+  restore_epoch INTEGER NOT NULL CHECK(restore_epoch>=0),
+  receipt_sequence INTEGER NOT NULL CHECK(receipt_sequence>=0),
+  receipt_ordered_checksum BLOB NOT NULL CHECK(length(receipt_ordered_checksum)=32),
+  checkpoint_generation INTEGER NOT NULL UNIQUE CHECK(checkpoint_generation>0),
+  committed_at INTEGER NOT NULL CHECK(committed_at>=0),
+  checkpoint_checksum BLOB NOT NULL CHECK(length(checkpoint_checksum)=32)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.ActivationPruneFloors} (
   activation_id TEXT NOT NULL PRIMARY KEY,
@@ -354,6 +415,17 @@ CREATE TABLE IF NOT EXISTS {_names.ActivationPruneFloors} (
   restore_epoch INTEGER NOT NULL CHECK(restore_epoch>=0),
   publication_authority_checksum BLOB NOT NULL CHECK(length(publication_authority_checksum)=32),
   authority_checksum BLOB NOT NULL CHECK(length(authority_checksum)=32)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.ActivationReceiptRecoveryFloors} (
+  activation_id TEXT NOT NULL PRIMARY KEY,
+  definition_id TEXT NOT NULL, definition_version INTEGER NOT NULL CHECK(definition_version>0),
+  definition_checksum BLOB NOT NULL CHECK(length(definition_checksum)=32),
+  scope_kind INTEGER NOT NULL, scope_digest BLOB NOT NULL CHECK(length(scope_digest)=32),
+  semantic_definition_id TEXT NOT NULL,
+  semantic_binding_id BLOB NOT NULL CHECK(length(semantic_binding_id)=32),
+  semantic_key_digest BLOB NOT NULL CHECK(length(semantic_key_digest)=32),
+  semantic_authority_checksum BLOB NOT NULL CHECK(length(semantic_authority_checksum)=32),
+  floor_checksum BLOB NOT NULL CHECK(length(floor_checksum)=32)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.ModuleMutationDefinitions} (
   operation_id TEXT NOT NULL, operation_version INTEGER NOT NULL CHECK(operation_version > 0),
@@ -562,6 +634,17 @@ CREATE TABLE IF NOT EXISTS {_names.ProviderState} (
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('restore_epoch', '0');
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('subject_lifecycle_delivery_epoch', '1');
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_generation', '0');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_yield_reservation_format', '1');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_yield_reservation_generation', '0');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_yield_reservation_maximum', '1000000000000');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_yield_reserved_unused', '0');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_yield_retained_used', '0');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_yield_reservation_checksum', '{Convert.ToHexStringLower(BaseActivationYieldReservationContract.Create(0, 1_000_000_000_000, 0, 0).Checksum.AsSpan())}');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_instance_receipt_chain_format', '1');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_instance_receipt_chain_sequence', '0');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_instance_receipt_chain_ordered_checksum', '{Convert.ToHexStringLower(BaseActivationInstanceReceiptChainContract.ZeroOrderedChecksum.AsSpan())}');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_instance_receipt_chain_generation', '0');
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_instance_receipt_chain_checksum', '{Convert.ToHexStringLower(BaseActivationInstanceReceiptChainContract.Create(0, BaseActivationInstanceReceiptChainContract.ZeroOrderedChecksum.AsSpan(), 0).Checksum.AsSpan())}');
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('semantic_terminal_publication_sequence', '0');
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('semantic_terminal_publication_checksum', '{Convert.ToHexStringLower(BaseSemanticRecoveryAuthorityContract.EmptyPublicationSetChecksum().AsSpan())}');
 INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('activation_accepted_utc', '0');
@@ -790,6 +873,9 @@ CREATE TABLE IF NOT EXISTS {_names.Activations} (
   definition_id TEXT NOT NULL,
   definition_version INTEGER NOT NULL CHECK(definition_version > 0),
   definition_checksum BLOB NOT NULL CHECK(length(definition_checksum) = 32),
+  receipt_format_version INTEGER NOT NULL CHECK(receipt_format_version = 1),
+  receipt_duplicate_lifetime_ms INTEGER NOT NULL CHECK(receipt_duplicate_lifetime_ms BETWEEN 3600000 AND 7776000000),
+  receipt_backup_coverage INTEGER NOT NULL CHECK(receipt_backup_coverage IN (0,1)),
   canonical_input BLOB NOT NULL,
   input_checksum BLOB NOT NULL CHECK(length(input_checksum) = 32),
   scope_kind INTEGER NOT NULL,
@@ -808,6 +894,13 @@ CREATE TABLE IF NOT EXISTS {_names.Activations} (
   eligible INTEGER NOT NULL CHECK(eligible IN (0,1)),
   control_checksum BLOB NOT NULL CHECK(length(control_checksum) = 32),
   attempt_number INTEGER NOT NULL DEFAULT 0 CHECK(attempt_number >= 0),
+  execution_slice_ordinal INTEGER NOT NULL DEFAULT 0 CHECK(execution_slice_ordinal >= 0),
+  attempt_started_at INTEGER NULL,
+  slice_started_at INTEGER NULL,
+  yield_count INTEGER NOT NULL DEFAULT 0 CHECK(yield_count >= 0),
+  maximum_yields INTEGER NOT NULL DEFAULT 0 CHECK(maximum_yields BETWEEN 0 AND 1000000),
+  yield_terminal_disposition INTEGER NULL,
+  yield_terminal_failure_code TEXT NULL,
   claim_epoch INTEGER NOT NULL DEFAULT 0 CHECK(claim_epoch >= 0),
   claim_fence BLOB NULL,
   claim_worker TEXT NULL,
@@ -831,7 +924,7 @@ CREATE TABLE IF NOT EXISTS {_names.Executors} (
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.ActivationEffects} (
   activation_id TEXT NOT NULL PRIMARY KEY,
-  claim_attempt INTEGER NOT NULL, claim_epoch INTEGER NOT NULL, claim_fence BLOB NOT NULL CHECK(length(claim_fence)=32),
+  claim_attempt INTEGER NOT NULL, claim_activation_generation INTEGER NOT NULL, claim_slice INTEGER NOT NULL, claim_attempt_started_at INTEGER NOT NULL, claim_slice_started_at INTEGER NOT NULL, claim_yield_count INTEGER NOT NULL, claim_maximum_yields INTEGER NOT NULL, claim_epoch INTEGER NOT NULL, claim_fence BLOB NOT NULL CHECK(length(claim_fence)=32),
   claim_worker TEXT NOT NULL, cancellation_generation INTEGER NOT NULL, claim_store_id TEXT NOT NULL,
   claim_restore_epoch INTEGER NOT NULL, definition_checksum BLOB NOT NULL CHECK(length(definition_checksum)=32),
   executor_application TEXT NOT NULL, executor_host TEXT NOT NULL, executor_process TEXT NOT NULL,
@@ -858,12 +951,49 @@ CREATE TABLE IF NOT EXISTS {_names.ActivationScheduleCancellations} (
   high_activation_id TEXT NOT NULL, after_due_at INTEGER NULL, after_activation_id TEXT NULL,
   completed INTEGER NOT NULL CHECK(completed IN (0,1))
 ) WITHOUT ROWID;
-CREATE TABLE IF NOT EXISTS {_names.ActivationReceipts} (
+CREATE TABLE IF NOT EXISTS {_names.ActivationControlReceipts} (
   receipt_key TEXT NOT NULL PRIMARY KEY, operation_kind TEXT NOT NULL,
   fingerprint BLOB NOT NULL CHECK(length(fingerprint)=32), result_json BLOB NOT NULL,
   result_checksum BLOB NOT NULL CHECK(length(result_checksum)=32),
-  activation_id TEXT NULL,
-  authority_checksum BLOB NULL CHECK(authority_checksum IS NULL OR length(authority_checksum)=32)
+  authority_checksum BLOB NOT NULL CHECK(length(authority_checksum)=32)
+) WITHOUT ROWID;
+CREATE UNIQUE INDEX IF NOT EXISTS {_names.Prefix}activation_control_receipt_authority_idx ON {_names.ActivationControlReceipts}(authority_checksum);
+CREATE TABLE IF NOT EXISTS {_names.ActivationInstanceReceipts} (
+  receipt_key TEXT NOT NULL PRIMARY KEY, operation_kind TEXT NOT NULL,
+  activation_id TEXT NOT NULL, definition_id TEXT NOT NULL,
+  definition_version INTEGER NOT NULL CHECK(definition_version > 0),
+  definition_checksum BLOB NOT NULL CHECK(length(definition_checksum)=32),
+  receipt_format_version INTEGER NOT NULL CHECK(receipt_format_version=1),
+  receipt_duplicate_lifetime_ms INTEGER NOT NULL CHECK(receipt_duplicate_lifetime_ms BETWEEN 3600000 AND 7776000000),
+  receipt_backup_coverage INTEGER NOT NULL CHECK(receipt_backup_coverage IN (0,1)),
+  fingerprint BLOB NOT NULL CHECK(length(fingerprint)=32), result_json BLOB NOT NULL,
+  result_checksum BLOB NOT NULL CHECK(length(result_checksum)=32),
+  authority_checksum BLOB NOT NULL CHECK(length(authority_checksum)=32),
+  committed_at INTEGER NOT NULL CHECK(committed_at>=0),
+  duplicate_resolve_until INTEGER NOT NULL CHECK(duplicate_resolve_until>committed_at),
+  receipt_sequence INTEGER NOT NULL UNIQUE CHECK(receipt_sequence>0),
+  prior_ordered_checksum BLOB NOT NULL CHECK(length(prior_ordered_checksum)=32),
+  ordered_checksum BLOB NOT NULL CHECK(length(ordered_checksum)=32)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.ActivationInstanceReceiptCompactionFacts} (
+  receipt_sequence INTEGER NOT NULL PRIMARY KEY CHECK(receipt_sequence>0),
+  receipt_key TEXT NOT NULL UNIQUE,
+  authority_checksum BLOB NOT NULL CHECK(length(authority_checksum)=32),
+  prior_ordered_checksum BLOB NOT NULL CHECK(length(prior_ordered_checksum)=32),
+  ordered_checksum BLOB NOT NULL CHECK(length(ordered_checksum)=32),
+  compaction_receipt_key TEXT NOT NULL,
+  fact_checksum BLOB NOT NULL CHECK(length(fact_checksum)=32)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.ActivationBackupCoverageCheckpoints} (
+  artifact_id TEXT NOT NULL PRIMARY KEY,
+  artifact_sha256 BLOB NOT NULL CHECK(length(artifact_sha256)=32),
+  application_id TEXT NOT NULL, logical_store_id TEXT NOT NULL, store_instance_id TEXT NOT NULL,
+  restore_epoch INTEGER NOT NULL CHECK(restore_epoch>=0),
+  receipt_sequence INTEGER NOT NULL CHECK(receipt_sequence>=0),
+  receipt_ordered_checksum BLOB NOT NULL CHECK(length(receipt_ordered_checksum)=32),
+  checkpoint_generation INTEGER NOT NULL UNIQUE CHECK(checkpoint_generation>0),
+  committed_at INTEGER NOT NULL CHECK(committed_at>=0),
+  checkpoint_checksum BLOB NOT NULL CHECK(length(checkpoint_checksum)=32)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.ActivationPruneFloors} (
   activation_id TEXT NOT NULL PRIMARY KEY,
@@ -879,6 +1009,17 @@ CREATE TABLE IF NOT EXISTS {_names.ActivationPruneFloors} (
   restore_epoch INTEGER NOT NULL CHECK(restore_epoch>=0),
   publication_authority_checksum BLOB NOT NULL CHECK(length(publication_authority_checksum)=32),
   authority_checksum BLOB NOT NULL CHECK(length(authority_checksum)=32)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.ActivationReceiptRecoveryFloors} (
+  activation_id TEXT NOT NULL PRIMARY KEY,
+  definition_id TEXT NOT NULL, definition_version INTEGER NOT NULL CHECK(definition_version>0),
+  definition_checksum BLOB NOT NULL CHECK(length(definition_checksum)=32),
+  scope_kind INTEGER NOT NULL, scope_digest BLOB NOT NULL CHECK(length(scope_digest)=32),
+  semantic_definition_id TEXT NOT NULL,
+  semantic_binding_id BLOB NOT NULL CHECK(length(semantic_binding_id)=32),
+  semantic_key_digest BLOB NOT NULL CHECK(length(semantic_key_digest)=32),
+  semantic_authority_checksum BLOB NOT NULL CHECK(length(semantic_authority_checksum)=32),
+  floor_checksum BLOB NOT NULL CHECK(length(floor_checksum)=32)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.ModuleMutationDefinitions} (
   operation_id TEXT NOT NULL, operation_version INTEGER NOT NULL CHECK(operation_version > 0),
@@ -1177,7 +1318,7 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
         var missing = new List<string>();
         if (!await ObjectExistsAsync(connection, "table", _names.LogicalIndexes, cancellationToken).ConfigureAwait(false))
             missing.Add(_names.LogicalIndexes);
-        foreach (var table in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.OperationReceipts, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease, _names.SubjectContracts, _names.SubjectLifetimes, _names.SubjectTerminalLifetimes, _names.SubjectLifecycleFacts, _names.SubjectLifecycleMemberships, _names.SubjectLifecycleConsumers, _names.SubjectLifecycleCheckpoints, _names.SubjectLifecycleMaintenance, _names.SubjectLifecycleScopeStage, _names.SubjectLifecycleMembershipStage, _names.SubjectRetirementBarriers, _names.SubjectRetirementAcknowledgements, _names.SubjectRetirementTerminals, _names.SubjectRetirementPublications, _names.SubjectMaintenance, _names.SubjectRewriteStage, _names.ModuleGenerations, _names.ModuleMutationDefinitions, _names.ModuleGenerationDefinitions, _names.SemanticActivationDefinitions, _names.SemanticActivationScopes, _names.SemanticActivationSlots, _names.SemanticActivationMaintenance, _names.SemanticActivationMigrations, _names.SemanticActivationMigrationHistory, _names.SemanticActivationRemovedDefinitions, _names.SemanticActivationRemovedDefinitionHistory, _names.SemanticActivationRecoveryFloors, _names.SemanticActivationRewriteStage, _names.Activations, _names.ActivationPruneFloors }
+        foreach (var table in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.OperationReceipts, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease, _names.SubjectContracts, _names.SubjectLifetimes, _names.SubjectTerminalLifetimes, _names.SubjectLifecycleFacts, _names.SubjectLifecycleMemberships, _names.SubjectLifecycleConsumers, _names.SubjectLifecycleCheckpoints, _names.SubjectLifecycleMaintenance, _names.SubjectLifecycleScopeStage, _names.SubjectLifecycleMembershipStage, _names.SubjectRetirementBarriers, _names.SubjectRetirementAcknowledgements, _names.SubjectRetirementTerminals, _names.SubjectRetirementPublications, _names.SubjectMaintenance, _names.SubjectRewriteStage, _names.ModuleGenerations, _names.ModuleMutationDefinitions, _names.ModuleGenerationDefinitions, _names.SemanticActivationDefinitions, _names.SemanticActivationScopes, _names.SemanticActivationSlots, _names.SemanticActivationMaintenance, _names.SemanticActivationMigrations, _names.SemanticActivationMigrationHistory, _names.SemanticActivationRemovedDefinitions, _names.SemanticActivationRemovedDefinitionHistory, _names.SemanticActivationRecoveryFloors, _names.SemanticActivationRewriteStage, _names.Activations, _names.Executors, _names.ActivationEffects, _names.ActivationSchedules, _names.ActivationOccurrences, _names.ActivationScheduleCancellations, _names.ActivationInstanceReceipts, _names.ActivationInstanceReceiptCompactionFacts, _names.ActivationControlReceipts, _names.ActivationBackupCoverageCheckpoints, _names.ActivationPruneFloors, _names.ActivationReceiptRecoveryFloors }
             .Concat(_physical.Collections.Select(static collection => collection.Table))
             .Concat(_physical.Relations.Select(static relation => relation.Table))
             .Concat(_projectionSchemaTables))
@@ -1209,6 +1350,9 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
             missing.AddRange(await GetMissingSchemaAuthorityColumnsAsync(connection, cancellationToken).ConfigureAwait(false));
             missing.AddRange(await GetMissingCollectionStateAsync(connection, cancellationToken).ConfigureAwait(false));
             missing.AddRange(await GetSemanticActivationSchemaProblemsAsync(connection, cancellationToken).ConfigureAwait(false));
+            missing.AddRange(await GetActivationReceiptChainProblemsAsync(connection, cancellationToken).ConfigureAwait(false));
+            missing.AddRange(await GetActivationYieldReservationProblemsAsync(connection, cancellationToken).ConfigureAwait(false));
+            missing.AddRange(await GetActivationReceiptRecoveryFloorProblemsAsync(connection, cancellationToken).ConfigureAwait(false));
 
             foreach (SqlitePhysicalModel.CollectionModel collection in _physical.Collections)
             {
@@ -1265,7 +1409,7 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
         foreach ((string table, string column) in new[]
         {
             (_names.Activations, "terminal_receipt_checksum"),
-            (_names.ActivationReceipts, "activation_id"), (_names.ActivationReceipts, "authority_checksum"),
+            (_names.ActivationInstanceReceipts, "activation_id"), (_names.ActivationInstanceReceipts, "authority_checksum"),
             (_names.SemanticActivationDefinitions, "execution_enabled"),
             (_names.SemanticActivationSlots, "definition_id"), (_names.SemanticActivationSlots, "binding_id"),
             (_names.SemanticActivationSlots, "key_digest"), (_names.SemanticActivationSlots, "state"),
@@ -1281,9 +1425,9 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
                 problems.Add("column:" + table + "." + column);
         Dictionary<string, ColumnShape> activation = await GetColumnShapesAsync(connection, _names.Activations, cancellationToken).ConfigureAwait(false);
         Check(activation, problems, _names.Activations, "terminal_receipt_checksum", "BLOB", false, false);
-        Dictionary<string, ColumnShape> activationReceipts = await GetColumnShapesAsync(connection, _names.ActivationReceipts, cancellationToken).ConfigureAwait(false);
-        Check(activationReceipts, problems, _names.ActivationReceipts, "activation_id", "TEXT", false, false);
-        Check(activationReceipts, problems, _names.ActivationReceipts, "authority_checksum", "BLOB", false, false);
+        Dictionary<string, ColumnShape> activationReceipts = await GetColumnShapesAsync(connection, _names.ActivationInstanceReceipts, cancellationToken).ConfigureAwait(false);
+        Check(activationReceipts, problems, _names.ActivationInstanceReceipts, "activation_id", "TEXT", true, false);
+        Check(activationReceipts, problems, _names.ActivationInstanceReceipts, "authority_checksum", "BLOB", true, false);
         Dictionary<string, ColumnShape> activationPruneFloors = await GetColumnShapesAsync(connection, _names.ActivationPruneFloors, cancellationToken).ConfigureAwait(false);
         CheckExact(activationPruneFloors, problems, _names.ActivationPruneFloors,
         [
@@ -1294,6 +1438,15 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
             ("prune_authority_generation","INTEGER",true,false),("application_id","TEXT",true,false),("logical_store_id","TEXT",true,false),
             ("store_instance_id","TEXT",true,false),("restore_epoch","INTEGER",true,false),("publication_authority_checksum","BLOB",true,false),
             ("authority_checksum","BLOB",true,false),
+        ]);
+        Dictionary<string, ColumnShape> activationReceiptRecoveryFloors = await GetColumnShapesAsync(connection, _names.ActivationReceiptRecoveryFloors, cancellationToken).ConfigureAwait(false);
+        CheckExact(activationReceiptRecoveryFloors, problems, _names.ActivationReceiptRecoveryFloors,
+        [
+            ("activation_id","TEXT",true,true),("definition_id","TEXT",true,false),("definition_version","INTEGER",true,false),
+            ("definition_checksum","BLOB",true,false),("scope_kind","INTEGER",true,false),("scope_digest","BLOB",true,false),
+            ("semantic_definition_id","TEXT",true,false),("semantic_binding_id","BLOB",true,false),
+            ("semantic_key_digest","BLOB",true,false),("semantic_authority_checksum","BLOB",true,false),
+            ("floor_checksum","BLOB",true,false),
         ]);
         Dictionary<string, ColumnShape> definitions = await GetColumnShapesAsync(connection, _names.SemanticActivationDefinitions, cancellationToken).ConfigureAwait(false);
         Check(definitions, problems, _names.SemanticActivationDefinitions, "execution_enabled", "INTEGER", true, false);
@@ -1330,6 +1483,380 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
             foreach (var item in expected)
                 Check(actual, errors, table, item.Name, item.Type, item.NotNull, item.Primary);
         }
+    }
+
+    private async ValueTask<string[]> GetActivationReceiptChainProblemsAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        var problems = new List<string>();
+        string[] keys =
+        [
+            "activation_instance_receipt_chain_format",
+            "activation_instance_receipt_chain_sequence",
+            "activation_instance_receipt_chain_ordered_checksum",
+            "activation_instance_receipt_chain_generation",
+            "activation_instance_receipt_chain_checksum",
+        ];
+        var values = new Dictionary<string, string>(StringComparer.Ordinal);
+        await using (SqliteCommand stateRead = connection.CreateCommand())
+        {
+            stateRead.CommandText = $"SELECT key,value FROM {_names.ProviderState} WHERE key IN ({string.Join(',', keys.Select((_, index) => "$key" + index))});";
+            for (int index = 0; index < keys.Length; index++) stateRead.Parameters.AddWithValue("$key" + index, keys[index]);
+            await using SqliteDataReader reader = await stateRead.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) values[reader.GetString(0)] = reader.GetString(1);
+        }
+        if (values.Count != keys.Length)
+        {
+            problems.Add("authority:activation-instance-receipt-chain-missing");
+            return problems.ToArray();
+        }
+        try
+        {
+            var state = new BaseActivationInstanceReceiptChainState
+            {
+                FormatVersion = int.Parse(values[keys[0]], System.Globalization.CultureInfo.InvariantCulture),
+                CurrentSequence = long.Parse(values[keys[1]], System.Globalization.CultureInfo.InvariantCulture),
+                OrderedChecksum = Convert.FromHexString(values[keys[2]]).ToImmutableArray(),
+                Generation = long.Parse(values[keys[3]], System.Globalization.CultureInfo.InvariantCulture),
+                Checksum = Convert.FromHexString(values[keys[4]]).ToImmutableArray(),
+            };
+            if (!BaseActivationInstanceReceiptChainContract.IsValid(state)
+                || state.Generation < state.CurrentSequence)
+            {
+                problems.Add("authority:activation-instance-receipt-chain-invalid");
+                return problems.ToArray();
+            }
+
+            long expectedSequence = 0;
+            ImmutableArray<byte> expectedPrior = BaseActivationInstanceReceiptChainContract.ZeroOrderedChecksum;
+            var prefixes = new Dictionary<long, ImmutableArray<byte>> { [0] = expectedPrior };
+            var compacted = new SortedDictionary<long, BaseActivationCompactedReceiptFact>();
+            await using (SqliteCommand compactedRead = connection.CreateCommand())
+            {
+                compactedRead.CommandText = $"SELECT f.receipt_sequence,f.receipt_key,f.authority_checksum,f.prior_ordered_checksum,f.ordered_checksum,f.compaction_receipt_key,f.fact_checksum,EXISTS(SELECT 1 FROM {_names.ActivationControlReceipts} c WHERE c.receipt_key=f.compaction_receipt_key AND c.operation_kind IN ('activation-receipts-compacted','activation-pruned')) FROM {_names.ActivationInstanceReceiptCompactionFacts} f ORDER BY f.receipt_sequence;";
+                await using SqliteDataReader compactedReader = await compactedRead.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                while (await compactedReader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    var fact = new BaseActivationCompactedReceiptFact
+                    {
+                        FormatVersion = 1, ReceiptSequence = compactedReader.GetInt64(0), ReceiptKey = compactedReader.GetString(1),
+                        ReceiptAuthorityChecksum = ((byte[])compactedReader[2]).ToImmutableArray(),
+                        PriorOrderedChecksum = ((byte[])compactedReader[3]).ToImmutableArray(),
+                        OrderedChecksum = ((byte[])compactedReader[4]).ToImmutableArray(),
+                        CompactionReceiptKey = compactedReader.GetString(5), Checksum = ((byte[])compactedReader[6]).ToImmutableArray(),
+                    };
+                    if (!BaseActivationCompactedReceiptFactContract.IsValid(fact) || compactedReader.GetInt64(7) != 1
+                        || !compacted.TryAdd(fact.ReceiptSequence, fact))
+                    {
+                        problems.Add("authority:activation-instance-receipt-compaction-fact-invalid");
+                        return problems.ToArray();
+                    }
+                }
+            }
+            bool ConsumeCompacted(long sequence)
+            {
+                if (!compacted.Remove(sequence, out BaseActivationCompactedReceiptFact? fact)
+                    || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                        expectedPrior.AsSpan(), fact.PriorOrderedChecksum.AsSpan())) return false;
+                ImmutableArray<byte> computed = BaseActivationInstanceReceiptChainContract.Append(
+                    sequence, fact.PriorOrderedChecksum.AsSpan(), fact.ReceiptAuthorityChecksum.AsSpan(), fact.ReceiptKey);
+                if (!System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                    computed.AsSpan(), fact.OrderedChecksum.AsSpan())) return false;
+                expectedSequence = sequence; expectedPrior = fact.OrderedChecksum;
+                prefixes.Add(sequence, expectedPrior); return true;
+            }
+            await using (SqliteCommand receipts = connection.CreateCommand())
+            {
+                receipts.CommandText = $"SELECT receipt_key,operation_kind,activation_id,definition_id,definition_version,definition_checksum,receipt_format_version,receipt_duplicate_lifetime_ms,receipt_backup_coverage,fingerprint,result_json,result_checksum,authority_checksum,committed_at,duplicate_resolve_until,receipt_sequence,prior_ordered_checksum,ordered_checksum FROM {_names.ActivationInstanceReceipts} ORDER BY receipt_sequence;";
+                await using SqliteDataReader reader = await receipts.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    string receiptKey = reader.GetString(0); string operationKind = reader.GetString(1);
+                    string activationId = reader.GetString(2);
+                    var definition = new BaseActivationDefinitionKey
+                    {
+                        Id = reader.GetString(3), Version = reader.GetInt32(4),
+                        Checksum = ((byte[])reader[5]).ToImmutableArray(),
+                    };
+                    var retention = new BaseActivationReceiptRetentionPolicy
+                    {
+                        FormatVersion = reader.GetInt32(6),
+                        DuplicateResolutionLifetime = TimeSpan.FromMilliseconds(reader.GetInt64(7)),
+                        ProtectedBackupCoverage = (BaseActivationProtectedBackupCoverage)reader.GetInt32(8),
+                    };
+                    byte[] fingerprint = (byte[])reader[9]; byte[] result = (byte[])reader[10];
+                    byte[] resultChecksum = (byte[])reader[11]; byte[] authority = (byte[])reader[12];
+                    long committedAt = reader.GetInt64(13); long duplicateUntil = reader.GetInt64(14);
+                    long sequence = reader.GetInt64(15); byte[] prior = (byte[])reader[16]; byte[] ordered = (byte[])reader[17];
+                    while (expectedSequence + 1 < sequence)
+                        if (!ConsumeCompacted(expectedSequence + 1))
+                        {
+                            problems.Add("authority:activation-instance-receipt-chain-row-invalid");
+                            return problems.ToArray();
+                        }
+                    expectedSequence = checked(expectedSequence + 1);
+                    ImmutableArray<byte> computedAuthority = BaseActivationInstanceReceiptChainContract.ReceiptAuthorityChecksum(
+                        receiptKey, operationKind, activationId, definition, retention, fingerprint, resultChecksum,
+                        committedAt, duplicateUntil, sequence, prior);
+                    ImmutableArray<byte> computedOrdered = BaseActivationInstanceReceiptChainContract.Append(
+                        sequence, prior, authority, receiptKey);
+                    if (sequence != expectedSequence
+                        || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(expectedPrior.AsSpan(), prior)
+                        || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                            System.Security.Cryptography.SHA256.HashData(result), resultChecksum)
+                        || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(computedAuthority.AsSpan(), authority)
+                        || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(computedOrdered.AsSpan(), ordered))
+                    {
+                        problems.Add("authority:activation-instance-receipt-chain-row-invalid");
+                        return problems.ToArray();
+                    }
+                    expectedPrior = ordered.ToImmutableArray();
+                    prefixes.Add(sequence, expectedPrior);
+                }
+            }
+            while (expectedSequence < state.CurrentSequence)
+                if (!ConsumeCompacted(expectedSequence + 1))
+                {
+                    problems.Add("authority:activation-instance-receipt-chain-row-invalid");
+                    return problems.ToArray();
+                }
+            if (compacted.Count != 0)
+            {
+                problems.Add("authority:activation-instance-receipt-compaction-fact-invalid");
+                return problems.ToArray();
+            }
+            if (state.CurrentSequence != expectedSequence
+                || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(state.OrderedChecksum.AsSpan(), expectedPrior.AsSpan()))
+            {
+                problems.Add("authority:activation-instance-receipt-chain-high-water-mismatch");
+                return problems.ToArray();
+            }
+
+            long checkpointCount;
+            await using (SqliteCommand checkpointCountCommand = connection.CreateCommand())
+            {
+                checkpointCountCommand.CommandText = $"SELECT COUNT(*) FROM {_names.ActivationBackupCoverageCheckpoints};";
+                checkpointCount = Convert.ToInt64(
+                    await checkpointCountCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false),
+                    System.Globalization.CultureInfo.InvariantCulture);
+            }
+            string currentStoreInstanceId = string.Empty;
+            long currentRestoreEpoch = -1;
+            if (checkpointCount > 0)
+            await using (SqliteCommand currentAuthority = connection.CreateCommand())
+            {
+                currentAuthority.CommandText = $"SELECT i.store_instance_id,COALESCE((SELECT CAST(value AS INTEGER) FROM {_names.ProviderState} WHERE key='restore_epoch'),-1) FROM {_names.SchemaIdentity} i WHERE i.singleton=1;";
+                await using SqliteDataReader authorityReader = await currentAuthority.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                if (!await authorityReader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    problems.Add("authority:activation-backup-coverage-checkpoint-invalid");
+                    return problems.ToArray();
+                }
+                currentStoreInstanceId = authorityReader.GetString(0);
+                currentRestoreEpoch = authorityReader.GetInt64(1);
+            }
+            await using SqliteCommand checkpoints = connection.CreateCommand();
+            checkpoints.CommandText = $"SELECT artifact_id,artifact_sha256,application_id,logical_store_id,store_instance_id,restore_epoch,receipt_sequence,receipt_ordered_checksum,checkpoint_generation,committed_at,checkpoint_checksum FROM {_names.ActivationBackupCoverageCheckpoints} ORDER BY checkpoint_generation;";
+            await using SqliteDataReader checkpointReader = await checkpoints.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            long priorGeneration = 0;
+            while (await checkpointReader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var checkpoint = new BaseActivationBackupCoverageCheckpoint
+                {
+                    FormatVersion = 1, ArtifactId = checkpointReader.GetString(0),
+                    ArtifactSha256 = ((byte[])checkpointReader[1]).ToImmutableArray(), ApplicationId = checkpointReader.GetString(2),
+                    LogicalStoreId = checkpointReader.GetString(3), StoreInstanceId = checkpointReader.GetString(4),
+                    RestoreEpoch = checkpointReader.GetInt64(5), ReceiptSequence = checkpointReader.GetInt64(6),
+                    ReceiptOrderedChecksum = ((byte[])checkpointReader[7]).ToImmutableArray(), Generation = checkpointReader.GetInt64(8),
+                    CommittedAt = checkpointReader.GetInt64(9), Checksum = ((byte[])checkpointReader[10]).ToImmutableArray(),
+                };
+                if (!BaseActivationBackupCoverageCheckpointContract.IsValid(checkpoint)
+                    || checkpoint.ApplicationId != _options.SemanticActivationApplicationId
+                    || checkpoint.LogicalStoreId != _options.StoreId
+                    || checkpoint.StoreInstanceId != currentStoreInstanceId
+                    || checkpoint.RestoreEpoch != currentRestoreEpoch
+                    || checkpoint.Generation <= priorGeneration || checkpoint.ReceiptSequence > state.CurrentSequence
+                    || !prefixes.TryGetValue(checkpoint.ReceiptSequence, out ImmutableArray<byte> prefix)
+                    || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                        checkpoint.ReceiptOrderedChecksum.AsSpan(), prefix.AsSpan()))
+                {
+                    problems.Add("authority:activation-backup-coverage-checkpoint-invalid");
+                    return problems.ToArray();
+                }
+                priorGeneration = checkpoint.Generation;
+            }
+
+            await using SqliteCommand controlReceipts = connection.CreateCommand();
+            controlReceipts.CommandText = $"SELECT receipt_key,operation_kind,fingerprint,result_json,result_checksum,authority_checksum FROM {_names.ActivationControlReceipts} ORDER BY receipt_key;";
+            await using SqliteDataReader controlReader = await controlReceipts.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await controlReader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                string receiptKey = controlReader.GetString(0);
+                string operationKind = controlReader.GetString(1);
+                byte[] fingerprint = (byte[])controlReader[2];
+                byte[] result = (byte[])controlReader[3];
+                byte[] resultChecksum = (byte[])controlReader[4];
+                byte[] authorityChecksum = (byte[])controlReader[5];
+                ImmutableArray<byte> expectedAuthority = BaseActivationControlReceiptContract.AuthorityChecksum(
+                    receiptKey, operationKind, fingerprint, resultChecksum);
+                if (!System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                        System.Security.Cryptography.SHA256.HashData(result), resultChecksum)
+                    || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                        expectedAuthority.AsSpan(), authorityChecksum))
+                {
+                    problems.Add("authority:activation-control-receipt-invalid");
+                    return problems.ToArray();
+                }
+            }
+        }
+        catch (Exception exception) when (exception is FormatException or OverflowException or InvalidCastException
+            or ArgumentException or System.Security.Cryptography.CryptographicException)
+        {
+            problems.Add("authority:activation-instance-receipt-chain-invalid");
+        }
+        return problems.ToArray();
+    }
+
+    private async ValueTask<string[]> GetActivationReceiptRecoveryFloorProblemsAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        var problems = new List<string>();
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = $"""
+SELECT f.activation_id,f.definition_id,f.definition_version,f.definition_checksum,
+       f.scope_kind,f.scope_digest,f.semantic_definition_id,f.semantic_binding_id,
+       f.semantic_key_digest,f.semantic_authority_checksum,f.floor_checksum,
+       s.state,s.authority_json,
+       EXISTS(SELECT 1 FROM {_names.Activations} a WHERE a.activation_id=f.activation_id),
+       EXISTS(SELECT 1 FROM {_names.ActivationInstanceReceipts} r WHERE r.activation_id=f.activation_id),
+       EXISTS(SELECT 1 FROM {_names.ActivationInstanceReceipts} r
+              WHERE r.activation_id=f.activation_id
+                AND (r.definition_id<>f.definition_id OR r.definition_version<>f.definition_version
+                     OR r.definition_checksum<>f.definition_checksum))
+FROM {_names.ActivationReceiptRecoveryFloors} f
+LEFT JOIN {_names.SemanticActivationRecoveryFloors} s
+  ON s.definition_id=f.semantic_definition_id
+ AND s.binding_id=f.semantic_binding_id
+ AND s.key_digest=f.semantic_key_digest
+ORDER BY f.activation_id;
+""";
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            try
+            {
+                string activationId = reader.GetString(0);
+                string definitionId = reader.GetString(1);
+                int definitionVersion = reader.GetInt32(2);
+                byte[] definitionChecksum = (byte[])reader[3];
+                int scopeKind = reader.GetInt32(4);
+                byte[] scopeDigest = (byte[])reader[5];
+                string semanticDefinitionId = reader.GetString(6);
+                byte[] bindingId = (byte[])reader[7];
+                byte[] keyDigest = (byte[])reader[8];
+                byte[] semanticAuthorityChecksum = (byte[])reader[9];
+                byte[] floorChecksum = (byte[])reader[10];
+                if (reader.IsDBNull(11) || reader.IsDBNull(12)
+                    || reader.GetInt32(13) != 0 || reader.GetInt32(14) != 1 || reader.GetInt32(15) != 0)
+                    throw new InvalidDataException();
+                int semanticState = reader.GetInt32(11);
+                byte[] semanticAuthorityJson = (byte[])reader[12];
+                ImmutableArray<byte> expectedSemanticChecksum = semanticState switch
+                {
+                    (int)BaseSemanticActivationSlotState.Retired =>
+                        JsonSerializer.Deserialize(semanticAuthorityJson,
+                            HPDBaseJsonSerializerContext.Default.BaseSemanticActivationRetirementAuthority)?.Checksum ?? [],
+                    (int)BaseSemanticActivationSlotState.CompactedAbsent =>
+                        JsonSerializer.Deserialize(semanticAuthorityJson,
+                            HPDBaseJsonSerializerContext.Default.BaseSemanticActivationAbsenceAuthority)?.Checksum ?? [],
+                    _ => [],
+                };
+                byte[] expectedFloor = SqliteActivationReceiptRecoveryFloorContract.Checksum(
+                    activationId, definitionId, definitionVersion, definitionChecksum, scopeKind, scopeDigest,
+                    semanticDefinitionId, bindingId, keyDigest, semanticAuthorityChecksum);
+                if (definitionVersion < 1 || definitionChecksum.Length != 32 || scopeDigest.Length != 32
+                    || bindingId.Length != 32 || keyDigest.Length != 32 || semanticAuthorityChecksum.Length != 32
+                    || expectedSemanticChecksum.Length != 32
+                    || !CryptographicOperations.FixedTimeEquals(expectedSemanticChecksum.AsSpan(), semanticAuthorityChecksum)
+                    || !CryptographicOperations.FixedTimeEquals(expectedFloor, floorChecksum))
+                    throw new InvalidDataException();
+            }
+            catch (Exception exception) when (exception is InvalidDataException or InvalidCastException
+                or JsonException or FormatException or OverflowException)
+            {
+                problems.Add("authority:activation-receipt-recovery-floor-invalid");
+                return problems.ToArray();
+            }
+        }
+        return problems.ToArray();
+    }
+
+    private async ValueTask<string[]> GetActivationYieldReservationProblemsAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        var problems = new List<string>();
+        string[] keys =
+        [
+            "activation_yield_reservation_format",
+            "activation_yield_reservation_generation",
+            "activation_yield_reservation_maximum",
+            "activation_yield_reserved_unused",
+            "activation_yield_retained_used",
+            "activation_yield_reservation_checksum",
+        ];
+        var values = new Dictionary<string, string>(StringComparer.Ordinal);
+        await using (SqliteCommand read = connection.CreateCommand())
+        {
+            read.CommandText = $"SELECT key,value FROM {_names.ProviderState} WHERE key IN ({string.Join(',', keys.Select((_, index) => "$key" + index))});";
+            for (int index = 0; index < keys.Length; index++) read.Parameters.AddWithValue("$key" + index, keys[index]);
+            await using SqliteDataReader reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) values[reader.GetString(0)] = reader.GetString(1);
+        }
+        if (values.Count != keys.Length)
+        {
+            problems.Add("authority:activation-yield-reservation-missing");
+            return problems.ToArray();
+        }
+        try
+        {
+            var state = new BaseActivationYieldReservationState
+            {
+                FormatVersion = int.Parse(values[keys[0]], System.Globalization.CultureInfo.InvariantCulture),
+                Generation = long.Parse(values[keys[1]], System.Globalization.CultureInfo.InvariantCulture),
+                MaximumSlots = long.Parse(values[keys[2]], System.Globalization.CultureInfo.InvariantCulture),
+                ReservedUnusedSlots = long.Parse(values[keys[3]], System.Globalization.CultureInfo.InvariantCulture),
+                RetainedUsedSlots = long.Parse(values[keys[4]], System.Globalization.CultureInfo.InvariantCulture),
+                Checksum = Convert.FromHexString(values[keys[5]]).ToImmutableArray(),
+            };
+            if (!BaseActivationYieldReservationContract.IsValid(state) || state.MaximumSlots != 1_000_000_000_000)
+                problems.Add("authority:activation-yield-reservation-invalid");
+            await using SqliteCommand recompute = connection.CreateCommand();
+            recompute.CommandText = $"""
+                SELECT
+                  COALESCE(SUM(CASE WHEN maximum_yields>0 AND state NOT IN ($succeeded,$exhausted,$cancelled,$disposed,$migrated)
+                    THEN maximum_yields+1-yield_count ELSE 0 END),0),
+                  (SELECT COUNT(*) FROM {_names.ActivationInstanceReceipts} WHERE operation_kind='activation-yielded-v1')
+                FROM {_names.Activations};
+                """;
+            recompute.Parameters.AddWithValue("$succeeded", (int)BaseActivationState.Succeeded);
+            recompute.Parameters.AddWithValue("$exhausted", (int)BaseActivationState.Exhausted);
+            recompute.Parameters.AddWithValue("$cancelled", (int)BaseActivationState.Cancelled);
+            recompute.Parameters.AddWithValue("$disposed", (int)BaseActivationState.Disposed);
+            recompute.Parameters.AddWithValue("$migrated", (int)BaseActivationState.Migrated);
+            await using SqliteDataReader counters = await recompute.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (!await counters.ReadAsync(cancellationToken).ConfigureAwait(false)
+                || counters.GetInt64(0) != state.ReservedUnusedSlots
+                || counters.GetInt64(1) != state.RetainedUsedSlots)
+                problems.Add("authority:activation-yield-reservation-mismatch");
+        }
+        catch (Exception exception) when (exception is FormatException or OverflowException or InvalidCastException or ArgumentOutOfRangeException)
+        {
+            problems.Add("authority:activation-yield-reservation-invalid");
+        }
+        return problems.ToArray();
     }
 
     private async ValueTask CheckExactSemanticAuthorityTablesAsync(SqliteConnection connection, List<string> problems,

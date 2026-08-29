@@ -70,6 +70,8 @@ public sealed record BaseAtomicMutationIntentItem
     public required ImmutableArray<BaseAtomicRelationTargetIntent> RelationTargets { get; init; }
     /// <summary>Gets the principal-bound operation context.</summary>
     public required OperationContext Operation { get; init; }
+    /// <summary>Gets the generated exporter lifecycle CAS precondition.</summary>
+    public BaseSubjectLifecycleTransitionPrecondition? SubjectLifecycleTransition { get; init; }
 }
 
 /// <summary>Identifies one relation target whose state must be captured before Runtime finalization.</summary>
@@ -241,6 +243,29 @@ public sealed record BaseCapturedMutationItem
     public RecordEnvelope? Current { get; init; }
     /// <summary>Gets deeply owned state for every possible relation target declared by the matching intent.</summary>
     public required ImmutableArray<BaseCapturedRelationTarget> RelationTargets { get; init; }
+    /// <summary>Gets transaction-owned lifecycle authority for a generated exporter transition.</summary>
+    public BaseCapturedSubjectLifecycleTransitionAuthority? SubjectLifecycleTransition { get; init; }
+}
+
+/// <summary>Contains transaction-owned current lifetime authority for one generated exporter transition.</summary>
+public sealed record BaseCapturedSubjectLifecycleTransitionAuthority
+{
+    /// <summary>Gets the exported contract ID.</summary>
+    public required string ContractId { get; init; }
+    /// <summary>Gets the exported contract version.</summary>
+    public required int ContractVersion { get; init; }
+    /// <summary>Gets the installed contract checksum.</summary>
+    public required string ContractChecksum { get; init; }
+    /// <summary>Gets the exact public subject ID.</summary>
+    public required BaseSubjectId SubjectId { get; init; }
+    /// <summary>Gets the current restore-aware authority epoch.</summary>
+    public required BaseSubjectAuthorityEpoch AuthorityEpoch { get; init; }
+    /// <summary>Gets the exact current subject incarnation.</summary>
+    public required BaseSubjectIncarnation Incarnation { get; init; }
+    /// <summary>Gets the current lifecycle state.</summary>
+    public required BaseSubjectLifecycleState CurrentState { get; init; }
+    /// <summary>Gets the current nonnegative lifecycle sequence.</summary>
+    public required long CurrentSubjectSequence { get; init; }
 }
 
 /// <summary>Contains transaction-bound state for one possible relation target.</summary>

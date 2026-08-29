@@ -15,7 +15,8 @@ internal static class ProofHost
         {
             var services = new ServiceCollection();
             services.AddLogging();
-            services.AddSingleton<TimeProvider>(TimeProvider.System);
+            var clock = new ProofTimeProvider(DateTimeOffset.UtcNow);
+            services.AddSingleton<TimeProvider>(clock);
             services.AddHPDBase(builder => Configure(builder, dataSource));
             await using ServiceProvider provider = services.BuildServiceProvider(
                 new ServiceProviderOptions { ValidateOnBuild = true });
@@ -58,13 +59,14 @@ internal static class ProofHost
             await ExecuteLifecycleAsync(session, sqlite ? "sqlite" : "inmemory");
             await ExecuteScheduleAsync(session, sqlite ? "sqlite" : "inmemory");
             await ExecuteDurableContinuationAsync(session, sqlite ? "sqlite" : "inmemory");
+            await ExecuteDurableYieldAsync(session, sqlite ? "sqlite" : "inmemory");
             await ExecuteClaimFenceRejectionAsync(session, sqlite ? "sqlite" : "inmemory");
             await ExecuteInvalidHandlerResultAsync(session, sqlite ? "sqlite" : "inmemory");
             await ExecuteSemanticLifecycleAsync(session,
                 provider.GetRequiredService<IHPDBaseAdministration>(),
                 provider.GetRequiredService<IBaseSessionFactory>(),
                 sqlite ? "proof.sqlite" : "inmemory",
-                sqlite ? "sqlite" : "inmemory");
+                sqlite ? "sqlite" : "inmemory", clock);
         }
         finally
         {
@@ -165,7 +167,7 @@ internal static class ProofHost
             .RequireValue().Single().Reference;
         BaseMutationRequestFingerprint tombstoneFingerprint = BaseMutationRequestFingerprint.Create(
             System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("tombstone:" + subjectId)));
-        BaseResult<BaseSubjectLifecycleFact<ConsumerSubject>> tombstoned = await session
+        BaseResult<BaseSubjectTombstoneResult<ConsumerSubject>> tombstoned = await session
             .GetExportedSubjectContract<ConsumerSubject>(ConsumerSubject.HPDBaseSubjectRegistration)
             .TombstoneAsync(new BaseSubjectTombstoneRequest<ConsumerSubject>
             {
@@ -173,9 +175,9 @@ internal static class ProofHost
                 ExpectedPrivateRevision = created.Revision!.Value,
                 Identity = BaseMutationRequestIdentity.Create("proof-lifecycle", "tombstone", provider, tombstoneFingerprint),
             });
-        if (tombstoned is not BaseSuccess<BaseSubjectLifecycleFact<ConsumerSubject>>)
+        if (tombstoned is not BaseSuccess<BaseSubjectTombstoneResult<ConsumerSubject>>)
             throw new InvalidOperationException("The L3B lifecycle tombstone failed for " + provider + ":"
-                + ((BaseFailure<BaseSubjectLifecycleFact<ConsumerSubject>>)tombstoned).Error.Code);
+                + ((BaseFailure<BaseSubjectTombstoneResult<ConsumerSubject>>)tombstoned).Error.Code);
 
         BaseInstalledActivationHandle<ProofActivationInput, ProofActivationResult> activation =
             session.Activations.Get(ProofActivation.Registration.Identity);
@@ -270,6 +272,47 @@ internal static class ProofHost
             || !string.Equals(only, "continuation-child:" + targetId, StringComparison.Ordinal)
             || (await work.GetAsync(RecordId.Create(targetId))).RequireValue().Value.Name != "continued")
             throw new InvalidOperationException("The L3B atomic state-plus-continuation proof failed for " + provider + ".");
+    }
+
+    private static async Task ExecuteDurableYieldAsync(BaseSession session, string provider)
+    {
+        _ = ProofActivation.DrainContinuations();
+        BaseInstalledActivationHandle<ProofActivationInput, ProofActivationResult> activation =
+            session.Activations.Get(ProofYieldActivation.Registration.Identity);
+        BaseInstalledActivationWorkerHandle<ProofActivationInput, ProofActivationResult> worker =
+            session.Activations.GetWorker(ProofYieldActivation.Registration.Identity);
+        string command = "yield:6";
+        OperationResult<BaseActivationEnqueueResult> enqueued = await activation.EnqueueAsync(
+            new ProofActivationInput { Value = command },
+            BaseMutationRequestIdentity.Create("proof-yield", "enqueue", provider,
+                BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData(
+                    System.Text.Encoding.UTF8.GetBytes(provider + ":" + command)))));
+        if (!enqueued.IsSuccess())
+            throw new InvalidOperationException("The L76 durable-yield proof could not enqueue: " + enqueued.Error?.Code);
+
+        BaseActivationState state = BaseActivationState.Pending;
+        for (int slice = 0; slice < 7; slice++)
+        {
+            BaseActivationDispatchResult dispatched;
+            try
+            {
+                dispatched = await DispatchAsync(worker, enqueued.Value!.ActivationId);
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new InvalidOperationException(
+                    $"The L76 durable-yield slice {slice.ToString(System.Globalization.CultureInfo.InvariantCulture)} failed for {provider}.",
+                    exception);
+            }
+            state = dispatched.State
+                ?? throw new InvalidOperationException("The L76 durable-yield slice omitted its state.");
+        }
+        string[] observed = ProofActivation.DrainContinuations();
+        if (state != BaseActivationState.Succeeded
+            || !observed.SequenceEqual(
+                ["yield:0", "yield:1", "yield:2", "yield:3", "yield:4", "yield:5", "yield:6"],
+                StringComparer.Ordinal))
+            throw new InvalidOperationException("The L76 durable-yield proof failed for " + provider + ".");
     }
 
     private static async Task ExecuteRegisteredReadsAsync(BaseSession session, string provider)
@@ -506,7 +549,7 @@ internal static class ProofHost
             "proof.semantic.ensure.execute", "proof.semantic.retire.execute",
             SemanticProof.EnsureGrant, SemanticProof.RetireGrant, SemanticProof.MaintainGrant,
             SemanticProof.LifecycleRetirementGrant,
-        }.Concat(ProofActivation.GrantIds))
+        }.Concat(ProofActivation.GrantIds).Concat(ProofYieldActivation.GrantIds))
         {
             builder.AddStaticGrantAuthority(new BaseGrantAuthorityDefinition
             {
@@ -562,6 +605,7 @@ internal static class ProofHost
         builder.AddModuleMutation(StaticSetProof.Definition, StaticSetProof.Identity);
         builder.AddModuleMutation(PresenceAndRemovalProof.Definition, PresenceAndRemovalProof.Identity);
         builder.AddActivation(ProofActivation.Registration);
+        builder.AddActivation(ProofYieldActivation.Registration);
         builder.AddSchedule(ProofActivation.Schedule);
         builder.AddModuleMutation(SemanticEnsureProof.Definition, SemanticEnsureProof.Identity);
         builder.AddModuleMutation(SemanticRetireProof.Definition, SemanticRetireProof.Identity);
@@ -739,7 +783,7 @@ internal static class ProofHost
 
     private static async Task ExecuteSemanticLifecycleAsync(BaseSession session,
         IHPDBaseAdministration administration, IBaseSessionFactory sessions,
-        string storeId, string provider)
+        string storeId, string provider, ProofTimeProvider clock)
     {
         _ = SemanticProofObservations.Drain();
         string subjectId = "semantic-subject-" + provider;
@@ -860,7 +904,7 @@ internal static class ProofHost
         SemanticEnsureProofResult[] ensured = observations.OfType<SemanticEnsureProofResult>().ToArray();
         if (provider != "sqlite") return;
 
-        BaseResult<BaseSubjectLifecycleFact<ConsumerSubject>> tombstoned = await session
+        BaseResult<BaseSubjectTombstoneResult<ConsumerSubject>> tombstoned = await session
             .GetExportedSubjectContract<ConsumerSubject>(ConsumerSubject.HPDBaseSubjectRegistration)
             .TombstoneAsync(new BaseSubjectTombstoneRequest<ConsumerSubject>
             {
@@ -868,9 +912,9 @@ internal static class ProofHost
                 ExpectedPrivateRevision = created.Revision!.Value,
                 Identity = Identity("semantic-tombstone", provider),
             });
-        if (tombstoned is not BaseSuccess<BaseSubjectLifecycleFact<ConsumerSubject>> tombstone)
+        if (tombstoned is not BaseSuccess<BaseSubjectTombstoneResult<ConsumerSubject>> tombstone)
             throw new InvalidOperationException("The L53 semantic subject tombstone failed: "
-                + ((BaseFailure<BaseSubjectLifecycleFact<ConsumerSubject>>)tombstoned).Error.Code);
+                + ((BaseFailure<BaseSubjectTombstoneResult<ConsumerSubject>>)tombstoned).Error.Code);
         _ = LifecycleProof.Drain();
         string lifecycleId = await Enqueue("lifecycle", "semantic-lifecycle");
         BaseActivationDispatchResult lifecycle = await DispatchAsync(worker, lifecycleId);
@@ -892,7 +936,7 @@ internal static class ProofHost
                 ContractId = "consumer.subject", ContractVersion = 1,
                 SubjectId = subject.SubjectId, AuthorityEpoch = subject.AuthorityEpoch,
                 Incarnation = subject.Incarnation,
-                ExpectedTombstoneSequence = tombstone.Value.Fact.SubjectSequence,
+                ExpectedTombstoneSequence = tombstone.Value.Fact.Fact.SubjectSequence,
                 ExpectedPrivateRevision = privateTombstone.Revision!.Value,
                 ExpectedBarrierGeneration = barrierGeneration,
                 ExpectedBarrierChecksum = barrierChecksum,
@@ -909,6 +953,30 @@ internal static class ProofHost
         if (retiredLifecycle.State != BaseActivationState.Succeeded || retiredErrors.Length != 0)
             throw new InvalidOperationException("The L53 retired lifecycle projection did not advance: "
                 + retiredLifecycle.State + ":" + string.Join(',', retiredErrors));
+
+        clock.Advance(TimeSpan.FromHours(25));
+        BaseActivationReceiptCompactionCursor? receiptCursor = null;
+        int receiptPage = 0;
+        do
+        {
+            BaseResult<BaseActivationReceiptCompactionResult> receiptCompactionResult =
+                await administration.CompactActivationReceiptsAsync(
+                    new BaseActivationAdministrationReceiptCompactionRequest
+                    {
+                        StoreId = storeId, Principal = adminPrincipal!, Scope = scope!,
+                        DefinitionId = ProofActivation.Registration.Definition.Id,
+                        DefinitionVersion = ProofActivation.Registration.Definition.Version,
+                        AfterActivationId = receiptCursor?.ActivationId,
+                        AfterReceiptSequence = receiptCursor?.ReceiptSequence,
+                        Take = ProofActivation.Registration.Definition.Limits.Provider.MaximumCandidates,
+                        Identity = Identity($"semantic-receipt-compact-{receiptPage++}", provider),
+                    });
+            if (receiptCompactionResult is not BaseSuccess<BaseActivationReceiptCompactionResult> page)
+                throw new InvalidOperationException("The L76 semantic receipt compaction failed: "
+                    + ((BaseFailure<BaseActivationReceiptCompactionResult>)receiptCompactionResult).Error.Code);
+            receiptCursor = page.Value.Next;
+        }
+        while (receiptCursor is not null);
 
         BaseResult<BaseActivationPrunePage> pruned = await administration.PruneActivationsAsync(
             new BaseActivationAdministrationPruneRequest
@@ -1049,6 +1117,8 @@ internal static class ProofHost
             SemanticProof.LifecycleRetirementGrant => "consumer.subject",
             var activationGrant when ProofActivation.GrantIds.Contains(activationGrant, StringComparer.Ordinal) =>
                 ProofActivation.Registration.Definition.Id,
+            var yieldGrant when ProofYieldActivation.GrantIds.Contains(yieldGrant, StringComparer.Ordinal) =>
+                ProofYieldActivation.Registration.Definition.Id,
             ProofActivation.ScheduleManageGrant or ProofActivation.ScheduleMaterializeGrant =>
                 ProofActivation.Schedule.Definition.Id,
             "proof.owner.source" => ProofOwner.Collection.Id,
@@ -1156,5 +1226,14 @@ internal static class ProofHost
                 },
             });
         }
+    }
+
+    private sealed class ProofTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        private DateTimeOffset _utcNow = utcNow;
+
+        public override DateTimeOffset GetUtcNow() => _utcNow;
+
+        internal void Advance(TimeSpan duration) => _utcNow = _utcNow.Add(duration);
     }
 }

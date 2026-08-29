@@ -7,6 +7,7 @@ namespace HPD.Base;
 
 internal sealed class DefaultBaseSchemaManager(
     BaseLogicalSchema logicalSchema,
+    BaseSubjectContractRegistry subjectContracts,
     IRecordStoreRegistry stores,
     IBaseSchemaPlanProtector protector,
     IBaseProviderBootstrap bootstrap,
@@ -363,16 +364,38 @@ internal sealed class DefaultBaseSchemaManager(
     }
     private static void Write(BinaryWriter writer, string value) { byte[] bytes = Encoding.UTF8.GetBytes(value); writer.Write(bytes.Length); writer.Write(bytes); }
     private static string OpaqueId() => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
-    private static bool ValidApplyResult(BaseSchemaPlan plan, BaseSchemaApplyResult result) => result.Outcome switch
+    private bool ValidApplyResult(BaseSchemaPlan plan, BaseSchemaApplyResult result)
     {
-        BaseSchemaApplyOutcome.Applied => result.Generation == plan.ExpectedGeneration + 1 &&
-            result.BaselineId == plan.TargetBaselineId && result.Checksum == plan.TargetChecksum &&
-            result.State == BaseSchemaMigrationState.Ready,
-        BaseSchemaApplyOutcome.NoChanges => plan.Classification == BaseSchemaPlanClassification.NoChanges &&
-            result.Generation == plan.ExpectedGeneration && result.BaselineId == plan.BaselineId &&
-            result.Checksum == plan.TargetChecksum && result.State == BaseSchemaMigrationState.Ready,
-        _ => false,
-    };
+        bool shape = result.Outcome switch
+        {
+            BaseSchemaApplyOutcome.Applied => result.Generation == plan.ExpectedGeneration + 1 &&
+                result.BaselineId == plan.TargetBaselineId && result.Checksum == plan.TargetChecksum &&
+                result.State == BaseSchemaMigrationState.Ready,
+            BaseSchemaApplyOutcome.NoChanges => plan.Classification == BaseSchemaPlanClassification.NoChanges &&
+                result.Generation == plan.ExpectedGeneration && result.BaselineId == plan.BaselineId &&
+                result.Checksum == plan.TargetChecksum && result.State == BaseSchemaMigrationState.Ready,
+            _ => false,
+        };
+        if (!shape || result.SubjectTombstoneMetadata.IsDefault) return false;
+        BaseSubjectTombstoneMetadataLoweringReceipt[] expected = [.. subjectContracts.All
+            .OrderBy(static value => value.Definition.Id, StringComparer.Ordinal)
+            .ThenBy(static value => value.Definition.Version)
+            .Select(value => BaseSubjectTombstoneMetadataLowering.Create(value, result.Generation))];
+        if (result.SubjectTombstoneMetadata.Length != expected.Length) return false;
+        for (int index = 0; index < expected.Length; index++)
+        {
+            BaseSubjectTombstoneMetadataLoweringReceipt actual = result.SubjectTombstoneMetadata[index];
+            BaseSubjectTombstoneMetadataLoweringReceipt wanted = expected[index];
+            if (actual.ContractId != wanted.ContractId || actual.ContractVersion != wanted.ContractVersion
+                || actual.ContractChecksum != wanted.ContractChecksum || actual.InstantKind != wanted.InstantKind
+                || actual.InstantFieldId != wanted.InstantFieldId || actual.SequenceKind != wanted.SequenceKind
+                || actual.SequenceFieldId != wanted.SequenceFieldId || actual.SchemaGeneration != wanted.SchemaGeneration
+                || actual.ReceiptChecksum.Length != 32
+                || !CryptographicOperations.FixedTimeEquals(actual.ReceiptChecksum.AsSpan(), wanted.ReceiptChecksum.AsSpan()))
+                return false;
+        }
+        return true;
+    }
     private bool ValidAttestation(BaseExternalMigrationAttestation value, string storeId, BaseSchemaObservedState observed)
     {
         if (_options.ExternalMigrationAttestationKey.Length != 32 || value.AuthenticationTag.Length != 32 || value.ApplicationId != logicalSchema.ApplicationId ||

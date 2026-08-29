@@ -1204,6 +1204,45 @@ WHERE excluded.slot_generation>=slot_generation;
                         Current = target,
                     });
                 }
+                BaseCapturedSubjectLifecycleTransitionAuthority? lifecycleAuthority = null;
+                if (item.SubjectLifecycleTransition is { } transition)
+                {
+                    await using SqliteCommand lifecycle = _connection.CreateCommand();
+                    lifecycle.Transaction = _transaction;
+                    lifecycle.CommandTimeout = CommandTimeoutSeconds();
+                    lifecycle.CommandText = $"SELECT l.contract_id,l.contract_version,c.contract_checksum,c.authority_epoch,l.subject_id,l.incarnation,l.lifecycle_state,l.subject_sequence FROM {_owner._names.SubjectLifetimes} l JOIN {_owner._names.SubjectContracts} c ON c.contract_id=l.contract_id AND c.contract_version=l.contract_version WHERE l.private_collection_id=$collection AND l.private_record_id=$record;";
+                    lifecycle.Parameters.AddWithValue("$collection", item.Collection.Id);
+                    lifecycle.Parameters.AddWithValue("$record", item.RecordId.Value);
+                    await using SqliteDataReader reader = await lifecycle.ExecuteReaderAsync(token).ConfigureAwait(false);
+                    if (!await reader.ReadAsync(token).ConfigureAwait(false))
+                        return SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                    string contractId = reader.GetString(0);
+                    int contractVersion = reader.GetInt32(1);
+                    string contractChecksum = reader.GetString(2);
+                    BaseSubjectAuthorityEpoch epoch = new((byte[])reader.GetValue(3));
+                    string storedSubjectId = reader.GetString(4);
+                    BaseSubjectId subjectId = transition.Subject.SubjectId;
+                    BaseSubjectIncarnation incarnation = new((byte[])reader.GetValue(5));
+                    BaseSubjectLifecycleState currentState = (BaseSubjectLifecycleState)reader.GetInt32(6);
+                    long currentSequence = reader.GetInt64(7);
+                    if (!string.Equals(storedSubjectId, subjectId.Value, StringComparison.Ordinal) || !epoch.Equals(transition.Subject.AuthorityEpoch)
+                        || !incarnation.Equals(transition.Subject.Incarnation) || !Enum.IsDefined(currentState) || currentSequence < 0)
+                        return SubjectFailure<BaseCapturedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                    lifecycleAuthority = new BaseCapturedSubjectLifecycleTransitionAuthority
+                    {
+                        ContractId = contractId, ContractVersion = contractVersion, ContractChecksum = contractChecksum,
+                        SubjectId = subjectId, AuthorityEpoch = epoch, Incarnation = incarnation,
+                        CurrentState = currentState, CurrentSubjectSequence = currentSequence,
+                    };
+                    byte[] lifecycleKey = Encoding.UTF8.GetBytes($"{contractId}\0{contractVersion}\0{item.RecordId.Value}\0{currentSequence}");
+                    digest.AppendData(lifecycleKey);
+                    intervals.Add(new BaseAtomicReadIntervalEvidence
+                    {
+                        LogicalAccessPathId = $"subjectLifecycle:{contractId}:lifetime",
+                        CanonicalLowerBound = lifecycleKey.ToImmutableArray(), LowerInclusive = true,
+                        CanonicalUpperBound = lifecycleKey.ToImmutableArray(), UpperInclusive = true,
+                    });
+                }
                 items.Add(new BaseCapturedMutationItem
                 {
                     Ordinal = index, CollectionId = item.Collection.Id, RecordId = item.RecordId,
@@ -1219,6 +1258,7 @@ WHERE excluded.slot_generation>=slot_generation;
                     },
                     Current = current,
                     RelationTargets = relationTargets.MoveToImmutable(),
+                    SubjectLifecycleTransition = lifecycleAuthority,
                 });
                 intervals.Add(new BaseAtomicReadIntervalEvidence
                 {
@@ -1623,11 +1663,15 @@ WHERE excluded.slot_generation>=slot_generation;
                 AccessPathChecksum = BaseSemanticActivationEvidenceContract.MissingAccessPathChecksum(Encoding.UTF8.GetBytes(slotKey)),
             } : null;
             long? activationGeneration = null; BaseActivationState? activationState = null; ImmutableArray<byte> activationChecksum = [];
+            long? activationEffectiveDueAt = null, activationYieldCount = null, activationMaximumYields = null,
+                activationExecutionSliceOrdinal = null, activationAttemptStartedAt = null, activationSliceStartedAt = null;
+            BaseActivationYieldDisposition? activationTerminalYieldDisposition = null;
+            string? activationTerminalYieldFailureCode = null;
             long activationBytes = 0;
             if (live is not null)
             {
                 await using SqliteCommand activation = _connection.CreateCommand(); activation.Transaction = _transaction;
-                activation.CommandText = $"SELECT generation,state,control_checksum,terminal_receipt_checksum FROM {_owner._names.Activations} WHERE activation_id=$id;";
+                activation.CommandText = $"SELECT generation,state,control_checksum,terminal_receipt_checksum,effective_due_at,yield_count,maximum_yields,execution_slice_ordinal,attempt_started_at,slice_started_at,yield_terminal_disposition,yield_terminal_failure_code FROM {_owner._names.Activations} WHERE activation_id=$id;";
                 activation.Parameters.AddWithValue("$id", live.ActivationId);
                 await using SqliteDataReader reader = await activation.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
                 if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -1635,6 +1679,12 @@ WHERE excluded.slot_generation>=slot_generation;
                 activationGeneration = reader.GetInt64(0); activationState = (BaseActivationState)reader.GetInt32(1);
                 activationChecksum = ((byte[])reader.GetValue(2)).ToImmutableArray();
                 _capturedSemanticTerminalReceiptChecksum = reader.IsDBNull(3) ? null : (byte[])reader.GetValue(3);
+                activationEffectiveDueAt = reader.GetInt64(4); activationYieldCount = reader.GetInt64(5);
+                activationMaximumYields = reader.GetInt64(6); activationExecutionSliceOrdinal = reader.GetInt64(7);
+                activationAttemptStartedAt = reader.IsDBNull(8) ? null : reader.GetInt64(8);
+                activationSliceStartedAt = reader.IsDBNull(9) ? null : reader.GetInt64(9);
+                activationTerminalYieldDisposition = reader.IsDBNull(10) ? null : (BaseActivationYieldDisposition)reader.GetInt32(10);
+                activationTerminalYieldFailureCode = reader.IsDBNull(11) ? null : reader.GetString(11);
                 activationBytes = checked(Encoding.UTF8.GetByteCount(live.ActivationId) + sizeof(long) + sizeof(int)
                     + activationChecksum.Length + (_capturedSemanticTerminalReceiptChecksum?.LongLength ?? 0));
             }
@@ -1673,6 +1723,13 @@ WHERE excluded.slot_generation>=slot_generation;
             {
                 State = state, ScopeDirectory = scopeCapture, Missing = missing, Live = live, Retired = retired, Absent = absent,
                 ActivationGeneration = activationGeneration, ActivationState = activationState, ActivationChecksum = activationChecksum,
+                ActivationEffectiveDueAt = activationEffectiveDueAt, ActivationYieldCount = activationYieldCount,
+                ActivationMaximumYields = activationMaximumYields,
+                ActivationExecutionSliceOrdinal = activationExecutionSliceOrdinal,
+                ActivationAttemptStartedAt = activationAttemptStartedAt,
+                ActivationSliceStartedAt = activationSliceStartedAt,
+                ActivationTerminalYieldDisposition = activationTerminalYieldDisposition,
+                ActivationTerminalYieldFailureCode = activationTerminalYieldFailureCode,
                 ActivationTerminalReceiptChecksum = (_capturedSemanticTerminalReceiptChecksum ?? []).ToImmutableArray(),
                 DefinitionMigrationChain = migrationChain,
                 ReadIntervals = [scopeInterval, slotInterval], Accounting = accounting,
@@ -1699,30 +1756,56 @@ WHERE excluded.slot_generation>=slot_generation;
             CancellationToken token)
         {
             await using SqliteCommand command = _connection.CreateCommand(); command.Transaction = _transaction;
-            command.CommandText = $"SELECT receipt_key,operation_kind,fingerprint,result_json,result_checksum,authority_checksum FROM {_owner._names.ActivationReceipts} WHERE activation_id=$id AND authority_checksum=$authority LIMIT 2;";
+            command.CommandText = $"SELECT receipt_key,operation_kind,activation_id,definition_id,definition_version,definition_checksum,receipt_format_version,receipt_duplicate_lifetime_ms,receipt_backup_coverage,fingerprint,result_json,result_checksum,authority_checksum,committed_at,duplicate_resolve_until,receipt_sequence,prior_ordered_checksum,ordered_checksum FROM {_owner._names.ActivationInstanceReceipts} WHERE activation_id=$id AND authority_checksum=$authority LIMIT 2;";
             command.Parameters.AddWithValue("$id", activationId); command.Parameters.Add("$authority", SqliteType.Blob).Value = authorityChecksum;
             await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
             if (!await reader.ReadAsync(token).ConfigureAwait(false)) return -1;
-            string receiptKey = reader.GetString(0); string kind = reader.GetString(1); byte[] fingerprint = (byte[])reader.GetValue(2);
-            byte[] json = (byte[])reader.GetValue(3); byte[] resultChecksum = (byte[])reader.GetValue(4); byte[] storedAuthority = (byte[])reader.GetValue(5);
-            BaseActivationTransitionResult? result = JsonSerializer.Deserialize(json, HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult);
-            byte[] expectedAuthority = SHA256.HashData(Encoding.UTF8.GetBytes(kind).Concat(fingerprint).Concat(json).ToArray());
-            bool valid = TerminalReceiptKind(kind, state) && fingerprint.Length == 32 && result is not null && result.State == state && result.Generation == generation
-                && CryptographicOperations.FixedTimeEquals(result.ControlChecksum.AsSpan(), controlChecksum.AsSpan())
+            string receiptKey = reader.GetString(0); string kind = reader.GetString(1); string storedActivationId = reader.GetString(2);
+            var definition = new BaseActivationDefinitionKey
+            {
+                Id = reader.GetString(3), Version = reader.GetInt32(4), Checksum = ((byte[])reader.GetValue(5)).ToImmutableArray(),
+            };
+            var retention = new BaseActivationReceiptRetentionPolicy
+            {
+                FormatVersion = reader.GetInt32(6),
+                DuplicateResolutionLifetime = TimeSpan.FromMilliseconds(reader.GetInt64(7)),
+                ProtectedBackupCoverage = (BaseActivationProtectedBackupCoverage)reader.GetInt32(8),
+            };
+            byte[] fingerprint = (byte[])reader.GetValue(9); byte[] json = (byte[])reader.GetValue(10);
+            byte[] resultChecksum = (byte[])reader.GetValue(11); byte[] storedAuthority = (byte[])reader.GetValue(12);
+            long committedAt = reader.GetInt64(13); long duplicateResolveUntil = reader.GetInt64(14);
+            long sequence = reader.GetInt64(15); byte[] priorOrdered = (byte[])reader.GetValue(16); byte[] ordered = (byte[])reader.GetValue(17);
+            BaseActivationTransitionResult? transition = kind == "activation-yielded-v1" ? null
+                : JsonSerializer.Deserialize(json, HPDBaseJsonSerializerContext.Default.BaseActivationTransitionResult);
+            BaseActivationYieldReceipt? yielded = kind == "activation-yielded-v1"
+                ? JsonSerializer.Deserialize(json, HPDBaseJsonSerializerContext.Default.BaseActivationYieldReceipt) : null;
+            ImmutableArray<byte> expectedAuthority = BaseActivationInstanceReceiptChainContract.ReceiptAuthorityChecksum(receiptKey, kind, storedActivationId,
+                definition, retention, fingerprint, resultChecksum, committedAt, duplicateResolveUntil,
+                sequence, priorOrdered);
+            ImmutableArray<byte> expectedOrdered = BaseActivationInstanceReceiptChainContract.Append(
+                sequence, priorOrdered, storedAuthority, receiptKey);
+            bool resultMatches = transition is not null
+                ? transition.State == state && transition.Generation == generation
+                    && CryptographicOperations.FixedTimeEquals(transition.ControlChecksum.AsSpan(), controlChecksum.AsSpan())
+                : yielded is not null && yielded.ResultingState == state && yielded.ResultingGeneration == generation
+                    && CryptographicOperations.FixedTimeEquals(yielded.ControlChecksum.AsSpan(), controlChecksum.AsSpan());
+            bool valid = TerminalReceiptKind(kind, state) && storedActivationId == activationId
+                && fingerprint.Length == 32 && resultMatches
                 && CryptographicOperations.FixedTimeEquals(SHA256.HashData(json), resultChecksum)
                 && CryptographicOperations.FixedTimeEquals(authorityChecksum, storedAuthority)
-                && CryptographicOperations.FixedTimeEquals(expectedAuthority, authorityChecksum);
+                && CryptographicOperations.FixedTimeEquals(expectedAuthority.AsSpan(), authorityChecksum)
+                && CryptographicOperations.FixedTimeEquals(expectedOrdered.AsSpan(), ordered);
             bool additional = await reader.ReadAsync(token).ConfigureAwait(false);
             return valid && !additional
                 ? checked(Encoding.UTF8.GetByteCount(receiptKey) + Encoding.UTF8.GetByteCount(kind) + fingerprint.Length
-                    + json.LongLength + resultChecksum.Length + storedAuthority.Length)
+                    + json.LongLength + resultChecksum.Length + storedAuthority.Length + priorOrdered.Length + ordered.Length)
                 : -1;
         }
 
         private static bool TerminalReceiptKind(string kind, BaseActivationState state) => state switch
         {
             BaseActivationState.Succeeded => kind is "activation-completed" or "effect-completed" or "effect-reconciled",
-            BaseActivationState.Exhausted => kind is "activation-failed-terminal" or "effect-reconciled",
+            BaseActivationState.Exhausted => kind is "activation-failed-terminal" or "effect-reconciled" or "activation-yielded-v1",
             BaseActivationState.Cancelled => kind == "activation-cancelled",
             BaseActivationState.Migrated => kind == "activation-migrated",
             BaseActivationState.Disposed => kind == "activation-disposed",
@@ -2091,7 +2174,9 @@ WHERE excluded.slot_generation>=slot_generation;
                     BaseActivationCreateIntent intentItem = plan.Activations!.Items[ordinal];
                     byte[] payloadChecksum = SHA256.HashData(intentItem.CanonicalInput.AsSpan());
                     byte[] controlChecksum = BaseActivationControlChecksumContract.Create(
-                        capturedItem.ActivationId, 1, BaseActivationState.Pending).ToArray();
+                        capturedItem.ActivationId, 1, BaseActivationState.Pending,
+                        intentItem.EffectiveDueAt ?? intentItem.RequestedDueAt, 0,
+                        intentItem.MaximumYields, 0, null, null, null, null).ToArray();
                     activationDigest.AppendData(payloadChecksum); activationDigest.AppendData(controlChecksum);
                     activationItems.Add(new BasePreparedActivationItem
                     {
@@ -2144,17 +2229,32 @@ WHERE excluded.slot_generation>=slot_generation;
                 }
             }
             var lifetimes = new Dictionary<string, SqlitePreparedSubjectLifetime?>(StringComparer.Ordinal);
+            var contracts = new Dictionary<string, SqliteSubjectContractState?>(StringComparer.Ordinal);
+            var privateRecords = new Dictionary<string, RecordEnvelope?>(StringComparer.Ordinal);
             var overlays = new Dictionary<string, BasePreparedSubjectOverlayEvidence>(StringComparer.Ordinal);
             var lifecycleIncarnations = new Dictionary<int, BaseSubjectIncarnation>();
             var subjectAuthorities = new Dictionary<string, BaseSubjectTransactionAuthorityEvidence>(StringComparer.Ordinal);
             var intervals = captured.ReadIntervals.ToBuilder();
-            int authorityReads = captured.Accounting.Records;
+            var intervalKeys = captured.ReadIntervals.Select(static interval => string.Concat(
+                interval.LogicalAccessPathId, "\0", Convert.ToHexString(interval.CanonicalLowerBound.AsSpan()), "\0",
+                Convert.ToHexString(interval.CanonicalUpperBound.AsSpan()))).ToHashSet(StringComparer.Ordinal);
+            void AddInterval(string path, byte[] key)
+            {
+                string intervalKey = string.Concat(path, "\0", Convert.ToHexString(key), "\0", Convert.ToHexString(key));
+                if (intervalKeys.Add(intervalKey)) intervals.Add(ExactInterval(path, key));
+            }
+            int authorityReads = 0;
             long retainedBytes = checked(captured.Accounting.TransientBytes + CanonicalPlanRetainedBytes(plan));
             foreach (BaseAtomicMutationPlanItem item in plan.Items)
             {
                 if (item.SubjectLifecycle is not { } lifecycle) continue;
-                SqliteSubjectContractState? contract = await ReadSubjectContractAsync(lifecycle.ContractId, lifecycle.ContractVersion, token).ConfigureAwait(false);
-                authorityReads = checked(authorityReads + 1);
+                string contractKey = $"{lifecycle.ContractId}\n{lifecycle.ContractVersion}";
+                if (!contracts.TryGetValue(contractKey, out SqliteSubjectContractState? contract))
+                {
+                    contract = await ReadSubjectContractAsync(lifecycle.ContractId, lifecycle.ContractVersion, token).ConfigureAwait(false);
+                    contracts.Add(contractKey, contract);
+                    authorityReads = checked(authorityReads + 1);
+                }
                 if (contract is null || !string.Equals(contract.Checksum, lifecycle.ContractChecksum, StringComparison.Ordinal))
                     return SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.SchemaGenerationChanged, OperationStatus.Conflict, ErrorCategory.Conflict);
                 subjectAuthorities[$"{lifecycle.ContractId}\n{lifecycle.ContractVersion}"] = SubjectAuthority(lifecycle.ContractId, lifecycle.ContractVersion, contract);
@@ -2163,9 +2263,9 @@ WHERE excluded.slot_generation>=slot_generation;
                 if (definition is null) return SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
                 BaseOwnedSubjectScopeEvidence ownedScope = ScopeForItem(item, definition);
                 string key = SubjectKey(ownedScope, lifecycle.ContractId, lifecycle.ContractVersion, lifecycle.SubjectId);
-                intervals.Add(ExactInterval($"subject:{lifecycle.ContractId}:contract", System.Text.Encoding.UTF8.GetBytes($"{lifecycle.ContractId}\n{lifecycle.ContractVersion}")));
-                intervals.Add(ExactInterval($"subject:{lifecycle.ContractId}:lifetime", System.Text.Encoding.UTF8.GetBytes(key)));
-                intervals.Add(ExactInterval($"subject:{lifecycle.ContractId}:record", System.Text.Encoding.UTF8.GetBytes(lifecycle.SubjectId.Value)));
+                AddInterval($"subject:{lifecycle.ContractId}:contract", System.Text.Encoding.UTF8.GetBytes(contractKey));
+                AddInterval($"subject:{lifecycle.ContractId}:lifetime", System.Text.Encoding.UTF8.GetBytes(key));
+                AddInterval($"subject:{lifecycle.ContractId}:record", System.Text.Encoding.UTF8.GetBytes(lifecycle.SubjectId.Value));
                 if (!lifetimes.TryGetValue(key, out SqlitePreparedSubjectLifetime? lifetime))
                 {
                     lifetime = await ReadSubjectLifetimeAsync(ownedScope, lifecycle.ContractId, lifecycle.ContractVersion, lifecycle.SubjectId, token).ConfigureAwait(false);
@@ -2218,6 +2318,10 @@ WHERE excluded.slot_generation>=slot_generation;
                 ReadLogicalValues(definition, privateRecord, out bool? active, out string? scope, out bool logicalStateValid);
                 if (privateRecord is not null && !logicalStateValid)
                     return SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
+                if (lifecycle.ResultingState == BaseSubjectLifecycleState.Tombstoned
+                    && lifecycle.PreviousState != BaseSubjectLifecycleState.Tombstoned
+                    && (lifetime is null || !ValidTombstoneMetadata(item, privateRecord, definition, lifetime.SubjectSequence)))
+                    return SubjectFailure<BasePreparedAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
                 if (lifetime is not null)
                 {
                     ownedScope = new BaseOwnedSubjectScopeEvidence { Kind = definition.Scope, Value = scope };
@@ -2244,7 +2348,7 @@ WHERE excluded.slot_generation>=slot_generation;
                         string.Equals(validation.Scope.Value, originalScope.Value, StringComparison.Ordinal)))
                     {
                         lifetimes[originalKey] = null;
-                        intervals.Add(ExactInterval($"subject:{lifecycle.ContractId}:lifetime", System.Text.Encoding.UTF8.GetBytes(originalKey)));
+                        AddInterval($"subject:{lifecycle.ContractId}:lifetime", System.Text.Encoding.UTF8.GetBytes(originalKey));
                         overlays[originalKey] = new BasePreparedSubjectOverlayEvidence
                         {
                             ContractId = lifecycle.ContractId, ContractVersion = lifecycle.ContractVersion,
@@ -2270,8 +2374,13 @@ WHERE excluded.slot_generation>=slot_generation;
                 string key = definition is null ? string.Empty : SubjectKey(validation.Scope, definition.Id, definition.Version, validation.Reference.SubjectId);
                 if (valid)
                 {
-                    contract = await ReadSubjectContractAsync(definition!.Id, definition.Version, token).ConfigureAwait(false);
-                    authorityReads = checked(authorityReads + 1);
+                    string contractAuthorityKey = $"{definition!.Id}\n{definition.Version}";
+                    if (!contracts.TryGetValue(contractAuthorityKey, out contract))
+                    {
+                        contract = await ReadSubjectContractAsync(definition.Id, definition.Version, token).ConfigureAwait(false);
+                        contracts.Add(contractAuthorityKey, contract);
+                        authorityReads = checked(authorityReads + 1);
+                    }
                     if (!lifetimes.TryGetValue(key, out lifetime))
                     {
                         lifetime = await ReadSubjectLifetimeAsync(validation.Scope, definition.Id, definition.Version, validation.Reference.SubjectId, token).ConfigureAwait(false);
@@ -2282,15 +2391,20 @@ WHERE excluded.slot_generation>=slot_generation;
                         subjectAuthorities[$"{definition.Id}\n{definition.Version}"] = SubjectAuthority(definition.Id, definition.Version, contract);
                     if (lifetime is not null)
                     {
-                        if (!TryResolveFinalRecord(plan.Items, definition.ValidationPlan.PrivateCollectionId, lifetime.RecordId, out privateRecord))
-                            privateRecord = await _owner.ReadAsync(
-                                _connection,
-                                definition.ValidationPlan.PrivateCollectionId,
-                                lifetime.RecordId.Value,
-                                token,
-                                _transaction,
-                                CommandTimeoutSeconds()).ConfigureAwait(false);
-                        authorityReads = checked(authorityReads + 1);
+                        string privateRecordKey = $"{definition.ValidationPlan.PrivateCollectionId}\n{lifetime.RecordId.Value}";
+                        if (!privateRecords.TryGetValue(privateRecordKey, out privateRecord))
+                        {
+                            if (!TryResolveFinalRecord(plan.Items, definition.ValidationPlan.PrivateCollectionId, lifetime.RecordId, out privateRecord))
+                                privateRecord = await _owner.ReadAsync(
+                                    _connection,
+                                    definition.ValidationPlan.PrivateCollectionId,
+                                    lifetime.RecordId.Value,
+                                    token,
+                                    _transaction,
+                                    CommandTimeoutSeconds()).ConfigureAwait(false);
+                            privateRecords.Add(privateRecordKey, privateRecord);
+                            authorityReads = checked(authorityReads + 1);
+                        }
                     }
                     valid = contract is not null
                         && lifetime is not null
@@ -2321,9 +2435,9 @@ WHERE excluded.slot_generation>=slot_generation;
                     byte[] contractKey = System.Text.Encoding.UTF8.GetBytes($"{definition.Id}\n{definition.Version}");
                     byte[] subjectKey = System.Text.Encoding.UTF8.GetBytes(key);
                     byte[] recordKey = System.Text.Encoding.UTF8.GetBytes(validation.Reference.SubjectId.Value);
-                    intervals.Add(ExactInterval($"subject:{definition.Id}:contract", contractKey));
-                    intervals.Add(ExactInterval($"subject:{definition.Id}:lifetime", subjectKey));
-                    intervals.Add(ExactInterval($"subject:{definition.Id}:record", recordKey));
+                    AddInterval($"subject:{definition.Id}:contract", contractKey);
+                    AddInterval($"subject:{definition.Id}:lifetime", subjectKey);
+                    AddInterval($"subject:{definition.Id}:record", recordKey);
                     overlays[key] = new BasePreparedSubjectOverlayEvidence
                     {
                         ContractId = definition.Id, ContractVersion = definition.Version,
@@ -2655,7 +2769,12 @@ WHERE excluded.slot_generation>=slot_generation;
                     && captured.ActivationGeneration is > 0 && captured.ActivationState is { } state && Enum.IsDefined(state)
                     && captured.ActivationChecksum.Length == 32
                     && CryptographicOperations.FixedTimeEquals(
-                        ActivationControlChecksum(live.ActivationId, captured.ActivationGeneration.Value, state), captured.ActivationChecksum.AsSpan()),
+                        ActivationControlChecksum(live.ActivationId, captured.ActivationGeneration.Value, state,
+                            captured.ActivationEffectiveDueAt ?? -1, captured.ActivationYieldCount ?? -1,
+                            captured.ActivationMaximumYields ?? -1, captured.ActivationExecutionSliceOrdinal ?? -1,
+                            captured.ActivationAttemptStartedAt, captured.ActivationSliceStartedAt,
+                            captured.ActivationTerminalYieldDisposition, captured.ActivationTerminalYieldFailureCode),
+                        captured.ActivationChecksum.AsSpan()),
                 BaseSemanticActivationCapturedState.Retired => captured.Retired is { } retired
                     && captured.Missing is null && captured.Live is null && captured.Absent is null
                     && CryptographicOperations.FixedTimeEquals(BaseSemanticActivationEvidenceContract.RetirementChecksum(retired).AsSpan(), retired.Checksum.AsSpan())
@@ -3129,13 +3248,18 @@ WHERE excluded.slot_generation>=slot_generation;
                     byte[] fingerprint = ActivationFingerprint(intentItem);
                     if (!capturedItem.Exists)
                     {
+                        if (!await _owner.TryReserveYieldReceiptSlotsAsync(_connection, _transaction, intentItem.MaximumYields, token).ConfigureAwait(false))
+                            return SubjectFailure<BaseProvisionalAtomicExecution>("base.activation.capacityUnavailable", OperationStatus.CapabilityUnavailable, ErrorCategory.Capability);
                         await using SqliteCommand command = _connection.CreateCommand();
                         command.Transaction = _transaction;
-                        command.CommandText = $"INSERT INTO {_owner._names.Activations}(activation_id,definition_id,definition_version,definition_checksum,canonical_input,input_checksum,scope_kind,scope_value,scope_digest,payload_checksum,fingerprint,state,generation,requested_due_at,effective_due_at,occurrence_id,priority,overlap_key,overlap_policy,eligible,control_checksum) VALUES($id,$definition,$version,$definition_checksum,$input,$input_checksum,$scope_kind,$scope_value,$scope_digest,$payload_checksum,$fingerprint,$state,1,$requested,$effective,$occurrence,$priority,$overlap_key,$overlap_policy,$eligible,$control_checksum);";
+                        command.CommandText = $"INSERT INTO {_owner._names.Activations}(activation_id,definition_id,definition_version,definition_checksum,receipt_format_version,receipt_duplicate_lifetime_ms,receipt_backup_coverage,canonical_input,input_checksum,scope_kind,scope_value,scope_digest,payload_checksum,fingerprint,state,generation,requested_due_at,effective_due_at,occurrence_id,priority,overlap_key,overlap_policy,eligible,control_checksum,maximum_yields) VALUES($id,$definition,$version,$definition_checksum,$receipt_format,$receipt_lifetime,$receipt_backup,$input,$input_checksum,$scope_kind,$scope_value,$scope_digest,$payload_checksum,$fingerprint,$state,1,$requested,$effective,$occurrence,$priority,$overlap_key,$overlap_policy,$eligible,$control_checksum,$maximum_yields);";
                         command.Parameters.AddWithValue("$id", preparedItem.ActivationId);
                         command.Parameters.AddWithValue("$definition", intentItem.Definition.Id);
                         command.Parameters.AddWithValue("$version", intentItem.Definition.Version);
                         command.Parameters.Add("$definition_checksum", SqliteType.Blob).Value = intentItem.Definition.Checksum.ToArray();
+                        command.Parameters.AddWithValue("$receipt_format", intentItem.ReceiptRetention.FormatVersion);
+                        command.Parameters.AddWithValue("$receipt_lifetime", intentItem.ReceiptRetention.DuplicateResolutionLifetime.Ticks / TimeSpan.TicksPerMillisecond);
+                        command.Parameters.AddWithValue("$receipt_backup", (int)intentItem.ReceiptRetention.ProtectedBackupCoverage);
                         command.Parameters.Add("$input", SqliteType.Blob).Value = intentItem.CanonicalInput.ToArray();
                         command.Parameters.Add("$input_checksum", SqliteType.Blob).Value = intentItem.InputChecksum.ToArray();
                         command.Parameters.AddWithValue("$scope_kind", (int)intentItem.Scope.Kind);
@@ -3153,6 +3277,7 @@ WHERE excluded.slot_generation>=slot_generation;
                         command.Parameters.AddWithValue("$overlap_policy", (int)intentItem.OverlapPolicy);
                         command.Parameters.AddWithValue("$eligible", intentItem.InitiallyEligible ? 1 : 0);
                         command.Parameters.Add("$control_checksum", SqliteType.Blob).Value = preparedItem.ControlChecksum.ToArray();
+                        command.Parameters.AddWithValue("$maximum_yields", intentItem.MaximumYields);
                         if (await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) != 1)
                             return SubjectFailure<BaseProvisionalAtomicExecution>(BaseSubjectErrorCodes.ProviderContractInvalid);
                         await using SqliteCommand generation = _connection.CreateCommand();
@@ -3288,14 +3413,21 @@ WHERE excluded.slot_generation>=slot_generation;
             long journalPosition = await SemanticJournalPositionAsync(changesState, token).ConfigureAwait(false);
             if (operation is BaseSemanticActivationEnsureIntent ensure && semantic.PriorState == BaseSemanticActivationCapturedState.Missing)
             {
+                if (!await _owner.TryReserveYieldReceiptSlotsAsync(_connection, _transaction, ensure.Activation.Limits.MaximumYields, token).ConfigureAwait(false))
+                    throw new InvalidOperationException("base.activation.capacityUnavailable");
                 string activationId = prepared.ResultingActivationId!;
                 byte[] fingerprint = SHA256.HashData(ensure.Activation.CanonicalInput.Concat(ensure.Activation.InputChecksum).ToArray());
                 byte[] payloadChecksum = SHA256.HashData(ensure.Activation.CanonicalInput.AsSpan());
-                byte[] control = ActivationControlChecksum(activationId, 1, BaseActivationState.Pending);
+                byte[] control = ActivationControlChecksum(activationId, 1, BaseActivationState.Pending,
+                    ensure.Due.CanonicalUnixMilliseconds, 0, ensure.Activation.Limits.MaximumYields,
+                    0, null, null, null, null);
                 await using SqliteCommand insert = _connection.CreateCommand(); insert.Transaction = _transaction;
-                insert.CommandText = $"INSERT INTO {_owner._names.Activations}(activation_id,definition_id,definition_version,definition_checksum,canonical_input,input_checksum,scope_kind,scope_value,scope_digest,payload_checksum,fingerprint,state,generation,requested_due_at,effective_due_at,occurrence_id,priority,overlap_key,overlap_policy,eligible,control_checksum) VALUES($id,$definition,$version,$definitionChecksum,$input,$inputChecksum,$scopeKind,$scopeValue,$scopeDigest,$payloadChecksum,$fingerprint,$state,1,$due,$due,NULL,$priority,NULL,0,$eligible,$control);";
+                insert.CommandText = $"INSERT INTO {_owner._names.Activations}(activation_id,definition_id,definition_version,definition_checksum,receipt_format_version,receipt_duplicate_lifetime_ms,receipt_backup_coverage,canonical_input,input_checksum,scope_kind,scope_value,scope_digest,payload_checksum,fingerprint,state,generation,requested_due_at,effective_due_at,occurrence_id,priority,overlap_key,overlap_policy,eligible,control_checksum,maximum_yields) VALUES($id,$definition,$version,$definitionChecksum,$receiptFormat,$receiptLifetime,$receiptBackup,$input,$inputChecksum,$scopeKind,$scopeValue,$scopeDigest,$payloadChecksum,$fingerprint,$state,1,$due,$due,NULL,$priority,NULL,0,$eligible,$control,$maximumYields);";
                 insert.Parameters.AddWithValue("$id", activationId); insert.Parameters.AddWithValue("$definition", ensure.Activation.Definition.Id);
                 insert.Parameters.AddWithValue("$version", ensure.Activation.Definition.Version); insert.Parameters.Add("$definitionChecksum", SqliteType.Blob).Value = ensure.Activation.Definition.Checksum.ToArray();
+                insert.Parameters.AddWithValue("$receiptFormat", ensure.Activation.ReceiptRetention.FormatVersion);
+                insert.Parameters.AddWithValue("$receiptLifetime", ensure.Activation.ReceiptRetention.DuplicateResolutionLifetime.Ticks / TimeSpan.TicksPerMillisecond);
+                insert.Parameters.AddWithValue("$receiptBackup", (int)ensure.Activation.ReceiptRetention.ProtectedBackupCoverage);
                 insert.Parameters.Add("$input", SqliteType.Blob).Value = ensure.Activation.CanonicalInput.ToArray(); insert.Parameters.Add("$inputChecksum", SqliteType.Blob).Value = ensure.Activation.InputChecksum.ToArray();
                 insert.Parameters.AddWithValue("$scopeKind", (int)ensure.Scope.Kind); insert.Parameters.AddWithValue("$scopeValue", ensure.Scope.Value ?? string.Empty);
                 insert.Parameters.Add("$scopeDigest", SqliteType.Blob).Value = SHA256.HashData(
@@ -3304,6 +3436,7 @@ WHERE excluded.slot_generation>=slot_generation;
                 insert.Parameters.AddWithValue("$state", (int)BaseActivationState.Pending); insert.Parameters.AddWithValue("$due", ensure.Due.CanonicalUnixMilliseconds);
                 insert.Parameters.AddWithValue("$priority", ensure.Activation.Priority); insert.Parameters.AddWithValue("$eligible", ensure.Activation.InitiallyEligible ? 1 : 0);
                 insert.Parameters.Add("$control", SqliteType.Blob).Value = control;
+                insert.Parameters.AddWithValue("$maximumYields", ensure.Activation.Limits.MaximumYields);
                 if (await insert.ExecuteNonQueryAsync(token).ConfigureAwait(false) != 1) throw new InvalidOperationException("base.semanticActivation.conflict");
                 BaseSemanticActivationStoreAuthority store = _capturedMutation!.SemanticActivation!.Missing!.StoreAuthority;
                 var live = new BaseSemanticActivationLiveAuthority
@@ -3345,6 +3478,14 @@ WHERE excluded.slot_generation>=slot_generation;
                     TerminalActivationGeneration = activationGeneration
                         ?? throw new InvalidOperationException("base.semanticActivation.activationNotTerminal"),
                     TerminalActivationChecksum = activationChecksum,
+                    TerminalEffectiveDueAt = _capturedMutation.SemanticActivation.ActivationEffectiveDueAt!.Value,
+                    TerminalYieldCount = _capturedMutation.SemanticActivation.ActivationYieldCount!.Value,
+                    TerminalMaximumYields = _capturedMutation.SemanticActivation.ActivationMaximumYields!.Value,
+                    TerminalExecutionSliceOrdinal = _capturedMutation.SemanticActivation.ActivationExecutionSliceOrdinal!.Value,
+                    TerminalAttemptStartedAt = _capturedMutation.SemanticActivation.ActivationAttemptStartedAt,
+                    TerminalSliceStartedAt = _capturedMutation.SemanticActivation.ActivationSliceStartedAt,
+                    TerminalYieldDisposition = _capturedMutation.SemanticActivation.ActivationTerminalYieldDisposition,
+                    TerminalYieldFailureCode = _capturedMutation.SemanticActivation.ActivationTerminalYieldFailureCode,
                     CompletionOperationChecksum = Convert.FromHexString(retire.CompletionOperation.OperationChecksum).ToImmutableArray(),
                     CompletionReceiptChecksum = receipt.ToImmutableArray(), RetirementPosition = journalPosition,
                     SlotGeneration = prepared.ResultingSlotGeneration, StoreAuthority = prior.StoreAuthority, Checksum = [],
@@ -3450,7 +3591,8 @@ WHERE excluded.slot_generation>=slot_generation;
                 return SubjectFailure<BaseTransactionalActivationCommitEvidence>(BaseSubjectErrorCodes.ProviderContractInvalid);
             long generation = checked(candidate.ActivationGeneration + 1);
             byte[] controlChecksum = ActivationControlChecksum(
-                candidate.Payload.ActivationId, generation, BaseActivationState.Succeeded);
+                candidate.Payload.ActivationId, generation, BaseActivationState.Succeeded,
+                candidate.Payload.EffectiveDueAt, 0, 0, 0, null, null, null, null);
             long evidenceBytes = checked(System.Text.Encoding.UTF8.GetByteCount(candidate.Payload.ActivationId) + sizeof(long) + sizeof(int) + controlChecksum.Length);
             long transientBytes = evidenceBytes;
             if (candidate.Limits.MaximumIndexOperations < 2
@@ -3888,6 +4030,7 @@ WHERE excluded.slot_generation>=slot_generation;
             hash.AppendData(Encoding.UTF8.GetBytes(item.Definition.Id));
             hash.AppendData(BitConverter.GetBytes(item.Definition.Version).Reverse().ToArray());
             hash.AppendData(item.Definition.Checksum.AsSpan());
+            hash.AppendData(BitConverter.GetBytes(item.MaximumYields).Reverse().ToArray());
             hash.AppendData(item.InputChecksum.AsSpan());
             hash.AppendData(BitConverter.GetBytes(item.RequestedDueAt).Reverse().ToArray());
             hash.AppendData(BitConverter.GetBytes(item.EffectiveDueAt ?? item.RequestedDueAt).Reverse().ToArray());
@@ -3979,8 +4122,34 @@ WHERE excluded.slot_generation>=slot_generation;
                     CollectionId = item.Collection.Id,
                     Id = item.RecordId,
                     Payload = ClonePayload(item.ProposedPayload),
-                    Metadata = item.Current?.Metadata ?? new RecordMetadata(),
-                };
+                Metadata = item.Current?.Metadata ?? new RecordMetadata(),
+            };
+
+        private static bool ValidTombstoneMetadata(
+            BaseAtomicMutationPlanItem item,
+            RecordEnvelope? record,
+            BaseExportedSubjectDefinition definition,
+            long sequence)
+        {
+            if (record?.Payload.Fields is not { } fields) return false;
+            if (definition.TombstoneMetadata.Sequence is { Kind: BaseSubjectTombstoneMetadataBindingKind.RequiredField, FieldId: { } sequenceId })
+            {
+                string? wire = item.Collection.Fields?.SingleOrDefault(field => field.Id == sequenceId)?.WireName;
+                if (wire is null || !fields.TryGetValue(wire, out JsonElement value)
+                    || value.ValueKind != JsonValueKind.Number || !value.TryGetInt64(out long stored) || stored != sequence)
+                    return false;
+            }
+            if (definition.TombstoneMetadata.Instant is { Kind: BaseSubjectTombstoneMetadataBindingKind.RequiredField, FieldId: { } instantId })
+            {
+                string? wire = item.Collection.Fields?.SingleOrDefault(field => field.Id == instantId)?.WireName;
+                string expected = item.Operation.Now.ToUniversalTime().ToString(
+                    "yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", CultureInfo.InvariantCulture);
+                if (wire is null || !fields.TryGetValue(wire, out JsonElement value)
+                    || value.ValueKind != JsonValueKind.String || value.GetString() != expected)
+                    return false;
+            }
+            return true;
+        }
 
         private static RecordPayload ClonePayload(RecordPayload payload) => new()
         {

@@ -481,6 +481,14 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
                 default: return InvalidCommands();
             }
 
+            OperationResult<(RecordPayload? Create, RecordPayload? Update)> lifecycleInputs =
+                ApplySubjectLifecycleInputAuthority(collection, kind, upsertMode, createPayload, updatePayload, removedFieldIds);
+            if (!lifecycleInputs.IsSuccess())
+                return new OperationResult<(BaseMutationCommand[], ImmutableArray<BaseModuleMutationItemCaptureBinding>)>
+                { Status = lifecycleInputs.Status, Error = lifecycleInputs.Error };
+            createPayload = lifecycleInputs.Value.Create;
+            updatePayload = lifecycleInputs.Value.Update;
+
             BaseValidatedPayload? validatedCreate = null;
             BaseValidatedPayload? validatedUpdate = null;
             if (createPayload is not null)
@@ -580,6 +588,56 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             Kind = RecordPayloadKind.FieldMap,
             Fields = value.Value.EnumerateObject().ToDictionary(static property => property.Name, static property => property.Value.Clone(), StringComparer.Ordinal),
         };
+    }
+
+    private OperationResult<(RecordPayload? Create, RecordPayload? Update)> ApplySubjectLifecycleInputAuthority(
+        CollectionDefinition collection,
+        BaseRecordMutationKind kind,
+        RecordUpsertUpdateMode upsertMode,
+        RecordPayload? create,
+        RecordPayload? update,
+        ImmutableArray<string> removedFieldIds)
+    {
+        BaseGeneratedSubjectRegistration? subject = subjects.All.SingleOrDefault(value =>
+            string.Equals(value.Definition.ValidationPlan.PrivateCollectionId, collection.Id, StringComparison.Ordinal));
+        if (subject is null) return OperationResults.Ok((create, update));
+        string? instantId = subject.Definition.TombstoneMetadata.Instant.FieldId;
+        string? sequenceId = subject.Definition.TombstoneMetadata.Sequence.FieldId;
+        string? instantWire = FieldWireName(collection, instantId);
+        string? sequenceWire = FieldWireName(collection, sequenceId);
+        if (ContainsWire(create, instantWire) || ContainsWire(create, sequenceWire)
+            || ContainsWire(update, instantWire) || ContainsWire(update, sequenceWire)
+            || instantId is not null && removedFieldIds.Contains(instantId, StringComparer.Ordinal)
+            || sequenceId is not null && removedFieldIds.Contains(sequenceId, StringComparer.Ordinal))
+            return OperationResults.ValidationFailed<(RecordPayload?, RecordPayload?)>(new BaseError
+            {
+                Code = "base.subjectLifecycle.tombstoneMetadataInvalid",
+                Message = "Subject lifecycle metadata is Runtime-owned.",
+                Category = ErrorCategory.Validation,
+            });
+        if (sequenceWire is null) return OperationResults.Ok((create, update));
+        JsonElement zero = ParseCanonicalJson("0");
+        if (create is not null) create = AddField(create, sequenceWire, zero);
+        if (update is not null && (kind == BaseRecordMutationKind.Replace
+            || kind == BaseRecordMutationKind.Upsert && upsertMode == RecordUpsertUpdateMode.Replace))
+            update = AddField(update, sequenceWire, zero);
+        return OperationResults.Ok((create, update));
+    }
+
+    private static string? FieldWireName(CollectionDefinition collection, string? fieldId) => fieldId is null
+        ? null : collection.Fields?.SingleOrDefault(field => field.Id == fieldId)?.WireName;
+    private static bool ContainsWire(RecordPayload? payload, string? wireName) =>
+        payload?.Fields is { } fields && wireName is not null && fields.ContainsKey(wireName);
+    private static RecordPayload AddField(RecordPayload payload, string wireName, JsonElement value)
+    {
+        var fields = (payload.Fields ?? []).ToDictionary(static pair => pair.Key, static pair => pair.Value.Clone(), StringComparer.Ordinal);
+        fields[wireName] = value.Clone();
+        return new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = fields };
+    }
+    private static JsonElement ParseCanonicalJson(string json)
+    {
+        using JsonDocument document = JsonDocument.Parse(json);
+        return document.RootElement.Clone();
     }
 
     private static RevisionToken? Revision(BaseModuleValueExpression? expression, BaseModuleProgramEvaluator<TRequest, TResult> evaluator) =>
@@ -1104,9 +1162,15 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             || captured.ActivationChecksum.Length != 32
             || !CryptographicOperations.FixedTimeEquals(value.Checksum.AsSpan(), BaseSemanticActivationEvidenceContract.LiveChecksum(value).AsSpan()))
             return false;
-        byte[] expectedControl = SHA256.HashData(Encoding.UTF8.GetBytes(
-            $"base.activation.control.v2\0{value.ActivationId}\n{captured.ActivationGeneration.Value}\n{(int)captured.ActivationState!.Value}"));
-        if (!CryptographicOperations.FixedTimeEquals(expectedControl, captured.ActivationChecksum.AsSpan())) return false;
+        if (captured.ActivationEffectiveDueAt is not { } effectiveDueAt
+            || captured.ActivationYieldCount is not { } yieldCount
+            || captured.ActivationMaximumYields is not { } maximumYields
+            || captured.ActivationExecutionSliceOrdinal is not { } executionSliceOrdinal
+            || !BaseActivationControlChecksumContract.Matches(captured.ActivationChecksum.AsSpan(), value.ActivationId,
+                captured.ActivationGeneration.Value, captured.ActivationState!.Value, effectiveDueAt, yieldCount,
+                maximumYields, executionSliceOrdinal, captured.ActivationAttemptStartedAt,
+                captured.ActivationSliceStartedAt, captured.ActivationTerminalYieldDisposition,
+                captured.ActivationTerminalYieldFailureCode)) return false;
         byte[] expectedId = SemanticHash("base.semanticActivation.activation.v1\0",
             Encoding.UTF8.GetBytes(capture.StoreAuthority.ApplicationId), Encoding.UTF8.GetBytes(capture.StoreAuthority.LogicalStoreId),
             Encoding.UTF8.GetBytes(capture.Definition.OwningModuleId), Encoding.UTF8.GetBytes(capture.Definition.Id),
@@ -1150,13 +1214,15 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             || !CryptographicOperations.FixedTimeEquals(value.Checksum.AsSpan(), BaseSemanticActivationEvidenceContract.RetirementChecksum(value).AsSpan())) return false;
         if (!SemanticTerminalStateAllowed(value.TerminalState))
             return false;
-        byte[] expectedTerminalChecksum = SHA256.HashData(Encoding.UTF8.GetBytes(
-            $"base.activation.control.v2\0{value.ActivationId}\n{value.TerminalActivationGeneration}\n{(int)value.TerminalState}"));
         byte[] installedCompletionChecksum;
         try { installedCompletionChecksum = Convert.FromHexString(requested.Capture.Definition.RetirementOperation.OperationChecksum); }
         catch { return false; }
         if (installedCompletionChecksum.Length != 32
-            || !CryptographicOperations.FixedTimeEquals(expectedTerminalChecksum, value.TerminalActivationChecksum.AsSpan())
+            || !BaseActivationControlChecksumContract.Matches(value.TerminalActivationChecksum.AsSpan(), value.ActivationId,
+                value.TerminalActivationGeneration, value.TerminalState, value.TerminalEffectiveDueAt,
+                value.TerminalYieldCount, value.TerminalMaximumYields, value.TerminalExecutionSliceOrdinal,
+                value.TerminalAttemptStartedAt, value.TerminalSliceStartedAt, value.TerminalYieldDisposition,
+                value.TerminalYieldFailureCode)
             || !CryptographicOperations.FixedTimeEquals(installedCompletionChecksum, value.CompletionOperationChecksum.AsSpan()))
             return false;
         BaseSemanticActivationSubjectLifetimeBinding? requestedLifetime = requested.Operation switch
@@ -1776,8 +1842,10 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         {
             if (plan.Operation is not BaseSemanticActivationEnsureIntent ensure || applied.ActivationGeneration != 1
                 || applied.ActivationId != Convert.ToHexStringLower(ensure.Activation.Identity.DerivedActivationIdBytes.AsSpan())) return false;
-            byte[] expectedControl = SHA256.HashData(Encoding.UTF8.GetBytes($"base.activation.control.v2\0{applied.ActivationId}\n1\n{(int)BaseActivationState.Pending}"));
-            return CryptographicOperations.FixedTimeEquals(expectedControl, applied.ActivationChecksum.AsSpan());
+            ImmutableArray<byte> expectedControl = BaseActivationControlChecksumContract.Create(applied.ActivationId, 1,
+                BaseActivationState.Pending, ensure.Due.CanonicalUnixMilliseconds, 0,
+                ensure.Activation.Limits.MaximumYields, 0, null, null, null, null);
+            return CryptographicOperations.FixedTimeEquals(expectedControl.AsSpan(), applied.ActivationChecksum.AsSpan());
         }
         return true;
     }
@@ -1825,6 +1893,14 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
                 SubjectLifetime = retire.SubjectLifetime, ActivationId = applied.ActivationId!,
                 TerminalState = terminalState, TerminalActivationGeneration = terminalGeneration,
                 TerminalActivationChecksum = captured.ActivationChecksum,
+                TerminalEffectiveDueAt = captured.ActivationEffectiveDueAt!.Value,
+                TerminalYieldCount = captured.ActivationYieldCount!.Value,
+                TerminalMaximumYields = captured.ActivationMaximumYields!.Value,
+                TerminalExecutionSliceOrdinal = captured.ActivationExecutionSliceOrdinal!.Value,
+                TerminalAttemptStartedAt = captured.ActivationAttemptStartedAt,
+                TerminalSliceStartedAt = captured.ActivationSliceStartedAt,
+                TerminalYieldDisposition = captured.ActivationTerminalYieldDisposition,
+                TerminalYieldFailureCode = captured.ActivationTerminalYieldFailureCode,
                 CompletionOperationChecksum = Convert.FromHexString(retire.CompletionOperation.OperationChecksum).ToImmutableArray(),
                 CompletionReceiptChecksum = captured.ActivationTerminalReceiptChecksum,
                 RetirementPosition = applied.CommitJournalPosition, SlotGeneration = applied.ResultingSlotGeneration,
@@ -1929,6 +2005,14 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             SubjectLifetime = retire.SubjectLifetime, ActivationId = live.ActivationId,
             TerminalState = terminal, TerminalActivationGeneration = generation,
             TerminalActivationChecksum = captured.ActivationChecksum,
+            TerminalEffectiveDueAt = captured.ActivationEffectiveDueAt!.Value,
+            TerminalYieldCount = captured.ActivationYieldCount!.Value,
+            TerminalMaximumYields = captured.ActivationMaximumYields!.Value,
+            TerminalExecutionSliceOrdinal = captured.ActivationExecutionSliceOrdinal!.Value,
+            TerminalAttemptStartedAt = captured.ActivationAttemptStartedAt,
+            TerminalSliceStartedAt = captured.ActivationSliceStartedAt,
+            TerminalYieldDisposition = captured.ActivationTerminalYieldDisposition,
+            TerminalYieldFailureCode = captured.ActivationTerminalYieldFailureCode,
             CompletionOperationChecksum = Convert.FromHexString(retire.CompletionOperation.OperationChecksum).ToImmutableArray(),
             CompletionReceiptChecksum = captured.ActivationTerminalReceiptChecksum,
             RetirementPosition = applied.CommitJournalPosition, SlotGeneration = applied.ResultingSlotGeneration,

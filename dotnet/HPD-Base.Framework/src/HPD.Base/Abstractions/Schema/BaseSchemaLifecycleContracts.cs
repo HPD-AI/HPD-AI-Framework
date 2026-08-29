@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace HPD.Base;
 /// <summary>Defines base Schema Compatibility.</summary>
 public enum BaseSchemaCompatibility
@@ -564,6 +566,8 @@ public sealed record BaseSchemaApplyResult
     public required string Checksum { get; init; }
     /// <summary>Gets or sets state.</summary>
     public BaseSchemaMigrationState State { get; init; }
+    /// <summary>Gets exact provider lowering receipts for every installed exported subject.</summary>
+    public required ImmutableArray<BaseSubjectTombstoneMetadataLoweringReceipt> SubjectTombstoneMetadata { get; init; }
 }
 
 /// <summary>Contains authenticated plan facts passed to a provider after Runtime verification.</summary>

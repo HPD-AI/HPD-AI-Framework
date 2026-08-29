@@ -119,6 +119,7 @@ internal sealed class BaseSemanticActivationCertificationProcessor(
                     {
                         Id = "certification.activation", Version = 1, Checksum = ActivationChecksum.ToImmutableArray(),
                     },
+                    ReceiptRetention = DefaultReceiptRetention(),
                     CanonicalInput = "certification-payload"u8.ToArray().ToImmutableArray(),
                     InputChecksum = SHA256.HashData("certification-payload"u8).ToImmutableArray(), Scope = scope, Due = due,
                     Priority = 0, InitiallyEligible = true, Limits = ActivationLimits(),
@@ -267,8 +268,8 @@ internal sealed class BaseSemanticActivationCertificationProcessor(
 
     private BaseActivationLimits ActivationLimits() => new()
     {
-        MaximumInputBytes = 4096, MaximumResultBytes = 4096, MaximumAttempts = 3,
-        MaximumRenewalsPerAttempt = 3, MaximumChildrenPerAttempt = 8, MaximumLineageDepth = 8,
+        MaximumInputBytes = 4096, MaximumResultBytes = 4096, MaximumAttempts = 3, MaximumYields = 0,
+        MaximumRenewalsPerSlice = 3, MaximumChildrenPerSlice = 8, MaximumLineageDepth = 8,
         LeaseDuration = TimeSpan.FromMinutes(1), HandlerTimeout = TimeSpan.FromMinutes(1),
         Provider = new BaseActivationExecutionLimits
         {
@@ -279,6 +280,13 @@ internal sealed class BaseSemanticActivationCertificationProcessor(
             ReceiptResolutionTimeout = TimeSpan.FromSeconds(5),
         },
         AtomicCreation = limits,
+    };
+
+    private static BaseActivationReceiptRetentionPolicy DefaultReceiptRetention() => new()
+    {
+        FormatVersion = 1,
+        DuplicateResolutionLifetime = TimeSpan.FromHours(24),
+        ProtectedBackupCoverage = BaseActivationProtectedBackupCoverage.NotRequired,
     };
 
     private static void Append(IncrementalHash hash, string value)

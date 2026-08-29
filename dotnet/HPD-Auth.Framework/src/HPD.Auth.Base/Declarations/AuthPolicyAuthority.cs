@@ -55,7 +55,7 @@ internal static class AuthGrantIds
         .SelectMany(static id => new[]
         {
             id + ".enqueue", id + ".observe", id + ".claim", id + ".execute",
-            id + ".renew", id + ".complete", id + ".fail", id + ".cancel",
+            id + ".renew", id + ".complete", id + ".fail", id + ".yield", id + ".cancel",
             id + ".inspect", id + ".replay", id + ".migrate", id + ".reconcile",
             id + ".retry", id + ".dispose", id + ".remove", id + ".repair",
         })
@@ -81,11 +81,13 @@ internal static class AuthGrantIds
     internal static bool IsSystemGrant(string id) => id is
         "auth.admin.read" or "auth.admin.mutate" or
         "auth.dataProtection.read" or "auth.dataProtection.write" or
-        "auth.cleanup.execute" or
+        "auth.cleanup.execute" or "auth.identity.mutate" or
+        "auth.session.mutate" or "auth.token.mutate" or "auth.token.delivery" or
         "base.subjectLifecycle.feed.read" or
         "base.subjectLifecycle.feed.checkpoint" or "base.subjectRetirement.acknowledge" or
         "base.subjectRetirement.barrier.inspect" or "base.subjectRetirement.purge" or
-        "auth.subject.user.admin" or "auth.subject.role.admin";
+        "auth.subject.user.admin" or "auth.subject.user.validate" or
+        "auth.subject.role.admin" or "auth.subject.role.validate";
 
     internal static bool IsSystemOnlyGrant(string id) =>
         id.StartsWith("auth.operation.cleanup.", StringComparison.Ordinal)
@@ -108,6 +110,10 @@ internal sealed class AuthGrantAuthoritySource(string grantId) : IBaseGrantAutho
         BaseInstalledGrantRegistration registration = _registration
             ?? throw new InvalidOperationException("The Auth grant authority is not bound.");
 
+        bool lifecycleDispatcher = context.Principal.AuthenticationState == PrincipalAuthenticationState.Service
+            && context.Principal.SubjectKind == AccessSubjectKind.ServicePrincipal
+            && string.Equals(context.Principal.SubjectId, "hpd.auth.lifecycle-dispatcher", StringComparison.Ordinal)
+            && grantId is "hpd.auth.cleanup.bootstrap.user.v1.enqueue" or "hpd.auth.cleanup.bootstrap.role.v1.enqueue";
         bool service = !AuthGrantIds.IsSystemOnlyGrant(grantId)
             && context.Principal.AuthenticationState == PrincipalAuthenticationState.Service
             && context.Principal.SubjectKind == AccessSubjectKind.ServicePrincipal
@@ -115,7 +121,7 @@ internal sealed class AuthGrantAuthoritySource(string grantId) : IBaseGrantAutho
         bool system = context.Principal.AuthenticationState == PrincipalAuthenticationState.System
             && context.Principal.SubjectKind == AccessSubjectKind.System
             && (AuthGrantIds.IsSystemGrant(grantId) || AuthGrantIds.IsSystemOnlyGrant(grantId));
-        if (!service && !system)
+        if (!lifecycleDispatcher && !service && !system)
             return ValueTask.CompletedTask;
 
         context.Emit(registration, CreateGrant(context));

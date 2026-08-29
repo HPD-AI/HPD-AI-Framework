@@ -20,6 +20,15 @@ public sealed class BaseGeneratedSubjectRegistration
     internal BaseExportedSubjectDefinition Definition { get; }
     internal string Checksum { get; }
     internal string PlanChecksum { get; }
+
+    /// <summary>Gets the stable exported-subject contract identifier.</summary>
+    public string Id => Definition.Id;
+
+    /// <summary>Gets the positive exported-subject contract version.</summary>
+    public int Version => Definition.Version;
+
+    /// <summary>Gets the normalized exported-subject contract checksum.</summary>
+    public string ContractChecksum => Checksum;
 }
 
 /// <summary>Provides generated-only construction of exported-subject installation receipts.</summary>
@@ -310,7 +319,7 @@ public sealed class BaseExportedSubjectContract<TSubject>
     public string Checksum { get; }
 
     /// <summary>Atomically tombstones one exact exported-subject lifetime.</summary>
-    public ValueTask<BaseResult<BaseSubjectLifecycleFact<TSubject>>> TombstoneAsync(
+    public ValueTask<BaseResult<BaseSubjectTombstoneResult<TSubject>>> TombstoneAsync(
         BaseSubjectTombstoneRequest<TSubject> request,
         CancellationToken cancellationToken = default)
     {
@@ -323,11 +332,12 @@ public sealed class BaseExportedSubjectContract<TSubject>
     /// <summary>Atomically performs uncoordinated final retirement of one tombstoned lifetime.</summary>
     public ValueTask<BaseResult<BaseSubjectFinalRetirementResult<TSubject>>> FinalizeRetirementAsync(
         BaseSubjectFinalRetirementRequest<TSubject> request,
+        BaseSubjectFinalRetirementExecutionOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         IBaseSubjectLifecycleExporterRuntime runtime = _session.Services.GetService(typeof(IBaseSubjectLifecycleExporterRuntime)) as IBaseSubjectLifecycleExporterRuntime
             ?? throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
-        return runtime.FinalizeRetirementAsync(_session, _registration, request, cancellationToken);
+        return runtime.FinalizeRetirementAsync(_session, _registration, request, options, cancellationToken);
     }
 }

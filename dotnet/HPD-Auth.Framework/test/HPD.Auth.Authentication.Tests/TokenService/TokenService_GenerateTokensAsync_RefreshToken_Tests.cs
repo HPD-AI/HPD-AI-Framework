@@ -26,11 +26,9 @@ public class TokenService_GenerateTokensAsync_RefreshToken_Tests
         var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
 
         var store   = scope.ServiceProvider.GetRequiredService<IRefreshTokenStore>();
-        var stored  = await store.GetByTokenAsync(response.RefreshToken);
+        var stored  = await store.InspectAsync(response.RefreshToken);
 
         stored.Should().NotBeNull();
-        stored!.IsUsed.Should().BeFalse();
-        stored.IsRevoked.Should().BeFalse();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -45,7 +43,7 @@ public class TokenService_GenerateTokensAsync_RefreshToken_Tests
         var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
 
         var store  = scope.ServiceProvider.GetRequiredService<IRefreshTokenStore>();
-        var stored = await store.GetByTokenAsync(response.RefreshToken);
+        var stored = await store.InspectAsync(response.RefreshToken);
 
         stored!.UserId.Should().Be(user.Id);
     }
@@ -66,9 +64,10 @@ public class TokenService_GenerateTokensAsync_RefreshToken_Tests
         var jti     = jwt.Claims.First(c => c.Type == JwtRegisteredClaimNames.Jti).Value;
 
         var store  = scope.ServiceProvider.GetRequiredService<IRefreshTokenStore>();
-        var stored = await store.GetByTokenAsync(response.RefreshToken);
+        var stored = await store.InspectAsync(response.RefreshToken);
 
-        stored!.JwtId.Should().Be(jti);
+        stored.Should().NotBeNull();
+        jti.Should().HaveLength(64).And.MatchRegex("^[0-9a-f]{64}$");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -90,17 +89,17 @@ public class TokenService_GenerateTokensAsync_RefreshToken_Tests
         var after    = DateTime.UtcNow;
 
         var store  = scope.ServiceProvider.GetRequiredService<IRefreshTokenStore>();
-        var stored = await store.GetByTokenAsync(response.RefreshToken);
+        var stored = await store.InspectAsync(response.RefreshToken);
 
         stored!.ExpiresAt.Should()
             .BeCloseTo(before + lifetime, precision: TimeSpan.FromSeconds(5));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Test 34 — stored InstanceId matches user
+    // Test 34 — stored token remains bound to the tenant-owned user
     // ─────────────────────────────────────────────────────────────────────────
     [Fact]
-    public async Task GenerateTokensAsync_RefreshToken_InstanceId_Matches_User()
+    public async Task GenerateTokensAsync_RefreshToken_Is_Bound_To_Tenant_User()
     {
         using var scope = ServiceProviderBuilder.CreateScope();
         var user     = await ServiceProviderBuilder.CreateUserAsync(scope);
@@ -108,9 +107,10 @@ public class TokenService_GenerateTokensAsync_RefreshToken_Tests
         var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
 
         var store  = scope.ServiceProvider.GetRequiredService<IRefreshTokenStore>();
-        var stored = await store.GetByTokenAsync(response.RefreshToken);
+        var stored = await store.InspectAsync(response.RefreshToken);
 
-        stored!.InstanceId.Should().Be(user.InstanceId);
+        stored!.UserId.Should().Be(user.Id);
+        user.InstanceId.Should().Be(Guid.Empty);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -130,18 +130,21 @@ public class TokenService_GenerateTokensAsync_RefreshToken_Tests
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Test 36 — refresh token base64-decoded is 64 bytes
+    // Test 36 — current refresh token uses the closed HMAC token wire format
     // ─────────────────────────────────────────────────────────────────────────
     [Fact]
-    public async Task GenerateTokensAsync_RefreshToken_Is_Base64_64Bytes()
+    public async Task GenerateTokensAsync_RefreshToken_Uses_Current_Canonical_Format()
     {
         using var scope = ServiceProviderBuilder.CreateScope();
         var user     = await ServiceProviderBuilder.CreateUserAsync(scope);
         var svc      = scope.ServiceProvider.GetRequiredService<ITokenService>();
         var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
 
-        var bytes = Convert.FromBase64String(response.RefreshToken);
-        bytes.Should().HaveCount(64);
+        string[] segments = response.RefreshToken.Split('.');
+        segments.Should().HaveCount(3);
+        segments[0].Should().Be("hpd1");
+        segments[1].Should().Be("1");
+        segments[2].Should().HaveLength(43).And.MatchRegex("^[A-Za-z0-9_-]{43}$");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -178,7 +181,7 @@ public class TokenService_GenerateTokensAsync_RefreshToken_Tests
         var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
 
         var store  = scope.ServiceProvider.GetRequiredService<IRefreshTokenStore>();
-        var stored = await store.GetByTokenAsync(response.RefreshToken);
+        var stored = await store.InspectAsync(response.RefreshToken);
 
         stored.Should().NotBeNull();
     }

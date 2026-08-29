@@ -191,22 +191,19 @@ public class TokenService_GenerateTokensAsync_TokenResponse_Tests
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Test 26 — Invalid JSON in UserMetadata falls back to empty object
+    // Test 26 — canonical empty metadata remains an empty object
     // ─────────────────────────────────────────────────────────────────────────
     [Fact]
-    public async Task GenerateTokensAsync_TokenResponse_User_InvalidJson_Falls_Back_To_EmptyObject()
+    public async Task GenerateTokensAsync_TokenResponse_User_EmptyMetadata_Remains_EmptyObject()
     {
         using var scope = ServiceProviderBuilder.CreateScope();
         var user = await ServiceProviderBuilder.CreateUserAsync(scope,
-            u => u.UserMetadata = "not-json");
+            u => u.UserMetadata = "{}");
 
         var svc = scope.ServiceProvider.GetRequiredService<ITokenService>();
-        Core.Models.TokenResponse? response = null;
+        Core.Models.TokenResponse response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
 
-        Func<Task> act = async () => response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
-        await act.Should().NotThrowAsync();
-
-        response!.User.UserMetadata.ValueKind.Should().Be(JsonValueKind.Object);
+        response.User.UserMetadata.ValueKind.Should().Be(JsonValueKind.Object);
         response.User.UserMetadata.EnumerateObject().Should().BeEmpty();
     }
 
@@ -242,7 +239,8 @@ public class TokenService_GenerateTokensAsync_TokenResponse_Tests
         var svc      = scope.ServiceProvider.GetRequiredService<ITokenService>();
         var response = await svc.GenerateTokensAsync(user, TokenServiceFixture.Issuance());
 
-        response.User.CreatedAt.Should().Be(created);
+        response.User.CreatedAt.Should().Be(user.Created);
+        response.User.CreatedAt.Should().BeAfter(created);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

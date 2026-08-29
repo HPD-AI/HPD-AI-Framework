@@ -46,6 +46,12 @@ internal sealed class BaseSubjectRetirementPurgeProcessor(BaseSubjectRetirementP
     internal BaseSubjectFinalPurgeResult? Result { get; private set; }
     public async ValueTask<AtomicMutationProcessingResult> ProcessAsync(IAtomicRecordSession session,CancellationToken cancellationToken=default)
     {
+        if (request.ActivationGuard is not null)
+        {
+            OperationResult<BaseCapturedActivationGuardEvidence> guarded = await session
+                .ValidateActivationGuardAsync(request.ActivationGuard, cancellationToken).ConfigureAwait(false);
+            if (!guarded.IsSuccess() || guarded.Value is null) return Failed(guarded.Error);
+        }
         OperationResult<BaseSubjectRetirementPurgeApplied> applied=await session.ApplySubjectRetirementPurgeAsync(request,cancellationToken).ConfigureAwait(false);if(!applied.IsSuccess()||applied.Value is null)return Failed(applied.Error);BaseSubjectRetirementPurgeApplied value=applied.Value;if(value.Result.RetiredPosition!=value.Mutation.JournalPosition||value.Result.RetiredSubjectSequence!=value.Mutation.SubjectLifecycle?.SubjectSequence||value.Terminal.ReceiptChecksum!=value.Result.TerminalReceiptChecksum||BaseSubjectRetirementRegistry.TerminalChecksum(value.Terminal)!=value.Terminal.ReceiptChecksum)return Failed(null);Result=value.Result with{TerminalReceiptChecksum=new string(value.Result.TerminalReceiptChecksum.AsSpan())};return Ready(Result,value.Mutation);
     }
     public ValueTask<AtomicMutationProcessingResult> ResolveReceiptAsync(BaseAtomicReceiptResult receipt,CancellationToken cancellationToken=default)

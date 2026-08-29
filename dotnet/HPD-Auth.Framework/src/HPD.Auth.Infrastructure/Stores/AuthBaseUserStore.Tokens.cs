@@ -8,6 +8,9 @@ namespace HPD.Auth.Infrastructure.Stores;
 
 internal sealed partial class AuthBaseUserStore : IUserAuthenticationTokenStore<ApplicationUser>
 {
+    private const string IdentityInternalLoginProvider = "[AspNetUserStore]";
+    private const string IdentityAuthenticatorKeyToken = "AuthenticatorKey";
+
     /// <inheritdoc />
     public async Task SetTokenAsync(
         ApplicationUser user,
@@ -17,7 +20,13 @@ internal sealed partial class AuthBaseUserStore : IUserAuthenticationTokenStore<
         CancellationToken cancellationToken)
     {
         ThrowIfDisposed(); ArgumentNullException.ThrowIfNull(user); ArgumentException.ThrowIfNullOrWhiteSpace(loginProvider); ArgumentException.ThrowIfNullOrWhiteSpace(name); cancellationToken.ThrowIfCancellationRequested();
-        RequireAttachedAuthority(user);
+        AuthUserAuthorityLease authority = RequireAttachedAuthority(user);
+        if (IsAuthenticatorKey(loginProvider, name))
+        {
+            authority.AuthenticatorKey = value;
+            authority.DirtyFields |= AuthUserDirtyFields.AuthenticatorKey;
+            return;
+        }
         string id = TokenId(user.Id, loginProvider, name);
         DateTimeOffset now = runtime.GetUtcNow();
         var record = new AuthUserTokenRecordV1
@@ -46,7 +55,13 @@ internal sealed partial class AuthBaseUserStore : IUserAuthenticationTokenStore<
         CancellationToken cancellationToken)
     {
         ThrowIfDisposed(); ArgumentNullException.ThrowIfNull(user); ArgumentException.ThrowIfNullOrWhiteSpace(loginProvider); ArgumentException.ThrowIfNullOrWhiteSpace(name); cancellationToken.ThrowIfCancellationRequested();
-        RequireAttachedAuthority(user);
+        AuthUserAuthorityLease authority = RequireAttachedAuthority(user);
+        if (IsAuthenticatorKey(loginProvider, name))
+        {
+            authority.AuthenticatorKey = null;
+            authority.DirtyFields |= AuthUserDirtyFields.AuthenticatorKey;
+            return;
+        }
         string id = TokenId(user.Id, loginProvider, name);
         BaseMutationRequestIdentity identity = AuthBaseRuntime.MutationIdentity(
             "hpd.auth.user-token.remove.v1", runtime.TenantId, id, user.Id.ToString("D"), loginProvider, name);
@@ -66,7 +81,9 @@ internal sealed partial class AuthBaseUserStore : IUserAuthenticationTokenStore<
         CancellationToken cancellationToken)
     {
         ThrowIfDisposed(); ArgumentNullException.ThrowIfNull(user); ArgumentException.ThrowIfNullOrWhiteSpace(loginProvider); ArgumentException.ThrowIfNullOrWhiteSpace(name); cancellationToken.ThrowIfCancellationRequested();
-        RequireAttachedAuthority(user);
+        AuthUserAuthorityLease authority = RequireAttachedAuthority(user);
+        if (IsAuthenticatorKey(loginProvider, name))
+            return authority.AuthenticatorKey;
         BaseResult<AuthUserTokenSecretReadV1.Row?> result = await runtime.OpenServiceSession().Reads.FirstAsync(
             AuthUserTokenSecretReadV1.Handle,
             new AuthUserTokenSecretReadV1
@@ -83,6 +100,10 @@ internal sealed partial class AuthBaseUserStore : IUserAuthenticationTokenStore<
 
     private string TokenId(Guid userId, string provider, string name) => AuthBaseDeterministicId.Create(
         runtime.TenantId.ToString("D"), userId.ToString("D"), provider, name);
+
+    private static bool IsAuthenticatorKey(string loginProvider, string name) =>
+        string.Equals(loginProvider, IdentityInternalLoginProvider, StringComparison.Ordinal)
+        && string.Equals(name, IdentityAuthenticatorKeyToken, StringComparison.Ordinal);
 
     private static void RequireBatch(BaseResult<BaseBatchResult> result)
     {

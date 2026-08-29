@@ -53,22 +53,6 @@ internal sealed record AuthCleanupResultV1
     [BaseField("auth.activation.cleanup.result.retentionEligibleAt", Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable), JsonConverter(typeof(BaseUtcDateTimeJsonConverter))] public DateTimeOffset? RetentionEligibleAt { get; init; }
 }
 
-internal sealed class AuthCleanupDeclarationHandler<TInput> : IBaseActivationHandler<TInput, AuthCleanupResultV1>
-{
-    public ValueTask<BaseActivationHandlerResult<AuthCleanupResultV1>> ExecuteAsync(
-        BaseActivationContext context, TInput input, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(context);
-        ArgumentNullException.ThrowIfNull(input);
-        cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(new BaseActivationHandlerResult<AuthCleanupResultV1>
-        {
-            FailureCode = "auth.persistence.unavailable",
-            Retryable = true,
-        });
-    }
-}
-
 [BaseActivationDtoAuthority(
     "hpd.auth.cleanup.user.dto.v1", 1, AuthBaseContract.ModuleId,
     "hpd.auth.type.auth-user-cleanup-input-v1.v1", "hpd.auth.type.auth-cleanup-result-v1.v1",
@@ -85,18 +69,18 @@ internal static class AuthCleanupActivationDeclarations
 {
     internal static BaseActivationHandlerRegistration<AuthUserCleanupInputV1, AuthCleanupResultV1> User { get; } =
         Create("hpd.auth.cleanup.user.v1", "user", AuthUserCleanupActivationDtos.HPDBaseActivationDtoAuthority,
-            static _ => new AuthCleanupDeclarationHandler<AuthUserCleanupInputV1>());
+            static _ => new AuthUserCleanupActivationHandler());
 
     internal static BaseActivationHandlerRegistration<AuthRoleCleanupInputV1, AuthCleanupResultV1> Role { get; } =
         Create("hpd.auth.cleanup.role.v1", "role", AuthRoleCleanupActivationDtos.HPDBaseActivationDtoAuthority,
-            static _ => new AuthCleanupDeclarationHandler<AuthRoleCleanupInputV1>());
+            static _ => new AuthRoleCleanupActivationHandler());
 
     private static BaseActivationHandlerRegistration<TInput, AuthCleanupResultV1> Create<TInput>(
         string id, string suffix, BaseGeneratedActivationDtoAuthority<TInput, AuthCleanupResultV1> authority,
         Func<IServiceProvider, IBaseActivationHandler<TInput, AuthCleanupResultV1>> factory) =>
         AuthActivationDefinitionFactory.Create(
             id, $"hpd.auth.handler.cleanup.{suffix}", $"hpd.auth.factory.cleanup.{suffix}.v1",
-            SourceGrants(suffix), authority, factory);
+            SourceGrants(suffix), authority, factory, maximumYields: 1_000_000);
 
     private static string[] SourceGrants(string suffix) => suffix == "user"
         ? ["auth.cleanup.execute", "auth.operation.cleanup.advance", "auth.operation.cleanup.prepareRetirement", "auth.session.mutate", "auth.token.delivery", "auth.token.mutate", "base.subjectRetirement.barrier.inspect", "base.subjectRetirement.purge", "hpd.auth.cleanup.semantic-retire.user.v1.enqueue"]
@@ -114,7 +98,8 @@ internal static class AuthActivationDefinitionFactory
         BaseGeneratedActivationDtoAuthority<TInput, TResult> authority,
         Func<IServiceProvider, IBaseActivationHandler<TInput, TResult>> factory,
         bool semanticRetirement = false,
-        bool reconciliation = false) =>
+        bool reconciliation = false,
+        long maximumYields = 0) =>
         BaseActivationDefinitionBuilder.CreateGenerated(new BaseActivationDefinitionDraft
         {
             Id = id,
@@ -124,7 +109,13 @@ internal static class AuthActivationDefinitionFactory
             Grants = Grants(id),
             SourceGrantIds = [.. sourceGrants.Order(StringComparer.Ordinal)],
             Retry = Retry(semanticRetirement),
-            Limits = Limits(reconciliation),
+            ReceiptRetention = new BaseActivationReceiptRetentionPolicy
+            {
+                FormatVersion = 1,
+                DuplicateResolutionLifetime = TimeSpan.FromHours(24),
+                ProtectedBackupCoverage = BaseActivationProtectedBackupCoverage.NotRequired,
+            },
+            Limits = Limits(reconciliation, maximumYields),
             Handler = new BaseActivationHandlerDraft
             {
                 Id = handlerId,
@@ -138,7 +129,7 @@ internal static class AuthActivationDefinitionFactory
     private static BaseActivationGrantSet Grants(string id) => new()
     {
         Enqueue = id + ".enqueue", Observe = id + ".observe", Claim = id + ".claim", Execute = id + ".execute",
-        Renew = id + ".renew", Complete = id + ".complete", Fail = id + ".fail", Cancel = id + ".cancel",
+        Renew = id + ".renew", Complete = id + ".complete", Fail = id + ".fail", Yield = id + ".yield", Cancel = id + ".cancel",
         Inspect = id + ".inspect", Replay = id + ".replay", Migrate = id + ".migrate", Reconcile = id + ".reconcile",
         Retry = id + ".retry", Dispose = id + ".dispose", Remove = id + ".remove", Repair = id + ".repair",
     };
@@ -152,10 +143,10 @@ internal static class AuthActivationDefinitionFactory
             : ["auth.persistence.unavailable"],
     };
 
-    private static BaseActivationLimits Limits(bool reconciliation) => new()
+    private static BaseActivationLimits Limits(bool reconciliation, long maximumYields) => new()
     {
-        MaximumInputBytes = 65_536, MaximumResultBytes = 65_536, MaximumAttempts = 10,
-        MaximumRenewalsPerAttempt = 3, MaximumChildrenPerAttempt = reconciliation ? 804 : 8, MaximumLineageDepth = 4,
+        MaximumInputBytes = 65_536, MaximumResultBytes = 65_536, MaximumAttempts = 10, MaximumYields = maximumYields,
+        MaximumRenewalsPerSlice = 3, MaximumChildrenPerSlice = reconciliation ? 804 : 8, MaximumLineageDepth = 4,
         LeaseDuration = TimeSpan.FromSeconds(30), HandlerTimeout = TimeSpan.FromSeconds(20),
         Provider = new BaseActivationExecutionLimits
         {

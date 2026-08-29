@@ -20,10 +20,12 @@ public sealed class L30MutationCoordinatorTests
         {
             Claim = new BaseActivationClaimAuthority
             {
-                ActivationId = "activation", AttemptNumber = 1, ClaimEpoch = 1,
+                ActivationId = "activation", AttemptNumber = 1, ActivationGeneration = 1, ClaimEpoch = 1,
                 FencingToken = new byte[32].ToImmutableArray(), WorkerIdentity = "worker",
                 CancellationGeneration = 0, StoreInstanceId = "primary", RestoreEpoch = 1,
                 DefinitionChecksum = new byte[32].ToImmutableArray(),
+                ExecutionSliceOrdinal = 1, AttemptStartedAt = 1, SliceStartedAt = 1,
+                YieldCount = 0, MaximumYields = 0,
             },
             StepId = "record-child", ChildOrdinal = 1,
             ChildRequestFingerprint = fingerprint.ToImmutableArray(),

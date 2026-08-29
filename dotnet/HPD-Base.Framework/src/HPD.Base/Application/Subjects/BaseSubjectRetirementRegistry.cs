@@ -275,7 +275,9 @@ internal static class BaseSubjectRetirementCapabilityContract
         foreach (BaseInstalledSubjectRetirementPolicy policy in registry.Policies)
             if (policy.RequiredConsumers.Length > capability.MaximumRequiredConsumersPerContract
                 || policy.RequiredConsumers.Length > capability.MaximumAcknowledgementReadsPerCommit
-                || policy.Definition.CoordinationWindow > capability.MaximumCoordinationWindow) return false;
+                || policy.Definition.CoordinationWindow > capability.MaximumCoordinationWindow
+                || policy.Definition.FinalPurgeExecutionMode == BaseSubjectFinalExecutionMode.ActivationGuardRequired
+                    && !capability.ActivationGuardedFinalPurgeSupported) return false;
         foreach (BaseInstalledSubjectRetirementConsumer consumer in registry.Consumers)
             if (consumer.Definition.Limits.MaximumAcknowledgementsPerCommit > capability.MaximumAcknowledgementsPerCommit
                 || consumer.Definition.Limits.MaximumAcknowledgementRequestBytes > capability.MaximumEvidenceBytes

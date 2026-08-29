@@ -29,7 +29,7 @@ internal static partial class AuthCleanupAdvanceOperationV1
     {
         Id = "hpd.auth.cleanup.advance.v1", Version = 1,
         OwningModuleId = AuthBaseContract.ModuleId, GrantId = "auth.operation.cleanup.advance",
-        Audience = BaseModuleMutationAudience.Service,
+        Audience = BaseModuleMutationAudience.System,
         RequestTypeId = "hpd.auth.type.auth-cleanup-advance-v1.v1",
         ResultTypeId = "hpd.auth.type.auth-cleanup-mutation-result-v1.v1",
         SystemCollectionIds = [AuthCleanupWorkRecordV1.Collection.Id],

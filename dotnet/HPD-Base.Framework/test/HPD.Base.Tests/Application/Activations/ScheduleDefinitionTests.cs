@@ -103,7 +103,7 @@ public sealed class ScheduleDefinitionTests
             {
                 Enqueue = "test.activation.enqueue", Observe = "test.activation.observe", Claim = "test.activation.claim",
                 Execute = "test.activation.execute", Renew = "test.activation.renew", Complete = "test.activation.complete",
-                Fail = "test.activation.fail", Cancel = "test.activation.cancel", Inspect = "test.activation.inspect",
+                Fail = "test.activation.fail", Yield = "test.activation.yield", Cancel = "test.activation.cancel", Inspect = "test.activation.inspect",
                 Replay = "test.activation.replay", Migrate = "test.activation.migrate", Reconcile = "test.activation.reconcile",
                 Retry = "test.activation.retry", Dispose = "test.activation.dispose", Remove = "test.activation.remove",
                 Repair = "test.activation.repair",
@@ -112,10 +112,15 @@ public sealed class ScheduleDefinitionTests
             Retry = new BaseActivationRetryProfile { MaximumAttempts = 1, InitialDelayMilliseconds = 1,
                 MaximumDelayMilliseconds = 1, MultiplierNumerator = 1, MultiplierDenominator = 1,
                 JitterBasisPoints = 0, RetryableFailureCodes = [] },
+            ReceiptRetention = new BaseActivationReceiptRetentionPolicy
+            {
+                FormatVersion = 1, DuplicateResolutionLifetime = TimeSpan.FromHours(24),
+                ProtectedBackupCoverage = BaseActivationProtectedBackupCoverage.NotRequired,
+            },
             Limits = new BaseActivationLimits
             {
-                MaximumInputBytes = 256, MaximumResultBytes = 256, MaximumAttempts = 1,
-                MaximumRenewalsPerAttempt = 1, MaximumChildrenPerAttempt = 1, MaximumLineageDepth = 1,
+                MaximumInputBytes = 256, MaximumResultBytes = 256, MaximumAttempts = 1, MaximumYields = 0,
+                MaximumRenewalsPerSlice = 1, MaximumChildrenPerSlice = 1, MaximumLineageDepth = 1,
                 LeaseDuration = TimeSpan.FromSeconds(5), HandlerTimeout = TimeSpan.FromSeconds(5),
                 Provider = ProviderLimits(), AtomicCreation = AtomicLimits(),
             },
@@ -150,7 +155,7 @@ internal sealed class ScheduleTestHandler : IBaseActivationHandler<ScheduleTestI
 {
     public ValueTask<BaseActivationHandlerResult<ScheduleTestResult>> ExecuteAsync(
         BaseActivationContext context, ScheduleTestInput input, CancellationToken cancellationToken) =>
-        ValueTask.FromResult(new BaseActivationHandlerResult<ScheduleTestResult>
+        ValueTask.FromResult<BaseActivationHandlerResult<ScheduleTestResult>>(new BaseActivationSucceeded<ScheduleTestResult>
         { Result = new ScheduleTestResult { Value = input.Value } });
 }
 [BaseActivationDtoAuthority("test.schedule.dto", 1, "test.module", "test.schedule.input", "test.schedule.result",

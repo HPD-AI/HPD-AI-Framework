@@ -50,6 +50,8 @@ internal static class BaseSubjectFailureContract
         BaseSubjectErrorCodes.LifecycleCommitIndeterminate => New(code, "The subject lifecycle commit outcome is indeterminate.", ErrorCategory.Store),
         BaseSubjectErrorCodes.MaintenanceRequired => New(code, "Subject lifecycle maintenance must complete before this operation.", ErrorCategory.Capability),
         BaseSubjectErrorCodes.ScopeProtectionRotationConflict => New(code, "The subject scope-protection rotation conflicts with current authority.", ErrorCategory.Conflict),
+        "base.activation.guardRequired" => New(code, "An activation guard is required for this subject lifecycle operation.", ErrorCategory.Conflict),
+        "base.activation.guardInvalid" => New(code, "The activation guard is not valid for this subject lifecycle operation.", ErrorCategory.Conflict),
         _ => New(BaseSubjectErrorCodes.ProviderContractInvalid, "The subject validation provider returned an invalid result.", ErrorCategory.Store),
     };
 
@@ -60,7 +62,7 @@ internal static class BaseSubjectFailureContract
         {
             BaseSubjectErrorCodes.ValidationUnavailable or BaseSubjectErrorCodes.GuaranteeUnavailable or BaseSubjectErrorCodes.LifecycleReconciliationUnavailable or BaseSubjectErrorCodes.LifecycleProviderContractInvalid or BaseSubjectErrorCodes.MaintenanceRequired => OperationStatus.CapabilityUnavailable,
             BaseSubjectErrorCodes.BudgetExceeded or BaseSubjectErrorCodes.ContractInvalid or BaseSubjectErrorCodes.ReferenceInvalid or BaseSubjectErrorCodes.LifecycleContractInvalid or BaseSubjectErrorCodes.CursorInvalid => OperationStatus.ValidationFailed,
-            BaseSubjectErrorCodes.SchemaGenerationChanged or BaseSubjectErrorCodes.TransactionConflict or BaseSubjectErrorCodes.ReceiptMismatch or BaseSubjectErrorCodes.RegistrationConflict or BaseSubjectErrorCodes.LifecycleRegistrationConflict or BaseSubjectErrorCodes.LifecycleTransitionInvalid or BaseSubjectErrorCodes.SequenceExhausted or BaseSubjectErrorCodes.LifetimeGenerationExhausted or BaseSubjectErrorCodes.CursorExpired or BaseSubjectErrorCodes.CursorOvertaken or BaseSubjectErrorCodes.ScopeProtectionRotationConflict => OperationStatus.Conflict,
+            BaseSubjectErrorCodes.SchemaGenerationChanged or BaseSubjectErrorCodes.TransactionConflict or BaseSubjectErrorCodes.ReceiptMismatch or BaseSubjectErrorCodes.RegistrationConflict or BaseSubjectErrorCodes.LifecycleRegistrationConflict or BaseSubjectErrorCodes.LifecycleTransitionInvalid or BaseSubjectErrorCodes.SequenceExhausted or BaseSubjectErrorCodes.LifetimeGenerationExhausted or BaseSubjectErrorCodes.CursorExpired or BaseSubjectErrorCodes.CursorOvertaken or BaseSubjectErrorCodes.ScopeProtectionRotationConflict or "base.activation.guardRequired" or "base.activation.guardInvalid" => OperationStatus.Conflict,
             BaseSubjectErrorCodes.LifecycleUnauthorized or BaseSubjectErrorCodes.CursorScopeMismatch or BaseSubjectErrorCodes.ScopeAuthorityInvalid => OperationStatus.PolicyDenied,
             BaseSubjectErrorCodes.ProviderContractInvalid or BaseSubjectErrorCodes.CommitIndeterminate or BaseSubjectErrorCodes.LifecycleCapacityExceeded or BaseSubjectErrorCodes.LifecycleIncarnationUnavailable or BaseSubjectErrorCodes.Timeout or BaseSubjectErrorCodes.LifecycleCommitIndeterminate => OperationStatus.StoreError,
             _ => (OperationStatus)(-1),

@@ -89,7 +89,19 @@ public static class AuthBaseModule
                 Audience = HPDBaseEndpointAudience.Application,
                 MaximumResults = 1,
             })
+            .AddSubjectAcquisition(new BaseSubjectAcquisitionDefinition
+            {
+                Id = "hpd.auth.role-subject.acquire.v1",
+                Version = 1,
+                ContractId = "hpd.auth.role-subject",
+                ContractVersion = 1,
+                RegisteredReadId = "auth.read.roleSubject.acquire.v1",
+                RequiredGrantId = "auth.subject.role.acquire",
+                Audience = HPDBaseEndpointAudience.Application,
+                MaximumResults = 1,
+            })
             .AddRead(AuthUserSubjectAcquisitionReadV1.Definition)
+            .AddRead(AuthRoleSubjectAcquisitionReadV1.Definition)
             .AddRead(AuthUserByIdReadV1.Definition)
             .AddRead(AuthUserByNormalizedNameReadV1.Definition)
             .AddRead(AuthUserByNormalizedEmailReadV1.Definition)

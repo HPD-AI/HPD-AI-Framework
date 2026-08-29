@@ -82,6 +82,7 @@ public sealed class BaseSchemaCommandHostTests
             BaselineId = "baseline",
             Checksum = "checksum",
             State = BaseSchemaMigrationState.Ready,
+            SubjectTombstoneMetadata = [],
         });
 
         public ValueTask<OperationResult<BaseSchemaPlan>> PlanAsync(BaseSchemaPlanRequest request, CancellationToken cancellationToken = default) =>

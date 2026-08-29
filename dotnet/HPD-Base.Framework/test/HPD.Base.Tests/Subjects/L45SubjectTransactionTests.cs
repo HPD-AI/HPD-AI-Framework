@@ -13,6 +13,62 @@ namespace HPD.Base.Tests.Subjects;
 public sealed class L45SubjectTransactionTests
 {
     [Fact]
+    public async Task L75_runtime_owns_tombstone_metadata_and_required_final_paths_reject_ordinary_sessions()
+    {
+        await using SubjectFixture fixture = Build(
+            retirement: true,
+            finalRetirementMode: BaseSubjectFinalExecutionMode.ActivationGuardRequired,
+            finalPurgeMode: BaseSubjectFinalExecutionMode.ActivationGuardRequired);
+        IBaseRecordRuntime records = fixture.Services.GetRequiredService<IBaseRecordRuntime>();
+        PrincipalContext principal = Principal();
+        OperationResult<RecordEnvelope> hostileCreate = await records.CreateAsync(
+            Private.Id, Create("hostile-l75", ("active", true), ("tenant", "tenant-a"), ("tombstoneSequence", 9L)),
+            principal, Operation(BaseOperationKind.Create, Private.Id));
+        Assert.Equal("base.subjectLifecycle.tombstoneMetadataInvalid", hostileCreate.Error?.Code);
+        Assert.Equal(OperationStatus.NotFound, (await records.GetAsync(Private.Id, RecordId.Create("hostile-l75"), principal,
+            Operation(BaseOperationKind.Get, Private.Id))).Status);
+
+        RecordEnvelope created = (await records.CreateAsync(
+            Private.Id, Create("required-l75", ("active", true), ("tenant", "tenant-a")),
+            principal, Operation(BaseOperationKind.Create, Private.Id))).Value!;
+        Assert.Equal(0, created.Payload.Fields!["tombstoneSequence"].GetInt64());
+        Assert.False(created.Payload.Fields.ContainsKey("deletedAt"));
+        JsonElement encoded = await fixture.AcquireAsync("required-l75");
+        var subject = new BaseSubjectReference<UserSubject>(
+            BaseSubjectId.Create(encoded.GetProperty("subjectId").GetString()!, BaseSubjectIdKind.OrdinalString),
+            BaseSubjectAuthorityEpoch.Parse(encoded.GetProperty("authorityEpoch").GetString()!),
+            BaseSubjectIncarnation.Parse(encoded.GetProperty("incarnation").GetString()!));
+        BaseSession session = fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);
+        BaseExportedSubjectContract<UserSubject> exporter = session.GetExportedSubjectContract<UserSubject>(fixture.Registration);
+        BaseSubjectTombstoneResult<UserSubject> tombstoned = (await exporter.TombstoneAsync(new()
+        {
+            Subject = subject, ExpectedPrivateRevision = created.Metadata.Revision!.Value,
+            Identity = Identity("required-l75-tombstone"),
+        })).RequireValue();
+        RecordEnvelope current = (await records.GetAsync(Private.Id, RecordId.Create("required-l75"), principal,
+            Operation(BaseOperationKind.Get, Private.Id))).Value!;
+        BaseFailure<BaseSubjectFinalRetirementResult<UserSubject>> retirement = Assert.IsType<BaseFailure<BaseSubjectFinalRetirementResult<UserSubject>>>(
+            await exporter.FinalizeRetirementAsync(new()
+            {
+                Subject = subject, ExpectedTombstoneSequence = tombstoned.Fact.Fact.SubjectSequence,
+                ExpectedPrivateRevision = current.Metadata.Revision!.Value,
+                Identity = Identity("required-l75-retire"),
+            }));
+        Assert.Equal("base.activation.guardRequired", retirement.Error.Code);
+        BaseFailure<BaseSubjectFinalPurgeResult> purge = Assert.IsType<BaseFailure<BaseSubjectFinalPurgeResult>>(
+            await session.SubjectRetirements.PurgeAsync(new()
+            {
+                ContractId = fixture.Registration.Definition.Id, ContractVersion = fixture.Registration.Definition.Version,
+                SubjectId = subject.SubjectId, AuthorityEpoch = subject.AuthorityEpoch, Incarnation = subject.Incarnation,
+                ExpectedTombstoneSequence = tombstoned.Fact.Fact.SubjectSequence,
+                ExpectedPrivateRevision = current.Metadata.Revision!.Value,
+                ExpectedBarrierGeneration = 1, ExpectedBarrierChecksum = new string('0', 64),
+                Identity = Identity("required-l75-purge"),
+            }));
+        Assert.Equal("base.activation.guardRequired", purge.Error.Code);
+    }
+
+    [Fact]
     public async Task L48_tombstone_atomically_creates_the_required_consumer_barrier()
     {
         await using SubjectFixture fixture=Build(retirement:true);
@@ -21,8 +77,8 @@ public sealed class L45SubjectTransactionTests
         JsonElement encoded=await fixture.AcquireAsync("retirement-user");var reference=new BaseSubjectReference<UserSubject>(BaseSubjectId.Create(encoded.GetProperty("subjectId").GetString()!,BaseSubjectIdKind.OrdinalString),BaseSubjectAuthorityEpoch.Parse(encoded.GetProperty("authorityEpoch").GetString()!),BaseSubjectIncarnation.Parse(encoded.GetProperty("incarnation").GetString()!));
         RecordEnvelope current=(await records.GetAsync(Private.Id,RecordId.Create("retirement-user"),principal,Operation(BaseOperationKind.Get,Private.Id))).Value!;
         BaseSession session=fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);BaseExportedSubjectContract<UserSubject> exporter=session.GetExportedSubjectContract<UserSubject>(fixture.Registration);
-        BaseResult<BaseSubjectLifecycleFact<UserSubject>> tombstoned=await exporter.TombstoneAsync(new(){Subject=reference,ExpectedPrivateRevision=current.Metadata.Revision!.Value,Identity=BaseMutationRequestIdentity.Create("l48-tests","tombstone","barrier-create",BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("l48-barrier-create"u8)))});
-        Assert.True(tombstoned is BaseSuccess<BaseSubjectLifecycleFact<UserSubject>>,tombstoned is BaseFailure<BaseSubjectLifecycleFact<UserSubject>> failed?$"{failed.Error.Code}: {failed.Error.Message}":null);
+        BaseResult<BaseSubjectTombstoneResult<UserSubject>> tombstoned=await exporter.TombstoneAsync(new(){Subject=reference,ExpectedPrivateRevision=current.Metadata.Revision!.Value,Identity=BaseMutationRequestIdentity.Create("l48-tests","tombstone","barrier-create",BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("l48-barrier-create"u8)))});
+        Assert.True(tombstoned is BaseSuccess<BaseSubjectTombstoneResult<UserSubject>>,tombstoned is BaseFailure<BaseSubjectTombstoneResult<UserSubject>> failed?$"{failed.Error.Code}: {failed.Error.Message}":null);
         BaseSubjectRetirementPolicy policy=fixture.Services.GetRequiredService<BaseSubjectRetirementRegistry>().Policies.Single().Definition;
         OperationResult<BaseSubjectRetirementBarrierPage> page=await fixture.Store.ReadBarriersAsync(new(){ApplicationId="test.application",ContractId="example.user",ContractVersion=1,ScopeAuthority=new(){Mode=BaseSubjectScopeQueryMode.ExactScope,ExactScope=new(){Kind=BaseSubjectScopeKind.Tenant,Value="tenant-a"},InstalledAuthorityDigest=fixture.Registration.Checksum},Take=16,MaximumResultBytes=65_536,DeadlineUtc=DateTimeOffset.UtcNow.AddMinutes(1)});
         Assert.True(page.IsSuccess(),page.Error?.Code);BaseSubjectRetirementBarrier barrier=Assert.Single(page.Value!.Barriers).Barrier;
@@ -36,7 +92,7 @@ public sealed class L45SubjectTransactionTests
         var observer=new RetirementObserver();await using SubjectFixture fixture=Build(retirement:true,retirementObserver:observer);PrincipalContext principal=Principal();IBaseRecordRuntime records=fixture.Services.GetRequiredService<IBaseRecordRuntime>();
         Assert.True((await records.CreateAsync(Private.Id,Create("ack-user",("active",true),("tenant","tenant-a")),principal,Operation(BaseOperationKind.Create,Private.Id))).IsSuccess());
         JsonElement encoded=await fixture.AcquireAsync("ack-user");var reference=new BaseSubjectReference<UserSubject>(BaseSubjectId.Create(encoded.GetProperty("subjectId").GetString()!,BaseSubjectIdKind.OrdinalString),BaseSubjectAuthorityEpoch.Parse(encoded.GetProperty("authorityEpoch").GetString()!),BaseSubjectIncarnation.Parse(encoded.GetProperty("incarnation").GetString()!));RecordEnvelope current=(await records.GetAsync(Private.Id,RecordId.Create("ack-user"),principal,Operation(BaseOperationKind.Get,Private.Id))).Value!;
-        BaseSession session=fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);BaseExportedSubjectContract<UserSubject> exporter=session.GetExportedSubjectContract<UserSubject>(fixture.Registration);BaseResult<BaseSubjectLifecycleFact<UserSubject>> tombstone=await exporter.TombstoneAsync(new(){Subject=reference,ExpectedPrivateRevision=current.Metadata.Revision!.Value,Identity=Identity("ack-tombstone")});Assert.IsType<BaseSuccess<BaseSubjectLifecycleFact<UserSubject>>>(tombstone);
+        BaseSession session=fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);BaseExportedSubjectContract<UserSubject> exporter=session.GetExportedSubjectContract<UserSubject>(fixture.Registration);BaseResult<BaseSubjectTombstoneResult<UserSubject>> tombstone=await exporter.TombstoneAsync(new(){Subject=reference,ExpectedPrivateRevision=current.Metadata.Revision!.Value,Identity=Identity("ack-tombstone")});Assert.IsType<BaseSuccess<BaseSubjectTombstoneResult<UserSubject>>>(tombstone);
         BaseSubjectLifecycleConsumerDefinition lifecycle=LifecycleConsumer();var lifecycleIdentity=BaseGeneratedSubjectLifecycleConsumers.Register<UserSubject>(lifecycle,fixture.Registration);BaseSubjectRetirementConsumerDefinition retirement=RetirementConsumer(BaseSubjectLifecycleRegistry.Checksum(BaseSubjectLifecycleRegistry.Normalize(lifecycle),fixture.Registration.Checksum));var retirementIdentity=BaseGeneratedSubjectRetirementConsumers.Register(lifecycleIdentity,retirement);BaseInstalledSubjectRetirementConsumer<UserSubject> consumer=session.SubjectRetirements.Get(retirementIdentity);
         await fixture.Services.GetRequiredService<BaseSubjectRetirementControlDispatcher>().InitializeAsync(CancellationToken.None);
         Assert.Collection(observer.Notices,created=>Assert.Equal(BaseSubjectRetirementPublicationKind.BarrierCreated,created.Publication.Kind));
@@ -50,10 +106,12 @@ public sealed class L45SubjectTransactionTests
                 {
                     Claim = new BaseActivationClaimAuthority
                     {
-                        ActivationId = "missing-activation", AttemptNumber = 1, ClaimEpoch = 1,
+                        ActivationId = "missing-activation", AttemptNumber = 1, ActivationGeneration = 1, ClaimEpoch = 1,
                         FencingToken = new byte[32].ToImmutableArray(), WorkerIdentity = "worker",
                         CancellationGeneration = 0, StoreInstanceId = "missing-store", RestoreEpoch = 0,
                         DefinitionChecksum = new byte[32].ToImmutableArray(),
+                        ExecutionSliceOrdinal = 1, AttemptStartedAt = 1, SliceStartedAt = 1,
+                        YieldCount = 0, MaximumYields = 0,
                     },
                     StepId = "acknowledgement", ChildOrdinal = 1,
                     ChildRequestFingerprint = System.Security.Cryptography.SHA256.HashData("ignored-by-runtime"u8).ToImmutableArray(),
@@ -69,20 +127,20 @@ public sealed class L45SubjectTransactionTests
     [Fact]
     public async Task L48_required_evidence_denial_precedes_retirement_provider_influence()
     {
-        int inspections=0;await using SubjectFixture fixture=Build(retirement:true,retirementAcknowledgementAuthority:false,retirementInspectionStarted:()=>Interlocked.Increment(ref inspections));PrincipalContext principal=Principal();IBaseRecordRuntime records=fixture.Services.GetRequiredService<IBaseRecordRuntime>();Assert.True((await records.CreateAsync(Private.Id,Create("denied-ack",("active",true),("tenant","tenant-a")),principal,Operation(BaseOperationKind.Create,Private.Id))).IsSuccess());JsonElement encoded=await fixture.AcquireAsync("denied-ack");var reference=new BaseSubjectReference<UserSubject>(BaseSubjectId.Create(encoded.GetProperty("subjectId").GetString()!,BaseSubjectIdKind.OrdinalString),BaseSubjectAuthorityEpoch.Parse(encoded.GetProperty("authorityEpoch").GetString()!),BaseSubjectIncarnation.Parse(encoded.GetProperty("incarnation").GetString()!));RecordEnvelope current=(await records.GetAsync(Private.Id,RecordId.Create("denied-ack"),principal,Operation(BaseOperationKind.Get,Private.Id))).Value!;BaseSession session=fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);BaseExportedSubjectContract<UserSubject> exporter=session.GetExportedSubjectContract<UserSubject>(fixture.Registration);Assert.IsType<BaseSuccess<BaseSubjectLifecycleFact<UserSubject>>>(await exporter.TombstoneAsync(new(){Subject=reference,ExpectedPrivateRevision=current.Metadata.Revision!.Value,Identity=Identity("denied-tombstone")}));BaseSubjectLifecycleConsumerDefinition lifecycle=LifecycleConsumer();var lifecycleIdentity=BaseGeneratedSubjectLifecycleConsumers.Register<UserSubject>(lifecycle,fixture.Registration);BaseSubjectRetirementConsumerDefinition retirement=RetirementConsumer(BaseSubjectLifecycleRegistry.Checksum(BaseSubjectLifecycleRegistry.Normalize(lifecycle),fixture.Registration.Checksum));var retirementIdentity=BaseGeneratedSubjectRetirementConsumers.Register(lifecycleIdentity,retirement);BaseInstalledSubjectRetirementConsumer<UserSubject> consumer=session.SubjectRetirements.Get(retirementIdentity);await using IAsyncEnumerator<BaseSubjectRequiredLifecycleDelivery<UserSubject>> deliveries=consumer.ReadRequiredAsync().GetAsyncEnumerator();BaseOperationException denied=await Assert.ThrowsAsync<BaseOperationException>(async()=>await deliveries.MoveNextAsync().AsTask());Assert.Equal(BaseSubjectRetirementErrorCodes.Unauthorized,denied.Error.Code);Assert.Equal(0,Volatile.Read(ref inspections));
+        int inspections=0;await using SubjectFixture fixture=Build(retirement:true,retirementAcknowledgementAuthority:false,retirementInspectionStarted:()=>Interlocked.Increment(ref inspections));PrincipalContext principal=Principal();IBaseRecordRuntime records=fixture.Services.GetRequiredService<IBaseRecordRuntime>();Assert.True((await records.CreateAsync(Private.Id,Create("denied-ack",("active",true),("tenant","tenant-a")),principal,Operation(BaseOperationKind.Create,Private.Id))).IsSuccess());JsonElement encoded=await fixture.AcquireAsync("denied-ack");var reference=new BaseSubjectReference<UserSubject>(BaseSubjectId.Create(encoded.GetProperty("subjectId").GetString()!,BaseSubjectIdKind.OrdinalString),BaseSubjectAuthorityEpoch.Parse(encoded.GetProperty("authorityEpoch").GetString()!),BaseSubjectIncarnation.Parse(encoded.GetProperty("incarnation").GetString()!));RecordEnvelope current=(await records.GetAsync(Private.Id,RecordId.Create("denied-ack"),principal,Operation(BaseOperationKind.Get,Private.Id))).Value!;BaseSession session=fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);BaseExportedSubjectContract<UserSubject> exporter=session.GetExportedSubjectContract<UserSubject>(fixture.Registration);Assert.IsType<BaseSuccess<BaseSubjectTombstoneResult<UserSubject>>>(await exporter.TombstoneAsync(new(){Subject=reference,ExpectedPrivateRevision=current.Metadata.Revision!.Value,Identity=Identity("denied-tombstone")}));BaseSubjectLifecycleConsumerDefinition lifecycle=LifecycleConsumer();var lifecycleIdentity=BaseGeneratedSubjectLifecycleConsumers.Register<UserSubject>(lifecycle,fixture.Registration);BaseSubjectRetirementConsumerDefinition retirement=RetirementConsumer(BaseSubjectLifecycleRegistry.Checksum(BaseSubjectLifecycleRegistry.Normalize(lifecycle),fixture.Registration.Checksum));var retirementIdentity=BaseGeneratedSubjectRetirementConsumers.Register(lifecycleIdentity,retirement);BaseInstalledSubjectRetirementConsumer<UserSubject> consumer=session.SubjectRetirements.Get(retirementIdentity);await using IAsyncEnumerator<BaseSubjectRequiredLifecycleDelivery<UserSubject>> deliveries=consumer.ReadRequiredAsync().GetAsyncEnumerator();BaseOperationException denied=await Assert.ThrowsAsync<BaseOperationException>(async()=>await deliveries.MoveNextAsync().AsTask());Assert.Equal(BaseSubjectRetirementErrorCodes.Unauthorized,denied.Error.Code);Assert.Equal(0,Volatile.Read(ref inspections));
     }
 
     [Fact]
     public async Task L48_startup_reconciliation_retries_only_the_incomplete_observer()
     {
-        await using SubjectFixture fixture=Build(retirement:true);PrincipalContext principal=Principal();IBaseRecordRuntime records=fixture.Services.GetRequiredService<IBaseRecordRuntime>();Assert.True((await records.CreateAsync(Private.Id,Create("startup-control",("active",true),("tenant","tenant-a")),principal,Operation(BaseOperationKind.Create,Private.Id))).IsSuccess());JsonElement encoded=await fixture.AcquireAsync("startup-control");var reference=new BaseSubjectReference<UserSubject>(BaseSubjectId.Create(encoded.GetProperty("subjectId").GetString()!,BaseSubjectIdKind.OrdinalString),BaseSubjectAuthorityEpoch.Parse(encoded.GetProperty("authorityEpoch").GetString()!),BaseSubjectIncarnation.Parse(encoded.GetProperty("incarnation").GetString()!));RecordEnvelope current=(await records.GetAsync(Private.Id,RecordId.Create("startup-control"),principal,Operation(BaseOperationKind.Get,Private.Id))).Value!;BaseSession session=fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);BaseExportedSubjectContract<UserSubject> exporter=session.GetExportedSubjectContract<UserSubject>(fixture.Registration);Assert.IsType<BaseSuccess<BaseSubjectLifecycleFact<UserSubject>>>(await exporter.TombstoneAsync(new(){Subject=reference,ExpectedPrivateRevision=current.Metadata.Revision!.Value,Identity=Identity("startup-control")}));
+        await using SubjectFixture fixture=Build(retirement:true);PrincipalContext principal=Principal();IBaseRecordRuntime records=fixture.Services.GetRequiredService<IBaseRecordRuntime>();Assert.True((await records.CreateAsync(Private.Id,Create("startup-control",("active",true),("tenant","tenant-a")),principal,Operation(BaseOperationKind.Create,Private.Id))).IsSuccess());JsonElement encoded=await fixture.AcquireAsync("startup-control");var reference=new BaseSubjectReference<UserSubject>(BaseSubjectId.Create(encoded.GetProperty("subjectId").GetString()!,BaseSubjectIdKind.OrdinalString),BaseSubjectAuthorityEpoch.Parse(encoded.GetProperty("authorityEpoch").GetString()!),BaseSubjectIncarnation.Parse(encoded.GetProperty("incarnation").GetString()!));RecordEnvelope current=(await records.GetAsync(Private.Id,RecordId.Create("startup-control"),principal,Operation(BaseOperationKind.Get,Private.Id))).Value!;BaseSession session=fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);BaseExportedSubjectContract<UserSubject> exporter=session.GetExportedSubjectContract<UserSubject>(fixture.Registration);Assert.IsType<BaseSuccess<BaseSubjectTombstoneResult<UserSubject>>>(await exporter.TombstoneAsync(new(){Subject=reference,ExpectedPrivateRevision=current.Metadata.Revision!.Value,Identity=Identity("startup-control")}));
         var completed=new RetirementObserver();var late=new FailOnceRetirementObserver();await using var dispatcher=new BaseSubjectRetirementControlDispatcher(fixture.Services.GetRequiredService<IRecordStoreRegistry>(),[completed,late]);await Assert.ThrowsAsync<InvalidOperationException>(async()=>await dispatcher.InitializeAsync(CancellationToken.None));await dispatcher.ReconcileAsync(CancellationToken.None);Assert.Single(completed.Notices);Assert.Single(late.Notices);Assert.Equal(2,late.Attempts);
     }
 
     [Fact]
     public async Task L48_timeout_quarantines_and_identified_override_advances_once()
     {
-        var clock=new LifecycleTimeProvider(new DateTimeOffset(2030,1,1,0,0,0,TimeSpan.Zero));await using SubjectFixture fixture=Build(retirement:true,timeProvider:clock);PrincipalContext principal=Principal();IBaseRecordRuntime records=fixture.Services.GetRequiredService<IBaseRecordRuntime>();Assert.True((await records.CreateAsync(Private.Id,Create("timeout-user",("active",true),("tenant","tenant-a")),principal,Operation(BaseOperationKind.Create,Private.Id))).IsSuccess());JsonElement encoded=await fixture.AcquireAsync("timeout-user");var reference=new BaseSubjectReference<UserSubject>(BaseSubjectId.Create(encoded.GetProperty("subjectId").GetString()!,BaseSubjectIdKind.OrdinalString),BaseSubjectAuthorityEpoch.Parse(encoded.GetProperty("authorityEpoch").GetString()!),BaseSubjectIncarnation.Parse(encoded.GetProperty("incarnation").GetString()!));RecordEnvelope current=(await records.GetAsync(Private.Id,RecordId.Create("timeout-user"),principal,Operation(BaseOperationKind.Get,Private.Id))).Value!;BaseSession session=fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);Assert.IsType<BaseSuccess<BaseSubjectLifecycleFact<UserSubject>>>(await session.GetExportedSubjectContract<UserSubject>(fixture.Registration).TombstoneAsync(new(){Subject=reference,ExpectedPrivateRevision=current.Metadata.Revision!.Value,Identity=Identity("timeout-tombstone")}));
+        var clock=new LifecycleTimeProvider(new DateTimeOffset(2030,1,1,0,0,0,TimeSpan.Zero));await using SubjectFixture fixture=Build(retirement:true,timeProvider:clock);PrincipalContext principal=Principal();IBaseRecordRuntime records=fixture.Services.GetRequiredService<IBaseRecordRuntime>();Assert.True((await records.CreateAsync(Private.Id,Create("timeout-user",("active",true),("tenant","tenant-a")),principal,Operation(BaseOperationKind.Create,Private.Id))).IsSuccess());JsonElement encoded=await fixture.AcquireAsync("timeout-user");var reference=new BaseSubjectReference<UserSubject>(BaseSubjectId.Create(encoded.GetProperty("subjectId").GetString()!,BaseSubjectIdKind.OrdinalString),BaseSubjectAuthorityEpoch.Parse(encoded.GetProperty("authorityEpoch").GetString()!),BaseSubjectIncarnation.Parse(encoded.GetProperty("incarnation").GetString()!));RecordEnvelope current=(await records.GetAsync(Private.Id,RecordId.Create("timeout-user"),principal,Operation(BaseOperationKind.Get,Private.Id))).Value!;BaseSession session=fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);Assert.IsType<BaseSuccess<BaseSubjectTombstoneResult<UserSubject>>>(await session.GetExportedSubjectContract<UserSubject>(fixture.Registration).TombstoneAsync(new(){Subject=reference,ExpectedPrivateRevision=current.Metadata.Revision!.Value,Identity=Identity("timeout-tombstone")}));
         BaseSubjectRetirementBarrier barrier=Assert.Single((await fixture.Store.ReadBarriersAsync(new(){ApplicationId="test.application",ContractId="example.user",ContractVersion=1,ScopeAuthority=new(){Mode=BaseSubjectScopeQueryMode.ExactScope,ExactScope=new(){Kind=BaseSubjectScopeKind.Tenant,Value="tenant-a"},InstalledAuthorityDigest=fixture.Registration.Checksum},Take=4,MaximumResultBytes=65_536,DeadlineUtc=clock.GetUtcNow().AddMinutes(1)})).Value!.Barriers).Barrier;clock.Advance(TimeSpan.FromHours(1)+TimeSpan.FromTicks(1));BaseSubjectRetirementPolicy policy=fixture.Services.GetRequiredService<BaseSubjectRetirementRegistry>().Policies.Single().Definition;
         var timeoutRequest=new BaseSubjectRetirementTimeoutRequest{ContractId="example.user",ContractVersion=1,SubjectId=reference.SubjectId,AuthorityEpoch=reference.AuthorityEpoch,Incarnation=reference.Incarnation,ExpectedBarrierGeneration=barrier.Generation,ExpectedBarrierChecksum=barrier.BarrierChecksum,Identity=Identity("timeout")};var timeoutProcessor=new BaseSubjectRetirementTimeoutProcessor(new(){Request=timeoutRequest,Scope=new(){Kind=BaseSubjectScopeKind.Tenant,Value="tenant-a"},RetirementPolicyChecksum=policy.PolicyChecksum,ObservedAtUtc=clock.GetUtcNow()});RecordMutationExecutionResult timeout=await fixture.Store.ExecuteAsync(timeoutProcessor,Execution(timeoutRequest.Identity,"timeout",clock));Assert.Equal(RecordMutationExecutionOutcome.Committed,timeout.Outcome);Assert.Equal(BaseSubjectRetirementBarrierState.Quarantined,timeoutProcessor.Result!.State);Assert.Equal(2,timeoutProcessor.Result.Generation);
         var overrideRequest=new BaseSubjectRetirementOverrideRequest{ContractId="example.user",ContractVersion=1,SubjectId=reference.SubjectId,AuthorityEpoch=reference.AuthorityEpoch,Incarnation=reference.Incarnation,ExpectedTombstoneSequence=barrier.TombstoneSequence,ExpectedBarrierGeneration=timeoutProcessor.Result.Generation,ExpectedBarrierChecksum=timeoutProcessor.Result.BarrierChecksum,Intent="override-subject-retirement-barrier",ChangeReference="CHG-42",Identity=Identity("override")};var overrideProcessor=new BaseSubjectRetirementOverrideProcessor(new(){Request=overrideRequest,Scope=new(){Kind=BaseSubjectScopeKind.Tenant,Value="tenant-a"},RetirementPolicyChecksum=policy.PolicyChecksum,ObservedAtUtc=clock.GetUtcNow()});RecordMutationExecutionResult overridden=await fixture.Store.ExecuteAsync(overrideProcessor,Execution(overrideRequest.Identity,"override",clock));Assert.Equal(RecordMutationExecutionOutcome.Committed,overridden.Outcome);Assert.Equal(3,overrideProcessor.Result!.Generation);
@@ -254,7 +312,7 @@ public sealed class L45SubjectTransactionTests
         BaseSession lifecycleSession = fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);
         BaseExportedSubjectContract<UserSubject> exporter = lifecycleSession.GetExportedSubjectContract<UserSubject>(fixture.Registration);
         RecordEnvelope beforeTombstone = (await runtime.GetAsync(Private.Id, RecordId.Create("user-1"), principal, Operation(BaseOperationKind.Get, Private.Id))).Value!;
-        BaseSubjectLifecycleFact<UserSubject> tombstone = (await exporter.TombstoneAsync(new()
+        BaseSubjectTombstoneResult<UserSubject> tombstone = (await exporter.TombstoneAsync(new()
         {
             Subject = typedFirstReference, ExpectedPrivateRevision = beforeTombstone.Metadata.Revision!.Value,
             Identity = BaseMutationRequestIdentity.Create("l47-tests", "tombstone", "stale-user-1", BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("stale-tombstone-user-1"u8))),
@@ -262,7 +320,7 @@ public sealed class L45SubjectTransactionTests
         RecordEnvelope beforeRetirement = (await runtime.GetAsync(Private.Id, RecordId.Create("user-1"), principal, Operation(BaseOperationKind.Get, Private.Id))).Value!;
         BaseResult<BaseSubjectFinalRetirementResult<UserSubject>> retirement = await exporter.FinalizeRetirementAsync(new()
         {
-            Subject = typedFirstReference, ExpectedTombstoneSequence = tombstone.Fact.SubjectSequence,
+            Subject = typedFirstReference, ExpectedTombstoneSequence = tombstone.Fact.Fact.SubjectSequence,
             ExpectedPrivateRevision = beforeRetirement.Metadata.Revision!.Value,
             Identity = BaseMutationRequestIdentity.Create("l47-tests", "retire", "stale-user-1", BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("stale-retire-user-1"u8))),
         });
@@ -396,14 +454,21 @@ public sealed class L45SubjectTransactionTests
             Operation(BaseOperationKind.Get, Private.Id))).Value!;
         BaseSession session = fixture.Services.GetRequiredService<IBaseSessionFactory>().For(principal);
         BaseExportedSubjectContract<UserSubject> exporter = session.GetExportedSubjectContract<UserSubject>(fixture.Registration);
-        BaseResult<BaseSubjectLifecycleFact<UserSubject>> tombstoned = await exporter.TombstoneAsync(new()
+        BaseResult<BaseSubjectTombstoneResult<UserSubject>> tombstoned = await exporter.TombstoneAsync(new()
         {
             Subject = subjectReference,
             ExpectedPrivateRevision = beforeTombstone.Metadata.Revision!.Value,
             Identity = BaseMutationRequestIdentity.Create("l47-tests", "tombstone", "user-1", BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("tombstone-user-1"u8))),
         });
-        Assert.True(tombstoned is BaseSuccess<BaseSubjectLifecycleFact<UserSubject>>, (tombstoned as BaseFailure<BaseSubjectLifecycleFact<UserSubject>>)?.Error.Code);
-        Assert.Equal(BaseSubjectLifecycleState.Tombstoned, tombstoned.RequireValue().Fact.Transitioned!.CurrentState);
+        Assert.True(tombstoned is BaseSuccess<BaseSubjectTombstoneResult<UserSubject>>, (tombstoned as BaseFailure<BaseSubjectTombstoneResult<UserSubject>>)?.Error.Code);
+        Assert.Equal(BaseSubjectLifecycleState.Tombstoned, tombstoned.RequireValue().Fact.Fact.Transitioned!.CurrentState);
+        RecordEnvelope persistedTombstone = (await runtime.GetAsync(Private.Id, RecordId.Create("user-1"), principal,
+            Operation(BaseOperationKind.Get, Private.Id))).Value!;
+        Assert.Equal(tombstoned.RequireValue().Fact.Fact.SubjectSequence,
+            persistedTombstone.Payload.Fields!["tombstoneSequence"].GetInt64());
+        Assert.Equal(tombstoned.RequireValue().TombstonedAt,
+            persistedTombstone.Payload.Fields["deletedAt"].GetDateTimeOffset());
+        Assert.Equal(tombstoned.RequireValue().PrivateRevision, persistedTombstone.Metadata.Revision);
 
         BaseSubjectLifecycleConsumerDefinition consumer = LifecycleConsumer();
         OperationResult<BaseSubjectLifecycleProviderPage> page = await fixture.Store.ReadAsync(new BaseSubjectLifecycleProviderReadRequest
@@ -457,10 +522,12 @@ public sealed class L45SubjectTransactionTests
             {
                 Claim = new BaseActivationClaimAuthority
                 {
-                    ActivationId = "missing-activation", AttemptNumber = 1, ClaimEpoch = 1,
+                    ActivationId = "missing-activation", AttemptNumber = 1, ActivationGeneration = 1, ClaimEpoch = 1,
                     FencingToken = new byte[32].ToImmutableArray(), WorkerIdentity = "worker",
                     CancellationGeneration = 0, StoreInstanceId = "missing-store",
                     RestoreEpoch = 0, DefinitionChecksum = new byte[32].ToImmutableArray(),
+                    ExecutionSliceOrdinal = 1, AttemptStartedAt = 1, SliceStartedAt = 1,
+                    YieldCount = 0, MaximumYields = 0,
                 },
                 StepId = "checkpoint", ChildOrdinal = 1,
                 ChildRequestFingerprint = guardedFingerprint.ToImmutableArray(),
@@ -1288,20 +1355,20 @@ public sealed class L45SubjectTransactionTests
                 Operation(BaseOperationKind.Get, privateCollection.Id))).Value!;
             BaseMutationRequestIdentity tombstoneIdentity = BaseMutationRequestIdentity.Create("l47-sqlite", "tombstone", "user-1", BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("l47-sqlite-tombstone"u8)));
             BaseExportedSubjectContract<L45SqliteUserSubject> exporter = L45SqliteUserSubject.Contract(session);
-            BaseResult<BaseSubjectLifecycleFact<L45SqliteUserSubject>> tombstoned = await exporter.TombstoneAsync(new()
+            BaseResult<BaseSubjectTombstoneResult<L45SqliteUserSubject>> tombstoned = await exporter.TombstoneAsync(new()
             {
                 Subject = typedReference,
                 ExpectedPrivateRevision = beforeTombstone.Metadata.Revision!.Value,
                 Identity = tombstoneIdentity,
             });
-            Assert.Equal(BaseSubjectLifecycleState.Tombstoned, tombstoned.RequireValue().Fact.Transitioned!.CurrentState);
-            BaseResult<BaseSubjectLifecycleFact<L45SqliteUserSubject>> tombstoneReplay = await exporter.TombstoneAsync(new()
+            Assert.Equal(BaseSubjectLifecycleState.Tombstoned, tombstoned.RequireValue().Fact.Fact.Transitioned!.CurrentState);
+            BaseResult<BaseSubjectTombstoneResult<L45SqliteUserSubject>> tombstoneReplay = await exporter.TombstoneAsync(new()
             {
                 Subject = typedReference,
                 ExpectedPrivateRevision = beforeTombstone.Metadata.Revision!.Value,
                 Identity = tombstoneIdentity,
             });
-            Assert.Equal(tombstoned.RequireValue().Fact.SubjectSequence, tombstoneReplay.RequireValue().Fact.SubjectSequence);
+            Assert.Equal(tombstoned.RequireValue().Fact.Fact.SubjectSequence, tombstoneReplay.RequireValue().Fact.Fact.SubjectSequence);
 
             RecordEnvelope beforeRetirement = (await runtime.GetAsync(privateCollection.Id, RecordId.Create("user-1"), principal,
                 Operation(BaseOperationKind.Get, privateCollection.Id))).Value!;
@@ -1309,7 +1376,7 @@ public sealed class L45SubjectTransactionTests
             BaseResult<BaseSubjectFinalRetirementResult<L45SqliteUserSubject>> retired = await exporter.FinalizeRetirementAsync(new()
             {
                 Subject = typedReference,
-                ExpectedTombstoneSequence = tombstoned.RequireValue().Fact.SubjectSequence,
+                ExpectedTombstoneSequence = tombstoned.RequireValue().Fact.Fact.SubjectSequence,
                 ExpectedPrivateRevision = beforeRetirement.Metadata.Revision!.Value,
                 Identity = retirementIdentity,
             });
@@ -1318,7 +1385,7 @@ public sealed class L45SubjectTransactionTests
             BaseResult<BaseSubjectFinalRetirementResult<L45SqliteUserSubject>> retirementReplay = await exporter.FinalizeRetirementAsync(new()
             {
                 Subject = typedReference,
-                ExpectedTombstoneSequence = tombstoned.RequireValue().Fact.SubjectSequence,
+                ExpectedTombstoneSequence = tombstoned.RequireValue().Fact.Fact.SubjectSequence,
                 ExpectedPrivateRevision = beforeRetirement.Metadata.Revision!.Value,
                 Identity = retirementIdentity,
             });
@@ -1884,10 +1951,10 @@ public sealed class L45SubjectTransactionTests
         await transaction.CommitAsync();
     }
 
-    private static SubjectFixture Build(bool lifecycleConsumer = false, string? allScopeInspectionDigest = null, Func<int, CancellationToken, ValueTask>? lifecycleMaintenancePageCompleted = null, bool scopeRotationKeys = false, TimeSpan? lifecycleReadTimeout = null, BaseSubjectLifecycleConsumerDefinition[]? lifecycleConsumers = null, TimeProvider? timeProvider = null, bool retirement = false, bool retirementAcknowledgementAuthority=true, Action? retirementInspectionStarted=null,IBaseSubjectRetirementControlObserver? retirementObserver=null)
+    private static SubjectFixture Build(bool lifecycleConsumer = false, string? allScopeInspectionDigest = null, Func<int, CancellationToken, ValueTask>? lifecycleMaintenancePageCompleted = null, bool scopeRotationKeys = false, TimeSpan? lifecycleReadTimeout = null, BaseSubjectLifecycleConsumerDefinition[]? lifecycleConsumers = null, TimeProvider? timeProvider = null, bool retirement = false, bool retirementAcknowledgementAuthority=true, Action? retirementInspectionStarted=null,IBaseSubjectRetirementControlObserver? retirementObserver=null, BaseSubjectFinalExecutionMode finalRetirementMode = BaseSubjectFinalExecutionMode.OrdinaryOrActivationGuarded, BaseSubjectFinalExecutionMode finalPurgeMode = BaseSubjectFinalExecutionMode.OrdinaryOrActivationGuarded)
     {
         timeProvider ??= TimeProvider.System;
-        BaseGeneratedSubjectRegistration registration = BaseGeneratedSubjects.Register<UserSubject>(SubjectDefinition(retirement));
+        BaseGeneratedSubjectRegistration registration = BaseGeneratedSubjects.Register<UserSubject>(SubjectDefinition(retirement, finalRetirementMode));
         BaseExportedSubjectDefinition subject = registration.Definition;
         CollectionDefinition[] collections = [Private, Consumer with
         {
@@ -1903,7 +1970,7 @@ public sealed class L45SubjectTransactionTests
         {
             string lifecycleChecksum=BaseSubjectLifecycleRegistry.Checksum(BaseSubjectLifecycleRegistry.Normalize(installedLifecycleConsumers.Single()),registration.Checksum);
             BaseSubjectRetirementConsumerDefinition consumer=RetirementConsumer(lifecycleChecksum);string consumerChecksum=BaseSubjectRetirementRegistry.ConsumerChecksum(BaseSubjectRetirementRegistry.Normalize(consumer));
-            BaseSubjectRetirementPolicy policy=RetirementPolicy(consumer,consumerChecksum);policy=policy with{PolicyChecksum=BaseSubjectRetirementRegistry.PolicyChecksum(policy with{PolicyChecksum=string.Empty})};
+            BaseSubjectRetirementPolicy policy=RetirementPolicy(consumer,consumerChecksum,finalPurgeMode);policy=policy with{PolicyChecksum=BaseSubjectRetirementRegistry.PolicyChecksum(policy with{PolicyChecksum=string.Empty})};
             retirementConsumers=[consumer];retirementPolicies=[policy];
         }
         var services = new ServiceCollection();
@@ -1983,9 +2050,9 @@ public sealed class L45SubjectTransactionTests
         AcknowledgementGrantId="example.profile.retirement.ack",Limits=new(){MaximumAcknowledgementsPerCommit=16,MaximumAcknowledgementRequestBytes=65_536,MaximumReceiptBytes=65_536,AcknowledgementTimeout=TimeSpan.FromSeconds(2),ReceiptResolutionTimeout=TimeSpan.FromSeconds(2)},
     };
 
-    private static BaseSubjectRetirementPolicy RetirementPolicy(BaseSubjectRetirementConsumerDefinition consumer,string checksum)=>new()
+    private static BaseSubjectRetirementPolicy RetirementPolicy(BaseSubjectRetirementConsumerDefinition consumer,string checksum, BaseSubjectFinalExecutionMode finalPurgeExecutionMode = BaseSubjectFinalExecutionMode.OrdinaryOrActivationGuarded)=>new()
     {
-        ContractId="example.user",ContractVersion=1,AcceptedConsumers=[new(){ConsumerId=consumer.ConsumerId,ConsumerVersion=consumer.ConsumerVersion,OwningModuleId=consumer.OwningModuleId,Audience=consumer.Audience,LifecycleConsumerChecksum=consumer.LifecycleConsumerChecksum,RetirementProfileId=consumer.RetirementProfileId,RetirementProfileVersion=consumer.RetirementProfileVersion,RetirementProfileChecksum=consumer.RetirementProfileChecksum,Participation=consumer.Participation,AcknowledgementGrantId=consumer.AcknowledgementGrantId,Limits=consumer.Limits,RetirementConsumerChecksum=checksum}],CoordinationWindow=TimeSpan.FromHours(1),TimeoutBehavior=BaseSubjectRetirementTimeoutBehavior.Quarantine,PurgeRetention=new(){MinimumTombstoneAge=TimeSpan.Zero},FinalPurgeExecutionMode=BaseSubjectFinalExecutionMode.OrdinaryOrActivationGuarded,PolicyChecksum=new string('0',64),
+        ContractId="example.user",ContractVersion=1,AcceptedConsumers=[new(){ConsumerId=consumer.ConsumerId,ConsumerVersion=consumer.ConsumerVersion,OwningModuleId=consumer.OwningModuleId,Audience=consumer.Audience,LifecycleConsumerChecksum=consumer.LifecycleConsumerChecksum,RetirementProfileId=consumer.RetirementProfileId,RetirementProfileVersion=consumer.RetirementProfileVersion,RetirementProfileChecksum=consumer.RetirementProfileChecksum,Participation=consumer.Participation,AcknowledgementGrantId=consumer.AcknowledgementGrantId,Limits=consumer.Limits,RetirementConsumerChecksum=checksum}],CoordinationWindow=TimeSpan.FromHours(1),TimeoutBehavior=BaseSubjectRetirementTimeoutBehavior.Quarantine,PurgeRetention=new(){MinimumTombstoneAge=TimeSpan.Zero},FinalPurgeExecutionMode=finalPurgeExecutionMode,PolicyChecksum=new string('0',64),
     };
 
     private static BaseSubjectLifecycleProviderReadRequest LifecycleReadRequest(SubjectFixture fixture, BaseSubjectLifecycleConsumerDefinition consumer) => new()
@@ -2046,6 +2113,8 @@ public sealed class L45SubjectTransactionTests
             new FieldDefinition { Id = "user.active", ApplicationName = "active", WireName = "active", Type = BaseFieldTypes.Boolean, Presence = BaseFieldPresence.Required, Nullability = BaseFieldNullability.NonNullable },
             new FieldDefinition { Id = "user.tombstoned", ApplicationName = "tombstoned", WireName = "tombstoned", Type = BaseFieldTypes.Boolean, Presence = BaseFieldPresence.Required, Nullability = BaseFieldNullability.NonNullable },
             new FieldDefinition { Id = "user.tenant", ApplicationName = "tenant", WireName = "tenant", Type = BaseFieldTypes.String, Presence = BaseFieldPresence.Required, Nullability = BaseFieldNullability.NonNullable },
+            new FieldDefinition { Id = "user.deletedAt", ApplicationName = "deletedAt", WireName = "deletedAt", Type = BaseFieldTypes.DateTime, Presence = BaseFieldPresence.Optional, Nullability = BaseFieldNullability.NonNullable },
+            new FieldDefinition { Id = "user.tombstoneSequence", ApplicationName = "tombstoneSequence", WireName = "tombstoneSequence", Type = BaseFieldTypes.Integer, Presence = BaseFieldPresence.Required, Nullability = BaseFieldNullability.NonNullable, ScalarKind = BaseScalarKind.Int64, ScalarConstraints = new BaseScalarConstraintSet { MinimumInt64 = 0 } },
         ],
     };
 
@@ -2070,14 +2139,18 @@ public sealed class L45SubjectTransactionTests
         ],
     };
 
-    private static BaseExportedSubjectDefinition SubjectDefinition(bool coordinatedRetirement=false) => new()
+    private static BaseExportedSubjectDefinition SubjectDefinition(bool coordinatedRetirement=false, BaseSubjectFinalExecutionMode finalRetirementExecutionMode = BaseSubjectFinalExecutionMode.OrdinaryOrActivationGuarded) => new()
     {
         Id = "example.user", Version = 1, OwningModuleId = "example.auth",
         SubjectIdKind = BaseSubjectIdKind.OrdinalString, MaximumSubjectIdUtf8Bytes = 64,
         Scope = BaseSubjectScopeKind.Tenant, AcquisitionGrantId = "example.user.acquire",
         ValidationGrantId = "example.user.validate", AdministrationGrantId = "example.user.admin", TombstoneFieldId = "user.tombstoned",
-        TombstoneMetadata = new() { Instant = new() { Kind = BaseSubjectTombstoneMetadataBindingKind.NotStored }, Sequence = new() { Kind = BaseSubjectTombstoneMetadataBindingKind.NotStored } },
-        FinalRetirementExecutionMode = BaseSubjectFinalExecutionMode.OrdinaryOrActivationGuarded,
+        TombstoneMetadata = new()
+        {
+            Instant = new() { Kind = BaseSubjectTombstoneMetadataBindingKind.RequiredField, FieldId = "user.deletedAt" },
+            Sequence = new() { Kind = BaseSubjectTombstoneMetadataBindingKind.RequiredField, FieldId = "user.tombstoneSequence" },
+        },
+        FinalRetirementExecutionMode = finalRetirementExecutionMode,
         SupportsCoordinatedRetirement = coordinatedRetirement, Audiences = [HPDBaseEndpointAudience.Application],
         ValidationPlan = new BaseSubjectValidationPlanDefinition
         {

@@ -12,12 +12,30 @@ _ = ConsumerStoredSubjectRead.Definition;
 await HPD.Auth.Base.ConsumerProof.ProofHost.RunAsync(args.Contains("--sqlite", StringComparer.Ordinal));
 if (args.Contains("--print-manifest-identities", StringComparer.Ordinal))
 {
+    Console.WriteLine("identityAndGeneration\t" + BaseGeneratedGraphEvidence.ModuleMutation(
+        HPD.Auth.Base.ConsumerProof.IdentityAndGenerationProof.Identity));
+    Console.WriteLine("requestControl\t" + BaseGeneratedGraphEvidence.ModuleMutation(
+        HPD.Auth.Base.ConsumerProof.RequestControlProof.Identity));
+    Console.WriteLine("staticSet\t" + BaseGeneratedGraphEvidence.ModuleMutation(
+        HPD.Auth.Base.ConsumerProof.StaticSetProof.Identity));
+    Console.WriteLine("presenceAndRemoval\t" + BaseGeneratedGraphEvidence.ModuleMutation(
+        HPD.Auth.Base.ConsumerProof.PresenceAndRemovalProof.Identity));
+    Console.WriteLine("semanticEnsure\t" + BaseGeneratedGraphEvidence.ModuleMutation(
+        HPD.Auth.Base.ConsumerProof.SemanticEnsureProof.Identity));
+    Console.WriteLine("semanticRetire\t" + BaseGeneratedGraphEvidence.ModuleMutation(
+        HPD.Auth.Base.ConsumerProof.SemanticRetireProof.Identity));
     Console.WriteLine("selection\t" + BaseGeneratedGraphEvidence.SelectionProfile(
         HPD.Auth.Base.ConsumerProof.SelectionProof.Identity));
     Console.WriteLine("lifecycle\t" + BaseGeneratedGraphEvidence.LifecycleConsumer(
         HPD.Auth.Base.ConsumerProof.LifecycleProof.LifecycleIdentity));
     Console.WriteLine("retirement\t" + BaseGeneratedGraphEvidence.RetirementConsumer(
         HPD.Auth.Base.ConsumerProof.LifecycleProof.RetirementIdentity));
+    Console.WriteLine("activation\t" + Convert.ToHexStringLower(
+        HPD.Auth.Base.ConsumerProof.ProofActivation.Registration.Identity.Checksum.Span));
+    Console.WriteLine("yieldActivation\t" + Convert.ToHexStringLower(
+        HPD.Auth.Base.ConsumerProof.ProofYieldActivation.Registration.Identity.Checksum.Span));
+    Console.WriteLine("schedule\t" + Convert.ToHexStringLower(
+        HPD.Auth.Base.ConsumerProof.ProofActivation.Schedule.Definition.Checksum.AsSpan()));
     Console.WriteLine("jsonRead\t" + BaseGeneratedGraphEvidence.RegisteredRead(
         HPD.Auth.Base.ConsumerProof.ProofJsonRead.Handle));
     Console.WriteLine("countRead\t" + BaseGeneratedGraphEvidence.RegisteredRead(

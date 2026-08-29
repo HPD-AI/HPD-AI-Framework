@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -67,16 +68,26 @@ public sealed partial class SqliteRecordStore
             SqliteBackupDatabaseFacts stagedFacts = await ValidateDatabaseFileAsync(staging, null, cancellationToken).ConfigureAwait(false);
             if (RestoreRecoveryIndeterminate || RestoreRecoveryPending)
                 throw new InvalidOperationException("HPD.BASE SQLite restore recovery is incomplete; backup authority is unavailable.");
-            await using SqliteConnection source = await OpenSubjectMaintenanceAsync(cancellationToken).ConfigureAwait(false);
-            BaseBackupManifest manifest = await ReadManifestAsync(source, new FileInfo(staging).Length, cancellationToken).ConfigureAwait(false);
+            await using var stagedSource = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = staging,
+                Mode = SqliteOpenMode.ReadOnly,
+                Pooling = false,
+            }.ToString());
+            await stagedSource.OpenAsync(cancellationToken).ConfigureAwait(false);
+            BaseBackupManifest manifest = await ReadManifestAsync(
+                stagedSource, new FileInfo(staging).Length, cancellationToken).ConfigureAwait(false);
             EnsureManifestMatchesDatabase(manifest, stagedFacts);
 
             if (request.ExpectedStoreIdentityDigest is { } expected
                 && !FixedHexEquals(expected, manifest.StoreIdentityDigest))
                 return AdminConflict<BaseBackupManifest>(BaseAdministrationErrorCodes.ArtifactIdentityMismatch, "The active store identity does not match the request.");
 
-            BaseBackupManifest authenticatedManifest = await WriteEnvelopeAsync(
+            (BaseBackupManifest authenticatedManifest, byte[] artifactSha256) = await WriteEnvelopeAsync(
                 destination, staging, manifest, cancellationToken).ConfigureAwait(false);
+            await using SqliteConnection source = await OpenSubjectMaintenanceAsync(cancellationToken).ConfigureAwait(false);
+            await PublishActivationBackupCoverageCheckpointAsync(
+                source, authenticatedManifest, artifactSha256, cancellationToken).ConfigureAwait(false);
             return OperationResults.Ok(authenticatedManifest);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -683,8 +694,12 @@ public sealed partial class SqliteRecordStore
         }
         (long semanticSequence, ImmutableArray<byte> semanticChecksum) =
             await ReadSemanticTerminalPublicationAuthorityAsync(connection, cancellationToken).ConfigureAwait(false);
+        BaseActivationInstanceReceiptChainState activationReceiptChain =
+            await ReadBackupActivationReceiptChainAsync(connection, cancellationToken).ConfigureAwait(false);
         return new BaseBackupManifest
         {
+            ActivationInstanceReceiptSequence = activationReceiptChain.CurrentSequence,
+            ActivationInstanceReceiptOrderedChecksum = activationReceiptChain.OrderedChecksum,
             SemanticTerminalPublicationSequence = semanticSequence,
             SemanticTerminalPublicationChecksum = semanticChecksum,
             EnvelopeVersion = BackupVersion,
@@ -707,6 +722,96 @@ public sealed partial class SqliteRecordStore
             PayloadEncryptedAtRest = false,
             ExternalKeyReferenceKind = null,
         };
+    }
+
+    private async ValueTask<BaseActivationInstanceReceiptChainState> ReadBackupActivationReceiptChainAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandTimeout = TimeoutSeconds(_options.IntegrityCheckTimeout);
+        command.CommandText = $"SELECT (SELECT value FROM {_names.ProviderState} WHERE key='activation_instance_receipt_chain_format'),(SELECT value FROM {_names.ProviderState} WHERE key='activation_instance_receipt_chain_sequence'),(SELECT value FROM {_names.ProviderState} WHERE key='activation_instance_receipt_chain_ordered_checksum'),(SELECT value FROM {_names.ProviderState} WHERE key='activation_instance_receipt_chain_generation'),(SELECT value FROM {_names.ProviderState} WHERE key='activation_instance_receipt_chain_checksum');";
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            throw new InvalidDataException("base.activation.receiptCorrupt");
+        BaseActivationInstanceReceiptChainState state;
+        try
+        {
+            state = new BaseActivationInstanceReceiptChainState
+            {
+                FormatVersion = int.Parse(reader.GetString(0), CultureInfo.InvariantCulture),
+                CurrentSequence = long.Parse(reader.GetString(1), CultureInfo.InvariantCulture),
+                OrderedChecksum = Convert.FromHexString(reader.GetString(2)).ToImmutableArray(),
+                Generation = long.Parse(reader.GetString(3), CultureInfo.InvariantCulture),
+                Checksum = Convert.FromHexString(reader.GetString(4)).ToImmutableArray(),
+            };
+        }
+        catch (Exception exception) when (exception is FormatException or OverflowException or InvalidCastException)
+        {
+            throw new InvalidDataException("base.activation.receiptCorrupt", exception);
+        }
+        if (!BaseActivationInstanceReceiptChainContract.IsValid(state))
+            throw new InvalidDataException("base.activation.receiptCorrupt");
+        return state;
+    }
+
+    private async ValueTask PublishActivationBackupCoverageCheckpointAsync(
+        SqliteConnection connection,
+        BaseBackupManifest manifest,
+        ReadOnlyMemory<byte> artifactSha256,
+        CancellationToken cancellationToken)
+    {
+        await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        BaseActivationInstanceReceiptChainState chain = await ReadInstanceReceiptChainAsync(
+            connection, transaction, cancellationToken).ConfigureAwait(false);
+        if (chain.CurrentSequence != manifest.ActivationInstanceReceiptSequence
+            || !CryptographicOperations.FixedTimeEquals(
+                chain.OrderedChecksum.AsSpan(), manifest.ActivationInstanceReceiptOrderedChecksum.AsSpan()))
+            throw new InvalidDataException("base.activation.backupCoverageConflict");
+
+        string storeInstanceId;
+        long restoreEpoch;
+        await using (SqliteCommand authority = connection.CreateCommand())
+        {
+            authority.Transaction = transaction;
+            authority.CommandText = $"SELECT i.store_instance_id,COALESCE((SELECT CAST(value AS INTEGER) FROM {_names.ProviderState} WHERE key='restore_epoch'),0) FROM {_names.SchemaIdentity} i WHERE i.singleton=1;";
+            await using SqliteDataReader reader = await authority.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                throw new InvalidDataException("base.activation.backupCoverageConflict");
+            storeInstanceId = reader.GetString(0);
+            restoreEpoch = reader.GetInt64(1);
+        }
+
+        string artifactId = Convert.ToHexStringLower(artifactSha256.Span);
+        long generation;
+        await using (SqliteCommand generationCommand = connection.CreateCommand())
+        {
+            generationCommand.Transaction = transaction;
+            generationCommand.CommandText = $"SELECT COALESCE(MAX(checkpoint_generation),0)+1 FROM {_names.ActivationBackupCoverageCheckpoints};";
+            generation = Convert.ToInt64(await generationCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
+        }
+        long committedAt = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
+        BaseActivationBackupCoverageCheckpoint checkpoint = BaseActivationBackupCoverageCheckpointContract.Create(
+            artifactId, artifactSha256.Span, _options.SemanticActivationApplicationId,
+            _options.StoreId, storeInstanceId, restoreEpoch, chain.CurrentSequence,
+            chain.OrderedChecksum.AsSpan(), generation, committedAt);
+        await using SqliteCommand write = connection.CreateCommand();
+        write.Transaction = transaction;
+        write.CommandText = $"INSERT INTO {_names.ActivationBackupCoverageCheckpoints}(artifact_id,artifact_sha256,application_id,logical_store_id,store_instance_id,restore_epoch,receipt_sequence,receipt_ordered_checksum,checkpoint_generation,committed_at,checkpoint_checksum) VALUES($artifact,$sha,$application,$logical,$instance,$restore,$sequence,$ordered,$generation,$committed,$checksum) ON CONFLICT(artifact_id) DO NOTHING;";
+        write.Parameters.AddWithValue("$artifact", checkpoint.ArtifactId);
+        write.Parameters.Add("$sha", SqliteType.Blob).Value = checkpoint.ArtifactSha256.ToArray();
+        write.Parameters.AddWithValue("$application", checkpoint.ApplicationId);
+        write.Parameters.AddWithValue("$logical", checkpoint.LogicalStoreId);
+        write.Parameters.AddWithValue("$instance", checkpoint.StoreInstanceId);
+        write.Parameters.AddWithValue("$restore", checkpoint.RestoreEpoch);
+        write.Parameters.AddWithValue("$sequence", checkpoint.ReceiptSequence);
+        write.Parameters.Add("$ordered", SqliteType.Blob).Value = checkpoint.ReceiptOrderedChecksum.ToArray();
+        write.Parameters.AddWithValue("$generation", checkpoint.Generation);
+        write.Parameters.AddWithValue("$committed", checkpoint.CommittedAt);
+        write.Parameters.Add("$checksum", SqliteType.Blob).Value = checkpoint.Checksum.ToArray();
+        if (await write.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+            throw new InvalidDataException("base.activation.backupCoverageConflict");
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private sealed class SemanticRecoveryProofException(Exception innerException)
@@ -734,7 +839,11 @@ public sealed partial class SqliteRecordStore
         return (sequence.Value, checksum);
     }
 
-    private async Task<BaseBackupManifest> WriteEnvelopeAsync(Stream destination, string payloadPath, BaseBackupManifest initial, CancellationToken cancellationToken)
+    private async Task<(BaseBackupManifest Manifest, byte[] ArtifactSha256)> WriteEnvelopeAsync(
+        Stream destination,
+        string payloadPath,
+        BaseBackupManifest initial,
+        CancellationToken cancellationToken)
     {
         byte[] digest;
         await using (var payload = new FileStream(payloadPath, FileMode.Open, FileAccess.Read, FileShare.Read, 131072, FileOptions.SequentialScan))
@@ -744,12 +853,24 @@ public sealed partial class SqliteRecordStore
         byte[] header = Header(_tokenProtector!.ActiveKeyId, manifestBytes.Length, manifest.ProviderPayloadLength);
         byte[] authenticated = [.. header, .. manifestBytes, .. digest];
         byte[] tag = _tokenProtector.Authenticate(BackupAuthenticationPurpose, _tokenProtector.ActiveKeyId, authenticated);
+        using IncrementalHash artifactHash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         await destination.WriteAsync(header, cancellationToken).ConfigureAwait(false);
+        artifactHash.AppendData(header);
         await destination.WriteAsync(manifestBytes, cancellationToken).ConfigureAwait(false);
+        artifactHash.AppendData(manifestBytes);
         await using (var payload = new FileStream(payloadPath, FileMode.Open, FileAccess.Read, FileShare.Read, 131072, FileOptions.SequentialScan))
-            await payload.CopyToAsync(destination, 131072, cancellationToken).ConfigureAwait(false);
+        {
+            byte[] buffer = new byte[131072];
+            int read;
+            while ((read = await payload.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) != 0)
+            {
+                await destination.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+                artifactHash.AppendData(buffer.AsSpan(0, read));
+            }
+        }
         await destination.WriteAsync(tag, cancellationToken).ConfigureAwait(false);
-        return manifest;
+        artifactHash.AppendData(tag);
+        return (manifest, artifactHash.GetHashAndReset());
     }
 
     private async Task<(BaseBackupManifest Manifest, byte KeyId, byte[] Header, byte[] ManifestBytes, byte[] Digest)> ReadEnvelopeAsync(
@@ -782,6 +903,10 @@ public sealed partial class SqliteRecordStore
         if (manifest.BaseContractVersion != "37" || manifest.ReceiptFormatVersion != 1
             || manifest.JournalFormatVersion != 1 || manifest.CollectionHistoryFormatVersion != 1
             || !ValidDigest(manifest.StoreIdentityDigest) || !ValidDigest(manifest.ProviderPayloadSha256)
+            || manifest.ActivationInstanceReceiptSequence < 0
+            || manifest.ActivationInstanceReceiptOrderedChecksum.Length != 32
+            || manifest.ActivationInstanceReceiptSequence == 0 && !CryptographicOperations.FixedTimeEquals(
+                manifest.ActivationInstanceReceiptOrderedChecksum.AsSpan(), BaseActivationInstanceReceiptChainContract.ZeroOrderedChecksum.AsSpan())
             || manifest.SemanticTerminalPublicationSequence < 0 || manifest.SemanticTerminalPublicationChecksum.Length != 32
             || manifest.SemanticTerminalPublicationSequence == 0 && !CryptographicOperations.FixedTimeEquals(
                 manifest.SemanticTerminalPublicationChecksum.AsSpan(), BaseSemanticRecoveryAuthorityContract.EmptyPublicationSetChecksum().AsSpan())
@@ -842,7 +967,9 @@ public sealed partial class SqliteRecordStore
                    b.checksum,
                    b.generation,
                    COALESCE((SELECT CAST(value AS INTEGER) FROM {_names.ProviderState} WHERE key='restore_epoch'), -1),
-                   sqlite_version()
+                   sqlite_version(),
+                   COALESCE((SELECT CAST(value AS INTEGER) FROM {_names.ProviderState} WHERE key='activation_instance_receipt_chain_sequence'), -1),
+                   COALESCE((SELECT value FROM {_names.ProviderState} WHERE key='activation_instance_receipt_chain_ordered_checksum'), '')
             FROM {_names.SchemaIdentity} i
             JOIN {_names.SchemaBaseline} b ON b.store_instance_id=i.store_instance_id;
             """;
@@ -856,8 +983,15 @@ public sealed partial class SqliteRecordStore
             reader.GetString(2),
             reader.GetInt64(3),
             reader.GetInt64(4),
-            reader.GetString(5));
-        if (facts.SchemaGeneration < 0 || facts.RestoreEpoch < 0 || await reader.ReadAsync(timeout.Token).ConfigureAwait(false))
+            reader.GetString(5),
+            reader.GetInt64(6),
+            reader.GetString(7));
+        if (facts.SchemaGeneration < 0 || facts.RestoreEpoch < 0 || facts.ActivationInstanceReceiptSequence < 0
+            || !ValidDigest(facts.ActivationInstanceReceiptOrderedChecksum)
+            || facts.ActivationInstanceReceiptSequence == 0 && !FixedHexEquals(
+                facts.ActivationInstanceReceiptOrderedChecksum,
+                Convert.ToHexStringLower(BaseActivationInstanceReceiptChainContract.ZeroOrderedChecksum.AsSpan()))
+            || await reader.ReadAsync(timeout.Token).ConfigureAwait(false))
             throw new InvalidDataException();
         if (manifest is not null)
             EnsureManifestMatchesDatabase(manifest, facts);
@@ -871,6 +1005,9 @@ public sealed partial class SqliteRecordStore
             || !string.Equals(manifest.SchemaChecksum, facts.SchemaChecksum, StringComparison.Ordinal)
             || manifest.SchemaGeneration != facts.SchemaGeneration
             || manifest.RestoreEpoch != facts.RestoreEpoch
+            || manifest.ActivationInstanceReceiptSequence != facts.ActivationInstanceReceiptSequence
+            || !FixedHexEquals(Convert.ToHexStringLower(manifest.ActivationInstanceReceiptOrderedChecksum.AsSpan()),
+                facts.ActivationInstanceReceiptOrderedChecksum)
             || !string.Equals(manifest.NativeSqliteVersion, facts.NativeSqliteVersion, StringComparison.Ordinal))
             throw new BackupManifestMismatchException();
     }
@@ -922,7 +1059,12 @@ public sealed partial class SqliteRecordStore
             if (!File.Exists(recovery))
                 return false;
             await CloseKeepAliveForMaintenanceAsync().ConfigureAwait(false);
-            if (replacementInstalled && File.Exists(activePath)) DeleteRequiredFile(activePath);
+            if (replacementInstalled)
+            {
+                DeleteRequiredFile(activePath + "-shm");
+                DeleteRequiredFile(activePath + "-wal");
+                DeleteRequiredFile(activePath);
+            }
             if (File.Exists(recovery)) File.Move(recovery, activePath);
             MoveIfPresent(recovery + "-wal", activePath + "-wal");
             MoveIfPresent(recovery + "-shm", activePath + "-shm");
@@ -1195,5 +1337,7 @@ public sealed partial class SqliteRecordStore
         string SchemaChecksum,
         long SchemaGeneration,
         long RestoreEpoch,
-        string NativeSqliteVersion);
+        string NativeSqliteVersion,
+        long ActivationInstanceReceiptSequence,
+        string ActivationInstanceReceiptOrderedChecksum);
 }

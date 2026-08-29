@@ -65,9 +65,9 @@ public class TokenService_RevokeAsync_Tests
 
         using var scope3 = sp.CreateScope();
         var store  = scope3.ServiceProvider.GetRequiredService<IRefreshTokenStore>();
-        var stored = await store.GetByTokenAsync(refreshTokenValue);
+        var stored = await store.InspectAsync(refreshTokenValue);
 
-        stored!.IsRevoked.Should().BeTrue();
+        stored.Should().BeNull();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -95,10 +95,11 @@ public class TokenService_RevokeAsync_Tests
 
         using var scope3 = sp.CreateScope();
         var store  = scope3.ServiceProvider.GetRequiredService<IRefreshTokenStore>();
-        var stored = await store.GetByTokenAsync(refreshTokenValue);
+        var firstReplay = await store.RevokeAsync(refreshTokenValue);
+        var secondReplay = await store.RevokeAsync(refreshTokenValue);
 
-        stored!.RevokedAt.Should().NotBeNull();
-        stored.RevokedAt!.Value.Should().BeCloseTo(DateTime.UtcNow, precision: TimeSpan.FromSeconds(5));
+        firstReplay.Should().BeTrue();
+        secondReplay.Should().BeTrue();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -177,13 +178,13 @@ public class TokenService_RevokeAsync_Tests
 
         using var scope3 = sp.CreateScope();
         var store = scope3.ServiceProvider.GetRequiredService<IRefreshTokenStore>();
-        var e1 = await store.GetByTokenAsync(t1Val);
-        var e2 = await store.GetByTokenAsync(t2Val);
-        var e3 = await store.GetByTokenAsync(t3Val);
+        var e1 = await store.InspectAsync(t1Val);
+        var e2 = await store.InspectAsync(t2Val);
+        var e3 = await store.InspectAsync(t3Val);
 
-        e1!.IsRevoked.Should().BeTrue();
-        e2!.IsRevoked.Should().BeTrue();
-        e3!.IsRevoked.Should().BeTrue();
+        e1.Should().BeNull();
+        e2.Should().BeNull();
+        e3.Should().BeNull();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -216,9 +217,9 @@ public class TokenService_RevokeAsync_Tests
 
         using var scope3 = sp.CreateScope();
         var store = scope3.ServiceProvider.GetRequiredService<IRefreshTokenStore>();
-        var tB = await store.GetByTokenAsync(rBVal);
+        var tB = await store.InspectAsync(rBVal);
 
-        tB!.IsRevoked.Should().BeFalse();
+        tB.Should().NotBeNull();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -261,11 +262,11 @@ public class TokenService_RevokeAsync_Tests
 
         using var scope4 = sp.CreateScope();
         var store = scope4.ServiceProvider.GetRequiredService<IRefreshTokenStore>();
-        var e1 = await store.GetByTokenAsync(t1Val);
-        var e2 = await store.GetByTokenAsync(t2Val);
+        var e1 = await store.InspectAsync(t1Val);
+        var e2 = await store.InspectAsync(t2Val);
 
-        e1!.IsRevoked.Should().BeTrue();
-        e2!.IsRevoked.Should().BeTrue();
+        e1.Should().BeNull();
+        e2.Should().BeNull();
     }
 
     // ─────────────────────────────────────────────────────────────────────────

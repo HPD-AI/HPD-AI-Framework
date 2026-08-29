@@ -75,7 +75,7 @@ internal sealed class AuthExpirationActivationHandler(TimeProvider timeProvider)
                 return AuthActivationFailureMapper.Map<AuthExpirationResultV1>(maintenanceFailure.Error);
         }
 
-        return new BaseActivationHandlerResult<AuthExpirationResultV1>
+        return new BaseActivationSucceeded<AuthExpirationResultV1>
         {
             Result = new AuthExpirationResultV1
             {
@@ -261,7 +261,7 @@ internal static class AuthActivationFailureMapper
             or "base.moduleMutation.storeError" or "base.selection.transactionConflict"
             or "base.activation.claimUnavailable")
         {
-            return new BaseActivationHandlerResult<TResult>
+            return new BaseActivationFailed<TResult>
             {
                 FailureCode = "auth.persistence.unavailable",
                 Retryable = true,
@@ -270,7 +270,7 @@ internal static class AuthActivationFailureMapper
         if (code.Contains("indeterminate", StringComparison.OrdinalIgnoreCase)
             || code.Contains("outcomeUnknown", StringComparison.Ordinal))
         {
-            return new BaseActivationHandlerResult<TResult>
+            return new BaseActivationFailed<TResult>
             {
                 FailureCode = "auth.operation.outcomeUnknown",
                 Retryable = false,
@@ -278,14 +278,14 @@ internal static class AuthActivationFailureMapper
         }
         if (code.StartsWith("auth.", StringComparison.Ordinal))
             return Domain<TResult>(code);
-        return new BaseActivationHandlerResult<TResult>
-        {
-            FailureCode = "auth.persistence.unavailable",
+        return new BaseActivationFailed<TResult>
+            {
+                FailureCode = "auth.persistence.unavailable",
             Retryable = false,
         };
     }
 
-    internal static BaseActivationHandlerResult<TResult> Domain<TResult>(string code) => new()
+    internal static BaseActivationHandlerResult<TResult> Domain<TResult>(string code) => new BaseActivationFailed<TResult>()
     {
         FailureCode = code,
         Retryable = false,

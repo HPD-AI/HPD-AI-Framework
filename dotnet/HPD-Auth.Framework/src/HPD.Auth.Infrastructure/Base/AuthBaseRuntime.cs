@@ -27,6 +27,15 @@ internal sealed class AuthBaseRuntime(
         AuthSource = "hpd.auth.runtime.v1",
     });
 
+    internal BaseSession OpenLifecycleDispatcherSession() => sessions.For(new PrincipalContext
+    {
+        AuthenticationState = PrincipalAuthenticationState.Service,
+        SubjectKind = AccessSubjectKind.ServicePrincipal,
+        SubjectId = "hpd.auth.lifecycle-dispatcher",
+        CurrentTenantId = TenantId.ToString("D"),
+        AuthSource = "hpd.auth.lifecycle-dispatcher.v1",
+    });
+
     internal static BaseMutationRequestIdentity MutationIdentity(
         string operation,
         Guid tenantId,

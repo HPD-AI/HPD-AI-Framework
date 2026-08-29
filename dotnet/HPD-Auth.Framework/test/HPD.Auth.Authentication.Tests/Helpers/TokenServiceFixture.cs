@@ -42,8 +42,6 @@ internal static class TokenServiceFixture
     // ─────────────────────────────────────────────────────────────────────────
     // In-memory refresh token store — backs tests that need real persistence.
     // ─────────────────────────────────────────────────────────────────────────
-    public static InMemoryRefreshTokenStore CreateStore() => new();
-
     public static TokenIssuanceIdentity Issuance() =>
         TokenIssuanceIdentity.CreateEphemeral("auth.test");
 

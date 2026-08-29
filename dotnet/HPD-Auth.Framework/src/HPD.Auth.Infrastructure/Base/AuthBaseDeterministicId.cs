@@ -1,6 +1,8 @@
 using System.Buffers.Binary;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using HPD.Base;
 
 namespace HPD.Auth.Infrastructure.Base;
 
@@ -21,6 +23,38 @@ internal static class AuthBaseDeterministicId
             stream.Write(utf8);
         }
         return Convert.ToHexStringLower(SHA256.HashData(stream.GetBuffer().AsSpan(0, checked((int)stream.Length))));
+    }
+
+    /// <summary>
+    /// Creates the restore-stable L3 cleanup-work identity for one exact subject lifetime.
+    /// </summary>
+    internal static string CreateCleanupWork<TSubject>(
+        Guid tenantId,
+        string subjectKind,
+        Guid subjectId,
+        BaseExportedSubjectContract<TSubject> contract,
+        BaseSubjectIncarnation incarnation,
+        long tombstoneSequence)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(subjectKind);
+        ArgumentNullException.ThrowIfNull(contract);
+        if (tombstoneSequence <= 0)
+            throw new ArgumentOutOfRangeException(nameof(tombstoneSequence));
+
+        string[] components =
+        [
+            "hpd.auth.cleanup-work.v1",
+            tenantId.ToString("D"),
+            subjectKind,
+            subjectId.ToString("D"),
+            contract.Id,
+            contract.Version.ToString(CultureInfo.InvariantCulture),
+            contract.Checksum,
+            incarnation.ToBase64Url(),
+            tombstoneSequence.ToString(CultureInfo.InvariantCulture),
+        ];
+        byte[] canonical = Encoding.UTF8.GetBytes(string.Join('\0', components));
+        return Convert.ToHexStringLower(SHA256.HashData(canonical));
     }
 
     private static void WriteInt32(Stream stream, int value)

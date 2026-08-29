@@ -29,6 +29,7 @@ public static class AuthBaseInfrastructureServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         services.TryAddScoped<AuthBaseRuntime>();
+        services.TryAddSingleton<AuthDataProtectionCacheInvalidationState>();
         services.TryAddScoped<IUserStore<ApplicationUser>, AuthBaseUserStore>();
         services.TryAddScoped<IRoleStore<ApplicationRole>, AuthBaseRoleStore>();
         services.AddScoped<ISessionManager, AuthBaseSessionStore>();
@@ -48,7 +49,8 @@ public static class AuthBaseInfrastructureServiceCollectionExtensions
             return new HPDBaseDataProtectionXmlRepository(
                 sessions,
                 provider.GetRequiredService<HPDAuthOptions>(),
-                provider.GetRequiredService<TimeProvider>());
+                provider.GetRequiredService<TimeProvider>(),
+                provider.GetRequiredService<AuthDataProtectionCacheInvalidationState>());
         });
         services.TryAddSingleton<IXmlRepository>(static provider =>
             provider.GetRequiredService<HPDBaseDataProtectionXmlRepository>());
@@ -56,9 +58,64 @@ public static class AuthBaseInfrastructureServiceCollectionExtensions
             provider.GetRequiredService<HPDBaseDataProtectionXmlRepository>());
         services.AddSingleton<IHostedService>(static provider =>
             provider.GetRequiredService<HPDBaseDataProtectionXmlRepository>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseCommittedMutationObserver,
+            AuthDataProtectionCommittedMutationObserver>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseCommittedRestoreObserver,
+            AuthDataProtectionCommittedRestoreObserver>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IConfigureOptions<KeyManagementOptions>,
             AuthBaseDataProtectionKeyManagementOptionsSetup>());
         return services;
+    }
+}
+
+internal sealed class AuthDataProtectionCommittedMutationObserver(
+    AuthDataProtectionCacheInvalidationState invalidation) : IBaseCommittedMutationObserver
+{
+    public ValueTask ObserveAsync(
+        BaseRecordMutationEvent mutation,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (string.Equals(mutation.Resource.CollectionId,
+                AuthDataProtectionKeyRecordV1.Collection.Id, StringComparison.Ordinal))
+            invalidation.Invalidate();
+        return ValueTask.CompletedTask;
+    }
+}
+
+internal sealed class AuthDataProtectionCommittedRestoreObserver(
+    AuthDataProtectionCacheInvalidationState invalidation) : IBaseCommittedRestoreObserver
+{
+    public ValueTask ObserveAsync(
+        BaseRestoreResult restore,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        invalidation.Invalidate(restore.StoreId);
+        return ValueTask.CompletedTask;
+    }
+}
+
+internal sealed class AuthDataProtectionCacheInvalidationState
+{
+    private long _generation;
+    private string? _logicalStoreId;
+
+    internal long Generation => Volatile.Read(ref _generation);
+
+    internal void Bind(string logicalStoreId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(logicalStoreId);
+        Interlocked.CompareExchange(ref _logicalStoreId, logicalStoreId, null);
+    }
+
+    internal void Invalidate() => Interlocked.Increment(ref _generation);
+
+    internal void Invalidate(string logicalStoreId)
+    {
+        string? bound = Volatile.Read(ref _logicalStoreId);
+        if (bound is null || string.Equals(bound, logicalStoreId, StringComparison.Ordinal))
+            Invalidate();
     }
 }
 

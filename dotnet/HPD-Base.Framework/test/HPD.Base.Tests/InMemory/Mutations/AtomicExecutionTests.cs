@@ -13,6 +13,225 @@ public sealed class AtomicExecutionTests
     };
 
     [Fact]
+    public async Task Durable_yield_reclaims_the_same_attempt_with_a_new_slice()
+    {
+        var store = SemanticStore();
+        BaseAtomicMutationExecutionLimits mutationLimits = ModuleLimits();
+        BaseActivationExecutionLimits limits = ActivationLimits();
+        BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync(
+            "activation-test", [], mutationLimits)).Value!;
+        (await store.ExecuteAtomicAsync(new ActivationCreationProbe(authority, mutationLimits, maximumYields: 2), ExecutionRequest))
+            .Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+        BaseActivationYieldReservationState reserved = (await store.ReadYieldReservationStateAsync()).Value!;
+        reserved.Generation.Should().Be(1);
+        reserved.ReservedUnusedSlots.Should().Be(3);
+        reserved.RetainedUsedSlots.Should().Be(0);
+        BaseActivationDefinitionKey definition = new()
+        {
+            Id = "test.activation", Version = 1, Checksum = new byte[32].ToImmutableArray(),
+        };
+        BaseOwnedScopeSeekAuthority scope = new()
+        {
+            Kind = BaseSubjectScopeKind.Global,
+            ProtectedIndexDigest = System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes($"base.activation.scope.v2\0{(int)BaseSubjectScopeKind.Global}\n")).ToImmutableArray(),
+        };
+        BaseActivationWorkerAuthority worker = new()
+        {
+            ApplicationId = "activation-test", ModuleId = "test", WorkerIdentity = "yield-worker",
+            Definitions = [definition], Scope = scope, Checksum = new byte[32].ToImmutableArray(),
+        };
+        BaseActivationDueObservation firstObservation = (await store.ObserveDueAsync(new()
+        {
+            ApplicationId = "activation-test", WorkerModuleId = "test", Definitions = [definition], Scope = scope,
+            AcceptedTime = AcceptedTime(10), MaximumCandidates = 8, Limits = limits,
+        })).Value!;
+        var first = (BaseActivationClaimedResult)(await store.TryClaimNextAsync(new()
+        {
+            Observation = firstObservation.Token, Worker = worker, AcceptedTime = AcceptedTime(10), LeaseMilliseconds = 1_000,
+            Identity = RequestIdentity("yield-claim-1"), Limits = limits,
+        })).Value!;
+        BaseActivationTransitionResult yielded = (await store.TransitionAsync(new BaseActivationYieldRequest
+        {
+            ActivationId = first.Claim.ActivationId, Claim = first.Claim, RequestedResumeAt = DateTimeOffset.FromUnixTimeMilliseconds(12),
+            EffectiveDueAt = 12, ProgressFingerprint = System.Security.Cryptography.SHA256.HashData("progress-1"u8).ToImmutableArray(),
+            ExpectedYieldCount = 0, MaximumYields = 2, AcceptedTime = AcceptedTime(11),
+            Identity = RequestIdentity("yield-1"), Limits = limits,
+        })).Value!;
+        yielded.State.Should().Be(BaseActivationState.YieldPending);
+        yielded.YieldCount.Should().Be(1);
+        BaseActivationYieldReservationState converted = (await store.ReadYieldReservationStateAsync()).Value!;
+        converted.Generation.Should().Be(2);
+        converted.ReservedUnusedSlots.Should().Be(2);
+        converted.RetainedUsedSlots.Should().Be(1);
+        BaseActivationDueObservation secondObservation = (await store.ObserveDueAsync(new()
+        {
+            ApplicationId = "activation-test", WorkerModuleId = "test", Definitions = [definition], Scope = scope,
+            AcceptedTime = AcceptedTime(12), MaximumCandidates = 8, Limits = limits,
+        })).Value!;
+        var second = (BaseActivationClaimedResult)(await store.TryClaimNextAsync(new()
+        {
+            Observation = secondObservation.Token, Worker = worker, AcceptedTime = AcceptedTime(12), LeaseMilliseconds = 1_000,
+            Identity = RequestIdentity("yield-claim-2"), Limits = limits,
+        })).Value!;
+        second.Claim.AttemptNumber.Should().Be(first.Claim.AttemptNumber);
+        second.Claim.ExecutionSliceOrdinal.Should().Be(first.Claim.ExecutionSliceOrdinal + 1);
+        second.Claim.AttemptStartedAt.Should().Be(first.Claim.AttemptStartedAt);
+        second.Claim.SliceStartedAt.Should().Be(12);
+        second.Claim.YieldCount.Should().Be(1);
+        second.Claim.MaximumYields.Should().Be(2);
+        byte[] resultBytes = "done"u8.ToArray();
+        (await store.TransitionAsync(new BaseActivationCompleteRequest
+        {
+            ActivationId = second.Claim.ActivationId, Claim = second.Claim,
+            CanonicalResult = resultBytes.ToImmutableArray(),
+            ResultChecksum = System.Security.Cryptography.SHA256.HashData(resultBytes).ToImmutableArray(),
+            AcceptedTime = AcceptedTime(13), Identity = RequestIdentity("yield-complete"), Limits = limits,
+        })).IsSuccess().Should().BeTrue();
+        BaseActivationYieldReservationState released = (await store.ReadYieldReservationStateAsync()).Value!;
+        released.Generation.Should().Be(3);
+        released.ReservedUnusedSlots.Should().Be(0);
+        released.RetainedUsedSlots.Should().Be(1);
+        BaseActivationReceiptCompactionRequest request = new()
+        {
+            ApplicationId = "activation-test",
+            Definition = definition,
+            ReceiptRetention = new BaseActivationReceiptRetentionPolicy
+            {
+                FormatVersion = 1,
+                DuplicateResolutionLifetime = TimeSpan.FromHours(24),
+                ProtectedBackupCoverage = BaseActivationProtectedBackupCoverage.NotRequired,
+            },
+            Scope = scope,
+            AcceptedTime = AcceptedTime(86_400_020),
+            Take = 8,
+            BackupFloor = new BaseActivationReceiptBackupFloor
+            {
+                Kind = BaseActivationReceiptBackupFloorKind.NotApplicable,
+            },
+            ExpectedReservation = released,
+            Limits = limits,
+            Identity = RequestIdentity("yield-compaction"),
+        };
+        OperationResult<BaseActivationReceiptCompactionResult> compacted =
+            await store.CompactActivationReceiptsAsync(request);
+        compacted.IsSuccess().Should().BeTrue(compacted.Error?.Code);
+        compacted.Value!.DeletedCount.Should().Be(1);
+        compacted.Value.ResultingReservation.RetainedUsedSlots.Should().Be(0);
+        compacted.Value.ResultingChain.CurrentSequence.Should().Be(compacted.Value.PriorChain.CurrentSequence);
+        compacted.Value.ResultingChain.OrderedChecksum.Should().Equal(compacted.Value.PriorChain.OrderedChecksum);
+        compacted.Value.ResultingChain.Generation.Should().Be(compacted.Value.PriorChain.Generation + 1);
+        OperationResult<BaseActivationReceiptCompactionResult> duplicate =
+            await store.CompactActivationReceiptsAsync(request);
+        duplicate.IsSuccess().Should().BeTrue(duplicate.Error?.Code);
+        duplicate.Value!.Disposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
+    }
+
+    [Fact]
+    public async Task Activation_prune_at_candidate_maximum_uses_a_boundary_probe_without_retaining_a_sentinel()
+    {
+        var store = SemanticStore();
+        BaseAtomicMutationExecutionLimits mutationLimits = ModuleLimits();
+        BaseActivationExecutionLimits limits = ActivationLimits();
+        BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync(
+            "activation-test", [], mutationLimits)).Value!;
+        BaseActivationDefinitionKey definition = new()
+        {
+            Id = "test.activation", Version = 1, Checksum = new byte[32].ToImmutableArray(),
+        };
+        BaseOwnedScopeSeekAuthority scope = new()
+        {
+            Kind = BaseSubjectScopeKind.Global,
+            ProtectedIndexDigest = System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(
+                    $"base.activation.scope.v2\0{(int)BaseSubjectScopeKind.Global}\n")).ToImmutableArray(),
+        };
+        BaseActivationWorkerAuthority worker = new()
+        {
+            ApplicationId = "activation-test", ModuleId = "test", WorkerIdentity = "prune-worker",
+            Definitions = [definition], Scope = scope, Checksum = new byte[32].ToImmutableArray(),
+        };
+
+        for (int index = 0; index < 2; index++)
+        {
+            string id = $"prune-{index}";
+            (await store.ExecuteAtomicAsync(
+                new ActivationCreationProbe(authority, mutationLimits, activationId: id), ExecutionRequest))
+                .Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+            BaseActivationDueObservation observation = (await store.ObserveDueAsync(new()
+            {
+                ApplicationId = "activation-test", WorkerModuleId = "test", Definitions = [definition],
+                Scope = scope, AcceptedTime = AcceptedTime(10 + index * 10), MaximumCandidates = 8, Limits = limits,
+            })).Value!;
+            var claimed = (BaseActivationClaimedResult)(await store.TryClaimNextAsync(new()
+            {
+                Observation = observation.Token, Worker = worker, AcceptedTime = AcceptedTime(11 + index * 10),
+                LeaseMilliseconds = 1_000, Identity = RequestIdentity($"prune-claim-{index}"), Limits = limits,
+            })).Value!;
+            byte[] result = [(byte)index];
+            BaseActivationTransitionResult completed = (await store.TransitionAsync(new BaseActivationCompleteRequest
+            {
+                ActivationId = claimed.Claim.ActivationId, Claim = claimed.Claim,
+                CanonicalResult = result.ToImmutableArray(),
+                ResultChecksum = System.Security.Cryptography.SHA256.HashData(result).ToImmutableArray(),
+                AcceptedTime = AcceptedTime(12 + index * 10), Identity = RequestIdentity($"prune-complete-{index}"),
+                Limits = limits,
+            })).Value!;
+            (await store.TransitionAsync(new BaseActivationDisposeRequest
+            {
+                ActivationId = claimed.Claim.ActivationId, ExpectedGeneration = completed.Generation,
+                AcceptedTime = AcceptedTime(13 + index * 10), Identity = RequestIdentity($"prune-dispose-{index}"),
+                Limits = limits,
+            })).IsSuccess().Should().BeTrue();
+        }
+
+        for (int index = 0; index < 4; index++)
+        {
+            (await store.ExecuteAtomicAsync(
+                new ActivationCreationProbe(
+                    authority, mutationLimits, activationId: $"aaa-prune-noise-{index}"),
+                ExecutionRequest)).Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+        }
+
+        BaseActivationExecutionLimits pruneLimits = limits with { MaximumCandidates = 1 };
+        OperationResult<BaseActivationPrunePage> boundedFailure = await store.PruneAsync(
+            new BaseActivationPruneRequest
+            {
+                ApplicationId = "activation-test", Scope = scope, Definition = definition, Take = 1,
+                AcceptedTime = AcceptedTime(86_400_099), Identity = RequestIdentity("prune-page-bounded"),
+                Limits = pruneLimits with { MaximumIndexOperations = 3 },
+            });
+        boundedFailure.IsSuccess().Should().BeFalse();
+        boundedFailure.Error!.Code.Should().Be("base.activation.budgetExceeded");
+
+        BaseActivationPrunePage first = (await store.PruneAsync(new BaseActivationPruneRequest
+        {
+            ApplicationId = "activation-test", Scope = scope, Definition = definition, Take = 1,
+            AcceptedTime = AcceptedTime(86_400_100), Identity = RequestIdentity("prune-page-1"), Limits = pruneLimits,
+        })).Value!;
+        first.Items.Should().ContainSingle();
+        first.Completed.Should().BeFalse();
+        first.Accounting.Candidates.Should().Be(1);
+        first.Accounting.ReadIntervals.Should().Be(2);
+        first.Accounting.IndexOperations.Should().Be(
+            2 + first.Items.Length * 2 + first.DeletedReceiptCount * 2);
+        first.Accounting.Comparisons.Should().BeGreaterThan(first.Accounting.Candidates);
+
+        BaseActivationPrunePage second = (await store.PruneAsync(new BaseActivationPruneRequest
+        {
+            ApplicationId = "activation-test", Scope = scope, Definition = definition,
+            AfterActivationId = first.NextActivationId, Take = 1,
+            AcceptedTime = AcceptedTime(86_400_101), Identity = RequestIdentity("prune-page-2"), Limits = pruneLimits,
+        })).Value!;
+        second.Items.Should().ContainSingle();
+        second.Completed.Should().BeTrue();
+        second.Accounting.Candidates.Should().Be(1);
+        second.Accounting.ReadIntervals.Should().Be(1);
+        second.Accounting.IndexOperations.Should().Be(
+            1 + second.Items.Length * 2 + second.DeletedReceiptCount * 2);
+    }
+
+    [Fact]
     public async Task Semantic_ensure_is_parent_independent_and_materializes_once()
     {
         var store = SemanticStore();
@@ -102,8 +321,8 @@ public sealed class AtomicExecutionTests
             AcceptedTime = AcceptedTime(11), Identity = RequestIdentity("semantic-complete"), Limits = activationLimits,
         })).IsSuccess().Should().BeTrue();
 
-        var first = new SemanticEnsureProbe(authority, mutationLimits, "retire", retire: true);
-        var duplicate = new SemanticEnsureProbe(authority, mutationLimits, "retire-again", retire: true);
+        var first = new SemanticEnsureProbe(authority, mutationLimits, "retire", retire: true, acceptedTime: 12);
+        var duplicate = new SemanticEnsureProbe(authority, mutationLimits, "retire-again", retire: true, acceptedTime: 13);
         (await store.ExecuteAtomicAsync(first, ExecutionRequest)).Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
         (await store.ExecuteAtomicAsync(duplicate, ExecutionRequest)).Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
         first.Provisional!.ResultingState.Should().Be(BaseSemanticActivationSlotState.Retired);
@@ -915,9 +1134,9 @@ public sealed class AtomicExecutionTests
     {
         MaximumInputBytes = 4096,
         MaximumResultBytes = 4096,
-        MaximumAttempts = 3,
-        MaximumRenewalsPerAttempt = 3,
-        MaximumChildrenPerAttempt = 8,
+        MaximumAttempts = 3, MaximumYields = 0,
+        MaximumRenewalsPerSlice = 3,
+        MaximumChildrenPerSlice = 8,
         MaximumLineageDepth = 8,
         LeaseDuration = TimeSpan.FromMinutes(1),
         HandlerTimeout = TimeSpan.FromMinutes(1),
@@ -1061,7 +1280,8 @@ public sealed class AtomicExecutionTests
         BaseAtomicMutationAuthorityRequirement authority,
         BaseAtomicMutationExecutionLimits limits,
         string inputText = "activation-input",
-        string activationId = "activation-1") : IAtomicMutationProcessor
+        string activationId = "activation-1",
+        long maximumYields = 0) : IAtomicMutationProcessor
     {
         public bool CapturedExisting { get; private set; }
         public int ProvisionalCount { get; private set; }
@@ -1083,11 +1303,18 @@ public sealed class AtomicExecutionTests
                     {
                         Id = "test.activation", Version = 1, Checksum = new byte[32].ToImmutableArray(),
                     },
+                    ReceiptRetention = new BaseActivationReceiptRetentionPolicy
+                    {
+                        FormatVersion = 1,
+                        DuplicateResolutionLifetime = TimeSpan.FromHours(24),
+                        ProtectedBackupCoverage = BaseActivationProtectedBackupCoverage.NotRequired,
+                    },
                     CanonicalInput = input.ToImmutableArray(),
                     InputChecksum = System.Security.Cryptography.SHA256.HashData(input).ToImmutableArray(),
                     Scope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Global },
                     RequestedDueAt = 1,
                     EffectiveDueAt = 1,
+                    MaximumYields = maximumYields,
                     Identity = BaseMutationRequestIdentity.Create(
                         "activation-test", "enqueue", activationId,
                         BaseMutationRequestFingerprint.Create(new byte[32])),
@@ -1143,7 +1370,8 @@ public sealed class AtomicExecutionTests
         string parentIdentity,
         bool retire = false,
         BaseSemanticActivationExecutionLimits? semanticLimits = null,
-        BaseActivationLimits? activationLimits = null) : IAtomicMutationProcessor
+        BaseActivationLimits? activationLimits = null,
+        long acceptedTime = 1) : IAtomicMutationProcessor
     {
         public BaseSemanticActivationCapturedState? CapturedState { get; private set; }
         public BaseCapturedSemanticActivationEvidence? CapturedEvidence { get; private set; }
@@ -1187,6 +1415,12 @@ public sealed class AtomicExecutionTests
                 Activation = new BaseSemanticActivationCreateIntent
                 {
                     Definition = new BaseActivationDefinitionKey { Id = "test.activation", Version = 1, Checksum = activationChecksum.ToImmutableArray() },
+                    ReceiptRetention = new BaseActivationReceiptRetentionPolicy
+                    {
+                        FormatVersion = 1,
+                        DuplicateResolutionLifetime = TimeSpan.FromHours(24),
+                        ProtectedBackupCoverage = BaseActivationProtectedBackupCoverage.NotRequired,
+                    },
                     CanonicalInput = "payload"u8.ToArray().ToImmutableArray(),
                     InputChecksum = System.Security.Cryptography.SHA256.HashData("payload"u8).ToImmutableArray(),
                     Scope = scope, Due = due, Priority = 0, InitiallyEligible = true,
@@ -1226,7 +1460,7 @@ public sealed class AtomicExecutionTests
                         DefinitionSetChecksum = definitionChecksum.ToImmutableArray(),
                     },
                     Limits = effectiveSemanticLimits,
-                    AcceptedTime = AcceptedTime(1),
+                    AcceptedTime = AcceptedTime(acceptedTime),
                 },
                 Operation = operation,
                 StructuralDigest = SemanticHash("base.semanticActivation.extension.v1\0", definitionChecksum, canonicalKey, binding, [retire ? (byte)2 : (byte)1]).ToImmutableArray(),

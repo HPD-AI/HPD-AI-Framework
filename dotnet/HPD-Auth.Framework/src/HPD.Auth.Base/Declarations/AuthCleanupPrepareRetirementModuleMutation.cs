@@ -15,7 +15,7 @@ internal static partial class AuthCleanupPrepareRetirementOperationV1
     {
         Id = "hpd.auth.cleanup.prepare-retirement.v1", Version = 1,
         OwningModuleId = AuthBaseContract.ModuleId, GrantId = "auth.operation.cleanup.prepareRetirement",
-        Audience = BaseModuleMutationAudience.Service,
+        Audience = BaseModuleMutationAudience.System,
         RequestTypeId = "hpd.auth.type.auth-cleanup-prepare-retirement-v1.v1",
         ResultTypeId = "hpd.auth.type.auth-cleanup-mutation-result-v1.v1",
         SystemCollectionIds = [AuthCleanupWorkRecordV1.Collection.Id],

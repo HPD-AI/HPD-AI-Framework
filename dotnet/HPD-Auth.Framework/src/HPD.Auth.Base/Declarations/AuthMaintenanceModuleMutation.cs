@@ -16,7 +16,7 @@ internal static partial class AuthMaintenanceRunInitializeOperationV1
         {
             Id = "hpd.auth.maintenance-run.initialize.v1", Version = 1,
             OwningModuleId = AuthBaseContract.ModuleId, GrantId = "auth.operation.cleanup.advance",
-            Audience = BaseModuleMutationAudience.Service,
+            Audience = BaseModuleMutationAudience.System,
             RequestTypeId = "hpd.auth.type.auth-maintenance-run-initialize-v1.v1",
             ResultTypeId = "hpd.auth.type.auth-maintenance-run-result-v1.v1",
             SystemCollectionIds = [AuthMaintenanceRunRecordV1.Collection.Id],

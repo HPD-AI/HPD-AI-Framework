@@ -188,11 +188,14 @@ public sealed class BaseSubjectRetirementSession
     }
 
     /// <summary>Performs one identified final physical purge.</summary>
-    public ValueTask<BaseResult<BaseSubjectFinalPurgeResult>> PurgeAsync(BaseSubjectFinalPurgeRequest request, CancellationToken cancellationToken = default)
+    public ValueTask<BaseResult<BaseSubjectFinalPurgeResult>> PurgeAsync(
+        BaseSubjectFinalPurgeRequest request,
+        BaseSubjectFinalPurgeExecutionOptions? options = null,
+        CancellationToken cancellationToken = default)
     {
         IBaseSubjectRetirementRuntime runtime = _session.Services.GetService(typeof(IBaseSubjectRetirementRuntime)) as IBaseSubjectRetirementRuntime
             ?? throw new InvalidOperationException(BaseSubjectRetirementErrorCodes.ProviderContractInvalid);
-        return runtime.PurgeAsync(_session, request, cancellationToken);
+        return runtime.PurgeAsync(_session, request, options, cancellationToken);
     }
 
     /// <summary>Removes one mutually accepted consumer after bounded barrier reconciliation.</summary>
@@ -241,6 +244,6 @@ internal interface IBaseSubjectRetirementRuntime
     ValueTask<BaseResult<BaseSubjectRetirementInspection>> InspectAsync(BaseSession session,BaseSubjectRetirementInspectionRequest request,CancellationToken cancellationToken);
     ValueTask<BaseResult<BaseSubjectRetirementTimeoutResult>> TimeoutAsync(BaseSession session,BaseSubjectRetirementTimeoutRequest request,CancellationToken cancellationToken);
     ValueTask<BaseResult<BaseSubjectRetirementOverrideResult>> OverrideAsync(BaseSession session,BaseSubjectRetirementOverrideRequest request,CancellationToken cancellationToken);
-    ValueTask<BaseResult<BaseSubjectFinalPurgeResult>> PurgeAsync(BaseSession session,BaseSubjectFinalPurgeRequest request,CancellationToken cancellationToken);
+    ValueTask<BaseResult<BaseSubjectFinalPurgeResult>> PurgeAsync(BaseSession session,BaseSubjectFinalPurgeRequest request,BaseSubjectFinalPurgeExecutionOptions? options,CancellationToken cancellationToken);
     ValueTask<BaseResult<BaseSubjectRetirementConsumerRemovalResult>> RemoveConsumerAsync(BaseSession session,BaseSubjectRetirementConsumerRemovalRequest request,CancellationToken cancellationToken);
 }

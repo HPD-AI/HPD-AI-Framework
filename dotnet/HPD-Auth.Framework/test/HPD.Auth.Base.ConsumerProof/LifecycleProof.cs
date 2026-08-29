@@ -72,10 +72,11 @@ internal static class LifecycleProof
             });
 
     internal static BaseGeneratedSubjectRetirementPolicyIdentity<ConsumerSubject> Policy { get; } =
-        BaseGeneratedSubjectRetirementPolicies.Register(
+        BaseGeneratedSubjectRetirementPolicies.Register<ConsumerSubject>(
             ConsumerSubject.HPDBaseSubjectRegistration,
             TimeSpan.FromHours(1),
             BaseSubjectRetirementTimeoutBehavior.Quarantine,
             new BaseSubjectPurgeRetentionPolicy { MinimumTombstoneAge = TimeSpan.Zero },
+            BaseSubjectFinalExecutionMode.OrdinaryOrActivationGuarded,
             RetirementIdentity);
 }

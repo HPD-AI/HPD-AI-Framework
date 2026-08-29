@@ -23,11 +23,24 @@ public sealed class SqliteStudioControlInspectionTests
                 for (int index = 1; index <= 3; index++)
                 {
                     await using SqliteCommand insert = connection.CreateCommand();
-                    insert.CommandText = "INSERT INTO hpd_base_activation_receipts(receipt_key,operation_kind,fingerprint,result_json,result_checksum,activation_id) VALUES($key,$kind,$fingerprint,$result,$checksum,$subject);";
+                    insert.CommandText = """
+                        INSERT INTO hpd_base_activation_instance_receipts(
+                            receipt_key,operation_kind,activation_id,definition_id,definition_version,definition_checksum,
+                            receipt_format_version,receipt_duplicate_lifetime_ms,receipt_backup_coverage,
+                            fingerprint,result_json,result_checksum,authority_checksum,committed_at,duplicate_resolve_until,
+                            receipt_sequence,prior_ordered_checksum,ordered_checksum)
+                        VALUES($key,$kind,$subject,'sample.activation',1,$definitionChecksum,1,86400000,1,
+                            $fingerprint,$result,$checksum,$authority,1000,86401000,$sequence,$prior,$ordered);
+                        """;
                     insert.Parameters.AddWithValue("$key", $"receipt-{index}"); insert.Parameters.AddWithValue("$kind", "activation-completed");
                     insert.Parameters.AddWithValue("$fingerprint", Enumerable.Repeat((byte)index, 32).ToArray());
                     insert.Parameters.AddWithValue("$result", Array.Empty<byte>()); insert.Parameters.AddWithValue("$checksum", Enumerable.Repeat((byte)(index + 3), 32).ToArray());
                     insert.Parameters.AddWithValue("$subject", $"activation-{index}");
+                    insert.Parameters.AddWithValue("$definitionChecksum", Enumerable.Repeat((byte)11, 32).ToArray());
+                    insert.Parameters.AddWithValue("$authority", Enumerable.Repeat((byte)(index + 7), 32).ToArray());
+                    insert.Parameters.AddWithValue("$sequence", index);
+                    insert.Parameters.AddWithValue("$prior", Enumerable.Repeat((byte)(index - 1), 32).ToArray());
+                    insert.Parameters.AddWithValue("$ordered", Enumerable.Repeat((byte)(index + 12), 32).ToArray());
                     await insert.ExecuteNonQueryAsync();
                 }
             }

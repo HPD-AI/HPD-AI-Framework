@@ -27,6 +27,7 @@ internal sealed class HPDBaseDataProtectionXmlRepository :
 
     private readonly IBaseSessionFactory _sessions;
     private readonly TimeProvider _timeProvider;
+    private readonly AuthDataProtectionCacheInvalidationState _invalidation;
     private readonly string _applicationDiscriminator;
     private readonly Channel<PersistRequest> _writes = Channel.CreateBounded<PersistRequest>(new BoundedChannelOptions(32)
     {
@@ -46,11 +47,13 @@ internal sealed class HPDBaseDataProtectionXmlRepository :
     public HPDBaseDataProtectionXmlRepository(
         IBaseSessionFactory sessions,
         HPDAuthOptions options,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        AuthDataProtectionCacheInvalidationState invalidation)
     {
         _sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
         ArgumentNullException.ThrowIfNull(options);
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
+        _invalidation = invalidation ?? throw new ArgumentNullException(nameof(invalidation));
         _applicationDiscriminator = ValidateDiscriminator(options.AppName);
     }
 
@@ -77,7 +80,6 @@ internal sealed class HPDBaseDataProtectionXmlRepository :
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         _writes.Writer.TryComplete();
-        _stopping.Cancel();
         Task[] pending = [_worker ?? Task.CompletedTask];
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(ShutdownTimeout);
@@ -85,8 +87,11 @@ internal sealed class HPDBaseDataProtectionXmlRepository :
         {
             await Task.WhenAll(pending).WaitAsync(timeout.Token).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
+            _stopping.Cancel();
+            if (cancellationToken.IsCancellationRequested)
+                throw;
             throw new InvalidOperationException("HPD Auth Data Protection persistence did not drain during shutdown.");
         }
     }
@@ -97,6 +102,11 @@ internal sealed class HPDBaseDataProtectionXmlRepository :
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         CacheState cache = Volatile.Read(ref _cache)
             ?? throw new InvalidOperationException("HPD Auth Data Protection key storage is not ready.");
+        if (cache.InvalidationGeneration != _invalidation.Generation)
+        {
+            Volatile.Write(ref _cache, null);
+            throw new InvalidOperationException("HPD Auth Data Protection key storage is not ready.");
+        }
         var elements = new XElement[cache.Keys.Length];
         for (int index = 0; index < cache.Keys.Length; index++)
             elements[index] = ParseOwned(cache.Keys[index].CanonicalXml);
@@ -160,6 +170,10 @@ internal sealed class HPDBaseDataProtectionXmlRepository :
                     Volatile.Write(ref _cache, null);
                     request.Completion.TrySetException(exception);
                 }
+                finally
+                {
+                    CryptographicOperations.ZeroMemory(request.CanonicalXml);
+                }
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
@@ -185,7 +199,14 @@ internal sealed class HPDBaseDataProtectionXmlRepository :
         BaseBatchBuilder batch = session.Atomic(identity);
         batch.Upsert(AuthDataProtectionKeyRecordV1.Collection, RecordId.Create(id), record, record,
             RecordUpsertExistenceCondition.CreateOnly);
-        _ = await batch.CommitAsync(cancellationToken).ConfigureAwait(false);
+        BaseResult<BaseBatchResult> committed = await batch.CommitAsync(cancellationToken).ConfigureAwait(false);
+        if (committed is BaseFailure<BaseBatchResult> failure)
+            throw new InvalidOperationException(
+                $"HPD Auth Data Protection key persistence failed ({failure.Error.Code}).");
+        BaseBatchResult batchResult = committed.RequireValue();
+        if (batchResult.Outcome != BaseRecordBatchOutcome.Committed)
+            throw new InvalidOperationException(
+                $"HPD Auth Data Protection key persistence failed ({batchResult.Error?.Code ?? "auth.dataProtection.keyCollision"}).");
 
         await ReloadAsync(cancellationToken).ConfigureAwait(false);
         CacheKey? persisted = Volatile.Read(ref _cache)?.Keys.SingleOrDefault(key =>
@@ -204,6 +225,7 @@ internal sealed class HPDBaseDataProtectionXmlRepository :
 
     private async Task<long> ReloadAsync(CancellationToken cancellationToken)
     {
+        long invalidationGeneration = _invalidation.Generation;
         BaseResult<BaseRegisteredReadResult<AuthDataProtectionKeysReadV1.Row>> result = await OpenSession().Reads
             .ToArrayWithAuthorityAsync(AuthDataProtectionKeysReadV1.Handle,
                 new AuthDataProtectionKeysReadV1 { ApplicationDiscriminator = _applicationDiscriminator },
@@ -213,6 +235,9 @@ internal sealed class HPDBaseDataProtectionXmlRepository :
                 $"HPD Auth Data Protection key storage is unavailable ({failure.Error.Code}).");
 
         BaseRegisteredReadResult<AuthDataProtectionKeysReadV1.Row> read = result.RequireValue();
+        _invalidation.Bind(read.Authority.LogicalStoreId);
+        if (invalidationGeneration != _invalidation.Generation)
+            throw new InvalidOperationException("HPD Auth Data Protection key storage changed during refresh.");
         if (read.Page.Items.Length > 256)
             throw new InvalidOperationException("HPD Auth Data Protection key storage exceeded its configured bound.");
         var keys = ImmutableArray.CreateBuilder<CacheKey>(read.Page.Items.Length);
@@ -233,7 +258,8 @@ internal sealed class HPDBaseDataProtectionXmlRepository :
             keys.Add(new CacheKey(row.Id, xml, digest));
         }
         long generation = Interlocked.Increment(ref _cacheGeneration);
-        Volatile.Write(ref _cache, new CacheState(keys.MoveToImmutable(), read.Authority, generation));
+        Volatile.Write(ref _cache, new CacheState(
+            keys.MoveToImmutable(), read.Authority, generation, invalidationGeneration));
         return generation;
     }
 
@@ -290,7 +316,8 @@ internal sealed class HPDBaseDataProtectionXmlRepository :
     private sealed record CacheState(
         ImmutableArray<CacheKey> Keys,
         BaseRegisteredReadSnapshotAuthority Authority,
-        long Generation);
+        long Generation,
+        long InvalidationGeneration);
 
     private sealed record CacheKey(string Id, byte[] CanonicalXml, byte[] ContentDigest);
 

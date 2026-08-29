@@ -55,7 +55,7 @@ internal sealed partial class AuthBaseUserStore
         BaseInstalledModuleMutationHandle<AuthPasskeyRegisterV1, AuthPasskeyRegisterResultV1> operation = runtime
             .OpenServiceSession().ModuleMutations.Get(AuthPasskeyRegisterOperationV1.Identity);
         BaseMutationRequestIdentity identity = operation.CreateRequestIdentity(
-            request, $"user:{user.Id:D}:passkey:{passkeyId}:add-or-update");
+            request, $"user:{user.Id:D}:revision:{authority.Revision.Value}:passkey:{passkeyId}:add-or-update");
         BaseResult<BaseModuleMutationExecutionResult<AuthPasskeyRegisterResultV1>> result = await operation
             .ExecuteAsync(request, identity, cancellationToken: cancellationToken)
             .ConfigureAwait(false);

@@ -9,6 +9,75 @@ namespace HPD.Base.Sqlite.Tests.Storage;
 
 public sealed partial class SqliteModuleMutationTests
 {
+    [Fact]
+    public async Task Semantic_recovery_preflight_uses_exact_migration_control_receipt_authority()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-l76-migrated-preflight-{Guid.NewGuid():N}.db");
+        try
+        {
+            BaseAtomicMutationExecutionLimits mutationLimits = ExecutionLimits();
+            await using SqliteRecordStore store = SemanticStore(path, administrationEnabled: true);
+            BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync(
+                "activation-test", [], mutationLimits)).Value!;
+            var ensure = new SqliteSemanticEnsureProbe(authority, mutationLimits, "migrated-preflight-live");
+            (await store.ExecuteAtomicAsync(ensure, ExecutionRequest())).Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+            string activationId = ensure.Provisional!.ActivationId!;
+            BaseActivationDefinitionKey sourceDefinition = ActivationDefinition();
+            BaseActivationExecutionLimits activationLimits = ActivationLimits();
+            BaseActivationMigrationCandidate candidate = (await store.ReadMigrationCandidateAsync(
+                new BaseActivationMigrationCandidateRequest
+                {
+                    ApplicationId = "activation-test", Scope = ActivationScope(), SourceDefinition = sourceDefinition,
+                    ActivationId = activationId, ExpectedGeneration = 1, AcceptedTime = AcceptedTime(10),
+                    Limits = activationLimits,
+                })).Value!;
+            byte[] replacementInput = "replacement"u8.ToArray();
+            var targetDefinition = new BaseActivationDefinitionKey
+            {
+                Id = "test.activation.replacement", Version = 2,
+                Checksum = SHA256.HashData("test.activation.replacement.v2"u8).ToImmutableArray(),
+            };
+            BaseActivationMigrationResult migrated = (await store.MigrateAsync(new BaseActivationMigrationRequest
+            {
+                ApplicationId = "activation-test", Scope = ActivationScope(), SourceDefinition = sourceDefinition,
+                SourceActivationId = activationId, ExpectedSourceGeneration = 1,
+                ExpectedSourceInputChecksum = candidate.InputChecksum,
+                ReplacementActivationId = "migrated-preflight-replacement",
+                Replacement = new BaseActivationCreateIntent
+                {
+                    Ordinal = 0, Definition = targetDefinition, ReceiptRetention = DefaultReceiptRetention(),
+                    CanonicalInput = replacementInput.ToImmutableArray(),
+                    InputChecksum = SHA256.HashData(replacementInput).ToImmutableArray(),
+                    Scope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Global },
+                    RequestedDueAt = 11, EffectiveDueAt = 11, Priority = 0, OverlapKey = [],
+                    OverlapPolicy = BaseScheduleOverlapPolicy.Allow, InitiallyEligible = true, MaximumYields = 0,
+                    Identity = ActivationIdentity("migrated-preflight-replacement"),
+                },
+                MigrationId = "test.activation.migration", MigrationVersion = 1,
+                MigrationChecksum = SHA256.HashData("test.activation.migration.v1"u8).ToImmutableArray(),
+                AcceptedTime = AcceptedTime(11), Identity = ActivationIdentity("migrated-preflight"),
+                Limits = activationLimits,
+            })).Value!;
+
+            BaseSemanticRecoveryPreflightEvidence preflight = (await store.PreflightSemanticRecoveryAsync(
+                PreflightRequest(authority))).Value!;
+            preflight.ActivationState.Should().Be(BaseActivationState.Migrated);
+            preflight.TerminalReceipt.Kind.Should().Be(BaseSemanticRecoveryTerminalReceiptKind.Migration);
+            preflight.TerminalReceipt.Instance.Should().BeNull();
+            preflight.TerminalReceipt.Migration!.Result.Should().BeEquivalentTo(migrated);
+            preflight.TerminalReceipt.AuthorityChecksum.Should().Equal(preflight.ActivationTerminalReceiptChecksum);
+            BaseSemanticRecoveryAuthorityContract.TerminalActivationIsValid(preflight.TerminalActivation).Should().BeTrue();
+            BaseSemanticActivationEvidenceContract.RecoveryPreflightIsValid(
+                PreflightRequest(authority), preflight).Should().BeTrue();
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            foreach (string suffix in new[] { "", "-wal", "-shm" })
+                if (File.Exists(path + suffix)) File.Delete(path + suffix);
+        }
+    }
+
     [Theory]
     [InlineData(true, false)]
     [InlineData(false, false)]

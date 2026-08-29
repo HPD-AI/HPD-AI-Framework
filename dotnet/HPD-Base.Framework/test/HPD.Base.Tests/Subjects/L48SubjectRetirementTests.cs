@@ -112,6 +112,56 @@ public sealed class L48SubjectRetirementTests
     }
 
     [Fact]
+    public void Subject_tombstone_receipt_round_trips_exact_owned_transition_evidence()
+    {
+        DateTimeOffset tombstonedAt = new(2031, 2, 3, 4, 5, 6, TimeSpan.Zero);
+        BaseAtomicReceiptResult receipt = new()
+        {
+            Kind = BaseAtomicReceiptResultKind.SubjectTombstone,
+            Mutations = [],
+            SubjectTombstone = new BaseAtomicSubjectTombstoneReceiptResult
+            {
+                SubjectContractId = "example.subject",
+                SubjectContractVersion = 1,
+                Fact = new BaseOwnedSubjectLifecycleFact
+                {
+                    CommitPosition = new BaseMutationJournalPosition(7),
+                    ContractId = "example.subject",
+                    ContractVersion = 1,
+                    ContractChecksum = Hex('a'),
+                    Scope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Tenant, Value = "tenant-a" },
+                    SubjectId = BaseSubjectId.Create("subject-a", BaseSubjectIdKind.OrdinalString),
+                    AuthorityEpoch = new BaseSubjectAuthorityEpoch(Enumerable.Repeat((byte)2, 16).ToArray()),
+                    Incarnation = new BaseSubjectIncarnation(Enumerable.Repeat((byte)3, 24).ToArray()),
+                    SubjectSequence = 2,
+                    ContractStateGeneration = 3,
+                    DeliveryEpoch = 4,
+                    Kind = BaseSubjectLifecycleFactKind.Transitioned,
+                    PreviousState = BaseSubjectLifecycleState.Active,
+                    CurrentState = BaseSubjectLifecycleState.Tombstoned,
+                },
+                PrivateRevision = new RevisionToken("revision-2"),
+                TombstonedAt = tombstonedAt,
+            },
+        };
+
+        BaseAtomicReceiptResult restored = BaseAtomicReceiptWire.From(receipt).Materialize();
+
+        Assert.Equal(BaseAtomicReceiptResultKind.SubjectTombstone, restored.Kind);
+        Assert.Equal("revision-2", restored.SubjectTombstone!.PrivateRevision.Value);
+        Assert.Equal(tombstonedAt, restored.SubjectTombstone.TombstonedAt);
+        Assert.Equal(2, restored.SubjectTombstone.Fact.SubjectSequence);
+        Assert.Equal("tenant-a", restored.SubjectTombstone.Fact.Scope.Value);
+        Assert.Throws<InvalidOperationException>(() => BaseAtomicReceiptWire.From(receipt with
+        {
+            SubjectTombstone = receipt.SubjectTombstone with
+            {
+                Fact = receipt.SubjectTombstone.Fact with { CurrentState = BaseSubjectLifecycleState.Active },
+            },
+        }));
+    }
+
+    [Fact]
     public void Evidence_token_binds_complete_delivery_authority_key_and_expiry()
     {
         (BaseSubjectLifecycleRegistry lifecycle,BaseSubjectRetirementConsumerDefinition consumer,BaseSubjectRetirementPolicy policy)=Graph();BaseInstalledSubjectRetirementConsumer installed=new BaseSubjectRetirementRegistry([consumer],[policy],lifecycle).Consumers.Single();var clock=new MutableClock(DateTimeOffset.Parse("2026-01-01T00:00:00Z"));using var tokens=new BaseOpaqueTokenProtector(Microsoft.Extensions.Options.Options.Create(new HPDBaseTokenProtectionOptions{ActiveKey=new(){Id=7,Key=Enumerable.Repeat((byte)4,32).ToArray(),IssueNotBefore=DateTimeOffset.UnixEpoch}}),clock);var codec=new BaseSubjectRetirementEvidenceCodec(tokens,clock);var scope=new BaseOwnedSubjectScopeEvidence{Kind=BaseSubjectScopeKind.Tenant,Value="tenant-a"};var subject=BaseSubjectId.Create("subject-a",BaseSubjectIdKind.OrdinalString);var epoch=new BaseSubjectAuthorityEpoch(Enumerable.Repeat((byte)2,16).ToArray());var incarnation=new BaseSubjectIncarnation(Enumerable.Repeat((byte)3,24).ToArray());var boundary=new BaseSubjectLifecycleOrderingBoundary{CommitPosition=new(11),SubjectId=subject,AuthorityEpoch=epoch,Incarnation=incarnation,SubjectSequence=4};var payload=new BaseSubjectRetirementEvidencePayload(BaseSubjectRetirementParticipation.RequiredBeforePurge,"consumer",1,installed.Checksum,"example.subject",1,Hex('1'),"store-a",2,3,4,5,boundary,subject,epoch,incarnation,4,SHA256.HashData("fact"u8),SHA256.HashData("membership"u8),SHA256.HashData("grant"u8),3,7,new(){Generation=2,Checksum=Hex('a')},clock.GetUtcNow(),clock.GetUtcNow().AddHours(1));byte[] binding=BaseSubjectRetirementEvidenceCodec.Binding("app-a",installed,scope);byte[] encoded=codec.Protect(payload,binding);Assert.True(codec.TryRead(encoded,BaseSubjectRetirementParticipation.RequiredBeforePurge,binding,BaseSubjectIdKind.OrdinalString,out BaseSubjectRetirementEvidencePayload? decoded));Assert.Equal(payload.StoreInstanceId,decoded!.StoreInstanceId);Assert.Equal(boundary,decoded.OrderingBoundary);Assert.False(codec.TryRead(encoded,BaseSubjectRetirementParticipation.RequiredBeforePurge,SHA256.HashData("wrong"u8),BaseSubjectIdKind.OrdinalString,out _));clock.Advance(TimeSpan.FromHours(1));Assert.False(codec.TryRead(encoded,BaseSubjectRetirementParticipation.RequiredBeforePurge,binding,BaseSubjectIdKind.OrdinalString,out _));

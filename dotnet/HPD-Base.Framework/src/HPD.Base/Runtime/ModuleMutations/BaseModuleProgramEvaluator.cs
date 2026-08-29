@@ -257,6 +257,7 @@ internal sealed class BaseModuleProgramEvaluator<TRequest, TResult>
                 ? JsonValue(RetirementWire(retirement), BaseModuleProgramValueProvenance.StoredAuthority) : BaseModuleProgramValue.Missing(BaseModuleProgramValueProvenance.StoredAuthority),
             BaseModuleCoalesceExpression coalesce => coalesce.Values.Select(EvaluateResult).FirstOrDefault(static value => value.Present),
             BaseModuleConditionalExpression conditional => ResultConditional(conditional, EvaluateResult),
+            BaseModulePresenceLiftExpression lift => EvaluateResult(lift.Source),
                 _ => Evaluate(expression),
             };
             return Validate(expression.ResultType!, value);
@@ -678,8 +679,7 @@ internal sealed class BaseModuleProgramEvaluator<TRequest, TResult>
     };
 
     private static bool Equal(BaseModuleProgramValue left, BaseModuleProgramValue right) =>
-        left.Present == right.Present && (!left.Present || left.Value.ValueKind == right.Value.ValueKind
-            && string.Equals(left.Value.GetRawText(), right.Value.GetRawText(), StringComparison.Ordinal));
+        left.Present == right.Present && (!left.Present || JsonElement.DeepEquals(left.Value, right.Value));
 
     private static BaseModuleProgramValue Parse(ReadOnlySpan<byte> bytes, BaseModuleProgramValueProvenance provenance)
     {

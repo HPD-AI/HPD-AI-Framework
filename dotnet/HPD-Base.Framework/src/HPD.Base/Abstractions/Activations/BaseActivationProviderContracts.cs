@@ -1,6 +1,471 @@
 using System.Collections.Immutable;
+using System.Buffers.Binary;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace HPD.Base;
+
+/// <summary>Contains durable ordered authority for definition-bound activation-instance receipts.</summary>
+public sealed record BaseActivationInstanceReceiptChainState
+{
+    /// <summary>Gets the closed chain-state format version.</summary>
+    public required int FormatVersion { get; init; }
+    /// <summary>Gets the last committed, gap-free receipt sequence.</summary>
+    public required long CurrentSequence { get; init; }
+    /// <summary>Gets the ordered checksum through <see cref="CurrentSequence"/>.</summary>
+    public required ImmutableArray<byte> OrderedChecksum { get; init; }
+    /// <summary>Gets the monotonic chain-maintenance generation.</summary>
+    public required long Generation { get; init; }
+    /// <summary>Gets the canonical state checksum.</summary>
+    public required ImmutableArray<byte> Checksum { get; init; }
+}
+
+/// <summary>Creates and validates canonical L76 activation-instance receipt-chain authority.</summary>
+public static class BaseActivationInstanceReceiptChainContract
+{
+    private static readonly byte[] Zero = SHA256.HashData(Encoding.UTF8.GetBytes("base.activation.receiptChain.v1\0"));
+
+    /// <summary>Gets a fresh copy of the sequence-zero ordered checksum.</summary>
+    public static ImmutableArray<byte> ZeroOrderedChecksum => Zero.ToArray().ToImmutableArray();
+
+    /// <summary>Creates one deeply owned canonical chain state.</summary>
+    public static BaseActivationInstanceReceiptChainState Create(
+        long currentSequence,
+        ReadOnlySpan<byte> orderedChecksum,
+        long generation)
+    {
+        if (currentSequence < 0 || generation < 0 || orderedChecksum.Length != 32)
+            throw new ArgumentOutOfRangeException(nameof(currentSequence));
+        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData(Encoding.UTF8.GetBytes("base.activation.receiptChainState.v1\0"));
+        Span<byte> fields = stackalloc byte[20];
+        BinaryPrimitives.WriteInt32BigEndian(fields, 1);
+        BinaryPrimitives.WriteInt64BigEndian(fields[4..], currentSequence);
+        BinaryPrimitives.WriteInt64BigEndian(fields[12..], generation);
+        hash.AppendData(fields);
+        hash.AppendData(orderedChecksum);
+        return new BaseActivationInstanceReceiptChainState
+        {
+            FormatVersion = 1,
+            CurrentSequence = currentSequence,
+            OrderedChecksum = orderedChecksum.ToArray().ToImmutableArray(),
+            Generation = generation,
+            Checksum = hash.GetHashAndReset().ToImmutableArray(),
+        };
+    }
+
+    /// <summary>Computes the ordered checksum contributed by one activation-instance receipt.</summary>
+    public static ImmutableArray<byte> Append(
+        long sequence,
+        ReadOnlySpan<byte> priorOrderedChecksum,
+        ReadOnlySpan<byte> receiptAuthorityChecksum,
+        string receiptKey)
+    {
+        if (sequence <= 0 || priorOrderedChecksum.Length != 32 || receiptAuthorityChecksum.Length != 32)
+            throw new ArgumentOutOfRangeException(nameof(sequence));
+        ArgumentException.ThrowIfNullOrWhiteSpace(receiptKey);
+        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData(Encoding.ASCII.GetBytes("base.activation.receiptChain.v1\0"));
+        Span<byte> sequenceBytes = stackalloc byte[8];
+        BinaryPrimitives.WriteInt64BigEndian(sequenceBytes, sequence);
+        hash.AppendData(sequenceBytes);
+        AppendFramed(hash, priorOrderedChecksum);
+        AppendFramed(hash, receiptAuthorityChecksum);
+        AppendFramed(hash, Encoding.UTF8.GetBytes(receiptKey));
+        return hash.GetHashAndReset().ToImmutableArray();
+    }
+
+    /// <summary>Computes the purpose-bound authority checksum for one complete activation-instance receipt envelope.</summary>
+    public static ImmutableArray<byte> ReceiptAuthorityChecksum(
+        string receiptKey,
+        string operationKind,
+        string activationId,
+        BaseActivationDefinitionKey definition,
+        BaseActivationReceiptRetentionPolicy retention,
+        ReadOnlySpan<byte> fingerprint,
+        ReadOnlySpan<byte> resultChecksum,
+        long committedAt,
+        long duplicateResolveUntil,
+        long receiptSequence,
+        ReadOnlySpan<byte> priorOrderedChecksum)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(receiptKey);
+        ArgumentException.ThrowIfNullOrWhiteSpace(operationKind);
+        ArgumentException.ThrowIfNullOrWhiteSpace(activationId);
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(retention);
+        if (definition.Version <= 0 || definition.Checksum.Length != 32
+            || retention.FormatVersion != 1
+            || retention.DuplicateResolutionLifetime.Ticks % TimeSpan.TicksPerMillisecond != 0
+            || retention.DuplicateResolutionLifetime < TimeSpan.FromHours(1)
+            || retention.DuplicateResolutionLifetime > TimeSpan.FromDays(90)
+            || !Enum.IsDefined(retention.ProtectedBackupCoverage)
+            || fingerprint.Length != 32 || resultChecksum.Length != 32
+            || committedAt < 0 || duplicateResolveUntil <= committedAt || receiptSequence <= 0
+            || priorOrderedChecksum.Length != 32
+            || duplicateResolveUntil - committedAt
+                != retention.DuplicateResolutionLifetime.Ticks / TimeSpan.TicksPerMillisecond)
+            throw new ArgumentException("The activation-instance receipt envelope is not canonical.");
+
+        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData("base.activation.instanceReceipt.v1\0"u8);
+        AppendFramed(hash, Encoding.UTF8.GetBytes(receiptKey));
+        AppendFramed(hash, Encoding.UTF8.GetBytes(operationKind));
+        AppendFramed(hash, Encoding.UTF8.GetBytes(activationId));
+        AppendFramed(hash, Encoding.UTF8.GetBytes(definition.Id));
+        Span<byte> numbers = stackalloc byte[52];
+        BinaryPrimitives.WriteInt32BigEndian(numbers, definition.Version);
+        BinaryPrimitives.WriteInt32BigEndian(numbers[4..], retention.FormatVersion);
+        BinaryPrimitives.WriteInt64BigEndian(numbers[8..], retention.DuplicateResolutionLifetime.Ticks / TimeSpan.TicksPerMillisecond);
+        BinaryPrimitives.WriteInt32BigEndian(numbers[16..], (int)retention.ProtectedBackupCoverage);
+        BinaryPrimitives.WriteInt64BigEndian(numbers[20..], committedAt);
+        BinaryPrimitives.WriteInt64BigEndian(numbers[28..], duplicateResolveUntil);
+        BinaryPrimitives.WriteInt64BigEndian(numbers[36..], receiptSequence);
+        BinaryPrimitives.WriteInt64BigEndian(numbers[44..], 0);
+        hash.AppendData(numbers);
+        AppendFramed(hash, definition.Checksum.AsSpan());
+        AppendFramed(hash, fingerprint);
+        AppendFramed(hash, resultChecksum);
+        AppendFramed(hash, priorOrderedChecksum);
+        return hash.GetHashAndReset().ToImmutableArray();
+    }
+
+    /// <summary>Returns whether the supplied state is canonical.</summary>
+    public static bool IsValid(BaseActivationInstanceReceiptChainState? value)
+    {
+        if (value is null || value.FormatVersion != 1 || value.OrderedChecksum.Length != 32 || value.Checksum.Length != 32)
+            return false;
+        try
+        {
+            BaseActivationInstanceReceiptChainState canonical = Create(value.CurrentSequence, value.OrderedChecksum.AsSpan(), value.Generation);
+            return CryptographicOperations.FixedTimeEquals(canonical.Checksum.AsSpan(), value.Checksum.AsSpan())
+                && (value.CurrentSequence != 0 || CryptographicOperations.FixedTimeEquals(value.OrderedChecksum.AsSpan(), Zero));
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return false;
+        }
+    }
+
+    private static void AppendFramed(IncrementalHash hash, ReadOnlySpan<byte> value)
+    {
+        Span<byte> length = stackalloc byte[4];
+        BinaryPrimitives.WriteInt32BigEndian(length, value.Length);
+        hash.AppendData(length);
+        hash.AppendData(value);
+    }
+}
+
+/// <summary>Contains authenticated publication authority for one backup-covered activation receipt-chain prefix.</summary>
+public sealed record BaseActivationBackupCoverageCheckpoint
+{
+    /// <summary>Gets the closed checkpoint representation version.</summary>
+    public required int FormatVersion { get; init; }
+    /// <summary>Gets the canonical artifact identity.</summary>
+    public required string ArtifactId { get; init; }
+    /// <summary>Gets the SHA-256 digest of the authenticated artifact.</summary>
+    public required ImmutableArray<byte> ArtifactSha256 { get; init; }
+    /// <summary>Gets the owning application identity.</summary>
+    public required string ApplicationId { get; init; }
+    /// <summary>Gets the configured logical store identity.</summary>
+    public required string LogicalStoreId { get; init; }
+    /// <summary>Gets the physical store-instance identity.</summary>
+    public required string StoreInstanceId { get; init; }
+    /// <summary>Gets the restore epoch under which the checkpoint was published.</summary>
+    public required long RestoreEpoch { get; init; }
+    /// <summary>Gets the covered activation-instance receipt sequence.</summary>
+    public required long ReceiptSequence { get; init; }
+    /// <summary>Gets the ordered receipt-chain checksum through <see cref="ReceiptSequence"/>.</summary>
+    public required ImmutableArray<byte> ReceiptOrderedChecksum { get; init; }
+    /// <summary>Gets the positive monotonic checkpoint generation.</summary>
+    public required long Generation { get; init; }
+    /// <summary>Gets the provider-accepted publication time in UTC Unix milliseconds.</summary>
+    public required long CommittedAt { get; init; }
+    /// <summary>Gets the canonical checkpoint checksum.</summary>
+    public required ImmutableArray<byte> Checksum { get; init; }
+}
+
+/// <summary>Creates and validates canonical L76 backup-coverage checkpoints.</summary>
+public static class BaseActivationBackupCoverageCheckpointContract
+{
+    /// <summary>Creates one deeply owned checkpoint with its canonical checksum.</summary>
+    public static BaseActivationBackupCoverageCheckpoint Create(
+        string artifactId,
+        ReadOnlySpan<byte> artifactSha256,
+        string applicationId,
+        string logicalStoreId,
+        string storeInstanceId,
+        long restoreEpoch,
+        long receiptSequence,
+        ReadOnlySpan<byte> receiptOrderedChecksum,
+        long generation,
+        long committedAt)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(artifactId);
+        ArgumentNullException.ThrowIfNull(applicationId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(logicalStoreId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(storeInstanceId);
+        if (artifactSha256.Length != 32 || receiptOrderedChecksum.Length != 32
+            || restoreEpoch < 0 || receiptSequence < 0 || generation <= 0 || committedAt < 0)
+            throw new ArgumentException("The activation backup-coverage checkpoint is not canonical.");
+        BaseActivationBackupCoverageCheckpoint checkpoint = new()
+        {
+            FormatVersion = 1,
+            ArtifactId = artifactId,
+            ArtifactSha256 = artifactSha256.ToArray().ToImmutableArray(),
+            ApplicationId = applicationId,
+            LogicalStoreId = logicalStoreId,
+            StoreInstanceId = storeInstanceId,
+            RestoreEpoch = restoreEpoch,
+            ReceiptSequence = receiptSequence,
+            ReceiptOrderedChecksum = receiptOrderedChecksum.ToArray().ToImmutableArray(),
+            Generation = generation,
+            CommittedAt = committedAt,
+            Checksum = [],
+        };
+        return checkpoint with { Checksum = Checksum(checkpoint) };
+    }
+
+    /// <summary>Returns whether the checkpoint has canonical shape and checksum.</summary>
+    public static bool IsValid(BaseActivationBackupCoverageCheckpoint? value)
+    {
+        if (value is null || value.FormatVersion != 1 || value.ArtifactSha256.Length != 32
+            || value.ReceiptOrderedChecksum.Length != 32 || value.Checksum.Length != 32)
+            return false;
+        try
+        {
+            BaseActivationBackupCoverageCheckpoint canonical = Create(
+                value.ArtifactId, value.ArtifactSha256.AsSpan(), value.ApplicationId,
+                value.LogicalStoreId, value.StoreInstanceId, value.RestoreEpoch,
+                value.ReceiptSequence, value.ReceiptOrderedChecksum.AsSpan(), value.Generation,
+                value.CommittedAt);
+            return CryptographicOperations.FixedTimeEquals(canonical.Checksum.AsSpan(), value.Checksum.AsSpan());
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    private static ImmutableArray<byte> Checksum(BaseActivationBackupCoverageCheckpoint value)
+    {
+        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData("base.activation.backupCoverageCheckpoint.v1\0"u8);
+        Append(hash, Encoding.UTF8.GetBytes(value.ArtifactId));
+        Append(hash, value.ArtifactSha256.AsSpan());
+        Append(hash, Encoding.UTF8.GetBytes(value.ApplicationId));
+        Append(hash, Encoding.UTF8.GetBytes(value.LogicalStoreId));
+        Append(hash, Encoding.UTF8.GetBytes(value.StoreInstanceId));
+        Span<byte> numbers = stackalloc byte[36];
+        BinaryPrimitives.WriteInt32BigEndian(numbers, value.FormatVersion);
+        BinaryPrimitives.WriteInt64BigEndian(numbers[4..], value.RestoreEpoch);
+        BinaryPrimitives.WriteInt64BigEndian(numbers[12..], value.ReceiptSequence);
+        BinaryPrimitives.WriteInt64BigEndian(numbers[20..], value.Generation);
+        BinaryPrimitives.WriteInt64BigEndian(numbers[28..], value.CommittedAt);
+        hash.AppendData(numbers);
+        Append(hash, value.ReceiptOrderedChecksum.AsSpan());
+        return hash.GetHashAndReset().ToImmutableArray();
+    }
+
+    private static void Append(IncrementalHash hash, ReadOnlySpan<byte> value)
+    {
+        Span<byte> length = stackalloc byte[4];
+        BinaryPrimitives.WriteInt32BigEndian(length, value.Length);
+        hash.AppendData(length);
+        hash.AppendData(value);
+    }
+}
+
+/// <summary>Creates canonical authority checksums for scheduler, executor, migration, and maintenance receipts.</summary>
+public static class BaseActivationControlReceiptContract
+{
+    /// <summary>Computes the purpose-bound authority checksum for one control receipt.</summary>
+    public static ImmutableArray<byte> AuthorityChecksum(
+        string receiptKey,
+        string operationKind,
+        ReadOnlySpan<byte> fingerprint,
+        ReadOnlySpan<byte> resultChecksum)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(receiptKey);
+        ArgumentException.ThrowIfNullOrWhiteSpace(operationKind);
+        if (fingerprint.Length != 32 || resultChecksum.Length != 32)
+            throw new ArgumentException("The activation control receipt is not canonical.");
+        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData("base.activation.controlReceipt.v1\0"u8);
+        Append(hash, Encoding.UTF8.GetBytes(receiptKey));
+        Append(hash, Encoding.UTF8.GetBytes(operationKind));
+        Append(hash, fingerprint);
+        Append(hash, resultChecksum);
+        return hash.GetHashAndReset().ToImmutableArray();
+    }
+
+    private static void Append(IncrementalHash hash, ReadOnlySpan<byte> value)
+    {
+        Span<byte> length = stackalloc byte[4];
+        BinaryPrimitives.WriteInt32BigEndian(length, value.Length);
+        hash.AppendData(length);
+        hash.AppendData(value);
+    }
+}
+
+/// <summary>Preserves the ordered-chain link of one compacted activation-instance receipt.</summary>
+public sealed record BaseActivationCompactedReceiptFact
+{
+    /// <summary>Gets the closed fact format version.</summary>
+    public required int FormatVersion { get; init; }
+    /// <summary>Gets the original gap-free receipt sequence.</summary>
+    public required long ReceiptSequence { get; init; }
+    /// <summary>Gets the original durable receipt key.</summary>
+    public required string ReceiptKey { get; init; }
+    /// <summary>Gets the original purpose-bound receipt authority checksum.</summary>
+    public required ImmutableArray<byte> ReceiptAuthorityChecksum { get; init; }
+    /// <summary>Gets the chain checksum immediately before the original receipt.</summary>
+    public required ImmutableArray<byte> PriorOrderedChecksum { get; init; }
+    /// <summary>Gets the chain checksum through the original receipt.</summary>
+    public required ImmutableArray<byte> OrderedChecksum { get; init; }
+    /// <summary>Gets the identified compaction receipt that authorized payload deletion.</summary>
+    public required string CompactionReceiptKey { get; init; }
+    /// <summary>Gets the canonical compact-fact checksum.</summary>
+    public required ImmutableArray<byte> Checksum { get; init; }
+}
+
+/// <summary>Creates and validates compact retained activation receipt-chain authority.</summary>
+public static class BaseActivationCompactedReceiptFactContract
+{
+    /// <summary>Creates one deeply owned canonical compact fact.</summary>
+    public static BaseActivationCompactedReceiptFact Create(
+        long receiptSequence,
+        string receiptKey,
+        ReadOnlySpan<byte> receiptAuthorityChecksum,
+        ReadOnlySpan<byte> priorOrderedChecksum,
+        ReadOnlySpan<byte> orderedChecksum,
+        string compactionReceiptKey)
+    {
+        if (receiptSequence < 1 || string.IsNullOrWhiteSpace(receiptKey)
+            || string.IsNullOrWhiteSpace(compactionReceiptKey)
+            || receiptAuthorityChecksum.Length != 32 || priorOrderedChecksum.Length != 32
+            || orderedChecksum.Length != 32)
+            throw new ArgumentException("The compacted activation receipt fact is not canonical.");
+        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData("base.activation.compactedReceiptFact.v1\0"u8);
+        Span<byte> sequence = stackalloc byte[8];
+        BinaryPrimitives.WriteInt64BigEndian(sequence, receiptSequence); hash.AppendData(sequence);
+        Append(hash, Encoding.UTF8.GetBytes(receiptKey)); hash.AppendData(receiptAuthorityChecksum);
+        hash.AppendData(priorOrderedChecksum); hash.AppendData(orderedChecksum);
+        Append(hash, Encoding.UTF8.GetBytes(compactionReceiptKey));
+        return new BaseActivationCompactedReceiptFact
+        {
+            FormatVersion = 1, ReceiptSequence = receiptSequence, ReceiptKey = new string(receiptKey.AsSpan()),
+            ReceiptAuthorityChecksum = receiptAuthorityChecksum.ToArray().ToImmutableArray(),
+            PriorOrderedChecksum = priorOrderedChecksum.ToArray().ToImmutableArray(),
+            OrderedChecksum = orderedChecksum.ToArray().ToImmutableArray(),
+            CompactionReceiptKey = new string(compactionReceiptKey.AsSpan()),
+            Checksum = hash.GetHashAndReset().ToImmutableArray(),
+        };
+    }
+
+    /// <summary>Returns whether one compact fact is canonical and internally consistent.</summary>
+    public static bool IsValid(BaseActivationCompactedReceiptFact? value)
+    {
+        if (value is null || value.FormatVersion != 1 || value.Checksum.Length != 32) return false;
+        try
+        {
+            BaseActivationCompactedReceiptFact expected = Create(
+                value.ReceiptSequence, value.ReceiptKey, value.ReceiptAuthorityChecksum.AsSpan(),
+                value.PriorOrderedChecksum.AsSpan(), value.OrderedChecksum.AsSpan(), value.CompactionReceiptKey);
+            return CryptographicOperations.FixedTimeEquals(expected.Checksum.AsSpan(), value.Checksum.AsSpan());
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    private static void Append(IncrementalHash hash, ReadOnlySpan<byte> value)
+    {
+        Span<byte> length = stackalloc byte[4];
+        BinaryPrimitives.WriteInt32BigEndian(length, value.Length);
+        hash.AppendData(length); hash.AppendData(value);
+    }
+}
+
+/// <summary>Contains durable provider authority for reserved and retained yield-receipt slots.</summary>
+public sealed record BaseActivationYieldReservationState
+{
+    /// <summary>Gets the closed reservation-state format version.</summary>
+    public required int FormatVersion { get; init; }
+    /// <summary>Gets the monotonic reservation-state generation.</summary>
+    public required long Generation { get; init; }
+    /// <summary>Gets the immutable store-lifetime maximum slot authority.</summary>
+    public required long MaximumSlots { get; init; }
+    /// <summary>Gets the number of reserved but unused slots.</summary>
+    public required long ReservedUnusedSlots { get; init; }
+    /// <summary>Gets the number of retained used slots.</summary>
+    public required long RetainedUsedSlots { get; init; }
+    /// <summary>Gets the canonical authority checksum.</summary>
+    public required ImmutableArray<byte> Checksum { get; init; }
+}
+
+/// <summary>Creates and validates canonical durable-yield reservation authority.</summary>
+public static class BaseActivationYieldReservationContract
+{
+    /// <summary>Creates one deeply owned canonical reservation snapshot.</summary>
+    /// <param name="generation">The monotonic state generation.</param>
+    /// <param name="maximumSlots">The immutable store-lifetime maximum.</param>
+    /// <param name="reservedUnusedSlots">The reserved-unused counter.</param>
+    /// <param name="retainedUsedSlots">The retained-used counter.</param>
+    /// <returns>The canonical snapshot.</returns>
+    public static BaseActivationYieldReservationState Create(
+        long generation,
+        long maximumSlots,
+        long reservedUnusedSlots,
+        long retainedUsedSlots)
+    {
+        if (generation < 0 || maximumSlots < 0 || reservedUnusedSlots < 0 || retainedUsedSlots < 0
+            || checked(reservedUnusedSlots + retainedUsedSlots) > maximumSlots)
+            throw new ArgumentOutOfRangeException(nameof(reservedUnusedSlots));
+        Span<byte> fields = stackalloc byte[36];
+        BinaryPrimitives.WriteInt32BigEndian(fields, 1);
+        BinaryPrimitives.WriteInt64BigEndian(fields[4..], generation);
+        BinaryPrimitives.WriteInt64BigEndian(fields[12..], maximumSlots);
+        BinaryPrimitives.WriteInt64BigEndian(fields[20..], reservedUnusedSlots);
+        BinaryPrimitives.WriteInt64BigEndian(fields[28..], retainedUsedSlots);
+        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData(Encoding.ASCII.GetBytes("base.activation.yieldReservationState.v1\0"));
+        hash.AppendData(fields);
+        return new BaseActivationYieldReservationState
+        {
+            FormatVersion = 1,
+            Generation = generation,
+            MaximumSlots = maximumSlots,
+            ReservedUnusedSlots = reservedUnusedSlots,
+            RetainedUsedSlots = retainedUsedSlots,
+            Checksum = hash.GetHashAndReset().ToImmutableArray(),
+        };
+    }
+
+    /// <summary>Returns whether a snapshot is canonical and valid.</summary>
+    /// <param name="value">The snapshot to validate.</param>
+    /// <returns><see langword="true"/> only for canonical authority.</returns>
+    public static bool IsValid(BaseActivationYieldReservationState? value)
+    {
+        if (value is null || value.FormatVersion != 1 || value.Checksum.Length != 32) return false;
+        try
+        {
+            BaseActivationYieldReservationState canonical = Create(
+                value.Generation, value.MaximumSlots, value.ReservedUnusedSlots, value.RetainedUsedSlots);
+            return CryptographicOperations.FixedTimeEquals(canonical.Checksum.AsSpan(), value.Checksum.AsSpan());
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return false;
+        }
+        catch (OverflowException)
+        {
+            return false;
+        }
+    }
+}
 
 /// <summary>Classifies how an activation provider invalidates a due observation.</summary>
 public enum BaseDueInvalidationClass
@@ -390,6 +855,32 @@ public sealed record BaseActivationFailRequest : BaseActivationTransitionRequest
     public long? RetryDueAt { get; init; }
 }
 
+/// <summary>Classifies one committed durable-yield transition.</summary>
+public enum BaseActivationYieldDisposition
+{
+    /// <summary>The activation is waiting to resume.</summary>
+    Yielded = 0,
+    /// <summary>The activation exhausted its immutable yield ceiling.</summary>
+    LimitExceeded = 1,
+}
+
+/// <summary>Requests claim-fenced durable resumption of the same activation.</summary>
+public sealed record BaseActivationYieldRequest : BaseActivationTransitionRequest
+{
+    /// <summary>Gets the current stable claim authority.</summary>
+    public required BaseActivationClaimAuthority Claim { get; init; }
+    /// <summary>Gets the authored optional resume instant.</summary>
+    public DateTimeOffset? RequestedResumeAt { get; init; }
+    /// <summary>Gets the Runtime/provider-derived effective due instant as Unix milliseconds.</summary>
+    public required long EffectiveDueAt { get; init; }
+    /// <summary>Gets the deeply owned progress fingerprint.</summary>
+    public required ImmutableArray<byte> ProgressFingerprint { get; init; }
+    /// <summary>Gets the expected current durable-yield count.</summary>
+    public required long ExpectedYieldCount { get; init; }
+    /// <summary>Gets the immutable maximum yields pinned to the activation.</summary>
+    public required long MaximumYields { get; init; }
+}
+
 /// <summary>Requests cancellation using an exact control generation.</summary>
 public sealed record BaseActivationCancelRequest : BaseActivationTransitionRequest
 {
@@ -502,6 +993,70 @@ public sealed record BaseActivationTransitionResult
     public BaseEffectExecutionAuthority? Effect { get; init; }
     /// <summary>Gets canonical graph-owned result bytes when this transition commits a result.</summary>
     public ImmutableArray<byte> CanonicalResult { get; init; }
+    /// <summary>Gets the resulting durable-yield count.</summary>
+    public long YieldCount { get; init; }
+    /// <summary>Gets the current execution-slice ordinal, or zero before first claim.</summary>
+    public long ExecutionSliceOrdinal { get; init; }
+    /// <summary>Gets the effective due instant committed by a yield transition.</summary>
+    public long? EffectiveDueAt { get; init; }
+    /// <summary>Gets the yield transition disposition when applicable.</summary>
+    public BaseActivationYieldDisposition? YieldDisposition { get; init; }
+    /// <summary>Gets the fixed yield terminal failure code only for limit exhaustion.</summary>
+    public string? YieldTerminalFailureCode { get; init; }
+}
+
+/// <summary>Contains the deeply owned durable receipt for one committed activation yield.</summary>
+public sealed record BaseActivationYieldReceipt
+{
+    /// <summary>Gets the exact installed definition authority.</summary>
+    public required BaseActivationDefinitionKey Definition { get; init; }
+    /// <summary>Gets the stable activation identity.</summary>
+    public required string ActivationId { get; init; }
+    /// <summary>Gets the generation captured before the transition.</summary>
+    public required long PriorGeneration { get; init; }
+    /// <summary>Gets the generation committed by the transition.</summary>
+    public required long ResultingGeneration { get; init; }
+    /// <summary>Gets the logical attempt number.</summary>
+    public required int AttemptNumber { get; init; }
+    /// <summary>Gets the execution-slice ordinal.</summary>
+    public required long ExecutionSliceOrdinal { get; init; }
+    /// <summary>Gets the accepted logical-attempt start.</summary>
+    public required long AttemptStartedAt { get; init; }
+    /// <summary>Gets the accepted current-slice start.</summary>
+    public required long SliceStartedAt { get; init; }
+    /// <summary>Gets the durable-yield count captured before the transition.</summary>
+    public required long PriorYieldCount { get; init; }
+    /// <summary>Gets the durable-yield count committed by the transition.</summary>
+    public required long ResultingYieldCount { get; init; }
+    /// <summary>Gets the effective due instant committed by the transition.</summary>
+    public required long EffectiveDueAt { get; init; }
+    /// <summary>Gets the opaque progress fingerprint.</summary>
+    public required ImmutableArray<byte> ProgressFingerprint { get; init; }
+    /// <summary>Gets the resulting durable activation state.</summary>
+    public required BaseActivationState ResultingState { get; init; }
+    /// <summary>Gets the closed durable-yield disposition.</summary>
+    public required BaseActivationYieldDisposition Disposition { get; init; }
+    /// <summary>Gets the fixed safe failure code only for yield-limit exhaustion.</summary>
+    public string? FailureCode { get; init; }
+    /// <summary>Gets the canonical resulting control checksum.</summary>
+    public required ImmutableArray<byte> ControlChecksum { get; init; }
+    /// <summary>Gets exact provider accounting.</summary>
+    public required BaseActivationAccounting Accounting { get; init; }
+
+    internal BaseActivationTransitionResult ToTransitionResult(BaseMutationRequestDisposition requestDisposition) => new()
+    {
+        State = ResultingState,
+        Generation = ResultingGeneration,
+        ControlChecksum = ControlChecksum.ToArray().ToImmutableArray(),
+        Accounting = Accounting with { },
+        Disposition = requestDisposition,
+        CanonicalResult = [],
+        YieldCount = ResultingYieldCount,
+        ExecutionSliceOrdinal = ExecutionSliceOrdinal,
+        EffectiveDueAt = EffectiveDueAt,
+        YieldDisposition = Disposition,
+        YieldTerminalFailureCode = FailureCode,
+    };
 }
 
 /// <summary>Requests registration of one durable worker-process incarnation.</summary>
@@ -598,6 +1153,113 @@ public sealed record BaseExecutorRetirementResult
     public required BaseMutationRequestDisposition Disposition { get; init; }
 }
 
+/// <summary>Identifies one exclusive activation-receipt compaction page boundary.</summary>
+public sealed record BaseActivationReceiptCompactionCursor
+{
+    /// <summary>Gets the prior activation identity.</summary>
+    public required string ActivationId { get; init; }
+    /// <summary>Gets the prior receipt sequence.</summary>
+    public required long ReceiptSequence { get; init; }
+}
+
+/// <summary>Classifies backup coverage required by one receipt compaction request.</summary>
+public enum BaseActivationReceiptBackupFloorKind
+{
+    /// <summary>The installed receipt policy does not require protected-backup coverage.</summary>
+    NotApplicable = 1,
+    /// <summary>An exact authenticated backup checkpoint must cover each deleted receipt.</summary>
+    Checkpoint = 2,
+}
+
+/// <summary>Contains the closed backup predicate for one receipt compaction page.</summary>
+public sealed record BaseActivationReceiptBackupFloor
+{
+    /// <summary>Gets the closed backup-floor kind.</summary>
+    public required BaseActivationReceiptBackupFloorKind Kind { get; init; }
+    /// <summary>Gets the exact expected checkpoint only for <see cref="BaseActivationReceiptBackupFloorKind.Checkpoint"/>.</summary>
+    public BaseActivationBackupCoverageCheckpoint? Checkpoint { get; init; }
+}
+
+/// <summary>Requests current provider-owned authority for one receipt-compaction attempt.</summary>
+public sealed record BaseActivationReceiptCompactionAuthorityRequest
+{
+    /// <summary>Gets the application identity.</summary>
+    public required string ApplicationId { get; init; }
+    /// <summary>Gets the installed activation definition.</summary>
+    public required BaseActivationDefinitionKey Definition { get; init; }
+    /// <summary>Gets the exact immutable receipt-retention policy.</summary>
+    public required BaseActivationReceiptRetentionPolicy ReceiptRetention { get; init; }
+    /// <summary>Gets the protected scope seek.</summary>
+    public required BaseOwnedScopeSeekAuthority Scope { get; init; }
+    /// <summary>Gets provider execution limits.</summary>
+    public required BaseActivationExecutionLimits Limits { get; init; }
+}
+
+/// <summary>Contains current provider-owned authority for one receipt-compaction attempt.</summary>
+public sealed record BaseActivationReceiptCompactionAuthority
+{
+    /// <summary>Gets the exact current yield-reservation authority.</summary>
+    public required BaseActivationYieldReservationState Reservation { get; init; }
+    /// <summary>Gets the exact current protected-backup predicate.</summary>
+    public required BaseActivationReceiptBackupFloor BackupFloor { get; init; }
+}
+
+/// <summary>Requests one identified bounded activation-instance receipt compaction page.</summary>
+public sealed record BaseActivationReceiptCompactionRequest
+{
+    /// <summary>Gets the application identity.</summary>
+    public required string ApplicationId { get; init; }
+    /// <summary>Gets the exact activation definition.</summary>
+    public required BaseActivationDefinitionKey Definition { get; init; }
+    /// <summary>Gets the exact immutable receipt-retention policy.</summary>
+    public required BaseActivationReceiptRetentionPolicy ReceiptRetention { get; init; }
+    /// <summary>Gets the protected scope seek.</summary>
+    public required BaseOwnedScopeSeekAuthority Scope { get; init; }
+    /// <summary>Gets trusted accepted-time authority.</summary>
+    public required BaseAcceptedTimeReceipt AcceptedTime { get; init; }
+    /// <summary>Gets the optional exclusive cursor.</summary>
+    public BaseActivationReceiptCompactionCursor? After { get; init; }
+    /// <summary>Gets the bounded number of candidates to examine.</summary>
+    public required int Take { get; init; }
+    /// <summary>Gets the exact backup predicate.</summary>
+    public required BaseActivationReceiptBackupFloor BackupFloor { get; init; }
+    /// <summary>Gets the expected yield-reservation authority.</summary>
+    public required BaseActivationYieldReservationState ExpectedReservation { get; init; }
+    /// <summary>Gets provider limits.</summary>
+    public required BaseActivationExecutionLimits Limits { get; init; }
+    /// <summary>Gets the identified request identity.</summary>
+    public required BaseMutationRequestIdentity Identity { get; init; }
+}
+
+/// <summary>Contains one committed bounded activation-instance receipt compaction page.</summary>
+public sealed record BaseActivationReceiptCompactionResult
+{
+    /// <summary>Gets the number of candidate receipts examined.</summary>
+    public required int ExaminedCount { get; init; }
+    /// <summary>Gets the number of receipt payloads deleted.</summary>
+    public required int DeletedCount { get; init; }
+    /// <summary>Gets the number of deleted receipt payloads that consumed retained yield slots.</summary>
+    public required int DeletedYieldReceiptCount { get; init; }
+    /// <summary>Gets the next exclusive cursor when more candidates may remain.</summary>
+    public BaseActivationReceiptCompactionCursor? Next { get; init; }
+    /// <summary>Gets chain authority before compaction.</summary>
+    public required BaseActivationInstanceReceiptChainState PriorChain { get; init; }
+    /// <summary>Gets chain authority after compaction.</summary>
+    public required BaseActivationInstanceReceiptChainState ResultingChain { get; init; }
+    /// <summary>Gets reservation authority before compaction.</summary>
+    public required BaseActivationYieldReservationState PriorReservation { get; init; }
+    /// <summary>Gets reservation authority after compaction.</summary>
+    public required BaseActivationYieldReservationState ResultingReservation { get; init; }
+    /// <summary>Gets the ordered digest of deleted receipt authorities.</summary>
+    public required ImmutableArray<byte> DeletedAuthorityOrderedDigest { get; init; }
+    /// <summary>Gets whether the ordered candidate scan completed.</summary>
+    public required bool Completed { get; init; }
+    /// <summary>Gets exact provider accounting.</summary>
+    public required BaseActivationAccounting Accounting { get; init; }
+    /// <summary>Gets committed or duplicate request disposition.</summary>
+    public required BaseMutationRequestDisposition Disposition { get; init; }
+}
+
 /// <summary>Describes one installed activation provider.</summary>
 public sealed record BaseActivationProviderDescriptor
 {
@@ -663,6 +1325,8 @@ public sealed record BaseActivationProviderCapability
     public required bool ModuleTargetSupported { get; init; }
     /// <summary>Gets whether activation-guarded children are supported.</summary>
     public required bool GuardedChildrenSupported { get; init; }
+    /// <summary>Gets whether claim-fenced durable yield is supported.</summary>
+    public required bool DurableYieldSupported { get; init; }
     /// <summary>Gets whether restore fencing is supported.</summary>
     public required bool RestoreFencingSupported { get; init; }
     /// <summary>Gets due invalidation behavior.</summary>
@@ -697,10 +1361,14 @@ public sealed record BaseActivationProviderCapability
     public required int MaximumTerminalRows { get; init; }
     /// <summary>Gets maximum attempts.</summary>
     public required int MaximumAttempts { get; init; }
+    /// <summary>Gets the maximum durable yields pinned to one activation.</summary>
+    public required long MaximumYieldsPerActivation { get; init; }
+    /// <summary>Gets immutable store-lifetime reserved yield-receipt capacity.</summary>
+    public required long MaximumReservedYieldReceiptSlots { get; init; }
     /// <summary>Gets maximum renewals per attempt.</summary>
-    public required int MaximumRenewalsPerAttempt { get; init; }
+    public required int MaximumRenewalsPerSlice { get; init; }
     /// <summary>Gets maximum guarded children per attempt.</summary>
-    public required int MaximumChildrenPerAttempt { get; init; }
+    public required int MaximumChildrenPerSlice { get; init; }
     /// <summary>Gets maximum lineage depth.</summary>
     public required int MaximumLineageDepth { get; init; }
     /// <summary>Gets maximum occurrence page size.</summary>
@@ -766,7 +1434,7 @@ public static class BaseActivationCapabilityContract
     public static BaseActivationProviderCapability BuiltIn(string checksumPurpose) => new()
     {
         AtomicCreationSupported = true, SelectionTargetSupported = true, ModuleTargetSupported = true,
-        GuardedChildrenSupported = true, RestoreFencingSupported = true,
+        GuardedChildrenSupported = true, DurableYieldSupported = true, RestoreFencingSupported = true,
         DueInvalidation = BaseDueInvalidationClass.BoundedPolling,
         ScheduleKinds = [BaseScheduleKind.Once, BaseScheduleKind.Interval, BaseScheduleKind.Cron, BaseScheduleKind.Calendar],
         ExecutionClasses = [BaseActivationExecutionClass.TransactionalOperation, BaseActivationExecutionClass.AtLeastOnceWorker, BaseActivationExecutionClass.AtMostOnceEffect],
@@ -776,7 +1444,9 @@ public static class BaseActivationCapabilityContract
         MaximumEvidenceBytes = 16L * 1024 * 1024, MaximumTransientBytes = 16L * 1024 * 1024,
         MaximumReceiptBytes = 16L * 1024 * 1024, MaximumPendingRows = 1_000_000,
         MaximumClaimedRows = 1_000_000, MaximumTerminalRows = 1_000_000,
-        MaximumAttempts = 1024, MaximumRenewalsPerAttempt = 4096, MaximumChildrenPerAttempt = 4096,
+        MaximumAttempts = 1024, MaximumYieldsPerActivation = 1_000_000,
+        MaximumReservedYieldReceiptSlots = 1_000_000_000_000,
+        MaximumRenewalsPerSlice = 4096, MaximumChildrenPerSlice = 4096,
         MaximumLineageDepth = 256, MaximumOccurrencePage = 256, MaximumTimeZoneBytes = 64L * 1024 * 1024,
         MaximumPriorityAgingBoost = 32, PriorityAgingInterval = TimeSpan.FromMinutes(1),
         ObservationTokenLifetime = TimeSpan.FromMinutes(5),
@@ -811,8 +1481,12 @@ public static class BaseActivationCapabilityContract
         && value.MaximumClaimedRows is >= 1 and <= 1_000_000
         && value.MaximumTerminalRows is >= 1 and <= 1_000_000
         && value.MaximumAttempts is >= 1 and <= 1024
-        && value.MaximumRenewalsPerAttempt is >= 1 and <= 4096
-        && value.MaximumChildrenPerAttempt is >= 1 and <= 4096
+        && (value.DurableYieldSupported
+            ? value.MaximumYieldsPerActivation is >= 1 and <= 1_000_000
+                && value.MaximumReservedYieldReceiptSlots is >= 2 and <= 1_000_000_000_000
+            : value.MaximumYieldsPerActivation == 0 && value.MaximumReservedYieldReceiptSlots == 0)
+        && value.MaximumRenewalsPerSlice is >= 1 and <= 4096
+        && value.MaximumChildrenPerSlice is >= 1 and <= 4096
         && value.MaximumLineageDepth is >= 1 and <= 256
         && value.MaximumHandlerDependencies is >= 1 and <= 4096
         && value.MaximumOccurrencePage is >= 1 and <= 256
@@ -852,8 +1526,11 @@ public static class BaseActivationCapabilityContract
             || definition.Limits.Provider.CommitObservationTimeout > capability.CommitObservationDeadline
             || definition.Limits.Provider.ReceiptResolutionTimeout > capability.ReceiptResolutionDeadline
             || definition.Limits.MaximumAttempts > capability.MaximumAttempts
-            || definition.Limits.MaximumRenewalsPerAttempt > capability.MaximumRenewalsPerAttempt
-            || definition.Limits.MaximumChildrenPerAttempt > capability.MaximumChildrenPerAttempt
+            || definition.Limits.MaximumYields > 0 && !capability.DurableYieldSupported
+            || definition.Limits.MaximumYields > capability.MaximumYieldsPerActivation
+            || definition.Limits.MaximumYields > 0 && definition.Limits.MaximumYields + 1 > capability.MaximumReservedYieldReceiptSlots
+            || definition.Limits.MaximumRenewalsPerSlice > capability.MaximumRenewalsPerSlice
+            || definition.Limits.MaximumChildrenPerSlice > capability.MaximumChildrenPerSlice
             || definition.Limits.MaximumLineageDepth > capability.MaximumLineageDepth)
             throw new InvalidOperationException("base.activation.capabilityUnavailable");
     }
@@ -876,6 +1553,10 @@ public interface IBaseActivationProvider
 {
     /// <summary>Gets the immutable provider descriptor.</summary>
     BaseActivationProviderDescriptor Descriptor { get; }
+
+    /// <summary>Reads the current checksum-validated durable-yield reservation authority.</summary>
+    ValueTask<OperationResult<BaseActivationYieldReservationState>> ReadYieldReservationStateAsync(
+        CancellationToken cancellationToken = default);
 
     /// <summary>Reads every durable definition version required for safe application readiness.</summary>
     ValueTask<OperationResult<BaseActivationDependencyResult>> ReadDependenciesAsync(
@@ -962,6 +1643,16 @@ public interface IBaseActivationProvider
     /// <summary>Atomically migrates one live activation to one installed replacement definition.</summary>
     ValueTask<OperationResult<BaseActivationMigrationResult>> MigrateAsync(
         BaseActivationMigrationRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Compacts one identified bounded page of expired activation-instance receipts.</summary>
+    ValueTask<OperationResult<BaseActivationReceiptCompactionResult>> CompactActivationReceiptsAsync(
+        BaseActivationReceiptCompactionRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Captures current provider-owned reservation and protected-backup compaction authority.</summary>
+    ValueTask<OperationResult<BaseActivationReceiptCompactionAuthority>> CaptureReceiptCompactionAuthorityAsync(
+        BaseActivationReceiptCompactionAuthorityRequest request,
         CancellationToken cancellationToken = default);
 
     /// <summary>Resolves one durable receipt without re-executing its operation.</summary>

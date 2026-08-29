@@ -182,7 +182,6 @@ internal static partial class AuthCreateUserOperationV1
                 Field(AuthUserRecordV1.Fields.SecurityStamp, RequestProperties.SecurityStamp, "securityStamp"),
                 Field(AuthUserRecordV1.Fields.SubscriptionTier, RequestProperties.SubscriptionTier, "subscriptionTier"),
                 Field(AuthUserRecordV1.Fields.TenantId, RequestProperties.TenantId, "tenantId"),
-                Constant(AuthUserRecordV1.Fields.TombstoneGeneration, 0L, "tombstoneGeneration"),
                 Field(AuthUserRecordV1.Fields.TwoFactorEnabled, RequestProperties.TwoFactorEnabled, "twoFactorEnabled"),
                 Field(AuthUserRecordV1.Fields.UpdatedAt, RequestProperties.OperationTime, "updatedAt"),
                 Field(AuthUserRecordV1.Fields.UserMetadata, RequestProperties.UserMetadata, "userMetadata"),
@@ -406,7 +405,6 @@ internal static partial class AuthCreateRoleOperationV1
                 Field(AuthRoleRecordV1.Fields.Name, RequestProperties.Name, "name"),
                 Field(AuthRoleRecordV1.Fields.NormalizedName, RequestProperties.NormalizedName, "normalizedName"),
                 Field(AuthRoleRecordV1.Fields.TenantId, RequestProperties.TenantId, "tenantId"),
-                Constant(AuthRoleRecordV1.Fields.TombstoneGeneration, 0L, "tombstoneGeneration"),
                 Field(AuthRoleRecordV1.Fields.UpdatedAt, RequestProperties.OperationTime, "updatedAt")));
 
     private static BaseModuleFieldValue<AuthRoleRecordV1> Field<T>(
@@ -855,8 +853,6 @@ internal static partial class AuthSetSecurityStateOperationV1
     private const string SecurityGenerationCapture = "hpd.auth.user.set-security-state.capture.securityGen";
     private const string UserCapture = "hpd.auth.user.set-security-state.capture.user";
     private const string UserGenerationCapture = "hpd.auth.user.set-security-state.capture.userGen";
-    private const string PatchClearStatement = "hpd.auth.user.set-security-state.statement.000.patchUserClearLockout";
-    private const string PatchValueStatement = "hpd.auth.user.set-security-state.statement.001.patchUserWithLockout";
 
     internal static BaseRegisteredModuleMutationDefinition Definition { get; } = BaseModuleMutationContract.Seal(
         new BaseRegisteredModuleMutationDefinition
@@ -873,7 +869,7 @@ internal static partial class AuthSetSecurityStateOperationV1
             Template = new BaseModuleMutationTemplate
             {
                 Captures = [SecurityGeneration(), User(), UserGeneration()],
-                Guards = [Active(), ClearLockoutEnd(), NotDeleted(), Revision()], Preconditions = [],
+                Guards = [Active(), AuthenticatorKeyPresent(), ClearLockoutEnd(), NotDeleted(), Revision()], Preconditions = [],
                 Body = new BaseModuleMutationBlock
                 {
                     Statements =
@@ -884,8 +880,8 @@ internal static partial class AuthSetSecurityStateOperationV1
                         BaseModuleMutationTemplateBuilder.If(
                             "hpd.auth.user.set-security-state.statement.lockoutBranch",
                             "hpd.auth.user.set-security-state.guard.clearLockoutEnd",
-                            BaseModuleMutationTemplateBuilder.Block(Patch(clearLockoutEnd: true)),
-                            BaseModuleMutationTemplateBuilder.Block(Patch(clearLockoutEnd: false))),
+                            AuthenticatorKeyBranch(clearLockoutEnd: true),
+                            AuthenticatorKeyBranch(clearLockoutEnd: false)),
                         BaseModuleMutationTemplateBuilder.IncrementGeneration(
                             "hpd.auth.user.set-security-state.statement.001.incrementUserGeneration", UserGenerationCapture, false),
                         BaseModuleMutationTemplateBuilder.IncrementGeneration(
@@ -895,14 +891,7 @@ internal static partial class AuthSetSecurityStateOperationV1
                 Result = BaseModuleMutationTemplateBuilder.Result(
                     BaseModuleMutationTemplateBuilder.ResultObject(
                         "hpd.auth.user.set-security-state.expression.result.000",
-                        BaseModuleMutationTemplateBuilder.Property(ResultProperties.Revision,
-                            BaseModuleMutationTemplateBuilder.Conditional(
-                                "hpd.auth.user.set-security-state.expression.revision.000",
-                                "hpd.auth.user.set-security-state.guard.clearLockoutEnd",
-                                BaseModuleMutationTemplateBuilder.CommittedRevision(
-                                    "hpd.auth.user.set-security-state.expression.revision.clear", PatchClearStatement),
-                                BaseModuleMutationTemplateBuilder.CommittedRevision(
-                                    "hpd.auth.user.set-security-state.expression.revision.value", PatchValueStatement))),
+                        BaseModuleMutationTemplateBuilder.Property(ResultProperties.Revision, ResultRevision()),
                         BaseModuleMutationTemplateBuilder.Property(ResultProperties.SecurityGeneration,
                             BaseModuleMutationTemplateBuilder.ResultingGeneration(
                                 "hpd.auth.user.set-security-state.expression.securityGeneration.000", SecurityGenerationCapture)),
@@ -931,6 +920,11 @@ internal static partial class AuthSetSecurityStateOperationV1
     private static BaseModuleFieldEqualsGuard Active() => BaseModuleMutationTemplateBuilder.FieldEquals(
         "hpd.auth.user.set-security-state.guard.active", UserCapture, AuthUserRecordV1.Fields.IsActive.ModuleMutation,
         BaseModuleMutationTemplateBuilder.Constant("hpd.auth.user.set-security-state.expression.active.000", AuthUserRecordV1.Fields.IsActive.ConstantAuthority, true));
+    private static BaseModuleValuePresenceGuard AuthenticatorKeyPresent() => BaseModuleMutationTemplateBuilder.ValuePresence(
+        "hpd.auth.user.set-security-state.guard.authenticatorKeyPresent",
+        BaseModuleMutationTemplateBuilder.Request(
+            "hpd.auth.user.set-security-state.expression.authenticatorKeyPresence.000", RequestProperties.AuthenticatorKey),
+        BaseModuleFieldPresenceTest.PresentValue);
     private static BaseModuleValueEqualsGuard ClearLockoutEnd() => BaseModuleMutationTemplateBuilder.ValueEquals(
         "hpd.auth.user.set-security-state.guard.clearLockoutEnd",
         BaseModuleMutationTemplateBuilder.Request(
@@ -945,25 +939,62 @@ internal static partial class AuthSetSecurityStateOperationV1
         "hpd.auth.user.set-security-state.guard.revision", UserCapture,
         BaseModuleMutationTemplateBuilder.Request("hpd.auth.user.set-security-state.expression.expectedRevision.000", RequestProperties.ExpectedRevision));
 
-    private static BaseModulePatchStatement Patch(bool clearLockoutEnd)
+    private static BaseModuleMutationBlock AuthenticatorKeyBranch(bool clearLockoutEnd) =>
+        BaseModuleMutationTemplateBuilder.Block(BaseModuleMutationTemplateBuilder.If(
+            $"hpd.auth.user.set-security-state.statement.authenticatorKeyBranch.{Branch(clearLockoutEnd)}",
+            "hpd.auth.user.set-security-state.guard.authenticatorKeyPresent",
+            BaseModuleMutationTemplateBuilder.Block(Patch(clearLockoutEnd, includeAuthenticatorKey: true)),
+            BaseModuleMutationTemplateBuilder.Block(Patch(clearLockoutEnd, includeAuthenticatorKey: false))));
+
+    private static BaseModuleValue<RevisionToken> ResultRevision() => BaseModuleMutationTemplateBuilder.Conditional(
+        "hpd.auth.user.set-security-state.expression.revision.lockout.000",
+        "hpd.auth.user.set-security-state.guard.clearLockoutEnd",
+        RevisionForLockoutBranch(clearLockoutEnd: true),
+        RevisionForLockoutBranch(clearLockoutEnd: false));
+
+    private static BaseModuleValue<RevisionToken> RevisionForLockoutBranch(bool clearLockoutEnd) =>
+        BaseModuleMutationTemplateBuilder.Conditional(
+            $"hpd.auth.user.set-security-state.expression.revision.authenticatorKey.{Branch(clearLockoutEnd)}",
+            "hpd.auth.user.set-security-state.guard.authenticatorKeyPresent",
+            BaseModuleMutationTemplateBuilder.CommittedRevision(
+                $"hpd.auth.user.set-security-state.expression.revision.{Branch(clearLockoutEnd)}.withKey",
+                PatchStatement(clearLockoutEnd, includeAuthenticatorKey: true)),
+            BaseModuleMutationTemplateBuilder.CommittedRevision(
+                $"hpd.auth.user.set-security-state.expression.revision.{Branch(clearLockoutEnd)}.withoutKey",
+                PatchStatement(clearLockoutEnd, includeAuthenticatorKey: false)));
+
+    private static BaseModulePatchStatement Patch(bool clearLockoutEnd, bool includeAuthenticatorKey)
     {
-        string branch = clearLockoutEnd ? "clear" : "value";
-        return BaseModuleMutationTemplateBuilder.Patch(
-        clearLockoutEnd ? PatchClearStatement : PatchValueStatement,
-        UserId(clearLockoutEnd ? "patchClear" : "patchValue"), BaseModuleMutationTemplateBuilder.Object<AuthUserRecordV1>(
-            $"hpd.auth.user.set-security-state.expression.patch.{branch}",
-            Field(AuthUserRecordV1.Fields.AccessFailedCount, RequestProperties.AccessFailedCount, $"accessFailedCount.{branch}"),
-            Field(AuthUserRecordV1.Fields.AuthenticatorKey, RequestProperties.AuthenticatorKey, $"authenticatorKey.{branch}"),
-            Field(AuthUserRecordV1.Fields.ConcurrencyStamp, RequestProperties.ConcurrencyStamp, $"concurrencyStamp.{branch}"),
-            Field(AuthUserRecordV1.Fields.LockoutEnabled, RequestProperties.LockoutEnabled, $"lockoutEnabled.{branch}"),
+        string branch = Branch(clearLockoutEnd);
+        string keyBranch = includeAuthenticatorKey ? "withKey" : "withoutKey";
+        var fields = new List<BaseModuleFieldValue<AuthUserRecordV1>>
+        {
+            Field(AuthUserRecordV1.Fields.AccessFailedCount, RequestProperties.AccessFailedCount, $"accessFailedCount.{branch}.{keyBranch}"),
+            includeAuthenticatorKey
+                ? Field(AuthUserRecordV1.Fields.AuthenticatorKey, RequestProperties.AuthenticatorKey, $"authenticatorKey.{branch}.{keyBranch}")
+                : BaseModuleMutationTemplateBuilder.Remove(AuthUserRecordV1.Fields.AuthenticatorKey.ModuleMutation),
+            Field(AuthUserRecordV1.Fields.ConcurrencyStamp, RequestProperties.ConcurrencyStamp, $"concurrencyStamp.{branch}.{keyBranch}"),
+            Field(AuthUserRecordV1.Fields.LockoutEnabled, RequestProperties.LockoutEnabled, $"lockoutEnabled.{branch}.{keyBranch}"),
             clearLockoutEnd
                 ? BaseModuleMutationTemplateBuilder.Remove(AuthUserRecordV1.Fields.LockoutEnd.ModuleMutation)
-                : Field(AuthUserRecordV1.Fields.LockoutEnd, RequestProperties.LockoutEnd, $"lockoutEnd.{branch}"),
-            Field(AuthUserRecordV1.Fields.SecurityStamp, RequestProperties.SecurityStamp, $"securityStamp.{branch}"),
-            Field(AuthUserRecordV1.Fields.TwoFactorEnabled, RequestProperties.TwoFactorEnabled, $"twoFactorEnabled.{branch}"),
-            Field(AuthUserRecordV1.Fields.UpdatedAt, RequestProperties.OperationTime, $"updatedAt.{branch}")),
-        BaseModuleMutationTemplateBuilder.Request($"hpd.auth.user.set-security-state.expression.patchRevision.{branch}", RequestProperties.ExpectedRevision));
+                : Field(AuthUserRecordV1.Fields.LockoutEnd, RequestProperties.LockoutEnd, $"lockoutEnd.{branch}.{keyBranch}"),
+            Field(AuthUserRecordV1.Fields.SecurityStamp, RequestProperties.SecurityStamp, $"securityStamp.{branch}.{keyBranch}"),
+            Field(AuthUserRecordV1.Fields.TwoFactorEnabled, RequestProperties.TwoFactorEnabled, $"twoFactorEnabled.{branch}.{keyBranch}"),
+            Field(AuthUserRecordV1.Fields.UpdatedAt, RequestProperties.OperationTime, $"updatedAt.{branch}.{keyBranch}"),
+        };
+        return BaseModuleMutationTemplateBuilder.Patch(
+            PatchStatement(clearLockoutEnd, includeAuthenticatorKey),
+            UserId($"patch.{branch}.{keyBranch}"),
+            BaseModuleMutationTemplateBuilder.Object<AuthUserRecordV1>(
+                $"hpd.auth.user.set-security-state.expression.patch.{branch}.{keyBranch}", [.. fields]),
+            BaseModuleMutationTemplateBuilder.Request(
+                $"hpd.auth.user.set-security-state.expression.patchRevision.{branch}.{keyBranch}", RequestProperties.ExpectedRevision));
     }
+
+    private static string Branch(bool clearLockoutEnd) => clearLockoutEnd ? "clearLockout" : "retainLockout";
+
+    private static string PatchStatement(bool clearLockoutEnd, bool includeAuthenticatorKey) =>
+        $"hpd.auth.user.set-security-state.statement.patch.{Branch(clearLockoutEnd)}.{(includeAuthenticatorKey ? "withKey" : "withoutKey")}";
 
     private static BaseModuleFieldValue<AuthUserRecordV1> Field<T>(BaseField<AuthUserRecordV1, T> field,
         BaseModuleRequestProperty<AuthSetSecurityStateV1, T> property, string id) => BaseModuleMutationTemplateBuilder.Field(

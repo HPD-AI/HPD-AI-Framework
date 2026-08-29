@@ -142,6 +142,17 @@ public sealed record AtomicMutationProcessingResult
     public BaseAtomicMutationCommitFinalization? Finalization { get; }
 }
 
+/// <summary>Defines one Runtime-owned closed receipt projection over committed record facts.</summary>
+internal sealed record BaseAtomicReceiptProjection
+{
+    /// <summary>Gets the only accepted specialized receipt kind.</summary>
+    internal required BaseAtomicReceiptResultKind Kind { get; init; }
+    /// <summary>Creates the specialized deeply owned receipt after provisional application.</summary>
+    internal required Func<BaseRecordMutationFact[], BaseAtomicReceiptResult> Create { get; init; }
+    /// <summary>Validates operation-specific stored receipt authority before outward replay.</summary>
+    internal required Func<BaseAtomicReceiptResult, bool> ValidateStored { get; init; }
+}
+
 /// <summary>
 /// Carries one canonical provisional mutation fact across the Runtime/provider boundary.
 /// The fact is not a public response and becomes committed only after provider confirmation.

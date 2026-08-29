@@ -458,6 +458,15 @@ public sealed record BaseSubjectRetirementProviderPurgeRequest
     public required DateTimeOffset ObservedAtUtc { get; init; }
 /// <summary>Defines Operation for coordinated subject retirement.</summary>
     public required OperationContext Operation { get; init; }
+    /// <summary>Gets the optional same-store activation fence.</summary>
+    public BaseActivationGuard? ActivationGuard { get; init; }
+}
+
+/// <summary>Contains execution authority for one final coordinated subject purge.</summary>
+public sealed record BaseSubjectFinalPurgeExecutionOptions
+{
+    /// <summary>Gets the activation-owned same-transaction guard.</summary>
+    internal BaseActivationGuard? ActivationGuard { get; init; }
 }
 
 /// <summary>Contains provider-applied purge evidence before receipt commit.</summary>

@@ -92,6 +92,18 @@ public sealed record BaseActivationPrunePage
 {
     /// <summary>Gets the exact durable prune authority created for each removed activation.</summary>
     public required ImmutableArray<BaseActivationPruneEvidence> Items { get; init; }
+    /// <summary>Gets the exact number of retained receipt payloads deleted by this page.</summary>
+    public required int DeletedReceiptCount { get; init; }
+    /// <summary>Gets the number of deleted receipts that consumed retained yield slots.</summary>
+    public required int DeletedYieldReceiptCount { get; init; }
+    /// <summary>Gets receipt-chain authority before pruning.</summary>
+    public required BaseActivationInstanceReceiptChainState PriorChain { get; init; }
+    /// <summary>Gets receipt-chain authority after pruning.</summary>
+    public required BaseActivationInstanceReceiptChainState ResultingChain { get; init; }
+    /// <summary>Gets yield-reservation authority before pruning.</summary>
+    public required BaseActivationYieldReservationState PriorReservation { get; init; }
+    /// <summary>Gets yield-reservation authority after pruning.</summary>
+    public required BaseActivationYieldReservationState ResultingReservation { get; init; }
     /// <summary>Gets the next exclusive activation-ID boundary.</summary>
     public string? NextActivationId { get; init; }
     /// <summary>Gets whether the captured page reached its high-water.</summary>

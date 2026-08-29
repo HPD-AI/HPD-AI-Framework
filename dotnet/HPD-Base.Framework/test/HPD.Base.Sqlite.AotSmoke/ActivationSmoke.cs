@@ -20,6 +20,7 @@ internal static class ActivationSmoke
         "hpd.base.sqlite.aot.activation.target.migrate", "hpd.base.sqlite.aot.activation.target.reconcile",
         "hpd.base.sqlite.aot.activation.target.retry", "hpd.base.sqlite.aot.activation.target.dispose",
         "hpd.base.sqlite.aot.activation.target.remove", "hpd.base.sqlite.aot.activation.target.repair",
+        "hpd.base.sqlite.aot.activation.yield", "hpd.base.sqlite.aot.activation.target.yield",
     ];
 
     internal static BaseActivationHandlerRegistration<ActivationSmokeInput, ActivationSmokeResult> Registration { get; } =
@@ -30,7 +31,7 @@ internal static class ActivationSmoke
             Grants = new BaseActivationGrantSet
             {
                 Enqueue = GrantIds[0], Observe = GrantIds[1], Claim = GrantIds[2], Execute = GrantIds[3],
-                Renew = GrantIds[4], Complete = GrantIds[5], Fail = GrantIds[6], Cancel = GrantIds[7],
+                Renew = GrantIds[4], Complete = GrantIds[5], Fail = GrantIds[6], Yield = GrantIds[32], Cancel = GrantIds[7],
                 Inspect = GrantIds[8], Replay = GrantIds[9], Migrate = GrantIds[10], Reconcile = GrantIds[11],
                 Retry = GrantIds[12], Dispose = GrantIds[13], Remove = GrantIds[14], Repair = GrantIds[15],
             },
@@ -41,10 +42,15 @@ internal static class ActivationSmoke
                 MultiplierNumerator = 2, MultiplierDenominator = 1, JitterBasisPoints = 0,
                 RetryableFailureCodes = ["hpd.base.sqlite.aot.activation.retryable"],
             },
+            ReceiptRetention = new BaseActivationReceiptRetentionPolicy
+            {
+                FormatVersion = 1, DuplicateResolutionLifetime = TimeSpan.FromHours(24),
+                ProtectedBackupCoverage = BaseActivationProtectedBackupCoverage.NotRequired,
+            },
             Limits = new BaseActivationLimits
             {
-                MaximumInputBytes = 4096, MaximumResultBytes = 4096, MaximumAttempts = 3,
-                MaximumRenewalsPerAttempt = 4, MaximumChildrenPerAttempt = 4, MaximumLineageDepth = 4,
+                MaximumInputBytes = 4096, MaximumResultBytes = 4096, MaximumAttempts = 3, MaximumYields = 0,
+                MaximumRenewalsPerSlice = 4, MaximumChildrenPerSlice = 4, MaximumLineageDepth = 4,
                 LeaseDuration = TimeSpan.FromMinutes(1), HandlerTimeout = TimeSpan.FromSeconds(5),
                 Provider = ProviderLimits(), AtomicCreation = AtomicLimits(),
             },
@@ -65,7 +71,7 @@ internal static class ActivationSmoke
             Grants = new BaseActivationGrantSet
             {
                 Enqueue = GrantIds[16], Observe = GrantIds[17], Claim = GrantIds[18], Execute = GrantIds[19],
-                Renew = GrantIds[20], Complete = GrantIds[21], Fail = GrantIds[22], Cancel = GrantIds[23],
+                Renew = GrantIds[20], Complete = GrantIds[21], Fail = GrantIds[22], Yield = GrantIds[33], Cancel = GrantIds[23],
                 Inspect = GrantIds[24], Replay = GrantIds[25], Migrate = GrantIds[26], Reconcile = GrantIds[27],
                 Retry = GrantIds[28], Dispose = GrantIds[29], Remove = GrantIds[30], Repair = GrantIds[31],
             },
@@ -76,10 +82,15 @@ internal static class ActivationSmoke
                 MultiplierNumerator = 1, MultiplierDenominator = 1, JitterBasisPoints = 0,
                 RetryableFailureCodes = [],
             },
+            ReceiptRetention = new BaseActivationReceiptRetentionPolicy
+            {
+                FormatVersion = 1, DuplicateResolutionLifetime = TimeSpan.FromHours(24),
+                ProtectedBackupCoverage = BaseActivationProtectedBackupCoverage.NotRequired,
+            },
             Limits = new BaseActivationLimits
             {
-                MaximumInputBytes = 4096, MaximumResultBytes = 4096, MaximumAttempts = 1,
-                MaximumRenewalsPerAttempt = 1, MaximumChildrenPerAttempt = 1, MaximumLineageDepth = 1,
+                MaximumInputBytes = 4096, MaximumResultBytes = 4096, MaximumAttempts = 1, MaximumYields = 0,
+                MaximumRenewalsPerSlice = 1, MaximumChildrenPerSlice = 1, MaximumLineageDepth = 1,
                 LeaseDuration = TimeSpan.FromMinutes(1), HandlerTimeout = TimeSpan.FromSeconds(5),
                 Provider = ProviderLimits(), AtomicCreation = AtomicLimits(),
             },
@@ -198,7 +209,7 @@ internal sealed class ActivationMigrationTargetHandler : IBaseActivationHandler<
 {
     public ValueTask<BaseActivationHandlerResult<ActivationSmokeResult>> ExecuteAsync(
         BaseActivationContext context, ActivationMigrationTargetInput input, CancellationToken cancellationToken) =>
-        ValueTask.FromResult(new BaseActivationHandlerResult<ActivationSmokeResult>
+        ValueTask.FromResult<BaseActivationHandlerResult<ActivationSmokeResult>>(new BaseActivationSucceeded<ActivationSmokeResult>
         {
             Result = new ActivationSmokeResult { Value = input.Value },
         });
@@ -237,9 +248,11 @@ internal sealed class ActivationSmokeHandler : IBaseActivationHandler<Activation
                 : retireResult is BaseFailure<BaseModuleMutationExecutionResult<SemanticRetireSmokeResult>> retireFailure
                     ? retireFailure.Error : null;
             if (error is not null)
-                return new BaseActivationHandlerResult<ActivationSmokeResult> { FailureCode = error.Code, Retryable = false };
+                return new BaseActivationFailed<ActivationSmokeResult>
+            {
+                FailureCode = error.Code, Retryable = false };
         }
-        return new BaseActivationHandlerResult<ActivationSmokeResult>
+        return new BaseActivationSucceeded<ActivationSmokeResult>
         { Result = new ActivationSmokeResult { Value = input.Value } };
     }
 }

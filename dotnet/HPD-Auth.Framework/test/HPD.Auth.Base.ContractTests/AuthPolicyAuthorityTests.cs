@@ -22,7 +22,7 @@ public sealed class AuthPolicyAuthorityTests
         if (!string.IsNullOrWhiteSpace(explicitOutput))
             File.WriteAllBytes(explicitOutput, artifact);
         Assert.Equal(
-            "3271f4e862c54f74089ff1938841acfd5dd7d66fb2243ac91e6b6ee83bd10554",
+            "93f129cb94c1b15dd176ed707242bf7dcf7c212ef3bc5d0f32b446b36e7a21f8",
             Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(artifact)));
         byte[] committed = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "auth-base-graph-v2.json"));
         AuthBaseGraphArtifact.Verify(committed,
@@ -194,13 +194,13 @@ public sealed class AuthPolicyAuthorityTests
         MaximumQueryExecutions = 1,
         MaximumReadIntervals = 64,
         MaximumWrittenBytes = 1_048_576,
-        MaximumFactBytes = 2_097_152,
-        MaximumJournalBytes = 2_621_440,
-        MaximumReceiptBytes = 2_621_440,
+        MaximumFactBytes = 8_388_608,
+        MaximumJournalBytes = 8_388_608,
+        MaximumReceiptBytes = 8_388_608,
         MaximumRelationChecks = 400,
         MaximumUniqueConstraintChecks = 400,
         MaximumPreviousStateRequirements = 8,
-        MaximumTransientBytes = 8_388_608,
+        MaximumTransientBytes = 16_777_216,
         MaximumResultBytes = 32_768,
         AcquisitionTimeout = TimeSpan.FromSeconds(2),
         ExecutionTimeout = TimeSpan.FromSeconds(5),

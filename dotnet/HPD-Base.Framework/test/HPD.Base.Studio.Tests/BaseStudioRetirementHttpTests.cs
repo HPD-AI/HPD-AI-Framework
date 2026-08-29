@@ -521,9 +521,9 @@ public sealed class BaseStudioRetirementHttpTests
         BaseSession session = app.Services.GetRequiredService<IBaseSessionFactory>().For(principal, options => { options.Audience = HPDBaseEndpointAudience.Application; options.Mode = OperationMode.System; });
         var subject = new BaseSubjectReference<RetirementHttpSubject>(subjectId, createdLifecycle.AuthorityEpoch, createdLifecycle.Incarnation);
         BaseMutationRequestIdentity identity = Identity("tombstone");
-        BaseResult<BaseSubjectLifecycleFact<RetirementHttpSubject>> tombstoned = await app.Services.GetRequiredService<IBaseSubjectLifecycleExporterRuntime>().TombstoneAsync<RetirementHttpSubject>(session,
+        BaseResult<BaseSubjectTombstoneResult<RetirementHttpSubject>> tombstoned = await app.Services.GetRequiredService<IBaseSubjectLifecycleExporterRuntime>().TombstoneAsync<RetirementHttpSubject>(session,
             RetirementHttpSubject.HPDBaseSubjectRegistration, new() { Subject = subject, ExpectedPrivateRevision = createdRevision, Identity = identity }, CancellationToken.None);
-        Assert.True(tombstoned.TryGetValue(out BaseSubjectLifecycleFact<RetirementHttpSubject>? tombstoneFact), tombstoned is BaseFailure<BaseSubjectLifecycleFact<RetirementHttpSubject>> failure ? failure.Error.Code : "missing tombstone value");
+        Assert.True(tombstoned.TryGetValue(out BaseSubjectLifecycleFact<RetirementHttpSubject>? tombstoneFact), tombstoned is BaseFailure<BaseSubjectTombstoneResult<RetirementHttpSubject>> failure ? failure.Error.Code : "missing tombstone value");
         Assert.Equal(BaseSubjectLifecycleState.Tombstoned, tombstoneFact!.Fact.Transitioned!.CurrentState);
         IBaseSubjectRetirementStore retirementStore = Assert.IsAssignableFrom<IBaseSubjectRetirementStore>(app.Services.GetRequiredService<IRecordStoreRegistry>().GetStoreForCollection(RetirementPrivateRecord.Collection.Id));
         OperationResult<BaseSubjectRetirementPublicationPage> publications = await retirementStore.ReadPublicationsAsync(new() { Take = 16 });

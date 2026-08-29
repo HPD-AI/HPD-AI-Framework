@@ -52,7 +52,19 @@ public sealed class GeneratedActivationDtoAuthorityTests
             Id = "hpd.base.tests.activation.v1", Version = 1, OwningModuleId = "hpd.base.tests",
             ExecutionClass = BaseActivationExecutionClass.AtLeastOnceWorker,
             InputTypeId = authority.InputTypeId, ResultTypeId = authority.ResultTypeId,
-            Grants = null!, SourceGrantIds = [], Retry = null!, Limits = null!,
+            Grants = null!, SourceGrantIds = [], Retry = null!,
+            Limits = new BaseActivationLimits
+            {
+                MaximumInputBytes = 1, MaximumResultBytes = 1, MaximumAttempts = 1, MaximumYields = 0,
+                MaximumRenewalsPerSlice = 0, MaximumChildrenPerSlice = 0, MaximumLineageDepth = 0,
+                LeaseDuration = TimeSpan.FromSeconds(1), HandlerTimeout = TimeSpan.FromSeconds(1),
+                Provider = null!, AtomicCreation = null!,
+            },
+            ReceiptRetention = new BaseActivationReceiptRetentionPolicy
+            {
+                FormatVersion = 1, DuplicateResolutionLifetime = TimeSpan.FromHours(1),
+                ProtectedBackupCoverage = BaseActivationProtectedBackupCoverage.NotRequired,
+            },
             Checksum = new byte[32].ToImmutableArray(),
         };
         BaseActivationRegistrationIdentity<GeneratedActivationInput, GeneratedActivationResult> identity =

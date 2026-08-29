@@ -10,6 +10,73 @@ namespace HPD.Base.Tests.Application.Activations;
 public sealed class ActivationMigrationTests
 {
     [Theory]
+    [InlineData(CompactionHostility.None)]
+    [InlineData(CompactionHostility.Authority)]
+    [InlineData(CompactionHostility.CommittedResult)]
+    [InlineData(CompactionHostility.UnknownFailure)]
+    public async Task Administration_receipt_compaction_owns_and_validates_provider_authority_capture(
+        CompactionHostility hostility)
+    {
+        var store = new InMemoryRecordStore(new HPDBaseInMemoryStoreOptions
+        {
+            SemanticActivationApplicationId = "migration-administration-test",
+        });
+        var providerStore = new HostileMigrationProvider(store)
+        {
+            CompactionHostility = hostility,
+        };
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddHPDBase(builder =>
+        {
+            builder.ConfigureSchema(options =>
+            {
+                options.ApplicationId = "migration-administration-test";
+                options.PlanProtectionKey = Enumerable.Repeat((byte)0x52, 32).ToArray();
+            });
+            builder.UseStore(TestStoreProvider.CreateActivationProvider(providerStore, providerStore));
+            builder.AddPolicyAuthority(new BasePolicyAuthorityDefinition
+            {
+                Id = "example.compaction.policy", Version = 1, OwningModuleId = "example",
+                EvaluatorContractId = "example.compaction.policy.evaluator", EvaluatorContractVersion = 1,
+                CompositionOrder = 0,
+            }, new AllowPolicy());
+            AddGrant(builder, SourceRegistration.Definition.Grants.Remove, SourceRegistration.Definition.Id);
+            builder.AddActivation(SourceRegistration);
+        });
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync())
+            .IsSuccess().Should().BeTrue();
+
+        BaseResult<BaseActivationReceiptCompactionResult> result = await provider
+            .GetRequiredService<IHPDBaseAdministration>()
+            .CompactActivationReceiptsAsync(new BaseActivationAdministrationReceiptCompactionRequest
+            {
+                StoreId = providerStore.Capabilities.StoreId,
+                Principal = Principal(),
+                Scope = new BaseOwnedSubjectScopeEvidence { Kind = BaseSubjectScopeKind.Global },
+                DefinitionId = SourceRegistration.Definition.Id,
+                DefinitionVersion = SourceRegistration.Definition.Version,
+                Take = 1,
+                Identity = Identity("compact-empty"),
+            });
+
+        if (hostility != CompactionHostility.None)
+        {
+            result.Should().BeOfType<BaseFailure<BaseActivationReceiptCompactionResult>>();
+            ((BaseFailure<BaseActivationReceiptCompactionResult>)result).Error.Code
+                .Should().Be("base.activation.providerContractInvalid");
+            provider.GetRequiredService<BaseActivationProviderExecutionGate>().IsQuarantined.Should().BeTrue();
+            return;
+        }
+        result.Should().BeOfType<BaseSuccess<BaseActivationReceiptCompactionResult>>();
+        BaseActivationReceiptCompactionResult page = ((BaseSuccess<BaseActivationReceiptCompactionResult>)result).Value;
+        page.Completed.Should().BeTrue();
+        page.ExaminedCount.Should().Be(0);
+        page.DeletedCount.Should().Be(0);
+    }
+
+    [Theory]
     [InlineData(MigrationHostility.CandidateCanonicalBytes)]
     [InlineData(MigrationHostility.CandidateChecksum)]
     [InlineData(MigrationHostility.CandidateControlChecksum)]
@@ -111,11 +178,11 @@ public sealed class ActivationMigrationTests
         Convert.ToHexString(SourceActivationDtos.HPDBaseActivationDtoAuthority.DtoAuthorityChecksum.Span)
             .Should().Be("D6CA09F98906038058BC33D872F8722832F7AF9638A54F09FAC558BDB6637966");
         Convert.ToHexString(SourceRegistration.Definition.Checksum.AsSpan())
-            .Should().Be("9D244218F80DD56AC612FC7611FF823B0C16CE837919C386888407C6BF25975D");
+            .Should().Be("65C77C92B0C5559057BE58B14F890D02C47CFF2BCA393C03541B806631DCC7DE");
         Convert.ToHexString(SourceRegistration.Definition.Handler!.Checksum.AsSpan())
-            .Should().Be("B292CD108F04E8F68B4F4CA1654A19648B7341F8B90095D020F71729FFBB7411");
+            .Should().Be("6EE9D08974EEC221C1D17EFA81511AAA78742CE4E490E0207AB4416509A87255");
         Convert.ToHexString(installed.Definition.Checksum.AsSpan())
-            .Should().Be("F08F431DDB3199CDA2971DF76853F1D70861DCFD5DD5024A4911462629D01E6E");
+            .Should().Be("466778EA129D45C1CCFD4E72F2D7BBC70374C913C11653AF06C36A8C0EA84A28");
     }
 
     [Theory]
@@ -288,14 +355,18 @@ public sealed class ActivationMigrationTests
     {
         Id = id, Version = 1, OwningModuleId = "example", ExecutionClass = BaseActivationExecutionClass.AtLeastOnceWorker,
         Grants = new BaseActivationGrantSet { Enqueue = id + ".enqueue", Observe = id + ".observe", Claim = id + ".claim",
-            Execute = id + ".execute", Renew = id + ".renew", Complete = id + ".complete", Fail = id + ".fail",
-            Cancel = id + ".cancel", Inspect = id + ".inspect", Replay = id + ".replay", Migrate = id + ".migrate",
+            Execute = id + ".execute", Renew = id + ".renew", Complete = id + ".complete", Fail = id + ".fail", Yield = id + ".yield", Cancel = id + ".cancel", Inspect = id + ".inspect", Replay = id + ".replay", Migrate = id + ".migrate",
             Reconcile = id + ".reconcile", Retry = id + ".retry", Dispose = id + ".dispose", Remove = id + ".remove", Repair = id + ".repair" },
         SourceGrantIds = [], Retry = new BaseActivationRetryProfile { MaximumAttempts = 1, InitialDelayMilliseconds = 1,
             MaximumDelayMilliseconds = 1, MultiplierNumerator = 1, MultiplierDenominator = 1, JitterBasisPoints = 0,
             RetryableFailureCodes = [] },
-        Limits = new BaseActivationLimits { MaximumInputBytes = maximumInputBytes, MaximumResultBytes = 1024, MaximumAttempts = 1,
-            MaximumRenewalsPerAttempt = 1, MaximumChildrenPerAttempt = 1, MaximumLineageDepth = 1,
+        ReceiptRetention = new BaseActivationReceiptRetentionPolicy
+        {
+            FormatVersion = 1, DuplicateResolutionLifetime = TimeSpan.FromHours(24),
+            ProtectedBackupCoverage = BaseActivationProtectedBackupCoverage.NotRequired,
+        },
+        Limits = new BaseActivationLimits { MaximumInputBytes = maximumInputBytes, MaximumResultBytes = 1024, MaximumAttempts = 1, MaximumYields = 0,
+            MaximumRenewalsPerSlice = 1, MaximumChildrenPerSlice = 1, MaximumLineageDepth = 1,
             LeaseDuration = TimeSpan.FromSeconds(5), HandlerTimeout = TimeSpan.FromSeconds(5),
             Provider = ProviderLimits(), AtomicCreation = AtomicLimits() },
         Handler = new BaseActivationHandlerDraft { Id = id + ".handler", Version = 1, FactoryId = id + ".factory",
@@ -357,6 +428,14 @@ public sealed class ActivationMigrationTests
         CommitAccounting,
     }
 
+    public enum CompactionHostility
+    {
+        None,
+        Authority,
+        CommittedResult,
+        UnknownFailure,
+    }
+
     private sealed class AllowPolicy : IPolicyEvaluator
     {
         public ValueTask<PolicyDecision> EvaluateAsync(
@@ -370,8 +449,52 @@ public sealed class ActivationMigrationTests
         public MigrationHostility Hostility { get; set; }
         public int CandidateCalls { get; private set; }
         public int MigrationCalls { get; private set; }
+        public CompactionHostility CompactionHostility { get; init; }
         public StoreCapabilityDescriptor Capabilities => inner.Capabilities;
         public BaseActivationProviderDescriptor Descriptor => ((IBaseActivationProvider)inner).Descriptor;
+        public ValueTask<OperationResult<BaseActivationYieldReservationState>> ReadYieldReservationStateAsync(
+            CancellationToken cancellationToken = default) => inner.ReadYieldReservationStateAsync(cancellationToken);
+        public async ValueTask<OperationResult<BaseActivationReceiptCompactionAuthority>> CaptureReceiptCompactionAuthorityAsync(
+            BaseActivationReceiptCompactionAuthorityRequest request, CancellationToken cancellationToken = default)
+        {
+            OperationResult<BaseActivationReceiptCompactionAuthority> result =
+                await inner.CaptureReceiptCompactionAuthorityAsync(request, cancellationToken);
+            if (CompactionHostility != CompactionHostility.Authority
+                || !result.IsSuccess() || result.Value is null) return result;
+            return result with
+            {
+                Value = result.Value with
+                {
+                    Reservation = result.Value.Reservation with { Checksum = [] },
+                },
+            };
+        }
+        public async ValueTask<OperationResult<BaseActivationReceiptCompactionResult>> CompactActivationReceiptsAsync(
+            BaseActivationReceiptCompactionRequest request, CancellationToken cancellationToken = default)
+        {
+            if (CompactionHostility == CompactionHostility.UnknownFailure)
+                return new OperationResult<BaseActivationReceiptCompactionResult>
+                {
+                    Status = OperationStatus.ValidationFailed,
+                    Error = new BaseError
+                    {
+                        Code = "hostile.compaction.failure",
+                        Message = "Hostile provider detail.",
+                        Category = ErrorCategory.Validation,
+                    },
+                };
+            OperationResult<BaseActivationReceiptCompactionResult> result =
+                await inner.CompactActivationReceiptsAsync(request, cancellationToken);
+            if (CompactionHostility != CompactionHostility.CommittedResult
+                || !result.IsSuccess() || result.Value is null) return result;
+            return result with
+            {
+                Value = result.Value with
+                {
+                    DeletedYieldReceiptCount = checked(result.Value.DeletedCount + 1),
+                },
+            };
+        }
         public ValueTask<OperationResult<RecordPage>> ListAsync(CollectionDefinition collection, RecordQuery query,
             OperationContext context, CancellationToken cancellationToken = default) => inner.ListAsync(collection, query, context, cancellationToken);
         public ValueTask<OperationResult<RecordEnvelope>> GetAsync(CollectionDefinition collection, RecordId id,
@@ -501,12 +624,12 @@ internal sealed record ConverterTargetInput
     [BaseField("converter.nonce", MinimumBytes = 4, MaximumBytes = 4)][BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)] public required BaseBinary Nonce { get; init; }
     [BaseField("converter.mode", AllowedEnumLiterals = ["active", "passive"])][BaseFieldConfidentiality(BaseFieldConfidentiality.Internal)][JsonConverter(typeof(BaseClosedEnumJsonConverter<MigrationMode>))] public required MigrationMode Mode { get; init; }
 }
-internal sealed class SourceHandler : IBaseActivationHandler<SourceInput, SourceResult> { public ValueTask<BaseActivationHandlerResult<SourceResult>> ExecuteAsync(BaseActivationContext context, SourceInput input, CancellationToken cancellationToken) => ValueTask.FromResult(new BaseActivationHandlerResult<SourceResult> { Result = new() { Done = true } }); }
-internal sealed class TargetHandler : IBaseActivationHandler<TargetInput, TargetResult> { public ValueTask<BaseActivationHandlerResult<TargetResult>> ExecuteAsync(BaseActivationContext context, TargetInput input, CancellationToken cancellationToken) => ValueTask.FromResult(new BaseActivationHandlerResult<TargetResult> { Result = new() { Done = true } }); }
-internal sealed class BoundedSourceHandler : IBaseActivationHandler<BoundedSourceInput, SourceResult> { public ValueTask<BaseActivationHandlerResult<SourceResult>> ExecuteAsync(BaseActivationContext context, BoundedSourceInput input, CancellationToken cancellationToken) => ValueTask.FromResult(new BaseActivationHandlerResult<SourceResult> { Result = new() { Done = true } }); }
-internal sealed class BoundedTargetHandler : IBaseActivationHandler<BoundedTargetInput, TargetResult> { public ValueTask<BaseActivationHandlerResult<TargetResult>> ExecuteAsync(BaseActivationContext context, BoundedTargetInput input, CancellationToken cancellationToken) => ValueTask.FromResult(new BaseActivationHandlerResult<TargetResult> { Result = new() { Done = true } }); }
-internal sealed class ConverterSourceHandler : IBaseActivationHandler<ConverterSourceInput, SourceResult> { public ValueTask<BaseActivationHandlerResult<SourceResult>> ExecuteAsync(BaseActivationContext context, ConverterSourceInput input, CancellationToken cancellationToken) => ValueTask.FromResult(new BaseActivationHandlerResult<SourceResult> { Result = new() { Done = true } }); }
-internal sealed class ConverterTargetHandler : IBaseActivationHandler<ConverterTargetInput, TargetResult> { public ValueTask<BaseActivationHandlerResult<TargetResult>> ExecuteAsync(BaseActivationContext context, ConverterTargetInput input, CancellationToken cancellationToken) => ValueTask.FromResult(new BaseActivationHandlerResult<TargetResult> { Result = new() { Done = true } }); }
+internal sealed class SourceHandler : IBaseActivationHandler<SourceInput, SourceResult> { public ValueTask<BaseActivationHandlerResult<SourceResult>> ExecuteAsync(BaseActivationContext context, SourceInput input, CancellationToken cancellationToken) => ValueTask.FromResult<BaseActivationHandlerResult<SourceResult>>(new BaseActivationSucceeded<SourceResult> { Result = new() { Done = true } }); }
+internal sealed class TargetHandler : IBaseActivationHandler<TargetInput, TargetResult> { public ValueTask<BaseActivationHandlerResult<TargetResult>> ExecuteAsync(BaseActivationContext context, TargetInput input, CancellationToken cancellationToken) => ValueTask.FromResult<BaseActivationHandlerResult<TargetResult>>(new BaseActivationSucceeded<TargetResult> { Result = new() { Done = true } }); }
+internal sealed class BoundedSourceHandler : IBaseActivationHandler<BoundedSourceInput, SourceResult> { public ValueTask<BaseActivationHandlerResult<SourceResult>> ExecuteAsync(BaseActivationContext context, BoundedSourceInput input, CancellationToken cancellationToken) => ValueTask.FromResult<BaseActivationHandlerResult<SourceResult>>(new BaseActivationSucceeded<SourceResult> { Result = new() { Done = true } }); }
+internal sealed class BoundedTargetHandler : IBaseActivationHandler<BoundedTargetInput, TargetResult> { public ValueTask<BaseActivationHandlerResult<TargetResult>> ExecuteAsync(BaseActivationContext context, BoundedTargetInput input, CancellationToken cancellationToken) => ValueTask.FromResult<BaseActivationHandlerResult<TargetResult>>(new BaseActivationSucceeded<TargetResult> { Result = new() { Done = true } }); }
+internal sealed class ConverterSourceHandler : IBaseActivationHandler<ConverterSourceInput, SourceResult> { public ValueTask<BaseActivationHandlerResult<SourceResult>> ExecuteAsync(BaseActivationContext context, ConverterSourceInput input, CancellationToken cancellationToken) => ValueTask.FromResult<BaseActivationHandlerResult<SourceResult>>(new BaseActivationSucceeded<SourceResult> { Result = new() { Done = true } }); }
+internal sealed class ConverterTargetHandler : IBaseActivationHandler<ConverterTargetInput, TargetResult> { public ValueTask<BaseActivationHandlerResult<TargetResult>> ExecuteAsync(BaseActivationContext context, ConverterTargetInput input, CancellationToken cancellationToken) => ValueTask.FromResult<BaseActivationHandlerResult<TargetResult>>(new BaseActivationSucceeded<TargetResult> { Result = new() { Done = true } }); }
 [BaseActivationDtoAuthority("example.bounded.source.dto", 1, "example", "example.bounded.source.input", "example.source.result",
     typeof(MigrationJsonContext), typeof(BoundedSourceInput), typeof(SourceResult))] internal static partial class BoundedSourceActivationDtos;
 [BaseActivationDtoAuthority("example.bounded.target.dto", 1, "example", "example.bounded.target.input", "example.target.result",
