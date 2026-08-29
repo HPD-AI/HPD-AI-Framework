@@ -36,9 +36,28 @@ public static class AgentConfigValidator
         ValidateCompaction(config, errors);
         ValidateCaching(config, errors);
         ValidateOperations(config, errors);
+        ValidateAudio(config, errors);
         ValidateCrossConfiguration(config, errors);
 
         return errors;
+    }
+
+    private static void ValidateAudio(AgentConfig config, List<string> errors)
+    {
+        var audio = config.Audio;
+        if (audio is null) return;
+        if (!Enum.IsDefined(audio.InputMode)) errors.Add("Audio InputMode is invalid.");
+        if (!Enum.IsDefined(audio.OutputMode)) errors.Add("Audio OutputMode is invalid.");
+        if (audio.InputMode == AudioInputMode.StreamingSpeechToText &&
+            config.Clients.SpeechToText is null)
+            errors.Add("Streaming Audio input requires a speech-to-text client configuration.");
+        if (audio.Transport is not { } transport) return;
+        if (string.IsNullOrWhiteSpace(transport.ComponentInstance) || transport.ComponentInstance.Length > 128)
+            errors.Add("Audio transport ComponentInstance must contain 1-128 characters.");
+        if (string.IsNullOrWhiteSpace(transport.Schema) || transport.Schema.Length > 256 || transport.Version == 0)
+            errors.Add("Audio transport schema identity is invalid.");
+        if (!Uri.TryCreate(transport.Endpoint, UriKind.Absolute, out _))
+            errors.Add("Audio transport Endpoint must be an absolute URI.");
     }
 
     private static void ValidateOperations(AgentConfig config, List<string> errors)

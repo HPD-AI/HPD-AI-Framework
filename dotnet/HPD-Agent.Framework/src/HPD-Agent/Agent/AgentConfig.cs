@@ -1260,6 +1260,9 @@ public sealed class AudioConfig
 
     public AudioOutputMode OutputMode { get; set; } = AudioOutputMode.Auto;
 
+    /// <summary>Gets or sets the retained provider-neutral live transport selection.</summary>
+    public AudioTransportConfig? Transport { get; set; }
+
     public AudioPolicySet? Policy { get; set; }
 
     public AssistantOutputSynthesisMode AssistantOutputMode { get; set; } =
@@ -1286,7 +1289,22 @@ public enum AudioInputMode
     BatchSpeechToText = 2,
     ProviderRealtime = 3,
     ReferenceOnly = 4,
-    Reject = 5
+    Reject = 5,
+    StreamingSpeechToText = 6
+}
+
+/// <summary>Serializable selection and non-secret configuration for a live Audio transport.</summary>
+public sealed class AudioTransportConfig
+{
+    public required string ComponentInstance { get; set; }
+
+    public required string Endpoint { get; set; }
+
+    public string Schema { get; set; } = "hpd.audio.transport.config";
+
+    public uint Version { get; set; } = 1;
+
+    public JsonElement? ProviderConfig { get; set; }
 }
 
 public enum AudioOutputMode

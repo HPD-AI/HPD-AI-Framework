@@ -78,4 +78,5 @@ public sealed record LiveKitManagedAudioSessionBackendOptions
 }
 
 [JsonSerializable(typeof(LiveKitAudioSessionBinding))]
+[JsonSerializable(typeof(LiveKitTransportProviderConfig))]
 internal sealed partial class LiveKitManagedSessionJsonContext : JsonSerializerContext;

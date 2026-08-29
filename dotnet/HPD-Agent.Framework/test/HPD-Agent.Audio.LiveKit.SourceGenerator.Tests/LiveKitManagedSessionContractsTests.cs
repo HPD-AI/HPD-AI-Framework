@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using HPD.Audio.Primitives;
 using Microsoft.Extensions.DependencyInjection;
+using HPD.Agent.Serialization;
 
 namespace HPD.Agent.Audio.LiveKit.SourceGenerator.Tests;
 
@@ -92,6 +93,60 @@ public sealed class LiveKitManagedSessionContractsTests
     public void ManagedBackend_DefaultsToTheRetainedPcmSpeechRate()
     {
         Assert.Equal(16_000, Options().AudioSampleRateHz);
+    }
+
+    [Fact]
+    public void BuilderTransportSelection_RetainsConfigAndOwnsTranscriptWiring()
+    {
+        var builder = AgentBuilder.Create();
+        builder.Config.SetClientConfig(HPD.Agent.Providers.ProviderClientFamily.SpeechToText,
+            new SpeechToTextClientConfig
+            {
+                ModelName = "retained-stt",
+                SpeechLanguage = "en",
+                SpeechSampleRate = 16_000
+            });
+
+        builder.WithLiveKitAudioTransport(
+            "wss://livekit.example.test",
+            static (_, _) => ValueTask.FromResult("token.value.signature".ToCharArray()))
+            .WithAudio(audio =>
+            {
+                audio.InputMode = AudioInputMode.StreamingSpeechToText;
+                audio.OutputMode = AudioOutputMode.TextToSpeech;
+                audio.AssistantOutputMode = AssistantOutputSynthesisMode.FinalText;
+                audio.EnablePlayback = true;
+            });
+
+        var audio = Assert.IsType<AudioConfig>(builder.Config.Audio);
+        Assert.Equal(AudioInputMode.StreamingSpeechToText, audio.InputMode);
+        Assert.Equal(AudioOutputMode.TextToSpeech, audio.OutputMode);
+        Assert.Equal("livekit", audio.Transport?.ComponentInstance);
+        Assert.Equal("wss://livekit.example.test", audio.Transport?.Endpoint);
+        Assert.Single(builder.Middlewares.OfType<HPD.Agent.Audio.AgentIntegration.Middleware.AudioRuntimeAttachment>());
+        Assert.Null(typeof(ManagedStreamingSpeechToTextSourceV1).GetMethod("CaptureFrom"));
+
+        var retained = HpdAgentConfigSerializer.Deserialize(
+            HpdAgentConfigSerializer.Serialize(builder.Config));
+        Assert.Equal("livekit", retained?.Audio?.Transport?.ComponentInstance);
+        Assert.Equal("wss://livekit.example.test", retained?.Audio?.Transport?.Endpoint);
+    }
+
+    [Fact]
+    public async Task ServiceProviderBuilder_UsesTheSameTransportCompositionPath()
+    {
+        await using var services = new ServiceCollection().BuildServiceProvider();
+        var builder = AgentBuilder.Create().WithServiceProvider(services);
+        builder.Config.SetClientConfig(HPD.Agent.Providers.ProviderClientFamily.SpeechToText,
+            new SpeechToTextClientConfig { ModelName = "retained-stt" });
+
+        builder.WithLiveKitAudioTransport(
+                "wss://livekit.example.test",
+                static (_, _) => ValueTask.FromResult("token.value.signature".ToCharArray()))
+            .WithAudio(audio => audio.InputMode = AudioInputMode.StreamingSpeechToText);
+
+        Assert.Equal("livekit", builder.Config.Audio?.Transport?.ComponentInstance);
+        Assert.Single(builder.Middlewares.OfType<HPD.Agent.Audio.AgentIntegration.Middleware.AudioRuntimeAttachment>());
     }
 
     private static LiveKitManagedAudioSessionBackendOptions Options() => new()

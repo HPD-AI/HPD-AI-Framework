@@ -162,6 +162,7 @@ public static class AudioRuntimeOptionsCompiler
         {
             case AudioInputMode.Auto:
             case AudioInputMode.ProviderRealtime:
+            case AudioInputMode.StreamingSpeechToText:
                 break;
             case AudioInputMode.None:
                 options.RunAudioInteractionRuntime = false;
