@@ -329,6 +329,12 @@ public sealed record ThreadExecutionFinishedEvent : AgentEvent
     /// <summary>Gets failure details when <see cref="Outcome"/> is <see cref="ThreadExecutionOutcome.Failed"/>.</summary>
     public ThreadExecutionError? Error { get; init; }
 
+    /// <summary>
+    /// Gets the exact terminal result produced for the submitted input. This is the
+    /// durable, transport-neutral receipt correlated by <see cref="ThreadExecutionId"/>.
+    /// </summary>
+    public AgentInputResult? InputResult { get; init; }
+
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
     public override EventChannel Channel { get; init; } = EventChannel.Control;
 }

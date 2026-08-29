@@ -187,6 +187,30 @@ public class AgentEventSerializerTests
     }
 
     [Fact]
+    public void ThreadExecutionFinishedEvent_RoundTripsExactInputResult()
+    {
+        var original = new ThreadExecutionFinishedEvent(
+            "execution-audio-1",
+            "agent-1",
+            ThreadExecutionOutcome.Succeeded,
+            DateTimeOffset.Parse("2026-08-29T20:00:00Z"))
+        {
+            SessionId = "session-1",
+            ThreadId = "main",
+            InputResult = new AgentInputResult.AudioSession(
+                new AudioSessionInputResult.Started("audio-1", 3))
+        };
+
+        var json = AgentEventSerializer.ToJson(original);
+        var rehydrated = Assert.IsType<ThreadExecutionFinishedEvent>(AgentEventSerializer.FromJson(json));
+
+        var audio = Assert.IsType<AgentInputResult.AudioSession>(rehydrated.InputResult);
+        var started = Assert.IsType<AudioSessionInputResult.Started>(audio.Result);
+        Assert.Equal("audio-1", started.AudioSessionId);
+        Assert.Equal(3, started.Revision);
+    }
+
+    [Fact]
     public void ThreadExecutionFinishedEvent_RejectsContradictoryTerminalState()
     {
         Assert.Throws<ArgumentException>(() => new ThreadExecutionFinishedEvent(

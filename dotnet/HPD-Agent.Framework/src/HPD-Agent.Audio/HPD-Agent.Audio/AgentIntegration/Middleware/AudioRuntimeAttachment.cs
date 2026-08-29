@@ -83,6 +83,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
         {
             managed.AttachInputDispatcher(context.RunAsync);
             _options.AssistantAudioOutputSink ??= managed.OutputSink;
+            _options.PreparedOutputResolver ??= managed.ResolvePreparedOutput;
         }
         context.RuntimeCapabilities.Set<IAudioSessionInputRuntime>(
             new L52AudioSessionInputRuntime(authority));
@@ -296,7 +297,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
         var outputBytes = System.Text.Encoding.UTF8.GetBytes(text);
         var activation = preparedOutput.Activate(
             outputOperation,
-            Math.Max(1, outputBytes.LongLength),
+            ProgressiveOutputMaximumUnits,
             Hash256.Compute(outputBytes));
         var controller = activation switch
         {
@@ -308,6 +309,10 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
         {
             return;
         }
+        IAudioOutputSink? outputSink = options.AssistantAudioOutputSink;
+        if (outputSink is not null)
+            outputSink = new S6AuthoritativeAudioOutputSinkV2(
+                outputSink, controller, OutputSynthesisFamilyV2.SegmentedPcm);
         var result = await _assistantOutputService.RunAsync(
             new AssistantFinalTextToSpeechOutputRequest
             {
@@ -320,7 +325,9 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
                 Options = outputOptions,
                 PublishEventAsync = context.PublishAsync,
                 AuthorityController = controller,
-                AuthorityOperation = outputOperation
+                AuthorityOperation = outputOperation,
+                OutputSink = outputSink,
+                EnablePlayback = options.EnableAssistantOutputPlayback
             },
             cancellationToken).ConfigureAwait(false);
 

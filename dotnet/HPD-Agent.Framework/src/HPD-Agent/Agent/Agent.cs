@@ -1589,7 +1589,9 @@ public sealed partial class Agent : IAsyncDisposable
 
                 using var activeInputCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 var activeInput = new ActiveRuntimeInput(input, activeInputCts);
-                var result = AgentTurnResult.Empty;
+                AgentInputResult result = new AgentInputResult.Completed(
+                    AgentTurnResult.Empty,
+                    input.ThreadExecutionId);
                 Exception? runError = null;
                 var runCancelled = false;
                 lock (_runtimeLock)
@@ -1609,9 +1611,7 @@ public sealed partial class Agent : IAsyncDisposable
                             activeInput,
                             activeInputCts.Token)
                         .ConfigureAwait(false);
-                    result = inputResult is AgentInputResult.Completed completed
-                        ? completed.TurnResult
-                        : AgentTurnResult.Empty;
+                    result = inputResult;
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -1667,7 +1667,10 @@ public sealed partial class Agent : IAsyncDisposable
             _runtimeInputCompletions.Clear();
         }
 
-        var outcome = new AgentRuntimeInputOutcome(AgentTurnResult.Empty, Cancelled: true, Error: null);
+        var outcome = new AgentRuntimeInputOutcome(
+            new AgentInputResult.Completed(AgentTurnResult.Empty, null),
+            Cancelled: true,
+            Error: null);
         foreach (var completion in abandoned)
             completion.TrySetResult(outcome);
     }
@@ -2125,7 +2128,7 @@ public sealed partial class Agent : IAsyncDisposable
                     System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(outcome.Error).Throw();
                 if (outcome.Cancelled)
                     throw new OperationCanceledException(receipt.CallerToken);
-                return new AgentInputResult.Completed(outcome.Result, input.ThreadExecutionId);
+                return outcome.Result;
             }
 
             if (runtimeTransitioning)
@@ -2144,7 +2147,7 @@ public sealed partial class Agent : IAsyncDisposable
         input = CaptureInput(input);
         var registration = _inputDispatcher.GetRegistration(input.GetType());
         if (registration.RoutingClass != AgentInputRoutingClass.Work)
-            throw new ArgumentException("Active-control inputs cannot be enqueued as runtime work.", nameof(input));
+            throw new ArgumentException("Only work inputs can be enqueued as runtime work.", nameof(input));
 
         ChannelWriter<AgentInputEvent>? runtimeWriter;
         var completion = new TaskCompletionSource<AgentRuntimeInputOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);

@@ -76,6 +76,19 @@ public enum AudioSessionStopReason
     HostShutdown = 3
 }
 
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
+[JsonDerivedType(typeof(AudioSessionInputResult.Started), "started")]
+[JsonDerivedType(typeof(AudioSessionInputResult.UpdateEvaluated), "updateEvaluated")]
+[JsonDerivedType(typeof(AudioSessionInputResult.InputTurnCommitted), "inputTurnCommitted")]
+[JsonDerivedType(typeof(AudioSessionInputResult.InputTurnDiscarded), "inputTurnDiscarded")]
+[JsonDerivedType(typeof(AudioSessionInputResult.InputStateChanged), "inputStateChanged")]
+[JsonDerivedType(typeof(AudioSessionInputResult.OutputStateChanged), "outputStateChanged")]
+[JsonDerivedType(typeof(AudioSessionInputResult.OutputInterrupted), "outputInterrupted")]
+[JsonDerivedType(typeof(AudioSessionInputResult.OutputAlreadyIdle), "outputAlreadyIdle")]
+[JsonDerivedType(typeof(AudioSessionInputResult.OutputInterruptionUnknown), "outputInterruptionUnknown")]
+[JsonDerivedType(typeof(AudioSessionInputResult.Stopped), "stopped")]
+[JsonDerivedType(typeof(AudioSessionInputResult.Rejected), "rejected")]
+[JsonDerivedType(typeof(AudioSessionInputResult.OutcomeUnknown), "outcomeUnknown")]
 public abstract record AudioSessionInputResult
 {
     private AudioSessionInputResult() { }

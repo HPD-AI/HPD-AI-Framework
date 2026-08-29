@@ -1,6 +1,8 @@
 using HPD.Agent.Serialization;
 using HPD.Agent.Hosting.Lifecycle;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace HPD.Agent.AspNetCore.Streaming;
 
@@ -17,6 +19,14 @@ internal static class SseEventHandler
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(observation);
 
+        var applicationLifetime = context.RequestServices.GetService<IHostApplicationLifetime>();
+        using var streamLifetime = applicationLifetime is null
+            ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
+            : CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                applicationLifetime.ApplicationStopping);
+        var streamCancellationToken = streamLifetime.Token;
+
         var store = observation.Store;
         var thread = observation.Thread;
 
@@ -27,28 +37,28 @@ internal static class SseEventHandler
         // The live inbox is created before this handler is entered. Capture one finite
         // journal boundary, replay only through it, and then use the inbox exclusively.
         // This makes the journal the recovery source and the coordinator the live source.
-        var head = await store.GetThreadEventHeadAsync(thread, cancellationToken).ConfigureAwait(false)
+        var head = await store.GetThreadEventHeadAsync(thread, streamCancellationToken).ConfigureAwait(false)
             ?? throw new BadHttpRequestException("The requested thread does not exist.");
         var cursor = ParseAppliedCursor(context.Request, head.Generation);
-        await context.Response.Body.FlushAsync(cancellationToken).ConfigureAwait(false);
+        await context.Response.Body.FlushAsync(streamCancellationToken).ConfigureAwait(false);
 
         try
         {
             await foreach (var batch in store.ReadThreadEventsAsync(
                 thread,
                 new ThreadEventReadRequest(cursor, head.ThreadSequenceNumber),
-                cancellationToken).ConfigureAwait(false))
+                streamCancellationToken).ConfigureAwait(false))
             {
                 foreach (var evt in batch.Events)
                 {
-                    await WriteJournalEventAsync(context, batch.Generation, evt, cancellationToken)
+                    await WriteJournalEventAsync(context, batch.Generation, evt, streamCancellationToken)
                         .ConfigureAwait(false);
                     cursor = new ThreadJournalCursor(batch.Generation, evt.ThreadSequenceNumber);
                 }
-                await context.Response.Body.FlushAsync(cancellationToken).ConfigureAwait(false);
+                await context.Response.Body.FlushAsync(streamCancellationToken).ConfigureAwait(false);
             }
 
-            while (!cancellationToken.IsCancellationRequested)
+            while (!streamCancellationToken.IsCancellationRequested)
             {
                 while (observation.LiveEvents.Reader.TryRead(out var evt))
                 {
@@ -57,13 +67,13 @@ internal static class SseEventHandler
                     var liveGeneration = head.Generation;
                     if (selectedThread && evt.ThreadSequenceNumber > 0)
                     {
-                        var liveHead = await store.GetThreadEventHeadAsync(thread, cancellationToken).ConfigureAwait(false)
+                        var liveHead = await store.GetThreadEventHeadAsync(thread, streamCancellationToken).ConfigureAwait(false)
                             ?? throw new ThreadDeletedException(thread);
                         liveGeneration = liveHead.Generation;
                         if (liveGeneration != head.Generation)
                         {
                             await WriteRebasedAsync(
-                                context, head.Generation, liveGeneration, cancellationToken).ConfigureAwait(false);
+                                context, head.Generation, liveGeneration, streamCancellationToken).ConfigureAwait(false);
                             return;
                         }
                     }
@@ -76,20 +86,20 @@ internal static class SseEventHandler
                         continue;
 
                     await WriteLiveEventAsync(
-                        context, liveGeneration, evt, selectedThread, cancellationToken).ConfigureAwait(false);
+                        context, liveGeneration, evt, selectedThread, streamCancellationToken).ConfigureAwait(false);
                     if (evt.ThreadSequenceNumber > 0 && selectedThread)
                     {
                         cursor = new ThreadJournalCursor(head.Generation, evt.ThreadSequenceNumber);
                     }
                 }
-                await context.Response.Body.FlushAsync(cancellationToken).ConfigureAwait(false);
+                await context.Response.Body.FlushAsync(streamCancellationToken).ConfigureAwait(false);
 
-                var available = observation.LiveEvents.Reader.WaitToReadAsync(cancellationToken).AsTask();
-                var heartbeat = Task.Delay(HeartbeatInterval, cancellationToken);
+                var available = observation.LiveEvents.Reader.WaitToReadAsync(streamCancellationToken).AsTask();
+                var heartbeat = Task.Delay(HeartbeatInterval, streamCancellationToken);
                 if (await Task.WhenAny(available, heartbeat).ConfigureAwait(false) == heartbeat)
                 {
-                    await context.Response.WriteAsync(": heartbeat\n\n", cancellationToken).ConfigureAwait(false);
-                    await context.Response.Body.FlushAsync(cancellationToken).ConfigureAwait(false);
+                    await context.Response.WriteAsync(": heartbeat\n\n", streamCancellationToken).ConfigureAwait(false);
+                    await context.Response.Body.FlushAsync(streamCancellationToken).ConfigureAwait(false);
                     continue;
                 }
 
@@ -97,9 +107,9 @@ internal static class SseEventHandler
                     return;
             }
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (streamCancellationToken.IsCancellationRequested)
         {
-            // Client disconnected.
+            // The client disconnected or the host began graceful shutdown.
         }
         catch (ThreadJournalReplacedException rebased)
         {
@@ -107,7 +117,7 @@ internal static class SseEventHandler
                 context,
                 rebased.PreviousCursor.Generation,
                 rebased.CurrentCursor.Generation,
-                cancellationToken).ConfigureAwait(false);
+                streamCancellationToken).ConfigureAwait(false);
         }
         catch
         {

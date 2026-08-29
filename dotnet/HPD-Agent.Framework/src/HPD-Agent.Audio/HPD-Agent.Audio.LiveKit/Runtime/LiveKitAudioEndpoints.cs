@@ -77,6 +77,8 @@ internal sealed class LiveKitOutboundAudioSink : IAudioSink
     private const int Pcm16BytesPerSample = sizeof(short);
     private readonly ILiveKitAudioCapturePort _capture;
     private readonly SemaphoreSlim _serial = new(1, 1);
+    private readonly object _writeFenceGate = new();
+    private CancellationTokenSource _writeFence = new();
     private int _state;
 
     internal LiveKitOutboundAudioSink(AudioFormat format, ILiveKitAudioCapturePort capture)
@@ -93,9 +95,15 @@ internal sealed class LiveKitOutboundAudioSink : IAudioSink
     public async ValueTask WriteAsync(AudioFrame frame, CancellationToken cancellationToken = default)
     {
         EnsureOpen(frame);
-        await _serial.WaitAsync(cancellationToken).ConfigureAwait(false);
+        CancellationToken fenceToken;
+        lock (_writeFenceGate) fenceToken = _writeFence.Token;
+        using var writeCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken, fenceToken);
+        var entered = false;
         try
         {
+            await _serial.WaitAsync(writeCancellation.Token).ConfigureAwait(false);
+            entered = true;
             EnsureOpen(frame);
             var samplesPerFrame = checked(frame.Format.SampleRate * FrameDurationMilliseconds / 1_000);
             var bytesPerSampleFrame = checked(frame.Format.ChannelCount * Pcm16BytesPerSample);
@@ -126,10 +134,16 @@ internal sealed class LiveKitOutboundAudioSink : IAudioSink
                     RecoveryKind = frame.RecoveryKind,
                     Flags = frame.Flags
                 };
-                await _capture.CaptureAsync(transportFrame, cancellationToken).ConfigureAwait(false);
+                await _capture.CaptureAsync(transportFrame, writeCancellation.Token).ConfigureAwait(false);
                 sampleOffset += sampleCount;
                 frameIndex++;
             }
+        }
+        catch (Exception) when (fenceToken.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            // A session interruption owns this cancellation. A tracked native capture
+            // may surface cancellation as outcome-unknown rather than OCE. The clear
+            // reconciles native playout, so neither shape poisons the retained sink.
         }
         catch (Exception) when (cancellationToken.IsCancellationRequested)
         {
@@ -140,15 +154,26 @@ internal sealed class LiveKitOutboundAudioSink : IAudioSink
             throw;
         }
         catch { Interlocked.Exchange(ref _state, (int)AudioSinkState.Failed); throw; }
-        finally { _serial.Release(); }
+        finally { if (entered) _serial.Release(); }
     }
 
     public async ValueTask FlushAsync(CancellationToken cancellationToken = default)
     {
         if (State != AudioSinkState.Open) throw new AudioSinkException(AudioStreamErrorKind.AlreadyCompleted, "Outbound LiveKit audio is closed.");
+        CancellationTokenSource interrupted;
+        lock (_writeFenceGate)
+        {
+            interrupted = _writeFence;
+            _writeFence = new CancellationTokenSource();
+            interrupted.Cancel();
+        }
         await _serial.WaitAsync(cancellationToken).ConfigureAwait(false);
         try { await _capture.ClearAsync(cancellationToken).ConfigureAwait(false); }
-        finally { _serial.Release(); }
+        finally
+        {
+            _serial.Release();
+            interrupted.Dispose();
+        }
     }
 
     public async ValueTask CompleteAsync(CancellationToken cancellationToken = default)
@@ -170,8 +195,12 @@ internal sealed class LiveKitOutboundAudioSink : IAudioSink
     public ValueTask DisposeAsync()
     {
         Interlocked.Exchange(ref _state, (int)AudioSinkState.Disposed);
+        lock (_writeFenceGate)
+        {
+            _writeFence.Cancel();
+            _writeFence.Dispose();
+        }
         _serial.Dispose();
         return ValueTask.CompletedTask;
     }
 }
-

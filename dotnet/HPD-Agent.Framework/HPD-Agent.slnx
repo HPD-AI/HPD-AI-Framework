@@ -72,6 +72,7 @@
   </Folder>
   <Folder Name="/Audio/">
     <Project Path="src/HPD-Agent.Audio/HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
+    <Project Path="src/HPD-Agent.Audio.LiveKit.NativeAssets/HPD-Agent.Audio.LiveKit.NativeAssets.csproj" />
     <Project Path="src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.OpenAI/HPD-Agent.Providers.Audio.OpenAI.csproj" />
     <Project Path="src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.ElevenLabs/HPD-Agent.Providers.Audio.ElevenLabs.csproj" />
     <Project Path="src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.Silero/HPD-Agent.Providers.Audio.Silero.csproj" />

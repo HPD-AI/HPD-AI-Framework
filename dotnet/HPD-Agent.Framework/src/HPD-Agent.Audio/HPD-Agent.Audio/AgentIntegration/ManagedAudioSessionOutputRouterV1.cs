@@ -36,19 +36,26 @@ internal sealed class ManagedAudioSessionOutputRouterV1(
     public ValueTask WriteAsync(OutputAudioChunk chunk, CancellationToken cancellationToken = default) =>
         Sink(chunk.OutputFlowId).WriteAsync(chunk, cancellationToken);
 
-    public async ValueTask CompleteAsync(
+    public ValueTask CompleteAsync(
         OutputAudioStreamCompletion completion,
-        CancellationToken cancellationToken = default)
-    {
-        var sink = Sink(completion.OutputFlowId);
-        try { await sink.CompleteAsync(completion, cancellationToken).ConfigureAwait(false); }
-        finally { _flows.TryRemove(completion.OutputFlowId, out _); }
-    }
-
-    public IAsyncEnumerable<OutputPlaybackEvent> ReadPlaybackEventsAsync(
-        OutputFlowId outputFlowId,
         CancellationToken cancellationToken = default) =>
-        Sink(outputFlowId).ReadPlaybackEventsAsync(outputFlowId, cancellationToken);
+        Sink(completion.OutputFlowId).CompleteAsync(completion, cancellationToken);
+
+    public async IAsyncEnumerable<OutputPlaybackEvent> ReadPlaybackEventsAsync(
+        OutputFlowId outputFlowId,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var sink = Sink(outputFlowId);
+        try
+        {
+            await foreach (var playbackEvent in sink.ReadPlaybackEventsAsync(outputFlowId, cancellationToken)
+                .ConfigureAwait(false))
+            {
+                yield return playbackEvent;
+            }
+        }
+        finally { _flows.TryRemove(outputFlowId, out _); }
+    }
 
     public ValueTask<OutputPlaybackBoundary> InterruptAsync(
         OutputFlowId outputFlowId,

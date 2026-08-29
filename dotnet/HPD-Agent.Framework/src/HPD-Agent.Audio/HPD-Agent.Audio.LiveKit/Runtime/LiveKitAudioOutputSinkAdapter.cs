@@ -20,6 +20,8 @@ internal sealed class LiveKitAudioOutputSinkAdapter : IAudioOutputSink
         flow.ResponseId = stream.ResponseId;
         flow.SegmentId = stream.SegmentId;
         flow.SegmentIndex = stream.SegmentIndex;
+        flow.SourceTextEnd = checked(stream.SourceTextStart + stream.SourceTextLength);
+        flow.IsFinalSegment = stream.IsFinalSegment;
         flow.Events.Writer.TryWrite(new OutputPlaybackQueuedEvent
         {
             OutputFlowId = stream.OutputFlowId,
@@ -49,6 +51,30 @@ internal sealed class LiveKitAudioOutputSinkAdapter : IAudioOutputSink
     public ValueTask CompleteAsync(OutputAudioStreamCompletion completion, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (!_flows.TryGetValue(completion.OutputFlowId, out var flow))
+            return ValueTask.CompletedTask;
+
+        flow.Events.Writer.TryWrite(new OutputPlaybackCompletedEvent
+        {
+            OutputFlowId = completion.OutputFlowId,
+            ResponseId = completion.ResponseId,
+            SegmentId = completion.SegmentId,
+            SegmentIndex = completion.SegmentIndex,
+            Cursor = new OutputPlaybackCursor
+            {
+                OutputFlowId = completion.OutputFlowId,
+                ResponseId = completion.ResponseId,
+                SegmentId = completion.SegmentId,
+                SegmentIndex = completion.SegmentIndex,
+                PlayedDuration = completion.Duration ?? TimeSpan.Zero,
+                PlayedTextLength = flow.SourceTextEnd,
+                Precision = OutputAlignmentPrecision.Approximate,
+                ObservedAt = completion.CompletedAt
+            },
+            ObservedAt = completion.CompletedAt
+        });
+        if (flow.IsFinalSegment)
+            flow.Events.Writer.TryComplete();
         return ValueTask.CompletedTask;
     }
 
@@ -57,13 +83,32 @@ internal sealed class LiveKitAudioOutputSinkAdapter : IAudioOutputSink
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var flow = _flows.GetOrAdd(outputFlowId, static _ => new());
-        await foreach (var item in flow.Events.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false)) yield return item;
+        try
+        {
+            await foreach (var item in flow.Events.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+                yield return item;
+        }
+        finally { _flows.TryRemove(outputFlowId, out _); }
     }
 
     public async ValueTask<OutputPlaybackBoundary> InterruptAsync(OutputFlowId outputFlowId, CancellationToken cancellationToken = default)
     {
         await _sink.FlushAsync(cancellationToken).ConfigureAwait(false);
-        return Boundary(outputFlowId);
+        var boundary = Boundary(outputFlowId);
+        if (_flows.TryGetValue(outputFlowId, out var flow))
+        {
+            flow.Events.Writer.TryWrite(new OutputPlaybackInterruptedEvent
+            {
+                OutputFlowId = outputFlowId,
+                ResponseId = boundary.ResponseId,
+                SegmentId = boundary.SegmentId ?? flow.SegmentId,
+                SegmentIndex = boundary.SegmentIndex,
+                Boundary = boundary,
+                ObservedAt = boundary.ObservedAt
+            });
+            flow.Events.Writer.TryComplete();
+        }
+        return boundary;
     }
 
     public async ValueTask FlushAsync(OutputFlowId outputFlowId, CancellationToken cancellationToken = default) =>
@@ -91,5 +136,7 @@ internal sealed class LiveKitAudioOutputSinkAdapter : IAudioOutputSink
         internal ResponseId ResponseId;
         internal OutputSegmentId SegmentId;
         internal int SegmentIndex;
+        internal int SourceTextEnd;
+        internal bool IsFinalSegment;
     }
 }

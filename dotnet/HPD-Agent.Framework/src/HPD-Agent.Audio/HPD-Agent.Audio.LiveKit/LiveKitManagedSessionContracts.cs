@@ -9,10 +9,15 @@ namespace HPD.Agent.Audio.LiveKit;
     Version = LiveKitAudioTransport.SessionBindingVersion)]
 public sealed record LiveKitAudioSessionBinding
 {
+    [JsonPropertyName("roomName")]
     public required string RoomName { get; init; }
+    [JsonPropertyName("participantIdentity")]
     public required string ParticipantIdentity { get; init; }
+    [JsonPropertyName("remoteParticipantIdentity")]
     public string? RemoteParticipantIdentity { get; init; }
+    [JsonPropertyName("participantName")]
     public string? ParticipantName { get; init; }
+    [JsonPropertyName("participantMetadata")]
     public string? ParticipantMetadata { get; init; }
 }
 

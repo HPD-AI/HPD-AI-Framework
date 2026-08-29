@@ -347,10 +347,51 @@ public sealed class AgentStreamingServiceTests : IAsyncLifetime
         observed.OfType<ThreadExecutionStartedEvent>()
             .Single(evt => evt.ThreadExecutionId == threadExecutionId)
             .AgentId.Should().Be(stored.Id);
+        var terminal = observed.OfType<ThreadExecutionFinishedEvent>()
+            .Single(evt => evt.ThreadExecutionId == threadExecutionId);
+        terminal.InputResult.Should().BeOfType<AgentInputResult.Completed>()
+            .Which.ThreadExecutionId.Should().Be(threadExecutionId);
 
         await WaitUntilAsync(
             () => _sessionManager.GetActiveThreadExecution(sessionId, threadId) is null,
             TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task SubmitInputAsync_ExecutesSessionControlDirectlyWithoutReservingWorkSlot()
+    {
+        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync(
+            "agent-1", "session-control");
+        var stored = await _agentManager.CreateDefinitionAsync(new AgentConfig
+        {
+            Name = "agent-1",
+            Clients = new AgentClientsConfig
+            {
+                Chat = new ChatClientConfig
+                {
+                    Provider = TestAgentFactory.TestSelection(),
+                    ModelName = "test-model"
+                }
+            }
+        }, "agent-1");
+
+        var submitted = await _service.SubmitInputAsync(
+            stored.Id,
+            sessionId,
+            threadId,
+            new AudioSessionInputEvent
+            {
+                ClientInputId = "audio-start-1",
+                Command = new AudioSessionCommand.Start()
+            });
+
+        submitted.Status.Should().Be(AgentServiceStatus.Success);
+        submitted.Value!.Disposition.Should().Be("completed");
+        submitted.Value.ThreadExecutionId.Should().BeNull();
+        var audio = submitted.Value.Result.Should().BeOfType<AgentInputResult.AudioSession>().Subject;
+        var rejected = audio.Result.Should().BeOfType<AudioSessionInputResult.Rejected>().Subject;
+        rejected.Disposition.Should().Be(AudioSessionInputDisposition.CapabilityNotInstalled);
+        _sessionManager.GetActiveThreadExecution(sessionId, threadId).Should().BeNull();
     }
 
     private static async Task WaitUntilAsync(Func<bool> predicate, TimeSpan timeout)

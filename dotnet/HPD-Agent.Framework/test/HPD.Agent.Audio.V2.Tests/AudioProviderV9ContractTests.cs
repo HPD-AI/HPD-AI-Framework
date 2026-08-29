@@ -37,6 +37,25 @@ public sealed class AudioProviderV9ContractTests
     }
 
     [Fact]
+    public void ConsumerGeneratedComposition_ContainsBothElevenLabsAudioFamilies()
+    {
+        var composition = Assert.IsType<ProviderComposition>(ProviderCompositionHost.Current);
+
+        Assert.True(composition.Runtime.TryGetFactory(
+            ElevenLabsAudioProvider.Key,
+            "platform",
+            ProviderClientFamily.SpeechToText,
+            out var speechToText));
+        Assert.NotNull(speechToText);
+        Assert.True(composition.Runtime.TryGetFactory(
+            ElevenLabsAudioProvider.Key,
+            "platform",
+            ProviderClientFamily.TextToSpeech,
+            out var textToSpeech));
+        Assert.NotNull(textToSpeech);
+    }
+
+    [Fact]
     public void AudioProviders_ExposeOnlyUniformAsyncFamilyFactories()
     {
         var openAi = new OpenAIAudioProvider();

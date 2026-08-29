@@ -6,6 +6,37 @@ namespace HPD.Agent.Audio.V2.Tests;
 
 public sealed class StreamingTranscriptObservationNormalizerV1Tests
 {
+    [Fact]
+    public void Managed_bridge_commits_exactly_one_requested_finality_class()
+    {
+        Assert.False(ManagedStreamingSpeechToTextSourceV1.IsAutomaticCommitObservation(
+            StreamingSpeechToTextObservationKind.CommittedTranscript, timestampsRequested:true));
+        Assert.True(ManagedStreamingSpeechToTextSourceV1.IsAutomaticCommitObservation(
+            StreamingSpeechToTextObservationKind.CommittedTranscriptWithTimestamps, timestampsRequested:true));
+        Assert.True(ManagedStreamingSpeechToTextSourceV1.IsAutomaticCommitObservation(
+            StreamingSpeechToTextObservationKind.CommittedTranscript, timestampsRequested:false));
+        Assert.False(ManagedStreamingSpeechToTextSourceV1.IsAutomaticCommitObservation(
+            StreamingSpeechToTextObservationKind.CommittedTranscriptWithTimestamps, timestampsRequested:false));
+    }
+
+    [Theory]
+    [InlineData((int)StreamingSpeechToTextObservationKind.PartialTranscript, "h", true)]
+    [InlineData((int)StreamingSpeechToTextObservationKind.FinalTranscript, "hello", true)]
+    [InlineData((int)StreamingSpeechToTextObservationKind.CommittedTranscriptWithTimestamps, "hello", true)]
+    [InlineData((int)StreamingSpeechToTextObservationKind.PartialTranscript, "", false)]
+    [InlineData((int)StreamingSpeechToTextObservationKind.Unknown, "hello", false)]
+    public void Managed_bridge_qualifies_only_text_bearing_speech_observations(
+        int kindValue, string text, bool expected)
+    {
+        Assert.Equal(expected, ManagedStreamingSpeechToTextSourceV1.IsSpeechEvidenceObservation(new()
+        {
+            ProviderSessionEpoch = 1,
+            Sequence = 1,
+            Kind = (StreamingSpeechToTextObservationKind)kindValue,
+            Text = text
+        }));
+    }
+
     [Theory]
     [InlineData((int)StreamingSpeechToTextObservationKind.PartialTranscript)]
     [InlineData((int)StreamingSpeechToTextObservationKind.FinalTranscript)]

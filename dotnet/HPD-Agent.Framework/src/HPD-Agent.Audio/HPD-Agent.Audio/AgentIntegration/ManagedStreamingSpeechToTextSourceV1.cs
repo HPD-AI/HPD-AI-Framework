@@ -37,7 +37,7 @@ public sealed class ManagedStreamingSpeechToTextSourceV1 : IManagedAudioTranscri
         _factory = () => factory;
     }
 
-    public async IAsyncEnumerable<ManagedAudioTranscriptCandidateV1> RunAsync(
+    public async IAsyncEnumerable<ManagedAudioInputObservationV1> RunAsync(
         IAudioSource source,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
@@ -67,14 +67,21 @@ public sealed class ManagedStreamingSpeechToTextSourceV1 : IManagedAudioTranscri
 
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var writer = PumpAudioAsync(participant, source, lifetime.Token);
+        var speechOpen = false;
         try
         {
             await foreach (var observation in participant.ReadObservationsAsync(lifetime.Token)
                 .ConfigureAwait(false))
             {
-                if (observation.Kind is not (
-                    StreamingSpeechToTextObservationKind.CommittedTranscript or
-                    StreamingSpeechToTextObservationKind.CommittedTranscriptWithTimestamps))
+                if (!speechOpen && IsSpeechEvidenceObservation(observation))
+                {
+                    speechOpen = true;
+                    yield return new ManagedAudioSpeechStartedV1
+                    {
+                        ObservationId = $"stt:{observation.ProviderSessionEpoch}:speech:{observation.Sequence}"
+                    };
+                }
+                if (!IsAutomaticCommitObservation(observation.Kind, _options.IncludeTimestamps))
                     continue;
                 if (string.IsNullOrWhiteSpace(observation.Text)) continue;
                 yield return new ManagedAudioTranscriptCandidateV1
@@ -83,6 +90,7 @@ public sealed class ManagedStreamingSpeechToTextSourceV1 : IManagedAudioTranscri
                     Text = observation.Text,
                     CommitAutomatically = true
                 };
+                speechOpen = false;
             }
         }
         finally
@@ -93,6 +101,20 @@ public sealed class ManagedStreamingSpeechToTextSourceV1 : IManagedAudioTranscri
             await participant.StopAsync(CancellationToken.None).ConfigureAwait(false);
         }
     }
+
+    internal static bool IsAutomaticCommitObservation(
+        StreamingSpeechToTextObservationKind kind,
+        bool timestampsRequested) => timestampsRequested
+            ? kind == StreamingSpeechToTextObservationKind.CommittedTranscriptWithTimestamps
+            : kind == StreamingSpeechToTextObservationKind.CommittedTranscript;
+
+    internal static bool IsSpeechEvidenceObservation(StreamingSpeechToTextObservation observation) =>
+        !string.IsNullOrWhiteSpace(observation.Text) && observation.Kind is
+            StreamingSpeechToTextObservationKind.PartialTranscript or
+            StreamingSpeechToTextObservationKind.FinalTranscript or
+            StreamingSpeechToTextObservationKind.FinalTranscriptWithTimestamps or
+            StreamingSpeechToTextObservationKind.CommittedTranscript or
+            StreamingSpeechToTextObservationKind.CommittedTranscriptWithTimestamps;
 
     private static IStreamingSpeechToTextParticipantFactory ResolveFactory(ISpeechToTextClient client) =>
         client.GetService(typeof(IStreamingSpeechToTextParticipantFactory))

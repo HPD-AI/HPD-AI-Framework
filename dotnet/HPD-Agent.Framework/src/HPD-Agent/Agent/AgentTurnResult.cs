@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace HPD.Agent;
 
@@ -68,6 +69,11 @@ public enum AgentInputDisposition
 }
 
 /// <summary>Represents the result of submitting a semantic <see cref="AgentInputEvent"/>.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
+[JsonDerivedType(typeof(AgentInputResult.Completed), "completed")]
+[JsonDerivedType(typeof(AgentInputResult.Steered), "steered")]
+[JsonDerivedType(typeof(AgentInputResult.Control), "control")]
+[JsonDerivedType(typeof(AgentInputResult.AudioSession), "audioSession")]
 public abstract record AgentInputResult
 {
     private AgentInputResult() { }
@@ -104,7 +110,7 @@ internal sealed record RuntimeInputReceipt(
 /// result to commit their terminal thread-run fact; the core runtime does not create one.
 /// </summary>
 public sealed record AgentRuntimeInputOutcome(
-    AgentTurnResult Result,
+    AgentInputResult Result,
     bool Cancelled,
     Exception? Error);
 

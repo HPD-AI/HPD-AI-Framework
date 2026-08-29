@@ -1,7 +1,12 @@
 using System.Collections.Concurrent;
+using System.Text;
 using Microsoft.Extensions.AI;
 using HPD.Audio.Primitives;
 using HPD.Agent.Audio.Output;
+using HPD.Agent.Authority;
+using HPD.Agent.Audio.Authority;
+using HPD.Agent.Audio.Runtime.Output;
+using HPD.Agent.Audio.Runtime.Providers;
 
 namespace HPD.Agent.Audio;
 
@@ -13,10 +18,26 @@ public interface IManagedAudioSessionBackendV1
         CancellationToken cancellationToken = default);
 }
 
-/// <summary>Consumes retained decoded PCM and yields finalized semantic candidates.</summary>
+/// <summary>
+/// Reports that a start effect crossed the backend boundary but its terminal outcome
+/// could not be established. Ordinary startup failures must not use this exception.
+/// </summary>
+public sealed class ManagedAudioSessionStartOutcomeUnknownException : Exception
+{
+    public ManagedAudioSessionStartOutcomeUnknownException(string operationId)
+        : base("The managed Audio session start outcome is unknown and requires reconciliation.")
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
+        OperationId = operationId;
+    }
+
+    public string OperationId { get; }
+}
+
+/// <summary>Consumes retained decoded PCM and yields ordered input observations.</summary>
 public interface IManagedAudioTranscriptSourceV1
 {
-    IAsyncEnumerable<ManagedAudioTranscriptCandidateV1> RunAsync(
+    IAsyncEnumerable<ManagedAudioInputObservationV1> RunAsync(
         IAudioSource source,
         CancellationToken cancellationToken = default);
 }
@@ -28,7 +49,7 @@ public interface IManagedAudioSessionV1 : IAsyncDisposable
 
     IAudioOutputSink? OutputSink { get; }
 
-    IAsyncEnumerable<ManagedAudioTranscriptCandidateV1> ReadTranscriptCandidatesAsync(
+    IAsyncEnumerable<ManagedAudioInputObservationV1> ReadInputObservationsAsync(
         CancellationToken cancellationToken = default);
 
     ValueTask SetInputEnabledAsync(bool enabled, CancellationToken cancellationToken = default);
@@ -36,7 +57,9 @@ public interface IManagedAudioSessionV1 : IAsyncDisposable
     ValueTask<ManagedAudioOutputInterruptionV1> InterruptOutputAsync(
         string operationId,
         CancellationToken cancellationToken = default);
-    ValueTask StopAsync(AudioSessionStopReason reason, CancellationToken cancellationToken = default);
+    ValueTask<ManagedAudioSessionStopResultV1> StopAsync(
+        AudioSessionStopReason reason,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed record ManagedAudioSessionStartRequestV1
@@ -48,7 +71,14 @@ public sealed record ManagedAudioSessionStartRequestV1
     public AgentClientSet? ClientSet { get; init; }
 }
 
-public sealed record ManagedAudioTranscriptCandidateV1
+public abstract record ManagedAudioInputObservationV1;
+
+public sealed record ManagedAudioSpeechStartedV1 : ManagedAudioInputObservationV1
+{
+    public required string ObservationId { get; init; }
+}
+
+public sealed record ManagedAudioTranscriptCandidateV1 : ManagedAudioInputObservationV1
 {
     public required string CandidateId { get; init; }
     public required string Text { get; init; }
@@ -60,6 +90,14 @@ public enum ManagedAudioOutputInterruptionV1
     Interrupted = 0,
     AlreadyIdle = 1,
     OutcomeUnknown = 2
+}
+
+public abstract record ManagedAudioSessionStopResultV1
+{
+    private ManagedAudioSessionStopResultV1() { }
+    public sealed record Stopped : ManagedAudioSessionStopResultV1;
+    public sealed record AlreadyStopped : ManagedAudioSessionStopResultV1;
+    public sealed record OutcomeUnknown(string OperationId) : ManagedAudioSessionStopResultV1;
 }
 
 /// <summary>
@@ -88,6 +126,13 @@ public sealed class ManagedAudioSessionAuthorityV1 :
 
     internal void AttachInputDispatcher(Func<AgentInputEvent, CancellationToken, ValueTask> submitInput) =>
         _submitInput = submitInput ?? throw new ArgumentNullException(nameof(submitInput));
+
+    internal PreparedOutputExecutionV2? ResolvePreparedOutput(string? sessionId) =>
+        string.IsNullOrWhiteSpace(sessionId)
+            ? null
+            : _sessions.Values.FirstOrDefault(state =>
+                string.Equals(state.Scope.SessionId, sessionId, StringComparison.Ordinal) &&
+                !state.Stopped && state.OutputEnabled)?.PreparedOutput;
 
     public ValueTask<AudioSessionInputResult> ExecuteAsync(
         AudioSessionInputEvent input,
@@ -133,10 +178,10 @@ public sealed class ManagedAudioSessionAuthorityV1 :
                 }, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-            catch
+            catch (ManagedAudioSessionStartOutcomeUnknownException unknown)
             {
                 return new AudioSessionInputResult.OutcomeUnknown(
-                    input.ClientInputId ?? $"audio-start:{Guid.NewGuid():N}");
+                    unknown.OperationId);
             }
 
             if (string.IsNullOrWhiteSpace(backendSession.AudioSessionId))
@@ -145,7 +190,10 @@ public sealed class ManagedAudioSessionAuthorityV1 :
                 return Rejected(AudioSessionInputDisposition.Refused, "audio-session-id-missing");
             }
 
-            var state = new SessionState(scope, backendSession);
+            var state = new SessionState(
+                scope,
+                backendSession,
+                ManagedAudioPreparedOutputFactoryV2.Create(scope.AgentId, scope.SessionId, scope.ThreadId));
             if (!_sessions.TryAdd(backendSession.AudioSessionId, state))
             {
                 await backendSession.DisposeAsync().ConfigureAwait(false);
@@ -234,10 +282,14 @@ public sealed class ManagedAudioSessionAuthorityV1 :
     private static async ValueTask<AudioSessionInputResult> InterruptAsync(
         SessionState state, AudioSessionCommand.InterruptOutput command, CancellationToken cancellationToken)
     {
+        if (state.InterruptionReceipts.TryGetValue(command.OperationId, out var prior))
+            return prior.ExpectedRevision == command.ExpectedRevision
+                ? prior.Result
+                : Rejected(AudioSessionInputDisposition.Refused, "audio-interruption-operation-contradiction", state.Revision);
         if (command.ExpectedRevision != state.Revision)
             return Rejected(AudioSessionInputDisposition.RevisionConflict, "audio-revision-conflict", state.Revision);
         var result = await state.Backend.InterruptOutputAsync(command.OperationId, cancellationToken).ConfigureAwait(false);
-        return result switch
+        AudioSessionInputResult mapped = result switch
         {
             ManagedAudioOutputInterruptionV1.Interrupted =>
                 new AudioSessionInputResult.OutputInterrupted(state.Backend.AudioSessionId, ++state.Revision, command.OperationId),
@@ -246,6 +298,10 @@ public sealed class ManagedAudioSessionAuthorityV1 :
             _ => new AudioSessionInputResult.OutputInterruptionUnknown(
                 state.Backend.AudioSessionId, state.Revision, command.OperationId, "audio-output-interruption-unknown")
         };
+        if (state.InterruptionReceipts.Count >= 64)
+            return Rejected(AudioSessionInputDisposition.Refused, "audio-interruption-receipt-capacity", state.Revision);
+        state.InterruptionReceipts.Add(command.OperationId, new(command.ExpectedRevision, mapped));
+        return mapped;
     }
 
     private async ValueTask<AudioSessionInputResult> StopAsync(
@@ -253,7 +309,9 @@ public sealed class ManagedAudioSessionAuthorityV1 :
     {
         if (state.Stopped)
             return new AudioSessionInputResult.Stopped(state.Backend.AudioSessionId, state.Revision);
-        await state.Backend.StopAsync(command.Reason, cancellationToken).ConfigureAwait(false);
+        var stopped = await state.Backend.StopAsync(command.Reason, cancellationToken).ConfigureAwait(false);
+        if (stopped is ManagedAudioSessionStopResultV1.OutcomeUnknown unknown)
+            return new AudioSessionInputResult.OutcomeUnknown(unknown.OperationId);
         state.Stopped = true;
         state.PumpStop.Cancel();
         _sessions.TryRemove(state.Backend.AudioSessionId, out _);
@@ -265,14 +323,22 @@ public sealed class ManagedAudioSessionAuthorityV1 :
     {
         try
         {
-            await foreach (var value in state.Backend.ReadTranscriptCandidatesAsync(state.PumpStop.Token)
+            await foreach (var value in state.Backend.ReadInputObservationsAsync(state.PumpStop.Token)
                 .ConfigureAwait(false))
             {
-                if (string.IsNullOrWhiteSpace(value.CandidateId) || string.IsNullOrWhiteSpace(value.Text))
+                if (value is ManagedAudioSpeechStartedV1 speechStarted)
+                {
+                    await InterruptForSpeechStartAsync(state, speechStarted, state.PumpStop.Token)
+                        .ConfigureAwait(false);
                     continue;
-                var candidate = new Candidate(value.CandidateId, value.Text,
-                    $"audio-semantic:{state.Backend.AudioSessionId}:{value.CandidateId}");
-                if (!state.Candidates.TryAdd(candidate.Id, candidate) || !value.CommitAutomatically)
+                }
+                if (value is not ManagedAudioTranscriptCandidateV1 candidateValue)
+                    continue;
+                if (string.IsNullOrWhiteSpace(candidateValue.CandidateId) || string.IsNullOrWhiteSpace(candidateValue.Text))
+                    continue;
+                var candidate = new Candidate(candidateValue.CandidateId, candidateValue.Text,
+                    $"audio-semantic:{state.Backend.AudioSessionId}:{candidateValue.CandidateId}");
+                if (!state.Candidates.TryAdd(candidate.Id, candidate) || !candidateValue.CommitAutomatically)
                     continue;
                 var submit = _submitInput;
                 if (submit is null) continue;
@@ -289,6 +355,25 @@ public sealed class ManagedAudioSessionAuthorityV1 :
         }
         catch (OperationCanceledException) when (state.PumpStop.IsCancellationRequested) { }
         catch { state.PumpFaulted = true; }
+    }
+
+    private static async ValueTask InterruptForSpeechStartAsync(
+        SessionState state,
+        ManagedAudioSpeechStartedV1 observation,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(observation.ObservationId)) return;
+        await state.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (state.Stopped || !state.OutputEnabled) return;
+            var result = await state.Backend.InterruptOutputAsync(
+                $"speech-start:{state.Backend.AudioSessionId}:{observation.ObservationId}", cancellationToken)
+                .ConfigureAwait(false);
+            if (result == ManagedAudioOutputInterruptionV1.Interrupted)
+                state.Revision++;
+        }
+        finally { state.Gate.Release(); }
     }
 
     public ValueTask<AudioSemanticAdmissionResult> AcceptSemanticAsync(
@@ -351,7 +436,12 @@ public sealed class ManagedAudioSessionAuthorityV1 :
         foreach (var state in _sessions.Values)
         {
             state.PumpStop.Cancel();
-            try { await state.Backend.StopAsync(AudioSessionStopReason.HostShutdown).ConfigureAwait(false); }
+            try
+            {
+                var stopped = await state.Backend.StopAsync(AudioSessionStopReason.HostShutdown).ConfigureAwait(false);
+                if (stopped is ManagedAudioSessionStopResultV1.OutcomeUnknown)
+                    _ = await state.Backend.StopAsync(AudioSessionStopReason.HostShutdown).ConfigureAwait(false);
+            }
             catch { }
             await state.Backend.DisposeAsync().ConfigureAwait(false);
             state.Gate.Dispose();
@@ -377,13 +467,18 @@ public sealed class ManagedAudioSessionAuthorityV1 :
             input.ThreadId ?? "main");
     }
 
-    private sealed class SessionState(Scope scope, IManagedAudioSessionV1 backend)
+    private sealed class SessionState(
+        Scope scope,
+        IManagedAudioSessionV1 backend,
+        PreparedOutputExecutionV2 preparedOutput)
     {
         internal Scope Scope { get; } = scope;
         internal IManagedAudioSessionV1 Backend { get; } = backend;
+        internal PreparedOutputExecutionV2 PreparedOutput { get; } = preparedOutput;
         internal SemaphoreSlim Gate { get; } = new(1, 1);
         internal CancellationTokenSource PumpStop { get; } = new();
         internal ConcurrentDictionary<string, Candidate> Candidates { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, InterruptionReceipt> InterruptionReceipts { get; } = new(StringComparer.Ordinal);
         internal Task? Pump { get; set; }
         internal long Revision { get; set; } = 1;
         internal bool InputEnabled { get; set; } = true;
@@ -391,6 +486,8 @@ public sealed class ManagedAudioSessionAuthorityV1 :
         internal bool Stopped { get; set; }
         internal bool PumpFaulted { get; set; }
     }
+
+    private sealed record InterruptionReceipt(long ExpectedRevision, AudioSessionInputResult Result);
 
     private sealed class Candidate(string id, string text, string operationId)
     {
@@ -401,4 +498,36 @@ public sealed class ManagedAudioSessionAuthorityV1 :
     }
 
     private enum CandidateStage { Pending, Committed, Accepted, Acknowledged, Withdrawn }
+
+    private static class ManagedAudioPreparedOutputFactoryV2
+    {
+        internal static PreparedOutputExecutionV2 Create(string agentId, string sessionId, string threadId)
+        {
+            var session = new SessionAuthorityStampV1(RuntimeGenerationId.Create(), LiveSessionId.Create());
+            var turn = TurnGenerationId.Create();
+            var provider = ProviderGenerationId.Create();
+            var route = RouteGenerationId.Create();
+            var output = OutputGenerationId.Create();
+            var authority = ExpectedAuthorityVectorV1.Create(session,
+            [
+                new AuthorityAxisValueV1.Turn(turn),
+                new AuthorityAxisValueV1.Provider(provider),
+                new AuthorityAxisValueV1.Route(route),
+                new AuthorityAxisValueV1.Output(output)
+            ]);
+            var decision = new TurnDecisionFinalizedV1(
+                OperationId.Create(), new JournalPositionV1(session, 1), authority, 1);
+            var identity = Encoding.UTF8.GetBytes($"{agentId}\n{sessionId}\n{threadId}");
+            var plan = new ProviderParticipantPlanV1(
+                ParticipantId.Create(), ProviderId.Create(), provider, route, authority,
+                Hash256.Compute(identity), 8);
+            var origin = new OutputOriginEvidenceV2(
+                decision,
+                new ProviderParticipantSnapshotV1(
+                    1, ProviderParticipantPhaseV1.Effective, plan, 0, null));
+            return new PreparedOutputExecutionV2(
+                new LiveAudioOutputGenerationV2(authority, maximumOffers: 4096, maximumOutputReceipts: 4096),
+                origin);
+        }
+    }
 }

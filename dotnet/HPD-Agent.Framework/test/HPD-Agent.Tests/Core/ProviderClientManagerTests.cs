@@ -45,6 +45,31 @@ public sealed class ProviderClientManagerTests
     }
 
     [Fact]
+    public async Task RunClientSet_DisposalReleasesLeaseWithoutDisposingCachedClient()
+    {
+        await using var manager = new ProviderClientManager<TestClient>();
+        var constructions = 0;
+        ValueTask<ProviderClientConstruction<TestClient>> Factory(CancellationToken _)
+        {
+            constructions++;
+            return ValueTask.FromResult(Construction(new TestClient()));
+        }
+
+        var firstLease = await manager.AcquireAsync(Key, Factory);
+        var firstClient = firstLease.Client;
+        var runClients = new AgentClientSet { TextToSpeech = firstClient };
+        runClients.SetOwnedClients(new HashSet<object>(ReferenceEqualityComparer.Instance));
+        runClients.SetLeases([firstLease]);
+
+        await runClients.DisposeAsync();
+
+        Assert.False(firstClient.Disposed);
+        await using var secondLease = await manager.AcquireAsync(Key, Factory);
+        Assert.Same(firstClient, secondLease.Client);
+        Assert.Equal(1, constructions);
+    }
+
+    [Fact]
     public async Task CallerCancellation_DoesNotCancelSharedConstruction()
     {
         await using var manager = new ProviderClientManager<TestClient>();
@@ -108,7 +133,7 @@ public sealed class ProviderClientManagerTests
         Owner = ProviderClientConstructionUtilities.Own(client)
     };
 
-    private sealed class TestClient : IDisposable
+    private sealed class TestClient : Microsoft.Extensions.AI.ITextToSpeechClient
     {
         public bool Disposed { get; private set; }
         public int DisposeCount { get; private set; }
@@ -117,5 +142,21 @@ public sealed class ProviderClientManagerTests
             Disposed = true;
             DisposeCount++;
         }
+
+        public Task<Microsoft.Extensions.AI.TextToSpeechResponse> GetAudioAsync(
+            string text,
+            Microsoft.Extensions.AI.TextToSpeechOptions? options = null,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public async IAsyncEnumerable<Microsoft.Extensions.AI.TextToSpeechResponseUpdate> GetStreamingAudioAsync(
+            string text,
+            Microsoft.Extensions.AI.TextToSpeechOptions? options = null,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            await Task.CompletedTask;
+            yield break;
+        }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
     }
 }

@@ -53,6 +53,9 @@ public sealed class AgentStreamingService : IAgentStreamingService
         if (registration.RoutingClass == AgentInputRoutingClass.ActiveControl)
             return await SubmitActiveControlAsync(agentId, sessionId, threadId, input, cancellationToken)
                 .ConfigureAwait(false);
+        if (registration.RoutingClass == AgentInputRoutingClass.SessionControl)
+            return await SubmitSessionControlAsync(agentId, sessionId, threadId, input, cancellationToken)
+                .ConfigureAwait(false);
 
         var lease = await GetAgentForExecutionAsync(agentId, sessionId, threadId, cancellationToken)
             .ConfigureAwait(false);
@@ -101,6 +104,7 @@ public sealed class AgentStreamingService : IAgentStreamingService
                     publisher,
                     cancelled: ex is OperationCanceledException,
                     error: ex,
+                    inputResult: null,
                     CancellationToken.None).ConfigureAwait(false);
             }
             else
@@ -181,6 +185,36 @@ public sealed class AgentStreamingService : IAgentStreamingService
             ActiveExecution: ToExecutionDto(activeExecution)));
     }
 
+    private async Task<AgentServiceResult<InputSubmissionDto>> SubmitSessionControlAsync(
+        string agentId,
+        string sessionId,
+        string threadId,
+        AgentInputEvent input,
+        CancellationToken cancellationToken)
+    {
+        var lease = await GetAgentForExecutionAsync(agentId, sessionId, threadId, cancellationToken)
+            .ConfigureAwait(false);
+        if (lease.Status != AgentServiceStatus.Success)
+            return new AgentServiceResult<InputSubmissionDto>(
+                lease.Status, default, lease.ErrorCode, lease.ErrorMessage, lease.ErrorMessages);
+
+        var runtimePin = _agentManager.PinRuntime(agentId, sessionId, threadId);
+        try
+        {
+            var agent = lease.Value!;
+            var scoped = ApplyRouteScope(input, agentId, sessionId, threadId);
+            await agent.StartAsync(scoped.RunConfig, CancellationToken.None).ConfigureAwait(false);
+            var result = await agent.RunAsync(scoped, cancellationToken).ConfigureAwait(false);
+            return AgentServiceResult<InputSubmissionDto>.Success(new InputSubmissionDto(
+                "completed",
+                Result: result));
+        }
+        finally
+        {
+            runtimePin.Dispose();
+        }
+    }
+
     private async Task FinishExecutionAsync(
         ThreadExecutionState execution,
         RuntimeInputReceipt submission,
@@ -195,6 +229,7 @@ public sealed class AgentStreamingService : IAgentStreamingService
                 publisher,
                 outcome.Cancelled,
                 outcome.Error,
+                outcome.Result,
                 CancellationToken.None).ConfigureAwait(false);
             runtimePin.Dispose();
             submission.Dispose();
@@ -226,6 +261,7 @@ public sealed class AgentStreamingService : IAgentStreamingService
         IThreadEventPublisher publisher,
         bool cancelled,
         Exception? error,
+        AgentInputResult? inputResult,
         CancellationToken cancellationToken)
     {
         var key = new ThreadKey(execution.SessionId, execution.ThreadId);
@@ -258,7 +294,8 @@ public sealed class AgentStreamingService : IAgentStreamingService
                     : new ThreadExecutionError(error.GetType().Name, error.Message))
             {
                 SessionId = execution.SessionId,
-                ThreadId = execution.ThreadId
+                ThreadId = execution.ThreadId,
+                InputResult = inputResult
             });
 
         await publisher.CommitAndPublishAsync(

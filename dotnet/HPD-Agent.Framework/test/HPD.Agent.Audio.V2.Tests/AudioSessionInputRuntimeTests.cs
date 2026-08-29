@@ -135,6 +135,84 @@ public sealed class AudioSessionInputRuntimeTests
     }
 
     [Fact]
+    public async Task SpeechStarted_InterruptsOutputBeforeCommittedTranscriptIsSubmitted()
+    {
+        var backend = new RecordingManagedBackend();
+        await using var authority = new ManagedAudioSessionAuthorityV1(backend);
+        await authority.ExecuteAsync(new AudioSessionInputEvent
+        {
+            AgentId = "agent", SessionId = "session", ThreadId = "main",
+            Command = new AudioSessionCommand.Start()
+        }, null);
+
+        await backend.Session.PublishAsync(new ManagedAudioSpeechStartedV1
+        {
+            ObservationId = "speech-1"
+        });
+
+        await WaitUntilAsync(() => backend.Session.Interruptions == 1);
+        Assert.False(backend.Session.TranscriptCandidateRead);
+    }
+
+    [Fact]
+    public async Task ManagedInterruption_IsRevisionedIdempotentAndPreservesIdleTruth()
+    {
+        var backend = new RecordingManagedBackend();
+        await using var authority = new ManagedAudioSessionAuthorityV1(backend);
+        var started = Assert.IsType<AudioSessionInputResult.Started>(await authority.ExecuteAsync(new AudioSessionInputEvent
+        {
+            AgentId = "agent", SessionId = "session", ThreadId = "main",
+            Command = new AudioSessionCommand.Start()
+        }, null));
+        AudioSessionInputEvent Interrupt(long revision, string operation) => new()
+        {
+            AgentId = "agent", SessionId = "session", ThreadId = "main",
+            Command = new AudioSessionCommand.InterruptOutput(started.AudioSessionId, revision, operation)
+        };
+
+        var conflict = await authority.ExecuteAsync(Interrupt(99, "interrupt-1"), null);
+        Assert.Equal("audio-revision-conflict", Assert.IsType<AudioSessionInputResult.Rejected>(conflict).SafeCode);
+        var first = Assert.IsType<AudioSessionInputResult.OutputInterrupted>(
+            await authority.ExecuteAsync(Interrupt(started.Revision, "interrupt-1"), null));
+        var retry = Assert.IsType<AudioSessionInputResult.OutputInterrupted>(
+            await authority.ExecuteAsync(Interrupt(started.Revision, "interrupt-1"), null));
+        Assert.Equal(first, retry);
+        Assert.Equal(1, backend.Session.Interruptions);
+
+        backend.Session.InterruptionResult = ManagedAudioOutputInterruptionV1.AlreadyIdle;
+        var idle = Assert.IsType<AudioSessionInputResult.OutputAlreadyIdle>(
+            await authority.ExecuteAsync(Interrupt(first.Revision, "interrupt-idle"), null));
+        Assert.Equal(first.Revision, idle.Revision);
+    }
+
+    [Fact]
+    public async Task UnknownStop_RetainsSessionAndExactRetryReconcilesBeforeDisposal()
+    {
+        var backend = new RecordingManagedBackend();
+        backend.Session.StopUnknownOnce = true;
+        await using var authority = new ManagedAudioSessionAuthorityV1(backend);
+        var started = Assert.IsType<AudioSessionInputResult.Started>(await authority.ExecuteAsync(new AudioSessionInputEvent
+        {
+            AgentId = "agent", SessionId = "session", ThreadId = "main",
+            Command = new AudioSessionCommand.Start()
+        }, null));
+        AudioSessionInputEvent Stop() => new()
+        {
+            AgentId = "agent", SessionId = "session", ThreadId = "main",
+            Command = new AudioSessionCommand.Stop(started.AudioSessionId)
+        };
+
+        var unknown = Assert.IsType<AudioSessionInputResult.OutcomeUnknown>(
+            await authority.ExecuteAsync(Stop(), null));
+        Assert.Equal("stop-unknown", unknown.OperationId);
+        Assert.False(backend.Session.Disposed);
+
+        Assert.IsType<AudioSessionInputResult.Stopped>(await authority.ExecuteAsync(Stop(), null));
+        Assert.Equal(2, backend.Session.StopCalls);
+        Assert.True(backend.Session.Disposed);
+    }
+
+    [Fact]
     public async Task ManagedOutputRouter_SelectsLiveSessionByAgentSessionId()
     {
         var backend = new RecordingManagedBackend();
@@ -159,6 +237,47 @@ public sealed class AudioSessionInputRuntimeTests
 
         Assert.Equal(OutputSinkStartDisposition.Accepted, result.Disposition);
         Assert.Same(stream, backend.Session.Output.Seen);
+    }
+
+    [Fact]
+    public async Task ManagedSession_AutomaticTranscript_SynthesizesAssistantIntoItsOutputSink()
+    {
+        var backend = new RecordingManagedBackend();
+        var authority = new ManagedAudioSessionAuthorityV1(backend);
+        var textToSpeech = new RecordingTextToSpeechClient();
+        await using var agent = await AgentBuilder.Create()
+            .WithChatClient(new CapturingChatClient())
+            .WithAudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
+            {
+                SessionControlAuthority = authority,
+                AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.FinalText,
+                AssistantOutputTextToSpeechClient = textToSpeech,
+                AssistantOutputProviderKey = "recording",
+                AssistantOutputModelId = "recording-tts",
+                AssistantOutputFormat = "pcm_16000",
+                AssistantOutputArtifactCapturePolicy = AssistantAudioArtifactCapturePolicy.Disabled,
+                EnableAssistantOutputPlayback = true
+            })
+            .BuildAsync();
+        await agent.StartAsync();
+        await agent.CreateSessionAsync("session");
+        await agent.RunAsync(new AudioSessionInputEvent
+        {
+            AgentId = "agent",
+            SessionId = "session",
+            ThreadId = "main",
+            Command = new AudioSessionCommand.Start()
+        });
+
+        await backend.Session.PublishAsync(new ManagedAudioTranscriptCandidateV1
+        {
+            CandidateId = "candidate-with-output",
+            Text = "speak and answer"
+        });
+
+        await WaitUntilAsync(() => textToSpeech.LastText == "heard");
+        await WaitUntilAsync(() => backend.Session.Output.Seen is not null);
+        Assert.Equal("session", backend.Session.Output.Seen!.SessionId);
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition)
@@ -198,8 +317,14 @@ public sealed class AudioSessionInputRuntimeTests
 
     private sealed class RecordingManagedSession : IManagedAudioSessionV1
     {
-        private readonly Channel<ManagedAudioTranscriptCandidateV1> _candidates = Channel.CreateUnbounded<ManagedAudioTranscriptCandidateV1>();
+        private readonly Channel<ManagedAudioInputObservationV1> _candidates = Channel.CreateUnbounded<ManagedAudioInputObservationV1>();
         internal bool CandidateRead { get; private set; }
+        internal bool TranscriptCandidateRead { get; private set; }
+        internal int Interruptions { get; private set; }
+        internal ManagedAudioOutputInterruptionV1 InterruptionResult { get; set; } = ManagedAudioOutputInterruptionV1.Interrupted;
+        internal bool StopUnknownOnce { get; set; }
+        internal int StopCalls { get; private set; }
+        internal bool Disposed { get; private set; }
         public string AudioSessionId => "managed-audio-1";
         internal RecordingOutputSink Output { get; } = new();
         public IAudioOutputSink? OutputSink => Output;
@@ -207,12 +332,17 @@ public sealed class AudioSessionInputRuntimeTests
         internal ValueTask PublishAsync(ManagedAudioTranscriptCandidateV1 candidate) =>
             _candidates.Writer.WriteAsync(candidate);
 
-        public async IAsyncEnumerable<ManagedAudioTranscriptCandidateV1> ReadTranscriptCandidatesAsync(
+        internal ValueTask PublishAsync(ManagedAudioSpeechStartedV1 observation) =>
+            _candidates.Writer.WriteAsync(observation);
+
+        public async IAsyncEnumerable<ManagedAudioInputObservationV1> ReadInputObservationsAsync(
             [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             await foreach (var candidate in _candidates.Reader.ReadAllAsync(cancellationToken))
             {
                 CandidateRead = true;
+                if (candidate is ManagedAudioTranscriptCandidateV1)
+                    TranscriptCandidateRead = true;
                 yield return candidate;
             }
         }
@@ -222,15 +352,27 @@ public sealed class AudioSessionInputRuntimeTests
         public ValueTask SetOutputEnabledAsync(bool enabled, CancellationToken cancellationToken = default) =>
             ValueTask.CompletedTask;
         public ValueTask<ManagedAudioOutputInterruptionV1> InterruptOutputAsync(
-            string operationId, CancellationToken cancellationToken = default) =>
-            ValueTask.FromResult(ManagedAudioOutputInterruptionV1.AlreadyIdle);
-        public ValueTask StopAsync(AudioSessionStopReason reason, CancellationToken cancellationToken = default)
+            string operationId, CancellationToken cancellationToken = default)
         {
+            Interruptions++;
+            return ValueTask.FromResult(InterruptionResult);
+        }
+        public ValueTask<ManagedAudioSessionStopResultV1> StopAsync(
+            AudioSessionStopReason reason, CancellationToken cancellationToken = default)
+        {
+            StopCalls++;
+            if (StopUnknownOnce)
+            {
+                StopUnknownOnce = false;
+                return ValueTask.FromResult<ManagedAudioSessionStopResultV1>(
+                    new ManagedAudioSessionStopResultV1.OutcomeUnknown("stop-unknown"));
+            }
             _candidates.Writer.TryComplete();
-            return ValueTask.CompletedTask;
+            return ValueTask.FromResult<ManagedAudioSessionStopResultV1>(new ManagedAudioSessionStopResultV1.Stopped());
         }
         public ValueTask DisposeAsync()
         {
+            Disposed = true;
             _candidates.Writer.TryComplete();
             return ValueTask.CompletedTask;
         }
@@ -274,6 +416,41 @@ public sealed class AudioSessionInputRuntimeTests
             });
         public ValueTask FlushAsync(OutputFlowId outputFlowId, CancellationToken cancellationToken = default) =>
             ValueTask.CompletedTask;
+    }
+
+    private sealed class RecordingTextToSpeechClient : ITextToSpeechClient
+    {
+        internal string? LastText { get; private set; }
+
+        public Task<TextToSpeechResponse> GetAudioAsync(
+            string text,
+            TextToSpeechOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            LastText = text;
+            return Task.FromResult(new TextToSpeechResponse([
+                new DataContent(new byte[] { 1, 0, 2, 0 }, "audio/pcm")
+            ]));
+        }
+
+        public async IAsyncEnumerable<TextToSpeechResponseUpdate> GetStreamingAudioAsync(
+            string text,
+            TextToSpeechOptions? options = null,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            var response = await GetAudioAsync(text, options, cancellationToken);
+            yield return new TextToSpeechResponseUpdate(response.Contents)
+            {
+                Kind = TextToSpeechResponseUpdateKind.AudioUpdated
+            };
+        }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) =>
+            serviceType == typeof(TextToSpeechClientMetadata)
+                ? new TextToSpeechClientMetadata("recording", null, "recording-tts")
+                : null;
+
+        public void Dispose() { }
     }
 
     private sealed class CapturingChatClient : IChatClient

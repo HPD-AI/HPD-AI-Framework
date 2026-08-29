@@ -12,7 +12,7 @@ internal sealed class ConfiguredManagedStreamingSpeechToTextSourceV1(
     Func<CancellationToken, ValueTask<ProviderClientConstruction<ISpeechToTextClient>>> acquire,
     ManagedStreamingSpeechToTextOptionsV1 options) : IManagedAudioTranscriptSourceV1
 {
-    public async IAsyncEnumerable<ManagedAudioTranscriptCandidateV1> RunAsync(
+    public async IAsyncEnumerable<ManagedAudioInputObservationV1> RunAsync(
         IAudioSource source,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {

@@ -118,7 +118,9 @@ public sealed class AssistantFinalTextToSpeechOutputService
                 Thread = request.Thread,
                 Correlation = correlation,
                 Options = request.Options,
-                PublishEventAsync = request.PublishEventAsync
+                PublishEventAsync = request.PublishEventAsync,
+                OutputSink = request.OutputSink,
+                EnablePlayback = request.EnablePlayback
             },
             cancellationToken).ConfigureAwait(false);
         var outputResult = segmentResult.ToOutputResult(request.SessionId);
@@ -129,14 +131,17 @@ public sealed class AssistantFinalTextToSpeechOutputService
         {
             if (request.AuthorityController is null || request.AuthorityOperation is null)
                 throw new InvalidOperationException("Synthesized output requires an admitted S6 controller.");
-            var generatedUnits = System.Text.Encoding.UTF8.GetByteCount(request.Text);
-            var authority = request.AuthorityController.Generate(new OutputSynthesisEvidenceV2(
-                request.AuthorityOperation.Value,
-                OutputSynthesisFamilyV2.SegmentedPcm,
-                generatedUnits,
-                Hash256.Compute(System.Text.Encoding.UTF8.GetBytes(request.Text))));
-            if (authority is not OutputPipelineResultV2.Applied)
-                throw new InvalidOperationException("S6 rejected synthesized output evidence.");
+            if (request.AuthorityController.Read().GeneratedUntil == 0)
+            {
+                var generatedUnits = System.Text.Encoding.UTF8.GetByteCount(request.Text);
+                var authority = request.AuthorityController.Generate(new OutputSynthesisEvidenceV2(
+                    request.AuthorityOperation.Value,
+                    OutputSynthesisFamilyV2.SegmentedPcm,
+                    generatedUnits,
+                    Hash256.Compute(System.Text.Encoding.UTF8.GetBytes(request.Text))));
+                if (authority is not OutputPipelineResultV2.Applied)
+                    throw new InvalidOperationException("S6 rejected synthesized output evidence.");
+            }
             var commit = await flow.CompleteSynthesizedNotPlayedAsync(cancellationToken)
                 .ConfigureAwait(false);
             _ledgerTraceWriter.AppendAssistantOutput(
@@ -239,4 +244,8 @@ public sealed record AssistantFinalTextToSpeechOutputRequest
     internal InMemoryOutputControllerV2? AuthorityController { get; init; }
 
     internal OperationId? AuthorityOperation { get; init; }
+
+    internal IAudioOutputSink? OutputSink { get; init; }
+
+    internal bool EnablePlayback { get; init; }
 }

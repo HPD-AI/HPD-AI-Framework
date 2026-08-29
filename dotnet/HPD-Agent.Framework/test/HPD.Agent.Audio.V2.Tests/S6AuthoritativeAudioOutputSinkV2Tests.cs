@@ -33,11 +33,23 @@ public sealed class S6AuthoritativeAudioOutputSinkV2Tests
         Assert.Equal((3L,0L),(status.GeneratedUntil,status.SentUntil));
     }
 
-    private static InMemoryOutputControllerV2 Controller()
+    [Fact]
+    public async Task Decoded_pcm_evidence_may_be_larger_than_its_source_text()
+    {
+        var controller=Controller(maximumUnits:64L*1024*1024);var sink=new S6AuthoritativeAudioOutputSinkV2(new Sink(),controller,OutputSynthesisFamilyV2.SegmentedPcm);
+        var pcm=new byte[32_000];
+
+        await sink.WriteAsync(Chunk(pcm));
+
+        var status=controller.Read();
+        Assert.Equal((32_000L,32_000L),(status.GeneratedUntil,status.SentUntil));
+    }
+
+    private static InMemoryOutputControllerV2 Controller(long maximumUnits=100)
     {
         var session=new SessionAuthorityStampV1(RuntimeGenerationId.Create(),LiveSessionId.Create());var output=OutputGenerationId.Create();
         var authority=ExpectedAuthorityVectorV1.Create(session,[new AuthorityAxisValueV1.Output(output)]);
-        return new InMemoryOutputControllerV2(new OutputPlanV2(OperationId.Create(),output,authority,100),32);
+        return new InMemoryOutputControllerV2(new OutputPlanV2(OperationId.Create(),output,authority,maximumUnits),32);
     }
 
     private static OutputAudioChunk Chunk(byte[] data)=>new()

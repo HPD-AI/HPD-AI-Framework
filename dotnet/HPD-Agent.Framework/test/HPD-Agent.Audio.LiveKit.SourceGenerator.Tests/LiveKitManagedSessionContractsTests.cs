@@ -26,6 +26,38 @@ public sealed class LiveKitManagedSessionContractsTests
         Assert.Equal("hpd.provider.livekit.audiotransport.sessionbinding", encoded.Schema);
         Assert.Equal(1u, encoded.Version);
         Assert.Equal(binding, decoded);
+        Assert.Equal("room-1", encoded.Value.GetProperty("roomName").GetString());
+        Assert.Equal("agent-1", encoded.Value.GetProperty("participantIdentity").GetString());
+    }
+
+    [Fact]
+    public void Decode_AcceptsCanonicalRemoteCamelCasePayload()
+    {
+        var bindings = new AudioSessionStartBindings
+        {
+            Bindings =
+            [
+                new AudioSessionStartBinding
+                {
+                    ComponentInstance = LiveKitAudioTransport.ComponentInstance,
+                    Schema = LiveKitAudioTransport.SessionBindingSchema,
+                    Version = LiveKitAudioTransport.SessionBindingVersion,
+                    Value = JsonDocument.Parse("""
+                        {
+                          "roomName": "remote-room",
+                          "participantIdentity": "remote-agent",
+                          "remoteParticipantIdentity": "browser"
+                        }
+                        """).RootElement.Clone()
+                }
+            ]
+        };
+
+        var decoded = LiveKitAudioTransport.Decode(bindings);
+
+        Assert.Equal("remote-room", decoded.RoomName);
+        Assert.Equal("remote-agent", decoded.ParticipantIdentity);
+        Assert.Equal("browser", decoded.RemoteParticipantIdentity);
     }
 
     [Fact]
@@ -159,7 +191,7 @@ public sealed class LiveKitManagedSessionContractsTests
 
     private sealed class EmptyTranscriptSource : IManagedAudioTranscriptSourceV1
     {
-        public async IAsyncEnumerable<ManagedAudioTranscriptCandidateV1> RunAsync(
+        public async IAsyncEnumerable<ManagedAudioInputObservationV1> RunAsync(
             IAudioSource source,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {

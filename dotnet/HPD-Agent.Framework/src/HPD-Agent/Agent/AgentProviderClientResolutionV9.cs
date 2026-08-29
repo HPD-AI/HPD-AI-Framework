@@ -101,6 +101,10 @@ public sealed partial class Agent
                 HostedFiles = hostedFiles,
                 ResolvedConfigs = resolved
             };
+            // Provider-client managers own cached constructions. A run owns only
+            // the leases it acquired; disposing the client instances directly
+            // would poison cache entries that later runs are expected to reuse.
+            result.SetOwnedClients(new HashSet<object>(ReferenceEqualityComparer.Instance));
             result.SetLeases(leases);
             return result;
         }

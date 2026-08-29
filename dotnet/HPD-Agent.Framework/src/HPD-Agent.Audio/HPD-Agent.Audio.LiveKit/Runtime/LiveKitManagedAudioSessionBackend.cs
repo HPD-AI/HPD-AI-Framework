@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -85,7 +86,7 @@ public sealed class LiveKitManagedAudioSessionBackend : IManagedAudioSessionBack
             LiveKitFfiProtocolCodec.Connect(_options.Endpoint, token, _options.Transport),
             TimeSpan.FromSeconds(20), cancellationToken).ConfigureAwait(false);
         if (connected.Unknown is not null)
-            throw new InvalidDataException("LiveKit connect outcome is unknown and requires host reconciliation.");
+            throw new ManagedAudioSessionStartOutcomeUnknownException(connected.Unknown.Value.ToString());
 
         LiveKitNativeHandleOwner? room = null;
         LiveKitNativeHandleOwner? participant = null;
@@ -115,7 +116,7 @@ public sealed class LiveKitManagedAudioSessionBackend : IManagedAudioSessionBack
                 LiveKitFfiProtocolCodec.PublishTrack(participant.Value, track.Value),
                 TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
             if (published.Unknown is not null)
-                throw new InvalidDataException("LiveKit publication outcome is unknown and requires host reconciliation.");
+                throw new ManagedAudioSessionStartOutcomeUnknownException(published.Unknown.Value.ToString());
             var publishedIdentity = LiveKitFfiProtocolCodec.DecodePublishCompletion(published.Completion!.Value.Bytes);
             publication = host.Own(LiveKitFfiHandleKind.TrackPublication, publishedIdentity.Handle);
 
@@ -356,6 +357,7 @@ internal sealed class LiveKitManagedAudioSession : IManagedAudioSessionV1
     private readonly GatedAudioOutputSink _gatedOutput;
     private int _outputEnabled = 1;
     private int _terminal;
+    private string? _unknownStopOperation;
 
     internal LiveKitManagedAudioSession(
         LiveKitTransportSessionRuntime runtime,
@@ -371,7 +373,7 @@ internal sealed class LiveKitManagedAudioSession : IManagedAudioSessionV1
     public string AudioSessionId => _runtime.AudioSessionId;
     public IAudioOutputSink? OutputSink => _gatedOutput;
 
-    public IAsyncEnumerable<ManagedAudioTranscriptCandidateV1> ReadTranscriptCandidatesAsync(
+    public IAsyncEnumerable<ManagedAudioInputObservationV1> ReadInputObservationsAsync(
         CancellationToken cancellationToken = default) =>
         _transcriptSource.RunAsync(_input, cancellationToken);
 
@@ -390,17 +392,28 @@ internal sealed class LiveKitManagedAudioSession : IManagedAudioSessionV1
     public async ValueTask<ManagedAudioOutputInterruptionV1> InterruptOutputAsync(
         string operationId, CancellationToken cancellationToken = default)
     {
-        await _runtime.Outbound.FlushAsync(cancellationToken).ConfigureAwait(false);
-        return ManagedAudioOutputInterruptionV1.Interrupted;
+        return await _gatedOutput.InterruptActiveAsync(cancellationToken).ConfigureAwait(false)
+            ? ManagedAudioOutputInterruptionV1.Interrupted
+            : ManagedAudioOutputInterruptionV1.AlreadyIdle;
     }
 
-    public async ValueTask StopAsync(
+    public async ValueTask<ManagedAudioSessionStopResultV1> StopAsync(
         AudioSessionStopReason reason, CancellationToken cancellationToken = default)
     {
-        var stopped = await _runtime.StopAsync(cancellationToken).ConfigureAwait(false);
+        var stopped = _unknownStopOperation is { } unknownOperation
+            ? await _runtime.ReconcileStopAsync(unknownOperation, cancellationToken).ConfigureAwait(false)
+            : await _runtime.StopAsync(cancellationToken).ConfigureAwait(false);
         if (stopped.Disposition == LiveKitSessionStopDisposition.OutcomeUnknown)
-            throw new InvalidDataException("LiveKit stop outcome is unknown.");
+        {
+            _unknownStopOperation = stopped.OperationId
+                ?? throw new InvalidDataException("LiveKit unknown stop omitted its operation identity.");
+            return new ManagedAudioSessionStopResultV1.OutcomeUnknown(_unknownStopOperation);
+        }
+        _unknownStopOperation = null;
         Interlocked.Exchange(ref _terminal, 1);
+        return stopped.Disposition == LiveKitSessionStopDisposition.AlreadyStopped
+            ? new ManagedAudioSessionStopResultV1.AlreadyStopped()
+            : new ManagedAudioSessionStopResultV1.Stopped();
     }
 
     public async ValueTask DisposeAsync()
@@ -434,39 +447,73 @@ internal sealed class LiveKitManagedAudioSession : IManagedAudioSessionV1
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
-    private sealed class GatedAudioOutputSink(
+    internal sealed class GatedAudioOutputSink(
         IAudioOutputSink inner,
         Func<bool> isEnabled) : IAudioOutputSink
     {
-        public ValueTask<OutputSinkStartResult> StartAsync(
+        private readonly ConcurrentDictionary<OutputFlowId, byte> _active = [];
+
+        public async ValueTask<OutputSinkStartResult> StartAsync(
             OutputAudioStream stream,
             CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(stream);
             cancellationToken.ThrowIfCancellationRequested();
-            return isEnabled()
-                ? inner.StartAsync(stream, cancellationToken)
-                : ValueTask.FromResult(new OutputSinkStartResult
+            if (!isEnabled())
+                return new OutputSinkStartResult
                 {
                     OutputFlowId = stream.OutputFlowId,
                     ResponseId = stream.ResponseId,
                     SegmentId = stream.SegmentId,
                     SegmentIndex = stream.SegmentIndex,
                     Disposition = OutputSinkStartDisposition.Rejected
-                });
+                };
+            var result = await inner.StartAsync(stream, cancellationToken).ConfigureAwait(false);
+            if (result.Disposition == OutputSinkStartDisposition.Accepted)
+                _active.TryAdd(stream.OutputFlowId, 0);
+            return result;
         }
 
         public ValueTask WriteAsync(
             OutputAudioChunk chunk,
-            CancellationToken cancellationToken = default) =>
-            isEnabled()
-                ? inner.WriteAsync(chunk, cancellationToken)
-                : ValueTask.FromException(new InvalidOperationException("LiveKit session output is disabled."));
+            CancellationToken cancellationToken = default)
+        {
+            if (!isEnabled())
+                return ValueTask.FromException(new InvalidOperationException("LiveKit session output is disabled."));
 
-        public ValueTask CompleteAsync(
+            // Interruption removes the flow before clearing native playout. Producers
+            // can still race us with already-generated chunks; those belong to the old
+            // response and must never enter the fresh session-owned write fence.
+            return _active.ContainsKey(chunk.OutputFlowId)
+                ? inner.WriteAsync(chunk, cancellationToken)
+                : ValueTask.CompletedTask;
+        }
+
+        public async ValueTask CompleteAsync(
             OutputAudioStreamCompletion completion,
-            CancellationToken cancellationToken = default) =>
-            inner.CompleteAsync(completion, cancellationToken);
+            CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                if (_active.ContainsKey(completion.OutputFlowId))
+                    await inner.CompleteAsync(completion, cancellationToken).ConfigureAwait(false);
+            }
+            finally { _active.TryRemove(completion.OutputFlowId, out _); }
+        }
+
+        internal async ValueTask<bool> InterruptActiveAsync(CancellationToken cancellationToken)
+        {
+            var flows = _active.Keys.ToArray();
+            if (flows.Length == 0) return false;
+            foreach (var flow in flows)
+            {
+                // Fence admission first. Otherwise a producer can submit another stale
+                // chunk while the native clear is waiting for the current capture.
+                _active.TryRemove(flow, out _);
+                await inner.InterruptAsync(flow, cancellationToken).ConfigureAwait(false);
+            }
+            return true;
+        }
 
         public IAsyncEnumerable<OutputPlaybackEvent> ReadPlaybackEventsAsync(
             OutputFlowId outputFlowId,
