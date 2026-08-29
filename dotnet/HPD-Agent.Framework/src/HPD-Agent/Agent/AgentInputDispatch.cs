@@ -183,6 +183,7 @@ internal sealed class AgentInputDispatcher
         yield return Register(AgentInputRoutingClass.Work, new UserMessagesInputHandler());
         yield return Register(AgentInputRoutingClass.Work, new CompactThreadInputHandler());
         yield return Register(AgentInputRoutingClass.Work, new AgentOperationNotificationInputHandler());
+        yield return Register(AgentInputRoutingClass.SessionControl, new AudioSessionInputHandler());
         yield return Register(AgentInputRoutingClass.ActiveControl, new ClientToolOperationOutcomeInputHandler());
     }
 
@@ -325,6 +326,32 @@ internal sealed class ClientToolOperationOutcomeInputHandler :
 
         return ValueTask.FromResult<AgentInputResult>(
             new AgentInputResult.Control(AgentInputDisposition.Accepted, input.ThreadExecutionId));
+    }
+}
+
+internal sealed class AudioSessionInputHandler : IAgentInputHandler<AudioSessionInputEvent>
+{
+    public async ValueTask<AgentInputResult> HandleAsync(
+        AudioSessionInputEvent input,
+        AgentInputHandlingContext context,
+        CancellationToken cancellationToken)
+    {
+        if (input.ThreadExecutionId is not null)
+        {
+            return new AgentInputResult.AudioSession(new AudioSessionInputResult.Rejected(
+                AudioSessionInputDisposition.ScopeMismatch,
+                "thread-execution-id-forbidden"));
+        }
+
+        if (!context.RuntimeCapabilities.TryGet<IAudioSessionInputRuntime>(out var runtime))
+        {
+            return new AgentInputResult.AudioSession(new AudioSessionInputResult.Rejected(
+                AudioSessionInputDisposition.CapabilityNotInstalled,
+                "audio-capability-not-installed"));
+        }
+
+        var result = await runtime.ExecuteAsync(input, context.ClientSet, cancellationToken).ConfigureAwait(false);
+        return new AgentInputResult.AudioSession(result);
     }
 }
 

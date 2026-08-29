@@ -84,6 +84,9 @@ public abstract record AgentInputResult
     public sealed record Control(
         AgentInputDisposition Disposition,
         string? ThreadExecutionId) : AgentInputResult;
+
+    /// <summary>One exact Audio-session command reached a closed terminal result.</summary>
+    public sealed record AudioSession(AudioSessionInputResult Result) : AgentInputResult;
 }
 
 /// <summary>Internal receipt for one tracked runtime submission.</summary>

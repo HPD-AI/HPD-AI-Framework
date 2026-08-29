@@ -16,6 +16,8 @@ public class AgentInputDispatchTests
             .Should().Be(AgentInputRoutingClass.Work);
         AgentInputDispatcher.GetBuiltInRegistration(typeof(CompactThreadInputEvent)).RoutingClass
             .Should().Be(AgentInputRoutingClass.Work);
+        AgentInputDispatcher.GetBuiltInRegistration(typeof(AudioSessionInputEvent)).RoutingClass
+            .Should().Be(AgentInputRoutingClass.SessionControl);
         AgentInputDispatcher.GetBuiltInRegistration(typeof(ClientToolOperationOutcomeEvent)).RoutingClass
             .Should().Be(AgentInputRoutingClass.ActiveControl);
     }
@@ -26,6 +28,38 @@ public class AgentInputDispatchTests
         new UserMessagesInputEvent().Delivery.Should().Be(AgentInputDelivery.Queue);
         new UserMessagesInputEvent { Delivery = AgentInputDelivery.Steer }
             .Delivery.Should().Be(AgentInputDelivery.Steer);
+    }
+
+    [Fact]
+    public async Task AudioSessionInput_RejectsWhenCapabilityIsNotInstalled()
+    {
+        var dispatcher = new AgentInputDispatcher(new AgentMiddlewarePipeline([]));
+        var input = new AudioSessionInputEvent { Command = new AudioSessionCommand.Start() };
+
+        var result = await dispatcher.DispatchAsync(input,
+            AgentInputDispatcher.GetBuiltInRegistration(input.GetType()), CreateContext(), CancellationToken.None);
+
+        result.Should().BeEquivalentTo(new AgentInputResult.AudioSession(
+            new AudioSessionInputResult.Rejected(AudioSessionInputDisposition.CapabilityNotInstalled,
+                "audio-capability-not-installed")));
+    }
+
+    [Fact]
+    public async Task AudioSessionInput_DelegatesToInstalledCapability()
+    {
+        var capabilities = new RuntimeCapabilityRegistry();
+        var runtime = new RecordingAudioSessionRuntime();
+        capabilities.Set<IAudioSessionInputRuntime>(runtime);
+        var context = CreateContext(runtimeCapabilities: capabilities);
+        var dispatcher = new AgentInputDispatcher(new AgentMiddlewarePipeline([]));
+        var input = new AudioSessionInputEvent { Command = new AudioSessionCommand.Start() };
+
+        var result = await dispatcher.DispatchAsync(input,
+            AgentInputDispatcher.GetBuiltInRegistration(input.GetType()), context, CancellationToken.None);
+
+        runtime.Seen.Should().BeSameAs(input);
+        result.Should().BeEquivalentTo(new AgentInputResult.AudioSession(
+            new AudioSessionInputResult.Started("audio-1", 1)));
     }
 
     [Fact]
@@ -160,12 +194,14 @@ public class AgentInputDispatchTests
     }
 
     private static AgentInputHandlingContext CreateContext(
-        Func<UserMessagesInputEvent, Task<AgentTurnResult>>? runMessages = null)
+        Func<UserMessagesInputEvent, Task<AgentTurnResult>>? runMessages = null,
+        IRuntimeCapabilityRegistry? runtimeCapabilities = null)
         => new()
         {
             AgentName = "InputDispatchAgent",
             Config = new AgentConfig { Name = "InputDispatchAgent" },
             EventCoordinator = new EventCoordinator(),
+            RuntimeCapabilities = runtimeCapabilities ?? new RuntimeCapabilityRegistry(),
             RunMessagesAsync = (input, _, _, _) => runMessages?.Invoke(input)
                 ?? Task.FromResult(AgentTurnResult.Empty),
             TryResolveClientToolOperation = _ => false
@@ -188,6 +224,25 @@ public class AgentInputDispatchTests
             return ValueTask.FromResult<AgentInputResult>(
                 new AgentInputResult.Completed(AgentTurnResult.Empty, input.ThreadExecutionId));
         }
+    }
+
+    private sealed class RecordingAudioSessionRuntime : IAudioSessionInputRuntime
+    {
+        public AudioSessionInputEvent? Seen { get; private set; }
+
+        public ValueTask<AudioSessionInputResult> ExecuteAsync(AudioSessionInputEvent input,
+            AgentClientSet? clientSet, CancellationToken cancellationToken)
+        {
+            Seen = input;
+            return ValueTask.FromResult<AudioSessionInputResult>(new AudioSessionInputResult.Started("audio-1", 1));
+        }
+
+        public ValueTask<AudioSemanticAdmissionResult> AcceptSemanticAsync(string audioSessionId,
+            string candidateId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<AudioSemanticAdmissionResult> AcknowledgeSemanticAsync(string audioSessionId,
+            string candidateId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<AudioSemanticAdmissionResult> WithdrawSemanticAsync(string audioSessionId,
+            string candidateId, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
     private sealed class ReplacingInputMiddleware : IAgentMiddleware

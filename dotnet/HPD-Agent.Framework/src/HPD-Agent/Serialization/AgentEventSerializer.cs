@@ -41,6 +41,7 @@ public static partial class AgentEventSerializer
     {
         // Input Events
         [typeof(UserMessagesInputEvent)] = EventTypes.Input.USER_MESSAGES_INPUT,
+        [typeof(AudioSessionInputEvent)] = EventTypes.Input.AUDIO_SESSION_INPUT,
         [typeof(CompactThreadInputEvent)] = EventTypes.Input.COMPACT_THREAD_INPUT,
         [typeof(AgentOperationNotificationInputEvent)] = EventTypes.Input.AGENT_OPERATION_NOTIFICATION_INPUT,
         [typeof(ClientTools.ClientToolOperationOutcomeEvent)] = EventTypes.ClientTool.CLIENT_TOOL_BACKGROUND_OPERATION_OUTCOME,
