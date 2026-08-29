@@ -296,7 +296,9 @@ public sealed class LiveKitFfiManifestSourceGenerator : IIncrementalGenerator
             Report(context, IncompleteLock, "LiveKit Audio session binding attribute differs from the reviewed component/schema/version identity");
             return;
         }
-        context.AddSource("LiveKitAudioSessionBinding.g.cs", SourceText.From(GeneratedAudioSessionBinding, System.Text.Encoding.UTF8));
+        // L52A retains the reviewed binding identity, while application-level
+        // binding serialization is source-owned by the LiveKit package. The
+        // former v9 provider-registration graph is intentionally not emitted.
     }
 
     private static bool ExactNativeImportSurface(Compilation compilation, out string error)
@@ -1054,4 +1056,3 @@ public static class LiveKitAudioTransport
     private sealed record Operation(string Name, string RequestCase, string ResponseCase, string CompletionCase, string CorrelationField, string[] Handles, bool IsAsync, string Admission, string Cancellation, string Release);
     private sealed record ObservedEvent(string Name, string Disposition, string[] Handles, string Release);
 }
-

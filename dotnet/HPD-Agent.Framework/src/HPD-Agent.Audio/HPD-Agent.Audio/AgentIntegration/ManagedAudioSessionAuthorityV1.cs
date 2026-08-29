@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.AI;
+using HPD.Audio.Primitives;
 
 namespace HPD.Agent.Audio;
 
@@ -8,6 +9,14 @@ public interface IManagedAudioSessionBackendV1
 {
     ValueTask<IManagedAudioSessionV1> StartAsync(
         ManagedAudioSessionStartRequestV1 request,
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>Consumes retained decoded PCM and yields finalized semantic candidates.</summary>
+public interface IManagedAudioTranscriptSourceV1
+{
+    IAsyncEnumerable<ManagedAudioTranscriptCandidateV1> RunAsync(
+        IAudioSource source,
         CancellationToken cancellationToken = default);
 }
 
