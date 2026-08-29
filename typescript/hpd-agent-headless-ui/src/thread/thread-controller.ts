@@ -238,6 +238,7 @@ class ThreadControllerImpl implements ThreadController {
       this.scope.sessionId,
       this.scope.threadId,
       state.activeExecution.threadExecutionId,
+      { signal: options.signal },
     );
     return {
       disposition: result.cancellationApplied ? 'accepted' : 'no_active_execution',

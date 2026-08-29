@@ -9,15 +9,21 @@ public class AgentThreadExecutionServiceTests : IDisposable
 {
     private readonly InMemorySessionStore _store = new();
     private readonly TestSessionManager _manager;
+    private readonly TestAgentManager _agentManager;
     private readonly AgentThreadExecutionService _service;
 
     public AgentThreadExecutionServiceTests()
     {
         _manager = new TestSessionManager(_store);
-        _service = new AgentThreadExecutionService(_manager);
+        _agentManager = new TestAgentManager();
+        _service = new AgentThreadExecutionService(_manager, _agentManager);
     }
 
-    public void Dispose() => _manager.Dispose();
+    public void Dispose()
+    {
+        _manager.Dispose();
+        _agentManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
+    }
 
     [Fact]
     public async Task ListExecutionsAsync_ProjectsExecutionLifecycleAndUnifiedOperations()
@@ -123,5 +129,15 @@ public class AgentThreadExecutionServiceTests : IDisposable
     private sealed class TestSessionManager : SessionManager
     {
         public TestSessionManager(ISessionStore store) : base(store) { }
+    }
+
+    private sealed class TestAgentManager : AgentManager
+    {
+        public TestAgentManager() : base(new InMemoryAgentStore()) { }
+
+        protected override Task<Agent> BuildAgentAsync(string agentId, CancellationToken ct) =>
+            throw new NotSupportedException("This projection test does not resolve a runtime agent.");
+
+        protected override TimeSpan GetIdleTimeout() => TimeSpan.FromMinutes(30);
     }
 }

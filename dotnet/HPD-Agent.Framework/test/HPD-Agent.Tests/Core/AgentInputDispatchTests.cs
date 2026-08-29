@@ -101,10 +101,10 @@ public class AgentInputDispatchTests
     public async Task DispatchAsync_BeforeInput_CannotChangeRoutingClass()
     {
         var middleware = new ReplacingInputMiddleware(
-            new ClientToolBackgroundOperationOutcomeEvent
+            new ClientToolOperationOutcomeEvent
             {
                 ClientOperationId = "operation",
-                State = ClientToolBackgroundOperationOutcomeState.Completed,
+                State = ClientToolOperationOutcomeState.Completed,
                 ThreadExecutionId = "execution"
             });
         var dispatcher = new AgentInputDispatcher(new AgentMiddlewarePipeline([middleware]));
