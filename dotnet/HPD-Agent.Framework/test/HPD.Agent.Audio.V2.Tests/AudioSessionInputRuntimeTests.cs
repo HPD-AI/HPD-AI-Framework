@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.AI;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
+using HPD.Agent.Audio.Output;
 
 namespace HPD.Agent.Audio.V2.Tests;
 
@@ -133,6 +134,33 @@ public sealed class AudioSessionInputRuntimeTests
         await WaitUntilAsync(() => chat.Seen.Any(message => message.Text == "automatic retained speech"));
     }
 
+    [Fact]
+    public async Task ManagedOutputRouter_SelectsLiveSessionByAgentSessionId()
+    {
+        var backend = new RecordingManagedBackend();
+        await using var authority = new ManagedAudioSessionAuthorityV1(backend);
+        await authority.ExecuteAsync(new AudioSessionInputEvent
+        {
+            AgentId = "agent",
+            SessionId = "session",
+            ThreadId = "main",
+            Command = new AudioSessionCommand.Start()
+        }, null);
+        var stream = new OutputAudioStream
+        {
+            SessionId = "session",
+            OutputFlowId = new OutputFlowId("flow-1"),
+            ResponseId = new ResponseId("response-1"),
+            SegmentId = new OutputSegmentId("segment-1"),
+            MediaType = "audio/pcm"
+        };
+
+        var result = await authority.OutputSink.StartAsync(stream);
+
+        Assert.Equal(OutputSinkStartDisposition.Accepted, result.Disposition);
+        Assert.Same(stream, backend.Session.Output.Seen);
+    }
+
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
         for (var attempt = 0; attempt < 100; attempt++)
@@ -173,6 +201,8 @@ public sealed class AudioSessionInputRuntimeTests
         private readonly Channel<ManagedAudioTranscriptCandidateV1> _candidates = Channel.CreateUnbounded<ManagedAudioTranscriptCandidateV1>();
         internal bool CandidateRead { get; private set; }
         public string AudioSessionId => "managed-audio-1";
+        internal RecordingOutputSink Output { get; } = new();
+        public IAudioOutputSink? OutputSink => Output;
 
         internal ValueTask PublishAsync(ManagedAudioTranscriptCandidateV1 candidate) =>
             _candidates.Writer.WriteAsync(candidate);
@@ -204,6 +234,46 @@ public sealed class AudioSessionInputRuntimeTests
             _candidates.Writer.TryComplete();
             return ValueTask.CompletedTask;
         }
+    }
+
+    private sealed class RecordingOutputSink : IAudioOutputSink
+    {
+        internal OutputAudioStream? Seen { get; private set; }
+
+        public ValueTask<OutputSinkStartResult> StartAsync(
+            OutputAudioStream stream, CancellationToken cancellationToken = default)
+        {
+            Seen = stream;
+            return ValueTask.FromResult(new OutputSinkStartResult
+            {
+                OutputFlowId = stream.OutputFlowId,
+                ResponseId = stream.ResponseId,
+                SegmentId = stream.SegmentId,
+                SegmentIndex = stream.SegmentIndex,
+                Disposition = OutputSinkStartDisposition.Accepted
+            });
+        }
+        public ValueTask WriteAsync(OutputAudioChunk chunk, CancellationToken cancellationToken = default) =>
+            ValueTask.CompletedTask;
+        public ValueTask CompleteAsync(OutputAudioStreamCompletion completion, CancellationToken cancellationToken = default) =>
+            ValueTask.CompletedTask;
+        public async IAsyncEnumerable<OutputPlaybackEvent> ReadPlaybackEventsAsync(
+            OutputFlowId outputFlowId,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            await Task.CompletedTask;
+            yield break;
+        }
+        public ValueTask<OutputPlaybackBoundary> InterruptAsync(
+            OutputFlowId outputFlowId, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(new OutputPlaybackBoundary
+            {
+                OutputFlowId = outputFlowId,
+                ResponseId = new ResponseId("response-1"),
+                PlayedTextLength = 0
+            });
+        public ValueTask FlushAsync(OutputFlowId outputFlowId, CancellationToken cancellationToken = default) =>
+            ValueTask.CompletedTask;
     }
 
     private sealed class CapturingChatClient : IChatClient

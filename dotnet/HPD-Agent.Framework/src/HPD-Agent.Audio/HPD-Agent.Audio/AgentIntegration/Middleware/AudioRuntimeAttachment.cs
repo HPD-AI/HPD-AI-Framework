@@ -80,7 +80,10 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
             return Task.CompletedTask;
 
         if (authority is ManagedAudioSessionAuthorityV1 managed)
+        {
             managed.AttachInputDispatcher(context.RunAsync);
+            _options.AssistantAudioOutputSink ??= managed.OutputSink;
+        }
         context.RuntimeCapabilities.Set<IAudioSessionInputRuntime>(
             new L52AudioSessionInputRuntime(authority));
         return Task.CompletedTask;

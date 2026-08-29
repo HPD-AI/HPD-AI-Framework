@@ -211,6 +211,7 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
                 observedAt);
             var stream = new OutputAudioStream
             {
+                SessionId = context.SessionId.Value,
                 OutputFlowId = outputFlow.Id,
                 ResponseId = requestWithProvider.ResponseId,
                 SegmentId = segmentId,
@@ -774,6 +775,7 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
     {
         var stream = new OutputAudioStream
         {
+            SessionId = context.SessionId.Value,
             OutputFlowId = outputFlow.Id,
             ResponseId = request.ResponseId,
             SegmentId = segmentId,

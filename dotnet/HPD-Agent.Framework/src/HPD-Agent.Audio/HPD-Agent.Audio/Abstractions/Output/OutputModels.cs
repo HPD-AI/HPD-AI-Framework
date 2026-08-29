@@ -76,6 +76,9 @@ public sealed record OutputCommitRecord
 
 public sealed record OutputAudioStream
 {
+    /// <summary>The owning Agent session used to route live playback.</summary>
+    public string? SessionId { get; init; }
+
     public required OutputFlowId OutputFlowId { get; init; }
 
     public required ResponseId ResponseId { get; init; }

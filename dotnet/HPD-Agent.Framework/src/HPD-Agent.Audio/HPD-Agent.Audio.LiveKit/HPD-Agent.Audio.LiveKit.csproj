@@ -13,6 +13,7 @@
   <ItemGroup>
     <Compile Include="Generated/LiveKitFfiNative.g.cs" />
     <Compile Include="LiveKitManagedSessionContracts.cs" />
+    <Compile Include="ManagedLiveKitBuilderExtensions.cs" />
     <Compile Include="Runtime/LiveKitIssuedOperationRegistry.cs" />
     <Compile Include="Runtime/LiveKitFfiHost.cs" />
     <Compile Include="Runtime/LiveKitFfiWireDecoder.cs" />

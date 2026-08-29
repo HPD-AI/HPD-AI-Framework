@@ -961,6 +961,7 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
         _audioStreamStarted = true;
         var stream = new OutputAudioStream
         {
+            SessionId = Options.SessionId.Value,
             OutputFlowId = OutputFlow.Id,
             ResponseId = _responseId,
             SegmentId = _segmentId,

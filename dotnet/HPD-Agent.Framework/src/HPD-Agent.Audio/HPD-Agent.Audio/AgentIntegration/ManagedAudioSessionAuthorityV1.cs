@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.AI;
 using HPD.Audio.Primitives;
+using HPD.Agent.Audio.Output;
 
 namespace HPD.Agent.Audio;
 
@@ -24,6 +25,8 @@ public interface IManagedAudioTranscriptSourceV1
 public interface IManagedAudioSessionV1 : IAsyncDisposable
 {
     string AudioSessionId { get; }
+
+    IAudioOutputSink? OutputSink { get; }
 
     IAsyncEnumerable<ManagedAudioTranscriptCandidateV1> ReadTranscriptCandidatesAsync(
         CancellationToken cancellationToken = default);
@@ -71,11 +74,17 @@ public sealed class ManagedAudioSessionAuthorityV1 :
     private readonly IManagedAudioSessionBackendV1 _backend;
     private readonly ConcurrentDictionary<string, SessionState> _sessions = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _startGate = new(1, 1);
+    private readonly ManagedAudioSessionOutputRouterV1 _outputRouter;
     private Func<AgentInputEvent, CancellationToken, ValueTask>? _submitInput;
     private int _disposed;
 
-    public ManagedAudioSessionAuthorityV1(IManagedAudioSessionBackendV1 backend) =>
+    public ManagedAudioSessionAuthorityV1(IManagedAudioSessionBackendV1 backend)
+    {
         _backend = backend ?? throw new ArgumentNullException(nameof(backend));
+        _outputRouter = new ManagedAudioSessionOutputRouterV1(ResolveOutputSink);
+    }
+
+    public IAudioOutputSink OutputSink => _outputRouter;
 
     internal void AttachInputDispatcher(Func<AgentInputEvent, CancellationToken, ValueTask> submitInput) =>
         _submitInput = submitInput ?? throw new ArgumentNullException(nameof(submitInput));
@@ -354,6 +363,11 @@ public sealed class ManagedAudioSessionAuthorityV1 :
 
     private static AudioSessionInputResult.Rejected Rejected(
         AudioSessionInputDisposition disposition, string code, long? revision = null) => new(disposition, code, revision);
+
+    private IAudioOutputSink? ResolveOutputSink(string sessionId) =>
+        _sessions.Values.FirstOrDefault(state =>
+            string.Equals(state.Scope.SessionId, sessionId, StringComparison.Ordinal) && !state.Stopped)
+        ?.Backend.OutputSink;
 
     private readonly record struct Scope(string AgentId, string SessionId, string ThreadId)
     {

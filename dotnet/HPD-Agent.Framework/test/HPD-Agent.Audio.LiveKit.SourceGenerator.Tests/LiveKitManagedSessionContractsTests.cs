@@ -1,5 +1,7 @@
 using System.Text;
 using System.Text.Json;
+using HPD.Audio.Primitives;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Agent.Audio.LiveKit.SourceGenerator.Tests;
 
@@ -60,6 +62,49 @@ public sealed class LiveKitManagedSessionContractsTests
             new LiveKitTransportProviderConfig(),
             new LiveKitAudioSessionBinding { RoomName = "room-1", ParticipantIdentity = "agent-1" },
             now));
+    }
+
+    [Fact]
+    public async Task DirectBuilder_InstallsManagedAuthorityWithoutOpeningTransport()
+    {
+        await using var agent = await AgentBuilder.Create()
+            .WithManagedLiveKitAudio(Options())
+            .BuildAsync();
+
+        await agent.StartAsync();
+
+        Assert.Single(agent.Middlewares.OfType<HPD.Agent.Audio.AgentIntegration.Middleware.AudioRuntimeAttachment>());
+    }
+
+    [Fact]
+    public async Task ServiceCollection_RegistersSameManagedAuthorityGraph()
+    {
+        await using var services = new ServiceCollection()
+            .AddManagedLiveKitAudio(Options())
+            .BuildServiceProvider();
+
+        Assert.Same(
+            services.GetRequiredService<ManagedAudioSessionAuthorityV1>(),
+            services.GetRequiredService<IAudioSessionControlAuthorityV1>());
+    }
+
+    private static LiveKitManagedAudioSessionBackendOptions Options() => new()
+    {
+        Endpoint = "ws://127.0.0.1:7880",
+        CredentialResolver = static (_, _) => ValueTask.FromResult("token.value.signature".ToCharArray()),
+        TranscriptSource = new EmptyTranscriptSource(),
+        VerifyNativeArtifact = false
+    };
+
+    private sealed class EmptyTranscriptSource : IManagedAudioTranscriptSourceV1
+    {
+        public async IAsyncEnumerable<ManagedAudioTranscriptCandidateV1> RunAsync(
+            IAudioSource source,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            await Task.CompletedTask;
+            yield break;
+        }
     }
 
     private static string Encode(string value) => Convert.ToBase64String(Encoding.UTF8.GetBytes(value))

@@ -350,6 +350,7 @@ internal sealed class LiveKitManagedAudioSession : IManagedAudioSessionV1
     private readonly IManagedAudioTranscriptSourceV1 _transcriptSource;
     private readonly GatedAudioSource _input;
     private readonly LiveKitAudioOutputSinkAdapter _output;
+    private readonly GatedAudioOutputSink _gatedOutput;
     private int _outputEnabled = 1;
     private int _terminal;
 
@@ -361,9 +362,11 @@ internal sealed class LiveKitManagedAudioSession : IManagedAudioSessionV1
         _transcriptSource = transcriptSource;
         _input = new GatedAudioSource(runtime.Inbound);
         _output = new LiveKitAudioOutputSinkAdapter(runtime.Outbound);
+        _gatedOutput = new GatedAudioOutputSink(_output, () => Volatile.Read(ref _outputEnabled) != 0);
     }
 
     public string AudioSessionId => _runtime.AudioSessionId;
+    public IAudioOutputSink? OutputSink => _gatedOutput;
 
     public IAsyncEnumerable<ManagedAudioTranscriptCandidateV1> ReadTranscriptCandidatesAsync(
         CancellationToken cancellationToken = default) =>
@@ -426,6 +429,56 @@ internal sealed class LiveKitManagedAudioSession : IManagedAudioSessionV1
             }
         }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class GatedAudioOutputSink(
+        IAudioOutputSink inner,
+        Func<bool> isEnabled) : IAudioOutputSink
+    {
+        public ValueTask<OutputSinkStartResult> StartAsync(
+            OutputAudioStream stream,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(stream);
+            cancellationToken.ThrowIfCancellationRequested();
+            return isEnabled()
+                ? inner.StartAsync(stream, cancellationToken)
+                : ValueTask.FromResult(new OutputSinkStartResult
+                {
+                    OutputFlowId = stream.OutputFlowId,
+                    ResponseId = stream.ResponseId,
+                    SegmentId = stream.SegmentId,
+                    SegmentIndex = stream.SegmentIndex,
+                    Disposition = OutputSinkStartDisposition.Rejected
+                });
+        }
+
+        public ValueTask WriteAsync(
+            OutputAudioChunk chunk,
+            CancellationToken cancellationToken = default) =>
+            isEnabled()
+                ? inner.WriteAsync(chunk, cancellationToken)
+                : ValueTask.FromException(new InvalidOperationException("LiveKit session output is disabled."));
+
+        public ValueTask CompleteAsync(
+            OutputAudioStreamCompletion completion,
+            CancellationToken cancellationToken = default) =>
+            inner.CompleteAsync(completion, cancellationToken);
+
+        public IAsyncEnumerable<OutputPlaybackEvent> ReadPlaybackEventsAsync(
+            OutputFlowId outputFlowId,
+            CancellationToken cancellationToken = default) =>
+            inner.ReadPlaybackEventsAsync(outputFlowId, cancellationToken);
+
+        public ValueTask<OutputPlaybackBoundary> InterruptAsync(
+            OutputFlowId outputFlowId,
+            CancellationToken cancellationToken = default) =>
+            inner.InterruptAsync(outputFlowId, cancellationToken);
+
+        public ValueTask FlushAsync(
+            OutputFlowId outputFlowId,
+            CancellationToken cancellationToken = default) =>
+            inner.FlushAsync(outputFlowId, cancellationToken);
     }
 }
 
