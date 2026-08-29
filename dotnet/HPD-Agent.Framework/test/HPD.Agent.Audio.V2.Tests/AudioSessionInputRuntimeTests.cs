@@ -1,5 +1,8 @@
 using HPD.Agent.Audio.AgentIntegration.Middleware;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.AI;
+using System.Runtime.CompilerServices;
+using System.Threading.Channels;
 
 namespace HPD.Agent.Audio.V2.Tests;
 
@@ -51,6 +54,95 @@ public sealed class AudioSessionInputRuntimeTests
         Assert.Equal(new AudioSessionInputResult.Started("audio-1", 1), audioResult.Result);
     }
 
+    [Fact]
+    public async Task CommitInputTurn_AdmitsTranscriptAsNormalAgentMessage_AndAcknowledgesCandidate()
+    {
+        var backend = new RecordingManagedBackend();
+        var authority = new ManagedAudioSessionAuthorityV1(backend);
+        var chat = new CapturingChatClient();
+        await using var agent = await AgentBuilder.Create()
+            .WithChatClient(chat)
+            .WithAudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
+            {
+                SessionControlAuthority = authority
+            })
+            .BuildAsync();
+        await agent.StartAsync();
+        await agent.CreateSessionAsync("session");
+        var started = Assert.IsType<AgentInputResult.AudioSession>(await agent.RunAsync(
+            new AudioSessionInputEvent
+            {
+                AgentId = "agent",
+                SessionId = "session",
+                ThreadId = "main",
+                Command = new AudioSessionCommand.Start()
+            }));
+        var session = Assert.IsType<AudioSessionInputResult.Started>(started.Result);
+        await backend.Session.PublishAsync(new ManagedAudioTranscriptCandidateV1
+        {
+            CandidateId = "candidate-1",
+            Text = "hello from retained speech",
+            CommitAutomatically = false
+        });
+        await WaitUntilAsync(() => backend.Session.CandidateRead);
+
+        var committed = Assert.IsType<AgentInputResult.AudioSession>(await agent.RunAsync(
+            new AudioSessionInputEvent
+            {
+                AgentId = "agent",
+                SessionId = "session",
+                ThreadId = "main",
+                Command = new AudioSessionCommand.CommitInputTurn(
+                    session.AudioSessionId, "candidate-1", session.Revision)
+            }));
+
+        Assert.IsType<AudioSessionInputResult.InputTurnCommitted>(committed.Result);
+        Assert.Contains(chat.Seen, message =>
+            message.Role == ChatRole.User && message.Text == "hello from retained speech");
+    }
+
+    [Fact]
+    public async Task AutomaticCandidate_ReentersThroughAudioSessionInput_AndRunsAgentTurn()
+    {
+        var backend = new RecordingManagedBackend();
+        var authority = new ManagedAudioSessionAuthorityV1(backend);
+        var chat = new CapturingChatClient();
+        await using var agent = await AgentBuilder.Create()
+            .WithChatClient(chat)
+            .WithAudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
+            {
+                SessionControlAuthority = authority
+            })
+            .BuildAsync();
+        await agent.StartAsync();
+        await agent.CreateSessionAsync("session");
+        await agent.RunAsync(new AudioSessionInputEvent
+        {
+            AgentId = "agent",
+            SessionId = "session",
+            ThreadId = "main",
+            Command = new AudioSessionCommand.Start()
+        });
+
+        await backend.Session.PublishAsync(new ManagedAudioTranscriptCandidateV1
+        {
+            CandidateId = "candidate-auto",
+            Text = "automatic retained speech"
+        });
+
+        await WaitUntilAsync(() => chat.Seen.Any(message => message.Text == "automatic retained speech"));
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        for (var attempt = 0; attempt < 100; attempt++)
+        {
+            if (condition()) return;
+            await Task.Delay(10);
+        }
+        Assert.Fail("The expected asynchronous condition was not observed.");
+    }
+
     private sealed class RecordingSessionAuthority : IAudioSessionControlAuthorityV1
     {
         public AudioSessionInputEvent? Seen { get; private set; }
@@ -64,5 +156,82 @@ public sealed class AudioSessionInputRuntimeTests
             return ValueTask.FromResult<AudioSessionInputResult>(
                 new AudioSessionInputResult.Started("audio-1", 1));
         }
+    }
+
+    private sealed class RecordingManagedBackend : IManagedAudioSessionBackendV1
+    {
+        internal RecordingManagedSession Session { get; } = new();
+
+        public ValueTask<IManagedAudioSessionV1> StartAsync(
+            ManagedAudioSessionStartRequestV1 request,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<IManagedAudioSessionV1>(Session);
+    }
+
+    private sealed class RecordingManagedSession : IManagedAudioSessionV1
+    {
+        private readonly Channel<ManagedAudioTranscriptCandidateV1> _candidates = Channel.CreateUnbounded<ManagedAudioTranscriptCandidateV1>();
+        internal bool CandidateRead { get; private set; }
+        public string AudioSessionId => "managed-audio-1";
+
+        internal ValueTask PublishAsync(ManagedAudioTranscriptCandidateV1 candidate) =>
+            _candidates.Writer.WriteAsync(candidate);
+
+        public async IAsyncEnumerable<ManagedAudioTranscriptCandidateV1> ReadTranscriptCandidatesAsync(
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            await foreach (var candidate in _candidates.Reader.ReadAllAsync(cancellationToken))
+            {
+                CandidateRead = true;
+                yield return candidate;
+            }
+        }
+
+        public ValueTask SetInputEnabledAsync(bool enabled, CancellationToken cancellationToken = default) =>
+            ValueTask.CompletedTask;
+        public ValueTask SetOutputEnabledAsync(bool enabled, CancellationToken cancellationToken = default) =>
+            ValueTask.CompletedTask;
+        public ValueTask<ManagedAudioOutputInterruptionV1> InterruptOutputAsync(
+            string operationId, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(ManagedAudioOutputInterruptionV1.AlreadyIdle);
+        public ValueTask StopAsync(AudioSessionStopReason reason, CancellationToken cancellationToken = default)
+        {
+            _candidates.Writer.TryComplete();
+            return ValueTask.CompletedTask;
+        }
+        public ValueTask DisposeAsync()
+        {
+            _candidates.Writer.TryComplete();
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class CapturingChatClient : IChatClient
+    {
+        private readonly object _gate = new();
+        private readonly List<ChatMessage> _seen = [];
+        internal IReadOnlyList<ChatMessage> Seen { get { lock (_gate) return _seen.ToArray(); } }
+
+        public Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> chatMessages,
+            ChatOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            lock (_gate) _seen.AddRange(chatMessages);
+            return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "heard")));
+        }
+
+        public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> chatMessages,
+            ChatOptions? options = null,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            lock (_gate) _seen.AddRange(chatMessages);
+            yield return new ChatResponseUpdate(ChatRole.Assistant, "heard");
+            await Task.CompletedTask;
+        }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+        public void Dispose() { }
     }
 }

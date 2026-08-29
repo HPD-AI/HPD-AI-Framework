@@ -351,6 +351,45 @@ internal sealed class AudioSessionInputHandler : IAgentInputHandler<AudioSession
         }
 
         var result = await runtime.ExecuteAsync(input, context.ClientSet, cancellationToken).ConfigureAwait(false);
+        if (result is AudioSessionInputResult.InputTurnCommitted committed &&
+            committed.TryTakeAdmittedMessage() is { } message)
+        {
+            var accepted = await runtime.AcceptSemanticAsync(
+                committed.AudioSessionId, committed.CandidateId, cancellationToken).ConfigureAwait(false);
+            if (accepted is AudioSemanticAdmissionResult.Conflict conflict)
+            {
+                return new AgentInputResult.AudioSession(new AudioSessionInputResult.InputTurnDiscarded(
+                    committed.AudioSessionId, committed.CandidateId, committed.Revision, conflict.SafeCode));
+            }
+            if (accepted is AudioSemanticAdmissionResult.OutcomeUnknown unknown)
+            {
+                return new AgentInputResult.AudioSession(new AudioSessionInputResult.OutcomeUnknown(
+                    committed.DurableSemanticOperationId ?? unknown.SafeCode,
+                    committed.AudioSessionId,
+                    committed.Revision));
+            }
+
+            try
+            {
+                await context.RunMessagesAsync(new UserMessagesInputEvent
+                {
+                    AgentId = input.AgentId,
+                    SessionId = input.SessionId,
+                    ThreadId = input.ThreadId,
+                    ClientInputId = committed.DurableSemanticOperationId,
+                    Delivery = AgentInputDelivery.Queue,
+                    Messages = [message]
+                }, null, context.EventCoordinator, cancellationToken).ConfigureAwait(false);
+                await runtime.AcknowledgeSemanticAsync(
+                    committed.AudioSessionId, committed.CandidateId, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch
+            {
+                await runtime.WithdrawSemanticAsync(
+                    committed.AudioSessionId, committed.CandidateId, CancellationToken.None).ConfigureAwait(false);
+                throw;
+            }
+        }
         return new AgentInputResult.AudioSession(result);
     }
 }
