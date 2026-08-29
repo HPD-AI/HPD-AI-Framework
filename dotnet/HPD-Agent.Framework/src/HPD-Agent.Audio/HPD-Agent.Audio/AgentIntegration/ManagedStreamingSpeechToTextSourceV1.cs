@@ -23,7 +23,7 @@ public sealed record ManagedStreamingSpeechToTextOptionsV1
 /// </summary>
 public sealed class ManagedStreamingSpeechToTextSourceV1 : IManagedAudioTranscriptSourceV1
 {
-    private readonly IStreamingSpeechToTextParticipantFactory _factory;
+    private readonly Func<IStreamingSpeechToTextParticipantFactory> _factory;
     private readonly ManagedStreamingSpeechToTextOptionsV1 _options;
 
     public ManagedStreamingSpeechToTextSourceV1(
@@ -33,10 +33,41 @@ public sealed class ManagedStreamingSpeechToTextSourceV1 : IManagedAudioTranscri
         ArgumentNullException.ThrowIfNull(client);
         _options = options ?? throw new ArgumentNullException(nameof(options));
         ArgumentException.ThrowIfNullOrWhiteSpace(options.ModelId);
-        _factory = client.GetService(typeof(IStreamingSpeechToTextParticipantFactory))
-            as IStreamingSpeechToTextParticipantFactory
-            ?? throw new NotSupportedException(
-                "The selected speech-to-text client does not expose a retained streaming participant.");
+        var factory = ResolveFactory(client);
+        _factory = () => factory;
+    }
+
+    private ManagedStreamingSpeechToTextSourceV1(
+        Func<IStreamingSpeechToTextParticipantFactory> factory,
+        ManagedStreamingSpeechToTextOptionsV1 options)
+    {
+        _factory = factory;
+        _options = options;
+    }
+
+    /// <summary>
+    /// Captures the speech-to-text client resolved by this AgentBuilder. This
+    /// preserves the normal provider, authentication, middleware, and ownership
+    /// path while making its retained streaming participant available to the
+    /// managed live-session backend.
+    /// </summary>
+    public static ManagedStreamingSpeechToTextSourceV1 CaptureFrom(
+        AgentBuilder builder,
+        ManagedStreamingSpeechToTextOptionsV1 options)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentException.ThrowIfNullOrWhiteSpace(options.ModelId);
+        IStreamingSpeechToTextParticipantFactory? captured = null;
+        builder.UseSpeechToTextClientMiddleware((client, _) =>
+        {
+            Interlocked.CompareExchange(ref captured, ResolveFactory(client), null);
+            return client;
+        });
+        return new ManagedStreamingSpeechToTextSourceV1(
+            () => Volatile.Read(ref captured) ?? throw new InvalidOperationException(
+                "The Agent's speech-to-text client has not been resolved. Build and start the Agent before opening an Audio session."),
+            options);
     }
 
     public async IAsyncEnumerable<ManagedAudioTranscriptCandidateV1> RunAsync(
@@ -47,7 +78,7 @@ public sealed class ManagedStreamingSpeechToTextSourceV1 : IManagedAudioTranscri
         if (source.Format.SampleFormat != AudioSampleFormat.Pcm16)
             throw new NotSupportedException("Managed retained STT currently requires decoded PCM16 input.");
 
-        await using var participant = await _factory.CreateAsync(cancellationToken).ConfigureAwait(false);
+        await using var participant = await _factory().CreateAsync(cancellationToken).ConfigureAwait(false);
         await participant.ConnectAsync(new StreamingSpeechToTextConnectRequest
         {
             ModelId = _options.ModelId,
@@ -95,6 +126,12 @@ public sealed class ManagedStreamingSpeechToTextSourceV1 : IManagedAudioTranscri
             await participant.StopAsync(CancellationToken.None).ConfigureAwait(false);
         }
     }
+
+    private static IStreamingSpeechToTextParticipantFactory ResolveFactory(ISpeechToTextClient client) =>
+        client.GetService(typeof(IStreamingSpeechToTextParticipantFactory))
+            as IStreamingSpeechToTextParticipantFactory
+            ?? throw new NotSupportedException(
+                "The selected speech-to-text client does not expose a retained streaming participant.");
 
     private static async Task PumpAudioAsync(
         IStreamingSpeechToTextParticipant participant,

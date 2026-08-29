@@ -29,6 +29,9 @@ public sealed class LiveKitManagedAudioSessionBackend : IManagedAudioSessionBack
             throw new ArgumentException("LiveKit endpoint must be an absolute ws, wss, or https URI.", nameof(options));
         if (options.InboundFrameCapacity is <= 0 or > 4096)
             throw new ArgumentOutOfRangeException(nameof(options));
+        if (options.AudioSampleRateHz is < 8_000 or > 192_000)
+            throw new ArgumentOutOfRangeException(nameof(options),
+                "Managed LiveKit audio sample rate must be between 8 kHz and 192 kHz.");
     }
 
     public async ValueTask<IManagedAudioSessionV1> StartAsync(
@@ -56,7 +59,7 @@ public sealed class LiveKitManagedAudioSessionBackend : IManagedAudioSessionBack
             var host = _host();
             var format = new AudioFormat
             {
-                SampleRate = 48_000,
+                SampleRate = _options.AudioSampleRateHz,
                 ChannelCount = 1,
                 SampleFormat = AudioSampleFormat.Pcm16
             };

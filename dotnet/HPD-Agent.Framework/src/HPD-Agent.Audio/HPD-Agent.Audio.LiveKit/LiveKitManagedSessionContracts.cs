@@ -64,6 +64,14 @@ public sealed record LiveKitManagedAudioSessionBackendOptions
     public required Func<ManagedAudioSessionStartRequestV1, CancellationToken, ValueTask<char[]>> CredentialResolver { get; init; }
 
     public required IManagedAudioTranscriptSourceV1 TranscriptSource { get; init; }
+
+    /// <summary>
+    /// PCM sample rate shared by the subscribed room stream and the published
+    /// Agent track. The 16 kHz default matches the managed STT/TTS PCM path and
+    /// avoids an implicit, lossy resampling step.
+    /// </summary>
+    public int AudioSampleRateHz { get; init; } = 16_000;
+
     public LiveKitTransportProviderConfig Transport { get; init; } = new();
     public int InboundFrameCapacity { get; init; } = 64;
     public bool VerifyNativeArtifact { get; init; } = true;

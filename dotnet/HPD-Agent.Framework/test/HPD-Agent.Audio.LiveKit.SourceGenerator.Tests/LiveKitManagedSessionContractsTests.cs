@@ -88,6 +88,12 @@ public sealed class LiveKitManagedSessionContractsTests
             services.GetRequiredService<IAudioSessionControlAuthorityV1>());
     }
 
+    [Fact]
+    public void ManagedBackend_DefaultsToTheRetainedPcmSpeechRate()
+    {
+        Assert.Equal(16_000, Options().AudioSampleRateHz);
+    }
+
     private static LiveKitManagedAudioSessionBackendOptions Options() => new()
     {
         Endpoint = "ws://127.0.0.1:7880",
