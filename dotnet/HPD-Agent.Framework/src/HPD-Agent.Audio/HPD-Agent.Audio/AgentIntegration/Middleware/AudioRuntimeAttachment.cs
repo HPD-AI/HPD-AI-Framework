@@ -71,6 +71,19 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
 
     public IReadOnlyList<RealtimeAudioTraceRecord> LastOutputTrace => _lastOutputTrace;
 
+    public Task BeforeStartAsync(BeforeStartContext context, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var authority = _options.SessionControlAuthority
+            ?? context.Services?.GetService(typeof(IAudioSessionControlAuthorityV1)) as IAudioSessionControlAuthorityV1;
+        if (authority is null)
+            return Task.CompletedTask;
+
+        context.RuntimeCapabilities.Set<IAudioSessionInputRuntime>(
+            new L52AudioSessionInputRuntime(authority));
+        return Task.CompletedTask;
+    }
+
     private AudioRuntimeAttachmentOptions EffectiveOptions(AgentRunConfig? runConfig)
         => AudioRuntimeOptionsCompiler.Compile(
             _options,

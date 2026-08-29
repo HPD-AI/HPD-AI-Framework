@@ -30,6 +30,7 @@ public static class AudioRuntimeOptionsCompiler
             RunAudioInteractionRuntimeForRealtimeTransport = source.RunAudioInteractionRuntimeForRealtimeTransport,
             AnnotateAudioInputMetadata = source.AnnotateAudioInputMetadata,
             ProjectCommittedTranscriptsIntoUserMessage = source.ProjectCommittedTranscriptsIntoUserMessage,
+            SessionControlAuthority = source.SessionControlAuthority,
             PolicySet = source.PolicySet,
             ProviderRoute = source.ProviderRoute,
             ProviderRouteResolver = source.ProviderRouteResolver,

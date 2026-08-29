@@ -186,12 +186,12 @@ internal interface IAudioSessionInputRuntime
         string audioSessionId, string candidateId, CancellationToken cancellationToken);
 }
 
-internal abstract record AudioSemanticAdmissionResult
+public abstract record AudioSemanticAdmissionResult
 {
     private AudioSemanticAdmissionResult() { }
-    internal sealed record Accepted(string OperationId) : AudioSemanticAdmissionResult;
-    internal sealed record AlreadyAccepted(string OperationId) : AudioSemanticAdmissionResult;
-    internal sealed record Withdrawn(string OperationId) : AudioSemanticAdmissionResult;
-    internal sealed record Conflict(string SafeCode) : AudioSemanticAdmissionResult;
-    internal sealed record OutcomeUnknown(string SafeCode) : AudioSemanticAdmissionResult;
+    public sealed record Accepted(string OperationId) : AudioSemanticAdmissionResult;
+    public sealed record AlreadyAccepted(string OperationId) : AudioSemanticAdmissionResult;
+    public sealed record Withdrawn(string OperationId) : AudioSemanticAdmissionResult;
+    public sealed record Conflict(string SafeCode) : AudioSemanticAdmissionResult;
+    public sealed record OutcomeUnknown(string SafeCode) : AudioSemanticAdmissionResult;
 }

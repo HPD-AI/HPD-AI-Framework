@@ -24,6 +24,9 @@ public sealed class AudioRuntimeAttachmentOptions
 
     public bool ProjectCommittedTranscriptsIntoUserMessage { get; set; } = true;
 
+    /// <summary>Gets or sets the borrowed L52A authority that owns retained Audio-session commands.</summary>
+    public IAudioSessionControlAuthorityV1? SessionControlAuthority { get; set; }
+
     public AudioPolicySet PolicySet { get; set; } = new();
 
     public IProviderRoute? ProviderRoute { get; set; }
